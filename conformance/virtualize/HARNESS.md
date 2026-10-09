@@ -142,9 +142,9 @@ inputs marked `py-only`, which every implementation but the browser's runs.
 with the first's:
 
 - `ref`, the reference: `conformance/virtualize/reference/cli.py
-  --allow-private-hosts` (which only stores need: its file readers apply no
-  reader policy). For TIFF,
-  ND2 and CZI it runs the frozen Python profiles in
+  --allow-private-hosts` (the harness serves its inputs from 127.0.0.1, which
+  the reader policy refuses by default). For TIFF, ND2 and CZI it runs the
+  frozen Python profiles in
   `conformance/virtualize/reference/vzip_reference/` (what `vzip.virtualize`
   shipped before these formats moved to the IR, unchanged but for their import
   paths); for every other profile, the shipped code.
