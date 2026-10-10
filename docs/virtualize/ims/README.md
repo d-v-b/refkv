@@ -102,8 +102,10 @@ points, 3 channels) in about 5 s and showed it in Neuroglancer.
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
 reads every data type and codec this profile writes; the HeLa time-lapse
-above renders through a local build of the demo, one layer per channel. It
-reads the chunks from the file's host, so that host must allow cross-origin
+above renders through a local build of the demo, as one layer with a color
+and a contrast control per channel (the fork assembles each of its chunks
+from the file's chunks of every channel, as Imaris stores one channel per
+chunk). It reads the chunks from the file's host, so that host must allow cross-origin
 reads.
 
 ## Supported and not supported
