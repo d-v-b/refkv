@@ -120,6 +120,23 @@ def test_virtualizes_the_synthetic_files():
              "chunks": 2 * 3 * 4 - 1},
             [("z", None), ("y", None), ("x", None)], [1, 1, 1], None,
             {"label": "Channel 0", "color": "FFFFFF", "active": True, "window": {"min": 0, "max": 255, "start": 0, "end": 255}}),
+        # Channels colored by a lookup table, and every way a table can fail to give a color.
+        "ims_latest_table_color.ims": (
+            {"sizes": {"t": 1, "c": 15, "z": 1, "y": 3, "x": 4}, "dataType": "uint8"},
+            [("c", None), ("y", "micrometer"), ("x", "micrometer")], [1, 0.25, 0.25], [0, 0.0, 0.0],
+            {"label": "c0", "color": "00FF00", "active": True, "window": {"min": 0, "max": 255, "start": 0, "end": 255}}),
+    }
+    # Every channel's color, where it is not channel 0's alone.
+    colors = {
+        "ims_latest_uint8.ims": ["FF0000", "808080", "FFFFFF"],
+        # TableColor: the table's top; TableColor over a base color; BaseColor over a table;
+        # no mode and no base color: the table; a malformed table, then the base color; a top
+        # out of range; a length that is not an integer; a table that is not a string; a
+        # length of 0; a value that is not a decimal. Then tables written as datasets:
+        # contiguous, compact; chunked, not strings, a group: no table.
+        "ims_latest_table_color.ims": ["00FF00", "0000FF", "FF00FF", "FF0000", "808080", "FFFFFF", "FFFFFF",
+                                       "FFFFFF", "FFFFFF", "FFFFFF", "00FFFF", "FFFF00", "FFFFFF", "FFFFFF",
+                                       "FFFFFF"],
     }
     for name, (summary, axes, scale, translation, channel) in cases.items():
         fmt, out = virtualize(str(FIXTURES / name), url=f"https://data.test/{name}")
@@ -133,6 +150,8 @@ def test_virtualizes_the_synthetic_files():
         assert transforms[0]["scale"] == scale, name
         assert (transforms[1]["translation"] if len(transforms) > 1 else None) == translation, name
         assert ome["omero"]["channels"][0] == channel, name
+        if name in colors:
+            assert [c["color"] for c in ome["omero"]["channels"]] == colors[name], name
         image = {k: v for k, v in out.refs.items() if not k.startswith("vzip_source/")}
         assert len(image) == out.summary["chunks"]
         assert all(len(ranges) == 1 for ranges in image.values())

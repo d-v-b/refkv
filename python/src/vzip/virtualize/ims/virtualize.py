@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Callable
 
 from vzip.virtualize.common import LENGTHS, UNITS, Output, Reader, Rejected, array_json, root_json, image_ome
 from vzip.virtualize.ims.source import source_tree
@@ -13,6 +14,7 @@ MAX_LEVELS = 64
 MAX_DATASETS = 100000
 MAX_CHANNELS = 64  # the most channels the root's omero lists
 MAX_NAME = 256  # the longest name or label in the root, in UTF-8 bytes
+MAX_COLOR_TABLE = 2**18  # the largest ColorTable dataset read, in bytes
 WS = " \t\r\n"
 DECIMAL = re.compile(r"[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?")
 DIGITS = re.compile(r"[0-9]+")
@@ -29,11 +31,58 @@ def text(attrs: dict[bytes, bytes], name: str) -> str | None:
     datatype, _, data = attribute_value(d)
     if datatype.cls != 3:
         raise Rejected(f"attribute {name} is not a string")
+    return decode_text(data)
+
+
+def decode_text(data: bytes) -> str:
+    """The text of a string's data: up to the first NUL, UTF-8 or else Latin-1 (§2.1)."""
     raw = data.split(b"\0", 1)[0]
     try:
         return raw.decode("utf-8")
     except UnicodeDecodeError:
         return raw.decode("latin-1")
+
+
+def optional_text(attrs: dict[bytes, bytes], name: str) -> str | None:
+    """The text of an attribute that never rejects the input (spec/virtualize/ims.md §4,
+    the color): None if it is absent, its value cannot be read, or it is not a string."""
+    try:
+        return text(attrs, name)
+    except Rejected:
+        return None
+
+
+def integer(s: str | None) -> int | None:
+    """An integer (§2.1) from 1 to 2^53 - 1, or None."""
+    if s is None or not DIGITS.fullmatch(s.strip(WS)):
+        return None
+    digits = s.strip(WS).lstrip("0")
+    if not digits or len(digits) > 16:
+        return None
+    v = int(digits)
+    return v if v <= MAX_SAFE else None
+
+
+def unit_rgb(values: list[float] | None) -> str | None:
+    """Six uppercase hexadecimal digits of red, green and blue values from 0 to 1, or None."""
+    if values is None or not all(0 <= v <= 1 for v in values):
+        return None
+    return "".join(f"{math.floor(v * 255 + 0.5):02X}" for v in values)
+
+
+def channel_color(attrs: dict[bytes, bytes], table_text: Callable[[], str | None]) -> str:
+    """A channel's omero color (spec/virtualize/ims.md §4): its base color (`Color`) or the top
+    of its color table (the text `table_text` reads, only when needed), whichever `ColorMode`
+    prefers, else white."""
+    base = unit_rgb(decimals(text(attrs, "Color"), 3))
+    mode = optional_text(attrs, "ColorMode")
+    table_first = mode is not None and mode.strip(WS) == "TableColor"
+    if base is not None and not table_first:
+        return base
+    length = integer(optional_text(attrs, "ColorTableLength"))
+    table = decimals(table_text(), 3 * length) if length is not None else None
+    top = unit_rgb(table[-3:]) if table is not None else None
+    return top or base or "FFFFFF"
 
 
 def decimal(s: str | None) -> float | None:
@@ -162,12 +211,44 @@ def virtualize_ims(url: str, read: Reader, size: int) -> Output:
     # spec/virtualize/ims.md §3: metadata.
     meta = f.links(group(root, "DataSetInfo")) if b"DataSetInfo" in root else {}
 
-    def meta_attrs(name: str) -> dict[bytes, bytes]:
+    def meta_group(name: str) -> tuple[dict[bytes, bytes], dict]:
+        """A group's attributes and links, or none if it is missing."""
         at = group(meta, name, False)
         if at is None:
-            return {}
-        f.links(at)  # it MUST be a group
-        return f.attributes(at)
+            return {}, {}
+        links = f.links(at)  # it MUST be a group
+        return f.attributes(at), links
+
+    def meta_attrs(name: str) -> dict[bytes, bytes]:
+        return meta_group(name)[0]
+
+    def color_table(attrs: dict[bytes, bytes], links: dict) -> str | None:
+        """A channel's ColorTable, as text (spec/virtualize/ims.md §3): its attribute, else the
+        small string dataset its link leads to; None if neither can be read, never rejecting."""
+        if b"ColorTable" in attrs:
+            return optional_text(attrs, "ColorTable")
+        if b"ColorTable" not in links:
+            return None
+        try:
+            ds = f.dataset(f.follow(links, b"ColorTable"), any_layout=True)
+            if ds.datatype.cls != 3 or ds.dims is None or ds.filters or ds.layout not in ("compact", "contiguous"):
+                return None
+            n = ds.datatype.size
+            for d in ds.dims:
+                n *= d
+            if n > MAX_COLOR_TABLE:
+                return None
+            if ds.layout == "compact":
+                data = ds.compact
+                if len(data) != n:
+                    return None
+            else:
+                if ds.data_address is None or ds.data_address + n > f.size:
+                    return None
+                data = f.read(ds.data_address, n) if n else b""
+            return decode_text(data)
+        except Rejected:
+            return None
 
     image = meta_attrs("Image")
     ext_min = [decimal(text(image, f"ExtMin{i}")) for i in range(3)]
@@ -176,16 +257,12 @@ def virtualize_ims(url: str, read: Reader, size: int) -> Output:
     name = text(image, "Name")
     if name is not None and len(name.encode()) > MAX_NAME:
         name = None
-    channel_attrs = [meta_attrs(f"Channel {c}") for c in range(channels)] if channels <= MAX_CHANNELS else []
+    channel_groups = [meta_group(f"Channel {c}") for c in range(channels)] if channels <= MAX_CHANNELS else []
     labels, colors, ranges = [], [], []
-    for c, attrs in enumerate(channel_attrs):
+    for c, (attrs, links) in enumerate(channel_groups):
         label = text(attrs, "Name")
         labels.append(label if label and len(label.encode()) <= MAX_NAME else f"Channel {c}")
-        rgb = decimals(text(attrs, "Color"), 3)
-        if rgb is not None and all(0 <= v <= 1 for v in rgb):
-            colors.append("".join(f"{math.floor(v * 255 + 0.5):02X}" for v in rgb))
-        else:
-            colors.append("FFFFFF")
+        colors.append(channel_color(attrs, lambda: color_table(attrs, links)))
         ranges.append(decimals(text(attrs, "ColorRange"), 2))
     time_attrs = meta_attrs("TimeInfo")
     period = None

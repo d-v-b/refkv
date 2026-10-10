@@ -1102,3 +1102,46 @@ implementation's output (the reference's, Python's and the browser's) is
 the same as before but for the URL strings, and every rejection is the same.
 Revision 24 is unreleased and convention version 0 has no tag, so no
 published URL breaks.
+
+## Revision 25: IMS channel colors from the lookup table
+
+**What prompted it.** The web demo's Imaris example (S-BIAD1759, a
+4-channel intravital time-lapse) showed every channel white. Its channels
+have `ColorMode` `TableColor` and no `Color`: Imaris colors them by a
+lookup table of `ColorTableLength` (256) red, green and blue triples, which
+these files hold as a `ColorTable` dataset of 1-character strings in each
+channel group (a smaller table can be an attribute). The IMS convention took
+the omero color from `Color` alone, so each channel became `FFFFFF`, though
+the tables run from black to green, blue, magenta and red.
+
+**The changes.**
+- **IMS §3:** a channel's `ColorMode` and `ColorTableLength` are read as
+  text, and its **color table**: the attribute `ColorTable`, or else the
+  dataset that the link `ColorTable` leads to, if it is a compact or
+  contiguous, unfiltered string dataset of at most 2^18 bytes, read as the
+  source metadata reads a dataset. None of these reject the input: a value
+  that cannot be read, a datatype that is not a string, or a dataset that
+  breaks a structure rule is absent.
+- **IMS §4, the color:** the **base color** is `Color` (as before), and
+  the **table color** is the table's last entry (its top), if
+  `ColorTableLength` is an integer `L` and the table a list of `3 × L`
+  decimals whose last three are each from 0 to 1. With `ColorMode`
+  `TableColor` the color is the table color, else the base color; otherwise
+  the base color, else the table color; else `FFFFFF`. A malformed table
+  falls back, and never rejects.
+- **Conventions:** the root property records `"revision": 25`; the schemas
+  were regenerated.
+
+**Output.** Only the `omero` colors of IMS outputs change, and only for
+channels with no usable `Color` (or in `TableColor` mode) and a usable
+table: on the corpus file above, `00FF00`, `0000FF`, `FF00FF` and
+`FF0000` in place of `FFFFFF`. No existing IMS fixture has a color table,
+so their outputs change only in the revision. The new fixture
+`ims_latest_table_color.ims` has a channel for each case of the rule. Every
+rejection is unchanged.
+
+**Implementations.** Python and the browser (`channel_color` and
+`channelColor` in each `virtualize/ims/virtualize.py|ts`) read the table
+only when the color needs it. The Rust core records 25. The frozen
+reference has no IMS profile (compare.py runs the shipped one for it) and
+still records 20.

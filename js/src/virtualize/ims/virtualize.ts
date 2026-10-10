@@ -14,6 +14,7 @@ const MAX_LEVELS = 64;
 const MAX_DATASETS = 100000;
 const MAX_CHANNELS = 64; // the most channels the root's omero lists
 const MAX_NAME = 256; // the longest name or label in the root, in UTF-8 bytes
+const MAX_COLOR_TABLE = 2 ** 18; // the largest ColorTable dataset read, in bytes
 const DECIMAL = /^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?$/;
 const DIGITS = /^[0-9]+$/;
 const TIMESTAMP = /^([0-9]{4})-([0-9]{2})-([0-9]{2}) ([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]+))?$/;
@@ -39,12 +40,60 @@ function text(attrs: Map<string, Uint8Array>, name: string): string | undefined 
   if (d === undefined) return undefined;
   const [datatype, data] = attributeValue(d);
   if (datatype.cls !== 3) reject(`attribute ${name} is not a string`);
+  return decodeText(data);
+}
+
+/** The text of a string's data: up to the first NUL, UTF-8 or else Latin-1 (§2.1). */
+function decodeText(data: Uint8Array): string {
   const raw = untilNul(data);
   try {
     return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(raw);
   } catch {
     return latin1(raw);
   }
+}
+
+/** The text of an attribute that never rejects the input (spec/virtualize/ims.md §4, the
+ *  color): undefined if it is absent, its value cannot be read, or it is not a string. */
+function optionalText(attrs: Map<string, Uint8Array>, name: string): string | undefined {
+  try {
+    return text(attrs, name);
+  } catch (e) {
+    if (e instanceof ImsError) return undefined;
+    throw e;
+  }
+}
+
+/** An integer (§2.1) from 1 to 2^53 - 1, or undefined. */
+function integer(s: string | undefined): number | undefined {
+  if (s === undefined || !DIGITS.test(trim(s))) return undefined;
+  const digits = trim(s).replace(/^0+/, "");
+  if (digits === "" || digits.length > 16) return undefined;
+  const v = Number(digits);
+  return v <= Number.MAX_SAFE_INTEGER ? v : undefined;
+}
+
+/** Six uppercase hexadecimal digits of red, green and blue values from 0 to 1, or undefined. */
+function unitRgb(values: number[] | undefined): string | undefined {
+  if (values === undefined || !values.every((v) => v >= 0 && v <= 1)) return undefined;
+  return values.map((v) => Math.floor(v * 255 + 0.5).toString(16).toUpperCase().padStart(2, "0")).join("");
+}
+
+/** A channel's omero color (spec/virtualize/ims.md §4): its base color (`Color`) or the top of
+ *  its color table (the text `tableText` reads, only when needed), whichever `ColorMode`
+ *  prefers, else white. */
+async function channelColor(
+  attrs: Map<string, Uint8Array>,
+  tableText: () => Promise<string | undefined>,
+): Promise<string> {
+  const base = unitRgb(decimals(text(attrs, "Color"), 3));
+  const mode = optionalText(attrs, "ColorMode");
+  const tableFirst = mode !== undefined && trim(mode) === "TableColor";
+  if (base !== undefined && !tableFirst) return base;
+  const length = integer(optionalText(attrs, "ColorTableLength"));
+  const table = length === undefined ? undefined : decimals(await tableText(), 3 * length);
+  const top = table === undefined ? undefined : unitRgb(table.slice(-3));
+  return top ?? base ?? "FFFFFF";
 }
 
 /** A decimal number, or undefined if `s` is absent or not one. */
@@ -199,11 +248,37 @@ export async function virtualizeIms(
 
   // spec/virtualize/ims.md §3: metadata.
   const meta: Links = root.has("DataSetInfo") ? await f.links(await follow(root, "DataSetInfo")) : new Map();
-  const metaAttrs = async (name: string) => {
-    if (!meta.has(name)) return new Map<string, Uint8Array>();
+  const metaGroup = async (name: string): Promise<[Map<string, Uint8Array>, Links]> => {
+    if (!meta.has(name)) return [new Map(), new Map()];
     const at = await f.follow(meta, name);
-    await f.links(at); // it MUST be a group
-    return f.attributes(at);
+    const links = await f.links(at); // it MUST be a group
+    return [await f.attributes(at), links];
+  };
+  const metaAttrs = async (name: string) => (await metaGroup(name))[0];
+  // A channel's ColorTable, as text (spec/virtualize/ims.md §3): its attribute, else the small
+  // string dataset its link leads to; undefined if neither can be read, never rejecting.
+  const colorTable = async (attrs: Map<string, Uint8Array>, links: Links): Promise<string | undefined> => {
+    if (attrs.has("ColorTable")) return optionalText(attrs, "ColorTable");
+    if (!links.has("ColorTable")) return undefined;
+    try {
+      const ds = await f.dataset(await f.follow(links, "ColorTable"), true);
+      if (ds.datatype.cls !== 3 || ds.dims === null || ds.filters.length > 0) return undefined;
+      if (ds.layout !== "compact" && ds.layout !== "contiguous") return undefined;
+      const n = ds.dims.reduce((a, d) => a * d, ds.datatype.size);
+      if (n > MAX_COLOR_TABLE) return undefined;
+      let data: Uint8Array;
+      if (ds.layout === "compact") {
+        data = ds.compact;
+        if (data.length !== n) return undefined;
+      } else {
+        if (ds.dataAddress === undefined || ds.dataAddress + n > f.size) return undefined;
+        data = n > 0 ? await f.read(ds.dataAddress, n) : new Uint8Array(0);
+      }
+      return decodeText(data);
+    } catch (e) {
+      if (e instanceof ImsError) return undefined;
+      throw e;
+    }
   };
   const image = await metaAttrs("Image");
   const extMin = [0, 1, 2].map((i) => decimal(text(image, `ExtMin${i}`)));
@@ -214,13 +289,10 @@ export async function virtualizeIms(
   if (name !== undefined && bytes(name) > MAX_NAME) name = undefined;
   const labels: string[] = [], colors: string[] = [], ranges: (number[] | undefined)[] = [];
   for (let c = 0; c < (channels <= MAX_CHANNELS ? channels : 0); c++) {
-    const attrs = await metaAttrs(`Channel ${c}`);
+    const [attrs, links] = await metaGroup(`Channel ${c}`);
     const label = text(attrs, "Name");
     labels.push(label && bytes(label) <= MAX_NAME ? label : `Channel ${c}`);
-    const rgb = decimals(text(attrs, "Color"), 3);
-    colors.push(rgb !== undefined && rgb.every((v) => v >= 0 && v <= 1)
-      ? rgb.map((v) => Math.floor(v * 255 + 0.5).toString(16).toUpperCase().padStart(2, "0")).join("")
-      : "FFFFFF");
+    colors.push(await channelColor(attrs, () => colorTable(attrs, links)));
     ranges.push(decimals(text(attrs, "ColorRange"), 2));
   }
   const timeAttrs = await metaAttrs("TimeInfo");
