@@ -123,7 +123,7 @@
         },
         "revision": {
           "type": "integer",
-          "const": 24,
+          "const": 25,
           "description": "The spec/virtualize.md revision that produced the hierarchy (version 0 only)"
         },
         "source": {

@@ -745,6 +745,46 @@ def review4() -> None:
         _raw_edges(g, "Data", (2, 5, 6), (2, 4, 4), h5py.h5t.STD_U8LE, data_array((2, 5, 6), "u1"))
 
 
+def color_table(top, n: int = 4) -> str:
+    """A ColorTable as Imaris writes it: n red, green, blue triples from black to `top`, each
+    a decimal with 3 digits and a space."""
+    return "".join(f"{v * i / (n - 1):.3f} " for i in range(n) for v in top)
+
+
+def table_color() -> None:
+    """Channels colored by a lookup table (spec/virtualize/ims.md §4, the color), as in
+    Imaris's TableColor mode, and every way a table can fail to give a color."""
+    with open_file("ims_latest_table_color", "latest") as f:
+        meta = [
+            {"ColorMode": "TableColor", "ColorTableLength": "4", "ColorTable": color_table((0, 1, 0))},
+            {"ColorMode": "TableColor", "Color": "1 1 0", "ColorTableLength": "4", "ColorTable": color_table((0, 0, 1))},
+            {"ColorMode": "BaseColor", "Color": "1 0 1", "ColorTableLength": "4", "ColorTable": color_table((0, 1, 1))},
+            {"ColorTableLength": " 0003 ", "ColorTable": color_table((1, 0, 0), 3)},
+            {"ColorMode": "TableColor", "Color": "0.5 0.5 0.5", "ColorTableLength": "4",
+             "ColorTable": color_table((0, 1, 0), 3)},
+            {"ColorMode": "TableColor", "ColorTableLength": "2", "ColorTable": "0 0 0 1.5 0 0"},
+            {"ColorMode": "TableColor", "ColorTableLength": "many", "ColorTable": color_table((0, 1, 0))},
+            {"ColorMode": "TableColor", "ColorTableLength": "1", "ColorTable": np.array([0, 1, 0], dtype="<f4")},
+            {"ColorMode": "TableColor", "ColorTableLength": "0", "ColorTable": ""},
+            {"ColorMode": "TableColor", "ColorTableLength": "1", "ColorTable": "0.2 0.4 x"},
+        ]
+        # Imaris writes a ColorTable too large for an attribute as a dataset of 1-character
+        # strings, n × 1: contiguous, compact, and the ones that give no table color.
+        datasets = [
+            lambda g: g.create_dataset("ColorTable", data=text(color_table((0, 1, 1))).reshape(-1, 1)),
+            lambda g: g.create_dataset("ColorTable", data=text(color_table((1, 1, 0))), dcpl=_compact(None)),
+            lambda g: g.create_dataset("ColorTable", data=text(color_table((0, 1, 0))), chunks=(8,)),
+            lambda g: g.create_dataset("ColorTable", data=np.zeros(12, dtype="<f4")),
+            lambda g: g.create_group("ColorTable"),
+        ]
+        meta += [{"ColorMode": "TableColor", "ColorTableLength": "4"} for _ in datasets]
+        imaris(f, [{"size": (1, 3, 4), "dims": (1, 4, 4), "chunks": (1, 4, 4)}], channels=len(meta), dtype="u1",
+               image=extents((1, 3, 4)), channel_meta=[{"Name": f"c{c}", **m} for c, m in enumerate(meta)],
+               extras=False)
+        for c, make in enumerate(datasets, len(meta) - len(datasets)):
+            make(f[f"DataSetInfo/Channel {c}"])
+
+
 if __name__ == "__main__":
     import sys
 
@@ -752,7 +792,8 @@ if __name__ == "__main__":
     # With arguments, only those writers run, and the other files are kept (h5py
     # does not write the same bytes twice, so regenerating them all changes them).
     writers = {"accepted": accepted, "rejected": rejected, "reconstruction": reconstruction, "review": review,
-               "indexes": indexes, "review2": review2, "review3": review3, "review4": review4}
+               "indexes": indexes, "review2": review2, "review3": review3, "review4": review4,
+               "table_color": table_color}
     if len(sys.argv) == 1:
         for p in OUT.glob("ims_*.ims"):
             p.unlink()

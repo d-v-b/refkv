@@ -25,7 +25,7 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "ims"`, `"version": 0`, `"revision": 24` (conventions §1) and the file's URL as `source.url`.
+with `"profile": "ims"`, `"version": 0`, `"revision": 25` (conventions §1) and the file's URL as `source.url`.
 The root has no source metadata of its own: the whole HDF5 file is described
 on the source metadata node (§5). Its CMO is:
 
@@ -149,11 +149,35 @@ read as text ([spec/virtualize.md §8.6](#86-attributes)) where present:
   `ExtMax1`, `ExtMax2` (each a decimal, else absent), `Unit` and
   `Name`;
 - of `Channel c`: `Name`, `Color` (a list of 3 decimals, else absent)
-  and `ColorRange` (a list of 2 decimals, else absent);
+  and `ColorRange` (a list of 2 decimals, else absent); and `ColorMode`
+  and `ColorTableLength`, which never reject the input: each is absent if
+  its value cannot be read ([spec/virtualize.md §8.6](#86-attributes)) or its datatype is not a
+  string;
 - of `TimeInfo`, only if `T > 1`: `TimePoint1` and `TimePoint<T>`.
 
 Other attributes, and the other groups (`Thumbnail`, `Scene`,
-`DataSetTimes`, ...), are not read.
+`DataSetTimes`, ...), are not read, except a channel's **color table**,
+`ColorTable`, which is read only where §4 needs it (for the color) and
+never rejects the input. It is text, or absent:
+
+- If `Channel c` has an attribute `ColorTable`, it is that attribute read
+  as text, or absent if its value cannot be read or its datatype is not a
+  string, as above.
+- Otherwise, if `Channel c` has a link `ColorTable` (Imaris writes a table
+  too large for an attribute as a dataset of 1-character strings, one per
+  row), the link is followed ([spec/virtualize.md §8.3](#83-groups-and-links)) and the dataset it
+  leads to is read as the source metadata reads one ([spec/virtualize.md §8.5](#85-datasets-and-chunks), with
+  [spec/virtualize.md §8.9](#89-source-metadata-structures)'s datasets of every layout).
+  Its data is the `n` bytes, for `n` the datatype's size times the product
+  of the dataspace's sizes, that a compact dataset holds (exactly `n`
+  bytes) or that start at a contiguous dataset's address (allocated, and
+  lying within the file). The color table is the text of that data, by the
+  rule for an attribute's text (§2.1), if the datatype is a string (class
+  3), the dataspace is not null, there are no filters, the layout is compact
+  or contiguous and `n` is at most 2^18 bytes. Otherwise (a chunked or
+  filtered dataset, another datatype, an object that is not a dataset, or a
+  structure that breaks a rule of [spec/virtualize.md §8.1](#81-hdf5-structures)–[spec/virtualize.md §8.6](#86-attributes) or [spec/virtualize.md §8.9](#89-source-metadata-structures)) it is absent.
+- Otherwise it is absent.
 
 - **Extents.** For the axes `x`, `y` and `z` (`i` = 0, 1, 2): if
   `ExtMin<i>` and `ExtMax<i>` are both present, let
@@ -215,9 +239,27 @@ One image at the archive root ([conventions §4](../conventions.md#4-images)), w
   `C` (the channels' metadata is kept in the source metadata, §5).
   - The label is the channel's `Name` if present, not empty and at most 256
     bytes long in UTF-8, else `Channel <c>`.
-  - The color: if `Color` is present and its three values are each from 0
-    to 1, the six uppercase hexadecimal digits of `floor(v × 255 + 0.5)` for
-    its red, green and blue values `v`; else `FFFFFF`.
+  - The color: Imaris colors a channel either by a base color, `Color`, or
+    by a lookup table, `ColorTable`, which maps the bottom of the channel's
+    display range to its first entry and the top to its last; `ColorMode`
+    says which (`BaseColor` or `TableColor`). Three decimals `v` (red,
+    green, blue), each from 0 to 1, give the six uppercase hexadecimal
+    digits of `floor(v × 255 + 0.5)` for each in turn.
+    - The **base color** is `Color`'s three values, if `Color` is present
+      and they are each from 0 to 1.
+    - The **table color** is the last three values of the color table
+      (§3; the table's top entry), if `ColorTableLength` is an integer `L`
+      from 1 to 2^53 − 1, the color table is a list of `3 × L` decimals, and
+      those three values are each from 0 to 1.
+    - If `ColorMode`, with leading and trailing whitespace removed, is
+      `TableColor`, the color is the table color, else the base color, else
+      `FFFFFF`. Otherwise it is the base color, else the table color, else
+      `FFFFFF`. A table that is malformed in any way (a missing or
+      non-integer length, a different number of values, a value that is not
+      a decimal or out of range) has no table color; it never rejects the
+      input. (The color table need not be read when the base color is
+      chosen first and exists, or when `ColorTableLength` is not such an
+      integer: the color is the same.)
   - The window: for an integer data type, `{"min": lo, "max": hi,
     "start": s, "end": e}`, where `lo` and `hi` are the smallest and
     largest values of the data type (0 and 2^n − 1 unsigned, −2^(n−1) and
@@ -720,7 +762,7 @@ The root of a file at `https://example.org/a.ims`:
 "vzip_virtualized": {
   "profile": "ims",
   "version": 0,
-  "revision": 24,
+  "revision": 25,
   "source": {
     "url": "https://example.org/a.ims"
   }

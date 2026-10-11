@@ -24,12 +24,26 @@ test("virtualizes the synthetic IMS files", async () => {
     ["ims_2d_no_metadata.ims", { sizes: { t: 1, c: 1, z: 1, y: 5, x: 6 }, dataType: "int16", channels: ["Channel 0"] }],
     ["ims_2d_deep_chunks.ims", { sizes: { t: 1, c: 1, z: 1, y: 5, x: 6 }, chunkShape: [4, 8, 8], chunks: 1 }],
     ["ims_latest_extensible.ims", { sizes: { t: 1, c: 1, z: 2, y: 6, x: 7 }, dataType: "uint16", chunks: 3 }],
+    ["ims_latest_table_color.ims", { sizes: { t: 1, c: 15, z: 1, y: 3, x: 4 }, dataType: "uint8" }],
     ["ims_latest_btree2.ims", { sizes: { t: 1, c: 1, z: 2, y: 6, x: 7 }, chunkShape: [1, 2, 2], compressed: [true], chunks: 23 }],
   ];
   for (const [name, expected] of cases) {
     const v = await virtualize(name);
     assert.equal(v.format, "ims");
     assert.deepEqual({ ...v.summary, ...expected }, v.summary, name);
+  }
+  // Every channel's color: in TableColor mode the top of the lookup table, else the base
+  // color, else the table, else white (spec/virtualize/ims.md §4).
+  const colors: [string, string[]][] = [
+    ["ims_latest_uint8.ims", ["FF0000", "808080", "FFFFFF"]],
+    ["ims_latest_table_color.ims", ["00FF00", "0000FF", "FF00FF", "FF0000", "808080", "FFFFFF", "FFFFFF", "FFFFFF",
+      "FFFFFF", "FFFFFF", "00FFFF", "FFFF00", "FFFFFF", "FFFFFF", "FFFFFF"]],
+  ];
+  for (const [name, expected] of colors) {
+    const root = (await virtualize(name)).entries.find((e) => e.key === "zarr.json");
+    assert.ok(root && "bytes" in root);
+    const omero = JSON.parse(new TextDecoder().decode(root.bytes)).attributes.ome.omero;
+    assert.deepEqual(omero.channels.map((c: { color: string }) => c.color), expected, name);
   }
   // The time step is the mean interval between the first and last time points.
   const v = await virtualize("ims_latest_float32_be.ims");

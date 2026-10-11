@@ -26,7 +26,7 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "ndpi"`, `"version": 0`, `"revision": 24` (conventions §1), the file's URL as `source.url`,
+with `"profile": "ndpi"`, `"version": 0`, `"revision": 25` (conventions §1), the file's URL as `source.url`,
 and the source metadata of §5 as the member `"ndpi"`. Its CMO is:
 
 ```json
