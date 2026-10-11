@@ -148,8 +148,9 @@ jobs:
           name: fixture-compare-${{ matrix.shard }}
           path: conformance/results/fixtures/results.json
 
-  # The package without its extras (pyproject.toml): it reads and writes archives, and each
-  # optional part's ImportError names the extra that installs it
+  # The package without its extras (pyproject.toml): it reads, writes and virtualizes
+  # archives without zarr, and each optional part's ImportError names the extra that
+  # installs it; then with only the zarr extra, which reads them through zarr
   base-install:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -161,7 +162,11 @@ jobs:
       - uses: extractions/setup-just@v2
       - run: uv venv "$RUNNER_TEMP/base"
       - run: uv pip install --python "$RUNNER_TEMP/base" .
-      - run: just base-install-check "$RUNNER_TEMP/base/bin/python"
+      - run: just base-install-check "$RUNNER_TEMP/base/bin/python" base
+        shell: bash
+      - run: uv venv "$RUNNER_TEMP/zarr"
+      - run: uv pip install --python "$RUNNER_TEMP/zarr" ".[zarr]"
+      - run: just base-install-check "$RUNNER_TEMP/zarr/bin/python" zarr
         shell: bash
 
   sections:

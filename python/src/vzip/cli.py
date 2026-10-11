@@ -16,42 +16,35 @@ import json
 import os
 import sys
 
-from zarr.abc.store import OffsetByteRequest, RangeByteRequest, SuffixByteRequest
-from zarr.core.buffer import default_buffer_prototype
-from zarr.core.sync import sync
-
+from vzip._sync import run
 from vzip.archive import RESERVED_PREFIX, VZipWriter
 from vzip.pb import Range, Source
 from vzip.policy import Policy
-from vzip.store import VZipStore
+from vzip.store import OffsetRequest, RangeRequest, Request, SuffixRequest, VZipStore
 
 
-def _byte_request(r: dict | None):
+def _request(r: dict | None) -> Request | None:
     if r is None:
         return None
     if "suffix" in r:
-        return SuffixByteRequest(r["suffix"])
+        return SuffixRequest(r["suffix"])
     if "offset" in r:
-        return OffsetByteRequest(r["offset"])
-    return RangeByteRequest(r["start"], r["end"])
+        return OffsetRequest(r["offset"])
+    return RangeRequest(r["start"], r["end"])
 
 
-async def _list(store: VZipStore, prefix: str) -> list[str]:
-    return [k async for k in store.list_prefix(prefix)]
-
-
-def _run_query(store: VZipStore, raw: VZipStore, q: dict) -> dict:
-    proto = default_buffer_prototype()
+def _run_query(store: VZipStore, q: dict) -> dict:
     try:
         if q["op"] == "classify":
-            kind = sync(store.kind(q["key"]))
-            return {"ok": True, "kind": {"ref": "reference", None: "missing"}.get(kind, kind)}
+            return {"ok": True, "kind": store.classify(q["key"])}
         if q["op"] in ("get", "get_raw"):
-            s = store if q["op"] == "get" else raw
-            buf = sync(s.get(q["key"], proto, _byte_request(q.get("range"))))
-            return {"ok": True, "value": None if buf is None else buf.to_bytes().hex()}
+            if q["op"] == "get":
+                value = store.get(q["key"], _request(q.get("range")))
+            else:
+                value = store.raw(q["key"])
+            return {"ok": True, "value": None if value is None else value.hex()}
         if q["op"] == "list":
-            return {"ok": True, "keys": sync(_list(store, q["prefix"]))}
+            return {"ok": True, "keys": store.list(q["prefix"])}
         raise ValueError(f"unknown op {q['op']!r}")
     except Exception as e:  # noqa: BLE001 - every failure is reported per query
         return {"ok": False, "class": getattr(e, "cls", "error"),
@@ -104,14 +97,12 @@ def read(archive: str, queries_path: str, policy: Policy | None = None) -> dict:
     for q in queries:
         _check_query(q)
     store = VZipStore(archive, policy=policy)
-    raw = VZipStore(archive, resolve=False, policy=policy)
     try:
-        sync(store._open())
-        sync(raw._open())
+        run(store._ensure_open())
     except Exception as e:  # noqa: BLE001
         return {"open": {"ok": False, "class": "archive", "error": f"{type(e).__name__}: {e}"},
                 "results": []}
-    return {"open": {"ok": True}, "results": [_run_query(store, raw, q) for q in queries]}
+    return {"open": {"ok": True}, "results": [_run_query(store, q) for q in queries]}
 
 
 _PINS = ("size", "etag", "modified_not_after")

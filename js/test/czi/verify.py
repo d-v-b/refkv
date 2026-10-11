@@ -54,10 +54,9 @@ sys.path.insert(0, str(ROOT / "conformance" / "archive"))
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
 from http_server import Server  # noqa: E402
 
-import vzip.codecs  # noqa: E402,F401  (registers imagecodecs_jpeg, imagecodecs_jpegxr)
 from vzip.pb import Concat, Range  # noqa: E402
 from vzip.policy import Policy  # noqa: E402
-from vzip.store import VZipStore  # noqa: E402
+import vzip.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg, imagecodecs_jpegxr)
 
 # The sources are served on 127.0.0.1, which spec §6.7
 # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
@@ -119,7 +118,7 @@ class Archive:
                 elif hid == 0x7A77:
                     self.refs[info.filename] = list(Concat.decode(ex[p + 4 : p + 4 + n]).parts)
                 p += 4 + n
-        self.store = VZipStore(str(path), policy=LOOPBACK_SOURCES)
+        self.store = vzip.zarr.open(str(path), policy=LOOPBACK_SOURCES)
         self.root = zarr.open_group(self.store, mode="r", zarr_format=3)
         self.lo: dict[str, dict] = {}  # image -> the T, C and Z Start of its index 0
 

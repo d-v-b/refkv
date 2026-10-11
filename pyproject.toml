@@ -8,25 +8,33 @@ authors = [
 requires-python = ">=3.12"
 license = "MIT OR Apache-2.0"
 license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
-# The base install reads and writes vzip archives and holds a ReferenceStore; the
+# The base install reads and writes vzip archives, holds a ReferenceStore and
+# virtualizes image files and stores, without Zarr (numpy: the NIfTI virtualizer); the
 # extras add the rest (python/src/vzip/_extras.py), and the dependency groups hold
 # what only this repository's tests, fixture generators and benchmarks use.
 dependencies = [
     "google-crc32c>=1.9.0",
     "numpy>=2.5.3",
     "obstore>=0.11.1",
-    "zarr>=3.4.0",
 ]
 
 [project.optional-dependencies]
-# ReferenceStore.from_virtualizarr, vzip.convert and vzip.shards. vzip does not
-# import xarray: it calls the methods of the datasets VirtualiZarr builds
-virtualizarr = [
-    "virtualizarr>=2.7.3",
+# vzip.zarr: a vzip store as a read-only zarr store, for zarr and xarray, and the codecs
+# of archives of virtualized image files and stores
+zarr = [
+    "zarr>=3.4.0",
 ]
-# the JPEG, JPEG 2000 and JPEG XR codecs of archives of virtualized image files
+# the JPEG, JPEG 2000 and JPEG XR decoders of vzip.zarr's image codecs
 images = [
+    "vzip[zarr]",
     "imagecodecs>=2026.8.16",
+]
+# ReferenceStore.from_virtualizarr, vzip.convert and vzip.shards, which build Zarr
+# metadata. vzip does not import xarray: it calls the methods of the datasets
+# VirtualiZarr builds
+virtualizarr = [
+    "vzip[zarr]",
+    "virtualizarr>=2.7.3",
 ]
 
 [build-system]
@@ -43,7 +51,7 @@ module-root = "python/src"
 # and what the example of docs/virtual-datasets.md imports besides vzip: xarray, VirtualiZarr's
 # HDF5 parser (h5py), and xarray reading netCDF files over HTTPS (h5netcdf, fsspec, aiohttp)
 dev = [
-    "vzip[virtualizarr,images]",
+    "vzip[zarr,images,virtualizarr]",
     "aiohttp>=3.14.3",
     "czifile>=2026.8.16",
     "fsspec>=2026.9.0",

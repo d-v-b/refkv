@@ -3,16 +3,10 @@ import itertools
 import pytest
 import xarray as xr
 
+import vzip.zarr
 from vzip.shards import write_vzip_sharded
-from zarr.core.sync import sync
-
-from vzip.store import VZipStore
 
 from conftest import virtualize
-
-
-async def _list(s):
-    return [k async for k in s.list()]
 
 
 def test_virtual_shards_roundtrip(netcdf_files, tmp_path):
@@ -25,10 +19,11 @@ def test_virtual_shards_roundtrip(netcdf_files, tmp_path):
         # temp: one shard per file (4 time steps x the full 2x2 spatial chunk grid)
         write_vzip_sharded(vds, out, {"temp": (4, 2, 2), "mask": (4, 3, 4)},
                            inline_index=inline, page_size=page_size, index_location=loc)
-        s = VZipStore(str(out))
-        ds = xr.open_zarr(s, consolidated=True, zarr_format=3)
+        zs = vzip.zarr.open(out)
+        ds = xr.open_zarr(zs, consolidated=True, zarr_format=3)
         xr.testing.assert_identical(ds.load(), expected.load())
-        refs = [k for k in sync(_list(s)) if s.classify(k) == "ref"]
+        s = zs.reader
+        refs = [k for k in s.list() if s.classify(k) == "reference"]
         assert s.entry("temp/c/0/0/0").ref.parts[0 if loc == "start" else 1].size == 16 * 16
         assert sorted(refs) == [f"{v}/c/{i}/0/0" for v in ("mask", "temp") for i in range(3)]
 

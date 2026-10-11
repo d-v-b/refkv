@@ -107,19 +107,20 @@ refused, and so is a request that would go through a proxy the reader cannot
 check. To virtualize a file or store served from your own machine or network (for
 example `http://127.0.0.1:8000/...`), pass `--allow-private-hosts`. Reading
 an archive applies the same policy to its sources, so an archive that refers
-to such a host opens only with `VZipStore(path,
+to such a host opens only with `vzip.zarr.open(path,
 policy=Policy(allow_private_hosts=True))` (`from vzip.policy import
 Policy`). A local file or directory needs neither.
 
-Read the archive in Python with `vzip.VZipStore` and zarr-python. Importing
-`vzip` registers the codecs that some formats need (JPEG, JPEG 2000,
-JPEG XR, `zlib`, `n5_default`):
+Read the archive in Python with `vzip.zarr` and zarr-python
+(`pip install 'vzip[zarr]'`, or `vzip[images]` for the JPEG, JPEG 2000 and
+JPEG XR decoders). Importing `vzip.zarr` registers the codecs that some formats
+need (JPEG, JPEG 2000, JPEG XR, `zlib`, `n5_default`):
 
 ```python
 import zarr
-from vzip import VZipStore
+import vzip.zarr
 
-g = zarr.open_group(VZipStore("out.vzip"), mode="r")
+g = zarr.open_group(vzip.zarr.open("out.vzip"), mode="r")
 ```
 
 **The browser.** The same virtualizers run in a service worker

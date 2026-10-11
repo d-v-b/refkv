@@ -296,7 +296,7 @@ pyramidal OME-TIFF in place on EBI's FTP/HTTPS server.
   The OME-XML is stored as a real (deflated) bytes entry, `OME/METADATA.ome.xml`,
   next to the references.
 - **Codec:** Zarr v3 has no standard JPEG 2000 codec, so
-  [`vzip/codecs.py`](../python/src/vzip/codecs.py) registers a small
+  [`vzip/zarr/codecs.py`](../python/src/vzip/zarr/codecs.py) registers a small
   `imagecodecs_jpeg2k` array-to-bytes codec. Each TIFF tile is a standalone
   codestream.
 

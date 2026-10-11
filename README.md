@@ -17,8 +17,10 @@ image files and stores. For netCDF, HDF5 and the other files
 [VirtualiZarr](https://virtualizarr.readthedocs.io/) reads, the Python package
 turns a virtual dataset into a store that xarray opens, and saves it as a vzip
 archive: `vzip.ReferenceStore.from_virtualizarr(vds)`, then
-`store.save("data.vzip")`, then `xr.open_zarr(vzip.open("data.vzip"))`
+`store.save("data.vzip")`, then `xr.open_zarr(vzip.zarr.open("data.vzip"))`
 ([docs/virtual-datasets.md](docs/virtual-datasets.md) has a runnable example).
+The package needs no Zarr to read and write stores; `vzip.zarr`, with the
+`zarr` extra, opens one for zarr-python and xarray.
 
 Status: experimental, proof of concept, anything can change.
 

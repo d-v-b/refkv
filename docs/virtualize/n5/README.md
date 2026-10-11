@@ -68,9 +68,9 @@ objects are its 6 documents and 1612 blocks.)
 
 ```python
 import zarr
-from vzip import VZipStore
+import vzip.zarr
 
-g = zarr.open_group(VZipStore("mito_seg.vzip"), mode="r")
+g = zarr.open_group(vzip.zarr.open("mito_seg.vzip"), mode="r")
 ms = g.attrs["ome"]["multiscales"][0]
 print([(a["name"], a.get("unit")) for a in ms["axes"]])
 for d in ms["datasets"]:

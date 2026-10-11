@@ -13,7 +13,7 @@ import numpy as np
 import tifffile
 import zarr
 
-import vzip.codecs  # noqa: F401  (registers imagecodecs_jpeg2k)
+import vzip.zarr  # registers imagecodecs_jpeg2k
 from vzip.archive import VZipWriter  # noqa: F401
 from vzip.store import VZipStore
 
@@ -21,7 +21,7 @@ from vzip.store import VZipStore
 def main(archive: str, url: str) -> None:
     store = VZipStore(archive)
     t0 = time.time()
-    root = zarr.open_group(store, mode="r", zarr_format=3)
+    root = zarr.open_group(vzip.zarr.store(store), mode="r", zarr_format=3)
     ms = root.attrs["ome"]["multiscales"][0]
     print(f"opened in {time.time() - t0:.2f}s with {store.stats.archive_requests} archive "
           f"requests; levels: {[root[d['path']].shape for d in ms['datasets']][:3]} ...")
