@@ -14,7 +14,7 @@ synthetic inputs.
 
 ## Points where the text allows more than one reading
 
-### 1. §3.1: is a SubIFD's next-IFD field read, and is a SubIFD's own `SubIFDs` tag checked?
+### 1. [§3.1](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#31-reading): is a SubIFD's next-IFD field read, and is a SubIFD's own `SubIFDs` tag checked?
 
 > "Only the listed offsets are read: a SubIFD's own next-IFD offset and SubIFDs are ignored."
 > "**Checks on every IFD read.** For every tag of the table present in an IFD read ..."
@@ -36,7 +36,7 @@ Likelihood on real files: very low. Suggestion: say "the next-IFD offset field
 of a SubIFD is not read", and "a SubIFD's `SubIFDs` tag is checked like any
 other tag, but not followed".
 
-### 2. §3.2: skipped sections and tags in one scan, or in two passes?
+### 2. [§3.2](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#32-ome-xml): skipped sections and tags in one scan, or in two passes?
 
 > "1. Skipped sections: scanning from the start, the first of these to begin at each point is skipped ... 2. Tags: outside skipped sections, a tag is a match ... Scanning continues after the end of each tag."
 
@@ -63,7 +63,7 @@ Two smaller points in the same step:
 - Under the one-scan reading, a tag cannot span a skipped section, and a
   `<!--` inside a quoted attribute value has no effect.
 
-### 3. §4.2: what "nested more than 100 deep" counts
+### 3. [§4.2](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#42-lite-variant): what "nested more than 100 deep" counts
 
 > "Levels MUST NOT be nested more than 100 deep: a chunk's top-level records are at depth 0, and the records of a level at depth `d` are at depth `d + 1`."
 
@@ -78,13 +78,13 @@ or could count levels starting from 1. Likelihood: very low (only
 synthetic files). Suggestion: "a record at depth greater than 100 rejects the
 input".
 
-### 4. §4.3: when is the z step's arithmetic checked for overflow?
+### 4. [§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#43-metadata): when is the z step's arithmetic checked for overflow?
 
-> "step `abs(dZStep)`, or if that is 0 and the count is more than 1, `abs(dZHigh − dZLow) / (count − 1)`" together with §1.3 "A number that would be infinite or NaN rejects the input."
+> "step `abs(dZStep)`, or if that is 0 and the count is more than 1, `abs(dZHigh − dZLow) / (count − 1)`" together with [§1.3](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#13-arithmetic) "A number that would be infinite or NaN rejects the input."
 
 `dZHigh − dZLow` can overflow to infinity, for example with ±1e308.
 *Decision:* the step is computed, and so can reject, for every eType 4 node
-that has `uLoopPars`. That includes nodes the flattening skips, because §4.3
+that has `uLoopPars`. That includes nodes the flattening skips, because [§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#43-metadata)
 says every node is checked. An implementation that computes the step only for
 loops that end up in the list would accept such a file.
 
@@ -93,7 +93,7 @@ computed only when the image is calibrated, because only then does the text
 compute it. Likelihood: negligible. Suggestion: say whether the step is part
 of "checked on every node".
 
-### 5. §4.3: is `pPeriodValid` checked when `pPeriod` is absent?
+### 5. [§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#43-metadata): is `pPeriodValid` checked when `pPeriod` is absent?
 
 > "the list `uLoopPars/pPeriodValid` ... Every member of a validity list is a flag."
 
@@ -103,9 +103,9 @@ other eTypes. ("Every member listed in this section is read and checked
 wherever it is present in the places described".) Another implementer might
 read it only while iterating `pPeriod`. Likelihood: very low.
 
-### 6. §4.4: does a frame chunk that runs past EOF reject the file?
+### 6. [§4.4](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#44-frames): does a frame chunk that runs past EOF reject the file?
 
-> "reject the file if ... either's data length `d` is less than `8 + uiHeight × uiWidthBytes`" ... "(Other frames' chunks are not checked, except that their ranges MUST lie within the file, §1.2.)"
+> "reject the file if ... either's data length `d` is less than `8 + uiHeight × uiWidthBytes`" ... "(Other frames' chunks are not checked, except that their ranges MUST lie within the file, [§1.2](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#12-input).)"
 
 *Decision:* a frame's header may claim a data length `d` that extends past the
 end of the file. The input is still accepted as long as every emitted range
@@ -121,7 +121,7 @@ is at the end of the file.
 
 ## Rules that are surprising (but implementable)
 
-- **§4.4 row-block height depends on byte offsets.** `h` is chosen so that the
+- **[§4.4](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#44-frames) row-block height depends on byte offsets.** `h` is chosen so that the
   *encoded payload* fits in 65519 bytes, and the payload size depends on the
   varint length of the file offsets. So the same image layout placed at a
   different offset in the file can get a different chunk shape. When no frame
@@ -129,12 +129,12 @@ is at the end of the file.
   the rule literally. Because the per-row payload never decreases as the
   offset grows, only the last block of the frame with the largest start needs
   to be checked. Since every row costs at least 6 payload bytes, block heights above 10919 never need to be tried.
-- **§3.2 UUID text drops CDATA content** ("with skipped sections removed"),
+- **[§3.2](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#32-ome-xml) UUID text drops CDATA content** ("with skipped sections removed"),
   which real XML would keep as text. Followed literally.
-- **§3.2 / §1.3 infinite `PhysicalSize`.** `1e400` makes `PhysicalSize` *absent*
-  (§3.2), whereas the general rule in §1.3 would *reject*. The specific rule
+- **[§3.2](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#32-ome-xml) / [§1.3](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#13-arithmetic) infinite `PhysicalSize`.** `1e400` makes `PhysicalSize` *absent*
+  ([§3.2](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#32-ome-xml)), whereas the general rule in [§1.3](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#13-arithmetic) would *reject*. The specific rule
   wins. It is clear enough, but worth a cross-reference.
-- **§3.1 LONG8/IFD8 (16, 18) in a classic TIFF are accepted** ("in either TIFF
+- **[§3.1](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#31-reading) LONG8/IFD8 (16, 18) in a classic TIFF are accepted** ("in either TIFF
   variant"). This is deliberate according to the text, but other TIFF readers
   reject these types in classic TIFF.
 

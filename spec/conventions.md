@@ -48,7 +48,7 @@ Every convention is held to two requirements:
 2. **Efficiency.** The hierarchy reads well:
    - Small typed metadata is JSON, in attributes.
    - Metadata that is large, or that grows with the data, is in arrays
-     (§7), or on the source metadata node (§2), which a reader only opens
+     ([§7](#7-source-values-as-arrays)), or on the source metadata node ([§2](#2-attributes)), which a reader only opens
      when it wants it.
    - Values are referenced where the source holds them. They are copied
      only when they are scattered or must be reordered.
@@ -69,7 +69,7 @@ document's header.
 - **Until vzip's first release**, every convention is at version **0**, and
   hierarchies also record the **revision** of
   [spec/virtualize.md](virtualize.md) (the number in its header) that
-  produced them (§2). Version 0 promises nothing: any revision may change a
+  produced them ([§2](#2-attributes)). Version 0 promises nothing: any revision may change a
   layout, and the revision is what tells two layouts apart.
 - **At the release**, every convention becomes version 1, tagged
   `virtualize-<p>-v1` in the vzip repository. From then on a convention's
@@ -124,12 +124,12 @@ and on any other node `{"<p>": S}`, where:
 
 - `p` and `N` are the format and its convention's version;
 - `R` is the revision of spec/virtualize.md that produced the hierarchy, an
-  integer, present at version 0 only (§1);
+  integer, present at version 0 only ([§1](#1-conventions));
 - `U` is the URL of the source: of the file for a file, and of the store,
   ending in `/`, for a store;
 - `S` is the node's **source metadata**, an object whose content the
   format's convention specifies (its "Source metadata" section): what the
-  source's header or metadata holds for that node, translated by §6. The
+  source's header or metadata holds for that node, translated by [§6](#6-source-metadata-as-json). The
   member `"<p>"` is present only when `S` has at least one member.
 
 There are no other members. The property holds no time and nothing about
@@ -138,7 +138,7 @@ equivalent hierarchies from the same source.
 
 **The source metadata node.** A file format's metadata that grows with the
 data (one item per frame, plane or channel), and the source's values kept as
-arrays (§7), are on the group `vzip_source`, a child of the root. It declares
+arrays ([§7](#7-source-values-as-arrays)), are on the group `vzip_source`, a child of the root. It declares
 the convention, with its own source metadata, when it has any, and holds the
 arrays at paths the format's convention gives. OME-NGFF readers ignore it.
 Producers SHOULD store its documents so that a reader fetches them only when
@@ -147,7 +147,7 @@ read when an archive is opened). The node exists only when it has
 source metadata or arrays, or, for the store conventions, other objects of
 the store, which it holds whole under `vzip_source/objects/`, or the keys of
 the store's empty objects. For the TIFF, ND2 and CZI conventions,
-`vzip_source` is the source's IR mirror (§8), from which the source is
+`vzip_source` is the source's IR mirror ([§8](#8-the-ir-mirror)), from which the source is
 rebuilt byte for byte.
 
 **Nothing else.** Outside `vzip_virtualized`, a node's attributes hold only
@@ -222,7 +222,7 @@ always present; the format's convention says when the others are.
 An image is a group whose `zarr.json` is
 `{"zarr_format": 3, "node_type": "group", "attributes": {"ome": M}}`, where `M`
 is the OME-NGFF 0.5 object below. The image's other
-attributes are those of §2 (the convention's declaration and property), and
+attributes are those of [§2](#2-attributes) (the convention's declaration and property), and
 no other member is allowed. `M` is:
 
 ```json
@@ -274,7 +274,7 @@ centimeter 1e-2, meter 1, angstrom 1e-10, picometer 1e-12, inch 0.0254,
 foot 0.3048. A value `v` in unit `a` is `v × (size(a) / size(b))` in unit
 `b` (the division first).
 
-**Translations.** Where a convention places an image in space (§4), the
+**Translations.** Where a convention places an image in space ([§4](#4-images)), the
 translation applies to every level, and is 0 for every axis it does not
 name. A position given for the centre of an image of level-0 size
 `W0 × H0` with x and y scales `sx`, `sy` becomes the translation
@@ -317,7 +317,7 @@ fields and how each becomes a member of `S`. Unless it says otherwise:
   padding).
 
 Producers compare these as JSON values: numbers by their binary64 values,
-strings by their characters (spec/virtualize.md §1.1).
+strings by their characters ([spec/virtualize.md §1.1](virtualize.md#11-output-and-equivalence)).
 
 These rules apply to values the convention translates from the source's
 bytes. Members copied from a JSON document of the source (a store's
@@ -331,8 +331,8 @@ the binary64 value.
 ## 7. Source values as arrays
 
 A value that is too large for JSON, that is a column of numbers, or that is
-opaque is an array of the source metadata node (§2). Each such array's
-`zarr.json` is as in §3, with `fill_value` 0 unless the convention says
+opaque is an array of the source metadata node ([§2](#2-attributes)). Each such array's
+`zarr.json` is as in [§3](#3-arrays), with `fill_value` 0 unless the convention says
 otherwise, `codecs` `[{"name": "bytes", "configuration": {"endian": E}}]`
 (`[{"name": "bytes"}]` for one-byte data types), where `E` is `"little"`
 unless the convention gives the source's byte order, followed by `zlib`
@@ -479,7 +479,7 @@ into runs; the canonical table (8.8) expands them, and a reader accepts them.
 
 ### 8.2 The table
 
-`vzip_source` declares the convention (§2). Its source metadata `S` is
+`vzip_source` declares the convention ([§2](#2-attributes)). Its source metadata `S` is
 `{"ir": I}`, where `I` is the object
 
 ```json
@@ -492,7 +492,7 @@ into runs; the canonical table (8.8) expands them, and a reader accepts them.
   and tables use; `names[0]` and `types[0]` are `""` (`names[0]` is the
   root's name, 8.1).
 
-The table is two arrays under `vzip_source/ir/` (§3 documents, data type
+The table is two arrays under `vzip_source/ir/` ([§3](#3-arrays) documents, data type
 `int64`, `fill_value` 0, codecs `bytes` little-endian, which a reader also
 accepts followed by `zlib` at any level, though the canonical table, 8.8, has
 none; edge chunks padded with zeros; no attributes):
@@ -607,7 +607,7 @@ A reader that rebuilds the source:
    source 0 at their extents.
 
 The result is the source, byte for byte: its length is `Z`, which source 0
-pins (spec/virtualize.md §1.2), and a range checksum, when the archive carries
+pins ([spec/virtualize.md §1.2](virtualize.md#12-input)), and a range checksum, when the archive carries
 one, checks each range read. The extents index source 0 directly; there is
 no array of the source's bytes.
 
@@ -648,7 +648,7 @@ space).
 ### 8.7 The view
 
 `vzip_source/tree` and the groups under it show the canonical IR (8.8) as
-JSON. Each is a group whose source metadata `S` (§2) is a struct's **view
+JSON. Each is a group whose source metadata `S` ([§2](#2-attributes)) is a struct's **view
 document**, so it declares the convention when the document has a member. The
 document of the root, the element whose path is `""` (8.1), is `tree`'s.
 Sizes are those of the JSON text
@@ -665,7 +665,7 @@ members `$vz`, `$form` and `$partial` below are never a child's):
   parser need not read). A producer reads every shown value (its parser
   holds those it reads; the others are read after it). A shown value is, as
   JSON:
-  - of a text type, its §6 text value `T`: for `ascii` and `cstr`, its
+  - of a text type, its [§6](#6-source-metadata-as-json) text value `T`: for `ascii` and `cstr`, its
     bytes up to the first NUL (all of them if there is none), the JSON
     string they encode when they are UTF-8, else `{"latin1": L}` with each
     byte `b` the code point U+00`bb`; for `utf16`, its 16-bit little-endian

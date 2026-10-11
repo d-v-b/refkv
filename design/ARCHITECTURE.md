@@ -32,9 +32,9 @@ about twenty tagged forms (`{"latin1"}`, `{"utf16"}`, `{"int"}`,
 `{"float"}`, `{"bits"}`, `[name, value]` pairs, `\0`+base64 names, `named`,
 `Gathered`/`Structures`, hex fills, base64 data forms, ...), several of which
 collide with user keys in copied attributes. Even so, some information is
-still lost: ND2's LV record types (so LV chunks cannot be rebuilt, as ND2
-§5.1 admits), ND2 XML attributes and text, DICOM number spelling, IMS object
-comments, and every colliding name under the shared §6 rule.
+still lost: ND2's LV record types (so LV chunks cannot be rebuilt, as the ND2
+convention [§5.1](../spec/virtualize/nd2.md#51-decoded-chunks) admits), ND2 XML attributes and text, DICOM number spelling, IMS object
+comments, and every colliding name under the shared [conventions §6](../spec/conventions.md#6-source-metadata-as-json) rule.
 
 SAFE and CZI took the other view: the source bytes are the record, kept by
 reference, and JSON is a derived convenience. That view is simpler and loses
@@ -73,7 +73,7 @@ server ignores `Range`.
 
 - Readers resolve any scheme an archive names, with ambient credentials: a
   remote archive can read `file:///etc/hosts` or private buckets, and one
-  chunk can fan out to about 10,000 requests. SPEC §10 says SHOULD; no reader
+  chunk can fan out to about 10,000 requests. [SPEC §10](../spec/archive.md#10-security-considerations) says SHOULD; no reader
   does.
 - No staleness detection: the profiles forbid pins, so a changed
   uncompressed source silently yields wrong pixels.
@@ -147,7 +147,7 @@ they belong to the parse, not the projection.
   one shared function on every IR.
 - **Injectivity.** No byte is claimed twice. Sharing is explicit, as `alias`.
 - **Bounded parse.** The IR's record count and the bytes the parser read are
-  charged to one budget; see §3.5.
+  charged to one budget; see [§3.5](#35-resources-and-io).
 
 These invariants give, for every format at once:
 
@@ -168,7 +168,7 @@ These invariants give, for every format at once:
 - **Source mirror**: one generic projection that writes the IR itself under
   `vzip_source`, with one vocabulary: `value` elements as JSON with one tag
   namespace that cannot collide with user keys (`{"$vz": kind, ...}`),
-  everything large as arrays or families by the existing §7 rules, one budget
+  everything large as arrays or families by the existing [conventions §7](../spec/conventions.md#7-source-values-as-arrays) rules, one budget
   and one spill form, paths relative to `vzip_source`, one escape rule. It
   replaces the eleven bespoke source-metadata translators and their tags.
 - Variants: sharded layouts (SPEC already has virtual shards), alternate
@@ -229,7 +229,7 @@ These are small and right under any architecture:
 2. **Staleness**: let profiles pin `size` (always known) and `etag` when
    visible; add an optional per-range `crc32c` that readers check after the
    fetch, which works across CORS.
-3. **Conformance**: make §1.1 compare integer literals exactly (adopt
+3. **Conformance**: make [spec/virtualize.md §1.1](../spec/virtualize.md#11-output-and-equivalence) compare integer literals exactly (adopt
    `same()`); run SPEC's strict reader on every archive inside `compare.py`;
    fail the TypeScript reader when `JSON.parse` source text is unavailable;
    add CI (pytest, node tests, sharded fixture compare) and a nightly corpus
@@ -260,7 +260,7 @@ Before touching nine formats, prototype on two:
   structures).
 
 Success means: the image projection reproduces today's outputs (equivalent by
-§1.1); the mirror projection rebuilds every corpus file byte for byte from
+[spec/virtualize.md §1.1](../spec/virtualize.md#11-output-and-equivalence)); the mirror projection rebuilds every corpus file byte for byte from
 the IR's extents with no format code; the amplification probes (shared IFDs,
 hard links) are refused or aliased by the shared check, not by format code;
 and the IR plus projections are smaller than today's profile.

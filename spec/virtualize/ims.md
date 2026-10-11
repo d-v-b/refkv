@@ -6,7 +6,7 @@ its HDF5 attributes into JSON. What all of vzip's conventions share is in
 vzip produces this layout as a virtual store, and the subset of HDF5 that
 it reads, is the IMS profile, [Part 2](#part-2-the-profile) below.
 
-Convention version: 0 (until release, conventions §1) · UUID: `5067a535-8261-4b25-a93c-1985ed333bde` ·
+Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `5067a535-8261-4b25-a93c-1985ed333bde` ·
 Schema: [schema.json](ims/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the IMS
@@ -25,9 +25,9 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "ims"`, `"version": 0`, `"revision": 25` (conventions §1) and the file's URL as `source.url`.
+with `"profile": "ims"`, `"version": 0`, `"revision": 25` ([conventions §1](../conventions.md#1-conventions)) and the file's URL as `source.url`.
 The root has no source metadata of its own: the whole HDF5 file is described
-on the source metadata node (§5). Its CMO is:
+on the source metadata node ([§5](#5-source-metadata)). Its CMO is:
 
 ```json
 {
@@ -39,14 +39,14 @@ on the source metadata node (§5). Its CMO is:
 }
 ```
 
-Every node under `vzip_source` that has source metadata (§5) declares it
+Every node under `vzip_source` that has source metadata ([§5](#5-source-metadata)) declares it
 with `{"ims": S}`.
 
 ## 2. The source
 
 An Imaris file (`.ims`) is an HDF5 file holding a fixed layout of groups and
-datasets (§2.2): one chunked 3-D dataset per resolution level, time point and
-channel, with text attributes for the sizes and the metadata (§3). The
+datasets ([§2.2](#22-the-imaris-layout)): one chunked 3-D dataset per resolution level, time point and
+channel, with text attributes for the sizes and the metadata ([§3](#3-metadata)). The
 virtualizer reads the HDF5 structure itself, by the subset of the HDF5 file
 format (The HDF Group's *HDF5 File Format Specification*, version 3) that
 [spec/virtualize.md §8.1](#81-hdf5-structures)–[spec/virtualize.md §8.6](#86-attributes) describe; whatever falls outside the subset rejects the input. The
@@ -157,7 +157,7 @@ read as text ([spec/virtualize.md §8.6](#86-attributes)) where present:
 
 Other attributes, and the other groups (`Thumbnail`, `Scene`,
 `DataSetTimes`, ...), are not read, except a channel's **color table**,
-`ColorTable`, which is read only where §4 needs it (for the color) and
+`ColorTable`, which is read only where [§4](#4-output) needs it (for the color) and
 never rejects the input. It is text, or absent:
 
 - If `Channel c` has an attribute `ColorTable`, it is that attribute read
@@ -172,7 +172,7 @@ never rejects the input. It is text, or absent:
   of the dataspace's sizes, that a compact dataset holds (exactly `n`
   bytes) or that start at a contiguous dataset's address (allocated, and
   lying within the file). The color table is the text of that data, by the
-  rule for an attribute's text (§2.1), if the datatype is a string (class
+  rule for an attribute's text ([§2.1](#21-attributes-as-text)), if the datatype is a string (class
   3), the dataspace is not null, there are no filters, the layout is compact
   or contiguous and `n` is at most 2^18 bytes. Otherwise (a chunked or
   filtered dataset, another datatype, an object that is not a dataset, or a
@@ -216,7 +216,7 @@ One image at the archive root ([conventions §4](../conventions.md#4-images)), w
   `x`. When level 0's `Z` is 1, every level's `Z` MUST be 1.
 - **Array** of level `r` ([conventions §3](../conventions.md#3-arrays)): shape `T`, `C`, `Zr`, `Yr`, `Xr`
   and chunk shape 1, 1, `cz`, `cy`, `cx` (each only for the axes
-  present); the data type of §2.2; codecs `bytes` (with the byte order as
+  present); the data type of [§2.2](#22-the-imaris-layout); codecs `bytes` (with the byte order as
   its `endian` for data types of 2 or 4 bytes), followed by `zlib` for
   deflate.
 - **Scale** of level `r`: a spatial axis with an extent `e` has the scale
@@ -236,7 +236,7 @@ One image at the archive root ([conventions §4](../conventions.md#4-images)), w
   one object per channel `c` (even when there is no `c` axis):
   `{"label": ..., "color": ..., "active": true, "window": {...}}`. With more
   channels `M` has no `"omero"` member, so that the root does not grow with
-  `C` (the channels' metadata is kept in the source metadata, §5).
+  `C` (the channels' metadata is kept in the source metadata, [§5](#5-source-metadata)).
   - The label is the channel's `Name` if present, not empty and at most 256
     bytes long in UTF-8, else `Channel <c>`.
   - The color: Imaris colors a channel either by a base color, `Color`, or
@@ -248,7 +248,7 @@ One image at the archive root ([conventions §4](../conventions.md#4-images)), w
     - The **base color** is `Color`'s three values, if `Color` is present
       and they are each from 0 to 1.
     - The **table color** is the last three values of the color table
-      (§3; the table's top entry), if `ColorTableLength` is an integer `L`
+      ([§3](#3-metadata); the table's top entry), if `ColorTableLength` is an integer `L`
       from 1 to 2^53 − 1, the color table is a list of `3 × L` decimals, and
       those three values are each from 0 to 1.
     - If `ColorMode`, with leading and trailing whitespace removed, is
@@ -277,7 +277,7 @@ One image at the archive root ([conventions §4](../conventions.md#4-images)), w
 
 ## 5. Source metadata
 
-An Imaris file is an HDF5 file, and the image (§4) is only part of it. The
+An Imaris file is an HDF5 file, and the image ([§4](#4-output)) is only part of it. The
 rest (the attributes of every group, which hold the extents, units,
 channels, acquisition settings and time points; the histograms; the
 thumbnail; `DataSetTimes`; the objects of `Scene` and `Scene8`; and
@@ -289,9 +289,9 @@ members and a dataset with a null dataspace are groups), and attributes,
 links and datatypes are JSON. A reader can rebuild every group, dataset (its data,
 datatype, shape and fill value), attribute (its value, datatype and shape),
 link and named datatype of the file from it, with every text and name as
-its bytes, except for what §5.9 lists. Large values are arrays, and each
+its bytes, except for what [§5.9](#59-what-is-not-kept) lists. Large values are arrays, and each
 document has a budget, past which its entries are moved to an array, so
-that no document grows with the data or with the file's names (conventions §7).
+that no document grows with the data or with the file's names ([conventions §7](../conventions.md#7-source-values-as-arrays)).
 
 ### 5.1 The tree
 
@@ -325,9 +325,9 @@ its members with key `name` is, in this order of tests:
    message). Either is the member `name` of `links`;
 3. a hard link to an object that the walk met before: the member `name` of
    `links` is `{"hard": i}`, `i` the object's index in the object table
-   (§5.7), which gives the path where the walk met it;
+   ([§5.7](#57-the-object-table)), which gives the path where the walk met it;
 4. a member beyond the walk's `100,000 + 5 × N`th object, `N` the number
-   of the image's `Data` datasets (§2.2, each object counted once), the
+   of the image's `Data` datasets ([§2.2](#22-the-imaris-layout), each object counted once), the
    root group the first: not described; the group's `overflow` is the
    number of such members. The 5 objects per `Data` dataset are room for
    it, its channel group, `Histogram`, `Histogram1024` and a time point
@@ -339,26 +339,26 @@ its members with key `name` is, in this order of tests:
    or link info message: a group; else a datatype message: a named
    datatype):
    - a **named datatype**: the member `name` of `datatypes` is
-     `{"datatype": D}` with its description (§5.2), and its attributes
-     (§5.3);
-   - one of the image's `Data` datasets (§2.2): the member `name` of
+     `{"datatype": D}` with its description ([§5.2](#52-datatypes)), and its attributes
+     ([§5.3](#53-attributes));
+   - one of the image's `Data` datasets ([§2.2](#22-the-imaris-layout)): the member `name` of
      `images` is `{"level": r, "t": t, "c": c, "shape": [z, y, x]}`, the
-     shape being the dataset's dimensions, with its attributes (§5.3).
-     Its data within the image is the image's (§4); what lies outside it
+     shape being the dataset's dimensions, with its attributes ([§5.3](#53-attributes)).
+     Its data within the image is the image's ([§4](#4-output)); what lies outside it
      (the chunks' padding past `ImageSize`) is not kept;
    - a group or a dataset whose key is not a Zarr node name of the
      hierarchy (empty, `.`, `..`, starting with `__`, holding a `/`, or
-     `zarr.json`): the member `name` of `unsupported` (§5.5);
+     `zarr.json`): the member `name` of `unsupported` ([§5.5](#55-unsupported-objects));
    - a **group**: walked, as the Zarr group at its path;
-   - any other **dataset**: §5.4.
+   - any other **dataset**: [§5.4](#54-datasets).
    If the object cannot be read (a structure outside the profile's subset,
-   or a dataset that §5.4 cannot map), the member `name` of `unsupported`
-   is its record (§5.5) instead.
+   or a dataset that [§5.4](#54-datasets) cannot map), the member `name` of `unsupported`
+   is its record ([§5.5](#55-unsupported-objects)) instead.
 
 The group's source metadata `S` is the object with the members
-`attributes` and `attribute_collisions` (§5.3), `names`, `collisions`,
+`attributes` and `attribute_collisions` ([§5.3](#53-attributes)), `names`, `collisions`,
 `links`, `images`, `datatypes`, `unsupported`, `overflow` and `spilled`
-(§5.6), each present only when it is not empty (or 0).
+([§5.6](#56-documents)), each present only when it is not empty (or 0).
 
 ### 5.2 Datatypes
 
@@ -395,7 +395,7 @@ reference** one of kind 1 and size 12.
 ([spec/virtualize.md §8.9](#89-source-metadata-structures)) is the committed datatype's own. When the walk met
 the committed datatype, the object that describes it (a dataset's `S`, an
 attribute's value, an unsupported record) has `"named": i`, the committed
-datatype's index in the object table (§5.7), instead of `"datatype": D`:
+datatype's index in the object table ([§5.7](#57-the-object-table)), instead of `"datatype": D`:
 `D` is in that datatype's entry of `datatypes`, once. Otherwise it has
 `"named": null` and `"datatype": D`. Indexes are given once the walk is
 over, so a datatype met after its users is named all the same. Below, the
@@ -406,7 +406,7 @@ over, so a datatype met after its users is named all the same. Below, the
 An object's attributes are the member `attributes` of its description (the
 group's or dataset's `S`, or its entry in `images`, `datatypes` or
 `unsupported`): `null` if the profile cannot read them ([spec/virtualize.md §8.6](#86-attributes)), else an object with one
-member per attribute, named by its key (its name as text, as §5.1 reads
+member per attribute, named by its key (its name as text, as [§5.1](#51-the-tree) reads
 member names), in ascending byte order of the names. An attribute whose
 key is an earlier attribute's is listed instead in the member
 `attribute_collisions` (an array, in that order), its value with the
@@ -415,8 +415,8 @@ not valid UTF-8 is kept in `attributes`, its value with `"name": {"latin1":
 ...}`. Both members are present only when they are not empty.
 
 **Values.** With `dims` the attribute's dataspace dimensions, `n` their
-product and `D` its datatype (§5.2), an attribute's value is the object
-`{"datatype": D, ...}` (or `"named"`, §5.2) with one of these:
+product and `D` its datatype ([§5.2](#52-datatypes)), an attribute's value is the object
+`{"datatype": D, ...}` (or `"named"`, [§5.2](#52-datatypes)) with one of these:
 
 - **null dataspace**: `"shape": null`, and nothing else;
 - **value form**: `"value": V`, where `V` is the single value when `dims`
@@ -430,7 +430,7 @@ product and `D` its datatype (§5.2), an attribute's value is the object
     ([conventions §6](../conventions.md#6-source-metadata-as-json)), when no NUL
     is left in any element; else the data form. A string datatype of size 0
     has `n` empty texts;
-  - for a **number** datatype: its numbers (conventions §6), when `n` is
+  - for a **number** datatype: its numbers ([conventions §6](../conventions.md#6-source-metadata-as-json)), when `n` is
     at most 64 and JSON holds each exactly: a NaN only as the quiet NaN with
     no payload and the sign bit clear (`0x7E00`, `0x7FC00000`,
     `0x7FF8000000000000`), and no negative zero; else the data form;
@@ -438,7 +438,7 @@ product and `D` its datatype (§5.2), an attribute's value is the object
     each element, read from the global heap: a string's text value (all its
     bytes), a sequence of numbers' list of numbers (held exactly, as above),
     or else the base64 of the sequence's bytes;
-  - for an **object reference**: the index in the object table (§5.7) of
+  - for an **object reference**: the index in the object table ([§5.7](#57-the-object-table)) of
     the object the reference holds (an object header's address), or `null`
     if the walk met none there (the null reference, 0, included);
   - for **any other datatype that holds addresses**, each element's value
@@ -456,7 +456,7 @@ product and `D` its datatype (§5.2), an attribute's value is the object
       block `"unlimited"` when all its bits are set); or `{"select":
       "hyperslab", "rank": k, "blocks": [[[start, ...], [end, ...]], ...]}`,
       each block's first and last coordinates, inclusive (each number as
-      conventions §6 writes integers);
+      [conventions §6](../conventions.md#6-source-metadata-as-json) writes integers);
     - another reference: none (the attribute has a reason);
     - variable-length: a string's text value; a sequence whose base does
       not hold addresses as above; else the list of its elements' `E`;
@@ -469,7 +469,7 @@ product and `D` its datatype (§5.2), an attribute's value is the object
     reference counts the size of its global heap object against a budget of
     2^22 bytes (4 MiB) of selections per file, each time it is read (a
     global heap object is read once, so that the references that share it
-    count its size but do not read it again): first the datasets' (§5.4),
+    count its size but do not read it again): first the datasets' ([§5.4](#54-datasets)),
     as the walk reads them, then the attributes', in the order the
     documents are settled. A reference past the budget cannot be read; the
     selections of an attribute or a dataset that cannot be kept (a reason,
@@ -479,25 +479,25 @@ product and `D` its datatype (§5.2), an attribute's value is the object
   that does not hold addresses, and for strings and numbers that the value
   form cannot hold;
 - **array form**: `"array": "attributes/<i>"` (or `"json"`, below), the
-  `i`th such array (from 0, in the order the documents are settled, §5.6)
-  under `vzip_source`, holding the attribute's data (conventions §7), with
+  `i`th such array (from 0, in the order the documents are settled, [§5.6](#56-documents))
+  under `vzip_source`, holding the attribute's data ([conventions §7](../conventions.md#7-source-values-as-arrays)), with
   `"shape": dims` unless `dims` has one dimension and is the array's shape
   (or, for a family, its number of members):
   - a string's data bytes: a `uint8` array of the data's length;
   - numbers: an array of their Zarr data type, in the attribute's byte
     order, of shape `dims`;
   - variable-length data whose base does not hold addresses: a family of
-    byte values (conventions §7) at that path, one member per element, each
+    byte values ([conventions §7](../conventions.md#7-source-values-as-arrays)) at that path, one member per element, each
     referenced where the global heap holds it;
   - object references: an `int32` array of shape `dims`, each the index of
-    the referenced object in the object table (§5.7), or −1 when the value
+    the referenced object in the object table ([§5.7](#57-the-object-table)), or −1 when the value
     form has `null`, copied;
   - any other datatype that holds addresses: `"json": "attributes/<i>"`, a
-    `uint8` array of the JSON text (§5.6) of the value form's `V`, copied,
+    `uint8` array of the JSON text ([§5.6](#56-documents)) of the value form's `V`, copied,
     with `"shape": dims` when `dims` has more than one dimension;
   - any other data: `uint8` of shape `dims` followed by the datatype's size.
 
-  Each array is cut as conventions §7 cuts contiguous values. The arrays of
+  Each array is cut as [conventions §7](../conventions.md#7-source-values-as-arrays) cuts contiguous values. The arrays of
   a string's data bytes, of numbers and of any other data reference the
   attribute's data where the file holds it, one run of bytes (in the block
   of the object header that holds the attribute message, or in the fractal
@@ -526,15 +526,15 @@ the bare text value of its data.
 data form over 4096 bytes, or variable-length data whose base does not hold
 addresses whose elements total over 2^16 bytes. An attribute that is not large is held as
 JSON (the value form, the data form or Imaris's form) when that fits in
-what its document has left (§5.6); otherwise it is in the array form. A
+what its document has left ([§5.6](#56-documents)); otherwise it is in the array form. A
 large variable-length attribute's elements are not read.
 
 ### 5.4 Datasets
 
 A dataset at path `P` that is not an image dataset is the Zarr array
-`vzip_source/hdf5` followed by `P` (conventions §7), with no dimension
-names and the source metadata `S`, `{"datatype": D}` (or `"named"`, §5.2),
-with `"fill"` (below) and its attributes (§5.3), when present:
+`vzip_source/hdf5` followed by `P` ([conventions §7](../conventions.md#7-source-values-as-arrays)), with no dimension
+names and the source metadata `S`, `{"datatype": D}` (or `"named"`, [§5.2](#52-datatypes)),
+with `"fill"` (below) and its attributes ([§5.3](#53-attributes)), when present:
 
 - **Data type and shape.** For a number datatype, its Zarr data type and
   byte order, and the dataset's dimensions. For an enumeration of a number,
@@ -577,9 +577,9 @@ with `"fill"` (below) and its attributes (§5.3), when present:
   is such a chunk with every filter's bit set: it is copied raw, and the
   dataset's other chunks are decoded.
 
-  An **implicit** chunk index (spec/virtualize.md §8.5) whose chunks, in
+  An **implicit** chunk index ([spec/virtualize.md §8.5](#85-datasets-and-chunks)) whose chunks, in
   row-major order, hold the dataset's elements in row-major order is read
-  as contiguous storage: the dataset is cut as conventions §7 cuts
+  as contiguous storage: the dataset is cut as [conventions §7](../conventions.md#7-source-values-as-arrays) cuts
   contiguous values, of its shape (followed by the extra dimensions) and
   its data type's size, from the index address. They do when the chunk
   shape is 1 along every dimension before some dimension `a` and is the
@@ -594,7 +594,7 @@ with `"fill"` (below) and its attributes (§5.3), when present:
   dimension's size (followed by the extra dimensions). Any other implicit
   index keeps its chunks, as above.
 
-  A contiguous dataset is cut as conventions §7 cuts contiguous values, of
+  A contiguous dataset is cut as [conventions §7](../conventions.md#7-source-values-as-arrays) cuts contiguous values, of
   its shape and its data type's size, each chunk referenced; a compact
   dataset is one chunk of its whole shape, copied. Unallocated storage has
   no chunks.
@@ -611,20 +611,20 @@ be at most 2^24, else the dataset is unsupported, so that no chunk decodes
 to more) and mapped by its datatype (its `S` has no fill value):
 
 - **variable-length** whose base does not hold addresses: a family of byte
-  values (conventions §7) at that path, one member per element in
+  values ([conventions §7](../conventions.md#7-source-values-as-arrays)) at that path, one member per element in
   row-major order, each the bytes of its global heap object (the string's
   bytes, or the sequence's elements), or empty for an element of length 0.
   The 2-D array, or the group of `offsets` and `data` (by which form the
   family has, even when no element has a byte), carries `S` with
   `"shape": dims`;
 - **object references**: an `int32` array of the dataset's dimensions, each
-  element the index of the referenced object in the object table (§5.7), or
+  element the index of the referenced object in the object table ([§5.7](#57-the-object-table)), or
   −1 for a reference to none, cut as contiguous values and copied, with
   `S`;
-- **region references**: a family of the JSON texts (§5.6) of the elements'
-  values (§5.3: `null` or `{"object", "selection"}`), copied, carrying `S`
+- **region references**: a family of the JSON texts ([§5.6](#56-documents)) of the elements'
+  values ([§5.3](#53-attributes): `null` or `{"object", "selection"}`), copied, carrying `S`
   with `"shape": dims`; when an element cannot be read (past the budget of
-  selections of §5.3, say), the dataset is unsupported;
+  selections of [§5.3](#53-attributes), say), the dataset is unsupported;
 - **compound** whose members each either do not hold addresses or are of
   one of the three datatypes above (and lie within the compound), of at
   most 2^24 bytes: a Zarr group at
@@ -638,11 +638,11 @@ to more) and mapped by its datatype (its `S` has no fill value):
 A dataset whose datatype otherwise holds addresses (variable-length data
 of references, references of other kinds, ...), of more elements, one whose
 data is in external files (an external data files message), a virtual
-dataset, and one with other filters, are unsupported (§5.5).
+dataset, and one with other filters, are unsupported ([§5.5](#55-unsupported-objects)).
 
 ### 5.5 Unsupported objects
 
-An object that §5.1 lists in `unsupported` has the record `{"reason": T}`,
+An object that [§5.1](#51-the-tree) lists in `unsupported` has the record `{"reason": T}`,
 `T` an informative English text, with what can be read of it (each when
 it can be read, and the object header can): `"datatype": D` (or
 `"named"`) for a dataset or a named datatype; for a dataset, `"shape"`
@@ -654,7 +654,7 @@ value, and the offset and size of its part), and, for a virtual dataset,
 `"virtual"`, its mappings ([spec/virtualize.md §8.9](#89-source-metadata-structures)) in order, each `{"file": T,
 "dataset": T, "source": S, "selection": S}`: the source file's and
 dataset's names as text values, and the source and virtual selections
-(§5.3); and its attributes (§5.3).
+([§5.3](#53-attributes)); and its attributes ([§5.3](#53-attributes)).
 
 ### 5.6 Documents
 
@@ -694,7 +694,7 @@ A document has a **budget** of 2^16 bytes (64 KiB). Its entries are taken
 in order, adding to `K`, from 0: an entry is **kept** in the document (as
 a member of `S`) when no entry before it was spilled and `K` plus its cost
 is at most 2^16, its cost then added to `K`; else it, and every entry
-after it, is **spilled**. An attribute **fits** (§5.3) when an entry
+after it, is **spilled**. An attribute **fits** ([§5.3](#53-attributes)) when an entry
 before it was spilled (spilled entries are data, not the document), or
 when `K`, plus the costs of the parts of its entry before it (a member's
 key and value, and its earlier attributes), plus its own cost as JSON, is
@@ -702,7 +702,7 @@ at most 2^16.
 
 A document with spilled entries has `"spilled": "spilled/<j>"`: the `j`th
 (from 0, in the order the documents are settled) family of byte values
-(conventions §7) under `vzip_source`, one member per spilled entry, in
+([conventions §7](../conventions.md#7-source-values-as-arrays)) under `vzip_source`, one member per spilled entry, in
 order, its JSON text, copied. A reader rebuilds `S` by adding each to it:
 the members of `attributes`, `names`, `links`, `images`, `datatypes` and
 `unsupported` to that member's, the items of `attribute_collisions` and
@@ -716,8 +716,8 @@ member datasets in the members' order.
 ### 5.7 The object table
 
 The objects the walk met are numbered from 0 in the order it met them (the
-root group first); an object's number is its **index**. Hard links (§5.1),
-named datatypes (§5.2) and object and region references (§5.3, §5.4) give
+root group first); an object's number is its **index**. Hard links ([§5.1](#51-the-tree)),
+named datatypes ([§5.2](#52-datatypes)) and object and region references ([§5.3](#53-attributes), [§5.4](#54-datasets)) give
 an object by its index, so that a long path is written once. The
 object table, the group `vzip_source/objects`, holds each object's parent
 and key, so that its size grows with the keys, not with the paths:
@@ -725,7 +725,7 @@ and key, so that its size grows with the keys, not with the paths:
 - `parent`: an `int32` array of one element per object, the index of the
   group where the walk met it (−1 for the root group), cut as contiguous
   values and copied;
-- `name`: a family of byte values (conventions §7) of one member per
+- `name`: a family of byte values ([conventions §7](../conventions.md#7-source-values-as-arrays)) of one member per
   object, its key in UTF-8 (empty for the root group), copied.
 
 The path of object `i` is `/` for the root group, else the path of its
@@ -745,13 +745,13 @@ The storage itself (chunk indices, B-trees, heaps, object headers, the
 order the file lists things in, and dead space), the filters' settings
 (and Fletcher32's checksums, and the chunks' filter masks), maximum dimensions, fill and allocation
 times, the padding of the image's datasets past `ImageSize`, and object
-comments. Of the objects listed in `unsupported`, only their record (§5.5)
+comments. Of the objects listed in `unsupported`, only their record ([§5.5](#55-unsupported-objects))
 is kept: the data of datasets (of virtual datasets, their mappings are
 kept) and the members of groups (the members of a group named `zarr.json`,
-say) are lost. Members beyond the walk's `100,000 + 5 × N` objects (§5.1)
+say) are lost. Members beyond the walk's `100,000 + 5 × N` objects ([§5.1](#51-the-tree))
 are counted, not described; objects reached only through a member that collides are not
 described; the fill values of datatypes that hold addresses, and data
-whose datatype holds addresses other than as §5.3 and §5.4 map it, are
+whose datatype holds addresses other than as [§5.3](#53-attributes) and [§5.4](#54-datasets) map it, are
 lost.
 
 ## 6. Example
@@ -861,7 +861,7 @@ and its `Histogram` dataset, the array at
 # Part 2. The profile
 
 The IMS profile of [spec/virtualize.md](../virtualize.md) (revision 16), numbered
-as its §8. §1 and §2 are in spec/virtualize.md and apply here.
+as its [§8](#8-ims-profile). [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here.
 
 The output has the convention's layout for the input
 ([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
@@ -875,7 +875,7 @@ datasets ([the convention §2.2](#22-the-imaris-layout)): one chunked 3-D datase
 channel, with text attributes for the sizes and the metadata ([the convention §3](#3-metadata)). The
 virtualizer reads the HDF5 structure itself, by the subset of the HDF5 file
 format (The HDF Group's *HDF5 File Format Specification*, version 3) that
-§8.1–§8.6 describe; whatever falls outside the subset rejects the input. The
+[§8.1](#81-hdf5-structures)–[§8.6](#86-attributes) describe; whatever falls outside the subset rejects the input. The
 pixels are never read.
 
 The subset is what real Imaris files use. Files written by Imaris 7 to 9,
@@ -957,7 +957,7 @@ that starts where an earlier block of the same header starts, and a header of
 more than 1000 blocks reject the input.
 
 The header's **messages** are the messages of all its blocks other than
-continuation messages, in order. Message types that §8.3–§8.6 do not read are
+continuation messages, in order. Message types that [§8.3](#83-groups-and-links)–[§8.6](#86-attributes) do not read are
 ignored, their data not decoded. Where those sections read **the** message of
 a type, the header MUST have at most one message of that type (exactly one
 where it is required), and that message's flag bit 1 (shared) MUST be clear.
@@ -967,7 +967,7 @@ where it is required), and that message's flag bit 1 (shared) MUST be clear.
 A group's **links** map names (byte strings) to targets: an object header
 address (a **hard** link), a path (a **soft** link), or neither (any other
 kind of link). **Opening** a group reads all its links from its object header
-(§8.2), and every check below applies to every link, whether or not it is
+([§8.2](#82-object-headers)), and every check below applies to every link, whether or not it is
 used.
 
 - The header MUST NOT have both a symbol table message (type 0x11) and a link
@@ -995,8 +995,8 @@ used.
     header's link messages (type 0x06), none of which may have flag bit 1
     (shared) set.
   - **Dense:** otherwise the name index MUST be defined; it is a version 2
-    B-tree of type 5 (§8.4), each of whose records is a 4-byte hash (not read)
-    and a 7-byte heap ID. The links are the fractal heap's objects (§8.4) with
+    B-tree of type 5 ([§8.4](#84-version-2-b-trees-and-fractal-heaps)), each of whose records is a 4-byte hash (not read)
+    and a 7-byte heap ID. The links are the fractal heap's objects ([§8.4](#84-version-2-b-trees-and-fractal-heaps)) with
     those IDs, each a link message. Link messages in the header are not read.
 - **Link message.** Byte 0 (the version) MUST be 1; byte 1 holds flags `G`.
   Then come: the link's type (1 byte) if `G & 8`, else type 0; 8 bytes if
@@ -1004,7 +1004,7 @@ used.
   `2^(G & 3)` bytes; the name, `n` bytes. A link of type 0 is hard: an
   address follows, which MUST be defined. A link of type 1 is soft: a 2-byte
   length `m` follows, then its path, `m` bytes. For any other type nothing
-  more is read here (the source metadata reads its value, §8.9).
+  more is read here (the source metadata reads its value, [§8.9](#89-source-metadata-structures)).
 
 Two links of a group with the same name reject the input.
 
@@ -1025,7 +1025,7 @@ sibling addresses are not read). Its entries are the `e(K + 8) + K` bytes at
 each child an address, which MUST be defined. The children of a node of level
 `L > 0` are nodes, whose level MUST be `L − 1` (the root's level is not
 checked); the children of a leaf (`L = 0`) are symbol table nodes (type 0)
-or chunks (type 1, §8.5), where key `i` describes child `i`. Within one
+or chunks (type 1, [§8.5](#85-datasets-and-chunks)), where key `i` describes child `i`. Within one
 tree, a node or a symbol table node read twice (at the same address) rejects
 the input.
 
@@ -1033,14 +1033,14 @@ the input.
 
 Dense groups and dense attributes keep their links and attribute messages as
 objects of a fractal heap, indexed by a version 2 B-tree; datasets of
-several unlimited dimensions index their chunks by one (§8.5).
+several unlimited dimensions index their chunks by one ([§8.5](#85-datasets-and-chunks)).
 
 **Version 2 B-trees.** A tree of type `T` at `a`: the 38 bytes at `a`
 start with `BTHD`, then version 0 and type `T` (byte 5). Its node size `N`
 is the 4 bytes at 6, its record size `R` the 2 bytes at 10, its depth `D`
 the 2 bytes at 12, the root node's address the 8 bytes at 16 (if undefined,
 the tree has no records) and the root's number of records the 2 bytes at 24.
-`R` MUST be 24, 11 or 17 for type 1, 5 or 8 (§8.5 gives the record sizes
+`R` MUST be 24, 11 or 17 for type 1, 5 or 8 ([§8.5](#85-datasets-and-chunks) gives the record sizes
 of types 10 and 11), `N` MUST be at least `10 + R`, and `D` at most 16.
 
 - **Sizes** (exact integer arithmetic): a leaf holds at most
@@ -1116,7 +1116,7 @@ first byte shifted right by 4 bits gives its kind:
 A dataset's object header has the dataspace message (type 0x01), the datatype
 message (type 0x03) and the data layout message (type 0x08), all required,
 and may have the fill value message (type 0x05) and the filter pipeline
-message (type 0x0B) (§8.2).
+message (type 0x0B) ([§8.2](#82-object-headers)).
 
 - **Dataspace.** Byte 0 is the version, byte 1 the rank `k`, byte 2 flags.
   Version 1: the sizes start at byte 8, and rank 0 is a scalar. Version 2:
@@ -1155,7 +1155,7 @@ message (type 0x0B) (§8.2).
     of `e` bytes, the index type (1 byte), the index's fields, and the index
     address (8 bytes). The index types are:
     - 1, a **single chunk**: if flag bit 1 is set, the chunk's size (8 bytes,
-      a length) and filter mask (4 bytes, which MUST be 0, §8.9);
+      a length) and filter mask (4 bytes, which MUST be 0, [§8.9](#89-source-metadata-structures));
     - 2, **implicit**: no fields;
     - 3, a **fixed array**: 1 byte, not read (the page bits of the fixed
       array header are used);
@@ -1170,7 +1170,7 @@ message (type 0x0B) (§8.2).
     dimension of size `n` and chunk shape `k` has `(g + 1) × k > n`, is
     stored unfiltered, whatever filter mask the index records: it is read
     as a chunk whose filter mask has the bit of every filter of the
-    pipeline set (§8.9), so an image dataset (whose masks MUST be 0) with
+    pipeline set ([§8.9](#89-source-metadata-structures)), so an image dataset (whose masks MUST be 0) with
     such a chunk rejects the input. A single chunk index without flag bit
     1, and an implicit index, with filters reject the input.
   - Other versions reject the input.
@@ -1196,7 +1196,7 @@ coordinates, an address and a size. No two may have the same coordinates;
 without filters, the size MUST equal the byte count; the size MUST be at least
 1; and the chunk (its size in bytes at its address) MUST lie within the file.
 
-- **Version 1 B-tree:** read (§8.3) with node type 1 and keys of
+- **Version 1 B-tree:** read ([§8.3](#83-groups-and-links)) with node type 1 and keys of
   `8 + 8m` bytes. A leaf's child `i` is a chunk's address, and its key
   `i` holds the chunk's size (4 bytes), its filter mask (4 bytes, which MUST
   be 0) and `m` offsets (8 bytes each). The last offset MUST be 0, and each
@@ -1272,7 +1272,7 @@ without filters, the size MUST equal the byte count; the size MUST be at least
     later, each of `2^g` elements followed by 4 bytes; a page that is not
     initialized holds no chunk and is not read. A data block of the index
     block MUST NOT be paged.
-- **Version 2 B-tree:** read as §8.4 says, of type 10 without filters,
+- **Version 2 B-tree:** read as [§8.4](#84-version-2-b-trees-and-fractal-heaps) says, of type 10 without filters,
   whose records are `8 + 8k` bytes for rank `k`, or of type 11 with,
   whose records are from `13 + 8k` to `20 + 8k` bytes. A record is the
   chunk's address (8 bytes, which MUST be defined); with filters, its size
@@ -1290,7 +1290,7 @@ attribute info message (type 0x15), if any:
   After 2 more bytes if flag bit 0 is set come the address of a fractal heap
   and the address of a name index. If the heap's address is defined (**dense
   attributes**), the name index MUST be defined; it is a version 2 B-tree of
-  type 8 (§8.4), each of whose records is a heap ID (8 bytes), message flags
+  type 8 ([§8.4](#84-version-2-b-trees-and-fractal-heaps)), each of whose records is a heap ID (8 bytes), message flags
   (1 byte, whose bit 1, shared, MUST be clear) and 8 bytes not read. The
   attributes are then also the fractal heap's objects with those IDs, each an
   attribute message.
@@ -1306,17 +1306,17 @@ attribute info message (type 0x15), if any:
 Every attribute's name is read; two attributes with the same name reject the
 input. An attribute's **value** is read only where the convention reads the
 attribute: its flag bits 0 and 1 (shared datatype or dataspace) MUST be
-clear; its datatype and dataspace (§8.5) MUST lie within the message; the
+clear; its datatype and dataspace ([§8.5](#85-datasets-and-chunks)) MUST lie within the message; the
 dataspace MUST NOT be null; its element count is the product of its sizes (1
 for a scalar); and its data, the next count × datatype size bytes, MUST lie
 within the message.
 
 ### 8.7 Rejection
 
-The input is rejected when a rule of §8.1–§8.6 fails for a structure that
-the convention's §2–§4 read, and when the convention gives it no layout:
+The input is rejected when a rule of [§8.1](#81-hdf5-structures)–[§8.6](#86-attributes) fails for a structure that
+the convention's [§2](#2-the-source)–[§4](#4-output) read, and when the convention gives it no layout:
 wherever it says that the input is rejected, or that something MUST hold
-and it does not. The source metadata (the convention §5) never rejects the
+and it does not. The source metadata ([the convention §5](#5-source-metadata)) never rejects the
 input: what it cannot read is `null`, or a member listed as unsupported.
 
 ### 8.8 Chunk references
@@ -1329,20 +1329,20 @@ are `t`, `c`, `i` (each only when its axis is present), `j`, `k`.
 Chunks in the padding are not output, and unallocated chunks have no entry.
 HDF5 stores edge chunks whole, like Zarr, so a chunk's bytes decode to its
 Zarr chunk. (A single range's payload is at most 21 bytes, within the limit
-of §1.2.)
+of [§1.2](../virtualize.md#12-input).)
 
 ### 8.9 Source metadata structures
 
-The source metadata (the convention §5) reads, besides §8.1–§8.6:
+The source metadata ([the convention §5](#5-source-metadata)) reads, besides [§8.1](#81-hdf5-structures)–[§8.6](#86-attributes):
 
 - **Datasets of every layout.** A layout message of version 3, 4 or 5 of
   class 0 (compact: the data's size in 2 bytes at byte 2, the data from
   byte 4), class 1 (contiguous: the address at byte 2, undefined when the
   storage is not allocated, and the size at byte 10) or class 2 (chunked,
-  as §8.5). Class 3 is a **virtual dataset** (below), whose data is not
+  as [§8.5](#85-datasets-and-chunks)). Class 3 is a **virtual dataset** (below), whose data is not
   read. The fill value message's value is its data (none when the
   message says it has none), which MUST be empty or of the datatype's size.
-- **Datatype messages** of versions 1 to 5 (§8.5 reads versions 1 to 3 for
+- **Datatype messages** of versions 1 to 5 ([§8.5](#85-datasets-and-chunks) reads versions 1 to 3 for
   the image; later versions keep the same fields).
 - **The global heap.** A collection at address `a` starts with `GCOL`,
   version 1, three reserved bytes and the collection's size (8 bytes),
@@ -1354,18 +1354,18 @@ The source metadata (the convention §5) reads, besides §8.1–§8.6:
   bytes: its length (4 bytes: characters for a string, else elements of
   the base datatype), the collection's address (8) and the object's index
   (4); a length of 0 is an empty element.
-- **Filter masks.** A chunk's filter mask (§8.5: in a version 1 B-tree's
+- **Filter masks.** A chunk's filter mask ([§8.5](#85-datasets-and-chunks): in a version 1 B-tree's
   key, a single chunk's layout message, an array index's entry or a version
   2 B-tree's record) may be any value: bit `i` set means that the pipeline's
   filter `i` (from 0, in pipeline order) was not applied to the chunk. A
-  partial edge chunk of a dataset with layout flag bit 0 (§8.5) has every
+  partial edge chunk of a dataset with layout flag bit 0 ([§8.5](#85-datasets-and-chunks)) has every
   filter's bit set.
 - **Attribute data.** An attribute message lies in the file in one run:
-  in the block of the object header that holds it (§8.2), or as a fractal
-  heap object (§8.4: a managed object within its direct block, a huge object
+  in the block of the object header that holds it ([§8.2](#82-object-headers)), or as a fractal
+  heap object ([§8.4](#84-version-2-b-trees-and-fractal-heaps): a managed object within its direct block, a huge object
   at the address its record gives). Its data is the run's bytes from where
-  §8.6 places it.
-- **Null dataspaces.** A dataset's or an attribute's null dataspace (§8.5)
+  [§8.6](#86-attributes) places it.
+- **Null dataspaces.** A dataset's or an attribute's null dataspace ([§8.5](#85-datasets-and-chunks))
   is read as such: it has no data.
 - **Shared datatypes.** A dataset's datatype message with flag bit 1
   (shared) set, and the datatype of an attribute message with flag bit 0
@@ -1373,15 +1373,15 @@ The source metadata (the convention §5) reads, besides §8.1–§8.6:
   is its version; in version 1 the address is the 8 bytes at byte 8, in
   version 2, and in version 3 when byte 1 (the type) is 2, the 8 bytes at
   byte 2; any other shared message leaves the datatype unread. The address
-  MUST be defined; it is a committed datatype's object header (§8.2), whose
+  MUST be defined; it is a committed datatype's object header ([§8.2](#82-object-headers)), whose
   datatype message (which MUST NOT be shared) is the datatype. An attribute
   message with flag bit 1 (shared dataspace) set is not read.
 - **Links of other types.** A link message of a type other than 0 and 1
-  (§8.3) has, after its name, a 2-byte length `m` and its value, `m`
+  ([§8.3](#83-groups-and-links)) has, after its name, a 2-byte length `m` and its value, `m`
   bytes; when they do not lie within the message the link has no value.
 - **External data files.** The external data files message (type 0x07):
   byte 0 (the version) MUST be 1; the number of used slots is the 2 bytes at
-  6 and the address of a local heap (§8.3) the 8 bytes at 8; slot `i` is
+  6 and the address of a local heap ([§8.3](#83-groups-and-links)) the 8 bytes at 8; slot `i` is
   the 24 bytes at `16 + 24i`: the offset of its file name in the heap's
   data segment (8 bytes; the name runs to the first NUL, which MUST occur
   within the segment), the offset in that file (8) and the size (8).

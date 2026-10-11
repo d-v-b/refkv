@@ -7,7 +7,7 @@ is in [spec/conventions.md](../conventions.md), cited here as "conventions §n".
 How vzip produces this layout as a virtual store is the SAFE profile,
 [Part 2](#part-2-the-profile) below.
 
-Convention version: 0 (until release, conventions §1) · UUID: `ef81346c-19e8-42ad-93b0-a279ccaf44c1` ·
+Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `ef81346c-19e8-42ad-93b0-a279ccaf44c1` ·
 Schema: [schema.json](safe/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the SAFE
@@ -33,27 +33,27 @@ per JP2 tile. Each chunk is a standalone JPEG 2000 codestream that is
 rebuilt from byte ranges of the band's file, plus a header that is shared
 by the band's chunks. The groups declare their coordinate reference system
 and affine transform with the zarr-conventions `proj` and `spatial`
-conventions (§5). The source's values are recorded but never applied: the
+conventions ([§5](#5-georeferencing-geozarr)). The source's values are recorded but never applied: the
 radiometric offsets and the quantification values are metadata of each band
-(§6.2). Every file of the product is kept: the XML files as text or as
-arrays of their bytes, and the other files whole (§6.3).
+([§6.2](#62-band-arrays)). Every file of the product is kept: the XML files as text or as
+arrays of their bytes, and the other files whole ([§6.3](#63-the-source-metadata-node)).
 
 Unlike the other conventions, the hierarchy has no OME-NGFF metadata. It is
 geospatial data, and its target formats are Zarr v3 and the GeoZarr
-conventions of §5. This section extends conventions §2 ("Nothing else"): the
+conventions of [§5](#5-georeferencing-geozarr). This section extends [conventions §2](../conventions.md#2-attributes) ("Nothing else"): the
 attributes of this convention's nodes may hold, besides `zarr_conventions`
-and `vzip_virtualized`, the members that §5 gives them (`proj:code`,
-`proj:wkt2`, `spatial:*` and `multiscales`), and only on the groups that §5
+and `vzip_virtualized`, the members that [§5](#5-georeferencing-geozarr) gives them (`proj:code`,
+`proj:wkt2`, `spatial:*` and `multiscales`), and only on the groups that [§5](#5-georeferencing-geozarr)
 names.
 
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "safe"`, `"version": 0`, `"revision": 25` (conventions §1), the input's URL as `source.url`
+with `"profile": "safe"`, `"version": 0`, `"revision": 25` ([conventions §1](../conventions.md#1-conventions)), the input's URL as `source.url`
 (the store URL, ending in `/`, of a directory, or the URL of a zip file),
-and the root's source metadata (§6.1) as the member `"safe"`. Each band
-array and `vzip_source` declare it with their own source metadata (§6.2,
-§6.3). The arrays under `vzip_source` have none. Its CMO is:
+and the root's source metadata ([§6.1](#61-values)) as the member `"safe"`. Each band
+array and `vzip_source` declare it with their own source metadata ([§6.2](#62-band-arrays),
+[§6.3](#63-the-source-metadata-node)). The arrays under `vzip_source` have none. Its CMO is:
 
 ```json
 {
@@ -67,7 +67,7 @@ array and `vzip_source` declare it with their own source metadata (§6.2,
 
 A node's `zarr_conventions` lists the CMOs of the conventions it uses, in
 this order: this convention's, then `multiscales`, `proj` and `spatial`
-(§5), each only when the node uses it.
+([§5](#5-georeferencing-geozarr)), each only when the node uses it.
 
 ## 2. The source
 
@@ -80,7 +80,7 @@ file. Keys compare as UTF-8 byte strings. The objects are classified as
 follows:
 
 - the **band files**: the objects that the product metadata lists as
-  images in `IMG_DATA` (§2.3);
+  images in `IMG_DATA` ([§2.3](#23-image-files));
 - the **XML documents**: every other object whose key is `manifest.safe`,
   or ends in `.xml` or `.xsd`;
 - the **other objects**: every other object. Among them are the quality
@@ -91,10 +91,10 @@ follows:
   auxiliary data (`AUX_DATA/*`), the `HTML` folder and the quicklook images
   that some mirrors add (the Google Cloud mirror's `<product>-ql.jpg`). In
   this version the masks, the probabilities and the preview image are kept
-  whole (§6.3), not presented as arrays.
+  whole ([§6.3](#63-the-source-metadata-node)), not presented as arrays.
 
 An object of size 0 is an **empty object**. It is none of the three kinds,
-and only its key is kept (§6.3).
+and only its key is kept ([§6.3](#63-the-source-metadata-node)).
 
 A **folder marker** is an object whose key is a nonempty `d` followed by
 `_$folder$`. Mirrors that emulate directories in a flat bucket write them:
@@ -110,11 +110,11 @@ The **named directories** are the `d` of every folder marker, and those
 that the profile names otherwise (a zip file's directory entries, a
 listing's empty objects whose keys end in `/`). A named directory is
 **empty** when no other key, of an object, of a folder marker or of a named
-directory, starts with `d/`. The empty directories are kept (§6.3), so that
-the rebuilt product has them (§6.4); the others are the directories of its
+directory, starts with `d/`. The empty directories are kept ([§6.3](#63-the-source-metadata-node)), so that
+the rebuilt product has them ([§6.4](#64-reconstruction)); the others are the directories of its
 objects.
 
-**Reading XML.** The product metadata and the tile metadata (§2.2, §2.4)
+**Reading XML.** The product metadata and the tile metadata ([§2.2](#22-the-product-metadata), [§2.4](#24-the-tile-geocoding))
 are read as the subset of XML 1.0 of
 [spec/virtualize.md §1.5](../virtualize.md#15-listing-a-store). They MUST be
 at most 2^24 bytes, and the input is rejected if they are not in that
@@ -133,7 +133,7 @@ the Level-2A products of processing baselines 02.04–02.06 use:
 `A/B/C` names the elements `C` that are children of a `B` that is a child of
 an `A`. An element's **text** is
 [§1.5's](../virtualize.md#15-listing-a-store), with leading and trailing
-whitespace (§1.3) removed. XML documents that this convention does not read
+whitespace ([§1.3](../virtualize.md#13-arithmetic)) removed. XML documents that this convention does not read
 are not parsed.
 
 ### 2.2 The product metadata
@@ -153,7 +153,7 @@ under the root. Their `IMAGE_FILE` children, in document order, are the
 granule. Processing baselines 02.04–02.07 list it three times, one
 `Granule_List` per resolution, each with the image files of that
 resolution: their image files are concatenated. That they name one granule
-is checked by §2.3.)
+is checked by [§2.3](#23-image-files).)
 
 ### 2.3 Image files
 
@@ -166,7 +166,7 @@ of the product, the image file's **band file**, whose **basename** `b` is
 the last segment of `F`. The others (PSD 14.2 lists its DEM under
 `AUX_DATA`, which the products do not hold, and its cloud and snow
 probabilities under `QI_DATA`) are not bands: their objects, if any, are
-other objects (§2.1).
+other objects ([§2.1](#21-objects)).
 
 `<g>` names the granule's directory. The **tile metadata** is the object
 `GRANULE/<g>/MTD_TL.xml`, which MUST exist, and whose root element MUST be
@@ -186,8 +186,8 @@ MUST be present once. It MUST have:
   most 2^32 − 1. No two have the same `r`;
 - for each `Size` of resolution `r`, exactly one child `Geoposition` whose
   attribute `resolution` is the same text, with one child each of `ULX`,
-  `ULY`, `XDIM` and `YDIM`, whose texts are decimal numbers (§6.1), finite
-  as binary64 values (spec/virtualize.md §1.3), with `XDIM` and `YDIM` not zero.
+  `ULY`, `XDIM` and `YDIM`, whose texts are decimal numbers ([§6.1](#61-values)), finite
+  as binary64 values ([spec/virtualize.md §1.3](../virtualize.md#13-arithmetic)), with `XDIM` and `YDIM` not zero.
   (`ULX` and `ULY` are the coordinates of the outer corner of the top-left
   pixel; `XDIM` and `YDIM` are the pixel's width and height, `YDIM`
   negative for a north-up grid.)
@@ -207,7 +207,7 @@ Each band file is a JP2 file whose codestream the profile reads and checks
   component, from 1 to 16, unsigned and not subsampled;
 - one **tile-part** per tile, in raster order.
 
-The band file's **resolution** is the `r` of the one `Size` (§2.4) whose
+The band file's **resolution** is the `r` of the one `Size` ([§2.4](#24-the-tile-geocoding)) whose
 `NCOLS` is `W` and whose `NROWS` is `H`; if none or several match, the input
 is rejected. Its **band name** is the basename `b`, with the suffix `_<r>m`
 removed if `b` ends with it, then the part of it after its last `_` (all of
@@ -223,12 +223,12 @@ So in a Level-1C product `T32TNS_20240103T101329_B02` is the band `B02` at
 
 The hierarchy is:
 
-- the root, a group (§5.3);
+- the root, a group ([§5.3](#53-the-root));
 - for each resolution `r` of a band file, in ascending order, the group
-  `r<r>m` (for example `r10m`), a child of the root (§5.2), and in it one
-  array per band file of that resolution, named by its band name (§4);
+  `r<r>m` (for example `r10m`), a child of the root ([§5.2](#52-resolution-groups)), and in it one
+  array per band file of that resolution, named by its band name ([§4](#4-arrays));
 - the group `vzip_source`, a child of the root, holding the source's other
-  metadata (§6.3).
+  metadata ([§6.3](#63-the-source-metadata-node)).
 
 A product whose bands have the resolutions 10, 20 and 60 m, as every
 product does, has the groups `r10m`, `r20m` and `r60m`. A Level-1C product
@@ -257,8 +257,8 @@ size `T × U` is an array whose `zarr.json` is as in
   `[{"name": "transpose", "configuration": {"order": [1, 2, 0]}}, {"name": "imagecodecs_jpeg2k"}]`
   when `C = 3` (the codestream decodes to `[y, x, c]`);
 - `fill_value` 0;
-- `attributes`: the declaration of §1 with the band's source metadata
-  (§6.2).
+- `attributes`: the declaration of [§1](#1-declaration) with the band's source metadata
+  ([§6.2](#62-band-arrays)).
 
 **Chunks.** The chunk at `<group>/<band>/c/<v>/<u>` (`<group>/<band>/c/0/<v>/<u>`
 when `C = 3`), for `0 ≤ u < nx` and `0 ≤ v < ny`, is the tile `t = v × nx + u`
@@ -287,7 +287,7 @@ file and a few bytes of their own
 ([spec/virtualize.md §12.6](#126-chunks)).
 
 The band file's other bytes are kept in the source metadata: the JP2 boxes
-before the codestream (§6.3), and the original SIZ marker segment (§6.2).
+before the codestream ([§6.3](#63-the-source-metadata-node)), and the original SIZ marker segment ([§6.2](#62-band-arrays)).
 The rest of the main header, its coding style, quantization and comments,
 is in every chunk.
 
@@ -320,7 +320,7 @@ tag `v0.1`, whose members are prefixed keys at the top level of
 
 A Level-2A root also uses
 [`multiscales`](https://github.com/zarr-conventions/multiscales/blob/v0.1/README.md)
-(§5.3), with the CMO
+([§5.3](#53-the-root)), with the CMO
 ```json
 {"uuid": "d35379db-88df-4056-af3a-620245f8e347",
  "schema_url": "https://raw.githubusercontent.com/zarr-conventions/multiscales/refs/tags/v0.1/schema.json",
@@ -334,8 +334,8 @@ Each CMO is written exactly as above, with these five members.
 ### 5.1 The grid of a resolution
 
 For the resolution `r`, with the `Size` `NROWS`, `NCOLS` and the
-`Geoposition` `ULX`, `ULY`, `XDIM`, `YDIM` of §2.4 (as binary64 values,
-spec/virtualize.md §1.3):
+`Geoposition` `ULX`, `ULY`, `XDIM`, `YDIM` of [§2.4](#24-the-tile-geocoding) (as binary64 values,
+[spec/virtualize.md §1.3](../virtualize.md#13-arithmetic)):
 
 - the **transform** is `[XDIM, 0, ULX, 0, YDIM, ULY]`: the affine
   coefficients `[a, b, c, d, e, f]` of the spatial convention, which maps the
@@ -369,12 +369,12 @@ The attributes of the group `r<r>m` are:
 ```
 
 where `P` and `Q` are the CMOs of `proj` and `spatial`, `proj:code` is the
-CRS code (§2.4) as written, `proj:wkt2` is as below (shortened here), and
+CRS code ([§2.4](#24-the-tile-geocoding)) as written, `proj:wkt2` is as below (shortened here), and
 the transform, shape and bounding box are
-those of resolution `r` (§5.1). The proj convention applies a group's CRS
+those of resolution `r` ([§5.1](#51-the-grid-of-a-resolution)). The proj convention applies a group's CRS
 to its direct child arrays, and the spatial convention its properties, so
 the band arrays carry neither. Every band array's `shape` ends with the
-group's `spatial:shape` (§2.5), and its dimension names include `y` and
+group's `spatial:shape` ([§2.5](#25-band-files)), and its dimension names include `y` and
 `x`.
 
 **`proj:wkt2`.** When the CRS code is `EPSG:` followed by one of the
@@ -416,10 +416,10 @@ EPSG code is what the product gives.
 
 ### 5.3 The root
 
-The root's attributes are the declaration of §1 and:
+The root's attributes are the declaration of [§1](#1-declaration) and:
 
-- `proj:code`, the CRS code, `proj:wkt2` as §5.2 gives it, and
-  `spatial:bbox`, the bounding box of the first resolution group (§5.1), so
+- `proj:code`, the CRS code, `proj:wkt2` as [§5.2](#52-resolution-groups) gives it, and
+  `spatial:bbox`, the bounding box of the first resolution group ([§5.1](#51-the-grid-of-a-resolution)), so
   that a reader finds where the product is without opening a group. The
   root's `zarr_conventions` then lists the CMOs of `proj` and `spatial`.
 - for a Level-2A product, `multiscales`, with `spatial:dimensions`
@@ -432,7 +432,7 @@ The root's attributes are the declaration of §1 and:
     {"asset": "r60m", "spatial:shape": [1830, 1830], "spatial:transform": [60.0, 0.0, 499980.0, 0.0, -60.0, 5200020.0]}
   ]}
   ```
-  with one layout item per resolution group, in the order of §3, whose
+  with one layout item per resolution group, in the order of [§3](#3-the-hierarchy), whose
   `asset` is the group's name and whose `spatial:shape` and
   `spatial:transform` are the group's.
 
@@ -459,21 +459,21 @@ The values this section copies from the XML are translated as follows (in
 place of [conventions §6](../conventions.md#6-source-metadata-as-json)'s rules for
 binary fields, which do not apply):
 
-- An element's **value** is its text (§2.1). If it is a **decimal number**
+- An element's **value** is its text ([§2.1](#21-objects)). If it is a **decimal number**
   (an optional `-` or `+`, one or more digits, optionally `.` and one or more
   digits, and optionally `e` or `E`, an optional sign and one or more
   digits), it is a JSON number: an integer when it has neither a fraction
-  nor an exponent (conventions §6: the string of its digits beyond
+  nor an exponent ([conventions §6](../conventions.md#6-source-metadata-as-json): the string of its digits beyond
   2^53 − 1), and otherwise its binary64 value. A `+` and leading zeros are
   not kept. Otherwise the value is the JSON string of the text.
 - A **measure** is an element with an attribute `unit`: the object
   `{"value": V, "unit": T}`, where `V` is its value and `T` the attribute's
   value as a string. Without the attribute, it is its value alone.
 - A field that is missing, or found more than once where one is named, is
-  absent. **Source metadata never rejects**: only what §2 reads for the
+  absent. **Source metadata never rejects**: only what [§2](#2-the-source) reads for the
   layout is checked.
 
-The XML documents themselves are kept whole (§6.3), and they are the
+The XML documents themselves are kept whole ([§6.3](#63-the-source-metadata-node)), and they are the
 record of the product's metadata. What follows is a **derived
 convenience**: a fixed set of fields copied from them into JSON, not a
 translation of the XML. It holds what a reader needs to
@@ -504,7 +504,7 @@ to nine digits of the value `i`.
 A band's source metadata `S` is an object with these members, in this
 order, each present only when its value is:
 
-- `IMAGE_FILE`: the image file's text (§2.3);
+- `IMAGE_FILE`: the image file's text ([§2.3](#23-image-files));
 - for a spectral band with band id `i`:
   - `bandId`: `i`; `physicalBand`: `PB`;
   - `RESOLUTION`: the value of `RESOLUTION` under its `Spectral_Information`;
@@ -531,7 +531,7 @@ order, each present only when its value is:
   in order, with the values of its children `SCENE_CLASSIFICATION_TEXT` and
   `SCENE_CLASSIFICATION_INDEX`, those present (and absent when there are more
   than 64 such elements; a product has 12);
-- `siz`: the base64 (conventions §6) of the band file's SIZ marker segment,
+- `siz`: the base64 ([conventions §6](../conventions.md#6-source-metadata-as-json)) of the band file's SIZ marker segment,
   from its `FF 51` marker to its end, which the chunks replace with their
   own.
 
@@ -584,7 +584,7 @@ with the members, in this order, each present only when its value is:
 - `PRODUCT_URI`, `PROCESSING_LEVEL`, `PRODUCT_TYPE`, `PROCESSING_BASELINE`:
   the values of those children of `General_Info/Product_Info` in the product
   metadata. (`PROCESSING_BASELINE` is the string `"05.10"`, not a number:
-  it is a version, but by §6.1 its text is a decimal number. As an
+  it is a version, but by [§6.1](#61-values) its text is a decimal number. As an
   exception, these four are always strings.)
 - `Special_Values`: an array with one object per element
   `X/Special_Values`, in order, with the values of its children
@@ -608,7 +608,7 @@ metadata `S` is the object
 where each member is present only when it is not empty:
 
 - `xml`: one member per XML document kept as **text** (below), in ascending
-  order of keys: its key, and its **text value** (conventions §6: the JSON
+  order of keys: its key, and its **text value** ([conventions §6](../conventions.md#6-source-metadata-as-json): the JSON
   string of its bytes when they are UTF-8, else `{"latin1": T}`).
 - `xml_arrays`: the keys of the other XML documents, in ascending order of
   keys. The `i`-th (from 0) is the array `vzip_source/xml/<i>`: its bytes as
@@ -616,10 +616,10 @@ where each member is present only when it is not empty:
   **Bytes**), with no attributes. (Such are the tile metadata,
   190–630 KB, and the datastrip metadata `MTD_DS.xml`, 15–25 MB.)
 - `empty`: the keys of the empty objects, ascending;
-- `empty_dirs`: the empty directories (§2.1), ascending, each without a
+- `empty_dirs`: the empty directories ([§2.1](#21-objects)), ascending, each without a
   final `/`;
 - `ignored`: the keys of the objects that the listing recorded but did
-  not use (spec/virtualize.md §1.4, and for a zip file its directory entries
+  not use ([spec/virtualize.md §1.4](../virtualize.md#14-store-inputs), and for a zip file its directory entries
   that are recorded likewise, [spec/virtualize.md §12.4](#124-the-zip-form)),
   ascending.
 
@@ -636,7 +636,7 @@ with its string escapes (`\"`, `\\`, `\b`, `\f`, `\n`, `\r`, `\t`, and
 `\u00XX` with lowercase hex digits for the other code points below
 U+0020). Moving a document from `xml_arrays` to `xml` only makes `S` larger,
 so the result does not depend on how a producer computes it (nor on
-whether it reads a candidate that cannot fit, spec/virtualize.md §12.2).
+whether it reads a candidate that cannot fit, [spec/virtualize.md §12.2](#122-objects-and-reading)).
 `empty`, `empty_dirs` and `ignored` count in the size but never move: a
 product whose listing records many keys may keep every XML document as an
 array. (So the budget bounds
@@ -652,7 +652,7 @@ It also holds:
   the bytes of its band file before the codestream (the JP2 signature, file
   type and header boxes, the GML-in-JP2 georeferencing, any other boxes,
   and the header of the contiguous codestream box `jp2c`), as an array of
-  bytes (conventions §7, **Bytes**), with no attributes. The groups
+  bytes ([conventions §7](../conventions.md#7-source-values-as-arrays), **Bytes**), with no attributes. The groups
   `vzip_source/jp2` and `vzip_source/jp2/<group>` have no attributes.
 - every other object, kept whole as the
   [Zarr v2 convention §5](zarr2.md#5-other-objects) keeps one: the
@@ -682,7 +682,7 @@ each tile has one tile-part with `TPsot = 0` and `TNsot = 1`, so nothing
 else is needed. What is not kept is layout. That is the order of a
 directory listing, the ZIP container (its headers, the timestamps of its
 entries and its directory entries), the mirror's own metadata (generations
-and storage class) and its folder markers (§2.1), and, for an XML document
+and storage class) and its folder markers ([§2.1](#21-objects)), and, for an XML document
 of a zip file that was deflate-compressed, its compressed bytes. (A folder
 marker's 6 bytes are not kept, but its directory is.)
 
@@ -749,8 +749,8 @@ are 370 × 370, and its tiles 1, 2 and 3 hold empty packets.
 # Part 2. The profile
 
 The SAFE profile of [spec/virtualize.md](../virtualize.md) (revision 17, draft),
-numbered as its §12. (Conformance is spec/virtualize.md's §14.)
-§1 and §2 are in spec/virtualize.md and apply here, with the changes this
+numbered as its [§12](#12-safe-profile). (Conformance is spec/virtualize.md's [§14](../virtualize.md#14-conformance).)
+[§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here, with the changes this
 document states.
 
 The output has the convention's layout for the input
@@ -763,11 +763,11 @@ references the product. "The convention §n" below is a section of Part 1.
 A Sentinel-2 Level-1C or Level-2A product in the SAFE format is read in one
 of two forms:
 
-- **the directory form**, a store input (§1.4): `U` is the URL of the
-  `.SAFE` directory, ending in `/`. It is listed as §1.5 says, and the
-  profile is chosen there (§12.1);
-- **the zip form**, a file input (§1.2): `U` is the URL of a `.SAFE.zip`
-  file, and its entries are the product's objects (§12.4).
+- **the directory form**, a store input ([§1.4](../virtualize.md#14-store-inputs)): `U` is the URL of the
+  `.SAFE` directory, ending in `/`. It is listed as [§1.5](../virtualize.md#15-listing-a-store) says, and the
+  profile is chosen there ([§12.1](#121-choosing-the-profile));
+- **the zip form**, a file input ([§1.2](../virtualize.md#12-input)): `U` is the URL of a `.SAFE.zip`
+  file, and its entries are the product's objects ([§12.4](#124-the-zip-form)).
 
 The two forms give the same hierarchy for the same product, but for
 `source.url` and the source table: every document is the same, and every
@@ -775,32 +775,32 @@ chunk holds the same bytes.
 
 ### 12.1 Choosing the profile
 
-**Directory form.** spec/virtualize.md §1.4's table gains a row, after the N5
+**Directory form.** [spec/virtualize.md §1.4](../virtualize.md#14-store-inputs)'s table gains a row, after the N5
 row:
 
 | root keys | |
 |---|---|
-| `manifest.safe` | SAFE profile (§12) |
+| `manifest.safe` | SAFE profile ([§12](#12-safe-profile)) |
 
-**Zip form.** spec/virtualize.md §1.2's table gains a row, before the last:
+**Zip form.** [spec/virtualize.md §1.2](../virtualize.md#12-input)'s table gains a row, before the last:
 
 | test on `H` | |
 |---|---|
-| bytes 0–3 are `50 4B 03 04` (a ZIP local file header) | SAFE profile (§12), zip form |
+| bytes 0–3 are `50 4B 03 04` (a ZIP local file header) | SAFE profile ([§12](#12-safe-profile)), zip form |
 
-A zip file that is not a SAFE product is rejected by §12.4 or by the
+A zip file that is not a SAFE product is rejected by [§12.4](#124-the-zip-form) or by the
 convention.
 
 ### 12.2 Objects and reading
 
 The product's objects are, in the directory form, the store's objects
-(§1.4), and in the zip form its entries (§12.4). The profile reads:
+([§1.4](../virtualize.md#14-store-inputs)), and in the zip form its entries ([§12.4](#124-the-zip-form)). The profile reads:
 
 - the product metadata and the tile metadata
   ([the convention §2](#2-the-source)), whole;
 - the XML documents of at most 65536 bytes (the candidates of
   [the convention §6.3](#63-the-source-metadata-node)),
-  whole, for their text values, in the order in which §6.3 takes them, as
+  whole, for their text values, in the order in which [§6.3](#63-the-source-metadata-node) takes them, as
   long as they can still become text: reading stops at the first candidate
   of `n` bytes for which `J + n > 65536`, where `J` is the size of the JSON
   of `S` with only its members `xml` (the texts chosen so far), `empty`,
@@ -808,19 +808,19 @@ The product's objects are, in the directory form, the store's objects
   larger than `J + n`, and neither it nor any later candidate, which is no
   smaller, can be text.) A virtualizer reads at most 16 candidates ahead of
   the one it takes;
-- of each band file, its boxes and codestream main header (§12.3) and the
+- of each band file, its boxes and codestream main header ([§12.3](#123-band-files)) and the
   first 12 bytes of each tile-part (its SOT marker segment).
 
-It reads no other bytes (but, in the zip form, those of §12.4). It does not
+It reads no other bytes (but, in the zip form, those of [§12.4](#124-the-zip-form)). It does not
 read the folder markers
 ([the convention §2.1](#21-objects)), the
 other objects, or the other XML documents but the product and tile
 metadata. The reads of a band file include no coded data
 but what the blocks a reader fetches happen to hold (**Structure only**,
-§1.2). In the directory form, this replaces §1.4's rule that an object is
+[§1.2](../virtualize.md#12-input)). In the directory form, this replaces [§1.4](../virtualize.md#14-store-inputs)'s rule that an object is
 read whole, and the listing's empty objects whose keys end in `/` (which
-§1.4 ignores without recording them) name directories (the convention
-§2.1): a band file is read in ranges, with HTTP range requests. A
+[§1.4](../virtualize.md#14-store-inputs) ignores without recording them) name directories (the convention
+[§2.1](#21-objects)): a band file is read in ranges, with HTTP range requests. A
 response that is not of the requested length is a failure.
 
 ### 12.3 Band files
@@ -865,7 +865,7 @@ input is rejected.
   moves the packet headers out of the tiles. The bytes from the end of the
   SIZ segment to the first SOT are the **main header rest** `R`, which is
   at least the COD and QCD segments, and MUST be at most 65536 bytes (it is
-  a data source, §12.6, copied into the output; Kakadu's is 148 bytes).
+  a data source, [§12.6](#126-chunks), copied into the output; Kakadu's is 148 bytes).
 - **COD**: `Scod` (`u8`), which MUST be 0 or 1 (no SOP or EPH markers, and
   default precinct anchors), the progression order (`u8`), the number of
   layers `Lay` (`u16`, at least 1), the multiple component transform
@@ -921,9 +921,9 @@ integers are little-endian.
 - **The product.** Every name MUST start with the same segment `D` followed
   by `/`, where `D` ends in `.SAFE`. An entry's key is its name without
   `D/`. An entry whose key is empty or ends in `/` is a directory entry. It
-  is ignored, and its key is recorded unless its size is 0 (as §1.4 does
+  is ignored, and its key is recorded unless its size is 0 (as [§1.4](../virtualize.md#14-store-inputs) does
   for the listing). Its key, if not empty, names a directory (the
-  convention §2.1). Otherwise a key MUST NOT contain an empty segment, `.`
+  convention [§2.1](#21-objects)). Otherwise a key MUST NOT contain an empty segment, `.`
   or `..`, nor a `\`. The product's objects are the other entries, with
   size `us`.
 - **Empty objects.** An entry of size `us = 0` that is not a directory
@@ -947,20 +947,20 @@ integers are little-endian.
   and tile metadata, a candidate for text, an array's bytes), one at a time,
   not all at once. The raw deflate stream
   MUST end exactly at `cs` bytes and give exactly `us` bytes, whose CRC-32
-  MUST be the entry's. The output copies its bytes (§12.7). Any other
+  MUST be the entry's. The output copies its bytes ([§12.7](#127-metadata-arrays-and-other-objects)). Any other
   method, and method 8 for any other object, rejects the input. (The
   pixels can only be referenced in place when they are stored. ESA's SAFE
   zips store every entry. The bytes copied from a deflated XML document are
   metadata, not pixels.)
 
 The local headers and the deflated XML documents (each when it is needed)
-are read, and the reads of §12.2 apply to the stored XML documents and band
+are read, and the reads of [§12.2](#122-objects-and-reading) apply to the stored XML documents and band
 files, at their data start.
 
 ### 12.5 Rejection and limits
 
-The input is rejected when a check of §1.2 (zip form) or §1.4–§1.6
-(directory form), §12.3 or §12.4 fails, and when the convention gives it no
+The input is rejected when a check of [§1.2](../virtualize.md#12-input) (zip form) or [§1.4](../virtualize.md#14-store-inputs)–[§1.6](../virtualize.md#16-json-documents)
+(directory form), [§12.3](#123-band-files) or [§12.4](#124-the-zip-form) fails, and when the convention gives it no
 layout: wherever it says that the input is rejected, or that something MUST
 hold and it does not. In particular:
 
@@ -973,26 +973,26 @@ hold and it does not. In particular:
   that is signed, subsampled or of more than 16 bits;
 - a band file whose size matches no resolution of the tile geocoding;
 - a band file whose chunks would need empty tiles of more than 4096 bytes
-  in one chunk, or more than the band file's size in all (§12.6);
+  in one chunk, or more than the band file's size in all ([§12.6](#126-chunks));
 - an XML document that the convention reads whose elements nest more than
-  256 deep (§1.5);
+  256 deep ([§1.5](../virtualize.md#15-listing-a-store));
 - in the zip form, an encrypted entry, a band file or other object that is
   compressed, entries whose bytes overlap, a deflated XML document of more
   than 2^26 bytes, or deflated XML documents of more than 2^27 bytes
   together.
 
 **Limits.** Every reference entry's payload MUST be at most 65519 bytes
-(§1.2). A chunk's payload is about 100 bytes for an interior tile, and
-grows with the empty tiles of an edge chunk (§12.6), which are bounded
+([§1.2](../virtualize.md#12-input)). A chunk's payload is about 100 bytes for an interior tile, and
+grows with the empty tiles of an edge chunk ([§12.6](#126-chunks)), which are bounded
 there: at most 4096 bytes per chunk, and at most the band file's size for
 all its chunks, before they are made. Every Sentinel-2 tiling is well
 within these: the most measured is 1439 bytes, the corner chunk of a
 Level-2A 60 m true-color image (1830 pixels in tiles of 256: an edge of 38,
 so 48 empty tiles), and a band's are at most 4.3 kB in all, for band files
 of 0.2–160 MB. An output key MUST be at most 65535 bytes and
-MUST NOT start with `__vz__/` (§1.4). The browser implementation fails, as
+MUST NOT start with `__vz__/` ([§1.4](../virtualize.md#14-store-inputs)). The browser implementation fails, as
 for the other store profiles, on a listing of more than 100000 objects
-(§14). A product has 60–1000 objects.
+([§14](../virtualize.md#14-conformance)). A product has 60–1000 objects.
 
 ### 12.6 Chunks
 
@@ -1009,7 +1009,7 @@ The chunk of band array `<group>/<band>` at tile `t = v × nx + u`
    2^32 − 1. `Rsiz` is 0 because a profile's restrictions on the tile size
    may not hold for the new tiles. The file's own is kept in the segment
    `siz` of the source metadata.)
-2. the main header rest `R`, a shared byte string (§1.2): the whole of the
+2. the main header rest `R`, a shared byte string ([§1.2](../virtualize.md#12-input)): the whole of the
    data source that holds it;
 3. a literal: the SOT segment `FF 90 00 0A`, `Isot = 0`, the tile-part's
    `Psot`, `00 01`;
@@ -1019,7 +1019,7 @@ The chunk of band array `<group>/<band>` at tile `t = v × nx + u`
    `k` (`i = k mod a` across, `j = k div a` down): `FF 90 00 0A`,
    `Isot = k`, `Psot = 14 + e_k`, `00 01`, then SOD `FF 93`, then `e_k`
    bytes `00`; then EOC `FF D9`. An interior chunk's tail is `FF D9`, a
-   literal. An edge chunk's (`a × b > 1`) is a shared byte string (§1.2),
+   literal. An edge chunk's (`a × b > 1`) is a shared byte string ([§1.2](../virtualize.md#12-input)),
    like piece 2.
 
 **Bounds.** A tail is `2 + Σ_k (14 + e_k)` bytes. Before it is made, its
@@ -1035,7 +1035,7 @@ within the input's size.)
 `ey1` likewise from `y0`, `j`, `h` and `U`. Its `e_k` empty packets, each
 the single byte `00` (a packet header whose first bit says the packet is
 empty), are one per layer, component, resolution and precinct. With
-`N_c` and `PPx_r`, `PPy_r` those of component `c` (§12.3):
+`N_c` and `PPx_r`, `PPy_r` those of component `c` ([§12.3](#123-band-files)):
 
 ```
 e_k = Lay × Σ_c Σ_{r=0}^{N_c} nprec(ex0, ex1, N_c − r, PPx_r) × nprec(ey0, ey1, N_c − r, PPy_r)
@@ -1069,16 +1069,16 @@ range of the file it would cost a reader a separate request per chunk. An
 edge chunk's tail is the same along an edge of a band, and in every band
 of the same tiling and coding (2–5 distinct tails per band, in the products
 examined), so it is held once too. The data sources are the distinct main
-header rests and edge tails, numbered as §1.2 says. They are COD, QCD and
+header rests and edge tails, numbered as [§1.2](../virtualize.md#12-input) says. They are COD, QCD and
 COM marker segments (coding parameters and the encoder's comments), and
-empty tile-parts, not pixel data (§1.2, **Structure only**).
+empty tile-parts, not pixel data ([§1.2](../virtualize.md#12-input), **Structure only**).
 
 ### 12.7 Metadata arrays and other objects
 
 - **XML arrays.** The array `vzip_source/xml/<i>` holds the bytes of an
-  XML document that the convention §6.3 keeps as an array (one of more than
+  XML document that [the convention §6.3](#63-the-source-metadata-node) keeps as an array (one of more than
   65536 bytes, or one past the budget), as an array of bytes (conventions
-  §7): `k = ceil(len / 2^24)`
+  [§7](../conventions.md#7-source-values-as-arrays)): `k = ceil(len / 2^24)`
   chunks of `ceil(len / k)` bytes. Each chunk references its bytes in the
   object (the last padded with literal zero bytes), or, for a deflated
   entry of a zip file, holds them as copied bytes (an entry with bytes, not
@@ -1094,24 +1094,24 @@ empty tile-parts, not pixel data (§1.2, **Structure only**).
 
 The XML texts are in the documents (`vzip_source/zarr.json`). The
 documents under `vzip_source/` are deflated and, like the chunks, not among
-the documents a reader fetches when it opens the archive (conventions §2).
+the documents a reader fetches when it opens the archive ([conventions §2](../conventions.md#2-attributes)).
 
 ### 12.8 The source table
 
 References are listed in ascending order of their entries' keys (as UTF-8
 byte strings), and within a reference in order of its ranges. This order
-numbers the data sources (§1.2's order of first use).
+numbers the data sources ([§1.2](../virtualize.md#12-input)'s order of first use).
 
-- **Zip form.** Source 0 is `U` (§1.2), and the data sources follow, from
+- **Zip form.** Source 0 is `U` ([§1.2](../virtualize.md#12-input)), and the data sources follow, from
   1.
 - **Directory form.** The sources are first one `url` source per object
   that some reference uses (every band file, every XML document with an
   array, every other object), with a `size` pin, the object's listed size,
-  and the object's URL (§1.4),
+  and the object's URL ([§1.4](../virtualize.md#14-store-inputs)),
   in ascending order of the objects' keys, numbered from 0. The data
   sources follow, numbered from the count `m` of url sources in order of
-  first use (§1.2's rule, starting at `m` rather than 1). This
-  replaces §1.4's rule that a store input's sources are one per entry and
+  first use ([§1.2](../virtualize.md#12-input)'s rule, starting at `m` rather than 1). This
+  replaces [§1.4](../virtualize.md#14-store-inputs)'s rule that a store input's sources are one per entry and
   that it has no data sources: a band file is used by many chunks, by its
   JP2 header array, and by nothing else.
 

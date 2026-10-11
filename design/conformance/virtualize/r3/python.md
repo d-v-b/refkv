@@ -16,12 +16,12 @@ could still differ. They are ordered by how likely they are to matter.
 
 ## A. Issues that can change accept/reject or output
 
-### A1. §4.3: are nodes that are "skipped (not visited)" still checked? (moderate)
+### A1. [§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r3.md#43-metadata): are nodes that are "skipped (not visited)" still checked? (moderate)
 
 The text pulls two ways:
 
 - The preamble says: "Every member listed in this section is read and checked
-  (with the kind given, §4.2) **wherever it is present in the places
+  (with the kind given, [§4.2](../../../../spec/history/virtualize/VIRTUALIZE.r3.md#42-lite-variant)) **wherever it is present in the places
   described, whether or not its value ends up in the output**." The
   experiment is also "a tree of objects (any other value rejects)".
 - The flattening steps say: "For each node **visited**, in this order: 1. its
@@ -38,7 +38,7 @@ is dropped") raises the same question for its own members.
 **Decision:** I check the whole tree. That means every node's `eType`,
 `uLoopPars`, `pItemValid` and `ppNextLevelEx`, plus the loop members of every
 node that has `uLoopPars`, for its own `eType`, whether or not the node is
-visited, skipped or dropped. I based this on the preamble and on §1.2
+visited, skipped or dropped. I based this on the preamble and on [§1.2](../../../../spec/history/virtualize/VIRTUALIZE.r3.md#12-input)
 ("every listed check applies whether or not its value ends up in the
 output").
 
@@ -49,7 +49,7 @@ tells the two readings apart: `nd2_reject_etype_without_pars` puts the bad
 "every node of the tree" explicitly, and add a fixture with a bad child under
 a count-0 node.
 
-### A2. §4.3 eType 8 and eType 6: which conditional members are checked? (low–moderate)
+### A2. [§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r3.md#43-metadata) eType 8 and eType 6: which conditional members are checked? (low–moderate)
 
 - eType 8: "The period is number `p/dPeriod` (default 0) of the first valid
   `p`" and "For eType 8, `uiCount` and `dPeriod` are read only from valid
@@ -73,7 +73,7 @@ always flags. NaN periods do occur, which is why `nd2_reject_nan_period`
 exists. Suggested fix: a sentence of the form "for each eType, exactly these
 members are read: …".
 
-### A3. §3.2 tag scan: one pass or two, when `<!--`, `<?` or `<!` is inside a quoted attribute value (low)
+### A3. [§3.2](../../../../spec/history/virtualize/VIRTUALIZE.r3.md#32-ome-xml) tag scan: one pass or two, when `<!--`, `<?` or `<!` is inside a quoted attribute value (low)
 
 "Skipped sections: scanning from the start, the first of these to begin at
 each point is skipped" and "outside skipped sections, a tag is a match of
@@ -98,7 +98,7 @@ searched after the full opener, so `<!-->` does not close itself and starts a
 comment that runs to the next `-->`. The same applies to `<?>`. XML agrees
 for comments. The spec says only "to the next `-->`".
 
-### A4. §3.2/§3.3: a self-closing `<UUID/>` without `FileName` (low)
+### A4. [§3.2](../../../../spec/history/virtualize/VIRTUALIZE.r3.md#32-ome-xml)/[§3.3](../../../../spec/history/virtualize/VIRTUALIZE.r3.md#33-planes): a self-closing `<UUID/>` without `FileName` (low)
 
 "its **text**: if it is not self-closing, …", and a `TiffData` with a `UUID`
 "names the file identified by the `UUID`'s `FileName` if it has one, else by
@@ -109,7 +109,7 @@ the file `""`, and a second `TiffData` with `<UUID>urn:…</UUID>` makes the
 input multi-file (rejected). The other choice, "names no file", would accept
 that input. **Likelihood:** low.
 
-### A5. §3.2 "Integer attributes (`Size*`, …)": does `Size*` include `SizeX`/`SizeY`? (low)
+### A5. [§3.2](../../../../spec/history/virtualize/VIRTUALIZE.r3.md#32-ome-xml) "Integer attributes (`Size*`, …)": does `Size*` include `SizeX`/`SizeY`? (low)
 
 The wildcard `Size*` literally covers `SizeX` and `SizeY`. The list of
 attributes the virtualizer uses, however, is "`SizeZ`, `SizeC`, `SizeT` and
@@ -118,9 +118,9 @@ attributes the virtualizer uses, however, is "`SizeZ`, `SizeC`, `SizeT` and
 with `SizeX="abc"` is accepted. Suggested fix: write
 "`SizeZ`/`SizeC`/`SizeT`" instead of `Size*`.
 
-### A6. §3.1/§1.2: values above 2^53 − 1 in tags that are read but not used (very low)
+### A6. [§3.1](../../../../spec/history/virtualize/VIRTUALIZE.r3.md#31-reading)/[§1.2](../../../../spec/history/virtualize/VIRTUALIZE.r3.md#12-input): values above 2^53 − 1 in tags that are read but not used (very low)
 
-§1.2 says that "an offset or length above 2^53 − 1" rejects. §3.1 checks only
+[§1.2](../../../../spec/history/virtualize/VIRTUALIZE.r3.md#12-input) says that "an offset or length above 2^53 − 1" rejects. [§3.1](../../../../spec/history/virtualize/VIRTUALIZE.r3.md#31-reading) checks only
 "field type, value within file, count" on every IFD read. It is unclear
 whether a LONG8 `ImageWidth` or `TileOffsets` value above 2^53 − 1 rejects
 when it sits in an IFD that is read but not used, or in a tile whose byte
@@ -130,7 +130,7 @@ count is 0.
 plane/level/candidate/IFD 0, a SubIFD offset (always used), or a tile with
 `n > 0`. **Likelihood:** very low (it needs a corrupt BigTIFF).
 
-### A7. §1.3: infinite intermediates in numbers that do not reach the output (very low)
+### A7. [§1.3](../../../../spec/history/virtualize/VIRTUALIZE.r3.md#13-arithmetic): infinite intermediates in numbers that do not reach the output (very low)
 
 "A number that would be infinite or NaN rejects the input." It is unclear
 whether this applies to the z step `abs(dZHigh − dZLow) / (count − 1)` of a
@@ -142,7 +142,7 @@ low.
 
 ## B. Rules that are clear but may cause trouble on real files
 
-### B1. §3.2: OME-XML that is not valid UTF-8 is silently treated as plain TIFF
+### B1. [§3.2](../../../../spec/history/virtualize/VIRTUALIZE.r3.md#32-ome-xml): OME-XML that is not valid UTF-8 is silently treated as plain TIFF
 
 "If `D` is valid UTF-8 and the tag scan … finds a start tag named `OME`".
 Older OME-TIFF writers sometimes stored `µ` in Latin-1 (byte `0xB5`), with or
@@ -156,14 +156,14 @@ output silently loses planes. Consider rejecting when `D` contains `<OME` but
 is not valid UTF-8, or decoding Latin-1 when the XML declaration says so.
 Likelihood: low to moderate for older files.
 
-### B2. §4.3: unknown `eType` rejects the whole file
+### B2. [§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r3.md#43-metadata): unknown `eType` rejects the whole file
 
 "Any other `eType` is rejected." Combined with A1 (whole-tree checking), one
 unsupported or custom loop anywhere in the experiment rejects the file, even
 in a count-0 branch that contributes nothing. If the intent is
 conservative, this is fine, but it should be a deliberate choice.
 
-### B3. §4.4: frame pixel ranges not covered by the two header reads
+### B3. [§4.4](../../../../spec/history/virtualize/VIRTUALIZE.r3.md#44-frames): frame pixel ranges not covered by the two header reads
 
 For uncompressed files, only the lowest- and highest-numbered present frames'
 headers are read. A middle frame whose map offset points at garbage is
@@ -196,7 +196,7 @@ archive instead of a rejection.
   informative note.
 - **Header IFD offset 0** (empty main chain): rejected, because "IFD 0" is
   required. This is implied but not stated.
-- **§4.2 level offset table.** "then `8c` bytes to skip": those bytes must
+- **[§4.2](../../../../spec/history/virtualize/VIRTUALIZE.r3.md#42-lite-variant) level offset table.** "then `8c` bytes to skip": those bytes must
   also lie within the data that contains the record. I reject when they do
   not, which is implied by "a read outside … rejects".
 

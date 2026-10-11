@@ -9,14 +9,14 @@ could affect interoperability. A ranked summary is at the end.
 
 ## A. Error classification
 
-### A1. §8.1 / §8.4: are record-level problems in an *unpaged* archive archive errors or entry errors? (high impact)
-§8.1 says that opening an unpaged archive "reads and checks ... the whole
-central directory". §8.4 then says "In an archive with a page index, a
+### A1. [§8.1](../../../../spec/history/archive/SPEC.r2.md#81-opening) / [§8.4](../../../../spec/history/archive/SPEC.r2.md#84-errors): are record-level problems in an *unpaged* archive archive errors or entry errors? (high impact)
+[§8.1](../../../../spec/history/archive/SPEC.r2.md#81-opening) says that opening an unpaged archive "reads and checks ... the whole
+central directory". [§8.4](../../../../spec/history/archive/SPEC.r2.md#84-errors) then says "In an archive with a page index, a
 record's problems are found when its page is read, so they surface as entry
 errors, not archive errors." That sentence implies that in an unpaged archive
 the same problems (unparseable extra field, two reference blocks, method 12,
 bit 0 set, reference with method 8) *are* archive errors. But the entry-error
-row of the table and §8.2 `list` ("Keys with entry errors are listed") both
+row of the table and [§8.2](../../../../spec/history/archive/SPEC.r2.md#82-operations) `list` ("Keys with entry errors are listed") both
 assume that an archive with entry errors can be opened.
 **Choice:** record-level semantic problems are always entry errors, in both
 kinds of archive. Only structural damage to the central directory (bad record
@@ -26,7 +26,7 @@ record) is an archive error in an unpaged archive.
 reading the whole central directory at open does not turn entry errors into
 archive errors."
 
-### A2. §8.4: what is "bad end records" exactly? (medium)
+### A2. [§8.4](../../../../spec/history/archive/SPEC.r2.md#84-errors): what is "bad end records" exactly? (medium)
 The term is not defined. **Choice:** these are archive errors: a file shorter
 than 44 bytes; a zip64 locator whose record offset is outside the file or whose
 zip64 EOCD signature is wrong; `cd_offset + cd_size` beyond the start of the
@@ -35,7 +35,7 @@ numbers and the zip64 "total disks" field are ignored. In an unpaged archive a
 central directory that does not parse into exactly `total entries` records
 filling exactly `cd_size` bytes is also an archive error. It would help to list
 the checks that are required, the ones that are allowed, and the ones that are
-forbidden. §8.1 says a reader "MUST NOT report an error at open that this
+forbidden. [§8.1](../../../../spec/history/archive/SPEC.r2.md#81-opening) says a reader "MUST NOT report an error at open that this
 section does not list", so it matters whether, for example, the `cd_offset +
 cd_size` bounds check is allowed for a *paged* archive. This implementation
 does that check.
@@ -46,41 +46,41 @@ each:
 - **A corrupt DEFLATE body of a bytes entry** (inflate fails, the stream is
   truncated, or there are trailing bytes), or a body that extends past the end
   of the file. **Choice:** entry error for `get`/`raw`, and resolution error
-  when it happens through a `key` source. §8.6 says readers need not check
+  when it happens through a `key` source. [§8.6](../../../../spec/history/archive/SPEC.r2.md#86-violations-readers-need-not-detect) says readers need not check
   CRCs, but an inflate failure must still be reported somehow.
 - **Inflate failure on `__vz__/sources` or `__vz__/index`.** **Choice:** archive
   error ("malformed source table/page index").
 - **`list` when a page cannot be parsed.** The entry-error row only mentions
   classify/get/raw. **Choice:** `list` fails (reported as an entry error).
 - **A `Pinned.method` other than 0/8.** **Choice:** entry error for that key.
-- **Records whose file name is not valid UTF-8, or is empty** (§3.3 forbids
-  these, but neither §8.4 nor §8.6 mentions them). **Choice:** such records are
+- **Records whose file name is not valid UTF-8, or is empty** ([§3.3](../../../../spec/history/archive/SPEC.r2.md#33-keys) forbids
+  these, but neither [§8.4](../../../../spec/history/archive/SPEC.r2.md#84-errors) nor [§8.6](../../../../spec/history/archive/SPEC.r2.md#86-violations-readers-need-not-detect) mentions them). **Choice:** such records are
   kept under their raw bytes. A JSON (Unicode) query can never match them, and
-  `list` prints them with surrogate escapes. This should be put in §8.6 or made
+  `list` prints them with surrogate escapes. This should be put in [§8.6](../../../../spec/history/archive/SPEC.r2.md#86-violations-readers-need-not-detect) or made
   an entry error.
 - **Bit 3 (data descriptor) set, or other APPNOTE features (strong encryption
-  bit 6, a version-needed value above 45).** §8.6 covers rule 5 "except bit 0",
+  bit 6, a version-needed value above 45).** [§8.6](../../../../spec/history/archive/SPEC.r2.md#86-violations-readers-need-not-detect) covers rule 5 "except bit 0",
   so these are ignored.
 
-### A4. §8.2: order of checks in `get`
+### A4. [§8.2](../../../../spec/history/archive/SPEC.r2.md#82-operations): order of checks in `get`
 Request error, hidden-key check, missing, entry error and payload error can
-all apply at once. §8.2 settles that `start > end` is an error even for a
+all apply at once. [§8.2](../../../../spec/history/archive/SPEC.r2.md#82-operations) settles that `start > end` is an error even for a
 missing key. **Choice:** request error, then hidden → missing, then lookup
 (where page or entry errors can occur), then entry error, then payload error,
 then resolution. Stating the order would make error results deterministic.
 
-### A5. §6 vs §8.1: when URL validity is checked
+### A5. [§6](../../../../spec/history/archive/SPEC.r2.md#6-source-table) vs [§8.1](../../../../spec/history/archive/SPEC.r2.md#81-opening): when URL validity is checked
 An empty `url` is an archive error at open, but a syntactically invalid URL
 (`a b.bin`, `%zz`) is only a resolution error when it is used. This is
-workable but asymmetric. Note that §9.1 also does not require writers to
+workable but asymmetric. Note that [§9.1](../../../../spec/history/archive/SPEC.r2.md#91-requirements) also does not require writers to
 reject invalid URI references (see C3).
 
 ---
 
-## B. Protocol Buffers (§5.1)
+## B. Protocol Buffers ([§5.1](../../../../spec/history/archive/SPEC.r2.md#51-encoding))
 
 ### B1. Malformed wire types 3/4 on *unknown* fields (medium)
-§5.1 makes wire types 3 and 4 (groups) malformed even when the field is
+[§5.1](../../../../spec/history/archive/SPEC.r2.md#51-encoding) makes wire types 3 and 4 (groups) malformed even when the field is
 unknown. Standard protobuf libraries skip unknown groups. **Choice:** followed
 the spec (malformed). Implementations built on a protobuf library need an
 extra pre-pass. This deserves a sentence of warning.
@@ -113,8 +113,8 @@ worth saying explicitly that repeated elements are always emitted.
 because the value is 0. The rule says "MUST all be 0", not "absent".
 
 ### B7. Concat size overflow class
-§5.3 says the sum "MUST NOT exceed 2^64−1" but does not say this makes the
-payload malformed (§5.2 does say so for `offset + length`).
+[§5.3](../../../../spec/history/archive/SPEC.r2.md#53-concat) says the sum "MUST NOT exceed 2^64−1" but does not say this makes the
+payload malformed ([§5.2](../../../../spec/history/archive/SPEC.r2.md#52-range) does say so for `offset + length`).
 **Choice:** payload error.
 
 ### B8. UTF-8 validity
@@ -123,7 +123,7 @@ forms), which is what Python's decoder enforces. Naming the RFC would help.
 
 ---
 
-## C. URLs and base URIs (§6)
+## C. URLs and base URIs ([§6](../../../../spec/history/archive/SPEC.r2.md#6-source-table))
 
 ### C1. How to form the base `file:` URI from a path (high impact)
 - **Percent-encoding of the base path** is not specified (which characters?
@@ -149,10 +149,10 @@ resolution error. Other implementations, such as those based on WHATWG URL
 parsers, will probably accept it. **Suggestion:** state that non-ASCII
 characters are invalid, or require writers to validate.
 
-### C3. §9.1 does not require writers to validate URL syntax
+### C3. [§9.1](../../../../spec/history/archive/SPEC.r2.md#91-requirements) does not require writers to validate URL syntax
 A writer may produce an archive whose `url` is `a b.bin`, and every reader
 must then fail on it. **Choice:** the writer accepts any non-empty string,
-following the list in §9.1 literally.
+following the list in [§9.1](../../../../spec/history/archive/SPEC.r2.md#91-requirements) literally.
 
 ### C4. `file:` URI details
 - Is `localhost` case-insensitive (`LOCALHOST`)? **Choice:** yes. The scheme is
@@ -171,15 +171,15 @@ error. Python's `http.server` ignores Range, and that case is tested.
 
 ### C6. `key` sources and partial reads
 A `key` source whose entry uses method 8 must be inflated in full to read any
-range of it, so the "SHOULD fetch only the bytes in step 3" in §8.3 cannot be
-met. That is fine, but worth noting next to the advice in §6 to use `key`
+range of it, so the "SHOULD fetch only the bytes in step 3" in [§8.3](../../../../spec/history/archive/SPEC.r2.md#83-resolving-a-reference) cannot be
+met. That is fine, but worth noting next to the advice in [§6](../../../../spec/history/archive/SPEC.r2.md#6-source-table) to use `key`
 sources for shared headers.
 
 ---
 
 ## D. ZIP container
 
-### D1. §4.3 payload limit depends on layout
+### D1. [§4.3](../../../../spec/history/archive/SPEC.r2.md#43-reference-entries) payload limit depends on layout
 The 65535-byte limit includes "the record's other extra blocks". The only
 possible other block is the ZIP64 offset block (12 bytes), and whether it is
 needed depends on where the entry lands (offset ≥ 4 GiB). So "MUST reject"
@@ -189,14 +189,14 @@ central directory record is built. The order of the blocks inside the extra
 field is unspecified. **Choice:** the ZIP64 block comes first, then the
 reference block.
 
-### D2. §3.2 zip64 EOCD details
+### D2. [§3.2](../../../../spec/history/archive/SPEC.r2.md#32-zip64) zip64 EOCD details
 "version 1, no extensible data" is assumed to mean record format v1 with
 size-of-record = 44. The version made by / needed values are not stated.
 **Choice:** 45 and 45. On reading, all counts, sizes and offsets are taken from
 the zip64 record whenever the locator is present, not only the fields set to
 all ones.
 
-### D3. §9.2 versions and the local header
+### D3. [§9.2](../../../../spec/history/archive/SPEC.r2.md#92-recommended-layout-informative) versions and the local header
 The local header can never have a ZIP64 block, so its "version needed" is 20,
 while the central directory record of the same entry says 45 when its offset
 needs ZIP64. APPNOTE expects 4.5 for "uses ZIP64 extensions". Some tools may
@@ -204,7 +204,7 @@ warn about the mismatch. `unzip -t` and Python's `zipfile` accept it. The
 1980-01-01 DOS date could be given as its encoded value (date `0x0021`, time
 `0x0000`).
 
-### D4. §3.4 locating the EOCD: magic checked before or after fallback?
+### D4. [§3.4](../../../../spec/history/archive/SPEC.r2.md#34-end-of-central-directory-record-and-archive-comment) locating the EOCD: magic checked before or after fallback?
 Step 3 reads "If neither matches, or the comment does not start with
 `vzip/1`". If step 1 matches (signature plus length 38) but the magic is
 wrong, should step 2 be tried? **Choice:** no; the open fails. For a
@@ -212,37 +212,37 @@ wrong, should step 2 be tried? **Choice:** no; the open fails. For a
 the length field read there falls on the real EOCD's "disk number" field, which
 is 0. So the two readings agree on valid input. A sentence saying so would help.
 
-### D5. §9.1 4 GiB limit: compressed or uncompressed?
+### D5. [§9.1](../../../../spec/history/archive/SPEC.r2.md#91-requirements) 4 GiB limit: compressed or uncompressed?
 "a bytes entry's size is 0xFFFFFFFF or more": with `compress: true` the
 *compressed* size can exceed the uncompressed size for incompressible data.
 **Choice:** reject if either size is 0xFFFFFFFF or more.
 
-### D6. §3.4 no uncompressed size for format entries
+### D6. [§3.4](../../../../spec/history/archive/SPEC.r2.md#34-end-of-central-directory-record-and-archive-comment) no uncompressed size for format entries
 The comment gives only the compressed size of `__vz__/sources` and
 `__vz__/index`, so a reader cannot bound memory before inflating, which is a
-concern of §10. Adding the uncompressed size, or a recommended cap, would help.
+concern of [§10](../../../../spec/history/archive/SPEC.r2.md#10-security-considerations). Adding the uncompressed size, or a recommended cap, would help.
 
 ---
 
-## E. Page index (§7)
+## E. Page index ([§7](../../../../spec/history/archive/SPEC.r2.md#7-page-index-optional))
 
 ### E1. What is checked at open?
 "malformed page index" is an archive error, but is a structurally inconsistent
 index malformed? Examples: pages not sorted, not contiguous, outside the
 central directory, an empty `first_key`, or duplicate pinned keys.
 **Choice:** only protobuf-level malformedness is an archive error. Everything
-else falls under §8.6 (unspecified). A page outside the central directory gives
+else falls under [§8.6](../../../../spec/history/archive/SPEC.r2.md#86-violations-readers-need-not-detect) (unspecified). A page outside the central directory gives
 an entry error when it is read.
 
 ### E2. Lookup in unsorted pages
 "Select the last page whose `first_key` ≤ k": for sorted pages this is a binary
 search, which is what is implemented. For unsorted pages, "last in wire order"
-and "binary search" disagree. This is covered by §8.6.
+and "binary search" disagree. This is covered by [§8.6](../../../../spec/history/archive/SPEC.r2.md#86-violations-readers-need-not-detect).
 
 ### E3. Pinned keys vs pages
 If a key is pinned, its central directory record is never looked at, so entry
 errors in that record are invisible in a paged reader but visible in a
-whole-directory reader. This is covered by §8.6, but the consequence is easy to
+whole-directory reader. This is covered by [§8.6](../../../../spec/history/archive/SPEC.r2.md#86-violations-readers-need-not-detect), but the consequence is easy to
 miss. `list` in a paged archive takes the union of page records and pinned keys.
 
 ### E4. Page grouping (HARNESS)
@@ -252,10 +252,10 @@ gets its own page.
 
 ---
 
-## F. Writer (§9)
+## F. Writer ([§9](../../../../spec/history/archive/SPEC.r2.md#9-writing))
 
-### F1. Requirements missing from §9.1
-§9.1 does not list these, but they are needed to "produce a valid archive":
+### F1. Requirements missing from [§9.1](../../../../spec/history/archive/SPEC.r2.md#91-requirements)
+[§9.1](../../../../spec/history/archive/SPEC.r2.md#91-requirements) does not list these, but they are needed to "produce a valid archive":
 - `offset + length > 2^64−1` and a Concat sum above 2^64−1 (writers reject
   them);
 - a `source` that does not fit in uint32.

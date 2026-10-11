@@ -6,17 +6,17 @@ the section, the question, what this implementation chose, and why. Items marked
 **[interop]** are the ones most likely to make two conforming implementations
 give different results.
 
-## A. ZIP container (§3)
+## A. ZIP container ([§3](../../../../spec/history/archive/SPEC.r6.md#3-zip-container))
 
-1. **§3.4 / §8.1: what "the central directory lies within the file" means.** **[interop]**
+1. **[§3.4](../../../../spec/history/archive/SPEC.r6.md#34-end-of-central-directory-record-and-archive-comment) / [§8.1](../../../../spec/history/archive/SPEC.r6.md#81-opening): what "the central directory lies within the file" means.** **[interop]**
    The CD could be required to end before the zip64 end records or the EOCD,
    or only to end before EOF. *Chosen:* `cd_offset + cd_size <= file_size`, so
    overlap with the end records is not checked. *Why:* the text says "within
-   the file" and §8.1 forbids extra open errors. A CD that overlaps the EOCD
+   the file" and [§8.1](../../../../spec/history/archive/SPEC.r6.md#81-opening) forbids extra open errors. A CD that overlaps the EOCD
    would normally fail record parsing anyway. A crafted archive where the
    overlap still parses would get different results from a stricter reader.
 
-2. **§3.2: where the zip64 EOCD record may be, and which locator fields are checked.**
+2. **[§3.2](../../../../spec/history/archive/SPEC.r6.md#32-zip64): where the zip64 EOCD record may be, and which locator fields are checked.**
    The spec requires the locator to sit immediately before the EOCD, and the
    record to lie within the file, carry the right signature and have size field
    44. It does not say:
@@ -26,69 +26,69 @@ give different results.
 
    *Chosen:* neither is checked. The 56-byte record must fit in the file.
 
-3. **§3.2: ZIP64 extra block when the size fields are also all ones.** "Too
+3. **[§3.2](../../../../spec/history/archive/SPEC.r6.md#32-zip64): ZIP64 extra block when the size fields are also all ones.** "Too
    short for the values it must hold" implies that the 64-bit sizes come first,
    in APPNOTE order, when `usize`/`csize` are 0xFFFFFFFF. Such records violate
-   rule 7, though, and §8.6 makes them unspecified. *Chosen:* when the offset is
+   rule 7, though, and [§8.6](../../../../spec/history/archive/SPEC.r6.md#86-violations-readers-need-not-detect) makes them unspecified. *Chosen:* when the offset is
    all ones, the block must hold 8 bytes for each all-ones field among
    (usize, csize, offset), and those 64-bit values are used. When only a size is
    all ones (and the offset is not), the block is not required and the 32-bit
    value is used as it is. It would help if the spec either said
    "only the offset is ever read from the block" or defined this case.
 
-4. **§3.4: magic `vzip/` followed by a non-digit (`vzip/x`).** Is that "not a
+4. **[§3.4](../../../../spec/history/archive/SPEC.r6.md#34-end-of-central-directory-record-and-archive-comment): magic `vzip/` followed by a non-digit (`vzip/x`).** Is that "not a
    vzip archive" or "unsupported version"? Both are archive errors, so it only
    affects the message. *Chosen:* "unsupported version" for anything other than
    `0` after `vzip/`.
 
-5. **§3.1 rule 2 / §8.6: duplicate names.** Results are unspecified, but a
+5. **[§3.1](../../../../spec/history/archive/SPEC.r6.md#31-structure) rule 2 / [§8.6](../../../../spec/history/archive/SPEC.r6.md#86-violations-readers-need-not-detect): duplicate names.** Results are unspecified, but a
    reader has to pick something. *Chosen:* the first record in CD order (or in
    page order) wins. **[interop]** A conformance suite should not test this,
    because implementations will differ (many ZIP libraries use the last).
 
-6. **§3.3: a record with an empty or non-UTF-8 name.** The spec says it is
-   ignored. *Chosen:* it still has to parse structurally, both for §8.1 CD
+6. **[§3.3](../../../../spec/history/archive/SPEC.r6.md#33-keys): a record with an empty or non-UTF-8 name.** The spec says it is
+   ignored. *Chosen:* it still has to parse structurally, both for [§8.1](../../../../spec/history/archive/SPEC.r6.md#81-opening) CD
    parsing and for page parsing, and is then dropped. Python's strict UTF-8
    codec rejects surrogates and overlong forms, which matches "valid UTF-8".
 
-## B. Entries and messages (§4, §5)
+## B. Entries and messages ([§4](../../../../spec/history/archive/SPEC.r6.md#4-entries), [§5](../../../../spec/history/archive/SPEC.r6.md#5-messages))
 
-7. **§5.2: literal range with an explicitly encoded zero `source`/`offset`/`length`.**
+7. **[§5.2](../../../../spec/history/archive/SPEC.r6.md#52-range): literal range with an explicitly encoded zero `source`/`offset`/`length`.**
    "MUST all be 0" is read as "have the value 0", so `08 00` (source = 0 encoded
    explicitly) next to `data` is accepted. A reader that tests field presence
    would call it malformed. It would help if the spec said "value 0".
 
-8. **§5.1: encoding of an all-default `Range` inside a `Concat`.** The rules
+8. **[§5.1](../../../../spec/history/archive/SPEC.r6.md#51-encoding): encoding of an all-default `Range` inside a `Concat`.** The rules
    produce `0a 00` (an empty embedded message). That is consistent, but worth
    stating, because "do not emit default values" could be misread as dropping
    the element.
 
-9. **§4.3 / §9.1: 0x7A77 payload with exactly one part.** Writers MUST NOT
-   produce it, and readers accept it. This is not in the §8.6 list of
-   undetected violations, but readers clearly must not reject it (§4.3: "any
-   number of parts"). It could be added to §8.6 for completeness.
+9. **[§4.3](../../../../spec/history/archive/SPEC.r6.md#43-reference-entries) / [§9.1](../../../../spec/history/archive/SPEC.r6.md#91-requirements): 0x7A77 payload with exactly one part.** Writers MUST NOT
+   produce it, and readers accept it. This is not in the [§8.6](../../../../spec/history/archive/SPEC.r6.md#86-violations-readers-need-not-detect) list of
+   undetected violations, but readers clearly must not reject it ([§4.3](../../../../spec/history/archive/SPEC.r6.md#43-reference-entries): "any
+   number of parts"). It could be added to [§8.6](../../../../spec/history/archive/SPEC.r6.md#86-violations-readers-need-not-detect) for completeness.
 
-## C. Sources and URLs (§6)
+## C. Sources and URLs ([§6](../../../../spec/history/archive/SPEC.r6.md#6-source-table))
 
-10. **§6: `key` source with an empty key (`key: ""`).** An empty `url` is an
+10. **[§6](../../../../spec/history/archive/SPEC.r6.md#6-source-table): `key` source with an empty key (`key: ""`).** An empty `url` is an
     archive error at open, but nothing is said about an empty `key`. *Chosen:*
     it is accepted at open and gives a resolution error when used (no key is
     empty, so it is "missing"). The writer rejects it as "absent". This is
     asymmetric with `url`; consider making it an archive error too.
 
-11. **§6: base URI when the path is not valid UTF-8.** "Form `file://` followed
+11. **[§6](../../../../spec/history/archive/SPEC.r6.md#6-source-table): base URI when the path is not valid UTF-8.** "Form `file://` followed
     by the path's UTF-8 bytes" assumes the path can be represented in UTF-8.
     *Chosen:* the raw OS path bytes (`os.fsencode`) are percent-encoded, so an
     undecodable path still gives a deterministic URI.
 
-12. **§6: lexical `..` versus symlinks.** Normalising `..` lexically while not
+12. **[§6](../../../../spec/history/archive/SPEC.r6.md#6-source-table): lexical `..` versus symlinks.** Normalising `..` lexically while not
     resolving symlinks means `../x` relative to an archive in a symlinked
     directory can name a different file than the OS would. This follows the spec;
     it is noted because it is surprising. On macOS, `getcwd()` returns
     `/private/tmp/...` where `$PWD` says `/tmp/...`. The spec handles this
     explicitly, which is good.
 
-13. **§6: URI-reference validation is not available in the standard library.**
+13. **[§6](../../../../spec/history/archive/SPEC.r6.md#6-source-table): URI-reference validation is not available in the standard library.**
     `urllib.parse` is lenient: it accepts spaces, non-ASCII and bad `%`
     escapes. A strict RFC 3986 validator had to be written by hand, including
     IP-literal/IPv6/IPvFuture hosts. *Choices:* IPv6 is validated with
@@ -97,25 +97,25 @@ give different results.
     cases such as `[v1.x]` or IPv4-embedded IPv6. **[interop]** for writer
     rejection tests that use exotic hosts.
 
-14. **§6 `file:` mapping, authority `localhost:port` or with userinfo.** Only
+14. **[§6](../../../../spec/history/archive/SPEC.r6.md#6-source-table) `file:` mapping, authority `localhost:port` or with userinfo.** Only
     absent, empty or `localhost` are allowed, so `localhost:80` and
     `u@localhost` are rejected. That is unambiguous but strict, and worth
     stating explicitly.
 
-15. **§6 `file:` mapping, query on the base URI.** Base URIs built from paths
+15. **[§6](../../../../spec/history/archive/SPEC.r6.md#6-source-table) `file:` mapping, query on the base URI.** Base URIs built from paths
     never have queries. A relative reference `?q` resolves to the archive's own
     path with a query, which is then rejected ("no query component").
     `#frag` resolves to the archive itself. Both are consistent with the spec.
 
-16. **§6: `http:` URLs with userinfo or percent-encoded hosts.** Not specified.
+16. **[§6](../../../../spec/history/archive/SPEC.r6.md#6-source-table): `http:` URLs with userinfo or percent-encoded hosts.** Not specified.
     *Chosen:* userinfo is ignored, so no credentials are sent, and a
     percent-encoded reg-name host is decoded before connecting.
 
-17. **§6.1: pin checks per open versus per request.** *Chosen:* every read
+17. **[§6.1](../../../../spec/history/archive/SPEC.r6.md#61-pins): pin checks per open versus per request.** *Chosen:* every read
     re-checks the pins (stat for `file:`, headers for HTTP). That is allowed;
     the SHOULD only covers caching.
 
-## D. HTTP (§6.2)
+## D. HTTP ([§6.2](../../../../spec/history/archive/SPEC.r6.md#62-reading-over-http))
 
 18. **206 without a `Content-Range` header** (for example a
     `multipart/byteranges` reply, or a broken server). Not listed in the
@@ -158,7 +158,7 @@ give different results.
       http(s) target. That may deserve a security note.
     - 300/304/305 count as "any other status", so they are errors.
 
-24. **§6.2: is the Content-Encoding / pin check applied to redirect responses?**
+24. **[§6.2](../../../../spec/history/archive/SPEC.r6.md#62-reading-over-http): is the Content-Encoding / pin check applied to redirect responses?**
     *Chosen:* no, only the final 200/206 response is checked ("Pins and the
     size apply to the final response").
 
@@ -166,9 +166,9 @@ give different results.
     byte for byte with the pin. A weak response ETag `W/"v1"` never equals a
     strong pin. Multiple `ETag` headers: the first is used (unspecified).
 
-## E. Page index (§7)
+## E. Page index ([§7](../../../../spec/history/archive/SPEC.r6.md#7-page-index-optional))
 
-26. **§7.2/§8.2: `list(prefix)` page selection.** "Every page whose range includes
+26. **[§7.2](../../../../spec/history/archive/SPEC.r6.md#72-lookup)/[§8.2](../../../../spec/history/archive/SPEC.r6.md#82-operations): `list(prefix)` page selection.** "Every page whose range includes
     at least one key starting with prefix" needs a small algebra. Page `[lo, hi)`
     intersects the set of strings with prefix `P` iff
     `(lo <= P and P < hi) or lo.startswith(P)`. This was the most error-prone
@@ -177,24 +177,24 @@ give different results.
     worked example in the spec would help (for example, prefix `b` with a page
     `["a", "b")` is not read, but a page `["a", "b\x00")` is).
 
-27. **§7.2: a pinned key that also has a record in a page.** Lookup finds the
+27. **[§7.2](../../../../spec/history/archive/SPEC.r6.md#72-lookup): a pinned key that also has a record in a page.** Lookup finds the
     pinned entry first, so the page record is shadowed. For `list`, the key
     appears once. Not stated explicitly, but it follows from the lookup order.
 
-28. **§7.1 writer page grouping.** "About `page_size` bytes": *chosen* to start a
+28. **[§7.1](../../../../spec/history/archive/SPEC.r6.md#71-layout) writer page grouping.** "About `page_size` bytes": *chosen* to start a
     new page when adding the next record would exceed `page_size`, so a record
     larger than `page_size` gets its own page. `page_size = 1` therefore gives
     one record per page.
 
-29. **§7.2 check "a page lies outside the central directory".** Checked against
+29. **[§7.2](../../../../spec/history/archive/SPEC.r6.md#72-lookup) check "a page lies outside the central directory".** Checked against
     `cd_size`. Whether the last page ends exactly where the format records
-    begin is not checked (§8.6).
+    begin is not checked ([§8.6](../../../../spec/history/archive/SPEC.r6.md#86-violations-readers-need-not-detect)).
 
-## F. Reading operations and errors (§8)
+## F. Reading operations and errors ([§8](../../../../spec/history/archive/SPEC.r6.md#8-reading))
 
-30. **§8.2 `raw` for format entries: located through the comment or the CD
-    record?** **[interop]** §3.4 says readers MUST read the two format entries
-    through the comment, and §7.2 says (for paged archives) "the format entries
+30. **[§8.2](../../../../spec/history/archive/SPEC.r6.md#82-operations) `raw` for format entries: located through the comment or the CD
+    record?** **[interop]** [§3.4](../../../../spec/history/archive/SPEC.r6.md#34-end-of-central-directory-record-and-archive-comment) says readers MUST read the two format entries
+    through the comment, and [§7.2](../../../../spec/history/archive/SPEC.r6.md#72-lookup) says (for paged archives) "the format entries
     are known from the comment". For `raw` in an unpaged archive the text is
     silent. *Chosen:* `raw("__vz__/sources")` and `raw("__vz__/index")` always
     return the body located by the comment, which was already inflated and
@@ -202,21 +202,21 @@ give different results.
     bytes or a different error (for example an entry error) on a tampered
     archive. The spec should say which.
 
-31. **§8.2: negative values in `range`/`offset`/`suffix`.** The spec has
+31. **[§8.2](../../../../spec/history/archive/SPEC.r6.md#82-operations): negative values in `range`/`offset`/`suffix`.** The spec has
     `start <= end` but no sign constraint. HARNESS says only
     `modified_not_after` may be negative, so this probably never arises.
     *Chosen:* request error.
 
-32. **§8.4: order of the entry-error checks within one record** (extra field,
+32. **[§8.4](../../../../spec/history/archive/SPEC.r6.md#84-errors): order of the entry-error checks within one record** (extra field,
     method, bit 0, reference + method 8, ZIP64). Irrelevant to the class, but
     messages differ. No issue.
 
-33. **§8.4: `key` source naming a STORED entry whose sizes differ, or whose body
+33. **[§8.4](../../../../spec/history/archive/SPEC.r6.md#84-errors): `key` source naming a STORED entry whose sizes differ, or whose body
     is outside the file.** The spec says this is a resolution error (from the
     body error). The sizes check happens before the "shorter than offset + j"
     check. Both are resolution errors, so this has no visible effect.
 
-34. **§8.4 resource limits.** This implementation documents these limits:
+34. **[§8.4](../../../../spec/history/archive/SPEC.r6.md#84-errors) resource limits.** This implementation documents these limits:
     - a request whose window is over 1 GiB is a request error;
     - inflating a DEFLATE bytes entry whose declared size is over 1 GiB is a
       request error;
@@ -227,33 +227,33 @@ give different results.
     a request error. It may be worth saying that a resource limit at open is an
     archive error.
 
-35. **§8.1: a DEFLATE body that produces more output than `usize`.** Inflation
+35. **[§8.1](../../../../spec/history/archive/SPEC.r6.md#81-opening): a DEFLATE body that produces more output than `usize`.** Inflation
     is capped at `usize + 1` bytes and anything larger is reported as a body
     error, which avoids unbounded memory. This gives the same result as
     "inflates to the record's uncompressed size", but implementations that
     inflate fully first may run into a resource limit instead.
 
-36. **§8.3: should a zero-length window on a reference still decode the
+36. **[§8.3](../../../../spec/history/archive/SPEC.r6.md#83-resolving-a-reference): should a zero-length window on a reference still decode the
     payload?** Yes (step 1 "whatever the request"). Done; noted because it is
     easy to miss.
 
-## G. Writing (§9)
+## G. Writing ([§9](../../../../spec/history/archive/SPEC.r6.md#9-writing))
 
-37. **§9.1 does not reject `url` values that are valid URI-references but can
+37. **[§9.1](../../../../spec/history/archive/SPEC.r6.md#91-requirements) does not reject `url` values that are valid URI-references but can
     never resolve** (for example `file://host/x`, or `?q`). The writer accepts
     them, as the spec requires. Noted because it is surprising: a writer could
     easily catch these.
 
-38. **§3.2: "version made by" for the zip64 EOCD record.** Not specified (only
+38. **[§3.2](../../../../spec/history/archive/SPEC.r6.md#32-zip64): "version made by" for the zip64 EOCD record.** Not specified (only
     "version needed 45"). *Chosen:* 45.
 
-39. **§9.1: `__vz__/index` must follow every entry it indexes or pins.** This
+39. **[§9.1](../../../../spec/history/archive/SPEC.r6.md#91-requirements): `__vz__/index` must follow every entry it indexes or pins.** This
     forces a two-phase layout: write the bodies, collect the CD records, compute
     the pages, then write the index. That is easy once noticed. The recommended
-    layout (§9.2) puts pinned entries after `__vz__/sources`, which this writer
+    layout ([§9.2](../../../../spec/history/archive/SPEC.r6.md#92-recommended-layout-informative)) puts pinned entries after `__vz__/sources`, which this writer
     follows.
 
-40. **§9.1: limit on the number of pinned entries or the index size.** None is
+40. **[§9.1](../../../../spec/history/archive/SPEC.r6.md#91-requirements): limit on the number of pinned entries or the index size.** None is
     given. The index is an ordinary DEFLATE bytes entry, so it is bounded only
     by the 4 GiB rule.
 
@@ -278,7 +278,7 @@ give different results.
 45. **Description: duplicate JSON object members.** Not specified. Python's
     `json` keeps the last one.
 
-46. **Description: `{"data": ...}` source with pins.** Invalid per spec §9.1;
+46. **Description: `{"data": ...}` source with pins.** Invalid per [spec §9.1](../../../../spec/history/archive/SPEC.r6.md#91-requirements);
     rejected.
 
 47. **Description: what makes a range a "mix".** A range object with `data` and
