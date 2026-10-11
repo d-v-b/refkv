@@ -1,6 +1,6 @@
 # vzip: ZIP plus a reference value type
 
-Format version: 0 (**provisional**) · Specification revision: 10.1
+Format version: 0 (**provisional**) · Specification revision: 11
 
 ## 1. Introduction
 
@@ -142,6 +142,13 @@ and records its revision as above. The release rule is:
 revisions 1–7, was driven by seven rounds of independent implementations
 (see the changelog). It becomes final once it has gone through a period of
 outside review with no incompatible change needed.
+
+Revision 11 made an **incompatible** change to the ZIP binding in response
+to outside review: the ZIP64 end records are present in every archive
+([§10.2](#102-zip64)), so an archive written to an earlier revision without
+them is no longer valid. It also allowed entries of 4 GiB or more
+([§10.1](#101-structure) rule 7), which changes nothing for an archive that
+was valid before.
 
 **Feedback** — ambiguities, implementation reports, test cases, objections —
 is welcome as issues or pull requests on the specification's repository. A
@@ -1096,6 +1103,50 @@ archives skip most of the central directory
 ([§13](#13-reading-a-vzip-archive)), writing
 ([§14](#14-writing-a-vzip-archive)) and security
 ([§15](#15-security-considerations-for-zip)) that depend on ZIP.
+[§9.1](#91-related-zip-profiles-informative) relates the binding to two other
+profiles of ZIP.
+
+### 9.1 Related ZIP profiles (informative)
+
+Two other specifications define profiles of ZIP. Neither is required here,
+and nothing in this section is normative.
+
+- **OME-Zarr in a ZIP file**
+  ([RFC 9](https://github.com/ome/ngff/blob/main/rfc/9/index.md), `.ozx`)
+  is Zarr in a ZIP file with further restrictions (one hierarchy, the root
+  `zarr.json` at the root, and recommendations on ZIP64, compression, entry
+  order and the archive comment). It adds no meaning to a ZIP file's
+  entries, so there is nothing for vzip to combine with it. vzip does not
+  aim to produce `.ozx` files:
+  - **Reference entries.** An `.ozx` reader takes every entry's body as its
+    value. For a reference entry the body is empty or the reference payload
+    ([§11.3](#113-reference-entries)), so an archive with reference entries
+    cannot be read as an `.ozx` file, whatever its comment says. An archive
+    with none is close to zipped Zarr already, and its `bytes` entries read
+    as ordinary ZIP files.
+  - **Archive comment.** A ZIP file has one comment, and a vzip archive's is
+    the vzip comment
+    ([§10.4](#104-end-of-central-directory-record-and-archive-comment)), not
+    RFC 9's JSON comment.
+  - **`zarr.json` first.** An archive with a page index has its central
+    directory in key order ([§12.1](#121-layout)), where `0/zarr.json` sorts
+    before `zarr.json`. Pinned entries ([§12.1](#121-layout)) serve the same
+    purpose.
+
+  The relationship runs the other way: an `.ozx` file is one of the objects
+  a vzip archive can refer to. RFC 9 recommends STORED entries, and the body
+  of a STORED entry is a byte range of the `.ozx` file, which a reference
+  ([§4.2](#42-range)) can name like a chunk in any other file. For file
+  names, see [§14.3](#143-archive-file-names).
+- **Seek-optimized ZIP** ([SOZip](https://github.com/sozip/sozip-spec))
+  makes ranges of one large DEFLATE entry readable without inflating it
+  from the start, using an index stored in a file that has a local header
+  but no central directory record. vzip does not support SOZip: such a file
+  is not allowed in a vzip archive ([§10.1](#101-structure) rule 2), a
+  DEFLATE body is always inflated in full ([§13.3](#133-errors)), and an
+  entry of 4 GiB or more must be STORED ([§10.1](#101-structure) rule 7).
+  vzip's large values are references to other files, or STORED entries such
+  as Zarr shards, which are read by range directly.
 
 ## 10. ZIP container
 
@@ -1108,19 +1159,34 @@ also satisfies the following:
    offsets in this document are absolute file offsets.
 2. Every entry has exactly one local file header and one central directory
    record, and no two central directory records have the same file name.
+   Every local file header belongs to an entry: a writer MUST NOT write a
+   local header that no central directory record points to (as SOZip's
+   index files are, [§9.1](#91-related-zip-profiles-informative)). Readers
+   never look for one ([§13.4](#134-violations-readers-need-not-detect)).
 3. Every entry uses compression method 0 (STORED) or 8 (DEFLATE). DEFLATE
    bodies are raw DEFLATE streams (RFC 1951) with no zlib or gzip wrapper.
-4. Every local file header has an extra field length of 0. The body of an
+4. Every local file header has an extra field length of 0, except that of a
+   large entry (rule 7), whose extra field is exactly one ZIP64 extended
+   information extra field of 20 bytes: header ID 0x0001, data size 16, then
+   the uncompressed size and the compressed size as `u64`. The body of an
    entry therefore starts at `local_header_offset + 30 + file_name_length`,
-   computed from the central directory record alone (the **body offset**).
+   plus 20 for a large entry, computed from the central directory record
+   alone (the **body offset**).
 5. No entry is encrypted (general purpose bit 0 clear), and general purpose
    bit 3 (data descriptor) is clear. General purpose bit 11 (UTF-8 file
    names) is set in both headers of every entry.
 6. The CRC-32, compressed size and uncompressed size in both headers are
    correct for the entry's body.
-7. Every entry's compressed and uncompressed sizes are less than 0xFFFFFFFF.
-   Entries of 4 GiB or more cannot be stored, because they would need a ZIP64
-   extra field in the local header, which rule 4 forbids.
+7. An entry is **large** if its compressed or uncompressed size is
+   0xFFFFFFFF or more. In both headers of a large entry, both 32-bit size
+   fields are 0xFFFFFFFF and the sizes are in the ZIP64 extra field (rule 4,
+   [§10.2](#102-zip64)). Sizes are less than 2^64. A large entry MUST use
+   method 0, so that a range of it can be read without inflating the whole
+   body; a large entry with method 8 is an entry error. Reference entries
+   are never large ([§11.3](#113-reference-entries)), and nor are the format
+   entries ([§11.4](#114-hidden-entries)), which use method 8: a writer whose
+   source table or page index would reach 0xFFFFFFFF bytes MUST fail
+   ([§14.1](#141-requirements)).
 8. Central directory records have no file comment (comment length 0).
 9. The archive has no central directory encryption, digital signature or
    archive extra data record.
@@ -1129,55 +1195,70 @@ also satisfies the following:
 
 ### 10.2 ZIP64
 
-A writer MUST use ZIP64 structures exactly where a value is too large for its
-field, and nowhere else:
+Every archive ends with the ZIP64 end records, whatever its size. Central
+directory records use ZIP64 only where a value is too large for its field:
 
-- In a central directory record, a local header offset of 0xFFFFFFFF or more
-  is stored as 0xFFFFFFFF, with the actual value in a ZIP64 extended
-  information extra field (`0x0001`) containing only that value. Sizes never
-  need ZIP64 ([§10.1](#101-structure) rule 7).
-- If the number of entries is 0xFFFF or more, or the central directory's size
-  or offset is 0xFFFFFFFF or more, the writer writes a zip64 end of central
-  directory record (44 bytes after its size field, so its size field is 44;
-  no extensible data sector; "version needed to extract" 45) and a zip64 end
-  of central directory locator (total number of disks 1). In the end of central directory record, each field
-  whose value is too large is set to all ones (0xFFFF or 0xFFFFFFFF); the
-  other fields hold their actual values.
+- **End records.** A writer MUST write, in this order and with nothing
+  between them:
+  1. the central directory;
+  2. a zip64 end of central directory record (44 bytes after its size field,
+     so its size field is 44; no extensible data sector; "version needed to
+     extract" 45). Its two entry counts and its central directory size and
+     offset hold the actual values;
+  3. a zip64 end of central directory locator holding the offset of that
+     record (total number of disks 1);
+  4. the end of central directory record
+     ([§10.4](#104-end-of-central-directory-record-and-archive-comment)). Its
+     two entry counts are 0xFFFF, and its central directory size and offset
+     are 0xFFFFFFFF, in every archive.
 
-In a central directory record, the ZIP64 extra block (`0x0001`) holds the
-64-bit local header offset when the 32-bit field is all ones. In a valid
-vzip archive that is the only value it can hold, because sizes never reach
-0xFFFFFFFF ([§10.1](#101-structure) rule 7), so the block is exactly 8
-bytes. A record has an entry error if:
+  The end of an archive therefore has the same shape at every size. A ZIP
+  reader that knows nothing about vzip is sent to the zip64 record by the
+  all-ones fields, so it reads the same four values a vzip reader does.
+- **Central directory records.** A record's ZIP64 extended information
+  extra field (`0x0001`) holds, in this order (as APPNOTE orders them), the
+  uncompressed size and the compressed size if the entry is large
+  ([§10.1](#101-structure) rule 7), then the local header offset if it is
+  0xFFFFFFFF or more; each value it holds has its 32-bit field set to
+  0xFFFFFFFF. A writer MUST NOT write the block on a record that needs
+  neither. The block holds both sizes or neither, and MUST NOT hold an
+  offset that fits its 32-bit field.
 
-- its compressed or uncompressed size field is 0xFFFFFFFF;
-- its offset field is all ones and it has no `0x0001` block, or one shorter
-  than 8 bytes;
-- it has more than one `0x0001` block, whatever its offset.
+A reader decodes a central directory record's sizes and offset like this:
 
-A `0x0001` block on a record whose offset is not all ones is otherwise
-ignored. When the offset comes from a block longer than 8 bytes, it is the
-block's first 8 bytes; the rest is ignored.
+- **Sizes:** if both size fields are 0xFFFFFFFF, the entry is large and its
+  sizes are the first 16 bytes of the `0x0001` block (uncompressed, then
+  compressed). Otherwise the size fields are the sizes.
+- **Offset:** if the offset field is 0xFFFFFFFF, the offset is the next 8
+  bytes of the block, after the sizes if the entry is large. Otherwise the
+  offset field is the offset.
 
-Readers MUST ignore the entry counts of the end records, beyond using them to
-decide whether ZIP64 records are used.
+A record has an entry error if:
 
-Readers MUST support these structures. A reader uses the zip64 end of central
-directory record if and only if at least one of the end of central directory
-record's entry counts (fields "entries on this disk" and "total entries"), its
-central directory size, or its central directory offset is all ones. Then:
+- exactly one of its size fields is 0xFFFFFFFF;
+- it needs values from a `0x0001` block and has none, or one shorter than
+  the values it needs (16 bytes for the sizes, 8 for the offset);
+- it has more than one `0x0001` block, whatever it needs.
+
+A `0x0001` block on a record that needs no value from it is otherwise
+ignored, and so are any bytes of a block after the values a record needs.
+
+A reader takes the central directory's size and offset from the zip64 end of
+central directory record, in every archive:
 
 - a zip64 locator MUST immediately precede the end of central directory
-  record;
-- the zip64 record it points to MUST lie within the file, have the right
-  signature and a size field of 44;
-- all four values (both entry counts, the directory's size and offset) are
-  taken from the zip64 record.
+  record: its signature is at that record's offset minus 20;
+- the zip64 record the locator points to MUST lie within the file, have the
+  right signature and a size field of 44.
 
-Otherwise the bytes before the end of central directory record are not
-examined. A locator signature appearing there, for example inside a file
-name in an archive without one, has no meaning. Any failure of these rules
-is an archive error.
+Any failure of these rules is an archive error. In particular, a ZIP file
+without the zip64 end records is not a valid archive, however small it is.
+
+Readers MUST ignore the entry counts, central directory size and central
+directory offset of the end of central directory record, whatever they hold,
+and the entry counts of the zip64 record. Readers are not required to check
+that the zip64 record sits between the central directory and the locator
+([§13.4](#134-violations-readers-need-not-detect)).
 
 Readers MUST ignore disk-number fields, "version made by" and "version
 needed to extract" values, timestamps, and internal and external
@@ -1233,12 +1314,14 @@ If it starts with `vzip/` and a version the reader doesn't implement, the
 archive is of an unsupported version. Either way, opening it is an archive
 error ([§6.4](#64-errors)).
 
-In a valid archive, step 1 cannot match a record that isn't the real one. A
-record found there would take its comment length from the real record's
-disk-number field, which is 0 in a single-disk archive
-([§10.1](#101-structure)). An invalid archive whose disk-number field is 38
-can make step 1 match a fake record; readers then reject it (magic mismatch,
-no fallback), which is the intended result.
+In a valid archive, step 1 cannot match a record that isn't the real one.
+When the comment is 22 bytes long, offset `file_size − 60` is 16 bytes before
+the real record, inside the zip64 locator ([§10.2](#102-zip64)): the
+signature would be read from the locator's disk-number field, and the
+comment length from the real record's disk-number field. Both are 0 in a
+single-disk archive ([§10.1](#101-structure)). An invalid archive can set
+those fields so that step 1 matches a fake record; readers then reject it
+(magic mismatch, no fallback), which is the intended result.
 
 Readers MUST read `__vz__/sources` and `__vz__/index` through the comment's
 offsets and sizes. They need not consult those entries' central directory
@@ -1282,8 +1365,9 @@ The data of the 0x7A76 or 0x7A77 block is the reference payload
 Writers MUST use 0x7A76 when a reference has exactly one range, and 0x7A77
 otherwise. Readers MUST accept a 0x7A77 payload with any number of parts.
 
-A reference entry MUST use method 0; a reference entry with method 8 is an
-entry error. Extra field blocks may appear in any order. Its body MUST be
+A reference entry MUST use method 0; a reference entry with method 8, or a
+large one ([§10.1](#101-structure) rule 7), is an entry error. Extra field
+blocks may appear in any order. Its body MUST be
 either empty or byte-identical to the reference payload. Writers SHOULD make
 it identical, so that ZIP tools which ignore extra fields still see the
 payload. Readers MUST take the payload from the central directory, and MUST
@@ -1405,6 +1489,10 @@ The page index itself is checked at open ([§13.1](#131-opening)). It is
 - a page's `first_key` or a pinned `key` is empty;
 - a pinned key is listed twice or is a format entry;
 - a pinned `method` is not 0 or 8;
+- a pinned entry is large (its `size` or `csize` is 0xFFFFFFFF or more,
+  [§10.1](#101-structure) rule 7) and its `method` is not 0. No central
+  directory record is consulted for a pinned key, so this is where a large
+  DEFLATE entry is caught;
 - a pinned body (`data_offset`, `csize`) lies outside the file.
 
 ## 13. Reading a vzip archive
@@ -1418,8 +1506,9 @@ besides the source table. Any failure is an archive error:
   - the end of central directory record is found as in
     [§10.4](#104-end-of-central-directory-record-and-archive-comment), and
     the magic is `vzip/0`;
-  - the zip64 records are used when, and only when, [§10.2](#102-zip64) says
-    so; their signatures are correct and they lie within the file;
+  - the zip64 locator immediately precedes the end of central directory
+    record, and the zip64 record it points to lies within the file and has
+    the right signature and size field ([§10.2](#102-zip64));
   - the central directory (offset and size) lies within the file.
 
   Here and throughout, "lies within the file" means the region
@@ -1517,7 +1606,7 @@ causes, besides those of Part 1:
 | class | causes in a vzip archive |
 |---|---|
 | **archive error** | everything [§13.1](#131-opening) checks |
-| **entry error** | the key's record violates [§11.1](#111-classification) (unparseable extra field, several reference blocks), uses a method other than 0 and 8, has bit 0 set, is a reference entry with method 8 ([§11.3](#113-reference-entries)), or breaks the ZIP64 block rules ([§10.2](#102-zip64)); or the page that lookup ([§12.2](#122-lookup)) selects for the key cannot be parsed. In that last case the key is reported as an entry error even if it isn't in the page, because the reader cannot tell. |
+| **entry error** | the key's record violates [§11.1](#111-classification) (unparseable extra field, several reference blocks), uses a method other than 0 and 8, has bit 0 set, is a reference entry with method 8 or a large one ([§11.3](#113-reference-entries)), is a large entry with method 8 ([§10.1](#101-structure) rule 7), or breaks the ZIP64 block rules ([§10.2](#102-zip64)); or the page that lookup ([§12.2](#122-lookup)) selects for the key cannot be parsed. In that last case the key is reported as an entry error even if it isn't in the page, because the reader cannot tell. |
 | **body error** | an entry's body (`[body offset, body offset + compressed size)`, judged as a whole even for a small window) lies outside the file; a DEFLATE body does not inflate cleanly ([§13.1](#131-opening)); a STORED entry's compressed and uncompressed sizes differ. This applies to bytes entries for get and raw, and to reference entries for raw. |
 | **payload error** | a reference payload longer than 65519 bytes ([§11.3](#113-reference-entries)) |
 
@@ -1532,12 +1621,17 @@ within the window.
 For archives that break these writer requirements, reader results are
 unspecified (besides those of [§6.6](#66-violations-readers-need-not-detect)):
 
-- [§10.1](#101-structure) rules 1, 2, 4, 5 (except bit 0), 6, 7 and 8:
-  readers use body offsets computed from the central directory, need not
-  read local headers, and need not verify CRC-32 values. Duplicate names are
-  included here. A reader that does verify a CRC-32 and finds a mismatch
-  reports a body error.
-- [§10.2](#102-zip64): whether ZIP64 structures were used only where needed.
+- [§10.1](#101-structure) rules 1, 2, 4, 5 (except bit 0), 6, 7 (except a
+  large entry with method 8, and a large reference entry,
+  [§11.3](#113-reference-entries)) and 8: readers use body offsets computed
+  from the central directory, need not read local headers, and need not
+  verify CRC-32 values. Duplicate names are included here. A reader that
+  does verify a CRC-32 and finds a mismatch reports a body error.
+- [§10.2](#102-zip64): whether a record's ZIP64 extra block was written only
+  where needed; whether the end of central directory record's counts, size
+  and offset are all ones (readers MUST still ignore them); and whether the
+  zip64 record immediately follows the central directory and immediately
+  precedes its locator.
 - [§10.4](#104-end-of-central-directory-record-and-archive-comment) and
   [§11.1](#111-classification): whether the format entries' records agree
   with the comment, are `bytes` entries, and use method 8.
@@ -1560,8 +1654,9 @@ producing no archive, if:
   `key` source names one;
 - a reference payload exceeds 65519 bytes ([§11.3](#113-reference-entries));
 - a key's UTF-8 encoding is longer than 65535 bytes;
-- a bytes entry's uncompressed or compressed size is 0xFFFFFFFF or more
-  ([§10.1](#101-structure) rule 7);
+- a bytes entry of 0xFFFFFFFF bytes or more, compressed or uncompressed,
+  would use method 8, or the source table or page index would reach
+  0xFFFFFFFF bytes ([§10.1](#101-structure) rule 7);
 - a pinned entry is not a bytes entry, is a format entry, or is listed
   twice.
 
@@ -1578,7 +1673,7 @@ follows every entry, so they don't constrain where the index goes.
 [pinned entries]                  small entries readers fetch when opening (e.g. zarr.json)
 [__vz__/index]                    if paged
 [central directory]
-[zip64 end records]               if needed
+[zip64 end record + locator]      always
 [end of central directory + vzip comment]
 ```
 
@@ -1591,6 +1686,14 @@ For reproducible output, writers SHOULD use the DOS date 1980-01-01 00:00 and
 "version made by" 20, and SHOULD use "version needed to extract" 45 for
 records with a ZIP64 extra field and 20 otherwise. Readers MUST NOT depend on
 any of these values.
+
+### 14.3 Archive file names
+
+A vzip archive SHOULD be named with the extension `.vzip`. An archive with
+reference entries SHOULD NOT be named `.ozx`: tools that open `.ozx` files
+read every entry's body as its value, which for a reference entry it is not
+([§9.1](#91-related-zip-profiles-informative)). Readers MUST NOT depend on
+the file name.
 
 ## 15. Security considerations for ZIP
 
