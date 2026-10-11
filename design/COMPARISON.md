@@ -116,7 +116,7 @@ of 1.2–38 kB, those tools would inline nothing at their default threshold
 Openers: kerchunk through fsspec's reference filesystem, created
 asynchronously and passed to `zarr.storage.FsspecStore`; Icechunk through
 `Repository.open(icechunk.http_storage(url))`; vzip through
-`vzip.store.VZipStore(url)`.
+`vzip.zarr.open(url)`.
 
 `chunks=None` matters for kerchunk. With xarray's default dask chunking,
 xarray tokenizes the store by pickling it, and fsspec's reference filesystem

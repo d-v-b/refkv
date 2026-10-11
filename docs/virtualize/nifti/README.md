@@ -72,9 +72,9 @@ no translation. Read it:
 
 ```python
 import zarr
-from vzip import VZipStore
+import vzip.zarr
 
-g = zarr.open_group(VZipStore("avg152T1.vzip"), mode="r")
+g = zarr.open_group(vzip.zarr.open("avg152T1.vzip"), mode="r")
 print(g.attrs["ome"]["multiscales"][0]["axes"])
 print(g.attrs["ome"]["multiscales"][0]["datasets"])
 print(g.attrs["vzip_virtualized"]["nifti"]["scaling"])

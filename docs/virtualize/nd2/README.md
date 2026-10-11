@@ -80,9 +80,9 @@ holds the file's IR mirror, so it is larger.
 
 ```python
 import zarr
-from vzip import VZipStore
+import vzip.zarr
 
-root = zarr.open_group(VZipStore("373_A1.vzip"), mode="r")
+root = zarr.open_group(vzip.zarr.open("373_A1.vzip"), mode="r")
 print(root["OME"].attrs["ome"]["series"])
 img = root["0"]
 ms = img.attrs["ome"]["multiscales"][0]

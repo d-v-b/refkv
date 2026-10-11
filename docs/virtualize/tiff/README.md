@@ -99,9 +99,9 @@ This took 5 s and wrote a 624 KB archive (at revision 16). Read it with zarr-pyt
 
 ```python
 import zarr
-from vzip import VZipStore
+import vzip.zarr
 
-g = zarr.open_group(VZipStore("idr0096.vzip"), mode="r")
+g = zarr.open_group(vzip.zarr.open("idr0096.vzip"), mode="r")
 ms = g.attrs["ome"]["multiscales"][0]
 print(ms["name"], [a["name"] for a in ms["axes"]])
 print(ms["datasets"][0]["coordinateTransformations"])
@@ -132,9 +132,9 @@ uv run python -m vzip.virtualize https://openslide.cs.cmu.edu/download/openslide
 
 ```python
 import zarr
-from vzip import VZipStore
+import vzip.zarr
 
-g = zarr.open_group(VZipStore("CMU-1-Small-Region.vzip"), mode="r")
+g = zarr.open_group(vzip.zarr.open("CMU-1-Small-Region.vzip"), mode="r")
 print(g.attrs["ome"]["multiscales"][0]["datasets"][0]["coordinateTransformations"])
 a = g["0"]
 print(a.shape, a.dtype, a.chunks, a.metadata.codecs)

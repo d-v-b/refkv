@@ -8,18 +8,20 @@ from the file it came from: no data is copied.
 
 ## Install
 
-<!-- This installs main, which has the virtualizarr extra once this page is merged; do not pin a branch. -->
+<!-- This installs main, which has these extras once this page is merged; do not pin a branch. -->
 ```bash
 pip install "vzip[virtualizarr] @ git+https://github.com/d-v-b/vzip" xarray h5py h5netcdf fsspec aiohttp
 ```
 
 The `virtualizarr` extra installs VirtualiZarr, which
 `vzip.ReferenceStore.from_virtualizarr` needs, and with it xarray, obstore and
-obspec_utils. vzip itself does not import xarray. The rest are for the
-example: h5py for VirtualiZarr's HDF5 parser, and h5netcdf, fsspec and aiohttp
-for xarray to read a netCDF file over HTTPS and check the archive's values;
-xarray brings pandas. Without the extra, vzip reads and writes archives, and
-holds a `ReferenceStore` built from a mapping. (In a clone of this repository,
+obspec_utils; and the `zarr` extra, zarr-python, with which `vzip.zarr` opens
+a store for `xr.open_zarr`. vzip itself does not import xarray. The rest are
+for the example: h5py for VirtualiZarr's HDF5 parser, and h5netcdf, fsspec
+and aiohttp for xarray to read a netCDF file over HTTPS and check the
+archive's values; xarray brings pandas. Without the extras, vzip reads and
+writes archives, and holds a `ReferenceStore` built from a mapping, without
+Zarr; `vzip[zarr]` alone adds `vzip.zarr`. (In a clone of this repository,
 `uv sync` installs all of these.)
 
 ## An example: five years of sea surface temperature
@@ -80,7 +82,7 @@ print(store.save("oisst.vzip"))
 
 # 3. Reopen it with xarray: the yearly mean SST over the Nino 3.4 region, weighted by area.
 stats = vzip.Stats()
-ds = xr.open_zarr(vzip.open("oisst.vzip", stats=stats))
+ds = xr.open_zarr(vzip.zarr.open("oisst.vzip", stats=stats))
 nino34 = ds.sst.sel(lat=slice(-5, 5), lon=slice(190, 240))
 mean = nino34.weighted(np.cos(np.deg2rad(nino34.lat))).mean(["lat", "lon", "zlev"])
 print(mean.groupby("time.year").mean().to_series().round(2))
@@ -122,8 +124,8 @@ What each step does:
    Zarr metadata, the coordinates as bytes, and each chunk as a reference.
    `rewrite_urls=vzip.public_s3_url` names each file by its public HTTPS URL
    ([publishing](#publishing)). `save` writes the archive and summarizes it.
-3. **Compute.** `vzip.open` opens the archive as a read-only Zarr store for
-   `xr.open_zarr`, which reads chunks from the netCDF files, at most 8
+3. **Compute.** `vzip.zarr.open` opens the archive as a read-only Zarr store
+   for `xr.open_zarr`, which reads chunks from the netCDF files, at most 8
    requests at a time. The files' chunking stays: a chunk of `sst` is a whole day's global
    field, 720×1440, about 0.65 MB, so even one grid cell costs that per day
    (a year of one cell read 239 MB). The mean is weighted by cos(latitude),
@@ -140,7 +142,7 @@ What each step does:
   instantiates it with no arguments, hence the `EightThreads` subclass,
   which keeps the host to 8 connections.
 - **Reuse the archive.** That is the point of saving it: steps 3 and 4 rerun
-  from `vzip.open("oisst.vzip")` without virtualizing again, so guard steps
+  from `vzip.zarr.open("oisst.vzip")` without virtualizing again, so guard steps
   1 and 2 with `if not Path("oisst.vzip").exists():` while you iterate.
 - **The page index.** Without one, a reader loads the whole central
   directory at open, about 125 bytes per key. A year of daily OISST is
@@ -150,7 +152,7 @@ What each step does:
   directory passes a few MB, tens of thousands of keys, save with
   `store.save("oisst.vzip", page_size=65536)`
   ([spec §12, Page index](../spec/archive.md#12-page-index-optional)).
-- **Requests.** `vzip.open(..., max_concurrency=16)` allows more requests in
+- **Requests.** `vzip.zarr.open(..., max_concurrency=16)` allows more requests in
   flight, and `max_concurrency=None` removes the cap. Respect the host's
   limits.
 
@@ -160,7 +162,7 @@ What each step does:
 without credentials: vzip in Python, the [JavaScript reader](../js/README.md),
 and a browser (if the bucket allows cross-origin requests). Serve the archive
 over HTTPS, and anyone can open it with
-`xr.open_zarr(vzip.open("https://example.org/oisst.vzip"))`.
+`xr.open_zarr(vzip.zarr.open("https://example.org/oisst.vzip"))`.
 `save(..., relative_to="https://example.org/data/")` writes URLs under that
 prefix relative to the archive, so the two can move together.
 
@@ -174,7 +176,7 @@ from obstore.store import S3Store
 registry = {"s3://my-bucket": S3Store("my-bucket", region="us-west-2")}
 store = vzip.ReferenceStore.from_virtualizarr(vds, registry=registry)
 store.save("private.vzip", policy=vzip.Policy(schemes={"s3"}))
-ds = xr.open_zarr(vzip.open("private.vzip", registry=registry))
+ds = xr.open_zarr(vzip.zarr.open("private.vzip", registry=registry))
 ```
 
 By default, vzip reads `http(s)` URLs (and local files, from a local
@@ -214,5 +216,7 @@ register its store, as above; that allows its URLs. The rules are in
   Exempt the host with `no_proxy`, or pass
   `policy=vzip.Policy(allow_unchecked_proxy=True)`.
 
-The docstrings say more: `help(vzip.ReferenceStore)`, `help(vzip.open)`
-(its `registry=` and `max_concurrency=`), and `help(vzip.Policy)`.
+The docstrings say more: `help(vzip.ReferenceStore)`, `help(vzip.zarr.open)`
+and `help(vzip.VZipStore)` (its `registry=` and `max_concurrency=`), and
+`help(vzip.Policy)`. Without zarr, a store answers `get`, `classify`, `raw`
+and `list` itself: `vzip.open("oisst.vzip").get("zarr.json")`.

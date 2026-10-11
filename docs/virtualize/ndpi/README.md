@@ -65,9 +65,9 @@ tags, so it is larger.
 
 ```python
 import zarr
-from vzip import VZipStore
+import vzip.zarr
 
-g = zarr.open_group(VZipStore("CMU-1.vzip"), mode="r")
+g = zarr.open_group(vzip.zarr.open("CMU-1.vzip"), mode="r")
 ms = g.attrs["ome"]["multiscales"][0]
 for d in ms["datasets"]:
     a = g[d["path"]]
