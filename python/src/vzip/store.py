@@ -1,6 +1,9 @@
 """A read-only zarr store over a vzip archive.
 
-The store is an overlay of two key spaces held in one ZIP file:
+A vzip store maps each key to bytes or to a reference (spec/archive.md, Part 1
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#part-1-reference-values>); a
+vzip archive keeps it in one ZIP file (Part 2
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#part-2-the-zip-binding>):
 
 * bytes keys      -> the body of the zip entry
 * reference keys  -> the concatenation of byte ranges of other objects

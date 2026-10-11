@@ -1,5 +1,10 @@
 # vzip in the browser
 
+vzip is ZIP plus a reference value type: a store whose values are either
+bytes or references to byte ranges of other objects
+([spec/archive.md](../spec/archive.md)). This package reads and writes vzip
+archives, the ZIP binding of that store, in the browser and in Node.
+
 A service worker that turns a remote image file (TIFF, NDPI, ND2, CZI,
 DICOM, NIfTI or IMS), a Sentinel-2 SAFE product (a `.SAFE.zip` file, or a
 `.SAFE` directory), an N5, Zarr v2 or OME-Zarr 0.4 store (a URL ending in `/`),

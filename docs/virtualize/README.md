@@ -3,10 +3,10 @@
 vzip can present an image file, or a chunked array store, as an OME-Zarr
 dataset without converting or copying its pixels. A **virtualizer** reads
 only the input's structure (headers, tile tables, metadata documents) and
-writes a small vzip archive ([spec/archive.md](../../spec/archive.md)): a Zip file whose
-metadata entries are OME-Zarr 0.5 (Zarr v3) documents and whose chunk entries
-are references to byte ranges of the original file, or to the store's own
-chunk objects. A Zarr reader that understands vzip then reads the pixels
+writes a small vzip archive ([spec/archive.md](../../spec/archive.md)): a ZIP file
+whose values are bytes or references. Its metadata entries are OME-Zarr 0.5
+(Zarr v3) documents, and its chunk entries are references to byte ranges of
+the original file, or to the store's own chunk objects. A Zarr reader that understands vzip then reads the pixels
 straight from where they already are.
 
 Each input format has a **profile**: a specification, written for

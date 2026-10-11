@@ -51,7 +51,7 @@ fs.writeFileSync(
 <body>
 <main>
   <h1>vzip demos</h1>
-  <p>Demos of <a href="https://github.com/d-v-b/vzip">vzip</a>, a ZIP container for byte-range references.</p>
+  <p>Demos of <a href="https://github.com/d-v-b/vzip">vzip</a>, ZIP plus a reference value type, for virtual stores.</p>
   <ul>
 ${demos.map((d) => `    <li><a href="${escape(d.dir)}/">${escape(d.title)}</a><span>${escape(d.description)}</span></li>`).join("\n")}
   </ul>
@@ -64,8 +64,8 @@ fs.writeFileSync(
   path.join(site, "README.md"),
   `# vzip demos
 
-Live demos of [vzip](https://github.com/d-v-b/vzip), a ZIP container for
-byte-range references: **https://d-v-b.github.io/vzip-demo/**
+Live demos of [vzip](https://github.com/d-v-b/vzip), ZIP plus a reference value type,
+for virtual stores: **https://d-v-b.github.io/vzip-demo/**
 
 | demo | what it does |
 |---|---|
