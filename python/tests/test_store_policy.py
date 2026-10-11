@@ -1,5 +1,5 @@
-"""Store inputs under the reader policy (spec/archive.md §8.7
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>): the listing, every
+"""Store inputs under the reader policy (spec/archive.md §6.7
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>): the listing, every
 object read (the prefetch threads' too) and every redirect go through `Policy`, as a file
 input's requests do. The browser implementation has the same tests in
 js/test/store_policy.test.ts.

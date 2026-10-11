@@ -1,5 +1,5 @@
-// Rule 3 of spec/archive.md §8.7
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> on the network, under
+// Rule 3 of spec/archive.md §6.7
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> on the network, under
 // Node (`#net`): the twin of the network tests in python/tests/test_policy.py.
 
 import assert from "node:assert/strict";

@@ -1,5 +1,5 @@
 """File inputs of the profiles that are not the IR's under the reader policy (spec/archive.md
-§8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>): the http reader
+§6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>): the http reader
 (vzip.virtualize.common.http_reader) makes every request (the
 size's, each range's, prefetch's) and follows every redirect under `Policy`, as a
 store's reads do (tests/test_store_policy.py).

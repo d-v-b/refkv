@@ -1,11 +1,19 @@
 # vzip: virtual zip
 
-A spec for storing two kinds of things in a Zip archive:
-1. bytes
-2. pointers to ranges of bytes in external objects
+vzip is ZIP plus a reference value type: a key-value store in which every
+value is either bytes or a reference to byte ranges of other objects, such
+as the chunks inside HDF5, netCDF or TIFF files. Because the reference type
+does not depend on ZIP, any storage backend that can tell a bytes value from
+a reference value can hold such a virtual store.
 
-Read the [pitch](design/PITCH.md), or the [spec](spec/archive.md). [docs/](docs/README.md) is
-for users: the live demos, and how to virtualize image files and stores.
+The [spec](spec/archive.md) has two parts:
+[the reference value type](spec/archive.md#part-1-reference-values), which
+needs no particular backend, and
+[the ZIP binding](spec/archive.md#part-2-the-zip-binding), which keeps a
+store in one ordinary ZIP file, a vzip archive. ZIP is the one binding
+specified today. Read the [pitch](design/PITCH.md) for why.
+[docs/](docs/README.md) is for users: the live demos, and how to virtualize
+image files and stores.
 
 Status: experimental, proof of concept, anything can change.
 
@@ -16,7 +24,7 @@ code is organized by language.
 
 | directory | holds |
 |---|---|
-| [spec/](spec/) | the specifications: the archive format ([archive.md](spec/archive.md)), virtualization ([virtualize.md](spec/virtualize.md)), the conventions every virtualized hierarchy shares ([conventions.md](spec/conventions.md)), one document per format with its Zarr convention and its profile ([virtualize/](spec/virtualize/), each `<format>.md` beside `<format>/schema.json`), the wire schema ([proto/](spec/proto/)), and earlier revisions ([history/](spec/history/)) |
+| [spec/](spec/) | the specifications: the reference value type and its ZIP binding ([archive.md](spec/archive.md)), virtualization ([virtualize.md](spec/virtualize.md)), the conventions every virtualized hierarchy shares ([conventions.md](spec/conventions.md)), one document per format with its Zarr convention and its profile ([virtualize/](spec/virtualize/), each `<format>.md` beside `<format>/schema.json`), the wire schema ([proto/](spec/proto/)), and earlier revisions ([history/](spec/history/)) |
 | [docs/](docs/README.md) | user documentation: a page per format in [docs/virtualize/](docs/virtualize/README.md) |
 | [design/](design/) | design notes and studies: [ARCHITECTURE.md](design/ARCHITECTURE.md), [FINDINGS.md](design/FINDINGS.md), [PITCH.md](design/PITCH.md), [COMPARISON.md](design/COMPARISON.md), the IR notes ([IR_NOTES.md](design/IR_NOTES.md)), the conformance rounds' notes and proposals, and the experiment scripts the notes cite |
 | [python/](python/) | the Python package `vzip` (`python/src/vzip`) and its tests (`python/tests`); its `pyproject.toml` is at the root |

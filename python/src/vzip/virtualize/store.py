@@ -664,8 +664,8 @@ class HttpStore(Store):
     """A store listed by S3 ListObjectsV2 (§1.5
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>), every request
     under the reader
-    policy (spec/archive.md §8.7
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>): the listing's, each
+    policy (spec/archive.md §6.7
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>): the listing's, each
     object read's (the prefetch
     threads' too), and each redirect target's, which is checked before it is
     requested. Unless the policy has `allow_private_hosts`, the address each
@@ -1043,8 +1043,8 @@ class StoreOutput:
     # The source key of each entry whose key is not its object's (the objects under vzip_source/objects/).
     origins: dict[str, str] = field(default_factory=dict)
     # The CRC-32C of a url source's bytes, when the references are to carry
-    # checksums (spec/archive.md §5.2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>); set by
+    # checksums (spec/archive.md §4.2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>); set by
     # vzip.virtualize.virtualize_store.
     checksum: Callable[[str, int, int], int] | None = None
 

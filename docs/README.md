@@ -1,5 +1,10 @@
 # vzip documentation
 
+vzip is ZIP plus a reference value type: a store whose values are either
+bytes or references to byte ranges of other objects. Any backend that can
+tell the two apart can hold one; the [spec](../spec/archive.md) defines the
+reference value type and one backend, a single ZIP file (a vzip archive).
+
 [COMPARISON.md](../design/COMPARISON.md) compares vzip with kerchunk JSON, kerchunk Parquet and Icechunk on the same virtual dataset, read over HTTP.
 
 ## Demos

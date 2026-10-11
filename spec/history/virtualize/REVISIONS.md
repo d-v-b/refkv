@@ -570,7 +570,7 @@ about 300 bytes of reference payload per tile, stored twice (local header
 and central directory).
 
 **The rule (§1.2).** A file input's source table is the `url` source 0, then
-its **data sources** ([SPEC.md §6](../../archive.md#6-source-table)): the distinct byte strings that the
+its **data sources** ([SPEC.md §6](../archive/SPEC.r10.md#6-source-table)): the distinct byte strings that the
 profile names as shared, numbered from 1 in order of first use (references
 in the profile's listed order, ranges in order). A range of a shared string
 is the whole data source `(i, 0, len)`. The TIFF profile shares `P`, and the

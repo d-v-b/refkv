@@ -84,8 +84,8 @@ from vzip.virtualize.common import REVISION, same  # noqa: E402
 IDR = "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant/20210609-ftp-ome-tiffs/"
 BUILTIN = {
     # the inputs are served from 127.0.0.1, which the reader policy refuses by default
-    # (spec/archive.md §8.7
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>)
+    # (spec/archive.md §6.7
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)
     "ref": ("vzip", ["uv", "run", "python", str(HERE / "reference" / "cli.py"), "--allow-private-hosts"]),
     "py": ("vzip", ["uv", "run", "python", "-m", "vzip.virtualize", "--allow-private-hosts"]),
     "web": ("vzip", ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"]),
@@ -156,11 +156,11 @@ def strict(path: Path, view: dict) -> list[str]:
     """The problems spec/archive.md finds in an archive, by code that shares nothing with the
     writers under test: the independent reader (conformance/impls/python, written from spec/archive.md
     alone) must open it and see exactly the output `view` holds, and the archive must
-    meet the writer requirements (spec/archive.md §3
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#3-zip-container>, §4
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#4-entries>, §7
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#7-page-index-optional>, §9
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#9-writing>) as
+    meet the writer requirements (spec/archive.md §10
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#10-zip-container>, §11
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#11-entries>, §12
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#12-page-index-optional>, §14
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#14-writing-a-vzip-archive>) as
     conformance/archive/validate.py,
     with its own ZIP parser, checks them: canonical payloads, reference bodies,
     duplicate names, hidden entries, CRC-32s, local headers and the page index."""

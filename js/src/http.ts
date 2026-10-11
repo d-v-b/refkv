@@ -1,7 +1,7 @@
 /**
- * @file Reading a byte range of an http(s) `url` source (spec §6.2
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>), with
- * its pins (§6.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#61-pins>).
+ * @file Reading a byte range of an http(s) `url` source (spec §5.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>), with
+ * its pins (§5.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-pins>).
  *
  * Browser limitations, which a JavaScript reader cannot work around:
  *
@@ -9,20 +9,20 @@
  *   `Accept-Encoding: identity` on their own for requests with a `Range`
  *   header, and the response's `Content-Encoding` is still checked here.
  * - `fetch` follows redirects itself (up to 20), re-sending the request
- *   headers, so the 5-redirect limit of §6.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http> cannot be enforced. A redirect
+ *   headers, so the 5-redirect limit of §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http> cannot be enforced. A redirect
  *   to a non-http(s) URL is refused by the browser.
  * - Cross-origin, `ETag`, `Last-Modified` and `Content-Range` are visible
  *   only if the server lists them in `Access-Control-Expose-Headers`, and
  *   `If-Match` / `If-Unmodified-Since` need a CORS preflight. Without them,
  *   pins cannot be checked, which is a resolution error (pins fail closed).
  *   A cross-origin 206 without a visible `Content-Range` is accepted if its
- *   body has exactly the requested length (a deviation from §6.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>). An
- *   application may allow the reader to skip such pins (spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 7,
- *   `unverifiablePins`); range checksums (§5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>) still apply.
+ *   body has exactly the requested length (a deviation from §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>). An
+ *   application may allow the reader to skip such pins (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 7,
+ *   `unverifiablePins`); range checksums (§4.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>) still apply.
  * - A redirect cannot be seen before `fetch` follows it, so the reader's
- *   policy (§8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>) is checked on the final URL (`allow`).
- * - `fetch` does not expose the address it connects to, so rule 3 of §8.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>
+ *   policy (§6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>) is checked on the final URL (`allow`).
+ * - `fetch` does not expose the address it connects to, so rule 3 of §6.7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>
  *   (private and special hosts) is checked on hosts as written: IP literals
  *   and `localhost`. A browser's Private Network Access protections cover
  *   names that resolve to such addresses, and redirect hops in between.
@@ -39,8 +39,8 @@ import {
 export class HttpResolutionError extends Error {}
 
 /**
- * A `fetch` that applies rule 3 of spec §8.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> to the addresses it
+ * A `fetch` that applies rule 3 of spec §6.7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> to the addresses it
  * connects to (`#net` under Node), following redirects itself and calling `allow` on each
  * target before requesting it.
  */
@@ -51,8 +51,8 @@ export type CheckedFetch = (
 ) => Promise<Response>;
 
 /**
- * What the reader's policy (spec §8.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>) asks of one range
+ * What the reader's policy (spec §6.7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>) asks of one range
  * read.
  */
 export interface ReadOptions {
@@ -61,8 +61,8 @@ export interface ReadOptions {
   /** Throws for a URL the policy refuses: here, the target of a redirect. */
   allow?: (url: string) => void;
   /**
-   * Skip pins whose headers the response hides (spec §8.7
-   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 7).
+   * Skip pins whose headers the response hides (spec §6.7
+   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 7).
    */
   unverifiablePins?: boolean;
 }
@@ -70,8 +70,8 @@ export interface ReadOptions {
 function single(headers: Headers, name: string): string | null {
   // `Headers` joins repeated fields with ", ". Values that cannot contain a
   // comma (`Content-Range`, an `ETag`, an IMF-fixdate's day/month part) are
-  // checked for that, so repeated fields are detected (spec §6.2
-  // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>).
+  // checked for that, so repeated fields are detected (spec §5.2
+  // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>).
   return headers.get(name);
 }
 
@@ -121,8 +121,8 @@ export async function readHttpRange(
     throw new HttpResolutionError(`${url}: ${message}`);
   };
   if (response.redirected) {
-    // The final URL must still satisfy the URL rules, and the policy (§8.7
-    // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>).
+    // The final URL must still satisfy the URL rules, and the policy (§6.7
+    // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>).
     try {
       checkHttpUrl(response.url);
       options.allow?.(response.url);
@@ -151,8 +151,8 @@ export async function readHttpRange(
     fail("more than one Last-Modified field");
   }
   // Pins are checked against the response itself: servers may ignore the
-  // conditional headers (spec §6.2
-  // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>). A cross-origin
+  // conditional headers (spec §5.2
+  // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>). A cross-origin
   // response hides headers the
   // server does not expose; the application may allow skipping those pins.
   const skip = (header: string | null) =>
@@ -181,13 +181,13 @@ export async function readHttpRange(
   }
   const contentRange = single(response.headers, "Content-Range");
   if (contentRange === null && response.type === "cors") {
-    // Deviation from spec §6.2
-    // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>: a
+    // Deviation from spec §5.2
+    // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>: a
     // cross-origin response hides
     // `Content-Range` unless the server exposes it, and many servers that
     // allow range requests do not. Only the body length can be checked, and
-    // the object's size is unknown, so a `size` pin fails (spec §6.1
-    // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#61-pins>).
+    // the object's size is unknown, so a `size` pin fails (spec §5.1
+    // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-pins>).
     if (body.length !== end - start) {
       fail(`206 of ${body.length} bytes for [${start}, ${end})`);
     }

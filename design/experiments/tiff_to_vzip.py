@@ -12,8 +12,8 @@ Reads only the TIFF's IFDs over HTTP range requests, then writes:
 * `<level>/c/<c>/<ty>/<tx>`: a Range reference to that tile's bytes
 * `OME/METADATA.ome.xml`: the OME-XML, as a real (deflated) bytes entry
 
-The URL source is pinned to the object's size, ETag and Last-Modified (spec §6.1
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#61-pins>),
+The URL source is pinned to the object's size, ETag and Last-Modified (spec §5.1
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-pins>),
 unless `--no-pins` is given. Browsers can only check pins on servers that expose
 those headers to cross-origin pages, which many (EBI's included) do not.
 

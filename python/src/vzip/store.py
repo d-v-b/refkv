@@ -1,6 +1,9 @@
 """A read-only zarr store over a vzip archive.
 
-The store is an overlay of two key spaces held in one ZIP file:
+A vzip store maps each key to bytes or to a reference (spec/archive.md, Part 1
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#part-1-reference-values>); a
+vzip archive keeps it in one ZIP file (Part 2
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#part-2-the-zip-binding>):
 
 * bytes keys      -> the body of the zip entry
 * reference keys  -> the concatenation of byte ranges of other objects
@@ -173,8 +176,8 @@ def new_connection(scheme: str, host: str, port: int | None, timeout: float = 60
 _getaddrinfo = socket.getaddrinfo
 
 Check = Callable[[str], None]
-"""Raises ResolutionError for an IP address the reader's policy refuses (spec §8.7
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3)."""
+"""Raises ResolutionError for an IP address the reader's policy refuses (spec §6.7
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3)."""
 
 
 def _refuse_unchecked(*args, **kwargs):
@@ -182,8 +185,8 @@ def _refuse_unchecked(*args, **kwargs):
 
 
 def _connect(conn: http.client.HTTPConnection, check: Check | None) -> None:
-    """Open `conn` to an address of its host that `check` allows (spec §8.7
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3).
+    """Open `conn` to an address of its host that `check` allows (spec §6.7
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3).
 
     The host is resolved here, each address is checked, and the socket is
     connected to the checked address itself, so a name that resolves
@@ -246,8 +249,8 @@ def _send(url: str, headers: dict[str, str], check: Check | None = None,
     `check` is applied to the address the request is sent to: when a new
     connection is opened, and again to a reused one's peer. A request that
     would go through a proxy cannot be checked, so with `check` it is
-    refused unless `unchecked_proxy` (spec §8.7
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3). `pool` keeps
+    refused unless `unchecked_proxy` (spec §6.7
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3). `pool` keeps
     the connections alive (default: the reader's, shared by its threads); it
     has `_Pool`'s `get` and `put`."""
     pool = _POOL if pool is None else pool
@@ -258,7 +261,7 @@ def _send(url: str, headers: dict[str, str], check: Check | None = None,
             if not unchecked_proxy:
                 raise ResolutionError(
                     f"{url}: the request would go through the proxy {proxy}, and the reader "
-                    f"cannot check the address the proxy connects to (spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>); set "
+                    f"cannot check the address the proxy connects to (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>); set "
                     f"allow_unchecked_proxy=True to send it anyway, or exempt the host with "
                     f"no_proxy")
             # Check what the name resolves to here: this catches literal addresses and
@@ -321,11 +324,11 @@ def http_range(url: str, start: int, end: int, src: Source,
                allow: Callable[[str], None] | None = None,
                address: Callable[[str, str], None] | None = None,
                unchecked_proxy: bool = False) -> tuple[bytes, int | None]:
-    """Bytes [start, end) of an http(s) object, and its size if known (spec §6.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>).
+    """Bytes [start, end) of an http(s) object, and its size if known (spec §5.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>).
 
     `allow(url)` raises for a redirect target the reader's policy refuses
-    (spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>); it is
+    (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>); it is
     called before the request to that target is sent.
     `address(url, ip)` raises for an IP address the policy refuses (rule 3);
     it is called on the address each request is sent to, before sending it.
@@ -347,7 +350,7 @@ def http_range(url: str, start: int, end: int, src: Source,
             seconds=t)
         headers["If-Unmodified-Since"] = email.utils.format_datetime(when, usegmt=True)
     first = url
-    for redirects in range(6):  # spec §6.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>: at most 5 redirects
+    for redirects in range(6):  # spec §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>: at most 5 redirects
         check = None if address is None else (lambda ip, u=url: address(u, ip))
         try:
             status, msg, body = _send(url, headers, check, unchecked_proxy)
@@ -383,7 +386,7 @@ def http_range(url: str, start: int, end: int, src: Source,
     enc = ", ".join(e.strip() for e in encs).lower() if encs else "identity"
     crange = msg.get("Content-Range")
     etag, last_modified = msg.get("ETag"), msg.get("Last-Modified")
-    # spec §6.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>:
+    # spec §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>:
     # servers may ignore conditional headers, so check the response itself
     if src.etag is not None and etag != src.etag:
         raise ResolutionError(f"{url}: the ETag is {etag!r}, but the archive pins {src.etag!r}: "
@@ -421,7 +424,7 @@ def _size_mismatch(url: str, pin: int, size: int | None) -> str:
 
 
 def _check_http_url(url: str) -> None:
-    """spec §6.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>: no
+    """spec §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>: no
     userinfo, a non-empty host, a port of at most 65535."""
     pu = urlparse(url)
     if "@" in pu.netloc or not pu.hostname:
@@ -440,7 +443,7 @@ def imf_fixdate(v: str | None) -> int | None:
     m = re.fullmatch(r"(\w{3}), (\d{2}) (\w{3}) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT", v or "")
     if not m or m[1] not in _DAYS or m[3] not in _MONTHS:
         return None
-    leap = int(m[7]) == 60  # a leap second counts as the following second (§6.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>)
+    leap = int(m[7]) == 60  # a leap second counts as the following second (§5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>)
     try:
         t = datetime.datetime(int(m[4]), _MONTHS.index(m[3]) + 1, int(m[2]), int(m[5]),
                               int(m[6]), 59 if leap else int(m[7]), tzinfo=datetime.timezone.utc)
@@ -454,7 +457,7 @@ def imf_fixdate(v: str | None) -> int | None:
 
 
 def _check_index(pages, pinned, cd_size: int, file_size: int) -> None:
-    """Spec §7.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#72-lookup>: a malformed
+    """Spec §12.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#122-lookup>: a malformed
     page index is an archive error."""
     pos, prev = 0, None
     for p in pages:
@@ -494,14 +497,14 @@ class VZipStore(Store):
         policy: Policy | None = None,
     ) -> None:
         """`policy` says which sources may be resolved, and the reader's limits
-        (spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>). The
+        (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>). The
         default, `Policy()`, lets every archive read `http`
         and `https` sources on public hosts, not through a proxy, and a local
         archive also read `file` sources; it refuses every other scheme, and
         loopback, private and special addresses."""
         super().__init__(read_only=True)
         self.policy = policy or Policy()
-        # spec §6 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>:
+        # spec §5 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>:
         # absolute, lexically normalised, symlinks not resolved
         self.url = url if urlparse(url).scheme else file_uri(url)
         self.resolve = resolve
@@ -553,7 +556,7 @@ class VZipStore(Store):
             await self._open_archive()
         except ArchiveError:
             raise
-        except Exception as e:  # noqa: BLE001 - spec §8.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#81-opening>: every open failure
+        except Exception as e:  # noqa: BLE001 - spec §6.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#61-opening>: every open failure
             raise ArchiveError(f"{type(e).__name__}: {e}") from None
         self._refresh_keys()
         await super()._open()
@@ -620,15 +623,15 @@ class VZipStore(Store):
             elif SOURCES_KEY in self._entries:
                 e = self._entries[SOURCES_KEY]
                 self._sources, self.revision = read_table(await self._entry_bytes(e, 0, e.size))
-        if len(self._sources) > self.policy.max_sources:  # spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 4
+        if len(self._sources) > self.policy.max_sources:  # spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 4
             raise ArchiveError(f"the source table has {len(self._sources)} sources; this reader "
                                f"allows {self.policy.max_sources}")
         if any(src.url == "" or src.key == "" for src in self._sources):
             raise ValueError("empty url or key in the source table")
 
     def _slice(self, offset: int, n: int, method: int) -> bytes:
-        """A format entry's body, fetched while opening (inflated within spec §8.7
-        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 6)."""
+        """A format entry's body, fetched while opening (inflated within spec §6.7
+        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 6)."""
         lo = offset - self._buf_start
         raw = self._buf[lo : lo + n]
         if method != 8:
@@ -637,7 +640,7 @@ class VZipStore(Store):
             return inflate_clean(raw, self.policy.max_format_entry)
         except InflateLimitError as e:
             raise ArchiveError(f"a format entry {e}; this reader allows "
-                               f"{self.policy.max_format_entry} (spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>)") from None
+                               f"{self.policy.max_format_entry} (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)") from None
 
     def _refresh_keys(self) -> None:
         self._keys = sorted(
@@ -669,7 +672,7 @@ class VZipStore(Store):
                     self._bad_pages[i] = str(e)
                     parsed = {}
                 for k, e in parsed.items():
-                    if bisect.bisect_right(self._page_keys, k) - 1 == i:  # spec §7.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#72-lookup>
+                    if bisect.bisect_right(self._page_keys, k) - 1 == i:  # spec §12.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#122-lookup>
                         self._entries.setdefault(k, e)
                 self._loaded.add(i)
             self._refresh_keys()
@@ -691,7 +694,7 @@ class VZipStore(Store):
     async def _load_prefix(self, prefix: str) -> None:
         if not self._pages:
             return
-        # spec §8.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#82-operations>: page
+        # spec §13.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#132-operations>: page
         # [lo, hi) is read iff (no hi or prefix < hi) and
         # (lo <= prefix or lo starts with prefix), comparing UTF-8 bytes
         pb = prefix.encode()
@@ -727,7 +730,7 @@ class VZipStore(Store):
 
     def _inflate(self, e: Entry, raw: bytes) -> bytes:
         """An entry's DEFLATE body, inflated no further than its record's size allows
-        (spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule
+        (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule
         6); a format entry by the policy's bound."""
         limit = self.policy.max_format_entry if e.name in (SOURCES_KEY, INDEX_KEY) else e.size
         return inflate_clean(raw, limit)
@@ -740,8 +743,8 @@ class VZipStore(Store):
         e.data_offset = e.header_offset + parse_local_header(hdr)
 
     async def _body(self, e: Entry, start: int, end: int) -> bytes:
-        """A bytes entry's (inflated) body slice; failures are body errors (spec §8.4
-        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#84-errors>)."""
+        """A bytes entry's (inflated) body slice; failures are body errors (spec §6.4
+        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#64-errors>)."""
         try:
             if e.method == 0 and e.csize != e.size:
                 raise ValueError(f"STORED entry with sizes {e.csize} != {e.size}")
@@ -757,8 +760,8 @@ class VZipStore(Store):
             raise BodyError(f"{e.name!r}: {type(exc).__name__}: {exc}") from None
 
     async def _key_bytes(self, key: str, start: int, end: int) -> bytes:
-        """Bytes [start, end) of another entry's value (a `key` source, spec §6
-        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>).
+        """Bytes [start, end) of another entry's value (a `key` source, spec §5
+        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>).
 
         The target must be a bytes entry. Hidden entries (shard indexes etc.) are
         cached whole; other STORED entries are range-read directly.
@@ -785,15 +788,15 @@ class VZipStore(Store):
         return data[start:end]
 
     async def _url_bytes(self, src: Source, start: int, end: int) -> bytes:
-        """Bytes [start, end) of a url source, checking its pins (spec §6.1
-        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#61-pins>)."""
+        """Bytes [start, end) of a url source, checking its pins (spec §5.1
+        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-pins>)."""
         url = resolve_reference(self.url, src.url)
         allow = lambda u: self.policy.check(self.url, u)  # noqa: E731
-        # spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule
+        # spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule
         # 3: check every address, unless the application allows them all
         address = None if self.policy.allow_private_hosts else self.policy.check_address
-        allow(url)  # spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>
-        if urlparse(url).scheme.lower() in ("http", "https"):  # spec §6.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>, pinned or not
+        allow(url)  # spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>
+        if urlparse(url).scheme.lower() in ("http", "https"):  # spec §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>, pinned or not
             data, size = await asyncio.to_thread(http_range, url, start, end, src, allow, address,
                                                  self.policy.allow_unchecked_proxy)
             self.stats.record(url, start, len(data), external=True)
@@ -833,23 +836,23 @@ class VZipStore(Store):
         return data
 
     # Reads of the same url source closer than this are combined into one
-    # request (spec §6.2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http> allows it): a
+    # request (spec §5.2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http> allows it): a
     # Concat of many short ranges, such as
     # one per image row, would otherwise cost one request per range.
     MERGE_GAP = 1 << 16
 
     async def _ref_bytes(self, ref: Reference, start: int, end: int) -> bytes:
-        """Bytes [start, end) of the value described by `ref` (spec §8.3
-        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#83-resolving-a-reference>)."""
+        """Bytes [start, end) of the value described by `ref` (spec §6.3
+        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#63-resolving-a-reference>)."""
         for r in parts(ref):  # payload errors: every range, even ones outside [start, end)
             if r.data is None and r.source >= len(self._sources):
                 raise PayloadError(f"range uses source {r.source}; the table has "
                                    f"{len(self._sources)}")
         # Each piece is the bytes of a range overlapping the window: literal bytes, a
         # coroutine (a key source), or a (source, a, b) read of a url source. A range
-        # with a crc32c is read whole and checked (spec §8.3
-        # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#83-resolving-a-reference>);
+        # with a crc32c is read whole and checked (spec §6.3
+        # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#63-resolving-a-reference>);
         # `cuts` says which part of each piece the window takes, and which checksum it must have.
         pieces: list = []
         cuts: list[tuple[int, int, int | None]] = []
@@ -887,17 +890,17 @@ class VZipStore(Store):
             else:
                 runs.append([source, a, b])
         coros = [p for p in pieces if not isinstance(p, (bytes, tuple))]
-        if len(runs) > self.policy.max_reads:  # spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 5, before any read
+        if len(runs) > self.policy.max_reads:  # spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 5, before any read
             for c in coros:
                 c.close()
             raise RequestError(f"the value needs {len(runs)} reads; this reader allows "
-                               f"{self.policy.max_reads} (spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>)")
+                               f"{self.policy.max_reads} (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)")
         coros += [self._url_bytes(self._sources[s], a, b) for s, a, b in runs]
         try:
             done = await asyncio.gather(*coros)
         except ResolutionError:
             raise
-        except Exception as exc:  # noqa: BLE001 - spec §8.4 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#84-errors>: failures resolving a range
+        except Exception as exc:  # noqa: BLE001 - spec §6.4 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#64-errors>: failures resolving a range
             raise ResolutionError(f"{type(exc).__name__}: {exc}") from None
         other = iter(done[: len(done) - len(runs)])
         fetched = list(zip(runs, done[len(done) - len(runs):]))
@@ -916,7 +919,7 @@ class VZipStore(Store):
                 data = from_runs(*p)
             else:
                 data = next(other)
-            if crc is not None and crc32c(data) != crc:  # spec §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>: the source changed
+            if crc is not None and crc32c(data) != crc:  # spec §4.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>: the source changed
                 raise ResolutionError(f"the bytes read do not match the range's crc32c "
                                       f"{crc:#010x} (got {crc32c(data):#010x}): the source "
                                       f"changed since the archive was written")
@@ -926,11 +929,11 @@ class VZipStore(Store):
     # ------------------------------------------------------------ zarr API
 
     def classify(self, key: str) -> str | None:
-        """The overlay's decision function: 'bytes', 'ref', or None (spec §4.1
-        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#41-classification>).
+        """The overlay's decision function: 'bytes', 'ref', or None (spec §11.1
+        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#111-classification>).
 
-        Raises EntryError for an entry error (spec §8.4
-        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#84-errors>). """
+        Raises EntryError for an entry error (spec §6.4
+        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#64-errors>). """
         e = self._entries.get(key)
         if e is None or (self.resolve and key.startswith(RESERVED_PREFIX)):
             return None
@@ -939,8 +942,8 @@ class VZipStore(Store):
         return "ref" if (self.resolve and e.is_ref) else "bytes"
 
     async def kind(self, key: str) -> str | None:
-        """classify() with the lookup, in the order of spec §8.4
-        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#84-errors>."""
+        """classify() with the lookup, in the order of spec §6.4
+        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#64-errors>."""
         await self._ensure_open()
         if self.resolve and key.startswith(RESERVED_PREFIX):
             return None
@@ -1006,12 +1009,12 @@ class VZipStore(Store):
     async def list_dir(self, prefix: str) -> AsyncIterator[str]:
         """The distinct next path segments of the keys under `prefix`.
 
-        Keys are sorted (spec §7.1
-        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#71-layout>), so after finding child
+        Keys are sorted (spec §12.1
+        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#121-layout>), so after finding child
         `c` with keys below it, the listing seeks straight past `prefix + c + "/"`: in an archive
         with a page index it reads the pages where each child starts, not
-        every page under `prefix` as `list_prefix` must (spec §8.2
-        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#82-operations>). """
+        every page under `prefix` as `list_prefix` must (spec §13.2
+        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#132-operations>). """
         await self._ensure_open()
         prefix = prefix.rstrip("/")
         prefix = prefix + "/" if prefix else ""

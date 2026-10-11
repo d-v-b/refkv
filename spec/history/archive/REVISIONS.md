@@ -747,6 +747,71 @@ archive, since the value is the writer's), and the
 that the bulk url-source path had replaced (`conformance/cases.py` now uses
 `VZipWriter.source`).
 
+## Revision 10.1: reference values, and the ZIP binding (structure only)
+
+Format version 0, specification revision 10.1. **Status: provisional.**
+**No requirement changed:** every revision 10 archive is valid under 10.1,
+every reader gives the same result on it, and the revision 8 conformance
+suite applies unchanged, with the same results. Only the structure of the
+document changed. The revision 10 text is kept as
+[SPEC.r10.md](SPEC.r10.md).
+
+**What prompted it.** The document described vzip as "a ZIP container for
+byte-range references". The user asked to frame it as ZIP plus a reference
+value type: any storage backend that can tell a bytes value from a
+reference value can hold a virtual store, and ZIP is one such backend. The
+text mixed the two throughout, for example in §8 "Reading", which held both
+the operations and the central directory.
+
+**The changes.**
+- **Two parts.** [Part 1](../../archive.md#part-1-reference-values) is the
+  reference value type, with no ZIP terms: the data model, the messages, the
+  source table and its pins, reading over HTTP, the operations, resolution,
+  the error classes and their order, the reader policy, the writer's checks,
+  and the security considerations that do not depend on ZIP.
+  [Part 2](../../archive.md#part-2-the-zip-binding) is the ZIP binding: the
+  container, ZIP64, file names, classification by the 0x7A76 and 0x7A77
+  extra fields, the entry rules, the archive comment and magic, the hidden
+  entries, the page index, and the parts of opening, listing, the raw view,
+  the errors, writing and security that depend on ZIP.
+- **Bindings** ([§3](../../archive.md#3-bindings)). A binding defines
+  exactly three things: how a value is marked as a reference; where and how
+  the store's source table is stored, with any auxiliary data of its own;
+  and how keys map to the backend's names, including the names it reserves
+  for itself. An informative section sketches object stores, file systems,
+  databases and HTTP as backends, and what a binding for them would have to
+  settle (the source table's atomicity, listing, the base URI, names,
+  recognition, payload size, errors).
+- **The core has no reserved prefix.** A store is a plain mapping, and has
+  exactly one source table, which is not a value of the mapping. The
+  `__vz__/` prefix, hidden keys and the format entries are the ZIP
+  binding's ([§11.4](../../archive.md#114-hidden-entries)), with the same
+  rules as before: hidden keys are missing for classify and get, are not
+  listed, are visible in the raw view, and may be named by a `key` source;
+  a `key` source naming a format entry is a resolution error, and a writer
+  rejects it.
+- **Errors.** The six classes, their effects and their order are in Part 1
+  ([§6.4](../../archive.md#64-errors)); their names are unchanged, since
+  readers report them. The ZIP binding lists its causes of archive, entry,
+  body and payload errors ([§13.3](../../archive.md#133-errors)).
+- **Writing** and **security** are split the same way
+  ([§7](../../archive.md#7-writing) and
+  [§14.1](../../archive.md#141-requirements);
+  [§8](../../archive.md#8-security-considerations) and
+  [§15](../../archive.md#15-security-considerations-for-zip)). §8.7 rule 6
+  (now [§6.7](../../archive.md#67-reader-policy) rule 6) bounds the data
+  read at open; in a vzip archive that is the format entries, as before.
+- **Section numbers.** Every section moved. Old to new: §1 stays; §2 → §2;
+  §3 → §10; §4 → §11; §5 → §4; §6 → §5; §7 → §12; §8.1 → §6.1 and §13.1;
+  §8.2 → §6.2 and §13.2; §8.3 → §6.3; §8.4 → §6.4 and §13.3; §8.5 → §6.5;
+  §8.6 → §6.6 and §13.4; §8.7 → §6.7; §9.1 → §7 and §14.1; §9.2 → §14.2;
+  §10 → §8 and §15. Every link in the repository was updated.
+
+**The recorded revision stays 10.** Archives record the whole number of
+the revision their writer followed ([§1.3](../../archive.md#13-versioning)), so writers still write 10, and
+archive bytes do not change. A revision that changes no result is a point
+revision, as 8.1 and 8.2 were.
+
 ## Open feedback: browser readers (from the Neuroglancer driver)
 
 The Neuroglancer driver

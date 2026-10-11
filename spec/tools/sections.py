@@ -7,10 +7,10 @@ A reference to a section of a document of this repository is a link to that
 section's heading, never a bare "§n":
 
 - in Markdown, a relative link to the heading's anchor, its text keeping the
-  "§n": `[§8.7](#87-reader-policy)`, `[spec/archive.md §8.7](archive.md#87-reader-policy)`;
+  "§n": `[§6.7](#67-reader-policy)`, `[spec/archive.md §6.7](archive.md#67-reader-policy)`;
 - in code (comments and docstrings, and the descriptions in the JSON schemas and
   source models), the "§n" followed by the heading's URL in angle brackets:
-  `spec/archive.md §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>`.
+  `spec/archive.md §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>`.
 
 `check` fails on a bare reference outside the records of past states (EXCLUDED)
 and the user-facing strings listed in bare_refs_allowed.txt, and on a link

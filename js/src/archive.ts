@@ -1,7 +1,8 @@
-// Reading a vzip archive held in memory (spec/archive.md §3
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#3-zip-container>, §4
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#4-entries>, §8
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#8-reading>).
+// Reading a vzip archive held in memory (spec/archive.md §10
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#10-zip-container>, §11
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#11-entries>, §6
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-reading>, §13
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#13-reading-a-vzip-archive>).
 
 import { crc32c, inflateRaw, InflateLimitError } from "./deflate.ts";
 import { checkedFetch } from "#net";
@@ -41,9 +42,9 @@ export interface Entry {
   bodyOffset: number;
   reference?: { headerId: number; payload: Uint8Array };
   /**
-   * Set if the record has an entry error (spec §4.1
-   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#41-classification>, §3.2
-   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#32-zip64>).
+   * Set if the record has an entry error (spec §11.1
+   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#111-classification>, §10.2
+   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>).
    */
   error?: string;
 }
@@ -62,8 +63,8 @@ export type RangeFetcher = (
 ) => Promise<{ data: Uint8Array; size: number | undefined; hidden?: boolean }>;
 
 /**
- * What the reader may resolve, and its limits (spec §8.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>). Every member is
+ * What the reader may resolve, and its limits (spec §6.7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>). Every member is
  * optional; `DEFAULT_POLICY` gives the defaults.
  *
  * - `schemes`: schemes allowed besides those rule 1 allows by default
@@ -112,8 +113,8 @@ export const DEFAULT_POLICY: Required<Omit<Policy, "prefixes">> & Pick<Policy, "
 };
 
 /**
- * The scheme of an absolute URL, lowercase, with https counted as http (§8.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 1).
+ * The scheme of an absolute URL, lowercase, with https counted as http (§6.7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 1).
  */
 function schemeOf(url: string): string {
   const i = url.indexOf(":");
@@ -122,8 +123,8 @@ function schemeOf(url: string): string {
 }
 
 /**
- * Does `url` match `prefix` (spec §8.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 2)?
+ * Does `url` match `prefix` (spec §6.7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 2)?
  */
 export function matchesPrefix(url: string, prefix: string): boolean {
   if (!url.startsWith(prefix)) return false;
@@ -134,8 +135,8 @@ export function matchesPrefix(url: string, prefix: string): boolean {
 }
 
 /**
- * The class of an IP address (spec §8.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3).
+ * The class of an IP address (spec §6.7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3).
  */
 export type AddressClass = "loopback" | "private" | "link-local" | "special" | "public";
 
@@ -214,8 +215,8 @@ function classOf(a: bigint, version: 4 | 6): AddressClass {
 }
 
 /**
- * The class of an IP address in text form (spec §8.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3), or undefined
+ * The class of an IP address in text form (spec §6.7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3), or undefined
  * if it is not one.
  */
 export function addressClass(address: string): AddressClass | undefined {
@@ -226,8 +227,8 @@ export function addressClass(address: string): AddressClass | undefined {
 }
 
 /**
- * The class of a URL's host as written (spec §8.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3): an IP
+ * The class of a URL's host as written (spec §6.7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3): an IP
  * literal's class (the URL parser normalizes decimal, octal and hexadecimal IPv4
  * forms), loopback for `localhost` and names under `.localhost`, and
  * undefined for any other name.
@@ -245,8 +246,8 @@ function hostClass(url: string): AddressClass | undefined {
 }
 
 /**
- * Throws unless `policy` is well formed: `schemes` may not name `file` (§8.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 1).
+ * Throws unless `policy` is well formed: `schemes` may not name `file` (§6.7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 1).
  */
 export function validatePolicy(policy: Policy): void {
   if ((policy.schemes ?? []).some((s) => s.toLowerCase() === "file")) {
@@ -258,8 +259,8 @@ export function validatePolicy(policy: Policy): void {
 }
 
 /**
- * Throws a resolution error unless `policy` allows `url` for an archive at `base` (§8.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>).
+ * Throws a resolution error unless `policy` allows `url` for an archive at `base` (§6.7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>).
  */
 export function checkPolicy(policy: Policy, base: string, url: string): void {
   validatePolicy(policy);
@@ -267,14 +268,14 @@ export function checkPolicy(policy: Policy, base: string, url: string): void {
   const scheme = schemeOf(url);
   if (policy.prefixes !== undefined) {
     if (!policy.prefixes.some((p) => matchesPrefix(url, p))) {
-      throw new VzipError("resolution", `${url}: not under an allowed URL prefix (spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>)`);
+      throw new VzipError("resolution", `${url}: not under an allowed URL prefix (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)`);
     }
   } else if (scheme === "file") {
     if (!local && !policy.allowFilesFromRemoteArchives) {
-      throw new VzipError("resolution", `${url}: an archive opened from a URL may not read local files (spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>)`);
+      throw new VzipError("resolution", `${url}: an archive opened from a URL may not read local files (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)`);
     }
   } else if (scheme !== "http" && !(policy.schemes ?? []).some((s) => schemeOf(`${s}:`) === scheme)) {
-    throw new VzipError("resolution", `${url}: the scheme '${scheme}' is not allowed (spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>)`);
+    throw new VzipError("resolution", `${url}: the scheme '${scheme}' is not allowed (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)`);
   }
   if (scheme !== "http") return;
   // Rule 3, on the host as written; checkAddress applies it to resolved addresses.
@@ -287,13 +288,13 @@ function checkClass(policy: Policy, url: string, c: AddressClass, address?: stri
   const at = address === undefined ? "" : ` (at ${address})`;
   throw new VzipError(
     "resolution",
-    `${url}: the host${at} is a ${c} address, which the reader does not reach without allowPrivateHosts: true (spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>)`,
+    `${url}: the host${at} is a ${c} address, which the reader does not reach without allowPrivateHosts: true (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)`,
   );
 }
 
 /**
- * Throws a resolution error unless rule 3 of §8.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> lets the reader
+ * Throws a resolution error unless rule 3 of §6.7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> lets the reader
  * connect to `address` for `url`.
  */
 export function checkAddress(policy: Policy, url: string, address: string): void {
@@ -304,7 +305,7 @@ export function checkAddress(policy: Policy, url: string, address: string): void
 
 /**
  * Reads of the same url source at most this far apart are combined into one
- * request (spec §6.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>
+ * request (spec §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>
  * allows it). A Concat of many short ranges, such as one
  * per image row, would otherwise cost one request per range.
  */
@@ -372,10 +373,10 @@ export class Archive {
   }
 
   /**
-   * Opens an archive (spec §8.1
-   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#81-opening>); `baseUrl` resolves
+   * Opens an archive (spec §6.1
+   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#61-opening>); `baseUrl` resolves
    * relative `url` sources.
-   * `policy` (spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>)
+   * `policy` (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)
    * defaults to `DEFAULT_POLICY`, which allows http(s)
    * sources on public hosts, and for a local archive also `file` sources and
    * loopback and private hosts.
@@ -437,7 +438,7 @@ export class Archive {
       cdSize = view.getBigUint64(at + 40, true);
       cdOffset = view.getBigUint64(at + 48, true);
     }
-    void count; // spec §3.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#32-zip64>: entry counts are not used beyond this point
+    void count; // spec §10.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>: entry counts are not used beyond this point
     const cdStart = safe(cdOffset, "central directory offset");
     const cdEnd = cdStart + safe(cdSize, "central directory size");
     if (cdEnd > n) throw new VzipError("archive", "central directory outside the file");
@@ -466,7 +467,7 @@ export class Archive {
       try {
         key = strictUtf8.decode(nameBytes);
       } catch {
-        continue; // names no key (spec §3.3 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#33-keys>)
+        continue; // names no key (spec §10.3 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#103-file-names>)
       }
       if (key === "") continue;
       if (entries.has(key)) throw new VzipError("archive", `duplicate key ${key}`);
@@ -515,7 +516,7 @@ export class Archive {
       );
     } catch (e) {
       const why = e instanceof InflateLimitError
-        ? `${e.message}; this reader allows ${rules.maxFormatEntry} (spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>)`
+        ? `${e.message}; this reader allows ${rules.maxFormatEntry} (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)`
         : (e as Error).message;
       throw new VzipError("archive", `source table: ${why}`);
     }
@@ -529,8 +530,8 @@ export class Archive {
   }
 
   /**
-   * The visible entry for `key`, or undefined (spec §8.2
-   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#82-operations>).
+   * The visible entry for `key`, or undefined (spec §6.2
+   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-operations>).
    */
   lookup(key: string): Entry | undefined {
     if (key.startsWith("__vz__/")) return undefined;
@@ -580,7 +581,7 @@ export class Archive {
     let body = stored;
     if (entry.method === 8) {
       try {
-        body = await inflateRaw(stored, entry.size); // spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 6
+        body = await inflateRaw(stored, entry.size); // spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 6
       } catch (e) {
         throw new VzipError("body", `${entry.key}: ${(e as Error).message}`);
       }
@@ -619,7 +620,7 @@ export class Archive {
     } catch (e) {
       return fail((e as Error).message);
     }
-    checkPolicy(this.policy, this.baseUrl, url); // spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>
+    checkPolicy(this.policy, this.baseUrl, url); // spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>
     const scheme = getScheme(url);
     if (scheme !== "http" && scheme !== "https") fail(`unsupported scheme in ${url}`);
     try {
@@ -664,8 +665,8 @@ export class Archive {
     }
     type Read = { source: number; offset: bigint; length: bigint };
     // Each part is the bytes of a range that overlaps the request. A range with
-    // a crc32c is read whole and checked (spec §8.3
-    // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#83-resolving-a-reference>); `cuts`
+    // a crc32c is read whole and checked (spec §6.3
+    // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#63-resolving-a-reference>); `cuts`
     // says which part of each part's bytes the request takes, and which checksum they must have.
     const parts: (Promise<Uint8Array> | Read)[] = [];
     const cuts: { lo: number; hi: number; crc?: number }[] = [];
@@ -711,12 +712,12 @@ export class Archive {
       runOf.set(read, runs[runs.length - 1]);
     }
     if (runs.length > this.policy.maxReads) {
-      // spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule
+      // spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule
       // 5: before any read. The other parts read no url source.
       for (const p of parts) if (p instanceof Promise) p.catch(() => {});
       throw new VzipError(
         "request",
-        `the value needs ${runs.length} reads; this reader allows ${this.policy.maxReads} (spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>)`,
+        `the value needs ${runs.length} reads; this reader allows ${this.policy.maxReads} (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)`,
       );
     }
     for (const run of runs) {

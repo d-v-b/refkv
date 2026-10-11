@@ -41,8 +41,8 @@ import vzip.codecs  # noqa: F401  (registers imagecodecs_jpeg and imagecodecs_jp
 from vzip.policy import Policy  # noqa: E402
 from vzip.store import VZipStore
 
-# The sources are served on 127.0.0.1, which spec §8.7
-# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3 refuses by
+# The sources are served on 127.0.0.1, which spec §6.7
+# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
 # default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
 from vzip.virtualize.dicom.source import dictionary_vr

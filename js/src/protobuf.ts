@@ -1,6 +1,6 @@
 // Protocol Buffers encoding and strict decoding of the vzip messages
-// (spec/archive.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-messages>, §6
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>, Appendix A).
+// (spec/archive.md §4 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#4-messages>, §5
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>, Appendix A).
 
 export class MalformedError extends Error {}
 
@@ -11,8 +11,8 @@ export type Range =
       offset: bigint;
       length: bigint;
       /**
-       * CRC-32C of the range's bytes (spec §5.2
-       * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>).
+       * CRC-32C of the range's bytes (spec §4.2
+       * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>).
        */
       crc32c?: number;
     };
@@ -69,8 +69,8 @@ export function encodeRange(r: Range): Uint8Array {
     if (r.source !== 0) w.uint(1, BigInt(r.source));
     if (r.offset !== 0n) w.uint(3, r.offset);
     if (r.length !== 0n) w.uint(4, r.length);
-    // An optional field: emitted whenever set, even if 0 (spec §5.1
-    // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-encoding>).
+    // An optional field: emitted whenever set, even if 0 (spec §4.1
+    // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#41-encoding>).
     if (r.crc32c !== undefined) w.uint(6, BigInt(r.crc32c));
   }
   return w.finish();
@@ -83,8 +83,8 @@ export function encodeConcat(parts: Range[]): Uint8Array {
 }
 
 /**
- * The SourceTable of `sources`, with the spec revision when given (spec §6
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>).
+ * The SourceTable of `sources`, with the spec revision when given (spec §5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>).
  */
 export function encodeSourceTable(sources: Source[], revision?: number): Uint8Array {
   const w = new Writer();
@@ -179,8 +179,8 @@ function string(f: Field): string {
 }
 
 /**
- * Decodes a Range; `numSources` checks source ranges (spec §5.2
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>).
+ * Decodes a Range; `numSources` checks source ranges (spec §4.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>).
  */
 export function decodeRange(buf: Uint8Array, numSources: number): Range {
   let source = 0n;
@@ -232,8 +232,8 @@ export function rangeSize(r: Range): bigint {
 }
 
 /**
- * Decodes a reference payload (spec §4.3
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#43-reference-entries>) into its list of
+ * Decodes a reference payload (spec §4.4
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#44-reference-payloads>) into its list of
  * ranges.
  */
 export function decodeReference(
@@ -266,8 +266,8 @@ export function decodeSourceTable(buf: Uint8Array): Source[] {
 }
 
 /**
- * The sources of a SourceTable, and the spec revision it records (spec §6
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>).
+ * The sources of a SourceTable, and the spec revision it records (spec §5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>).
  */
 export function decodeTable(buf: Uint8Array): { sources: Source[]; revision?: number } {
   const sources: Source[] = [];

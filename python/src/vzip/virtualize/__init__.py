@@ -17,7 +17,7 @@ IFD reader and tag translator NDPI uses.)
 Exits with status 3 if the input is rejected.
 
 A file or a store at an http(s) URL is read under the reader policy (spec/archive.md
-§8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>): a host that is, or
+§6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>): a host that is, or
 resolves to, a loopback, private, link-local or special
 address is refused unless the policy has `allow_private_hosts`
 (`--allow-private-hosts`), and a request that would go through a proxy unless
@@ -30,7 +30,7 @@ every response for it gave the same strong one (spec/virtualize.md §1.2
 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>, §1.4
 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>).
 `--checksums` also records the CRC-32C of every range of a url source
-(spec/archive.md §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>), which
+(spec/archive.md §4.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>), which
 reads all the bytes the archive references: off by default.
 
 The archive's source is the input URL (or, with --url, the given one, which is
@@ -70,8 +70,8 @@ def virtualize_store(location: str, url: str | None = None, *, max_objects: int 
     """(format, output) for the store at `location` (§1.4
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), its documents
     read by up to `workers` requests at a time; with `checksums`, the output's ranges
-    carry the CRC-32C of their bytes (spec/archive.md §5.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>). A store at an http(s) URL
+    carry the CRC-32C of their bytes (spec/archive.md §4.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>). A store at an http(s) URL
     is listed and read under the reader policy `policy` (default: `Policy()`)."""
     store = open_store(location, url, max_objects=max_objects, workers=workers, policy=policy)
     try:
@@ -110,7 +110,7 @@ def virtualize(location: str, url: str | None = None, *, checksums: bool = False
     same strong one and the output names the URL that was read (§1.2
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>). With
     `checksums`, the output's ranges of source 0 carry the CRC-32C of their
-    bytes (spec/archive.md §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>),
+    bytes (spec/archive.md §4.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>),
     which reads them. `policy` is the reader policy a file
     or store at an http(s) URL is read under (default: `Policy()`, private hosts
     refused).

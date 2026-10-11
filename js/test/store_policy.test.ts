@@ -1,5 +1,5 @@
-// Store inputs under the reader policy (spec/archive.md §8.7
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>), under Node: the
+// Store inputs under the reader policy (spec/archive.md §6.7
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>), under Node: the
 // listing, every object read (the concurrent document reads' too) and every redirect go through the
 // policy, as an image file's requests do. The twin of python/tests/test_store_policy.py.
 

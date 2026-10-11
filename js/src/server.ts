@@ -66,8 +66,8 @@ export interface HandlerOptions {
   fetchRange?: RangeFetcher;
   fetchArchive?: (url: string) => Promise<Uint8Array>;
   /**
-   * The reader policy (spec §8.7
-   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>) for `.vzip`
+   * The reader policy (spec §6.7
+   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>) for `.vzip`
    * archives named by URL, and for
    * the image files and stores the handler virtualizes; the default allows http(s)
    * sources on public hosts. Archives

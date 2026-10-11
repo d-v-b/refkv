@@ -1,4 +1,4 @@
-"""Error classes of spec §8.4 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#84-errors>.
+"""Error classes of spec §6.4 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#64-errors>.
 Each is a ValueError so existing callers keep working."""
 
 

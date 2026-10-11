@@ -47,14 +47,25 @@ feedback. Any incompatible change will be announced in the
 
 ## The idea
 
-vzip stores a virtual dataset as **one ordinary ZIP file**:
+vzip is **ZIP plus a reference value type**. A virtual dataset is a
+key-value store whose values are either bytes or **references**, and a
+reference is a value of its own type: a few bytes of protobuf that say
+"bytes `[offset, offset + length)` of source *n*". Sources (external URLs,
+inline header bytes, or other values of the same store) are listed once in
+a table and referred to by number.
+
+Nothing about that needs ZIP. Any storage backend that can tell a bytes
+value from a reference value can hold such a store: an object store by an
+object's metadata, a file system by an extended attribute, a database by a
+column. The [spec](../spec/archive.md) defines the reference value type on
+its own ([Part 1](../spec/archive.md#part-1-reference-values)), and one
+backend for it, **one ordinary ZIP file**
+([Part 2](../spec/archive.md#part-2-the-zip-binding)):
 
 - Bytes keys (metadata, small arrays) are normal ZIP entries.
 - Reference keys are ZIP entries whose directory record carries a small
-  extra field. In it, a few bytes of protobuf say "bytes `[offset, offset +
-  length)` of source *n*".
-- Sources (external URLs, inline header bytes, or other entries of the same
-  archive) are listed once in a table and referred to by number.
+  extra field holding the reference.
+- The source table is one more entry, which the archive comment locates.
 
 A program that has never heard of vzip still sees a valid archive:
 
@@ -66,7 +77,7 @@ A vzip reader sees the virtual dataset.
 
 ## Where the ideas come from
 
-vzip is a container for ideas that kerchunk and VirtualiZarr worked out.
+vzip is an encoding of ideas that kerchunk and VirtualiZarr worked out.
 Very little in its data model is new.
 
 - **[kerchunk](https://github.com/fsspec/kerchunk)** (Martin Durant and
@@ -113,13 +124,18 @@ Very little in its data model is new.
   against the ETag or modification time of the object they point into. vzip's
   source pins are the same idea.
 
-What vzip adds is narrow: a single-file container (ZIP) and a binary encoding,
-defined by one document with a conformance suite, so that references can be
+What vzip adds is narrow: a reference value type with a binary encoding,
+and its binding to a single file (ZIP), defined by one document with a
+conformance suite, so that references can be
 read without fsspec, Python, or a particular storage engine. It is meant to
 sit alongside these tools, not replace them. VirtualiZarr could write vzip as
 one more output format, as it writes kerchunk references and Icechunk today.
 
-## Why ZIP
+## Why ZIP first
+
+The reference value type could live in many backends. ZIP is the one the
+spec binds it to, because:
+
 
 - **It is already cloud-optimized.** The index (the central directory) is at
   the end of the file. One range request for the tail finds everything else.
@@ -203,7 +219,7 @@ round-7 implementations are in [conformance/impls/](../conformance/impls/).
   netCDF files whose layout didn't change. Icechunk guards against this by
   pinning each reference to the object's ETag or last-modified time, and
   checking with a conditional request. vzip took the same idea as source pins
-  ([spec/archive.md §6.1](../spec/archive.md), since revision 3), per source rather than per
+  ([spec/archive.md §5.1](../spec/archive.md#51-pins), since revision 3), per source rather than per
   chunk. What remains open is that browsers often cannot check pins: servers
   must expose the headers to cross-origin pages
   ([open feedback](../spec/history/archive/REVISIONS.md)).

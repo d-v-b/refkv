@@ -1,7 +1,7 @@
 [project]
 name = "vzip"
 version = "0.1.0"
-description = "vzip: a ZIP container for byte-range references (reference implementation and experiments)"
+description = "vzip: ZIP plus a reference value type, for virtual stores (reference implementation and experiments)"
 authors = [
     { name = "Davis Vann Bennett", email = "davis.v.bennett@gmail.com" }
 ]

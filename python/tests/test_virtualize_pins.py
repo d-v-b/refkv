@@ -1,8 +1,8 @@
 """The virtualizers' pins and range checksums (spec/virtualize.md §1.2
 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>, §1.4
 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>;
-spec/archive.md §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>, §6.1
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#61-pins>)."""
+spec/archive.md §4.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>, §5.1
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-pins>)."""
 
 import threading
 import zipfile
@@ -23,7 +23,7 @@ FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 TIFF = FIXTURES / "tiff" / "tczyx_uint16_deflate.ome.tif"
 JPEG = FIXTURES / "tiff" / "jpeg_ycbcr.tif"  # has data sources (shared JPEG tables)
 STORE = FIXTURES / "zarr2" / "zarr2_dtypes"
-LOOPBACK = Policy(allow_private_hosts=True)  # the test server is on 127.0.0.1 (spec/archive.md §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3)
+LOOPBACK = Policy(allow_private_hosts=True)  # the test server is on 127.0.0.1 (spec/archive.md §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3)
 
 
 @pytest.fixture

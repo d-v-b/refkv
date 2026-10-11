@@ -73,8 +73,8 @@ class Output:
     lazy: tuple[str, ...] = ("vzip_source/",)
     # Source 0's pins (§1.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>),
     # and the CRC-32C of a url source's bytes, when the
-    # ranges are to carry checksums (spec/archive.md §5.2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>); set by
+    # ranges are to carry checksums (spec/archive.md §4.2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>); set by
     # vzip.virtualize.virtualize.
     size: int | None = None
     etag: str | None = None
@@ -652,8 +652,8 @@ def follow(base: str, url: str, send: Callable, policy: Policy):
 def http_reader(url: str, block: int = 1 << 16, policy: Policy | None = None) -> tuple[Reader, int]:
     """A cached range reader for an http(s) URL, and the object's size. Every request
     (the size's, each range's, prefetch's) is made under the reader policy `policy`
-    (spec/archive.md §8.7
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>, default `Policy()`),
+    (spec/archive.md §6.7
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>, default `Policy()`),
     as `HttpStore`'s are: each redirect target is
     checked before it is requested; unless the policy has `allow_private_hosts`, the
     address each request is sent to is checked, on a new connection and on a

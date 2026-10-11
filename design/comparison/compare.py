@@ -342,8 +342,8 @@ def open_vzip(url, ctx, cfg):
     from vzip.store import VZipStore
 
     # the benchmark serves the archive and its sources on 127.0.0.1, which the default
-    # policy refuses (spec/archive.md §8.7
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3)
+    # policy refuses (spec/archive.md §6.7
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3)
     return VZipStore(url, policy=Policy(allow_private_hosts=True)), 3
 
 

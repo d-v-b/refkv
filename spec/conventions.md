@@ -438,7 +438,7 @@ Its extent states the range the leaves partition; it claims nothing itself,
 since a struct is not a leaf, so coverage and injectivity (below) concern
 the leaves alone and are unchanged by it. (When `Z` is 0 the root's length
 is 0, so it has no extent.) The empty path is an IR path only: archive keys
-stay non-empty ([spec/archive.md §3.3](archive.md#33-keys)).
+stay non-empty ([spec/archive.md §2.1](archive.md#21-keys)).
 
 **Names.** Every element but the root has a full name that is not empty.
 Among the children of one element (each member of a run being one child),
