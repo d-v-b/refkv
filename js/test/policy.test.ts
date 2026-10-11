@@ -317,7 +317,7 @@ test("refuses an inflation bomb in the source table", async () => {
 test("refuses a bytes entry that inflates past its size", async () => {
   const bytes = await writeVzip({ sources: [], entries: [{ key: "bomb", bytes: new Uint8Array(1 << 20), compress: true }] });
   const view = new DataView(bytes.buffer);
-  const cd = view.getUint32(bytes.length - 22 - 22 + 16, true);
+  const cd = Number(view.getBigUint64(bytes.length - 44 - 76 + 48, true)); // from the zip64 record
   view.setUint32(cd + 24, 10, true); // the record now says 10 bytes
   const archive = await Archive.open(bytes, BASE);
   await assert.rejects(archive.read("bomb"), isError("body", /inflates to more than 10 bytes/));
