@@ -1,13 +1,17 @@
 """The optional parts of vzip, and the error that names the extra each one needs.
 
-The base install reads and writes vzip archives and holds a `ReferenceStore`.
-The extras add:
+The base install reads and writes vzip archives, holds a `ReferenceStore`, and
+virtualizes image files and stores, without Zarr. The extras add:
 
+- `zarr`: zarr-python, for `vzip.zarr`, which opens a vzip store as a
+  read-only zarr store (for zarr and xarray), and registers the codecs that
+  archives of virtualized image files and stores use (`vzip.zarr.codecs`);
+- `images`: the JPEG, JPEG 2000 and JPEG XR decoders of those codecs
+  (imagecodecs), with the `zarr` extra;
 - `virtualizarr`: VirtualiZarr, for `ReferenceStore.from_virtualizarr`,
-  `vzip.convert` and `vzip.shards`. vzip does not import xarray: it calls the
-  methods of the datasets VirtualiZarr builds;
-- `images`: the JPEG, JPEG 2000 and JPEG XR codecs that archives of
-  virtualized image files use (`vzip.codecs`).
+  `vzip.convert` and `vzip.shards`, with the `zarr` extra, since they build
+  Zarr metadata. vzip does not import xarray: it calls the methods of the
+  datasets VirtualiZarr builds.
 """
 
 from __future__ import annotations

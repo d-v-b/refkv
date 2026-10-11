@@ -37,9 +37,8 @@ from pydicom.tag import BaseTag
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
-import vzip.codecs  # noqa: F401  (registers imagecodecs_jpeg and imagecodecs_jpeg2k)
 from vzip.policy import Policy  # noqa: E402
-from vzip.store import VZipStore
+import vzip.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg and imagecodecs_jpeg2k)
 
 # The sources are served on 127.0.0.1, which spec §6.7
 # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
@@ -387,7 +386,7 @@ def check(name: str, url: str, data: bytes, tmp: Path) -> tuple[bool, str]:
         return ok, ("rejected: " + p.stderr.strip()[-90:]) if ok else "NOT REJECTED " + p.stderr[-200:]
     if p.returncode:
         return False, f"FAILED: {p.stderr.strip()[-300:]}"
-    root = zarr.open_group(VZipStore(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
+    root = zarr.open_group(vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
     header = header_problems(root, data)
     if header:
         return False, f"HEADER: {header[:3]}"

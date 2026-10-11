@@ -17,19 +17,18 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import zarr
-from zarr.storage import MemoryStore
-
 from vzip._extras import missing
 
 if TYPE_CHECKING:
     import xarray as xr
 
 try:
+    import zarr
     from virtualizarr.manifests import ManifestArray
     from virtualizarr.writers.icechunk import extract_codecs, update_attributes
 except ImportError as e:
     raise missing("virtualizarr", "Converting VirtualiZarr datasets (vzip.convert)", e) from e
+from zarr.storage import MemoryStore  # noqa: E402
 
 from vzip.refstore import Summary
 

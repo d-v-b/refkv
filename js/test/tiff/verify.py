@@ -30,9 +30,8 @@ import zarr
 from zarr.abc.codec import BytesBytesCodec
 from zarr.registry import register_codec
 
-import vzip.codecs  # noqa: F401  (registers imagecodecs_jpeg2k)
 from vzip.policy import Policy  # noqa: E402
-from vzip.store import VZipStore
+import vzip.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg2k)
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 from ir_mirror import is_mirror, mirror_problems  # noqa: E402
@@ -307,7 +306,7 @@ def main(fixtures: Path = HERE.parents[2] / "fixtures" / "tiff") -> int:
                 if is_mirror(out):  # the IR's mirror (TIFF): the source rebuilt from it
                     tags = mirror_problems(out, tiff)
                 else:
-                    root = zarr.open_group(VZipStore(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
+                    root = zarr.open_group(vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
                     tags = tag_problems(tiff, root, "ndpi" if tiff.suffix == ".ndpi" else "tiff")
                 failures += bool(tags)
                 if tags:
@@ -324,7 +323,7 @@ def main(fixtures: Path = HERE.parents[2] / "fixtures" / "tiff") -> int:
                 failures += 1
                 continue
             summary = json.loads(p.stdout)
-            group = zarr.open_group(VZipStore(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
+            group = zarr.open_group(vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
             ms = group.attrs["ome"]["multiscales"][0]
             names = [a["name"] for a in ms["axes"]]
             problems = []

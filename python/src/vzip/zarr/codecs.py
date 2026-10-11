@@ -256,4 +256,4 @@ register_codec("n5_default", N5DefaultCodec)
 # one arbitrarily unless the config names it. Name this one, unless the caller
 # already chose.
 if zarr.config.get("codecs.n5_default", None) is None:
-    zarr.config.set({"codecs.n5_default": "vzip.codecs.N5DefaultCodec"})
+    zarr.config.set({"codecs.n5_default": "vzip.zarr.codecs.N5DefaultCodec"})

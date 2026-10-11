@@ -341,14 +341,14 @@ def write_vzip(vds, out, ctx, cfg) -> None:
 
 
 def open_vzip(url, ctx, cfg):
+    import vzip.zarr
     from vzip.policy import Policy
-    from vzip.store import VZipStore
 
     # the benchmark serves the archive and its sources on 127.0.0.1, which the default
     # policy refuses (spec/archive.md §6.7
     # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3)
     # no request cap, as when design/COMPARISON.md was measured (the default is 8)
-    return VZipStore(url, policy=Policy(allow_private_hosts=True), max_concurrency=None), 3
+    return vzip.zarr.open(url, policy=Policy(allow_private_hosts=True), max_concurrency=None), 3
 
 
 @dataclass
@@ -480,7 +480,7 @@ def main() -> int:
     import icechunk
     import virtualizarr  # noqa: F401
 
-    import vzip.store  # noqa: F401
+    import vzip.zarr  # noqa: F401
 
     icechunk.set_logs_filter("error")
 

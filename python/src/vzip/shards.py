@@ -21,8 +21,6 @@ from typing import TYPE_CHECKING, Literal
 from pathlib import Path
 
 import numpy as np
-import zarr
-from zarr.codecs import BytesCodec, ShardingCodec
 
 from vzip._extras import missing
 
@@ -30,12 +28,14 @@ if TYPE_CHECKING:
     import xarray as xr
 
 try:
+    import zarr
     from virtualizarr.manifests import ManifestArray
     from virtualizarr.writers.icechunk import update_attributes
 except ImportError as e:
     raise missing("virtualizarr", "Sharded archives of VirtualiZarr datasets (vzip.shards)",
                   e) from e
-from zarr.storage import MemoryStore
+from zarr.codecs import BytesCodec, ShardingCodec  # noqa: E402
+from zarr.storage import MemoryStore  # noqa: E402
 
 from vzip.archive import VZipWriter
 from vzip.convert import consolidate, read_at_open, _write_loadable

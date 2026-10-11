@@ -35,7 +35,7 @@ sys.path.insert(0, str(ROOT / "conformance" / "archive"))
 from http_server import Server  # noqa: E402
 
 from vzip.policy import Policy  # noqa: E402
-from vzip.store import VZipStore  # noqa: E402
+import vzip.zarr  # noqa: E402  (a vzip archive as a zarr store)
 
 # The sources are served on 127.0.0.1, which spec §6.7
 # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
@@ -306,13 +306,13 @@ def main() -> int:
                 failures += 1
                 print(f"{nd2.name:34s} FAILED: {p.stderr.strip()[-1500:]}")
                 continue
-            root = zarr.open_group(VZipStore(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
+            root = zarr.open_group(vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
             meta = mirror_chunk_problems(nd2, root, out) if is_mirror(out) else chunk_problems(nd2, root)
             if meta:
                 failures += 1
                 print(f"{nd2.name:34s} CHUNKS: {meta[:3]}")
             expected = {k.replace("|", "/"): v for k, v in np.load(nd2.with_suffix(".npz")).items()}
-            root = zarr.open_group(VZipStore(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
+            root = zarr.open_group(vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
             problems, chunks = [], 0
             for series in root["OME"].attrs["ome"]["series"]:
                 arr = root[f"{series}/0"]

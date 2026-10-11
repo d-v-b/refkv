@@ -10,8 +10,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
-from zarr.core.buffer import default_buffer_prototype
-from zarr.core.sync import sync
 
 from vzip.archive import Entry, parse_central_directory
 from vzip.pb import Concat, Range, Source, decode_table
@@ -114,7 +112,7 @@ def test_pins_and_checksums(tmp_path, server):
         if url is None:  # read back, checking the pins and checksums
             s = VZipStore(str(out), policy=Policy(allow_private_hosts=True))  # a 127.0.0.1 server
             for k in refs:
-                assert sync(s.get(k, default_buffer_prototype())) is not None
+                assert s.get(k) is not None
 
     # a store input: every source pins its object's size
     for checksums in (False, True):

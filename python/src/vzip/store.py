@@ -1,4 +1,4 @@
-"""Read-only zarr stores whose values are bytes or references.
+"""The read path of every vzip store: a mapping whose values are bytes or references.
 
 A vzip store maps each key to bytes or to a reference (spec/archive.md, Part 1
 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#part-1-reference-values>).
@@ -9,6 +9,12 @@ the mapping kept in one ZIP file (Part 2
 
 * bytes keys      -> the body of the zip entry
 * reference keys  -> the concatenation of byte ranges of other objects
+
+Every store has the operations of spec §6.2
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-operations>, as
+methods that return at once (`get`, `classify`, `raw`, `list`) and as coroutines
+(`get_async`, ...). Nothing here depends on Zarr: `vzip.zarr` wraps a store as a
+read-only zarr store.
 
 `VZipStore(url, resolve=False)` behaves like a plain zip reader: reference
 entries return their serialized `Range`/`Concat` payload. `resolve=True` (the default)
@@ -34,19 +40,12 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from email.message import Message
 from pathlib import Path
+from typing import Literal
 from urllib.parse import unquote, urljoin, urlparse, urlsplit
 
 from obstore.store import HTTPStore, LocalStore
-from zarr.abc.store import (
-    ByteRequest,
-    OffsetByteRequest,
-    RangeByteRequest,
-    Store,
-    SuffixByteRequest,
-)
-from zarr.core.buffer import Buffer, BufferPrototype
 
-import vzip.codecs  # noqa: F401  registers the codecs vzip archives use (JPEG, JPEG 2000, zlib, n5_default)
+from vzip._sync import run
 from vzip.archive import (
     LFH_SIZE,
     RESERVED_PREFIX,
@@ -84,7 +83,7 @@ class Stats:
     computation fetched:
 
         stats = vzip.Stats()
-        ds = xr.open_zarr(vzip.open("oisst.vzip", stats=stats))
+        ds = xr.open_zarr(vzip.zarr.open("oisst.vzip", stats=stats))
         ds.sst.isel(time=0).load()
         print(stats.external_requests, stats.external_bytes)
 
@@ -253,19 +252,63 @@ def _resolver(registry) -> Resolver:
     return registry if isinstance(registry, Resolver) else Resolver(registry)
 
 
-def _abs_range(size: int, br: ByteRequest | None) -> tuple[int, int]:
-    """Translate a zarr ByteRequest on a value of `size` bytes into [start, end)."""
-    if br is None:
+@dataclass(frozen=True)
+class RangeRequest:
+    """Bytes `[min(start, n), min(end, n))` of a value of `n` bytes: spec §6.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-operations>'s
+    *range(start, end)*. `start > end` is a request error, whether or not the key
+    is present."""
+
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
+class OffsetRequest:
+    """Bytes `[min(start, n), n)` of a value of `n` bytes: spec §6.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-operations>'s
+    *offset(start)*."""
+
+    start: int
+
+
+@dataclass(frozen=True)
+class SuffixRequest:
+    """The last `count` bytes of a value, or all of it if it is shorter: spec §6.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-operations>'s
+    *suffix(count)*."""
+
+    count: int
+
+
+Request = RangeRequest | OffsetRequest | SuffixRequest
+"""The part of a value that `get` reads; None reads the whole value."""
+
+Kind = Literal["bytes", "reference", "missing"]
+"""What `classify` says a key holds (spec §6.2
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-operations>)."""
+
+
+def _abs_range(size: int, request: Request | None) -> tuple[int, int]:
+    """The window [start, end) that `request` selects of a value of `size` bytes."""
+    if request is None:
         return 0, size
-    if isinstance(br, RangeByteRequest):
-        if br.start > br.end:
-            raise RequestError(f"byte range start {br.start} > end {br.end}")
-        return min(br.start, size), min(br.end, size)
-    if isinstance(br, OffsetByteRequest):
-        return min(br.offset, size), size
-    if isinstance(br, SuffixByteRequest):
-        return max(size - br.suffix, 0), size
-    raise TypeError(f"unexpected byte request {br!r}")
+    if not isinstance(request, (RangeRequest, OffsetRequest, SuffixRequest)):
+        raise TypeError(f"a request is a RangeRequest, an OffsetRequest, a SuffixRequest or "
+                        f"None, not {request!r}")
+    if any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in vars(request).values()):
+        raise RequestError(f"a request holds non-negative integers, not {request!r}")
+    if isinstance(request, RangeRequest):
+        if request.start > request.end:
+            raise RequestError(f"byte range start {request.start} > end {request.end}")
+        return min(request.start, size), min(request.end, size)
+    if isinstance(request, OffsetRequest):
+        return min(request.start, size), size
+    return max(size - request.count, 0), size
+
+
+async def _collect(keys: AsyncIterator[str]) -> list[str]:
+    return [k async for k in keys]
 
 
 class _Pool:
@@ -623,8 +666,8 @@ UNCAPPED_THREADS = 64
 """The threads a store with `max_concurrency=None` reads HTTP sources with."""
 
 
-class ReferenceReader(Store):
-    """The read path that every vzip store shares: a read-only zarr store whose
+class ReferenceReader:
+    """The read path that every vzip store shares: a read-only mapping whose
     values are bytes or references (spec/archive.md, Part 1
     <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#part-1-reference-values>), resolved
     under a reader policy (spec §6.7
@@ -635,6 +678,28 @@ class ReferenceReader(Store):
     vzip archive. Both resolve a reference here, with the same pins, checksums,
     request merging, `Stats` and request cap, so a store reads the same values
     before and after it is saved.
+
+    The operations are those of spec §6.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-operations>, each
+    as a method that returns at once and as a coroutine:
+
+    - `get(key, request=None)`: the value, or the part of it a `RangeRequest`,
+      `OffsetRequest` or `SuffixRequest` selects; None if the key is missing.
+    - `classify(key)`: `"bytes"`, `"reference"` or `"missing"`.
+    - `raw(key)`: what the backend holds under the key, references not
+      followed, hidden keys included; None if it holds nothing.
+    - `list(prefix="")`: the keys that start with `prefix`, sorted.
+    - `list_dir(prefix="")`: the distinct next path segments of the keys
+      under `prefix` ("a/b" lists "c" for the key "a/b/c/d").
+    - `sources`: the source table.
+
+    A failure raises one of the error classes of spec §6.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#64-errors> (`vzip.errors`).
+    The methods that return at once run the coroutines on a thread of vzip's own,
+    so they work in a notebook too; from a coroutine, await the `_async` forms.
+    `vzip.zarr.store(s)` wraps a store as a read-only zarr store.
+
+    Keyword arguments:
 
     - `url`: the store's base URI, against which relative source URLs resolve
       (spec §5 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>); its
@@ -649,21 +714,17 @@ class ReferenceReader(Store):
     - `max_concurrency`: the most requests this store has in flight at once,
       to its sources and to the archive itself: 8 by default, as many
       connections as the virtualizer opens to one host, and polite to the
-      hosts of public data. None for no cap. Zarr's `async.concurrency` setting (default 10) caps something else: the
-      chunks one zarr operation reads at once, per operation. One chunk can
-      need several requests (a reference with ranges of several sources), and
-      a dask computation runs many zarr operations at once, so only this
-      option bounds the connections a computation opens. It counts the
-      requests of this store object; several stores each have their own cap.
-      HTTP sources are read on the store's own threads, as many as the cap
-      (64 with no cap), so the cap is the same on every machine: it doesn't
-      depend on the CPU count, as asyncio's shared default thread pool does.
+      hosts of public data. None for no cap. Zarr's `async.concurrency` setting
+      (default 10) caps something else: the chunks one zarr operation reads at
+      once, per operation. One chunk can need several requests (a reference
+      with ranges of several sources), and a dask computation runs many zarr
+      operations at once, so only this option bounds the connections a
+      computation opens. It counts the requests of this store object, per event
+      loop; several stores each have their own cap. HTTP sources are read on
+      the store's own threads, as many as the cap (64 with no cap), so the cap
+      is the same on every machine: it doesn't depend on the CPU count, as
+      asyncio's shared default thread pool does.
     """
-
-    supports_writes = False
-    supports_deletes = False
-    supports_partial_writes = False
-    supports_listing = True
 
     def __init__(
         self,
@@ -674,7 +735,6 @@ class ReferenceReader(Store):
         policy: Policy | None = None,
         max_concurrency: int | None = DEFAULT_CONCURRENCY,
     ) -> None:
-        super().__init__(read_only=True)
         if max_concurrency is not None and (
                 isinstance(max_concurrency, bool) or not isinstance(max_concurrency, int)
                 or max_concurrency < 1):
@@ -687,10 +747,75 @@ class ReferenceReader(Store):
         self.resolver = _resolver(registry)
         self.stats = stats or Stats()
         self.max_concurrency = max_concurrency
+        self._is_open = False
         self._sources: list[Source] = []
         self._semaphore: tuple[asyncio.AbstractEventLoop, asyncio.Semaphore] | None = None
         self._threads: ThreadPoolExecutor | None = None
         self._threads_lock = threading.Lock()
+
+    # ------------------------------------------------------------ the operations
+
+    async def get_async(self, key: str, request: Request | None = None) -> bytes | None:
+        """`get`, as a coroutine."""
+        raise NotImplementedError
+
+    async def classify_async(self, key: str) -> Kind:
+        """`classify`, as a coroutine."""
+        raise NotImplementedError
+
+    async def raw_async(self, key: str) -> bytes | None:
+        """`raw`, as a coroutine."""
+        raise NotImplementedError
+
+    def list_async(self, prefix: str = "") -> AsyncIterator[str]:
+        """`list`, as an asynchronous iterator."""
+        raise NotImplementedError
+
+    def list_dir_async(self, prefix: str = "") -> AsyncIterator[str]:
+        """`list_dir`, as an asynchronous iterator."""
+        raise NotImplementedError
+
+    def get(self, key: str, request: Request | None = None) -> bytes | None:
+        """The value of `key`, or the part of it `request` selects (a
+        `RangeRequest`, `OffsetRequest` or `SuffixRequest`); None if the key is
+        missing. A reference is resolved: its ranges are read from their sources."""
+        return run(self.get_async(key, request))
+
+    def classify(self, key: str) -> Kind:
+        """What `key` holds: `"bytes"`, `"reference"` or `"missing"`, from how it
+        is marked alone, without reading a reference's sources."""
+        return run(self.classify_async(key))
+
+    def raw(self, key: str) -> bytes | None:
+        """What the backend holds under `key`, without following references: a
+        reference's serialized `Range` or `Concat` payload, and the hidden keys
+        too (spec §6.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-operations>).
+        None if it holds nothing."""
+        return run(self.raw_async(key))
+
+    def list(self, prefix: str = "") -> list[str]:
+        """Every key that starts with `prefix`, sorted (hidden keys are not listed)."""
+        return run(_collect(self.list_async(prefix)))
+
+    def list_dir(self, prefix: str = "") -> list[str]:
+        """The distinct next path segments of the keys under `prefix`, a
+        "directory" whose trailing "/" may be left out."""
+        return run(_collect(self.list_dir_async(prefix)))
+
+    @property
+    def sources(self) -> tuple[Source, ...]:
+        """The source table, which the ranges of references index (a copy)."""
+        return tuple(self._sources)
+
+    # ------------------------------------------------------------ resolution
+
+    async def _open(self) -> None:
+        """Read what the store needs before its first operation."""
+        self._is_open = True
+
+    async def _ensure_open(self) -> None:
+        if not self._is_open:
+            await self._open()
 
     def _executor(self) -> ThreadPoolExecutor:
         """The store's own threads for blocking HTTP reads, as many as its cap."""
@@ -877,67 +1002,25 @@ class ReferenceReader(Store):
             out.append(data[lo:hi])
         return b"".join(out)
 
-    async def get_partial_values(
-        self,
-        prototype: BufferPrototype,
-        key_ranges: Iterable[tuple[str, ByteRequest | None]],
-    ) -> list[Buffer | None]:
-        return await asyncio.gather(*(self.get(k, prototype, br) for k, br in key_ranges))
-
-    # ------------------------------------------------------------ no mutations
-    # A vzip store is immutable: every write or delete raises the ValueError that
-    # zarr raises for a read-only store, so `to_zarr(store)` or `zarr.open(store,
-    # mode="w")` fails at once. A changed store is a new store.
-
-    def _check_writable(self) -> None:
-        raise ValueError(f"{type(self).__name__} is read-only: a vzip store cannot be changed; "
-                         f"build a new one instead")
-
-    def with_read_only(self, read_only: bool = False) -> ReferenceReader:
-        if not read_only:
-            self._check_writable()
-        return self
-
-    async def set(self, key: str, value: Buffer) -> None:
-        self._check_writable()
-
-    async def set_if_not_exists(self, key: str, value: Buffer) -> None:
-        self._check_writable()
-
-    async def _set_many(self, values) -> None:
-        self._check_writable()
-
-    async def set_partial_values(self, key_start_values) -> None:
-        self._check_writable()
-
-    async def delete(self, key: str) -> None:
-        self._check_writable()
-
-    async def delete_dir(self, prefix: str) -> None:
-        self._check_writable()
-
-    async def clear(self) -> None:
-        self._check_writable()
-
-    @property
-    def sources(self) -> tuple[Source, ...]:
-        """The source table, which the ranges of references index (a copy)."""
-        return tuple(self._sources)
-
 
 class VZipStore(ReferenceReader):
-    """A vzip archive, opened as a read-only zarr store.
+    """A vzip archive, opened as a read-only store.
 
     `vzip.open(url)` returns one; so does `VZipStore(url)`. `url` is a local
-    path or an `http(s)` URL (or any URL a store in the `registry` serves). Opening reads
-    the archive's tail, and with it the metadata documents xarray reads first;
-    each chunk is then read from the source its reference names, such as the
-    netCDF file it came from:
+    path or an `http(s)` URL (or any URL a store in the `registry` serves). The
+    first operation reads the archive's tail, and with it the metadata documents
+    a reader reads first; a reference's value is then read from the source it
+    names, such as the netCDF file it came from:
 
-        import xarray as xr
         import vzip
 
-        ds = xr.open_zarr(vzip.open("oisst.vzip"))  # or VZipStore("oisst.vzip")
+        store = vzip.open("oisst.vzip")
+        store.get("zarr.json")  # bytes, from the archive
+        store.get("sst/c/0/0/0/0")  # a reference: bytes of a netCDF file
+
+    `vzip.zarr.open(url)` opens it as a zarr store, for zarr and xarray:
+
+        ds = xr.open_zarr(vzip.zarr.open("oisst.vzip"))
         ds.sst.isel(time=0).mean().compute()  # reads one chunk of a netCDF file
 
     The store reads like the `vzip.ReferenceStore` it was saved from: same
@@ -1235,63 +1318,62 @@ class VZipStore(ReferenceReader):
             raise ResolutionError(f"key source {key!r} is shorter than {end} bytes")
         return data[start:end]
 
-    # ------------------------------------------------------------ zarr API
+    # ------------------------------------------------------------ the operations
 
-    def classify(self, key: str) -> str | None:
-        """The overlay's decision function: 'bytes', 'ref', or None (spec §11.1
+    def _classify(self, key: str) -> Kind:
+        """The overlay's decision function, on the records loaded (spec §11.1
         <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#111-classification>).
 
         Raises EntryError for an entry error (spec §6.4
         <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#64-errors>). """
         e = self._entries.get(key)
         if e is None or (self.resolve and key.startswith(RESERVED_PREFIX)):
-            return None
+            return "missing"
         if e.error:
             raise EntryError(f"{key!r}: {e.error}")
-        return "ref" if (self.resolve and e.is_ref) else "bytes"
+        return "reference" if (self.resolve and e.is_ref) else "bytes"
 
-    async def kind(self, key: str) -> str | None:
-        """classify() with the lookup, in the order of spec §6.4
+    async def classify_async(self, key: str) -> Kind:
+        """`classify`, with the lookup, in the order of spec §6.4
         <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#64-errors>."""
         await self._ensure_open()
         if self.resolve and key.startswith(RESERVED_PREFIX):
-            return None
+            return "missing"
         await self._lookup(key)
-        return self.classify(key)
+        return self._classify(key)
 
-    async def get(
-        self, key: str, prototype: BufferPrototype, byte_range: ByteRequest | None = None
-    ) -> Buffer | None:
+    async def get_async(self, key: str, request: Request | None = None) -> bytes | None:
         await self._ensure_open()
-        _abs_range(0, byte_range)  # 1. request errors, even for missing keys
-        kind = await self.kind(key)  # 2-3. hidden, lookup, entry error
-        if kind is None:
+        _abs_range(0, request)  # 1. request errors, even for missing keys
+        kind = await self.classify_async(key)  # 2-3. hidden, lookup, entry error
+        if kind == "missing":
             return None
         e = self._entries[key]
-        if kind == "ref":
+        if kind == "reference":
             try:
                 ref = e.ref
             except ValueError as exc:
                 raise PayloadError(f"{key!r}: {exc}") from None
-            start, end = _abs_range(ref.size, byte_range)
-            data = await self._ref_bytes(ref, start, end)
-        else:
-            start, end = _abs_range(e.size, byte_range)
-            data = await self._body(e, start, end)
-        return prototype.buffer.from_bytes(data)
+            start, end = _abs_range(ref.size, request)
+            return await self._ref_bytes(ref, start, end)
+        start, end = _abs_range(e.size, request)
+        return await self._body(e, start, end)
 
-    async def exists(self, key: str) -> bool:
+    async def raw_async(self, key: str) -> bytes | None:
+        """The inflated body of `key`'s entry, whatever it is: a reference
+        entry's body (its payload, or empty if the writer did not mirror it), a
+        hidden entry's, a format entry's (spec §13.2
+        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#132-operations>)."""
         await self._ensure_open()
         await self._lookup(key)
-        return self.classify(key) is not None
+        e = self._entries.get(key)
+        if e is None:
+            return None
+        if e.error:
+            raise EntryError(f"{key!r}: {e.error}")
+        return await self._body(e, 0, e.size)
 
-    async def list(self) -> AsyncIterator[str]:
-        await self._ensure_open()
-        await self._load_prefix("")
-        for k in self._keys:
-            yield k
-
-    async def list_prefix(self, prefix: str) -> AsyncIterator[str]:
+    async def list_async(self, prefix: str = "") -> AsyncIterator[str]:
         await self._ensure_open()
         await self._load_prefix(prefix)
         i = bisect.bisect_left(self._keys, prefix)
@@ -1299,14 +1381,14 @@ class VZipStore(ReferenceReader):
             yield self._keys[i]
             i += 1
 
-    async def list_dir(self, prefix: str) -> AsyncIterator[str]:
+    async def list_dir_async(self, prefix: str = "") -> AsyncIterator[str]:
         """The distinct next path segments of the keys under `prefix`.
 
         Keys are sorted (spec §12.1
         <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#121-layout>), so after finding child
         `c` with keys below it, the listing seeks straight past `prefix + c + "/"`: in an archive
         with a page index it reads the pages where each child starts, not
-        every page under `prefix` as `list_prefix` must (spec §13.2
+        every page under `prefix` as `list` must (spec §13.2
         <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#132-operations>). """
         await self._ensure_open()
         prefix = prefix.rstrip("/")

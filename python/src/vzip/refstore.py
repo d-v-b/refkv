@@ -4,9 +4,10 @@ A vzip store maps each key to bytes or to a reference value: the
 concatenation of byte ranges of other objects, named through the store's one
 source table (spec/archive.md, Part 1
 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#part-1-reference-values>). A
-`ReferenceStore` holds that mapping in memory, and reads like any vzip store:
-xarray and zarr open it as they would a saved archive. `save` writes it as a
-vzip archive, one ZIP file (Part 2
+`ReferenceStore` holds that mapping in memory, and reads like any vzip store
+(`vzip.store.ReferenceReader`); `vzip.zarr.store(store)` opens it for zarr and
+xarray, as `vzip.zarr.open` does a saved archive. `save` writes it as a vzip
+archive, one ZIP file (Part 2
 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#part-2-the-zip-binding>), which
 `vzip.open` reads back as a store with the same values.
 
@@ -17,9 +18,9 @@ VirtualiZarr and concatenated with xarray:
     import vzip
 
     store = vzip.ReferenceStore.from_virtualizarr(vds)  # vds: a virtual dataset
-    ds = xr.open_zarr(store)            # readable now: chunks come from the files
+    ds = xr.open_zarr(vzip.zarr.store(store))  # readable now: chunks come from the files
     summary = store.save("data.vzip")   # one file: the metadata and the references
-    ds = xr.open_zarr(vzip.open("data.vzip"))
+    ds = xr.open_zarr(vzip.zarr.open("data.vzip"))
 """
 
 from __future__ import annotations
@@ -33,14 +34,11 @@ from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from zarr.abc.store import ByteRequest
-from zarr.core.buffer import Buffer, BufferPrototype
-
 from vzip.archive import INDEX_KEY, RESERVED_PREFIX, SOURCES_KEY, VZipWriter
 from vzip.errors import ResolutionError
 from vzip.pb import Concat, Range, Reference, Source, parts
 from vzip.policy import Policy
-from vzip.store import DEFAULT_CONCURRENCY, ReferenceReader, Stats, _abs_range
+from vzip.store import DEFAULT_CONCURRENCY, Kind, ReferenceReader, Request, Stats, _abs_range
 from vzip.uri import file_uri
 from vzip.uri import resolve as resolve_reference
 
@@ -89,10 +87,10 @@ class ReferenceStore(ReferenceReader):
     """An in-memory vzip store: each key maps to bytes or to a reference value,
     resolved through one source table.
 
-    It is a read-only zarr store, so `xr.open_zarr(store)` reads it right away;
-    chunk references are resolved with the same reader as a saved archive
-    (`vzip.open`), under the same `Policy`, and with the same options. `save`
-    writes it as a vzip archive.
+    It reads right away: `store.get(key)`, or, for zarr and xarray,
+    `xr.open_zarr(vzip.zarr.store(store))`. References are resolved with the same
+    reader as a saved archive (`vzip.open`), under the same `Policy`, and with
+    the same options. `save` writes it as a vzip archive.
 
     Build one with a constructor:
 
@@ -100,9 +98,10 @@ class ReferenceStore(ReferenceReader):
     - `ReferenceStore(mapping, sources)`, from a mapping of keys to `bytes`, `Range`
       or `Concat` values, and the `Source` table their ranges index.
 
-    A store never changes once it is built. Every zarr write or delete raises the
-    ValueError zarr raises for a read-only store, and `mapping` and `sources` are
-    read-only views. To change a store, build a new one.
+    A store never changes once it is built: it has no method that writes,
+    `mapping` and `sources` are read-only views, and through `vzip.zarr` every
+    zarr write or delete raises the ValueError zarr raises for a read-only store.
+    To change a store, build a new one.
 
     Keyword arguments:
 
@@ -333,39 +332,44 @@ class ReferenceStore(ReferenceReader):
     def _visible(self, key: str) -> bytes | Reference | None:
         return None if key.startswith(RESERVED_PREFIX) else self._values.get(key)
 
-    async def get(
-        self, key: str, prototype: BufferPrototype, byte_range: ByteRequest | None = None
-    ) -> Buffer | None:
-        _abs_range(0, byte_range)  # request errors, even for missing keys
+    async def get_async(self, key: str, request: Request | None = None) -> bytes | None:
+        _abs_range(0, request)  # request errors, even for missing keys
         v = self._visible(key)
         if v is None:
             return None
         if isinstance(v, bytes):
-            start, end = _abs_range(len(v), byte_range)
-            data = v[start:end]
-        else:
-            start, end = _abs_range(v.size, byte_range)
-            data = await self._ref_bytes(v, start, end)
-        return prototype.buffer.from_bytes(data)
+            start, end = _abs_range(len(v), request)
+            return v[start:end]
+        start, end = _abs_range(v.size, request)
+        return await self._ref_bytes(v, start, end)
 
-    async def exists(self, key: str) -> bool:
-        return self._visible(key) is not None
+    async def classify_async(self, key: str) -> Kind:
+        v = self._visible(key)
+        return "missing" if v is None else "bytes" if isinstance(v, bytes) else "reference"
 
-    async def list(self) -> AsyncIterator[str]:
-        for k in self._keys:
-            yield k
+    async def raw_async(self, key: str) -> bytes | None:
+        """A bytes value, a hidden key's included; a reference's payload, as `save`
+        writes it (spec §4.4
+        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#44-reference-payloads>), with
+        the source indexes of this store's table. The format entries an archive
+        holds are written by `save`, and are missing here."""
+        v = self._values.get(key)
+        if v is None or isinstance(v, bytes):
+            return v
+        ranges = parts(v)
+        return ranges[0].encode() if len(ranges) == 1 else Concat(ranges).encode()
 
-    async def list_prefix(self, prefix: str) -> AsyncIterator[str]:
+    async def list_async(self, prefix: str = "") -> AsyncIterator[str]:
         i = bisect.bisect_left(self._keys, prefix)
         while i < len(self._keys) and self._keys[i].startswith(prefix):
             yield self._keys[i]
             i += 1
 
-    async def list_dir(self, prefix: str) -> AsyncIterator[str]:
+    async def list_dir_async(self, prefix: str = "") -> AsyncIterator[str]:
         prefix = prefix.rstrip("/")
         prefix = prefix + "/" if prefix else ""
         seen: set[str] = set()
-        async for k in self.list_prefix(prefix):
+        async for k in self.list_async(prefix):
             child = k[len(prefix):].split("/", 1)[0]
             if child not in seen:
                 seen.add(child)

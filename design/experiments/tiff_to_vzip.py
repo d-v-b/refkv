@@ -35,7 +35,7 @@ import zarr
 from zarr.storage import MemoryStore
 
 from vzip.archive import VZipWriter
-from vzip.codecs import Jpeg2kCodec
+from vzip.zarr.codecs import Jpeg2kCodec
 from vzip.pb import Range, Source
 
 JPEG2K = {33003, 33004, 33005, 34712}
