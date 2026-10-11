@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
-import type { AddressInfo } from "node:net";
+import type { AddressInfo, Socket } from "node:net";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { after, before, test } from "node:test";
@@ -27,14 +27,18 @@ const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").rep
 // A local S3-like server, and an HTTP proxy, serving OBJECTS as the store `b/s/` and
 // again as `b/r/`. With `state.redirect`, a read of an object under `b/s/` is redirected
 // to that URL followed by its key. `state.paths` records each request's target, as sent
-// (absolute through a proxy).
+// (absolute through a proxy). As a proxy it takes both forms Node's fetch sends: an
+// absolute URL (Node 26), and a CONNECT tunnel even for an http URL (Node 24), whose
+// requests it serves itself, recording them as absolute URLs too.
 const state = { redirect: undefined as string | undefined, paths: [] as string[] };
 let server: http.Server;
 let port = 0;
+const tunnels = new Map<Socket, string>(); // a CONNECT tunnel's socket, and its target's origin
 
 before(async () => {
   server = http.createServer((req, res) => {
-    state.paths.push(req.url!);
+    const origin = tunnels.get(req.socket);
+    state.paths.push(origin !== undefined && req.url!.startsWith("/") ? origin + req.url! : req.url!);
     const p = decodeURIComponent(new URL(req.url!, "http://x").pathname);
     if (p === "/b/") {
       const contents = [...OBJECTS].sort(([a], [b]) => (a < b ? -1 : 1))
@@ -50,10 +54,17 @@ before(async () => {
       res.writeHead(206, { "Content-Length": String(body.length) }).end(body);
     }
   });
+  server.on("connect", (req, socket: Socket, head: Buffer) => {
+    tunnels.set(socket, `http://${req.url!.replace(/:80$/, "")}`);
+    socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+    if (head.length > 0) socket.unshift(head);
+    server.emit("connection", socket);
+  });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   port = (server.address() as AddressInfo).port;
 });
 after(() => {
+  for (const socket of tunnels.keys()) socket.destroy();
   server.closeAllConnections();
   server.close();
 });
