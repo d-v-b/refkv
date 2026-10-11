@@ -1,5 +1,6 @@
-# Offline checks on every push and pull request: the Python package's tests, the
-# browser code's type check and Node tests, the IR core's tests, the fixture
+# Offline checks on every push and pull request: the Python package's tests and its
+# install without extras, the browser code's type check and Node tests, the IR core's
+# tests, the fixture
 # comparison of the virtualizers against the frozen reference (spec/virtualize.md §1.1
 # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>, with
 # spec/archive.md's strict reading of every archive), the reproducibility of the fixture
@@ -146,6 +147,22 @@ jobs:
         with:
           name: fixture-compare-${{ matrix.shard }}
           path: conformance/results/fixtures/results.json
+
+  # The package without its extras (pyproject.toml): it reads and writes archives, and each
+  # optional part's ImportError names the extra that installs it
+  base-install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: extractions/setup-just@v2
+      - run: uv venv "$RUNNER_TEMP/base"
+      - run: uv pip install --python "$RUNNER_TEMP/base" .
+      - run: just base-install-check "$RUNNER_TEMP/base/bin/python"
+        shell: bash
 
   sections:
     runs-on: ubuntu-latest

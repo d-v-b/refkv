@@ -14,3 +14,16 @@ Live demos are at https://d-v-b.github.io/vzip-demo/. For example, [image files 
 ## Virtualizing image files and stores
 
 vzip can present TIFF, NDPI, ND2, CZI, DICOM, NIfTI and Imaris files, and N5, Zarr v2 and OME-Zarr 0.4 stores, as OME-Zarr, and Sentinel-2 SAFE products as GeoZarr, without copying their pixels. TIFF, ND2 and CZI are read by a Rust core ([rust/vzip-ir](../rust/vzip-ir/)) that runs natively from Python and as WebAssembly in the browser. [virtualize/](virtualize/README.md) has a page per format: who it is for, what you get, and how to run it from Python or in the browser.
+
+## Installing
+
+`pip install "vzip @ git+https://github.com/d-v-b/vzip"` installs the Python
+package's base: it reads and writes vzip archives. Two extras add the rest:
+`vzip[virtualizarr]` for virtual datasets from VirtualiZarr (below; vzip
+itself does not import xarray), and `vzip[images]` for the JPEG, JPEG 2000 and JPEG XR codecs that
+archives of image files use. In a clone, `uv sync` installs both, and the
+repository's test and benchmark tools.
+
+## Virtual datasets from xarray and VirtualiZarr
+
+The Python package `vzip` stores a [VirtualiZarr](https://virtualizarr.readthedocs.io/) virtual dataset, such as many netCDF or HDF5 files concatenated along time with xarray, without copying their data. `vzip.ReferenceStore.from_virtualizarr(vds)` builds a store that `xr.open_zarr` reads right away, `store.save("data.vzip")` writes it as one vzip archive, and `xr.open_zarr(vzip.open("data.vzip"))` reopens it, reading each chunk from the file it came from. [virtual-datasets.md](virtual-datasets.md) walks through it with five years of NOAA sea surface temperature: install, a runnable example ([examples/oisst.py](examples/oisst.py)), scaling up, publishing, private data, and troubleshooting.

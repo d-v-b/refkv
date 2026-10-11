@@ -1,4 +1,9 @@
-"""Write virtualizarr virtual datasets as vzip archives.
+"""VirtualiZarr virtual datasets as vzip stores.
+
+`vzip.ReferenceStore.from_virtualizarr(vds)` is the entry point; this module does
+the conversion, and keeps the older one-step function `write_vzip`.
+
+vzip does not import xarray: it calls the methods of the dataset it is given.
 
 The conversion literally builds the two key spaces separately and overlays
 them: zarr metadata and any loadable (non-virtual) variables go into an
@@ -9,16 +14,24 @@ reference (the reference key space).
 from __future__ import annotations
 
 import warnings
-from collections import Counter
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import xarray as xr
 import zarr
-from virtualizarr.manifests import ManifestArray
-from virtualizarr.writers.icechunk import extract_codecs, update_attributes
 from zarr.storage import MemoryStore
 
-from vzip.archive import VZipWriter
+from vzip._extras import missing
+
+if TYPE_CHECKING:
+    import xarray as xr
+
+try:
+    from virtualizarr.manifests import ManifestArray
+    from virtualizarr.writers.icechunk import extract_codecs, update_attributes
+except ImportError as e:
+    raise missing("virtualizarr", "Converting VirtualiZarr datasets (vzip.convert)", e) from e
+
+from vzip.refstore import Summary
 
 
 def consolidate(store) -> None:
@@ -29,6 +42,17 @@ def consolidate(store) -> None:
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Consolidated metadata is currently not part")
         zarr.consolidate_metadata(store, zarr_format=3)
+
+
+def _write_loadable(vds: xr.Dataset, loadable: dict, store) -> None:
+    """Write the loadable (non-virtual) variables of `vds` into the zarr `store`
+    with xarray's CF encoding, through the class of `vds` itself, so that vzip
+    never imports xarray.
+
+    The variables go into a new dataset of their own, without the coordinate
+    roles and attributes of `vds`: `split_virtual_dataset` writes those for
+    every variable afterwards."""
+    type(vds)(loadable).to_zarr(store, zarr_format=3, consolidated=False, mode="a")
 
 
 def split_virtual_dataset(
@@ -42,7 +66,7 @@ def split_virtual_dataset(
     virtual = {k: v for k, v in vds.variables.items() if isinstance(v.data, ManifestArray)}
     loadable = {k: v for k, v in vds.variables.items() if k not in virtual}
     if loadable:
-        xr.Dataset(loadable).to_zarr(mem, zarr_format=3, consolidated=False, mode="a")
+        _write_loadable(vds, loadable, mem)
     group = zarr.open_group(mem, mode="a", zarr_format=3)
 
     refs: dict[str, tuple[str, int, int]] = {}
@@ -95,29 +119,31 @@ def write_vzip(
     mirror_refs: bool = True,
     relative_to: str | None = None,
     page_size: int | None = None,
-) -> None:
-    """Write a virtual dataset to `path`.
+) -> Summary:
+    """Write a VirtualiZarr virtual dataset to a vzip archive at `path`, and return a
+    `vzip.Summary` of it.
 
-    If `relative_to` is given (a URL prefix, e.g. the directory that will hold
-    the archive) reference URLs under it are stored relative to the archive.
-    """
-    concrete, refs = split_virtual_dataset(vds)
-    with open(path, "wb") as f, VZipWriter(f, mirror_refs=mirror_refs, page_size=page_size) as w:
-        for k in sorted(concrete):
-            w.add_bytes(k, concrete[k], late=read_at_open(k, vds))
-        if relative_to:
-            refs = {k: (u.removeprefix(relative_to), o, n) for k, (u, o, n) in refs.items()}
-        # most-used URL first: source index 0 costs nothing on the wire
-        for url, _ in Counter(u for u, _, _ in refs.values()).most_common():
-            w.url(url)
-        for k in sorted(refs):
-            w.add_ref(k, *refs[k])
+    The same as `vzip.ReferenceStore.from_virtualizarr(vds).save(path, ...)`, which
+    is the preferred spelling: the store reads before it is saved, and takes
+    `rewrite_urls` and the reader options.
+
+    - `vds`: the virtual dataset, for example from `virtualizarr.open_virtual_dataset`
+      or several of them concatenated with `xr.concat`.
+    - `path`: the local file to write.
+    - `mirror_refs`: also write each reference's payload as its entry's body, for
+      ZIP tools that ignore extra fields (default True).
+    - `relative_to`: a URL prefix; source URLs under it are written relative to
+      the archive.
+    - `page_size`: write a page index with pages of about this many bytes (for
+      example 65536), so that readers load only the part of the central directory
+      they need; None writes none. `ReferenceStore.save` says when it helps.
+
+    Raises ValueError if the default reader policy would refuse a source, such as
+    an `s3://` URL; `ReferenceStore.save` says how to fix it."""
+    from vzip.refstore import ReferenceStore
+
+    return ReferenceStore.from_virtualizarr(vds).save(
+        path, mirror_refs=mirror_refs, relative_to=relative_to, page_size=page_size)
 
 
-def read_vzip(path: str, **kwargs) -> xr.Dataset:
-    from vzip.store import VZipStore
-
-    return xr.open_zarr(VZipStore(str(path), **kwargs), zarr_format=3)
-
-
-__all__ = ["consolidate", "read_at_open", "read_vzip", "split_virtual_dataset", "write_vzip"]
+__all__ = ["consolidate", "read_at_open", "split_virtual_dataset", "write_vzip"]

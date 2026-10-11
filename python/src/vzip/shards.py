@@ -17,19 +17,28 @@ from __future__ import annotations
 
 import itertools
 import math
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from pathlib import Path
 
 import numpy as np
-import xarray as xr
 import zarr
-from virtualizarr.manifests import ManifestArray
-from virtualizarr.writers.icechunk import update_attributes
 from zarr.codecs import BytesCodec, ShardingCodec
+
+from vzip._extras import missing
+
+if TYPE_CHECKING:
+    import xarray as xr
+
+try:
+    from virtualizarr.manifests import ManifestArray
+    from virtualizarr.writers.icechunk import update_attributes
+except ImportError as e:
+    raise missing("virtualizarr", "Sharded archives of VirtualiZarr datasets (vzip.shards)",
+                  e) from e
 from zarr.storage import MemoryStore
 
 from vzip.archive import VZipWriter
-from vzip.convert import consolidate, read_at_open
+from vzip.convert import consolidate, read_at_open, _write_loadable
 from vzip.pb import Range
 
 _MISSING = np.uint64(2**64 - 1)
@@ -88,7 +97,7 @@ def write_vzip_sharded(
     virtual = {k: v for k, v in vds.variables.items() if isinstance(v.data, ManifestArray)}
     loadable = {k: v for k, v in vds.variables.items() if k not in virtual}
     if loadable:
-        xr.Dataset(loadable).to_zarr(mem, zarr_format=3, consolidated=False, mode="a")
+        _write_loadable(vds, loadable, mem)
     group = zarr.open_group(mem, mode="a", zarr_format=3)
 
     refs: dict[str, tuple[str, int, bytes]] = {}

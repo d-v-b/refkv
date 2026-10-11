@@ -91,7 +91,7 @@ def w_vzip(vds, out, mirror=True):
 
 
 def r_vzip(out, idx):
-    s = VZipStore(str(out))
+    s = VZipStore(str(out), max_concurrency=None)  # no request cap, as measured before the default of 8
     a = zarr.open_array(s, path="v", mode="r")
     val = a[idx]
     return val, {"requests": s.stats.archive_requests + s.stats.external_requests,

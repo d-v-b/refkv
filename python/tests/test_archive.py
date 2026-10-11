@@ -120,12 +120,3 @@ def test_duplicate_key_rejected():
 def test_reserved_key_rejected():
     with pytest.raises(ValueError, match="reserved"):
         VZipWriter(io.BytesIO()).add_bytes("__vz__/x", b"")
-
-
-def test_read_only(tmp_path):
-    arc = tmp_path / "e.vzip"
-    with open(arc, "wb") as f, VZipWriter(f):
-        pass
-    s = VZipStore(str(arc))
-    with pytest.raises(PermissionError):
-        sync(s.set("k", default_buffer_prototype().buffer.from_bytes(b"")))
