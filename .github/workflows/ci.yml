@@ -2,8 +2,8 @@
 # browser code's type check and Node tests, the IR core's tests, the fixture
 # comparison of the virtualizers against the frozen reference (spec/virtualize.md §1.1
 # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>, with
-# spec/archive.md's strict reading of every archive), and the reproducibility of the fixture
-# generators. TIFF, ND2 and CZI go through the Rust core (rust/vzip-ir), built natively
+# spec/archive.md's strict reading of every archive), the reproducibility of the fixture
+# generators, and the section references, each a link to a heading that exists. TIFF, ND2 and CZI go through the Rust core (rust/vzip-ir), built natively
 # for Python (`just ir-build`) and for wasm32 for the browser code (`just js::wasm`).
 name: ci
 
@@ -138,6 +138,19 @@ jobs:
         with:
           name: fixture-compare-${{ matrix.shard }}
           path: conformance/results/fixtures/results.json
+
+  sections:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: extractions/setup-just@v2
+      - run: uv sync --all-groups --locked
+      # every "§n" is a link to its heading, and every such link resolves (spec/tools/sections.py)
+      - run: just sections
 
   fixtures-reproducible:
     runs-on: ubuntu-latest
