@@ -21,6 +21,7 @@ import asyncio
 import bisect
 import contextlib
 import datetime
+import functools
 import http.client
 import math
 import os
@@ -29,6 +30,7 @@ import socket
 import threading
 import zlib
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from email.message import Message
 from pathlib import Path
@@ -617,6 +619,9 @@ def _check_index(pages, pinned, cd_size: int, file_size: int) -> None:
 DEFAULT_CONCURRENCY = 8
 """The default `max_concurrency` of every vzip store."""
 
+UNCAPPED_THREADS = 64
+"""The threads a store with `max_concurrency=None` reads HTTP sources with."""
+
 
 class ReferenceReader(Store):
     """The read path that every vzip store shares: a read-only zarr store whose
@@ -650,6 +655,9 @@ class ReferenceReader(Store):
       a dask computation runs many zarr operations at once, so only this
       option bounds the connections a computation opens. It counts the
       requests of this store object; several stores each have their own cap.
+      HTTP sources are read on the store's own threads, as many as the cap
+      (64 with no cap), so the cap is the same on every machine: it doesn't
+      depend on the CPU count, as asyncio's shared default thread pool does.
     """
 
     supports_writes = False
@@ -681,6 +689,17 @@ class ReferenceReader(Store):
         self.max_concurrency = max_concurrency
         self._sources: list[Source] = []
         self._semaphore: tuple[asyncio.AbstractEventLoop, asyncio.Semaphore] | None = None
+        self._threads: ThreadPoolExecutor | None = None
+        self._threads_lock = threading.Lock()
+
+    def _executor(self) -> ThreadPoolExecutor:
+        """The store's own threads for blocking HTTP reads, as many as its cap."""
+        with self._threads_lock:
+            if self._threads is None:
+                self._threads = ThreadPoolExecutor(
+                    max_workers=self.max_concurrency or UNCAPPED_THREADS,
+                    thread_name_prefix="vzip-read")
+            return self._threads
 
     def _limit(self) -> contextlib.AbstractAsyncContextManager:
         """Held around each request: the `max_concurrency` cap. A semaphore belongs
@@ -726,8 +745,10 @@ class ReferenceReader(Store):
         allow(url)  # spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>
         if urlparse(url).scheme.lower() in ("http", "https") and not registered:  # spec §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>, pinned or not
             async with self._limit():
-                data, size = await asyncio.to_thread(http_range, url, start, end, src, allow,
-                                                     address, self.policy.allow_unchecked_proxy)
+                data, size = await asyncio.get_running_loop().run_in_executor(
+                    self._executor(), functools.partial(
+                        http_range, url, start, end, src, allow, address,
+                        self.policy.allow_unchecked_proxy))
             self.stats.record(url, start, len(data), external=True)
             if src.size is not None and size != src.size:
                 raise ResolutionError(_size_mismatch(url, src.size, size))
