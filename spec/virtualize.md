@@ -172,9 +172,9 @@ not affect equivalence.
 **Reader policy.** A virtualizer reads a remote input under a reader policy
 ([spec/archive.md §8.7](archive.md#87-reader-policy)) that the application chooses,
 applied to every request it makes for the input: a file's, and a store's
-listing and object reads (§1.4, §1.5), each redirect target checked before it
+listing and object reads ([§1.4](#14-store-inputs), [§1.5](#15-listing-a-store)), each redirect target checked before it
 is requested. A request the policy refuses is a failure, not a rejection. The
-implementations in this repository default to §8.7's defaults, so they refuse
+implementations in this repository default to the defaults of [spec/archive.md §8.7](archive.md#87-reader-policy), so they refuse
 loopback, private, link-local and special hosts, and requests through a
 proxy, unless the application allows private hosts or unchecked proxies (the
 same settings, and `--allow-private-hosts` on their command lines).
