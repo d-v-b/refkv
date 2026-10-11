@@ -155,7 +155,7 @@ def _s3_store(**kwargs):
 def test_reading_a_refused_scheme_says_how_to_fix_it():
     store = _s3_store()
     with pytest.raises(ResolutionError, match=r"'s3' is not allowed .*vzip\.public_s3_url.*"
-                                              r"Policy\(schemes=\{'s3'\}\)"):
+                                              r"registry=\{'s3://some-bucket': S3Store"):
         xr.open_zarr(store, consolidated=False).x.values
 
 
@@ -171,6 +171,107 @@ def test_save_checks_against_the_policy_given(tmp_path):
     store.save(tmp_path / "ok.vzip", policy=vzip.Policy(schemes={"s3"}))
     with pytest.raises(ValueError, match="reader policy given refuses"):
         store.save(tmp_path / "x.vzip", policy=vzip.Policy(prefixes=("https://data.example/",)))
+
+
+# ------------------------------------------------------------ the application's stores
+
+
+def test_registry_reads_registered_sources(netcdf_files, tmp_path):
+    """`registry=` takes an obspec_utils ObjectStoreRegistry, a plain mapping of URL
+    prefixes to stores, or a Resolver. A source under a registered prefix, of any
+    scheme, is read with its store and passes the reader policy without
+    `Policy(schemes=...)`: for a store built from a virtual dataset, a store built
+    from a mapping (an unpinned and a size-pinned source, a bucket and a path
+    prefix of it), and the archive each saves, opened with the same registry."""
+    from obspec_utils.registry import ObjectStoreRegistry
+    from obstore.store import MemoryStore
+
+    from vzip.store import Resolver
+
+    paths, expected = netcdf_files
+    vds = xr.concat([virtualize(p) for p in paths], dim="time", coords="minimal",
+                    compat="override")
+    bucket = MemoryStore()
+    for p in paths:
+        bucket.put(f"data/{p.name}", p.read_bytes())
+    blob = bytes(range(64))
+    bucket.put("raw/blob.bin", blob)
+    mapping = {"a": Range(source=0, offset=8, length=4),
+               "b": Concat((Range(source=1, offset=0, length=2), Range(data=b"!")))}
+    sources = [Source(url="s3://bucket/raw/blob.bin"),
+               Source(url="s3://bucket/raw/blob.bin", size=len(blob))]
+    s3 = vzip.Policy(schemes={"s3"})  # for save: what the archive's readers allow
+    for prefix in ["s3://bucket", "s3://bucket/", "s3://bucket/data"]:
+        forms = {"mapping": {prefix: bucket, "s3://other": MemoryStore()},
+                 "ObjectStoreRegistry": ObjectStoreRegistry({prefix: bucket}),
+                 "Resolver": Resolver({prefix: bucket})}
+        for form, registry in forms.items():
+            store = vzip.ReferenceStore.from_virtualizarr(
+                vds, rewrite_urls={f"file://{tmp_path}/": "s3://bucket/data/"},
+                registry=registry)
+            xr.testing.assert_identical(xr.open_zarr(store).load(), expected.load())
+            store.save(tmp_path / "v.vzip", policy=s3)
+            reopened = vzip.open(tmp_path / "v.vzip", registry=registry)
+            xr.testing.assert_identical(xr.open_zarr(reopened).load(), expected.load())
+            if prefix == "s3://bucket/data":
+                continue  # the raw/ sources are outside it
+            store = vzip.ReferenceStore(mapping, sources, registry=registry)
+            want = {"a": blob[8:12], "b": blob[:2] + b"!"}
+            assert _values(store) == want, form
+            store.save(tmp_path / "m.vzip", policy=s3)
+            assert _values(vzip.open(tmp_path / "m.vzip", registry=registry)) == want, form
+
+
+def test_unregistered_s3_source_is_refused_without_credential_lookup(monkeypatch):
+    """A scheme the policy allows, but no store registered for its URL: vzip makes no
+    store itself (obstore's from_url would query credential sources, the cloud
+    metadata address among them), and says to register one."""
+    import obstore.store
+
+    def no_lookup(*a, **k):
+        raise AssertionError("vzip built a store from a URL")
+
+    for name in ["from_url", "S3Store", "GCSStore", "AzureStore"]:
+        monkeypatch.setattr(obstore.store, name, no_lookup)
+    store = _s3_store(policy=vzip.Policy(schemes={"s3"}))
+    with pytest.raises(ResolutionError, match=r"no store is registered for s3://some-bucket\. "
+                                              r".*registry=\{'s3://some-bucket': store\}"):
+        xr.open_zarr(store, consolidated=False).x.values
+
+
+def test_registry_does_not_lift_a_prefix_list():
+    """Rule 2 replaces rule 1: a registered URL outside the policy's prefixes is refused."""
+    from obstore.store import MemoryStore
+
+    store = _s3_store(registry={"s3://some-bucket": MemoryStore()},
+                      policy=vzip.Policy(prefixes=("https://data.example/",)))
+    with pytest.raises(ResolutionError, match="not under an allowed URL prefix"):
+        xr.open_zarr(store, consolidated=False).x.values
+
+
+def test_registry_does_not_let_a_remote_store_read_files(tmp_path):
+    """Registering a store for file: URLs does not let a remote store read local files."""
+    from obstore.store import LocalStore
+
+    (tmp_path / "obj.bin").write_bytes(b"1234")
+    mem = zarr.storage.MemoryStore()
+    zarr.create_array(mem, name="x", shape=(4,), chunks=(4,), dtype="u1", compressors=None)
+    mapping = {k: v.to_bytes() for k, v in mem._store_dict.items()}
+    mapping["x/c/0"] = Range(source=0, offset=0, length=4)
+    store = vzip.ReferenceStore(mapping, [Source(url=f"file://{tmp_path}/obj.bin")],
+                                url="https://data.example/", registry={"file://": LocalStore()})
+    with pytest.raises(ResolutionError, match="may not read local files"):
+        zarr.open_array(store, path="x", mode="r")[:]
+
+
+def test_registry_of_another_type_is_refused():
+    with pytest.raises(TypeError, match="ObjectStoreRegistry, a mapping"):
+        vzip.ReferenceStore({}, registry=["s3://bucket"])
+
+
+def test_registry_prefix_without_a_scheme_is_refused():
+    with pytest.raises(ValueError, match="a registry prefix is a URL with a scheme"):
+        vzip.ReferenceStore({}, registry={"bucket": object()})
 
 
 # ------------------------------------------------------------ the request cap
@@ -223,7 +324,7 @@ def test_max_concurrency_caps_requests_in_flight(counting_server, tmp_path, no_p
     """With zarr reading 32 chunks at once, each chunk a reference to its own range of
     a served file, a store keeps at most `max_concurrency` requests in flight: the
     in-memory store, and the saved archive read over HTTP, its own reads (tail,
-    pages) included. Without the cap, more are in flight."""
+    pages) included: 8 by default. With None, more are in flight."""
     base, state = counting_server
     n = 32
     state["files"]["/src.bin"] = bytes(range(n)) * 1024
@@ -236,20 +337,22 @@ def test_max_concurrency_caps_requests_in_flight(counting_server, tmp_path, no_p
     vzip.ReferenceStore(mapping, sources).save(tmp_path / "a.vzip", page_size=64, policy=policy)
     state["files"]["/a.vzip"] = (tmp_path / "a.vzip").read_bytes()
     stores = {
-        "memory": lambda cap: vzip.ReferenceStore(mapping, sources, policy=policy,
-                                                  max_concurrency=cap),
-        "archive": lambda cap: vzip.open(f"{base}/a.vzip", policy=policy, max_concurrency=cap),
+        "memory": lambda **cap: vzip.ReferenceStore(mapping, sources, policy=policy, **cap),
+        "archive": lambda **cap: vzip.open(f"{base}/a.vzip", policy=policy, **cap),
     }
+    caps = [({"max_concurrency": None}, None), ({"max_concurrency": 1}, 1),
+            ({"max_concurrency": 3}, 3), ({}, 8)]
     with zarr.config.set({"async.concurrency": 64}):
         for kind, make in stores.items():
-            for cap in [None, 1, 3]:
+            for kwargs, cap in caps:
                 state["max"] = 0
-                store = make(cap)
+                store = make(**kwargs)
+                assert store.max_concurrency == cap
                 values = zarr.open_array(store, path="x", mode="r")[:]
                 assert np.array_equal(values, np.arange(n)), kind
                 assert store.stats.external_requests == n
                 if cap is None:
-                    assert state["max"] > 3, kind
+                    assert state["max"] > 8, kind
                 else:
                     assert 1 <= state["max"] <= cap, (kind, cap, state["max"])
 
@@ -380,7 +483,7 @@ def test_mapping_cannot_be_changed():
 
 def test_public_api():
     assert set(vzip.__all__) == {
-        "Concat", "Policy", "Range", "ReferenceStore", "Resolver", "Source", "Stats", "Summary",
+        "Concat", "Policy", "Range", "ReferenceStore", "Source", "Stats", "Summary",
         "VZipStore", "VZipWriter", "open", "public_s3_url"}
     assert all(hasattr(vzip, name) for name in vzip.__all__)
     assert isinstance(vzip.open("x.vzip"), vzip.VZipStore)

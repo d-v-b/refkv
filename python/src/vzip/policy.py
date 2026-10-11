@@ -116,13 +116,16 @@ def scheme_remedy(url: str) -> str:
     """How to read a source whose scheme the default reader policy refuses: the
     second sentence of the error, at write and at read time."""
     s = url.split(":", 1)[0].lower()
+    root = f"{s}://{urlsplit(url).netloc}"
     if public_s3_url(url) is not None:
         return ("If the bucket is public, write its HTTPS URLs instead "
                 "(ReferenceStore.from_virtualizarr(vds, rewrite_urls=vzip.public_s3_url)); "
-                "or read it with policy=Policy(schemes={'s3'}) and a Resolver holding an "
-                "S3Store for the bucket (help(vzip.Resolver)).")
-    return (f"Write http(s) URLs instead, or read it with policy=Policy(schemes={{{s!r}}}) "
-            f"and a Resolver that serves {s!r} URLs (help(vzip.Resolver)).")
+                f"or read it with registry={{{root!r}: S3Store(...)}}, a store for the "
+                "bucket (help(vzip.store.Resolver)), and save it with "
+                "policy=Policy(schemes={'s3'}).")
+    return (f"Write http(s) URLs instead, or read it with registry={{{root!r}: store}}, a "
+            f"store that serves those URLs (help(vzip.store.Resolver)), and save it with "
+            f"policy=Policy(schemes={{{s!r}}}).")
 
 
 @dataclass(frozen=True)
@@ -133,6 +136,10 @@ class Policy:
     - `schemes`: schemes allowed besides those rule 1 allows by default
       (`http` and `https` for every archive, `file` for a local one), such as
       `s3`. It may not name `file`: see `allow_files_from_remote_archives`.
+      A reader needs a store for such a URL anyway (`registry=`), and a
+      URL under a registered prefix is allowed without it; so `schemes`
+      matters most to `ReferenceStore.save`, which checks the sources it
+      writes against the policy of the archive's future readers.
     - `prefixes`: if given, a URL is allowed if and only if it matches one of
       them (rule 2), whatever its scheme. Rule 3 still applies.
     - `allow_files_from_remote_archives`: UNSAFE. Lets an archive opened from
@@ -151,14 +158,14 @@ class Policy:
     Rule 7 (unverifiable pins) has no option here: this reader always sees a
     response's headers, so every pin it is given can be checked.
 
-    For example, to read an archive whose references name a public S3 bucket
-    (`Resolver` says how to give the reader a store for it), or only sources
-    under one prefix:
-
-        policy = vzip.Policy(schemes={"s3"})
-        store = vzip.open("data.vzip", policy=policy, resolver=resolver)
+    For example, to read only sources under one prefix, or to save an
+    archive whose references name an S3 bucket, which its readers will read
+    with a store registered for the bucket (`help(vzip.store.Resolver)`):
 
         policy = vzip.Policy(prefixes=("https://data.example/archive/",))
+        store = vzip.open("data.vzip", policy=policy)
+
+        store.save("data.vzip", policy=vzip.Policy(schemes={"s3"}))
 
     `ReferenceStore.save` checks the references it writes against a policy
     too, `Policy()` by default, so an archive that the default reader cannot
@@ -180,9 +187,14 @@ class Policy:
                              "already, and a remote one needs the unsafe "
                              "allow_files_from_remote_archives=True")
 
-    def check(self, base: str, url: str) -> None:
+    def check(self, base: str, url: str, *, registered: bool = False) -> None:
         """Raise ResolutionError unless rules 1 and 2 allow `url` for an archive at `base`,
-        and rule 3 allows its host as written (an IP literal, or `localhost`)."""
+        and rule 3 allows its host as written (an IP literal, or `localhost`).
+
+        `registered`: the application registered a store for a prefix of `url`
+        (`registry=`), which allows it under rule 1 whatever its scheme, except
+        a `file:` URL for a remote archive. A prefix list (rule 2) still decides
+        alone, and rule 3 still applies."""
         if self.prefixes is not None:
             if not any(matches_prefix(url, p) for p in self.prefixes):
                 raise ResolutionError(f"{url}: not under an allowed URL prefix (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)")
@@ -193,7 +205,7 @@ class Policy:
                     raise ResolutionError(
                         f"{url}: an archive opened from a URL may not read local files "
                         f"(spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)")
-            elif s != "http" and s not in {_scheme(x + ":") for x in self.schemes}:
+            elif s != "http" and not registered and s not in {_scheme(x + ":") for x in self.schemes}:
                 raise ResolutionError(f"{url}: the scheme {s!r} is not allowed (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>). "
                                       + scheme_remedy(url))
         if _scheme(url) == "http":

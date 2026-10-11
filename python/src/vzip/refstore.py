@@ -40,7 +40,7 @@ from vzip.archive import INDEX_KEY, RESERVED_PREFIX, SOURCES_KEY, VZipWriter
 from vzip.errors import ResolutionError
 from vzip.pb import Concat, Range, Reference, Source, parts
 from vzip.policy import Policy
-from vzip.store import ReferenceReader, Resolver, Stats, _abs_range
+from vzip.store import DEFAULT_CONCURRENCY, ReferenceReader, Stats, _abs_range
 from vzip.uri import file_uri
 from vzip.uri import resolve as resolve_reference
 
@@ -113,10 +113,13 @@ class ReferenceStore(ReferenceReader):
     - `read_at_open`: the keys a reader fetches when it opens the store, which
       `save` places where an archive's opening request reads them. The default
       is every `zarr.json` document.
-    - `resolver`, `stats`, `policy`, `max_concurrency`: how references are
+    - `registry`, `stats`, `policy`, `max_concurrency`: how references are
       resolved, as for every vzip store (`vzip.store.ReferenceReader`). The
       default policy, `Policy()`, reads `http(s)` sources on public hosts and,
-      here, local files; it refuses other schemes, such as `s3`.
+      here, local files; it refuses other schemes, such as `s3`, except under
+      a prefix the `registry` has a store for, such as the
+      `ObjectStoreRegistry` given to VirtualiZarr. At most 8 requests are in
+      flight by default (`max_concurrency=None` for no cap).
     """
 
     def __init__(
@@ -126,13 +129,13 @@ class ReferenceStore(ReferenceReader):
         *,
         url: str | None = None,
         read_at_open: Iterable[str] | None = None,
-        resolver: Resolver | None = None,
+        registry=None,
         stats: Stats | None = None,
         policy: Policy | None = None,
-        max_concurrency: int | None = None,
+        max_concurrency: int | None = DEFAULT_CONCURRENCY,
     ) -> None:
         super().__init__(url if url is not None else file_uri(os.getcwd()) + "/",
-                         resolver=resolver, stats=stats, policy=policy,
+                         registry=registry, stats=stats, policy=policy,
                          max_concurrency=max_concurrency)
         values: dict[str, bytes | Reference] = {}
         for key, v in mapping.items():
@@ -191,9 +194,14 @@ class ReferenceStore(ReferenceReader):
           its new URL (or None to keep it). For files on a public S3 bucket,
           `rewrite_urls=vzip.public_s3_url` writes `s3://bucket/key` as
           `https://bucket.s3.amazonaws.com/key`, which the default reader
-          policy allows; `s3://` URLs it refuses.
+          policy allows, and any reader can read, a browser included.
+        - `registry`: the stores to read sources with, such as the
+          `ObjectStoreRegistry` given to `open_virtual_dataset`, for private
+          data. The store then reads `s3://` sources too; `save` checks them
+          against the archive's readers' policy, so pass it
+          `policy=Policy(schemes={"s3"})`, and give its readers the registry.
         - Other keyword arguments go to the `ReferenceStore` constructor
-          (`policy`, `resolver`, `stats`, `max_concurrency`, `url`).
+          (`policy`, `stats`, `max_concurrency`, `url`).
         """
         from vzip.convert import read_at_open, split_virtual_dataset
 

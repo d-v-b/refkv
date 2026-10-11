@@ -101,7 +101,7 @@ def serve():
 
 
 def r_vzip(url, idx):
-    return zarr.open_array(VZipStore(url), path="v", mode="r")[idx]
+    return zarr.open_array(VZipStore(url, max_concurrency=None), path="v", mode="r")[idx]  # no cap, as measured
 
 
 def r_kerchunk(url, idx):

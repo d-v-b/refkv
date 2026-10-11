@@ -130,7 +130,7 @@ def read_vzip(path: str | Path, **kwargs) -> xr.Dataset:
     `xr.open_zarr(vzip.open(path, **kwargs), zarr_format=3)`.
 
     Keyword arguments go to the store (`vzip.VZipStore`): `stats`, `policy`,
-    `resolver`, `max_concurrency` and `resolve`. To pass arguments to xarray,
+    `registry`, `max_concurrency` and `resolve`. To pass arguments to xarray,
     call `xr.open_zarr(vzip.open(path), ...)` yourself."""
     from vzip.store import VZipStore
 

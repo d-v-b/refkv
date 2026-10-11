@@ -28,14 +28,13 @@ import re
 import socket
 import threading
 import zlib
-from collections.abc import AsyncIterator, Callable, Iterable
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from email.message import Message
 from pathlib import Path
-from urllib.parse import unquote, urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse, urlsplit
 
-import obstore
-from obstore.store import HTTPStore, LocalStore, from_url
+from obstore.store import HTTPStore, LocalStore
 from zarr.abc.store import (
     ByteRequest,
     OffsetByteRequest,
@@ -70,7 +69,7 @@ from vzip.errors import (
     VzipError,
 )
 from vzip.pb import Reference, Source, decode_cd_index, parts
-from vzip.policy import Policy, crc32c
+from vzip.policy import Policy, crc32c, public_s3_url
 from vzip.uri import file_path, file_uri
 from vzip.uri import resolve as resolve_reference
 
@@ -119,44 +118,137 @@ class Stats:
 
 
 class Resolver:
-    """Maps the URLs a store reads with obstore to an obstore store and a path.
+    """The object stores a vzip store reads with: the application's, registered
+    under URL prefixes, and the few vzip makes itself.
 
-    `http` and `https` sources are read by vzip's own HTTP client, under the
-    reader policy. A `Resolver` serves the rest: `file` URLs, the archive
-    itself, and the sources of any other scheme that a `Policy` allows. A store
-    it makes from a URL alone has no credentials or options, so register one
-    for a bucket that needs them, keyed by `scheme://netloc`. For a public S3
-    bucket:
+    Every vzip store takes `registry=`: an
+    `obspec_utils.registry.ObjectStoreRegistry` (the one VirtualiZarr's
+    `open_virtual_dataset` takes), a plain mapping of URL prefixes to stores,
+    such as `{"s3://my-bucket": S3Store("my-bucket", ...)}`, or a `Resolver`.
+    A store registered for a prefix serves every URL under it: an `s3://`
+    bucket, or an `https://` host whose requests need credentials or headers.
+    A prefix matches whole path segments, and the longest one wins.
+
+    Registering a store is the application allowing it: a source URL under a
+    registered prefix passes the reader policy's scheme rule (spec §6.7
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 1), so
+    `Policy(schemes={"s3"})` is not needed to read it. The rest of the policy
+    still applies to it:
+
+    - rule 2: a `Policy(prefixes=...)` list replaces rule 1, registration
+      included, so a URL outside the list is refused;
+    - rule 1's `file` rule: an archive opened from a URL still may not read
+      `file:` sources, whatever is registered, unless the policy has the
+      unsafe `allow_files_from_remote_archives`;
+    - rule 3 (private hosts): vzip checks an `http(s)` source URL's host as
+      written, so an IP literal or `localhost` of a non-public class is
+      refused. It cannot check the addresses a registered store connects to,
+      or the redirects it follows: the store makes its own connections. For a
+      source that no store is registered for, vzip's own HTTP client checks
+      every address it connects to.
+
+    Without a registered store, vzip reads `http(s)` sources with its own HTTP
+    client, the archive itself (local, or over `http(s)`) with obstore, and
+    local `file:` sources from the file system. It makes no store for any
+    other scheme: obstore's `from_url` would look for credentials (environment
+    variables, configuration files, the cloud metadata service at
+    169.254.169.254), out of the reader policy's reach. Reading such a URL
+    without a registered store is a `ResolutionError`.
+
+    For a public S3 bucket:
 
         from obstore.store import S3Store
 
-        resolver = vzip.Resolver({"s3://my-bucket": S3Store(
-            "my-bucket", region="us-east-1", skip_signature=True)})
-        store = vzip.open("data.vzip", resolver=resolver,
-                          policy=vzip.Policy(schemes={"s3"}))
+        registry = {"s3://my-bucket": S3Store("my-bucket", region="us-east-1",
+                                              skip_signature=True)}
+        store = vzip.open("data.vzip", registry=registry)
+    """
 
-    Rule 3 of the reader policy (spec §6.7
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>), the address
-    check, applies to vzip's HTTP client only: obstore makes its own connections."""
+    _OWN = ("file", "http", "https")  # the schemes vzip makes stores for itself
 
-    def __init__(self, stores: dict[str, object] | None = None) -> None:
-        self._stores: dict[str, object] = dict(stores or {})
+    def __init__(self, registry=None) -> None:
+        self._registry = None  # an ObjectStoreRegistry-like object, with .resolve(url)
+        self._prefixes: list[tuple[str, str, tuple[str, ...], object]] = []
+        self._made: dict[str, object] = {}  # the stores vzip made, by scheme://netloc
+        if isinstance(registry, Resolver):
+            self._registry, self._prefixes = registry._registry, list(registry._prefixes)
+        elif isinstance(registry, Mapping):
+            for prefix, store in registry.items():
+                p = urlsplit(str(prefix))
+                if not p.scheme:
+                    raise ValueError(f"a registry prefix is a URL with a scheme, such as "
+                                     f"'s3://my-bucket', not {prefix!r}")
+                self._prefixes.append((p.scheme.lower(), p.netloc, _segments(p.path), store))
+        elif registry is not None:
+            if not callable(getattr(registry, "resolve", None)):
+                raise TypeError(f"registry is an obspec_utils ObjectStoreRegistry, a mapping of "
+                                f"URL prefixes to stores, or a vzip Resolver, not "
+                                f"{type(registry).__name__}")
+            self._registry = registry
+
+    def registered(self, url: str) -> tuple[object, str] | None:
+        """The store the application registered for `url`, and the object's path
+        in it; None if there is none."""
+        if self._registry is not None:
+            try:
+                store, path = self._registry.resolve(url)
+            except ValueError:
+                return None
+            return store, unquote(path)
+        p = urlsplit(url)
+        segs = _segments(p.path)
+        best = None
+        for scheme, netloc, prefix, store in self._prefixes:
+            if (scheme == p.scheme.lower() and netloc == p.netloc
+                    and segs[:len(prefix)] == prefix
+                    and (best is None or len(prefix) > len(best[0]))):
+                best = (prefix, store)
+        if best is None:
+            return None
+        store = best[1]
+        # as obspec_utils does: the path is relative to the store's own root
+        root = getattr(store, "prefix", None) or (
+            urlsplit(store.url).path if isinstance(getattr(store, "url", None), str) else "")
+        path = unquote(p.path).lstrip("/")
+        root = unquote(str(root)).strip("/")
+        if root and (path == root or path.startswith(root + "/")):
+            path = path[len(root):].lstrip("/")
+        return store, path
 
     def resolve(self, url: str) -> tuple[object, str]:
+        """The store that reads `url`, and the object's path in it."""
+        found = self.registered(url)
+        if found is not None:
+            return found
         p = urlparse(url)
-        if p.scheme == "file":
-            return self._stores.setdefault("file://", LocalStore()), file_path(url)
-        if p.scheme not in ("http", "https", "s3", "gs", "az", "abfs"):
-            raise ValueError(f"unsupported URL scheme {p.scheme!r}")
-        root = f"{p.scheme}://{p.netloc}"
-        if root not in self._stores:
-            self._stores[root] = (
-                HTTPStore.from_url(root, client_options={"allow_http": p.scheme == "http"})
-                if p.scheme in ("http", "https")
-                else from_url(root)
-            )
+        scheme = p.scheme.lower()
+        if scheme == "file":
+            return self._made.setdefault("file://", LocalStore()), file_path(url)
+        if scheme not in self._OWN:
+            root = f"{scheme}://{p.netloc}"
+            raise ResolutionError(
+                f"{url}: no store is registered for {root}. vzip does not make one itself, "
+                f"since it would look for credentials outside the reader policy "
+                f"(spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>). "
+                f"Pass registry={{{root!r}: store}}, such as an obstore S3Store, or an "
+                f"obspec_utils ObjectStoreRegistry"
+                + ("; or, for a public bucket, write its HTTPS URLs "
+                   "(rewrite_urls=vzip.public_s3_url)." if public_s3_url(url) else "."))
+        root = f"{scheme}://{p.netloc}"
+        if root not in self._made:
+            self._made[root] = HTTPStore.from_url(
+                root, client_options={"allow_http": scheme == "http"})
         # object_store paths are decoded; it percent-encodes them itself when building URLs
-        return self._stores[root], unquote(p.path).lstrip("/")
+        return self._made[root], unquote(p.path).lstrip("/")
+
+
+def _segments(path: str) -> tuple[str, ...]:
+    """The non-empty segments of a URL path, decoded."""
+    return tuple(unquote(s) for s in path.split("/") if s)
+
+
+def _resolver(registry) -> Resolver:
+    return registry if isinstance(registry, Resolver) else Resolver(registry)
 
 
 def _abs_range(size: int, br: ByteRequest | None) -> tuple[int, int]:
@@ -522,6 +614,10 @@ def _check_index(pages, pinned, cd_size: int, file_size: int) -> None:
         seen.add(e.key)
 
 
+DEFAULT_CONCURRENCY = 8
+"""The default `max_concurrency` of every vzip store."""
+
+
 class ReferenceReader(Store):
     """The read path that every vzip store shares: a read-only zarr store whose
     values are bytes or references (spec/archive.md, Part 1
@@ -538,12 +634,17 @@ class ReferenceReader(Store):
     - `url`: the store's base URI, against which relative source URLs resolve
       (spec §5 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>); its
       scheme decides whether the store is local or remote for the policy.
-    - `resolver`: maps the non-`http(s)` URLs to obstore stores (`Resolver`).
+    - `registry`: the application's object stores, by URL prefix: an
+      `obspec_utils.registry.ObjectStoreRegistry`, a mapping such as
+      `{"s3://my-bucket": S3Store(...)}`, or a `Resolver`. Sources under a
+      registered prefix are read with its store, and pass the policy's scheme
+      rule; `Resolver` says what is and isn't checked for them.
     - `stats`: counts the requests (`Stats`).
     - `policy`: what may be resolved (`Policy`; the default is `Policy()`).
     - `max_concurrency`: the most requests this store has in flight at once,
-      to its sources and to the archive itself; None (the default) for no cap.
-      Zarr's `async.concurrency` setting (default 10) caps something else: the
+      to its sources and to the archive itself: 8 by default, as many
+      connections as the virtualizer opens to one host, and polite to the
+      hosts of public data. None for no cap. Zarr's `async.concurrency` setting (default 10) caps something else: the
       chunks one zarr operation reads at once, per operation. One chunk can
       need several requests (a reference with ranges of several sources), and
       a dask computation runs many zarr operations at once, so only this
@@ -560,10 +661,10 @@ class ReferenceReader(Store):
         self,
         url: str,
         *,
-        resolver: Resolver | None = None,
+        registry=None,
         stats: Stats | None = None,
         policy: Policy | None = None,
-        max_concurrency: int | None = None,
+        max_concurrency: int | None = DEFAULT_CONCURRENCY,
     ) -> None:
         super().__init__(read_only=True)
         if max_concurrency is not None and (
@@ -575,7 +676,7 @@ class ReferenceReader(Store):
         # spec §5 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>:
         # absolute, lexically normalised, symlinks not resolved
         self.url = url if urlparse(url).scheme else file_uri(url)
-        self.resolver = resolver or Resolver()
+        self.resolver = _resolver(registry)
         self.stats = stats or Stats()
         self.max_concurrency = max_concurrency
         self._sources: list[Source] = []
@@ -605,7 +706,7 @@ class ReferenceReader(Store):
         store, path = self.resolver.resolve(url)
         try:
             async with self._limit():
-                data = bytes(await obstore.get_range_async(store, path, start=start, end=end))
+                data = bytes(await store.get_range_async(path, start=start, end=end))
         except Exception as e:  # e.g. the range starts past the end of the object
             raise ValueError(f"cannot read [{start}, {end}) of {url}: {e}") from None
         self.stats.record(url, start, len(data), external=external)
@@ -617,12 +718,13 @@ class ReferenceReader(Store):
         """Bytes [start, end) of a url source, checking its pins (spec §5.1
         <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-pins>)."""
         url = resolve_reference(self.url, src.url)
-        allow = lambda u: self.policy.check(self.url, u)  # noqa: E731
+        registered = self.resolver.registered(url) is not None
+        allow = lambda u: self.policy.check(self.url, u, registered=registered)  # noqa: E731
         # spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule
         # 3: check every address, unless the application allows them all
         address = None if self.policy.allow_private_hosts else self.policy.check_address
         allow(url)  # spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>
-        if urlparse(url).scheme.lower() in ("http", "https"):  # spec §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>, pinned or not
+        if urlparse(url).scheme.lower() in ("http", "https") and not registered:  # spec §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>, pinned or not
             async with self._limit():
                 data, size = await asyncio.to_thread(http_range, url, start, end, src, allow,
                                                      address, self.policy.allow_unchecked_proxy)
@@ -652,8 +754,8 @@ class ReferenceReader(Store):
                 src.modified_not_after, datetime.timezone.utc)
         try:
             async with self._limit():
-                res = await obstore.get_async(store, path, options=options)
-                data = bytes(await res.bytes_async())
+                res = await store.get_async(path, options=options)
+                data = bytes(await res.buffer_async())
         except Exception as exc:  # noqa: BLE001 - 412 Precondition Failed and friends
             raise ResolutionError(f"pin check or read failed for {url}: {exc}") from None
         self.stats.record(url, start, len(data), external=True)
@@ -806,7 +908,7 @@ class VZipStore(ReferenceReader):
     """A vzip archive, opened as a read-only zarr store.
 
     `vzip.open(url)` returns one; so does `VZipStore(url)`. `url` is a local
-    path or an `http(s)` URL (or any URL the `resolver` serves). Opening reads
+    path or an `http(s)` URL (or any URL a store in the `registry` serves). Opening reads
     the archive's tail, and with it the metadata documents xarray reads first;
     each chunk is then read from the source its reference names, such as the
     netCDF file it came from:
@@ -831,9 +933,11 @@ class VZipStore(ReferenceReader):
       public hosts, not through a proxy, and a local archive also read `file`
       sources; it refuses every other scheme, and loopback, private and special
       addresses.
-    - `resolver`, `stats`, `max_concurrency`: as for every vzip store
-      (`ReferenceReader`). For example, `max_concurrency=8` keeps at most eight
-      requests in flight, to the sources and to the archive.
+    - `registry`, `stats`, `max_concurrency`: as for every vzip store
+      (`ReferenceReader`): the application's object stores, such as the
+      `ObjectStoreRegistry` given to VirtualiZarr; a count of the requests;
+      and the most requests in flight, to the sources and to the archive (8
+      by default, None for no cap).
     """
 
     def __init__(
@@ -841,12 +945,12 @@ class VZipStore(ReferenceReader):
         url: str,
         *,
         resolve: bool = True,
-        resolver: Resolver | None = None,
+        registry=None,
         stats: Stats | None = None,
         policy: Policy | None = None,
-        max_concurrency: int | None = None,
+        max_concurrency: int | None = DEFAULT_CONCURRENCY,
     ) -> None:
-        super().__init__(url, resolver=resolver, stats=stats, policy=policy,
+        super().__init__(url, registry=registry, stats=stats, policy=policy,
                          max_concurrency=max_concurrency)
         self.resolve = resolve
         self._entries: dict[str, Entry] = {}
@@ -886,8 +990,8 @@ class VZipStore(ReferenceReader):
     async def _open_archive(self) -> None:
         store, path = self.resolver.resolve(self.url)
         async with self._limit():
-            res = await obstore.get_async(store, path, options={"range": {"suffix": TAIL_GUESS}})
-            tail = bytes(await res.bytes_async())
+            res = await store.get_async(path, options={"range": {"suffix": TAIL_GUESS}})
+            tail = bytes(await res.buffer_async())
         size = res.meta["size"]
         tail_start = size - len(tail)
         self.stats.record(self.url, tail_start, len(tail), external=False)
