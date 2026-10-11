@@ -171,7 +171,7 @@
       "additionalProperties": false
     },
     "headerValue": {
-      "description": "A translated header value (spec/conventions.md §6)",
+      "description": "A translated header value (spec/conventions.md §6 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>)",
       "anyOf": [
         {
           "type": "number"

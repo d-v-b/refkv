@@ -158,7 +158,7 @@
       ]
     },
     "headerValue": {
-      "description": "A translated header value (spec/conventions.md §6)",
+      "description": "A translated header value (spec/conventions.md §6 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>)",
       "anyOf": [
         {
           "type": "number"
@@ -203,7 +203,7 @@
     },
     "mirror": {
       "type": "object",
-      "description": "vzip_source's: the IR mirror's description (spec/conventions.md §8.2)",
+      "description": "vzip_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>)",
       "properties": {
         "ir": {
           "type": "object",
@@ -237,7 +237,7 @@
                   "const": ""
                 }
               ],
-              "description": "The interned names, sorted; the first, \"\", is the root's (conventions §8.1)"
+              "description": "The interned names, sorted; the first, \"\", is the root's (conventions §8.1 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>)"
             },
             "types": {
               "type": "array",
@@ -250,14 +250,14 @@
                   "const": ""
                 }
               ],
-              "description": "The interned types (§8.6)"
+              "description": "The interned types (§8.6 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#86-types>)"
             },
             "forms": {
               "type": "array",
               "items": {
                 "type": "string"
               },
-              "description": "The interned forms, each a JSON text (§8.5)"
+              "description": "The interned forms, each a JSON text (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#85-forms-and-recipes>)"
             }
           },
           "required": [
@@ -279,7 +279,7 @@
     },
     "mirrorView": {
       "type": "object",
-      "description": "A view group's (vzip_source/tree/...): a struct's view document (spec/conventions.md §8.7)",
+      "description": "A view group's (vzip_source/tree/...): a struct's view document (spec/conventions.md §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>)",
       "properties": {
         "$vz": {
           "const": "derived",
@@ -290,7 +290,7 @@
             "string",
             "null"
           ],
-          "description": "A derived element's form (§8.5)"
+          "description": "A derived element's form (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#85-forms-and-recipes>)"
         },
         "$partial": {
           "const": true,
