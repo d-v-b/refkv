@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from vzip.archive import Entry, parse_central_directory
+from vzip.archive import Entry, parse_central_directory, parse_tail
 from vzip.pb import Concat, Range, Source, decode_table
 from vzip.policy import Policy, crc32c
 from vzip.store import VZipStore
@@ -76,10 +76,9 @@ def _table(path) -> tuple[list[Source], dict[str, list[Range]]]:
         sources, _ = decode_table(z.read("__vz__/sources"))
     with open(path, "rb") as f:
         data = f.read()
-    import struct
-    eocd = data.rindex(b"PK\x05\x06")
-    cd_size, cd_off = struct.unpack_from("<II", data, eocd + 12)
-    entries: dict[str, Entry] = parse_central_directory(data[cd_off:cd_off + cd_size], trust_offsets=True)
+    d = parse_tail(data, len(data))
+    cd = data[d.cd_offset:d.cd_offset + d.cd_size]
+    entries: dict[str, Entry] = parse_central_directory(cd, trust_offsets=True)
     refs = {k: list(e.ref.parts if isinstance(e.ref, Concat) else [e.ref])
             for k, e in entries.items() if e.is_ref}
     return sources, refs
