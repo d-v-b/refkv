@@ -2109,12 +2109,7 @@ images = [
     { name = "imagecodecs" },
 ]
 virtualizarr = [
-    { name = "aiohttp" },
-    { name = "fsspec" },
-    { name = "h5netcdf" },
-    { name = "h5py" },
     { name = "virtualizarr" },
-    { name = "xarray" },
 ]
 
 [package.dev-dependencies]
@@ -2125,7 +2120,11 @@ bench = [
     { name = "pyarrow" },
 ]
 dev = [
+    { name = "aiohttp" },
     { name = "czifile" },
+    { name = "fsspec" },
+    { name = "h5netcdf" },
+    { name = "h5py" },
     { name = "jsonschema" },
     { name = "nd2" },
     { name = "nibabel" },
@@ -2138,21 +2137,17 @@ dev = [
     { name = "rasterio" },
     { name = "tifffile" },
     { name = "vzip", extra = ["images", "virtualizarr"] },
+    { name = "xarray" },
     { name = "zarr-n5" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "aiohttp", marker = "extra == 'virtualizarr'", specifier = ">=3.14.3" },
-    { name = "fsspec", marker = "extra == 'virtualizarr'", specifier = ">=2026.9.0" },
     { name = "google-crc32c", specifier = ">=1.9.0" },
-    { name = "h5netcdf", marker = "extra == 'virtualizarr'", specifier = ">=1.8.1" },
-    { name = "h5py", marker = "extra == 'virtualizarr'", specifier = ">=3.16.0" },
     { name = "imagecodecs", marker = "extra == 'images'", specifier = ">=2026.8.16" },
     { name = "numpy", specifier = ">=2.5.3" },
     { name = "obstore", specifier = ">=0.11.1" },
     { name = "virtualizarr", marker = "extra == 'virtualizarr'", specifier = ">=2.7.3" },
-    { name = "xarray", marker = "extra == 'virtualizarr'", specifier = ">=2026.9.0" },
     { name = "zarr", specifier = ">=3.4.0" },
 ]
 provides-extras = ["virtualizarr", "images"]
@@ -2165,7 +2160,11 @@ bench = [
     { name = "pyarrow", specifier = ">=25.0.1" },
 ]
 dev = [
+    { name = "aiohttp", specifier = ">=3.14.3" },
     { name = "czifile", specifier = ">=2026.8.16" },
+    { name = "fsspec", specifier = ">=2026.9.0" },
+    { name = "h5netcdf", specifier = ">=1.8.1" },
+    { name = "h5py", specifier = ">=3.16.0" },
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "nd2", specifier = ">=0.12.0" },
     { name = "nibabel", specifier = ">=5.4.2" },
@@ -2178,6 +2177,7 @@ dev = [
     { name = "rasterio", specifier = ">=1.5.2" },
     { name = "tifffile", specifier = ">=2026.9.20" },
     { name = "vzip", extras = ["virtualizarr", "images"] },
+    { name = "xarray", specifier = ">=2026.9.0" },
     { name = "zarr-n5", specifier = ">=0.3.1" },
 ]
 

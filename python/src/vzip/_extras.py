@@ -3,8 +3,9 @@
 The base install reads and writes vzip archives and holds a `ReferenceStore`.
 The extras add:
 
-- `virtualizarr`: `ReferenceStore.from_virtualizarr` and `vzip.convert`, and
-  what the netCDF workflow of docs/virtual-datasets.md reads files with;
+- `virtualizarr`: VirtualiZarr, for `ReferenceStore.from_virtualizarr`,
+  `vzip.convert` and `vzip.shards`. vzip does not import xarray: it calls the
+  methods of the datasets VirtualiZarr builds;
 - `images`: the JPEG, JPEG 2000 and JPEG XR codecs that archives of
   virtualized image files use (`vzip.codecs`).
 """

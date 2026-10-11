@@ -1,8 +1,9 @@
 """VirtualiZarr virtual datasets as vzip stores.
 
 `vzip.ReferenceStore.from_virtualizarr(vds)` is the entry point; this module does
-the conversion, and keeps the older one-step functions `write_vzip` and
-`read_vzip`.
+the conversion, and keeps the older one-step function `write_vzip`.
+
+vzip does not import xarray: it calls the methods of the dataset it is given.
 
 The conversion literally builds the two key spaces separately and overlays
 them: zarr metadata and any loadable (non-virtual) variables go into an
@@ -14,14 +15,17 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import zarr
 from zarr.storage import MemoryStore
 
 from vzip._extras import missing
 
-try:
+if TYPE_CHECKING:
     import xarray as xr
+
+try:
     from virtualizarr.manifests import ManifestArray
     from virtualizarr.writers.icechunk import extract_codecs, update_attributes
 except ImportError as e:
@@ -40,6 +44,17 @@ def consolidate(store) -> None:
         zarr.consolidate_metadata(store, zarr_format=3)
 
 
+def _write_loadable(vds: xr.Dataset, loadable: dict, store) -> None:
+    """Write the loadable (non-virtual) variables of `vds` into the zarr `store`
+    with xarray's CF encoding, through the class of `vds` itself, so that vzip
+    never imports xarray.
+
+    The variables go into a new dataset of their own, without the coordinate
+    roles and attributes of `vds`: `split_virtual_dataset` writes those for
+    every variable afterwards."""
+    type(vds)(loadable).to_zarr(store, zarr_format=3, consolidated=False, mode="a")
+
+
 def split_virtual_dataset(
     vds: xr.Dataset,
 ) -> tuple[dict[str, bytes], dict[str, tuple[str, int, int]]]:
@@ -51,7 +66,7 @@ def split_virtual_dataset(
     virtual = {k: v for k, v in vds.variables.items() if isinstance(v.data, ManifestArray)}
     loadable = {k: v for k, v in vds.variables.items() if k not in virtual}
     if loadable:
-        xr.Dataset(loadable).to_zarr(mem, zarr_format=3, consolidated=False, mode="a")
+        _write_loadable(vds, loadable, mem)
     group = zarr.open_group(mem, mode="a", zarr_format=3)
 
     refs: dict[str, tuple[str, int, int]] = {}
@@ -131,15 +146,4 @@ def write_vzip(
         path, mirror_refs=mirror_refs, relative_to=relative_to, page_size=page_size)
 
 
-def read_vzip(path: str | Path, **kwargs) -> xr.Dataset:
-    """Open the vzip archive at `path` as a lazy xarray dataset: the same as
-    `xr.open_zarr(vzip.open(path, **kwargs), zarr_format=3)`.
-
-    Keyword arguments go to the store (`vzip.VZipStore`): `stats`, `policy`,
-    `registry`, `max_concurrency` and `resolve`. To pass arguments to xarray,
-    call `xr.open_zarr(vzip.open(path), ...)` yourself."""
-    from vzip.store import VZipStore
-
-    return xr.open_zarr(VZipStore(str(path), **kwargs), zarr_format=3)
-
-__all__ = ["consolidate", "read_at_open", "read_vzip", "split_virtual_dataset", "write_vzip"]
+__all__ = ["consolidate", "read_at_open", "split_virtual_dataset", "write_vzip"]

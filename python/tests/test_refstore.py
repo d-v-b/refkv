@@ -14,7 +14,7 @@ from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
 import vzip
-from vzip.convert import read_vzip, write_vzip
+from vzip.convert import write_vzip
 from vzip.errors import ResolutionError
 from vzip.pb import Concat, Range, Source
 
@@ -69,7 +69,7 @@ def test_store_reads_what_its_saved_archive_reads(netcdf_files, tmp_path):
                     xr.testing.assert_identical(xr.open_zarr(reopened).load(), exp.load())
 
 
-def test_write_vzip_and_read_vzip_are_the_store_in_one_step(netcdf_files, tmp_path, capsys):
+def test_write_vzip_is_the_store_in_one_step(netcdf_files, tmp_path, capsys):
     paths, expected = netcdf_files
     vds = xr.concat([virtualize(p) for p in paths], dim="time", coords="minimal",
                     compat="override")
@@ -79,7 +79,7 @@ def test_write_vzip_and_read_vzip_are_the_store_in_one_step(netcdf_files, tmp_pa
     assert summary == dataclasses.replace(other, path=str(tmp_path / "a.vzip"))
     assert (tmp_path / "a.vzip").read_bytes() == (tmp_path / "b.vzip").read_bytes()
     stats = vzip.Stats()
-    xr.testing.assert_identical(read_vzip(tmp_path / "a.vzip", stats=stats).load(),
+    xr.testing.assert_identical(xr.open_zarr(vzip.open(tmp_path / "a.vzip", stats=stats)).load(),
                                 expected.load())
     assert stats.archive_requests > 0 and stats.external_requests > 0
 
@@ -487,5 +487,5 @@ def test_public_api():
         "VZipStore", "VZipWriter", "open", "public_s3_url"}
     assert all(hasattr(vzip, name) for name in vzip.__all__)
     assert isinstance(vzip.open("x.vzip"), vzip.VZipStore)
-    from vzip.convert import read_vzip, write_vzip  # the older names still import
-    assert callable(read_vzip) and callable(write_vzip)
+    from vzip.convert import write_vzip  # the older name still imports
+    assert callable(write_vzip)

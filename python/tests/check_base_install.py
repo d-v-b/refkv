@@ -1,7 +1,8 @@
 """Check vzip's base install, without its extras: run with the Python of an
 environment where only `pip install .` was run (CI's base-install job).
 
-It builds a ReferenceStore from a mapping, saves it, reopens the archive with
+It checks that `import vzip` works without xarray, which vzip does not depend
+on, builds a ReferenceStore from a mapping, saves it, reopens the archive with
 vzip.open, and checks that each optional part names the extra it needs."""
 
 import asyncio
@@ -17,6 +18,7 @@ from vzip.pb import Range, Source
 
 for name in ["xarray", "virtualizarr", "imagecodecs", "pytest"]:
     assert importlib.util.find_spec(name) is None, f"{name} is installed: not a base install"
+assert "xarray" not in sys.modules, "importing vzip imported xarray"
 
 with tempfile.TemporaryDirectory() as d:
     os.chdir(d)
@@ -46,4 +48,5 @@ for extra, attempt in [
         print(f"ImportError naming vzip[{extra}]: {e}")
     else:
         sys.exit(f"expected an ImportError naming vzip[{extra}]")
-print("base install: ok")
+assert "xarray" not in sys.modules, "vzip imported xarray"
+print("base install: ok, without xarray")

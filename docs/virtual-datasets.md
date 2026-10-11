@@ -10,14 +10,17 @@ from the file it came from: no data is copied.
 
 <!-- This installs main, which has the virtualizarr extra once this page is merged; do not pin a branch. -->
 ```bash
-pip install "vzip[virtualizarr] @ git+https://github.com/d-v-b/vzip"
+pip install "vzip[virtualizarr] @ git+https://github.com/d-v-b/vzip" xarray h5py h5netcdf fsspec aiohttp
 ```
 
-The `virtualizarr` extra installs VirtualiZarr, xarray, h5py, h5netcdf,
-fsspec and aiohttp, and with them obstore, obspec_utils and pandas, which the
-example also imports. Without it, vzip reads and writes archives, and holds a
-`ReferenceStore` built from a mapping. (In a clone of this repository,
-`uv sync` installs every extra.)
+The `virtualizarr` extra installs VirtualiZarr, which
+`vzip.ReferenceStore.from_virtualizarr` needs, and with it xarray, obstore and
+obspec_utils. vzip itself does not import xarray. The rest are for the
+example: h5py for VirtualiZarr's HDF5 parser, and h5netcdf, fsspec and aiohttp
+for xarray to read a netCDF file over HTTPS and check the archive's values;
+xarray brings pandas. Without the extra, vzip reads and writes archives, and
+holds a `ReferenceStore` built from a mapping. (In a clone of this repository,
+`uv sync` installs all of these.)
 
 ## An example: five years of sea surface temperature
 

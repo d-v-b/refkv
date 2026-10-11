@@ -31,13 +31,13 @@ def make_netcdf(path, t0: int, nt: int = 4) -> xr.Dataset:
     return ds
 
 
-def virtualize(path) -> xr.Dataset:
+def virtualize(path, loadable_variables=("time", "lat", "lon")) -> xr.Dataset:
     registry = ObjectStoreRegistry({"file://": LocalStore()})
     return open_virtual_dataset(
         url=f"file://{path}",
         registry=registry,
         parser=HDFParser(),
-        loadable_variables=["time", "lat", "lon"],
+        loadable_variables=list(loadable_variables),
     )
 
 

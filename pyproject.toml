@@ -19,16 +19,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# ReferenceStore.from_virtualizarr and vzip.convert, and the netCDF workflow of
-# docs/virtual-datasets.md: VirtualiZarr's HDF5 parser (h5py), and xarray reading
-# netCDF files over HTTPS (h5netcdf, fsspec, aiohttp) to check the archive's values
+# ReferenceStore.from_virtualizarr, vzip.convert and vzip.shards. vzip does not
+# import xarray: it calls the methods of the datasets VirtualiZarr builds
 virtualizarr = [
-    "aiohttp>=3.14.3",
-    "fsspec>=2026.9.0",
-    "h5netcdf>=1.8.1",
-    "h5py>=3.16.0",
     "virtualizarr>=2.7.3",
-    "xarray>=2026.9.0",
 ]
 # the JPEG, JPEG 2000 and JPEG XR codecs of archives of virtualized image files
 images = [
@@ -45,10 +39,16 @@ build-backend = "uv_build"
 module-root = "python/src"
 
 [dependency-groups]
-# the tests, and the fixture generators and verifiers (fixtures/generators, js/test/*/verify.py)
+# the tests, and the fixture generators and verifiers (fixtures/generators, js/test/*/verify.py),
+# and what the example of docs/virtual-datasets.md imports besides vzip: xarray, VirtualiZarr's
+# HDF5 parser (h5py), and xarray reading netCDF files over HTTPS (h5netcdf, fsspec, aiohttp)
 dev = [
     "vzip[virtualizarr,images]",
+    "aiohttp>=3.14.3",
     "czifile>=2026.8.16",
+    "fsspec>=2026.9.0",
+    "h5netcdf>=1.8.1",
+    "h5py>=3.16.0",
     "jsonschema>=4.26.0",
     "nd2>=0.12.0",
     "nibabel>=5.4.2",
@@ -60,6 +60,7 @@ dev = [
     "pytest>=9.1.1",
     "rasterio>=1.5.2",
     "tifffile>=2026.9.20",
+    "xarray>=2026.9.0",
     "zarr-n5>=0.3.1",
 ]
 # the comparison with kerchunk and Icechunk (design/comparison, design/experiments)
