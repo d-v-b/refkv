@@ -53,7 +53,7 @@ base-install-check python="":
     fi
     "$py" python/tests/check_base_install.py
 
-# Run the example of docs/virtual-datasets.md on NOAA's data (network: about 2 minutes,
+# Run the example of docs/virtual-datasets.md on NOAA's data (network: 1 to 1.5 minutes,
 # 50 MB), in a temporary directory
 example-oisst:
     cd "$(mktemp -d)" && uv run --project "{{justfile_directory()}}" python "{{justfile_directory()}}/docs/examples/oisst.py"
