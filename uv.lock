@@ -2101,15 +2101,19 @@ dependencies = [
     { name = "google-crc32c" },
     { name = "numpy" },
     { name = "obstore" },
-    { name = "zarr" },
 ]
 
 [package.optional-dependencies]
 images = [
     { name = "imagecodecs" },
+    { name = "zarr" },
 ]
 virtualizarr = [
     { name = "virtualizarr" },
+    { name = "zarr" },
+]
+zarr = [
+    { name = "zarr" },
 ]
 
 [package.dev-dependencies]
@@ -2136,7 +2140,7 @@ dev = [
     { name = "pytest" },
     { name = "rasterio" },
     { name = "tifffile" },
-    { name = "vzip", extra = ["images", "virtualizarr"] },
+    { name = "vzip", extra = ["images", "virtualizarr", "zarr"] },
     { name = "xarray" },
     { name = "zarr-n5" },
 ]
@@ -2148,9 +2152,11 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.5.3" },
     { name = "obstore", specifier = ">=0.11.1" },
     { name = "virtualizarr", marker = "extra == 'virtualizarr'", specifier = ">=2.7.3" },
-    { name = "zarr", specifier = ">=3.4.0" },
+    { name = "vzip", extras = ["zarr"], marker = "extra == 'images'" },
+    { name = "vzip", extras = ["zarr"], marker = "extra == 'virtualizarr'" },
+    { name = "zarr", marker = "extra == 'zarr'", specifier = ">=3.4.0" },
 ]
-provides-extras = ["virtualizarr", "images"]
+provides-extras = ["zarr", "images", "virtualizarr"]
 
 [package.metadata.requires-dev]
 bench = [
@@ -2176,7 +2182,7 @@ dev = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "rasterio", specifier = ">=1.5.2" },
     { name = "tifffile", specifier = ">=2026.9.20" },
-    { name = "vzip", extras = ["virtualizarr", "images"] },
+    { name = "vzip", extras = ["zarr", "images", "virtualizarr"] },
     { name = "xarray", specifier = ">=2026.9.0" },
     { name = "zarr-n5", specifier = ">=0.3.1" },
 ]

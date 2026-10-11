@@ -39,19 +39,23 @@ test-all: test js::test impls::test
 # Type-check the browser code
 check: js::typecheck
 
-# Check the package without its extras: pass the Python of an environment where only
-# `pip install .` was run (default: a fresh one in a temporary directory)
-base-install-check python="":
+# Check the package without its extras, and with only the zarr extra: pass the Python of
+# an environment where only `pip install .` (or `pip install '.[zarr]'`, with mode=zarr)
+# was run (default: a fresh one of each in a temporary directory)
+base-install-check python="" mode="":
     #!/usr/bin/env bash
     set -euo pipefail
-    py="{{python}}"
-    if [ -z "$py" ]; then
-        venv="$(mktemp -d)/base"
-        uv venv -q "$venv"
-        uv pip install -q --python "$venv" .
-        py="$venv/bin/python"
+    if [ -n "{{python}}" ]; then
+        "{{python}}" python/tests/check_base_install.py {{mode}}
+        exit
     fi
-    "$py" python/tests/check_base_install.py
+    for mode in base zarr; do
+        venv="$(mktemp -d)/$mode"
+        uv venv -q "$venv"
+        if [ "$mode" = base ]; then spec=.; else spec=".[zarr]"; fi
+        uv pip install -q --python "$venv" "$spec"
+        "$venv/bin/python" python/tests/check_base_install.py "$mode"
+    done
 
 # Run the example of docs/virtual-datasets.md on NOAA's data (network: 1 to 1.5 minutes,
 # 50 MB), in a temporary directory
