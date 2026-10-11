@@ -1,6 +1,7 @@
 // The source metadata node of the browser IMS virtualizer on the files of the
-// review (spec/virtualize/ims.md §5); python/tests/test_virtualize_ims.py has the
-// same cases.
+// review (spec/virtualize/ims.md §5
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata>);
+// python/tests/test_virtualize_ims.py has the same cases.
 
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -9,7 +10,10 @@ import { virtualizeImage } from "../../src/virtualize/index.ts";
 
 const FIXTURES = new URL("../../../fixtures/ims/", import.meta.url);
 
-/** The paths of the object table (spec/virtualize/ims.md §5.7). */
+/**
+ * The paths of the object table (spec/virtualize/ims.md §5.7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#57-the-object-table>).
+ */
 function objects(docs: Map<string, Uint8Array>): string[] {
   const parents = new Int32Array(docs.get("vzip_source/objects/parent/c/0")!.slice().buffer);
   const names = family(docs, "objects/name").map((b) => new TextDecoder().decode(b));
@@ -18,7 +22,11 @@ function objects(docs: Map<string, Uint8Array>): string[] {
   return table;
 }
 
-/** The members of a family of byte values (conventions §7) copied under vzip_source. */
+/**
+ * The members of a family of byte values (conventions §7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>) copied
+ * under vzip_source.
+ */
 function family(docs: Map<string, Uint8Array>, path: string): Uint8Array[] {
   const doc = JSON.parse(new TextDecoder().decode(docs.get(`vzip_source/${path}/zarr.json`)!));
   if (doc.node_type === "array") return Array.from({ length: doc.shape[0] }, (_, i) => docs.get(`vzip_source/${path}/c/${i}/0`)!);
@@ -193,7 +201,9 @@ test("reads every chunk index", async () => {
 });
 
 test("walks a time-lapse whole", async () => {
-  // 57 objects of the image's tree and 8 others: within 100,000 + 5 per Data dataset (spec/virtualize/ims.md §5.1).
+  // 57 objects of the image's tree and 8 others: within 100,000 + 5 per Data dataset
+  // (spec/virtualize/ims.md §5.1
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#51-the-tree>).
   const docs = await documents("ims_latest_timelapse.ims");
   for (const [k, v] of docs) {
     if (!k.startsWith("vzip_source/hdf5") || !k.endsWith("zarr.json")) continue;

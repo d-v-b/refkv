@@ -7,7 +7,7 @@ from a listed store is the Zarr v2 profile,
 [Part 2](#part-2-the-profile) below. The
 [OME-Zarr convention](ome-zarr.md) builds on this one.
 
-Convention version: 0 (until release, conventions §1) · UUID: `8e792619-d671-4687-ab51-752885dd3ee6` ·
+Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `8e792619-d671-4687-ab51-752885dd3ee6` ·
 Schema: [schema.json](zarr2/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the Zarr v2
@@ -31,15 +31,15 @@ Zarr v3 hierarchy with a node at the path of every Zarr v2 node; each
 array's chunks are its chunk objects, referenced whole, under the same keys
 (the Zarr v3 `v2` chunk key encoding produces exactly the Zarr v2 keys).
 Each node's attributes, and the members of its documents that the Zarr v3
-metadata does not reproduce, are its source metadata (§4). Every other
-object of the store, but consolidated metadata, is kept whole (§5).
+metadata does not reproduce, are its source metadata ([§4](#4-source-metadata)). Every other
+object of the store, but consolidated metadata, is kept whole ([§5](#5-other-objects)).
 
 
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "zarr2"`, `"version": 0`, `"revision": 25` (conventions §1), the store's URL (ending in `/`)
-as `source.url`, and the root's source metadata (§4), if it has any, as
+with `"profile": "zarr2"`, `"version": 0`, `"revision": 25` ([conventions §1](../conventions.md#1-conventions)), the store's URL (ending in `/`)
+as `source.url`, and the root's source metadata ([§4](#4-source-metadata)), if it has any, as
 the member `"zarr2"`. Every other node that has source metadata declares it
 with `{"zarr2": S}`. Its CMO is:
 
@@ -73,18 +73,18 @@ is a node.
 A node's documents are read as JSON ([spec/virtualize.md §1.6](../virtualize.md#16-json-documents)):
 
 - `.zgroup` MUST be an object whose member `zarr_format` is the integer 2.
-  Its other members are kept in the group's source metadata (§4).
-- `.zarray`: §3.
+  Its other members are kept in the group's source metadata ([§4](#4-source-metadata)).
+- `.zarray`: [§3](#3-arrays).
 - `.zattrs`, if the node has one, MUST be an object: the node's
   **attributes**, `{}` if it has none. A `.zattrs` of a directory that is
-  not an array or an explicit group is not read: it is one of §5's other
+  not an array or an explicit group is not read: it is one of [§5](#5-other-objects)'s other
   objects.
 
 **Consolidated metadata.** A `.zmetadata` object (consolidated metadata) is
 never read: nodes come from the listing and documents from their own
 objects, so stale consolidated metadata cannot change the output. (Chunks
 must come from the listing anyway, since `.zmetadata` does not list them.)
-It is kept as an other object (§5), so that consolidated metadata that
+It is kept as an other object ([§5](#5-other-objects)), so that consolidated metadata that
 differs from the documents is not lost.
 
 The hierarchy has one `zarr.json` per node, at `<path>/zarr.json`
@@ -92,8 +92,8 @@ The hierarchy has one `zarr.json` per node, at `<path>/zarr.json`
 
 - a group, implicit or explicit:
   `{"zarr_format": 3, "node_type": "group", "attributes": A}`, where `A`
-  is the declaration of §1, or `{}` for a node without source metadata;
-- an array: §3.
+  is the declaration of [§1](#1-declaration), or `{}` for a node without source metadata;
+- an array: [§3](#3-arrays).
 
 ## 3. Arrays
 
@@ -107,14 +107,14 @@ rejected:
 - `dtype`: a string in the table below;
 - `order`: `"C"` or `"F"`;
 - `compressor`: `null` or absent (no compression), or an object whose
-  member `id` is a string (§3.1);
+  member `id` is a string ([§3.1](#31-compressors));
 - `filters`: `null`, absent, or an empty array. A nonempty array rejects the
   input (no filter is supported);
 - `fill_value`: see below; absent is the same as `null`;
 - `dimension_separator`: `"."`, `"/"`, `null` or absent (`"."`).
 
 Other members are not read here; they are kept in the array's source
-metadata (§4).
+metadata ([§4](#4-source-metadata)).
 
 **Data types.** `dtype` is a NumPy type string: a byte order character
 (`<` little-endian, `>` big-endian, `|` not applicable), a kind and a size
@@ -137,7 +137,7 @@ objects (`O`), void and structured types (`V`, or a list), date-times
 - `null`: `F` is `false` for `bool` and 0 for every other type. (Zarr v2's
   null means the value of a missing chunk is undefined; Zarr v3 needs a
   value, and 0 is what Zarr v2 readers return in practice.) The null itself
-  is kept in the source metadata (§4).
+  is kept in the source metadata ([§4](#4-source-metadata)).
 - `bool`: `true` or `false`, which `F` is. Any other value rejects.
 - integer types: an integer ([spec/virtualize.md §1.6](../virtualize.md#16-json-documents)) within the type's range; `F` is that
   integer. Any other value rejects, including an integer above 2^53 − 1
@@ -164,7 +164,7 @@ objects (`O`), void and structured types (`V`, or a list), date-times
 2. `{"name": "bytes"}` when `b = 1`, else
    `{"name": "bytes", "configuration": {"endian": e}}`, with `e` `"little"`
    for `<` and `"big"` for `>`;
-3. the compressor's codec (§3.1), if there is one.
+3. the compressor's codec ([§3.1](#31-compressors)), if there is one.
 
 **The array.** The array's `zarr.json` is the object
 
@@ -183,7 +183,7 @@ objects (`O`), void and structured types (`V`, or a list), date-times
 ```
 
 with no other members, where `s` is the dimension separator and `A` the
-declaration of §1, with the array's source metadata (§4), or `{}` if it
+declaration of [§1](#1-declaration), with the array's source metadata ([§4](#4-source-metadata)), or `{}` if it
 has none. (Zarr v2 has no dimension names; the
 xarray convention `_ARRAY_DIMENSIONS` stays an attribute.)
 
@@ -211,7 +211,7 @@ The compressor object's `id` selects the codec:
 - `x` is the `zstd` member `checksum`, which MUST be a boolean; `false`
   when it is absent.
 - The compressor's members that its codec does not carry (numcodecs writes
-  none, but another writer may) are kept in the source metadata (§4).
+  none, but another writer may) are kept in the source metadata ([§4](#4-source-metadata)).
 - `blosc` (numcodecs' Blosc): `c` is the member `cname`, one of `blosclz`,
   `lz4`, `lz4hc`, `snappy`, `zlib` and `zstd`; `l` the member `clevel`, an
   integer from 0 to 9; `k` the member `blocksize`, an integer from 0 to
@@ -233,11 +233,11 @@ joined by `s`, where each `ik` is the decimal form of an integer with `0 ≤ ik
 store's objects with these keys, whatever their size. A chunk is present
 when its chunk object is not empty: its bytes are the whole object, the
 chunk as Zarr v2 stored it. A chunk without an object reads as the fill
-value, as in Zarr v2. An empty chunk object is one of §5's empty objects:
+value, as in Zarr v2. An empty chunk object is one of [§5](#5-other-objects)'s empty objects:
 its chunk is absent too, and reads as the fill value, and its key is kept
 there. (Zarr v2 readers fail on an empty chunk object, which an interrupted
 write can leave behind, rather than read the fill value; the key records
-that the object was there.) Every other object under `D` is one of §5's
+that the object was there.) Every other object under `D` is one of [§5](#5-other-objects)'s
 other objects.
 
 
@@ -264,17 +264,17 @@ has none.
 - `M` holds the members of the node's `.zgroup` or `.zarray` that its
   `zarr.json` does not reproduce:
   - for an explicit group, every member of `.zgroup` but `zarr_format`;
-  - for an array, every member of `.zarray` that §3 does not read (any
+  - for an array, every member of `.zarray` that [§3](#3-arrays) does not read (any
     member but `zarr_format`, `shape`, `chunks`, `dtype`, `order`,
     `compressor`, `filters`, `fill_value` and `dimension_separator`), as
     written; the member `"fill_value": null` when `fill_value` is `null`
-    or absent (§3 gives `F` = 0 or `false`, which is not Zarr v2's
+    or absent ([§3](#3-arrays) gives `F` = 0 or `false`, which is not Zarr v2's
     "undefined"); the member `fill_value`, as written, when the array's
     type is a float type and `fill_value` is an integer literal (no
     fraction, no exponent) beyond ±(2^53 − 1) (`F` is its binary64 value,
     which may differ from it, and is not written as an integer); and the member `"compressor"` when the compressor has
-    members that its codec does not carry (§3.1), whose value is the object
-    of those members, and blosc's `shuffle` when it is −1 (which §3.1
+    members that its codec does not carry ([§3.1](#31-compressors)), whose value is the object
+    of those members, and blosc's `shuffle` when it is −1 (which [§3.1](#31-compressors)
     resolves to a shuffle).
 
 What `S` leaves out, the Zarr v3 metadata holds: `zarr_format`, `shape`,
@@ -290,7 +290,7 @@ was `null`, whether `fill_value` was `null` or absent, whether zstd's
 absent, and the documents' formatting (whitespace, member order, and how a
 number that is not an integer is spelled). So a node's documents are
 recovered from its `zarr.json`: `.zattrs` is `A`, and `.zgroup` or
-`.zarray` is the document that §2 and §3 read back from the Zarr v3
+`.zarray` is the document that [§2](#2-nodes) and [§3](#3-arrays) read back from the Zarr v3
 metadata, with the members of `M` set over it (those of `M.compressor`
 over the compressor object).
 
@@ -299,7 +299,7 @@ reads them, except that a number written as an integer (a JSON number
 with no fraction and no exponent) is kept exactly, every digit, beyond
 2^53 − 1 too, and is written back so. Any other number is its binary64
 value, and a number whose binary64 value is infinite still rejects the
-input. Where §3 uses a number (a size, a fill value, a level), it uses its
+input. Where [§3](#3-arrays) uses a number (a size, a fill value, a level), it uses its
 binary64 value.
 
 ## 5. Other objects
@@ -308,9 +308,9 @@ An **other object** is an object of the store
 ([spec/virtualize.md §1.4](../virtualize.md#14-store-inputs)) whose size is not
 0 and which is none of these:
 
-- a document that §2 reads: the `.zgroup` of an explicit group, the
+- a document that [§2](#2-nodes) reads: the `.zgroup` of an explicit group, the
   `.zarray` of an array, and the `.zattrs` of either;
-- a chunk object of an array (§3.2), whatever its size.
+- a chunk object of an array ([§3.2](#32-chunks)), whatever its size.
 
 Among them are READMEs and other files a writer put next to the data,
 OME-XML outside the place that [the OME-Zarr convention
@@ -319,7 +319,7 @@ directory that is not a node, documents nested under an array (the
 `.zgroup` or `.zarray` of a candidate inside an array), and the objects
 under an array that are not chunk keys. Each is kept whole: the hierarchy has the key `vzip_source/objects/<k>`, where `k` is the
 object's key, escaped, and its bytes are the object's. (An empty object
-holds nothing, and has no key; §5 lists its key under "Empty objects".)
+holds nothing, and has no key; [§5](#5-other-objects) lists its key under "Empty objects".)
 
 **Escaping.** A last segment that a Zarr reader would take for a node's
 document must not end a key under `vzip_source/objects/`: when the last
@@ -333,7 +333,7 @@ object's key with one `~` removed, and every other key is the object's.
 No Zarr v3 or Zarr v2 reader then opens a node under `vzip_source/objects/`.
 
 **Empty objects.** The **empty objects** are the store's objects of size
-0, the empty chunk objects (§3.2) among them. The **ignored keys** are the
+0, the empty chunk objects ([§3.2](#32-chunks)) among them. The **ignored keys** are the
 relative keys of the listed objects that
 [spec/virtualize.md §1.4](../virtualize.md#14-store-inputs) ignores and
 records. Let `K` be the empty objects' keys and `I` the ignored keys, each
@@ -350,10 +350,10 @@ the root (the source metadata node of
 [conventions §2](../conventions.md#2-attributes)), whose `zarr.json` is
 `{"zarr_format": 3, "node_type": "group", "attributes": A}`: `A` is `{}`
 when `E` is empty, and otherwise declares the convention, as any other node
-does (§1), with the source metadata `E`. (So the keys of many empty objects
+does ([§1](#1-declaration)), with the source metadata `E`. (So the keys of many empty objects
 stay off the root, whose metadata every reader opens.) The directories between it and the
 objects are not nodes and have no `zarr.json`. A hierarchy that then has a
-node (§2) at the path `vzip_source`, or below it, is rejected, since its
+node ([§2](#2-nodes)) at the path `vzip_source`, or below it, is rejected, since its
 keys would mix with these. When the root is an array, which can have no
 children, there is no `vzip_source` group: the objects' keys, and
 `vzip_source/empty.json`, are plain keys of the archive, which Zarr
@@ -454,8 +454,8 @@ and whose `.zattrs` is `{"_ARRAY_DIMENSIONS": ["x"]}`:
 # Part 2. The profile
 
 The Zarr v2 profile of [spec/virtualize.md](../virtualize.md) (revision 16),
-numbered as its §10. §1 is in spec/virtualize.md and applies here, in particular
-the store input rules of §1.4–§1.6, and so does §2.
+numbered as its [§10](#10-zarr-v2-profile). [§1](../virtualize.md#1-introduction) is in spec/virtualize.md and applies here, in particular
+the store input rules of [§1.4](../virtualize.md#14-store-inputs)–[§1.6](../virtualize.md#16-json-documents), and so does [§2](../virtualize.md#2-the-zarr-layout).
 
 The output has the convention's layout for the input
 ([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
@@ -465,11 +465,11 @@ references the store. "The convention §n" below is a section of Part 1.
 ## 10. Zarr v2 profile
 
 The profile was chosen because the store's root has a `.zarray` or a
-`.zgroup` and the store does not declare OME-NGFF 0.4 (§1.4); a store that
-does is read by the OME-Zarr profile (§11, [ome-zarr.md](ome-zarr.md#part-2-the-profile)),
-which builds on this one. The store is listed (§1.5), and the documents
+`.zgroup` and the store does not declare OME-NGFF 0.4 ([§1.4](../virtualize.md#14-store-inputs)); a store that
+does is read by the OME-Zarr profile ([§11](ome-zarr.md#11-ome-zarr-profile), [ome-zarr.md](ome-zarr.md#part-2-the-profile)),
+which builds on this one. The store is listed ([§1.5](../virtualize.md#15-listing-a-store)), and the documents
 that [the convention §2](#2-nodes) reads are
-read as JSON (§1.6).
+read as JSON ([§1.6](../virtualize.md#16-json-documents)).
 
 **Consolidated metadata.** A `.zmetadata` object (consolidated metadata) is
 never read: nodes come from the listing and documents from their own
@@ -478,12 +478,12 @@ must come from the listing anyway, since `.zmetadata` does not list them.)
 
 **Numbers.** The documents' integer literals are kept exactly where the
 convention copies them ([its §4](#4-source-metadata)),
-beyond 2^53 − 1 too, in place of §1.6's last paragraph; every number the
-convention uses is its binary64 value, as §1.6 says.
+beyond 2^53 − 1 too, in place of [§1.6](../virtualize.md#16-json-documents)'s last paragraph; every number the
+convention uses is its binary64 value, as [§1.6](../virtualize.md#16-json-documents) says.
 
 ### 10.1 Rejection
 
-The input is rejected when a rule of §1.4–§1.6 fails, and when the
+The input is rejected when a rule of [§1.4](../virtualize.md#14-store-inputs)–[§1.6](../virtualize.md#16-json-documents) fails, and when the
 convention gives it no layout: wherever it says that the input is
 rejected, or that something MUST hold and it does not.
 
@@ -492,18 +492,18 @@ rejected, or that something MUST hold and it does not.
 Every chunk that the convention says is present
 ([the convention §3.2](#32-chunks)) is an
 entry under its own key, referencing the whole chunk object through its own
-`url` source (§1.4). A chunk object of size 0 has no entry: its key is
-one of the convention §5's empty objects' keys.
+`url` source ([§1.4](../virtualize.md#14-store-inputs)). A chunk object of size 0 has no entry: its key is
+one of [the convention §5](#5-other-objects)'s empty objects' keys.
 
 Every other object of [the convention §5](#5-other-objects)
 is referenced whole in the same way, by an entry under the key
-`vzip_source/objects/<k>` (with a `~` appended when the convention §5
+`vzip_source/objects/<k>` (with a `~` appended when [the convention §5](#5-other-objects)
 escapes `k`'s last segment) whose `url` source is the URL of the object `k`
-(§1.4). (This is the one place where an entry's key is not its object's
-key; §1.4's rules otherwise apply: the sources are in ascending order of
+([§1.4](../virtualize.md#14-store-inputs)). (This is the one place where an entry's key is not its object's
+key; [§1.4](../virtualize.md#14-store-inputs)'s rules otherwise apply: the sources are in ascending order of
 their entries' keys, each entry referencing its object's whole range.)
 Under a root array, the empty objects' keys and the ignored keys are the
-document `vzip_source/empty.json` (the convention §5), written as UTF-8
+document `vzip_source/empty.json` ([the convention §5](#5-other-objects)), written as UTF-8
 compact JSON, as `JSON.stringify` writes it. The documents under
 `vzip_source/` (which hold these keys) are deflated and, like the chunks, not
 among the documents a reader fetches when it opens the archive

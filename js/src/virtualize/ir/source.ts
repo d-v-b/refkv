@@ -1,7 +1,9 @@
 // The range sources a run reads (the I/O of the read planner, design/ARCHITECTURE.md
-// §3.5): bytes the caller can read itself (`readerSource`), and an http(s)
-// object read under the reader policy of spec/archive.md §8.7 (`openHttpSource`), the
-// twin of `HttpTransport` in python/src/vzip/ir/planner.py.
+// §3.5 <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#35-resources-and-io>): bytes
+// the caller can read itself (`readerSource`), and an http(s)
+// object read under the reader policy of spec/archive.md §8.7
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> (`openHttpSource`),
+// the twin of `HttpTransport` in python/src/vzip/ir/planner.py.
 
 import { checkAddress, checkPolicy, type Policy, VzipError } from "../../archive.ts";
 import { EtagLog, HttpResolutionError } from "../../http.ts";
@@ -59,7 +61,11 @@ export function bytesSource(bytes: Uint8Array): RangeSource {
 }
 
 export interface HttpSourceOptions {
-  /** The reader policy (spec/archive.md §8.7); private and special hosts are refused without `allowPrivateHosts`. */
+  /**
+   * The reader policy (spec/archive.md §8.7
+   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>); private and
+   * special hosts are refused without `allowPrivateHosts`.
+   */
   policy?: Policy;
   /** Requests in flight at once (default 6). */
   concurrency?: number;
@@ -93,7 +99,10 @@ class Transient extends Error {
 
 const isNode = typeof process !== "undefined" && process.versions?.node !== undefined;
 
-/** An http(s) object, read under the reader policy (spec/archive.md §8.7). */
+/**
+ * An http(s) object, read under the reader policy (spec/archive.md §8.7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>).
+ */
 export class HttpSource implements RangeSource {
   readonly remote = true;
   readonly concurrency: number;
@@ -357,7 +366,7 @@ export function openHttpSource(url: string, options: HttpSourceOptions = {}): Pr
   }
   if (!/^https?:/i.test(url)) return Promise.reject(new VzipError("resolution", `${url}: not an http(s) URL`));
   try {
-    checkPolicy(options.policy ?? {}, url, url); // spec/archive.md §8.7, before any request
+    checkPolicy(options.policy ?? {}, url, url); // spec/archive.md §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>, before any request
   } catch (e) {
     return Promise.reject(e);
   }

@@ -15,11 +15,11 @@ of the items below is settled by the fixtures, unless noted.
 
 ## A. Substantive: two careful implementers could differ
 
-### A1. §3.1: lazy or eager value reading ("a used tag", "a read outside the file")
+### A1. [§3.1](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#31-reading): lazy or eager value reading ("a used tag", "a read outside the file")
 
 > A used tag with an unknown field type rejects the input.
 
-> (§1.2) That includes every input that is not well formed …: a read outside the file …
+> ([§1.2](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#12-input)) That includes every input that is not well formed …: a read outside the file …
 
 It is not said **which tags of which IFDs are "used"**, or whether a tag's
 out-of-line value has to be read (and so lie inside the file) when nothing
@@ -29,22 +29,22 @@ needs it. Examples where outputs differ:
   TileOffsets value offset past the end of the file.
 - IFD 0 has a `Software` tag (305, not in the table) whose value points
   outside the file.
-- A non-tiled IFD being scanned for SVS levels (§3.4) has ImageWidth stored as
+- A non-tiled IFD being scanned for SVS levels ([§3.4](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#34-pyramid-levels)) has ImageWidth stored as
   type 99: is it "used"?
 
 **Chosen:** tags are read lazily, only when the algorithm needs their value.
-Tags not in the table are never read. In the §3.4 scan I read, in order:
+Tags not in the table are never read. In the [§3.4](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#34-pyramid-levels) scan I read, in order:
 TileWidth and TileOffsets **presence** (not values), then BitsPerSample,
 SampleFormat, SamplesPerPixel, PlanarConfiguration, Compression and Predictor,
 then ImageWidth and ImageLength. A bad type or out-of-file value on a tag read
 before the IFD is skipped rejects; on a tag read later it doesn't. SubIFDs (330)
-is read in **every** main-chain IFD, because §3.1 reads every main-chain IFD's
+is read in **every** main-chain IFD, because [§3.1](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#31-reading) reads every main-chain IFD's
 SubIFDs. **Suggest:** list exactly which (IFD, tag) pairs are read, in which
 order, or say "every tag in the table, in every IFD that is read, MUST have a
 known field type, and its value MUST lie in the file". (The second is simpler
 and makes the result independent of evaluation order.)
 
-### A2. §3.1: which field types count as integers; count-0 values
+### A2. [§3.1](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#31-reading): which field types count as integers; count-0 values
 
 The table lists integer tags but does not say which field types they may have.
 
@@ -63,7 +63,7 @@ The table lists integer tags but does not say which field types they may have.
   ImageWidth with 2 values), I use the first value. The spec says counts are
   not checked only for BitsPerSample and SampleFormat.
 
-### A3. §3.1/§3.4: a SubIFD offset shared between IFDs, or equal to a main IFD
+### A3. [§3.1](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#31-reading)/[§3.4](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#34-pyramid-levels): a SubIFD offset shared between IFDs, or equal to a main IFD
 
 > reading the same offset twice (anywhere) is a cycle
 
@@ -75,7 +75,7 @@ real files that share a thumbnail SubIFD. Please confirm it is intended.
 SubIFD offset 0 is read as an IFD at offset 0 (it usually rejects as garbage).
 The spec doesn't say whether 0 means "no SubIFD" here.
 
-### A4. §3.1/§3.4: IFD 0's format when IFD 0 is not a plane
+### A4. [§3.1](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#31-reading)/[§3.4](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#34-pyramid-levels): IFD 0's format when IFD 0 is not a plane
 
 > "Required" applies to the IFDs that become planes or levels
 
@@ -85,10 +85,10 @@ With OME-XML, IFD 0 need not be a plane (TiffData `IFD="1"` …). IFD 0's format
 (and `spp`) is still needed. **Chosen:** IFD 0's format is always computed
 strictly (missing BitsPerSample or unequal BitsPerSample/SampleFormat values
 in IFD 0 rejects), even when IFD 0 is not a plane. Its width, length and tile
-tags are not required unless it is a plane (or the §3.4 scan needs its
+tags are not required unless it is a plane (or the [§3.4](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#34-pyramid-levels) scan needs its
 width/length as the first "last level"). **Suggest:** say so.
 
-### A5. §3.4: SVS-scan candidates that are malformed
+### A5. [§3.4](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#34-pyramid-levels): SVS-scan candidates that are malformed
 
 The scan takes an IFD as the next level if it "is tiled, has BitsPerSample,
 has IFD 0's format, and is strictly smaller". It does not say what happens
@@ -109,7 +109,7 @@ when a candidate:
 **Suggest:** "a candidate whose format cannot be determined is skipped", and
 say whether tag-level MUSTs (PlanarConfiguration) apply to candidates.
 
-### A6. §3.2: the UUID "text"
+### A6. [§3.2](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#32-ome-xml): the UUID "text"
 
 > the `UUID` start tag … with its `FileName` attribute and its text.
 
@@ -133,7 +133,7 @@ defined:
   with no FileName and text `""`. I keep FileName and text in separate
   namespaces, so `FileName="x"` and text `x` (no FileName) are two files.
 
-### A7. §3.2: what is "whitespace", what is "decimal digits", how large
+### A7. [§3.2](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#32-ome-xml): what is "whitespace", what is "decimal digits", how large
 
 > Integer attributes … MUST be decimal digits, optionally surrounded by whitespace
 
@@ -142,7 +142,7 @@ rejects. Leading zeros are accepted (`"007"` = 7). Values that do not fit in a
 u64 reject. Another implementer could use Python `str.strip()` (Unicode) or
 `int()` (which accepts `_` and non-ASCII digits).
 
-### A8. §3.3: plane count bounds and resource limits
+### A8. [§3.3](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#33-planes): plane count bounds and resource limits
 
 `SizeZ × Cp × SizeT` can be astronomically large (`SizeZ="1000000000000"`).
 The spec says the input is rejected only when a plane ends up unmapped, which
@@ -153,7 +153,7 @@ existing IFDs), so I reject early. That is a valid shortcut, not a different
 rule. Other implementers may run out of memory instead. **Suggest:** a
 normative plane-count limit (like the 100000-IFD limit).
 
-### A9. §3.3: a plane mapped to a missing IFD and then remapped
+### A9. [§3.3](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#33-planes): a plane mapped to a missing IFD and then remapped
 
 > Every plane MUST be mapped to an existing main-chain IFD … A plane mapped twice takes the later mapping.
 
@@ -163,7 +163,7 @@ planes. An implementer who checks each mapping as it is made would reject.
 (This also covers a TiffData whose `IFD` attribute is beyond the chain but
 whose planes are all overridden.)
 
-### A10. §3.2: OME detection, and self-closing `Pixels`
+### A10. [§3.2](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#32-ome-xml): OME detection, and self-closing `Pixels`
 
 - "its text contains a start tag whose name … is `OME`". **Chosen:** detected
   with the same tag scanner, so `<OME>` inside a comment, CDATA or processing
@@ -186,7 +186,7 @@ whose planes are all overridden.)
   malformed input is inherently implementation-specific. Only well-formed
   input can be expected to agree.
 
-### A11. §3.5/§3.6: zero sizes
+### A11. [§3.5](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#35-data-types-and-codecs)/[§3.6](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#36-output): zero sizes
 
 Nothing forbids `ImageWidth = 0`, `TileWidth = 0` or `SamplesPerPixel = 0`.
 
@@ -194,11 +194,11 @@ Nothing forbids `ImageWidth = 0`, `TileWidth = 0` or `SamplesPerPixel = 0`.
 - SamplesPerPixel 0: **Chosen:** reject (no sensible `SizeC` default or `Cp`).
 - ImageWidth/Length 0 at level 0: **Chosen:** accepted literally (shape 0, no
   tiles, `T` = 0 so TileOffsets must have 0 values). At a level ≥ 1 it gives
-  an infinite scale and rejects by §1.3.
+  an infinite scale and rejects by [§1.3](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#13-arithmetic).
 
 **Suggest:** require all of these to be ≥ 1.
 
-### A12. §4.2: the compressed record's name
+### A12. [§4.2](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#42-lite-variant): the compressed record's name
 
 > type 76: the type byte and a name-length byte, 10 bytes to skip, then a zlib stream
 
@@ -212,7 +212,7 @@ Also: the inflated structure "MUST NOT itself be compressed". I reject when the
 inflated data starts with type byte 76. A 76 later in it rejects anyway as an
 unknown type. Empty inflated data is accepted as an empty object.
 
-### A13. §4.2: numeric types used as integers
+### A13. [§4.2](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#42-lite-variant): numeric types used as integers
 
 > A member used as a number MUST have type 2–6
 
@@ -227,7 +227,7 @@ as i32), or reject every type-6 integer. **Suggest:** say which members are
 integers and how to treat negative/float values. `uiColor` as i32 −1 is the
 most likely real-world case.
 
-### A14. §4.2: byte-array elements as flags/numbers
+### A14. [§4.2](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#42-lite-variant): byte-array elements as flags/numbers
 
 > A byte array is a list of its bytes. … as a flag type 1–5
 
@@ -236,7 +236,7 @@ are bytes, which have no LV type. **Chosen:** a byte-array element is accepted
 both as a flag (nonzero = true) and as a number. **Suggest:** say "a byte counts
 as type 3 (u32)" or similar.
 
-### A15. §4.2: paths through non-levels, and `a<i>` on lists
+### A15. [§4.2](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#42-lite-variant): paths through non-levels, and `a<i>` on lists
 
 - `uLoopPars/uiCount` where `uLoopPars` is, say, an i32. **Chosen:** reject
   ("wrong type"). Treating it as "missing" (and taking the default) is
@@ -249,7 +249,7 @@ as type 3 (u32)" or similar.
 - "The members of" a scalar (for example `ppNextLevelEx` is an i32):
   **Chosen:** reject. A child that is not a level: reject.
 
-### A16. §4.3: `pItemValid` location
+### A16. [§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#43-metadata): `pItemValid` location
 
 > The `i`-th member of `pPeriod` (`Points`) is **valid** if `uLoopPars/pPeriodValid` (the node's `pItemValid`) is absent …
 
@@ -260,18 +260,18 @@ the result differs between readings (3 vs 4 positions in
 `nd2_compressed_positions`). **Suggest:** write the path out:
 "`pItemValid` (a member of the node itself, not of `uLoopPars`)".
 
-### A17. §4.3: missing `uiCount` in a `pPeriod` member; first *valid* member
+### A17. [§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#43-metadata): missing `uiCount` in a `pPeriod` member; first *valid* member
 
 > eType 8: the sum of `uiCount` over the members `p` of `uLoopPars/pPeriod` … that are valid
 
-No default is given for `p/uiCount`, so by §4.2 a valid member without it
+No default is given for `p/uiCount`, so by [§4.2](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#42-lite-variant) a valid member without it
 rejects. **Chosen:** literal (reject). Invalid members' `uiCount` is not read
 (no rejection). A `pPeriod` member that is not a level: reject. "period: the
 first valid member's `dPeriod` (default 0)": the default applies when that
 member lacks `dPeriod`, not when there is no valid member (then the period is 0
 too, so the outputs agree).
 
-### A18. §4.3: spectral count "else"
+### A18. [§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#43-metadata): spectral count "else"
 
 > `uLoopPars/uiCount`, else `uLoopPars/pPlanes/uiCount`, else 0
 
@@ -280,7 +280,7 @@ children) even when `pPlanes/uiCount` is 2. Reading "else" as "if absent or 0"
 gives a different loop list. (`nd2_edge_spectral`'s second spectral node has
 `uiCount = 0` and no `pPlanes`, so both readings agree there.)
 
-### A19. §4.3 rule 4: comparing only with the *last* loop
+### A19. [§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#43-metadata) rule 4: comparing only with the *last* loop
 
 > If the last loop has the same depth and type (`eType`), and its count is less than the node's count, the node's loop replaces it. Otherwise the node's loop is dropped.
 
@@ -297,7 +297,7 @@ and 8 at the same depth do not merge under rule 4 (rule 4 compares `eType`).
 At the same depth, the later one is dropped (it is not deeper and not the same
 type). Please confirm.
 
-### A20. §4.3: `SLxExperiment` / `SLxPictureMetadata` absent from a present chunk
+### A20. [§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#43-metadata): `SLxExperiment` / `SLxPictureMetadata` absent from a present chunk
 
 > **Experiment** (chunk `ImageMetadataLV!`, member `SLxExperiment`; if the chunk is absent there are no loops)
 
@@ -307,7 +307,7 @@ type). Please confirm.
 without a default). Chunk present, `SLxPictureMetadata` missing → treated as
 absent (the whole thing is "optional"). Either could go the other way.
 
-### A21. §4.3/§4.5: what is read lazily in picture metadata
+### A21. [§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#43-metadata)/[§4.5](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#45-channels): what is read lazily in picture metadata
 
 If the plane check fails (a plane missing, a compCount not 1/3, or a sum
 ≠ `uiComp`), channels fall back to `C<k>`. **Chosen:** `uiCompCount` of every
@@ -316,7 +316,7 @@ when the plane labels are used, so a bad `uiColor` type is ignored on fallback.
 `sDescription` of a non-string type: reject. Same issue as A1: say whether
 every listed member is validated.
 
-### A22. §4.4: frame chunk names
+### A22. [§4.4](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#44-frames): frame chunk names
 
 > Frame `f` is the chunk named `ImageDataSeq|<f>!` (decimal)
 
@@ -324,7 +324,7 @@ every listed member is validated.
 `ImageDataSeq|01!` is not frame 1 and is ignored. Values ≥ 2^64 are ignored.
 `N` is computed without overflow (u128, saturating).
 
-### A23. §4.4: uncompressed frames other than the lowest/highest
+### A23. [§4.4](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#44-frames): uncompressed frames other than the lowest/highest
 
 Only the lowest- and highest-numbered present frames' headers are read. The
 others' map offsets are used with the first frame's name length, unchecked
@@ -333,7 +333,7 @@ literal, but it means a corrupt map entry for a middle frame yields a bogus
 reference instead of a rejection. Fine if intended, but it should be said
 outright that middle frames are not validated.
 
-### A24. §4.1: "after removing NUL padding" and map details
+### A24. [§4.1](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#41-chunks): "after removing NUL padding" and map details
 
 - Chunk-map chunk name: **Chosen:** strip *trailing* NULs and compare. (A name
   like `ND2 FILEMAP SIGNATURE NAME 0001!\0junk` fails. Truncating at the first
@@ -342,12 +342,12 @@ outright that middle frames are not validated.
   the map data: ignored.
 - A map record whose 16 offset/size bytes are truncated: reject.
 - Map record offsets are checked (≤ 2^53−1, magic) only when the chunk is
-  used. §1.2's "an offset … above 2^53 − 1" rejects could be read as covering
+  used. [§1.2](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#12-input)'s "an offset … above 2^53 − 1" rejects could be read as covering
   every offset in the map.
 - Signature: the order of checks (file ≥ 40 bytes vs signature) does not
   matter, since both reject.
 
-### A25. §1.3/§4.6: NaN/inf read from the file (not computed)
+### A25. [§1.3](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#13-arithmetic)/[§4.6](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#46-output): NaN/inf read from the file (not computed)
 
 > A number that would be infinite or NaN rejects the input.
 
@@ -365,51 +365,51 @@ binary64 member rejects the input", or "counts as absent".
 
 ## B. Clarity: probably agreed, but worth a sentence
 
-- **§1.3 / HARNESS "integers are written as integers".** Scales that happen to
+- **[§1.3](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#13-arithmetic) / HARNESS "integers are written as integers".** Scales that happen to
   be integral (1, 2, 300) are computed numbers. I write them as `1.0`, `300.0`
   (Rust shortest round-trip), and integers (shape, chunk shape, fill value,
   window, `bioformats2raw.layout`, transpose order, `level`) as integers.
-  Under §1.1 they compare equal anyway. Say whether scales must be written
+  Under [§1.1](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#11-output-and-equivalence) they compare equal anyway. Say whether scales must be written
   `1` or may be `1.0`.
-- **§3.1 IFD reading order and the limit.** The main chain is read fully
+- **[§3.1](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#31-reading) IFD reading order and the limit.** The main chain is read fully
   first, then SubIFDs in main-chain order. The 100000 limit counts SubIFDs
   too. Clear enough.
-- **§3.2 ImageDescription value out of file.** The tag is "used" and read, so
+- **[§3.2](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#32-ome-xml) ImageDescription value out of file.** The tag is "used" and read, so
   this rejects (even when it would not be OME). A non-ASCII type (for example
   UNDEFINED in `edge_ome_undefined_type`) still has its value read, so an
   unknown *type* on IFD 0's ImageDescription rejects.
-- **§3.2 PhysicalSize regex and conversion.** Correct rounding from the
+- **[§3.2](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#32-ome-xml) PhysicalSize regex and conversion.** Correct rounding from the
   matched string. `PhysicalSizeX="1,5"` → absent (fixture). A unit attribute
   given with an absent size → no unit. Units are matched exactly (no trimming,
   case-sensitive).
-- **§3.3 PlaneCount default.** "defaults to the plane count when it is the
+- **[§3.3](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#33-planes) PlaneCount default.** "defaults to the plane count when it is the
   only `TiffData` and has no `IFD` attribute": `First*` attributes don't
   matter. With `FirstZ = 1` the stepping just stops at the last position.
-- **§3.6 Units/axes interplay.** The z unit is only emitted when the z axis
+- **[§3.6](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#36-output) Units/axes interplay.** The z unit is only emitted when the z axis
   exists (SizeZ > 1). The unit is dropped silently if `PhysicalSizeZ` is
   present but SizeZ = 1. Fine, but worth an example.
-- **§3.6 Chunks, planar data with `c` absent.** Impossible (spp > 1 implies a
+- **[§3.6](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#36-output) Chunks, planar data with `c` absent.** Impossible (spp > 1 implies a
   c axis), but a sentence would help readers.
-- **§4.2 top level.** The chunk's top-level record sequence is treated as an
+- **[§4.2](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#42-lite-variant) top level.** The chunk's top-level record sequence is treated as an
   object/list by the same rule as a level (so a top level whose records all
   have empty names is a list and has no `SLxImageAttributes`). Say so.
-- **§4.2 level `8c` skip running past the data.** Rejects (truncation).
-- **§4.2 type 8 strings without a terminating NUL before the data end.**
+- **[§4.2](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#42-lite-variant) level `8c` skip running past the data.** Rejects (truncation).
+- **[§4.2](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#42-lite-variant) type 8 strings without a terminating NUL before the data end.**
   Reject (truncated).
-- **§4.2 record names.** The name is the units up to the first NUL, *decoded
+- **[§4.2](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#42-lite-variant) record names.** The name is the units up to the first NUL, *decoded
   how*? I decode with replacement of unpaired surrogates (same as type 8).
   This matters only for matching names, which are ASCII in practice.
-- **§4.3 `bCalibrated` absent.** Treated as false (no default given; a missing
+- **[§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#43-metadata) `bCalibrated` absent.** Treated as false (no default given; a missing
   member without a default would *reject*, which is surely not intended). Same
   for `dCalibration` absent ("present and positive" already handles it).
   Please give `bCalibrated` an explicit default.
-- **§4.3 the 'step' when count ≤ 1.** `abs(dZStep)` only, so a single-plane z
+- **[§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#43-metadata) the 'step' when count ≤ 1.** `abs(dZStep)` only, so a single-plane z
   loop with dZStep 0 has no unit.
-- **§4.5 uiColor high byte.** `AA` is ignored.
-- **§4.6 omero window.** `b` up to `uiBpcInMemory` ≤ 16 for integer types, so
-  `V` fits easily. Note that `uiBpcSignificant` is *required* (§4.3) even though
+- **[§4.5](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#45-channels) uiColor high byte.** `AA` is ignored.
+- **[§4.6](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#46-output) omero window.** `b` up to `uiBpcInMemory` ≤ 16 for integer types, so
+  `V` fits easily. Note that `uiBpcSignificant` is *required* ([§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#43-metadata)) even though
   only the window uses it, and it is unused for float32.
-- **§5.** The conformance section names files implementers are told not to
+- **[§5](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#5-conformance).** The conformance section names files implementers are told not to
   read. Not a problem for the spec, but implementers can't check them.
 
 ---
@@ -425,7 +425,7 @@ binary64 member rejects the input", or "counts as absent".
    damaged files I can see.
 4. **A13 (`uiColor` as signed i32).** If writers store `uiColor` as type 2,
    colors with the high bit set (`AA` ≥ 0x80) reject under my reading.
-5. **The 65519-byte payload limit** (§1.2) rejects ND2 files with padded rows
+5. **The 65519-byte payload limit** ([§1.2](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#12-input)) rejects ND2 files with padded rows
    and more than ~7000 rows (each row is a separate range of about 9 bytes).
    That is by design, but large padded images are plausible in practice
    (`nd2_reject_payload` exercises it).
@@ -436,5 +436,5 @@ binary64 member rejects the input", or "counts as absent".
   but `206` as a failure (not a rejection), with retries on network errors
   and 5xx.
 - Exit status for failures: HARNESS says only "any other status". I use 2.
-- Whether a virtualizer must validate `U` (§1.2 "MUST be a valid absolute
+- Whether a virtualizer must validate `U` ([§1.2](../../../../spec/history/virtualize/VIRTUALIZE.r2.md#12-input) "MUST be a valid absolute
   URI"). I don't. Rejecting would be a third outcome that isn't listed.

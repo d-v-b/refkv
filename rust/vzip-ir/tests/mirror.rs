@@ -44,7 +44,8 @@ fn the_table_is_the_canonical_ir_rebuilds_the_source_and_is_a_fixed_point() {
         let back = load(&t, &mut read).unwrap_or_else(|e| panic!("{p:?}: {e}"));
         assert_eq!(ordered(&back), ordered(&ir), "{p:?}");
         check(&back).unwrap();
-        // the root: named "", no index, a struct in the source spanning it (§8.1)
+        // the root: named "", no index, a struct in the source spanning it (§8.1
+        // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>)
         assert_eq!((back.kind[0], back.name_of(0), back.nidx[0], back.space[0]), (STRUCT, String::new(), NO_INDEX, 0), "{p:?}");
         assert_eq!((back.start[0], back.len[0]), (0, data.len() as u64), "{p:?}");
         let mut rebuilt = Vec::new();
@@ -405,8 +406,10 @@ fn flags_a_value_shown_above_the_size_limit() {
     assert!(p.starts_with(r#"view tree: member ["big"] is [7,7,"#) && p.ends_with(r#"where the rebuilt view has {"$vz":"element","id":1}"#), "{p}");
 }
 
-/// Text values in the view (conventions §8.7): §6's text, and `{text, after}` when
-/// bytes after the NUL are not all zero.
+/// Text values in the view (conventions §8.7
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>): §6
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>'s text,
+/// and `{text, after}` when bytes after the NUL are not all zero.
 #[test]
 fn text_values_show_their_text_and_what_follows_its_nul() {
     use serde_json::json;
@@ -439,7 +442,9 @@ fn text_values_show_their_text_and_what_follows_its_nul() {
 
 /// Every derived transform a parser can emit (`Transform::ALL`, which `index` keeps
 /// complete) either may hold shown values and a validator can derive it again, or may
-/// hold none (conventions §8.8); and on every fixture, each derived element names a
+/// hold none (conventions §8.8
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>); and on every
+/// fixture, each derived element names a
 /// known transform and no space that may hold none holds a shown value.
 #[test]
 fn every_derived_transform_holding_shown_values_can_be_derived_again() {

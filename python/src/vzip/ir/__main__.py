@@ -1,7 +1,9 @@
 """python -m vzip.ir <url or path> <out.vzip> [--url <source url>] [--no-mirror]
 [--allow-private-hosts]: as python -m vzip.virtualize, through the IR (exit status 3
 when rejected). Every format reads through the read planner, under the reader
-policy (spec/archive.md §8.7): a source on a loopback or private host needs
+policy (spec/archive.md §8.7
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>): a source on a loopback
+or private host needs
 --allow-private-hosts."""
 
 import json

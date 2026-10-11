@@ -116,7 +116,8 @@ fn varint_len(mut v: u64) -> u64 {
     n
 }
 
-/// Length of the `Range` message of a range (0, o, n) (§1.2).
+/// Length of the `Range` message of a range (0, o, n) (§1.2
+/// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#12-input>).
 pub fn range_msg_len(o: u64, n: u64) -> u64 {
     let mut l = 0;
     if o > 0 {
@@ -128,7 +129,8 @@ pub fn range_msg_len(o: u64, n: u64) -> u64 {
     l
 }
 
-/// Payload size of a reference entry (§1.2).
+/// Payload size of a reference entry (§1.2
+/// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#12-input>).
 pub fn payload_len(ranges: &[(u64, u64)]) -> u64 {
     if ranges.len() == 1 {
         return range_msg_len(ranges[0].0, ranges[0].1);
@@ -142,7 +144,9 @@ pub fn payload_len(ranges: &[(u64, u64)]) -> u64 {
         .sum()
 }
 
-/// §1.2: every range within the file, every payload at most 65519 bytes.
+/// §1.2
+/// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#12-input>:
+/// every range within the file, every payload at most 65519 bytes.
 pub fn check_output(out: &Output, size: u64) -> R<()> {
     for (k, e) in &out.entries {
         if let Entry::Ranges(rs) = e {
@@ -211,7 +215,9 @@ pub fn serialize(url: &str, out: &Output) -> String {
     s
 }
 
-/// §2.1 array zarr.json.
+/// §2.1
+/// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#21-arrays>
+/// array zarr.json.
 pub struct ArrayMeta {
     pub shape: Vec<u64>,
     pub data_type: String,
@@ -307,7 +313,9 @@ pub struct Axis {
     pub scales: Vec<f64>, // one per level
 }
 
-/// §2.2 image group zarr.json.
+/// §2.2
+/// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#22-images>
+/// image group zarr.json.
 pub fn image_json(name: Option<&str>, axes: &[Axis], nlevels: usize, omero: Option<Json>) -> R<Json> {
     let mut ms: Vec<(&str, Json)> = Vec::new();
     if let Some(n) = name {

@@ -1,4 +1,8 @@
-// vzip writer (spec/archive.md §3, §4, §6, §9), without a page index.
+// vzip writer (spec/archive.md §3
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#3-zip-container>, §4
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#4-entries>, §6
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>, §9
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#9-writing>), without a page index.
 
 import { crc32, deflateRaw } from "./deflate.ts";
 import {
@@ -23,7 +27,11 @@ export interface ArchiveDesc {
   mirror?: boolean;
 }
 
-/** The revision of spec/archive.md the writer follows, recorded in every archive (§1.3, §6). */
+/**
+ * The revision of spec/archive.md the writer follows, recorded in every archive (§1.3
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#13-versioning>, §6
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>).
+ */
 export const SPEC_REVISION = 10;
 export const SOURCES_KEY = "__vz__/sources";
 export const INDEX_KEY = "__vz__/index";
@@ -166,7 +174,10 @@ function le(fields: [number, 2 | 4 | 8][]): Uint8Array {
   return out;
 }
 
-/** Writes an archive, or throws InvalidInputError (spec §9.1). */
+/**
+ * Writes an archive, or throws InvalidInputError (spec §9.1
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#91-requirements>).
+ */
 export async function writeVzip(desc: ArchiveDesc): Promise<Uint8Array> {
   validate(desc);
   const mirror = desc.mirror ?? true;

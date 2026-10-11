@@ -1,6 +1,7 @@
 """Writes TIFFs to fixtures/tiff/ that exercise the edges of the TIFF
-profile (spec/virtualize.md §3) which tifffile does not write: odd OME-XML,
-duplicate tags, SubIFD mismatches, tiles outside the file, and so on.
+profile (spec/virtualize.md §3
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#3-tiff-profile>) which tifffile
+does not write: odd OME-XML, duplicate tags, SubIFD mismatches, tiles outside the file, and so on.
 
 They are compared between implementations (conformance/virtualize/
 compare.py). `edge_reject_*` files must be rejected; the other `edge_*`

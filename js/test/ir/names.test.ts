@@ -1,4 +1,6 @@
-// The root and the names (conventions §8.1) in the browser host: a crafted IR, loaded
+// The root and the names (conventions §8.1
+// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>) in the browser host: a
+// crafted IR, loaded
 // into the core's test module (rust/vzip-ir/target/web-test, built with the test-only
 // hooks by `just js::wasm-test`), mirrors when its root is a struct named "" spanning
 // the source and its paths are its own; otherwise the mirror is a rejection with the

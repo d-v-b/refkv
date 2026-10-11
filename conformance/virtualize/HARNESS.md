@@ -15,9 +15,9 @@ virtualize <url> <out.json>
 
 - `<url>` is an `http://` URL of an image file (any profile, a SAFE zip
   included), or of a store (N5, Zarr v2, OME-Zarr 0.4 or a SAFE directory),
-  whose URL ends in `/` (§1.4). Use it, exactly as given, as the input
-  URL `U` of the specification (§1.2).
-- On success, write the output (§1.1) to `<out.json>` as described below, and
+  whose URL ends in `/` ([§1.4](../../spec/virtualize.md#14-store-inputs)). Use it, exactly as given, as the input
+  URL `U` of the specification ([§1.2](../../spec/virtualize.md#12-input)).
+- On success, write the output ([§1.1](../../spec/virtualize.md#11-output-and-equivalence)) to `<out.json>` as described below, and
   exit with status 0. Printing a one-line summary to stdout is optional.
 - If the specification rejects the input, exit with status 3, write nothing,
   and print the reason to stderr.
@@ -39,13 +39,13 @@ Read only the file's structure (headers, directories, metadata), never its
 pixel data. Files can be tens of gigabytes. Caching reads in blocks is
 recommended.
 
-A store is listed as §1.5 says. Store URLs from the harness are path-style
+A store is listed as [§1.5](../../spec/virtualize.md#15-listing-a-store) says. Store URLs from the harness are path-style
 (`http://127.0.0.1:<port>/f/...` and `http://127.0.0.1:<port>/u/...`, with
 the buckets `f` and `u`), and the server answers
 `GET /<bucket>/?list-type=2&prefix=<P>[&continuation-token=<T>]` with an S3
 `ListBucketResult` of at most 100 keys per page. A store's objects are served
 like files (`HEAD`, and `GET` with a single `Range`), at the store URL
-followed by the key (§1.4).
+followed by the key ([§1.4](../../spec/virtualize.md#14-store-inputs)).
 
 ## The output file
 
@@ -64,8 +64,8 @@ A JSON object:
 
 - `sources`: the source table, in order. A `url` source is its URL, a
   string; a `data` source is `{"data": "<base64>"}`. A file's table is
-  `<url>`, then its data sources if its profile has any (§1.2); a store's is
-  one URL per chunk entry, in key order (§1.4).
+  `<url>`, then its data sources if its profile has any ([§1.2](../../spec/virtualize.md#12-input)); a store's is
+  one URL per chunk entry, in key order ([§1.4](../../spec/virtualize.md#14-store-inputs)).
 - `entries`: one member per key. The value is one of:
   - `{"ranges": [[source, offset, length], ...]}` for a reference entry,
     where a literal range is `{"data": "<base64>"}` instead of a triple;
@@ -81,10 +81,10 @@ binary64 value (any shortest round-trip formatting does this).
 Base64 is the standard alphabet with padding (RFC 4648 §4), so equal bytes
 have equal strings.
 
-Two outputs are equivalent (§1.1) if they have the same `sources` (equal
+Two outputs are equivalent ([§1.1](../../spec/virtualize.md#11-output-and-equivalence)) if they have the same `sources` (equal
 URLs, or data sources with equal bytes), the same
 keys, and for every key: equal range lists, equal JSON values, or equal
-bytes. In JSON values, two integers compare exactly (§1.6 copies an integer
+bytes. In JSON values, two integers compare exactly ([§1.6](../../spec/virtualize.md#16-json-documents) copies an integer
 literal with every digit, so `9007199254740993` differs from
 `9007199254740992`), and a number against a non-integer by its binary64
 value (so `1` equals `1.0`); booleans are not numbers.
@@ -116,7 +116,7 @@ Then `http://127.0.0.1:8765/f/<format>/<file name>` is a fixture file, and
 server also serves remote files at `http://127.0.0.1:8765/u/<id>/<name>`, and
 remote stores at `http://127.0.0.1:8765/u/<id>/`, where `<id>` is the
 base64url encoding (no padding) of an `https://` URL (a store's ending in
-`/`; the server lists it with its own S3 endpoint, §1.5). Public test inputs
+`/`; the server lists it with its own S3 endpoint, [§1.5](../../spec/virtualize.md#15-listing-a-store)). Public test inputs
 include:
 
 - `https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant/20210609-ftp-ome-tiffs/4000_d11_m5_LT_2%20(20x_01).ome.tiff`
@@ -177,11 +177,11 @@ For every other profile, `py` and `web` are still two hand-written
 implementations, and `ref` runs the same code as `py`.
 
 Since revision 21, `vzip_source` of these three profiles is the IR mirror of
-conventions §8; since revision 22 the mirror is canonical (conventions §8.8)
-and spec/virtualize.md §1.1 compares it entry for entry, as `py` against `web`
+[conventions §8](../../spec/conventions.md#8-the-ir-mirror); since revision 22 the mirror is canonical ([conventions §8.8](../../spec/conventions.md#88-canonical-form))
+and [spec/virtualize.md §1.1](../../spec/virtualize.md#11-output-and-equivalence) compares it entry for entry, as `py` against `web`
 does. `compare.py` also checks each archive's mirror on its own, in addition
 to that comparison: it loads the table, checks its invariants (conventions
-§8.4), checks that it describes a source of the size source 0 pins, and
+[§8.4](../../spec/conventions.md#84-reading-the-source-back)), checks that it describes a source of the size source 0 pins, and
 checks that it is canonical (folded again from what it loads, it is the same
 table, entry for entry); a mirror that fails is a crash of the
 implementation that wrote it.

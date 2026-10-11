@@ -7,7 +7,7 @@ different observable results for the same input.
 
 ## A. Error classification gaps (affect which error class / whether open fails)
 
-1. **[interop] §8.1 / §8.4: what counts as "bad end records"?** The term is not defined.
+1. **[interop] [§8.1](../../../../spec/history/archive/SPEC.r2.md#81-opening) / [§8.4](../../../../spec/history/archive/SPEC.r2.md#84-errors): what counts as "bad end records"?** The term is not defined.
    Candidates: non-zero disk numbers, entries-on-disk != total entries, central directory
    (CD) extending past the EOCD / zip64 EOCD, a zip64 locator whose target lacks the
    zip64 EOCD signature, a CD whose record count disagrees with the end record.
@@ -15,62 +15,62 @@ different observable results for the same input.
    archives, where the whole CD is read anyway. A reader that checks less opens archives
    that this one rejects.
 
-2. **[interop] §8.1 / §8.4: structural CD errors in an unpaged archive.** §8.1 says opening
+2. **[interop] [§8.1](../../../../spec/history/archive/SPEC.r2.md#81-opening) / [§8.4](../../../../spec/history/archive/SPEC.r2.md#84-errors): structural CD errors in an unpaged archive.** [§8.1](../../../../spec/history/archive/SPEC.r2.md#81-opening) says opening
    "reads and checks ... the whole central directory" for unpaged archives, but the
-   archive-error examples in §8.4 don't mention CD records with a bad signature or
+   archive-error examples in [§8.4](../../../../spec/history/archive/SPEC.r2.md#84-errors) don't mention CD records with a bad signature or
    truncated records. Only the paged case is covered ("surface as entry errors").
    *Chosen:* archive error at open for unpaged archives. In paged archives, an
    unparseable page is an entry error for every lookup that lands in that page.
 
-3. **[interop] §3.4 / §6 / §7: the source table or index can't be read.** Possible causes:
+3. **[interop] [§3.4](../../../../spec/history/archive/SPEC.r2.md#34-end-of-central-directory-record-and-archive-comment) / [§6](../../../../spec/history/archive/SPEC.r2.md#6-source-table) / [§7](../../../../spec/history/archive/SPEC.r2.md#7-page-index-optional): the source table or index can't be read.** Possible causes:
    `sources_offset + sources_size` past EOF, invalid DEFLATE data, or `sources_size = 0`.
-   §8.4 lists "malformed source table", which is about protobuf, not the container.
+   [§8.4](../../../../spec/history/archive/SPEC.r2.md#84-errors) lists "malformed source table", which is about protobuf, not the container.
    *Chosen:* archive error. The spec should say so explicitly, and should also say
    whether an empty (0-byte) DEFLATE body is acceptable. Formally it is not a valid raw
    DEFLATE stream.
 
-4. **[interop] §4.2 / §8.4: a corrupt bytes body.** A bytes entry whose DEFLATE stream is
+4. **[interop] [§4.2](../../../../spec/history/archive/SPEC.r2.md#42-bytes-entries) / [§8.4](../../../../spec/history/archive/SPEC.r2.md#84-errors): a corrupt bytes body.** A bytes entry whose DEFLATE stream is
    invalid, whose body extends past EOF, or that inflates to more than its declared
    uncompressed size: which error class is that? None of the five classes covers it.
    *Chosen:* entry error, reported by get/raw only. classify still says `bytes`, because
    classify looks only at the record. When the same entry is reached through a `key`
    source, the failure becomes a resolution error.
 
-5. **[interop] §3.3 / §8: records whose name is empty or not valid UTF-8.** §3.3 says keys
-   MUST be non-empty and valid UTF-8, but neither §8.4 (error classes) nor §8.6
+5. **[interop] [§3.3](../../../../spec/history/archive/SPEC.r2.md#33-keys) / [§8](../../../../spec/history/archive/SPEC.r2.md#8-reading): records whose name is empty or not valid UTF-8.** [§3.3](../../../../spec/history/archive/SPEC.r2.md#33-keys) says keys
+   MUST be non-empty and valid UTF-8, but neither [§8.4](../../../../spec/history/archive/SPEC.r2.md#84-errors) (error classes) nor [§8.6](../../../../spec/history/archive/SPEC.r2.md#86-violations-readers-need-not-detect)
    (violations readers need not detect) covers a record that breaks this.
    *Chosen:* such records are silently ignored. They can't be named by any query and
    aren't listed. Another reader could make this an archive error (unpaged) or an entry
    error.
 
-6. **[interop] §4.1 / §3.2: ZIP64 extra field missing or too short.** A record whose local
+6. **[interop] [§4.1](../../../../spec/history/archive/SPEC.r2.md#41-classification) / [§3.2](../../../../spec/history/archive/SPEC.r2.md#32-zip64): ZIP64 extra field missing or too short.** A record whose local
    header offset is 0xFFFFFFFF but which has no `0x0001` block, or one that is too short,
    cannot be located. It isn't listed as an entry error. *Chosen:* entry error.
 
-7. **§7.1 / §8.4: page bounds.** If a `Page` extends past `cd_size`, or `offset + length`
-   overflows: is that a "malformed page index" (archive error) or a §8.6 "CD doesn't match
+7. **[§7.1](../../../../spec/history/archive/SPEC.r2.md#71-layout) / [§8.4](../../../../spec/history/archive/SPEC.r2.md#84-errors): page bounds.** If a `Page` extends past `cd_size`, or `offset + length`
+   overflows: is that a "malformed page index" (archive error) or a [§8.6](../../../../spec/history/archive/SPEC.r2.md#86-violations-readers-need-not-detect) "CD doesn't match
    the index" situation (unspecified)? *Chosen:* archive error at open. It is cheap to
    check and needs no extra I/O. Unsorted, overlapping or non-contiguous pages are not
-   checked (§8.6).
+   checked ([§8.6](../../../../spec/history/archive/SPEC.r2.md#86-violations-readers-need-not-detect)).
 
-8. **§7.2: pinned `method` other than 0/8.** A `Pinned` stands in for the record, so the
+8. **[§7.2](../../../../spec/history/archive/SPEC.r2.md#72-lookup): pinned `method` other than 0/8.** A `Pinned` stands in for the record, so the
    record checks (bit 0, method) can't be applied. *Chosen:* a pinned method other than
    0 or 8 is an entry error for that key. The spec should say whether pinned values are
    trusted blindly.
 
-9. **§8.2: order of checks.** Which comes first when several errors apply: request
+9. **[§8.2](../../../../spec/history/archive/SPEC.r2.md#82-operations): order of checks.** Which comes first when several errors apply: request
    error, hidden key, or entry error? E.g. `get("__vz__/x", range(5,2))`, or `classify`
    on a hidden key whose record has an entry error. *Chosen:* request error first (the
    spec says "whether or not the key is present"), then the hidden check (returns
    missing without looking anything up), then lookup and entry errors. Stating the
    precedence would remove a source of divergence.
 
-10. **§8.2 `list` in a paged archive when a page can't be parsed.** `list` must read every
+10. **[§8.2](../../../../spec/history/archive/SPEC.r2.md#82-operations) `list` in a paged archive when a page can't be parsed.** `list` must read every
     page. "Keys with entry errors are listed" covers per-record problems but not a page
     that doesn't parse at all, where the keys are unknown. *Chosen:* `list` fails with an
     entry error.
 
-## B. URL / base URI resolution (§6)
+## B. URL / base URI resolution ([§6](../../../../spec/history/archive/SPEC.r2.md#6-source-table))
 
 11. **[interop] The exact base URI string isn't defined.** Is it `file:///abs/path` (empty
     authority) or `file:/abs/path` (no authority)? Which characters are percent-encoded?
@@ -113,14 +113,14 @@ different observable results for the same input.
 
 ## C. ZIP container details
 
-17. **[interop] §3.4 locating the EOCD.** Suppose the check at `file_size − 60` matches
+17. **[interop] [§3.4](../../../../spec/history/archive/SPEC.r2.md#34-end-of-central-directory-record-and-archive-comment) locating the EOCD.** Suppose the check at `file_size − 60` matches
     the signature and a comment length of 38, but the comment doesn't start with
     `vzip/1`. Should the reader still try `file_size − 44`? The steps read as "stop at
     the first structural match". *Chosen:* no fallback, so it is an archive error. A
     22-byte-comment archive whose bytes at −60 happen to look like an EOCD with length
     38 would then be rejected. That is unlikely, but the two readings disagree.
 
-18. **§3.2 zip64 EOCD.**
+18. **[§3.2](../../../../spec/history/archive/SPEC.r2.md#32-zip64) zip64 EOCD.**
     - When a zip64 locator is present, does the reader take *all* values from the zip64
       record or only those that are all-ones in the EOCD? *Chosen:* all (the spec says
       "use the zip64 end of central directory record").
@@ -129,7 +129,7 @@ different observable results for the same input.
       values for that record are not given. *Chosen:* 45 / 45, total disks = 1 in the
       locator.
 
-19. **§4.3 vs §3.2: the extra-field limit depends on layout.** A record needs a 12-byte
+19. **[§4.3](../../../../spec/history/archive/SPEC.r2.md#43-reference-entries) vs [§3.2](../../../../spec/history/archive/SPEC.r2.md#32-zip64): the extra-field limit depends on layout.** A record needs a 12-byte
     ZIP64 block only if its local header offset is ≥ 4 GiB. So the maximum payload is
     65531 or 65519 bytes, depending on where the entry lands. A writer can't validate an
     entry in isolation. The reject-or-accept outcome depends on the sizes of earlier
@@ -138,29 +138,29 @@ different observable results for the same input.
     before any output is written. The 4 GiB path is not exercised by tests here because
     the writer builds the archive in memory.
 
-20. **§3.1 rule 7 vs §9.1.** Rule 7 limits *both* compressed and uncompressed size, but
-    §9.1 only lists "a bytes entry's size". DEFLATE can expand incompressible data. If an
+20. **[§3.1](../../../../spec/history/archive/SPEC.r2.md#31-structure) rule 7 vs [§9.1](../../../../spec/history/archive/SPEC.r2.md#91-requirements).** Rule 7 limits *both* compressed and uncompressed size, but
+    [§9.1](../../../../spec/history/archive/SPEC.r2.md#91-requirements) only lists "a bytes entry's size". DEFLATE can expand incompressible data. If an
     entry is slightly under 4 GiB, its compressed form can exceed the limit. *Chosen:*
     reject either case.
 
-21. **§3.1 rule 5: bit 3 and other flags.** §8.6 excludes rule 5 except bit 0, so a set
+21. **[§3.1](../../../../spec/history/archive/SPEC.r2.md#31-structure) rule 5: bit 3 and other flags.** [§8.6](../../../../spec/history/archive/SPEC.r2.md#86-violations-readers-need-not-detect) excludes rule 5 except bit 0, so a set
     bit 3 is unspecified. Readers here ignore it. Bit 11 isn't checked by readers either.
 
-22. **§4.1: zero-length reference blocks.** A `0x7A76` block with `data_size = 0` decodes
+22. **[§4.1](../../../../spec/history/archive/SPEC.r2.md#41-classification): zero-length reference blocks.** A `0x7A76` block with `data_size = 0` decodes
     to `Range{source:0, offset:0, length:0}`, which is the canonical encoding of a valid
     zero-length source range. It is valid if there is ≥ 1 source, and a payload error
     otherwise. That seems intended, but it is surprising enough to deserve an example.
     Similarly, a `0x7A77` block of size 0 is a valid empty Concat.
 
-## D. Messages (§5)
+## D. Messages ([§5](../../../../spec/history/archive/SPEC.r2.md#5-messages))
 
-23. **§5.1 "Fields may appear in any order ... last one wins".** This is fine for scalars.
+23. **[§5.1](../../../../spec/history/archive/SPEC.r2.md#51-encoding) "Fields may appear in any order ... last one wins".** This is fine for scalars.
     The spec could say explicitly that it is not proto's merge semantics for embedded
     messages, though no singular message field exists today. Packed encoding is
     irrelevant because there are no repeated scalars. It is worth stating that no
     packed fields exist.
 
-24. **§5.1 canonical encoding is only partly determined.** It fixes field order and
+24. **[§5.1](../../../../spec/history/archive/SPEC.r2.md#51-encoding) canonical encoding is only partly determined.** It fixes field order and
     defaults, but not:
     - the order of `pinned` entries,
     - page boundaries (writer's choice),
@@ -169,7 +169,7 @@ different observable results for the same input.
     So "compare encodings byte for byte" works per message but not per archive.
     *Chosen:* pinned are sorted in UTF-8 key order. The unpaged CD is in file order.
 
-25. **§5.2 "offset + length MUST NOT exceed 2^64 − 1".** This means the sum must fit in a
+25. **[§5.2](../../../../spec/history/archive/SPEC.r2.md#52-range) "offset + length MUST NOT exceed 2^64 − 1".** This means the sum must fit in a
     u64. That is unambiguous, but "the end offset fits in u64" would be clearer.
 
 ## E. Data model and keys
@@ -177,30 +177,30 @@ different observable results for the same input.
 26. **Unicode normalization.** Keys are compared as UTF-8 bytes, so NFC and NFD forms of
     the same name are different keys. That is probably intended, but it is not stated.
 
-27. **§8.2 hidden keys in a source `key`.** These are allowed, and the format entries are
+27. **[§8.2](../../../../spec/history/archive/SPEC.r2.md#82-operations) hidden keys in a source `key`.** These are allowed, and the format entries are
     excluded. Pinned keys are resolved through their `Pinned` record. This was clear
     enough.
 
-28. **§7.2 pinned precedence.** "A pinned key is a present `bytes` entry" means a pinned
+28. **[§7.2](../../../../spec/history/archive/SPEC.r2.md#72-lookup) pinned precedence.** "A pinned key is a present `bytes` entry" means a pinned
     entry wins over whatever the page says. Duplicate pinned keys are a writer error, but
-    reader behaviour is not in §8.6. *Chosen:* first wins.
+    reader behaviour is not in [§8.6](../../../../spec/history/archive/SPEC.r2.md#86-violations-readers-need-not-detect). *Chosen:* first wins.
 
-29. **§7.1 page sizing.** HARNESS says "a page SHOULD hold about `page_size` bytes". The
+29. **[§7.1](../../../../spec/history/archive/SPEC.r2.md#71-layout) page sizing.** HARNESS says "a page SHOULD hold about `page_size` bytes". The
     spec itself says nothing about the unit or how close "about" is. *Chosen:* close a
     page once it reaches ≥ `page_size` bytes, so a page can exceed it by up to one
     record. A single record larger than `page_size` gets its own page.
 
 ## F. Things that were unnatural or hard to implement
 
-- §4.3 / §3.2: the payload limit depends on layout (item 19). It forces a validate-after-
+- [§4.3](../../../../spec/history/archive/SPEC.r2.md#43-reference-entries) / [§3.2](../../../../spec/history/archive/SPEC.r2.md#32-zip64): the payload limit depends on layout (item 19). It forces a validate-after-
   layout step in a writer that otherwise validates first.
-- §6 / RFC 3986: there is no URI crate in the dependency budget, so the RFC 3986 parser,
+- [§6](../../../../spec/history/archive/SPEC.r2.md#6-source-table) / RFC 3986: there is no URI crate in the dependency budget, so the RFC 3986 parser,
   validator and §5.2.2 resolver were hand-written (and tested against the RFC §5.4
   examples). This is the largest source of likely divergence between independent
   implementations (items 11–15).
-- §7: the paged reader still has to read *all* pages to answer `list("")`. That is
+- [§7](../../../../spec/history/archive/SPEC.r2.md#7-page-index-optional): the paged reader still has to read *all* pages to answer `list("")`. That is
   expected, but it means page parse errors leak into `list` (item 10).
-- §3.4: the reader cannot bound DEFLATE output for the format entries because the comment
+- [§3.4](../../../../spec/history/archive/SPEC.r2.md#34-end-of-central-directory-record-and-archive-comment): the reader cannot bound DEFLATE output for the format entries because the comment
   gives only the compressed size. A fixed cap (4 GiB) is used.
 
 ## G. HARNESS.md
@@ -209,7 +209,7 @@ different observable results for the same input.
   stated. Only `compress`, `pinned` and `mirror` have defaults. *Chosen:* null, [] and [].
 - **Wrong JSON types** (`"compress": "yes"`, `"mirror": null`) are not covered. *Chosen:*
   invalid description. Exit non-zero.
-- **Pinning hidden entries.** HARNESS forbids it ("not hidden"). Spec §7.1 / §9.1 only
+- **Pinning hidden entries.** HARNESS forbids it ("not hidden"). Spec [§7.1](../../../../spec/history/archive/SPEC.r2.md#71-layout) / [§9.1](../../../../spec/history/archive/SPEC.r2.md#91-requirements) only
   forbid non-bytes entries and format entries, so a hidden bytes entry may be pinned
   according to the spec. This implementation follows HARNESS for writing. Its reader
   accepts pinned hidden keys (they still classify as missing).
@@ -225,7 +225,7 @@ different observable results for the same input.
   lowercase"). That is strict, but the text reads as a constraint rather than a
   convention.
 - **JSON keys with lone surrogates** (`"\ud800"`) can't become UTF-8. serde_json rejects
-  the document, so the description is invalid. This is consistent with §9.1 ("not valid
+  the document, so the description is invalid. This is consistent with [§9.1](../../../../spec/history/archive/SPEC.r2.md#91-requirements) ("not valid
   UTF-8"), but HARNESS doesn't say.
 - The CLI ignores unknown members everywhere, including in sources, ranges and queries.
   HARNESS says so only for the description in general.

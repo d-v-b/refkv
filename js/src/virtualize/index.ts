@@ -1,6 +1,9 @@
 // Virtualizing an image file by the profile its first bytes select
-// (spec/virtualize.md §1.2): TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or a SAFE zip, or a
-// store by the profile its root keys select (§1.4): N5, Zarr v2, OME-Zarr 0.4 or a
+// (spec/virtualize.md §1.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>):
+// TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or a SAFE zip, or a
+// store by the profile its root keys select (§1.4
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): N5, Zarr v2,
+// OME-Zarr 0.4 or a
 // SAFE directory. TIFF (but not NDPI), ND2 and CZI are virtualized by the Rust core
 // (ir/, rust/vzip-ir); each other profile is in its own directory; store.ts holds the
 // store machinery.
@@ -21,17 +24,25 @@ import { crc32c } from "../deflate.ts";
 import { virtualizeZarr2 } from "./zarr2/virtualize.ts";
 import type { ArchiveDesc } from "../writer.ts";
 
-/** How a virtualizer pins its sources and checksums its ranges (spec/virtualize.md §1.2, §1.4). */
+/**
+ * How a virtualizer pins its sources and checksums its ranges (spec/virtualize.md §1.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>, §1.4
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>).
+ */
 export interface PinOptions {
   /** The input file's strong ETag, if every response gave the same one (an `etag` pin). */
   etag?: () => string | undefined;
-  /** Record the CRC-32C of every range of a url source (spec/archive.md §5.2), reading its bytes. */
+  /**
+   * Record the CRC-32C of every range of a url source (spec/archive.md §5.2
+   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>), reading its bytes.
+   */
   checksums?: boolean;
 }
 
 /**
  * Records on every range of a url source the CRC-32C of its bytes (spec/archive.md
- * §5.2), read by `read(url, offset, length)`.
+ * §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>), read by `read(url,
+ * offset, length)`.
  */
 export async function addChecksums(
   desc: ArchiveDesc,
@@ -49,13 +60,17 @@ export async function addChecksums(
 
 const NOT_SUPPORTED = "not a TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file";
 
-/** True if `head` starts with a TIFF or BigTIFF header, in either byte order (§1.2). */
+/**
+ * True if `head` starts with a TIFF or BigTIFF header, in either byte order (§1.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>).
+ */
 function isTiffMagic(head: Uint8Array): boolean {
   const magic = Array.from(head.subarray(0, 4), (b) => b.toString(16).padStart(2, "0")).join("");
   return ["49492a00", "4d4d002a", "49492b00", "4d4d002b"].includes(magic);
 }
 
-// The HDF5 signature, which starts Imaris IMS files (§1.2).
+// The HDF5 signature, which starts Imaris IMS files (§1.2
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>).
 const HDF5 = [0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a];
 
 type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe"; summary: object };
@@ -63,7 +78,8 @@ type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "ni
 /** `exact`, when given, reads exactly the ranges asked for, past `read`'s block cache: the
  * SAFE profile's tile-part headers, scattered through a zip file, are read with it, and the
  * Rust core's requests (TIFF, ND2, CZI), which it plans itself.
- * Source 0 pins the file's size, and its ETag when `pins.etag` gives one (§1.2); with
+ * Source 0 pins the file's size, and its ETag when `pins.etag` gives one (§1.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>); with
  * `pins.checksums`, the ranges of source 0 carry the CRC-32C of their bytes. */
 export async function virtualizeImage(
   url: string,
@@ -102,7 +118,10 @@ async function virtualizeWith(url: string, input: Input, pins: PinOptions): Prom
   return desc;
 }
 
-/** The profile of the Rust core a file's first bytes select, if one (§1.2; NDPI, a TIFF, is not). */
+/**
+ * The profile of the Rust core a file's first bytes select, if one (§1.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>; NDPI, a TIFF, is not).
+ */
 export function irFormat(head: Uint8Array): IrFormat | undefined {
   if (isTiffMagic(head)) return "tiff";
   if (head.length >= 4 && head[0] === 0xda && head[1] === 0xce && head[2] === 0xbe && head[3] === 0x0a) return "nd2";
@@ -126,14 +145,20 @@ async function virtualizeFile(url: string, { read, size: fileSize, exact, source
   throw new ImageError(NOT_SUPPORTED);
 }
 
-/** Is `url` a store input (§1.2): a URL whose path ends in `/`? */
+/**
+ * Is `url` a store input (§1.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>): a URL whose path ends in
+ * `/`?
+ */
 export function isStoreUrl(url: string): boolean {
   return url.split(/[?#]/, 1)[0].endsWith("/");
 }
 
-/** Virtualizes a store by the profile its root keys select (§1.4): a listed one, or the
+/** Virtualizes a store by the profile its root keys select (§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): a listed one, or the
  * one at an http(s) URL, listed and read by `openHttpStore` under the reader policy
- * `options.policy` (spec/archive.md §8.7; default: private and special hosts refused). Every
+ * `options.policy` (spec/archive.md §8.7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>; default: private and
+ * special hosts refused). Every
  * source pins its object's size; with `options.checksums`, every range carries the
  * CRC-32C of its bytes. */
 export async function virtualizeStore(

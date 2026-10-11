@@ -1,4 +1,6 @@
-"""The NDPI profile (spec/virtualize.md, §4), a variant of the TIFF profile.
+"""The NDPI profile (spec/virtualize.md, §4
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), a variant of the
+TIFF profile.
 
 Hamamatsu NDPI is a little-endian classic TIFF with 64-bit offsets (an 8-byte
 first-IFD offset, 8-byte next-IFD offsets, and a high word per entry after
@@ -26,7 +28,8 @@ SIZES = {1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12:
 FORMATS = {1: "B", 3: "H", 4: "I", 8: "h", 9: "i", 13: "I", 16: "Q", 18: "Q", 11: "f", 12: "d"}
 OFFSET_TYPES = {3, 4, 8, 9}  # X/YOffsetFromSlideCenter may be signed
 INTEGER_TYPES = {1, 3, 4, 13, 16, 18}
-# The tags of §4, with their allowed field types and whether they are scalars.
+# The tags of §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#2-the-source>,
+# with their allowed field types and whether they are scalars.
 TAGS = {
     256: (INTEGER_TYPES, True), 257: (INTEGER_TYPES, True), 258: (INTEGER_TYPES, False),
     259: (INTEGER_TYPES, True), 262: (INTEGER_TYPES, True), 277: (INTEGER_TYPES, True),
@@ -38,12 +41,14 @@ TAGS = {
 CHUNK = 1024  # target chunk size in pixels
 MAX_SIDE = 65535  # the largest height or width a JPEG frame header holds
 # Besides TIFF's, McuStarts and McuStartsHighBytes locate the strips' restart
-# markers (spec/virtualize/ndpi.md §5).
+# markers (spec/virtualize/ndpi.md §5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#5-source-metadata>).
 NDPI_LAYOUT = LAYOUT | {65426, 65432}
 
 
 def detect(read: Reader, size: int) -> int | None:
-    """The first IFD's offset if the file is NDPI (§4), else None."""
+    """The first IFD's offset if the file is NDPI (§4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), else None."""
     head = read(0, min(12, size))
     if len(head) < 12 or head[:4] != b"II*\x00":
         return None
@@ -59,7 +64,9 @@ def detect(read: Reader, size: int) -> int | None:
 
 
 class Field(NamedTuple):
-    """A checked entry of a tag of §4's table: its value is in `inline` (the value field's
+    """A checked entry of a tag of §4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#2-the-source>'s table: its
+    value is in `inline` (the value field's
     4 bytes, with the high word `high`), or at `offset`, within the file."""
     type: int
     count: int
@@ -69,8 +76,9 @@ class Field(NamedTuple):
 
 
 def read_ifds(read: Reader, size: int, first: int) -> tuple[list[dict[int, Field]], list[list[Entry]], list[int]]:
-    """The main chain's IFDs, as their checked tags of §4 (tag -> Field), every entry of
-    each, and their offsets. No value is read (values)."""
+    """The main chain's IFDs, as their checked tags of §4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#2-the-source> (tag -> Field),
+    every entry of each, and their offsets. No value is read (values)."""
     seen: dict[int, None] = {}  # the offsets read, in chain order
     ifds, entries = [], []
     offset = first
@@ -115,8 +123,13 @@ def read_ifds(read: Reader, size: int, first: int) -> tuple[list[dict[int, Field
 
 
 def values(read: Reader, memo: dict) -> Callable[..., dict[int, list]]:
-    """A function that reads the values of an IFD's tags (all of §4's table, or `only`): the
-    first of a scalar, every value of an array (§4, and spec/virtualize.md §3.1)."""
+    """A function that reads the values of an IFD's tags (all of §4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#2-the-source>'s table, or
+    `only`): the
+    first of a scalar, every value of an array (§4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>, and
+    spec/virtualize.md §3.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#31-reading>)."""
 
     def one(tag: int, f: Field) -> list:
         n = 1 if TAGS[tag][1] else f.count
@@ -141,7 +154,8 @@ def values(read: Reader, memo: dict) -> Callable[..., dict[int, list]]:
 
 
 def _entry(body: bytes, n: int, i: int) -> Entry:
-    """Entry `i` of an IFD of `n` entries whose bytes after the count are `body` (§4):
+    """Entry `i` of an IFD of `n` entries whose bytes after the count are `body` (§4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>):
     its value field is its 4 bytes plus the high word after the next-IFD offset."""
     tag, typ, count = struct.unpack("<HHI", body[12 * i : 12 * i + 8])
     low_field, high_field = body[12 * i + 8 : 12 * i + 12], body[12 * n + 8 + 4 * i : 12 * n + 12 + 4 * i]
@@ -154,7 +168,8 @@ def _entry(body: bytes, n: int, i: int) -> Entry:
 
 def extent(n: int) -> int:
     """The bytes an NDPI IFD of `n` entries occupies: its entry count, entries,
-    next-IFD offset and high words (§4)."""
+    next-IFD offset and high words (§4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>)."""
     return 2 + 16 * n + 8
 
 
@@ -197,7 +212,8 @@ def _one(tags: dict, tag: int, what: str, default=None):
 
 def jpeg_header(header: bytes):
     """(SOF0 start, SOF0 end, MCU width, MCU height, restart interval) of a
-    strip's header, which runs from SOI to the end of SOS (§4)."""
+    strip's header, which runs from SOI to the end of SOS (§4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>)."""
     if header[:2] != b"\xff\xd8":
         raise Rejected("an NDPI strip does not start with a JPEG SOI marker")
     pos, sof, dri = 2, None, None
@@ -245,7 +261,7 @@ def virtualize_ndpi(url: str, read: Reader, size: int, first: int) -> Output:
         mag = _one(load(fields, {65421}), 65421, "Magnification")
         if not mag > 0:
             continue
-        tags = load(fields)  # a level: every tag's values (§4)
+        tags = load(fields)  # a level: every tag's values (§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>)
         width, height = _one(tags, 256, "ImageWidth"), _one(tags, 257, "ImageLength")
         bits = tags.get(258)
         if (_one(tags, 259, "Compression", 1) != 7 or _one(tags, 262, "PhotometricInterpretation") != 6
@@ -263,7 +279,8 @@ def virtualize_ndpi(url: str, read: Reader, size: int, first: int) -> Output:
     if not levels:
         raise Rejected("no NDPI levels")
 
-    # Scale (spec/virtualize/ndpi.md §4).
+    # Scale (spec/virtualize/ndpi.md §4
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-the-image>).
     base = levels[0]
     unit_code = _one(base["tags"], 296, "ResolutionUnit", 0)  # explicit only
     per_unit = {3: 10000.0, 2: 25400.0}.get(unit_code)
@@ -298,7 +315,9 @@ def virtualize_ndpi(url: str, read: Reader, size: int, first: int) -> Output:
             chunk_shape, level["sof0"] = _intervals(out, li, read, tags, starts, s0, n, w, h)
         out.json(f"{li}/zarr.json", array_json([3, h, w], "uint8", chunk_shape, codecs, axes))
         scales.append([1, (py or 1) * (base["h"] / h), (px or 1) * (base["w"] / w)])
-    # Position (spec/virtualize/ndpi.md §4): the image's centre, from the slide's centre in nm.
+    # Position (spec/virtualize/ndpi.md §4
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-the-image>): the image's
+    # centre, from the slide's centre in nm.
     translation = None
     offset_x, offset_y = base["tags"].get(65422), base["tags"].get(65423)
     if px is not None and py is not None and offset_x and offset_y:
@@ -306,8 +325,9 @@ def virtualize_ndpi(url: str, read: Reader, size: int, first: int) -> Output:
         translation = [0, corner["y"], corner["x"]]
     out.json("zarr.json", root_json(image_ome(axes, units, scales, None,
                                                [translation] * len(levels) if translation else None), "ndpi", url))
-    # The source metadata (spec/virtualize/ndpi.md §5): every IFD's tags, and
-    # the strips of the IFDs that are not levels (the macro image, the map).
+    # The source metadata (spec/virtualize/ndpi.md §5
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#5-source-metadata>): every
+    # IFD's tags, and the strips of the IFDs that are not levels (the macro image, the map).
     translate = Translator(read, size, "<", NDPI_LAYOUT, table=frozenset(TAGS), entries_at=entries_reader(read, size),
                            recorded=[(o, o + extent(len(e)), f"ifds/{k}") for k, (o, e) in enumerate(zip(offsets, entries))])
     mapped = {lv["ifd"]: lv for lv in levels}
@@ -322,8 +342,9 @@ def virtualize_ndpi(url: str, read: Reader, size: int, first: int) -> Output:
 
 
 def _intervals(out: Output, li: int, read: Reader, tags: dict, starts: list, s0: int, n: int, w: int, h: int):
-    """Writes a McuStarts level's chunk references (§4); returns its chunk shape and the
-    strip's SOF0 segment."""
+    """Writes a McuStarts level's chunk references (§4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>); returns its
+    chunk shape and the strip's SOF0 segment."""
     high = tags.get(65432)
     if high is not None:
         if len(high) != len(starts):
@@ -344,7 +365,8 @@ def _intervals(out: Output, li: int, read: Reader, tags: dict, starts: list, s0:
         raise Rejected(f"an NDPI chunk would be {a * interval * mw} pixels wide, more than {MAX_SIDE}")
     sof = bytearray(header[sof_start:sof_end])
 
-    # The header around SOF0 is the same in every chunk: data sources (§4).
+    # The header around SOF0 is the same in every chunk: data sources (§4
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>).
     before, after = out.shared(header[:sof_start]), out.shared(header[sof_end:])
 
     def chunks(b: int):

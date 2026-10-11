@@ -7,7 +7,7 @@ places where two careful implementers could plausibly produce different
 output or a different accept/reject decision. All of them concern malformed or
 unusual files, so none is likely to matter on real files from instruments.
 
-## 1. §4.2 Nesting limit: a level record at depth 100
+## 1. [§4.2](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#42-lite-variant) Nesting limit: a level record at depth 100
 
 > "Levels MUST NOT be nested more than 100 deep: a chunk's top-level records
 > are at depth 0, and the records of a level at depth `d` are at depth `d + 1`."
@@ -27,16 +27,16 @@ greater than 100 rejects the input" (or "a level record at depth 100 or
 more"). **Likelihood:** negligible on real files, but trivial to diverge on
 in a fuzzed corpus.
 
-## 2. §4.4 Uncompressed frames: what reading a frame's "header" covers
+## 2. [§4.4](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#44-frames) Uncompressed frames: what reading a frame's "header" covers
 
 > "the virtualizer MUST read the headers of the present frames with the
 > lowest and the highest numbers … It reads no other frame's header"
 
-and in §4.1:
+and in [§4.1](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#41-chunks):
 
 > "Every chunk the virtualizer reads MUST start with the magic"
 
-together with §1.2's "a read outside the file … rejects". It is unclear
+together with [§1.2](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#12-input)'s "a read outside the file … rejects". It is unclear
 whether "reading the header" of the first and last frame:
 
 - (a) reads only the 16-byte header,
@@ -56,7 +56,7 @@ else is covered by the requirement that every range lies within the file.
 **Suggestion:** state which bytes are read. **Likelihood:** low (truncated
 uncompressed ND2 files whose missing tail is only row padding).
 
-## 3. §3.2 UUID text: CDATA content is removed
+## 3. [§3.2](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#32-ome-xml) UUID text: CDATA content is removed
 
 > "its **text**: … the characters of `X` from the end of the `UUID` tag to the
 > start of the next tag, with skipped sections removed"
@@ -74,7 +74,7 @@ removed. **Suggestion:** say explicitly "(including CDATA sections and their
 content)". **Likelihood:** very low. Real OME-TIFF writers do not put CDATA in
 UUID elements.
 
-## 4. §4.3 Checks on members that are only conditionally meaningful
+## 4. [§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#43-metadata) Checks on members that are only conditionally meaningful
 
 The section says "every member listed … is read and checked … wherever it is
 present", and the table gives conditions ("`pPlanes` is read only then"). Two
@@ -88,7 +88,7 @@ cases are not stated as clearly:
   other eTypes. This parallels the explicit rule for `pItemValid`.
 - **The computed z step of a node that is never visited.** For eType 4, the
   step `abs(dZHigh − dZLow) / (count − 1)` can overflow to infinity (for
-  example, `dZHigh = 1e308` and `dZLow = −1e308`), and §1.3 says an infinite
+  example, `dZHigh = 1e308` and `dZLow = −1e308`), and [§1.3](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#13-arithmetic) says an infinite
   computed number rejects. It is unclear whether this applies to nodes that
   flattening skips or drops, whose step never reaches the output.
   **Decision:** the step is computed, and an infinite result rejects, for
@@ -96,7 +96,7 @@ cases are not stated as clearly:
   node of the tree … is checked … whether or not the flattening below visits
   it". **Suggestion:** state it. **Likelihood:** negligible.
 
-## 5. §3.1 Duplicate tags: whether the ignored duplicates are still checked
+## 5. [§3.1](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#31-reading) Duplicate tags: whether the ignored duplicates are still checked
 
 > "Tags not in the table below are ignored: neither their field types nor
 > their values are read or checked. Of duplicate tags in an IFD, the first is
@@ -114,17 +114,17 @@ are rare, and they would have to be malformed as well.
 
 ## Rules that look surprising or may cause trouble (no ambiguity)
 
-- **§4.3 `uiBpcInMemory` 32 always gives `float32`.** `ePixelType` is
+- **[§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#43-metadata) `uiBpcInMemory` 32 always gives `float32`.** `ePixelType` is
   explicitly not read, so a 32-bit *integer* ND2 (rare, but Nikon can write
   them) would be presented as float32 and its pixels reinterpreted. This is
   clear, but it may be wrong.
-- **§4.4 One name length for all uncompressed frames.** Only the first and
+- **[§4.4](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#44-frames) One name length for all uncompressed frames.** Only the first and
   last frame headers are read, and the first one's `n` is used for every
   frame. A file whose middle frames have a different name length gets offsets
   that are silently wrong, not a rejection. This is deliberate in the spec,
   and it matches how real files pad chunk names, but it is the one place where
   an accepted output can point at the wrong bytes.
-- **§3.4 Candidate scan.** As the spec itself says, any later tiled IFD with
+- **[§3.4](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#34-pyramid-levels) Candidate scan.** As the spec itself says, any later tiled IFD with
   IFD 0's format that is strictly smaller is taken as a level, even when it is
   not part of the pyramid.
 

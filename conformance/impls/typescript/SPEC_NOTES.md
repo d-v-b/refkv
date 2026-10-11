@@ -12,21 +12,21 @@ implementations to disagree.
 
 ## A. Most likely to affect interoperability
 
-### A1. §9.1: when does a zero-length range "extend past the end" of a `key`/`data` source?
+### A1. [§9.1](../../../spec/history/archive/SPEC.r7.md#91-requirements): when does a zero-length range "extend past the end" of a `key`/`data` source?
 The writer must reject "a source range of a `key` or `data` source [that]
 extends past the end of that source's value". For a zero-length range
 `{offset: 10, length: 0}` on a 5-byte source, the range is empty, but its
 start and end (10) are both past the end. The reader never resolves
-zero-length ranges (§8.3 step 4), so a reader would accept the archive either
+zero-length ranges ([§8.3](../../../spec/history/archive/SPEC.r7.md#83-resolving-a-reference) step 4), so a reader would accept the archive either
 way.
 **Choice:** reject when `offset + length > size`, including for zero-length
 ranges. A runner that expects such descriptions to be accepted will see a
 failure. The spec should say which reading it means, for example "`offset +
 length` exceeds the size of the source's value".
 
-### A2. §8.1 / §10: resource limits during open
+### A2. [§8.1](../../../spec/history/archive/SPEC.r7.md#81-opening) / [§10](../../../spec/history/archive/SPEC.r7.md#10-security-considerations): resource limits during open
 The format entries are inflated at open, and "their uncompressed sizes are
-not checked", so a small `__vz__/sources` can expand without bound. §8.4 says
+not checked", so a small `__vz__/sources` can expand without bound. [§8.4](../../../spec/history/archive/SPEC.r7.md#84-errors) says
 resource limits cause *request* errors and "may be reported at whatever step
 the reader reaches", but open is not an operation with a request, and the
 harness only allows the `archive` class at open.
@@ -34,7 +34,7 @@ harness only allows the `archive` class at open.
 open with an archive error. The spec should state the class, or require
 that open has no resource-limit failures.
 
-### A3. §6.2: details of HTTP header parsing that the spec doesn't fix
+### A3. [§6.2](../../../spec/history/archive/SPEC.r7.md#62-reading-over-http): details of HTTP header parsing that the spec doesn't fix
 - **`Content-Range` syntax:** RFC 9110 range units are case-insensitive and
   allow whitespace in some places. **Choice:** after trimming the header
   value, require exactly `bytes <a>-<z>/<total|*>`, with lowercase `bytes`
@@ -74,14 +74,14 @@ should give the grammar explicitly.
   classify/get/get_raw, and such a prefix lists nothing (`[]`). The writer
   rejects such keys as "not valid UTF-8".
 
-### A6. §3.2: ZIP64 extra block longer than 8 bytes
+### A6. [§3.2](../../../spec/history/archive/SPEC.r7.md#32-zip64): ZIP64 extra block longer than 8 bytes
 A record whose offset field is all ones is an entry error if the `0x0001`
 block is "shorter than 8 bytes". The spec doesn't say what happens when the
 block is longer (APPNOTE allows a disk-number field after the offset).
 **Choice:** accept it and read the offset from its first 8 bytes. Sizes are
 never all ones in a valid archive, so the offset is always first.
 
-### A7. §3.2: where the zip64 EOCD record may be
+### A7. [§3.2](../../../spec/history/archive/SPEC.r7.md#32-zip64): where the zip64 EOCD record may be
 The spec requires the locator to immediately precede the EOCD, and the record
 it points to to "lie within the file". It does not say how many bytes "the
 record" is, or whether the record must immediately precede the locator.
@@ -93,65 +93,65 @@ are ignored.
 
 ## B. Ambiguities or omissions with low interoperability impact
 
-### B1. §3.4: comment magic `vzip/` followed by a non-digit
+### B1. [§3.4](../../../spec/history/archive/SPEC.r7.md#34-end-of-central-directory-record-and-archive-comment): comment magic `vzip/` followed by a non-digit
 `vzip/x` is neither "a version the reader implements" nor clearly "a version
 the reader doesn't implement". Both are archive errors, so the only effect is
 the message. **Choice:** "unsupported vzip format version".
 
-### B2. §6, §8.1: `url` syntax is checked lazily but emptiness is checked eagerly
+### B2. [§6](../../../spec/history/archive/SPEC.r7.md#6-source-table), [§8.1](../../../spec/history/archive/SPEC.r7.md#81-opening): `url` syntax is checked lazily but emptiness is checked eagerly
 An empty `url` is an archive error at open, but `"a b"` is only a resolution
 error when a range is resolved. This is deliberate in the spec, but the
 asymmetry is surprising. Implemented as written.
 
-### B3. §6 `file:` mapping: empty path segments
+### B3. [§6](../../../spec/history/archive/SPEC.r7.md#6-source-table) `file:` mapping: empty path segments
 After decoding, `.` and `..` segments are rejected. Empty segments
 (`file:///a//b`) aren't mentioned. **Choice:** passed through to the OS
 unchanged, which on POSIX means the same as one slash.
 
-### B4. §6.2: percent-encoded or IPv6 hosts in `http:` URLs
+### B4. [§6.2](../../../spec/history/archive/SPEC.r7.md#62-reading-over-http): percent-encoded or IPv6 hosts in `http:` URLs
 Not covered. **Choice:** a reg-name host is percent-decoded before the
 connection is made. IPv6 literals have their brackets stripped. An empty
 port (`host:`) means the default port.
 
-### B5. §6.2: redirect `Location` with a fragment, and the original URL's fragment
+### B5. [§6.2](../../../spec/history/archive/SPEC.r7.md#62-reading-over-http): redirect `Location` with a fragment, and the original URL's fragment
 **Choice:** fragments are dropped before each request and never sent. A
 `Location` with a scheme in a different case (`HTTP://`) is accepted, since
 schemes are case-insensitive.
 
-### B6. §6.2: is the 200-response "source too short" check against the requested end?
+### B6. [§6.2](../../../spec/history/archive/SPEC.r7.md#62-reading-over-http): is the 200-response "source too short" check against the requested end?
 On a 200 the size is the body length. If it is less than the requested end,
 I report "source value is shorter than `offset + j`", a resolution error
-(§8.3). The size pin is checked against the body length.
+([§8.3](../../../spec/history/archive/SPEC.r7.md#83-resolving-a-reference)). The size pin is checked against the body length.
 
-### B7. §6.1: if a pin is checked "once per source" vs. per request
+### B7. [§6.1](../../../spec/history/archive/SPEC.r7.md#61-pins): if a pin is checked "once per source" vs. per request
 **Choice:** pins are checked on every read, with no caching. That is always
 allowed.
 
-### B8. §7.1/§7.2: "the last page ends where the format entries' records begin"
+### B8. [§7.1](../../../spec/history/archive/SPEC.r7.md#71-layout)/[§7.2](../../../spec/history/archive/SPEC.r7.md#72-lookup): "the last page ends where the format entries' records begin"
 This writer requirement is not on the list of things a reader checks
-(§7.2), so a reader cannot find out whether pages run into the format
-records, and §8.1 forbids extra open-time checks. Not checked. If a page did
+([§7.2](../../../spec/history/archive/SPEC.r7.md#72-lookup)), so a reader cannot find out whether pages run into the format
+records, and [§8.1](../../../spec/history/archive/SPEC.r7.md#81-opening) forbids extra open-time checks. Not checked. If a page did
 contain format records, they are hidden and do not show up anywhere.
 
-### B9. §7.2 / §8.2: a pinned key that also appears in a page
+### B9. [§7.2](../../../spec/history/archive/SPEC.r7.md#72-lookup) / [§8.2](../../../spec/history/archive/SPEC.r7.md#82-operations): a pinned key that also appears in a page
 The pinned description wins (lookup checks pinned first), and `list` reports
 the key once.
 
-### B10. §8.2: duplicate names inside one page, or in an unpaged directory
-Unspecified (§8.6). **Choice:** the first record wins.
+### B10. [§8.2](../../../spec/history/archive/SPEC.r7.md#82-operations): duplicate names inside one page, or in an unpaged directory
+Unspecified ([§8.6](../../../spec/history/archive/SPEC.r7.md#86-violations-readers-need-not-detect)). **Choice:** the first record wins.
 
-### B11. §8.2 `raw` on format entries
+### B11. [§8.2](../../../spec/history/archive/SPEC.r7.md#82-operations) `raw` on format entries
 `raw("__vz__/sources")` and `raw("__vz__/index")` never consult the central
-directory, so they cannot fail with entry errors. This follows §3.4 and
-§8.2, but it means the format entries' records could be garbage and `raw`
+directory, so they cannot fail with entry errors. This follows [§3.4](../../../spec/history/archive/SPEC.r7.md#34-end-of-central-directory-record-and-archive-comment) and
+[§8.2](../../../spec/history/archive/SPEC.r7.md#82-operations), but it means the format entries' records could be garbage and `raw`
 would still succeed.
 
-### B12. §8.4: order of checks inside "the lookup of the key's record, and that record's entry error"
+### B12. [§8.4](../../../spec/history/archive/SPEC.r7.md#84-errors): order of checks inside "the lookup of the key's record, and that record's entry error"
 Several entry-error causes can apply to one record (bad method and two
 reference blocks, say). The class is the same, so only the message differs.
 
-### B13. §9.2 / §3.2: "version made by" in the zip64 EOCD record
-§9.2 suggests 20 for records. The zip64 EOCD record's "version made by" is
+### B13. [§9.2](../../../spec/history/archive/SPEC.r7.md#92-recommended-layout-informative) / [§3.2](../../../spec/history/archive/SPEC.r7.md#32-zip64): "version made by" in the zip64 EOCD record
+[§9.2](../../../spec/history/archive/SPEC.r7.md#92-recommended-layout-informative) suggests 20 for records. The zip64 EOCD record's "version made by" is
 not specified. **Choice:** 45.
 
 ### B14. HARNESS.md: unknown members inside a `range` object
@@ -174,11 +174,11 @@ grouped greedily. A new page starts when adding the next record would make
 the page exceed `page_size`, so a record larger than `page_size` gets a page
 of its own.
 
-### B18. §9.1: modified_not_after range
+### B18. [§9.1](../../../spec/history/archive/SPEC.r7.md#91-requirements): modified_not_after range
 The harness limits numbers to |n| < 2^53, so int64 overflow cannot happen
 through the CLI. The library rejects values outside int64.
 
-### B19. §8.4 resource limits of this implementation (documented as §10 asks)
+### B19. [§8.4](../../../spec/history/archive/SPEC.r7.md#84-errors) resource limits of this implementation (documented as [§10](../../../spec/history/archive/SPEC.r7.md#10-security-considerations) asks)
 - A single `get`/`raw` returns at most 1 GiB. A DEFLATE bytes entry whose
   uncompressed size is over 1 GiB cannot be read, even for a small window.
   These are request errors.
@@ -186,20 +186,20 @@ through the CLI. The library rejects values outside int64.
   error.
 - Format entries inflate to at most 1 GiB; beyond that the open fails with an
   archive error (see A2).
-- There is no restriction on which `file:` paths may be resolved (§10 says
+- There is no restriction on which `file:` paths may be resolved ([§10](../../../spec/history/archive/SPEC.r7.md#10-security-considerations) says
   SHOULD allow restricting; the CLI does not need it). This is the default.
 
 ---
 
 ## C. Things that were unnatural or hard to implement in TypeScript/Node
 
-1. **Detecting trailing bytes after a DEFLATE stream (§8.1).**
+1. **Detecting trailing bytes after a DEFLATE stream ([§8.1](../../../spec/history/archive/SPEC.r7.md#81-opening)).**
    `zlib.inflateRawSync` silently ignores data after the final block. The
    workaround is the undocumented-feeling `{info: true}` option: compare
    `result.engine.bytesWritten` (the bytes zlib consumed) with the body
    length. Truncated streams do throw (`Z_BUF_ERROR`). `maxOutputLength` is
    set to the expected size + 1 so that a DEFLATE bomb stops early.
-2. **UTF-8 byte order of keys (§3.3).** JS strings compare in UTF-16 order.
+2. **UTF-8 byte order of keys ([§3.3](../../../spec/history/archive/SPEC.r7.md#33-keys)).** JS strings compare in UTF-16 order.
    All keys are held internally as latin1 "byte strings" (one char per UTF-8
    byte), so `<` and `sort()` give UTF-8 order. `TextDecoder` strips a BOM by
    default and needs `ignoreBOM: true`. The spec's warnings about both were

@@ -1,4 +1,5 @@
-"""RFC 3986 URI-reference validation, strict reference resolution, and file: mapping (spec §6)."""
+"""RFC 3986 URI-reference validation, strict reference resolution, and file: mapping (spec §6
+<https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#6-source-table>)."""
 
 import os
 import re
@@ -163,7 +164,8 @@ _PATH_SAFE = set(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345678
 
 
 def path_to_file_uri(path):
-    """Base URI of an archive opened from a local path (spec §6)."""
+    """Base URI of an archive opened from a local path (spec §6
+    <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#6-source-table>)."""
     p = os.fsencode(path)
     if not p.startswith(b"/"):
         p = os.fsencode(os.getcwd()) + b"/" + p
@@ -201,7 +203,8 @@ def _pct_decode(s):
 
 
 def file_uri_to_path(u):
-    """Map a resolved file: URI to a POSIX path (bytes), spec §6."""
+    """Map a resolved file: URI to a POSIX path (bytes), spec §6
+    <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#6-source-table>."""
     a = u.authority
     if a is not None and a != "" and a.lower() != "localhost":
         raise FileMappingError("file: URI authority must be absent, empty or localhost: %r" % a)

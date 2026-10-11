@@ -1,4 +1,6 @@
-"""Shared parts of the virtualizers (spec/virtualize.md §1, §2)."""
+"""Shared parts of the virtualizers (spec/virtualize.md §1
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#1-introduction>, §2
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#2-the-zarr-layout>)."""
 
 from __future__ import annotations
 
@@ -23,12 +25,17 @@ from vzip.policy import Policy
 
 
 class Rejected(Exception):
-    """The input is not accepted by the profile (spec/virtualize.md §1.2)."""
+    """The input is not accepted by the profile (spec/virtualize.md §1.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>)."""
 
 
 def same(a, b) -> bool:
-    """JSON values equal as spec/virtualize.md §1.1 compares them: a number written as an integer
-    (a Python int) is that integer exactly (§1.6 copies one with every digit), any other
+    """JSON values equal as spec/virtualize.md §1.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence> compares
+    them: a number written as an integer
+    (a Python int) is that integer exactly (§1.6
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents> copies one with
+    every digit), any other
     number (a float) its binary64 value, and two numbers are equal when their values are, so
     an integer equals only a float that is exactly that integer. Booleans are not numbers."""
     if isinstance(a, bool) or isinstance(b, bool):
@@ -50,19 +57,25 @@ Part = tuple[int, int] | tuple[int, int, int] | bytes
 @dataclass
 class Output:
     """A virtualizer's output: the url source 0, the data sources after it,
-    and the entries (§1.1, §1.2)."""
+    and the entries (§1.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>, §1.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>)."""
 
     url: str
     bytes_entries: dict[str, bytes] = field(default_factory=dict)
     refs: dict[str, list[Part]] = field(default_factory=dict)
     summary: dict = field(default_factory=dict)
-    # The data sources 1, 2, ... in order of first use (§1.2), and their indexes.
+    # The data sources 1, 2, ... in order of first use (§1.2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>), and their indexes.
     data: dict[bytes, int] = field(default_factory=dict)
     # The documents under these prefixes are read only when asked for, like chunks:
     # those of the source metadata node, and of nodes a profile has one of per tile.
     lazy: tuple[str, ...] = ("vzip_source/",)
-    # Source 0's pins (§1.2), and the CRC-32C of a url source's bytes, when the
-    # ranges are to carry checksums (spec/archive.md §5.2); set by vzip.virtualize.virtualize.
+    # Source 0's pins (§1.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>),
+    # and the CRC-32C of a url source's bytes, when the
+    # ranges are to carry checksums (spec/archive.md §5.2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>); set by
+    # vzip.virtualize.virtualize.
     size: int | None = None
     etag: str | None = None
     checksum: Callable[[str, int, int], int] | None = None
@@ -72,7 +85,8 @@ class Output:
         self.bytes_entries[key] = json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode()
 
     def shared(self, value: bytes) -> tuple[int, int, int]:
-        """A range of all of `value`, as a data source (§1.2): the source is
+        """A range of all of `value`, as a data source (§1.2
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>): the source is
         added to the table the first time `value` is used."""
         value = bytes(value)
         i = self.data.setdefault(value, len(self.data) + 1)
@@ -104,12 +118,13 @@ class Output:
 
 
 MAX_PAYLOAD = 65519
-SOURCE_NODE = "vzip_source"  # the source metadata node (spec/conventions.md §2)
+SOURCE_NODE = "vzip_source"  # the source metadata node (spec/conventions.md §2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>)
 
 
 @dataclass
 class Plan:
-    """An array of the source metadata node (spec/conventions.md §7)."""
+    """An array of the source metadata node (spec/conventions.md §7
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>)."""
     path: str  # under vzip_source
     data_type: str
     shape: list[int]
@@ -172,7 +187,9 @@ MAX_TOTAL_PADDING = 1 << 20  # the most zero bytes all edge chunks of a cut hold
 def grid_chunks(offset: int, shape: list[int], item: int, read: "Reader | None" = None,
                 deepen: bool = True, limit: int = MAX_CHUNK) -> tuple[list[int], dict]:
     """The C-order array of `shape`, of `item`-byte elements contiguous at
-    `offset`, cut as spec/conventions.md §7 cuts contiguous values: its chunk
+    `offset`, cut as spec/conventions.md §7
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
+    contiguous values: its chunk
     shape, and its chunks (coords -> the ranges that hold it, or its bytes).
     The cut axis `a` is the first whose index holds at most 2^24 bytes (`s`);
     along it, k = ceil(n / floor(2^24 / s)) chunks of c = ceil(n / k) indices,
@@ -256,7 +273,8 @@ def row_chunks(offset: int, rows: int, row_bytes: int, row_shape: tuple = (), re
 
 def family_plans(path: str, members: list[tuple[int, int, int]], read: "Reader",
                  count: int | None = None, ragged: bool = False) -> list[Plan]:
-    """A family of byte values (index, offset, length), as spec/conventions.md §7 says,
+    """A family of byte values (index, offset, length), as spec/conventions.md §7
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays> says,
     of `count` members (by default, one more than the largest index); `ragged`
     asks for the offsets-and-data form whatever the lengths."""
     if count is None:
@@ -284,7 +302,8 @@ def family_plans(path: str, members: list[tuple[int, int, int]], read: "Reader",
             total += by_index[i][1]
     starts.append(total)
     packed = struct.pack(f"<{count + 1}q", *starts)
-    # The offsets are copied, and cut as contiguous values (spec/conventions.md §7).
+    # The offsets are copied, and cut as contiguous values (spec/conventions.md §7
+    # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>).
     shape, cut = grid_chunks(0, [count + 1], 8, lambda o, n: packed[o : o + n])
     offsets = {k: v if isinstance(v, bytes) else b"".join(packed[r[0] : r[0] + r[1]] if isinstance(r, tuple) else r
                                                           for r in v) for k, v in cut.items()}
@@ -336,7 +355,8 @@ MAX_SAFE = 2**53 - 1
 
 
 def json_number(v):
-    """A number as source metadata (spec/conventions.md §6)."""
+    """A number as source metadata (spec/conventions.md §6
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>)."""
     if isinstance(v, float):
         if math.isnan(v):
             return "NaN"
@@ -347,7 +367,8 @@ def json_number(v):
 
 
 def decode_text(b: bytes) -> str:
-    """Bytes as text: UTF-8 if valid, else ISO 8859-1 (spec/conventions.md §6)."""
+    """Bytes as text: UTF-8 if valid, else ISO 8859-1 (spec/conventions.md §6
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>)."""
     try:
         return b.decode("utf-8")
     except UnicodeDecodeError:
@@ -355,8 +376,9 @@ def decode_text(b: bytes) -> str:
 
 
 def text_json(b: bytes):
-    """A text value (spec/conventions.md §6): UTF-8 if valid, else
-    {"latin1": ...}, so that the bytes can always be recovered."""
+    """A text value (spec/conventions.md §6
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>): UTF-8
+    if valid, else {"latin1": ...}, so that the bytes can always be recovered."""
     try:
         return b.decode("utf-8")
     except UnicodeDecodeError:
@@ -384,7 +406,8 @@ def _range_size(r: Part) -> int:
 
 
 def payload_size(ranges: list[Part]) -> int:
-    """The encoded size of a reference to `ranges` (§1.2)."""
+    """The encoded size of a reference to `ranges` (§1.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>)."""
     if len(ranges) == 1:
         return _range_size(ranges[0])
     return sum(1 + _varint_size(n) + n for n in map(_range_size, ranges))
@@ -399,7 +422,8 @@ UNITS = {
 
 TYPES = {"t": "time", "c": "channel", "z": "space", "y": "space", "x": "space"}
 
-# Sizes of the length units in metres (conventions §5).
+# Sizes of the length units in metres (conventions §5
+# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#5-units>).
 LENGTHS = {
     "micrometer": 1e-6, "nanometer": 1e-9, "millimeter": 1e-3, "centimeter": 1e-2, "meter": 1.0,
     "angstrom": 1e-10, "picometer": 1e-12, "inch": 0.0254, "foot": 0.3048,
@@ -407,12 +431,14 @@ LENGTHS = {
 
 
 def centred(cx: float, cy: float, w0: int, h0: int, sx: float, sy: float) -> dict:
-    """The translation of an image whose centre is at (cx, cy) (conventions §5)."""
+    """The translation of an image whose centre is at (cx, cy) (conventions §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#5-units>)."""
     return {"x": cx - w0 * sx / 2, "y": cy - h0 * sy / 2}
 
 
 def array_json(shape, data_type: str, chunk_shape, codecs: list, axes: list[str]) -> dict:
-    """An array's zarr.json (conventions §3)."""
+    """An array's zarr.json (conventions §3
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#3-arrays>)."""
     return {
         "zarr_format": 3,
         "node_type": "array",
@@ -428,7 +454,8 @@ def array_json(shape, data_type: str, chunk_shape, codecs: list, axes: list[str]
 
 
 def transpose_codec(axes: list[str]) -> dict:
-    """The transpose codec for frames that hold the channel axis last (conventions §3)."""
+    """The transpose codec for frames that hold the channel axis last (conventions §3
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#3-arrays>)."""
     stored = [a for a in axes if a != "c"] + ["c"]
     return {"name": "transpose", "configuration": {"order": [axes.index(a) for a in stored]}}
 
@@ -437,11 +464,14 @@ def group_json(ome: dict) -> dict:
     return {"zarr_format": 3, "node_type": "group", "attributes": {"ome": ome}}
 
 
-# The virtualization conventions (conventions §2): one per profile, each with its fixed
-# UUID, its current version and its name in the description.
+# The virtualization conventions (conventions §2
+# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>): one per profile, each
+# with its fixed UUID, its current version and its name in the description.
 CONVENTION_KEY = "vzip_virtualized"
 # The revision of spec/virtualize.md this implementation follows. Until the release, every
-# convention is at version 0 and the root property records it (conventions §1, §2).
+# convention is at version 0 and the root property records it (conventions §1
+# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#1-conventions>, §2
+# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>).
 REVISION = 25
 PROFILES = {
     "tiff": ("48e9ac4e-1156-4a62-955e-20467d9c2700", 0, "TIFF"),
@@ -460,9 +490,11 @@ UUIDS = frozenset(uuid for uuid, _, _ in PROFILES.values())
 
 
 def convention(profile: str) -> dict:
-    """The Convention Metadata Object of a profile's convention (conventions §2)."""
+    """The Convention Metadata Object of a profile's convention (conventions §2
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>)."""
     uuid, version, title = PROFILES[profile]
-    # Version 0 has no tag: its URLs name the development branch (conventions §1).
+    # Version 0 has no tag: its URLs name the development branch (conventions §1
+    # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#1-conventions>).
     ref, blob = ("heads/main", "main") if version == 0 else (f"tags/virtualize-{profile}-v{version}",) * 2
     return {
         "uuid": uuid,
@@ -474,7 +506,8 @@ def convention(profile: str) -> dict:
 
 
 def root_property(profile: str, url: str, revision: int = REVISION) -> dict:
-    """The root's property without its source metadata (conventions §2): the profile, its
+    """The root's property without its source metadata (conventions §2
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>): the profile, its
     convention's version, the revision while that version is 0 (`revision`: the one the
     implementation follows; the frozen reference records its own), and the source URL."""
     version = PROFILES[profile][1]
@@ -484,7 +517,9 @@ def root_property(profile: str, url: str, revision: int = REVISION) -> dict:
 
 def declare(attributes: dict, profile: str, url: str | None, own: dict | None = None,
             revision: int = REVISION) -> dict:
-    """A node's attributes (conventions §2): `attributes`, the members the target formats
+    """A node's attributes (conventions §2
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>): `attributes`, the
+    members the target formats
     define (such as `ome`), and the profile's convention when the node is the
     root (`url`, the source URL, is given) or has source-specific metadata
     (`own` is a nonempty object): its metadata object in `zarr_conventions`,
@@ -501,7 +536,9 @@ def declare(attributes: dict, profile: str, url: str | None, own: dict | None = 
 
 
 def root_json(ome: dict, profile: str, url: str, own: dict | None = None, revision: int = REVISION) -> dict:
-    """The root image group of a file profile (conventions §4, conventions §2), with the
+    """The root image group of a file profile (conventions §4
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#4-images>, conventions §2
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>), with the
     source-specific metadata `own`."""
     return {"zarr_format": 3, "node_type": "group",
             "attributes": declare({"ome": ome}, profile, url, own, revision)}
@@ -512,7 +549,8 @@ def image_ome(axes: list[str], units: dict, scales: list[list[float]], name: str
     for t in translations or []:
         if not all(math.isfinite(v) for v in t):
             raise Rejected("a translation is not finite")
-    """The OME-NGFF 0.5 object of an image (conventions §4), with a translation per
+    """The OME-NGFF 0.5 object of an image (conventions §4
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#4-images>), with a translation per
     level after its scale when `translations` is given."""
     ms = {}
     if name is not None:
@@ -614,7 +652,9 @@ def follow(base: str, url: str, send: Callable, policy: Policy):
 def http_reader(url: str, block: int = 1 << 16, policy: Policy | None = None) -> tuple[Reader, int]:
     """A cached range reader for an http(s) URL, and the object's size. Every request
     (the size's, each range's, prefetch's) is made under the reader policy `policy`
-    (spec/archive.md §8.7, default `Policy()`), as `HttpStore`'s are: each redirect target is
+    (spec/archive.md §8.7
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>, default `Policy()`),
+    as `HttpStore`'s are: each redirect target is
     checked before it is requested; unless the policy has `allow_private_hosts`, the
     address each request is sent to is checked, on a new connection and on a
     kept-alive one; and a request that would go through a proxy is refused unless
@@ -783,7 +823,8 @@ def http_reader(url: str, block: int = 1 << 16, policy: Policy | None = None) ->
 
 
 class EtagLog:
-    """The ETag of every response for one object, for its `etag` pin (spec/virtualize.md §1.2)."""
+    """The ETag of every response for one object, for its `etag` pin (spec/virtualize.md §1.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>)."""
 
     def __init__(self) -> None:
         self.seen: set[str | None] = set()

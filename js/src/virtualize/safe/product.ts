@@ -1,8 +1,12 @@
-// A SAFE product's objects, product metadata and tile metadata (spec/virtualize/safe.md §2).
+// A SAFE product's objects, product metadata and tile metadata (spec/virtualize/safe.md §2
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#2-the-source>).
 
 import { compareKeys, parseXml, type XmlElement } from "../store.ts";
 
-/** The input is rejected by the SAFE profile (spec/virtualize.md §12.5). */
+/**
+ * The input is rejected by the SAFE profile (spec/virtualize.md §12.5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#125-rejection-and-limits>).
+ */
 export class SafeError extends Error {}
 
 const reject = (m: string): never => {
@@ -17,7 +21,10 @@ const LEVELS: Record<string, [string, string, string]> = {
   "MTD_MSIL2A.xml": ["L2A", "Level-2A_User_Product", "Level-2A_Tile_ID"],
 };
 const GRANULE = "General_Info/Product_Info/Product_Organisation/Granule_List/Granule";
-/** The names of PSD 14.2 (Level-2A, processing baselines 02.04–02.06) that stand for later ones (§2.1). */
+/**
+ * The names of PSD 14.2 (Level-2A, processing baselines 02.04–02.06) that stand for later ones
+ * (§2.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#21-objects>).
+ */
 const ALIASES: Record<string, string> = {
   Product_Info: "L2A_Product_Info",
   Product_Organisation: "L2A_Product_Organisation",
@@ -37,7 +44,8 @@ const ALIASES: Record<string, string> = {
 export const DECIMAL = /^[+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/;
 const POSITIVE = /^[1-9][0-9]*$/;
 
-// ---------------------------------------------------------------- XML elements (§2.1)
+// ---------------------------------------------------------------- XML elements (§2.1
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#21-objects>)
 
 /** An element's local name: its name after the last `:`. */
 export const local = (name: string) => name.slice(name.lastIndexOf(":") + 1);
@@ -79,7 +87,11 @@ function layoutText(el: XmlElement, what: string): string {
   return t === undefined ? reject(`${what} has a child element`) : t;
 }
 
-/** A product's metadata document: UTF-8, in the XML subset of spec/virtualize.md §1.5 (§2.1). */
+/**
+ * A product's metadata document: UTF-8, in the XML subset of spec/virtualize.md §1.5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store> (§2.1
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#21-objects>).
+ */
 export function parseDocument(data: Uint8Array, what: string): XmlElement {
   if (data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) reject(`${what} starts with a byte order mark`);
   let s = "";
@@ -91,9 +103,10 @@ export function parseDocument(data: Uint8Array, what: string): XmlElement {
   return parseXml(s, what, (m) => new SafeError(m));
 }
 
-// ---------------------------------------------------------------- objects (§2.1)
+// ---------------------------------------------------------------- objects (§2.1
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#21-objects>)
 
-/** [the folder markers among `keys`, the empty directories] (§2.1). A folder marker is a key
+/** [the folder markers among `keys`, the empty directories] (§2.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#21-objects>). A folder marker is a key
  * `d_$folder$` with `d` not empty; `directories` are the keys, ending in `/`, of a zip file's
  * directory entries or of a listing's empty `d/` objects. The directories they name are empty
  * when no key (theirs and the markers' included) is under them. */
@@ -109,7 +122,9 @@ export function folders(keys: Iterable<string>, directories: string[] = []): [Se
 
 export const isXml = (key: string) => key === "manifest.safe" || key.endsWith(".xml") || key.endsWith(".xsd");
 
-// ---------------------------------------------------------------- the product (§2.2–§2.5)
+// ---------------------------------------------------------------- the product (§2.2
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#22-the-product-metadata>–§2.5
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#25-band-files>)
 
 export interface Image {
   text: string; // the image file F
@@ -142,7 +157,10 @@ function u32(t: string, what: string): number {
   return Number(t);
 }
 
-/** The product metadata's key (§2.2). */
+/**
+ * The product metadata's key (§2.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#22-the-product-metadata>).
+ */
 export function productLevel(sizes: Map<string, number>): string {
   const found = Object.keys(LEVELS).filter((k) => sizes.has(k));
   if (found.length !== 1) {
@@ -154,7 +172,12 @@ export function productLevel(sizes: Map<string, number>): string {
   return found[0];
 }
 
-/** The product (§2.2–§2.4): `sizes` maps each object's key to its size, and `whole(key)` reads an object. */
+/**
+ * The product (§2.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#22-the-product-metadata>–§2.4
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#24-the-tile-geocoding>): `sizes`
+ * maps each object's key to its size, and `whole(key)` reads an object.
+ */
 export async function readProduct(sizes: Map<string, number>, whole: (k: string) => Promise<Uint8Array>): Promise<Product> {
   const key = productLevel(sizes);
   const [level, rootName, tileName] = LEVELS[key];
@@ -176,7 +199,7 @@ export async function readProduct(sizes: Map<string, number>, whole: (k: string)
     else if (parts[1] !== g) reject(`${key}: the image files are in two granule directories`);
     if (seen.has(f)) reject(`${key}: IMAGE_FILE ${JSON.stringify(f.slice(0, 200))} is listed twice`);
     seen.add(f);
-    if (parts[2] !== "IMG_DATA") continue; // a DEM, cloud or snow image of PSD 14.2: not a band file (§2.3)
+    if (parts[2] !== "IMG_DATA") continue; // a DEM, cloud or snow image of PSD 14.2: not a band file (§2.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#23-image-files>)
     if (!sizes.has(f + ".jp2")) reject(`the band file ${f.slice(0, 200)}.jp2 is not in the product`);
     images.push({ text: f, key: f + ".jp2", basename: parts[parts.length - 1] });
   }
@@ -192,7 +215,10 @@ export async function readProduct(sizes: Map<string, number>, whole: (k: string)
   };
 }
 
-/** The tile geocoding (§2.4). */
+/**
+ * The tile geocoding (§2.4
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#24-the-tile-geocoding>).
+ */
 function geocoding(tile: XmlElement): Geocoding {
   const tg = one(path(tile, "Geometric_Info/Tile_Geocoding"), "MTD_TL.xml: Geometric_Info/Tile_Geocoding");
   const code = layoutText(one(kids(tg, "HORIZONTAL_CS_CODE"), "Tile_Geocoding/HORIZONTAL_CS_CODE"), "HORIZONTAL_CS_CODE");
@@ -227,7 +253,10 @@ function geocoding(tile: XmlElement): Geocoding {
   return { code, sizes, positions, element: tg };
 }
 
-/** A band file's band name (§2.5). */
+/**
+ * A band file's band name (§2.5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#25-band-files>).
+ */
 export function bandName(basename: string, r: number): string {
   let b = basename;
   const suffix = `_${r}m`;
@@ -239,7 +268,10 @@ export function bandName(basename: string, r: number): string {
   return name;
 }
 
-/** The band file's resolution: the one Size of its image size (§2.5). */
+/**
+ * The band file's resolution: the one Size of its image size (§2.5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#25-band-files>).
+ */
 export function resolution(geo: Geocoding, width: number, height: number, key: string): number {
   const found = [...geo.sizes].filter(([, [rows, cols]]) => rows === height && cols === width).map(([r]) => r);
   if (found.length !== 1) {

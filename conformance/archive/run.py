@@ -4,7 +4,8 @@
         --impl rust=/path/to/vzip --out conformance/results/round1
 
 The runner serves the HTTP sources on 127.0.0.1, which a reader following
-spec/archive.md §8.7 rule 3 refuses by default: give each implementation's command
+spec/archive.md §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule
+3 refuses by default: give each implementation's command
 the option that allows private hosts (HARNESS.md).
 
 For every implementation:
@@ -88,6 +89,7 @@ def grade(out: dict, queries: list[dict], accepts: list[list[dict]], open_must: 
 
 
 # (query, max GET requests to data objects, pinned?) — spec §6.2
+# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>
 ACCOUNTING = [
     ({"op": "get", "key": "h/plain"}, 1, False),
     ({"op": "get", "key": "h/plain", "range": {"start": 2, "end": 5}}, 1, False),
@@ -99,7 +101,8 @@ ACCOUNTING = [
 
 
 def http_accounting(cli, arc: Path, http, out: Path) -> list[dict]:
-    """Check the requests a reader sends to resolve http sources (spec §6.2)."""
+    """Check the requests a reader sends to resolve http sources (spec §6.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>)."""
     fails = []
     for q, max_gets, pinned in ACCOUNTING:
         http.log.clear()
@@ -122,7 +125,7 @@ def http_accounting(cli, arc: Path, http, out: Path) -> list[dict]:
             if pinned and not ("if-match" in h and "if-unmodified-since" in h):
                 problems.append("pinned source read without If-Match / If-Unmodified-Since")
         if problems:
-            fails.append({"query": q, "got": problems, "accept": "spec §6.2 request rules"})
+            fails.append({"query": q, "got": problems, "accept": "spec §6.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http> request rules"})
     return fails
 
 
@@ -238,7 +241,9 @@ def main() -> int:
                 "ok": p.returncode != 0, "exit": p.returncode, "file_left": False,
                 "stderr": p.stderr.strip()[-200:]}
 
-    # 1d. http profile: request accounting (spec §6.2), one query per CLI run
+    # 1d. http profile: request accounting (spec §6.2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>), one query per
+    # CLI run
     if "http_basic" in vectors:
         arc = vectors["http_basic"]["archive"]
         for impl, cli in impls.items():

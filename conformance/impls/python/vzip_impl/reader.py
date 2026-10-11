@@ -1,4 +1,8 @@
-"""vzip reader (spec §3, §4, §7, §8)."""
+"""vzip reader (spec §3
+<https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#3-zip-container>, §4
+<https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#4-entries>, §7
+<https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#7-page-index-optional>, §8
+<https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#8-reading>)."""
 
 import bisect
 import os
@@ -24,7 +28,9 @@ ID_CONCAT = 0x7A77
 MAX_PAYLOAD = 65519
 MAX64 = (1 << 64) - 1
 
-# Documented resource limit (spec §10): a single request (window of a value,
+# Documented resource limit (spec §10
+# <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#10-security-considerations>):
+# a single request (window of a value,
 # inflated body, or HTTP response body) may use at most this many bytes.
 DEFAULT_LIMIT = 1 << 30
 
@@ -138,7 +144,10 @@ class Entry:
 
 
 def analyze(rec):
-    """Classify a record and compute its body location; raises entry errors (§4.1, §3.2, §8.4)."""
+    """Classify a record and compute its body location; raises entry errors (§4.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#41-classification>,
+    §3.2 <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#32-zip64>, §8.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#84-errors>)."""
     blocks = []
     ex = rec.extra
     pos = 0
@@ -187,7 +196,11 @@ class Part:
 
 
 def decode_payload(ref_id, payload, nsources):
-    """Decode and check a reference payload (§4.3, §5.2, §5.3). Raises payload errors."""
+    """Decode and check a reference payload (§4.3
+    <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#43-reference-entries>,
+    §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#52-range>, §5.3
+    <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#53-concat>). Raises
+    payload errors."""
     if len(payload) > MAX_PAYLOAD:
         raise _payload("reference payload is %d bytes, more than %d" % (len(payload), MAX_PAYLOAD))
     try:
@@ -291,7 +304,8 @@ class Archive:
     def _within(self, off, size):
         return off + size <= self.file_size
 
-    # ------------------------------------------------------------ open (§8.1)
+    # ------------------------------------------------------------ open (§8.1
+    # <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#81-opening>)
 
     def _open(self):
         fs = self.file_size
@@ -426,7 +440,8 @@ class Archive:
                 raise _arch("page index is malformed: pinned body lies outside the file")
             self.pinned[k] = Entry("bytes", m, doff, csize, p.get("size", 0))
 
-    # ------------------------------------------------------------ lookup (§7.2)
+    # ------------------------------------------------------------ lookup (§7.2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#72-lookup>)
 
     def _page(self, i):
         c = self._page_cache.get(i)
@@ -485,7 +500,8 @@ class Archive:
             raise VzError("request", "request exceeds the resource limit")
         return self._pread(e.body_off + a, b - a)
 
-    # ------------------------------------------------------------ operations (§8.2)
+    # ------------------------------------------------------------ operations (§8.2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#82-operations>)
 
     @staticmethod
     def _key_bytes(key):
@@ -557,7 +573,8 @@ class Archive:
                             keys.add(name)
         return [k.decode("utf-8") for k in sorted(keys)]
 
-    # ------------------------------------------------------------ references (§8.3)
+    # ------------------------------------------------------------ references (§8.3
+    # <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#83-resolving-a-reference>)
 
     def _get_reference(self, e, req):
         parts, n = decode_payload(e.ref_id, e.payload, len(self.sources))

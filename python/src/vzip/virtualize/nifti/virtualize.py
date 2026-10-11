@@ -1,4 +1,5 @@
-"""The NIfTI profile (spec/virtualize.md, §7)."""
+"""The NIfTI profile (spec/virtualize.md, §7
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#7-nifti-profile>)."""
 
 from __future__ import annotations
 
@@ -16,10 +17,12 @@ from vzip.virtualize.common import (
 )
 
 MAX_SAFE = 2**53 - 1
-CHUNK_BYTES = 1 << 17  # the most bytes of a chunk of the image (spec/virtualize/nifti.md §4.1)
-MAX_CHANNELS = 64  # the most channels given display windows (spec/virtualize/nifti.md §4.4)
+CHUNK_BYTES = 1 << 17  # the most bytes of a chunk of the image (spec/virtualize/nifti.md §4.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#41-the-array>)
+MAX_CHANNELS = 64  # the most channels given display windows (spec/virtualize/nifti.md §4.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#44-channels>)
 
-# Header length, magic (§1.2) and the offset and struct format of each field (spec/virtualize/nifti.md §2).
+# Header length, magic (§1.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>)
+# and the offset and struct format of each field (spec/virtualize/nifti.md §2
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#2-the-header>).
 LAYOUTS = {
     1: {
         "length": 348, "dim": (40, "8h"), "datatype": (70, "h"), "bitpix": (72, "h"), "pixdim": (76, "8f"),
@@ -36,8 +39,9 @@ LAYOUTS = {
 }
 
 # Every header field, in the standard's order, with its offset and kind: the
-# source metadata of spec/virtualize/nifti.md §5. A kind is a struct format,
-# or "s<N>" for a character field of N bytes.
+# source metadata of spec/virtualize/nifti.md §5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>. A kind is a
+# struct format, or "s<N>" for a character field of N bytes.
 HEADER_FIELDS = {
     1: [
         ("sizeof_hdr", 0, "i"), ("data_type", 4, "s10"), ("db_name", 14, "s18"), ("extents", 32, "i"),
@@ -67,12 +71,14 @@ HEADER_FIELDS = {
 }
 
 
-# The bits of the one NaN a float field is written back as from "NaN" (spec/virtualize/nifti.md §5).
+# The bits of the one NaN a float field is written back as from "NaN" (spec/virtualize/nifti.md §5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>).
 CANONICAL_NAN = {"f": 0x7FC00000, "d": 0x7FF8000000000000}
 
 
 def float_json(order: str, kind: str, raw: bytes):
-    """A float field's value as source metadata (spec/virtualize/nifti.md §5): a number,
+    """A float field's value as source metadata (spec/virtualize/nifti.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>): a number,
     or {"bits": hex} for a negative zero or a NaN other than the canonical one, whose
     bits JSON numbers and "NaN" do not keep."""
     v = struct.unpack(order + kind, raw)[0]
@@ -84,7 +90,8 @@ def float_json(order: str, kind: str, raw: bytes):
 
 def header_json(version: int, order: str, header: bytes) -> tuple[dict, dict]:
     """Every header field, translated, and the bytes after the first NUL of each
-    character field but `magic` where they are not all NUL (spec/virtualize/nifti.md §5)."""
+    character field but `magic` where they are not all NUL (spec/virtualize/nifti.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>)."""
     out, rest = {}, {}
     for name, offset, kind in HEADER_FIELDS[version]:
         if kind[0] == "s":
@@ -116,11 +123,12 @@ EXTENDERS = (bytes(4), b"\1\0\0\0")  # the extenders that are not recorded
 ECODES = f"{SOURCE_NODE}/extensions/ecode"
 ESIZES = f"{SOURCE_NODE}/extensions/esize"
 EDATA = f"{SOURCE_NODE}/extensions/data"
-ECODE_CHUNK = 1 << 22  # the most values of a chunk of the ecodes (spec/virtualize/nifti.md §5)
+ECODE_CHUNK = 1 << 22  # the most values of a chunk of the ecodes (spec/virtualize/nifti.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>)
 
 
 def extensions_json(read: Reader, order: str, start: int, vox: int) -> tuple[tuple[object, list], int]:
-    """The extension chain from `start` up to the voxel data (spec/virtualize/nifti.md §5):
+    """The extension chain from `start` up to the voxel data (spec/virtualize/nifti.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>):
     (its JSON, its arrays, where it ends). The chain is kept as two packed columns, so that
     memory per extension is 8 bytes; the JSON is built per extension only while it may fit."""
     esizes, ecodes, q = array("i"), array("i"), start
@@ -139,7 +147,8 @@ def extensions_json(read: Reader, order: str, start: int, vox: int) -> tuple[tup
 
 
 def extension_text(ecode: int, data: bytes | None):
-    """The text value of an extension's data, or None when it is not a text extension (§5)."""
+    """The text value of an extension's data, or None when it is not a text extension (§5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>)."""
     if ecode not in TEXT_CODES or data is None:
         return None
     head, _, pad = data.partition(b"\0")
@@ -148,7 +157,8 @@ def extension_text(ecode: int, data: bytes | None):
 
 def extensions_value(read: Reader, order: str, start: int, end: int, esizes: array, ecodes: array
                      ) -> tuple[object, list]:
-    """The value of `extensions` and its arrays, for the chain from `start` to `end` (§5)."""
+    """The value of `extensions` and its arrays, for the chain from `start` to `end` (§5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>)."""
     count = len(esizes)
     if count <= LIST_MOST:  # the array E may fit: build it while its running size does
         out, plans, size, at = [], [], 1, start + 8  # size: the JSON of "[" and of each entry and its separator
@@ -212,7 +222,8 @@ def extensions_value(read: Reader, order: str, start: int, end: int, esizes: arr
 
 
 def data_family(path: str, read: Window, start: int, esizes: array, inline: dict) -> list[Plan]:
-    """The extensions' data as a family of byte values in its second form (conventions §7),
+    """The extensions' data as a family of byte values in its second form (conventions §7
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>),
     member i absent when it is in `inline`: the rule of common.family_plans, from the packed
     esizes, so that memory is 8 bytes per member and one chunk at a time."""
     count = len(esizes)
@@ -225,7 +236,8 @@ def data_family(path: str, read: Window, start: int, esizes: array, inline: dict
     del ends
     total = starts[count]
     packed = starts.tobytes() if sys.byteorder == "little" else np.array(starts, dtype="<i8").tobytes()
-    # The offsets are copied, and cut as contiguous values (spec/conventions.md §7).
+    # The offsets are copied, and cut as contiguous values (spec/conventions.md §7
+    # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>).
     shape, cut = grid_chunks(0, [count + 1], 8, lambda o, n: packed[o : o + n])
     offsets = {k: v if isinstance(v, bytes) else b"".join(packed[r[0] : r[0] + r[1]] if isinstance(r, tuple) else r
                                                           for r in v) for k, v in cut.items()}
@@ -297,7 +309,8 @@ def _term(r) -> int:
 
 def text_esize(length: int) -> int:
     """The esize of a text extension of `length` bytes padded with the fewest NULs: the
-    least multiple of 16 that is at least length + 8 (spec/virtualize/nifti.md §5)."""
+    least multiple of 16 that is at least length + 8 (spec/virtualize/nifti.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>)."""
     return -(-(length + 8) // 16) * 16
 
 
@@ -315,7 +328,8 @@ def all_zero(read: Reader, start: int, end: int) -> bool:
     return True
 
 
-# datatype: (Zarr data type, bitpix, samples per voxel) (spec/virtualize/nifti.md §3).
+# datatype: (Zarr data type, bitpix, samples per voxel) (spec/virtualize/nifti.md §3
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#3-data-types>).
 DATATYPES = {
     2: ("uint8", 8, 1), 4: ("int16", 16, 1), 8: ("int32", 32, 1), 16: ("float32", 32, 1),
     64: ("float64", 64, 1), 256: ("int8", 8, 1), 512: ("uint16", 16, 1), 768: ("uint32", 32, 1),
@@ -328,7 +342,8 @@ COLORS = [("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF"), ("A", "FFFFFF")]
 
 
 def detect(head: bytes) -> int | None:
-    """The NIfTI version that the file's first bytes select (§1.2), or None."""
+    """The NIfTI version that the file's first bytes select (§1.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>), or None."""
     if len(head) < 12:
         return None
     sizes = struct.unpack("<i", head[:4]) + struct.unpack(">i", head[:4])
@@ -347,7 +362,7 @@ def virtualize_nifti(url: str, read: Reader, size: int) -> Output:
     version = detect(read(0, min(552, size)))
     if version is None:
         raise Rejected("not a NIfTI-1 or NIfTI-2 single file")
-    # §7.1
+    # §7.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#71-header>
     layout = LAYOUTS[version]
     length = layout["length"]
     if size < length:
@@ -396,6 +411,7 @@ def virtualize_nifti(url: str, read: Reader, size: int) -> Output:
         raise Rejected(f"the {total}-byte voxel data at {vox} is outside the {size}-byte file")
 
     # spec/virtualize/nifti.md §4.2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#42-value-scaling>
     scaling = None
     if not color:
         slope, inter = field("scl_slope"), field("scl_inter")
@@ -404,6 +420,7 @@ def virtualize_nifti(url: str, read: Reader, size: int) -> Output:
     nontrivial = scaling is not None and scaling != (1, 0)
 
     # spec/virtualize/nifti.md §4.3
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#43-scales-units-and-position>
     units_code = field("xyzt_units")
     space, time = SPACE_UNITS.get(units_code & 7), TIME_UNITS.get(units_code & 56)
     pixdim = field("pixdim")
@@ -427,6 +444,7 @@ def virtualize_nifti(url: str, read: Reader, size: int) -> Output:
         scale[a], units[a] = (v, space) if _valid(v) else (1, None)
 
     # spec/virtualize/nifti.md §4.4
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#44-channels>
     channels = None
     if color:
         channels = [{"label": label, "color": c, "active": True,
@@ -442,6 +460,7 @@ def virtualize_nifti(url: str, read: Reader, size: int) -> Output:
                              "window": {"min": lo, "max": hi, "start": lo, "end": hi}} for k in range(C)]
 
     # spec/virtualize/nifti.md §4.1
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#41-the-array>
     axes = (["t"] if n >= 4 else []) + (["c"] if n >= 5 or color else []) + (["z"] if n >= 3 else []) + ["y", "x"]
     shape = {"t": T, "c": samples if color else C, "z": Z, "y": Y, "x": X}
     # The voxels in file order: dimension 5 outermost, a color type's samples innermost.
@@ -452,7 +471,8 @@ def virtualize_nifti(url: str, read: Reader, size: int) -> Output:
     ome = image_ome(axes, units, [[scale[a] for a in axes]], None, [translation] if translation else None)
     if channels is not None:
         ome["omero"] = {"channels": channels}
-    # The source metadata (spec/virtualize/nifti.md §5).
+    # The source metadata (spec/virtualize/nifti.md §5
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>).
     endian = "little" if order == "<" else "big"
     header_meta, header_rest = header_json(version, order, header)
     meta = {"nifti_version": version, "byte_order": endian, "header": header_meta}
@@ -489,7 +509,7 @@ def virtualize_nifti(url: str, read: Reader, size: int) -> Output:
         emit_plans(out, plans, declare({}, "nifti", None))
     out.json("0/zarr.json", array_json([shape[a] for a in axes], data_type, [chunk_shape[a] for a in axes],
                                        codecs, axes))
-    for coords, parts in voxel_chunks.items():  # spec/virtualize.md §7.2
+    for coords, parts in voxel_chunks.items():  # spec/virtualize.md §7.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#72-chunks>
         key = "0/c/" + "/".join(str(coords[stored.index(a)]) for a in axes)
         if isinstance(parts, bytes):
             out.bytes_entries[key] = parts

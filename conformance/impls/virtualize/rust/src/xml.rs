@@ -1,4 +1,6 @@
-// §3.2 tag scan over OME-XML text.
+// §3.2
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#32-ome-xml> tag
+// scan over OME-XML text.
 
 pub struct Tag {
     pub start: usize,

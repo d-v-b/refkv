@@ -1,4 +1,7 @@
-//! vzip writer (§3, §9) and the HARNESS.md JSON description parser.
+//! vzip writer (§3
+//! <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#3-zip-container>, §9
+//! <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#9-writing>) and the
+//! HARNESS.md JSON description parser.
 
 use crate::json::{self, Value};
 use crate::proto::{self, CdIndex, Page, Pinned, Range, Source, SourceKind};
@@ -37,7 +40,9 @@ struct Prepared {
     pinned: bool,
 }
 
-/// Checks the §9.1 requirements and prepares entry bodies.
+/// Checks the §9.1
+/// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#91-requirements>
+/// requirements and prepares entry bodies.
 fn prepare(spec: &ArchiveSpec) -> Result<Vec<Prepared>, String> {
     let mut seen = std::collections::HashMap::new();
     for (i, e) in spec.entries.iter().enumerate() {

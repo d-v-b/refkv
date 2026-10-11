@@ -6,7 +6,7 @@ all of vzip's conventions share is in [spec/conventions.md](../conventions.md),
 cited here as "conventions §n". How vzip produces this layout as a virtual
 store is the TIFF profile, [Part 2](#part-2-the-profile) below.
 
-Convention version: 0 (until release, conventions §1) · UUID: `48e9ac4e-1156-4a62-955e-20467d9c2700` ·
+Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `48e9ac4e-1156-4a62-955e-20467d9c2700` ·
 Schema: [schema.json](tiff/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the TIFF
@@ -25,8 +25,8 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "tiff"`, `"version": 0`, `"revision": 25` (conventions §1), the file's URL as `source.url`,
-and the source metadata of §5 as the member `"tiff"`. Its CMO is:
+with `"profile": "tiff"`, `"version": 0`, `"revision": 25` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
+and the source metadata of [§5](#5-source-metadata) as the member `"tiff"`. Its CMO is:
 
 ```json
 {
@@ -38,7 +38,7 @@ and the source metadata of §5 as the member `"tiff"`. Its CMO is:
 }
 ```
 
-`vzip_source` declares it too, with the IR mirror's description (§5,
+`vzip_source` declares it too, with the IR mirror's description ([§5](#5-source-metadata),
 [conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
 the mirror's view that has a member; the mirror's arrays have no
 attributes.
@@ -65,7 +65,7 @@ types and counts are as the profile checks them
 | 256, 257 | ImageWidth, ImageLength | scalar | required |
 | 258 | BitsPerSample | array | required |
 | 259 | Compression | scalar | 1 |
-| 262 | PhotometricInterpretation | scalar | none (required for JPEG with 3 samples, §4.3) |
+| 262 | PhotometricInterpretation | scalar | none (required for JPEG with 3 samples, [§4.3](#43-data-types-and-codecs)) |
 | 266 | FillOrder | scalar | 1 |
 | 270 | ImageDescription | text | none |
 | 277 | SamplesPerPixel | scalar | 1 |
@@ -75,7 +75,7 @@ types and counts are as the profile checks them
 | 324, 325 | TileOffsets, TileByteCounts | array | required for tiled images |
 | 330 | SubIFDs | array | none |
 | 282, 283 | XResolution, YResolution | scalar | none |
-| 296 | ResolutionUnit | scalar | none (2 for TIFF, but see §4.4) |
+| 296 | ResolutionUnit | scalar | none (2 for TIFF, but see [§4.4](#44-arrays)) |
 | 339 | SampleFormat | array | 1 |
 | 347 | JPEGTables | bytes | none |
 | 530 | YCbCrSubsampling | array | `[2, 2]` (TIFF 6.0) |
@@ -94,12 +94,12 @@ MUST be 1 or 2. When Compression is 7, the format also includes
 PhotometricInterpretation (absent counts as a value of its own). Counts of BitsPerSample and SampleFormat are not otherwise
 checked. If any of these fails, the input is rejected. Formats are computed
 for IFD 0 (always, even when it is not a plane), for every IFD that becomes
-a plane or a level (§4.1, §4.2), and for every candidate of the level scan
-(§4.2).
+a plane or a level ([§4.1](#41-planes), [§4.2](#42-pyramid-levels)), and for every candidate of the level scan
+([§4.2](#42-pyramid-levels)).
 
 **Size.** An IFD that becomes a plane or a level, or is a candidate of the
 level scan, MUST have ImageWidth and ImageLength, and both MUST be at least
-1. A tiled one (§4.2) MUST have TileWidth, TileLength, TileOffsets and
+1. A tiled one ([§4.2](#42-pyramid-levels)) MUST have TileWidth, TileLength, TileOffsets and
 TileByteCounts, with TileWidth and TileLength at least 1. An IFD is
 **tiled** if it has TileWidth and TileOffsets.
 
@@ -254,7 +254,7 @@ chain that a later mapping replaces is not an error.)
   rejects the input.
 - Otherwise level 0 is the planes. Without OME-XML, the later main-chain
   IFDs are scanned in order. An IFD that is tiled and has BitsPerSample is a
-  **candidate**: its format and size are checked as §2 says (a failure
+  **candidate**: its format and size are checked as [§2](#2-the-source) says (a failure
   rejects the input). A candidate becomes the next level if it has IFD 0's
   format and is strictly smaller in both width and length than the last
   level. Other IFDs, and other candidates, are skipped. This finds the
@@ -304,7 +304,7 @@ The hierarchy is one image at the root ([conventions §4](../conventions.md#4-im
 path `"<level>"`.
 
 - **Axes:** `t` if `SizeT > 1`; `c` if the channel count (`SizeC` after
-  §4.1, or `spp` without OME-XML) is more than 1; `z` if `SizeZ > 1`; then
+  [§4.1](#41-planes), or `spp` without OME-XML) is more than 1; `z` if `SizeZ > 1`; then
   `y`, `x`.
 - **Pixel size.** `PX`, `PY`, `PZ` and the units of `x`, `y`, `z` come from
   the first of these that applies:
@@ -317,7 +317,7 @@ path `"<level>"`.
      is split at its first `=`, with whitespace around each part removed, and
      of fields with the same name the first is used. A field named `MPP`
      whose value is a
-     present decimal (as `PhysicalSize*`, §3) gives `PX = PY` = that
+     present decimal (as `PhysicalSize*`, [§3](#3-ome-xml)) gives `PX = PY` = that
      value, and `x`, `y` the unit `micrometer`.
   3. **Resolution tags:** IFD 0 has XResolution `n / d` with `n` and `d`
      positive and a ResolutionUnit tag of 2 (inch) or 3 (centimeter):
@@ -375,7 +375,7 @@ space as gaps).
 ### 5.1 Elements
 
 Paths are relative to the IR's root, whose path is `""`; `<i>`, `<j>`,
-`<tag>` are decimal name indexes (conventions §8.1). Types are those of conventions §8.6, with `E` the
+`<tag>` are decimal name indexes ([conventions §8.1](../conventions.md#81-elements)). Types are those of [conventions §8.6](../conventions.md#86-types), with `E` the
 file's byte order (`<` little, `>` big), `W` the offset type (`u4`, or `u8`
 for BigTIFF) and `C` the entry-count type (`u2`, or `u8`).
 
@@ -387,7 +387,7 @@ for BigTIFF) and `C` the entry-count type (`u2`, or `u8`).
 | `header/magic` | value | `Eu2` | 42 or 43 |
 | `header/offset_size`, `header/reserved` | value | `Eu2` | BigTIFF only |
 | `header/first_ifd` | value | `EW` | the first IFD's offset |
-| `ifds/<i>` | struct | | main-chain IFD `i` (§2): its entry count, entries and next-IFD offset |
+| `ifds/<i>` | struct | | main-chain IFD `i` ([§2](#2-the-source)): its entry count, entries and next-IFD offset |
 | `…/entry_count` | value | `EC` | the entry count `n` |
 | `…/tags/<tag>` | struct | | the first entry of tag `<tag>` (12 or 20 bytes); a later one of the same tag is `…/tags/<tag>~<k>`, `k` = 1, 2, … |
 | `…/tags/<tag>/entry` | value | record | the entry's tag, field type and count (`{tag:Eu2,type:Eu2,count:EW}`), with `offset:EW` when the value is out of line, or `field:bytes[4\|8]` when the field type is unknown |
@@ -396,8 +396,8 @@ for BigTIFF) and `C` the entry-count type (`u2`, or `u8`).
 | `…/tiles`, `…/strips` | struct | | an IFD's tiles or strips (by its TileOffsets and TileByteCounts, or StripOffsets and StripByteCounts), when it has both tables |
 | `…/tiles/<j>`, `…/strips/<j>` | data | | tile or strip `j`, when its byte count is not 0 and it lies within the file; its form's geometry is `{"shape": [rows, columns], "samples": s, "bits": b}`, its codec `{"compression": c}`, and its recipe the bytes, or, for JPEG (7) with JPEGTables, the first 2 bytes, the tables without their SOI and EOI (a shared data source), and the rest |
 | `…/subifds/<j>` | struct | | SubIFD `j` of the IFD (to depth 4), as an IFD |
-| `…/exif`, `…/gps`, `…/interoperability`, `…/ifd_<tag>` | struct | | the IFD a pointer tag (§5.2) leads to (`…/<name>/<j>` when the tag has several values), as an IFD |
-| `ome/planes/<p>` | alias | | plane `p` of the OME-XML (§4.1): the main-chain IFD its `TiffData` names |
+| `…/exif`, `…/gps`, `…/interoperability`, `…/ifd_<tag>` | struct | | the IFD a pointer tag ([§5.2](#52-which-ifds)) leads to (`…/<name>/<j>` when the tag has several values), as an IFD |
+| `ome/planes/<p>` | alias | | plane `p` of the OME-XML ([§4.1](#41-planes)): the main-chain IFD its `TiffData` names |
 | `gaps/<offset>` | gap | | bytes no other element claims (padding, unused space, image data of tables that do not lie within the file) |
 
 An IFD whose tile (or strip) tables are at the offsets of an earlier IFD's,
@@ -407,12 +407,12 @@ pointer, a tile at another's offset) is an alias of that element.
 
 ### 5.2 Which IFDs
 
-The IFDs of §2, at depth 0 (`ifds/<i>`) and their SubIFDs (to depth 4); then
+The IFDs of [§2](#2-the-source), at depth 0 (`ifds/<i>`) and their SubIFDs (to depth 4); then
 the IFDs that pointer tags lead to: SubIFDs (330), ExifIFD (34665),
 GPSIFD (34853), InteroperabilityIFD (40965) when their field type is an
 unsigned integer type, GlobalParametersIFD (400) when it is LONG, and any
 other tag of field type IFD (13) or IFD8 (18) that is neither a tag the
-layout uses nor a layout table. The IFDs of §2 are visited in order (each
+layout uses nor a layout table. The IFDs of [§2](#2-the-source) are visited in order (each
 IFD, then its SubIFDs, depth first), and each pointer value in order; an IFD
 that a value leads to is read when it lies within the file, has at least one
 entry and does not overlap an IFD already read, at depth at most 4, while at
@@ -423,13 +423,13 @@ alias.
 
 An entry's value is an element when it lies within the file. Its bytes are
 in the source; the view shows it when it is a number, a record, a GUID or
-text (ASCII) of at most 1024 bytes (conventions §8.7), and a producer reads
+text (ASCII) of at most 1024 bytes ([conventions §8.7](../conventions.md#87-the-view)), and a producer reads
 every such value.
 
 ### 5.4 Equivalence
 
 The elements are determined by the file, and the mirror by its elements
-(conventions §8.8: one order, one folding, one encoding): hierarchies of one
+([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
 file are compared entry for entry, `vzip_source` included
 ([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
 
@@ -454,7 +454,7 @@ property:
 }
 ```
 
-`vzip_source` is the IR mirror (§5). For the 5,319-byte JPEG-tiled file
+`vzip_source` is the IR mirror ([§5](#5-source-metadata)). For the 5,319-byte JPEG-tiled file
 `jpeg_gray.tif` of vzip's test fixtures, its property is:
 
 ```json
@@ -477,7 +477,7 @@ property:
 
 Its 73 elements are 14 rows: IFD 0's 15 tags fold into one column run, its
 12 tiles into another, whose starts and lengths are stored as differences
-(conventions §8.8: encoding 2, which reads them from TileOffsets and
+([conventions §8.8](../conventions.md#88-canonical-form): encoding 2, which reads them from TileOffsets and
 TileByteCounts, needs 16 tiles or more), and the 7 gaps into a third, whose
 name indexes are their starts (encoding 3). The names and types are sorted,
 so `names[0]` is `""`, the root's name; the root is row 0, with the extent
@@ -508,7 +508,7 @@ NUL, so tag 305's 12 bytes are `tifffile.py`).
 # Part 2. The profile
 
 The TIFF profile of [spec/virtualize.md](../virtualize.md) (revision 16), numbered
-as its §3. §1 and §2 are in spec/virtualize.md and apply here.
+as its [§3](#3-tiff-profile). [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here.
 
 The output has the convention's layout for the input
 ([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
@@ -520,7 +520,7 @@ references the file. "The convention §n" below is a section of Part 1.
 ### 3.1 Reading
 
 The input is a TIFF (magic 42) or BigTIFF (magic 43, offset size 8 and
-reserved word 0), in either byte order. An NDPI file is read with the changes given in the NDPI profile (§4,
+reserved word 0), in either byte order. An NDPI file is read with the changes given in the NDPI profile ([§4](ndpi.md#4-ndpi-profile),
 [ndpi.md](ndpi.md#part-2-the-profile)).
 
 - **IFDs:** the virtualizer reads the chain of image file directories (IFDs)
@@ -587,7 +587,7 @@ tag of the table are checked.
 
 ### 3.2 Rejection
 
-The input is rejected when a check of §3.1 fails, and when the convention
+The input is rejected when a check of [§3.1](#31-reading) fails, and when the convention
 gives it no layout: wherever the convention says that the input is
 rejected, or that something MUST hold and it does not
 ([the convention §2–§4](#2-the-source)).
@@ -598,7 +598,7 @@ Every chunk that the convention says is present
 ([the convention §4.4](#44-arrays)) is the
 entry `<level>/c/<coords>`. Tile `k`, with TileByteCounts `n > 0`, has the
 single range `(0, TileOffsets[k], n)` (for JPEG, see below). The references
-are listed (for §1.2's order of first use) level by level, within a level
+are listed (for [§1.2](../virtualize.md#12-input)'s order of first use) level by level, within a level
 by `t`, then `c`, then `z`, and within a plane by `k`. Besides these and the
 root's and the arrays' `zarr.json`, the archive's entries are those of the
 source metadata node `vzip_source`, the file's IR mirror
@@ -622,7 +622,7 @@ tile's first 2 bytes (its SOI marker), the shared byte string `P`:
 `n` MUST be more than 2. When `P` is empty (one sample, no JPEGTables) the
 tile has the single range above; otherwise it has the ranges
 `[(0, TileOffsets[k], 2), R, (0, TileOffsets[k] + 2, n − 2)]`, where `R` is
-a range of the data source (§1.2) that holds `P`. Every byte of the tile is
+a range of the data source ([§1.2](../virtualize.md#12-input)) that holds `P`. Every byte of the tile is
 referenced, none replaced, so the chunk holds the tile whatever its first 2
 bytes are. `P` depends only on the IFD, so every tile of an IFD has the
 same `P`, and IFDs with the same bytes (as several levels of a slide often

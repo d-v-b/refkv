@@ -7,13 +7,15 @@ code, run under Node). Every array of the archive is read through VZipStore
 and zarr-python as Zarr v3 and must equal the same array read from the
 fixture directory by zarr-python as Zarr v2 (`zarr_format=2`, which reads
 `.zarray` itself and decodes chunks with numcodecs), with the same data type
-and fill value. Zero-size chunk objects have no entry (spec/virtualize.md §1.4),
+and fill value. Zero-size chunk objects have no entry (spec/virtualize.md §1.4
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>),
 so the reference reads a copy of the store without them (zarr-python fails on
 them); their keys are listed with the empty objects. Each object under
 `vzip_source/objects/` must read as the store's object at its unescaped key,
 none may open as a Zarr node, and the keys listed as empty must be exactly
-the store's empty objects, and none listed as ignored (spec/virtualize/zarr2.md §5). `zarr2_reject_*` stores must be
-rejected.
+the store's empty objects, and none listed as ignored (spec/virtualize/zarr2.md §5
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
+`zarr2_reject_*` stores must be rejected.
 
 With `--remote <store URL> <array path>`, a public store is virtualized
 directly and that array is compared with zarr-python reading the Zarr v2
@@ -49,7 +51,9 @@ import vzip.codecs  # noqa: E402,F401  (registers zlib)
 from vzip.policy import Policy  # noqa: E402
 from vzip.store import VZipStore  # noqa: E402
 
-# The sources are served on 127.0.0.1, which spec §8.7 rule 3 refuses by default.
+# The sources are served on 127.0.0.1, which spec §8.7
+# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3 refuses by
+# default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
 
 
@@ -73,14 +77,20 @@ def same(got, want) -> bool:
             and np.array_equal(got, want, equal_nan=got.dtype.kind == "f"))
 
 
-# A last segment escaped with ~ (spec/virtualize/zarr2.md §5, spec/virtualize/n5.md §6).
+# A last segment escaped with ~ (spec/virtualize/zarr2.md §5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
+# spec/virtualize/n5.md §6
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>).
 ESCAPED = re.compile(r"(?:zarr\.json|\.zarray|\.zgroup)~+\Z")
 NODE_NAME = re.compile(r"(?:zarr\.json|\.zarray|\.zgroup)\Z")
 
 
 def objects_problems(store_dir: Path, out: Path) -> list[str]:
-    """The other objects and the empty ones against the store (spec/virtualize/zarr2.md §5,
-    spec/virtualize/n5.md §6): each entry under vzip_source/objects/ is its object, whose key
+    """The other objects and the empty ones against the store (spec/virtualize/zarr2.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
+    spec/virtualize/n5.md §6
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>): each entry
+    under vzip_source/objects/ is its object, whose key
     is the entry's with one ~ taken off an escaped last segment; no Zarr node opens there; and
     every key listed as empty is an object of size 0."""
     problems = []
@@ -135,7 +145,9 @@ def check_store(store_dir: Path, out: Path, tmp: str) -> list[str]:
         if f.is_file() and f.stat().st_size == 0:
             f.unlink()
     # numcodecs takes no member it does not know; the archive keeps such members as source
-    # metadata (spec/virtualize/zarr2.md §4), and they do not change how chunks decode.
+    # metadata (spec/virtualize/zarr2.md §4
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>), and
+    # they do not change how chunks decode.
     for f in copy.rglob(".zarray"):
         z = json.loads(f.read_text())
         c = z.get("compressor")

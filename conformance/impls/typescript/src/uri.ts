@@ -1,5 +1,6 @@
 // RFC 3986 URI-reference validation and strict resolution (§5.2.2),
-// plus the vzip file: URI rules (spec §6).
+// plus the vzip file: URI rules (spec §6
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#6-source-table>).
 
 import path from "node:path";
 
@@ -193,7 +194,10 @@ const FILE_KEEP = new Set(
   Array.from("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!$&'()*+,;=:@/"),
 );
 
-/** Spec §6: base URI of an archive opened from a local path. */
+/**
+ * Spec §6 <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#6-source-table>:
+ * base URI of an archive opened from a local path.
+ */
 export function fileBaseUri(p: string): string {
   const abs = path.isAbsolute(p) ? p : process.cwd() + "/" + p;
   const out: string[] = [];

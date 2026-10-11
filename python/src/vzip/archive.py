@@ -51,7 +51,9 @@ RANGE_EXTRA_ID = 0x7A76  # "vz": payload is a Range
 CONCAT_EXTRA_ID = 0x7A77  # payload is a Concat
 ZIP64_EXTRA_ID = 0x0001
 FORMAT_VERSION = 0
-# The revision of spec/archive.md the writer follows, recorded in every archive's source table (§1.3, §6)
+# The revision of spec/archive.md the writer follows, recorded in every archive's source table (§1.3
+# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#13-versioning>, §6
+# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>)
 SPEC_REVISION = 10
 MAGIC_COMMENT = b"vzip/%d" % FORMAT_VERSION
 SOURCES_KEY = "__vz__/sources"
@@ -74,7 +76,7 @@ _U32 = 0xFFFFFFFF
 _U16 = 0xFFFF
 _FLAG_UTF8 = 0x0800
 _DOS_DATE = (0 << 9) | (1 << 5) | 1  # 1980-01-01, for reproducible archives
-_MADE_BY = 20  # spec §9.2
+_MADE_BY = 20  # spec §9.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#92-recommended-layout-informative>
 _EXT_ATTR = 0
 
 
@@ -89,7 +91,8 @@ class Entry:
     payload: tuple[int, bytes] | None = None
     # offset of the body, if it is known without reading the local header
     data_offset: int | None = None
-    # spec §8.4 entry error: every operation on this key fails with it
+    # spec §8.4 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#84-errors> entry error:
+    # every operation on this key fails with it
     error: str | None = None
     _ref: Reference | None = None
 
@@ -104,7 +107,7 @@ class Entry:
             return None
         if self._ref is None:
             hid, raw = self.payload
-            if len(raw) > MAX_PAYLOAD:  # spec §4.3: a payload error, even if it fits
+            if len(raw) > MAX_PAYLOAD:  # spec §4.3 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#43-reference-entries>: a payload error, even if it fits
                 raise ValueError(f"reference payload of {len(raw)} bytes exceeds {MAX_PAYLOAD}")
             self._ref = (Range if hid == RANGE_EXTRA_ID else Concat).decode(raw)
         return self._ref
@@ -120,7 +123,8 @@ class VZipWriter:
         """`page_size`: if set, also write a CdIndex with pages of ~page_size bytes.
 
         `checksum(url, offset, length)`: if set, the CRC-32C of those bytes of a url
-        source, recorded on every range of a url source that has none (spec §5.2)."""
+        source, recorded on every range of a url source that has none (spec §5.2
+        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>)."""
         self._f = f
         self._checksum = checksum
         self._page_size = page_size
@@ -130,7 +134,7 @@ class VZipWriter:
         self._cd: list[tuple[str, int, int, int, int, int, bytes]] = []
         self._names: set[str] = set()
         self._ref_names: set[str] = set()
-        self._range_checks: list = []  # (key, Range) for spec §9.1 bounds checks
+        self._range_checks: list = []  # (key, Range) for spec §9.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#91-requirements> bounds checks
         self._sources: dict[Source, int] = {}
         # every source in table order: a Source, or a (url, size pin or None) pair from add_url_refs
         self._source_list: list[Source | tuple[str, int | None]] = []
@@ -170,7 +174,7 @@ class VZipWriter:
         if name in self._names:
             raise ValueError(f"duplicate key {name!r}")
         if len(body) >= _U32:
-            raise ValueError("entries of 0xFFFFFFFF bytes or more cannot be stored (spec §3.1)")
+            raise ValueError("entries of 0xFFFFFFFF bytes or more cannot be stored (spec §3.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#31-structure>)")
         self._names.add(name)
         bname = name.encode()
         crc = zlib.crc32(body)
@@ -179,7 +183,7 @@ class VZipWriter:
             c = zlib.compressobj(9, zlib.DEFLATED, -15)
             method, stored = 8, c.compress(body) + c.flush()
             if len(stored) >= _U32:
-                raise ValueError("compressed size of 0xFFFFFFFF bytes or more (spec §3.1)")
+                raise ValueError("compressed size of 0xFFFFFFFF bytes or more (spec §3.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#31-structure>)")
         off = self._pos
         self._write(
             _LFH.pack(_SIG_LFH, 20, _FLAG_UTF8, method, 0, _DOS_DATE, crc, len(stored), len(body),
@@ -248,7 +252,7 @@ class VZipWriter:
             if r.data is None and r.source >= len(self._source_list):
                 raise ValueError(f"range of {key!r} uses unregistered source {r.source}")
             if r.data is not None and r.crc32c is not None:
-                raise ValueError(f"literal range of {key!r} with a crc32c (spec §9.1)")
+                raise ValueError(f"literal range of {key!r} with a crc32c (spec §9.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#91-requirements>)")
         if self._checksum is not None:
             ranges = [self._with_checksum(r) for r in ranges]
         self._range_checks.extend((key, r) for r in ranges if r.data is None)
@@ -256,9 +260,10 @@ class VZipWriter:
             hid, payload = RANGE_EXTRA_ID, ranges[0].encode()
         else:
             hid, payload = CONCAT_EXTRA_ID, Concat(tuple(ranges)).encode()
-        # spec §4.3: fixed limit, leaving room for a ZIP64 block wherever the entry lands
+        # spec §4.3 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#43-reference-entries>:
+        # fixed limit, leaving room for a ZIP64 block wherever the entry lands
         if len(payload) > MAX_PAYLOAD:
-            raise ValueError("reference payload too large for a zip extra field (spec §4.3)")
+            raise ValueError("reference payload too large for a zip extra field (spec §4.3 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#43-reference-entries>)")
         extra = struct.pack("<HH", hid, len(payload)) + payload
         self._entry(key, payload if self._mirror else b"", extra)
         self._ref_names.add(key)
@@ -276,7 +281,8 @@ class VZipWriter:
     def add_url_refs(self, items, *, pin_size: bool = False) -> None:
         """Bulk path for many objects referenced whole: for each (key, url, size),
         a new url source (not interned) and a reference entry `(source, 0, size)`.
-        With `pin_size`, each source also pins the object's size (spec §6.1).
+        With `pin_size`, each source also pins the object's size (spec §6.1
+        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#61-pins>).
 
         Avoids a Source object, an interning lookup and a deferred bounds check per
         entry (url sources are not bounds-checked), so millions of entries fit.
@@ -289,7 +295,7 @@ class VZipWriter:
             payload = bytearray()
             _put_uint(payload, 1, i)
             _put_uint(payload, 4, size)
-            if self._checksum is not None:  # field 6, crc32c (spec §5.2)
+            if self._checksum is not None:  # field 6, crc32c (spec §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>)
                 _put_varint(payload, 6 << 3)
                 _put_varint(payload, self._checksum(url, 0, size))
             payload = bytes(payload)
@@ -298,7 +304,8 @@ class VZipWriter:
             self._ref_names.add(key)
 
     def _check_sources(self, all_sources: list) -> None:
-        """Writer requirements on the source table (spec §9.1)."""
+        """Writer requirements on the source table (spec §9.1
+        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#91-requirements>)."""
         from vzip.uri import is_uri_reference
 
         bulk = [x[0] for x in all_sources if isinstance(x, tuple)]
@@ -417,7 +424,8 @@ class VZipWriter:
 
 def _encode_sources(sources: list, revision: int | None = None) -> bytes:
     """The SourceTable of `sources` (Source objects, or (url, size pin) pairs), with
-    the spec revision (spec §6)."""
+    the spec revision (spec §6
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>)."""
     if all(isinstance(x, Source) for x in sources):
         return encode_source_table(sources, revision)
     out = bytearray()
@@ -459,7 +467,8 @@ class Directory:
 
 
 def parse_tail(tail: bytes, file_size: int) -> Directory:
-    """Decode the end records of a vzip archive from its last bytes (spec §3.4)."""
+    """Decode the end records of a vzip archive from its last bytes (spec §3.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#34-end-of-central-directory-record-and-archive-comment>)."""
     for clen in (38, 22):
         i = len(tail) - _EOCD.size - clen
         if i >= 0 and tail[i : i + 4] == struct.pack("<I", _SIG_EOCD):
@@ -476,7 +485,8 @@ def parse_tail(tail: bytes, file_size: int) -> Directory:
         raise ValueError(f"unsupported vzip format version {comment[5:6]!r}; this reader "
                          f"implements version {FORMAT_VERSION}")
     n_disk = struct.unpack_from("<H", tail, i + 8)[0]
-    # spec §3.2: zip64 records are used iff an EOCD count/size/offset is all ones
+    # spec §3.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#32-zip64>: zip64 records
+    # are used iff an EOCD count/size/offset is all ones
     if _U16 in (n, n_disk) or cd_size == _U32 or cd_off == _U32:
         loc = i - _LOC64.size
         if loc < 0 or tail[loc : loc + 4] != struct.pack("<I", _SIG_LOC64):
@@ -510,11 +520,12 @@ def _iter_extra(extra: bytes):
 def parse_central_directory(cd: bytes, *, trust_offsets: bool) -> dict[str, Entry]:
     """Decode the central directory into {key: Entry}.
 
-    This is the classifier for the overlay (spec §4.1): an entry with one
+    This is the classifier for the overlay (spec §4.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#41-classification>): an entry with one
     0x7a76 or 0x7a77 extra field block belongs to the reference key space, any
     other entry to the bytes key space, and a key with no entry to neither.
-    Problems confined to one record become that entry's `error` (spec §8.4).
-    """
+    Problems confined to one record become that entry's `error` (spec §8.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#84-errors>). """
     entries: dict[str, Entry] = {}
     mv = memoryview(cd)
     pos = 0
@@ -536,7 +547,7 @@ def parse_central_directory(cd: bytes, *, trust_offsets: bool) -> dict[str, Entr
         pos += nlen
         extra = bytes(mv[pos : pos + xlen])
         pos += xlen + clen
-        if not name:  # spec §3.3: such records name no key
+        if not name:  # spec §3.3 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#33-keys>: such records name no key
             continue
         if name in entries:
             raise ValueError(f"duplicate central directory record for {name!r}")
@@ -550,7 +561,8 @@ def parse_central_directory(cd: bytes, *, trust_offsets: bool) -> dict[str, Entr
                     z64.append(data)
         except (ValueError, IndexError, struct.error) as e:
             error = f"unparseable extra field: {e}"
-        # spec §3.2: sizes never use ZIP64; only the offset may, in one 8-byte block
+        # spec §3.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#32-zip64>: sizes never
+        # use ZIP64; only the offset may, in one 8-byte block
         if error is None and len(z64) > 1:
             error = "more than one ZIP64 extra block"
         elif error is None and _U32 in (size, csize):
@@ -575,14 +587,17 @@ def parse_central_directory(cd: bytes, *, trust_offsets: bool) -> dict[str, Entr
 
 
 class InflateLimitError(ValueError):
-    """A DEFLATE stream inflates to more than the reader allows (spec §8.7 rule 6)."""
+    """A DEFLATE stream inflates to more than the reader allows (spec §8.7
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 6)."""
 
 
 def inflate_clean(raw: bytes, limit: int | None = None) -> bytes:
-    """Inflate one complete raw DEFLATE stream that fills `raw` exactly (spec §8.1).
+    """Inflate one complete raw DEFLATE stream that fills `raw` exactly (spec §8.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#81-opening>).
 
     With `limit`, inflating stops as soon as the output passes `limit` bytes,
-    which raises InflateLimitError (spec §8.7 rule 6)."""
+    which raises InflateLimitError (spec §8.7
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 6)."""
     d = zlib.decompressobj(-15)
     if limit is None:
         out = d.decompress(raw)
@@ -613,5 +628,6 @@ def read_source_table(body: bytes) -> list[Source]:
 
 
 def read_table(body: bytes) -> tuple[list[Source], int | None]:
-    """The sources and the recorded spec revision of a SourceTable (spec §6)."""
+    """The sources and the recorded spec revision of a SourceTable (spec §6
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>)."""
     return decode_table(body)

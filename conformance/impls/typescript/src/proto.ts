@@ -1,5 +1,6 @@
-// Hand-written protobuf wire format (spec §5.1) and the vzip messages
-// (Appendix A).
+// Hand-written protobuf wire format (spec §5.1
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#51-encoding>) and the
+// vzip messages (Appendix A).
 
 import { MalformedError } from "./errors.ts";
 

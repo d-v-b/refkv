@@ -1,4 +1,5 @@
-"""vzip writer (spec §9)."""
+"""vzip writer (spec §9
+<https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#9-writing>)."""
 
 import struct
 import zlib
@@ -68,7 +69,9 @@ def _encode_payload(ranges):
 
 
 def validate(entries, sources, page_size):
-    """Check writer input against spec §9.1. Returns {key_bytes: entry}. Raises InvalidInput."""
+    """Check writer input against spec §9.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#91-requirements>.
+    Returns {key_bytes: entry}. Raises InvalidInput."""
     by_key = {}
     for e in entries:
         if not isinstance(e.key, str):

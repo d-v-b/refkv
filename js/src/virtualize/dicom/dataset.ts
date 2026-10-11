@@ -1,4 +1,6 @@
-// Walking a DICOM file's elements (spec/virtualize.md §6.1–§6.3).
+// Walking a DICOM file's elements (spec/virtualize.md §6.1
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#61-elements>–§6.3
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#63-datasets-and-sequences>).
 
 import type { ByteReader } from "../common.ts";
 
@@ -18,8 +20,9 @@ export const ITEM = 0xfffee000;
 export const ITEM_END = 0xfffee00d;
 export const SEQUENCE_END = 0xfffee0dd;
 export const PIXEL_DATA = 0x7fe00010;
-// The sequences of defined length that are walked (§6.3, rule 3): Shared
-// Functional Groups and Pixel Measures.
+// The sequences of defined length that are walked (§6.3
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#63-datasets-and-sequences>,
+// rule 3): Shared Functional Groups and Pixel Measures.
 const WALKED = new Set([0x52009229, 0x00289110]);
 export const MAX_DEPTH = 64;
 
@@ -58,7 +61,10 @@ export class Walker {
     this.size = size;
   }
 
-  /** The element at `pos`, whose header must end by `end` (§6.1). */
+  /**
+   * The element at `pos`, whose header must end by `end` (§6.1
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#61-elements>).
+   */
   async header(pos: number, end: number, enc: Encoding): Promise<Element> {
     if (pos + 8 > end) reject(`the element at ${pos} runs past its container`);
     const b = dv(await this.read(pos, 8));
@@ -77,7 +83,10 @@ export class Walker {
     return { tag, vr, value: pos + 8, length: b.getUint16(6, enc.little), little: enc.little };
   }
 
-  /** The File Meta Information, and where the dataset starts (§6.2). */
+  /**
+   * The File Meta Information, and where the dataset starts (§6.2
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#62-file>).
+   */
   async meta(): Promise<[Dataset, number]> {
     const elements: Dataset = new Map();
     let pos = 132;
@@ -92,7 +101,9 @@ export class Walker {
   }
 
   /** The elements from `pos`: to `end` (defined), or to an item delimiter
-   * within `end` (§6.3). The top-level dataset stops at Pixel Data, whose
+   * within `end` (§6.3
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#63-datasets-and-sequences>).
+   * The top-level dataset stops at Pixel Data, whose
    * header is the last one read. */
   async dataset(
     pos: number,
@@ -144,7 +155,9 @@ export class Walker {
   }
 
   /** A sequence's items: to `end` if its length is defined, else to a
-   * sequence delimiter within `limit` (§6.3). */
+   * sequence delimiter within `limit` (§6.3
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#63-datasets-and-sequences>).
+   * */
   async sequence(
     pos: number,
     end: number | null,
@@ -176,7 +189,8 @@ export class Walker {
   }
 
   /** The items of a fragment sequence at `pos`, as [item offset, data
-   * offset, data length], and where the sequence ends (§6.5). */
+   * offset, data length], and where the sequence ends (§6.5
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#65-frames>). */
   async fragments(pos: number, limit: number, little: boolean): Promise<[[number, number, number][], number]> {
     const items: [number, number, number][] = [];
     for (;;) {

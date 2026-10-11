@@ -155,7 +155,7 @@
       "oneOf": [
         {
           "type": "object",
-          "description": "The root's: the product's identity, from the product and tile metadata (§6.3)",
+          "description": "The root's: the product's identity, from the product and tile metadata (§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)",
           "properties": {
             "PRODUCT_URI": {
               "type": "string"
@@ -208,7 +208,7 @@
         },
         {
           "type": "object",
-          "description": "A band array's: a derived convenience copied from the product metadata (§6.2), and the band file's SIZ segment",
+          "description": "A band array's: a derived convenience copied from the product metadata (§6.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#62-band-arrays>), and the band file's SIZ segment",
           "properties": {
             "IMAGE_FILE": {
               "type": "string"
@@ -510,7 +510,7 @@
         },
         {
           "type": "object",
-          "description": "vzip_source's: the XML documents kept as text, the keys of those kept as arrays, of the empty objects, the empty directories, and the keys of the ignored objects (§6.3)",
+          "description": "vzip_source's: the XML documents kept as text, the keys of those kept as arrays, of the empty objects, the empty directories, and the keys of the ignored objects (§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)",
           "properties": {
             "xml": {
               "type": "object",
@@ -565,7 +565,7 @@
       ]
     },
     "headerValue": {
-      "description": "A translated header value (spec/conventions.md §6)",
+      "description": "A translated header value (spec/conventions.md §6 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>)",
       "anyOf": [
         {
           "type": "number"

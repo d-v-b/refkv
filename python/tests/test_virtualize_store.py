@@ -1,5 +1,7 @@
-"""Store inputs (spec/virtualize.md §1.4–§1.6): the listing endpoint, the listing
-body parser, the strict JSON reader, listing over HTTP, and the writer's
+"""Store inputs (spec/virtualize.md §1.4
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>–§1.6
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>): the listing
+endpoint, the listing body parser, the strict JSON reader, listing over HTTP, and the writer's
 bulk url-source path. The browser implementation has the same tests in
 js/test/store.test.ts.
 """
@@ -199,7 +201,8 @@ def test_lists_over_http():
     }
     store = HttpStore("http://h/b/s/", opener=opener(pages))
     assert store.objects == {"attributes.json": 10, "x/0": 1, "x/1": 0}
-    # Ignored objects are recorded, but for empty folder markers (spec/virtualize.md §1.4).
+    # Ignored objects are recorded, but for empty folder markers (spec/virtualize.md §1.4
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>).
     assert store.ignored == ["", "a//b", "./c", "d/", "f/../g"]
     assert (store.requests, store.listed) == (2, 9)
 
@@ -222,7 +225,8 @@ def test_reads_from_the_listed_location_when_renamed():
     ({"http://h/b/?list-type=2&prefix=s%2F": listing(obj("s/a") + obj("s/a"))}, Rejected),
     ({"http://h/b/?list-type=2&prefix=s%2F": listing(obj("s/a"), "true", "<NextContinuationToken>t</NextContinuationToken>"),
       "http://h/b/?list-type=2&prefix=s%2F&continuation-token=t": listing(obj("s/a"))}, Rejected),
-    # A truncated page that gives a continuation token again (§1.5).
+    # A truncated page that gives a continuation token again (§1.5
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>).
     ({"http://h/b/?list-type=2&prefix=s%2F": listing(obj("s/a"), "true", "<NextContinuationToken>t</NextContinuationToken>"),
       "http://h/b/?list-type=2&prefix=s%2F&continuation-token=t":
           listing(obj("s/b"), "true", "<NextContinuationToken>t</NextContinuationToken>")}, Rejected),
@@ -260,9 +264,13 @@ def test_writer_bulk_url_sources():
 
 
 def test_records_ignored_keys_and_empty_chunks():
-    """The recorded ignored keys (spec/virtualize.md §1.4) and the empty chunk objects' keys are
+    """The recorded ignored keys (spec/virtualize.md §1.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>) and the empty
+    chunk objects' keys are
     vzip_source's source metadata under a root group, and vzip_source/empty.json under a root
-    array (spec/virtualize/zarr2.md §5); in UTF-8 byte order, each member only when not empty."""
+    array (spec/virtualize/zarr2.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>); in UTF-8
+    byte order, each member only when not empty."""
     from vzip.virtualize.n5.virtualize import virtualize_n5
     from vzip.virtualize.zarr2.virtualize import virtualize_zarr2
 
@@ -308,7 +316,10 @@ def test_records_ignored_keys_and_empty_chunks():
 
 
 def test_finds_nearest_arrays_and_nodes():
-    """find_chunks and classify by nearest ancestor (§1.4; spec/virtualize/zarr2.md §2),
+    """find_chunks and classify by nearest ancestor (§1.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>;
+    spec/virtualize/zarr2.md §2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>),
     at any depth, the root array included."""
     def is_chunk(rest: str) -> bool:
         return rest in ("0", "0/0")

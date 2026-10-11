@@ -1,5 +1,6 @@
-"""The SAFE profile (spec/virtualize.md, §12): the output of a Sentinel-2 product,
-in the directory form (a store input) or the zip form (a file input)."""
+"""The SAFE profile (spec/virtualize.md, §12
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#12-safe-profile>): the output of a
+Sentinel-2 product, in the directory form (a store input) or the zip form (a file input)."""
 
 from __future__ import annotations
 
@@ -24,7 +25,9 @@ PROFILE = "safe"
 WORKERS = 16
 
 
-# ---------------------------------------------------------------- the product's objects (§12.2, §12.4)
+# ---------------------------------------------------------------- the product's objects (§12.2
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#122-objects-and-reading>, §12.4
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#124-the-zip-form>)
 
 
 class Objects:
@@ -150,12 +153,14 @@ class ZipObjects(Objects):
         return self._whole[key] if key in self._whole else self._inflate(key)
 
 
-# ---------------------------------------------------------------- the output (§12.8)
+# ---------------------------------------------------------------- the output (§12.8
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#128-the-source-table>)
 
 
 @dataclass
 class Shared:
-    """A shared byte string: a data source (§1.2)."""
+    """A shared byte string: a data source (§1.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>)."""
 
     value: bytes
 
@@ -172,16 +177,20 @@ class SafeOutput:
     bytes_entries: dict[str, bytes] = field(default_factory=dict)
     refs: dict[str, list] = field(default_factory=dict)
     summary: dict = field(default_factory=dict)
-    # The url sources' size pins (spec/virtualize.md §1.2, §1.4): the zip file's size and
-    # ETag (set by vzip.virtualize.virtualize), or each object's listed size; and the
-    # CRC-32C of a url source's bytes, when ranges are to carry checksums (spec/archive.md §5.2).
+    # The url sources' size pins (spec/virtualize.md §1.2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>, §1.4
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): the zip file's
+    # size and ETag (set by vzip.virtualize.virtualize), or each object's listed size; and the
+    # CRC-32C of a url source's bytes, when ranges are to carry checksums (spec/archive.md §5.2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>).
     size: int | None = None
     etag: str | None = None
     object_sizes: dict[str, int] = field(default_factory=dict)
     checksum: Callable[[str, int, int], int] | None = None
 
     def table(self) -> tuple[list[str], list[bytes], dict[str, list]]:
-        """The url sources, the data sources, and the references with numbered sources (§12.8)."""
+        """The url sources, the data sources, and the references with numbered sources (§12.8
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#128-the-source-table>)."""
         keys = sorted(self.refs)
         if self.form == "zip":
             urls = [self.url]
@@ -241,7 +250,9 @@ def _group(attributes: dict | None = None) -> dict:
 
 
 def _bytes_array(n: int, size: int) -> dict:
-    """The zarr.json of an array of `n` bytes in chunks of `size` (conventions §7, Bytes)."""
+    """The zarr.json of an array of `n` bytes in chunks of `size` (conventions §7
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>,
+    Bytes)."""
     return {"zarr_format": 3, "node_type": "array", "shape": [n], "data_type": "uint8",
             "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [size]}},
             "chunk_key_encoding": {"name": "default", "configuration": {"separator": "/"}},
@@ -357,7 +368,8 @@ def virtualize_product(url: str, objects: Objects) -> SafeOutput:
             edge += padded
         tile_parts += len(cs.tiles)
 
-    # vzip_source (spec/virtualize/safe.md §6.3).
+    # vzip_source (spec/virtualize/safe.md §6.3
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
     s = {}
     if in_text:
         s["xml"] = {k: texts[k] for k in sorted(in_text)}
@@ -407,12 +419,16 @@ def virtualize_product(url: str, objects: Objects) -> SafeOutput:
 
 
 def virtualize_safe_store(store: Store) -> SafeOutput:
-    """The directory form (§12): a listed `.SAFE` directory."""
+    """The directory form (§12
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#12-safe-profile>): a listed
+    `.SAFE` directory."""
     return virtualize_product(store.url, StoreObjects(store))
 
 
 def virtualize_safe_zip(url: str, read: Reader, size: int) -> SafeOutput:
-    """The zip form (§12.4): a `.SAFE.zip` file."""
+    """The zip form (§12.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#124-the-zip-form>): a
+    `.SAFE.zip` file."""
     objects = ZipObjects(read, size)
     out = virtualize_product(url, objects)
     requests = getattr(read, "requests", None)
@@ -424,5 +440,6 @@ def virtualize_safe_zip(url: str, read: Reader, size: int) -> SafeOutput:
 
 
 def is_zip(head: bytes) -> bool:
-    """A ZIP local file header's signature (§12.1)."""
+    """A ZIP local file header's signature (§12.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#121-choosing-the-profile>)."""
     return head[:4] == zipdir.LOCAL

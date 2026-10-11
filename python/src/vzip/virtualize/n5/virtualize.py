@@ -1,4 +1,5 @@
-"""The N5 profile (spec/virtualize.md, §9)."""
+"""The N5 profile (spec/virtualize.md, §9
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#9-n5-profile>)."""
 
 from __future__ import annotations
 
@@ -33,7 +34,11 @@ LAYOUT_KEYS = ("dimensions", "blockSize", "dataType", "compression", "compressio
 
 
 def blosc_codec(c: dict, typesize: int, shuffles: dict) -> dict:
-    """The Zarr v3 blosc codec of an n5-blosc or numcodecs Blosc configuration (spec/virtualize/n5.md §3, spec/virtualize/zarr2.md §3.1)."""
+    """The Zarr v3 blosc codec of an n5-blosc or numcodecs Blosc configuration
+    (spec/virtualize/n5.md §3
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#3-datasets>,
+    spec/virtualize/zarr2.md §3.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#31-compressors>)."""
     cname, clevel, shuffle = c.get("cname"), as_int(c.get("clevel"), 0, 9), as_int(c.get("shuffle"))
     blocksize = as_int(c.get("blocksize", 0), 0, MAX_BLOCK)
     if cname not in BLOSC_NAMES:
@@ -57,7 +62,8 @@ LEVELS = {"gzip": (-1, 9, 6), "zstd": (-131072, 22, 3)}
 
 
 def level(t: str, compression: dict) -> int:
-    """The level of a gzip or zstd compression (spec/virtualize/n5.md §3)."""
+    """The level of a gzip or zstd compression (spec/virtualize/n5.md §3
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#3-datasets>)."""
     lo, hi, default = LEVELS[t]
     if "level" not in compression:
         return default
@@ -89,7 +95,8 @@ def compressor(compression: dict, b: int) -> tuple[dict | None, dict]:
 
 
 def dataset(path: str, doc: dict) -> dict:
-    """A dataset's zarr.json (spec/virtualize/n5.md §3)."""
+    """A dataset's zarr.json (spec/virtualize/n5.md §3
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#3-datasets>)."""
     dims, block, dtype = doc.get("dimensions"), doc.get("blockSize"), doc.get("dataType")
     if not isinstance(dims, list) or not 1 <= len(dims) <= 32 or any(as_int(d, 0) is None for d in dims):
         raise Rejected(f"{path}: dimensions {str(dims)[:80]} is not 1 to 32 sizes")
@@ -128,13 +135,16 @@ def dataset(path: str, doc: dict) -> dict:
         "chunk_key_encoding": {"name": "v2", "configuration": {"separator": "/"}},
         "fill_value": 0,
         "codecs": [{"name": "n5_default", "configuration": {"codecs": inner}}],
-        # The source metadata (spec/virtualize/n5.md §5): the document without its layout
-        # members, and what of those the zarr.json does not reproduce.
+        # The source metadata (spec/virtualize/n5.md §5
+        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#5-source-metadata>): the
+        # document without its layout members, and what of those the zarr.json does not reproduce.
         "attributes": source_metadata({k: v for k, v in doc.items() if k not in LAYOUT_KEYS}, meta),
     }
 
 
-# ---------------------------------------------------------------- multiscales (spec/virtualize/n5.md §4)
+# ---------------------------------------------------------------- multiscales
+# (spec/virtualize/n5.md §4
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#4-multiscale-images>)
 
 AXIS_TYPES = {"x": "space", "y": "space", "z": "space", "t": "time", "c": "channel"}
 
@@ -316,7 +326,9 @@ def virtualize_n5(store: Store) -> StoreOutput:
             candidates[""] = "candidate"
         elif key.endswith("/attributes.json"):
             candidates[key[: -len("/attributes.json")]] = "candidate"
-    # spec/virtualize/n5.md §2: classify from the root down; a candidate's kind needs its document.
+    # spec/virtualize/n5.md §2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#2-nodes>: classify from the
+    # root down; a candidate's kind needs its document.
     docs: dict[str, dict] = {}
     kinds: dict[str, str] = {}
     datasets: set[str] = set()
@@ -377,7 +389,7 @@ def virtualize_n5(store: Store) -> StoreOutput:
             continue
         ome, levels, axes = found
         if any(named.get(lv, axes) != list(axes) for lv in levels):
-            continue  # a level of an earlier image with other axis names (spec/virtualize/n5.md §4)
+            continue  # a level of an earlier image with other axis names (spec/virtualize/n5.md §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#4-multiscale-images>)
         omes[g] = ome
         images.append({"path": g, "convention": convention})
         for lv in levels:
@@ -406,7 +418,8 @@ def virtualize_n5(store: Store) -> StoreOutput:
         tests[path] = is_chunk
     chunks = find_chunks(objects, tests)
     out.chunks = [(k, n) for k, n in chunks if n > 0]
-    # An empty chunk object has no entry: its key is listed with the empty objects (§6).
+    # An empty chunk object has no entry: its key is listed with the empty objects (§6
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>).
     used = {join(p, "attributes.json") for p in nodes} | {k for k, n in chunks if n > 0}
     others = out.keep_objects(objects, used, [*nodes, *implicit], store.ignored)
     out.check_keys()

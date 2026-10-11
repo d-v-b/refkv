@@ -11,7 +11,7 @@ Implementation layout: `src/proto.ts` (protobuf), `src/uri.ts` (RFC 3986),
 
 ---
 
-## §3 ZIP container
+## [§3](../../../../spec/history/archive/SPEC.r3.md#3-zip-container) ZIP container
 
 ### 3.2-a [interop] A zip64 locator can be found where there isn't one
 *Question:* "A reader MUST use the zip64 end of central directory record
@@ -46,8 +46,8 @@ ends before the locator, and I don't check its `size` field (44) or the
 locator's disk count. The spec doesn't say whether readers must check these.
 
 ### 3.2-d Version made by of the zip64 EOCD record
-§3.2 fixes "version needed to extract" (45) but not "version made by", and
-§9.2's reproducibility advice (made-by 20) covers only the per-entry
+[§3.2](../../../../spec/history/archive/SPEC.r3.md#32-zip64) fixes "version needed to extract" (45) but not "version made by", and
+[§9.2](../../../../spec/history/archive/SPEC.r3.md#92-recommended-layout-informative)'s reproducibility advice (made-by 20) covers only the per-entry
 records. I write 45. This affects byte-for-byte reproducibility between
 writers.
 
@@ -71,7 +71,7 @@ step 2. That seems to be the intent, but the spec doesn't say so.
 I use RFC 3629, which rejects overlongs, encoded surrogates (CESU-8) and
 values above U+10FFFF, via WHATWG `TextDecoder({fatal:true, ignoreBOM:true})`.
 `ignoreBOM` is essential: the default TextDecoder strips a leading BOM,
-exactly as §3.3 warns.
+exactly as [§3.3](../../../../spec/history/archive/SPEC.r3.md#33-keys) warns.
 
 ### 3.3-b Keys that can't be encoded at all
 JSON query keys can contain lone surrogates (`"\ud800"`), which have no
@@ -82,12 +82,12 @@ about requests for a non-scalar-value string. *Choice:* classify returns
 
 ---
 
-## §4 Entries
+## [§4](../../../../spec/history/archive/SPEC.r3.md#4-entries) Entries
 
 ### 4.1-a [interop] ZIP64 extra field problems in a CD record
 *Question:* A record whose local header offset is 0xFFFFFFFF but has no
 `0x0001` block, or one too short to hold the value, can't be read. Is that an
-entry error (it's "confined to a single record") or a body error? §8.4's list
+entry error (it's "confined to a single record") or a body error? [§8.4](../../../../spec/history/archive/SPEC.r3.md#84-errors)'s list
 of entry error causes doesn't mention it.
 *Choice:* Entry error, raised by classify, get and raw. Also, when
 `csize`/`usize` are 0xFFFFFFFF (forbidden by rule 7, but a reader may still
@@ -98,7 +98,7 @@ csize, offset, and only for the fields that are all ones.
 Not addressed. I use the first one.
 
 ### 4.2-a [interop] A STORED bytes entry with `csize != usize`
-§8.4 defines a body error as "inflates to a size other than its record's".
+[§8.4](../../../../spec/history/archive/SPEC.r3.md#84-errors) defines a body error as "inflates to a size other than its record's".
 For method 0 nothing is inflated. *Choice:* a stored entry whose compressed
 and uncompressed sizes differ is a body error. A reader that ignores `usize`
 for stored entries returns `csize` bytes instead.
@@ -106,12 +106,12 @@ for stored entries returns `csize` bytes instead.
 ### 4.3-a 0x7A76 with an empty payload
 An empty `Range` payload decodes to the source range (0, 0, 0). It is
 malformed when the archive has no sources, even though its size is 0. That's
-consistent with §5.2, but surprising. The empty value has to be written as
-0x7A77 with an empty Concat, which is what §4.3 mandates anyway.
+consistent with [§5.2](../../../../spec/history/archive/SPEC.r3.md#52-range), but surprising. The empty value has to be written as
+0x7A77 with an empty Concat, which is what [§4.3](../../../../spec/history/archive/SPEC.r3.md#43-reference-entries) mandates anyway.
 
 ---
 
-## §5 Messages
+## [§5](../../../../spec/history/archive/SPEC.r3.md#5-messages) Messages
 
 ### 5.1-a Decoder rules I had to add explicitly
 These are all covered by the text, but a hand-written decoder needs care
@@ -126,21 +126,21 @@ with each:
 Field 2 of `Range` is reserved and "skipped like any unknown field", so any
 wire type except groups is accepted there. I implemented that.
 
-### 5.2-a [interop] Zero-length ranges vs. payload validation (§5.2 vs §8.3 step 4)
-§8.3 step 4 says zero-length ranges "are not resolved and cause no error",
-but §5.2 makes a source range with `source >= number of sources` malformed.
-I read §5.2 as winning (step 1, decoding, comes first). So a zero-length
+### 5.2-a [interop] Zero-length ranges vs. payload validation ([§5.2](../../../../spec/history/archive/SPEC.r3.md#52-range) vs [§8.3](../../../../spec/history/archive/SPEC.r3.md#83-resolving-a-reference) step 4)
+[§8.3](../../../../spec/history/archive/SPEC.r3.md#83-resolving-a-reference) step 4 says zero-length ranges "are not resolved and cause no error",
+but [§5.2](../../../../spec/history/archive/SPEC.r3.md#52-range) makes a source range with `source >= number of sources` malformed.
+I read [§5.2](../../../../spec/history/archive/SPEC.r3.md#52-range) as winning (step 1, decoding, comes first). So a zero-length
 range with an out-of-bounds source is a payload error. The wording of step 4
 ("no error ... even if their source is missing") could be read the other
 way. Worth one sentence of clarification.
 
 ---
 
-## §6 Source table
+## [§6](../../../../spec/history/archive/SPEC.r3.md#6-source-table) Source table
 
 ### 6-a URL syntax checked at open or at resolution?
 At open, only an *empty* `url` is an archive error. A non-empty url that
-isn't a URI-reference is a resolution error (§6, "It is a resolution error if
+isn't a URI-reference is a resolution error ([§6](../../../../spec/history/archive/SPEC.r3.md#6-source-table), "It is a resolution error if
 the reference is not a valid URI reference"). Writers must reject both. I
 implemented that asymmetry, but it is surprising: one bad url and an empty
 url are classified differently.
@@ -152,7 +152,7 @@ OS sees `../../etc/passwd`. The `file:` rules forbid a decoded `%2F` and NUL
 but not decoded dot segments. *Choice:* I follow the text: decode and open
 whatever results, so the OS interprets `..`. Implementations that normalise
 percent-encoded unreserved characters before resolution (RFC 3986 §6.2.2.2)
-will compute different paths. This is also a security note for §10.
+will compute different paths. This is also a security note for [§10](../../../../spec/history/archive/SPEC.r3.md#10-security-considerations).
 
 ### 6-c `file:` URIs with no authority
 "its authority MUST be empty or `localhost`": `file:/abs/path` has no
@@ -190,7 +190,7 @@ negative mtimes. *Choice:* truncation toward zero (`mtimeNs / 1e9n` with
 BigInt division).
 
 ### 6.1-b What counts as a strong etag
-§6.1 says "a quoted string". I implemented RFC 9110 `entity-tag` without
+[§6.1](../../../../spec/history/archive/SPEC.r3.md#61-pins) says "a quoted string". I implemented RFC 9110 `entity-tag` without
 `W/`: `DQUOTE *etagc DQUOTE`, where etagc is `%x21 / %x23-7E / obs-text`. I
 check it on the UTF-8 bytes, so any non-ASCII character is allowed as
 obs-text. `""` (empty opaque tag) is accepted. Implementations that use a
@@ -203,13 +203,13 @@ If the server ignores `Range` and returns 200, there is no `Content-Range`.
 The spec only describes the 206 case.
 
 ### 6.1-d Pins on a range that doesn't overlap the window
-Pins are checked only when bytes are actually read from the source, per §6.1
+Pins are checked only when bytes are actually read from the source, per [§6.1](../../../../spec/history/archive/SPEC.r3.md#61-pins)
 "Before returning any byte read from a pinned source". No I/O, no check. I
 check pins on every read (no caching), which is allowed.
 
 ---
 
-## §7 Page index
+## [§7](../../../../spec/history/archive/SPEC.r3.md#7-page-index-optional) Page index
 
 ### 7.1-a How `page_size` maps to pages
 HARNESS: "a page SHOULD hold about `page_size` bytes". *Choice:* records are
@@ -220,13 +220,13 @@ page to itself.
 ### 7.2-a [interop] Is a record in the "wrong" page present?
 A page can hold a record whose name sorts outside
 `[first_key_i, first_key_{i+1})` (an invalid archive that readers needn't
-detect). §7.2 lookup never finds it. For `list`, "present is as defined by
-§7.2", so *choice:* such records are not listed. A reader that lists every
+detect). [§7.2](../../../../spec/history/archive/SPEC.r3.md#72-lookup) lookup never finds it. For `list`, "present is as defined by
+[§7.2](../../../../spec/history/archive/SPEC.r3.md#72-lookup)", so *choice:* such records are not listed. A reader that lists every
 record of each page it reads would list them.
 
 ### 7.2-b [interop] Class of a `list` failure
-§8.2: "`list` ... fails if one of [the pages] cannot be parsed". No class is
-given. *Choice:* `entry`, matching §8.4's "the page that holds the key's
+[§8.2](../../../../spec/history/archive/SPEC.r3.md#82-operations): "`list` ... fails if one of [the pages] cannot be parsed". No class is
+given. *Choice:* `entry`, matching [§8.4](../../../../spec/history/archive/SPEC.r3.md#84-errors)'s "the page that holds the key's
 record cannot be parsed".
 
 ### 7.2-c Which pages `list(prefix)` must read
@@ -237,7 +237,7 @@ more pages may fail where I succeed (an unparseable page outside the prefix
 range). The spec implies that failing there is not allowed, but it's subtle.
 
 ### 7.2-d What "page cannot be parsed" means
-Not defined. *Choice:* the same rule as the unpaged CD in §8.1: a sequence
+Not defined. *Choice:* the same rule as the unpaged CD in [§8.1](../../../../spec/history/archive/SPEC.r3.md#81-opening): a sequence
 of records with correct signatures and variable-length fields inside the
 page, ending exactly at the page end. Invalid UTF-8 names inside a page are
 not parse failures.
@@ -255,7 +255,7 @@ any page.
 
 ---
 
-## §8 Reading
+## [§8](../../../../spec/history/archive/SPEC.r3.md#8-reading) Reading
 
 ### 8.1-a Unpaged duplicates and the EOCD entry count
 Duplicate names (unspecified): the *first* record wins. A mismatch between
@@ -288,7 +288,7 @@ references. *Choice:* checks run in this order:
 5. for references, payload error, then window size over the limit → request error, then resolution
 
 ### 8.4-b The resource limit itself
-§10 says readers SHOULD bound memory and document the bound. Mine is 1 GiB
+[§10](../../../../spec/history/archive/SPEC.r3.md#10-security-considerations) says readers SHOULD bound memory and document the bound. Mine is 1 GiB
 (`MAX_REQUEST_BYTES` in `src/util.ts`) per request and per inflated body.
 A conformance suite that fetches a large whole value (for example a 2^40-byte
 reference to a missing file) can't expect a particular class: a reader with
@@ -301,7 +301,7 @@ error. An unexpected internal exception in the CLI is reported as class
 
 ---
 
-## §9 Writing
+## [§9](../../../../spec/history/archive/SPEC.r3.md#9-writing) Writing
 
 ### 9.1-a Local entry order and CD order
 The spec doesn't constrain local order except "`__vz__/index` MUST follow
@@ -351,7 +351,7 @@ integers.
 
 ### H-e Base URI for `read`
 "its base URI is the `file:` URI of its absolute path". This implementation
-uses `getcwd` + lexical normalisation, as in §6. If the runner passes a path
+uses `getcwd` + lexical normalisation, as in [§6](../../../../spec/history/archive/SPEC.r3.md#6-source-table). If the runner passes a path
 through a symlinked directory, implementations that `realpath` will differ.
 The spec says not to resolve symlinks, and I don't.
 

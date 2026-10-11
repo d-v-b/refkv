@@ -8,7 +8,7 @@ Model. What all of vzip's conventions share is in
 vzip produces this layout as a virtual store is the DICOM profile,
 [Part 2](#part-2-the-profile) below.
 
-Convention version: 0 (until release, conventions §1) · UUID: `acf17198-e5a5-48d3-8187-22ec4bb40ea5` ·
+Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `acf17198-e5a5-48d3-8187-22ec4bb40ea5` ·
 Schema: [schema.json](dicom/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the DICOM
@@ -27,8 +27,8 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "dicom"`, `"version": 0`, `"revision": 25` (conventions §1), the file's URL as `source.url`,
-and the source metadata of §5 as the member `"dicom"`. Its CMO is:
+with `"profile": "dicom"`, `"version": 0`, `"revision": 25` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
+and the source metadata of [§5](#5-source-metadata) as the member `"dicom"`. Its CMO is:
 
 ```json
 {
@@ -58,7 +58,7 @@ The File Meta Information is the file's group `0002` elements, from offset
 says how they are read.)
 
 - **Transfer syntax:** the meta element `(0002,0010)` (Transfer Syntax UID)
-  is required, and its VR MUST be `UI`. Its value, a string (§2.2), selects
+  is required, and its VR MUST be `UI`. Its value, a string ([§2.2](#22-attributes)), selects
   the dataset's encoding and the pixel data's form, and MUST be one of:
 
   | UID | name | encoding | pixel data |
@@ -136,7 +136,7 @@ whether or not its value ends up in the output.
 - **decimals:** the string values. A value is **valid** if it matches
   `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?` and its binary64
   value ([spec/virtualize.md §1.3](../virtualize.md#13-arithmetic)) is finite. Invalid values never reject the input; they make
-  the attribute unusable where §4 says so.
+  the attribute unusable where [§4](#4-output) says so.
 
 An **(FG)** attribute is taken from the Pixel Measures item if it is present
 there, else from the top-level dataset. (The choice is made by presence: an
@@ -149,7 +149,7 @@ unusable value in the item does not fall back to the top level.)
   Representation** are required. Rows and Columns MUST be at least 1.
 - **Samples per Pixel** `S` MUST be 1 or 3. Planar Configuration is required
   when `S` is 3, and MUST then be 0 (interleaved) or 1 (planar); when `S` is
-  1 it is not used (but is checked as §2.2 says).
+  1 it is not used (but is checked as [§2.2](#22-attributes) says).
 - **Number of Frames** `N` defaults to 1.
 - **Bits:** Bits Stored MUST be from 1 to Bits Allocated. High Bit, when
   present, MUST be Bits Stored − 1. Pixel Representation MUST be 0
@@ -200,7 +200,7 @@ angiography and fluoroscopy; otherwise `z` (space).
 One image at the archive root ([conventions §4](../conventions.md#4-images)), with no `name` and one level, the
 array `"0"`.
 
-- **Axes:** `c` if `S` = 3; the frame axis (§3), `t` or `z`, if the image
+- **Axes:** `c` if `S` = 3; the frame axis ([§3](#3-the-image)), `t` or `z`, if the image
   is not a whole-slide image and `N > 1`; then `y`, `x`.
 - **Shape:** 3 for `c`, `N` for the frame axis; then `H`, `W` for a
   whole-slide image, else Rows, Columns.
@@ -211,7 +211,7 @@ array `"0"`.
   `bytes` (with `endian` `little` or `big` by the encoding when Bits
   Allocated is above 8), `imagecodecs_jpeg` or `imagecodecs_jpeg2k`.
 - **Scale and units:**
-  - `y`, `x`: if Pixel Spacing (FG, §2.2) is **usable**, the scales are its
+  - `y`, `x`: if Pixel Spacing (FG, [§2.2](#22-attributes)) is **usable**, the scales are its
     first and second values (the spacing between rows, then between
     columns), with unit `millimeter`. It is usable if it has exactly two
     string values, both valid decimals and positive. Otherwise the scales
@@ -339,10 +339,10 @@ a gathered sequence, `"Gathered"`; and, for a gathered sequence,
     valid, else ISO 8859-1, so that its bytes are kept: Specific Character
     Set is not applied, and is in the dataset for a reader who decodes the
     bytes). An empty value is `null`. An `IS` value of the form
-    `[+-]?[0-9]+` is that integer (conventions §6): with more than 16
+    `[+-]?[0-9]+` is that integer ([conventions §6](../conventions.md#6-source-metadata-as-json)): with more than 16
     digits without its sign and leading zeros, it is above 2^53 − 1, and
     is the string of those digits (with a leading `-` if negative). A `DS` value that
-    matches the pattern of §2.2 is a number when it is one exactly: its
+    matches the pattern of [§2.2](#22-attributes) is a number when it is one exactly: its
     binary64 value `v` ([spec/virtualize.md §1.3](../virtualize.md#13-arithmetic))
     is finite, and the text's decimal value equals that of the shortest
     decimal string that rounds to `v` (which ECMAScript's
@@ -360,7 +360,7 @@ a gathered sequence, `"Gathered"`; and, for a gathered sequence,
     none is).
   - `AT`: each 4 bytes, a `u16` group and a `u16` element in the dataset's
     byte order, as eight uppercase hexadecimal digits.
-  - `FL FD SL SS UL US SV UV`: the values, numbers by conventions §6.
+  - `FL FD SL SS UL US SV UV`: the values, numbers by [conventions §6](../conventions.md#6-source-metadata-as-json).
   - `OB OD OF OL OV OW UN`: `"InlineBinary"`, the bytes in base64, as
     stored (in the dataset's byte order; an explicit `UN` value in little
     endian, below).
@@ -408,7 +408,7 @@ a gathered sequence, `"Gathered"`; and, for a gathered sequence,
 - **Pixel Data.** The top-level Pixel Data is `{"vr": VR}` (`"OW"` in
   implicit VR), without a value: its value is the image. Pixel Data of
   undefined length nested in an item (an encapsulated icon image) is a
-  family of bytes (conventions §7), one member per item of its fragment
+  family of bytes ([conventions §7](../conventions.md#7-source-values-as-arrays)), one member per item of its fragment
   sequence (the offset table first), named in its `BulkDataURI`.
 
 **Character sets.** A dataset's **character set** is given by its first
@@ -426,10 +426,10 @@ VR `LO`, `PN`, `SH` or `UC` (the VRs that are split at `5C`, `PN` also at
 bytes as stored, not split, trimmed or decoded, which a reader decodes with
 the character set. Other values are translated as above: the other split
 VRs hold only ASCII, and `LT ST UT` are not split, so that their bytes are
-kept by conventions §6.
+kept by [conventions §6](../conventions.md#6-source-metadata-as-json).
 
 **Large values.** A value that is too large for JSON is an array of
-`vzip_source` (conventions §7), and the attribute is `{"vr": VR,
+`vzip_source` ([conventions §7](../conventions.md#7-source-values-as-arrays)), and the attribute is `{"vr": VR,
 "BulkDataURI": U}`, where `U` is the array's path from the root of the
 hierarchy (`vzip_source/<path>`); in the items of a gathered sequence,
 every value is gathered instead (below):
@@ -467,7 +467,7 @@ Trailing Padding is kept:
   of that tag) are kept;
 - the Extended Offset Table `(7FE0,0001)` and its lengths `(7FE0,0002)`,
   when the profile reads the frames from them (encapsulated pixel data,
-  spec/virtualize.md §6.5): the first element of each tag in the top-level
+  [spec/virtualize.md §6.5](#65-frames)): the first element of each tag in the top-level
   dataset, before Pixel Data. A later element of such a tag is a member of
   `duplicates` (the omitted one is the first). An offset table in native
   pixel data's dataset, in an item, in the File Meta Information or after
@@ -510,7 +510,7 @@ JSON values). When the sequence has at least one item, its attribute is
 their first item, and the `int32` array of `vzip_source` at
 `s/items/structure`, of shape `[F]`, dimension `index`, holds at index `i`
 the index in `Structures` of item `i`'s structure; it holds these values
-itself, cut as contiguous values (conventions §7), every chunk copied.
+itself, cut as contiguous values ([conventions §7](../conventions.md#7-source-values-as-arrays)), every chunk copied.
 (`structure` is no tag and not `duplicates`, so it is no gathered path.)
 The JSON thus grows with the distinct structures, not with the items. A
 reader rebuilds item `i` as `Structures[structure[i]]`, in which each
@@ -536,7 +536,7 @@ the first of these that applies:
   `index`, then `byte` (for `uint8`) or `value`;
 - otherwise, when the values' bytes as stored all have the same length, of
   at most 2^24 bytes: such a 2-D `uint8` array of those bytes;
-- otherwise, a family of bytes (conventions §7) of `F` members, each the
+- otherwise, a family of bytes ([conventions §7](../conventions.md#7-source-values-as-arrays)) of `F` members, each the
   value's bytes as stored, in its offsets-and-data form (whatever their
   lengths).
 
@@ -548,7 +548,7 @@ attribute has `"LittleEndian"`); any other data type holds the values: for
 The chunks of a 2-D array of rows of `b` bytes, `n` of whose `F` rows have
 a value: when every item has the value and the file holds the rows one
 after another in index order, the array is contiguous values (conventions
-§7), cut and referenced so. Otherwise, when at least half the items have
+[§7](../conventions.md#7-source-values-as-arrays)), cut and referenced so. Otherwise, when at least half the items have
 the value (`2n ≥ F`), with `R = max(1, floor(65519 / max(16, b + 8)))` (a
 row takes at most `max(16, b + 8)` bytes of a reference payload, as a range
 of the file or as bytes of a literal, so that a chunk's reference fits in a
@@ -592,7 +592,7 @@ multiple of the sequence's.
 structure of every element it walks:
 - every element of the top-level dataset;
 - the elements of sequences of undefined length;
-- the elements of the two sequences of §2.2
+- the elements of the two sequences of [§2.2](#22-attributes)
   ([spec/virtualize.md §6.3](#63-datasets-and-sequences)).
 
 The source metadata also walks the other sequences of defined length, by
@@ -648,25 +648,25 @@ Pixel Data ends:
   largest end so far, or `q` for `k = 0`) to the start of the `k`-th, and
   is empty if that start is not after that end. When one member is not
   empty (always, with `pixel_unreferenced_headers`), they are a family of
-  bytes (conventions §7) of `N` members at `pixel_unreferenced`. A reader
+  bytes ([conventions §7](../conventions.md#7-source-values-as-arrays)) of `N` members at `pixel_unreferenced`. A reader
   rebuilds the fragments as member 0, the first item, member 1, and so on,
   where an item is an item header for the frame's length, then its data,
   or, with `pixel_unreferenced_headers`, its data alone.
 
 **Fragments.** Without an Extended Offset Table, a frame of encapsulated
 pixel data is the data of its fragments without their item headers, and of
-its empty fragments nothing (spec/virtualize.md §6.5). When a frame has more
+its empty fragments nothing ([spec/virtualize.md §6.5](#65-frames)). When a frame has more
 than one fragment (empty ones included), `pixel_fragments` is an `int64`
 array of `vzip_source` of shape `[K, 2]`, dimensions `index` and `value`,
 where `K` is the number of fragments after the Basic Offset Table: row `j`
 is fragment `j`'s frame and the length of its data, in file order. It holds
-these values itself, cut as contiguous values (conventions §7), every chunk
+these values itself, cut as contiguous values ([conventions §7](../conventions.md#7-source-values-as-arrays)), every chunk
 copied. `pixel_offset_table` is `true` when the Basic Offset Table is not
 empty; its offsets are then the positions of the frames' first fragments
 (the profile requires it), which the lengths give. A reader rebuilds the
 fragment sequence as the Basic Offset Table's item, then, for each frame in
 turn, its stream (for `jpeg` with 3 samples, its first two bytes `FF D8`,
-then the stream after the 18 bytes of `P`, spec/virtualize.md §6.5) cut into
+then the stream after the 18 bytes of `P`, [spec/virtualize.md §6.5](#65-frames)) cut into
 items of the frame's fragments' lengths, in order (one item of the whole
 stream without `pixel_fragments`), then the sequence delimiter.
 
@@ -882,7 +882,7 @@ referenced image sequence and shared functional groups
 # Part 2. The profile
 
 The DICOM profile of [spec/virtualize.md](../virtualize.md) (revision 16), numbered
-as its §6. §1 and §2 are in spec/virtualize.md and apply here.
+as its [§6](#6-dicom-profile). [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here.
 
 The output has the convention's layout for the input
 ([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
@@ -917,14 +917,14 @@ All integers below are unsigned. An **element** at offset `p` is read in an
   length, and the value starts at `p + 8`.
 
 A length of `FFFFFFFF` is **undefined**. An element's header (its 8 or 12
-bytes) MUST lie within its **container** (§6.3), and so MUST a value of
+bytes) MUST lie within its **container** ([§6.3](#63-datasets-and-sequences)), and so MUST a value of
 defined length: a value that starts at `w` with defined length `n` ends at
 `w + n`, where the next element starts.
 
 ### 6.2 File
 
 - **Preamble:** the file MUST be at least 132 bytes long and bytes 128–131
-  MUST be `DICM` (which is how §1.2 selected this profile).
+  MUST be `DICM` (which is how [§1.2](../virtualize.md#12-input) selected this profile).
 - **File Meta Information** starts at offset 132, in explicit VR little
   endian. It is the run of elements, from there, whose group (the `u16`
   little-endian at the element's start) is `0002`; it ends at the first
@@ -933,7 +933,7 @@ defined length: a value that starts at `w` with defined length `n` ends at
   rejects the input.
 - **Transfer syntax:** the meta element `(0002,0010)` (Transfer Syntax UID)
   is required, and its VR MUST be `UI`. Its value, a string (the
-  convention §2.2), MUST be one of the table of
+  convention [§2.2](#22-attributes)), MUST be one of the table of
   [the convention §2.1](#21-transfer-syntax),
   which gives the dataset's encoding and the pixel data's form.
 - **Dataset:** the **top-level dataset** starts where the File Meta
@@ -956,13 +956,13 @@ Each element of a dataset is one of these, by the first that applies:
 2. **Undefined length.** In explicit VR, the VR MUST be `SQ` or `UN`, or
    (for tag `(7FE0,0010)` only) `OB` or `OW`, else the input is rejected.
    - Tag `(7FE0,0010)` (pixel data nested in an item, for example an icon
-     image) is **encapsulated**: its value is a fragment sequence (§6.5),
+     image) is **encapsulated**: its value is a fragment sequence ([§6.5](#65-frames)),
      whose items are read in the dataset's byte order and are not parsed.
    - Otherwise the element is a **sequence** of undefined length, read in
      the dataset's encoding, except that a VR of `UN` means its items are
      in implicit VR little endian (PS3.5 §6.2.2).
 3. **Defined length, tag `(5200,9229)` or `(0028,9110)`** (the two sequences
-   the convention §2.2 reads): a sequence of defined length, in the dataset's encoding. In
+   [the convention §2.2](#22-attributes) reads): a sequence of defined length, in the dataset's encoding. In
    explicit VR its VR MUST be `SQ`, else the input is rejected.
 4. **Any other defined length:** the value is skipped, whatever its VR (a
    sequence of defined length is not walked).
@@ -989,14 +989,14 @@ depth of the dataset holding its sequence, plus 1. An item at a depth above
 Of elements with the same tag in a dataset, the first is used (the
 convention's source metadata keeps the others); tags are not otherwise
 required to be in order. Every element walked is checked as this
-section says, whether or not the convention §2.2 reads it.
+section says, whether or not [the convention §2.2](#22-attributes) reads it.
 
 ### 6.4 Rejection
 
 The input is rejected when a rule of this profile fails, and when the
-convention gives it no layout: wherever its §2–§4 say that the input is
+convention gives it no layout: wherever its [§2](#2-the-source)–[§4](#4-output) say that the input is
 rejected, or that something MUST hold and it does not. The source
-metadata (the convention §5) never rejects the input.
+metadata ([the convention §5](#5-source-metadata)) never rejects the input.
 
 ### 6.5 Frames
 
@@ -1007,7 +1007,7 @@ length.
 **Native.** The Pixel Data length MUST be defined, its value MUST lie
 within the file (`v + n` at most the file's size; this is checked before
 anything is computed from `n` or `N`), and `n ≥ N × F` (extra bytes, such
-as a padding byte, are not part of a frame: the convention §5 keeps them).
+as a padding byte, are not part of a frame: [the convention §5](#5-source-metadata) keeps them).
 In explicit VR big endian,
 Pixel Data with VR `OW` and Bits Allocated 8 is rejected (its bytes are
 swapped in 16-bit words). Frame `f` is the range `(0, v + f × F, F)`; when
@@ -1018,7 +1018,7 @@ swapped in 16-bit words). Frame `f` is the range `(0, v + f × F, F)`; when
 **fragment sequence**, read in little endian: items `(FFFE,E000)` of defined
 length (undefined rejects the input), ended by `(FFFE,E0DD)` whose length
 MUST be 0; any other tag rejects the input. Item headers are 8 bytes, as in
-§6.1, and an item's **data** is its value. The first item, at `v`, is the
+[§6.1](#61-elements), and an item's **data** is its value. The first item, at `v`, is the
 **Basic Offset Table** (BOT): its length `L` MUST be a multiple of 4, and its
 data is `L / 4` `u32` offsets. The **fragments** are the items after it,
 starting at `q = v + 8 + L`. A fragment's **position** is the offset of its
@@ -1035,7 +1035,7 @@ The frames' fragments are found by the first of these that applies.
    each MUST start at or after the end of the one before it); otherwise the
    input is rejected. The fragments' item headers do not
    decide the frames, nor does the end of the sequence: neither is checked,
-   and the input is not rejected for them. The convention §5 reads each
+   and the input is not rejected for them. [The convention §5](#5-source-metadata) reads each
    frame's 8 bytes at `q + EOT[f]`, and keeps them, with the bytes between
    the frames' items, when one is not an item header `(FFFE,E000)` of
    length `EOTL[f]`.
@@ -1067,12 +1067,12 @@ APP14 marker with transform `T` = 0 for `RGB` and 1 for `YBR_FULL` and
 [conventions §3](../conventions.md#3-arrays)'s conventions.)
 
 Every range MUST lie within the file, and every chunk's reference payload
-MUST be at most 65519 bytes (§1.2); otherwise the input is rejected.
+MUST be at most 65519 bytes ([§1.2](../virtualize.md#12-input)); otherwise the input is rejected.
 
 ### 6.6 Chunk references
 
 Frame `f` (or sample `s` of it) is the entry `0/c/<coords>` of
-[the convention §4](#4-output), with its ranges (§6.5). Coords are: for `c`, the sample `s` when planar,
+[the convention §4](#4-output), with its ranges ([§6.5](#65-frames)). Coords are: for `c`, the sample `s` when planar,
 else 0; for the frame axis, `f`; then the frame's tile row and column for a
 whole-slide image, else 0 and 0.
 
@@ -1081,7 +1081,7 @@ whole-slide image, else 0 and 0.
 
 These are deliberate, and follow from the rules above.
 
-- Only the transfer syntaxes of the convention §2.1. Lossless JPEG, JPEG-LS, RLE, deflate
+- Only the transfer syntaxes of [the convention §2.1](#21-transfer-syntax). Lossless JPEG, JPEG-LS, RLE, deflate
   and HTJ2K are rejected, as is any file whose frames are not single
   streams that a codec of [conventions §3](../conventions.md#3-arrays) decodes.
 - A file is one level. A whole-slide pyramid spans several files (one per
@@ -1101,5 +1101,5 @@ These are deliberate, and follow from the rules above.
   only the omero window uses the VOI attributes.
 
 A file whose preamble holds a TIFF header, as dual-personality files and
-some toolkits write it, is still read by this profile: §1.2 tests for `DICM`
+some toolkits write it, is still read by this profile: [§1.2](../virtualize.md#12-input) tests for `DICM`
 first.

@@ -1,5 +1,9 @@
-// The virtualizers' pins and range checksums (spec/virtualize.md §1.2, §1.4;
-// spec/archive.md §5.2, §6.1): the twin of python/tests/test_virtualize_pins.py.
+// The virtualizers' pins and range checksums (spec/virtualize.md §1.2
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>, §1.4
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>;
+// spec/archive.md §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>, §6.1
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#61-pins>): the twin of
+// python/tests/test_virtualize_pins.py.
 
 import assert from "node:assert/strict";
 import fs from "node:fs";

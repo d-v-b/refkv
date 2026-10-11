@@ -1,4 +1,7 @@
-// Reading byte ranges over HTTP (spec §6.2) with pin checks (§6.1).
+// Reading byte ranges over HTTP (spec §6.2
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#62-reading-over-http>)
+// with pin checks (§6.1
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#61-pins>).
 
 import http from "node:http";
 import https from "node:https";

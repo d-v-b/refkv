@@ -1,6 +1,8 @@
 """For the verify scripts: TIFF, ND2 and CZI archives the IR wrote hold its mirror
 under `vzip_source` (rust/vzip-ir/src/mirror.rs), not the source metadata of
-conventions §5. Their source checks are then the mirror's: the source rebuilt from
+conventions §6
+<https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>. Their
+source checks are then the mirror's: the source rebuilt from
 the archive alone, byte for byte (`vzip.ir.cmirror.rebuild_from_archive`)."""
 
 from __future__ import annotations

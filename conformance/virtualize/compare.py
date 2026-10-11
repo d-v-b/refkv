@@ -1,10 +1,13 @@
-"""Compares virtualizers (spec/virtualize.md §1.1, §14; HARNESS.md).
+"""Compares virtualizers (spec/virtualize.md §1.1
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>, §14
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-conformance>; HARNESS.md).
 
 Every implementation runs on every input of the corpus, which the caching
 proxy (proxy.py) serves over local HTTP: the synthetic files in
 fixtures/ (one directory per format), the synthetic stores in
 fixtures/n5/, zarr2/ and ome-zarr/ (one directory per store,
-served with the S3 listing of spec/virtualize.md §1.5), the synthetic SAFE
+served with the S3 listing of spec/virtualize.md §1.5
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>), the synthetic SAFE
 products in fixtures/safe/ (directories, and .SAFE.zip files), the
 synthetic CZI files in fixtures/czi/, the 205 OME-TIFFs of IDR
 idr0096, and the public files and stores in corpus_*.txt. For each input, all
@@ -13,7 +16,8 @@ outputs; outputs are compared with the reference implementation's (the first
 one).
 
 Corpus lines are `url|name`, or `url|name|py-only` for an input larger than
-the browser implementation's limit (spec/virtualize.md §14): such inputs are
+the browser implementation's limit (spec/virtualize.md §14
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-conformance>): such inputs are
 skipped unless `--large` is given, and then every implementation but `web` runs on them.
 Store URLs end in `/`. A line may end with the input's fingerprint, which
 corpus_hash.py records and checks.
@@ -79,7 +83,9 @@ from vzip.virtualize.common import REVISION, same  # noqa: E402
 
 IDR = "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant/20210609-ftp-ome-tiffs/"
 BUILTIN = {
-    # the inputs are served from 127.0.0.1, which the reader policy refuses by default (spec/archive.md §8.7)
+    # the inputs are served from 127.0.0.1, which the reader policy refuses by default
+    # (spec/archive.md §8.7
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>)
     "ref": ("vzip", ["uv", "run", "python", str(HERE / "reference" / "cli.py"), "--allow-private-hosts"]),
     "py": ("vzip", ["uv", "run", "python", "-m", "vzip.virtualize", "--allow-private-hosts"]),
     "web": ("vzip", ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"]),
@@ -103,7 +109,9 @@ def _no_duplicates(pairs: list) -> dict:
 
 
 def from_vzip(path: Path) -> dict:
-    """An archive's output (§1.1), once it has passed `strict`."""
+    """An archive's output (§1.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>), once it
+    has passed `strict`."""
     try:  # first, so that zipfile never reads what spec/archive.md does not
         strict_reader.Archive(str(path)).close()
     except VzError as e:
@@ -148,7 +156,12 @@ def strict(path: Path, view: dict) -> list[str]:
     """The problems spec/archive.md finds in an archive, by code that shares nothing with the
     writers under test: the independent reader (conformance/impls/python, written from spec/archive.md
     alone) must open it and see exactly the output `view` holds, and the archive must
-    meet the writer requirements (spec/archive.md §3, §4, §7, §9) as conformance/archive/validate.py,
+    meet the writer requirements (spec/archive.md §3
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#3-zip-container>, §4
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#4-entries>, §7
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#7-page-index-optional>, §9
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#9-writing>) as
+    conformance/archive/validate.py,
     with its own ZIP parser, checks them: canonical payloads, reference bodies,
     duplicate names, hidden entries, CRC-32s, local headers and the page index."""
     try:
@@ -238,7 +251,7 @@ def differences(a: dict, b: dict) -> list[str]:
     if ka != kb:
         out.append(f"keys only in reference: {sorted(ka - kb)[:5]}, only in this one: {sorted(kb - ka)[:5]}")
     for k in sorted(ka & kb):
-        if not same(a["entries"][k], b["entries"][k]):  # §1.1: integers exactly
+        if not same(a["entries"][k], b["entries"][k]):  # §1.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>: integers exactly
             out.append(f"{k}: reference {json.dumps(a['entries'][k], default=str)[:400]} != "
                        f"{json.dumps(b['entries'][k], default=str)[:400]}")
             if len(out) > 6:
@@ -270,13 +283,17 @@ def run(impl: tuple[str, list[str]], url: str, out: Path) -> tuple[str, object]:
 
 
 def mirror_problem(path: Path, view: dict, read=None) -> str | None:
-    """For an archive whose vzip_source is an IR mirror (conventions §8): None when its
+    """For an archive whose vzip_source is an IR mirror (conventions §8
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>): None when its
     table reads, its invariants hold, it describes a source of source 0's size, it is
-    canonical (§8.8, rebuilt from what it loads, it is the same table) and its view is
-    the one the table and the source give (§8.7); else what is wrong. The array
-    columns' bytes and the view's values are read from source 0 (small ranges;
+    canonical (§8.8 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>,
+    rebuilt from what it loads, it is the same table) and its view is
+    the one the table and the source give (§8.7
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>); else what is wrong.
+    The array columns' bytes and the view's values are read from source 0 (small ranges;
     `read(offset, length)`, by default its URL). These are checks in addition to
-    comparing mirrors entry for entry (spec/virtualize.md §1.1)."""
+    comparing mirrors entry for entry (spec/virtualize.md §1.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>)."""
     doc = view["entries"].get("vzip_source/zarr.json")
     own = (doc[1].get("attributes", {}).get("vzip_virtualized", {}) if doc and doc[0] == "json" else {})
     if not any(isinstance(v, dict) and "ir" in v for v in own.values()):

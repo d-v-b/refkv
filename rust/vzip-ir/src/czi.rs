@@ -1,4 +1,5 @@
-//! A sans-IO parser of Zeiss CZI files into the IR (spec/virtualize.md §13,
+//! A sans-IO parser of Zeiss CZI files into the IR (spec/virtualize.md §13
+//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#13-czi-profile>,
 //! spec/virtualize/czi.md): it never reads; it asks for batches of ranges (`step`), is
 //! given their bytes (`feed`), and holds them only until the step that uses them.
 //!
@@ -192,7 +193,9 @@ pub struct Czi {
 }
 
 /// A segment's id as text: its bytes up to the first NUL when the rest are all NUL
-/// (then it can equal an id of spec/virtualize/czi.md §2.1), else all 16 bytes, escaped.
+/// (then it can equal an id of spec/virtualize/czi.md §2.1
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#21-segments>), else all 16
+/// bytes, escaped.
 fn seg_id(h: &[u8]) -> String {
     let n = h.iter().position(|&c| c == 0).unwrap_or(16);
     if h[n..16].iter().all(|&c| c == 0) {
@@ -430,7 +433,8 @@ impl Czi {
                         if x > 0 && x as f64 <= self.rules.limit("max_xml") {
                             let data = self.fed.get(mp + 288, x as u64).ok_or("internal: no XML")?;
                             self.values = cxml::values(data, self.rules.limit("max_xml") as usize);
-                            // short metadata XML is shown (conventions §8.7)
+                            // short metadata XML is shown (conventions §8.7
+                            // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>)
                             if let (Some(v), true) = (self.meta_xml, x as u64 <= crate::mirror::VIEW_VALUE) {
                                 let b = data.to_vec();
                                 self.ir.put_value(v, &b);
@@ -726,7 +730,9 @@ impl Czi {
             let p = o + 32 + sub.length;
             if sub.m > 0 {
                 let v = self.ir.value(s, "metadata", NO_INDEX, &format!("ascii[{}]", sub.m), 0, (p, sub.m as u64), None)?;
-                // short metadata is shown (conventions §8.7): read with the codec heads
+                // short metadata is shown (conventions §8.7
+                // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>): read
+                // with the codec heads
                 if sub.m as u64 <= crate::mirror::VIEW_VALUE {
                     match self.fed.get(p, sub.m as u64) {
                         Some(b) => {
@@ -951,7 +957,8 @@ impl Czi {
         Ok(None)
     }
 
-    /// The attachments' data by form (spec/virtualize/czi.md §5.6), for the IR.
+    /// The attachments' data by form (spec/virtualize/czi.md §5.3
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#53-elements>), for the IR.
     fn att_data(&mut self) -> Res<()> {
         let pending = std::mem::take(&mut self.att_pending);
         for (s, at, n, kind, read) in pending {
@@ -1021,7 +1028,9 @@ impl Czi {
         Ok(true)
     }
 
-    // ---- the walk (spec/virtualize.md §13.2 step 6)
+    // ---- the walk (spec/virtualize.md §13.2
+    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#132-structures-and-the-walk>
+    // step 6)
 
     /// The segments nothing references, in file order, from windows read ahead;
     /// then the tail. None when done.
@@ -1082,7 +1091,10 @@ impl Czi {
     }
 }
 
-// ---- the layout (spec/virtualize/czi.md §3.2–§4.4): placement, series, layers, levels, tiles
+// ---- the layout (spec/virtualize/czi.md §3.2
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#32-conforming-and-unplaced-subblocks>–§4.4
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#44-tiles>): placement, series,
+// layers, levels, tiles
 
 const LAYERS_2: [(f64, f64, u32); 10] = [
     (2.0, 0.1, 1), (4.0, 0.2, 2), (8.0, 0.4, 3), (16.0, 0.8, 4), (32.0, 1.0, 5), (64.0, 1.0, 6), (128.0, 1.0, 7),
@@ -1107,7 +1119,8 @@ fn layer(wl: i64, hl: i64, w: i64, h: i64) -> Option<(u32, u32)> {
     None
 }
 
-/// The level `b` is when it is regular (spec/virtualize/czi.md §3.5), else None.
+/// The level `b` is when it is regular (spec/virtualize/czi.md §3.5
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#35-regular-levels>), else None.
 fn classify(b: &[usize], ps: &[Placed]) -> Option<Level> {
     let f0 = ps[b[0]].form;
     if b.iter().any(|&i| ps[i].form != f0) {
@@ -1196,7 +1209,8 @@ fn row_band(h: u128, h2: u128, w: u128, q: u128, max_band: u128) -> u128 {
 }
 
 /// The y chunk lengths of `r` tile rows of height h (the last h2), and the bands:
-/// (rows a band holds, bands per tile row). Divisor bands (spec/virtualize/czi.md §4.3)
+/// (rows a band holds, bands per tile row). Divisor bands (spec/virtualize/czi.md §4.3
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#43-image-arrays>)
 /// when they hold at least band_floor bytes; else bands of the most rows within
 /// max_band bytes, the last of each tile row shorter (a rectilinear grid), so that
 /// a prime height cannot make a chunk per row.
@@ -1276,7 +1290,9 @@ impl Czi {
     fn layout(&self) -> Res<J> {
         let max_band = self.rules.limit("max_band") as u64;
         let floor = self.rules.limit("band_floor") as u64;
-        // placement (spec/virtualize/czi.md §3.2): an entry that read its subblock, whose copy agrees, with a coded size
+        // placement (spec/virtualize/czi.md §3.2
+        // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#32-conforming-and-unplaced-subblocks>):
+        // an entry that read its subblock, whose copy agrees, with a coded size
         let mut ps: Vec<Placed> = Vec::new();
         for (i, e) in self.entries.iter().enumerate() {
             let sub = &self.subs[i];
@@ -1301,7 +1317,9 @@ impl Czi {
                 el,
             });
         }
-        // series, layers and levels (§3.3–§3.5)
+        // series, layers and levels (§3.3
+        // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#33-series>–§3.5
+        // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#35-regular-levels>)
         let mut by_series: BTreeMap<Vec<(u8, i64)>, Vec<usize>> = BTreeMap::new();
         for (k, p) in ps.iter().enumerate() {
             by_series.entry(p.series.clone()).or_default().push(k);
@@ -1335,7 +1353,9 @@ impl Czi {
             }
         }
         self.check("images", rules::env([("images", num(images.len() as f64))]))?;
-        // the images (§4.2, §4.3)
+        // the images (§4.2
+        // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#42-images>, §4.3
+        // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#43-image-arrays>)
         let um = 1.0 / 1e-6;
         let v = &self.values;
         let px = v.px.map(|x| x * um);
@@ -1423,7 +1443,8 @@ impl Czi {
                 "units": units, "scales": scales, "translations": translations, "levels": lvs,
             }));
         }
-        // tiles, one array per tile position and copy (§4.4)
+        // tiles, one array per tile position and copy (§4.4
+        // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#44-tiles>)
         tiles.sort_by_key(|&k| ps[k].index);
         type G = (Vec<(u8, i64)>, i64, i64, i64, i64, i64, i64, u64, u64, (i32, i32, bool));
         let mut copies: HashMap<(G, (i64, i64, i64)), u64> = HashMap::new();

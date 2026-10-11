@@ -594,7 +594,9 @@ impl Nd2 {
     }
 
     /// What decoding a profile chunk again for the source metadata would charge,
-    /// and whether it would decode (spec/virtualize/nd2.md §5.1), from the profile's decode.
+    /// and whether it would decode (spec/virtualize/nd2.md §5.1
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>), from
+    /// the profile's decode.
     fn profile_charge(&self, dec: &Decoded, d: u64, used: u64) -> (u64, bool) {
         let budget = schema::limit("source_budget") as u64;
         let limit = budget - used - d;
@@ -610,7 +612,8 @@ impl Nd2 {
         }
     }
 
-    /// The chunks the source metadata would decode, in map order (spec/virtualize/nd2.md §5):
+    /// The chunks the source metadata would decode, in map order (spec/virtualize/nd2.md §5
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#5-source-metadata>):
     /// not frames, families or streams, not empty, and not named like an earlier chunk.
     fn candidates(&self) -> Vec<usize> {
         let n_frames = self.facts.as_ref().map(|f| f.frames).unwrap_or(0.0);
@@ -714,7 +717,9 @@ impl Nd2 {
         let size = self.size;
         let chunks_el = self.ir.struct_(0, "chunks", NO_INDEX, 0, None)?;
         let is_frame = |name: &[u8]| frame_index(name).is_some_and(|f| f < u64::MAX as u128);
-        // the chunks' names (spec/virtualize/nd2.md §5.3): their texts, unique among `chunks`' children
+        // the chunks' names (spec/virtualize/nd2.md §5.3
+        // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#53-elements>): their
+        // texts, unique among `chunks`' children
         let texts: Vec<String> = self.chunks.iter().filter(|c| !is_frame(&c.0)).map(|c| decode_text(&c.0)).collect();
         let mut names = source_names(&texts, &[]).into_iter();
         let mut frames: Vec<(u64, usize)> = Vec::new();
@@ -981,7 +986,8 @@ impl Nd2 {
 }
 
 /// Emits XML element `el` under `parent` as `name` (with `nidx`); its children are
-/// named by their tags, made unique among siblings by `source_names` (spec/virtualize/nd2.md §5.3).
+/// named by their tags, made unique among siblings by `source_names` (spec/virtualize/nd2.md §5.3
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#53-elements>).
 fn emit_xml(ir: &mut Ir, parent: u32, space: u32, el: &xml::El, name: &str, nidx: u64) -> Res<()> {
     match &el.value {
         Some((rt, v, span)) => {

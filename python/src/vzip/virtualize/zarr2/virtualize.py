@@ -1,4 +1,5 @@
-"""The Zarr v2 profile (spec/virtualize.md, §10)."""
+"""The Zarr v2 profile (spec/virtualize.md, §10
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>)."""
 
 from __future__ import annotations
 
@@ -34,7 +35,8 @@ SHUFFLES = {0: "noshuffle", 1: "shuffle", 2: "bitshuffle", -1: "auto"}
 
 
 def data_type(dtype) -> tuple[str, int, str]:
-    """(Zarr data type, size b, byte order character) of a .zarray dtype (spec/virtualize/zarr2.md §3)."""
+    """(Zarr data type, size b, byte order character) of a .zarray dtype (spec/virtualize/zarr2.md
+    §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays>)."""
     m = _DTYPE.match(dtype) if isinstance(dtype, str) else None
     if m is None or (m.group(2), int(m.group(3))) not in TYPES:
         raise Rejected(f"dtype {str(dtype)[:60]} is not supported")
@@ -44,7 +46,10 @@ def data_type(dtype) -> tuple[str, int, str]:
     return TYPES[(kind, b)], b, order
 
 
-# The members of .zarray that §3 reads; the others are kept in M (spec/virtualize/zarr2.md §4).
+# The members of .zarray that §3
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays> reads; the others are
+# kept in M (spec/virtualize/zarr2.md §4
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>).
 ZARRAY_READ = ("zarr_format", "shape", "chunks", "dtype", "order", "compressor", "filters", "fill_value",
                "dimension_separator")
 NEG_ZERO = {2: "0x8000", 4: "0x80000000", 8: "0x8000000000000000"}
@@ -77,7 +82,8 @@ def fill_value(v, dt: str, b: int):
 
 
 def level(cid: str, c: dict) -> int:
-    """The level of a zlib, gzip or zstd compressor (spec/virtualize/zarr2.md §3.1)."""
+    """The level of a zlib, gzip or zstd compressor (spec/virtualize/zarr2.md §3.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#31-compressors>)."""
     lo, hi, default = LEVELS[cid]
     if "level" not in c:
         return default
@@ -113,7 +119,9 @@ def compressor(c, b: int) -> tuple[dict | None, dict]:
 
 def array(path: str, z, attrs: dict) -> tuple[dict, str, dict]:
     """An array's zarr.json, its dimension separator, and the members of its
-    .zarray that the zarr.json does not reproduce (spec/virtualize/zarr2.md §3, §4)."""
+    .zarray that the zarr.json does not reproduce (spec/virtualize/zarr2.md §3
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays>, §4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>)."""
     if not isinstance(z, dict):
         raise Rejected(f"{path}/.zarray is not a JSON object")
     if as_int(z.get("zarr_format")) != 2:
@@ -168,9 +176,13 @@ def array(path: str, z, attrs: dict) -> tuple[dict, str, dict]:
 
 @dataclass
 class Hierarchy:
-    """A Zarr v2 hierarchy read by spec/virtualize/zarr2.md §2–§3: each array's zarr.json and
-    separator, each explicit group's attributes, the implicit groups, each node's
-    metadata M (§4), and the node documents read."""
+    """A Zarr v2 hierarchy read by spec/virtualize/zarr2.md §2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>–§3
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays>: each array's
+    zarr.json and separator, each explicit group's attributes, the implicit groups, each node's
+    metadata M (§4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>), and the
+    node documents read."""
 
     arrays: dict[str, dict] = field(default_factory=dict)
     seps: dict[str, str] = field(default_factory=dict)
@@ -209,7 +221,9 @@ def prefetch(store: Store) -> None:
 
 
 def read_hierarchy(store: Store) -> Hierarchy:
-    """The nodes of a Zarr v2 store (spec/virtualize/zarr2.md §2), each document read and checked."""
+    """The nodes of a Zarr v2 store (spec/virtualize/zarr2.md §2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>), each document read
+    and checked."""
     objects = store.objects
     nodes, implicit = _nodes(objects)
     prefetch(store)
@@ -242,7 +256,9 @@ def read_hierarchy(store: Store) -> Hierarchy:
 
 
 def chunk_objects(store: Store, h: Hierarchy) -> list[tuple[str, int]]:
-    """Every chunk object of every array (spec/virtualize/zarr2.md §3), sizes 0 included, in key order."""
+    """Every chunk object of every array (spec/virtualize/zarr2.md §3
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays>), sizes 0 included,
+    in key order."""
     tests = {}
     for path, a in h.arrays.items():
         g = grid(a["shape"], a["chunk_grid"]["configuration"]["chunk_shape"])
@@ -268,11 +284,16 @@ def hierarchy_output(store: Store, h: Hierarchy, groups: dict[str, dict], arrays
     attributes `groups` gives, arrays as `arrays` gives, their `attributes` the
     attributes A to keep), an entry per nonempty chunk object, the whole objects
     `extra` under their own keys, and every other object under
-    `vzip_source/objects/` (§1.4, spec/virtualize/zarr2.md §5). Each node's
+    `vzip_source/objects/` (§1.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>,
+    spec/virtualize/zarr2.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>). Each node's
     source metadata is A and its metadata M, under `profile`'s convention, and
-    the groups `omes` names get the member `ome` it gives (conventions §2), and the
-    members `unversioned` gives (spec/virtualize/ome-zarr.md §8). Returns the output,
-    every chunk object, and the number of other objects."""
+    the groups `omes` names get the member `ome` it gives (conventions §2
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>), and the
+    members `unversioned` gives (spec/virtualize/ome-zarr.md §8
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>).
+    Returns the output, every chunk object, and the number of other objects."""
     unversioned = unversioned or {}
     out = StoreOutput(store.url)
     for path in h.implicit:
@@ -286,7 +307,8 @@ def hierarchy_output(store: Store, h: Hierarchy, groups: dict[str, dict], arrays
     chunks = chunk_objects(store, h)
     out.chunks = sorted([(k, n) for k, n in chunks if n > 0] + [(k, n) for k, n in extra if n > 0])
     # An empty object in `extra` is not in the hierarchy: its key is listed with the other empty ones.
-    # An empty chunk object has no entry either: its key is listed with the empty ones (§5).
+    # An empty chunk object has no entry either: its key is listed with the empty ones (§5
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
     used = h.documents | {k for k, n in chunks if n > 0} | {k for k, n in extra if n > 0}
     others = out.keep_objects(store.objects, used, [*h.arrays, *h.groups, *h.implicit], store.ignored)
     out.check_keys()

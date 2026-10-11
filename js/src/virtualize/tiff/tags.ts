@@ -1,5 +1,6 @@
 // Every tag of a TIFF's IFDs as JSON: the source metadata of the TIFF and NDPI
-// conventions (spec/virtualize/tiff.md §5).
+// conventions (spec/virtualize/tiff.md §5
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>).
 
 import {
   base64, blobChunks, type ByteReader, declare, emitPlans, familyPlans, jsonNumber, type Plan, planEntries, type Profile,
@@ -16,10 +17,12 @@ export const SIZES: Record<number, number> = {
 // are not recorded; the bytes they locate are, where the convention says so.
 export const LAYOUT = new Set([273, 279, 288, 289, 324, 325, 513, 514, 519, 520, 521]);
 // JPEGQTables, JPEGDCTables and JPEGACTables: each value is the offset of a
-// table, kept as the family <path>/<name> (spec/virtualize/tiff.md §5).
+// table, kept as the family <path>/<name> (spec/virtualize/tiff.md §5
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>).
 const TABLES: [number, string][] = [[519, "jpeg_q_tables"], [520, "jpeg_dc_tables"], [521, "jpeg_ac_tables"]];
-// The pointer tags (spec/virtualize/tiff.md §5): SubIFDs, these, and any
-// other tag of type IFD or IFD8 that is not in the convention's table. The
+// The pointer tags (spec/virtualize/tiff.md §5
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>): SubIFDs,
+// these, and any other tag of type IFD or IFD8 that is not in the convention's table. The
 // IFDs they point to are recorded, each in its own group, at <path>/<name>.
 const POINTERS: Record<number, string> = { 34665: "exif", 34853: "gps", 40965: "interoperability" };
 const SUBIFDS = 330;
@@ -33,7 +36,7 @@ const MAX_TEXT = 2 ** 16; // the longest ASCII value kept as JSON
 const IFD_BUDGET = 2 ** 16; // the most bytes of values as JSON in an IFD object
 const TOTAL_BUDGET = 2 ** 20; // with the file's size (at most 2^24 in all), the most bytes of values measured for JSON
 const MAX_TOTAL_BUDGET = 2 ** 24;
-const MAX_CHUNK = 2 ** 24; // the largest chunk of a metadata array (conventions §7)
+const MAX_CHUNK = 2 ** 24; // the largest chunk of a metadata array (conventions §7 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>)
 const DTYPES: Record<number, string> = {
   1: "uint8", 7: "uint8", 6: "int8", 2: "uint8", 3: "uint16", 8: "int16", 4: "uint32", 13: "uint32",
   9: "int32", 16: "uint64", 18: "uint64", 17: "int64", 11: "float32", 12: "float64", 5: "uint32", 10: "int32",
@@ -87,7 +90,10 @@ function valueJson(data: Uint8Array, type: number, count: number, le: boolean): 
 export type Found = [number, number, () => Promise<Entry[]>];
 
 const utf8 = new TextEncoder();
-/** The bytes of a value's compact JSON in UTF-8 (spec/virtualize/tiff.md §5). */
+/**
+ * The bytes of a value's compact JSON in UTF-8 (spec/virtualize/tiff.md §5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>).
+ */
 const jsonSize = (v: unknown) => utf8.encode(JSON.stringify(v)).length;
 
 /** A lower bound of the size of a value's JSON (jsonSize), from its type and count. */
@@ -101,7 +107,7 @@ const hex = (b: Uint8Array | undefined) => Array.from(b ?? [], (x) => x.toString
 /** An entry's field type, count and value field, which locate its value. */
 const where = (e: Entry) => `${e.type},${e.count},${hex(e.field)}`;
 
-/** Translates IFDs (spec/virtualize/tiff.md §5): each IFD's source metadata
+/** Translates IFDs (spec/virtualize/tiff.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>): each IFD's source metadata
  * (collected in `groups`, by path), small values as JSON and large ones as arrays
  * of the source metadata node (collected in `arrays`). `table` holds the tags of
  * the convention's table, which are never pointers; `entriesAt` finds the IFD at an
@@ -197,7 +203,9 @@ export class Translator {
   }
 
   /** Whether a value of JSON `size` is JSON within the IFD's `budget` and the total
-   * (spec/virtualize/tiff.md §5); either way, it spends the total. */
+   * (spec/virtualize/tiff.md §5
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>); either
+   * way, it spends the total. */
   private spend(budget: [number], size: number): boolean {
     const fits = size <= budget[0] && size <= this.total;
     if (fits) budget[0] -= size;
@@ -276,7 +284,8 @@ export class Translator {
 
   /** Old-style JPEG tables (JPEGQTables, JPEGDCTables, JPEGACTables): member i of the
    * family at `path/name` is the table at value i, 64 bytes for a quantization table, else
-   * 16 bytes of counts and as many values as they sum to (spec/virtualize/tiff.md §5). */
+   * 16 bytes of counts and as many values as they sum to (spec/virtualize/tiff.md §5
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>). */
   private async tables(e: Entry, path: string, name: string, quantization: boolean,
     same: Record<string, string>): Promise<void> {
     await this.keep(`${quantization ? "q" : "huffman"},${where(e)}`, path, name, same, async () => {
@@ -295,7 +304,10 @@ export class Translator {
     });
   }
 
-  /** Strips or tiles as the family of bytes `<path>/<name>` (spec/virtualize/tiff.md §5). */
+  /**
+   * Strips or tiles as the family of bytes `<path>/<name>` (spec/virtualize/tiff.md §5
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>).
+   */
   private async family(offsets: Entry, counts: Entry, path: string, name: string,
     same: Record<string, string>): Promise<void> {
     await this.keep(`data,${where(offsets)},${where(counts)}`, path, name, same, async () => {
@@ -363,7 +375,9 @@ export class Translator {
   }
 
   /** The path of the IFD a pointer value `at` leads to, recording it at `child` (and
-   * translating it) when it is new (spec/virtualize/tiff.md §5), or null. */
+   * translating it) when it is new (spec/virtualize/tiff.md §5
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>), or null.
+   * */
   private async lead(at: number, child: string, depth: number): Promise<string | null> {
     const known = this.recorded.get(at);
     if (known !== undefined) return known;

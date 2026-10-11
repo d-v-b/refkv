@@ -1,4 +1,6 @@
-"""The round-3 probes (design/IR_NOTES.md §21): round 1's CZI review findings,
+"""The round-3 probes (design/IR_NOTES.md §21
+<https://github.com/d-v-b/vzip/blob/main/design/IR_NOTES.md#21-round-1s-findings-closed>): round 1's
+CZI review findings,
 rebuilt, and round 1's TIFF amplification probes, plus IFD loops and huge counts.
 Usage: uv run python python/tests/ir/gen_probes.py <out dir> [--small]
 (--small writes the tests' sizes: no file over 1 MB.)"""

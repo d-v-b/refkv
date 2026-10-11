@@ -1,5 +1,6 @@
-//! vzip's intermediate representation (design/ARCHITECTURE.md §3), in Rust: a compact
-//! columnar IR with runs, its invariants, sans-IO parsers, and the checker of a
+//! vzip's intermediate representation (design/ARCHITECTURE.md §3
+//! <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
+//! in Rust: a compact columnar IR with runs, its invariants, sans-IO parsers, and the checker of a
 //! source model schema. The core has no I/O and builds for wasm32; the Python
 //! bindings are behind the `python` feature.
 

@@ -51,10 +51,15 @@ import vzip.codecs  # noqa: E402,F401  (registers n5_default and zlib)
 from vzip.policy import Policy  # noqa: E402
 from vzip.store import VZipStore  # noqa: E402
 
-# The sources are served on 127.0.0.1, which spec §8.7 rule 3 refuses by default.
+# The sources are served on 127.0.0.1, which spec §8.7
+# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3 refuses by
+# default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
 
-# The other objects' check is the Zarr v2 verifier's (spec/virtualize/n5.md §6 is its §5).
+# The other objects' check is the Zarr v2 verifier's (spec/virtualize/n5.md §6
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects> is
+# spec/virtualize/zarr2.md §5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
 _spec = importlib.util.spec_from_file_location("zarr2_verify", HERE.parent / "zarr2" / "verify.py")
 zarr2_verify = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(zarr2_verify)

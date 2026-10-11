@@ -1,4 +1,5 @@
-//! Minimal HTTP/1.1 client for byte-range reads (§6.2).
+//! Minimal HTTP/1.1 client for byte-range reads (§6.2
+//! <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#62-reading-over-http>).
 //!
 //! Hand-written so that every header sent and every response header checked is
 //! under our control (no automatic decompression, no hidden redirects).

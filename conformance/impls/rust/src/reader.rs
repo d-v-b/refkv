@@ -1,4 +1,8 @@
-//! vzip reader (§3, §4, §7, §8).
+//! vzip reader (§3
+//! <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#3-zip-container>, §4
+//! <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#4-entries>, §7
+//! <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#7-page-index-optional>,
+//! §8 <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#8-reading>).
 
 use crate::proto::{self, CdIndex, Range, Source, SourceKind};
 use crate::uri::{self, Uri};
@@ -24,7 +28,8 @@ pub enum Request {
 }
 
 impl Request {
-    /// The window `[a, b)` of a value of size `n` (§8.2).
+    /// The window `[a, b)` of a value of size `n` (§8.2
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#82-operations>).
     pub fn window(self, n: u64) -> (u64, u64) {
         match self {
             Request::Whole => (0, n),
@@ -114,7 +119,11 @@ enum Entry {
     Reference { id: u16, payload: Vec<u8>, body: Body },
 }
 
-/// Classifies a record (§4.1, §3.2, §8.4 entry errors).
+/// Classifies a record (§4.1
+/// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#41-classification>,
+/// §3.2 <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#32-zip64>, §8.4
+/// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#84-errors> entry
+/// errors).
 fn analyze(r: &Record) -> Result<Entry, Error> {
     let e = |m: String| err(ErrorClass::Entry, m);
     if r.flags & 1 != 0 {
@@ -199,7 +208,8 @@ fn is_hidden(k: &[u8]) -> bool {
 }
 
 impl Archive {
-    /// Opens an archive from a local path (§8.1).
+    /// Opens an archive from a local path (§8.1
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#81-opening>).
     pub fn open(path: impl AsRef<Path>) -> Result<Archive, Error> {
         let path = path.as_ref();
         let base = uri::file_base_uri(path).map_err(|e| archive(format!("cannot build base URI: {e}")))?;
@@ -220,7 +230,9 @@ impl Archive {
 
     pub fn from_file(file: File, size: u64, base: Uri) -> Result<Archive, Error> {
         let rd = |off: u64, len: u64| Self::read_at(&file, off, len).map_err(|e| archive(format!("read failed: {e}")));
-        // §3.4: locate the end of central directory record.
+        // §3.4
+        // <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#34-end-of-central-directory-record-and-archive-comment>:
+        // locate the end of central directory record.
         let mut eocd_at = None;
         if size >= 60 {
             let b = rd(size - 60, 22)?;
@@ -246,7 +258,8 @@ impl Archive {
         let sources_loc = (u64le(comment, 6), u64le(comment, 14));
         let index_loc = if comment.len() == 38 { Some((u64le(comment, 22), u64le(comment, 30))) } else { None };
 
-        // §3.2: ZIP64 end records.
+        // §3.2 <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#32-zip64>:
+        // ZIP64 end records.
         let (n_disk, n_total) = (u16le(&eocd, 8), u16le(&eocd, 10));
         let (mut cd_size, mut cd_offset) = (u32le(&eocd, 12) as u64, u32le(&eocd, 16) as u64);
         if n_disk == 0xFFFF || n_total == 0xFFFF || cd_size == 0xFFFF_FFFF || cd_offset == 0xFFFF_FFFF {
@@ -359,7 +372,9 @@ impl Archive {
                         return Err(archive("__vz__/index entry in an archive without a page index"));
                     }
                     if valid_name(&r.name) {
-                        // Duplicate names are unspecified (§8.6); first record wins.
+                        // Duplicate names are unspecified (§8.6
+                        // <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#86-violations-readers-need-not-detect>);
+                        // first record wins.
                         by_name.entry(r.name.clone()).or_insert(i);
                     }
                 }
@@ -384,7 +399,9 @@ impl Archive {
         parse_records(&buf).map_err(|e| err(ErrorClass::Entry, format!("page {i} cannot be parsed: {e}")))
     }
 
-    /// Looks up a non-format key's entry (§7.2). `Ok(None)` = missing.
+    /// Looks up a non-format key's entry (§7.2
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#72-lookup>).
+    /// `Ok(None)` = missing.
     fn lookup(&self, key: &[u8]) -> Result<Option<Entry>, Error> {
         match &self.store {
             Store::Unpaged { records, by_name } => match by_name.get(key) {
@@ -413,7 +430,8 @@ impl Archive {
         }
     }
 
-    /// Reads the window of a bytes entry's value (body errors, §8.4).
+    /// Reads the window of a bytes entry's value (body errors, §8.4
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#84-errors>).
     fn body_value(&self, b: &Body, req: Request, raw_ref: bool) -> Result<Vec<u8>, Error> {
         let be = |m: String| err(ErrorClass::Body, m);
         if !Self::within(self.size, b.off, b.csize) {
@@ -527,7 +545,8 @@ impl Archive {
         Ok(out.into_iter().map(|k| String::from_utf8(k).unwrap()).collect())
     }
 
-    /// §8.3.
+    /// §8.3
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#83-resolving-a-reference>.
     fn resolve_reference(&self, id: u16, payload: &[u8], req: Request) -> Result<Vec<u8>, Error> {
         let pe = |m: String| err(ErrorClass::Payload, m);
         if payload.len() > crate::MAX_PAYLOAD {

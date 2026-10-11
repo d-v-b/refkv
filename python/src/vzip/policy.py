@@ -1,4 +1,6 @@
-"""The reader policy of spec §8.7, and the range checksum of spec §5.2."""
+"""The reader policy of spec §8.7
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>, and the range checksum
+of spec §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>."""
 
 from __future__ import annotations
 
@@ -11,7 +13,8 @@ import google_crc32c
 
 from vzip.errors import ResolutionError
 
-# The defaults of spec §8.7's table.
+# The defaults of spec §8.7
+# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>'s table.
 MAX_SOURCES = 1 << 22
 MAX_READS = 1024
 MAX_FORMAT_ENTRY = 256 << 20
@@ -25,13 +28,15 @@ def crc32c(data: bytes) -> int:
 
 
 def _scheme(url: str) -> str:
-    """The scheme of an absolute URL, lowercase, with https counted as http (§8.7 rule 1)."""
+    """The scheme of an absolute URL, lowercase, with https counted as http (§8.7
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 1)."""
     s = url.split(":", 1)[0].lower() if ":" in url else ""
     return "http" if s == "https" else s
 
 
 def matches_prefix(url: str, prefix: str) -> bool:
-    """Does `url` match `prefix` (spec §8.7 rule 2)?"""
+    """Does `url` match `prefix` (spec §8.7
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 2)?"""
     if not url.startswith(prefix):
         return False
     rest = url[len(prefix):]
@@ -41,7 +46,8 @@ def matches_prefix(url: str, prefix: str) -> bool:
     return not _ENCODED.search(path)
 
 
-# ------------------------------------------------------------ address classes (§8.7 rule 3)
+# ------------------------------------------------------------ address classes (§8.7
+# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3)
 
 LOOPBACK, PRIVATE, LINK_LOCAL, SPECIAL, PUBLIC = "loopback", "private", "link-local", "special", "public"
 
@@ -60,8 +66,9 @@ _6TO4 = ipaddress.ip_network("2002::/16")
 
 
 def address_class(address: str | ipaddress.IPv4Address | ipaddress.IPv6Address) -> str:
-    """The class of an IP address (spec §8.7 rule 3): loopback, private,
-    link-local, special or public. An IPv6 address that embeds an IPv4 one
+    """The class of an IP address (spec §8.7
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3): loopback,
+    private, link-local, special or public. An IPv6 address that embeds an IPv4 one
     (IPv4-mapped, NAT64, 6to4) has the IPv4 address's class."""
     if isinstance(address, str):
         address = ipaddress.ip_address(address.split("%", 1)[0])  # drop an IPv6 zone
@@ -94,7 +101,8 @@ def host_class(host: str) -> str | None:
 
 @dataclass(frozen=True)
 class Policy:
-    """What a reader may resolve, and its resource limits (spec §8.7).
+    """What a reader may resolve, and its resource limits (spec §8.7
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>).
 
     - `schemes`: schemes allowed besides those rule 1 allows by default
       (`http` and `https` for every archive, `file` for a local one), such as
@@ -138,16 +146,16 @@ class Policy:
         and rule 3 allows its host as written (an IP literal, or `localhost`)."""
         if self.prefixes is not None:
             if not any(matches_prefix(url, p) for p in self.prefixes):
-                raise ResolutionError(f"{url}: not under an allowed URL prefix (spec §8.7)")
+                raise ResolutionError(f"{url}: not under an allowed URL prefix (spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>)")
         else:
             s, local = _scheme(url), _scheme(base) == "file"
             if s == "file":
                 if not (local or self.allow_files_from_remote_archives):
                     raise ResolutionError(
                         f"{url}: an archive opened from a URL may not read local files "
-                        f"(spec §8.7)")
+                        f"(spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>)")
             elif s != "http" and s not in {_scheme(x + ":") for x in self.schemes}:
-                raise ResolutionError(f"{url}: the scheme {s!r} is not allowed (spec §8.7)")
+                raise ResolutionError(f"{url}: the scheme {s!r} is not allowed (spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>)")
         if _scheme(url) == "http":
             try:
                 host = urlsplit(url).hostname
@@ -166,4 +174,4 @@ class Policy:
             return
         at = f" (at {address})" if address else ""
         raise ResolutionError(f"{url}: the host{at} is a {c} address, which the reader does not "
-                              f"reach without allow_private_hosts=True (spec §8.7)")
+                              f"reach without allow_private_hosts=True (spec §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>)")

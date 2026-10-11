@@ -1,4 +1,6 @@
-//! The invariants (design/ARCHITECTURE.md §3.3) over an IR with runs: injectivity and
+//! The invariants (design/ARCHITECTURE.md §3.3
+//! <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#33-invariants>) over an IR with
+//! runs: injectivity and
 //! coverage (`finish` establishes them, `check` verifies them), and the leaves in
 //! source order (the rebuild).
 //!
@@ -400,8 +402,9 @@ fn who_member(ir: &Ir, i: u32, j: u64) -> String {
     }
 }
 
-/// The root and the names (conventions §8.1). Element 0 is the **root**: a struct
-/// named `""` with no name index, in space 0, whose extent is `(0, size)`, the
+/// The root and the names (conventions §8.1
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>). Element 0 is the
+/// **root**: a struct named `""` with no name index, in space 0, whose extent is `(0, size)`, the
 /// whole source, and which is not a run. Every other element has a full name that
 /// is not empty. Among the children of one element (each member of a run a child),
 /// no full name is another's, or another's followed by `/` and more: so every

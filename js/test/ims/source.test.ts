@@ -1,5 +1,7 @@
 // The datatype descriptions of the browser IMS virtualizer
-// (spec/virtualize/ims.md §5.2); python/tests/test_virtualize_ims.py has the same cases.
+// (spec/virtualize/ims.md §5.2
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#52-datatypes>);
+// python/tests/test_virtualize_ims.py has the same cases.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

@@ -1,4 +1,9 @@
-// vzip reader (spec §3, §4, §6, §7, §8).
+// vzip reader (spec §3
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#3-zip-container>, §4
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#4-entries>, §6
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#6-source-table>, §7
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#7-page-index-optional>,
+// §8 <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#8-reading>).
 
 import fs from "node:fs";
 import zlib from "node:zlib";
@@ -180,7 +185,12 @@ function validName(name: string): boolean {
   return name.length > 0 && isValidUtf8(Buffer.from(name, "latin1"));
 }
 
-/** Classifies a record and checks its entry errors (§4.1, §3.2, §8.4). */
+/**
+ * Classifies a record and checks its entry errors (§4.1
+ * <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#41-classification>, §3.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#32-zip64>, §8.4
+ * <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#84-errors>).
+ */
 function analyze(rec: Rec): EntryInfo {
   const blocks: { id: number; data: Buffer }[] = [];
   let p = 0;

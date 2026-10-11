@@ -56,14 +56,19 @@ export interface HandlerOptions {
   openSource?: (url: string) => Promise<RangeSource>;
   /** Opens an image file as a reader, in place of `openSource` (its requests are not planned as remote ones). */
   openFile?: typeof openHttpFile;
-  /** Lists and reads store inputs (§1.5); defaults to `storeFetch` under `policy`. A
-   * fetch given here is still checked by the policy on each URL as written and on each
-   * response's final URL. */
+  /**
+   * Lists and reads store inputs (spec/virtualize.md §1.5
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>); defaults to
+   * `storeFetch` under `policy`. A fetch given here is still checked by the policy on each URL
+   * as written and on each response's final URL.
+   */
   fetchStore?: (url: string, init?: RequestInit) => Promise<Response>;
   fetchRange?: RangeFetcher;
   fetchArchive?: (url: string) => Promise<Uint8Array>;
   /**
-   * The reader policy (spec §8.7) for `.vzip` archives named by URL, and for
+   * The reader policy (spec §8.7
+   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>) for `.vzip`
+   * archives named by URL, and for
    * the image files and stores the handler virtualizes; the default allows http(s)
    * sources on public hosts. Archives
    * the handler virtualizes itself are read with the same policy, plus
@@ -147,6 +152,7 @@ export function makeHandler(options: HandlerOptions) {
             virtual = await virtualizeIr("tiff", url, source);
             const etag = source.etag?.();
             // spec/virtualize.md §1.2
+            // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>
             virtual.sources[0] = { ...virtual.sources[0], size: BigInt(source.size), ...(etag !== undefined ? { etag } : {}) };
           } else {
             virtual = await virtualizeSource(url, source);

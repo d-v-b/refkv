@@ -125,7 +125,9 @@ test("ignores paths outside the routes", async () => {
 });
 
 test("serves virtualized stores, and reports rejected ones", async () => {
-  // A store whose listing (§1.5) and objects come from the N5 fixtures, in the bucket "b".
+  // A store whose listing (spec/virtualize.md §1.5
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>) and objects
+  // come from the N5 fixtures, in the bucket "b".
   const root = new URL("../../fixtures/n5/", import.meta.url);
   const file = (url: string) => new URL(decodeURIComponent(new URL(url).pathname.slice("/b/".length)), root);
   const fetchStore = async (url: string) => {
