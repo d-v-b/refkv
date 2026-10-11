@@ -21,11 +21,18 @@ from typing import Literal
 from pathlib import Path
 
 import numpy as np
-import xarray as xr
 import zarr
-from virtualizarr.manifests import ManifestArray
-from virtualizarr.writers.icechunk import update_attributes
 from zarr.codecs import BytesCodec, ShardingCodec
+
+from vzip._extras import missing
+
+try:
+    import xarray as xr
+    from virtualizarr.manifests import ManifestArray
+    from virtualizarr.writers.icechunk import update_attributes
+except ImportError as e:
+    raise missing("virtualizarr", "Sharded archives of VirtualiZarr datasets (vzip.shards)",
+                  e) from e
 from zarr.storage import MemoryStore
 
 from vzip.archive import VZipWriter

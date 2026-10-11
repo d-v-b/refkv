@@ -39,6 +39,25 @@ test-all: test js::test impls::test
 # Type-check the browser code
 check: js::typecheck
 
+# Check the package without its extras: pass the Python of an environment where only
+# `pip install .` was run (default: a fresh one in a temporary directory)
+base-install-check python="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    py="{{python}}"
+    if [ -z "$py" ]; then
+        venv="$(mktemp -d)/base"
+        uv venv -q "$venv"
+        uv pip install -q --python "$venv" .
+        py="$venv/bin/python"
+    fi
+    "$py" python/tests/check_base_install.py
+
+# Run the example of docs/virtual-datasets.md on NOAA's data (network: about 2 minutes,
+# 50 MB), in a temporary directory
+example-oisst:
+    cd "$(mktemp -d)" && uv run --project "{{justfile_directory()}}" python "{{justfile_directory()}}/docs/examples/oisst.py"
+
 # Check that every section reference ("§n") is a link to a heading that exists, and test the check
 sections:
     uv run pytest -q spec/tools

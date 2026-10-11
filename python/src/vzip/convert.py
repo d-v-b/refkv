@@ -15,11 +15,17 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 
-import xarray as xr
 import zarr
-from virtualizarr.manifests import ManifestArray
-from virtualizarr.writers.icechunk import extract_codecs, update_attributes
 from zarr.storage import MemoryStore
+
+from vzip._extras import missing
+
+try:
+    import xarray as xr
+    from virtualizarr.manifests import ManifestArray
+    from virtualizarr.writers.icechunk import extract_codecs, update_attributes
+except ImportError as e:
+    raise missing("virtualizarr", "Converting VirtualiZarr datasets (vzip.convert)", e) from e
 
 from vzip.refstore import Summary
 
