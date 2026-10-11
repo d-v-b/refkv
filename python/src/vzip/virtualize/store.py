@@ -20,8 +20,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from vzip.policy import Policy
 from vzip.uri import is_uri_reference
-from vzip.virtualize.common import CONVENTION_KEY, Rejected, _retry, declare
+from vzip.virtualize.common import CONVENTION_KEY, Rejected, _ThreadConnections, _retry, declare, follow
 
 MAX_SAFE = 2**53 - 1
 MAX_DOCUMENT = 1 << 24
@@ -661,11 +662,21 @@ class Store:
 
 class HttpStore(Store):
     """A store listed by S3 ListObjectsV2 (§1.5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>)."""
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>), every request
+    under the reader
+    policy (spec/archive.md §8.7
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>): the listing's, each
+    object read's (the prefetch
+    threads' too), and each redirect target's, which is checked before it is
+    requested. Unless the policy has `allow_private_hosts`, the address each
+    request is sent to is checked, on a new connection and on a kept-alive one,
+    and a request that would go through a proxy is refused unless the policy has
+    `allow_unchecked_proxy`."""
 
     def __init__(self, url: str, *, max_objects: int | None = None,
-                 opener: Callable | None = None, workers: int = WORKERS) -> None:
+                 opener: Callable | None = None, workers: int = WORKERS, policy: Policy | None = None) -> None:
         self.workers = workers  # concurrent document reads (prefetch)
+        self.policy = policy or Policy()
         # Where the store is listed and read; `url`, the store's name in the
         # output, may be changed afterwards (--url).
         self.location = url
@@ -674,10 +685,9 @@ class HttpStore(Store):
         self.objects = {}
         self.ignored = []
         self.folders = []
-        self._open = opener or (lambda req: urllib.request.urlopen(req, timeout=120))
-        # Kept-alive connections for the object reads, one per thread and host (not with a test's opener).
-        self._keep = opener is None
-        self._local = threading.local()
+        # A test's urlopen, in place of the network: the policy then checks URLs as written.
+        self._opener = opener
+        self._conns = _ThreadConnections()
         seen: set[str] = set()
         tokens: set[str] = set()
         token = None
@@ -696,65 +706,63 @@ class HttpStore(Store):
                 raise Rejected(f"the listing gives the continuation token {token[:80]!r} again")
             tokens.add(token)
 
+    def _send(self, url: str, headers: dict[str, str]):
+        """One GET of `url`, not following redirects: (status, headers, body). A
+        network error is a URLError, as urllib's; a refusal a ResolutionError."""
+        if self._opener is not None:  # it follows redirects, and raises HTTPError, as urlopen does
+            with self._opener(urllib.request.Request(url, headers=headers)) as r:
+                return r.status, getattr(r, "headers", None), r.read()
+        from vzip import store
+
+        check = None
+        if not self.policy.allow_private_hosts:
+            check = lambda ip: self.policy.check_address(url, ip)  # noqa: E731
+        try:
+            return store._send(url, headers, check, self.policy.allow_unchecked_proxy, self._conns)
+        except (OSError, http.client.HTTPException) as e:
+            if isinstance(e, urllib.error.URLError):
+                raise
+            raise urllib.error.URLError(e) from None
+
+    def _get(self, url: str, headers: dict[str, str]) -> tuple[int, bytes]:
+        """(status, body) of a GET of `url`, following at most 5 redirects; the policy
+        checks `url`, and each redirect's target before it is requested."""
+        headers = {"User-Agent": UA, **headers}
+        _, status, _, body = follow(self.location, url, lambda u: self._send(u, headers), self.policy)
+        return status, body
+
     def _get_listing(self, url: str) -> bytes:
         self.requests += 1
-        req = urllib.request.Request(url, headers={"User-Agent": UA})
 
         def get():
-            with self._open(req) as r:
-                return r.status, r.read()
+            status, body = self._get(url, {})
+            if status != 200:
+                raise urllib.error.HTTPError(url, status, f"HTTP {status}", None, None)
+            return body
 
         try:
-            status, body = _retry(get)
+            return _retry(get)
         except urllib.error.HTTPError as e:
             if e.code in (408, 429) or e.code >= 500:
                 raise ListingFailed(f"{url}: HTTP {e.code}") from None
             raise Rejected(f"the store has no listing: {url} answered HTTP {e.code}") from None
         except (urllib.error.URLError, ConnectionError, TimeoutError) as e:
             raise ListingFailed(f"{url}: {e}") from None
-        if status != 200:
-            raise Rejected(f"the store has no listing: {url} answered HTTP {status}")
-        return body
 
     def _get_range(self, url: str, start: int, end: int) -> bytes:
-        """The bytes [start, end) of the object at `url`. Each thread keeps a connection
-        alive per host: a new TLS connection per range costs a round trip or more, which
-        dominates the many small reads of a SAFE product's band files. Redirects and
-        errors go through urllib."""
-        headers = {"Range": f"bytes={start}-{end - 1}", "User-Agent": UA}
-        parts = urllib.parse.urlsplit(url)
-        target = parts.path + (f"?{parts.query}" if parts.query else "")
-        host = (parts.scheme, parts.netloc)
+        """The bytes [start, end) of the object at `url`, over the calling thread's
+        kept-alive connection to its host."""
 
         def get():
-            conns = getattr(self._local, "conns", None)
-            if conns is None:
-                conns = self._local.conns = {}
-            conn = conns.pop(host, None)
-            if conn is not None:
-                try:
-                    conn.request("GET", target, headers=headers)
-                    r = conn.getresponse()
-                    data = r.read()
-                    if r.status in (200, 206):
-                        conns[host] = conn
-                        return data
-                except (OSError, http.client.HTTPException):
-                    pass
-                conn.close()
-            with self._open(urllib.request.Request(url, headers=headers)) as r:
-                data = r.read()
-                if self._keep and urllib.parse.urlsplit(r.geturl()) == parts:  # no redirect
-                    cls = http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
-                    conns[host] = cls(parts.netloc, timeout=120)
-                return data
+            status, body = self._get(url, {"Range": f"bytes={start}-{end - 1}"})
+            if status not in (200, 206):
+                raise urllib.error.HTTPError(url, status, f"HTTP {status}", None, None)
+            return body
 
         return _retry(get)
 
     def _release(self) -> None:
-        conns = getattr(self._local, "conns", None)
-        while conns:
-            conns.popitem()[1].close()
+        self._conns.release()
 
     def read(self, key: str) -> bytes:
         size = self.objects[key]
@@ -821,13 +829,14 @@ class DirStore(Store):
 
 
 def open_store(location: str, url: str | None = None, *, max_objects: int | None = None,
-               opener: Callable | None = None, workers: int = WORKERS) -> Store:
-    """The store at an http(s) URL ending in `/` (listed and read there, and
-    named `url` in the output if given, its documents read by up to `workers`
-    requests at a time), or a local directory served at `url` (§1.2
+               opener: Callable | None = None, workers: int = WORKERS, policy: Policy | None = None) -> Store:
+    """The store at an http(s) URL ending in `/` (listed and read there under the
+    reader policy `policy`, default `Policy()`, and named `url` in the output if
+    given, its documents read by up to `workers` requests at a time), or a local
+    directory served at `url` (§1.2
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>), read sequentially."""
     if location.startswith(("http://", "https://")):
-        store = HttpStore(location, max_objects=max_objects, opener=opener, workers=workers)
+        store = HttpStore(location, max_objects=max_objects, opener=opener, workers=workers, policy=policy)
         if url is not None:
             check_store_url(url)
             store.url = url
