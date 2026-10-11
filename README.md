@@ -13,7 +13,12 @@ needs no particular backend, and
 store in one ordinary ZIP file, a vzip archive. ZIP is the one binding
 specified today. Read the [pitch](design/PITCH.md) for why.
 [docs/](docs/README.md) is for users: the live demos, and how to virtualize
-image files and stores.
+image files and stores. For netCDF, HDF5 and the other files
+[VirtualiZarr](https://virtualizarr.readthedocs.io/) reads, the Python package
+turns a virtual dataset into a store that xarray opens, and saves it as a vzip
+archive: `vzip.ReferenceStore.from_virtualizarr(vds)`, then
+`store.save("data.vzip")`, then `xr.open_zarr(vzip.open("data.vzip"))`
+([python/src/vzip/refstore.py](python/src/vzip/refstore.py) says more).
 
 Status: experimental, proof of concept, anything can change.
 
