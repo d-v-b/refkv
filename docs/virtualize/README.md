@@ -83,7 +83,7 @@ store by the objects at its root. Options:
 - `--url <url>`: the URL to record as the source, for a local file or
   directory that will be served from that URL (a local directory needs it);
 - `--checksums`: also record the CRC-32C of every referenced range
-  ([spec/archive.md §5.2](../../spec/archive.md#52-range)), which reads every byte the
+  ([spec/archive.md §4.2](../../spec/archive.md#42-range)), which reads every byte the
   archive references (off by default);
 - `--allow-private-hosts`: let a file at an http(s) URL be read from a
   loopback, private or link-local host (below; unsafe);
@@ -96,11 +96,11 @@ store by the objects at its root. Options:
 
 Every `url` source records the size of the object it names. The input
 file's source also records its ETag when every response gave the same
-strong one ([spec/archive.md §6.1](../../spec/archive.md#61-pins)). A reader then notices a
+strong one ([spec/archive.md §5.1](../../spec/archive.md#51-pins)). A reader then notices a
 source that has changed since the archive was written.
 
 **Reader policy.** A file at an http(s) URL is read under the reader policy
-of [spec/archive.md §8.7](../../spec/archive.md#87-reader-policy). A host that is, or
+of [spec/archive.md §6.7](../../spec/archive.md#67-reader-policy). A host that is, or
 resolves to, a loopback, private, link-local or other special address is
 refused, and so is a request that would go through a proxy the reader cannot
 check. To virtualize a file served from your own machine or network (for

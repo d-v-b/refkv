@@ -47,9 +47,9 @@ interpreted as described in RFC 2119.
 A virtualizer's **output** is an archive description:
 
 - a **source table**: a list of `url` sources and `data` sources (spec/archive.md
-  [§6](archive.md#6-source-table)), and
+  [§5](archive.md#5-source-table)), and
 - a set of **entries**: keys, each with either bytes or a list of ranges
-  ([spec/archive.md §2](archive.md#2-data-model), [§5](archive.md#5-messages)).
+  ([spec/archive.md §2](archive.md#2-data-model), [§4](archive.md#4-messages)).
 
 Two outputs are **equivalent** when they have the same source table (the
 same sources in the same order: `url` sources with the same URLs, `data`
@@ -57,7 +57,7 @@ sources with identical bytes), the same set of keys, and for every key:
 
 - **reference entries:** the same list of ranges, in order. A range is a
   source range `(i, offset, length)` of source `i`, or a **literal** range
-  of given bytes ([spec/archive.md §5.2](archive.md#52-range)), and two ranges are the same only if both are
+  of given bytes ([spec/archive.md §4.2](archive.md#42-range)), and two ranges are the same only if both are
   source ranges with equal sources, offsets and lengths, or both are literal
   ranges with identical bytes;
 - **JSON documents** (keys ending in `zarr.json`): equal JSON values.
@@ -109,7 +109,7 @@ the URL it will be served from: a directory is a store input, listed as
 
 For a file input, the output's source table is source 0, a `url` source
 whose value is `U` as given, followed by the output's **data sources**, if
-its profile defines any. Source 0 carries pins ([spec/archive.md §6.1](archive.md#61-pins)):
+its profile defines any. Source 0 carries pins ([spec/archive.md §5.1](archive.md#51-pins)):
 
 - a `size` pin, the file's size;
 - an `etag` pin when every response the virtualizer received for the file
@@ -121,12 +121,12 @@ its profile defines any. Source 0 carries pins ([spec/archive.md §6.1](archive.
   no `etag`.
 
 **Checksums.** A virtualizer MAY, when asked to, record on every range of
-a `url` source the CRC-32C of its bytes ([spec/archive.md §5.2](archive.md#52-range)). That reads every
+a `url` source the CRC-32C of its bytes ([spec/archive.md §4.2](archive.md#42-range)). That reads every
 byte the output references, pixel data included, so it is off by default;
 it is the one exception to "Structure only" below, and changes nothing else
 in the output. An output whose payload exceeds 65519 bytes only because of
 its checksums is a failure, not a rejection. A data source is a `data` source
-([spec/archive.md §6](archive.md#6-source-table)) holding a byte string that a profile names as **shared**: one
+([spec/archive.md §5](archive.md#5-source-table)) holding a byte string that a profile names as **shared**: one
 that many references would otherwise each read from the file, or each carry
 as a literal, such as a JPEG header. The data sources are the distinct
 shared byte strings of the output, numbered from 1 **in order of first
@@ -189,7 +189,7 @@ in the output.
 the file (`offset + length ≤` the file's size; a range of a data source is
 the whole source), and every reference entry's
 payload MUST be at most 65519 bytes; otherwise the input is rejected. The
-payload ([spec/archive.md §4.3](archive.md#43-reference-entries), [§5](archive.md#5-messages)) of a single range is its `Range` message: for a
+payload ([spec/archive.md §4.4](archive.md#44-reference-payloads), [§4](archive.md#4-messages)) of a single range is its `Range` message: for a
 source range `(i, o, n)`, `0x08 varint(i)` if `i > 0`, then `0x18 varint(o)`
 if `o > 0`, then `0x20 varint(n)` if `n > 0` (fields 1, 3 and 4); for a
 literal range of bytes `d`, `0x2A varint(len(d)) d`. The payload of several
@@ -302,7 +302,7 @@ requested length is a failure ([§12.2](virtualize/safe.md#122-objects-and-readi
 `k`'s UTF-8 bytes with every byte that is not an unreserved character
 (`A`–`Z`, `a`–`z`, `0`–`9`, `-`, `.`, `_`, `~`), a sub-delim
 (`!$&'()*+,;=`), `:`, `@` or `/` written as `%` and two uppercase hex
-digits (the encoding of [spec/archive.md §6](archive.md#6-source-table) for local paths). For example, the key
+digits (the encoding of [spec/archive.md §5](archive.md#5-source-table) for local paths). For example, the key
 `a b/0.0` of the store `https://h/x/` has the URL `https://h/x/a%20b/0.0`.
 
 **Source table and chunk references.** A profile names the **chunk

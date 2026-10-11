@@ -101,7 +101,7 @@ class Range:
     offset: int = 0
     length: int = 0
     data: bytes | None = None
-    crc32c: int | None = None  # CRC-32C of the range's bytes (spec §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>), source ranges only
+    crc32c: int | None = None  # CRC-32C of the range's bytes (spec §4.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>), source ranges only
 
     def encode(self) -> bytes:
         out = bytearray()
@@ -176,8 +176,8 @@ def parts(ref: Reference) -> tuple[Range, ...]:
 
 @dataclass(frozen=True, slots=True)
 class Source:
-    """One entry of the archive's source table: exactly one kind, plus pins (spec §6.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#61-pins>)."""
+    """One entry of the archive's source table: exactly one kind, plus pins (spec §5.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-pins>)."""
 
     url: str | None = None  # external object; may be relative to the archive
     key: str | None = None  # another entry of this archive (internal reference)
@@ -224,7 +224,7 @@ class Source:
         for f, v in _known(buf, schema):
             if f in (1, 2, 3):
                 if f in (1, 2):
-                    _utf8(v)  # every occurrence must be valid, even if overridden (§5.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-encoding>)
+                    _utf8(v)  # every occurrence must be valid, even if overridden (§4.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#41-encoding>)
                 kind = (f, v)  # oneof: the last member on the wire wins
             elif f == 4:
                 pins["size"] = v
@@ -263,7 +263,7 @@ def encode_source_table(sources: list[Source], revision: int | None = None) -> b
     out = bytearray()
     for src in sources:
         _put_bytes(out, 1, src.encode())
-    if revision is not None:  # optional: emitted whenever set (spec §6 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>, §1.3 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#13-versioning>)
+    if revision is not None:  # optional: emitted whenever set (spec §5 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>, §1.3 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#13-versioning>)
         _put_tag(out, 2, _VARINT)
         _put_varint(out, revision)
     return bytes(out)
@@ -274,8 +274,8 @@ def decode_source_table(buf) -> list[Source]:
 
 
 def decode_table(buf) -> tuple[list[Source], int | None]:
-    """The sources of a SourceTable, and the spec revision it records, if any (spec §6
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>)."""
+    """The sources of a SourceTable, and the spec revision it records, if any (spec §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>)."""
     sources, revision = [], None
     for f, v in _known(buf, {1: _LEN, 2: _VARINT}):
         if f == 1:

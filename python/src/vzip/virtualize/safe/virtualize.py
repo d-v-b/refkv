@@ -181,8 +181,8 @@ class SafeOutput:
     # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>, §1.4
     # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): the zip file's
     # size and ETag (set by vzip.virtualize.virtualize), or each object's listed size; and the
-    # CRC-32C of a url source's bytes, when ranges are to carry checksums (spec/archive.md §5.2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>).
+    # CRC-32C of a url source's bytes, when ranges are to carry checksums (spec/archive.md §4.2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>).
     size: int | None = None
     etag: str | None = None
     object_sizes: dict[str, int] = field(default_factory=dict)

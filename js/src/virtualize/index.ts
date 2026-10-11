@@ -32,15 +32,15 @@ export interface PinOptions {
   /** The input file's strong ETag, if every response gave the same one (an `etag` pin). */
   etag?: () => string | undefined;
   /**
-   * Record the CRC-32C of every range of a url source (spec/archive.md §5.2
-   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>), reading its bytes.
+   * Record the CRC-32C of every range of a url source (spec/archive.md §4.2
+   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>), reading its bytes.
    */
   checksums?: boolean;
 }
 
 /**
  * Records on every range of a url source the CRC-32C of its bytes (spec/archive.md
- * §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>), read by `read(url,
+ * §4.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>), read by `read(url,
  * offset, length)`.
  */
 export async function addChecksums(

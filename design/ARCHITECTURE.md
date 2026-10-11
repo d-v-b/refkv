@@ -73,7 +73,7 @@ server ignores `Range`.
 
 - Readers resolve any scheme an archive names, with ambient credentials: a
   remote archive can read `file:///etc/hosts` or private buckets, and one
-  chunk can fan out to about 10,000 requests. [SPEC §10](../spec/archive.md#10-security-considerations) says SHOULD; no reader
+  chunk can fan out to about 10,000 requests. [SPEC §8](../spec/archive.md#8-security-considerations) says SHOULD; no reader
   does.
 - No staleness detection: the profiles forbid pins, so a changed
   uncompressed source silently yields wrong pixels.

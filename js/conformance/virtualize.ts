@@ -1,15 +1,15 @@
 // Virtualizes an image file, or a store (a URL ending in "/"), at an http(s)
 // URL with the browser code, under Node, by spec/virtualize.md:
 //   node js/conformance/virtualize.ts <url> <out.vzip> [--checksums] [--allow-private-hosts]
-// A file is read under the reader policy (spec/archive.md §8.7
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>), which refuses
+// A file is read under the reader policy (spec/archive.md §6.7
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>), which refuses
 // private and special hosts unless --allow-private-hosts (UNSAFE; the harness serves its
 // inputs from 127.0.0.1); TIFF, ND2 and CZI are virtualized by the Rust core
 // (rust/vzip-ir, as WebAssembly), which plans the requests.
 // Source 0 (or each store object's source) pins its size, and a file's its ETag
 // when every response gave the same strong one; --checksums also records the
-// CRC-32C of every range of a url source (spec/archive.md §5.2
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>), reading its bytes.
+// CRC-32C of every range of a url source (spec/archive.md §4.2
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>), reading its bytes.
 // Prints a JSON summary; exits 3 (writing nothing) if the input is rejected.
 // A store over the browser limit (§14
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-conformance>) is a failure (exit

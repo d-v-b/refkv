@@ -291,7 +291,7 @@ pyramidal OME-TIFF in place on EBI's FTP/HTTPS server.
 - **References:** 5,037 references, one plain `Range` per tile. The TIFF's
   tiles map one-to-one onto Zarr chunks, so `Concat` isn't needed.
 - **Pins:** the one `url` source is pinned to the server's `ETag`,
-  `Content-Length` and `Last-Modified` ([§6.1](../spec/archive.md#61-pins)).
+  `Content-Length` and `Last-Modified` ([§5.1](../spec/archive.md#51-pins)).
 - **Metadata:** an OME-NGFF 0.5 multiscales group with one array per level.
   The OME-XML is stored as a real (deflated) bytes entry, `OME/METADATA.ome.xml`,
   next to the references.

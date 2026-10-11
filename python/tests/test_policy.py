@@ -1,7 +1,7 @@
-"""The reader policy (spec §8.7
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>), range checksums (§5.2
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>), pins (§6.1
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#61-pins>) and the
+"""The reader policy (spec §6.7
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>), range checksums (§4.2
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>), pins (§5.1
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-pins>) and the
 recorded revision (§1.3 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#13-versioning>), in
 the reference reader and writer."""
 
@@ -21,8 +21,8 @@ from vzip.policy import Policy, address_class, crc32c, matches_prefix
 from vzip.store import VZipStore
 
 BLOB = bytes(range(256)) * 64  # 16 KiB
-# The test server is on 127.0.0.1, which spec §8.7
-# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3 refuses by
+# The test server is on 127.0.0.1, which spec §6.7
+# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
 # default.
 SERVED = Policy(allow_private_hosts=True)
 

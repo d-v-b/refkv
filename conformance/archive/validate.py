@@ -174,8 +174,8 @@ def validate(path: Path, desc: dict) -> list[str]:
             problems.append("__vz__/sources is not DEFLATE")
         if soff != sr["off"] + 30 + len(SOURCES) or ssize != sr["csize"]:
             problems.append("comment does not locate the __vz__/sources body")
-        # spec/archive.md §6
-        # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>: the revision is
+        # spec/archive.md §5
+        # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>: the revision is
         # recorded by the writer and only reported by readers,
         # so the description may leave it to the table; the encoding must still be canonical
         revision = desc.get("revision")

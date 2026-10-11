@@ -71,8 +71,8 @@ class Output:
     lazy: tuple[str, ...] = ("vzip_source/",)
     # Source 0's pins (§1.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>),
     # and the CRC-32C of a url source's bytes, when the
-    # ranges are to carry checksums (spec/archive.md §5.2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>); set by
+    # ranges are to carry checksums (spec/archive.md §4.2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>); set by
     # vzip.virtualize.virtualize.
     size: int | None = None
     etag: str | None = None

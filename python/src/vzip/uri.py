@@ -1,5 +1,5 @@
-"""RFC 3986 URI references, strict resolution, and the file: rules of spec §6
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>."""
+"""RFC 3986 URI references, strict resolution, and the file: rules of spec §5
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>."""
 
 from __future__ import annotations
 
@@ -107,8 +107,8 @@ def resolve(base: str, ref: str) -> str:
 
 
 def file_uri(path: str) -> str:
-    """Base URI of a local path (spec §6
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>): absolute, lexical,
+    """Base URI of a local path (spec §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>): absolute, lexical,
     percent-encoded."""
     abs_path = os.path.normpath(os.path.join(os.getcwd(), path))
     if abs_path.startswith("//"):
@@ -117,8 +117,8 @@ def file_uri(path: str) -> str:
 
 
 def file_path(url: str) -> str:
-    """Local path of a file: URI, or ValueError per the rules of spec §6
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>."""
+    """Local path of a file: URI, or ValueError per the rules of spec §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>."""
     m = _SPLIT.match(url)
     scheme, authority, path, query, _ = m.groups()
     if (scheme or "").lower() != "file":

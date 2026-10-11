@@ -1,8 +1,8 @@
-// vzip writer (spec/archive.md §3
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#3-zip-container>, §4
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#4-entries>, §6
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>, §9
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#9-writing>), without a page index.
+// vzip writer (spec/archive.md §10
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#10-zip-container>, §11
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#11-entries>, §5
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>, §14
+// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#14-writing-a-vzip-archive>), without a page index.
 
 import { crc32, deflateRaw } from "./deflate.ts";
 import {
@@ -29,8 +29,8 @@ export interface ArchiveDesc {
 
 /**
  * The revision of spec/archive.md the writer follows, recorded in every archive (§1.3
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#13-versioning>, §6
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>).
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#13-versioning>, §5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>).
  */
 export const SPEC_REVISION = 10;
 export const SOURCES_KEY = "__vz__/sources";
@@ -175,8 +175,8 @@ function le(fields: [number, 2 | 4 | 8][]): Uint8Array {
 }
 
 /**
- * Writes an archive, or throws InvalidInputError (spec §9.1
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#91-requirements>).
+ * Writes an archive, or throws InvalidInputError (spec §7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#7-writing>).
  */
 export async function writeVzip(desc: ArchiveDesc): Promise<Uint8Array> {
   validate(desc);

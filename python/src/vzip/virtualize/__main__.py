@@ -11,11 +11,11 @@ from vzip.virtualize.store import WORKERS
 def main(argv: list[str]) -> int:
     args = list(argv)
     url = None
-    checksums = "--checksums" in args  # spec/archive.md §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>: reads every referenced byte
+    checksums = "--checksums" in args  # spec/archive.md §4.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>: reads every referenced byte
     if checksums:
         args.remove("--checksums")
-    # spec/archive.md §8.7
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3: an input on
+    # spec/archive.md §6.7
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3: an input on
     # a loopback or private host needs this (UNSAFE)
     private = "--allow-private-hosts" in args
     if private:

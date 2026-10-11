@@ -1,8 +1,8 @@
 /**
- * @file Strict RFC 3986 handling for vzip `url` sources (spec §6
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>), and the
- * IMF-fixdate format used by `modified_not_after` pins (spec §6.2
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>).
+ * @file Strict RFC 3986 handling for vzip `url` sources (spec §5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>), and the
+ * IMF-fixdate format used by `modified_not_after` pins (spec §5.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>).
  *
  * The WHATWG `URL` parser repairs and normalizes invalid input, which the
  * spec does not allow, so references are validated and resolved here.
@@ -146,8 +146,8 @@ export function getScheme(url: string): string | undefined {
 }
 
 /**
- * Checks the URL rules of spec §6.2
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http> for an http(s)
+ * Checks the URL rules of spec §5.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http> for an http(s)
  * URL: no userinfo, a non-empty host, and a port of at most 65535. Throws if they fail.
  */
 export function checkHttpUrl(url: string) {
@@ -186,7 +186,7 @@ const MONTHS = [
  * Seconds since the Unix epoch for an IMF-fixdate (RFC 9110 §5.6.7), or
  * `undefined` if `value` is not one. Names are case-sensitive, the day name
  * must match the date, and a second of 60 counts as the following second
- * (spec §6.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>).
+ * (spec §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>).
  */
 export function parseImfFixdate(value: string | null): number | undefined {
   if (value === null) return undefined;
