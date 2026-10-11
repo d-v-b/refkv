@@ -44,7 +44,7 @@ print(store.save("oisst.vzip"))
 # 3. Reopen it with xarray: the yearly mean SST over the Nino 3.4 region, weighted by area.
 stats = vzip.Stats()
 ds = xr.open_zarr(vzip.zarr.open("oisst.vzip", stats=stats))
-nino34 = ds.sst.sel(lat=slice(-5, 5), lon=slice(190, 240))
+nino34 = ds.sst.sel(lat=slice(-5, 5), lon=slice(190, 240)).load()  # read each chunk once
 mean = nino34.weighted(np.cos(np.deg2rad(nino34.lat))).mean(["lat", "lon", "zlev"])
 print(mean.groupby("time.year").mean().to_series().round(2))
 print(f"read {stats.external_bytes / 1e6:.0f} MB in {stats.external_requests} requests to the netCDF files")
