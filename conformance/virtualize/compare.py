@@ -83,10 +83,10 @@ from vzip.virtualize.common import REVISION, same  # noqa: E402
 
 IDR = "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant/20210609-ftp-ome-tiffs/"
 BUILTIN = {
-    "ref": ("vzip", ["uv", "run", "python", str(HERE / "reference" / "cli.py")]),
     # the inputs are served from 127.0.0.1, which the reader policy refuses by default
     # (spec/archive.md §6.7
     # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)
+    "ref": ("vzip", ["uv", "run", "python", str(HERE / "reference" / "cli.py"), "--allow-private-hosts"]),
     "py": ("vzip", ["uv", "run", "python", "-m", "vzip.virtualize", "--allow-private-hosts"]),
     "web": ("vzip", ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"]),
 }

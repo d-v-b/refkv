@@ -88,10 +88,11 @@ core replaced are kept, frozen, in `conformance/reference/` (with CLIs
 comparisons. The Python implementation (`python -m vzip.virtualize`)
 produces equivalent archives; `conformance/virtualize/compare.py` checks that.
 
-A file at an http(s) URL is read under the reader policy ([spec/archive.md §6.7](../spec/archive.md#67-reader-policy)):
-loopback, private, link-local and other special hosts are refused unless
-the caller opts in (`allowPrivateHosts`; `--allow-private-hosts` in the Node
-CLIs). Each source pins its size, and the input file's its ETag when every
+A file or a store at an http(s) URL is read under the reader policy (spec/archive.md
+[§6.7](../spec/archive.md#67-reader-policy)), a store's listing, object reads and redirects included: loopback,
+private, link-local and other special hosts are refused unless the caller
+opts in (`allowPrivateHosts`, given to `openHttpSource`, `openHttpStore` or
+`virtualizeStore`; `--allow-private-hosts` in the Node CLIs). Each source pins its size, and the input file's its ETag when every
 response exposed the same strong one.
 
 TIFF:

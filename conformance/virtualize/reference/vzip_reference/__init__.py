@@ -6,12 +6,13 @@ Nothing shipped imports this package. Every other format, and what the profiles
 share (`vzip.virtualize.common`), is the shipped code.
 
 `virtualize(location, url, checksums=...)` is `vzip.virtualize.virtualize` as it
-was: the same dispatch by first bytes, the same readers (no reader policy), with
-TIFF, ND2 and CZI going to the frozen modules."""
+was: the same dispatch by first bytes, the same readers, with TIFF, ND2 and CZI
+going to the frozen modules. A file or store at an http(s) URL is read by the
+shipped readers under `policy` (default: `Policy()`, private hosts refused)."""
 
 from __future__ import annotations
 
-from vzip.policy import crc32c
+from vzip.policy import Policy, crc32c
 from vzip.virtualize import is_store, virtualize_store
 from vzip.virtualize.common import Output, Rejected, file_reader, http_reader
 from vzip.virtualize.dicom import is_dicom, virtualize_dicom
@@ -27,10 +28,14 @@ TIFF_MAGIC = (b"II*\0", b"MM\0*", b"II+\0", b"MM\0+")
 NOT_SUPPORTED = "not a TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file"
 
 
-def virtualize(location: str, url: str | None = None, *, checksums: bool = False):
+def virtualize(location: str, url: str | None = None, *, checksums: bool = False,
+               policy: Policy | None = None):
     if is_store(location):
-        return virtualize_store(location, url, checksums=checksums)
-    read, size = http_reader(location) if location.startswith(("http://", "https://")) else file_reader(location)
+        return virtualize_store(location, url, checksums=checksums, policy=policy)
+    if location.startswith(("http://", "https://")):
+        read, size = http_reader(location, policy=policy)
+    else:
+        read, size = file_reader(location)
     url = url or location
     fmt, out = _virtualize_file(url, read, size)
     out.size = size

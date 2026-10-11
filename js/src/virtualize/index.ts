@@ -18,7 +18,8 @@ import { detectNifti, virtualizeNifti } from "./nifti/virtualize.ts";
 import { virtualizeN5 } from "./n5/virtualize.ts";
 import { declares04, virtualizeOmeZarr } from "./ome-zarr/virtualize.ts";
 import { isZip, virtualizeSafeStore, virtualizeSafeZip } from "./safe/virtualize.ts";
-import { chooseProfile, closeStore, objectUrl, type Store, storeArchive } from "./store.ts";
+import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store, storeArchive } from "./store.ts";
+import type { Policy } from "../archive.ts";
 import { crc32c } from "../deflate.ts";
 import { virtualizeZarr2 } from "./zarr2/virtualize.ts";
 import type { ArchiveDesc } from "../writer.ts";
@@ -153,12 +154,25 @@ export function isStoreUrl(url: string): boolean {
   return url.split(/[?#]/, 1)[0].endsWith("/");
 }
 
-/** Virtualizes a listed store by the profile its root keys select (§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>). Every source
- * pins its object's size; with `pins.checksums`, every range carries the CRC-32C of its bytes. */
+/** Virtualizes a store by the profile its root keys select (§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): a listed one, or the
+ * one at an http(s) URL, listed and read by `openHttpStore` under the reader policy
+ * `options.policy` (spec/archive.md §6.7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>; default: private and
+ * special hosts refused). Every
+ * source pins its object's size; with `options.checksums`, every range carries the
+ * CRC-32C of its bytes. */
 export async function virtualizeStore(
-  store: Store,
-  pins: PinOptions = {},
+  input: Store | string,
+  options: PinOptions & { policy?: Policy; headers?: Record<string, string> } = {},
 ): Promise<ArchiveDesc & { format: "n5" | "zarr2" | "ome-zarr" | "safe"; summary: object }> {
+  if (typeof input !== "string" && (options.policy !== undefined || options.headers !== undefined)) {
+    // a listed store was opened under its policy already
+    throw new TypeError("virtualizeStore: a policy applies to a store URL; pass it to openHttpStore for an opened store");
+  }
+  const store = typeof input === "string"
+    ? await openHttpStore(input, { policy: options.policy ?? {}, headers: options.headers ?? {} })
+    : input;
+  const pins = options;
   const desc = await virtualizeStoreProfile(store);
   if (pins.checksums) {
     const keys = new Map([...store.objects.keys()].map((k) => [objectUrl(store.url, k), k]));
