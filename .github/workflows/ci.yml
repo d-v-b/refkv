@@ -52,14 +52,22 @@ jobs:
       # builds the Rust core first; the ir job runs python/tests/ir
       - run: just test --ignore=python/tests/ir
 
+  # The JS library and its tests run on the oldest Node that js/package.json's engines
+  # allows (the LTS most users have) and on the newest (what the project develops on);
+  # Node's behavior differs between them, e.g. how fetch goes through a proxy.
   node:
+    name: node (${{ matrix.node }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["24", "26"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: js/package-lock.json
       - uses: extractions/setup-just@v2
