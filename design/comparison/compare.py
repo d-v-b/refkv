@@ -332,9 +332,12 @@ def _icechunk_access(ctx):
 
 
 def write_vzip(vds, out, ctx, cfg) -> None:
-    from vzip.convert import write_vzip as write
+    from vzip import Policy, ReferenceStore
 
-    write(vds, out, page_size=None if cfg == "default" else 1 << 16)
+    # the sources are served on 127.0.0.1, which the default policy refuses (see open_vzip)
+    ReferenceStore.from_virtualizarr(vds).save(
+        out, page_size=None if cfg == "default" else 1 << 16,
+        policy=Policy(allow_private_hosts=True))
 
 
 def open_vzip(url, ctx, cfg):

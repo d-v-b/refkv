@@ -99,6 +99,32 @@ def host_class(host: str) -> str | None:
         return None
 
 
+def public_s3_url(url: str) -> str | None:
+    """The HTTPS URL of the object `s3://bucket/key`: `https://bucket.s3.amazonaws.com/key`,
+    which S3 answers for a bucket in any region (at worst by redirecting to the
+    region's endpoint, which the reader follows), and without credentials for a
+    public bucket. None for any other URL, and for a bucket name with a dot,
+    which that host name cannot carry under TLS.
+
+    Pass it as `rewrite_urls` to `ReferenceStore.from_virtualizarr` to write a
+    public bucket's references as URLs that the default reader policy allows."""
+    m = re.fullmatch(r"(?i:s3)://([a-z0-9][a-z0-9-]*[a-z0-9])(/.*)?", url)
+    return None if m is None else f"https://{m[1]}.s3.amazonaws.com{m[2] or '/'}"
+
+
+def scheme_remedy(url: str) -> str:
+    """How to read a source whose scheme the default reader policy refuses: the
+    second sentence of the error, at write and at read time."""
+    s = url.split(":", 1)[0].lower()
+    if public_s3_url(url) is not None:
+        return ("If the bucket is public, write its HTTPS URLs instead "
+                "(ReferenceStore.from_virtualizarr(vds, rewrite_urls=vzip.public_s3_url)); "
+                "or read it with policy=Policy(schemes={'s3'}) and a Resolver holding an "
+                "S3Store for the bucket (help(vzip.Resolver)).")
+    return (f"Write http(s) URLs instead, or read it with policy=Policy(schemes={{{s!r}}}) "
+            f"and a Resolver that serves {s!r} URLs (help(vzip.Resolver)).")
+
+
 @dataclass(frozen=True)
 class Policy:
     """What a reader may resolve, and its resource limits (spec §6.7
@@ -124,6 +150,19 @@ class Policy:
 
     Rule 7 (unverifiable pins) has no option here: this reader always sees a
     response's headers, so every pin it is given can be checked.
+
+    For example, to read an archive whose references name a public S3 bucket
+    (`Resolver` says how to give the reader a store for it), or only sources
+    under one prefix:
+
+        policy = vzip.Policy(schemes={"s3"})
+        store = vzip.open("data.vzip", policy=policy, resolver=resolver)
+
+        policy = vzip.Policy(prefixes=("https://data.example/archive/",))
+
+    `ReferenceStore.save` checks the references it writes against a policy
+    too, `Policy()` by default, so an archive that the default reader cannot
+    read fails when it is written, not when it is read.
     """
 
     schemes: frozenset[str] = frozenset()
@@ -155,7 +194,8 @@ class Policy:
                         f"{url}: an archive opened from a URL may not read local files "
                         f"(spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)")
             elif s != "http" and s not in {_scheme(x + ":") for x in self.schemes}:
-                raise ResolutionError(f"{url}: the scheme {s!r} is not allowed (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)")
+                raise ResolutionError(f"{url}: the scheme {s!r} is not allowed (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>). "
+                                      + scheme_remedy(url))
         if _scheme(url) == "http":
             try:
                 host = urlsplit(url).hostname
