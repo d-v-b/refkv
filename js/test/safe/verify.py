@@ -4,7 +4,7 @@ Each product in fixtures/safe/ (a directory, served by the harness
 proxy with its S3 listing, or a `.SAFE.zip` file) is virtualized by the
 Python reference (`python -m vzip.virtualize`) and by the browser code
 (js/conformance/virtualize.ts, under Node). Each archive is opened through
-VZipStore and zarr-python (with vzip.codecs' imagecodecs_jpeg2k), and:
+vzip.zarr and zarr-python (with vzip.zarr.codecs' imagecodecs_jpeg2k), and:
 
 - every band array, read whole, must equal its band file as rasterio's
   JP2OpenJPEG driver (GDAL, OpenJPEG) decodes it;
@@ -58,9 +58,8 @@ FIXTURES = ROOT / "fixtures"
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
 from proxy import Proxy  # noqa: E402
 
-import vzip.codecs  # noqa: E402,F401  (registers imagecodecs_jpeg2k)
 from vzip.policy import Policy  # noqa: E402
-from vzip.store import VZipStore  # noqa: E402
+import vzip.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg2k)
 
 # The sources are served on 127.0.0.1, which spec §6.7
 # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
@@ -97,7 +96,7 @@ def parents(keys) -> set[str]:
     return {k[:i] for k in keys for i in range(len(k)) if k[i] == "/"}
 
 
-def get_all(vz: VZipStore, keys: list[str]) -> list[bytes]:
+def get_all(vz: vzip.zarr.ZarrStore, keys: list[str]) -> list[bytes]:
     from zarr.core.buffer import default_buffer_prototype
 
     async def go():
@@ -124,7 +123,7 @@ def gdal_read(data: bytes | str):
 def check_bands(out: Path, docs: dict, read_band, only: list[str] | None = None) -> tuple[list[str], int]:
     """Every band array (or those of `only`) against GDAL, and each group's georeferencing."""
     problems = []
-    vz = VZipStore(str(out), policy=LOOPBACK_SOURCES)
+    vz = vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES)
     arrays = sorted(k[: -len("/zarr.json")] for k, d in docs.items()
                     if d.get("node_type") == "array" and re.match(r"r[0-9]+m/", k))
     if only is not None:
@@ -156,7 +155,7 @@ def check_bands(out: Path, docs: dict, read_band, only: list[str] | None = None)
 def rebuild(out: Path, docs: dict, bands_only: list[str] | None = None) -> dict[str, bytes]:
     """The product's objects, rebuilt from the hierarchy (spec/virtualize/safe.md §6.4
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#64-reconstruction>)."""
-    vz = VZipStore(str(out), policy=LOOPBACK_SOURCES)
+    vz = vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES)
     z = zipfile.ZipFile(out)
     names = z.namelist()
     s = docs["vzip_source/zarr.json"]["attributes"]["vzip_virtualized"]["safe"]
@@ -259,7 +258,7 @@ def sentinel2(url: str, docs: dict, out: Path, groups: list[str]) -> list[str]:
     s = docs["zarr.json"]["attributes"]["vzip_virtualized"]["safe"]
     level = "L2A" if s.get("PROCESSING_LEVEL", "").startswith("Level-2A") else "L1C"  # Level-2Ap: PSD 14.2
     code = docs["zarr.json"]["attributes"]["proj:code"].replace(":", "_")
-    vz = VZipStore(str(out), policy=LOOPBACK_SOURCES)
+    vz = vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES)
     for g in groups:
         sub = f"SENTINEL2_{level}:/vsicurl/{url}MTD_MSI{level}.xml:{g[1:]}:{code}"
         try:

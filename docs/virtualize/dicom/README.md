@@ -67,9 +67,9 @@ uv run python -m vzip.virtualize https://raw.githubusercontent.com/pydicom/pydic
 
 ```python
 import zarr
-from vzip import VZipStore
+import vzip.zarr
 
-g = zarr.open_group(VZipStore("CT_small.vzip"), mode="r")
+g = zarr.open_group(vzip.zarr.open("CT_small.vzip"), mode="r")
 ome = g.attrs["ome"]
 print(ome["multiscales"][0]["axes"], ome["multiscales"][0]["datasets"][0]["coordinateTransformations"])
 print(ome["omero"]["channels"])
@@ -101,9 +101,9 @@ revision 16 ([overview](../README.md#formats)).
 
 ```python
 import zarr
-from vzip import VZipStore
+import vzip.zarr
 
-g = zarr.open_group(VZipStore("idc-thym.vzip"), mode="r")
+g = zarr.open_group(vzip.zarr.open("idc-thym.vzip"), mode="r")
 ome = g.attrs["ome"]
 print([(a["name"], a.get("unit")) for a in ome["multiscales"][0]["axes"]])
 print(ome["multiscales"][0]["datasets"][0]["coordinateTransformations"])

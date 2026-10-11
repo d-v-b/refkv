@@ -2,19 +2,15 @@ import io
 import zipfile
 
 import pytest
-import zarr
-from zarr.abc.store import OffsetByteRequest, RangeByteRequest, SuffixByteRequest
-from zarr.core.buffer import default_buffer_prototype
-from zarr.core.sync import sync
 
 from vzip.archive import VZipWriter
 from vzip.pb import Range
-from vzip.store import VZipStore
+from vzip._sync import run
+from vzip.store import OffsetRequest, RangeRequest, SuffixRequest, VZipStore
 
 
-def _get(store, key, br=None):
-    b = sync(store.get(key, default_buffer_prototype(), br))
-    return None if b is None else b.to_bytes()
+def _get(store, key, request=None):
+    return store.get(key, request)
 
 
 def test_overlay_semantics(tmp_path):
@@ -43,14 +39,14 @@ def test_overlay_semantics(tmp_path):
     cases = {
         ("a/zarr.json", None): b"{}",
         ("a/c/0", None): blob[10:110],
-        ("a/c/0", RangeByteRequest(5, 15)): blob[15:25],
-        ("a/c/0", OffsetByteRequest(90)): blob[100:110],
-        ("a/c/0", SuffixByteRequest(3)): blob[107:110],
+        ("a/c/0", RangeRequest(5, 15)): blob[15:25],
+        ("a/c/0", OffsetRequest(90)): blob[100:110],
+        ("a/c/0", SuffixRequest(3)): blob[107:110],
         ("a/c/1", None): blob[500:520],
         ("a/c/2", None): b"HEAD" + blob[:4],
-        ("a/c/2", RangeByteRequest(2, 6)): b"AD" + blob[:2],
+        ("a/c/2", RangeRequest(2, 6)): b"AD" + blob[:2],
         ("a/c/3", None): b"23456{}",
-        ("a/c/3", SuffixByteRequest(4)): b"56{}",
+        ("a/c/3", SuffixRequest(4)): b"56{}",
         ("a/c/4", None): b"HDR:" + blob[4:6],
         ("a/c/5", None): b"DR:" + blob[8:9],
         ("a/c/9", None): None,
@@ -59,7 +55,7 @@ def test_overlay_semantics(tmp_path):
     for (k, br), want in cases.items():
         assert _get(s, k, br) == want, (k, br)
     assert {k: s.classify(k) for k in ["a/zarr.json", "a/c/0", "a/c/2", "nope"]} == {
-        "a/zarr.json": "bytes", "a/c/0": "ref", "a/c/2": "ref", "nope": None}
+        "a/zarr.json": "bytes", "a/c/0": "reference", "a/c/2": "reference", "nope": "missing"}
     # one range -> bare Range (0x7a76); several -> Concat (0x7a77)
     assert {k: type(s.entry(k).ref).__name__ for k in ["a/c/0", "a/c/1", "a/c/2", "a/c/3"]} == {
         "a/c/0": "Range", "a/c/1": "Range", "a/c/2": "Concat", "a/c/3": "Concat"}
@@ -83,19 +79,15 @@ def test_zip64_many_entries_paged(tmp_path):
     with zipfile.ZipFile(arc) as zf:
         assert len(zf.namelist()) == n + 3  # + urls, index
     s = VZipStore(str(arc))
-    sync(s._open())
+    run(s._ensure_open())
     opened = s.stats.archive_requests
     assert _get(s, "zarr.json") == b"{}"  # pinned: no page load
-    assert sync(s.exists("c/69999")) and not sync(s.exists("c/69999x"))
+    assert s.classify("c/69999") == "reference" and s.classify("c/69999x") == "missing"
     assert s.entry("c/69999").ref.offset == 69999
     assert s.stats.archive_requests - opened == 1  # one page, shared by both lookups
     assert len(s._loaded) == 1 < len(s._pages)
-    keys = sync(_list(s))
+    keys = s.list()
     assert len(keys) == n + 1
-
-
-async def _list(s):
-    return [k async for k in s.list()]
 
 
 def test_unregistered_source_rejected():
@@ -120,12 +112,3 @@ def test_duplicate_key_rejected():
 def test_reserved_key_rejected():
     with pytest.raises(ValueError, match="reserved"):
         VZipWriter(io.BytesIO()).add_bytes("__vz__/x", b"")
-
-
-def test_read_only(tmp_path):
-    arc = tmp_path / "e.vzip"
-    with open(arc, "wb") as f, VZipWriter(f):
-        pass
-    s = VZipStore(str(arc))
-    with pytest.raises(PermissionError):
-        sync(s.set("k", default_buffer_prototype().buffer.from_bytes(b"")))

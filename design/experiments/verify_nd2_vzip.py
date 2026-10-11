@@ -21,7 +21,7 @@ import zarr
 from zarr.abc.codec import BytesBytesCodec
 from zarr.registry import register_codec
 
-from vzip.store import VZipStore
+import vzip.zarr
 
 
 @dataclass(frozen=True)
@@ -52,8 +52,7 @@ register_codec("zlib", ZlibCodec)
 
 
 def main(archive: str, url: str, n: int = 6) -> None:
-    store = VZipStore(archive)
-    root = zarr.open_group(store, mode="r", zarr_format=3)
+    root = zarr.open_group(vzip.zarr.open(archive), mode="r", zarr_format=3)
     series = root["OME"].attrs["ome"]["series"]
     fs = fsspec.filesystem("http")
     with fs.open(url, block_size=1 << 20, cache_type="none") as f, nd2.ND2File(f) as nf:

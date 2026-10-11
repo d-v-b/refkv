@@ -280,7 +280,7 @@ Each codec's JSON form, exactly:
   A for `Bgra32`), after which `transpose` applies. Its encoded form is
   jxrlib's, so it needs nothing beyond the chunk's shape and data type. It
   is not in the zarr-extensions registry; vzip's Python reader registers it
-  (`vzip.codecs`), and its registration and a Neuroglancer decoder are a
+  (`vzip.zarr.codecs`), and its registration and a Neuroglancer decoder are a
   follow-up ([design/plans/czi.md §7](../../design/plans/czi.md#7-decisions-on-the-open-questions)).
 - `numcodecs.shuffle` is
   `{"name": "numcodecs.shuffle", "configuration": {"elementsize": 2}}`, a
@@ -910,7 +910,7 @@ The layout uses two things that are not in every Zarr reader:
 - **Codecs.** `imagecodecs_jpegxr` (JPEG XR subblocks) and
   `numcodecs.shuffle` (Zstd1 with hi-lo packing) are not in the
   zarr-extensions registry, nor in the Neuroglancer fork vzip's viewer uses.
-  zarr-python 3 has `numcodecs.shuffle`; `vzip.codecs` registers
+  zarr-python 3 has `numcodecs.shuffle`; `vzip.zarr.codecs` registers
   `imagecodecs_jpegxr`. Files with these codecs are accepted, not
   rejected: their chunks are the subblocks' bytes, so the archive is
   complete whatever a reader supports. Their registration, and decoders in

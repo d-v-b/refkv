@@ -3,7 +3,7 @@ own Zarr v2 reader.
 
 Each store in fixtures/zarr2/ is served by the harness proxy (with
 its S3 listing) and virtualized by js/conformance/virtualize.ts (the browser
-code, run under Node). Every array of the archive is read through VZipStore
+code, run under Node). Every array of the archive is read through vzip.zarr
 and zarr-python as Zarr v3 and must equal the same array read from the
 fixture directory by zarr-python as Zarr v2 (`zarr_format=2`, which reads
 `.zarray` itself and decodes chunks with numcodecs), with the same data type
@@ -47,9 +47,8 @@ FIXTURES = ROOT / "fixtures"
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
 from proxy import Proxy  # noqa: E402
 
-import vzip.codecs  # noqa: E402,F401  (registers zlib)
 from vzip.policy import Policy  # noqa: E402
-from vzip.store import VZipStore  # noqa: E402
+import vzip.zarr  # noqa: E402  (a vzip archive as a zarr store; registers zlib)
 
 # The sources are served on 127.0.0.1, which spec §6.7
 # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
@@ -95,7 +94,7 @@ def objects_problems(store_dir: Path, out: Path) -> list[str]:
     every key listed as empty is an object of size 0."""
     problems = []
     names = zipfile.ZipFile(out).namelist()
-    vz = VZipStore(str(out), policy=LOOPBACK_SOURCES)
+    vz = vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES)
     kept = [n for n in names if n.startswith("vzip_source/objects/")]
 
     async def read_all():
@@ -155,7 +154,7 @@ def check_store(store_dir: Path, out: Path, tmp: str) -> list[str]:
             z["compressor"] = {k: v for k, v in c.items() if k in NUMCODECS[c["id"]]}
             f.write_text(json.dumps(z))
     problems = []
-    vz = VZipStore(str(out), policy=LOOPBACK_SOURCES)
+    vz = vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES)
     for path in arrays_of(out):
         got_arr = zarr.open_array(vz, path=path, mode="r", zarr_format=3)
         want_arr = zarr.open_array(LocalStore(copy, read_only=True), path=path, mode="r", zarr_format=2)
@@ -176,7 +175,7 @@ def remote(store_url: str, path: str) -> int:
             print(f"FAILED: {p.stderr[-300:]}")
             return 1
         print(p.stdout.strip()[:300])
-        got = zarr.open_array(VZipStore(str(out), policy=LOOPBACK_SOURCES), path=path, mode="r", zarr_format=3)[...]
+        got = zarr.open_array(vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES), path=path, mode="r", zarr_format=3)[...]
         want = zarr.open_array(FsspecStore.from_url(store_url, read_only=True), path=path, mode="r",
                                zarr_format=2)[...]
         ok = same(got, want)

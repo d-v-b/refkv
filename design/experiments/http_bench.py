@@ -31,7 +31,7 @@ from bench import PER_FILE, ROOT, dir_size, layout, make_targets, synthetic  # n
 
 from vzip.convert import write_vzip
 from vzip.shards import write_vzip_sharded
-from vzip.store import VZipStore
+import vzip.zarr
 
 warnings.filterwarnings("ignore")
 LATENCY = float(os.environ.get("LATENCY", "0.02"))
@@ -101,7 +101,7 @@ def serve():
 
 
 def r_vzip(url, idx):
-    return zarr.open_array(VZipStore(url), path="v", mode="r")[idx]
+    return zarr.open_array(vzip.zarr.open(url, max_concurrency=None), path="v", mode="r")[idx]  # no cap, as measured
 
 
 def r_kerchunk(url, idx):

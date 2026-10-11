@@ -10,15 +10,13 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
-from zarr.abc.store import RangeByteRequest
-from zarr.core.buffer import default_buffer_prototype
-from zarr.core.sync import sync
 
 from vzip.archive import SPEC_REVISION, VZipWriter
 from vzip.errors import ArchiveError, RequestError, ResolutionError
 from vzip.pb import Range, Source, decode_table
 from vzip.policy import Policy, address_class, crc32c, matches_prefix
-from vzip.store import VZipStore
+from vzip._sync import run
+from vzip.store import RangeRequest, VZipStore
 
 BLOB = bytes(range(256)) * 64  # 16 KiB
 # The test server is on 127.0.0.1, which spec §6.7
@@ -27,9 +25,8 @@ BLOB = bytes(range(256)) * 64  # 16 KiB
 SERVED = Policy(allow_private_hosts=True)
 
 
-def _get(store, key, br=None):
-    b = sync(store.get(key, default_buffer_prototype(), br))
-    return None if b is None else b.to_bytes()
+def _get(store, key, request=None):
+    return store.get(key, request)
 
 
 @pytest.fixture
@@ -181,18 +178,18 @@ def test_reads_with_checksums_pins_and_revision(tmp_path, server):
     s = VZipStore(arc, policy=SERVED)
     cases = {
         ("file_crc", None): BLOB[100:200],
-        ("file_crc", RangeByteRequest(10, 20)): BLOB[110:120],
+        ("file_crc", RangeRequest(10, 20)): BLOB[110:120],
         ("http_crc", None): BLOB[100:200],
-        ("http_crc", RangeByteRequest(90, 100)): BLOB[190:200],
+        ("http_crc", RangeRequest(90, 100)): BLOB[190:200],
         ("concat", None): b"HEADER" + BLOB[:10] + b"!",
-        ("concat", RangeByteRequest(4, 8)): b"ER" + BLOB[:2],
+        ("concat", RangeRequest(4, 8)): b"ER" + BLOB[:2],
         ("plain", None): BLOB[5:10],
     }
     assert {k: _get(s, *k) for k in cases} == cases
     assert s.revision == SPEC_REVISION
     # a partial window of a checksummed range reads the whole range
     s.stats.reset()
-    _get(s, "http_crc", RangeByteRequest(0, 1))
+    _get(s, "http_crc", RangeRequest(0, 1))
     assert s.stats.external_bytes == 100
 
 
@@ -288,7 +285,7 @@ def test_refuses_a_redirect_outside_the_prefixes(tmp_path, server):
 def test_refuses_too_many_sources(tmp_path):
     arc = _archive(tmp_path / "a.vzip", [Source(data=b"a"), Source(data=b"b"), Source(data=b"c")], {})
     with pytest.raises(ArchiveError, match="3 sources"):
-        sync(VZipStore(arc, policy=Policy(max_sources=2))._ensure_open())
+        run(VZipStore(arc, policy=Policy(max_sources=2))._ensure_open())
 
 
 def test_refuses_too_many_reads(tmp_path, server):
@@ -312,7 +309,7 @@ def test_refuses_an_inflation_bomb(tmp_path):
         w._skip_checks = True
         w.close()
     with pytest.raises(ArchiveError, match="inflates to more than"):
-        sync(VZipStore(str(path), policy=Policy(max_format_entry=1 << 20))._ensure_open())
+        run(VZipStore(str(path), policy=Policy(max_format_entry=1 << 20))._ensure_open())
 
 
 def test_refuses_a_bytes_entry_that_inflates_past_its_size(tmp_path):
@@ -357,7 +354,7 @@ def test_detects_a_crc_mismatch(tmp_path, server):
                    {"r": [Range(source=0, offset=0, length=100, crc32c=crc32c(BLOB[:100]))]})
     state["body"] = b"\xff" + BLOB[1:]  # same size, no ETag pin: only the checksum sees it
     with pytest.raises(ResolutionError, match="crc32c"):
-        _get(VZipStore(arc, policy=SERVED), "r", RangeByteRequest(50, 60))
+        _get(VZipStore(arc, policy=SERVED), "r", RangeRequest(50, 60))
 
 
 def test_rejects_an_unknown_format_version(tmp_path):
@@ -367,7 +364,7 @@ def test_rejects_an_unknown_format_version(tmp_path):
     data[i + 5] = ord("1")
     open(arc, "wb").write(bytes(data))
     with pytest.raises(ArchiveError, match="unsupported vzip format version"):
-        sync(VZipStore(arc)._ensure_open())
+        run(VZipStore(arc)._ensure_open())
 
 
 # ------------------------------------------------------------ rule 3 on the network

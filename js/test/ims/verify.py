@@ -38,7 +38,7 @@ sys.path.insert(0, str(ROOT / "conformance" / "archive"))
 from http_server import Server  # noqa: E402
 
 from vzip.policy import Policy  # noqa: E402
-from vzip.store import VZipStore  # noqa: E402
+import vzip.zarr  # noqa: E402  (a vzip archive as a zarr store)
 
 # The sources are served on 127.0.0.1, which spec §6.7
 # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
@@ -703,7 +703,7 @@ def tree_problems(root, path: Path) -> list[str]:
 def check(path: Path, out: Path) -> list[str]:
     """The differences between the archive at 'out' and h5py's reading of 'path'."""
     problems = []
-    root = zarr.open_group(VZipStore(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
+    root = zarr.open_group(vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
     levels = root.attrs["ome"]["multiscales"][0]["datasets"]
     problems += tree_problems(root, path)
     with h5py.File(path, "r") as f:

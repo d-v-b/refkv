@@ -2,8 +2,8 @@
 
 Each store in fixtures/n5/ is served by the harness proxy (with its
 S3 listing) and virtualized by js/conformance/virtualize.ts (the browser
-code, run under Node). Every array of the archive is read through VZipStore
-and zarr-python (with vzip.codecs' n5_default codec) and must equal:
+code, run under Node). Every array of the archive is read through vzip.zarr
+and zarr-python (with vzip.zarr.codecs' n5_default codec) and must equal:
 
 - the dataset as read by `read_n5` below, a block reader written from the N5
   specification alone (header, column-major big-endian elements, each
@@ -47,9 +47,8 @@ FIXTURES = ROOT / "fixtures"
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
 from proxy import Proxy  # noqa: E402
 
-import vzip.codecs  # noqa: E402,F401  (registers n5_default and zlib)
 from vzip.policy import Policy  # noqa: E402
-from vzip.store import VZipStore  # noqa: E402
+import vzip.zarr  # noqa: E402  (a vzip archive as a zarr store; registers n5_default and zlib)
 
 # The sources are served on 127.0.0.1, which spec §6.7
 # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
@@ -138,7 +137,7 @@ def virtualize(url: str, out: Path) -> subprocess.CompletedProcess:
 
 def check_store(store_dir: Path, out: Path) -> list[str]:
     problems = []
-    vz = VZipStore(str(out), policy=LOOPBACK_SOURCES)
+    vz = vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES)
     for path in arrays_of(out):
         attrs = json.loads((store_dir / path / "attributes.json").read_text())
         arr = zarr.open_array(vz, path=path, mode="r", zarr_format=3)
@@ -184,7 +183,7 @@ def remote(store_url: str, path: str) -> int:
                 raise
 
         want = read_n5(attrs, get)
-        got = zarr.open_group(VZipStore(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)[path][...]
+        got = zarr.open_group(vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)[path][...]
         ok = got.shape == want.shape and np.array_equal(got, want)
         print(f"{path}: {got.dtype}{got.shape}, {'equal to read_n5' if ok else 'DIFFERS from read_n5'}, "
               f"{int(np.count_nonzero(want))} nonzero values")

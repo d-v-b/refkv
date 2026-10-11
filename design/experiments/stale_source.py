@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parents[2] / "python" / "tests"))
 from conftest import virtualize  # noqa: E402
 
 from vzip.convert import write_vzip  # noqa: E402
-from vzip.store import VZipStore  # noqa: E402
+import vzip.zarr  # noqa: E402
 
 warnings.filterwarnings("ignore")
 
@@ -51,7 +51,7 @@ def main() -> None:
     v2 = make(nc, seed=2)  # the producer re-publishes the file under the same name
 
     for var in ["raw", "packed"]:
-        ds = xr.open_zarr(VZipStore(str(d / "forecast.vzip")), consolidated=False, zarr_format=3)
+        ds = xr.open_zarr(vzip.zarr.open(str(d / "forecast.vzip")), consolidated=False, zarr_format=3)
         try:
             got = ds[var].values
         except Exception as e:  # noqa: BLE001

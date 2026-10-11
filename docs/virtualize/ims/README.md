@@ -65,9 +65,9 @@ file's other objects, so it is larger.
 
 ```python
 import zarr
-from vzip import VZipStore
+import vzip.zarr
 
-g = zarr.open_group(VZipStore("retina.vzip"), mode="r")
+g = zarr.open_group(vzip.zarr.open("retina.vzip"), mode="r")
 ms = g.attrs["ome"]["multiscales"][0]
 print([(a["name"], a.get("unit")) for a in ms["axes"]])
 for d in ms["datasets"]:

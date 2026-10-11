@@ -64,9 +64,9 @@ its image's 3; one was dropped from its multiscale.
 
 ```python
 import zarr
-from vzip import VZipStore
+import vzip.zarr
 
-g = zarr.open_group(VZipStore("6001240.vzip"), mode="r")
+g = zarr.open_group(vzip.zarr.open("6001240.vzip"), mode="r")
 ome = g.attrs["ome"]
 print(ome["version"], [a["name"] for a in ome["multiscales"][0]["axes"]], g["labels"].attrs["ome"]["labels"])
 a = g["0"]

@@ -70,9 +70,9 @@ array, so open it as one:
 
 ```python
 import zarr
-from vzip import VZipStore
+import vzip.zarr
 
-a = zarr.open_array(VZipStore("s5.vzip"), mode="r")
+a = zarr.open_array(vzip.zarr.open("s5.vzip"), mode="r")
 print(a.shape, a.dtype, a.chunks)
 print(a.metadata.chunk_key_encoding, a.metadata.codecs)
 print(a[100, 25, 180:188])
