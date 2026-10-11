@@ -55,19 +55,20 @@ interface ShownImage {
  * one image, or every stage position of a multi-position file, each placed by
  * its translation.
  *
- * When every chunk holds all channels (ND2 frames, interleaved TIFF), an
- * image is one layer whose channel axis is a Neuroglancer channel dimension
- * (`c^`): the shader composites the channels, each with a checkbox, a color
- * and a contrast range from the omero metadata, and there is no channel axis
- * to scroll. Otherwise (planar TIFF, one channel per chunk) each channel is a
- * layer of its own.
+ * An image of 2 to 16 channels is one layer whose channel axis is a
+ * Neuroglancer channel dimension (`c^`): the shader composites the channels,
+ * each with a checkbox, a color and a contrast range from the omero metadata
+ * (or, for 3 uint8 channels without omero, as red, green and blue), and there
+ * is no channel axis to scroll. This holds however the channels are chunked:
+ * when a chunk holds one channel (planar TIFF, IMS, CZI), the Neuroglancer
+ * fork assembles each of its chunks from the zarr chunks of every channel.
+ * An image of more channels is one layer with a channel axis to scroll.
  */
 function imageState(
   images: ShownImage[],
   axes: { name: string; unit?: string }[],
   scale: number[],
   shape: number[],
-  chunks: number[],
   dtype: string,
   omero: OmeroChannel[] = [],
   labels: { name: string; url: string }[] = [],
@@ -113,7 +114,7 @@ function imageState(
   };
   const many = images.length > 1;
   const c = axes.findIndex((a) => a.name === "c");
-  if (c >= 0 && shape[c] > 1 && shape[c] <= 16 && chunks[c] === shape[c]) {
+  if (c >= 0 && shape[c] > 1 && shape[c] <= MAX_CHANNELS) {
     const outputDimensions = Object.fromEntries(
       axes.map((a) => (a.name === "c" ? ["c^", [1, ""]] : [a.name, dimensions[a.name]])),
     );
@@ -130,45 +131,23 @@ function imageState(
       crossSectionBackgroundColor: "#000000", ...view,
     };
   }
-  // Planar channels: a layer per channel of each image.
-  const perChannel = (label: string, i: number, shader: string) =>
-    images.map((img) => ({
-      type: "image", source: `${img.url}|zarr3:`, name: many ? `${img.name} ${label}` : label,
-      opacity: 1, blend: "additive", localDimensions: { "c'": [1, ""] }, localPosition: [i], shader,
-    }));
-  if (c >= 0 && shape[c] === 3 && dtype === "uint8") {
-    const colors = ["v, 0.0, 0.0", "0.0, v, 0.0", "0.0, 0.0, v"];
-    return {
-      layers: colors.flatMap((rgb, i) => perChannel(["red", "green", "blue"][i], i,
-        `void main() {\n  float v = toNormalized(getDataValue());\n  emitRGB(vec3(${rgb}));\n}\n`)),
-      crossSectionBackgroundColor: "#000000", ...view,
-    };
-  }
-  // Other multi-channel images: one layer per channel, with the colors and
-  // contrast windows from OME's omero metadata when it has them.
-  if (c >= 0 && shape[c] > 1 && shape[c] <= 8) {
-    const hex = (s: string) => [0, 2, 4].map((i) => (parseInt(s.slice(i, i + 2), 16) / 255).toFixed(3));
-    return {
-      layers: Array.from({ length: shape[c] }, (_, i) => {
-        const ch = omero[i] ?? {};
-        const [r, g, b] = hex(ch.color ?? "FFFFFF");
-        const range = ch.window ? `(range=[${ch.window.start}, ${ch.window.end}])` : "";
-        return perChannel(ch.label ?? `channel ${i}`, i,
-          `#uicontrol invlerp contrast${range}\nvoid main() {\n  emitRGB(vec3(${r}, ${g}, ${b}) * contrast());\n}\n`);
-      }).flat(),
-      crossSectionBackgroundColor: "#000000", ...view,
-    };
-  }
   return {
     layers: images.map((img) => ({ type: "image", source: `${img.url}|zarr3:`, name: many ? img.name : "image" })),
     ...view,
   };
 }
 
+/**
+ * The most channels shown as one layer with a control per channel. A
+ * Neuroglancer chunk then holds every channel, and the shader has three
+ * controls per channel.
+ */
+const MAX_CHANNELS = 16;
+
 /** {@link imageState}, with a segmentation layer for each OME-Zarr label image. */
 function neuroglancerState(...args: Parameters<typeof imageState>) {
   const state = imageState(...args);
-  const labels = args[7] ?? [];
+  const labels = args[6] ?? [];
   state.layers.push(...labels.map((l) => ({
     type: "segmentation", source: `${l.url}|zarr3:`, name: `labels ${l.name}`,
   })) as never[]);
@@ -314,7 +293,7 @@ async function seriesViews(zarrUrl: string): Promise<View[]> {
   const key = (v: View) => {
     const m = v.levels[0].meta;
     const c = v.axes.findIndex((a) => a.name === "c");
-    return JSON.stringify([v.axes.map((a) => a.name), m.data_type, c < 0 ? 0 : m.shape[c], c < 0 ? 0 : chunkShapeOf(m)[c]]);
+    return JSON.stringify([v.axes.map((a) => a.name), m.data_type, c < 0 ? 0 : m.shape[c]]);
   };
   if (views.some((v) => key(v) !== key(views[0]))) {
     views[0].note = `${views.length} series of different axes, data types or channels: pick one.`;
@@ -396,7 +375,7 @@ async function showView(view: View) {
   let omero = view.omero;
   const c = view.axes.findIndex((a) => a.name === "c");
   const nc = c >= 0 ? level0.shape[c] : 0;
-  if (dataType !== "uint8" && nc > 1 && nc <= 16) {
+  if (dataType !== "uint8" && nc > 1 && nc <= MAX_CHANNELS) {
     const need = Array.from({ length: nc }, (_, k) => k).filter((k) => !usableWindow(omero[k]?.window, dataType));
     const ranges = need.length > 0 ? await sample(need) : [];
     omero = Array.from({ length: nc }, (_, k) => {
@@ -410,7 +389,7 @@ async function showView(view: View) {
     });
   }
   const state = neuroglancerState(
-    view.images, view.axes, view.scale, level0.shape, chunkShapeOf(level0), dataType, omero, view.labels,
+    view.images, view.axes, view.scale, level0.shape, dataType, omero, view.labels,
   );
   // An image shown with Neuroglancer's default shader gets a sampled range too.
   const plain = state.layers.filter((l) => l.type === "image" && !("shader" in l));

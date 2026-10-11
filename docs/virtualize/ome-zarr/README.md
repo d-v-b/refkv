@@ -87,8 +87,8 @@ zarr-python's Zarr v2 reader gives the same values from the 0.4 store.
 
 **In the browser.** Not on the live demo yet: it virtualizes only TIFF,
 NDPI and ND2. A local build of the demo (see the [overview](../README.md))
-migrates this store in about 2 s and shows the image in Neuroglancer, one
-layer per channel. The demo page shows images only: for a plate it does not
+migrates this store in about 2 s and shows the image in Neuroglancer, as
+one layer with a control per channel. The demo page shows images only: for a plate it does not
 draw the wells. A store that lists more than 100000 objects fails in the
 browser with HTTP 507 (the IDR's `idr0001A/2551.zarr` plate, 102114
 objects, is one).
