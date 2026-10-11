@@ -756,6 +756,11 @@ suite applies unchanged, with the same results. Only the structure of the
 document changed. The revision 10 text is kept as
 [SPEC.r10.md](SPEC.r10.md).
 
+**Amended (informative only).** [§4.5](../../archive.md#45-where-bytes-that-no-source-holds-go-informative)
+was added after the restructure: it says when a reference's bytes that no
+source holds belong in a literal range, a `data` source or a `key` source,
+and why. No requirement changed.
+
 **What prompted it.** The document described vzip as "a ZIP container for
 byte-range references". The user asked to frame it as ZIP plus a reference
 value type: any storage backend that can tell a bytes value from a

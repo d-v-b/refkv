@@ -440,6 +440,30 @@ A payload is **malformed** if it breaks a rule of [§4.1](#41-encoding),
 payload ([§11.3](#113-reference-entries) for ZIP); a payload over that limit
 is malformed too.
 
+### 4.5 Where bytes that no source holds go (informative)
+
+Most of a value usually comes from source ranges, but some values also need
+bytes that exist in no source: a header rewritten for one tile, so that the
+tile decodes on its own; a shard index that a format never wrote; a decoding
+header that a file stores once and every tile needs. A reference can carry
+such bytes three ways, and each fits a different case:
+
+| bytes that are | put them in | because |
+|---|---|---|
+| used by one value only, such as one tile's rewritten header or one shard's index | a literal range ([§4.2](#42-range)), in that value's reference | they are read with the reference that needs them, and only when it is read |
+| shared by many values, such as the JPEG tables every tile of a slide needs | a `data` source ([§5](#5-source-table)), named by a source range of each reference | they are stored once, however many references use them |
+| a value of the store in their own right | a `bytes` value, named by a `key` source ([§5](#5-source-table)) | a reader can get them by their key, and references reuse them without a copy |
+
+The first two trade storage against what a reader reads at open. The source
+table is read in full when a store is opened ([§6.1](#61-opening)), while a
+reference is read only when its key is. A literal range used by one value
+costs nothing until that value is read; the same bytes as a `data` source
+would be read by every reader at open, so a store with one such header per
+chunk would load all of them before reading any. A `data` source shared by
+many values is read once instead of once per reference. Literal ranges also
+represent the inline values of other reference formats, such as kerchunk's
+`base64:` strings ([§1.4](#14-prior-work-informative)).
+
 ## 5. Source table
 
 A store has exactly one source table. The `source` field of every source
