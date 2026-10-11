@@ -1,0 +1,62 @@
+# The references that `sections.py migrate` could not settle, or settled wrongly, with
+# the heading each means. Columns: path, line, the reference, which of those on the line
+# (from 0), the heading (doc#anchor), and the reference's new text when its number was
+# stale. Lines are those of the files the migration read.
+fixtures/generators/nd2/write_fixtures.py	60	§5.1	0	spec/virtualize/nd2.md#51-chunks	
+fixtures/generators/nd2/write_fixtures.py	234	§5	0	spec/virtualize/nd2.md#5-nd2-profile	
+fixtures/generators/ndpi/write_fixtures.py	10	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+js/src/virtualize/ndpi/virtualize.ts	26	§4	0	spec/virtualize/ndpi.md#2-the-source	
+js/src/virtualize/ndpi/virtualize.ts	44	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+js/src/virtualize/ndpi/virtualize.ts	60	§4	0	spec/virtualize/ndpi.md#2-the-source	
+js/src/virtualize/ndpi/virtualize.ts	70	§4	0	spec/virtualize/ndpi.md#2-the-source	
+js/src/virtualize/ndpi/virtualize.ts	117	§4	0	spec/virtualize/ndpi.md#2-the-source	
+js/src/virtualize/ndpi/virtualize.ts	118	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+js/src/virtualize/ndpi/virtualize.ts	145	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+js/src/virtualize/ndpi/virtualize.ts	168	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+js/src/virtualize/ndpi/virtualize.ts	210	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+js/src/virtualize/ndpi/virtualize.ts	264	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+js/src/virtualize/ndpi/virtualize.ts	372	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+js/src/virtualize/ndpi/virtualize.ts	394	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+python/src/vzip/virtualize/ndpi/virtualize.py	29	§4	0	spec/virtualize/ndpi.md#2-the-source	
+python/src/vzip/virtualize/ndpi/virtualize.py	46	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+python/src/vzip/virtualize/ndpi/virtualize.py	62	§4	0	spec/virtualize/ndpi.md#2-the-source	
+python/src/vzip/virtualize/ndpi/virtualize.py	72	§4	0	spec/virtualize/ndpi.md#2-the-source	
+python/src/vzip/virtualize/ndpi/virtualize.py	118	§4	0	spec/virtualize/ndpi.md#2-the-source	
+python/src/vzip/virtualize/ndpi/virtualize.py	119	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+python/src/vzip/virtualize/ndpi/virtualize.py	144	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+python/src/vzip/virtualize/ndpi/virtualize.py	157	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+python/src/vzip/virtualize/ndpi/virtualize.py	200	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+python/src/vzip/virtualize/ndpi/virtualize.py	248	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+python/src/vzip/virtualize/ndpi/virtualize.py	325	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+python/src/vzip/virtualize/ndpi/virtualize.py	347	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+python/tests/test_virtualize_ndpi.py	43	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+rust/vzip-ir/src/project/nd2.rs	2	§5.1	0	spec/virtualize/nd2.md#51-decoded-chunks	
+spec/virtualize/czi.md	795	§3.1	0	spec/virtualize/czi.md#31-pixel-types-and-codecs	
+spec/virtualize/czi.md	795	§3.2	0	spec/virtualize/czi.md#32-conforming-and-unplaced-subblocks	
+spec/virtualize/dicom.md	997	§2	0	spec/virtualize/dicom.md#2-the-source	
+spec/virtualize/dicom.md	997	§4	0	spec/virtualize/dicom.md#4-output	
+spec/virtualize/nd2.md	701	§3	0	spec/virtualize/nd2.md#3-metadata	
+spec/virtualize/nd2.md	701	§3	1	spec/virtualize/nd2.md#3-metadata	
+spec/virtualize/nd2.md	701	§4	0	spec/virtualize/nd2.md#4-the-image	
+spec/virtualize/safe.md	803	§6.3	0	spec/virtualize/safe.md#63-the-source-metadata-node	
+spec/virtualize/ome-zarr.md	358	§5	0	spec/virtualize/zarr2.md#5-other-objects	
+spec/virtualize.md	481	§3	0	spec/virtualize.md#313-profiles	
+spec/virtualize.md	481	§13	0	spec/virtualize.md#313-profiles	
+spec/virtualize.md	484	§1	0	spec/conventions.md#1-conventions	
+spec/virtualize.md	485	§2	0	spec/conventions.md#2-attributes	
+spec/virtualize.md	485	§3	0	spec/conventions.md#3-arrays	
+spec/virtualize.md	485	§4	0	spec/conventions.md#4-images	
+spec/virtualize.md	485	§5	0	spec/conventions.md#5-units	
+spec/virtualize.md	485	§6	0	spec/conventions.md#6-source-metadata-as-json	
+spec/generate_schemas.py	519	§6.3	0	spec/virtualize/safe.md#63-the-source-metadata-node	
+spec/generate_schemas.py	531	§6.2	0	spec/virtualize/safe.md#62-band-arrays	
+spec/generate_schemas.py	553	§6.3	0	spec/virtualize/safe.md#63-the-source-metadata-node	
+spec/generate_schemas.py	651	§8.6	0	spec/conventions.md#86-types	
+spec/generate_schemas.py	653	§8.5	0	spec/conventions.md#85-forms-and-recipes	
+spec/generate_schemas.py	666	§8.5	0	spec/conventions.md#85-forms-and-recipes	
+conformance/virtualize/compare.py	275	§8.8	0	spec/conventions.md#88-canonical-form	
+conformance/virtualize/compare.py	276	§8.7	0	spec/conventions.md#87-the-view	
+rust/vzip-ir/src/lv.rs	515	§5.1	0	spec/virtualize/nd2.md#51-decoded-chunks	
+rust/vzip-ir/src/project/mod.rs	3	§5.1	0	spec/virtualize/nd2.md#51-decoded-chunks	
+rust/vzip-ir/src/xml.rs	510	§5.2	0	spec/virtualize/nd2.md#51-decoded-chunks	§5.1
+rust/vzip-ir/src/xml.rs	526	§5.2	0	spec/virtualize/nd2.md#51-decoded-chunks	§5.1
