@@ -1,4 +1,5 @@
-"""The DICOM profile (spec/virtualize.md, §6)."""
+"""The DICOM profile (spec/virtualize.md, §6
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#6-dicom-profile>)."""
 
 from __future__ import annotations
 
@@ -16,8 +17,9 @@ from vzip.virtualize.dicom.dataset import (
 )
 
 MAX_SAFE = 2**53 - 1
-# Transfer syntaxes (spec/virtualize/dicom.md §2.1): the dataset's encoding, and the codec of
-# encapsulated frames (None for native pixel data).
+# Transfer syntaxes (spec/virtualize/dicom.md §2.1
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#21-transfer-syntax>): the
+# dataset's encoding, and the codec of encapsulated frames (None for native pixel data).
 SYNTAXES: dict[bytes, tuple[Encoding, str | None]] = {
     b"1.2.840.10008.1.2": (IMPLICIT_LE, None),
     b"1.2.840.10008.1.2.1": (EXPLICIT_LE, None),
@@ -27,27 +29,32 @@ SYNTAXES: dict[bytes, tuple[Encoding, str | None]] = {
     b"1.2.840.10008.1.2.4.91": (EXPLICIT_LE, "jpeg2k"),
 }
 WHOLE_SLIDE = b"1.2.840.10008.5.1.4.1.1.77.1.6"
-# Photometric interpretations by pixel data and samples per pixel (spec/virtualize/dicom.md §3).
+# Photometric interpretations by pixel data and samples per pixel (spec/virtualize/dicom.md §3
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#3-the-image>).
 PHOTOMETRIC = {
     (None, 1): {b"MONOCHROME1", b"MONOCHROME2"}, (None, 3): {b"RGB"},
     ("jpeg", 1): {b"MONOCHROME1", b"MONOCHROME2"}, ("jpeg", 3): {b"RGB", b"YBR_FULL", b"YBR_FULL_422"},
     ("jpeg2k", 1): {b"MONOCHROME1", b"MONOCHROME2"}, ("jpeg2k", 3): {b"RGB", b"YBR_ICT", b"YBR_RCT"},
 }
-# SOI and the Adobe APP14 marker, without its last byte, the color transform (spec/virtualize.md §6.5).
+# SOI and the Adobe APP14 marker, without its last byte, the color transform (spec/virtualize.md
+# §6.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#65-frames>).
 ADOBE = bytes.fromhex("FFD8FFEE000E41646F6265006400000000")
 DECIMAL = re.compile(rb"[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?")
 INTEGER = re.compile(rb"([+-]?)([0-9]+)")
 
 
 def is_dicom(head: bytes) -> bool:
-    """The DICOM row of spec/virtualize.md §1.2."""
+    """The DICOM row of spec/virtualize.md §1.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>."""
     return head[128:132] == b"DICM"
 
 
-# ---- attribute values (spec/virtualize/dicom.md §2.2)
+# ---- attribute values (spec/virtualize/dicom.md §2.2
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#22-attributes>)
 
 class Values:
-    """Reads the attributes of a dataset by their kind (spec/virtualize/dicom.md §2.2)."""
+    """Reads the attributes of a dataset by their kind (spec/virtualize/dicom.md §2.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#22-attributes>)."""
 
     def __init__(self, read: Reader, ds: Dataset | None) -> None:
         self.read = read
@@ -139,7 +146,7 @@ def _check_range(offset: int, length: int, size: int) -> None:
 
 
 def virtualize_dicom(url: str, read: Reader, size: int) -> Output:
-    # §6.2
+    # §6.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#62-file>
     if size < 132 or read(128, 4) != b"DICM":
         raise Rejected("not a DICOM file")
     walker = Walker(read, size)
@@ -151,10 +158,13 @@ def virtualize_dicom(url: str, read: Reader, size: int) -> Output:
     encoding, codec = SYNTAXES[syntax]
 
     # §6.3
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#63-datasets-and-sequences>
     top, _ = walker.dataset(start, size, False, encoding, 0, top=True)
     pixel = top[PIXEL_DATA]
 
-    # spec/virtualize/dicom.md §2.2: the Pixel Measures item of the Shared Functional Groups, if any.
+    # spec/virtualize/dicom.md §2.2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#22-attributes>: the Pixel
+    # Measures item of the Shared Functional Groups, if any.
     measures = None
     shared = top.get(0x52009229)
     if shared is not None and shared.items:
@@ -186,6 +196,7 @@ def virtualize_dicom(url: str, read: Reader, size: int) -> Output:
         fg[tag] = in_item if in_item is not None else at_top
 
     # spec/virtualize/dicom.md §3
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#3-the-image>
     spp = _need(spp, "Samples per Pixel")
     photometric = _need(photometric, "Photometric Interpretation")
     rows, columns = _need(rows, "Rows"), _need(columns, "Columns")
@@ -231,7 +242,9 @@ def virtualize_dicom(url: str, read: Reader, size: int) -> Output:
     else:
         width_px, height_px, across = columns, rows, 1
 
-    # spec/virtualize.md §6.5: each frame's ranges, and the samples' when planar.
+    # spec/virtualize.md §6.5
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#65-frames>: each frame's
+    # ranges, and the samples' when planar.
     planar_native = codec is None and spp == 3 and planar == 1
     frame_size = rows * columns * spp * (bits_allocated // 8)
     frame_ranges: list[list[tuple[int, int] | bytes]] = []
@@ -240,7 +253,8 @@ def virtualize_dicom(url: str, read: Reader, size: int) -> Output:
     # whether it holds the frames' item headers.
     unreferenced = None
     # Each fragment's (frame, data length), when a frame has more than one,
-    # and whether the Basic Offset Table is not empty (spec/virtualize/dicom.md §5).
+    # and whether the Basic Offset Table is not empty (spec/virtualize/dicom.md §5
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>).
     fragment_lengths: list[tuple[int, int]] | None = None
     offset_table = False
     if codec is None:
@@ -339,7 +353,11 @@ def virtualize_dicom(url: str, read: Reader, size: int) -> Output:
                 ranges = [ADOBE + bytes([0 if photometric == b"RGB" else 1]), (o + 2, length - 2)] + ranges[1:]
             frame_ranges.append(ranges)
 
-    # spec/virtualize/dicom.md §4; spec/virtualize.md §6.6: the chunk references
+    # spec/virtualize/dicom.md §4
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#4-output>;
+    # spec/virtualize.md §6.6
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#66-chunk-references>: the
+    # chunk references
     # The frames are along t when the Frame Increment Pointer is Frame Time or Frame Time Vector.
     fa = "t" if increment in (0x00181063, 0x00181065) else "z"
     axes = (["c"] if spp == 3 else []) + ([fa] if not whole_slide and n > 1 else []) + ["y", "x"]
@@ -388,7 +406,8 @@ def virtualize_dicom(url: str, read: Reader, size: int) -> Output:
     ome["omero"] = {"channels": channels}
 
     out = Output(url)
-    # The source metadata (spec/virtualize/dicom.md §5).
+    # The source metadata (spec/virtualize/dicom.md §5
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>).
     root_meta, node_meta, plans = source_metadata(read, size, dataset_start, encoding, pixel_end, pixel_extra,
                                                   unreferenced, codec is not None and eot is not None,
                                                   fragment_lengths, offset_table)

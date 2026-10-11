@@ -37,7 +37,9 @@ from vzip.store import VZipStore
 sys.path.insert(0, str(Path(__file__).parents[1]))
 from ir_mirror import is_mirror, mirror_problems  # noqa: E402
 
-# The sources are served on 127.0.0.1, which spec §8.7 rule 3 refuses by default.
+# The sources are served on 127.0.0.1, which spec §8.7
+# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3 refuses by
+# default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
 
 
@@ -88,7 +90,9 @@ STRUCTURE = {273, 279, 288, 289, 324, 325, 330, 513, 514, 519, 520, 521, 34665, 
 
 
 def as_json(tag):
-    """tifffile's value of a tag, as spec/virtualize/tiff.md §5 writes it."""
+    """tifffile's value of a tag, as spec/virtualize/tiff.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata> writes
+    it."""
     v = tag.value
     if tag.dtype in (1, 7):
         b = v if isinstance(v, bytes) else bytes(v if isinstance(v, tuple) else [v])
@@ -149,7 +153,9 @@ def pointer_offsets(f, entry: tuple[int, int, bytes], big: bool, order: str) -> 
 
 
 def tag_problems(path: Path, root, key: str) -> list[str]:
-    """Reconstruction (spec/virtualize/tiff.md §5): every tag of every IFD recorded
+    """Reconstruction (spec/virtualize/tiff.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>): every tag
+    of every IFD recorded
     (the main chain, and the IFDs that SubIFDs and the other pointer tags lead to) but
     the layout and pointer tags, in JSON or in an array, on the IFD's group, against
     tifffile's reading of that IFD; each pointer value leads to the IFD at its offset;
@@ -214,7 +220,7 @@ def tag_problems(path: Path, root, key: str) -> list[str]:
             problems.append(f"{where}: no {name} for its {len(members)} strips or tiles")
             return
         a = node[family]
-        if isinstance(a, zarr.Group):  # members of several lengths: offsets and data (conventions §7)
+        if isinstance(a, zarr.Group):  # members of several lengths: offsets and data (conventions §7 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>)
             starts, joined = a["offsets"][...], a["data"][...].tobytes()
         for i, o, n in members:
             f.seek(o)

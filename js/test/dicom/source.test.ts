@@ -1,5 +1,7 @@
 // The DICOM JSON Model translation of the browser virtualizer
-// (spec/virtualize/dicom.md §5); python/tests/test_virtualize_dicom.py has the same cases.
+// (spec/virtualize/dicom.md §5
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>);
+// python/tests/test_virtualize_dicom.py has the same cases.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

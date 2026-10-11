@@ -108,7 +108,8 @@ def test_georeferencing():
     assert root["multiscales"] == {"layout": [
         {"asset": f"r{r}m", "spatial:shape": [n, n], "spatial:transform": [float(r), 0.0, 499980.0, 0.0, -float(r), 5200020.0]}
         for r, n in ((10, 110), (20, 55), (60, 19))]}
-    # The band arrays carry neither proj nor spatial (spec/virtualize/safe.md §5.2).
+    # The band arrays carry neither proj nor spatial (spec/virtualize/safe.md §5.2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#52-resolution-groups>).
     assert set(out.docs["r20m/B05/zarr.json"]["attributes"]) == {"zarr_conventions", "vzip_virtualized"}
     _, out = run("safe_l1c")
     assert "multiscales" not in out.docs["zarr.json"]["attributes"]
@@ -160,7 +161,8 @@ def test_source_metadata():
         "B8A", {"value": 10000, "unit": "none"}, -1000)
     _, out = run("safe_l1c_pb0207")
     assert "RADIO_ADD_OFFSET" not in out.docs["r10m/B02/zarr.json"]["attributes"]["vzip_virtualized"]["safe"]
-    # Missing, non-numeric and repeated values are absent, not rejected (§6.1).
+    # Missing, non-numeric and repeated values are absent, not rejected (§6.1
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#61-values>).
     _, out = run("safe_metadata_gaps")
     s = {b: out.docs[f"r10m/{b}/zarr.json"]["attributes"]["vzip_virtualized"]["safe"] for b in ("B02", "B03", "B04")}
     assert "SOLAR_IRRADIANCE" not in s["B02"] and "SOLAR_IRRADIANCE" in s["B04"]
@@ -193,7 +195,9 @@ def test_vzip_source():
     assert s["empty"] == ["GRANULE/L1C_T32TNS_A035655_20240103T101328/AUX_DATA/AUX_EMPTY"]
     assert "GRANULE/L1C_T32TNS_A035655_20240103T101328/MTD_TL.xml" in s["xml_arrays"]
     assert json_size(s) <= BUDGET
-    # The budget (spec/virtualize/safe.md §6.3), restated: from every XML document an array,
+    # The budget (spec/virtualize/safe.md §6.3
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>),
+    # restated: from every XML document an array,
     # the candidates, smallest first, become text while S stays within 65536 bytes of JSON.
     base = FIXTURES / "safe_l1c"
     files = {p.relative_to(base).as_posix(): p.read_bytes() for p in base.rglob("*") if p.is_file()}
@@ -262,7 +266,9 @@ def test_the_two_forms_agree():
 
 
 def test_folders():
-    """Folder markers and directory keys, and the empty directories they name (spec/virtualize/safe.md §2.1)."""
+    """Folder markers and directory keys, and the empty directories they name
+    (spec/virtualize/safe.md §2.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#21-objects>)."""
     cases = [
         (["a/x", "a_$folder$"], [], {"a_$folder$"}, []),
         (["a/x", "a_$folder$", "b_$folder$", "c/d_$folder$", "c_$folder$"], [],
@@ -276,7 +282,8 @@ def test_folders():
 
 
 def test_texts_are_read_only_while_they_can_fit():
-    """The candidates are read in order, and no longer once one cannot fit (spec/virtualize.md §12.2)."""
+    """The candidates are read in order, and no longer once one cannot fit (spec/virtualize.md §12.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#122-objects-and-reading>)."""
     sizes = {f"d{i:02d}.xml": 30000 for i in range(40)} | {"small.xml": 10, "big.xml": 70000}
     read = []
 
@@ -338,8 +345,9 @@ def _plt_counts(data: bytes, cs: jp2.Codestream) -> list[int]:
 
 
 def test_empty_packets_match_the_plt_markers():
-    """The packet count of spec/virtualize.md §12.6 against the PLT markers' packet lengths
-    of every tile of every fixture band file, edge tiles included."""
+    """The packet count of spec/virtualize.md §12.6
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#126-chunks> against the PLT
+    markers' packet lengths of every tile of every fixture band file, edge tiles included."""
     checked = 0
     for name in ("safe_l1c", "safe_l2a", "safe_big_header"):
         for p in sorted((FIXTURES / name).rglob("*.jp2")):

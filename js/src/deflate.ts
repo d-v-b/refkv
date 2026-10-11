@@ -27,14 +27,20 @@ const CRC32C_TABLE = (() => {
   return t;
 })();
 
-/** CRC-32C of `data`, the range checksum of spec §5.2. */
+/**
+ * CRC-32C of `data`, the range checksum of spec §5.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>.
+ */
 export function crc32c(data: Uint8Array): number {
   let c = 0xffffffff;
   for (let i = 0; i < data.length; i++) c = CRC32C_TABLE[(c ^ data[i]) & 0xff] ^ (c >>> 8);
   return (c ^ 0xffffffff) >>> 0;
 }
 
-/** A DEFLATE stream inflates to more than the reader allows (spec §8.7 rule 6). */
+/**
+ * A DEFLATE stream inflates to more than the reader allows (spec §8.7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 6).
+ */
 export class InflateLimitError extends Error {}
 
 async function transform(
@@ -54,7 +60,8 @@ export function deflateRaw(data: Uint8Array): Promise<Uint8Array> {
 /**
  * Inflates a raw DEFLATE stream; trailing data after its end is an error.
  * With `limit`, inflating stops as soon as the output passes `limit` bytes,
- * which throws InflateLimitError (spec §8.7 rule 6).
+ * which throws InflateLimitError (spec §8.7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 6).
  */
 export async function inflateRaw(data: Uint8Array, limit?: number): Promise<Uint8Array> {
   if (limit === undefined) return transform(data, new DecompressionStream("deflate-raw"));

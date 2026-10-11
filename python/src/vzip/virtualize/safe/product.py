@@ -1,4 +1,5 @@
-"""A SAFE product's objects, product metadata and tile metadata (spec/virtualize/safe.md §2)."""
+"""A SAFE product's objects, product metadata and tile metadata (spec/virtualize/safe.md §2
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#2-the-source>)."""
 
 from __future__ import annotations
 
@@ -16,7 +17,8 @@ MARKER = "_$folder$"
 LEVELS = {"MTD_MSIL1C.xml": ("L1C", "Level-1C_User_Product", "Level-1C_Tile_ID"),
           "MTD_MSIL2A.xml": ("L2A", "Level-2A_User_Product", "Level-2A_Tile_ID")}
 GRANULE = "General_Info/Product_Info/Product_Organisation/Granule_List/Granule"
-# The names of PSD 14.2 (Level-2A, processing baselines 02.04–02.06) that stand for later ones (§2.1).
+# The names of PSD 14.2 (Level-2A, processing baselines 02.04–02.06) that stand for later ones (§2.1
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#21-objects>).
 ALIASES = {
     "Product_Info": "L2A_Product_Info",
     "Product_Organisation": "L2A_Product_Organisation",
@@ -38,7 +40,8 @@ POSITIVE = re.compile(r"[1-9][0-9]*\Z")
 BAND_NAME = re.compile(r"[A-Za-z0-9]+\Z")
 
 
-# ---------------------------------------------------------------- XML elements (§2.1)
+# ---------------------------------------------------------------- XML elements (§2.1
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#21-objects>)
 
 
 def local(name: str) -> str:
@@ -89,14 +92,18 @@ def layout_text(el: Element, what: str) -> str:
 
 
 def decimal(t: str) -> float | None:
-    """A decimal number's binary64 value (§6.1), or None if `t` is not one."""
+    """A decimal number's binary64 value (§6.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#61-values>), or None if `t` is
+    not one."""
     if not DECIMAL.match(t):
         return None
     return float(t)
 
 
 def parse_document(data: bytes, what: str) -> Element:
-    """A product's metadata document: UTF-8, in the XML subset of spec/virtualize.md §1.5 (§2.1)."""
+    """A product's metadata document: UTF-8, in the XML subset of spec/virtualize.md §1.5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store> (§2.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#21-objects>)."""
     if data.startswith(b"\xef\xbb\xbf"):
         raise Rejected(f"{what} starts with a byte order mark")
     try:
@@ -106,12 +113,14 @@ def parse_document(data: bytes, what: str) -> Element:
     return parse_xml(s, what)
 
 
-# ---------------------------------------------------------------- objects (§2.1)
+# ---------------------------------------------------------------- objects (§2.1
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#21-objects>)
 
 
 def folders(keys, directories=()) -> tuple[set[str], list[str]]:
-    """(the folder markers among `keys`, the empty directories) (§2.1). A folder marker is
-    a key `d_$folder$` with `d` not empty; `directories` are the keys, ending in `/`, of a
+    """(the folder markers among `keys`, the empty directories) (§2.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#21-objects>). A folder marker
+    is a key `d_$folder$` with `d` not empty; `directories` are the keys, ending in `/`, of a
     zip file's directory entries or of a listing's empty `d/` objects. The directories they
     name are empty when no key (theirs and the markers' included) is under them."""
     markers = {k for k in keys if k.endswith(MARKER) and len(k) > len(MARKER)}
@@ -129,7 +138,9 @@ def is_xml(key: str) -> bool:
     return key == "manifest.safe" or key.endswith((".xml", ".xsd"))
 
 
-# ---------------------------------------------------------------- the product (§2.2–§2.5)
+# ---------------------------------------------------------------- the product (§2.2
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#22-the-product-metadata>–§2.5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#25-band-files>)
 
 
 @dataclass
@@ -167,7 +178,8 @@ def _u32(t: str, what: str) -> int:
 
 
 def product_level(sizes: dict[str, int]) -> str:
-    """The product metadata's key (§2.2)."""
+    """The product metadata's key (§2.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#22-the-product-metadata>)."""
     found = [k for k in LEVELS if k in sizes]
     if len(found) != 1:
         raise Rejected("not a SAFE product of the compact format: the root has "
@@ -179,7 +191,10 @@ def product_level(sizes: dict[str, int]) -> str:
 
 
 def read_product(sizes: dict[str, int], whole) -> Product:
-    """The product (§2.2–§2.4): `sizes` maps each object's key to its size, and
+    """The product (§2.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#22-the-product-metadata>–§2.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#24-the-tile-geocoding>):
+    `sizes` maps each object's key to its size, and
     `whole(key)` reads an object."""
     key = product_level(sizes)
     level, root_name, tile_name = LEVELS[key]
@@ -204,7 +219,7 @@ def read_product(sizes: dict[str, int], whole) -> Product:
         if f in seen:
             raise Rejected(f"{key}: IMAGE_FILE {f[:200]!r} is listed twice")
         seen.add(f)
-        if parts[2] != "IMG_DATA":  # a DEM, cloud or snow image of PSD 14.2: not a band file (§2.3)
+        if parts[2] != "IMG_DATA":  # a DEM, cloud or snow image of PSD 14.2: not a band file (§2.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#23-image-files>)
             continue
         if f + ".jp2" not in sizes:
             raise Rejected(f"the band file {f[:200]}.jp2 is not in the product")
@@ -223,7 +238,8 @@ def read_product(sizes: dict[str, int], whole) -> Product:
 
 
 def geocoding(tile: Element) -> Geocoding:
-    """The tile geocoding (§2.4)."""
+    """The tile geocoding (§2.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#24-the-tile-geocoding>)."""
     tg = one(path(tile, "Geometric_Info/Tile_Geocoding"), "MTD_TL.xml: Geometric_Info/Tile_Geocoding")
     code = layout_text(one(kids(tg, "HORIZONTAL_CS_CODE"), "Tile_Geocoding/HORIZONTAL_CS_CODE"),
                        "HORIZONTAL_CS_CODE")
@@ -262,7 +278,8 @@ def geocoding(tile: Element) -> Geocoding:
 
 
 def band_name(basename: str, r: int) -> str:
-    """A band file's band name (§2.5)."""
+    """A band file's band name (§2.5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#25-band-files>)."""
     b = basename
     suffix = f"_{r}m"
     if b.endswith(suffix):
@@ -274,7 +291,8 @@ def band_name(basename: str, r: int) -> str:
 
 
 def resolution(geo: Geocoding, width: int, height: int, key: str) -> int:
-    """The band file's resolution: the one Size of its image size (§2.5)."""
+    """The band file's resolution: the one Size of its image size (§2.5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#25-band-files>)."""
     found = [r for r, (rows, cols) in geo.sizes.items() if rows == height and cols == width]
     if len(found) != 1:
         raise Rejected(f"the band file {key[:200]} ({width} × {height}) matches "

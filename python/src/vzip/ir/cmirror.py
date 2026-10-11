@@ -1,5 +1,6 @@
-"""The source mirror of a compact IR (ARCHITECTURE.md §3.4): written by the Rust core
-(`rust/vzip-ir/src/mirror.rs`, which documents the table), read back here.
+"""The source mirror of a compact IR (ARCHITECTURE.md §3.4
+<https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#34-projections>): written by the
+Rust core (`rust/vzip-ir/src/mirror.rs`, which documents the table), read back here.
 
 `Archive` reads an archive's entries with its references resolved.
 `rebuild_from_archive(path, read_source, write)` rebuilds the source from an archive
@@ -58,7 +59,8 @@ def load(archive: Archive):
 
 
 def canonical_problem(archive: Archive) -> str | None:
-    """What makes the archive's mirror non-canonical (conventions §8.8), or None: the
+    """What makes the archive's mirror non-canonical (conventions §8.8
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>), or None: the
     validator's check, which rebuilds the table from what it loads and the source."""
     import vzip_ir
 
@@ -67,7 +69,8 @@ def canonical_problem(archive: Archive) -> str | None:
 
 def view_problem(archive: Archive) -> str | None:
     """Where the archive's view differs from the one its table and source give
-    (conventions §8.7), or None: the validator's check of the view."""
+    (conventions §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>), or
+    None: the validator's check of the view."""
     import vzip_ir
 
     return vzip_ir.view_problem(archive.z.namelist(), archive.get, archive.read_source)

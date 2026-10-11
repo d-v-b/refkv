@@ -72,7 +72,9 @@ CASES = {
         {"1/0": ["y", "x"]}),
 }
 
-# (store, group path): the OME members without a version, which `ome` gives back as they are (§5, §8).
+# (store, group path): the OME members without a version, which `ome` gives back as they are (§5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>, §8
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>).
 UNVERSIONED = {
     ("ome_zarr_custom_axes", "nested"): ["multiscales"], ("ome_zarr_bioformats2raw", "1"): ["multiscales"],
     ("ome_zarr_bioformats2raw_plate", ""): ["plate"], ("ome_zarr_bioformats2raw_plate", "A/1"): ["well"],
@@ -84,7 +86,9 @@ VERSIONED = ("omero", "image-label", "plate", "well")
 
 def inverse(ome: dict, a: dict, unversioned: list[str]) -> dict:
     """The .zattrs of an OME group, from its `ome`, its attributes A and its unversioned
-    members U (spec/virtualize/ome-zarr.md §5, §8)."""
+    members U (spec/virtualize/ome-zarr.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>, §8
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>)."""
     out = {}
     for k, v in ome.items():
         if k in unversioned:
@@ -111,7 +115,8 @@ def test_virtualizes_the_synthetic_stores():
         for path, (outer, ome) in groups.items():
             attrs = out.docs[key(path)]["attributes"]
             # The attributes A that `ome` does not give back are copied under the convention, which
-            # the root and any node with source metadata declare (conventions §2).
+            # the root and any node with source metadata declare (conventions §2
+            # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>).
             s = attrs.get("vzip_virtualized", {}).get("ome-zarr", {})
             assert set(s.get("attributes", {})) == outer, (name, path)
             declared = {"zarr_conventions", "vzip_virtualized"} if path == "" or s else set()
@@ -126,7 +131,10 @@ def test_virtualizes_the_synthetic_stores():
                 assert "version" not in attrs["ome"].get(k, {}), (name, path, k)
         for path, names in arrays.items():
             assert out.docs[key(path)].get("dimension_names") == names, (name, path)
-        # Every .zattrs is its `ome`, by the inverse of §5, and its attributes A (§8).
+        # Every .zattrs is its `ome`, by the inverse of §5
+        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>,
+        # and its attributes A (§8
+        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>).
         for z in (FIXTURES / name).rglob(".zgroup"):
             path = z.parent.relative_to(FIXTURES / name).as_posix().removeprefix(".")
             attrs = out.docs[key(path)]["attributes"]
@@ -135,14 +143,19 @@ def test_virtualizes_the_synthetic_stores():
             zattrs = z.parent / ".zattrs"
             assert inverse(attrs.get("ome", {}), s.get("attributes", {}), s.get("unversioned", [])) == (
                 json.loads(zattrs.read_text()) if zattrs.exists() else {}), (name, path)
-        # The chunks and other objects are §10's, referenced in place, except the OME-XML of a
-        # collection, which keeps its own key (§7).
+        # The chunks and other objects are §10
+        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>'s,
+        # referenced in place, except the OME-XML of a
+        # collection, which keeps its own key (§7
+        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#7-chunks-and-ome-xml>).
         plain = virtualize_zarr2(DirStore(str(FIXTURES / name), url))
         xml = [(k, n) for k, n in out.chunks if not k.startswith("vzip_source/") and k.endswith("OME/METADATA.ome.xml")]
         assert out.chunks == sorted([c for c in plain.chunks if c[0].removeprefix("vzip_source/objects/")
                                      not in dict(xml)] + xml), name
         assert len(xml) == summary.get("omeXml", 0), name
-        # Only attributes and dimension names differ from §10's documents.
+        # Only attributes and dimension names differ from §10
+        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>'s
+        # documents.
         source = {"vzip_source/zarr.json"}
         assert set(out.docs) - source == set(plain.docs) - source, name
         assert ("vzip_source/zarr.json" in out.docs) == any(k.startswith("vzip_source/") for k, _ in out.chunks)
@@ -155,7 +168,8 @@ def test_virtualizes_the_synthetic_stores():
     # Level 0's empty chunk (1.0) and missing one (2.0) have no entry; the stray object is kept whole.
     _, out = virtualize(str(FIXTURES / "ome_zarr_image_2d"), url=URL.format("i"))
     assert [k for k, _ in out.chunks] == ["0/0.0", "1/0.0", "vzip_source/objects/notes.txt"]
-    # The empty chunk's key is listed with the empty objects (the Zarr v2 convention §5).
+    # The empty chunk's key is listed with the empty objects (the Zarr v2 convention §5
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
     assert out.docs["vzip_source/zarr.json"]["attributes"]["vzip_virtualized"]["ome-zarr"] == {"empty": ["0/1.0"]}
     # The OME members, moved under `ome` without their own `version`, are otherwise unchanged.
     _, out = virtualize(str(FIXTURES / "ome_zarr_labels"), url=URL.format("l"))
@@ -182,7 +196,9 @@ def test_virtualizes_the_synthetic_stores():
     assert out.docs["OME/zarr.json"]["attributes"]["ome"] == {"version": "0.5", "series": ["0", "1"]}
     assert out.sources[-1] == "https://data.test/ome-zarr/b/OME/METADATA.ome.xml"
     # The Zarr v2 metadata M, the attributes with integers kept exact, and the other objects:
-    # OME-XML outside a collection and a README (spec/virtualize/ome-zarr.md §7, §8).
+    # OME-XML outside a collection and a README (spec/virtualize/ome-zarr.md §7
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#7-chunks-and-ome-xml>, §8
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>).
     url = URL.format("s")
     _, out = virtualize(str(FIXTURES / "ome_zarr_source_metadata"), url=url)
     s = lambda p: out.docs[key(p)]["attributes"].get("vzip_virtualized", {}).get("ome-zarr")  # noqa: E731

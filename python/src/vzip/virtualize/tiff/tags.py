@@ -1,5 +1,6 @@
 """Every tag of a TIFF's IFDs as JSON: the source metadata of the TIFF and NDPI
-conventions (spec/virtualize/tiff.md §5)."""
+conventions (spec/virtualize/tiff.md §5
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>)."""
 
 from __future__ import annotations
 
@@ -21,10 +22,12 @@ NUMBERS = {3: "H", 4: "I", 6: "b", 8: "h", 9: "i", 11: "f", 12: "d", 13: "I", 16
 # are not recorded; the bytes they locate are, where the convention says so.
 LAYOUT = frozenset({273, 279, 288, 289, 324, 325, 513, 514, 519, 520, 521})
 # JPEGQTables, JPEGDCTables and JPEGACTables: each value is the offset of a
-# table, kept as the family <path>/<name> (spec/virtualize/tiff.md §5).
+# table, kept as the family <path>/<name> (spec/virtualize/tiff.md §5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>).
 TABLES = {519: "jpeg_q_tables", 520: "jpeg_dc_tables", 521: "jpeg_ac_tables"}
-# The pointer tags (spec/virtualize/tiff.md §5): SubIFDs, these, and any
-# other tag of type IFD or IFD8 that is not in the convention's table. The
+# The pointer tags (spec/virtualize/tiff.md §5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>): SubIFDs,
+# these, and any other tag of type IFD or IFD8 that is not in the convention's table. The
 # IFDs they point to are recorded, each in its own group, at <path>/<name>.
 POINTERS = {34665: "exif", 34853: "gps", 40965: "interoperability"}
 SUBIFDS = 330
@@ -67,7 +70,8 @@ def value_json(data: bytes, typ: int, count: int, order: str):
 
 
 def json_size(v) -> int:
-    """The bytes of `v`'s compact JSON in UTF-8 (spec/virtualize/tiff.md §5): no
+    """The bytes of `v`'s compact JSON in UTF-8 (spec/virtualize/tiff.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>): no
     whitespace, strings escaping only what JSON requires, numbers as ECMAScript's
     Number.prototype.toString writes them."""
     if v is None:
@@ -111,8 +115,9 @@ def least_size(e: Entry) -> int:
 
 
 class Translator:
-    """Translates IFDs (spec/virtualize/tiff.md §5): each IFD's source metadata
-    (collected in `groups`, by path), small values as JSON and large ones as arrays
+    """Translates IFDs (spec/virtualize/tiff.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>): each IFD's
+    source metadata (collected in `groups`, by path), small values as JSON and large ones as arrays
     of the source metadata node (collected in `arrays`). `table` holds the tags of
     the convention's table, which are never pointers; `recorded` maps the offsets
     of the IFDs recorded (the main chain, SubIFDs, then pointer targets) to their paths,
@@ -179,7 +184,9 @@ class Translator:
 
     def spend(self, budget: list[int], size: int) -> bool:
         """Whether a value of JSON `size` is JSON within the IFD's `budget` and the total
-        (spec/virtualize/tiff.md §5); either way, it spends the total."""
+        (spec/virtualize/tiff.md §5
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>); either
+        way, it spends the total."""
         fits = size <= budget[0] and size <= self.total
         if fits:
             budget[0] -= size
@@ -224,7 +231,7 @@ class Translator:
         tiles, strips = 324 in first and 325 in first, 273 in first and 279 in first
         if data and (tiles or strips):
             self.family(first[324 if tiles else 273], first[325 if tiles else 279], path, "data", same)
-        if tiles and strips:  # a tiled IFD's strips (spec/virtualize/tiff.md §5)
+        if tiles and strips:  # a tiled IFD's strips (spec/virtualize/tiff.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>)
             self.family(first[273], first[279], path, "strips", same)
         if same:
             out["same_as"] = same
@@ -245,7 +252,8 @@ class Translator:
     def tables(self, e: Entry, path: str, name: str, quantization: bool, same: dict) -> None:
         """Old-style JPEG tables (JPEGQTables, JPEGDCTables, JPEGACTables): member i of the
         family at `path/name` is the table at value i, 64 bytes for a quantization table, else
-        16 bytes of counts and as many values as they sum to (spec/virtualize/tiff.md §5)."""
+        16 bytes of counts and as many values as they sum to (spec/virtualize/tiff.md §5
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>)."""
 
         def members():
             offsets = self.value(e)
@@ -266,7 +274,8 @@ class Translator:
         self.keep(("q" if quantization else "huffman", e.type, e.count, e.field), path, name, same, members)
 
     def family(self, offsets: Entry, counts: Entry, path: str, name: str, same: dict) -> None:
-        """Strips or tiles as the family of bytes `<path>/<name>` (spec/virtualize/tiff.md §5)."""
+        """Strips or tiles as the family of bytes `<path>/<name>` (spec/virtualize/tiff.md §5
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>)."""
 
         def members():
             o, n = self.value(offsets), self.value(counts)
@@ -315,7 +324,9 @@ class Translator:
 
     def lead(self, at: int, child: str, depth: int) -> str | None:
         """The path of the IFD a pointer value `at` leads to, recording it at `child` (and
-        translating it) when it is new (spec/virtualize/tiff.md §5), or None."""
+        translating it) when it is new (spec/virtualize/tiff.md §5
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>), or
+        None."""
         if at in self.recorded:
             return self.recorded[at]
         if (at in self.failed or depth >= MAX_DEPTH or len(self.recorded) >= MAX_IFDS

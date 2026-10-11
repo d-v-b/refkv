@@ -1,4 +1,6 @@
-// One test per class of invalid description (spec §9.1 and HARNESS.md).
+// One test per class of invalid description (spec §9.1
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#91-requirements> and
+// HARNESS.md).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";

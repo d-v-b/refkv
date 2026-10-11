@@ -1,4 +1,9 @@
-// vzip writer (spec §3, §4, §6, §7, §9).
+// vzip writer (spec §3
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#3-zip-container>, §4
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#4-entries>, §6
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#6-source-table>, §7
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#7-page-index-optional>,
+// §9 <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#9-writing>).
 
 import fs from "node:fs";
 import zlib from "node:zlib";
@@ -129,7 +134,11 @@ function makeBytes(name: string, data: Uint8Array, compress: boolean, pinned: bo
   };
 }
 
-/** Validates the input per spec §9.1 and returns the encoded archive as a list of buffers. */
+/**
+ * Validates the input per spec §9.1
+ * <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#91-requirements> and
+ * returns the encoded archive as a list of buffers.
+ */
 export function buildArchive(a: WArchive): Buffer[] {
   // ---- validation
   if (a.pageSize !== null && !(Number.isInteger(a.pageSize) && a.pageSize >= 1)) reject("page_size must be >= 1");

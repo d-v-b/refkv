@@ -1,5 +1,6 @@
 //! The lite variant (LV) encoding of ND2 metadata chunks (spec/virtualize/nd2.md
-//! §2.2): a decoder to a tree of records with their positions, the object reading
+//! §2.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#22-lite-variant>): a
+//! decoder to a tree of records with their positions, the object reading
 //! the convention defines, and the records' emission as IR elements.
 
 use crate::ir::*;
@@ -108,8 +109,9 @@ pub fn base64(b: &[u8]) -> String {
     out
 }
 
-/// A name's exact form (spec/virtualize/nd2.md §5.1): its text, or U+0000 and
-/// the base64 of its units when it is not well-formed.
+/// A name's exact form (spec/virtualize/nd2.md §5.1
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>): its text,
+/// or U+0000 and the base64 of its units when it is not well-formed.
 pub fn exact_name(units: &[u16]) -> String {
     if well_formed(units) {
         String::from_utf16_lossy(units)
@@ -399,7 +401,9 @@ pub fn decode(data: &[u8], limit: Option<u64>, exact: bool, room: Option<&mut i6
     }
 }
 
-// ---- reading (spec/virtualize/nd2.md §2.2): objects, lists and scalars
+// ---- reading (spec/virtualize/nd2.md §2.2
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#22-lite-variant>): objects, lists
+// and scalars
 
 #[derive(Clone, Copy)]
 pub struct Node<'a> {
@@ -512,8 +516,11 @@ fn record_type(r: &Rec, bytes: &[u8]) -> String {
 /// Emits `records` (whose positions index `bytes`, which start at `base` in `space`)
 /// under `parent`: a scalar as one value element (the whole record), a level as a
 /// struct with its `header`, its records and its skipped `table`. Each record is
-/// named by its name as JSON (§5.1), made unique among its siblings by
-/// [`source_names`] (spec/virtualize/nd2.md §5.3).
+/// named by its name as JSON (§5.1
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>), made unique
+/// among its siblings by
+/// [`source_names`] (spec/virtualize/nd2.md §5.3
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#53-elements>).
 pub fn emit(
     ir: &mut Ir,
     parent: u32,

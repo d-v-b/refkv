@@ -1,8 +1,10 @@
-//! The source mirror (design/ARCHITECTURE.md §3.4) of an IR: one projection for every
-//! format, written under `vzip_source`. It never reads the source.
+//! The source mirror (design/ARCHITECTURE.md §3.4
+//! <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#34-projections>) of an IR: one
+//! projection for every format, written under `vzip_source`. It never reads the source.
 //!
-//! The mirror is canonical (spec/conventions.md §8.8): a function of the IR alone,
-//! so two producers write the same entries for one source. [`canonical`] expands the
+//! The mirror is canonical (spec/conventions.md §8.8
+//! <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>): a function of
+//! the IR alone, so two producers write the same entries for one source. [`canonical`] expands the
 //! IR's runs, leaves out the derived spaces past the budget, numbers the elements in
 //! canonical order (`canon.rs`) and sorts the interned strings; [`table`] folds the
 //! result into the stored table (column runs, their columns' encodings); [`write`]
@@ -28,7 +30,8 @@ use serde_json::{json, Map, Value as J};
 use std::collections::{HashMap, HashSet};
 
 pub const VERSION: u64 = 2;
-/// Rows of derived spaces the table keeps together (conventions §8.2).
+/// Rows of derived spaces the table keeps together (conventions §8.2
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>).
 const DERIVED_ROWS: u64 = 1 << 20;
 const MIN_COUNT: usize = 3;
 /// A column run's member is up to this many consecutive siblings (a CZI directory
@@ -71,7 +74,8 @@ impl Folded {
     }
 }
 
-/// The rows a table may expand to: the loader's budget (conventions §8.3).
+/// The rows a table may expand to: the loader's budget (conventions §8.3
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#83-column-runs>).
 pub fn row_limit(size: u64) -> u64 {
     (1 << 22) + size / 4
 }
@@ -94,8 +98,11 @@ fn shared_refs(form: &str) -> Vec<(usize, usize, usize)> {
     v
 }
 
-/// The canonical IR of `ir` (conventions §8.8), or why it has none (the root and the
-/// names of §8.1, `check::names`, do not hold): every run expanded; the elements in
+/// The canonical IR of `ir` (conventions §8.8
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>), or why it has
+/// none (the root and the
+/// names of §8.1 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>,
+/// `check::names`, do not hold): every run expanded; the elements in
 /// canonical order, numbered by it (a parent before its children, siblings by first
 /// byte, name, name index); the descendants of a derived element left out when they
 /// would bring the derived rows kept past 2^20 (derived elements in canonical order,
@@ -112,7 +119,9 @@ pub fn canonical(ir: &Ir) -> Result<Ir, String> {
     for r in roots {
         x.unfold(r)?;
     }
-    // the root and the names (§8.1): a table that breaks them is invalid
+    // the root and the names (§8.1
+    // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>): a table that
+    // breaks them is invalid
     crate::check::names(&x)?;
     x.build_children();
     let (ord, _) = crate::canon::order(&x);
@@ -278,8 +287,9 @@ fn child(y: &Ir, p: u32, name: &str, nidx: u64) -> Option<u32> {
     y.children(p).iter().copied().find(|&c| y.names.get(y.name[c as usize]) == name && y.nidx[c as usize] == nidx)
 }
 
-/// The array an encoding-2 column reads (conventions §8.8, the named array rules):
-/// for a column run whose member 0 is row `r`, its field `f`, by the profile's rules.
+/// The array an encoding-2 column reads (conventions §8.8
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>, the named array
+/// rules): for a column run whose member 0 is row `r`, its field `f`, by the profile's rules.
 /// Returns (row, item size, big-endian). TIFF has one rule; ND2 and CZI none.
 fn array_rule(profile: &str, y: &Ir, r: usize, f: i64) -> Option<(u32, usize, bool)> {
     match profile {
@@ -321,8 +331,9 @@ fn tiff_layout(y: &Ir, r: usize, f: i64) -> Option<(u32, usize, bool)> {
     Some((v, z, big))
 }
 
-/// The stored table of a canonical IR (conventions §8.8): its column runs found
-/// outermost first, left to right, each at the period that folds the most siblings
+/// The stored table of a canonical IR (conventions §8.8
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>): its column
+/// runs found outermost first, left to right, each at the period that folds the most siblings
 /// (the smaller on a tie); each column at the first encoding that holds it (none
 /// when constant, 3, 0, 2, 1). `array(row)` gives the bytes of a value an encoding-2
 /// column would read (the IR's, or the source's at its extent).
@@ -476,7 +487,8 @@ pub fn expanded_rows(t: &Table) -> u64 {
     t.kind.len() as u64 + t.cruns.iter().map(|c| (c[1].max(1) as u64 - 1).saturating_mul(c[2].max(0) as u64)).sum::<u64>()
 }
 
-/// Stores table `t` under `vzip_source` (conventions §8.2): its description in
+/// Stores table `t` under `vzip_source` (conventions §8.2
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>): its description in
 /// `vzip_source`'s source metadata under `profile`'s convention, `ir/rows`, `ir/tables`
 /// (codes in order: runs, aliases, forms, column runs, columns, column values) and,
 /// when there are shared sources, `ir/shared`. `deflate` (for tests of what a
@@ -540,7 +552,8 @@ pub fn mirror(ir: &Ir, out: &mut Out, profile: &str) -> Result<Folded, String> {
     if y.len() as u64 > limit {
         return Err(over());
     }
-    // a derived space holds shown values only when a validator can derive it (§8.8)
+    // a derived space holds shown values only when a validator can derive it (§8.8
+    // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>)
     for i in 0..y.len() as u32 {
         let d = y.space[i as usize];
         if d != 0 && shown(&y, profile, i) {
@@ -630,7 +643,8 @@ const MAX_GROUPS: usize = 1 << 12;
 const INLINE: usize = 1 << 14; // a struct whose view is larger is a group of its own
 const WORK: usize = 1 << 20; // elements the view visits
 const TOTAL: usize = 1 << 24; // bytes of all view documents
-/// The most bytes of a value the view shows (conventions §8.7).
+/// The most bytes of a value the view shows (conventions §8.7
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>).
 pub const VIEW_VALUE: u64 = 1 << 10;
 const MAX_SAFE: i128 = (1 << 53) - 1;
 
@@ -695,7 +709,9 @@ pub fn tag_json(v: &Val) -> J {
     }
 }
 
-/// Whether the view shows value `i` (conventions §8.7): a value of a number, record,
+/// Whether the view shows value `i` (conventions §8.7
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>): a value of a number,
+/// record,
 /// `guid`, `xml` or text type (`ascii`, `cstr`, `utf16`; not `bytes`) whose extent is
 /// at most 1024 bytes, other than an ND2 frame's `timestamp` (which a parser need not
 /// read). Every such value is held (the run reads those its parser did not).
@@ -875,7 +891,10 @@ impl<'a> View<'a> {
     }
 }
 
-/// A text value's view (conventions §8.7, by §6's rule): its text, the bytes up to the
+/// A text value's view (conventions §8.7
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>, by §6
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>'s rule):
+/// its text, the bytes up to the
 /// first NUL (`ascii`, `cstr`) or NUL unit (`utf16`): for `ascii` and `cstr` a string
 /// when UTF-8, else `{"latin1": s}` (each byte the code point U+00bb); for `utf16` a
 /// string when UTF-16, else `{"$vz": "utf16", "b64": ...}`. When bytes from that NUL
@@ -1327,8 +1346,9 @@ pub fn table_from(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Table, String
 }
 
 
-/// What makes a stored mirror non-canonical (conventions §8.8), or None when it is
-/// canonical: the first of a run (code 0), a compressed chunk, unsorted strings, rows
+/// What makes a stored mirror non-canonical (conventions §8.8
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>), or None when
+/// it is canonical: the first of a run (code 0), a compressed chunk, unsorted strings, rows
 /// out of canonical order, and a table that differs from the one [`table`] folds the
 /// loaded IR into (entry by entry). `get(key)` gives the archive's entries, `read`
 /// the source's bytes (for the arrays encoding-2 columns read). A table that is not
@@ -1424,7 +1444,9 @@ pub fn canonical_problem(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn F
     None
 }
 
-/// The bytes of a derived element's space, from the source (conventions §8.5, §8.8): its
+/// The bytes of a derived element's space, from the source (conventions §8.5
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#85-forms-and-recipes>, §8.8
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>): its
 /// form's transform (`transform.rs`) applied to its extent.
 fn derived_bytes(y: &Ir, d: u32, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>) -> Result<Vec<u8>, String> {
     let du = d as usize;
@@ -1463,7 +1485,8 @@ fn read_merged(ranges: &[(u64, u64)], read: &mut dyn FnMut(u64, u64) -> Result<V
     Ok(out)
 }
 
-/// The view a stored mirror's table gives (conventions §8.7): the canonical IR it
+/// The view a stored mirror's table gives (conventions §8.7
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>): the canonical IR it
 /// loads, every value the view shows read from the source (a derived space's from its
 /// transform, an `xml` value with its references decoded), rendered.
 pub fn rebuilt_view(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>)
@@ -1515,7 +1538,9 @@ pub fn rebuilt_view(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn FnMut(
 }
 
 /// Where a stored view differs from the one its table and source give (the
-/// validator's check, conventions §8.7), or None: the first group missing or extra,
+/// validator's check, conventions §8.7
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>), or None: the first
+/// group missing or extra,
 /// then, group by group, the first member (a path of keys) missing, extra or other.
 /// `keys` are the archive's entry names.
 pub fn view_problem(keys: &[String], get: &dyn Fn(&str) -> Option<Vec<u8>>,

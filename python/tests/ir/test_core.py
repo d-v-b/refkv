@@ -10,7 +10,9 @@ from vzip.virtualize.common import Rejected
 
 def test_a_mirror_past_the_row_budget_is_rejected():
     """A 4-byte source whose IR stands for 4,200,001 elements (a run of empty structs):
-    the mirror is rejected (conventions §8.3), as Rejected, before the run is expanded."""
+    the mirror is rejected (conventions §8.3
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#83-column-runs>), as Rejected,
+    before the run is expanded."""
     import vzip_ir
 
     ir = vzip_ir.Ir.from_table(4, [0, 0, 5], [-1, 0, 0], [0, 0, 0], [0, 0, 4], [0, 0, 0], [(1, 4_200_000, 0)], [])
@@ -32,7 +34,9 @@ def table(**edit):
 def test_the_root_spans_the_source_and_every_path_is_its_own():
     """The root (element 0) is a struct named "" with no index spanning the source,
     whose path is ""; full names differ among siblings, and none is another's followed
-    by "/" (conventions §8.1): siblings sharing a prefix, names holding "/", an empty
+    by "/" (conventions §8.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>): siblings sharing a
+    prefix, names holding "/", an empty
     name with an index, one name under two parents, a run's members."""
     ir = table(
         size=12,
@@ -125,7 +129,8 @@ def test_an_archive_whose_root_is_named_is_a_violation():
 
 
 def test_the_fill_batch_is_empty_on_every_probe(probes):
-    """Every parser keeps every value the view shows (conventions §8.7): on every probe
+    """Every parser keeps every value the view shows (conventions §8.7
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>): on every probe
     the run accepts, the batch that reads what a parser did not keep is empty."""
     from vzip.ir import virtualize as via_ir
 

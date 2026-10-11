@@ -1,4 +1,5 @@
-"""The Zarr v2 profile (spec/virtualize.md, §10)."""
+"""The Zarr v2 profile (spec/virtualize.md, §10
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>)."""
 
 from vzip.virtualize.zarr2.virtualize import virtualize_zarr2
 

@@ -1,10 +1,15 @@
-//! A projection's output (spec/virtualize.md §1.1, §1.2): the entries of a vzip archive
-//! before it is written. The archive writer stays per host (Python's `Output.write`,
+//! A projection's output (spec/virtualize.md §1.1
+//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>, §1.2
+//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>): the entries of a vzip
+//! archive before it is written. The archive writer stays per host (Python's `Output.write`,
 //! the browser's `writeVzip`); an `Out` crosses to it as Python objects (py.rs) or
 //! as one binary buffer (`encode`, for wasm hosts).
 //!
-//! Also the shared parts of the conventions every projection uses (conventions §2–§5,
-//! §7; `vzip/virtualize/common.py` in Python): arrays' and groups' documents,
+//! Also the shared parts of the conventions every projection uses (conventions §2
+//! <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>–§5
+//! <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#5-units>,
+//! §7 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>;
+//! `vzip/virtualize/common.py` in Python): arrays' and groups' documents,
 //! OME-NGFF multiscales, the convention's declaration, reference sizes, and the
 //! cuts of metadata arrays.
 
@@ -164,7 +169,7 @@ impl Out {
     }
 }
 
-// ---- reference sizes (§1.2)
+// ---- reference sizes (§1.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>)
 
 fn varint_size(v: u64) -> usize {
     let bits = 64 - v.leading_zeros() as usize;
@@ -190,7 +195,9 @@ pub fn payload_size(ranges: &[Part]) -> usize {
     }).sum()
 }
 
-// ---- documents (conventions §2–§5)
+// ---- documents (conventions §2
+// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>–§5
+// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#5-units>)
 
 pub const CONVENTION_KEY: &str = "vzip_virtualized";
 /// The revision of spec/virtualize.md the projections follow (`common.REVISION` in Python).
@@ -272,7 +279,8 @@ pub fn root_json(ome: J, p: &str, url: &str, own: Option<J>) -> J {
     group_doc(declare(a, p, Some(url), own))
 }
 
-/// An array's zarr.json (conventions §3).
+/// An array's zarr.json (conventions §3
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#3-arrays>).
 pub fn array_json(shape: &[u64], data_type: &str, chunk_shape: J, codecs: J, axes: &[&str]) -> J {
     json!({
         "zarr_format": 3,
@@ -347,7 +355,8 @@ pub fn image_ome(axes: &[&str], units: &Map<String, J>, scales: &[J], name: Opti
     Ok(json!({"version": "0.5", "multiscales": [J::Object(ms)]}))
 }
 
-// ---- metadata arrays (conventions §7)
+// ---- metadata arrays (conventions §7
+// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>)
 
 /// A chunk of a metadata array: the ranges that hold it, or its bytes when copied.
 pub enum Chunk {
@@ -408,7 +417,9 @@ pub fn blob_chunks(offset: u64, length: u64) -> (u64, Vec<(Vec<u64>, Chunk)>) {
 }
 
 /// The C-order array of `shape`, of `item`-byte elements contiguous at `offset`, cut
-/// as conventions §7 cuts contiguous values (`common.grid_chunks` with no reader):
+/// as conventions §7
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
+/// contiguous values (`common.grid_chunks` with no reader):
 /// its chunk shape and chunks, or None when an edge chunk's padding does not fit in a
 /// reference.
 pub fn grid_chunks(offset: u64, shape: &[u64], item: u64, limit: u64) -> Option<(Vec<u64>, Vec<(Vec<u64>, Chunk)>)> {
@@ -489,8 +500,9 @@ pub fn grid_chunks(offset: u64, shape: &[u64], item: u64, limit: u64) -> Option<
     Some((cs, chunks))
 }
 
-// ---- JSON sizes, as ECMAScript's JSON.stringify writes values (spec/virtualize/nd2.md §5.1,
-// conventions §8.7)
+// ---- JSON sizes, as ECMAScript's JSON.stringify writes values (spec/virtualize/nd2.md §5.1
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>,
+// conventions §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>)
 
 /// The length of ECMAScript's Number::toString of a finite binary64.
 pub fn js_number_size(x: f64) -> usize {

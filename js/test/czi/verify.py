@@ -59,7 +59,9 @@ from vzip.pb import Concat, Range  # noqa: E402
 from vzip.policy import Policy  # noqa: E402
 from vzip.store import VZipStore  # noqa: E402
 
-# The sources are served on 127.0.0.1, which spec §8.7 rule 3 refuses by default.
+# The sources are served on 127.0.0.1, which spec §8.7
+# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3 refuses by
+# default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import is_mirror, mirror_problems  # noqa: E402
@@ -141,12 +143,14 @@ class Archive:
         return asyncio.run(go())
 
     def array_bytes(self, path: str) -> bytes:
-        """A 1-D uint8 array's bytes (conventions §7)."""
+        """A 1-D uint8 array's bytes (conventions §7
+        <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>)."""
         a = zarr.open_array(self.store, path=path, mode="r", zarr_format=3)
         return bytes(a[...])
 
     def family(self, path: str, i: int) -> bytes | None:
-        """Member i of a family of byte values, or None (conventions §7)."""
+        """Member i of a family of byte values, or None (conventions §7
+        <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>)."""
         full = f"vzip_source/{path}"
         if self.docs.get(f"{full}/zarr.json", {}).get("node_type") == "array":
             a = zarr.open_array(self.store, path=full, mode="r", zarr_format=3)
@@ -239,7 +243,9 @@ def czi_pixels(sb_data: np.ndarray, pixel_type: int) -> np.ndarray:
 
 
 def walk(data: bytes) -> tuple[list[tuple[int, bytes, int, int]], int]:
-    """The segments in file order (spec/virtualize.md §13.2 step 6), as the verifier reads them."""
+    """The segments in file order (spec/virtualize.md §13.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#132-structures-and-the-walk>
+    step 6), as the verifier reads them."""
     out, o = [], 0
     while o < len(data) and len(out) < 1 << 23:
         if o + 32 > len(data):

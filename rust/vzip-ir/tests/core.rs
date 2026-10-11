@@ -1,6 +1,7 @@
 //! The compact IR's invariants with runs: folding, finish (gap runs, unfolding,
 //! aliases), check and the rebuild's leaves; the root and the names (conventions
-//! §8.1), one test for the IRs that keep them and one per way to break them.
+//! §8.1 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>), one test for
+//! the IRs that keep them and one per way to break them.
 
 use vzip_ir::check::{check, finish, leaves, names};
 use vzip_ir::ir::*;

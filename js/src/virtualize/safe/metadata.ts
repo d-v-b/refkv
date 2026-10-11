@@ -1,5 +1,7 @@
 // The GeoZarr attributes and the source metadata of a SAFE product
-// (spec/virtualize/safe.md §5, §6).
+// (spec/virtualize/safe.md §5
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>, §6
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#6-source-metadata>).
 
 import { jsonNumber } from "../common.ts";
 import type { XmlElement } from "../store.ts";
@@ -8,7 +10,9 @@ import { attr, DECIMAL, type Geocoding, kids, path, type Product, text } from ".
 type Json = unknown;
 type Obj = Record<string, Json>;
 
-// The zarr-conventions CMOs (§5), at tag v0.1.
+// The zarr-conventions CMOs (§5
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>), at
+// tag v0.1.
 export const PROJ = {
   uuid: "f17cb550-5864-4468-aeb7-f3180cfb622f",
   schema_url: "https://raw.githubusercontent.com/zarr-conventions/proj/refs/tags/v0.1/schema.json",
@@ -34,7 +38,11 @@ export const MULTISCALES = {
 const DEG = 'ANGLEUNIT["degree",0.0174532925199433]';
 const M = 'LENGTHUNIT["metre",1]';
 
-/** `proj:wkt2` for a WGS 84 / UTM zone's CRS code (§5.2), else undefined. */
+/**
+ * `proj:wkt2` for a WGS 84 / UTM zone's CRS code (§5.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#52-resolution-groups>), else
+ * undefined.
+ */
 export function wkt2(code: string): string | undefined {
   const m = /^EPSG:([1-9][0-9]{4})$/.exec(code);
   if (m === null) return undefined;
@@ -57,9 +65,13 @@ export function wkt2(code: string): string | undefined {
     `CS[Cartesian,2],AXIS["(E)",east,ORDER[1],${M}],AXIS["(N)",north,ORDER[2],${M}],ID["EPSG",${c}]]`;
 }
 
-// ---------------------------------------------------------------- the grids (§5.1)
+// ---------------------------------------------------------------- the grids (§5.1
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#51-the-grid-of-a-resolution>)
 
-/** [transform, shape, bounding box] of resolution r (§5.1). */
+/**
+ * [transform, shape, bounding box] of resolution r (§5.1
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#51-the-grid-of-a-resolution>).
+ */
 export function gridOf(geo: Geocoding, r: number): [number[], number[], number[]] {
   const [rows, cols] = geo.sizes.get(r)!;
   const [ulx, uly, xdim, ydim] = geo.positions.get(r)!;
@@ -73,7 +85,10 @@ function crs(geo: Geocoding): Obj {
   return w === undefined ? { "proj:code": geo.code } : { "proj:code": geo.code, "proj:wkt2": w };
 }
 
-/** A resolution group's attributes (§5.2). */
+/**
+ * A resolution group's attributes (§5.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#52-resolution-groups>).
+ */
 export function groupAttributes(geo: Geocoding, r: number): Obj {
   const [transform, shape, bbox] = gridOf(geo, r);
   return {
@@ -82,7 +97,10 @@ export function groupAttributes(geo: Geocoding, r: number): Obj {
   };
 }
 
-/** The root's GeoZarr CMOs and members (§5.3). */
+/**
+ * The root's GeoZarr CMOs and members (§5.3
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#53-the-root>).
+ */
 export function rootGeozarr(product: Product, resolutions: number[]): [Obj[], Obj] {
   const geo = product.geocoding;
   const members: Obj = { ...crs(geo), "spatial:bbox": gridOf(geo, resolutions[0])[2] };
@@ -95,11 +113,16 @@ export function rootGeozarr(product: Product, resolutions: number[]): [Obj[], Ob
   return [[MULTISCALES, PROJ, SPATIAL], members];
 }
 
-// ---------------------------------------------------------------- values (§6.1)
+// ---------------------------------------------------------------- values (§6.1
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#61-values>)
 
 const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
 
-/** A text as a value (§6.1): a decimal number as a JSON number, else the string. */
+/**
+ * A text as a value (§6.1
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#61-values>): a decimal number as
+ * a JSON number, else the string.
+ */
 export function typed(t: string): Json {
   if (!DECIMAL.test(t)) return t;
   if (/[.eE]/.test(t)) return jsonNumber(Number(t));
@@ -119,7 +142,10 @@ function string(els: XmlElement[]): string | undefined {
   return els.length === 1 ? text(els[0]) : undefined;
 }
 
-/** A measure (§6.1): {value, unit} when the element has a unit, else its value. */
+/**
+ * A measure (§6.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#61-values>):
+ * {value, unit} when the element has a unit, else its value.
+ */
 function measure(els: XmlElement[]): Json {
   const v = value(els);
   if (v === undefined) return undefined;
@@ -141,7 +167,11 @@ function put(out: Obj, key: string, v: Json): void {
   out[key] = v;
 }
 
-/** The most elements of a list copied as records (§6.2, §6.3). */
+/**
+ * The most elements of a list copied as records (§6.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#62-band-arrays>, §6.3
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
+ */
 export const MAX_RECORDS = 64;
 
 /** One record per element, or undefined (absent) when there are more than MAX_RECORDS. */
@@ -159,7 +189,10 @@ function characteristics(product: Product): XmlElement | undefined {
   return found.length === 1 ? found[0] : undefined;
 }
 
-/** A band array's source metadata (§6.2). */
+/**
+ * A band array's source metadata (§6.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#62-band-arrays>).
+ */
 export function bandMetadata(product: Product, imageText: string, name: string, siz: string): Obj {
   const s: Obj = { IMAGE_FILE: imageText };
   const x = characteristics(product);
@@ -204,7 +237,10 @@ export function bandMetadata(product: Product, imageText: string, name: string, 
   return s;
 }
 
-/** The root's source metadata (§6.3). */
+/**
+ * The root's source metadata (§6.3
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
+ */
 export function rootMetadata(product: Product): Obj {
   const s: Obj = {};
   const info = path(product.metadata, "General_Info/Product_Info");
@@ -221,7 +257,8 @@ export function rootMetadata(product: Product): Obj {
   return s;
 }
 
-// ---------------------------------------------------------------- vzip_source's budget (§6.3)
+// ---------------------------------------------------------------- vzip_source's budget (§6.3
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)
 
 export const BUDGET = 65536;
 const utf8 = new TextEncoder();
@@ -234,12 +271,14 @@ export const MAX_TEXT = 1 << 16;
 /** The candidates read together. */
 const READ_AHEAD = 16;
 
-/** The XML documents kept as text, with their text values (§6.3): `xmlSizes` maps each XML
+/** The XML documents kept as text, with their text values (§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>): `xmlSizes` maps each XML
  * document's key to its size, `readTexts(keys)` reads the text values of candidates (documents
  * of at most 65536 bytes), `lists` holds the other members of `S` (`empty`, `empty_dirs`,
  * `ignored`), which never move, and `order` compares keys. The candidates are read in the
  * order they are taken, at most READ_AHEAD at a time, and no longer once the next one cannot
- * fit (§12.2): `S` with only its texts and `lists`, J bytes of JSON, and a candidate of n
+ * fit (§12.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#122-objects-and-reading>): `S`
+ * with only its texts and `lists`, J bytes of JSON, and a candidate of n
  * bytes as text is more than J + n bytes. */
 export async function chooseTexts(
   xmlSizes: Map<string, number>, readTexts: (keys: string[]) => Promise<Json[]>, lists: [string, string[]][],

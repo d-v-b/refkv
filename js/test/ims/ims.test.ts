@@ -33,7 +33,8 @@ test("virtualizes the synthetic IMS files", async () => {
     assert.deepEqual({ ...v.summary, ...expected }, v.summary, name);
   }
   // Every channel's color: in TableColor mode the top of the lookup table, else the base
-  // color, else the table, else white (spec/virtualize/ims.md §4).
+  // color, else the table, else white (spec/virtualize/ims.md §4
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#4-output>).
   const colors: [string, string[]][] = [
     ["ims_latest_uint8.ims", ["FF0000", "808080", "FFFFFF"]],
     ["ims_latest_table_color.ims", ["00FF00", "0000FF", "FF00FF", "FF0000", "808080", "FFFFFF", "FFFFFF", "FFFFFF",

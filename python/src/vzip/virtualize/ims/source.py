@@ -1,6 +1,7 @@
 """The HDF5 tree of an Imaris file as the source metadata node of the IMS
-convention (spec/virtualize/ims.md §5): every group, dataset, attribute,
-link and named datatype, with each dataset's data as an array."""
+convention (spec/virtualize/ims.md §5
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata>): every group,
+dataset, attribute, link and named datatype, with each dataset's data as an array."""
 
 from __future__ import annotations
 
@@ -19,17 +20,18 @@ from vzip.virtualize.ims.hdf5 import (
 
 MAX_VALUE_BYTES = 1 << 26  # the most attribute data read per file
 MAX_OBJECTS = 100000  # objects walked per file, besides PER_IMAGE for each Data dataset of the image
-PER_IMAGE = 5  # its channel group, Data, Histogram, Histogram1024, and a time point group (§5.1)
+PER_IMAGE = 5  # its channel group, Data, Histogram, Histogram1024, and a time point group (§5.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#51-the-tree>)
 MAX_ELEMENTS = 1 << 20  # elements of a dataset whose datatype holds addresses (peak memory: under 1 KB each)
 MAX_DEPTH = 16  # nesting of datatypes
 INLINE = 64  # the most numbers of an attribute held as JSON
 MAX_TEXT = 1 << 20  # the longest text of an attribute held as JSON
 MAX_RAW = 4096  # the most bytes of an attribute held as base64
-BUDGET = 1 << 16  # the cost of the entries one document holds (§5.6)
+BUDGET = 1 << 16  # the cost of the entries one document holds (§5.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#56-documents>)
 MAX_HEAP = 1 << 16  # the most bytes of variable-length elements of an attribute held as JSON
 MAX_COPY = 1 << 24  # the most bytes of a dataset decoded and copied
 MAX_SELECTIONS = 1 << 22  # the most bytes of region references' selections read per file
-# The datatype of Imaris's attributes, whose text is their value (§5.3).
+# The datatype of Imaris's attributes, whose text is their value (§5.3
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>).
 IMARIS_TEXT = {"class": "string", "size": 1, "padding": "null-terminated", "charset": "ascii"}
 VLEN_REASON = "variable-length data of references or variable-length data"
 PADDING = ("null-terminated", "null-padded", "space-padded")
@@ -42,7 +44,8 @@ FLOATS = {2: "e", 4: "f", 8: "d"}
 ZLIB = {"name": "zlib", "configuration": {"level": 1}}
 
 
-# ---- datatypes (spec/virtualize/ims.md §5.2)
+# ---- datatypes (spec/virtualize/ims.md §5.2
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#52-datatypes>)
 
 def _choice(names: tuple, i: int):
     return names[i] if i < len(names) else i
@@ -208,7 +211,8 @@ def _product(dims: list[int]) -> int:
     return n
 
 
-# ---- JSON texts and their sizes (spec/virtualize/ims.md §5.6)
+# ---- JSON texts and their sizes (spec/virtualize/ims.md §5.6
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#56-documents>)
 
 def js_number(v: float) -> str:
     """A finite binary64 number as ECMAScript's Number::toString writes it."""
@@ -237,7 +241,9 @@ def js_number(v: float) -> str:
 
 
 def canonical(v) -> str:
-    """The JSON text of a value (§5.6): no whitespace, object members in ascending
+    """The JSON text of a value (§5.6
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#56-documents>): no whitespace,
+    object members in ascending
     order of their keys' UTF-8 bytes, characters other than those JSON escapes
     as themselves, and numbers as ECMAScript writes them."""
     if v is None:
@@ -263,7 +269,8 @@ def size(v) -> int:
     return len(canonical(v).encode())
 
 
-# ---- the tree (spec/virtualize/ims.md §5.1)
+# ---- the tree (spec/virtualize/ims.md §5.1
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#51-the-tree>)
 
 def holds_addresses(t: dict) -> bool:
     """Whether elements of datatype `t` hold file addresses: references and
@@ -277,7 +284,8 @@ def holds_addresses(t: dict) -> bool:
 
 def column(t: dict) -> str | None:
     """How a dataset's elements of datatype `t`, which holds addresses, are kept
-    (§5.4): a family of byte values, indexes into the object table, or a family
+    (§5.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>): a family of
+    byte values, indexes into the object table, or a family
     of region references; None when they are not."""
     if t["class"] == "variable-length" and not holds_addresses(t["base"]):
         return "family"
@@ -289,7 +297,8 @@ def column(t: dict) -> str | None:
 
 
 def node_name(key: str) -> bool:
-    """Whether a member's name can name a Zarr node of the hierarchy (§5.1)."""
+    """Whether a member's name can name a Zarr node of the hierarchy (§5.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#51-the-tree>)."""
     return bool(key) and key not in (".", "..", "zarr.json") and not key.startswith("__") and "/" not in key
 
 
@@ -325,7 +334,8 @@ def _canonical_nan(size: int, order: str) -> bytes:
 
 
 def exact_fill(base: dict | None, fill: bytes):
-    """The Zarr fill value that is exactly the dataset's fill value (§5.4), or
+    """The Zarr fill value that is exactly the dataset's fill value (§5.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>), or
     None: the elements' number when they are all the same bytes (an integer
     as it is, NaN only as the canonical quiet NaN, never -0), and the byte for
     an array of bytes when they are all equal."""
@@ -347,7 +357,8 @@ def exact_fill(base: dict | None, fill: bytes):
 
 
 def ref_address(b: bytes) -> int | None:
-    """The object header address of an object reference, or None (§8.9)."""
+    """The object header address of an object reference, or None (§8.9
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)."""
     v = le(b, 0, 8)
     return v if 0 < v <= MAX_SAFE else None
 
@@ -369,7 +380,8 @@ LISTS = ("attribute_collisions", "collisions")
 
 
 def merge(s: dict, entry: dict) -> None:
-    """Adds an entry to a source metadata object (§5.6)."""
+    """Adds an entry to a source metadata object (§5.6
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#56-documents>)."""
     for k, v in entry.items():
         if k in KEYED and v is not None:
             s.setdefault(k, {}).update(v)
@@ -381,7 +393,8 @@ def merge(s: dict, entry: dict) -> None:
 
 class Doc:
     """A document of the source metadata node: its source metadata `s`, which
-    settling fills, and its entries in order (§5.6)."""
+    settling fills, and its entries in order (§5.6
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#56-documents>)."""
 
     def __init__(self, s: dict) -> None:
         self.s = s
@@ -413,7 +426,8 @@ class Tree:
         self.spills = 0  # spilled/<i> numbered so far
 
     def meet(self, at: int, path: str, parent: int | None, key: str) -> None:
-        """Numbers an object the walk meets, in the object table (§5.7)."""
+        """Numbers an object the walk meets, in the object table (§5.7
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#57-the-object-table>)."""
         self.order[at] = len(self.order)
         self.seen[at] = path
         self.parents.append(-1 if parent is None else self.order[parent])
@@ -429,14 +443,17 @@ class Tree:
         return d
 
     def type_part(self, t: dict, named: int | None) -> dict:
-        """A datatype's members (§5.2): its description, or, when it is named and
+        """A datatype's members (§5.2
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#52-datatypes>): its
+        description, or, when it is named and
         the walk met the committed datatype, its path alone."""
         if named is None:
             return {"datatype": t}
         index = self.order.get(named)
         return {"named": index} if index is not None else {"named": None, "datatype": t}
 
-    # ---- attributes (§5.3)
+    # ---- attributes (§5.3
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>)
 
     def attribute_items(self, at: int) -> list | None:
         """An object's attributes, in ascending byte order of their names: (key,
@@ -456,7 +473,8 @@ class Tree:
         return items
 
     def attribute_entry(self, item: tuple, room: int) -> tuple:
-        """An attribute's value and its cost, held as JSON only within `room` (§5.6)."""
+        """An attribute's value and its cost, held as JSON only within `room` (§5.6
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#56-documents>)."""
         key, name, raw, clash, at = item
 
         def cost(v) -> int:
@@ -502,7 +520,8 @@ class Tree:
 
     def forms(self, t: dict, dims: list[int], data: bytes, count: int, plain: bool, at: int):
         """(the attribute's value as JSON, or None; whether it is large; the
-        array form, a function of its path giving its members) (§5.3). The
+        array form, a function of its path giving its members) (§5.3
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>). The
         file holds the data at `at`, where the array form references it."""
         cls = t["class"]
         if cls == "string":
@@ -610,7 +629,8 @@ class Tree:
         return values if values is not None else json_base64(data)
 
     def structured(self, t: dict, b: bytes, counted: bool):
-        """An element of a datatype that holds addresses, as JSON (§5.3)."""
+        """An element of a datatype that holds addresses, as JSON (§5.3
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>)."""
         if not holds_addresses(t):
             if numeric(t) is not None:
                 v = exact_numbers(t, 1, b)
@@ -648,7 +668,9 @@ class Tree:
 
     def region(self, b: bytes) -> tuple[int | None, dict] | None:
         """A region reference's (object header address, selection), or None for
-        the null reference (§8.9). Each reference counts the size of its global
+        the null reference (§8.9
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
+        Each reference counts the size of its global
         heap object against the budget of selections; each object is read once."""
         at = address(le(b, 0, 8))
         if at is None or at == 0:
@@ -664,12 +686,15 @@ class Tree:
         return self.regions[key]
 
     def region_value(self, found: tuple | None):
-        """A region reference as JSON (§5.3): null, or its object's index and its selection."""
+        """A region reference as JSON (§5.3
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>): null, or
+        its object's index and its selection."""
         return None if found is None else {"object": self.index_of(found[0]), "selection": found[1]}
 
     def attribute_array(self, path: str, data_type: str, shape: list[int], item: int, data: bytes, endian: str,
                         attributes: dict | None = None, plans: list | None = None):
-        """A copy of in-memory data as an array (conventions §7)."""
+        """A copy of in-memory data as an array (conventions §7
+        <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>)."""
         chunk_shape, ranges = grid_chunks(0, shape, item, lambda o, n: data[o : o + n])
         chunks = {k: r if isinstance(r, bytes) else b"".join(data[p[0] : p[0] + p[1]] if isinstance(p, tuple) else p
                                                               for p in r)
@@ -682,7 +707,8 @@ class Tree:
         self.jobs.append((self.attribute_data, path, data_type, shape, item, at, endian))
 
     def attribute_data(self, path: str, data_type: str, shape: list[int], item: int, at: int, endian: str) -> None:
-        """An attribute's data as an array, referenced where the file holds it (conventions §7)."""
+        """An attribute's data as an array, referenced where the file holds it (conventions §7
+        <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>)."""
         chunk_shape, chunks = grid_chunks(at, shape, item, self.read)
         self.attribute_plans.append(Plan(path, data_type, shape, chunk_shape, None, chunks, endian=endian))
 
@@ -691,7 +717,8 @@ class Tree:
             self.attribute_groups.append(path)
         self.attribute_plans.extend(plans)
 
-    # ---- settling the documents (§5.6)
+    # ---- settling the documents (§5.6
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#56-documents>)
 
     def settle(self, doc: Doc) -> None:
         kept, spilling, spilled = 0, False, []
@@ -764,7 +791,8 @@ class Tree:
             job[0](*job[1:])
 
     def index_array(self, path: str, refs: list, dims: list[int], s: dict | None, dataset: bool) -> None:
-        """Object references as an int32 array of their indexes in the object table, -1 for none (§5.3)."""
+        """Object references as an int32 array of their indexes in the object table, -1 for none
+        (§5.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>)."""
         data = struct.pack(f"<{len(refs)}i", *[self.order.get(a, -1) if a is not None else -1 for a in refs])
         self.attribute_array(path, "int32", dims, 4, data, "little", s, self.plans if dataset else None)
 
@@ -772,7 +800,8 @@ class Tree:
         texts = [canonical(self.region_value(r)).encode() for r in regions]
         self.family(path, bytes_family(path, texts), s)
 
-    # ---- datasets (§5.4)
+    # ---- datasets (§5.4
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>)
 
     def dataset(self, at: int, path: str) -> None:
         """A dataset's array, or its group: a family, a compound of several, or a null dataspace."""
@@ -868,7 +897,8 @@ class Tree:
         self.plans.append(Plan(path, data_type, shape, chunk_shape, None, chunks, fill, s, endian, compressor))
 
     def implicit(self, ds: Dataset, shape: list[int], item: int, size: int) -> tuple | None:
-        """(chunk shape, chunks) of an implicitly indexed dataset (§5.4) whose
+        """(chunk shape, chunks) of an implicitly indexed dataset (§5.4
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>) whose
         chunks are its elements in row-major order: cut as contiguous values;
         or whose chunk shape is 1 but along its last dimension: a chunk per row,
         its chunks' adjacent runs one range. None for any other."""
@@ -891,8 +921,9 @@ class Tree:
 
     def column(self, path: str, t: dict, kind: str, data: bytes, stride: int, offset: int, count: int,
                dims: list[int], s: dict | None) -> None:
-        """Elements that hold addresses as an array (§5.4): a family of their
-        variable-length values, the indexes of the objects they refer to in the
+        """Elements that hold addresses as an array (§5.4
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>): a family of
+        their variable-length values, the indexes of the objects they refer to in the
         object table, or a family of region references. Element `i` of the
         `count` is the bytes of `data` at `i * stride + offset`, read in place
         (no copy of each is kept: memory per element is its result's)."""
@@ -907,7 +938,8 @@ class Tree:
             self.jobs.append((self.region_family, path, [self.region(e) for e in elements], s))
 
     def compound(self, ds: Dataset, t: dict, path: str, count: int, s: dict) -> None:
-        """A compound dataset with members that hold addresses (§5.4): the group of
+        """A compound dataset with members that hold addresses (§5.4
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>): the group of
         its bytes, those members' zeroed, and of each such member's array."""
         members = []
         for i, m in enumerate(t["members"]):
@@ -930,7 +962,9 @@ class Tree:
         self.groups.append((path, s))
 
     def family(self, path: str, plans: list[Plan], s: dict | None) -> None:
-        """A family (conventions §7) with its source metadata: on its 2-D array, or on its group."""
+        """A family (conventions §7
+        <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>)
+        with its source metadata: on its 2-D array, or on its group."""
         if plans and plans[0].path == path:
             plans[0].attributes = s
         else:
@@ -984,7 +1018,8 @@ class Tree:
             _scatter(out, ds.dims, e, data, ds.chunk, [c * k for c, k in zip(coords, ds.chunk)])
         return bytes(out)
 
-    # ---- unsupported objects (§5.5)
+    # ---- unsupported objects (§5.5
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#55-unsupported-objects>)
 
     def unsupported(self, at: int, reason: str):
         """What can be read of an object that is not mapped: its datatype,
@@ -1038,7 +1073,8 @@ class Tree:
         return make, self.attribute_items(at)
 
     def external_files(self, d: bytes) -> list[dict]:
-        """The files of an external data files message (§8.9)."""
+        """The files of an external data files message (§8.9
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)."""
         if le(d, 0, 1) != 1:
             raise Rejected("unsupported external data files message version")
         used, heap = le(d, 6, 2), address(le(d, 8, 8))
@@ -1056,7 +1092,8 @@ class Tree:
                         "size": json_number(le(d, p + 16, 8))})
         return out
 
-    # ---- groups (§5.1)
+    # ---- groups (§5.1
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#51-the-tree>)
 
     def kind(self, at: int) -> str:
         types = {m.type for m in self.f.header(at)}
@@ -1159,12 +1196,13 @@ class Tree:
                            a.compressor)
 
 
-SHUFFLED = ([2], [2, 1], [2, 3], [2, 1, 3])  # pipelines with shuffle, decoded and copied (§5.4)
+SHUFFLED = ([2], [2, 1], [2, 3], [2, 1, 3])  # pipelines with shuffle, decoded and copied (§5.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>)
 
 
 def other_link(kind: int, value: bytes | None) -> dict:
-    """A link of a type other than hard or soft (§5.1): an external link's
-    file and path, else the type and its value in base64 (null if unread)."""
+    """A link of a type other than hard or soft (§5.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#51-the-tree>): an external
+    link's file and path, else the type and its value in base64 (null if unread)."""
     if value is None:
         return {"user": {"type": kind, "value": None}}
     if kind == 64 and value[:1] == b"\0":
@@ -1177,7 +1215,9 @@ def other_link(kind: int, value: bytes | None) -> dict:
 
 
 def bytes_family(path: str, values: list[bytes]) -> list[Plan]:
-    """A family of byte values held in memory (conventions §7), each chunk copied."""
+    """A family of byte values held in memory (conventions §7
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>), each
+    chunk copied."""
     count = len(values)
     lengths = {len(v) for v in values}
     if len(lengths) == 1 and lengths != {0} and max(lengths) <= MAX_COPY:
@@ -1227,7 +1267,8 @@ def _row_major(ds: Dataset) -> bool:
     """Whether chunks of `ds` in row-major order hold its elements in row-major
     order: a chunk shape of 1 before some dimension `a` and of the whole
     dimension after it, and `a`'s size a multiple of its chunk shape unless the
-    dimensions before it are all 1 (the maximum grid aside, §5.4)."""
+    dimensions before it are all 1 (the maximum grid aside, §5.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>)."""
     rank = len(ds.dims)
     a = max((i for i in range(rank) if ds.chunk[i] != ds.dims[i]), default=0)
     if any(c != 1 for c in ds.chunk[:a]):

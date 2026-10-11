@@ -1,7 +1,8 @@
 // The `imagecodecs_jpeg2k` codec for zarrita (and so for OpenLayers' GeoZarr
 // source, which shares this copy of zarrita), as vzip's SAFE convention uses
-// it (spec/virtualize/safe.md §4): an array-to-bytes codec whose chunk is one
-// JPEG 2000 codestream. A codestream of `C` components decodes to rows of
+// it (spec/virtualize/safe.md §4
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#4-arrays>): an array-to-bytes
+// codec whose chunk is one JPEG 2000 codestream. A codestream of `C` components decodes to rows of
 // interleaved samples, `[y, x]` or `[y, x, c]`; a 3-component array declares
 // that order with a `transpose` codec (order [1, 2, 0]) before this one, so
 // this codec returns the chunk with the array's chunk shape and C-order

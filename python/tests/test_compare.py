@@ -1,4 +1,6 @@
-"""conformance/virtualize/compare.py: §1.1 equivalence with exact integers, and the strict
+"""conformance/virtualize/compare.py: §1.1
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence> equivalence
+with exact integers, and the strict
 reading of every archive (spec/archive.md, through the independent reader and the writer checks)."""
 
 import io
@@ -26,9 +28,10 @@ def test_differences():
     big = 2**53 + 1
     cases = [
         ({"shape": [1]}, {"shape": [1]}, True),
-        ({"scale": [1]}, {"scale": [1.0]}, True),  # a computed number written either way (§1.3)
+        ({"scale": [1]}, {"scale": [1.0]}, True),  # a computed number written either way (§1.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#13-arithmetic>)
         ({"fill_value": big}, {"fill_value": big - 1}, False),  # integers exactly: binary64 would equal them
-        # an integer against a float: equal only if the float is exactly that integer (§1.1)
+        # an integer against a float: equal only if the float is exactly that integer (§1.1
+        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>)
         ({"fill_value": big}, {"fill_value": float(big)}, False),
         ({"fill_value": big - 1}, {"fill_value": float(big)}, True),
         ({"flag": True}, {"flag": 1}, False),
@@ -113,8 +116,9 @@ def _mirror_archive(tmp_path, edit=None) -> Path:
 
 
 def test_mirror_problem():
-    """A TIFF archive's IR mirror (conventions §8) that reads and checks: no problem; an
-    archive without a mirror: not checked."""
+    """A TIFF archive's IR mirror (conventions §8
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) that reads and
+    checks: no problem; an archive without a mirror: not checked."""
     import tempfile
 
     with tempfile.TemporaryDirectory() as d:
@@ -140,7 +144,8 @@ def test_mirror_problem_finds_a_size_other_than_the_pin(tmp_path):
 
 
 def test_mirror_problem_finds_a_table_that_is_not_canonical(tmp_path):
-    """A valid table whose chunks are deflated: the validator flags it (conventions §8.8)."""
+    """A valid table whose chunks are deflated: the validator flags it (conventions §8.8
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>)."""
     import json
     import zlib
 

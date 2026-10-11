@@ -110,7 +110,11 @@ export function rangeMsgLen(o: number, n: number): number {
   return (o > 0 ? 1 + varintLen(o) : 0) + (n > 0 ? 1 + varintLen(n) : 0);
 }
 
-/** Payload size (spec/virtualize.md §1.2) of a list of ranges of source 0. */
+/**
+ * Payload size (spec/virtualize.md §1.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#12-input>) of a
+ * list of ranges of source 0.
+ */
 export function payloadLen(ranges: [number, number, number][]): number {
   if (ranges.length === 1) return rangeMsgLen(ranges[0][1], ranges[0][2]);
   let t = 0;

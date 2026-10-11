@@ -103,7 +103,10 @@ test("the two forms give the same documents", async () => {
   for (const [d, z, n] of [["safe_l1c", "safe_l1c.SAFE.zip", 12], ["safe_l2a_pb0207", "safe_l2a_pb0207.SAFE.zip", 15]] as const) {
     const a = await virtualize(d), b = await virtualize(z);
     assert.deepEqual(docs(a), docs(b));
-    // the zip file pins its size (spec/virtualize.md §1.2), each object its listed size (§1.4)
+    // the zip file pins its size (spec/virtualize.md §1.2
+    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>), each object its
+    // listed size (§1.4
+    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>)
     assert.deepEqual(b.sources[0], { url: `https://data.test/safe/${z}`, size: BigInt(fs.statSync(new URL(`../../../fixtures/safe/${z}`, import.meta.url)).size) });
     assert.ok(a.sources.every((x) => x.url === undefined || x.size !== undefined));
     assert.deepEqual(a.sources.slice(-n), b.sources.slice(-n)); // the same data sources

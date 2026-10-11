@@ -36,7 +36,11 @@ async function getJson(url: string) {
   return r.json();
 }
 
-/** How a band's digital numbers become reflectance (§6.2): `(DN + offset) / quantification`. */
+/**
+ * How a band's digital numbers become reflectance (§6.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#62-band-arrays>): `(DN + offset)
+ * / quantification`.
+ */
 interface Radiometry {
   offset: number;
   quantification: number;
@@ -118,7 +122,9 @@ async function main() {
   const radiometry = async (band: string): Promise<Radiometry> => {
     const s = (await getJson(`${zarrUrl}r10m/${band}/zarr.json`)).attributes?.vzip_virtualized?.safe ?? {};
     // Offsets exist from processing baseline 04.00; they are not applied to
-    // the arrays (§6.2), so the style applies them.
+    // the arrays (§6.2
+    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#62-band-arrays>), so the
+    // style applies them.
     const q = s.BOA_QUANTIFICATION_VALUE ?? s.QUANTIFICATION_VALUE;
     return {
       offset: Number(s.BOA_ADD_OFFSET ?? s.RADIO_ADD_OFFSET ?? 0),

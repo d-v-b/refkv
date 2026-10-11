@@ -48,7 +48,8 @@ class Model:
                  http: tuple[str, Path] | None = None):
         self.http = http  # (server base URL, directory it serves)
         self.desc = desc
-        # spec §6: absolute, lexically normalised, symlinks not resolved, and
+        # spec §6 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>:
+        # absolute, lexically normalised, symlinks not resolved, and
         # every byte other than unreserved / sub-delims / ":" "@" "/" percent-encoded
         abs_path = os.path.normpath(os.path.join(os.getcwd(), str(archive_path)))
         self.base = "file://" + quote(abs_path.encode(), safe="/:@!$&'()*+,;=")
@@ -104,14 +105,16 @@ class Model:
         return path.read_bytes()
 
     def _http_bytes(self, url: str, src: dict) -> bytes:
-        """What a §6.2 reader gets from conformance/archive/http_server.py for this source."""
+        """What a §6.2
+        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http> reader gets
+        from conformance/archive/http_server.py for this source."""
         from http_server import QUIRKS, etag_for
 
         rel = unquote(url[len(self.http[0]):].split("?")[0])
         quirk, _, rest = rel.partition("/")
         if quirk not in QUIRKS:
             quirk, rest = None, rel
-        if quirk == "redirect":  # readers follow up to 5 redirects (spec §6.2)
+        if quirk == "redirect":  # readers follow up to 5 redirects (spec §6.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>)
             n, _, rest = rest.partition("/")
             if int(n) + 1 > 5:  # /redirect/N/ is N+1 redirects (the /redirect/0/ hop too)
                 raise ModelError("too many redirects")
@@ -127,7 +130,7 @@ class Model:
         if quirk == "short200":
             data = data[:8]  # a 200 with a short body: past its end → resolution error
         if quirk in ("multipart", "badlen", "nolocation", "enclist", "dupetag", "dupenc"):
-            raise ModelError(f"{quirk}: resolution error (spec §6.2)")
+            raise ModelError(f"{quirk}: resolution error (spec §6.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>)")
         if quirk == "oldate" and "modified_not_after" in src:
             raise ModelError("Last-Modified is not an IMF-fixdate")
         if quirk == "noetag" and ("etag" in src or "modified_not_after" in src):
@@ -177,7 +180,9 @@ class Model:
         parts = self._parts(e["ranges"])
         size = sum(p[0] for p in parts)
         a, b = _window(size, rng)
-        # spec §8.3: only ranges overlapping the window are resolved; a resolved
+        # spec §8.3
+        # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#83-resolving-a-reference>: only
+        # ranges overlapping the window are resolved; a resolved
         # read fails iff the source is unusable or shorter than the bytes needed
         value, pos = b"", 0
         for n, data, problem in parts:
@@ -191,7 +196,9 @@ class Model:
 
     def get_raw(self, key: str) -> list[dict]:
         if key == RESERVED + "sources":
-            # the revision is the writer's to record (spec/archive.md §1.3), so it comes from the archive
+            # the revision is the writer's to record (spec/archive.md §1.3
+            # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#13-versioning>), so it comes
+            # from the archive
             return [{"ok": True, "value": pbref.source_table(self.sources, self.revision).hex()}]
         e = self.entries.get(key)
         if e is None:

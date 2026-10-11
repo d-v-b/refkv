@@ -1,7 +1,10 @@
 // Virtualizing a NIfTI-1 or NIfTI-2 single file (.nii) by the NIfTI profile
-// (spec/virtualize.md, §7): the voxel data is one contiguous block, cut into
-// Zarr chunks of at most 128 KiB as conventions §7 cuts contiguous values, each
-// chunk referencing it.
+// (spec/virtualize.md, §7
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#7-nifti-profile>): the voxel
+// data is one contiguous block, cut into
+// Zarr chunks of at most 128 KiB as conventions §7
+// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
+// contiguous values, each chunk referencing it.
 
 import {
   base64, type ByteReader, declare, emitPlans, gridChunks, jsonNumber, MAX_PAYLOAD_BYTES, type Part, payloadSize,
@@ -17,8 +20,8 @@ const reject = (message: string): never => {
 const view = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength);
 
 const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
-const CHUNK_BYTES = 1 << 17; // the most bytes of a chunk of the image (spec/virtualize/nifti.md §4.1)
-const MAX_CHANNELS = 64; // the most channels given display windows (spec/virtualize/nifti.md §4.4)
+const CHUNK_BYTES = 1 << 17; // the most bytes of a chunk of the image (spec/virtualize/nifti.md §4.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#41-the-array>)
+const MAX_CHANNELS = 64; // the most channels given display windows (spec/virtualize/nifti.md §4.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#44-channels>)
 
 type Kind = "i16" | "i32" | "i64" | "u8" | "f32" | "f64";
 type Field = [offset: number, kind: Kind, count?: number];
@@ -29,7 +32,8 @@ interface Layout {
   qform_code: Field; sform_code: Field; quatern: Field; qoffset: Field; srow: Field;
 }
 
-// Header length and the offset and kind of each field (spec/virtualize/nifti.md §2).
+// Header length and the offset and kind of each field (spec/virtualize/nifti.md §2
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#2-the-header>).
 const LAYOUTS: Record<1 | 2, Layout> = {
   1: {
     length: 348, dim: [40, "i16", 8], datatype: [70, "i16"], bitpix: [72, "i16"], pixdim: [76, "f32", 8],
@@ -46,8 +50,9 @@ const LAYOUTS: Record<1 | 2, Layout> = {
 };
 
 // Every header field, in the standard's order, with its offset and kind: the
-// source metadata of spec/virtualize/nifti.md §5. A kind "s<N>" is a
-// character field of N bytes; a count makes the field an array.
+// source metadata of spec/virtualize/nifti.md §5
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>. A kind
+// "s<N>" is a character field of N bytes; a count makes the field an array.
 type HeaderField = [name: string, offset: number, kind: Kind | `s${number}`, count?: number];
 const HEADER_FIELDS: Record<1 | 2, HeaderField[]> = {
   1: [
@@ -84,10 +89,11 @@ const SCAN = 2 ** 20; // the bytes read at a time to check that a run is all zer
 const ECODES = `${SOURCE_NODE}/extensions/ecode`;
 const ESIZES = `${SOURCE_NODE}/extensions/esize`;
 const EDATA = `${SOURCE_NODE}/extensions/data`;
-const ECODE_CHUNK = 2 ** 22; // the most values of a chunk of the ecodes (spec/virtualize/nifti.md §5)
+const ECODE_CHUNK = 2 ** 22; // the most values of a chunk of the ecodes (spec/virtualize/nifti.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>)
 const SIZES: Record<Kind, number> = { u8: 1, i16: 2, i32: 4, i64: 8, f32: 4, f64: 8 };
 
-// datatype: [Zarr data type, bitpix, samples per voxel] (spec/virtualize/nifti.md §3).
+// datatype: [Zarr data type, bitpix, samples per voxel] (spec/virtualize/nifti.md §3
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#3-data-types>).
 const DATATYPES: Record<number, [string, number, number]> = {
   2: ["uint8", 8, 1], 4: ["int16", 16, 1], 8: ["int32", 32, 1], 16: ["float32", 32, 1],
   64: ["float64", 64, 1], 256: ["int8", 8, 1], 512: ["uint16", 16, 1], 768: ["uint32", 32, 1],
@@ -103,7 +109,10 @@ const TYPES: Record<string, string> = { t: "time", c: "channel", z: "space", y: 
 
 const ascii = (b: Uint8Array) => String.fromCharCode(...b);
 
-/** The NIfTI version that the file's first bytes select (§1.2), or undefined. */
+/**
+ * The NIfTI version that the file's first bytes select (§1.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>), or undefined.
+ */
 export function detectNifti(head: Uint8Array): 1 | 2 | undefined {
   if (head.length < 12) return undefined;
   const v = view(head);
@@ -116,13 +125,14 @@ export function detectNifti(head: Uint8Array): 1 | 2 | undefined {
 const valid = (v: number) => Number.isFinite(v) && v > 0;
 
 /** The esize of a text extension of `length` bytes padded with the fewest NULs: the least
- * multiple of 16 that is at least length + 8 (spec/virtualize/nifti.md §5). */
+ * multiple of 16 that is at least length + 8 (spec/virtualize/nifti.md §5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>). */
 const textEsize = (length: number) => Math.ceil((length + 8) / 16) * 16;
 
 /** The bytes of `value`'s compact JSON, in UTF-8. */
 const jsonSize = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
 
-/** The extension chain from `start` up to the voxel data `v` (spec/virtualize/nifti.md §5),
+/** The extension chain from `start` up to the voxel data `v` (spec/virtualize/nifti.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>),
  * read a block at a time: [its esizes, its ecodes, where it ends]. The chain is kept as two
  * packed columns, so that memory per extension is 8 bytes. */
 async function readChain(
@@ -157,7 +167,10 @@ async function readChain(
   return [esizes.subarray(0, count), ecodes.subarray(0, count), q];
 }
 
-/** The text value of an extension's data, or undefined when it is not a text extension (§5). */
+/**
+ * The text value of an extension's data, or undefined when it is not a text extension (§5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>).
+ */
 function extensionText(ecode: number, data: Uint8Array | undefined): [unknown, number] | undefined {
   if (!TEXT_CODES.has(ecode) || data === undefined) return undefined;
   const nul = data.indexOf(0);
@@ -166,7 +179,10 @@ function extensionText(ecode: number, data: Uint8Array | undefined): [unknown, n
   return [textJson(head), head.length];
 }
 
-/** The value of `extensions` and its arrays, for the chain from `start` to `end` (§5). */
+/**
+ * The value of `extensions` and its arrays, for the chain from `start` to `end` (§5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>).
+ */
 async function extensionsValue(
   read: ByteReader, little: boolean, endian: "big" | "little", start: number, end: number, esizes: Int32Array,
   ecodes: Int32Array,
@@ -239,7 +255,7 @@ const RAGGED_CHUNK = 2 ** 20; // the bytes of a chunk of a family's data, as fam
 /** A range's bytes in a reference of several ranges (payloadSize). */
 const term = (r: Part) => payloadSize([r, r]) / 2;
 
-/** The extensions' data as a family of byte values in its second form (conventions §7), member
+/** The extensions' data as a family of byte values in its second form (conventions §7 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>), member
  * i absent when it is in `inline`: the rule of familyPlans, from the packed esizes, so that
  * memory is 8 bytes per member and one chunk at a time. */
 async function dataFamily(
@@ -259,7 +275,8 @@ async function dataFamily(
     out.setUint32(8 * i, x % 2 ** 32, true);
     out.setUint32(8 * i + 4, Math.floor(x / 2 ** 32), true);
   });
-  // The offsets are copied, and cut as contiguous values (spec/conventions.md §7).
+  // The offsets are copied, and cut as contiguous values (spec/conventions.md §7
+  // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>).
   const [offsetShape, cut] = await gridChunks(0, [count + 1], 8, async (o, n) => offsets.slice(o, o + n));
   const offsetChunks = new Map<string, Uint8Array>();
   for (const [key, v] of cut) {
@@ -362,7 +379,7 @@ export async function virtualizeNifti(
 ): Promise<ArchiveDesc & { summary: object }> {
   const version = detectNifti(await read(0, Math.min(552, fileSize)));
   if (version === undefined) return reject("not a NIfTI-1 or NIfTI-2 single file");
-  // §7.1
+  // §7.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#71-header>
   const layout = LAYOUTS[version];
   const length = layout.length;
   if (fileSize < length) reject(`file too short for a ${length}-byte NIfTI-${version} header`);
@@ -422,6 +439,7 @@ export async function virtualizeNifti(
   const v = Number(vox);
 
   // spec/virtualize/nifti.md §4.2
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#42-value-scaling>
   let scaling: [number, number] | undefined;
   if (!color) {
     const slope = num("scl_slope");
@@ -431,6 +449,7 @@ export async function virtualizeNifti(
   const nontrivial = scaling !== undefined && (scaling[0] !== 1 || scaling[1] !== 0);
 
   // spec/virtualize/nifti.md §4.3
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#43-scales-units-and-position>
   const unitsCode = num("xyzt_units");
   const space = SPACE_UNITS[unitsCode & 7];
   const time = TIME_UNITS[unitsCode & 56];
@@ -463,6 +482,7 @@ export async function virtualizeNifti(
   });
 
   // spec/virtualize/nifti.md §4.4
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#44-channels>
   let channels: object[] | undefined;
   if (color) {
     channels = COLORS.slice(0, samples).map(([label, color]) => ({
@@ -487,6 +507,7 @@ export async function virtualizeNifti(
   }
 
   // spec/virtualize/nifti.md §4.1
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#41-the-array>
   const axes: string[] = [];
   if (n >= 4) axes.push("t");
   if (n >= 5 || color) axes.push("c");
@@ -521,7 +542,9 @@ export async function virtualizeNifti(
     }],
     ...(channels ? { omero: { channels } } : {}),
   };
-  // The source metadata (spec/virtualize/nifti.md §5). A float field is a number, or
+  // The source metadata (spec/virtualize/nifti.md §5
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>). A float
+  // field is a number, or
   // {"bits": hex} for a negative zero or a NaN other than the canonical one, whose bits
   // JSON numbers and "NaN" do not keep.
   const floatJson = (at: number, kind: "f32" | "f64"): unknown => {
@@ -582,7 +605,7 @@ export async function virtualizeNifti(
   if (affine !== null) meta.affine = { form: affine, applied: diagonal !== undefined };
   const attributes = declare({ ome }, "nifti", url, meta);
   const entries: EntryDesc[] = [];
-  for (const [coords, parts] of voxelChunks) { // spec/virtualize.md §7.2
+  for (const [coords, parts] of voxelChunks) { // spec/virtualize.md §7.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#72-chunks>
     const at = coords.split("/");
     const key = `0/c/${axes.map((a) => at[stored.indexOf(a)]).join("/")}`;
     entries.push(parts instanceof Uint8Array ? { key, bytes: parts, compress: true } : { key, ranges: parts.map(toRange) });

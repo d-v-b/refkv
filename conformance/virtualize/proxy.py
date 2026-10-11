@@ -14,8 +14,10 @@ refused (403), since no virtualizer needs one. Remote bytes are fetched in
 64 KiB blocks, once, and cached on disk, so that every implementation reads
 the same bytes and upstream servers see each block only once.
 
-Stores (spec/virtualize.md §1.4, §1.5) are listed with S3 ListObjectsV2, path
-style, in the buckets `f` and `u`: `GET /f/?list-type=2&prefix=n5/x/` lists
+Stores (spec/virtualize.md §1.4
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>, §1.5
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>) are listed with S3
+ListObjectsV2, path style, in the buckets `f` and `u`: `GET /f/?list-type=2&prefix=n5/x/` lists
 the fixture directory `n5/x/`, and `GET /u/?list-type=2&prefix=<id>/<rest>`
 lists the remote store that `<id>` names (its own listing, fetched once and
 cached), under `<rest>`, with keys rewritten to start with `<id>/`. Pages
@@ -214,7 +216,9 @@ def make_handler(fixtures: Path, upstream: Upstream, page_size: int = 100):
                 self.wfile.write(body)
 
         def _listing(self) -> bool:
-            """Answers a ListObjectsV2 request (§1.5); False if this is not one."""
+            """Answers a ListObjectsV2 request (§1.5
+            <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>); False
+            if this is not one."""
             path, _, query = self.path.partition("?")
             if path not in ("/f/", "/u/") or not query:
                 return False

@@ -1,5 +1,7 @@
-// Virtualizes a local image file, or a local directory as a store (§1.4,
-// §1.5), with the browser code (TIFF, ND2 and CZI by the Rust core), under Node:
+// Virtualizes a local image file, or a local directory as a store (§1.4
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>,
+// §1.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>), with the
+// browser code (TIFF, ND2 and CZI by the Rust core), under Node:
 //   node js/conformance/virtualize_file.ts <file or directory> <out.vzip> <source url>
 // For a directory, <source url> is the store URL it is served from (ending in
 // "/"). Prints the summary as JSON; exits 1 if the input is rejected, 2 on a

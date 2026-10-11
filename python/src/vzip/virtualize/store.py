@@ -1,5 +1,7 @@
-"""Store inputs (spec/virtualize.md §1.4–§1.6): the listing, object reads, the
-strict JSON reader, and the output of a store profile (one url source per
+"""Store inputs (spec/virtualize.md §1.4
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>–§1.6
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>): the listing, object
+reads, the strict JSON reader, and the output of a store profile (one url source per
 chunk object).
 """
 
@@ -32,14 +34,20 @@ _PATH_SAFE = _UNRESERVED | frozenset(b"!$&'()*+,;=:@/")
 
 
 class ListingFailed(OSError):
-    """The listing could not be read (a network error or a 408/429/5xx status): a failure, §1.4."""
+    """The listing could not be read (a network error or a 408/429/5xx status): a failure, §1.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>."""
 
 
 class StoreLimit(OSError):
-    """An implementation's resource limit (§1.2, §14): a failure, not a rejection."""
+    """An implementation's resource limit (§1.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>, §14
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-conformance>): a failure, not a
+    rejection."""
 
 
-# ---------------------------------------------------------------- URLs (§1.4, §1.5)
+# ---------------------------------------------------------------- URLs (§1.4
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>, §1.5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>)
 
 
 def _pct(data: bytes, safe: frozenset) -> str:
@@ -47,17 +55,21 @@ def _pct(data: bytes, safe: frozenset) -> str:
 
 
 def object_url(store_url: str, key: str) -> str:
-    """The URL of the object with relative key `key` (§1.4)."""
+    """The URL of the object with relative key `key` (§1.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>)."""
     return store_url + _pct(key.encode(), _PATH_SAFE)
 
 
 def query_encode(s: str) -> str:
-    """`enc` of §1.5: every byte but the unreserved ones percent-encoded."""
+    """`enc` of §1.5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>: every byte but
+    the unreserved ones percent-encoded."""
     return _pct(s.encode(), _UNRESERVED)
 
 
 def check_store_url(url: str) -> tuple[str, str, str]:
-    """(scheme, authority, path) of a valid store URL (§1.4), or Rejected."""
+    """(scheme, authority, path) of a valid store URL (§1.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), or Rejected."""
     m = _SPLIT.match(url)
     if not is_uri_reference(url) or m is None:
         raise Rejected(f"{url!r} is not a valid URI")
@@ -87,7 +99,8 @@ def _percent_decode(s: str) -> bytes:
 
 
 def listing_endpoint(url: str) -> tuple[str, str]:
-    """(endpoint, prefix P) of a store URL (§1.5)."""
+    """(endpoint, prefix P) of a store URL (§1.5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>)."""
     scheme, authority, path = check_store_url(url)
     host = authority
     if host.startswith("["):
@@ -114,7 +127,8 @@ def listing_endpoint(url: str) -> tuple[str, str]:
     return endpoint, prefix
 
 
-# ---------------------------------------------------------------- listing bodies (§1.5)
+# ---------------------------------------------------------------- listing bodies (§1.5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>)
 
 
 def _is_char(c: int) -> bool:
@@ -139,7 +153,9 @@ class Element:
 
 
 class _Xml:
-    """The XML subset of §1.5. `what` names the document in rejections."""
+    """The XML subset of §1.5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>. `what` names
+    the document in rejections."""
 
     def __init__(self, s: str, what: str = "listing") -> None:
         self.s = s
@@ -305,7 +321,9 @@ class _Xml:
 
 
 def parse_xml(text: str, what: str) -> Element:
-    """The root element of a document in the XML subset of §1.5, or Rejected (naming `what`)."""
+    """The root element of a document in the XML subset of §1.5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>, or Rejected
+    (naming `what`)."""
     return _Xml(text, what).document()
 
 
@@ -317,7 +335,8 @@ def _text(el: Element) -> str:
 
 def parse_listing(body: bytes, prefix: str) -> tuple[list[tuple[str, int]], str | None]:
     """The objects listed by one ListObjectsV2 response, and the continuation
-    token if the listing is truncated (§1.5)."""
+    token if the listing is truncated (§1.5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>)."""
     try:
         text = body.decode("utf-8")
     except UnicodeDecodeError:
@@ -355,7 +374,8 @@ def parse_listing(body: bytes, prefix: str) -> tuple[list[tuple[str, int]], str 
     return objects, None
 
 
-# ---------------------------------------------------------------- JSON (§1.6)
+# ---------------------------------------------------------------- JSON (§1.6
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>)
 
 
 def _bad_constant(name: str):
@@ -371,7 +391,8 @@ def _float(s: str) -> float:
 
 def _int(s: str) -> int:
     """An integer literal, kept exact (spec/virtualize/n5.md, zarr2, ome-zarr: copied values keep
-    every digit), and rejected when its binary64 value is infinite (§1.6)."""
+    every digit), and rejected when its binary64 value is infinite (§1.6
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>)."""
     try:
         v = int(s)
     except ValueError:  # more digits than Python converts: far beyond binary64
@@ -388,7 +409,8 @@ _TOKENS = re.compile(r'"(?:[^"\\]|\\.)*"|[\[\]{}]', re.S)
 
 
 def parse_json(data: bytes):
-    """A metadata document by §1.6, or Rejected."""
+    """A metadata document by §1.6
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>, or Rejected."""
     if len(data) > MAX_DOCUMENT:
         raise Rejected(f"JSON document of {len(data)} bytes exceeds {MAX_DOCUMENT}")
     if data.startswith(b"\xef\xbb\xbf"):
@@ -414,7 +436,9 @@ def parse_json(data: bytes):
 
 
 def as_int(v, lo: int = -MAX_SAFE, hi: int = MAX_SAFE) -> int | None:
-    """`v` as an integer of §1.6 within [lo, hi], or None."""
+    """`v` as an integer of §1.6
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents> within [lo, hi],
+    or None."""
     if isinstance(v, bool):
         return None
     if isinstance(v, float):
@@ -431,13 +455,17 @@ def is_number(v) -> bool:
 
 
 def num(v):
-    """A number as the layout reads it (§1.6): its binary64 value. Integers beyond
+    """A number as the layout reads it (§1.6
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>): its binary64
+    value. Integers beyond
     2^53 − 1 are parsed exactly, so that copied values keep their digits; this is
     the value the layout's checks and arithmetic use."""
     return float(v) if isinstance(v, int) and not isinstance(v, bool) and not -MAX_SAFE <= v <= MAX_SAFE else v
 
 
-# ---------------------------------------------------------------- stores (§1.4, §1.5)
+# ---------------------------------------------------------------- stores (§1.4
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>, §1.5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>)
 
 
 def _ignored(rel: str) -> bool:
@@ -445,7 +473,9 @@ def _ignored(rel: str) -> bool:
 
 
 def _folder_marker(rel: str, size: int) -> bool:
-    """An ignored object whose key is not recorded (§1.4): an empty one whose relative key is empty or ends in /."""
+    """An ignored object whose key is not recorded (§1.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): an empty one
+    whose relative key is empty or ends in /."""
     return size == 0 and (rel == "" or rel.endswith("/"))
 
 
@@ -538,7 +568,8 @@ class _Prefetch:
 
 
 class Store:
-    """A listed store: `objects` maps each relative key to its size (§1.4), `ignored`
+    """A listed store: `objects` maps each relative key to its size (§1.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), `ignored`
     holds the relative keys of the ignored objects that are recorded, and `folders`
     those of the empty objects whose keys end in `/` (directories, to the SAFE profile)."""
 
@@ -557,7 +588,8 @@ class Store:
         raise NotImplementedError
 
     def read_range(self, key: str, offset: int, length: int) -> bytes:  # pragma: no cover - interface
-        """The bytes [offset, offset + length) of the object `key` (spec/virtualize.md §12.2)."""
+        """The bytes [offset, offset + length) of the object `key` (spec/virtualize.md §12.2
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#122-objects-and-reading>)."""
         raise NotImplementedError
 
     def prefetch(self, keys, wanted: Callable[[str], bool | None] | None = None) -> None:
@@ -565,7 +597,8 @@ class Store:
         profile reads them), concurrently if `workers` > 1; once per store.
         `wanted(key)`, asked before a read starts, is False for a key the
         profile will not read after all, and None while that is not known yet
-        (asked again after each document the profile reads). Empty documents and documents §1.6 rejects for
+        (asked again after each document the profile reads). Empty documents and documents §1.6
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents> rejects for
         their size are not read."""
         if self.workers <= 1 or self._prefetch is not None:
             return
@@ -584,8 +617,9 @@ class Store:
         self._release()
 
     def document(self, key: str, *, keep: bool = False):
-        """The JSON document at `key` (§1.6). With `keep`, its bytes are kept
-        for the next read of `key` (each document is read once)."""
+        """The JSON document at `key` (§1.6
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>). With
+        `keep`, its bytes are kept for the next read of `key` (each document is read once)."""
         size = self.objects[key]
         if size > MAX_DOCUMENT:
             raise Rejected(f"{key}: JSON document of {size} bytes exceeds {MAX_DOCUMENT}")
@@ -626,7 +660,8 @@ class Store:
 
 
 class HttpStore(Store):
-    """A store listed by S3 ListObjectsV2 (§1.5)."""
+    """A store listed by S3 ListObjectsV2 (§1.5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>)."""
 
     def __init__(self, url: str, *, max_objects: int | None = None,
                  opener: Callable | None = None, workers: int = WORKERS) -> None:
@@ -657,7 +692,7 @@ class HttpStore(Store):
                 raise StoreLimit(f"the store lists more than {max_objects} objects")
             if token is None:
                 break
-            if token in tokens:  # the listing would repeat itself (§1.5)
+            if token in tokens:  # the listing would repeat itself (§1.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>)
                 raise Rejected(f"the listing gives the continuation token {token[:80]!r} again")
             tokens.add(token)
 
@@ -742,7 +777,8 @@ class HttpStore(Store):
 
 
 class DirStore(Store):
-    """A local directory, read as the store at `url` (§1.5)."""
+    """A local directory, read as the store at `url` (§1.5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>)."""
 
     def __init__(self, path: str, url: str) -> None:
         check_store_url(url)
@@ -788,8 +824,8 @@ def open_store(location: str, url: str | None = None, *, max_objects: int | None
                opener: Callable | None = None, workers: int = WORKERS) -> Store:
     """The store at an http(s) URL ending in `/` (listed and read there, and
     named `url` in the output if given, its documents read by up to `workers`
-    requests at a time), or a local directory served at `url` (§1.2), read
-    sequentially."""
+    requests at a time), or a local directory served at `url` (§1.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>), read sequentially."""
     if location.startswith(("http://", "https://")):
         store = HttpStore(location, max_objects=max_objects, opener=opener, workers=workers)
         if url is not None:
@@ -802,7 +838,8 @@ def open_store(location: str, url: str | None = None, *, max_objects: int | None
 
 
 def choose_profile(store: Store) -> str:
-    """The store profile that the root keys select (§1.4)."""
+    """The store profile that the root keys select (§1.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>)."""
     if ".zarray" in store.objects or ".zgroup" in store.objects:
         return "zarr2"
     if "attributes.json" in store.objects:
@@ -817,7 +854,9 @@ def choose_profile(store: Store) -> str:
 
 
 def directories_of(keys) -> set[str]:
-    """Every directory of the store (§1.4): the root and each proper key prefix before a `/`."""
+    """Every directory of the store (§1.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): the root and each
+    proper key prefix before a `/`."""
     out = {""}
     for k in keys:
         i = k.find("/")
@@ -894,8 +933,11 @@ def implicit_groups(nodes) -> set[str]:
 
 def classify(candidates: dict[str, str]) -> tuple[dict[str, str], set[str]]:
     """Nodes from candidates {path: kind}, kind 'array' or 'group', classified
-    from the root down (spec/virtualize/n5.md §2, spec/virtualize/zarr2.md §2): candidates inside an array are dropped.
-    Returns ({path: kind}, implicit groups)."""
+    from the root down (spec/virtualize/n5.md §2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#2-nodes>,
+    spec/virtualize/zarr2.md §2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>): candidates inside
+    an array are dropped. Returns ({path: kind}, implicit groups)."""
     nodes: dict[str, str] = {}
     arrays = PathTrie()
     for path in sorted(candidates, key=lambda p: (depth(p), p)):
@@ -908,7 +950,10 @@ def classify(candidates: dict[str, str]) -> tuple[dict[str, str], set[str]]:
 
 
 def canonical_index(s: str, limit: int) -> bool:
-    """Is `s` a decimal integer without leading zeros below `limit` (spec/virtualize/n5.md §3.1, spec/virtualize/zarr2.md §3)?"""
+    """Is `s` a decimal integer without leading zeros below `limit` (spec/virtualize/n5.md §3.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#31-chunks>,
+    spec/virtualize/zarr2.md §3
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays>)?"""
     return (s.isascii() and s.isdecimal() and (s == "0" or s[0] != "0")
             and len(s) <= 17 and int(s) < limit)
 
@@ -918,8 +963,9 @@ def grid(shape, chunks) -> list[int]:
 
 
 def find_chunks(objects: dict[str, int], arrays: dict[str, Callable[[str], bool]]) -> list[tuple[str, int]]:
-    """The chunk objects (§1.4): for each object, the array that is its
-    nearest ancestor decides with `is_chunk(rest)` whether the rest of the key
+    """The chunk objects (§1.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): for each object,
+    the array that is its nearest ancestor decides with `is_chunk(rest)` whether the rest of the key
     is one of its chunk keys. Returns [(key, size)] in key order."""
     trie = PathTrie()
     for path, test in arrays.items():
@@ -937,23 +983,30 @@ def find_chunks(objects: dict[str, int], arrays: dict[str, Callable[[str], bool]
 GROUP_IMPLICIT = {"zarr_format": 3, "node_type": "group", "attributes": {}}
 SOURCE_GROUP = "vzip_source"
 OBJECTS = "vzip_source/objects/"
-EMPTY_KEY = "vzip_source/empty.json"  # the empty objects' keys under a root array (spec/virtualize/zarr2.md §5)
+EMPTY_KEY = "vzip_source/empty.json"  # the empty objects' keys under a root array (spec/virtualize/zarr2.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>)
 # A last segment that a Zarr reader takes for a node's document, followed by any number of `~`.
 _NODE_NAME = re.compile(r"(?:zarr\.json|\.zarray|\.zgroup)~*\Z")
 
 
 def object_key(key: str) -> str:
-    """The hierarchy's key of the other object `key` (spec/virtualize/zarr2.md §5,
-    spec/virtualize/n5.md §6): `vzip_source/objects/<key>`, with `~` appended to a last
+    """The hierarchy's key of the other object `key` (spec/virtualize/zarr2.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
+    spec/virtualize/n5.md §6
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>):
+    `vzip_source/objects/<key>`, with `~` appended to a last
     segment that is `zarr.json`, `.zarray` or `.zgroup` followed by any number of `~`, so
     that no Zarr reader opens a node there, and the key maps back one to one."""
     return OBJECTS + key + ("~" if _NODE_NAME.match(key.rpartition("/")[2]) else "")
 
 
 def source_metadata(attributes: dict, metadata: dict, unversioned: list[str] | None = None) -> dict:
-    """A store node's source metadata S (spec/virtualize/zarr2.md §4, spec/virtualize/n5.md §5,
-    spec/virtualize/ome-zarr.md §8): `{"attributes": A, "metadata": M, "unversioned": U}`,
-    each member only when it is not empty."""
+    """A store node's source metadata S (spec/virtualize/zarr2.md §4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>,
+    spec/virtualize/n5.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#5-source-metadata>,
+    spec/virtualize/ome-zarr.md §8
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>):
+    `{"attributes": A, "metadata": M, "unversioned": U}`, each member only when it is not empty."""
     s = {}
     if attributes:
         s["attributes"] = attributes
@@ -970,8 +1023,9 @@ def doc_key(path: str) -> str:
 
 @dataclass
 class StoreOutput:
-    """A store profile's output (§1.4): JSON documents, and the chunk entries,
-    each referencing its whole object through its own url source."""
+    """A store profile's output (§1.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): JSON documents,
+    and the chunk entries, each referencing its whole object through its own url source."""
 
     url: str
     docs: dict[str, object] = field(default_factory=dict)
@@ -980,11 +1034,14 @@ class StoreOutput:
     # The source key of each entry whose key is not its object's (the objects under vzip_source/objects/).
     origins: dict[str, str] = field(default_factory=dict)
     # The CRC-32C of a url source's bytes, when the references are to carry
-    # checksums (spec/archive.md §5.2); set by vzip.virtualize.virtualize_store.
+    # checksums (spec/archive.md §5.2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>); set by
+    # vzip.virtualize.virtualize_store.
     checksum: Callable[[str, int, int], int] | None = None
 
     def declare(self, profile: str, omes: dict[str, dict] | None = None) -> None:
-        """Declares the profile's convention (conventions §2). Each document's
+        """Declares the profile's convention (conventions §2
+        <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>). Each document's
         `attributes` holds, until then, the attributes copied from the source;
         they move into the property `vzip_virtualized` (as its member named
         after the profile), and the node's attributes are the member `ome` that
@@ -1010,9 +1067,14 @@ class StoreOutput:
         documents the hierarchy represents, the nonempty chunk objects, the objects
         referenced under their own key, and those the convention leaves out), whole,
         at its `object_key`, lists the keys of the empty ones (empty chunk objects
-        included) and the recorded `ignored` keys (§1.4), and adds the group
-        `vzip_source` when there is one (spec/virtualize/zarr2.md §5,
-        spec/virtualize/n5.md §6). Returns how many objects are kept. A hierarchy with a
+        included) and the recorded `ignored` keys (§1.4
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), and adds the
+        group
+        `vzip_source` when there is one (spec/virtualize/zarr2.md §5
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
+        spec/virtualize/n5.md §6
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>). Returns
+        how many objects are kept. A hierarchy with a
         node at `vzip_source` or below it then rejects the input (`nodes`: every node path)."""
         empty = sorted(k for k, n in objects.items() if n == 0 and k not in used)
         kept = [(k, n) for k, n in objects.items() if n > 0 and k not in used]
@@ -1047,7 +1109,8 @@ class StoreOutput:
 
         with open(out_path, "wb") as fh:
             w = VZipWriter(fh, page_size=1 << 16, checksum=self.checksum)
-            # each source pins its object's listed size (§1.4)
+            # each source pins its object's listed size (§1.4
+            # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>)
             w.add_url_refs(((k, object_url(self.url, self.origins.get(k, k)), n) for k, n in self.chunks),
                            pin_size=True)
             for key in sorted(self.docs):

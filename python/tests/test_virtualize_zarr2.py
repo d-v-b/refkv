@@ -104,10 +104,14 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     # A missing chunk and an empty one have no entry.
     _, out = virtualize(str(FIXTURES / "zarr2_fill_values"), url=URL.format("f"))
     assert [k for k, _ in out.chunks if k.startswith(("nan/", "inf/"))] == ["inf/1.0", "nan/1.0"]
-    # The empty one's key is listed with the empty objects (§3.2, §5).
+    # The empty one's key is listed with the empty objects (§3.2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#32-chunks>, §5
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
     assert out.docs["vzip_source/zarr.json"]["attributes"] == declare({}, "zarr2", None, {"empty": ["nan/0.0"]})
     # Stray objects and nodes inside arrays are kept whole under vzip_source/objects/
-    # (spec/virtualize/zarr2.md §5); .zmetadata is not.
+    # (spec/virtualize/zarr2.md §5
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>);
+    # .zmetadata is not.
     _, out = virtualize(str(FIXTURES / "zarr2_hierarchy"), url=URL.format("h"))
     assert [k for k, _ in out.chunks] == [
         "a/b/zero_d/0", "a/c/0/0", "a/c/1/0", "g/h/0", "sp ace/é/x y/0.0", "vzip_source/objects/.zmetadata", "vzip_source/objects/a/c/0.0",
@@ -119,9 +123,11 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     assert out.docs["a/c/zarr.json"]["attributes"] == declare({}, "zarr2", None,
                                                               {"attributes": {"_ARRAY_DIMENSIONS": ["y", "x"]}})
     assert not {"a/c/inside/zarr.json", "orphan/zarr.json", "ghost/zarr.json", "notes/zarr.json"} & set(out.docs)
-    # Attributes are copied unchanged under the convention (spec/virtualize.md conventions §2), OME-NGFF 0.4
-    # ones included: the root does not declare OME-NGFF 0.4 (§1.4), so the store is not read
-    # by the OME-Zarr profile.
+    # Attributes are copied unchanged under the convention (spec/virtualize.md conventions §2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>), OME-NGFF 0.4
+    # ones included: the root does not declare OME-NGFF 0.4 (§1.4
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), so the store is
+    # not read by the OME-Zarr profile.
     _, out = virtualize(str(FIXTURES / "zarr2_ome_attrs"), url=URL.format("o"))
     for path in ("", "0", "0/labels", "0/labels/cells", "v03", "has_ome", "mixed", "dup_axes"):
         zattrs = json.loads((FIXTURES / "zarr2_ome_attrs" / path / ".zattrs").read_text())
@@ -134,7 +140,9 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
         zattrs = json.loads((FIXTURES / "zarr2_conventions" / path / ".zattrs").read_text())
         assert out.docs[key(path)]["attributes"] == declare({}, "zarr2", URL.format("c") if path == "" else None,
                                                             {"attributes": zattrs}), path
-    # Source metadata (spec/virtualize/zarr2.md §4): the attributes, with integers beyond 2^53
+    # Source metadata (spec/virtualize/zarr2.md §4
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>): the
+    # attributes, with integers beyond 2^53
     # kept exact, and the members of .zarray and .zgroup the Zarr v3 metadata does not reproduce.
     url = URL.format("zarr2_source_metadata")
     _, out = virtualize(str(FIXTURES / "zarr2_source_metadata"), url=url)
@@ -146,7 +154,8 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
         "attributes": {"_ARRAY_DIMENSIONS": ["x"]}, "metadata": {"custom": {"x": 1}, "compressor": {"nthreads": 2}}})
     for path in ("neg_zero_f4", "zlib_9", "zstd_checksum"):
         assert out.docs[key(path)]["attributes"] == {}, path
-    # A float fill written as an integer beyond 2^53 - 1 is kept as written (§4).
+    # A float fill written as an integer beyond 2^53 - 1 is kept as written (§4
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>).
     assert out.docs[key("big_fill_f8")]["attributes"] == declare(
         {}, "zarr2", None, {"metadata": {"fill_value": 18446744073709551616}})
     # The archive holds the integers' every digit, and the hex fill.
@@ -235,7 +244,10 @@ def test_rejects(name, message):
 
 def test_root_array_keeps_other_objects_without_a_group(tmp_path):
     """An array has no children: under a root array, other objects are plain keys, with no
-    vzip_source group (spec/virtualize/zarr2.md §5; spec/virtualize/n5.md §6)."""
+    vzip_source group (spec/virtualize/zarr2.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>;
+    spec/virtualize/n5.md §6
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>)."""
     for name in ("zarr2/zarr2_root_array_objects", "n5/n5_root_dataset_objects"):
         _, out = virtualize(str(FIXTURES.parent / name), url=f"https://data.test/{name}/")
         assert out.docs["zarr.json"]["node_type"] == "array", name
@@ -251,8 +263,10 @@ def test_root_array_keeps_other_objects_without_a_group(tmp_path):
     out.write(str(archive))
     with zipfile.ZipFile(archive) as z:
         assert z.read("vzip_source/empty.json") == '{"empty":["empty","\u00e9mpty"]}'.encode()
-    # An empty chunk object of a root array is listed there too (spec/virtualize/zarr2.md §3.2,
-    # spec/virtualize/n5.md §3.1).
+    # An empty chunk object of a root array is listed there too (spec/virtualize/zarr2.md §3.2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#32-chunks>,
+    # spec/virtualize/n5.md §3.1
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#31-chunks>).
     for name in ("zarr2/zarr2_root_array_empty_chunk", "n5/n5_root_dataset_empty_block"):
         _, out = virtualize(str(FIXTURES.parent / name), url=f"https://data.test/{name}/")
         assert [k for k, _ in out.chunks] == ["0"], name

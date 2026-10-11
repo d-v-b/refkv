@@ -68,7 +68,9 @@ def _basic(root: Path) -> dict:
             {"url": "file:data/blob.bin"},
             {"url": "data/sub%2Fmy%20file.bin"},
             {"url": "FILE://LocalHost" + (root / "data" / "blob.bin").resolve().as_uri()[7:]},
-            # 17-23: pins (spec §6.1); every data file's mtime is MTIME
+            # 17-23: pins (spec §6.1
+            # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#61-pins>); every data file's
+            # mtime is MTIME
             {"url": "data/blob.bin", "size": 1024},
             {"url": "data/blob.bin", "size": 1023},
             {"url": "data/blob.bin", "modified_not_after": MTIME},
@@ -136,7 +138,8 @@ def _basic(root: Path) -> dict:
 
 
 def _http(server_base: str) -> dict:
-    """A description whose sources are served by conformance/archive/http_server.py (spec §6.2)."""
+    """A description whose sources are served by conformance/archive/http_server.py (spec §6.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-reading-over-http>)."""
     from http_server import etag_for
 
     B = server_base + "vectors/"
@@ -257,7 +260,8 @@ def descriptions(root: Path, http_base: str | None = None) -> dict[str, dict]:
                       {"key": "__vz__/pinned_hidden", "bytes": H(b"ph"), "pinned": True}]}
     empty = {"page_size": None, "mirror": True, "sources": [], "entries": []}
     empty_paged = {**empty, "page_size": 100}
-    # a single literal range of 65515 bytes encodes to exactly 65519 bytes (spec §4.3)
+    # a single literal range of 65515 bytes encodes to exactly 65519 bytes (spec §4.3
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#43-reference-entries>)
     max_payload = {"page_size": None, "mirror": True, "sources": [], "entries": [
         {"key": "big", "ranges": [{"data": "ab" * 65515}]}]}
     return {
@@ -402,7 +406,10 @@ def crafted(root: Path) -> dict[str, dict]:
 
     fine = [(get("fine"), [ok_value(b"ok")])]
 
-    # -- entry errors (§4.1, §4.3): only that key fails ---------------------
+    # -- entry errors (§4.1
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#41-classification>, §4.3
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#43-reference-entries>): only that key
+    # fails ---------------------
     def both_ids(path):
         f, w = _writer(path)
         p = Range(offset=1, length=2).encode()
@@ -455,7 +462,8 @@ def crafted(root: Path) -> dict[str, dict]:
     bad_method_paged.expect = bad_method.expect
     case("unsupported_method_paged")(bad_method_paged)
 
-    # -- payload errors (§5): classify says reference, every get fails ------
+    # -- payload errors (§5 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-messages>):
+    # classify says reference, every get fails ------
     def truncated(path):
         f, w = _writer(path)
         _raw_ref(w, "x", 0x7A76, b"\x18\xcf")  # varint cut short
@@ -517,7 +525,9 @@ def crafted(root: Path) -> dict[str, dict]:
     length_overflow.expect = payload_error("x")
     case("offset_plus_length_overflow")(length_overflow)
 
-    # -- accepted encodings (§5.1) -------------------------------------------
+    # -- accepted encodings (§5.1
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-encoding>)
+    # -------------------------------------------
     def unknown_fields(path):
         f, w = _writer(path)
         # Range{offset=10,length=3} plus unknown varint (9), LEN (10), I64 (11), I32 (12)
@@ -556,7 +566,9 @@ def crafted(root: Path) -> dict[str, dict]:
                          (classify("y"), [REF])]
     case("concat_with_one_or_zero_parts")(concat_one)
 
-    # -- reference bodies (§4.3): never checked, raw returns them -------------
+    # -- reference bodies (§4.3
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#43-reference-entries>): never
+    # checked, raw returns them -------------
     def empty_body(path):
         f, w = _writer(path)
         p = Range(offset=7, length=1).encode()
@@ -565,7 +577,10 @@ def crafted(root: Path) -> dict[str, dict]:
     empty_body.expect = [(get("x"), [ok_value(BLOB[7:8])]), (raw("x"), [ok_value(b"")])]
     case("reference_with_empty_body")(empty_body)
 
-    # -- resolution errors (§6, §8.3) ----------------------------------------
+    # -- resolution errors (§6
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>, §8.3
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#83-resolving-a-reference>)
+    # ----------------------------------------
     def key_to_ref(path):
         f, w = _writer(path, sources=[Source(url="data/blob.bin"), Source(key="target")])
         w._skip_checks = True
@@ -786,8 +801,10 @@ def crafted(root: Path) -> dict[str, dict]:
 
     # -- revision 7 ----------------------------------------------------------
     def oob_tail(path):
-        # a data source range past the end of its value: writers must reject it (§9.1),
-        # and readers fail only the windows that need the missing bytes (§8.3)
+        # a data source range past the end of its value: writers must reject it (§9.1
+        # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#91-requirements>),
+        # and readers fail only the windows that need the missing bytes (§8.3
+        # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#83-resolving-a-reference>)
         f, w = _writer(path, sources=[Source(data=b"SHARED")])
         _raw_ref(w, "x", 0x7A77, Concat((Range(source=0, offset=4, length=5),
                                          Range(data=b"!"))).encode())
@@ -852,7 +869,8 @@ def crafted(root: Path) -> dict[str, dict]:
     # -- revision 8 ----------------------------------------------------------
     def long_zip64_block(path):
         # a ZIP64 block of 16 bytes on a record whose offset is all ones: the offset is
-        # the first 8 bytes, the rest is ignored (§3.2)
+        # the first 8 bytes, the rest is ignored (§3.2
+        # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#32-zip64>)
         f, w = _writer(path)
         w.add_bytes("z", b"hello")
         w.close(); f.close()
@@ -890,7 +908,8 @@ def crafted(root: Path) -> dict[str, dict]:
         w.close(); f.close()
     case("invalid_earlier_occurrence_in_source_table", open="fail")(earlier_invalid_source)
 
-    # -- archive errors (§8.4): open fails ------------------------------------
+    # -- archive errors (§8.4 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#84-errors>):
+    # open fails ------------------------------------
     def pin_on_key(path):
         f, w = _writer(path)
         w._source_table_override = b"\x0a\x0f\x0a\x0ddata/blob.bin" + b"\x0a\x05\x12\x01a\x20\x01"
@@ -1044,7 +1063,9 @@ def _rewrite_index(path: Path, mutate) -> None:
     comp = _z.compressobj(9, _z.DEFLATED, -15)
     new = comp.compress(idx.SerializeToString()) + comp.flush()
     # append the new body at the end of the file and point the comment at it; readers
-    # use the comment's offsets (spec §3.4), and a ZIP tool still sees the old entry
+    # use the comment's offsets (spec §3.4
+    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#34-end-of-central-directory-record-and-archive-comment>),
+    # and a ZIP tool still sees the old entry
     eocd = bytes(b[-60:])
     body_off = len(b) - 60
     out = b[:-60] + new + eocd

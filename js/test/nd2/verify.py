@@ -37,7 +37,9 @@ from http_server import Server  # noqa: E402
 from vzip.policy import Policy  # noqa: E402
 from vzip.store import VZipStore  # noqa: E402
 
-# The sources are served on 127.0.0.1, which spec §8.7 rule 3 refuses by default.
+# The sources are served on 127.0.0.1, which spec §8.7
+# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3 refuses by
+# default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import is_mirror, mirror_problems  # noqa: E402
@@ -71,7 +73,8 @@ register_codec("zlib", ZlibCodec)
 
 
 def lv_norm(v):
-    """The nd2 package's decoding of an LV value, as spec/virtualize/nd2.md §5 writes it."""
+    """The nd2 package's decoding of an LV value, as spec/virtualize/nd2.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#5-source-metadata> writes it."""
     if isinstance(v, dict):
         if v and all(re.fullmatch(r"i[0-9]{10}", k) for k in v):
             return [lv_norm(x) for x in v.values()]
@@ -89,7 +92,9 @@ TAGS = ("utf16", "int", "float")
 
 
 def ours_norm(v):
-    """Our JSON (spec/virtualize/nd2.md §5.1) as the nd2 package reads it: pairs
+    """Our JSON (spec/virtualize/nd2.md §5.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>) as the nd2
+    package reads it: pairs
     as an object (first position, last value), or as a list when their names are empty;
     an int tag as its integer and a float tag as lv_norm writes the value (-0 as -0.0)."""
     if isinstance(v, dict) and len(v) == 1 and next(iter(v)) in ("int", "float"):
@@ -110,7 +115,8 @@ def ours_norm(v):
 
 
 def text_bytes(t) -> bytes:
-    """A text value's bytes (spec/conventions.md §6)."""
+    """A text value's bytes (spec/conventions.md §6
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>)."""
     return t["latin1"].encode("latin-1") if isinstance(t, dict) else t.encode("utf-8")
 
 
@@ -126,7 +132,8 @@ def node_path(name: str) -> str:
 
 
 def family_member(node, i: int) -> bytes | None:
-    """Member `i` of a family of byte values (spec/conventions.md §7)."""
+    """Member `i` of a family of byte values (spec/conventions.md §7
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>)."""
     if hasattr(node, "dtype"):
         return bytes(node[i]) if i < node.shape[0] else None
     offsets = node["offsets"][...]
@@ -137,7 +144,9 @@ def family_member(node, i: int) -> bytes | None:
 
 def frame_problems(root, loops: list[dict], frames: dict[int, bytes], attrs: dict) -> list[str]:
     """Each placed frame's pixels in the image, and its timestamp in ImageDataSeq,
-    against its chunk's data (spec/virtualize/nd2.md §4.3, §5.3)."""
+    against its chunk's data (spec/virtualize/nd2.md §4.3
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#43-output>, §5.3
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#53-elements>)."""
     h, w, comp = attrs["uiHeight"], attrs["uiWidth"], attrs["uiComp"]
     row, width_bytes = w * comp * attrs["uiBpcInMemory"] // 8, attrs["uiWidthBytes"]
     times = root["vzip_source/ImageDataSeq"] if frames else None
@@ -166,7 +175,8 @@ def frame_problems(root, loops: list[dict], frames: dict[int, bytes], attrs: dic
 
 
 def mirror_chunk_problems(path: Path, root, out: Path) -> list[str]:
-    """An archive of the IR: the root's decoded chunks (spec/virtualize/nd2.md §5.1)
+    """An archive of the IR: the root's decoded chunks (spec/virtualize/nd2.md §5.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>)
     against the nd2 package's decoder, and the source rebuilt from the mirror byte for
     byte (the frames' pixels are checked against the expected arrays)."""
     import nd2 as nd2lib
@@ -188,8 +198,9 @@ def mirror_chunk_problems(path: Path, root, out: Path) -> list[str]:
 
 
 def chunk_problems(path: Path, root) -> list[str]:
-    """Reconstruction (spec/virtualize/nd2.md §5): every chunk of the map but
-    the placed frames' pixels can be recovered from the hierarchy, against the nd2
+    """Reconstruction (spec/virtualize/nd2.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#5-source-metadata>): every chunk
+    of the map but the placed frames' pixels can be recovered from the hierarchy, against the nd2
     package's chunk map, loader and decoder."""
     import nd2 as nd2lib
 

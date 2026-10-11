@@ -31,20 +31,26 @@ export const Tag = {
   YCbCrSubsampling: 530,
 } as const;
 
-/** The tags of the convention's table (spec/virtualize/tiff.md §2). */
+/**
+ * The tags of the convention's table (spec/virtualize/tiff.md §2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#2-the-source>).
+ */
 export const WANTED = new Set<number>(Object.values(Tag));
 /** The deepest nesting of SubIFDs (and of pointer targets): main-chain IFDs are at depth 0. */
 export const MAX_DEPTH = 4;
 
-// Tags with one used value (spec/virtualize.md §3.1); the others are arrays.
+// Tags with one used value (spec/virtualize.md §3.1
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#31-reading>); the others are
+// arrays.
 const SCALARS = new Set<number>([256, 257, 259, 262, 266, 277, 282, 283, 284, 296, 317, 322, 323]);
 // XResolution and YResolution: RATIONAL, kept as [numerator, denominator].
 const RATIONAL_TAGS = new Set<number>([282, 283]);
 // Field types allowed for every tag but ImageDescription: unsigned integers.
 const INTEGER_TYPES = new Set([1, 3, 4, 13, 16, 18]);
 const TILES = new Set<number>([Tag.TileOffsets, Tag.TileByteCounts]);
-// The tags a used IFD reads (spec/virtualize.md §3.1): all of the table's but
-// ImageDescription (IFD 0's only) and SubIFDs (read where they are followed).
+// The tags a used IFD reads (spec/virtualize.md §3.1
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#31-reading>): all of the table's
+// but ImageDescription (IFD 0's only) and SubIFDs (read where they are followed).
 const USED = new Set([...WANTED].filter((t) => t !== Tag.ImageDescription && t !== Tag.SubIFDs));
 
 // Byte size of each field type (TIFF 6.0, BigTIFF).
@@ -80,7 +86,10 @@ export interface Tiff {
   bigTiff: boolean;
   /** The main IFD chain, each with its SubIFDs. */
   ifds: Ifd[];
-  /** Reads the values of an IFD that the layout uses (spec/virtualize.md §3.1). */
+  /**
+   * Reads the values of an IFD that the layout uses (spec/virtualize.md §3.1
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#31-reading>).
+   */
   load: (ifd: Ifd, options?: { tiles?: boolean; description?: boolean }) => Promise<void>;
 }
 
@@ -249,7 +258,8 @@ export function nums(ifd: Ifd, tag: number): number[] {
 }
 
 /** The bytes an IFD of `count` entries occupies: its entry count, entries and
- * next-IFD offset (spec/virtualize/tiff.md §5). */
+ * next-IFD offset (spec/virtualize/tiff.md §5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>). */
 export function extent(count: number, bigTiff: boolean): number {
   return bigTiff ? 16 + 20 * count : 6 + 12 * count;
 }

@@ -1,5 +1,6 @@
 """Writes corrupted copies of the synthetic fixtures, to compare how
-implementations treat malformed input (spec/virtualize.md §1.2: rejected, never
+implementations treat malformed input (spec/virtualize.md §1.2
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>: rejected, never
 crashed, and the same decision everywhere).
 
 Each fixture file under 256 KiB gets `count` mutants: a byte set to a random
