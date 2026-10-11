@@ -1,4 +1,5 @@
-"""Error classes of spec §8.4. Each is a ValueError so existing callers keep working."""
+"""Error classes of spec §8.4 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#84-errors>.
+Each is a ValueError so existing callers keep working."""
 
 
 class VzipError(ValueError):

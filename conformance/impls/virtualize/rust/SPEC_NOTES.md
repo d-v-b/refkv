@@ -7,11 +7,11 @@ which two careful implementers would produce different output for a real
 TIFF, OME-TIFF or ND2 file. The issues below all involve degenerate or
 adversarial inputs. They are listed from most to least likely to matter.
 
-## 1. §4.3: an empty validity list is an object, so it rejects
+## 1. [§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#43-metadata): an empty validity list is an object, so it rejects
 
 > `pItemValid` (a list of flags, default absent), … checked on every node
 >
-> (§4.2) A level with at least one record, all with empty names, is a **list**
+> ([§4.2](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#42-lite-variant)) A level with at least one record, all with empty names, is a **list**
 > … Any other level (including an empty one) is an **object**
 
 Taken together, a `pItemValid` or `pPeriodValid` stored as an *empty LV level*
@@ -24,7 +24,7 @@ list", so they are not affected.
 *Decision:* followed the text (reject).
 *Likelihood:* low. The real files seen store validity as byte arrays.
 
-## 2. §4.5/§4.6: output size is unbounded when no frame is present
+## 2. [§4.5](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#45-channels)/[§4.6](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#46-output): output size is unbounded when no frame is present
 
 `uiComp` is bounded only by `uiWidth × uiComp × uiBpcInMemory / 8 ≤
 uiWidthBytes ≤ 2^53 − 1`. When no frame is present, nothing ties it to the
@@ -37,7 +37,7 @@ large"). It does not reject, because the specification accepts the file.
 one present frame.
 *Likelihood:* real files are never affected. Fuzzed or corrupted inputs are.
 
-## 3. §4.2: the nesting limit at exactly depth 100
+## 3. [§4.2](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#42-lite-variant): the nesting limit at exactly depth 100
 
 > Levels MUST NOT be nested more than 100 deep: a chunk's top-level records are
 > at depth 0, and the records of a level at depth `d` are at depth `d + 1`.
@@ -51,7 +51,7 @@ depth 100, accepted) and `nd2_reject_nesting_101`.
 *Suggestion:* say "no record may be at depth greater than 100".
 *Likelihood:* negligible.
 
-## 4. §3.1: are ignored duplicate tags still checked?
+## 4. [§3.1](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#31-reading): are ignored duplicate tags still checked?
 
 > **Tags** not in the table below are ignored: neither their field types nor
 > their values are read or checked. Of duplicate tags in an IFD, the first is
@@ -67,7 +67,7 @@ two well-formed entries and does not tell the readings apart.
 *Suggestion:* say explicitly that later duplicates are not checked.
 *Likelihood:* low. Duplicate tags are rare, and malformed duplicates rarer.
 
-## 5. §3.1: is a SubIFD's next-IFD offset field read?
+## 5. [§3.1](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#31-reading): is a SubIFD's next-IFD offset field read?
 
 > Only the listed offsets are read: a SubIFD's own next-IFD offset and SubIFDs
 > are ignored.
@@ -79,18 +79,18 @@ the file.
 main chain it is read and must lie within the file.
 *Likelihood:* negligible.
 
-## 6. §4.1/§1.2: the data length `d` of chunk headers that are read
+## 6. [§4.1](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#41-chunks)/[§1.2](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#12-input): the data length `d` of chunk headers that are read
 
-§1.2 rejects "an offset or length above 2^53 − 1". §4.1 lists the per-chunk
+[§1.2](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#12-input) rejects "an offset or length above 2^53 − 1". [§4.1](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#41-chunks) lists the per-chunk
 checks as "(≤ 2^53 − 1, chunk magic)" for the offset only. For the
 lowest-numbered and highest-numbered uncompressed frames, `d` is only compared
 with `8 + uiHeight × uiWidthBytes`. One implementer may also reject `d > 2^53
 − 1` there; another may not.
 *Decision:* reject any header that is read and has `d > 2^53 − 1`, following
-§1.2.
+[§1.2](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#12-input).
 *Likelihood:* negligible.
 
-## 7. §3.2: UUID text, when references are decoded relative to removing skipped sections
+## 7. [§3.2](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#32-ome-xml): UUID text, when references are decoded relative to removing skipped sections
 
 > its **text**: … the characters of `X` from the end of the `UUID` tag to the
 > start of the next tag, with skipped sections removed, references decoded as
@@ -105,7 +105,7 @@ explicit.
 lists them.
 *Likelihood:* negligible.
 
-## 8. §3.1: integer magnitude check on ImageDescription
+## 8. [§3.1](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#31-reading): integer magnitude check on ImageDescription
 
 > each of its values of an integer type MUST be at most 2^53 − 1 in magnitude
 
@@ -118,14 +118,14 @@ tag as opaque bytes would skip that check.
 
 ## Not issues, recorded for comparison
 
-- §4.4 row blocks: a 1-row block is a single range, so its payload is a
+- [§4.4](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#44-frames) row blocks: a 1-row block is a single range, so its payload is a
   `Range` message, not a `Concat`. h is found by testing divisors of
   `uiHeight` from the largest down, against the last block of the present
   frame with the highest start. Payload size never decreases as offsets grow,
   so that block is the largest.
-- §4.3 `pPeriodValid` is read, as a list of flags, whenever an eType-8 node
+- [§4.3](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#43-metadata) `pPeriodValid` is read, as a list of flags, whenever an eType-8 node
   has `uLoopPars`, even if `pPeriod` is absent. It is not read on other
   nodes.
-- §3.2 `PhysicalSize*`: the grammar is checked first, then the value is
+- [§3.2](../../../../spec/history/virtualize/VIRTUALIZE.r4.md#32-ome-xml) `PhysicalSize*`: the grammar is checked first, then the value is
   converted with correct rounding. Values that overflow to infinity, or round
   to 0, count as absent.

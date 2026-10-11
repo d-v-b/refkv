@@ -49,7 +49,10 @@ const CASES: [string, object, { [p: string]: [string[], string[] | null] }, { [p
     { "1/0": ["y", "x"] }],
 ];
 
-// The OME members without a version, which `ome` gives back as they are (spec/virtualize/ome-zarr.md §5, §8).
+// The OME members without a version, which `ome` gives back as they are
+// (spec/virtualize/ome-zarr.md §5
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>, §8
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>).
 const UNVERSIONED: { [storePath: string]: string[] } = {
   "ome_zarr_custom_axes nested": ["multiscales"], "ome_zarr_bioformats2raw_plate ": ["plate"],
   "ome_zarr_bioformats2raw_plate A/1": ["well"], "ome_zarr_source_metadata 0": ["omero"],
@@ -63,7 +66,8 @@ test("virtualizes the synthetic OME-Zarr 0.4 stores as 0.5", async () => {
     for (const [path, [own, ome]] of Object.entries(groups)) {
       const attrs = doc(v, key(path)).attributes;
       // The attributes A that `ome` does not give back are copied under the convention, which the
-      // root and any node with source metadata declare (conventions §2).
+      // root and any node with source metadata declare (conventions §2
+      // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>).
       const s = attrs.vzip_virtualized?.["ome-zarr"] ?? {};
       assert.deepEqual(Object.keys(s.attributes ?? {}).sort(), [...own].sort(), `${name} ${path}`);
       assert.deepEqual(s.unversioned ?? [], UNVERSIONED[`${name} ${path}`] ?? [], `${name} ${path}`);
@@ -84,10 +88,13 @@ test("virtualizes the synthetic OME-Zarr 0.4 stores as 0.5", async () => {
   }
   const i = await virtualize("ome_zarr_image_2d");
   assert.deepEqual(i.entries.filter((e) => "ranges" in e).map((e) => e.key), ["0/0.0", "1/0.0", "vzip_source/objects/notes.txt"]);
-  // The empty chunk's key is listed with the empty objects (the Zarr v2 convention §5).
+  // The empty chunk's key is listed with the empty objects (the Zarr v2 convention §5
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
   assert.deepEqual(doc(i, "vzip_source/zarr.json").attributes.vzip_virtualized, { "ome-zarr": { empty: ["0/1.0"] } });
   const l = await virtualize("ome_zarr_labels");
-  // Every OME member is given back by the inverse of §5: no source metadata.
+  // Every OME member is given back by the inverse of §5
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>: no
+  // source metadata.
   assert.deepEqual(doc(l, "labels/zarr.json").attributes, { ome: { version: "0.5", labels: ["cells"] } });
   assert.deepEqual(doc(l, "labels/cells/zarr.json").attributes.ome["image-label"].source, { image: "../../" });
   const x = await virtualize("ome_zarr_labels_extra_level");
@@ -103,7 +110,9 @@ test("virtualizes the synthetic OME-Zarr 0.4 stores as 0.5", async () => {
   assert.ok(new TextDecoder().decode(zero.bytes).includes('"note":{"big":18446744073709551615}'));
   assert.deepEqual(s.entries.filter((e) => e.key.startsWith("vzip_source/")).map((e) => e.key).sort(),
     ["vzip_source/objects/OME/METADATA.ome.xml", "vzip_source/objects/README.md", "vzip_source/zarr.json"]);
-  // An empty OME-XML object is an empty object: its key is vzip_source's (spec/virtualize/ome-zarr.md §7).
+  // An empty OME-XML object is an empty object: its key is vzip_source's
+  // (spec/virtualize/ome-zarr.md §7
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#7-chunks-and-ome-xml>).
   const e = await virtualize("ome_zarr_empty_xml");
   assert.equal((e.summary as { omeXml: number }).omeXml, 0);
   assert.deepEqual(doc(e, "vzip_source/zarr.json").attributes.vzip_virtualized, { "ome-zarr": { empty: ["OME/METADATA.ome.xml"] } });

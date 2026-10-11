@@ -82,8 +82,9 @@ def read_at_open(key: str, vds: xr.Dataset) -> bool:
     documents, and the chunks of indexed coordinates such as `time`.
 
     Writers add these with `late=True`, so that they sit in the part of the
-    archive a reader fetches when it opens it (spec §9.2) and cost no request.
-    """
+    archive a reader fetches when it opens it (spec §9.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#92-recommended-layout-informative>) and
+    cost no request. """
     return key.endswith("zarr.json") or key.split("/", 1)[0] in vds.xindexes
 
 

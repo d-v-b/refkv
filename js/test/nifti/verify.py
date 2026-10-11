@@ -10,8 +10,9 @@ recorded as nibabel reads it, and every header field as nibabel reads the
 header. The bytes from the header to the voxels are parsed here, independently
 of nibabel (which fails on some extension chains) and of the virtualizers: the
 extender, each extension, and the bytes the chain does not hold must be
-recorded (spec/virtualize/nifti.md §5), and the extensions also match
-nibabel's where nibabel reads them. `nifti_reject_*` files must be rejected.
+recorded (spec/virtualize/nifti.md §5
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>), and the
+extensions also match nibabel's where nibabel reads them. `nifti_reject_*` files must be rejected.
 
 Usage: uv run python js/test/nifti/verify.py [<dir of .nii files>]
 """
@@ -39,7 +40,9 @@ from http_server import Server  # noqa: E402
 from vzip.policy import Policy  # noqa: E402
 from vzip.store import VZipStore  # noqa: E402
 
-# The sources are served on 127.0.0.1, which spec §8.7 rule 3 refuses by default.
+# The sources are served on 127.0.0.1, which spec §8.7
+# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3 refuses by
+# default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
 
 
@@ -100,7 +103,8 @@ def load_copy(nii: Path, tmp: str):
 
 def region(data: bytes, raw) -> tuple[bytes, list[tuple[int, bytes]], int, int]:
     """The extender, the extension chain (ecode, data), where the chain ends, and
-    the voxel offset, read from the file (spec/virtualize/nifti.md §5)."""
+    the voxel offset, read from the file (spec/virtualize/nifti.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>)."""
     length = raw.structarr.itemsize
     order = raw.endianness
     v = int(raw.structarr["vox_offset"])
@@ -119,7 +123,10 @@ CANONICAL_NAN = {4: 0x7FC00000, 8: 0x7FF8000000000000}
 
 
 def as_json(v):
-    """A header value as spec/conventions.md §6 and spec/virtualize/nifti.md §5 write
+    """A header value as spec/conventions.md §6
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json> and
+    spec/virtualize/nifti.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata> write
     it, from nibabel's numpy value: a negative zero, or a NaN other than the canonical
     one, as {"bits": hex}."""
     if isinstance(v, np.ndarray) and v.dtype.kind != "S":
@@ -261,7 +268,7 @@ def main(fixtures: Path) -> int:
                 problems.append(f"dtype {got.dtype} != {want.dtype}")
             if got.shape != want.shape or not np.array_equal(got, want, equal_nan=got.dtype.kind == "f"):
                 problems.append(f"voxels differ ({got.shape} vs {want.shape})")
-            meta = root.attrs["vzip_virtualized"]["nifti"]  # spec/virtualize/nifti.md §5
+            meta = root.attrs["vzip_virtualized"]["nifti"]  # spec/virtualize/nifti.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>
             slope, inter = img.dataobj.slope, img.dataobj.inter  # the header's are reset on load
             recorded = meta.get("scaling")
             # nibabel keeps a color type's scl_slope but cannot apply it; NIfTI does not scale color.

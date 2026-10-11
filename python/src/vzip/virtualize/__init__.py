@@ -7,14 +7,17 @@ Every other profile is a subpackage: ndpi, dicom, nifti, ims (file inputs), n5,
 zarr2, ome_zarr (store inputs, spec/virtualize/n5.md, spec/virtualize/zarr2.md and
 spec/virtualize/ome-zarr.md), and safe (Sentinel-2 SAFE products, spec/virtualize/safe.md: a
 store input, or a zip file); common holds what they share, and store the store
-machinery (§1.4–§1.6). (`tiff/` keeps the IFD reader and tag translator NDPI uses.)
+machinery (§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>–§1.6
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>). (`tiff/` keeps the
+IFD reader and tag translator NDPI uses.)
 
     python -m vzip.virtualize <url or path> <out.vzip> [--url <source url>] [--checksums]
         [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB]
 
 Exits with status 3 if the input is rejected.
 
-A file at an http(s) URL is opened under the reader policy (spec/archive.md §8.7): a host
+A file at an http(s) URL is opened under the reader policy (spec/archive.md §8.7
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>): a host
 that is, or resolves to, a loopback, private, link-local or special address is
 refused unless the policy has `allow_private_hosts` (`--allow-private-hosts`), and
 a request that would go through a proxy unless `allow_unchecked_proxy`. TIFF, ND2
@@ -22,10 +25,12 @@ and CZI sources are read entirely under it; the other profiles' readers are
 today's, after the policy has admitted the source's first request.
 
 Every url source pins its size, and the input file's source its ETag when
-every response for it gave the same strong one (spec/virtualize.md §1.2, §1.4).
+every response for it gave the same strong one (spec/virtualize.md §1.2
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>, §1.4
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>).
 `--checksums` also records the CRC-32C of every range of a url source
-(spec/archive.md §5.2), which reads all the bytes the archive references: off by
-default.
+(spec/archive.md §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>), which
+reads all the bytes the archive references: off by default.
 
 The archive's source is the input URL (or, with --url, the given one, which is
 how a local file is described by the URL it will be served from). A URL ending
@@ -45,9 +50,11 @@ from vzip.virtualize.safe import SafeOutput, is_zip, virtualize_safe_store, virt
 from vzip.virtualize.store import WORKERS, StoreOutput, choose_profile, object_url, open_store
 from vzip.virtualize.zarr2 import virtualize_zarr2
 
-# The HDF5 signature, which starts Imaris IMS files (§1.2).
+# The HDF5 signature, which starts Imaris IMS files (§1.2
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>).
 HDF5 = b"\x89HDF\r\n\x1a\n"
-# The first bytes of a TIFF or BigTIFF file, in either byte order (§1.2).
+# The first bytes of a TIFF or BigTIFF file, in either byte order (§1.2
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>).
 TIFF_MAGIC = (b"II*\0", b"MM\0*", b"II+\0", b"MM\0+")
 ND2_MAGIC = bytes.fromhex("DACEBE0A")
 CZI_MAGIC = b"ZISRAWFILE" + bytes(6)
@@ -58,9 +65,11 @@ __all__ = ["Output", "Rejected", "StoreOutput", "virtualize", "virtualize_store"
 
 def virtualize_store(location: str, url: str | None = None, *, max_objects: int | None = None,
                      checksums: bool = False, workers: int = WORKERS) -> tuple[str, StoreOutput | SafeOutput]:
-    """(format, output) for the store at `location` (§1.4), its documents read
-    by up to `workers` requests at a time; with `checksums`, the output's ranges
-    carry the CRC-32C of their bytes (spec/archive.md §5.2)."""
+    """(format, output) for the store at `location` (§1.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), its documents
+    read by up to `workers` requests at a time; with `checksums`, the output's ranges
+    carry the CRC-32C of their bytes (spec/archive.md §5.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>)."""
     store = open_store(location, url, max_objects=max_objects, workers=workers)
     try:
         fmt = choose_profile(store)
@@ -95,9 +104,11 @@ def virtualize(location: str, url: str | None = None, *, checksums: bool = False
     the store at `location` (a URL ending in `/`, or a directory).
 
     Source 0 pins the file's size, and its ETag when every response gave the
-    same strong one and the output names the URL that was read (§1.2). With
+    same strong one and the output names the URL that was read (§1.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>). With
     `checksums`, the output's ranges of source 0 carry the CRC-32C of their
-    bytes (spec/archive.md §5.2), which reads them. `policy` is the reader policy a file
+    bytes (spec/archive.md §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-range>),
+    which reads them. `policy` is the reader policy a file
     at an http(s) URL is read under (default: `Policy()`, private hosts refused).
     For TIFF, ND2 and CZI, `connections` is how many requests run at a time to a
     remote source (default 8), and `byte_cost` the seconds of wall time the read

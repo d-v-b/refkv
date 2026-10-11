@@ -37,7 +37,7 @@ SOURCE_METADATA: dict[str, dict] = {
     "nd2": {"anyOf": [
         {
             "type": "object",
-            "description": "The root's: the signature and the decoded chunks it keeps (spec/virtualize/nd2.md §5)",
+            "description": "The root's: the signature and the decoded chunks it keeps (spec/virtualize/nd2.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#5-source-metadata>)",
             "properties": {
                 "signature": {"$ref": "#/$defs/text", "description": "The signature chunk's data up to its first NUL"},
                 "chunks": {
@@ -232,7 +232,7 @@ SOURCE_METADATA: dict[str, dict] = {
                      "description": "The fill value's bytes, when the Zarr fill value is not it"},
             "spilled": {"type": "string", "pattern": "^spilled/[0-9]+$",
                         "description": "The family of vzip_source that holds the entries over the document's budget, "
-                                       "each a JSON text (spec/virtualize/ims.md §5.6)"},
+                                       "each a JSON text (spec/virtualize/ims.md §5.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#56-documents>)"},
         },
         "additionalProperties": False,
     },
@@ -246,7 +246,7 @@ SOURCE_METADATA: dict[str, dict] = {
                                      "included"},
             "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1,
                         "description": "vzip_source only: the recorded keys of the listed objects that spec/virtualize.md "
-                                       "§1.4 ignores"},
+                                       "§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"},
             "metadata": {
                 "type": "object", "minProperties": 1,
                 "description": "The layout members the Zarr metadata does not reproduce",
@@ -268,7 +268,7 @@ SOURCE_METADATA: dict[str, dict] = {
                                      "included"},
             "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1,
                         "description": "vzip_source only: the recorded keys of the listed objects that spec/virtualize.md "
-                                       "§1.4 ignores"},
+                                       "§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"},
             "metadata": {"type": "object", "minProperties": 1,
                          "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"},
         },
@@ -287,7 +287,7 @@ SOURCE_METADATA: dict[str, dict] = {
                                      "included"},
             "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1,
                         "description": "vzip_source only: the recorded keys of the listed objects that spec/virtualize.md "
-                                       "§1.4 ignores"},
+                                       "§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"},
             "metadata": {"type": "object", "minProperties": 1,
                          "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"},
         },
@@ -295,7 +295,8 @@ SOURCE_METADATA: dict[str, dict] = {
     },
 }
 
-# An IFD and its tags (spec/virtualize/tiff.md §5).
+# An IFD and its tags (spec/virtualize/tiff.md §5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>).
 TAG_MEMBERS = {
     "type": {"type": "integer", "minimum": 0, "maximum": 65535},
     "count": {"anyOf": [{"type": "integer", "minimum": 0}, {"type": "string", "pattern": "^[0-9]+$"}]},
@@ -373,7 +374,8 @@ TIFF_DEFS = {
     },
 }
 
-# A dataset in the DICOM JSON Model (PS3.18 §F.2), as spec/virtualize/dicom.md §5 writes it.
+# A dataset in the DICOM JSON Model (PS3.18 §F.2), as spec/virtualize/dicom.md §5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata> writes it.
 DICOM_DEFS = {
     "dataset": {
         "type": "object",
@@ -418,7 +420,8 @@ DICOM_DEFS = {
     },
 }
 
-# An HDF5 object's attributes and datatypes (spec/virtualize/ims.md §5).
+# An HDF5 object's attributes and datatypes (spec/virtualize/ims.md §5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata>).
 IMS_DEFS = {
     "attributes": {
         "type": ["object", "null"],
@@ -426,7 +429,7 @@ IMS_DEFS = {
         "additionalProperties": {"$ref": "#/$defs/attributeValue"},
     },
     "attributeValue": {
-        "description": "An attribute's value (spec/virtualize/ims.md §5.3): Imaris's form, a text value, "
+        "description": "An attribute's value (spec/virtualize/ims.md §5.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>): Imaris's form, a text value, "
                        "or its datatype with its value, data, array or the reason it is not kept",
         "anyOf": [
             {"$ref": "#/$defs/text"},
@@ -459,7 +462,7 @@ IMS_DEFS = {
                              "describes it), or null if the walk did not meet it"},
     "selection": {
         "type": "object",
-        "description": "A dataspace selection (spec/virtualize/ims.md §5.3)",
+        "description": "A dataspace selection (spec/virtualize/ims.md §5.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>)",
         "properties": {
             "select": {"enum": ["all", "none", "points", "hyperslab"]},
             "rank": {"type": "integer", "minimum": 0},
@@ -472,7 +475,7 @@ IMS_DEFS = {
     },
     "unsupported": {
         "type": "object",
-        "description": "An object that is not mapped (spec/virtualize/ims.md §5.5)",
+        "description": "An object that is not mapped (spec/virtualize/ims.md §5.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#55-unsupported-objects>)",
         "properties": {
             "reason": {"type": "string"},
             "datatype": {"$ref": "#/$defs/datatype"},
@@ -497,7 +500,7 @@ IMS_DEFS = {
     },
     "datatype": {
         "type": "object",
-        "description": "An HDF5 datatype (spec/virtualize/ims.md §5.2)",
+        "description": "An HDF5 datatype (spec/virtualize/ims.md §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#52-datatypes>)",
         "properties": {
             "class": {"enum": ["integer", "float", "time", "string", "bitfield", "opaque", "compound", "reference",
                                "enum", "variable-length", "array"]},
@@ -516,7 +519,7 @@ _RECORDS = {"type": "array", "items": {"type": "object", "additionalProperties":
 SOURCE_METADATA["safe"] = {"oneOf": [
     {
         "type": "object",
-        "description": "The root's: the product's identity, from the product and tile metadata (§6.3)",
+        "description": "The root's: the product's identity, from the product and tile metadata (§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)",
         "properties": {
             **{k: {"type": "string"} for k in ("PRODUCT_URI", "PROCESSING_LEVEL", "PRODUCT_TYPE", "PROCESSING_BASELINE",
                                                "TILE_ID", "SENSING_TIME", "HORIZONTAL_CS_NAME", "HORIZONTAL_CS_CODE")},
@@ -528,7 +531,7 @@ SOURCE_METADATA["safe"] = {"oneOf": [
     },
     {
         "type": "object",
-        "description": "A band array's: a derived convenience copied from the product metadata (§6.2), and the band "
+        "description": "A band array's: a derived convenience copied from the product metadata (§6.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#62-band-arrays>), and the band "
                        "file's SIZ segment",
         "properties": {
             "IMAGE_FILE": {"type": "string"},
@@ -550,7 +553,7 @@ SOURCE_METADATA["safe"] = {"oneOf": [
     {
         "type": "object",
         "description": "vzip_source's: the XML documents kept as text, the keys of those kept as arrays, of the empty "
-                       "objects, the empty directories, and the keys of the ignored objects (§6.3)",
+                       "objects, the empty directories, and the keys of the ignored objects (§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)",
         "properties": {
             "xml": {"type": "object", "additionalProperties": {"$ref": "#/$defs/text"}, "minProperties": 1},
             "xml_arrays": {"type": "array", "items": {"type": "string"}, "minItems": 1},
@@ -569,7 +572,7 @@ _DIMENSIONS = {"type": "object", "description": "The Start of each of S, B, H, I
 _ATTACHMENT = {"oneOf": [
     {
         "type": "object",
-        "description": "An A1 attachment entry, and the form of its data at attachments/<k> (§5.6)",
+        "description": "An A1 attachment entry, and the form of its data at attachments/<k> (spec/virtualize/czi.md §5.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#53-elements>)",
         "properties": {
             "name": {"$ref": "#/$defs/text"},
             "content_file_type": {"$ref": "#/$defs/text"},
@@ -592,7 +595,7 @@ _ATTACHMENT = {"oneOf": [
 SOURCE_METADATA["czi"] = {"anyOf": [
     {
         "type": "object",
-        "description": "The root's: the file header (spec/virtualize/czi.md §5.1)",
+        "description": "The root's: the file header (spec/virtualize/czi.md §5.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#51-the-root>)",
         "properties": {
             "version": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2},
             "primary_file_guid": _GUID,
@@ -605,14 +608,14 @@ SOURCE_METADATA["czi"] = {"anyOf": [
     },
     {
         "type": "object",
-        "description": "An image's: the dimensions that select its series (§4.2)",
+        "description": "An image's: the dimensions that select its series (spec/virtualize/czi.md §4.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#42-images>)",
         "properties": {"dimensions": _DIMENSIONS},
         "required": ["dimensions"],
         "additionalProperties": False,
     },
     {
         "type": "object",
-        "description": "A tile array's: its tile position, the planes at its index 0, and its copy (§4.4)",
+        "description": "A tile array's: its tile position, the planes at its index 0, and its copy (spec/virtualize/czi.md §4.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#44-tiles>)",
         "properties": {
             "dimensions": _DIMENSIONS,
             "x": {"type": "integer"},
@@ -630,13 +633,15 @@ SOURCE_METADATA["czi"] = {"anyOf": [
     {"$ref": "#/$defs/mirror"},
     {"$ref": "#/$defs/mirrorView"},
 ]}
-# The IR mirror (spec/conventions.md §8) of the TIFF, ND2 and CZI conventions: vzip_source's
+# The IR mirror (spec/conventions.md §8
+# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2
+# and CZI conventions: vzip_source's
 # source metadata, and the view documents of the groups under vzip_source/tree.
 IR_PROFILES = ("tiff", "nd2", "czi")
 MIRROR_DEFS = {
     "mirror": {
         "type": "object",
-        "description": "vzip_source's: the IR mirror's description (spec/conventions.md §8.2)",
+        "description": "vzip_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>)",
         "properties": {"ir": {
             "type": "object",
             "properties": {
@@ -646,11 +651,11 @@ MIRROR_DEFS = {
                 "rows": {"type": "integer", "minimum": 1, "description": "The rows the table stores"},
                 "names": {"type": "array", "items": {"type": "string"}, "minItems": 1,
                           "prefixItems": [{"const": ""}],
-                          "description": "The interned names, sorted; the first, \"\", is the root's (conventions §8.1)"},
+                          "description": "The interned names, sorted; the first, \"\", is the root's (conventions §8.1 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>)"},
                 "types": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                          "prefixItems": [{"const": ""}], "description": "The interned types (§8.6)"},
+                          "prefixItems": [{"const": ""}], "description": "The interned types (§8.6 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#86-types>)"},
                 "forms": {"type": "array", "items": {"type": "string"},
-                          "description": "The interned forms, each a JSON text (§8.5)"},
+                          "description": "The interned forms, each a JSON text (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#85-forms-and-recipes>)"},
             },
             "required": ["version", "size", "elements", "rows", "names", "types", "forms"],
             "additionalProperties": False,
@@ -660,10 +665,10 @@ MIRROR_DEFS = {
     },
     "mirrorView": {
         "type": "object",
-        "description": "A view group's (vzip_source/tree/...): a struct's view document (spec/conventions.md §8.7)",
+        "description": "A view group's (vzip_source/tree/...): a struct's view document (spec/conventions.md §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>)",
         "properties": {
             "$vz": {"const": "derived", "description": "A derived element's document"},
-            "$form": {"type": ["string", "null"], "description": "A derived element's form (§8.5)"},
+            "$form": {"type": ["string", "null"], "description": "A derived element's form (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#85-forms-and-recipes>)"},
             "$partial": {"const": True, "description": "The document stops short of the struct's children"},
         },
         "minProperties": 1,
@@ -681,7 +686,8 @@ MIRROR_DEFS = {
     },
 }
 
-# The GeoZarr members a SAFE node may hold besides the convention's (spec/virtualize/safe.md §5); their
+# The GeoZarr members a SAFE node may hold besides the convention's (spec/virtualize/safe.md §5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>); their
 # own schemas (zarr-conventions proj, spatial and multiscales v0.1) validate them.
 GEOZARR = {
     "proj:code": {"type": "string"},
@@ -735,7 +741,7 @@ def schema(profile: str) -> dict:
         "rootProperty": root,
         "sourceMetadata": SOURCE_METADATA[profile],
         "headerValue": {
-            "description": "A translated header value (spec/conventions.md §6)",
+            "description": "A translated header value (spec/conventions.md §6 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>)",
             "anyOf": [{"type": "number"}, {"$ref": "#/$defs/text"},
                       {"type": "array", "items": {"anyOf": [{"type": "number"}, {"type": "string"}]}}],
         },
@@ -749,7 +755,7 @@ def schema(profile: str) -> dict:
         defs.update(TIFF_DEFS)
     if profile in IR_PROFILES:
         defs.update(MIRROR_DEFS)
-    if profile == "ndpi":  # a level's strip's SOF0 segment (spec/virtualize/ndpi.md §5)
+    if profile == "ndpi":  # a level's strip's SOF0 segment (spec/virtualize/ndpi.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#5-source-metadata>)
         ifd = json.loads(json.dumps(TIFF_DEFS["ifd"]))
         ifd["properties"]["sof0"] = {"type": "string", "contentEncoding": "base64",
                                      "description": "A McuStarts level's strip's SOF0 segment, which its chunks replace"}

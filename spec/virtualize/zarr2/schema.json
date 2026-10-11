@@ -150,7 +150,7 @@
             "type": "string"
           },
           "minItems": 1,
-          "description": "vzip_source only: the recorded keys of the listed objects that spec/virtualize.md §1.4 ignores"
+          "description": "vzip_source only: the recorded keys of the listed objects that spec/virtualize.md §1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"
         },
         "metadata": {
           "type": "object",
@@ -161,7 +161,7 @@
       "additionalProperties": false
     },
     "headerValue": {
-      "description": "A translated header value (spec/conventions.md §6)",
+      "description": "A translated header value (spec/conventions.md §6 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>)",
       "anyOf": [
         {
           "type": "number"

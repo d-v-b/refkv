@@ -7,7 +7,7 @@ here as "conventions §n". How vzip produces this layout as a virtual store
 is the CZI profile, [Part 2](#part-2-the-profile) below, cited as
 "the profile §n".
 
-Convention version: 0 (until release, conventions §1) · UUID: `7a0733c7-d4be-4482-a64f-6904d9354ea5` ·
+Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `7a0733c7-d4be-4482-a64f-6904d9354ea5` ·
 Schema: [schema.json](czi/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the CZI
@@ -27,17 +27,17 @@ Every convention is held to reconstruction and efficiency (conventions,
 introduction). For CZI this means: every segment the file holds (subblocks
 with their data, metadata and attachments, the metadata XML, attachments,
 deleted and unreferenced segments, and bytes after the last segment) can be
-rebuilt from the hierarchy, byte for byte (its IR mirror, §5.2);
+rebuilt from the hierarchy, byte for byte (its IR mirror, [§5.2](#52-the-ir-mirror));
 and no document grows with the number of subblocks, segments or channels
 beyond the stated limits: the documents that one subblock adds (a tile
-array's, §4.4) are of a bounded size, and every value that grows with the
+array's, [§4.4](#44-tiles)) are of a bounded size, and every value that grows with the
 file is in an array, referenced where the file holds it.
 
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "czi"`, `"version": 0`, `"revision": 25` (conventions §1), the file's URL as `source.url`, and
-the source metadata of §5.1 as the member `"czi"`. Its CMO is:
+with `"profile": "czi"`, `"version": 0`, `"revision": 25` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`, and
+the source metadata of [§5.1](#51-the-root) as the member `"czi"`. Its CMO is:
 
 ```json
 {
@@ -50,8 +50,8 @@ the source metadata of §5.1 as the member `"czi"`. Its CMO is:
 ```
 
 These other nodes declare it, each with `{"czi": S}`: every image group
-whose series key has a dimension (§4.2), every tile array (§4.4),
-`vzip_source`, with the IR mirror's description (§5.2), and each group of the
+whose series key has a dimension ([§4.2](#42-images)), every tile array ([§4.4](#44-tiles)),
+`vzip_source`, with the IR mirror's description ([§5.2](#52-the-ir-mirror)), and each group of the
 mirror's view that has a member.
 
 ## 2. The source
@@ -78,7 +78,7 @@ early writers left it). The next segment starts at `o + 32 + A`. The ids are:
 | `DELETED` | a segment a writer has given up; its data is what it held |
 
 A segment is **referenced** when the file header, the directory or the
-attachment directory gives its offset (§2.2–§2.6); the rest are found by the
+attachment directory gives its offset ([§2.2](#22-the-file-header)–[§2.6](#26-attachments)); the rest are found by the
 **walk** ([the profile §13.2](#132-structures-and-the-walk)), which
 visits the segments in file order from offset 0 and stops at the first offset
 where no segment header can be read; the bytes from there to the end of the
@@ -111,10 +111,10 @@ or of any other schema, rejects the input):
 | bytes | field |
 |---|---|
 | 0–1 | `DV` |
-| 2–5 | `i32` PixelType (§3.1) |
+| 2–5 | `i32` PixelType ([§3.1](#31-pixel-types-and-codecs)) |
 | 6–13 | `i64` FilePosition, the subblock segment's offset |
 | 14–17 | `i32` FilePart (MUST be 0) |
-| 18–21 | `i32` Compression (§3.1) |
+| 18–21 | `i32` Compression ([§3.1](#31-pixel-types-and-codecs)) |
 | 22–27 | 6 spare bytes; byte 22 is the **pyramid type** (0 none, 1 single subblock, 2 multi subblock) |
 | 28–31 | `i32` DimensionCount `d` |
 | 32 ... | `d` **dimension entries** of 20 bytes |
@@ -151,7 +151,7 @@ metadata says `CHUNKCONTAINER`). All of these MUST lie within the file.
 
 The subblock's copy of its entry is the `32 + 20 × d'` bytes after its first
 16; it **agrees** with the directory when it has the same bytes as the
-directory entry. A subblock whose copy does not agree is **unplaced** (§3.2).
+directory entry. A subblock whose copy does not agree is **unplaced** ([§3.2](#32-conforming-and-unplaced-subblocks)).
 
 ### 2.5 The metadata segment
 
@@ -172,7 +172,7 @@ ContentFileType, 80 bytes Name. Its FilePosition MUST be the offset of a
 `ZISRAWATTACH` segment, whose data is `i64` DataSize `s` (at least 0), 8
 spare bytes, its own copy of the 128-byte entry, spare bytes to 256, then
 the `s` bytes of the **attachment data**, within the file. Attachment `k` is
-the `k`-th entry. An entry of another schema is kept as it is (§5.3) and
+the `k`-th entry. An entry of another schema is kept as it is ([§5.3](#53-elements)) and
 not followed, as libCZI does.
 
 Writers use these ContentFileTypes: `CZTIMS` (TimeStamps), `CZEVL`
@@ -183,8 +183,8 @@ Prescan), `Zip-Comp` and `ZIP` (gzip: Profile), `CZEXP`, `CZHWS`, `CZMVM`,
 
 ### 2.7 The metadata XML
 
-The layout reads a few values of the metadata XML (§4); all of it is kept
-as bytes (§5.3). When the XML's bytes (after a leading `EF BB BF`, which is
+The layout reads a few values of the metadata XML ([§4](#4-output)); all of it is kept
+as bytes ([§5.3](#53-elements)). When the XML's bytes (after a leading `EF BB BF`, which is
 skipped) are valid UTF-8 and at most 2^26 bytes, its text `X` is read by the
 tag scan of [the TIFF convention §3](tiff.md#3-ome-xml) (skipped
 sections, tags, attribute values with references decoded). Otherwise no
@@ -251,7 +251,7 @@ Any other PixelType rejects the input. A subblock's pixels are its stored
 height rows of its stored width pixels, each `p` samples, interleaved, of
 the data type, little-endian.
 
-| Compression | name | pixel types | codecs after `transpose` (conventions §3) | sample order |
+| Compression | name | pixel types | codecs after `transpose` ([conventions §3](../conventions.md#3-arrays)) | sample order |
 |---|---|---|---|---|
 | 0 | uncompressed | all | `bytes` | B, G, R, A |
 | 1 | JpgFile | Gray8, Bgr24 | `imagecodecs_jpeg` | R, G, B |
@@ -267,11 +267,11 @@ Each codec's JSON form, exactly:
 
 - `bytes` is `{"name": "bytes", "configuration": {"endian": "little"}}`,
   and `{"name": "bytes"}` (no configuration) for the 1-byte types `uint8`
-  (conventions §3).
+  ([conventions §3](../conventions.md#3-arrays)).
 - `zstd` is `{"name": "zstd", "configuration": {"level": 0, "checksum": false}}`
   (the zarr-extensions `zstd` codec; level 0 is the encoder's default and
   does not affect decoding).
-- `imagecodecs_jpeg` is that of conventions §3: one complete JPEG stream.
+- `imagecodecs_jpeg` is that of [conventions §3](../conventions.md#3-arrays): one complete JPEG stream.
 - `imagecodecs_jpegxr` is `{"name": "imagecodecs_jpegxr"}`, with no
   configuration: an array-to-bytes codec, each chunk one JPEG XR file
   (ITU-T T.832 with its TIFF-like container, as the subblock holds it),
@@ -281,7 +281,7 @@ Each codec's JSON form, exactly:
   jxrlib's, so it needs nothing beyond the chunk's shape and data type. It
   is not in the zarr-extensions registry; vzip's Python reader registers it
   (`vzip.codecs`), and its registration and a Neuroglancer decoder are a
-  follow-up ([PLAN.md](../../design/plans/czi.md) §7).
+  follow-up ([design/plans/czi.md §7](../../design/plans/czi.md#7-decisions-on-the-open-questions)).
 - `numcodecs.shuffle` is
   `{"name": "numcodecs.shuffle", "configuration": {"elementsize": 2}}`, a
   bytes-to-bytes codec: numcodecs' `Shuffle` with element size 2, as
@@ -293,11 +293,11 @@ Each codec's JSON form, exactly:
   included. So the chain of such a subblock is `bytes`, `numcodecs.shuffle`,
   `zstd`: the zstd frame decompresses to shuffled bytes, which unshuffle to
   the little-endian pixels. (A registry `shuffle` codec would replace the
-  `numcodecs.` name; that is a follow-up, PLAN.md §7.)
+  `numcodecs.` name; that is a follow-up, [design/plans/czi.md §7](../../design/plans/czi.md#7-decisions-on-the-open-questions).)
 - **Sample order.** The `c` samples of a pixel are in the order the codec
   gives them: as stored (B, G, R, A) for uncompressed and Zstd data, and R,
   G, B (A) for JPEG and JPEG XR, which decode to RGB. Transpose reorders axes,
-  not indices, so the order is kept, and named in `omero` (§4.3).
+  not indices, so the order is kept, and named in `omero` ([§4.3](#43-image-arrays)).
 
 A Zstd1 subblock's data starts with a **Zstd1 header**: the byte 1 (header
 length 1, no packing), or the bytes 3, 1, `f` (header length 3, hi-lo
@@ -313,23 +313,23 @@ A subblock's **coded size** is the width and height its data holds, and its
   width and height); the first `W × H × q` bytes are its pixels and the rest,
   if any, its **trailing bytes**;
 - Zstd0 and Zstd1: its stored size, when its Zstd1 header (for Zstd1) is one
-  of those of §3.1, hi-lo packing is only on Gray16 and Bgr48, and its zstd
+  of those of [§3.1](#31-pixel-types-and-codecs), hi-lo packing is only on Gray16 and Bgr48, and its zstd
   frame header declares a content size of `W × H × q` bytes and no
   dictionary ([the profile §13.4](#134-codec-headers));
 - JpgFile: the width and height of its JPEG frame header (SOF0, SOF1 or
   SOF2, 8-bit samples, `p` components);
 - JpgXr: the `ImageWidth` and `ImageHeight` of its JPEG XR container, when
   its `PixelFormat` is one this subblock's pixel type admits (the profile
-  §13.4).
+  [§13.4](#134-codec-headers)).
 
-A subblock is **unplaced** when its copy of its entry does not agree (§2.4),
+A subblock is **unplaced** when its copy of its entry does not agree ([§2.4](#24-subblocks)),
 or when it has no coded size by these rules (its data is too short, or its
 codec header cannot be read or does not match). An unplaced subblock is in
-no image and is no tile: its data is kept as bytes (§5.3). Every other
+no image and is no tile: its data is kept as bytes ([§5.3](#53-elements)). Every other
 subblock is **placed**, and **conforming** when its coded size is its stored
 size. (Some writers store a pyramid edge tile of `ceil(N/2)` pixels in the
 directory but encode `floor(N/2)`; such a JPEG or JPEG XR subblock is placed
-but not conforming, and becomes a tile of its coded size, §4.4.)
+but not conforming, and becomes a tile of its coded size, [§4.4](#44-tiles).)
 
 ### 3.3 Series
 
@@ -378,7 +378,7 @@ layer `(1, 0)`; one stored supersampled (PALM) has none.
 Let `B` be the conforming subblocks of a series that have one layer `λ`.
 `B` is **regular** when all of these hold:
 
-1. All of `B` have the same codec form (§3.2).
+1. All of `B` have the same codec form ([§3.2](#32-conforming-and-unplaced-subblocks)).
 2. Let `Wl`, `Hl` be the largest logical width and height, `W`, `H` the
    largest stored width and height, in `B`. Then `Wl = F × W` and
    `Hl = F × H` for one integer `F ≥ 1`, the level's **factor**.
@@ -407,7 +407,7 @@ the **image's pixel type**; a level of another pixel type is not a level
 of the image (its subblocks are tiles), so that every dataset of an image
 has the same data type and the same samples.
 
-When `B` is not regular, every subblock of `B` is a tile (§4.4); so is every
+When `B` is not regular, every subblock of `B` is a tile ([§4.4](#44-tiles)); so is every
 placed subblock without a layer, and every placed subblock that is not
 conforming. A series has an image when it has at least one level.
 
@@ -422,25 +422,25 @@ around an irregular scan region, gives tiles.)
 
 ### 4.1 The hierarchy
 
-- `zarr.json`: the root group, declaring the convention (§1). When some
+- `zarr.json`: the root group, declaring the convention ([§1](#1-declaration)). When some
   series has an image, its attributes have
   `"ome": {"version": "0.5", "bioformats2raw.layout": 3}`.
 - `OME/zarr.json`, when some series has an image: a group with
   `{"ome": {"version": "0.5", "series": ["0", "1", ...]}}`, one per image.
-- `<k>/zarr.json` and its arrays `<k>/<d>`: image `k` (§4.2, §4.3), the
+- `<k>/zarr.json` and its arrays `<k>/<d>`: image `k` ([§4.2](#42-images), [§4.3](#43-image-arrays)), the
   images numbered from 0 in series order.
 - `tiles/zarr.json`, when there is a tile: a group with empty attributes,
-  holding the tile arrays `tiles/<n>`, numbered from 0 (§4.4).
-- `vzip_source`: the source metadata (§5).
+  holding the tile arrays `tiles/<n>`, numbered from 0 ([§4.4](#44-tiles)).
+- `vzip_source`: the source metadata ([§5](#5-source-metadata)).
 
 ### 4.2 Images
 
 Image `k` is an image ([conventions §4](../conventions.md#4-images)) whose
-datasets are its series' levels in the order of §3.5, at paths
+datasets are its series' levels in the order of [§3.5](#35-regular-levels), at paths
 `"0"`, `"1"`, .... Its source metadata is `{"dimensions": {D: Start, ...}}`,
 the Start of each of `S`, `B`, `H`, `I`, `R`, `V` its series key has, in
 that order; when the key has none, it has no source metadata. Its
-`name` is the scene name of its `S` Start (§2.7) when the series has `S`
+`name` is the scene name of its `S` Start ([§2.7](#27-the-metadata-xml)) when the series has `S`
 and the name is present, not empty and at most 256 bytes in UTF-8.
 
 **Axes.** Over the subblocks of all the image's levels, let `lo_t`, `hi_t`
@@ -458,7 +458,7 @@ The array of a level, at `<k>/<d>` ([conventions §3](../conventions.md#3-arrays
 - **Shape:** `hi_t − lo_t + 1`, `(hi_c − lo_c + 1) × p`, `hi_z − lo_z + 1`
   (each for its axis), then the stored extent `(r − 1) × H + H'` and
   `(m − 1) × W + W'`.
-- **Data type** and **codecs:** §3.1, with `transpose` first when `p > 1`;
+- **Data type** and **codecs:** [§3.1](#31-pixel-types-and-codecs), with `transpose` first when `p > 1`;
   `fill_value` 0 (`[0.0, 0.0]` for `complex64`).
 - **Chunk grid:** the chunk lengths are 1 for `t` and `z`, `p` for `c`;
   for `y` the integer `H` when `H' = H`, else the list `[[H, r − 1], H']`
@@ -492,7 +492,7 @@ The array of a level, at `<k>/<d>` ([conventions §3](../conventions.md#3-arrays
   (`v × (1 / 1e-6)`), or `F` without a unit when `PX` (`PY`) is absent; `z`
   is `PZ` in `micrometer`, or 1 without a unit; `t` is `INC` in `second`,
   or 1 without a unit; `c` is 1. No time step is derived from a TimeStamps
-  attachment when `INC` is absent: its times are kept (§5.3), and need not
+  attachment when `INC` is absent: its times are kept ([§5.3](#53-elements)), and need not
   be evenly spaced.
 - **Translation** of every level: `x` is `(x0 + (F − 1) / 2) × PX'` and `y`
   is `(y0 + (F − 1) / 2) × PY'`, where `PX'` is `PX` in micrometers or 1
@@ -510,7 +510,7 @@ The array of a level, at `<k>/<d>` ([conventions §3](../conventions.md#3-arrays
   - **label:** with `p = 1`, the info channel `c`'s `Name` if present, not
     empty and at most 256 bytes, else the display channel's, else `C<c>`;
     with `p > 1`, that label followed by a space and the sample's letter in
-    the sample order of §3.1 (`B`, `G`, `R`, `A` or `R`, `G`, `B`, `A`);
+    the sample order of [§3.1](#31-pixel-types-and-codecs) (`B`, `G`, `R`, `A` or `R`, `G`, `B`, `A`);
   - **color:** with `p = 1`, the display channel's `Color`, else the info
     channel's, else `FFFFFF`; with `p > 1`, `0000FF` for B, `00FF00` for G,
     `FF0000` for R and `FFFFFF` for A;
@@ -534,7 +534,7 @@ The array of a level, at `<k>/<d>` ([conventions §3](../conventions.md#3-arrays
 
 ### 4.4 Tiles
 
-The placed subblocks that are in no level of an image (§3.5) are **tiles**.
+The placed subblocks that are in no level of an image ([§3.5](#35-regular-levels)) are **tiles**.
 One Zarr array holds all the planes of one **tile position**, not one
 subblock:
 
@@ -555,17 +555,17 @@ Each copy of each position is a **tile array** `tiles/<n>`
 ([conventions §3](../conventions.md#3-arrays)), numbered from 0 in increasing
 order of the index of its first tile:
 
-- **Axes, shape, chunks:** as an image's level (§4.2, §4.3) over the
+- **Axes, shape, chunks:** as an image's level ([§4.2](#42-images), [§4.3](#43-image-arrays)) over the
   array's own tiles: `lo` and `hi` of `t`, `c` and `z` over its tiles'
   planes give its axes and the extents of `t`, `c` (times `p`) and `z`;
   then its coded height and width. The chunk grid is regular: 1 for `t`
   and `z`, `p` for `c`, the coded height (or, for a large uncompressed tile,
-  the row band `b` of §4.3 with `H = H'` the coded height) and the coded
+  the row band `b` of [§4.3](#43-image-arrays) with `H = H'` the coded height) and the coded
   width. Data type, codecs and `fill_value` are those of an image of its
-  pixel type and codec form (§4.3), `transpose` first when `p > 1`.
+  pixel type and codec form ([§4.3](#43-image-arrays)), `transpose` first when `p > 1`.
 - **Chunks:** the tile of plane `(t, c, z)` is the chunk at `t − lo_t`,
   `c − lo_c`, `z − lo_z` (each for its axis), `0`, `0` (or its bands),
-  holding its pixels as §4.3 says. Planes without a tile have no chunk.
+  holding its pixels as [§4.3](#43-image-arrays) says. Planes without a tile have no chunk.
 - **Source metadata:** where the array lies, and which planes it starts at:
 
   ```json
@@ -573,7 +573,7 @@ order of the index of its first tile:
    "stored_size": [1504, 2048], "planes": {"t": 0, "c": 0, "z": 0}, "copy": 0}
   ```
 
-  `dimensions` as an image's (§4.2), absent when the series key has none;
+  `dimensions` as an image's ([§4.2](#42-images)), absent when the series key has none;
   `x` and `y` the X and Y Start; `size` the logical width and height (the
   region of the full-resolution frame it covers); `stored_size` the stored
   width and height; `planes` the `T`, `C` and `Z` Start of index 0 along
@@ -583,7 +583,7 @@ order of the index of its first tile:
 A tile array's document has these members only, so its size is bounded
 whatever the number of planes; the number of tile arrays is at most the
 number of subblocks. Which subblock each chunk holds follows from the
-directory entries (§5.3): subblock `i`, of series key, position and plane
+directory entries ([§5.3](#53-elements)): subblock `i`, of series key, position and plane
 as its columns give, is the chunk of its plane in the array of its position
 and copy. Tiles carry no OME-NGFF metadata: their place in an image's frame
 is `x`, `y`, `size`, and their pixel size the image's scaled by `size` over
@@ -596,7 +596,7 @@ scan has 1000 tile arrays, not 200000.)
 
 The root's `S` is the file header:
 `{"version": [Major, Minor], "primary_file_guid": G, "file_guid": G,
-"file_part": 0, "update_pending": UpdatePending}`, GUIDs as §2.2 writes
+"file_part": 0, "update_pending": UpdatePending}`, GUIDs as [§2.2](#22-the-file-header) writes
 them. Everything else is on `vzip_source`.
 
 ### 5.2 The IR mirror
@@ -629,14 +629,14 @@ file), and holds `header`, a value of type
 | `subblocks/<i>/sizes` | value | `{metadata_size:<i4,attachment_size:<i4,data_size:<i8}` | its sizes |
 | `subblocks/<i>/entry`, `subblocks/<i>/dimensions` | value | as the directory's | its own copy of its entry |
 | `subblocks/<i>/metadata` | value | `ascii[m]` | its metadata |
-| `subblocks/<i>/data` | data | | a placed subblock's pixels (§3.2): after a Zstd1 header, or the first `w × h × q` bytes of uncompressed data; form geometry `{"shape": [h, w(, samples)], "dtype", "pixel_type", "compression"}`, codec the chain of §3.1 |
+| `subblocks/<i>/data` | data | | a placed subblock's pixels ([§3.2](#32-conforming-and-unplaced-subblocks)): after a Zstd1 header, or the first `w × h × q` bytes of uncompressed data; form geometry `{"shape": [h, w(, samples)], "dtype", "pixel_type", "compression"}`, codec the chain of [§3.1](#31-pixel-types-and-codecs) |
 | `subblocks/<i>/data` | value | `bytes[n]` | an unplaced subblock's data |
 | `subblocks/<i>/zstd1_header` | value | `bytes[n]` | a Zstd1 subblock's header |
 | `subblocks/<i>/trailing` | value | `bytes[n]` | uncompressed data after the pixels |
 | `subblocks/<i>/attachment` | value | `bytes[a]` | its attachment |
 | `metadata` | struct | | the `ZISRAWMETADATA` segment |
 | `metadata/sizes` | value | `{xml_size:<i4,attachment_size:<i4}` | |
-| `metadata/xml`, `metadata/attachment` | value | `ascii[n]`, `bytes[n]` | the metadata XML (§2.7) and its attachment |
+| `metadata/xml`, `metadata/attachment` | value | `ascii[n]`, `bytes[n]` | the metadata XML ([§2.7](#27-the-metadata-xml)) and its attachment |
 | `attachment_directory` | struct | | the `ZISRAWATTDIR` segment |
 | `attachment_directory/entry_count` | value | `<i4` | `K` |
 | `attachment_directory/entries/<k>` | value | record (A1) or `bytes[128]` | entry `k` |
@@ -650,7 +650,7 @@ file), and holds `header`, a value of type
 ### 5.4 Equivalence
 
 The elements are determined by the file, and the mirror by its elements
-(conventions §8.8: one order, one folding, one encoding): hierarchies of one
+([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
 file are compared entry for entry, `vzip_source` included
 ([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
 
@@ -714,7 +714,7 @@ Its level `0` (16 columns, 10 rows of 1024 × 1024 tiles, the last column
 [1024, [[1024, 15], 959]]}}` and codecs
 `[{"name": "imagecodecs_jpegxr"}]`. Each of the 264 overlapping layer-0 tiles
 is a position of its own, the array `tiles/<n>` of shape `[2048, 1504]`;
-`vzip_source` is the IR mirror (§5.2): its elements include the metadata
+`vzip_source` is the IR mirror ([§5.2](#52-the-ir-mirror)): its elements include the metadata
 XML (`metadata/xml`), the directory's entries and dimensions, each subblock's
 segment, `attachments/0` to `attachments/5` (EventList, TimeStamps, the
 embedded Label and SlidePreview CZIs as bytes, the gzip Profile as a derived
@@ -725,7 +725,7 @@ finds (`segments/<k>`). (The display channel's `High` is 0.25: the window ends a
 # Part 2. The profile
 
 The CZI profile of [spec/virtualize.md](../virtualize.md) (revision 18), numbered
-as its §13. (Conformance is spec/virtualize.md's §14.) §1 and §2 are in
+as its [§13](#13-czi-profile). (Conformance is spec/virtualize.md's [§14](../virtualize.md#14-conformance).) [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in
 spec/virtualize.md and apply here.
 
 The output has the convention's layout for the input
@@ -738,8 +738,8 @@ references the file. "The convention §n" below is a section of Part 1.
 ### 13.1 Detection
 
 A file input is read by this profile when bytes 0–15 of `H` (spec/virtualize.md
-§1.2) are `5A 49 53 52 41 57 46 49 4C 45` (`ZISRAWFILE`) followed by six
-`00` bytes. (This row goes before the "anything else" row of §1.2's table;
+[§1.2](../virtualize.md#12-input)) are `5A 49 53 52 41 57 46 49 4C 45` (`ZISRAWFILE`) followed by six
+`00` bytes. (This row goes before the "anything else" row of [§1.2](../virtualize.md#12-input)'s table;
 no other profile's test matches these bytes.)
 
 ### 13.2 Structures and the walk
@@ -750,22 +750,22 @@ be the one expected, and its AllocatedSize and UsedSize MUST be from 0 to
 2^53 − 1. Reading a structure means reading its bytes, which MUST lie
 within the file; every offset and length read MUST be from 0 to
 2^53 − 1 and every size field the convention says is at least 0 MUST be.
-The virtualizer reads, in any order (spec/virtualize.md §1.2, evaluation order):
+The virtualizer reads, in any order ([spec/virtualize.md §1.2](../virtualize.md#12-input), evaluation order):
 
 1. the file header: the segment header at 0 and its 80 bytes of data (the
-   convention §2.2);
+   convention [§2.2](#22-the-file-header));
 2. the directory: the segment header at SubBlockDirectoryPosition, then the
    4-byte EntryCount and the entries, from `o + 160` to at most
    `o + 32 + U` (`U` its UsedSize, or AllocatedSize when `U` is 0). An entry
    that does not end within these bytes rejects the input. EntryCount is
    checked (0 to 2^21) before any entry is read;
 3. for each entry `i`: the segment header at its FilePosition and the
-   subblock's first `L` bytes (`L` from its `d'`, the convention §2.4; the
+   subblock's first `L` bytes (`L` from its `d'`, [the convention §2.4](#24-subblocks); the
    first 256 bytes MUST lie within the file before `d'` is read), and,
    when its copy of its entry agrees with the directory, the codec header of
-   its data (§13.4);
+   its data ([§13.4](#134-codec-headers));
 4. when MetadataPosition is not 0, the metadata segment's header and first
-   8 bytes of data, and the XML when §2.7 of the convention reads it;
+   8 bytes of data, and the XML when [§2.7](#27-the-metadata-xml) of the convention reads it;
 5. when AttachmentDirectoryPosition is not 0, the attachment directory's
    header, EntryCount (0 to 2^16, checked first) and entries; for each `A1`
    entry, the attachment segment's header and first 256 bytes of data; and
@@ -784,16 +784,16 @@ The virtualizer reads, in any order (spec/virtualize.md §1.2, evaluation order)
 
 ### 13.3 Rejection
 
-The input is rejected when a read of §13.2 steps 1–5 lies outside the file,
+The input is rejected when a read of [§13.2](#132-structures-and-the-walk) steps 1–5 lies outside the file,
 when a rule of this profile fails, and wherever the convention says the
-input is rejected or that something MUST hold: Major and FilePart (§2.2),
-the directory and its entries (§2.3: segment id, EntryCount, schema `DV`,
-dimension ids, counts and sizes), the subblock segments (§2.4: id, sizes,
+input is rejected or that something MUST hold: Major and FilePart ([§2.2](#22-the-file-header)),
+the directory and its entries ([§2.3](#23-the-subblock-directory): segment id, EntryCount, schema `DV`,
+dimension ids, counts and sizes), the subblock segments ([§2.4](#24-subblocks): id, sizes,
 schema `DV` and `d'` of the subblock's copy, parts within the file), the
-metadata segment and attachment directory when present (§2.5, §2.6: ids,
+metadata segment and attachment directory when present ([§2.5](#25-the-metadata-segment), [§2.6](#26-attachments): ids,
 counts, parts within the file, FilePart), pixel types and compressions
-(§3.1), and the limits below. What only §3.2 decides (a subblock's coded
-size) never rejects: such a subblock is unplaced. The walk (§13.2 step 6)
+([§3.1](#31-pixel-types-and-codecs)), and the limits below. What only [§3.2](#32-conforming-and-unplaced-subblocks) decides (a subblock's coded
+size) never rejects: such a subblock is unplaced. The walk ([§13.2](#132-structures-and-the-walk) step 6)
 never rejects. Neither does what only the source metadata reads (the
 attachment forms, the budget), nor the metadata XML.
 
@@ -802,7 +802,7 @@ rejects the input:
 
 | limit | value | bounds |
 |---|---|---|
-| directory entries `N` | 2^21 | requests (one subblock header each), the mirror's table (conventions §8) |
+| directory entries `N` | 2^21 | requests (one subblock header each), the mirror's table ([conventions §8](../conventions.md#8-the-ir-mirror)) |
 | attachment entries `K` | 2^16 | the mirror's table |
 | series with an image | 2^16 | the `OME` series list (about 7 bytes per series), as for ND2 positions |
 | levels per image | 64 | the image's `multiscales` (the layer tables give at most 18) |
@@ -814,15 +814,15 @@ lists are decoded only up to 2^20 events and 2^26 bytes; past those the
 convention keeps the bytes as they are, without rejecting. Every document
 is then bounded: the root's and each image's by the limits above (`omero`
 has at most 64 channels), each tile array's by its fixed members (the
-convention §4.4), whatever its number of planes, and `vzip_source`'s by
-the mirror's budgets (conventions §8.7). The tile arrays number at most `N`.
+convention [§4.4](#44-tiles)), whatever its number of planes, and `vzip_source`'s by
+the mirror's budgets ([conventions §8.7](../conventions.md#87-the-view)). The tile arrays number at most `N`.
 
 ### 13.4 Codec headers
 
 Each is read from the start of the subblock's data `D` (its `n` bytes); a
 read past `n` bytes, or past 2^16 bytes into `D`, means the subblock has no
-coded size (the convention §3.2). They are coding parameters, which the
-output may depend on (spec/virtualize.md §1.2, structure only).
+coded size ([the convention §3.2](#32-conforming-and-unplaced-subblocks)). They are coding parameters, which the
+output may depend on ([spec/virtualize.md §1.2](../virtualize.md#12-input), structure only).
 
 - **Zstd1 header:** `D[0]` is 1 (length 1, no packing), or `D[0]` is 3,
   `D[1]` is 1, and `D[2]` gives the hi-lo flag in bit 0 (length 3). Any
@@ -836,7 +836,7 @@ output may depend on (spec/virtualize.md §1.2, structure only).
   `h >> 6` of 3, 2, 1 and 0 (no field for 0 without single segment, which
   gives no coded size), little-endian, plus 256 for the 2-byte field. The
   subblock has its stored size as coded size when that content size is
-  `W × H × q` (the convention §3.2).
+  `W × H × q` ([the convention §3.2](#32-conforming-and-unplaced-subblocks)).
 - **JPEG:** `D` starts with `FF D8`. Then markers are scanned: at each, one
   or more `FF` bytes and a marker byte `M`; for `M` in `D0`–`D7` or `01`
   nothing follows; otherwise a 2-byte big-endian length `l ≥ 2` and `l − 2`
@@ -863,27 +863,27 @@ output may depend on (spec/virtualize.md §1.2, structure only).
 ### 13.5 Chunk references
 
 All references are ranges of source 0; this profile has no data sources.
-Let `P = o + 32 + L + m` be subblock `i`'s data offset (the convention §2.4).
+Let `P = o + 32 + L + m` be subblock `i`'s data offset ([the convention §2.4](#24-subblocks)).
 
-- **Image chunks and tiles** (the convention §4.3, §4.4): an uncompressed
+- **Image chunks and tiles** ([the convention §4.3](#43-image-arrays), [§4.4](#44-tiles)): an uncompressed
   subblock is the single range `(0, P, W × H × q)`, or with row bands, band
   `k` of its rows is `(0, P + k × b × W × q, b × W × q)`. A Zstd0 subblock
   is `(0, P, n)`, a Zstd1 subblock `(0, P + l, n − l)` (`l` its header
   length), a JPEG or JPEG XR subblock `(0, P, n)`. Pixels are never copied.
-- **Directory columns** (the convention §5.3) and `segments/id` are copied:
+- **Directory columns** ([the convention §5.3](#53-elements)) and `segments/id` are copied:
   their elements are scattered over the entries. The event list's `time`
   and `type` are copied likewise.
 - **Families** (`subblocks/...`, `segments/data`, an event list's
   `description`): each member is the range of its bytes in the file, and the
-  family's chunks are made as conventions §7 says: referenced, with adjacent
+  family's chunks are made as [conventions §7](../conventions.md#7-source-values-as-arrays) says: referenced, with adjacent
   members merged into one range, and a `data` chunk copied when its ranges
-  exceed the 65519-byte payload (spec/virtualize.md §1.2), as when many small
+  exceed the 65519-byte payload ([spec/virtualize.md §1.2](../virtualize.md#12-input)), as when many small
   metadata fragments share a chunk.
 - **Bytes** (`metadata/xml`, `metadata/attachment`, an attachment's data,
   `tail`) and **contiguous values** (TimeStamps, FocusPositions): referenced
-  in place, cut as conventions §7 says.
+  in place, cut as [conventions §7](../conventions.md#7-source-values-as-arrays) says.
 - **Documents** of `tiles/<n>` are stored, like those of `vzip_source`, so
-  that a reader fetches them only when it opens the node (conventions §2):
+  that a reader fetches them only when it opens the node ([conventions §2](../conventions.md#2-attributes)):
   there is one per tile position and copy.
 
 ### 13.6 Equivalence notes
@@ -900,7 +900,7 @@ fails when a reader decodes it; a writer of such files is not known.
 The layout uses two things that are not in every Zarr reader:
 
 - **Clipped levels** use the zarr-extensions `rectilinear` chunk grid (the
-  convention §4.3). zarr-python 3.4 reads them after
+  convention [§4.3](#43-image-arrays)). zarr-python 3.4 reads them after
   `zarr.config.set({"array.rectilinear_chunks": True})`. Where a reader has
   no rectilinear support, a clipped level can still be read chunk by chunk:
   the chunk at `y` index `j` and `x` index `i` holds the tile of that row

@@ -41,7 +41,9 @@ import vzip.codecs  # noqa: F401  (registers imagecodecs_jpeg and imagecodecs_jp
 from vzip.policy import Policy  # noqa: E402
 from vzip.store import VZipStore
 
-# The sources are served on 127.0.0.1, which spec §8.7 rule 3 refuses by default.
+# The sources are served on 127.0.0.1, which spec §8.7
+# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3 refuses by
+# default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
 from vzip.virtualize.dicom.source import dictionary_vr
 
@@ -92,7 +94,7 @@ def expected(ds: pydicom.Dataset) -> np.ndarray:
 
 
 LAYOUT = {"7FE00001", "7FE00002", "FFFCFFFC"}  # offset tables and padding: recorded only where they are not layout
-ADOBE = 18  # the bytes of the SOI and Adobe marker that replace an RGB JPEG frame's SOI (spec/virtualize.md §6.5)
+ADOBE = 18  # the bytes of the SOI and Adobe marker that replace an RGB JPEG frame's SOI (spec/virtualize.md §6.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#65-frames>)
 BINARY = {"OB", "OD", "OF", "OL", "OV", "OW", "UN"}
 SIZES = {"AT": 4, "FL": 4, "FD": 8, "SL": 4, "SS": 2, "UL": 4, "US": 2, "SV": 8, "UV": 8}
 pydicom.config.convert_wrong_length_to_UN = True  # numeric values whose length is not a multiple of the size
@@ -147,7 +149,9 @@ def collapse(d: dict, path: str) -> dict:
 
 def gathered_uri(path: str, sequence: str) -> str:
     """Where a value in an item of the gathered sequence at `sequence` is
-    gathered (spec/virtualize/dicom.md §5): `path` is <sequence>/<i>/<p>."""
+    gathered (spec/virtualize/dicom.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>): `path` is
+    <sequence>/<i>/<p>."""
     i, rest = path[len(sequence) + 1:].split("/", 1)
     return f"vzip_source/{sequence}/items/{rest}/value#{i}"
 
@@ -160,8 +164,9 @@ def chunk_bytes(root, key: str) -> bytes:
 def fragment_problems(root, source: dict, ds: pydicom.Dataset) -> list[str]:
     """Encapsulated pixel data without an Extended Offset Table, rebuilt from
     the frames' chunks, `pixel_fragments` and `pixel_offset_table`
-    (spec/virtualize/dicom.md §5): the Basic Offset Table, then each
-    fragment's item."""
+    (spec/virtualize/dicom.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>): the Basic
+    Offset Table, then each fragment's item."""
     n = int(ds.get("NumberOfFrames", 1) or 1)
     axes = list(root["0"].metadata.dimension_names)
     across = -(-ds.TotalPixelMatrixColumns // ds.Columns) if ds.get("SOPClassUID") == WHOLE_SLIDE else None
@@ -196,7 +201,9 @@ def array_values(root, uri: str) -> np.ndarray:
 
 
 def header_problems(root, data: bytes) -> list[str]:
-    """Reconstruction (spec/virtualize/dicom.md §5): the source metadata, its
+    """Reconstruction (spec/virtualize/dicom.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>): the
+    source metadata, its
     node's meta and dataset and the arrays its BulkDataURIs name, against pydicom's DICOM
     JSON Model, without group lengths, layout and Pixel Data; then the preamble,
     the trailing bytes, native pixel data past the frames, what an Extended
@@ -226,7 +233,8 @@ def header_problems(root, data: bytes) -> list[str]:
 
     def layout(k: str) -> bool:
         """Group lengths and the Extended Offset Table, which ours omits where
-        they are layout (spec/virtualize/dicom.md §5)."""
+        they are layout (spec/virtualize/dicom.md §5
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
         return k.endswith("0000") or k in LAYOUT
 
     def resolve(k: str, a: dict, charsets, path: str, sequence: str | None) -> dict:

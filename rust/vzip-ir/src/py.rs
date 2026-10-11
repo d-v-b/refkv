@@ -234,7 +234,9 @@ impl PyIr {
             .find(|&c| self.ir.name_of(c) == name))
     }
     /// Coverage, injectivity, the root and the names, and the other invariants
-    /// (conventions §8.1); raises Violation.
+    /// (conventions §8.1
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>); raises
+    /// Violation.
     fn check(&self) -> PyResult<()> {
         check::check(&self.ir).map_err(Violation::new_err)
     }
@@ -668,8 +670,9 @@ fn mirror<'py>(py: Python<'py>, ir: &PyIr, profile: &str) -> PyResult<(Bound<'py
     Ok((out_py(py, &o)?, folded.json().to_string()))
 }
 
-/// What makes a stored mirror non-canonical (conventions §8.8), or None: `get(key)`
-/// gives the archive's entries (bytes or None), `read(offset, length)` the source's
+/// What makes a stored mirror non-canonical (conventions §8.8
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>), or None:
+/// `get(key)` gives the archive's entries (bytes or None), `read(offset, length)` the source's
 /// bytes.
 #[pyfunction]
 fn canonical_problem(get: Bound<'_, PyAny>, read: Bound<'_, PyAny>) -> Option<String> {
@@ -681,7 +684,8 @@ fn canonical_problem(get: Bound<'_, PyAny>, read: Bound<'_, PyAny>) -> Option<St
 }
 
 /// Where a stored mirror's view differs from the one its table and the source give
-/// (conventions §8.7, the validator's check), or None: `keys` are the archive's entry
+/// (conventions §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>, the
+/// validator's check), or None: `keys` are the archive's entry
 /// names, `get(key)` its entries, `read(offset, length)` the source's bytes.
 #[pyfunction]
 fn view_problem(keys: Vec<String>, get: Bound<'_, PyAny>, read: Bound<'_, PyAny>) -> Option<String> {

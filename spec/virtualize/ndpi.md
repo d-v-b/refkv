@@ -7,7 +7,7 @@ in [spec/conventions.md](../conventions.md), cited here as "conventions §n".
 How vzip produces this layout as a virtual store is the NDPI profile,
 [Part 2](#part-2-the-profile) below.
 
-Convention version: 0 (until release, conventions §1) · UUID: `6cac71ef-dbb2-4acd-b60c-00389aa4238a` ·
+Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `6cac71ef-dbb2-4acd-b60c-00389aa4238a` ·
 Schema: [schema.json](ndpi/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the NDPI
@@ -26,8 +26,8 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "ndpi"`, `"version": 0`, `"revision": 25` (conventions §1), the file's URL as `source.url`,
-and the source metadata of §5 as the member `"ndpi"`. Its CMO is:
+with `"profile": "ndpi"`, `"version": 0`, `"revision": 25` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
+and the source metadata of [§5](#5-source-metadata) as the member `"ndpi"`. Its CMO is:
 
 ```json
 {
@@ -40,7 +40,7 @@ and the source metadata of §5 as the member `"ndpi"`. Its CMO is:
 ```
 
 `vzip_source` and the group of each IFD under it declare it too, with their
-source metadata (§5); the arrays and the other groups under `vzip_source`
+source metadata ([§5](#5-source-metadata)); the arrays and the other groups under `vzip_source`
 have none.
 
 ## 2. The source
@@ -87,9 +87,9 @@ without a name, with one array per level at path `"<level>"`.
 (centimeter), let `p = 10000 / rx`; of 2 (inch), `p = 25400 / rx`. If `p`
 is less than 25.4, `x` has unit `micrometer` and level 0 scale `p`;
 otherwise, and without a ResolutionUnit tag, no unit and scale 1, as in the
-TIFF convention §4.4. `y` likewise from YResolution.
+TIFF convention [§4.4](tiff.md#44-arrays). `y` likewise from YResolution.
 Level `L`'s scale is level 0's times `(W0 / WL)` (x) or `(H0 / HL)` (y), as
-in the TIFF convention §4.4.
+in [the TIFF convention §4.4](tiff.md#44-arrays).
 
 **Position.** When `x` and `y` have units and level 0's IFD has
 XOffsetFromSlideCenter (65422) and YOffsetFromSlideCenter (65423), in
@@ -114,8 +114,8 @@ A chunk's stream holds the strip's header with a frame header (SOF0) of its
 own size, its intervals, and restart markers and an EOI of its own, so:
 - the chunk's width `a × R × mw` and height `b × mh` MUST each be at most
   65535, the largest a frame header holds, else the input is rejected;
-- the strip's SOF0 segment is kept in the source metadata (§5);
-- the strip's own restart markers and final EOI are not kept (§5): the
+- the strip's SOF0 segment is kept in the source metadata ([§5](#5-source-metadata));
+- the strip's own restart markers and final EOI are not kept ([§5](#5-source-metadata)): the
   hierarchy takes them to be the standard sequence that every valid JPEG
   stream has.
 
@@ -136,7 +136,7 @@ these differences:
   entries, 8-byte next-IFD offset and high words (one per entry) lie within
   the file;
 - the pointer tags that are not SubIFDs or the three known ones are those
-  of type IFD or IFD8 that are not in the table of §2;
+  of type IFD or IFD8 that are not in the table of [§2](#2-the-source);
 - an inline value of count 1 and type LONG (4) or IFD (13) is
   `low + h × 2^32`, its 4 bytes plus the entry's high word `h`, and an
   out-of-line value is at offset `low + h × 2^32`, as the profile reads
@@ -150,7 +150,7 @@ these differences:
   entries, next-IFD offset and high words: `2 + 16 n` bytes for `n`
   entries, plus 8;
 - the IFD object of a level with McuStarts has the member `sof0`: the
-  base64 (conventions §6) of its strip's SOF0 segment, from its `FF C0`
+  base64 ([conventions §6](../conventions.md#6-source-metadata-as-json)) of its strip's SOF0 segment, from its `FF C0`
   marker to its end, which the chunks replace with their own.
 
 Besides what the TIFF convention leaves out, these are not kept:
@@ -285,7 +285,7 @@ image, is not a level: its strip is the array `vzip_source/ifds/3/data`.
 # Part 2. The profile
 
 The NDPI profile of [spec/virtualize.md](../virtualize.md) (revision 16), numbered
-as its §4. It builds on the TIFF profile (§3, [tiff.md](tiff.md#part-2-the-profile)). §1 and §2
+as its [§4](#4-ndpi-profile). It builds on the TIFF profile ([§3](tiff.md#3-tiff-profile), [tiff.md](tiff.md#part-2-the-profile)). [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout)
 are in spec/virtualize.md and apply here.
 
 The output has the convention's layout for the input
@@ -296,7 +296,7 @@ references the file. "The convention §n" below is a section of Part 1.
 ## 4. NDPI profile
 
 Hamamatsu NDPI files are little-endian classic TIFFs (magic 42) with a 64-bit
-extension and pyramids stored as single JPEG strips. They are read by §3.1
+extension and pyramids stored as single JPEG strips. They are read by [§3.1](tiff.md#31-reading)
 ([tiff.md](tiff.md#31-reading)) with the changes below, with the tags of
 [the convention §2](#2-the-source) as the
 checked tags.
@@ -306,7 +306,7 @@ header. The file is NDPI if it is little-endian with magic 42, `16 ≤ V`,
 `V + 2 ≤` the file's size, and the IFD at `V`, read as below, has tag 65420
 among its first `n` entries (its entry count `n` and the `12 n` bytes of
 entries MUST lie within the file for this test; if they do not, the file is
-not NDPI). Otherwise it is a TIFF (§3). This test never rejects.
+not NDPI). Otherwise it is a TIFF ([§3](tiff.md#3-tiff-profile)). This test never rejects.
 
 **IFDs.** The main chain starts at `V`. An IFD at `o` is a `u16` entry count
 `n`, `n` entries of 12 bytes as in TIFF, then a `u64` next-IFD offset, then
@@ -318,7 +318,7 @@ chain is read for the layout: an NDPI's SubIFDs, like the IFDs of its other
 pointer tags, are read in this layout for the source metadata only, and
 never reject the input ([the convention
 §5](#5-source-metadata)). The limits and checks
-of §3.1 apply, with these values read (§3.1, **Values read**): the
+of [§3.1](tiff.md#31-reading) apply, with these values read ([§3.1](tiff.md#31-reading), **Values read**): the
 Magnification of every main-chain IFD, and every tag of the table of each
 level ([the convention §3](#3-levels)); of a
 scalar tag, its first value, of McuStarts, McuStartsHighBytes and
@@ -363,11 +363,11 @@ own, and the source metadata takes the strip's to be the standard sequence
 ([the convention §5](#5-source-metadata)).
 `b` is the largest
 number from 1 to `min(r, floor(1024 / mh))` (at least 1) for which every
-chunk's payload is at most 65519 bytes (§1.2); `b × mh` MUST be at most
+chunk's payload is at most 65519 bytes ([§1.2](../virtualize.md#12-input)); `b × mh` MUST be at most
 65535 (it always is, since `mh ≤ 120`). Chunk `(u, v)` (row `u`,
 column `v`) is the JPEG stream:
 
-1. the header up to its SOF0 segment, a shared byte string (§1.2): a range
+1. the header up to its SOF0 segment, a shared byte string ([§1.2](../virtualize.md#12-input)): a range
    of the data source that holds it;
 2. a literal SOF0 segment: the header's, with its height set to `b × mh` and
    its width to `a × R × mw`;
@@ -384,16 +384,16 @@ Clamping repeats the last row or column of intervals in the chunks at the
 image's bottom and right edges; those pixels lie outside the array and are
 not read. (Every interval decodes on its own after a restart marker.)
 Chunk keys are `<level>/c/0/<u>/<v>`. The references are listed (for
-§1.2's order of first use) level by level, and within a level by `u`, then
+[§1.2](../virtualize.md#12-input)'s order of first use) level by level, and within a level by `u`, then
 `v`.
 
 **Data sources.** Pieces 1 and 3 are the same in every chunk of a level,
 and are held once, in data sources, so that reading a chunk reads only its
 intervals from the file. They sit at the start of the strip, far from most
 intervals, so as ranges of the file they would cost a reader a separate
-request per chunk. By §1.2's order of first use, the first McuStarts level's
+request per chunk. By [§1.2](../virtualize.md#12-input)'s order of first use, the first McuStarts level's
 pieces 1 and 3 are sources 1 and 2; a later level adds a source only for a
 piece whose bytes differ from every earlier one. (In CMU-1.ndpi every level
 shares piece 1, its quantization and Huffman tables, and piece 3, DRI and
 SOS, differs by its restart interval.) Both are JPEG markers and tables, not
-pixel data (§1.2, **Structure only**).
+pixel data ([§1.2](../virtualize.md#12-input), **Structure only**).

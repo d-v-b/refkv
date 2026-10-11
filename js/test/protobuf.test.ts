@@ -23,7 +23,8 @@ test("messages encode canonically and decode back", () => {
     assert.equal(hex(encodeRange(range)), want);
     assert.deepEqual(decodeReference(0x7a76, encodeRange(range), 2), [range]);
   }
-  // Every Concat part is emitted, even an empty one (spec §5.1).
+  // Every Concat part is emitted, even an empty one (spec §5.1
+  // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-encoding>).
   assert.equal(hex(encodeConcat([{ source: 0, offset: 0n, length: 0n }])), "0a00");
   assert.deepEqual(decodeReference(0x7a77, encodeConcat([]), 0), []);
 

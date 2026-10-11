@@ -76,10 +76,14 @@ test("virtualizes the synthetic N5 stores", async () => {
   // The missing block (1/0) and the empty one (2/0) have no entry.
   assert.deepEqual(h.entries.filter((e) => "ranges" in e && e.key.startsWith("a/b/sparse/")).map((e) => e.key),
     ["a/b/sparse/0/0"]);
-  // The empty block's key is listed with the empty objects (§3.1, §6).
+  // The empty block's key is listed with the empty objects (§3.1
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#31-chunks>, §6
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>).
   assert.deepEqual(doc(h, "vzip_source/zarr.json").attributes.vzip_virtualized, { n5: { empty: ["a/b/sparse/2/0"] } });
   assert.ok(!h.entries.some((e) => e.key === "a/b/sparse/0/zarr.json" || e.key.startsWith("docs/")));
-  // Source metadata (spec/virtualize/n5.md §5): the attributes and the layout members the Zarr
+  // Source metadata (spec/virtualize/n5.md §5
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#5-source-metadata>): the
+  // attributes and the layout members the Zarr
   // metadata does not reproduce; the levels are the codecs'; integers beyond 2^53 keep every digit.
   assert.deepEqual(doc(h, "zarr.json").attributes.vzip_virtualized.n5,
     { attributes: { description: "groups" }, metadata: { n5: "4.0.0" } });
@@ -95,13 +99,15 @@ test("virtualizes the synthetic N5 stores", async () => {
   assert.deepEqual(doc(s, "gzip_no_level/zarr.json").codecs[0].configuration.codecs[2],
     { name: "gzip", configuration: { level: 6 } });
   assert.deepEqual(doc(s, "layout_only/zarr.json").attributes, {});
-  // Other objects, a dataset nested in a dataset included, are kept whole (spec/virtualize/n5.md §6).
+  // Other objects, a dataset nested in a dataset included, are kept whole (spec/virtualize/n5.md §6
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>).
   const o = await virtualize("n5_objects");
   assert.deepEqual(o.entries.filter((e) => "ranges" in e).map((e) => e.key), ["a/0", "vzip_source/objects/README",
     "vzip_source/objects/a/labels/0", "vzip_source/objects/a/labels/attributes.json", "vzip_source/objects/g/notes.txt"]);
   // The empty g/empty is listed in vzip_source's source metadata.
   assert.deepEqual(doc(o, "vzip_source/zarr.json").attributes.vzip_virtualized, { n5: { empty: ["g/empty"] } });
-  // An object named zarr.json is escaped with ~, one to one (spec/virtualize/n5.md §6).
+  // An object named zarr.json is escaped with ~, one to one (spec/virtualize/n5.md §6
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>).
   const n = await virtualize("n5_node_names");
   const kept = n.entries.filter((e) => e.key.startsWith("vzip_source/objects/")).map((e) => e.key);
   assert.deepEqual(kept, ["vzip_source/objects/a/zarr.json~", "vzip_source/objects/g/zarr.json~~", "vzip_source/objects/zarr.json~"]);

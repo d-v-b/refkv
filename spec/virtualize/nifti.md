@@ -6,7 +6,7 @@ in [spec/conventions.md](../conventions.md), cited here as "conventions §n".
 How vzip produces this layout as a virtual store, and which files it
 accepts, is the NIfTI profile, [Part 2](#part-2-the-profile) below.
 
-Convention version: 0 (until release, conventions §1) · UUID: `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` ·
+Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` ·
 Schema: [schema.json](nifti/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the NIfTI
@@ -20,8 +20,8 @@ of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "nifti"`, `"version": 0`, `"revision": 25` (conventions §1), the file's URL as `source.url`,
-and the source metadata of §5 as the member `"nifti"`. Its CMO is:
+with `"profile": "nifti"`, `"version": 0`, `"revision": 25` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
+and the source metadata of [§5](#5-source-metadata) as the member `"nifti"`. Its CMO is:
 
 ```json
 {
@@ -165,7 +165,7 @@ fastest, then `y`, `z`, `t` and `k`, the index along dimension 5.
 The hierarchy is one image at the root ([conventions §4](../conventions.md#4-images)),
 without a name, with one array at path `"0"`: the root `zarr.json` is
 `{"zarr_format": 3, "node_type": "group", "attributes": A}`, where `A` has
-`ome` (`M`, below), `zarr_conventions` and `vzip_virtualized` (§1).
+`ome` (`M`, below), `zarr_conventions` and `vzip_virtualized` ([§1](#1-declaration)).
 
 ### 4.1 The array
 
@@ -174,7 +174,7 @@ without a name, with one array at path `"0"`: the root `zarr.json` is
   dimension of size 1 up to `n` still has its axis.)
 - **Shape:** `T`, `C` (the samples per voxel for a color type), `Z`, `Y`
   and `X`, each only for the axes present.
-- **Data type:** from §3.
+- **Data type:** from [§3](#3-data-types).
 - **Stored order.** The file holds the voxels as a row-major array `V`
   whose axes are, outermost first: `c` (dimension 5) if `n ≥ 5`; `t` if
   `n ≥ 4`; `z` if `n ≥ 3`; `y`; `x`; and, for a color type, `c` (the
@@ -198,7 +198,7 @@ without a name, with one array at path `"0"`: the root `zarr.json` is
   larger than 1 byte. There is no compressor.
 - **Chunks:** every chunk is present. The array's chunk with coords `q_a`
   along each axis `a` is the chunk of `V` with the same coords along the
-  same axes: the bytes that conventions §7 gives it, in the order of `V`,
+  same axes: the bytes that [conventions §7](../conventions.md#7-source-values-as-arrays) gives it, in the order of `V`,
   which the transpose codec puts in the array's order. An edge chunk along
   the cut axis is followed by zero bytes up to the whole chunk (Zarr stores
   edge chunks whole).
@@ -210,7 +210,7 @@ without a name, with one array at path `"0"`: the root `zarr.json` is
   values is cut along `t` into 4 chunks of 25000.
 
 The array holds the voxels' raw values. NIfTI's value scaling is not
-applied; it is recorded in the source metadata (§5).
+applied; it is recorded in the source metadata ([§5](#5-source-metadata)).
 
 ### 4.2 Value scaling
 
@@ -252,7 +252,7 @@ translation per axis, so an affine is used only when it is
 An affine that flips or rotates an axis, such as the common radiological
 sform with a negative `srow_x[0]`, is not representable: the image then has
 no translation, and its scales come from `pixdim`. The affine itself is
-always in the source metadata (§5).
+always in the source metadata ([§5](#5-source-metadata)).
 
 **Scales.** A number is **valid** if it is finite and positive.
 
@@ -280,7 +280,7 @@ axes present). Otherwise it has none.
   `("G", "00FF00")`, `("B", "0000FF")` and, for RGBA32, `("A", "FFFFFF")`.
 - **Display range:** another data type, with `cal_min` and `cal_max`
   finite and `cal_max > cal_min`. The window in raw values is
-  `lo = cal_min` and `hi = cal_max`; when the scaling applies (§4.2), `lo`
+  `lo = cal_min` and `hi = cal_max`; when the scaling applies ([§4.2](#42-value-scaling)), `lo`
   and `hi` are instead the smaller and the larger of `(cal_min − i) / s`
   and `(cal_max − i) / s`, and when either of these is not finite (the
   arithmetic overflows binary64, which only NIfTI-2's binary64 fields can
@@ -304,8 +304,8 @@ are all zero (padding):
 
 - `nifti_version`: 1 or 2.
 - `byte_order`: `"little"` or `"big"`.
-- `header`: an object with one member per field of §2 for the file's
-  version, in the order of §2 and named as there. A `char[k]` field is
+- `header`: an object with one member per field of [§2](#2-the-header) for the file's
+  version, in the order of [§2](#2-the-header) and named as there. A `char[k]` field is
   text; every other field is a number, or an array of `k` numbers for
   `T[k]`. (For example, `magic` is `"n+1"` or `"n+2"`, the bytes before
   the first NUL.) A float (`f32` or `f64`) value whose bits a JSON number
@@ -320,7 +320,7 @@ are all zero (padding):
   canonical NaN, and `{"bits": H}` as its bits.
 - `header_rest`: present when a `char[k]` field other than `magic` has a
   NUL followed by a byte that is not NUL. An object with one member per
-  such field, in the order of §2 and named as there: the field's bytes
+  such field, in the order of [§2](#2-the-header) and named as there: the field's bytes
   after its first NUL, to its end, in base64. (`magic`'s bytes are fixed by
   the profile's choice of the file.)
 - `extender`: present when the 4 **extender** bytes at offset `L` are
@@ -337,7 +337,7 @@ are all zero (padding):
   - for the codes of text extensions, 4 (AFNI, XML), 6 (comment), 8 (XCEDE,
     XML), 32 (CIFTI, XML) and 44 (MRS, JSON), when `D` is at most 2^16 bytes
     and every byte after its first NUL is NUL (the padding): `"text"`, the
-    text value (conventions §6) of `D` up to its first NUL, `t` bytes;
+    text value ([conventions §6](../conventions.md#6-source-metadata-as-json)) of `D` up to its first NUL, `t` bytes;
     and `"esize"`, the extension's `esize`, when it is not `ceil((t + 8) /
     16) × 16` (the fewest NULs that pad the extension to a multiple of 16
     bytes, none when `t + 8` is one). `D` is then the text's bytes followed
@@ -382,7 +382,7 @@ are all zero (padding):
 - `unparsed`: present when the bytes from `e` to `v` are not all zero,
   where `e` is where the chain ends, or `L + 4` when the extender's first
   byte is 0: the path `vzip_source/unparsed` of a `uint8` array of those
-  `v − e` bytes (conventions §7), referenced where the file holds them.
+  `v − e` bytes ([conventions §7](../conventions.md#7-source-values-as-arrays)), referenced where the file holds them.
   These are, for example, bytes after an extender whose first byte is 0, an
   extension the chain could not read, or the fewer than 8 bytes after its
   last extension. Bytes from `e` to `v` that are all zero are padding, and
@@ -391,8 +391,8 @@ are all zero (padding):
   than its size), the path `vzip_source/trailing` of a `uint8` array of
   those bytes.
 - `scaling`: `{"slope": s, "inter": i}`, present when the scaling is
-  nontrivial (§4.2).
-- `affine`: present when the image has an affine (§4.3):
+  nontrivial ([§4.2](#42-value-scaling)).
+- `affine`: present when the image has an affine ([§4.3](#43-scales-units-and-position)):
   `{"form": "sform" | "qform", "applied": A}`, where `A` is whether the
   affine is representable, and so gives the scales and translation. When
   it is not, it is still in `header`, and the image is placed by `pixdim`
@@ -402,10 +402,10 @@ are all zero (padding):
 use, so that a reader who needs, say, the slice timing (`slice_code`,
 `slice_duration`), the intent, or the full affine of a rotated image finds
 it here. `scaling` is derived from `header`; it is there so that a reader
-need not repeat the rules of §4.2.
+need not repeat the rules of [§4.2](#42-value-scaling).
 
 `vzip_source` has no source metadata: it does not declare the convention.
-The node exists when it has an array (conventions §2).
+The node exists when it has an array ([conventions §2](../conventions.md#2-attributes)).
 
 ## 6. Example
 
@@ -488,7 +488,7 @@ bytes.
 # Part 2. The profile
 
 The NIfTI profile of [spec/virtualize.md](../virtualize.md) (revision 16), numbered
-as its §7. §1 and §2 are in spec/virtualize.md and apply here.
+as its [§7](#7-nifti-profile). [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here.
 
 The output has the convention's layout for the input
 ([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
@@ -498,13 +498,13 @@ which inputs are accepted and how each chunk references the file. "The conventio
 
 ### 7.1 Header
 
-The input is a NIfTI-1 or NIfTI-2 single file (`.nii`), which §1.2 chose by
+The input is a NIfTI-1 or NIfTI-2 single file (`.nii`), which [§1.2](../virtualize.md#12-input) chose by
 its first bytes. Its header is the first `L` bytes of the file
 ([the convention §2](#2-the-header)); a file
 shorter than `L` bytes is rejected. The file is **little-endian** if bytes
 0–3, read as a little-endian 32-bit integer, are `L`, and **big-endian**
-otherwise (§1.2 has checked that one of the two holds). Every field is read
-in that byte order, at the offset and with the type that the convention §2
+otherwise ([§1.2](../virtualize.md#12-input) has checked that one of the two holds). Every field is read
+in that byte order, at the offset and with the type that [the convention §2](#2-the-header)
 gives it.
 
 **Checks.** The input is rejected unless all of these hold:
@@ -525,14 +525,14 @@ gives it.
   multiple of 16 is not checked, and a `vox_offset` of 0, which some readers
   take to mean 352, is rejected.)
 - **Data size:** with `X`, `Y`, `Z`, `T`, `C` the sizes of the convention
-  §2, the size of the voxel data, `B = X × Y × Z × T × C × b` computed
+  [§2](#2-the-header), the size of the voxel data, `B = X × Y × Z × T × C × b` computed
   exactly, is at most 2^53 − 1, and `v + B` is at most the file's size.
 
 Every check applies whatever the other fields hold. No other field is
-checked: the values the layout uses (the convention §4) only change the
+checked: the values the layout uses ([the convention §4](#4-the-image)) only change the
 output as the convention says, and never reject the input. (A display
 window whose scaling overflows binary64 is left out, by the convention
-§4.4, rather than rejected by §1.3; no other number the layout computes can
+[§4.4](#44-channels), rather than rejected by [§1.3](../virtualize.md#13-arithmetic); no other number the layout computes can
 overflow.)
 
 **Extensions.** The 4 extender bytes at offset `L`, the extension chain
@@ -542,7 +542,7 @@ when the first of them is not 0, and the bytes from where the chain ends
 to make the source metadata. They never reject the input, and never change
 where the voxel data starts: it starts at `v` whatever they hold. A
 header-and-image pair (magic `ni1` or `ni2`) and a gzipped file are rejected
-by §1.2.
+by [§1.2](../virtualize.md#12-input).
 
 ### 7.2 Chunks
 
@@ -559,12 +559,12 @@ as [conventions §7](../conventions.md#7-source-values-as-arrays)
 references a chunk of contiguous values (with the chunk limit 2^17 bytes):
 one range of source 0, the chunk's bytes in the file, followed for an edge
 chunk by its zero padding as a literal range; when that reference does not
-fit in a payload (§1.2), the chunk is copied, with its padding. The ranges
+fit in a payload ([§1.2](../virtualize.md#12-input)), the chunk is copied, with its padding. The ranges
 lie within the file (by the data size check). The output has no data
 sources: its source table is source 0 alone.
 
-The arrays of `vzip_source` (the convention §5) are referenced where the
-file holds them, and copied where they must be, as conventions §7 says (the
+The arrays of `vzip_source` ([the convention §5](#5-source-metadata)) are referenced where the
+file holds them, and copied where they must be, as [conventions §7](../conventions.md#7-source-values-as-arrays) says (the
 ecodes of `vzip_source/extensions/ecode` and the esizes of
 `vzip_source/extensions/esize`, scattered in the file, are copied). The archive has no other entries
 than these, the root's and the array's `zarr.json`, and `vzip_source`'s

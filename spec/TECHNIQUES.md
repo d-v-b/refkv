@@ -37,7 +37,7 @@ each kind differently.
      into attributes, translated by fixed rules so that independent
      producers agree.
    - When semantic metadata is a *stream of numbers* (one value per frame,
-     a lookup table), it is data again, and becomes an array (§4).
+     a lookup table), it is data again, and becomes an array ([§4](#4-numeric-metadata-as-arrays)).
 
 The test for which kind a value is: would a scientist reading the
 hierarchy want it, and can it be written as JSON without encoding bytes?
@@ -128,7 +128,7 @@ Three sources of such arrays, by how the values are stored:
    reference, so these are inline arrays computed by rules the convention
    states.
 
-A frame-indexed stream is reshaped to the frame grid of §3. ND2's frame
+A frame-indexed stream is reshaped to the frame grid of [§3](#3-axes-grids-and-coordinates). ND2's frame
 `f` is row-major over its loops, so its `AcqTimesCache` becomes a
 `(t, p, z)` array, aligned with the images.
 
@@ -143,7 +143,7 @@ before any pixel. Examples:
 - ND2's event list and per-frame metadata.
 
 Those collections go on a separate node: a child group of the image,
-which only a reader who wants them opens, holding the §4 arrays as well.
+which only a reader who wants them opens, holding the [§4](#4-numeric-metadata-as-arrays) arrays as well.
 The root keeps the file-level description, which is small.
 
 A source that is itself a tree (HDF5) is best mirrored: one Zarr group per
@@ -178,7 +178,7 @@ The machinery that made eleven formats agree across two implementations:
 
 ## 7. Proposal: the conventions' source metadata
 
-From §1, §4 and §5:
+From [§1](#1-three-kinds-of-information), [§4](#4-numeric-metadata-as-arrays) and [§5](#5-metadata-that-scales-with-the-data):
 
 | format | root `S` (small, file-level) | metadata node `S` | arrays |
 |---|---|---|---|

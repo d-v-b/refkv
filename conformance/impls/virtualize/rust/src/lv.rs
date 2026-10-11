@@ -1,4 +1,6 @@
-// §4.2 lite variant decoder and typed accessors.
+// §4.2
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#42-lite-variant>
+// lite variant decoder and typed accessors.
 
 use crate::common::*;
 use crate::rej;
@@ -176,7 +178,9 @@ pub fn inflate_exact(src: &[u8]) -> R<Vec<u8>> {
     Ok(out)
 }
 
-// ---- typed access (§4.2 Values / Paths) ----
+// ---- typed access (§4.2
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#42-lite-variant>
+// Values / Paths) ----
 
 pub fn member<'a>(o: &'a V, name: &str) -> R<Option<&'a V>> {
     match o {

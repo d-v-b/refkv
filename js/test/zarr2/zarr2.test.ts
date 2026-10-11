@@ -51,7 +51,9 @@ test("virtualizes the synthetic Zarr v2 stores", async () => {
   const f = await virtualize("zarr2_fill_values");
   assert.deepEqual(["nan", "inf", "neg_inf", "null_int", "null_bool"].map((p) => doc(f, `${p}/zarr.json`).fill_value),
     ["NaN", "Infinity", "-Infinity", 0, false]);
-  // The empty chunk's key is listed with the empty objects (§3.2, §5).
+  // The empty chunk's key is listed with the empty objects (§3.2
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#32-chunks>, §5
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
   assert.deepEqual(doc(f, "vzip_source/zarr.json").attributes.vzip_virtualized, { zarr2: { empty: ["nan/0.0"] } });
   const h = await virtualize("zarr2_hierarchy");
   assert.deepEqual(h.entries.filter((e) => "ranges" in e).map((e) => e.key), [
@@ -60,8 +62,11 @@ test("virtualizes the synthetic Zarr v2 stores", async () => {
     "vzip_source/objects/g/h/0.0", "vzip_source/objects/notes/README.md", "vzip_source/objects/orphan/.zattrs",
   ]);
   assert.equal(h.sources.at(-1)!.url, "https://data.test/zarr2/zarr2_hierarchy/orphan/.zattrs");
-  // Attributes are copied unchanged under the convention (conventions §2), OME-NGFF 0.4 ones included
-  // (the root does not declare 0.4, §1.4).
+  // Attributes are copied unchanged under the convention (conventions §2
+  // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>), OME-NGFF 0.4 ones
+  // included
+  // (the root does not declare 0.4, §1.4
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>).
   const o = await virtualize("zarr2_ome_attrs");
   assert.equal(o.format, "zarr2");
   for (const path of ["0", "0/labels/cells", "has_ome"]) {
@@ -69,7 +74,9 @@ test("virtualizes the synthetic Zarr v2 stores", async () => {
     assert.deepEqual(doc(o, `${path}/zarr.json`).attributes, declare({}, "zarr2", undefined, { attributes: zattrs }), path);
   }
   assert.ok(!("dimension_names" in doc(o, "0/1/zarr.json")));
-  // Source metadata (spec/virtualize/zarr2.md §4), the levels the codecs carry, and -0.0 fills.
+  // Source metadata (spec/virtualize/zarr2.md §4
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>), the
+  // levels the codecs carry, and -0.0 fills.
   const s = await virtualize("zarr2_source_metadata");
   const bytes = (k: string) => new TextDecoder().decode((s.entries.find((e) => e.key === k) as { bytes: Uint8Array }).bytes);
   assert.ok(bytes("zarr.json").includes('"id":18446744073709551615,"neg":-9007199254740993'));
@@ -83,7 +90,8 @@ test("virtualizes the synthetic Zarr v2 stores", async () => {
   assert.deepEqual(["zlib_9", "zlib_no_level", "gzip_default", "zstd_checksum"].map((p) => doc(s, `${p}/zarr.json`).codecs[1]), [
     { name: "zlib", configuration: { level: 9 } }, { name: "zlib", configuration: { level: 1 } },
     { name: "gzip", configuration: { level: 6 } }, { name: "zstd", configuration: { level: -3, checksum: true } }]);
-  // Other objects are kept whole under vzip_source/objects/ (spec/virtualize/zarr2.md §5).
+  // Other objects are kept whole under vzip_source/objects/ (spec/virtualize/zarr2.md §5
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
   const ob = await virtualize("zarr2_objects");
   assert.deepEqual(ob.entries.filter((e) => "ranges" in e).map((e) => e.key), ["a/0", "a/1", "sub/b/0",
     "vzip_source/objects/.zmetadata", "vzip_source/objects/OME/METADATA.ome.xml", "vzip_source/objects/README.md", "vzip_source/objects/a/inner/.zgroup~",
@@ -101,7 +109,8 @@ test("virtualizes the synthetic Zarr v2 stores", async () => {
     ["vzip_source/objects/g/zarr.json~", "g/zarr.json"], ["vzip_source/objects/x/.zarray~~~", "x/.zarray~~"],
     ["vzip_source/objects/x/zarr.jsonx", "x/zarr.jsonx"], ["vzip_source/objects/zarr.json~", "zarr.json"],
     ["vzip_source/objects/zarr.json~~", "zarr.json~"]].map(([k, u]) => [k, base + u]));
-  // A float fill written as an integer beyond 2^53 - 1 keeps its digits in M (§4).
+  // A float fill written as an integer beyond 2^53 - 1 keeps its digits in M (§4
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>).
   const fi = await virtualize("zarr2_fill_float_int");
   const m = (p: string) => new TextDecoder().decode((fi.entries.find((e) => e.key === `${p}/zarr.json`) as { bytes: Uint8Array }).bytes);
   assert.ok(m("h").includes('"vzip_virtualized":{"zarr2":{"metadata":{"fill_value":9007199254740993}}}'));
@@ -138,7 +147,10 @@ for (const name of ["zarr2_reject_json_nan_literal", "zarr2_reject_no_root_metad
 }
 
 test("keeps a root array's other objects without a vzip_source group", async () => {
-  // An array has no children (spec/virtualize/zarr2.md §5; spec/virtualize/n5.md §6).
+  // An array has no children (spec/virtualize/zarr2.md §5
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>;
+  // spec/virtualize/n5.md §6
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>).
   const fixtures = fileURLToPath(new URL("../../../fixtures/", import.meta.url));
   for (const name of ["zarr2/zarr2_root_array_objects", "n5/n5_root_dataset_objects"]) {
     const v = await virtualizeStore(directoryStore(fixtures + name, `https://data.test/${name}/`));
@@ -151,8 +163,10 @@ test("keeps a root array's other objects without a vzip_source group", async () 
   const e = v.entries.find((x) => x.key === "vzip_source/empty.json") as { bytes: Uint8Array };
   assert.equal(new TextDecoder().decode(e.bytes), '{"empty":["empty","\u00e9mpty"]}');
   assert.ok(!v.entries.some((x) => x.key === "vzip_source/zarr.json"));
-  // An empty chunk object of a root array is listed there too (spec/virtualize/zarr2.md §3.2,
-  // spec/virtualize/n5.md §3.1).
+  // An empty chunk object of a root array is listed there too (spec/virtualize/zarr2.md §3.2
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#32-chunks>,
+  // spec/virtualize/n5.md §3.1
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#31-chunks>).
   for (const name of ["zarr2/zarr2_root_array_empty_chunk", "n5/n5_root_dataset_empty_block"]) {
     const w = await virtualizeStore(directoryStore(fixtures + name, "https://data.test/e/"));
     assert.deepEqual(w.entries.filter((x) => "ranges" in x).map((x) => x.key), ["0"], name);

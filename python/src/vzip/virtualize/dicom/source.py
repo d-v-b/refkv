@@ -1,6 +1,7 @@
 """A DICOM file's File Meta Information and dataset in the DICOM JSON Model
 (PS3.18 §F.2): the source metadata of the DICOM convention
-(spec/virtualize/dicom.md §5)."""
+(spec/virtualize/dicom.md §5
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
 
 from __future__ import annotations
 
@@ -39,7 +40,8 @@ MASKS: list[tuple[str, str]] = list(_DICTIONARY["masks"].items())
 
 
 def dictionary_vr(tag: int) -> str | None:
-    """The VR the data dictionary gives a tag, or None (spec/virtualize/dicom.md §5)."""
+    """The VR the data dictionary gives a tag, or None (spec/virtualize/dicom.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
     if tag >> 16 & 1:  # a private group: only its private creators have a known VR
         return "LO" if 0x0010 <= tag & 0xFFFF <= 0x00FF else None
     key = f"{tag:08X}"
@@ -61,8 +63,9 @@ _DECIMAL_PARTS = re.compile(r"([+-]?)([0-9]*)(?:\.([0-9]*))?(?:[eE]([+-]?)([0-9]
 # The most digits of a DS exponent, without its sign and leading zeros, that
 # can leave a value of at most 2^16 bytes in binary64's range; and the most
 # digits of an IS value, without its sign and leading zeros, that can be at
-# most 2^53 - 1 (spec/virtualize/dicom.md §5). Python's int() refuses
-# strings of over 4300 digits, so longer ones are never converted.
+# most 2^53 - 1 (spec/virtualize/dicom.md §5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>). Python's
+# int() refuses strings of over 4300 digits, so longer ones are never converted.
 MAX_EXPONENT_DIGITS = 5
 MAX_INTEGER_DIGITS = 16
 
@@ -88,7 +91,8 @@ def decimal_key(t: str) -> tuple[str, str, int] | None:
 
 def ds_number(t: str):
     """A DS value as a JSON number when that number is the text's decimal
-    value exactly, else None (spec/virtualize/dicom.md §5)."""
+    value exactly, else None (spec/virtualize/dicom.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
     if not DECIMAL.fullmatch(t):
         return None
     key = decimal_key(t)
@@ -126,9 +130,12 @@ INT64 = 1 << 63
 
 def typed_values(vr: str, data: bytes) -> tuple[str, bytes] | None:
     """A DS or IS value as float64 or int64 values in little endian, when
-    every value is a number exactly: a DS value that §5 writes as a number, an
-    IS value of the form [+-]?[0-9]+ within int64's range; else None
-    (spec/virtualize/dicom.md §5, Per-frame values)."""
+    every value is a number exactly: a DS value that §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata> writes as a
+    number, an IS value of the form [+-]?[0-9]+ within int64's range; else None
+    (spec/virtualize/dicom.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>, Per-frame
+    values)."""
     out: list = []
     for p in data.split(b"\\"):
         p = p.rstrip(b" \0").lstrip(b" ")
@@ -153,7 +160,8 @@ def typed_values(vr: str, data: bytes) -> tuple[str, bytes] | None:
 
 
 def is_number(t: str):
-    """An IS value of the form [+-]?[0-9]+ as spec/conventions.md §6 writes
+    """An IS value of the form [+-]?[0-9]+ as spec/conventions.md §6
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json> writes
     an integer: a number up to 2^53 - 1, else the string of its digits."""
     negative = t[0] == "-"
     digits = t.lstrip("+-").lstrip("0")
@@ -214,7 +222,8 @@ def _js_number(x) -> str:
 
 def json_size(v) -> int:
     """The length of `v` in UTF-8 as ECMAScript's JSON.stringify writes it
-    (spec/virtualize/dicom.md §5)."""
+    (spec/virtualize/dicom.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
     if v is None or v is True:
         return 4
     if v is False:
@@ -237,7 +246,8 @@ MAX_TEXT = 1 << 16  # the longest text value kept as JSON
 MAX_MEMBER = 1 << 14  # the largest top-level attribute, as JSON, kept on the root
 MAX_ROOT = 1 << 16  # the largest the root's meta and dataset, as JSON, may be together
 # Data Set Trailing Padding: dead space. (Group lengths and the Extended Offset
-# Table are layout only where spec/virtualize/dicom.md §5 says.)
+# Table are layout only where spec/virtualize/dicom.md §5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata> says.)
 PADDING = 0xFFFCFFFC
 EOT_TAGS = (0x7FE00001, 0x7FE00002)  # the Extended Offset Table and its lengths
 ITEM_SIZES = {"uint8": 1, "int16": 2, "uint16": 2, "int32": 4, "uint32": 4, "float32": 4, "float64": 8, "int64": 8,
@@ -255,7 +265,8 @@ GATHERED = "value"
 STRUCTURE = "structure"
 # The bounds of a gathered sequence, past which it keeps its bytes: its
 # distinct paths, the JSON size of its Structures, and its arrays' cost, per
-# byte of the sequence (spec/virtualize/dicom.md §5, Bounds).
+# byte of the sequence (spec/virtualize/dicom.md §5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>, Bounds).
 MAX_PATHS = 1024
 MAX_STRUCTURES = 1 << 16
 MAX_COST = 16
@@ -291,7 +302,8 @@ def sorted_dataset(out: dict) -> dict:
 
 
 class GroupLengths:
-    """The group lengths of one dataset (spec/virtualize/dicom.md §5): each
+    """The group lengths of one dataset (spec/virtualize/dicom.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>): each
     is layout, and dropped, when it is the only element of its tag in the
     dataset, of an even group, UL (or implicit) with 4 bytes, and its value is
     the length of the run of elements of its group that follows it."""
@@ -333,8 +345,9 @@ class GroupLengths:
 
 class Translator:
     """Walks the file again, after the profile has accepted its structure, and
-    translates every element (spec/virtualize/dicom.md §5): small values as
-    JSON, large ones as arrays of the source metadata node, named in the
+    translates every element (spec/virtualize/dicom.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>): small
+    values as JSON, large ones as arrays of the source metadata node, named in the
     element's BulkDataURI."""
 
     def __init__(self, read: Reader, size: int) -> None:
@@ -365,7 +378,8 @@ class Translator:
 
     def gather(self, vr: str, el: Element, path: str) -> dict:
         """A value of an item of a gathered sequence, gathered with the others
-        of its path (spec/virtualize/dicom.md §5)."""
+        of its path (spec/virtualize/dicom.md §5
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
         assert self.within is not None
         index, rest = path[len(self.within) + 1:].split("/", 1)
         n = el.length
@@ -544,7 +558,9 @@ class Translator:
     def gathered(self, path: str, items: list, mark: tuple[int, int], length: int) -> dict | None:
         """The attribute of the gathered sequence at `path`, whose `length`
         bytes hold `items`, with its arrays planned; or None when it is past
-        the bounds (spec/virtualize/dicom.md §5, Bounds)."""
+        the bounds (spec/virtualize/dicom.md §5
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>,
+        Bounds)."""
         count = len(items)
         columns: dict[str, list[tuple[int, Extent]]] = {}
         for e in self.extents[mark[1]:]:
@@ -609,7 +625,9 @@ class Translator:
 def gathered_kind(members: list[tuple[int, Extent]]) -> tuple[str, int, bool] | None:
     """The array of one path of a gathered sequence's items: (data type, row
     bytes, little endian) of a 2-D array, or None for a family
-    (spec/virtualize/dicom.md §5, Gathered values)."""
+    (spec/virtualize/dicom.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>, Gathered
+    values)."""
     kinds = {(e.values[0], len(e.values[1]), True) if e.values is not None else (e.data_type, e.n, e.little)
              for _, e in members}
     if len(kinds) == 1:
@@ -623,7 +641,8 @@ def gathered_kind(members: list[tuple[int, Extent]]) -> tuple[str, int, bool] | 
 
 
 def gathered_cost(members: list[tuple[int, Extent]], count: int) -> int:
-    """The bytes that one path's array holds (spec/virtualize/dicom.md §5,
+    """The bytes that one path's array holds (spec/virtualize/dicom.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>,
     Bounds): a family's offsets and data; a 2-D array's rows, only those with
     a value when they are sparse."""
     kind = gathered_kind(members)
@@ -634,7 +653,8 @@ def gathered_cost(members: list[tuple[int, Extent]], count: int) -> int:
 
 def gathered_plans(path: str, members: list[tuple[int, Extent]], count: int, read: Reader) -> list[Plan]:
     """The values of one path of the per-frame items (spec/virtualize/dicom.md
-    §5, Per-frame values): a 2-D array of their data type when they all have
+    §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>,
+    Per-frame values): a 2-D array of their data type when they all have
     one data type, length and byte order (a DS or IS value its typed values,
     when it has them), else of their bytes as stored when they all have one
     length, else a family of those bytes."""
@@ -652,7 +672,9 @@ def gathered_rows(path: str, data_type: str, size: int, count: int, m: int, rows
                   read: Reader) -> Plan:
     """A 2-D array [count, m] of `size`-byte values, whose row i is `rows[i]`:
     a range of the file, or bytes; a row without a value is zero bytes
-    (spec/virtualize/dicom.md §5, Gathered values)."""
+    (spec/virtualize/dicom.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>, Gathered
+    values)."""
     row = m * size
     dims = ["index", dimension(data_type)]
     endian = "little" if little else "big"
@@ -692,7 +714,9 @@ def gathered_rows(path: str, data_type: str, size: int, count: int, m: int, rows
 
 def copied_plan(path: str, data_type: str, shape: list[int], dims: list[str], packed: bytes, item: int) -> Plan:
     """Values that the hierarchy holds itself, `packed` in C order, cut as
-    contiguous values (spec/conventions.md §7), every chunk copied."""
+    contiguous values (spec/conventions.md §7
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>), every
+    chunk copied."""
     chunk_shape, cut = grid_chunks(0, shape, item, lambda o, n: packed[o:o + n])
     chunks = {k: v if isinstance(v, bytes) else b"".join(packed[r[0]:r[0] + r[1]] if isinstance(r, tuple) else r
                                                          for r in v) for k, v in cut.items()}
@@ -707,7 +731,8 @@ def object_size(sizes: dict[str, int]) -> int:
 
 def move_large(root: dict[str, dict], node: dict[str, dict]) -> None:
     """Moves the members of the root's `meta` and `dataset` that would make
-    the root large to the node's (spec/virtualize/dicom.md §5): each over
+    the root large to the node's (spec/virtualize/dicom.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>): each over
     MAX_MEMBER, then, while the two are over MAX_ROOT together, the largest
     left (of equal sizes, the first by name, `meta`'s before `dataset`'s)."""
     sizes: dict[str, dict[str, int]] = {}
@@ -736,7 +761,9 @@ def source_metadata(read: Reader, size: int, start: int, encoding: Encoding, pix
                     eot_layout: bool = False, fragments: list[tuple[int, int]] | None = None,
                     offset_table: bool = False):
     """(root S, node S, arrays) for a file whose structure the profile has
-    accepted (spec/virtualize/dicom.md §5). The dataset is read from its
+    accepted (spec/virtualize/dicom.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>). The
+    dataset is read from its
     start to the end of the file; past Pixel Data (which ends at `pixel_end`),
     what does not parse is kept as bytes. `pixel_extra` is the (offset, length)
     of native pixel data past the frames, and `unreferenced` the members and

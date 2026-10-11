@@ -227,7 +227,7 @@ pins the sources (above). Each convention has a JSON Schema next to it,
 files of every profile (including inputs each must reject) and on the public
 files and stores listed in
 [conformance/virtualize/](../../conformance/virtualize/) (`corpus_*.txt`),
-and checks that their outputs are equivalent (spec/virtualize.md §1.1):
+and checks that their outputs are equivalent ([spec/virtualize.md §1.1](../../spec/virtualize.md#11-output-and-equivalence)):
 
 - `ref`, the reference (`conformance/virtualize/reference/cli.py`): for
   TIFF, ND2 and CZI, the Python profiles vzip shipped before these formats

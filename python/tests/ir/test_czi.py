@@ -82,7 +82,9 @@ def test_streaming_xml_values_are_the_tree_s():
 
 
 def test_bands_have_a_floor():
-    """Divisor bands (spec/virtualize/czi.md §4.3) when they hold at least 1 MiB; else bands of the
+    """Divisor bands (spec/virtualize/czi.md §4.3
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#43-image-arrays>) when they hold
+    at least 1 MiB; else bands of the
     most rows within 2^24 bytes, the last of each tile row shorter."""
     cases = [
         # (h, h2, r, w, q, uncompressed) -> (y lengths, rows, per)

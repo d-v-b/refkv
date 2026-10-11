@@ -3,8 +3,9 @@
     python -m vzip.cli [--allow-private-hosts] read <archive> <queries.json>
     python -m vzip.cli write <description.json> <out>
 
-`read` uses the reader's default policy (spec §8.7). --allow-private-hosts is
-UNSAFE: it lets the archive's sources reach loopback, private, link-local and
+`read` uses the reader's default policy (spec §8.7
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>). --allow-private-hosts
+is UNSAFE: it lets the archive's sources reach loopback, private, link-local and
 other special addresses. The harness needs it, since the runner serves its
 HTTP sources on 127.0.0.1.
 """

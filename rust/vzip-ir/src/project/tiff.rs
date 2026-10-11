@@ -1,5 +1,6 @@
-//! The TIFF image projection (spec/virtualize/tiff.md §4) from a valid IR: each level's
-//! planes name the IR's tiles; the facts hold the format, sizes, scales and
+//! The TIFF image projection (spec/virtualize/tiff.md §4
+//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#4-the-image>) from a valid IR:
+//! each level's planes name the IR's tiles; the facts hold the format, sizes, scales and
 //! translation.
 
 use super::{arr, key, n, obj, strs, translations, truthy};

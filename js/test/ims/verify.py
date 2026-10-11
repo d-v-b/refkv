@@ -40,7 +40,9 @@ from http_server import Server  # noqa: E402
 from vzip.policy import Policy  # noqa: E402
 from vzip.store import VZipStore  # noqa: E402
 
-# The sources are served on 127.0.0.1, which spec §8.7 rule 3 refuses by default.
+# The sources are served on 127.0.0.1, which spec §8.7
+# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3 refuses by
+# default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
 
 
@@ -76,7 +78,8 @@ def image_size(group) -> tuple[int, ...]:
 
 
 def text(b: bytes):
-    """A text value (conventions §6)."""
+    """A text value (conventions §6
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>)."""
     try:
         return b.decode("utf-8")
     except UnicodeDecodeError:
@@ -97,12 +100,15 @@ def shaped(dims: tuple, values: list):
 
 
 def plain(dt: np.dtype) -> bool:
-    """Whether h5py reads a datatype as the numbers that §5 writes as JSON."""
+    """Whether h5py reads a datatype as the numbers that §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata> writes as
+    JSON."""
     return dt.kind in "iuf" and dt.names is None and dt.subdtype is None and h5py.check_enum_dtype(dt) is None
 
 
 def text_bytes(v) -> bytes:
-    """The bytes of a text value (conventions §6)."""
+    """The bytes of a text value (conventions §6
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>)."""
     return v["latin1"].encode("latin-1") if isinstance(v, dict) else v.encode("utf-8")
 
 
@@ -119,12 +125,15 @@ CLASSES = {H5T.INTEGER: "integer", H5T.FLOAT: "float", H5T.TIME: "time", H5T.STR
            H5T.BITFIELD: "bitfield", H5T.OPAQUE: "opaque", H5T.COMPOUND: "compound", H5T.REFERENCE: "reference",
            H5T.ENUM: "enum", H5T.VLEN: "variable-length", H5T.ARRAY: "array"}
 IMARIS_TEXT = {"class": "string", "size": 1, "padding": "null-terminated", "charset": "ascii"}
-# The reasons of datasets over the limits of spec/virtualize/ims.md §5.4.
+# The reasons of datasets over the limits of spec/virtualize/ims.md §5.4
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>.
 LIMITS = ("a chunk of more than 2^24 bytes to decode", "over the budget of region selections")
 
 
 def type_ok(d: dict, tid) -> bool:
-    """Whether the description `d` (spec/virtualize/ims.md §5.2) is the datatype `tid`."""
+    """Whether the description `d` (spec/virtualize/ims.md §5.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#52-datatypes>) is the datatype
+    `tid`."""
     cls = tid.get_class()
     if cls == H5T.STRING and tid.is_variable_str():
         return (d["class"] == "variable-length" and d.get("string") is True
@@ -172,7 +181,8 @@ def numeric(d: dict) -> bool:
 
 
 def supported_column(d: dict) -> bool:
-    """Whether §5.4 maps a dataset of datatype `d`, which holds addresses."""
+    """Whether §5.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>
+    maps a dataset of datatype `d`, which holds addresses."""
     def column(t: dict) -> bool:
         return (t["class"] == "variable-length" and not holds_addresses(t["base"])
                 or t["class"] == "reference" and (t["kind"], t["size"]) in ((0, 8), (1, 12)))
@@ -182,7 +192,9 @@ def supported_column(d: dict) -> bool:
 
 
 def same_selection(sel: dict, space) -> bool:
-    """A selection's description (spec/virtualize/ims.md §5.3) against an h5py dataspace's."""
+    """A selection's description (spec/virtualize/ims.md §5.3
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>) against an h5py
+    dataspace's."""
     kind = space.get_select_type()
     if sel["select"] == "all":
         return kind == h5py.h5s.SEL_ALL
@@ -232,7 +244,8 @@ def aid_value(aid):
 
 
 class Checker:
-    """Rebuilds every HDF5 object from the source metadata node (spec/virtualize/ims.md §5)
+    """Rebuilds every HDF5 object from the source metadata node (spec/virtualize/ims.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata>)
     and compares it with h5py."""
 
     def __init__(self, f, source) -> None:
@@ -240,7 +253,9 @@ class Checker:
         self.paths: dict[int, str] = {}  # object header address -> the path where the walk met it
         self.problems: list[str] = []
         self.pending: list = []  # checks of references and named datatypes, after the walk
-        # The object table (§5.7): each object's path, from its parent's and its key.
+        # The object table (§5.7
+        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#57-the-object-table>):
+        # each object's path, from its parent's and its key.
         parents, names = np.asarray(source["objects/parent"][...]), self.family(source["objects/name"])
         self.table: list[str] = []
         for parent, name in zip(parents, names):
@@ -248,7 +263,9 @@ class Checker:
 
     @staticmethod
     def family(node) -> list[bytes]:
-        """A family of byte values (conventions §7): a 2-D array, or a group of offsets and data."""
+        """A family of byte values (conventions §7
+        <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>): a
+        2-D array, or a group of offsets and data."""
         if isinstance(node, zarr.Group):
             starts = node["offsets"][...]
             data = bytes(node["data"][...]) if "data" in node else b""
@@ -256,7 +273,8 @@ class Checker:
         return [bytes(r) for r in node[...]]
 
     def load(self, node) -> dict:
-        """A document's source metadata, with its spilled entries merged in (§5.6)."""
+        """A document's source metadata, with its spilled entries merged in (§5.6
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#56-documents>)."""
         s = dict(dict(node.attrs).get("vzip_virtualized", {}).get("ims", {}))
         if "spilled" in s:
             for text in self.family(self.source[s.pop("spilled")]):
@@ -270,7 +288,8 @@ class Checker:
         return s
 
     def described(self, entry: dict) -> dict:
-        """An entry's datatype description: its own, or its named datatype's (§5.2)."""
+        """An entry's datatype description: its own, or its named datatype's (§5.2
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#52-datatypes>)."""
         if "datatype" in entry or not isinstance(entry.get("named"), int):
             return entry.get("datatype", {"class": None})
         parent, _, key = self.table[entry["named"]].rpartition("/")
@@ -300,7 +319,8 @@ class Checker:
 
     def attributes(self, where: str, obj, entry: dict) -> None:
         """h5py's attributes of `obj` against the members `attributes` and
-        `attribute_collisions` of `entry` (§5.3)."""
+        `attribute_collisions` of `entry` (§5.3
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>)."""
         got, collided = entry.get("attributes", {}), list(entry.get("attribute_collisions", []))
         if got is None:
             self.problems.append(f"{where}: attributes not read")
@@ -418,7 +438,9 @@ class Checker:
                     self.problems.append(f"{where}: sequence {v} != {w}")
 
     def structured(self, where: str, d: dict, v, want, tid) -> None:
-        """A value of a datatype that holds addresses (§5.3) against h5py's."""
+        """A value of a datatype that holds addresses (§5.3
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>) against
+        h5py's."""
         cls = d["class"]
         if not holds_addresses(d):
             raw = np.asarray(want).tobytes() if not isinstance(want, bytes) else want
@@ -474,7 +496,8 @@ class Checker:
     # ---- datasets
 
     def dataset(self, where: str, ds, node) -> None:
-        """h5py's dataset `ds` against its array, or its group (§5.4)."""
+        """h5py's dataset `ds` against its array, or its group (§5.4
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>)."""
         s = self.load(node)
         d = self.described(s)
         if not type_ok(d, ds.id.get_type()):
@@ -543,7 +566,9 @@ class Checker:
                 self.problems.append(f"{where}: fill value {node.metadata.fill_value} != {element}")
 
     def column(self, where: str, d: dict, node, flat, shape: list[int], s: dict | None = None) -> None:
-        """Elements that hold addresses (§5.4) against h5py's."""
+        """Elements that hold addresses (§5.4
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>) against
+        h5py's."""
         flat = np.asarray(flat, dtype=object).reshape(-1)
         if d["class"] == "reference" and d["kind"] == 0:
             if list(node.shape) != shape:
@@ -563,7 +588,8 @@ class Checker:
         self.addressed(where, d, flat, rows)
 
     def unsupported(self, where: str, obj, entry: dict) -> None:
-        """An unsupported object's record against h5py: what it keeps (§5.1)."""
+        """An unsupported object's record against h5py: what it keeps (§5.1
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#51-the-tree>)."""
         if "reason" not in entry:
             self.problems.append(f"{where}: no reason")
         if isinstance(obj, (h5py.Dataset, h5py.Datatype)):
@@ -626,7 +652,9 @@ class Checker:
                        h5py.h5i.DATATYPE: h5py.Datatype}[h5py.h5i.get_type(oid)](oid)
                 if key in unsupported:
                     self.unsupported(child, obj, unsupported[key])
-                    # What §5.4 does not map: other filters, external or virtual data,
+                    # What §5.4
+                    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>
+                    # does not map: other filters, external or virtual data,
                     # addresses inside other datatypes than its columns, and what is
                     # over its limits.
                     if not (key in ("zarr.json",) or key.startswith("__")
@@ -665,7 +693,8 @@ class Checker:
 
 
 def tree_problems(root, path: Path) -> list[str]:
-    """Rebuilds every HDF5 object from the source metadata node (spec/virtualize/ims.md §5)
+    """Rebuilds every HDF5 object from the source metadata node (spec/virtualize/ims.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata>)
     and compares it with h5py."""
     with h5py.File(path, "r") as f:
         return Checker(f, root["vzip_source"]).tree()

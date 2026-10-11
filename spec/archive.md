@@ -42,13 +42,13 @@ archives) and **readers** (programs that read them). A **valid archive**
 satisfies every requirement placed on writers.
 
 Reader behaviour is fully specified for valid archives, and for the invalid
-archives that §8 classifies. §8.6 lists the writer violations that readers
+archives that [§8](#8-reading) classifies. [§8.6](#86-violations-readers-need-not-detect) lists the writer violations that readers
 are not required to detect; for those, the results are unspecified.
 
 ### 1.3 Versioning
 
 vzip has an integer **format version**, written in every archive's comment as
-the magic `vzip/<version>` (§3.4). This document specifies format version
+the magic `vzip/<version>` ([§3.4](#34-end-of-central-directory-record-and-archive-comment)). This document specifies format version
 **0**.
 
 - **What a version is:** a format version fixes the meaning of every valid
@@ -67,7 +67,7 @@ the magic `vzip/<version>` (§3.4). This document specifies format version
   whose result was already fully determined by the previous revision.
 - **What needs a new version:** anything else, such as new message fields,
   new pins, new source kinds, or changed layout rules. This is necessary
-  because readers skip unknown protobuf fields (§5.1): a field added within a
+  because readers skip unknown protobuf fields ([§5.1](#51-encoding)): a field added within a
   version would be silently ignored by older readers. For a field like a pin,
   that would turn "fail closed" into "fail open".
 - **Writers** SHOULD write the lowest format version that can express the
@@ -75,7 +75,7 @@ the magic `vzip/<version>` (§3.4). This document specifies format version
 - **Conformance:** a conformance suite states the format version and the
   spec revision it tests.
 - **The recorded revision:** every archive records, in its source table
-  (§6), the revision of this document its writer followed (the whole number:
+  ([§6](#6-source-table)), the revision of this document its writer followed (the whole number:
   9 for revision 9, 9.1 or 9.2). Readers MUST NOT reject an archive because
   of its recorded revision, or because it has none; they MAY report it. It
   tells apart archives written under different revisions of a format
@@ -88,13 +88,13 @@ and records its revision as above. The release rule is:
 1. At the first release, the text of this document becomes format version
    1, and the commit is tagged `vzip-format-v1` in the specification's
    repository.
-2. After that, every **breaking change** (any change that §1.3 says needs a
+2. After that, every **breaking change** (any change that [§1.3](#13-versioning) says needs a
    new version, and any change to the result of an operation on a valid
-   archive) increments the format version written in the magic (§3.4), and
+   archive) increments the format version written in the magic ([§3.4](#34-end-of-central-directory-record-and-archive-comment)), and
    the commit that makes it is tagged `vzip-format-v<N>`. Changes that are
    not breaking are revisions of the current version, and need no tag.
 3. Readers MUST reject an archive whose format version they don't implement
-   (§3.4), which is what keeps every breaking change from being read with
+   ([§3.4](#34-end-of-central-directory-record-and-archive-comment)), which is what keeps every breaking change from being read with
    the wrong meaning.
 
 **Status.** A format version is in one of three states:
@@ -124,16 +124,16 @@ established. This section credits them; nothing in it is normative.
   [kerchunk](https://github.com/fsspec/kerchunk) (Martin Durant and
   contributors, fsspec). kerchunk records where the chunks of HDF5, netCDF,
   GRIB, TIFF and FITS files live, and fsspec's `ReferenceFileSystem` serves
-  them so that Zarr can read the files in place. vzip's data model (§2)
+  them so that Zarr can read the files in place. vzip's data model ([§2](#2-data-model))
   is the one defined by kerchunk's
   [reference specification](https://fsspec.github.io/kerchunk/spec.html):
 
   | kerchunk reference specification | vzip |
   |---|---|
-  | a string value: inline data | a `bytes` entry (§4.2) |
-  | `[url, offset, length]` | a reference with one source range (§5.2) |
-  | a `base64:` string: inline binary data | a literal range (§5.2), or a `data` source (§6) |
-  | `templates` shared by many URLs | the source table (§6) |
+  | a string value: inline data | a `bytes` entry ([§4.2](#42-bytes-entries)) |
+  | `[url, offset, length]` | a reference with one source range ([§5.2](#52-range)) |
+  | a `base64:` string: inline binary data | a literal range ([§5.2](#52-range)), or a `data` source ([§6](#6-source-table)) |
+  | `templates` shared by many URLs | the source table ([§6](#6-source-table)) |
 
   kerchunk's version 1 specification anticipated "future possible binary
   storage" of references. This document specifies one. kerchunk's Parquet
@@ -148,7 +148,7 @@ established. This section credits them; nothing in it is normative.
   raised in
   [zarr-specs#287](https://github.com/zarr-developers/zarr-specs/issues/287),
   motivated this work.
-- **Icechunk.** Source pins (§6.1) adapt [Icechunk](https://icechunk.io/)'s
+- **Icechunk.** Source pins ([§6.1](#61-pins)) adapt [Icechunk](https://icechunk.io/)'s
   checks of virtual chunks against the ETag or modification time of the
   object they reference.
 
@@ -160,7 +160,7 @@ any one language or library.
 
 An archive defines a partial function from **keys** to **values**:
 
-- A **key** is a non-empty Unicode string, stored as UTF-8 (§3.3).
+- A **key** is a non-empty Unicode string, stored as UTF-8 ([§3.3](#33-keys)).
 - A **value** is a finite byte sequence (possibly empty).
 
 Each key present in the archive has a **kind**:
@@ -168,16 +168,16 @@ Each key present in the archive has a **kind**:
 | kind        | value                                                         |
 |-------------|---------------------------------------------------------------|
 | `bytes`     | the (decompressed) body of the key's ZIP entry                |
-| `reference` | the bytes described by the entry's reference payload (§5)     |
+| `reference` | the bytes described by the entry's reference payload ([§5](#5-messages))     |
 
 A key that is not present has kind `missing` and no value. Asking for a
 missing key is not an error.
 
 Keys beginning with the **reserved prefix** `__vz__/` are **hidden**. They
-hold data used by the format itself or by references (§6, §7), and they are
-not part of the archive's public mapping (§8.2). Two hidden keys are defined
+hold data used by the format itself or by references ([§6](#6-source-table), [§7](#7-page-index-optional)), and they are
+not part of the archive's public mapping ([§8.2](#82-operations)). Two hidden keys are defined
 by this specification and are written by the writer itself: `__vz__/sources`
-(§6) and `__vz__/index` (§7). They are the **format entries**.
+([§6](#6-source-table)) and `__vz__/index` ([§7](#7-page-index-optional)). They are the **format entries**.
 
 ## 3. ZIP container
 
@@ -206,7 +206,7 @@ also satisfies the following:
 8. Central directory records have no file comment (comment length 0).
 9. The archive has no central directory encryption, digital signature or
    archive extra data record.
-10. The archive comment is the vzip comment (§3.4).
+10. The archive comment is the vzip comment ([§3.4](#34-end-of-central-directory-record-and-archive-comment)).
 
 ### 3.2 ZIP64
 
@@ -216,7 +216,7 @@ field, and nowhere else:
 - In a central directory record, a local header offset of 0xFFFFFFFF or more
   is stored as 0xFFFFFFFF, with the actual value in a ZIP64 extended
   information extra field (`0x0001`) containing only that value. Sizes never
-  need ZIP64 (§3.1 rule 7).
+  need ZIP64 ([§3.1](#31-structure) rule 7).
 - If the number of entries is 0xFFFF or more, or the central directory's size
   or offset is 0xFFFFFFFF or more, the writer writes a zip64 end of central
   directory record (44 bytes after its size field, so its size field is 44;
@@ -228,7 +228,7 @@ field, and nowhere else:
 In a central directory record, the ZIP64 extra block (`0x0001`) holds the
 64-bit local header offset when the 32-bit field is all ones. In a valid
 vzip archive that is the only value it can hold, because sizes never reach
-0xFFFFFFFF (§3.1 rule 7), so the block is exactly 8 bytes. A record has an
+0xFFFFFFFF ([§3.1](#31-structure) rule 7), so the block is exactly 8 bytes. A record has an
 entry error if:
 
 - its compressed or uncompressed size field is 0xFFFFFFFF;
@@ -268,7 +268,7 @@ attributes.
 
 The key of an entry is its file name, decoded as UTF-8. A key MUST NOT be
 empty and MUST be valid UTF-8. Keys are otherwise unrestricted; for example,
-`a/../b` and `x/` are ordinary distinct keys (§10).
+`a/../b` and `x/` are ordinary distinct keys ([§10](#10-security-considerations)).
 
 Keys are compared and sorted as byte strings (UTF-8 order), never as
 decoded text. In particular:
@@ -281,7 +281,7 @@ decoded text. In particular:
   languages' default string sort uses UTF-16 order.
 
 A central directory record whose file name is empty or not valid UTF-8 is
-ignored by readers: it names no key and appears in no operation (§8.6).
+ignored by readers: it names no key and appears in no operation ([§8.6](#86-violations-readers-need-not-detect)).
 
 ### 3.4 End of central directory record and archive comment
 
@@ -293,13 +293,13 @@ The ZIP archive comment of a vzip archive is one of:
 | 38     | `magic`, `sources_offset: u64`, `sources_size: u64`, `index_offset: u64`, `index_size: u64` |
 
 - `magic` is the 6 ASCII bytes `vzip/0`: the prefix `vzip/` followed by the
-  format version as one decimal digit (§1.3). A future version 10 or above
+  format version as one decimal digit ([§1.3](#13-versioning)). A future version 10 or above
   will need a different comment layout, which that version will define.
 - `sources_offset` and `sources_size` are the body offset and the compressed
   size of the `__vz__/sources` entry.
 - `index_offset` and `index_size`, if present, are the same for
   `__vz__/index`. The 38-byte form is used if and only if the archive has a
-  page index (§7).
+  page index ([§7](#7-page-index-optional)).
 
 Because the comment has one of two lengths, the end of central directory
 record starts either 44 or 60 bytes before the end of the file. A reader
@@ -318,11 +318,11 @@ from step 1 to step 2 when the magic doesn't match. If no record is found, or
 the comment does not start with `vzip/`, the file is not a vzip archive.
 If it starts with `vzip/` and a version the reader doesn't implement, the
 archive is of an unsupported version. Either way, opening it is an archive
-error (§8.4).
+error ([§8.4](#84-errors)).
 
 In a valid archive, step 1 cannot match a record that isn't the real one. A
 record found there would take its comment length from the real record's
-disk-number field, which is 0 in a single-disk archive (§3.1). An invalid
+disk-number field, which is 0 in a single-disk archive ([§3.1](#31-structure)). An invalid
 archive whose disk-number field is 38 can make step 1 match a fake record;
 readers then reject it (magic mismatch, no fallback), which is the intended
 result.
@@ -345,11 +345,11 @@ ID is 0x7A76 or 0x7A77:
 |---|---|
 | `R = 0` | `bytes` |
 | `R = 1` | `reference` |
-| `R > 1`, or the extra field does not parse | entry error (§8.4) |
+| `R > 1`, or the extra field does not parse | entry error ([§8.4](#84-errors)) |
 
 Other header IDs (such as `0x0001`) MAY appear and do not affect the kind.
 The format entries MUST be `bytes` entries with method 8. Readers locate and
-inflate them through the comment (§3.4).
+inflate them through the comment ([§3.4](#34-end-of-central-directory-record-and-archive-comment)).
 
 ### 4.2 Bytes entries
 
@@ -359,9 +359,9 @@ The value of a `bytes` entry is its body, inflated if the entry uses method 8.
 
 The data of the 0x7A76 or 0x7A77 block is the **reference payload**:
 
-- header ID 0x7A76: an encoded `Range` (§5.2), describing a value made of that
+- header ID 0x7A76: an encoded `Range` ([§5.2](#52-range)), describing a value made of that
   one range.
-- header ID 0x7A77: an encoded `Concat` (§5.3), describing a value made of zero
+- header ID 0x7A77: an encoded `Concat` ([§5.3](#53-concat)), describing a value made of zero
   or more ranges.
 
 Writers MUST use 0x7A76 when a reference has exactly one range, and 0x7A77
@@ -372,10 +372,10 @@ entry error. Extra field blocks may appear in any order. Its body MUST be either
 payload. Writers SHOULD make it identical, so that ZIP tools which ignore
 extra fields still see the payload. Readers MUST take the payload from the
 central directory, and MUST NOT read or check the body except in the raw view
-(§8.2).
+([§8.2](#82-operations)).
 
 A reference payload MUST NOT exceed 65519 bytes; a reader treats a longer
-one as malformed (a payload error, §8.4), even though it may fit in the
+one as malformed (a payload error, [§8.4](#84-errors)), even though it may fit in the
 extra field. That limit leaves room in
 the 65535-byte extra field for the payload's own block header and a ZIP64
 block, whether or not the entry ends up needing one, so a writer can check a
@@ -451,10 +451,10 @@ A Range describes a byte sequence of a known **size**:
   bytes are `data`, and the size is `len(data)`. In a literal range,
   `source`, `offset` and `length` MUST all have the value 0; otherwise the
   payload is malformed. Only the values are checked: a field explicitly
-  encoded as 0 is accepted, like any non-canonical encoding (§5.1).
+  encoded as 0 is accepted, like any non-canonical encoding ([§5.1](#51-encoding)).
 - **Source range**: field 5 is absent. The bytes are
   `[offset, offset + length)` of the **source value** of source table entry
-  number `source` (§6), and the size is `length`. `source` MUST be less than
+  number `source` ([§6](#6-source-table)), and the size is `length`. `source` MUST be less than
   the number of sources, and `offset + length` MUST NOT exceed 2^64 − 1;
   otherwise the payload is malformed.
 
@@ -466,10 +466,10 @@ literal range with field 6 present is malformed. CRC-32C is the CRC of
 RFC 3720 §B.4 (iSCSI): the Castagnoli polynomial 0x1EDC6F41, reflected
 input and output, initial value and final XOR 0xFFFFFFFF. Its check value,
 for the nine ASCII bytes `123456789`, is 0xE3069283; for the empty sequence
-it is 0. Readers check it after they read the range (§8.3), so it detects a
+it is 0. Readers check it after they read the range ([§8.3](#83-resolving-a-reference)), so it detects a
 changed source wherever the range can be read, including where pins
 cannot be checked because the reader cannot see the response's headers (a
-browser reading a cross-origin object, §6.2). It covers only the bytes of
+browser reading a cross-origin object, [§6.2](#62-reading-over-http)). It covers only the bytes of
 the range: a change elsewhere in the object goes unnoticed.
 
 ### 5.3 Concat
@@ -507,17 +507,17 @@ message SourceTable {
 }
 ```
 
-`revision` is the revision of this document the writer followed (§1.3).
+`revision` is the revision of this document the writer followed ([§1.3](#13-versioning)).
 Writers MUST write it; readers only report it.
 
-Sources are numbered from 0 in wire order. When the table is read (§8.1),
+Sources are numbered from 0 in wire order. When the table is read ([§8.1](#81-opening)),
 any of the following is an archive error:
 
 - the table is malformed;
 - a Source has no `kind` member;
 - a `url` or a `key` is empty;
 - a pin appears on a `key` or `data` source;
-- an `etag` pin is not a strong entity tag (§6.1).
+- an `etag` pin is not a strong entity tag ([§6.1](#61-pins)).
 
 The **source value** of each kind:
 
@@ -565,8 +565,8 @@ The **source value** of each kind:
   ranges via HTTP Range requests), and MAY support other schemes. It is a
   resolution error if the reference is not a valid URI reference, uses an
   unsupported scheme, or violates the `file:` rules, if the reader's policy
-  refuses the URL (§8.7), or if the object cannot be read (§6.2 for HTTP). Readers check URL syntax only when they resolve a
-  range of the source, not at open; writers check it when writing (§9.1). A reference with only a fragment (such as `#x`) resolves to the
+  refuses the URL ([§8.7](#87-reader-policy)), or if the object cannot be read ([§6.2](#62-reading-over-http) for HTTP). Readers check URL syntax only when they resolve a
+  range of the source, not at open; writers check it when writing ([§9.1](#91-requirements)). A reference with only a fragment (such as `#x`) resolves to the
   archive itself; that is valid but rarely useful.
 - **`key`**: the value of the bytes entry of this archive with that key. The
   key MAY be hidden. It is a resolution error if the key is missing, is a
@@ -576,7 +576,7 @@ The **source value** of each kind:
   strings shared by many ranges, such as a decoding header. Bytes used by a
   single range belong in a literal range instead.
 
-Readers MUST NOT resolve sources except as §8.3 requires. An archive whose
+Readers MUST NOT resolve sources except as [§8.3](#83-resolving-a-reference) requires. An archive whose
 source table names an unreachable URL is fully readable, except for the
 ranges that use that URL.
 
@@ -606,18 +606,18 @@ must use the library's presence tracking for them, not compare with 0.
 header, including its double quotes, for example `"abc123"`. It MUST match
 `DQUOTE *etagc DQUOTE`, where `etagc` is any ASCII character from `!` to `~`
 except `"` (RFC 9110 §8.8.3, without `obs-text`). Anything else, including a
-weak tag (`W/"..."`), is an archive error (§6).
+weak tag (`W/"..."`), is an archive error ([§6](#6-source-table)).
 
 Before returning any byte read from a pinned source, a reader MUST check
 every pin on that source. A pin that fails, or that the reader cannot check
 for that scheme, is a resolution error. A reader MUST NOT skip a pin it
 does not understand: pins fail closed. The one exception is a pin that the
 response's headers would check but that the reader cannot see, which an
-application may allow the reader to skip (§8.7). Checks, by scheme:
+application may allow the reader to skip ([§8.7](#87-reader-policy)). Checks, by scheme:
 
 | pin | `http:`/`https:` | `file:` |
 |---|---|---|
-| `size` | the object's size, from the response (§6.2) | the file's size |
+| `size` | the object's size, from the response ([§6.2](#62-reading-over-http)) | the file's size |
 | `etag` | send `If-Match: <etag>` with the range request; a 412 response fails the pin | cannot be checked: resolution error |
 | `modified_not_after` | send `If-Unmodified-Since: <HTTP-date of the pin>` with the range request; a 412 response fails the pin | the file's modification time, rounded down to whole seconds (as above) |
 
@@ -638,10 +638,10 @@ Writers SHOULD:
   value, or its file modification time), not from the writer's clock. A
   value from the writer's clock fails whenever the server's clock or the
   object's timestamp is ahead of it;
-- add a `crc32c` (§5.2) to ranges whose bytes they read anyway, or when
+- add a `crc32c` ([§5.2](#52-range)) to ranges whose bytes they read anyway, or when
   asked to: it is the only check that does not depend on headers;
 - pin only `size` in archives meant to be copied together with their data
-  (§6, relative URLs). Copying an object changes its modification time and
+  ([§6](#6-source-table), relative URLs). Copying an object changes its modification time and
   may change its entity tag.
 
 ### 6.2 Reading over HTTP
@@ -651,11 +651,11 @@ This section applies to readers that support `http:` and `https:`.
 - **Requests:** a read of bytes `[a, b)` of an HTTP object is a GET with
   `Range: bytes=a-(b−1)` and `Accept-Encoding: identity`. A reader SHOULD
   combine reads of nearby ranges of the same object into one request
-  (§8.3). It
+  ([§8.3](#83-resolving-a-reference)). It
   MUST NOT make any other request to resolve a range or check its pins: no
   HEAD, and no request for the whole object.
 - **Pins** add `If-Match` and `If-Unmodified-Since` headers to those same
-  requests (§6.1). Servers and proxies may ignore those headers, so a reader
+  requests ([§6.1](#61-pins)). Servers and proxies may ignore those headers, so a reader
   also checks every successful (200 or 206) response itself:
   - an `etag` pin requires the response's `ETag` header to equal the pin
     (strong comparison);
@@ -708,7 +708,7 @@ This section applies to readers that support `http:` and `https:`.
     that is not a valid URI reference, is a resolution error;
   - only to `http:` or `https:`; a redirect to any other scheme is a
     resolution error;
-  - only to a URL the reader's policy allows (§8.7); a redirect to any other
+  - only to a URL the reader's policy allows ([§8.7](#87-reader-policy)); a redirect to any other
     URL is a resolution error, and the reader SHOULD detect it before it
     sends the request. A reader that cannot see a redirect before it is
     followed (a browser's `fetch`) checks the final URL instead;
@@ -720,7 +720,7 @@ This section applies to readers that support `http:` and `https:`.
   default port. These rules apply to every URL requested, including
   redirect targets.
 - **Memory:** a 200 response delivers the whole object. A reader MAY refuse
-  to read a body larger than a documented resource limit (§10); that is a
+  to read a body larger than a documented resource limit ([§10](#10-security-considerations)); that is a
   request error.
 - **Timestamps:** `If-Unmodified-Since` carries `modified_not_after` as an
   IMF-fixdate (RFC 9110 §5.6.7). A value outside the years 1–9999 cannot be
@@ -779,14 +779,14 @@ In an archive with a page index:
 
    These MUST match the entry's central directory record. Writers SHOULD pin
    the small entries that readers fetch when opening, such as Zarr metadata
-   documents (§9.2).
+   documents ([§9.2](#92-recommended-layout-informative)).
 
 ### 7.2 Lookup
 
 In an archive with a page index, readers MUST determine whether a key is
 present as follows:
 
-- The format entries are known from the comment (§3.4).
+- The format entries are known from the comment ([§3.4](#34-end-of-central-directory-record-and-archive-comment)).
 - A pinned key is a present `bytes` entry, described by its `Pinned` values.
 - To find any other key `k`, select the last page whose `first_key` is less
   than or equal to `k` in UTF-8 order. If there is no such page, `k` is
@@ -795,9 +795,9 @@ present as follows:
 
 A reader that reads the whole central directory anyway gets the same result
 for every valid archive. Readers are not required to check that the
-central directory matches §7.1 (§8.6).
+central directory matches [§7.1](#71-layout) ([§8.6](#86-violations-readers-need-not-detect)).
 
-The page index itself is checked at open (§8.1). It is **malformed**, an
+The page index itself is checked at open ([§8.1](#81-opening)). It is **malformed**, an
 archive error, if any of the following hold:
 
 - it does not decode;
@@ -817,9 +817,9 @@ Opening an archive reads and checks the following. Any failure is an
 archive error:
 
 - **The end records:**
-  - the end of central directory record is found as in §3.4, and the magic
+  - the end of central directory record is found as in [§3.4](#34-end-of-central-directory-record-and-archive-comment), and the magic
     is `vzip/0`;
-  - the zip64 records are used when, and only when, §3.2 says so; their
+  - the zip64 records are used when, and only when, [§3.2](#32-zip64) says so; their
     signatures are correct and they lie within the file;
   - the central directory (offset and size) lies within the file.
 
@@ -827,7 +827,7 @@ archive error:
   `[offset, offset + size)` is inside `[0, file size]`. Readers do not check
   whether regions overlap each other or the end records.
 
-  A resource limit (§8.7, §10) reached while opening, for example while
+  A resource limit ([§8.7](#87-reader-policy), [§10](#10-security-considerations)) reached while opening, for example while
   inflating a format entry, or a source table with more sources than the
   reader allows, is an archive error.
 
@@ -838,8 +838,8 @@ archive error:
   opening large archives without reading their whole directory.
 - **The format entries:** the bodies the comment locates lie within the
   file and inflate cleanly (below). Their uncompressed sizes are not checked,
-  since readers need not read their records. The source table is valid (§6). The page index,
-  if there is one, is not malformed (§7.2).
+  since readers need not read their records. The source table is valid ([§6](#6-source-table)). The page index,
+  if there is one, is not malformed ([§7.2](#72-lookup)).
 - **The central directory, for an archive without a page index:** it parses
   as a sequence of records, each with the right signature and with its
   variable-length fields inside the directory, ending exactly at its
@@ -847,9 +847,9 @@ archive error:
   - A problem confined to a single record's contents is not an archive
     error. Such problems include its extra field, method or flags, and a
     local header offset of 0xFFFFFFFF without a ZIP64 extra block holding
-    the offset; they are entry errors (§8.4), in archives with or without a
+    the offset; they are entry errors ([§8.4](#84-errors)), in archives with or without a
     page index.
-  - An `__vz__/index` record is an archive error here (§7).
+  - An `__vz__/index` record is an archive error here ([§7](#7-page-index-optional)).
 
 A body **inflates cleanly** if it is a single complete raw DEFLATE stream
 (its final block ends it) and the stream ends exactly at the end of the
@@ -867,7 +867,7 @@ A conforming reader provides the following operations on an opened archive:
 
 - **classify(key)** → `bytes` | `reference` | `missing`. Hidden keys
   classify as `missing`. It looks only at the central directory record
-  (§4.1), so a reference with a malformed payload still classifies as
+  ([§4.1](#41-classification)), so a reference with a malformed payload still classifies as
   `reference`.
 - **get(key, request)** → a byte sequence, *missing*, or an error. Hidden
   keys are *missing*. `request` is one of:
@@ -881,7 +881,7 @@ A conforming reader provides the following operations on an opened archive:
 - **list(prefix)** → every non-hidden present key that starts with `prefix`
   (compared on UTF-8 bytes), sorted in UTF-8 order. The empty prefix lists
   all keys. Keys with entry errors are listed. In an archive with a page
-  index, "present" is as defined by §7.2:
+  index, "present" is as defined by [§7.2](#72-lookup):
   - pinned keys are listed;
   - a record found in a page is listed only if lookup would find it there,
     which in a valid archive is every record;
@@ -910,7 +910,7 @@ A conforming reader provides the following operations on an opened archive:
   view every present entry is visible, including hidden and format entries,
   and a reference entry yields its body (empty, or its payload). This is the
   view of a ZIP tool that knows nothing about vzip. The two format entries
-  are read through the comment's offsets and sizes (§3.4), like everywhere
+  are read through the comment's offsets and sizes ([§3.4](#34-end-of-central-directory-record-and-archive-comment)), like everywhere
   else; `raw("__vz__/index")` is *missing* in an archive without a page
   index.
 
@@ -918,19 +918,19 @@ A conforming reader provides the following operations on an opened archive:
 
 `get` on a reference entry proceeds as follows:
 
-1. Decode the payload. If it is malformed (§5), the `get` fails, whatever
+1. Decode the payload. If it is malformed ([§5](#5-messages)), the `get` fails, whatever
    the request.
-2. Compute the requested window `[a, b)` of the value (§8.2).
+2. Compute the requested window `[a, b)` of the value ([§8.2](#82-operations)).
 3. For each range whose bytes overlap `[a, b)` in a non-empty interval, take
    those bytes from the range:
    - A literal range needs no I/O.
    - A source range reads bytes `[offset + i, offset + j)` of its source value,
      where `[i, j)` is the overlap relative to the range's start. The read is
-     a resolution error if the source cannot be resolved (§6), if the
-     reader's policy refuses it (§8.7), if a pin on the source fails or
-     cannot be checked (§6.1), or if the source value is shorter than
+     a resolution error if the source cannot be resolved ([§6](#6-source-table)), if the
+     reader's policy refuses it ([§8.7](#87-reader-policy)), if a pin on the source fails or
+     cannot be checked ([§6.1](#61-pins)), or if the source value is shorter than
      `offset + j`.
-   - A source range with a `crc32c` (§5.2) is read whole, `[offset, offset +
+   - A source range with a `crc32c` ([§5.2](#52-range)) is read whole, `[offset, offset +
      length)`, whatever part of it the window needs. If the CRC-32C of the
      bytes read differs from `crc32c`, it is a resolution error. The reader
      returns the window's part only after the check.
@@ -959,12 +959,12 @@ There are six classes of error. Each says which operations it makes fail.
 
 | class | causes | effect |
 |---|---|---|
-| **archive error** | everything §8.1 checks | opening fails |
-| **entry error** | the key's record violates §4.1 (unparseable extra field, several reference blocks), uses a method other than 0 and 8, has bit 0 set, is a reference entry with method 8 (§4.3), or breaks the ZIP64 block rules (§3.2); or the page that lookup (§7.2) selects for the key cannot be parsed. In that last case the key is reported as an entry error even if it isn't in the page, because the reader cannot tell. | classify, get and raw fail for that key; other keys are unaffected |
-| **body error** | an entry's body (`[body offset, body offset + compressed size)`, judged as a whole even for a small window) lies outside the file; a DEFLATE body does not inflate cleanly (§8.1); a STORED entry's compressed and uncompressed sizes differ. This applies to bytes entries for get and raw, and to reference entries for raw. | get and raw of that key fail; a range of a `key` source naming it fails with a resolution error |
-| **payload error** | the reference payload is malformed (§5) | get fails for that key |
-| **resolution error** | §6, §6.1, §8.3 step 3, a URL the reader's policy refuses (§8.7) | get fails for the requests that need the range |
-| **request error** | `start > end`; a request exceeding a resource limit the reader documents (§8.7, §10), such as the requests one get may make | that operation fails |
+| **archive error** | everything [§8.1](#81-opening) checks | opening fails |
+| **entry error** | the key's record violates [§4.1](#41-classification) (unparseable extra field, several reference blocks), uses a method other than 0 and 8, has bit 0 set, is a reference entry with method 8 ([§4.3](#43-reference-entries)), or breaks the ZIP64 block rules ([§3.2](#32-zip64)); or the page that lookup ([§7.2](#72-lookup)) selects for the key cannot be parsed. In that last case the key is reported as an entry error even if it isn't in the page, because the reader cannot tell. | classify, get and raw fail for that key; other keys are unaffected |
+| **body error** | an entry's body (`[body offset, body offset + compressed size)`, judged as a whole even for a small window) lies outside the file; a DEFLATE body does not inflate cleanly ([§8.1](#81-opening)); a STORED entry's compressed and uncompressed sizes differ. This applies to bytes entries for get and raw, and to reference entries for raw. | get and raw of that key fail; a range of a `key` source naming it fails with a resolution error |
+| **payload error** | the reference payload is malformed ([§5](#5-messages)) | get fails for that key |
+| **resolution error** | [§6](#6-source-table), [§6.1](#61-pins), [§8.3](#83-resolving-a-reference) step 3, a URL the reader's policy refuses ([§8.7](#87-reader-policy)) | get fails for the requests that need the range |
+| **request error** | `start > end`; a request exceeding a resource limit the reader documents ([§8.7](#87-reader-policy), [§10](#10-security-considerations)), such as the requests one get may make | that operation fails |
 
 Resource limits are implementation-defined. Conformance suites do not test
 them, and the classes of errors they cause may differ between readers.
@@ -995,18 +995,18 @@ SHOULD report the class of an error along with its message.
 For archives that break these writer requirements, reader results are
 unspecified:
 
-- §3.1 rules 1, 2, 4, 5 (except bit 0), 6, 7 and 8: readers use body offsets
+- [§3.1](#31-structure) rules 1, 2, 4, 5 (except bit 0), 6, 7 and 8: readers use body offsets
   computed from the central directory, need not read local headers, and need
   not verify CRC-32 values. Duplicate names are included here. A reader that
   does verify a CRC-32 and finds a mismatch reports a body error.
-- §3.2: whether ZIP64 structures were used only where needed.
-- §3.4 and §4.1: whether the format entries' records agree with the comment,
+- [§3.2](#32-zip64): whether ZIP64 structures were used only where needed.
+- [§3.4](#34-end-of-central-directory-record-and-archive-comment) and [§4.1](#41-classification): whether the format entries' records agree with the comment,
   are `bytes` entries, and use method 8.
-- §4.3: whether a reference entry's body is empty or equal to its payload.
+- [§4.3](#43-reference-entries): whether a reference entry's body is empty or equal to its payload.
   Readers MUST still ignore the body, except in the raw view.
-- §7.1: whether the central directory matches the page index (beyond the
-  checks in §7.2), and whether pinned values match their records.
-- §6: whether the source table records the revision (§1.3).
+- [§7.1](#71-layout): whether the central directory matches the page index (beyond the
+  checks in [§7.2](#72-lookup)), and whether pinned values match their records.
+- [§6](#6-source-table): whether the source table records the revision ([§1.3](#13-versioning)).
 
 ### 8.7 Reader policy
 
@@ -1018,9 +1018,9 @@ apply a **policy** to every `url` source they resolve, and to every URL they
 request on its behalf (redirect targets included). The application chooses
 the policy; this section says what it contains and what readers do with
 it. A URL the policy refuses is a resolution error for the ranges that need
-it; the other limits are resource limits (§8.4).
+it; the other limits are resource limits ([§8.4](#84-errors)).
 
-1. **Schemes.** An archive is **local** if its base URI (§6) has the
+1. **Schemes.** An archive is **local** if its base URI ([§6](#6-source-table)) has the
    scheme `file`, that is, if it was opened from a local path, and
    **remote** otherwise. Schemes are compared without regard to case. By
    default a reader allows:
@@ -1044,7 +1044,7 @@ it; the other limits are resource limits (§8.4).
    `https://data.example.evil.test/`. A URL whose path holds `%2E`, `%2F`
    or `%5C` (in either case) matches no prefix, since a server may decode
    them into a dot segment or a separator that the comparison did not see.
-   Prefixes should be written as resolution produces URLs (§6), with a
+   Prefixes should be written as resolution produces URLs ([§6](#6-source-table)), with a
    lowercase scheme and host; a URL that is spelled differently does not
    match, which fails closed. A prefix list does not lift rule 3.
 3. **Hosts.** An IP address belongs to the first of these classes that
@@ -1097,7 +1097,7 @@ it; the other limits are resource limits (§8.4).
      configured;
    - a reader that cannot see addresses at all (a browser's `fetch`)
      checks the host as written in the URL, before the request and on the
-     final URL after redirects (§6.2): an IP literal by its class, and
+     final URL after redirects ([§6.2](#62-reading-over-http)): an IP literal by its class, and
      `localhost` and names under `.localhost` as loopback. For names that
      resolve to other classes, and for redirect hops it cannot see, it
      relies on the platform: browsers that implement Private Network
@@ -1108,23 +1108,23 @@ it; the other limits are resource limits (§8.4).
 4. **Sources.** A reader MUST have a maximum number of sources. Opening an
    archive whose source table has more is an archive error.
 5. **Requests per value.** A reader MUST have a maximum number of reads of
-   `url` sources that one `get` may make, counted after coalescing (§8.3),
+   `url` sources that one `get` may make, counted after coalescing ([§8.3](#83-resolving-a-reference)),
    with each read counting once however many redirects it follows. A `get`
    that would need more is a request error, reported before any of its
    reads is made.
 6. **Inflation.** A reader MUST have a maximum size for an inflated format
-   entry (§2), and MUST stop inflating a format entry as soon as its output
+   entry ([§2](#2-data-model)), and MUST stop inflating a format entry as soon as its output
    passes that size, so that a small DEFLATE body cannot make it allocate
    more. Passing it is an archive error. A `bytes` entry's body is bounded
    by the uncompressed size of its record (it must inflate to exactly that,
-   §8.1), and readers SHOULD stop inflating it once its output passes that
+   [§8.1](#81-opening)), and readers SHOULD stop inflating it once its output passes that
    size.
 7. **Unverifiable pins.** An application MAY allow the reader to skip a pin
-   that the response's headers would check (§6.2) when the reader cannot see
+   that the response's headers would check ([§6.2](#62-reading-over-http)) when the reader cannot see
    those headers: a browser reading a cross-origin object whose server does
    not expose `Content-Range`, `ETag` or `Last-Modified`. A pin that the
    reader can check, and that fails, still fails, and every `crc32c` is
-   still checked. Without that permission, such a pin fails (§6.1).
+   still checked. Without that permission, such a pin fails ([§6.1](#61-pins)).
 
 The limits of rules 4–6 are implementation-defined, and readers MUST
 document them. The readers in the specification's repository use these
@@ -1168,14 +1168,14 @@ MUST reject its input, producing no archive, if:
   size. This includes a zero-length range whose offset is past the end. The
   writer knows these values; `url` sources are not checked;
 - a pin is on a `key` or `data` source, or an `etag` pin is not a strong
-  entity tag in double quotes (§6.1);
-- a literal range has a `crc32c` (§5.2);
-- a reference payload exceeds 65519 bytes (§4.3);
+  entity tag in double quotes ([§6.1](#61-pins));
+- a literal range has a `crc32c` ([§5.2](#52-range));
+- a reference payload exceeds 65519 bytes ([§4.3](#43-reference-entries));
 - a source range's `offset + length`, or a reference's total size, exceeds
-  2^64 − 1 (§5.2, §5.3);
+  2^64 − 1 ([§5.2](#52-range), [§5.3](#53-concat));
 - a key's UTF-8 encoding is longer than 65535 bytes;
 - a bytes entry's uncompressed or compressed size is 0xFFFFFFFF or more
-  (§3.1 rule 7);
+  ([§3.1](#31-structure) rule 7);
 - a pinned entry is not a bytes entry, is a format entry, or is listed
   twice.
 
@@ -1209,7 +1209,7 @@ any of these values.
 ## 10. Security considerations
 
 - A reader resolves the URLs an archive names with the reader's own access.
-  The policy of §8.7 limits what that access reaches by default:
+  The policy of [§8.7](#87-reader-policy) limits what that access reaches by default:
   - a remote archive cannot read local files, and no archive can use other
     schemes, such as an `s3:` bucket the reader holds credentials for
     (rule 1);
@@ -1235,16 +1235,16 @@ any of these values.
     those a prefix list (rule 2) as well.
 
   Applications that read archives from untrusted places SHOULD give a
-  prefix list (§8.7 rule 2).
+  prefix list ([§8.7](#87-reader-policy) rule 2).
 - One reference can name thousands of ranges, and a source table millions
-  of sources; the limits of §8.7 bound the requests one `get` makes and the
+  of sources; the limits of [§8.7](#87-reader-policy) bound the requests one `get` makes and the
   memory an archive takes to open.
 - Keys are not file names. Tools that extract an archive to disk MUST NOT
   trust keys such as `../x` or `/etc/passwd`.
 - A reference can describe a value of up to 2^64 − 1 bytes, and a DEFLATE
   body can expand greatly. Readers SHOULD bound the memory a single request
   can use, and document the bound; a request beyond it is a request error.
-- Pins (§6.1) and range checksums (§5.2) detect accidental replacement of
+- Pins ([§6.1](#61-pins)) and range checksums ([§5.2](#52-range)) detect accidental replacement of
   a referenced object, not tampering: the archive itself is not signed, a
   `modified_not_after` pin cannot see a rewrite within the same second, and
   CRC-32C is not a cryptographic hash.

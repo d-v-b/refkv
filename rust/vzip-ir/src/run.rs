@@ -194,7 +194,9 @@ impl Run {
     }
 }
 
-/// The values the view shows (conventions §8.7) whose bytes the parser did not keep,
+/// The values the view shows (conventions §8.7
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>) whose bytes the
+/// parser did not keep,
 /// in the source: (element, offset, length). Each parser holds every such value it
 /// reads; these are read after it.
 pub fn unread_shown(ir: &Ir, profile: &str) -> Vec<(u32, u64, u64)> {

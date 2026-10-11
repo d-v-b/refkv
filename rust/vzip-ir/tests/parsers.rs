@@ -256,7 +256,9 @@ fn more_than_100000_ifds_are_rejected() {
 
 #[test]
 fn a_segment_id_with_bytes_after_its_nul_is_not_the_id() {
-    // spec/virtualize/czi.md §2.1: the 16 bytes of the id, NUL-padded; a byte after the NUL makes another id
+    // spec/virtualize/czi.md §2.1
+    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#21-segments>: the 16 bytes of
+    // the id, NUL-padded; a byte after the NUL makes another id
     let mut data = std::fs::read(fixtures().join("czi/czi_gray8_single.czi")).unwrap();
     let at = (0..data.len() - 16).find(|&k| data[k..k + 15] == *b"ZISRAWSUBBLOCK\0").unwrap();
     data[at + 15] = 0xDF;

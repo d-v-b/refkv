@@ -1,6 +1,15 @@
-//! The image projections (design/ARCHITECTURE.md §3.4): a valid IR and its facts into
-//! today's Zarr hierarchy (spec/virtualize/{tiff,czi,nd2}.md §4, and ND2's root source
-//! metadata of §5.1). A projection checks nothing (the parser checked the schema)
+//! The image projections (design/ARCHITECTURE.md §3.4
+//! <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#34-projections>): a valid IR and
+//! its facts into
+//! today's Zarr hierarchy (spec/virtualize/tiff.md §4
+//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#4-the-image>,
+//! spec/virtualize/czi.md §4
+//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#4-output>,
+//! spec/virtualize/nd2.md §4
+//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#4-the-image>, and ND2's root
+//! source metadata of §5.1
+//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>). A
+//! projection checks nothing (the parser checked the schema)
 //! and reads nothing (the IR holds what it needs).
 
 mod czi;

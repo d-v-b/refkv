@@ -7,10 +7,10 @@ ordered by how likely they are to cause two implementations to disagree.
 
 ## A. Likely interoperability issues
 
-### A1. §6.2 Which `Last-Modified` formats count as a "valid HTTP-date"
+### A1. [§6.2](../../../../spec/history/archive/SPEC.r6.md#62-reading-over-http) Which `Last-Modified` formats count as a "valid HTTP-date"
 **Question:** RFC 9110 §5.6.7 defines HTTP-date as IMF-fixdate *or* the two
 obsolete formats (rfc850-date, asctime-date), and says recipients MUST accept
-all three. §6.2 only says "a valid HTTP-date". Must a reader accept
+all three. [§6.2](../../../../spec/history/archive/SPEC.r6.md#62-reading-over-http) only says "a valid HTTP-date". Must a reader accept
 `Sunday, 06-Nov-94 08:49:37 GMT` and `Sun Nov  6 08:49:37 1994`? rfc850-date
 has a two-digit year, which RFC 9110 resolves relative to the *current
 clock* (more than 50 years in the future means the previous century), so the
@@ -23,20 +23,20 @@ the weekday must match, and whether a leap second (`:60`) is accepted. A
 reader that accepts only IMF-fixdate gets a different result (resolution
 error) for servers that send obsolete formats.
 
-### A2. §4.3 / §8.6 Reader behaviour for a reference payload larger than 65519 bytes
-**Question:** §4.3 says a payload MUST NOT exceed 65519 bytes, but this is not
-a payload error in §5 or §8.4, and §8.6 does not list it among the violations
+### A2. [§4.3](../../../../spec/history/archive/SPEC.r6.md#43-reference-entries) / [§8.6](../../../../spec/history/archive/SPEC.r6.md#86-violations-readers-need-not-detect) Reader behaviour for a reference payload larger than 65519 bytes
+**Question:** [§4.3](../../../../spec/history/archive/SPEC.r6.md#43-reference-entries) says a payload MUST NOT exceed 65519 bytes, but this is not
+a payload error in [§5](../../../../spec/history/archive/SPEC.r6.md#5-messages) or [§8.4](../../../../spec/history/archive/SPEC.r6.md#84-errors), and [§8.6](../../../../spec/history/archive/SPEC.r6.md#86-violations-readers-need-not-detect) does not list it among the violations
 readers need not detect. A payload of 65520 to 65531 bytes fits in the extra
 field when no ZIP64 block is present. Is `get` then a payload error, or must
 it succeed?
 **Choice:** Readers do not check the limit (the payload is decoded normally).
 **Suggestion:** Either add "payload longer than 65519 bytes" to the payload
-error list or add §4.3's size limit to §8.6.
+error list or add [§4.3](../../../../spec/history/archive/SPEC.r6.md#43-reference-entries)'s size limit to [§8.6](../../../../spec/history/archive/SPEC.r6.md#86-violations-readers-need-not-detect).
 
-### A3. §3.2 / §8.4 ZIP64 handling when a *size* field (not the offset) is 0xFFFFFFFF
+### A3. [§3.2](../../../../spec/history/archive/SPEC.r6.md#32-zip64) / [§8.4](../../../../spec/history/archive/SPEC.r6.md#84-errors) ZIP64 handling when a *size* field (not the offset) is 0xFFFFFFFF
 **Question:** The entry-error rules are written only for "a record whose
 offset is all ones". A record whose compressed or uncompressed size is
-0xFFFFFFFF violates §3.1 rule 7, which §8.6 says readers need not detect. But
+0xFFFFFFFF violates [§3.1](../../../../spec/history/archive/SPEC.r6.md#31-structure) rule 7, which [§8.6](../../../../spec/history/archive/SPEC.r6.md#86-violations-readers-need-not-detect) says readers need not detect. But
 should the reader take the 64-bit size from the `0x0001` block (APPNOTE), use
 0xFFFFFFFF literally, or report an entry error?
 **Choice:** I follow APPNOTE: every all-ones field among (usize, csize,
@@ -44,14 +44,14 @@ offset) is read from the single `0x0001` block in that order. A missing,
 duplicated or too-short block is an entry error in all three cases.
 **Suggestion:** State it, or explicitly say the result is unspecified.
 
-### A4. §3.2 More than one `0x0001` block when the offset is *not* all ones
+### A4. [§3.2](../../../../spec/history/archive/SPEC.r6.md#32-zip64) More than one `0x0001` block when the offset is *not* all ones
 **Question:** "has more than one 0x0001 block" is an entry error only for a
 record whose offset is all ones. For other records, is a duplicate `0x0001`
 block allowed?
-**Choice:** Ignored (no error), since §4.1 says other header IDs "MAY appear
+**Choice:** Ignored (no error), since [§4.1](../../../../spec/history/archive/SPEC.r6.md#41-classification) says other header IDs "MAY appear
 and do not affect the kind".
 
-### A5. §7.2 / §8.2 Which pages `list(prefix)` must read
+### A5. [§7.2](../../../../spec/history/archive/SPEC.r6.md#72-lookup) / [§8.2](../../../../spec/history/archive/SPEC.r6.md#82-operations) Which pages `list(prefix)` must read
 **Question:** The rule "reads every page whose range includes at least one
 key starting with `prefix`" is correct but leaves implementers to work out
 the interval test. Errors here change results (an entry error versus a
@@ -64,7 +64,7 @@ Pages before the first `first_key` are never relevant (such keys are missing).
 page holding only hidden keys, or a page whose `first_key` lacks the prefix
 but whose range contains prefixed keys, cannot be parsed.
 
-### A6. §6 `file:` mapping edge cases
+### A6. [§6](../../../../spec/history/archive/SPEC.r6.md#6-source-table) `file:` mapping edge cases
 - **`localhost` with a port or userinfo** (`file://localhost:/x`,
   `file://u@localhost/x`): the authority is not exactly `localhost`. I treat
   both as non-local (resolution error).
@@ -79,7 +79,7 @@ but whose range contains prefixed keys, cannot be parsed.
 - **A source that resolves to a directory**: I report a resolution error
   ("not a regular file"). The spec only says "if the object cannot be read".
 
-### A7. §6.2 HTTP URL details the spec doesn't cover
+### A7. [§6.2](../../../../spec/history/archive/SPEC.r6.md#62-reading-over-http) HTTP URL details the spec doesn't cover
 - **Empty or absent host** (`http:///x`, `http:x`): resolution error (my choice).
 - **Userinfo** (`http://u:p@host/`): I don't send it (no `Authorization`
   header). The spec doesn't say.
@@ -100,7 +100,7 @@ but whose range contains prefixed keys, cannot be parsed.
   response bodies at 1 GiB (resolution error beyond that). The spec says this
   is a MUST-accept case, so a resource-limit class for it would help.
 
-### A8. §3.4 Comment whose sixth byte is not a digit
+### A8. [§3.4](../../../../spec/history/archive/SPEC.r6.md#34-end-of-central-directory-record-and-archive-comment) Comment whose sixth byte is not a digit
 **Question:** A comment that starts `vzip/` followed by a non-digit (`vzip/x`)
 is neither clearly "not a vzip archive" nor "an unsupported version". Both
 are archive errors, so this only affects the message. I report it as an
@@ -108,59 +108,59 @@ unsupported version.
 
 ## B. Ambiguities with an obvious choice
 
-### B1. §3.2 What "lie within the file" means for the zip64 end record
+### B1. [§3.2](../../../../spec/history/archive/SPEC.r6.md#32-zip64) What "lie within the file" means for the zip64 end record
 I require `zip64_offset + 56 <= file_size`. I do not require the record to end
 before the locator or to avoid overlapping the central directory. Likewise
 the central directory only has to satisfy `cd_offset + cd_size <= file_size`,
 not end before the end records.
 
-### B2. §8.1 / §8.2 `raw` of format entries
+### B2. [§8.1](../../../../spec/history/archive/SPEC.r6.md#81-opening) / [§8.2](../../../../spec/history/archive/SPEC.r6.md#82-operations) `raw` of format entries
 `raw("__vz__/sources")` and `raw("__vz__/index")` return the body that the
 comment locates, inflated. Its uncompressed size is not checked against any
-record, as §8.1 says for open. In an unpaged archive `raw("__vz__/index")` is
+record, as [§8.1](../../../../spec/history/archive/SPEC.r6.md#81-opening) says for open. In an unpaged archive `raw("__vz__/index")` is
 *missing*. The spec says format entries are visible in raw but doesn't say
 whether raw goes through the comment or the central directory record. I used
-the comment because §3.4 says readers MUST read them through the comment.
+the comment because [§3.4](../../../../spec/history/archive/SPEC.r6.md#34-end-of-central-directory-record-and-archive-comment) says readers MUST read them through the comment.
 
-### B3. §7.2 Duplicate names inside a page, or in an unpaged directory
-Unspecified (§8.6). I use the first record with that name.
+### B3. [§7.2](../../../../spec/history/archive/SPEC.r6.md#72-lookup) Duplicate names inside a page, or in an unpaged directory
+Unspecified ([§8.6](../../../../spec/history/archive/SPEC.r6.md#86-violations-readers-need-not-detect)). I use the first record with that name.
 
-### B4. §7.1 Pinned STORED entry with `size != csize`
+### B4. [§7.1](../../../../spec/history/archive/SPEC.r6.md#71-layout) Pinned STORED entry with `size != csize`
 Not in the open-time "malformed" list, so it is a body error when the key is
 read (the same rule as a STORED record).
 
-### B5. §8.1 A paged archive's central directory is never parsed as a whole
+### B5. [§8.1](../../../../spec/history/archive/SPEC.r6.md#81-opening) A paged archive's central directory is never parsed as a whole
 Only pages are parsed, lazily, and only when a lookup or list needs them. So
 garbage after the last page (where the format records should be) is never
-detected. That is consistent with §7.2 ("not required to check"), but worth
+detected. That is consistent with [§7.2](../../../../spec/history/archive/SPEC.r6.md#72-lookup) ("not required to check"), but worth
 stating.
 
-### B6. §8.4 Unexpected I/O errors (EIO on the archive after open)
+### B6. [§8.4](../../../../spec/history/archive/SPEC.r6.md#84-errors) Unexpected I/O errors (EIO on the archive after open)
 The error classes don't cover these. They can't really happen in tests. A
 failed read of a key's body would most naturally be a body error. My CLI maps
 any non-vzip exception to class `resolution` and logs to stderr.
 
-### B7. §9.2 "Version needed to extract" in local headers of ZIP64 entries
-§9.2 recommends 45 "for records with a ZIP64 extra field". The local header
+### B7. [§9.2](../../../../spec/history/archive/SPEC.r6.md#92-recommended-layout-informative) "Version needed to extract" in local headers of ZIP64 entries
+[§9.2](../../../../spec/history/archive/SPEC.r6.md#92-recommended-layout-informative) recommends 45 "for records with a ZIP64 extra field". The local header
 never has a ZIP64 extra field (rule 4), so I write 20 in local headers and 45
 in the central record. For the zip64 end record's "version made by" I also
 write 45. The spec only fixes "version needed" there.
 
-### B8. §5.1 Non-minimal tag varints and the varint overflow rule
+### B8. [§5.1](../../../../spec/history/archive/SPEC.r6.md#51-encoding) Non-minimal tag varints and the varint overflow rule
 "Non-minimal varints are accepted" applies to tags too (I accept them). A
 10-byte varint whose last byte is 0x01 is valid (2^63 bit). One whose last
 byte is >= 0x02 exceeds 2^64 − 1 and is malformed.
 
-### B9. §6.1 Pin checks per read versus per open
+### B9. [§6.1](../../../../spec/history/archive/SPEC.r6.md#61-pins) Pin checks per read versus per open
 I check pins on every read (file: re-stat; HTTP: every response), which the
 SHOULD allows. Nothing is cached.
 
-### B10. §8.3 Concat of ranges into the same object
+### B10. [§8.3](../../../../spec/history/archive/SPEC.r6.md#83-resolving-a-reference) Concat of ranges into the same object
 I issue one request per overlapping range, in order, and do not merge
 requests (merging is allowed). The first failure is reported, matching
-"ranges, in order" in §8.4 step 5.
+"ranges, in order" in [§8.4](../../../../spec/history/archive/SPEC.r6.md#84-errors) step 5.
 
-### B11. §10 Resource limit
+### B11. [§10](../../../../spec/history/archive/SPEC.r6.md#10-security-considerations) Resource limit
 I document a 1 GiB limit (`MEMORY_LIMIT` in `src/common.ts`) on a single
 `get` window, on any DEFLATE body (inflated or compressed), on an unpaged
 central directory and on a page. Beyond it, `get`/`raw` is a request error
@@ -169,7 +169,7 @@ bodies over 1 GiB are resolution errors.
 
 ## C. Things that were unnatural or hard to implement (TypeScript / Node)
 
-- **Detecting trailing bytes after a DEFLATE stream (§8.1).** Node's
+- **Detecting trailing bytes after a DEFLATE stream ([§8.1](../../../../spec/history/archive/SPEC.r6.md#81-opening)).** Node's
   `zlib.inflateRawSync` silently ignores trailing input. I had to use the
   little-documented `{ info: true }` option and compare `engine.bytesWritten`
   with the input length. Truncated input does throw ("unexpected end of
@@ -182,10 +182,10 @@ bodies over 1 GiB are resolution errors.
   UTF-16 code units, so every key comparison goes through UTF-8 bytes
   (`Buffer.compare`). A JSON description can contain lone surrogates
   (`"\ud800"`), which JS keeps as-is and `TextEncoder` silently replaces with
-  U+FFFD. "Key is not valid UTF-8" (§9.1) has to be checked with
+  U+FFFD. "Key is not valid UTF-8" ([§9.1](../../../../spec/history/archive/SPEC.r6.md#91-requirements)) has to be checked with
   `String.prototype.isWellFormed`. Decoding protobuf strings needs
   `TextDecoder('utf-8', {fatal: true, ignoreBOM: true})`: the default strips
-  a leading BOM, which §3.3 warns about.
+  a leading BOM, which [§3.3](../../../../spec/history/archive/SPEC.r6.md#33-keys) warns about.
 - **uint64 everywhere.** Offsets, lengths and `offset + length <= 2^64 − 1`
   checks need `BigInt`. JS numbers lose precision above 2^53.
 - **RFC 3986 validation.** No built-in (WHATWG `URL` is not RFC 3986 and
@@ -212,9 +212,9 @@ bodies over 1 GiB are resolution errors.
 - **`start > end`** is a valid query and returns a request-error result.
 - **Missing `key` on `list`**: list uses `prefix`; a missing `prefix` is invalid.
 - **Pins on `key`/`data` sources in a description**: the harness lists pins
-  only for `url` sources. I treat pins elsewhere as invalid (§9.1).
+  only for `url` sources. I treat pins elsewhere as invalid ([§9.1](../../../../spec/history/archive/SPEC.r6.md#91-requirements)).
 - **Range validation in the description**: a range naming a source index that
-  doesn't exist is invalid, even for zero-length ranges (§9.1).
+  doesn't exist is invalid, even for zero-length ranges ([§9.1](../../../../spec/history/archive/SPEC.r6.md#91-requirements)).
 - **Exit codes**: I use 2 for invalid input or usage and 1 for I/O failures;
   the harness only requires "non-zero".
 - **Unexpected errors after a successful open** (see B6) aren't covered;
@@ -225,6 +225,6 @@ bodies over 1 GiB are resolution errors.
   it holds a single larger record.
 - **Entry order in the file** (not specified by the harness): non-pinned
   entries in description order, then `__vz__/sources`, then pinned entries,
-  then `__vz__/index` (the §9.2 layout). Body records in the central
+  then `__vz__/index` (the [§9.2](../../../../spec/history/archive/SPEC.r6.md#92-recommended-layout-informative) layout). Body records in the central
   directory are sorted by UTF-8 key in both paged and unpaged archives, then
   `__vz__/sources`, then `__vz__/index`.

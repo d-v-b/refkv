@@ -11,9 +11,9 @@ The ranked summary is at the end.
 
 ---
 
-## §3 ZIP container
+## [§3](../../../../spec/history/archive/SPEC.r2.md#3-zip-container) ZIP container
 
-### 3.1 §3.4: EOCD probe (fall-through after a magic mismatch)
+### 3.1 [§3.4](../../../../spec/history/archive/SPEC.r2.md#34-end-of-central-directory-record-and-archive-comment): EOCD probe (fall-through after a magic mismatch)
 - **Question:** Step 1 probes `file_size − 60`. In an archive with a 22-byte
   comment, that offset falls 16 bytes before the real EOCD. I first worried
   that a crafted key could fake an EOCD there. It cannot, for valid archives:
@@ -27,13 +27,13 @@ The ranked summary is at the end.
   first, then 44), then check the magic. A mismatch is an archive error
   with no fall-through.
 
-### 3.2 [interop] §3.2 / §8.4: what counts as "bad end records"
-- **Question:** §8.4 lists "bad end records" as an archive error but never
+### 3.2 [interop] [§3.2](../../../../spec/history/archive/SPEC.r2.md#32-zip64) / [§8.4](../../../../spec/history/archive/SPEC.r2.md#84-errors): what counts as "bad end records"
+- **Question:** [§8.4](../../../../spec/history/archive/SPEC.r2.md#84-errors) lists "bad end records" as an archive error but never
   says which checks a reader makes. The open cases include: disk numbers
   other than 0, "entries on this disk" ≠ "total entries", a CD that extends
   past the EOCD or zip64 EOCD, a zip64 locator whose target lacks the
   signature, and an EOCD field that is all ones with no zip64 locator.
-  §8.1 forbids errors at open that are not listed, so a strict reader and a
+  [§8.1](../../../../spec/history/archive/SPEC.r2.md#81-opening) forbids errors at open that are not listed, so a strict reader and a
   lenient reader disagree on whether these archives open at all.
 - **Chosen:** Each of these is an archive error. An all-ones EOCD field
   without a locator is an error rather than being read as a literal value.
@@ -43,12 +43,12 @@ The ranked summary is at the end.
   `cd_size`.
 - **Suggestion:** List the checks in the spec.
 
-### 3.3 §3.2: "version 1" of the zip64 EOCD, and version-needed values
+### 3.3 [§3.2](../../../../spec/history/archive/SPEC.r2.md#32-zip64): "version 1" of the zip64 EOCD, and version-needed values
 - **Question:** "zip64 end of central directory record (version 1, no
   extensible data)" could mean APPNOTE's v1 record layout (4.3.14.1, as
   opposed to v2 with CD encryption fields), or a version field set to 1.
   The "version made by" and "version needed" fields of that record are not
-  given. §9.2 says version needed is 45 "for records with a ZIP64 extra
+  given. [§9.2](../../../../spec/history/archive/SPEC.r2.md#92-recommended-layout-informative) says version needed is 45 "for records with a ZIP64 extra
   field and 20 otherwise". Local headers never have a ZIP64 extra (rule 4),
   so the local header says 20 while its CD record says 45. That is legal but
   odd.
@@ -57,31 +57,31 @@ The ranked summary is at the end.
   header uses 20 and the CD record uses 45 when it carries a ZIP64 extra.
   On read, I accept a total-disks value of 0 or 1.
 
-### 3.4 §3.2: order of extra blocks
+### 3.4 [§3.2](../../../../spec/history/archive/SPEC.r2.md#32-zip64): order of extra blocks
 - **Question:** When a reference record also needs a 0x0001 block (local
   header offset ≥ 4 GiB), the spec does not say which block comes first.
 - **Chosen:** 0x0001 first, then 0x7A76/0x7A77. Readers must accept either
   order, which mine does.
 
-### 3.5 §3.1 rule 7 / §9.1: compressed size of 4 GiB or more
-- **Question:** §9.1 tells the writer to reject a bytes entry whose *size* is
+### 3.5 [§3.1](../../../../spec/history/archive/SPEC.r2.md#31-structure) rule 7 / [§9.1](../../../../spec/history/archive/SPEC.r2.md#91-requirements): compressed size of 4 GiB or more
+- **Question:** [§9.1](../../../../spec/history/archive/SPEC.r2.md#91-requirements) tells the writer to reject a bytes entry whose *size* is
   ≥ 0xFFFFFFFF. Incompressible data can deflate to a *compressed* size of
   ≥ 0xFFFFFFFF even when the uncompressed size is below it. Rule 7 forbids
-  this, but §9.1 does not list it.
+  this, but [§9.1](../../../../spec/history/archive/SPEC.r2.md#91-requirements) does not list it.
 - **Chosen:** The writer also rejects a compressed size ≥ 0xFFFFFFFF.
 
-### 3.6 [interop] §3.3 / §8: records whose names are invalid UTF-8 or empty
-- **Question:** Keys MUST be non-empty valid UTF-8, but neither §8.4 nor §8.6
+### 3.6 [interop] [§3.3](../../../../spec/history/archive/SPEC.r2.md#33-keys) / [§8](../../../../spec/history/archive/SPEC.r2.md#8-reading): records whose names are invalid UTF-8 or empty
+- **Question:** Keys MUST be non-empty valid UTF-8, but neither [§8.4](../../../../spec/history/archive/SPEC.r2.md#84-errors) nor [§8.6](../../../../spec/history/archive/SPEC.r2.md#86-violations-readers-need-not-detect)
   says what a reader does with a record that breaks this. Is it an entry
   error, an archive error, or unspecified? Should `list` show it?
 - **Chosen:** Such a record is invisible. It cannot be addressed by a
   (valid) key, it is not listed, and it is not an error.
-- **Suggestion:** Add it to §8.6 (unspecified), or make it an entry error
+- **Suggestion:** Add it to [§8.6](../../../../spec/history/archive/SPEC.r2.md#86-violations-readers-need-not-detect) (unspecified), or make it an entry error
   and say that it is not listed.
 
-### 3.7 §3.4: format entries reached through the comment have no uncompressed size
+### 3.7 [§3.4](../../../../spec/history/archive/SPEC.r2.md#34-end-of-central-directory-record-and-archive-comment): format entries reached through the comment have no uncompressed size
 - **Question:** The comment gives only the offset and the *compressed* size.
-  A reader that follows §3.4 ("need not consult those entries' central
+  A reader that follows [§3.4](../../../../spec/history/archive/SPEC.r2.md#34-end-of-central-directory-record-and-archive-comment) ("need not consult those entries' central
   directory records") cannot bound or verify the inflated size, and cannot
   tell whether the DEFLATE stream ends before `sources_size` bytes, leaving
   trailing garbage.
@@ -89,18 +89,18 @@ The ranked summary is at the end.
   bytes after the end of the DEFLATE stream (Node's zlib does this). The
   same applies to `raw("__vz__/sources")`.
 
-## §4 Entries
+## [§4](../../../../spec/history/archive/SPEC.r2.md#4-entries) Entries
 
-### 4.1 §4.1: a needed ZIP64 extra block that is missing or short
+### 4.1 [§4.1](../../../../spec/history/archive/SPEC.r2.md#41-classification): a needed ZIP64 extra block that is missing or short
 - **Question:** A record whose local-header-offset field is 0xFFFFFFFF but
   that has no 0x0001 block, or one too short to hold the offset, is not
   classified by any rule.
-- **Chosen:** Entry error. The extra field "parses" in the §4.1 sense, but
+- **Chosen:** Entry error. The extra field "parses" in the [§4.1](../../../../spec/history/archive/SPEC.r2.md#41-classification) sense, but
   the body offset cannot be computed. I also honour 0xFFFFFFFF in the size
-  fields in APPNOTE order (usize, csize, offset), even though §3.2 says sizes
+  fields in APPNOTE order (usize, csize, offset), even though [§3.2](../../../../spec/history/archive/SPEC.r2.md#32-zip64) says sizes
   never need it.
 
-### 4.2 [interop] §4.3 / §5.2: a zero-byte single-range payload depends on the source table
+### 4.2 [interop] [§4.3](../../../../spec/history/archive/SPEC.r2.md#43-reference-entries) / [§5.2](../../../../spec/history/archive/SPEC.r2.md#52-range): a zero-byte single-range payload depends on the source table
 - **Question:** The canonical encoding of the Range `{source 0, offset 0,
   length 0}` is empty. A 0x7A76 block with `data_size = 0` is therefore a
   well-formed *source* range that needs `source (0) < number of sources`. In
@@ -113,21 +113,21 @@ The ranked summary is at the end.
   `source` bound, or telling writers to use a 0x7A77 empty Concat or an
   empty literal for empty values.
 
-### 4.3 §4.3 / §8.2: raw view of entries with entry errors
-- **Question:** §8.2 calls `raw` "the view of a ZIP tool that knows nothing
-  about vzip", but §8.4 says entry errors make `raw` fail. An entry with two
+### 4.3 [§4.3](../../../../spec/history/archive/SPEC.r2.md#43-reference-entries) / [§8.2](../../../../spec/history/archive/SPEC.r2.md#82-operations): raw view of entries with entry errors
+- **Question:** [§8.2](../../../../spec/history/archive/SPEC.r2.md#82-operations) calls `raw` "the view of a ZIP tool that knows nothing
+  about vzip", but [§8.4](../../../../spec/history/archive/SPEC.r2.md#84-errors) says entry errors make `raw` fail. An entry with two
   0x7A76 blocks is perfectly readable by such a tool.
-- **Chosen:** I follow §8.4: `raw` fails with an entry error.
+- **Chosen:** I follow [§8.4](../../../../spec/history/archive/SPEC.r2.md#84-errors): `raw` fails with an entry error.
 
 ### 4.4 Hidden reference entries are allowed but unreachable
-- §2 and the harness allow reference entries under `__vz__/`. `get` treats
+- [§2](../../../../spec/history/archive/SPEC.r2.md#2-data-model) and the harness allow reference entries under `__vz__/`. `get` treats
   hidden keys as missing, and a `key` source cannot point at a reference
   entry. Such entries can therefore only be seen through `raw`. I accept
   them, but the spec could say whether writers should reject them.
 
-## §5 Messages
+## [§5](../../../../spec/history/archive/SPEC.r2.md#5-messages) Messages
 
-### 5.1 §5.1: is a reserved field number "in the schema"?
+### 5.1 [§5.1](../../../../spec/history/archive/SPEC.r2.md#51-encoding): is a reserved field number "in the schema"?
 - **Question:** `reserved 2` in `Range`. The decoding rule is "skip fields
   whose field number is not in the schema". It is arguable whether a
   reserved number is "in the schema", and if it is, which wire type is
@@ -135,13 +135,13 @@ The ranked summary is at the end.
 - **Chosen:** Treat field 2 as unknown and skip it with any allowed wire
   type.
 
-### 5.2 §5.1: repeated message elements and the "default value" rule
+### 5.2 [§5.1](../../../../spec/history/archive/SPEC.r2.md#51-encoding): repeated message elements and the "default value" rule
 - The encoding rule talks only about scalar fields, `oneof` and `optional`.
   An element of `repeated Range parts` whose own encoding is empty must
   still be emitted (`0a 00`), or the part disappears. This seems obvious,
   but nothing states it. I always emit repeated message elements.
 
-### 5.3 §5.1: what "valid UTF-8" means, and a BOM pitfall
+### 5.3 [§5.1](../../../../spec/history/archive/SPEC.r2.md#51-encoding): what "valid UTF-8" means, and a BOM pitfall
 - The spec should cite RFC 3629, which rules out surrogates (CESU-8) and
   overlong forms. I use `TextDecoder("utf-8", {fatal: true})`.
   **Pitfall:** `TextDecoder` *strips a leading U+FEFF by default*. Without
@@ -149,7 +149,7 @@ The ranked summary is at the end.
   same pitfall exists in other languages' "UTF-8 with BOM" decoders. A
   conformance test with a BOM-prefixed key would catch it.
 
-### 5.4 §5.2: whether a payload is malformed depends on context
+### 5.4 [§5.2](../../../../spec/history/archive/SPEC.r2.md#52-range): whether a payload is malformed depends on context
 - Whether a Range is malformed depends on the number of sources, which lives
   in another entry. A payload cannot be validated on its own. That is fine,
   but it should be called out, because it is easy to validate payloads in
@@ -162,7 +162,7 @@ The ranked summary is at the end.
   harness limits its numbers to below 2^53. Archives can still carry larger
   values.
 
-## §6 Source table
+## [§6](../../../../spec/history/archive/SPEC.r2.md#6-source-table) Source table
 
 ### 6.1 [interop] How to percent-encode the base `file:` URI
 - **Question:** The base URI is "the `file:` URI of the absolute form of that
@@ -189,7 +189,7 @@ The ranked summary is at the end.
   §5.2.4 `remove_dot_segments`. `"a b.bin"` and `"é.bin"` are resolution
   errors. I deliberately avoided `new URL`.
 - **Suggestion:** Warn implementers about WHATWG URL parsers. Say whether
-  writers must validate `url` syntax: §9.1 only rejects an empty `url`, and
+  writers must validate `url` syntax: [§9.1](../../../../spec/history/archive/SPEC.r2.md#91-requirements) only rejects an empty `url`, and
   my writer accepts any non-empty string.
 
 ### 6.3 `file:` details not covered
@@ -222,18 +222,18 @@ The ranked summary is at the end.
   bytes in step 3" SHOULD. Consider recommending STORED for `key`-source
   targets. I read STORED targets by window and cache inflated ones.
 
-## §7 Page index
+## [§7](../../../../spec/history/archive/SPEC.r2.md#7-page-index-optional) Page index
 
 ### 7.1 [interop] What "malformed page index" covers
 - **Question:** Is a page whose `[offset, offset+length)` extends past
-  `cd_size` a malformed page index (an archive error at open), or a §8.6
+  `cd_size` a malformed page index (an archive error at open), or a [§8.6](../../../../spec/history/archive/SPEC.r2.md#86-violations-readers-need-not-detect)
   "does not match the central directory" case (unspecified, or an entry
   error when the page is read)? The same question applies to pages that
   overlap, are out of order, or are empty, and to duplicate pinned keys.
 - **Chosen:** Out-of-bounds pages are an archive error at open. I do not
   check anything else. Duplicate pinned keys: the first one wins.
 
-### 7.2 §7.2: "the last page whose first_key ≤ k"
+### 7.2 [§7.2](../../../../spec/history/archive/SPEC.r2.md#72-lookup): "the last page whose first_key ≤ k"
 - "Last" is only unambiguous if pages are sorted. I implement it literally
   as the last such page in wire order, which equals a binary search for
   valid archives.
@@ -241,11 +241,11 @@ The ranked summary is at the end.
 ### 7.3 [interop] `list` in a paged archive
 - **Question:** The spec does not say how `list` interacts with pages. Must
   pinned keys be listed even if no page holds them? (They are "present" per
-  §7.2.) Should a record that sits on the "wrong" page (one that §7.2 lookup
+  [§7.2](../../../../spec/history/archive/SPEC.r2.md#72-lookup).) Should a record that sits on the "wrong" page (one that [§7.2](../../../../spec/history/archive/SPEC.r2.md#72-lookup) lookup
   would not select) be listed? If a page cannot be parsed, does `list` fail,
   and with which error class? "Keys with entry errors are listed" does not
   help when a page cannot be enumerated.
-- **Chosen:** `list` reads every page and includes a record only if §7.2
+- **Chosen:** `list` reads every page and includes a record only if [§7.2](../../../../spec/history/archive/SPEC.r2.md#72-lookup)
   lookup would find it on that page, plus all pinned keys. A page that
   cannot be parsed makes `list` fail with an entry error.
 
@@ -257,28 +257,28 @@ The ranked summary is at the end.
   spec does not say.
 - A pinned key wins over the page lookup. The record on the page is not
   consulted, so a pinned key whose real record is a reference shows up as
-  `bytes`. That is unspecified per §8.6, but worth saying explicitly.
-- Pinned entries also appear in the pages (§7.1 says pages partition all
+  `bytes`. That is unspecified per [§8.6](../../../../spec/history/archive/SPEC.r2.md#86-violations-readers-need-not-detect), but worth saying explicitly.
+- Pinned entries also appear in the pages ([§7.1](../../../../spec/history/archive/SPEC.r2.md#71-layout) says pages partition all
   body records). I include them.
 
-### 7.5 §9.1: "`__vz__/index` MUST follow every entry … it indexes or pins"
+### 7.5 [§9.1](../../../../spec/history/archive/SPEC.r2.md#91-requirements): "`__vz__/index` MUST follow every entry … it indexes or pins"
 - "Follow" means "be placed after in the file". That can be confused with
-  the CD order in §7.1, where the format records come *after* the body
+  the CD order in [§7.1](../../../../spec/history/archive/SPEC.r2.md#71-layout), where the format records come *after* the body
   records. Saying "its local header offset is greater than that of every
   body entry" would be clearer. The `__vz__/sources` entry may sit anywhere,
   because nothing in the index refers to it.
 
-## §8 Reading
+## [§8](../../../../spec/history/archive/SPEC.r2.md#8-reading) Reading
 
 ### 8.1 [interop] Error class for corrupt bodies of bytes entries
-- **Question:** §8.4 has no class for "the DEFLATE body of a bytes entry is
+- **Question:** [§8.4](../../../../spec/history/archive/SPEC.r2.md#84-errors) has no class for "the DEFLATE body of a bytes entry is
   corrupt", "the body extends past end of file", or "the inflated size does
-  not match the record". These are not covered by §8.6 either; §8.6 covers
+  not match the record". These are not covered by [§8.6](../../../../spec/history/archive/SPEC.r2.md#86-violations-readers-need-not-detect) either; [§8.6](../../../../spec/history/archive/SPEC.r2.md#86-violations-readers-need-not-detect) covers
   CRC checks only.
 - **Chosen:** An entry error for that key.
 
 ### 8.2 [interop] Error class for requests larger than the reader's memory bound
-- §10 says readers SHOULD bound memory, but no error class fits a request
+- [§10](../../../../spec/history/archive/SPEC.r2.md#10-security-considerations) says readers SHOULD bound memory, but no error class fits a request
   that exceeds the bound. I use a request error (default 1 GiB).
 
 ### 8.3 Error precedence
@@ -307,7 +307,7 @@ The ranked summary is at the end.
   sort the CD with the language default produce a broken page index. A
   conformance test with such keys would catch it. Mine are tested.
 
-## §9 Writing
+## [§9](../../../../spec/history/archive/SPEC.r2.md#9-writing) Writing
 
 ### 9.1 Validity of a description depends on layout
 - The extra-field limit includes the ZIP64 block, so a reference with a
@@ -317,7 +317,7 @@ The ranked summary is at the end.
   easier to reason about.
 
 ### 9.2 Layout freedom and reproducibility
-- §5.1 promises byte-identical *messages*. Archive bytes still differ
+- [§5.1](../../../../spec/history/archive/SPEC.r2.md#51-encoding) promises byte-identical *messages*. Archive bytes still differ
   between writers: entry order, CD order in unpaged archives, page grouping,
   extra-block order, and external attributes are all free.
 - My writer: entries in description order, but with pinned entries moved
@@ -328,7 +328,7 @@ The ranked summary is at the end.
   1980-01-01 00:00. Version made by is 20 with host 0 (MS-DOS). External
   attributes are 0.
 
-### 9.3 §9.1 does not require validating `url` syntax
+### 9.3 [§9.1](../../../../spec/history/archive/SPEC.r2.md#91-requirements) does not require validating `url` syntax
 - See 6.2. A writer can produce archives whose URLs every reader rejects.
 
 ---
@@ -366,18 +366,18 @@ The ranked summary is at the end.
 
 ## Ranked summary (most interoperability impact first)
 
-1. **§6 URL validity and base-URI encoding (6.1, 6.2).** Strict RFC 3986
+1. **[§6](../../../../spec/history/archive/SPEC.r2.md#6-source-table) URL validity and base-URI encoding (6.1, 6.2).** Strict RFC 3986
    versus WHATWG-style parsers will disagree on everyday inputs such as
    spaces and non-ASCII names, and the base `file:` URI encoding is not
    pinned down.
-2. **§4.3/§5.2 empty single-range payload with zero sources (4.2).** The
+2. **[§4.3](../../../../spec/history/archive/SPEC.r2.md#43-reference-entries)/[§5.2](../../../../spec/history/archive/SPEC.r2.md#52-range) empty single-range payload with zero sources (4.2).** The
    harness's own `{}` range yields a payload that is malformed or valid
    depending on whether the archive has any sources.
 3. **Unclassified errors (8.1, 8.2, 3.6).** Corrupt DEFLATE bodies, size
    mismatches, the memory bound, and invalid-UTF-8 names have no error class
    or defined visibility.
 4. **"Bad end records" and "malformed page index" are not enumerated (3.2,
-   7.1).** Because §8.1 forbids unlisted open errors, readers will disagree
+   7.1).** Because [§8.1](../../../../spec/history/archive/SPEC.r2.md#81-opening) forbids unlisted open errors, readers will disagree
    on which slightly-off archives open at all.
 5. **`list` in paged archives (7.3).** Pinned-only keys, records on the
    wrong page, and unparseable pages.

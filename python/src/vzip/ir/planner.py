@@ -1,4 +1,5 @@
-"""The host's side of the read planner (design/ARCHITECTURE.md §3.5): the I/O.
+"""The host's side of the read planner (design/ARCHITECTURE.md §3.5
+<https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#35-resources-and-io>): the I/O.
 
 The policy (what to request for a parser's batch: coalescing by cost, the
 amplification cap, multi-range packing, read-ahead, the budget) is the Rust
@@ -8,7 +9,8 @@ performs the requests a run asks for and reports each one's bytes and time:
 - `FileTransport`: a local file, mapped; its requests are served in the calling
   thread.
 - `HttpTransport`: an http(s) object read through the archive reader's HTTP
-  layer (`vzip.store`), under the reader policy of spec/archive.md §8.7: the host is
+  layer (`vzip.store`), under the reader policy of spec/archive.md §8.7
+  <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>: the host is
   resolved here, every address is checked against rule 3 (loopback, private,
   link-local and special addresses are refused unless the policy has
   `allow_private_hosts`), a request that would go through a proxy is refused
@@ -66,7 +68,8 @@ class FileTransport:
 
 
 class HttpTransport:
-    """An http(s) object, read under the reader policy (spec/archive.md §8.7)."""
+    """An http(s) object, read under the reader policy (spec/archive.md §8.7
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy>)."""
 
     remote = True
 

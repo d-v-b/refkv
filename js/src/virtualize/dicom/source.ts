@@ -1,6 +1,7 @@
 // A DICOM file's File Meta Information and dataset in the DICOM JSON Model
 // (PS3.18 §F.2): the source metadata of the DICOM convention
-// (spec/virtualize/dicom.md §5).
+// (spec/virtualize/dicom.md §5
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>).
 
 import {
   base64, type ByteReader, familyPlans, gridChunks, jsonNumber, latin1, MAX_PAYLOAD, type Part, payloadSize, type Plan,
@@ -41,7 +42,10 @@ for (const [vr, s] of Object.entries(dictionary.tags as Record<string, string>))
 }
 const MASKS: [string, string][] = Object.entries(dictionary.masks as Record<string, string>);
 
-/** The VR the data dictionary gives a tag, or undefined (spec/virtualize/dicom.md §5). */
+/**
+ * The VR the data dictionary gives a tag, or undefined (spec/virtualize/dicom.md §5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>).
+ */
 export function dictionaryVr(tag: number): string | undefined {
   const group = Math.floor(tag / 0x10000);
   const element = tag % 0x10000;
@@ -68,7 +72,8 @@ const DECIMAL_PARTS = /^([+-]?)([0-9]*)(?:\.([0-9]*))?(?:[eE]([+-]?)([0-9]+))?$/
 // The most digits of a DS exponent, without its sign and leading zeros, that can
 // leave a value of at most 2^16 bytes in binary64's range; and the most digits of
 // an IS value, without its sign and leading zeros, that can be at most 2^53 - 1
-// (spec/virtualize/dicom.md §5).
+// (spec/virtualize/dicom.md §5
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>).
 const MAX_EXPONENT_DIGITS = 5;
 const MAX_INTEGER_DIGITS = 16;
 
@@ -89,7 +94,8 @@ function decimalKey(t: string): string | undefined {
 }
 
 /** A DS value as a JSON number when that number is the text's decimal value
- * exactly, else undefined (spec/virtualize/dicom.md §5). */
+ * exactly, else undefined (spec/virtualize/dicom.md §5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>). */
 function dsNumber(t: string): number | undefined {
   if (!DECIMAL.test(t)) return undefined;
   const k = decimalKey(t);
@@ -99,7 +105,7 @@ function dsNumber(t: string): number | undefined {
   return v;
 }
 
-/** An IS value of the form [+-]?[0-9]+ as spec/conventions.md §6 writes an
+/** An IS value of the form [+-]?[0-9]+ as spec/conventions.md §6 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json> writes an
  * integer: a number up to 2^53 - 1, else the string of its digits. */
 function isNumber(t: string): unknown {
   const negative = t[0] === "-";
@@ -111,9 +117,12 @@ function isNumber(t: string): unknown {
 const INT64 = 2n ** 63n;
 
 /** A DS or IS value as float64 or int64 values in little endian, when every value
- * is a number exactly: a DS value that §5 writes as a number, an IS value of the
+ * is a number exactly: a DS value that §5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata> writes as a
+ * number, an IS value of the
  * form [+-]?[0-9]+ within int64's range; else undefined (spec/virtualize/dicom.md
- * §5, Per-frame values). */
+ * §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>,
+ * Per-frame values). */
 export function typedValues(vr: string, data: Uint8Array): [string, Uint8Array] | undefined {
   const parts: Uint8Array[] = [];
   let from = 0;
@@ -214,7 +223,10 @@ export function valueJson(vr: string, data: Uint8Array, little: boolean, multiby
 }
 
 const utf8 = new TextEncoder();
-/** The length of `v` in UTF-8 as JSON.stringify writes it (spec/virtualize/dicom.md §5). */
+/**
+ * The length of `v` in UTF-8 as JSON.stringify writes it (spec/virtualize/dicom.md §5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>).
+ */
 const jsonSize = (v: unknown) => utf8.encode(JSON.stringify(v)).length;
 
 const BINARY: Record<string, [string, number]> = {
@@ -229,10 +241,11 @@ const MAX_TEXT = 2 ** 16; // the longest text value kept as JSON
 const MAX_MEMBER = 2 ** 14; // the largest top-level attribute, as JSON, kept on the root
 const MAX_ROOT = 2 ** 16; // the largest the root's meta and dataset, as JSON, may be together
 // Data Set Trailing Padding: dead space. (Group lengths and the Extended Offset Table
-// are layout only where spec/virtualize/dicom.md §5 says.)
+// are layout only where spec/virtualize/dicom.md §5
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata> says.)
 const PADDING = 0xfffcfffc;
 const EOT_TAGS = new Set([0x7fe00001, 0x7fe00002]); // the Extended Offset Table and its lengths
-const MAX_CHUNK = 2 ** 24; // the largest chunk of a metadata array (spec/conventions.md §7)
+const MAX_CHUNK = 2 ** 24; // the largest chunk of a metadata array (spec/conventions.md §7 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>)
 const ITEM_SIZES: Record<string, number> = {
   uint8: 1, int16: 2, uint16: 2, int32: 4, uint32: 4, float32: 4, float64: 8, int64: 8, uint64: 8,
 };
@@ -249,7 +262,8 @@ const GATHERED = "value";
 const STRUCTURE = "structure";
 // The bounds of a gathered sequence, past which it keeps its bytes: its distinct
 // paths, the JSON size of its Structures, and its arrays' cost, per byte of the
-// sequence (spec/virtualize/dicom.md §5, Bounds).
+// sequence (spec/virtualize/dicom.md §5
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>, Bounds).
 const MAX_PATHS = 1024;
 const MAX_STRUCTURES = 2 ** 16;
 const MAX_COST = 16;
@@ -276,7 +290,7 @@ interface Extent {
   rest?: string; // a gathered value's path within its item
 }
 
-/** The group lengths of one dataset (spec/virtualize/dicom.md §5): each is layout,
+/** The group lengths of one dataset (spec/virtualize/dicom.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>): each is layout,
  * and dropped, when it is the only element of its tag in the dataset, of an even
  * group, UL (or implicit) with 4 bytes, and its value is the length of the run of
  * elements of its group that follows it. */
@@ -323,7 +337,9 @@ class GroupLengths {
 }
 
 /** Walks the file again, after the profile has accepted its structure, and translates
- * every element (spec/virtualize/dicom.md §5): small values as JSON, large ones as
+ * every element (spec/virtualize/dicom.md §5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>): small
+ * values as JSON, large ones as
  * arrays of the source metadata node, named in the element's BulkDataURI. */
 class Translator {
   arrays: Plan[] = []; // the families of encapsulated pixel data in items
@@ -358,7 +374,8 @@ class Translator {
   }
 
   /** A value of an item of a gathered sequence, gathered with the others of its path
-   * (spec/virtualize/dicom.md §5). */
+   * (spec/virtualize/dicom.md §5
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>). */
   async gather(vr: string, el: Element, path: string): Promise<Json> {
     const inner = path.slice(this.within!.length + 1);
     const slash = inner.indexOf("/");
@@ -572,7 +589,9 @@ class Translator {
 
   /** The attribute of the gathered sequence at `path`, whose `length` bytes hold
    * `items`, with its arrays planned; or undefined when it is past the bounds
-   * (spec/virtualize/dicom.md §5, Bounds). */
+   * (spec/virtualize/dicom.md §5
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>, Bounds).
+   * */
   async gathered(path: string, items: Json[], mark: [number, number], length: number): Promise<Json | undefined> {
     const count = items.length;
     const columns = new Map<string, [number, Extent][]>();
@@ -648,7 +667,8 @@ class Translator {
 
 /** The array of one path of a gathered sequence's items: [data type, row bytes,
  * little endian] of a 2-D array, or undefined for a family (spec/virtualize/dicom.md
- * §5, Gathered values). */
+ * §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>, Gathered
+ * values). */
 function gatheredKind(members: [number, Extent][]): [string, number, boolean] | undefined {
   const kind = (e: Extent): [string, number, boolean] => (e.values !== undefined
     ? [e.values[0], e.values[1].length, true] : [e.dataType, e.n, e.little]);
@@ -660,7 +680,7 @@ function gatheredKind(members: [number, Extent][]): [string, number, boolean] | 
   return undefined;
 }
 
-/** The bytes that one path's array holds (spec/virtualize/dicom.md §5, Bounds): a
+/** The bytes that one path's array holds (spec/virtualize/dicom.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>, Bounds): a
  * family's offsets and data; a 2-D array's rows, only those with a value when they are
  * sparse. */
 function gatheredCost(members: [number, Extent][], count: number): number {
@@ -670,7 +690,8 @@ function gatheredCost(members: [number, Extent][], count: number): number {
 }
 
 /** The values of one path of a gathered sequence's items (spec/virtualize/dicom.md
- * §5, Gathered values): a 2-D array of their data type when they all have one data
+ * §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>, Gathered
+ * values): a 2-D array of their data type when they all have one data
  * type, length and byte order (a DS or IS value its typed values, when it has them),
  * else of their bytes as stored when they all have one length, else a family of
  * those bytes. */
@@ -698,7 +719,8 @@ const concat = (parts: Uint8Array[]): Uint8Array => {
 
 /** A 2-D array [count, m] of `size`-byte values, whose row i is `rows[i]`: a range of
  * the file, or bytes; a row without a value is zero bytes (spec/virtualize/dicom.md
- * §5, Gathered values). */
+ * §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>, Gathered
+ * values). */
 async function gatheredRows(
   path: string, dataType: string, size: number, count: number, m: number, rows: Map<number, Part>, little: boolean,
   read: ByteReader,
@@ -750,7 +772,9 @@ async function gatheredRows(
 }
 
 /** Values that the hierarchy holds itself, `packed` in C order, cut as contiguous
- * values (spec/conventions.md §7), every chunk copied. */
+ * values (spec/conventions.md §7
+ * <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>), every
+ * chunk copied. */
 async function copiedPlan(
   path: string, dataType: string, shape: number[], dims: string[], packed: Uint8Array, item: number,
 ): Promise<Plan> {
@@ -768,8 +792,9 @@ const objectSize = (sizes: Map<string, number>) =>
   2 + Math.max(sizes.size - 1, 0) + [...sizes].reduce((a, [k, n]) => a + jsonSize(k) + 1 + n, 0);
 
 /** Moves the members of the root's `meta` and `dataset` that would make the root
- * large to the node's (spec/virtualize/dicom.md §5): each over MAX_MEMBER, then,
- * while the two are over MAX_ROOT together, the largest left (of equal sizes, the
+ * large to the node's (spec/virtualize/dicom.md §5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>): each over
+ * MAX_MEMBER, then, while the two are over MAX_ROOT together, the largest left (of equal sizes, the
  * first by name, `meta`'s before `dataset`'s). */
 function moveLarge(root: Record<string, Json>, node: Record<string, Json>): void {
   const sizes: Record<string, Map<string, number>> = {};
@@ -800,7 +825,9 @@ function moveLarge(root: Record<string, Json>, node: Record<string, Json>): void
 }
 
 /** [root S, node S, arrays] for a file whose structure the profile has accepted
- * (spec/virtualize/dicom.md §5). Past Pixel Data (which ends at `pixelEnd`), what
+ * (spec/virtualize/dicom.md §5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>). Past Pixel
+ * Data (which ends at `pixelEnd`), what
  * does not parse is kept as bytes. `pixelExtra` is the [offset, length] of native
  * pixel data past the frames, and `unreferenced` the members and count of the family
  * of bytes that an Extended Offset Table skips (when not all empty), and whether they

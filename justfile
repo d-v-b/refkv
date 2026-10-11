@@ -39,6 +39,11 @@ test-all: test js::test impls::test
 # Type-check the browser code
 check: js::typecheck
 
+# Check that every section reference ("§n") is a link to a heading that exists, and test the check
+sections:
+    uv run pytest -q spec/tools
+    uv run python spec/tools/sections.py check
+
 # Run the spec/archive.md conformance suite against the three independent implementations
 conformance out="conformance/results/latest": impls::build
     uv run python conformance/archive/run.py --out {{out}} \
@@ -169,7 +174,9 @@ compare-mutants count="10" seed="0" *args:
         --fixtures conformance/results/mutants {{args}}
 
 # On main after a merge: tag each convention's version as virtualize-<profile>-v<N> at HEAD
-# (spec/conventions.md §1); version 0, before the release, has no tags
+# (spec/conventions.md §1
+# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#1-conventions>); version 0, before
+# the release, has no tags
 tag-conventions:
     #!/usr/bin/env bash
     set -euo pipefail

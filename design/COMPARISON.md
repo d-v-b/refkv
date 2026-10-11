@@ -59,7 +59,7 @@ Every value read, in every run and access pattern, matched the source files.
 | how a reader finds a reference | loads the whole file | loads the Parquet file holding it | loads the manifest holding it | reads the whole central directory at open, or with a page index, the 64 KiB page holding it |
 | Zarr version presented | 2 (as written by VirtualiZarr) | 2 | 3 | 3 |
 | changing it | rewrite | rewrite | commits, with history, branches and tags | rewrite |
-| checks that referenced files haven't changed | none | none | optional: refuses chunks modified after a given time | optional: size, ETag or modification time per source (spec/archive.md §6.1) |
+| checks that referenced files haven't changed | none | none | optional: refuses chunks modified after a given time | optional: size, ETag or modification time per source ([spec/archive.md §6.1](../spec/archive.md#61-pins)) |
 | readers | fsspec's reference filesystem (Python) | fsspec's reference filesystem (Python) | the Icechunk library (Rust, with Python bindings) | this repository's Python store; independent Rust, TypeScript and Python readers; a browser reader; any ZIP tool for entries stored as bytes |
 | written here with | `vds.vz.to_kerchunk(format="json")` | `vds.vz.to_kerchunk(format="parquet")` | `vds.vz.to_icechunk(session.store)` | `vzip.convert.write_vzip(vds, path)` |
 
@@ -312,7 +312,7 @@ Values: every value read matched the source files.
 - **vzip** stores one ZIP entry per chunk: a 30-byte local header, a 46-byte
   central directory record, the key twice, and the reference payload twice.
   - The second copy of the payload is the entry's body, so that ZIP tools
-    show it (spec/archive.md §4.3); writers can leave it out.
+    show it ([spec/archive.md §4.3](../spec/archive.md#43-reference-entries)); writers can leave it out.
   - vzip has no compression of the references, and no setting changes its
     size much.
 

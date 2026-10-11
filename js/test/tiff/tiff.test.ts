@@ -1,4 +1,5 @@
-// The source metadata of the browser TIFF virtualizer (spec/virtualize/tiff.md §5):
+// The source metadata of the browser TIFF virtualizer (spec/virtualize/tiff.md §5
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>):
 // one group per IFD, pointer tags and the IFDs they lead to. Equivalence with the
 // Python virtualizer is checked by conformance/virtualize/compare.py.
 

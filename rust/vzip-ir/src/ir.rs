@@ -1,4 +1,6 @@
-//! The intermediate representation (design/ARCHITECTURE.md §3), held as columns.
+//! The intermediate representation (design/ARCHITECTURE.md §3
+//! <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
+//! held as columns.
 //!
 //! An element is one row of dense columns (kind, parent, name, name index, type,
 //! space, extent) plus sparse side tables, sorted by element id, for what few
@@ -48,7 +50,8 @@ fn escape_name(t: &str) -> String {
 }
 
 /// The (name, name index) of siblings named by texts the source gives (an ND2
-/// chunk's, LV record's or XML element's name; spec/virtualize/nd2.md §5.3), in order:
+/// chunk's, LV record's or XML element's name; spec/virtualize/nd2.md §5.3
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#53-elements>), in order:
 /// a text that is not empty, holds no `/` or `~`, is none of the parent's `fixed`
 /// names and is the first of its siblings' with that text is the name itself, with
 /// no index; any other is the text with `%`, `/` and `~` percent-encoded, then `~`,
@@ -123,7 +126,9 @@ impl Interner {
     }
 }
 
-/// The resource limits of one run (design/ARCHITECTURE.md §3.5): exceeding one rejects.
+/// The resource limits of one run (design/ARCHITECTURE.md §3.5
+/// <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#35-resources-and-io>): exceeding
+/// one rejects.
 #[derive(Clone, Debug)]
 pub struct Budget {
     pub records: u64,
@@ -205,7 +210,9 @@ impl Ir {
             ..Default::default()
         };
         ir.types.id(""); // type 0: none
-        // the root (conventions §8.1): a struct named "", no index, spanning the source
+        // the root (conventions §8.1
+        // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>): a struct
+        // named "", no index, spanning the source
         ir.add(STRUCT, NONE, "", NO_INDEX, "", 0, Some((0, size)))
             .unwrap();
         ir
@@ -629,8 +636,9 @@ impl Ir {
 
     // ---- reading
 
-    /// The element's full name (conventions §8.1): its name followed by its name
-    /// index in decimal, if it has one.
+    /// The element's full name (conventions §8.1
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>): its name
+    /// followed by its name index in decimal, if it has one.
     pub fn name_of(&self, i: u32) -> String {
         let s = self.names.get(self.name[i as usize]);
         match self.nidx[i as usize] {
@@ -639,7 +647,9 @@ impl Ir {
         }
     }
 
-    /// The element's path (conventions §8.1): the full names of its ancestors below
+    /// The element's path (conventions §8.1
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>): the full names
+    /// of its ancestors below
     /// the root and its own, joined by `/`; the root's is `""`. (At most one part per
     /// element, so that parents that loop, in a table not yet checked, still give one.)
     pub fn path(&self, mut i: u32) -> String {

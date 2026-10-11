@@ -1,4 +1,6 @@
-"""The virtualization conventions (spec/virtualize.md conventions §2) on every synthetic file and store.
+"""The virtualization conventions (spec/virtualize.md conventions §2
+<https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>) on every synthetic file
+and store.
 
 Every fixture is virtualized by both implementations (the browser one under
 Node, through js/conformance/documents.ts). In each accepted output, every
@@ -7,8 +9,8 @@ node that declares the profile's convention validates against its JSON Schema
 provenance members, and another node only when it has source metadata, with
 only that member. No node has any other attribute besides `ome`. (For TIFF, ND2
 and CZI, `vzip_source` and the groups of its view are the IR mirror of
-conventions §8, validated by the same schemas.)
-"""
+conventions §8 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>,
+validated by the same schemas.) """
 
 import json
 import shutil
@@ -26,8 +28,9 @@ FIXTURES = ROOT / "fixtures"
 FILES = {"tiff": "*.tif", "ndpi": "*.ndpi", "nd2": "*.nd2", "dicom": "*.dcm", "nifti": "*.nii", "ims": "*.ims",
          "safe": "*.zip", "czi": "*.czi"}
 STORES = ("n5", "zarr2", "ome-zarr", "safe")
-# The GeoZarr members a SAFE node may hold (spec/virtualize/safe.md §5), each validated by its own
-# convention's schema (spec/virtualize/safe/geozarr/).
+# The GeoZarr members a SAFE node may hold (spec/virtualize/safe.md §5
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>), each
+# validated by its own convention's schema (spec/virtualize/safe/geozarr/).
 GEOZARR = {"proj:": "proj", "spatial:": "spatial", "multiscales": "multiscales"}
 
 
@@ -146,7 +149,9 @@ def test_same():
 
 
 def test_schemas_reject_an_unknown_version():
-    """spec/conventions.md §1: a reader that relies on a convention rejects a version it
+    """spec/conventions.md §1
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#1-conventions>: a reader that
+    relies on a convention rejects a version it
     does not know; the schemas do, and require the revision at version 0."""
     for profile in PROFILES:
         doc = {"zarr_format": 3, "node_type": "group", "attributes": declare({}, profile, "https://data.test/x/")}

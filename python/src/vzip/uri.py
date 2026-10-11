@@ -1,4 +1,5 @@
-"""RFC 3986 URI references, strict resolution, and the file: rules of spec §6."""
+"""RFC 3986 URI references, strict resolution, and the file: rules of spec §6
+<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>."""
 
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ _QUERY = re.compile(rf"^(?:{_PCHAR}|[/?])*\Z")
 
 
 def is_uri_reference(ref: str) -> bool:
-    """Does `ref` match RFC 3986 URI-reference (§4.1)?"""
+    """Does `ref` match RFC 3986 URI-reference (RFC 3986 §4.1)?"""
     m = _SPLIT.match(ref)
     if not m or not ref.isascii():
         return False
@@ -106,7 +107,9 @@ def resolve(base: str, ref: str) -> str:
 
 
 def file_uri(path: str) -> str:
-    """Base URI of a local path (spec §6): absolute, lexical, percent-encoded."""
+    """Base URI of a local path (spec §6
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>): absolute, lexical,
+    percent-encoded."""
     abs_path = os.path.normpath(os.path.join(os.getcwd(), path))
     if abs_path.startswith("//"):
         abs_path = "/" + abs_path.lstrip("/")
@@ -114,7 +117,8 @@ def file_uri(path: str) -> str:
 
 
 def file_path(url: str) -> str:
-    """Local path of a file: URI, or ValueError per the rules of spec §6."""
+    """Local path of a file: URI, or ValueError per the rules of spec §6
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-source-table>."""
     m = _SPLIT.match(url)
     scheme, authority, path, query, _ = m.groups()
     if (scheme or "").lower() != "file":

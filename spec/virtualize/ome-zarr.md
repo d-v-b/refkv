@@ -7,7 +7,7 @@ What all of vzip's conventions share is in
 vzip produces this layout as a virtual store from a listed store is the
 OME-Zarr profile, [Part 2](#part-2-the-profile) below.
 
-Convention version: 0 (until release, conventions §1) · UUID: `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` ·
+Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` ·
 Schema: [schema.json](ome-zarr/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the OME-Zarr
@@ -35,7 +35,7 @@ reads the 0.4 dataset through it without the dataset being copied or
 changed.
 
 The convention requires of the input what OME-NGFF 0.4 requires (MUST)
-that the output needs to be a correct OME-Zarr 0.5 dataset (§4). What 0.4
+that the output needs to be a correct OME-Zarr 0.5 dataset ([§4](#4-validation)). What 0.4
 only recommends (SHOULD) is not required.
 
 Why the chunks can stay where they are: OME-Zarr 0.5 allows every feature
@@ -52,8 +52,8 @@ whose keys are exactly Zarr v2's for either separator, and its `transpose`,
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "ome-zarr"`, `"version": 0`, `"revision": 25` (conventions §1), the store's URL (ending in
-`/`) as `source.url`, and the root's source metadata (§8), if it has any,
+with `"profile": "ome-zarr"`, `"version": 0`, `"revision": 25` ([conventions §1](../conventions.md#1-conventions)), the store's URL (ending in
+`/`) as `source.url`, and the root's source metadata ([§8](#8-source-metadata)), if it has any,
 as the member `"ome-zarr"`. Every other node that has source metadata
 declares it with `{"ome-zarr": S}`. Its CMO is:
 
@@ -78,20 +78,20 @@ fill value, codecs and attributes), and its chunk keys and chunk objects;
 and so do its rules for source metadata ([§4](zarr2.md#4-source-metadata))
 and other objects ([§5](zarr2.md#5-other-objects)), except where
 this convention says otherwise. The hierarchy has the same keys as the Zarr
-v2 convention's hierarchy, except that §7's OME-XML objects keep their own
+v2 convention's hierarchy, except that [§7](#7-chunks-and-ome-xml)'s OME-XML objects keep their own
 keys, and the same `zarr.json` documents except for:
 
-- the attributes of OME groups (§5), and their source metadata (§8);
-- the member `dimension_names` of image levels (§6).
+- the attributes of OME groups ([§5](#5-group-attributes)), and their source metadata ([§8](#8-source-metadata));
+- the member `dimension_names` of image levels ([§6](#6-arrays)).
 
 Every other node, called **not OME** here, is converted by [the Zarr v2 convention](zarr2.md) unchanged:
 implicit groups, explicit groups without OME members (such as the row
 groups of a plate, or a group of tables next to an image), and arrays that
-are not image levels, with their source metadata (§8). The objects that are
+are not image levels, with their source metadata ([§8](#8-source-metadata)). The objects that are
 not part of [the Zarr v2 convention](zarr2.md)'s nodes or chunks
 are its other objects, kept whole under `vzip_source/objects/`
 ([the Zarr v2 convention §5](zarr2.md#5-other-objects)), except
-§7's.
+[§7](#7-chunks-and-ome-xml)'s.
 
 ## 3. OME groups
 
@@ -138,7 +138,7 @@ string `"0.4"` when it is present. (It is optional in 0.4: the member is a
 SHOULD. Another version is not converted, and 0.5 requires one version in a
 hierarchy.)
 
-**Images** (§3.1, §3.3, §3.4). For each image at path `G`:
+**Images** (OME-NGFF 0.4 §3.1, §3.3, §3.4). For each image at path `G`:
 
 - I1. `multiscales` is a nonempty array of objects.
 - For each multiscale `m`, with `n` its number of axes:
@@ -167,7 +167,7 @@ hierarchy.)
     "from largest (i.e. highest resolution) to smallest"): along every
     axis, each dataset's scale is at least the previous dataset's.
 - I8. No array is a level of two multiscales whose axis names differ (0.5
-  gives each level the `dimension_names` of its image, §6, which cannot
+  gives each level the `dimension_names` of its image, [§6](#6-arrays), which cannot
   be two lists). Here a multiscale's levels are the arrays its kept datasets
   name (all of them, except for label images, L7).
 
@@ -175,14 +175,14 @@ The member `unit` of an axis is not read: 0.4 says an axis SHOULD have one,
 and it SHOULD be a UDUNITS-2 name. The members `name`, `type` and
 `metadata` of a multiscale are SHOULDs and are not read either.
 
-**omero** (§3.5). For each OME group with `omero`:
+**omero** (OME-NGFF 0.4 §3.5). For each OME group with `omero`:
 
 - O1. `omero` is an object whose member `channels` is an array of objects;
   each channel's `color` is a string of 6 hexadecimal digits, and its
   `window` an object whose members `min`, `max`, `start` and `end` are
   numbers.
 
-**Labels** (§3.6, §3.7). For each labels group at path `L` and each group
+**Labels** (OME-NGFF 0.4 §3.6, §3.7). For each labels group at path `L` and each group
 with `image-label`:
 
 - L1. `labels` is an array of relative paths, each naming an image under
@@ -213,7 +213,7 @@ has no `source.image` (0.4's default):
   every label image one level more than its image, so that rule would
   reject every labelled image the IDR publishes; dropping the extra levels
   instead makes the output satisfy 0.5 without losing an array, since the
-  dropped ones stay in the hierarchy, §6.) When the source is not an
+  dropped ones stay in the hierarchy, [§6](#6-arrays).) When the source is not an
   image, every dataset is kept.
 - L8. Every level of `X` that a kept dataset names has an integer data
   type (`int8` to `uint64`; 0.4: "only integer values are supported"; 0.5
@@ -222,7 +222,7 @@ has no `source.image` (0.4's default):
 The checks of I1–I7 apply to every dataset, dropped or not: a dropped
 dataset is still part of a 0.4 document the input must get right.
 
-**Plates and wells** ([conventions §4](../conventions.md#4-images), §3.8, §3.9). For each plate at path `P`:
+**Plates and wells** ([conventions §4](../conventions.md#4-images), OME-NGFF 0.4 §3.8, §3.9). For each plate at path `P`:
 
 - P1. `plate` is an object; `columns` and `rows` are arrays of objects
   whose member `name` is a string of one or more ASCII letters and digits,
@@ -248,7 +248,7 @@ For each well at path `W`:
   field's `acquisition`, if present, is the `id` of one of them, and when
   there is more than one acquisition every field has an `acquisition`.
 
-**Collections** (§3.2). For each collection at path `C`:
+**Collections** (OME-NGFF 0.4 §3.2). For each collection at path `C`:
 
 - B1. `bioformats2raw.layout` is the integer 3.
 - B2. If the OME group `C/OME` has `series`: it is an array of relative
@@ -261,7 +261,7 @@ For each well at path `W`:
 ## 5. Group attributes
 
 The attributes of an OME group whose `.zattrs` is `A` are the member
-`ome`, and the declaration of §1 with the group's source metadata (§8),
+`ome`, and the declaration of [§1](#1-declaration) with the group's source metadata ([§8](#8-source-metadata)),
 when it has any. `ome` is:
 
 ```json
@@ -285,7 +285,7 @@ changed only as follows:
 
 **The inverse.** The 0.4 value that `ome` gives back for each of its
 members `k` but `version` is, when `k` is not **unversioned** (listed in
-the group's source metadata `U`, §8):
+the group's source metadata `U`, [§8](#8-source-metadata)):
 
 - `multiscales`: each multiscale with the member `"version": "0.4"` added
   (0.4 asks each multiscale for one, as a SHOULD);
@@ -314,15 +314,15 @@ An OME member of `A` is **given back** when the inverse of its member of
   `"0.4"`, or none has the member `version` (it is unversioned);
 - `omero`, `image-label`, `plate` and `well`: the object has the member
   `version` and it is the string `"0.4"`, or it has no member `version`
-  (it is unversioned) (for `image-label`, `plate` and `well`, §4 allows
-  only `"0.4"` or no version; for `omero`, which §4 does not check, any
+  (it is unversioned) (for `image-label`, `plate` and `well`, [§4](#4-validation) allows
+  only `"0.4"` or no version; for `omero`, which [§4](#4-validation) does not check, any
   other value is not given back);
 - `labels`, `bioformats2raw.layout` and `series`: always.
 
 A member that is not given back (one with another `omero` version,
 `multiscales` of which only some have a `version`, or `multiscales` with
 dropped datasets) is kept whole, as written, in the group's attributes in
-its source metadata (§8);
+its source metadata ([§8](#8-source-metadata));
 so is every member of `A` that is not an OME member (for example
 `_creator`, or a user's own). So the group's `.zattrs` is recovered as the
 inverse of each member of `ome`, with the members of the kept attributes
@@ -341,7 +341,7 @@ multiscale of which it is a level gives the same names. No other array gets
 `dimension_names`; in particular the arrays of dropped datasets (L7) stay in
 the hierarchy as plain arrays, converted by [the Zarr v2 convention](zarr2.md) alone (nothing in 0.5 makes
 an array that is not a level carry dimension names). The array's attributes are
-its source metadata (§8).
+its source metadata ([§8](#8-source-metadata)).
 
 ## 7. Chunks and OME-XML
 
@@ -355,7 +355,7 @@ collection `C`, the object `C/OME/METADATA.ome.xml` (`OME/METADATA.ome.xml`
 for the root), if the store has it and its size is not 0, is in the
 hierarchy under that key, as the object is. It is not read. (An empty one
 holds nothing: it is one of the Zarr v2 convention's empty objects, whose
-key its §5 keeps.) (The
+key its [§5](zarr2.md#5-other-objects) keeps.) (The
 group `OME` itself is a node only if it has a `.zgroup`; the object is kept
 either way.) Every other object that is not a node's document or a chunk,
 OME-XML elsewhere included, is one of the
@@ -371,10 +371,10 @@ the [Zarr v2 convention](zarr2.md#4-source-metadata)'s,
 only when it is not empty, with the same `M` (the members of `.zgroup` or
 `.zarray` that the `zarr.json` does not reproduce) and the same rule for
 numbers (an integer literal is kept exactly), except that the attributes
-`A` of an OME group are only the members of its `.zattrs` that §5 does not
-give back: `ome` (§5) is a translation, and `A` keeps what it cannot give
+`A` of an OME group are only the members of its `.zattrs` that [§5](#5-group-attributes) does not
+give back: `ome` ([§5](#5-group-attributes)) is a translation, and `A` keeps what it cannot give
 back. `U` is the array of the names of the group's unversioned members
-(§5), in the order `multiscales`, `omero`, `image-label`, `plate`,
+([§5](#5-group-attributes)), in the order `multiscales`, `omero`, `image-label`, `plate`,
 `well`: so a member that 0.4 allowed to have no version is given back
 from `ome` by name, not copied whole. (`U` is not a member of `M`, whose
 members are the `.zgroup`'s own.) Every other node's `A` is its whole
@@ -536,9 +536,9 @@ and the source metadata names it rather than copying it:
 # Part 2. The profile
 
 The OME-Zarr profile of [spec/virtualize.md](../virtualize.md) (revision 16),
-numbered as its §11. §1 is in spec/virtualize.md and applies here, in particular
-the store input rules of §1.4–§1.6, and so does §2. The profile builds on
-the Zarr v2 profile ([zarr2.md](zarr2.md#part-2-the-profile), §10).
+numbered as its [§11](#11-ome-zarr-profile). [§1](../virtualize.md#1-introduction) is in spec/virtualize.md and applies here, in particular
+the store input rules of [§1.4](../virtualize.md#14-store-inputs)–[§1.6](../virtualize.md#16-json-documents), and so does [§2](../virtualize.md#2-the-zarr-layout). The profile builds on
+the Zarr v2 profile ([zarr2.md](zarr2.md#part-2-the-profile), [§10](zarr2.md#10-zarr-v2-profile)).
 
 The output has the convention's layout for the input
 ([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
@@ -548,27 +548,27 @@ references the store. "The convention §n" below is a section of Part 1.
 ## 11. OME-Zarr profile
 
 The profile was chosen because the store's root has a `.zarray` or a
-`.zgroup` and the store declares OME-NGFF 0.4 (§1.4). The store is read
-as §10 reads it, integer literals included.
+`.zgroup` and the store declares OME-NGFF 0.4 ([§1.4](../virtualize.md#14-store-inputs)). The store is read
+as [§10](zarr2.md#10-zarr-v2-profile) reads it, integer literals included.
 
 ### 11.1 Rejection
 
-The input is rejected when a rule of §10 rejects it, and when the
+The input is rejected when a rule of [§10](zarr2.md#10-zarr-v2-profile) rejects it, and when the
 convention gives it no layout: wherever it says that the input is
 rejected, or that something MUST hold and it does not (in particular, a
 rule of [its §4](#4-validation)).
 
 ### 11.2 Chunks and OME-XML
 
-Chunks are §10's: each nonempty chunk object is an entry under its own key,
-referencing the whole object through its own `url` source (§1.4). Each
+Chunks are [§10](zarr2.md#10-zarr-v2-profile)'s: each nonempty chunk object is an entry under its own key,
+referencing the whole object through its own `url` source ([§1.4](../virtualize.md#14-store-inputs)). Each
 OME-XML object of [the convention §7](#7-chunks-and-ome-xml)
 is referenced whole in the same way: an entry under its key, with its own
-source, in the order of §1.4 among the chunk entries (an object of size 0
-has no entry; its key is one of the Zarr v2 convention §5's empty objects'
+source, in the order of [§1.4](../virtualize.md#14-store-inputs) among the chunk entries (an object of size 0
+has no entry; its key is one of [the Zarr v2 convention §5](zarr2.md#5-other-objects)'s empty objects'
 keys, as an empty chunk object's is). Every other object of the convention (those of
 [the Zarr v2 convention §5](zarr2.md#5-other-objects))
-is an entry under `vzip_source/objects/<k>`, escaped as §10.2 says.
+is an entry under `vzip_source/objects/<k>`, escaped as [§10.2](zarr2.md#102-chunks-and-other-objects) says.
 
 ### 11.3 Summary
 

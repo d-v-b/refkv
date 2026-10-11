@@ -1,5 +1,6 @@
-// The SAFE profile (spec/virtualize.md, §12): the output of a Sentinel-2 product, in
-// the directory form (a store input) or the zip form (a file input).
+// The SAFE profile (spec/virtualize.md, §12
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#12-safe-profile>): the output of
+// a Sentinel-2 product, in the directory form (a store input) or the zip form (a file input).
 
 import {
   base64, type ByteReader, blobChunks, CONVENTION_KEY, convention, declare, MAX_PAYLOAD, type Part, payloadSize,
@@ -16,7 +17,11 @@ export { SafeError };
 
 const PROFILE = "safe";
 const WORKERS = 16;
-/** The browser implementation's limit on a zip file's entries (§14), as on a store's listing. */
+/**
+ * The browser implementation's limit on a zip file's entries (§14
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-conformance>), as on a store's
+ * listing.
+ */
 const MAX_ENTRIES = 100000;
 
 const reject = (m: string): never => {
@@ -36,7 +41,9 @@ async function pool<T, R>(items: T[], n: number, f: (x: T) => Promise<R>): Promi
   return out;
 }
 
-// ---------------------------------------------------------------- the product's objects (§12.2, §12.4)
+// ---------------------------------------------------------------- the product's objects (§12.2
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#122-objects-and-reading>, §12.4
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#124-the-zip-form>)
 
 /** A source of a range: an object's key (its own url source) or 0 (the zip file). */
 type Src = string | 0;
@@ -122,7 +129,8 @@ async function zipObjects(read: ByteReader, size: number, exact: ByteReader): Pr
   };
 }
 
-// ---------------------------------------------------------------- the output (§12.8)
+// ---------------------------------------------------------------- the output (§12.8
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#128-the-source-table>)
 
 /** A range: literal bytes, [source, offset, length], or a shared byte string (a data source). */
 type Ref = Uint8Array | [Src, number, number] | { shared: Uint8Array };
@@ -275,7 +283,9 @@ async function virtualizeProduct(url: string, objects: Objects): Promise<Archive
     if (utf8.encode(key).length > 65535) reject("an output key is longer than 65535 bytes");
     if (key.startsWith("__vz__/")) reject(`output key ${JSON.stringify(key.slice(0, 200))} is in the reserved __vz__/ space`);
   }
-  // The source table (§12.8): url sources, then data sources by first use in key order.
+  // The source table (§12.8
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#128-the-source-table>): url
+  // sources, then data sources by first use in key order.
   const refKeys = [...refs.keys()].sort(compareKeys);
   let urls: string[];
   const index = new Map<Src, number>();
@@ -313,18 +323,25 @@ async function virtualizeProduct(url: string, objects: Objects): Promise<Archive
     xmlArrays: arrays.length, otherObjects: others.length, emptyObjects: empty.length, tileParts,
     listingRequests: objects.listingRequests, readRequests: objects.reads[0], readBytes: objects.reads[1],
   };
-  // The objects' url sources pin their listed sizes (§1.4); the zip file's is pinned by virtualizeImage (§1.2).
+  // The objects' url sources pin their listed sizes (§1.4
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>); the zip file's
+  // is pinned by virtualizeImage (§1.2
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>).
   const sized = new Map(objects.form === "zip" ? [] : [...objects.sizes].map(([k, n]) => [objectUrl(url, k), n]));
   const source = (u: string) => (sized.has(u) ? { url: u, size: BigInt(sized.get(u)!) } : { url: u });
   return { sources: [...urls.map(source), ...[...data.values()].map(([, d]) => ({ data: d }))], entries, summary };
 }
 
-/** The directory form (§12): a listed `.SAFE` directory. */
+/**
+ * The directory form (§12
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#12-safe-profile>): a listed
+ * `.SAFE` directory.
+ */
 export function virtualizeSafeStore(store: Store): Promise<ArchiveDesc & { summary: object }> {
   return virtualizeProduct(store.url, storeObjects(store));
 }
 
-/** The zip form (§12.4): a `.SAFE.zip` file, `read` its (cached) reader, and `exact` one
+/** The zip form (§12.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#124-the-zip-form>): a `.SAFE.zip` file, `read` its (cached) reader, and `exact` one
  * that reads exactly the ranges asked for (the tile-part headers). */
 export async function virtualizeSafeZip(
   url: string, read: ByteReader, size: number, exact: ByteReader = read,
@@ -340,5 +357,8 @@ export async function virtualizeSafeZip(
   return virtualizeProduct(url, objects);
 }
 
-/** A ZIP local file header's signature (§12.1). */
+/**
+ * A ZIP local file header's signature (§12.1
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#121-choosing-the-profile>).
+ */
 export const isZip = (head: Uint8Array) => head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04;

@@ -13,7 +13,8 @@ VZipStore and zarr-python (with vzip.codecs' imagecodecs_jpeg2k), and:
   files (from their GML-in-JP2), and `proj:wkt2` must be the same CRS as
   pyproj's EPSG definition;
 - the product must be rebuilt from the hierarchy (spec/virtualize/safe.md
-  §6.4): every XML document from its text or its array, every other object
+  §6.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#64-reconstruction>): every
+  XML document from its text or its array, every other object
   from `vzip_source/objects/`, the empty objects from their keys, and every
   band file from its JP2 header array, its `siz` and its chunks, byte for
   byte, with nothing left over (folder markers excepted);
@@ -61,7 +62,9 @@ import vzip.codecs  # noqa: E402,F401  (registers imagecodecs_jpeg2k)
 from vzip.policy import Policy  # noqa: E402
 from vzip.store import VZipStore  # noqa: E402
 
-# The sources are served on 127.0.0.1, which spec §8.7 rule 3 refuses by default.
+# The sources are served on 127.0.0.1, which spec §8.7
+# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#87-reader-policy> rule 3 refuses by
+# default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
 
 ESCAPED = re.compile(r"(?:zarr\.json|\.zarray|\.zgroup)~+\Z")
@@ -151,7 +154,8 @@ def check_bands(out: Path, docs: dict, read_band, only: list[str] | None = None)
 
 
 def rebuild(out: Path, docs: dict, bands_only: list[str] | None = None) -> dict[str, bytes]:
-    """The product's objects, rebuilt from the hierarchy (spec/virtualize/safe.md §6.4)."""
+    """The product's objects, rebuilt from the hierarchy (spec/virtualize/safe.md §6.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#64-reconstruction>)."""
     vz = VZipStore(str(out), policy=LOOPBACK_SOURCES)
     z = zipfile.ZipFile(out)
     names = z.namelist()

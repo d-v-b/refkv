@@ -1,4 +1,6 @@
-// Reading the structure of an HDF5 file through range reads (§8.1–§8.6): the
+// Reading the structure of an HDF5 file through range reads (§8.1
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#81-hdf5-structures>–§8.6
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#86-attributes>): the
 // superblock, object headers and their messages, the links of groups,
 // attributes, and the chunk index of a chunked dataset. Pixel data is never
 // read, and checksums are not checked.
@@ -14,15 +16,19 @@ const reject = (message: string): never => {
 const SIGNATURE = [0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a];
 const UNDEFINED = (1n << 64n) - 1n;
 const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
-const MAX_BLOCKS = 1000; // blocks of one object header (§8.2)
+const MAX_BLOCKS = 1000; // blocks of one object header (§8.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#82-object-headers>)
 const MAX_HEADERS = 4096; // object headers held in memory at once
-const MAX_BTREE2_DEPTH = 16; // §8.4
+const MAX_BTREE2_DEPTH = 16; // §8.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#84-version-2-b-trees-and-fractal-heaps>
 // The record size of each type of version 2 B-tree read: huge fractal heap
-// objects, link names and attribute names (§8.4); chunk records (types 10 and
-// 11) have the size the dataset gives them (§8.5).
+// objects, link names and attribute names (§8.4
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#84-version-2-b-trees-and-fractal-heaps>);
+// chunk records (types 10 and
+// 11) have the size the dataset gives them (§8.5
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>).
 const RECORD_SIZES: Record<number, number> = { 1: 24, 5: 11, 8: 17 };
 
-// Message types (§8.2).
+// Message types (§8.2
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#82-object-headers>).
 export const DATASPACE = 0x01, LINK_INFO = 0x02, DATATYPE = 0x03, FILL_VALUE = 0x05, LINK = 0x06, LAYOUT = 0x08;
 export const FILTERS = 0x0b, ATTRIBUTE = 0x0c, CONTINUATION = 0x10, SYMBOL_TABLE = 0x11, ATTRIBUTE_INFO = 0x15;
 export const EXTERNAL_FILES = 0x07;
@@ -106,11 +112,13 @@ export interface Dataset {
   typeMessage: Uint8Array; // the datatype message
   named?: number; // the committed datatype's object header, for a shared datatype
   singleMask?: number; // single chunk index: the filtered chunk's filter mask
-  rawEdges?: boolean; // partial edge chunks are stored unfiltered (layout flag 1, §8.5)
+  rawEdges?: boolean; // partial edge chunks are stored unfiltered (layout flag 1, §8.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>)
 }
 
 /** A link's target: an object header address (a hard link), a path (a soft
- * link), or the type and value of any other type of link (§8.9). */
+ * link), or the type and value of any other type of link (§8.9
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
+ * */
 export type Target = { hard: number } | { soft: string } | { other: number; value: Uint8Array | null };
 
 /** A group's links by name. Names and paths are kept as latin1 text of their bytes. */
@@ -138,7 +146,10 @@ export function parseDataspace(d: Uint8Array): Dataspace {
   return { dims: kind === 2 ? null : dims, maxdims };
 }
 
-/** An HDF5 file read through `read` (§8.1). */
+/**
+ * An HDF5 file read through `read` (§8.1
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#81-hdf5-structures>).
+ */
 export class Hdf5 {
   read: ByteReader;
   size: number;
@@ -154,7 +165,8 @@ export class Hdf5 {
   }
 
   static async open(read: ByteReader, size: number): Promise<Hdf5> {
-    // Every read MUST lie within the file (§8.1).
+    // Every read MUST lie within the file (§8.1
+    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#81-hdf5-structures>).
     const f = new Hdf5(async (offset, n) => {
       if (offset < 0 || offset + n > size) reject(`read of [${offset}, ${offset + n}) outside the ${size}-byte file`);
       return read(offset, n);
@@ -183,7 +195,8 @@ export class Hdf5 {
     return f;
   }
 
-  // ---- object headers (§8.2)
+  // ---- object headers (§8.2
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#82-object-headers>)
 
   header(at: number): Promise<Message[]> {
     let h = this.headers.get(at);
@@ -255,7 +268,10 @@ export class Hdf5 {
     return messages;
   }
 
-  /** The data of the one message of type `type` (§8.2). */
+  /**
+   * The data of the one message of type `type` (§8.2
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#82-object-headers>).
+   */
   static message(messages: Message[], type: number, required: true): Uint8Array;
   static message(messages: Message[], type: number, required: false): Uint8Array | undefined;
   static message(messages: Message[], type: number, required: boolean): Uint8Array | undefined {
@@ -267,7 +283,9 @@ export class Hdf5 {
   }
 
   /** The datatype message of the committed datatype that a shared datatype
-   * message leads to, and its object header (§8.9). */
+   * message leads to, and its object header (§8.9
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
+   * */
   async committed(shared: Uint8Array): Promise<[Uint8Array, number]> {
     const version = u(shared, 0, 1);
     let at: number | undefined;
@@ -279,7 +297,9 @@ export class Hdf5 {
   }
 
   /** The datatype message of an object header, through a committed datatype
-   * when it is shared, and that datatype's object header (§8.9). */
+   * when it is shared, and that datatype's object header (§8.9
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
+   * */
   async datatype(messages: Message[]): Promise<[Uint8Array, number | undefined]> {
     const found = messages.filter((m) => m.type === DATATYPE);
     if (found.length !== 1) reject(`object header has ${found.length} messages of type ${DATATYPE}`);
@@ -287,7 +307,8 @@ export class Hdf5 {
     return [found[0].data, undefined];
   }
 
-  // ---- groups (§8.3)
+  // ---- groups (§8.3
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#83-groups-and-links>)
 
   /** A group's links. */
   async links(at: number): Promise<Links> {
@@ -341,7 +362,10 @@ export class Hdf5 {
     return links;
   }
 
-  /** The object header that the link `name` of a group leads to (§8.3). */
+  /**
+   * The object header that the link `name` of a group leads to (§8.3
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#83-groups-and-links>).
+   */
   async follow(links: Links, name: string): Promise<number> {
     const target = links.get(name);
     if (target === undefined || "other" in target) return reject(`link ${JSON.stringify(name)} is neither hard nor soft`);
@@ -368,7 +392,9 @@ export class Hdf5 {
   }
 
   /** The children of the leaves of the version 1 B-tree at `at`, each with
-   * its key (the key before it) (§8.3, §8.5). */
+   * its key (the key before it) (§8.3
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#83-groups-and-links>, §8.5
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>). */
   private async btree1(
     at: number,
     nodeType: number,
@@ -403,7 +429,8 @@ export class Hdf5 {
     return out;
   }
 
-  // ---- version 2 B-trees and fractal heaps (§8.4)
+  // ---- version 2 B-trees and fractal heaps (§8.4
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#84-version-2-b-trees-and-fractal-heaps>)
 
   /** The records of the version 2 B-tree at `at`, which MUST have type `type`
    * and a record size in `sizes` (by default the type's, RECORD_SIZES). */
@@ -461,7 +488,8 @@ export class Hdf5 {
     return h;
   }
 
-  // ---- attributes (§8.6)
+  // ---- attributes (§8.6
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#86-attributes>)
 
   /** An object's attributes: name -> attribute message; `where` receives name ->
    * the message's address in the file. */
@@ -498,9 +526,10 @@ export class Hdf5 {
     return out;
   }
 
-  // ---- datasets (§8.5)
+  // ---- datasets (§8.5
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>)
 
-  /** A dataset: a chunked one with a zero fill value (§8.5), or, with
+  /** A dataset: a chunked one with a zero fill value (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>), or, with
    * `anyLayout`, one of any layout and fill value (the source metadata). */
   async dataset(at: number, anyLayout = false): Promise<Dataset> {
     const messages = await this.header(at);
@@ -609,7 +638,8 @@ export class Hdf5 {
     };
   }
 
-  // ---- the global heap (§8.9)
+  // ---- the global heap (§8.9
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)
 
   /** The [address, size] of the object `index` of the global heap collection at `at`. */
   async globalObject(at: number, index: number): Promise<[number, number]> {
@@ -643,8 +673,10 @@ export class Hdf5 {
     return [found, sizes.get(index)!];
   }
 
-  /** The allocated chunks: grid coordinates (joined by "/") -> [address, size] (§8.5). A
-   * chunk's filter mask MUST be 0, unless `masks` receives the chunks' that are not (§8.9); a
+  /** The allocated chunks: grid coordinates (joined by "/") -> [address, size] (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>). A
+   * chunk's filter mask MUST be 0, unless `masks` receives the chunks' that are not (§8.9
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>);
+   * a
    * partial edge chunk stored unfiltered has every filter's bit set. */
   async chunks(ds: Dataset, masks?: Map<string, number>): Promise<Map<string, [number, number]>> {
     const out = new Map<string, [number, number]>();
@@ -697,7 +729,10 @@ export class Hdf5 {
     return out;
   }
 
-  /** The maximum grid of an implicit chunk index, whose last chunk MUST lie within the file (§8.5). */
+  /**
+   * The maximum grid of an implicit chunk index, whose last chunk MUST lie within the file (§8.5
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>).
+   */
   implicit(ds: Dataset): number[] {
     const maxgrid = maxGrid(ds, false) as number[];
     const nbytes = ds.chunk.reduce((n, c) => n * BigInt(c), BigInt(ds.datatype.size));
@@ -708,7 +743,10 @@ export class Hdf5 {
     return maxgrid;
   }
 
-  /** An array index's entry: [the chunk's address or undefined, its size, its filter mask] (§8.5). */
+  /**
+   * An array index's entry: [the chunk's address or undefined, its size, its filter mask] (§8.5
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>).
+   */
   private entry(data: Uint8Array, k: number, entry: number, filtered: boolean, nbytes: bigint): [number | undefined, bigint, number] {
     const chunkAt = address(le(data, k * entry, 8));
     if (chunkAt === undefined || !filtered) return [chunkAt, nbytes, 0];
@@ -837,7 +875,10 @@ export class Hdf5 {
     }
   }
 
-  /** The mappings of a virtual dataset's layout message, from the global heap (§8.9). */
+  /**
+   * The mappings of a virtual dataset's layout message, from the global heap (§8.9
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
+   */
   async virtualMapping(layout: Uint8Array): Promise<unknown[]> {
     if (![4, 5].includes(u(layout, 0, 1)) || u(layout, 1, 1) !== 3) reject("not a virtual dataset layout");
     const at = address(le(layout, 2, 8));
@@ -929,7 +970,7 @@ export function ravel(coords: number[], grid: number[]): number {
   return coords.reduce((i, c, k) => i * grid[k] + c, 0);
 }
 
-/** The number of chunks along each dimension at the maximum dimensions (§8.5):
+/** The number of chunks along each dimension at the maximum dimensions (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>):
  * undefined for an unlimited one, which only `unlimited` allows. */
 function maxGrid(ds: Dataset, unlimited: boolean): (number | undefined)[] {
   if (ds.maxdims === null) return [...ds.grid];
@@ -944,7 +985,7 @@ function maxGrid(ds: Dataset, unlimited: boolean): (number | undefined)[] {
   return out;
 }
 
-/** The managed and huge objects of a fractal heap (§8.4). Heap offsets and
+/** The managed and huge objects of a fractal heap (§8.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#84-version-2-b-trees-and-fractal-heaps>). Heap offsets and
  * block sizes are bigints: many rows make them exceed 2^53. */
 class FractalHeap {
   private f: Hdf5;
@@ -1065,7 +1106,10 @@ class FractalHeap {
 
 // ---- message bodies
 
-/** A link message: [name, target] (§8.3). */
+/**
+ * A link message: [name, target] (§8.3
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#83-groups-and-links>).
+ */
 function parseLink(d: Uint8Array): [string, Target] {
   if (u(d, 0, 1) !== 1) reject("unsupported link message version");
   const flags = u(d, 1, 1);
@@ -1084,7 +1128,8 @@ function parseLink(d: Uint8Array): [string, Target] {
     return [name, { soft: latin1(d.subarray(end + 2, end + 2 + m)) }];
   }
   if (kind !== 0) {
-    // Any other type: its value, or null when it does not lie within the message (§8.9).
+    // Any other type: its value, or null when it does not lie within the message (§8.9
+    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
     const m = end + 2 <= d.length ? u(d, end, 2) : undefined;
     return [name, { other: kind, value: m !== undefined && end + 2 + m <= d.length ? d.subarray(end + 2, end + 2 + m) : null }];
   }
@@ -1108,13 +1153,19 @@ function attributeName(d: Uint8Array): string {
 
 const pad8 = (n: number) => Math.ceil(n / 8) * 8;
 
-/** An attribute's datatype and data (§8.6). */
+/**
+ * An attribute's datatype and data (§8.6
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#86-attributes>).
+ */
 export function attributeValue(d: Uint8Array): [Datatype, Uint8Array] {
   const [typeMessage, , data] = attributeParts(d);
   return [parseDatatype(typeMessage), data];
 }
 
-/** An attribute's [datatype message, dimensions, data] (§8.6). */
+/**
+ * An attribute's [datatype message, dimensions, data] (§8.6
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#86-attributes>).
+ */
 export function attributeParts(d: Uint8Array): [Uint8Array, number[], Uint8Array] {
   const [flags, nameSize, typeSize, spaceSize, start] = attributeLayout(d);
   if (flags & 3) reject("attribute with a shared datatype or dataspace");
@@ -1144,7 +1195,9 @@ export function attributeSharedType(d: Uint8Array): Uint8Array | undefined {
 }
 
 /** An attribute's [datatype message, dimensions or null for a null dataspace,
- * data], with `committed` the datatype message of its shared datatype (§8.9). */
+ * data], with `committed` the datatype message of its shared datatype (§8.9
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
+ * */
 export function attributeFull(d: Uint8Array, committed?: Uint8Array): [Uint8Array, number[] | null, Uint8Array, number] {
   const [flags, nameSize, typeSize, spaceSize, start] = attributeLayout(d);
   if (flags & 2) reject("an attribute with a shared dataspace");
@@ -1167,7 +1220,10 @@ export function attributeFull(d: Uint8Array, committed?: Uint8Array): [Uint8Arra
   return [typeMessage, space.dims, d.subarray(p, p + Number(n)), p];
 }
 
-/** The fill value of a fill value message, or no bytes when it gives none (§8.5). */
+/**
+ * The fill value of a fill value message, or no bytes when it gives none (§8.5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>).
+ */
 export function fillValue(d: Uint8Array): Uint8Array {
   const version = u(d, 0, 1);
   let size: number, p: number;
@@ -1210,7 +1266,11 @@ function parseFilters(d: Uint8Array | undefined): number[] {
 }
 
 /** The serialized dataspace selection at `p`: its description
- * (spec/virtualize/ims.md §5.3) and where it ends (§8.9). */
+ * (spec/virtualize/ims.md §5.3
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>) and where it ends
+ * (§8.9
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
+ * */
 export function parseSelection(d: Uint8Array, p: number): [Record<string, unknown>, number] {
   const kind = u(d, p, 4), version = u(d, p + 4, 4);
   p += 8;

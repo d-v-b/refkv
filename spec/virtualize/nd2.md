@@ -6,7 +6,7 @@ conventions share is in [spec/conventions.md](../conventions.md), cited here as
 "conventions §n". How vzip produces this layout as a virtual store is the
 ND2 profile, [Part 2](#part-2-the-profile) below.
 
-Convention version: 0 (until release, conventions §1) · UUID: `59612f14-e314-4207-ba00-8f422ba71490` ·
+Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `59612f14-e314-4207-ba00-8f422ba71490` ·
 Schema: [schema.json](nd2/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the ND2
@@ -25,8 +25,8 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "nd2"`, `"version": 0`, `"revision": 25` (conventions §1), the file's URL as `source.url`, and
-the source metadata of §5 as the member `"nd2"`. Its CMO is:
+with `"profile": "nd2"`, `"version": 0`, `"revision": 25` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`, and
+the source metadata of [§5](#5-source-metadata) as the member `"nd2"`. Its CMO is:
 
 ```json
 {
@@ -38,7 +38,7 @@ the source metadata of §5 as the member `"nd2"`. Its CMO is:
 }
 ```
 
-`vzip_source` declares it too, with the IR mirror's description (§5.2,
+`vzip_source` declares it too, with the IR mirror's description ([§5.2](#52-the-ir-mirror),
 [conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
 the mirror's view that has a member.
 
@@ -86,16 +86,16 @@ and a level record (type 11) at depth 100 or more rejects the input, even
 if it is empty.
 
 **Text.** A name or a string is **well-formed** when its code units hold
-no unpaired surrogate. As this section and §3 read them, a name or a string
+no unpaired surrogate. As this section and [§3](#3-metadata) read them, a name or a string
 is its text with each unpaired surrogate replaced by U+FFFD; the source
-metadata keeps them exactly (§5.1).
+metadata keeps them exactly ([§5.1](#51-decoded-chunks)).
 
 **Values.** All integers are little-endian. A level with at least one
 record, all with empty names, is a **list** of their values. Any other level
-(including an empty one) is an **object**: as this section and §3 read it,
+(including an empty one) is an **object**: as this section and [§3](#3-metadata) read it,
 its members are its records by name (read as above), in the order of each
 name's first appearance, and a repeated name has its last value. The
-source metadata keeps every record, repeated names included (§5.1). A
+source metadata keeps every record, repeated names included ([§5.1](#51-decoded-chunks)). A
 chunk's top-level records always form an object. A byte array is a list of
 its bytes; each byte counts as a value of type 3. "The members of" an object
 or a list are its values in order.
@@ -121,7 +121,7 @@ Any other value rejects the input.
 ## 3. Metadata
 
 Every member listed in this section is read and checked (with the kind
-given, §2.2) wherever it is present in the places described, whether or not
+given, [§2.2](#22-lite-variant)) wherever it is present in the places described, whether or not
 its value ends up in the output.
 
 - **Attributes** (chunk `ImageAttributesLV!`, member `SLxImageAttributes`;
@@ -227,7 +227,7 @@ index over the loops in list order (the last loop fastest). Frame `f` is the
 chunk named `ImageDataSeq|<f>!` (`f` in decimal, without leading zeros); a
 frame absent from the chunk map is missing (no entry). The image ignores
 other chunk names, and frames with `f ≥ N`; the source metadata keeps them
-(§5.3).
+([§5.3](#53-elements)).
 
 ### 4.2 Channels
 
@@ -251,7 +251,7 @@ The output is a bioformats2raw layout:
 
 - `zarr.json`: the root, a group with attributes
   `{"ome": {"version": "0.5", "bioformats2raw.layout": 3}}`, with the
-  convention declared (§1). The images below it do not declare it.
+  convention declared ([§1](#1-declaration)). The images below it do not declare it.
 - `OME/zarr.json`: a group with attributes
   `{"ome": {"version": "0.5", "series": ["0", "1", ...]}}`, one series per
   position (one if there is no position loop).
@@ -299,7 +299,7 @@ Each array:
   `x = u − uiWidth × sx_scale / 2` and `y = v − uiHeight × sy_scale / 2`,
   where `sx_scale` and `sy_scale` are the x and y scales, and 0 for the other
   axes. (Each expression is computed left to right, products before
-  differences.) The position loop is the one in the flattened list (§3):
+  differences.) The position loop is the one in the flattened list ([§3](#3-metadata)):
   when rule 3 replaces a loop, the replacing node's `Points` are used.
 - **omero:** every image's `M` has
   `"omero": {"channels": [...]}`, one object per channel (even when there is
@@ -324,8 +324,8 @@ Each array:
 
 The root's source metadata `S` is `{"signature": T, "chunks": {...}}`, `T`
 being the signature chunk's 64 bytes of data up to the first NUL, as a text
-value, and `chunks` the decoded chunks of §5.1 that the root keeps. Everything
-the file holds is on `vzip_source`, the file's **IR mirror** (§5.2), from
+value, and `chunks` the decoded chunks of [§5.1](#51-decoded-chunks) that the root keeps. Everything
+the file holds is on `vzip_source`, the file's **IR mirror** ([§5.2](#52-the-ir-mirror)), from
 which it is rebuilt byte for byte.
 
 The chunks are taken in the order of each name's first record in the map
@@ -341,7 +341,7 @@ names read alike, the first in map order is the one `chunks` names.
 
 These chunks are decoded, unless the budget below is spent:
 - a chunk whose name ends in `LV!` or contains `LV|`, as a lite variant
-  (§2.2);
+  ([§2.2](#22-lite-variant));
 - any other chunk whose name starts with `CustomData|` and that is not a
   **stream's** chunk, as a lite variant, when it passes the **lossless
   test** (below): such a chunk holds a lite variant only by guess, so it is
@@ -385,7 +385,7 @@ whitespace: numbers in the form of ECMAScript's `Number::toString` (`1`,
 `\f`, `\n`, `\r`, `\t`, and `\u00XX` for the other code points below
 U+0020).
 
-A chunk that does not decode is in the mirror as bytes (§5.3).
+A chunk that does not decode is in the mirror as bytes ([§5.3](#53-elements)).
 
 **Budget.** The chunks above share a budget of 2^26 bytes (64 MiB), in the
 order above. A chunk is **tried** when its `d`, added to the bytes charged
@@ -400,7 +400,7 @@ byte), capped at the limit. A chunk that is not tried, or that does not
 decode, is in the mirror as bytes.
 
 **The lossless test.** A chunk's data passes when it decodes as a lite
-variant (§2.2) and its JSON keeps every byte of it, up to **layout**: what a
+variant ([§2.2](#22-lite-variant)) and its JSON keeps every byte of it, up to **layout**: what a
 reader rebuilds from the JSON by the canonical choices below. A compressed
 record is layout (its first 12 bytes and its zlib stream, as for every
 chunk), so a compressed chunk is tested on the LV structure it
@@ -426,7 +426,7 @@ name order to match Nikon's writer for distinct names), and compresses the
 chunk or not.
 
 **LV values as JSON.**
-- **Names.** A well-formed name (§2.2) is its text. Any other name is
+- **Names.** A well-formed name ([§2.2](#22-lite-variant)) is its text. Any other name is
   U+0000 followed by the base64 (RFC 4648 §4, with padding) of its UTF-16LE
   code units, up to its first NUL unit. Since a name ends at its first NUL,
   no well-formed name holds U+0000, and the form reads back.
@@ -466,7 +466,7 @@ chunk or not.
   `{"float": "Infinity"}`, `{"float": "-Infinity"}` or `{"float": "-0"}`,
   so that it reads apart from a string, and −0 apart from 0 (which
   ECMAScript's `JSON.stringify` writes for both; this replaces the latitude
-  of conventions §6).
+  of [conventions §6](../conventions.md#6-source-metadata-as-json)).
 
 **XML variants.** A `CustomDataVar` chunk is a UTF-8 XML document whose
 element `variant` holds elements, each with a `runtype` attribute and
@@ -487,7 +487,7 @@ either a `value` attribute or child elements.
     number when it is from −(2^53 − 1) to 2^53 − 1, and otherwise the tag
     `{"int": D}` (as for LV, above);
   - a number, if the runtype is `double` or `float` and the value is a
-    decimal (TIFF §3): its binary64 value (rounding to nearest), or, when
+    decimal ([TIFF §3](tiff.md#3-ome-xml)): its binary64 value (rounding to nearest), or, when
     that is not finite or is −0, the tag `{"float": "Infinity"}`,
     `{"float": "-Infinity"}` or `{"float": "-0"}`;
   - `true` or `false`, if the runtype is `bool` and the value is that word;
@@ -519,14 +519,14 @@ indexes. Every chunk struct holds `header`
 | `signature` | struct | | the signature chunk: `header`, `name` (`ascii[32]`), `data` (`ascii[64]`) |
 | `map` | struct | | the chunk map: `header`, `name`, `records/<i>` (`{name:bytes[k],offset:<u8,size:<u8}`), `end` (`bytes[32]`), `rest` |
 | `tail` | value | `{signature:ascii[32],offset:<u8}` | the file's last 40 bytes |
-| `chunks/<name>` | struct | | each chunk of the map (its name's last record) that is not a frame, in map order, named (below) by its name read as text (conventions §6) |
-| `chunks/<name>/lv` | struct or derived | | a chunk that decodes as a lite variant (§5.1): its records in the source, or, for a compressed record (derived, transform `nd2-lv-zlib`, its inflated size in its form), in its inflated bytes |
+| `chunks/<name>` | struct | | each chunk of the map (its name's last record) that is not a frame, in map order, named (below) by its name read as text ([conventions §6](../conventions.md#6-source-metadata-as-json)) |
+| `chunks/<name>/lv` | struct or derived | | a chunk that decodes as a lite variant ([§5.1](#51-decoded-chunks)): its records in the source, or, for a compressed record (derived, transform `nd2-lv-zlib`, its inflated size in its form), in its inflated bytes |
 | `chunks/<name>/xml` | derived | | an XML variant (transform `xml-variant`): its elements as structs, its `value` attributes as values of type `xml:<runtype>` |
 | `chunks/<name>/data` | value | `bytes[d]` | a chunk that does not decode |
-| an LV scalar | value | `{lv:u1,k:u1,name:bytes[2k],v:T}` | named (below) by the record's name as JSON (§5.1); `T` its value's type (`u1` bool, `<i4`, `<u4`, `<u8`, `<f8`, `utf16[n]` string, `{n:<u8,v:bytes[n]}` byte array) |
+| an LV scalar | value | `{lv:u1,k:u1,name:bytes[2k],v:T}` | named (below) by the record's name as JSON ([§5.1](#51-decoded-chunks)); `T` its value's type (`u1` bool, `<i4`, `<u4`, `<u8`, `<f8`, `utf16[n]` string, `{n:<u8,v:bytes[n]}` byte array) |
 | an LV level | struct | | named as a scalar is; `header` (`{lv:u1,k:u1,name:bytes[2k],count:<u4,length:<u8}`), its records, and `table` (`bytes[8c]`, the bytes it skips) |
 | an XML element | struct or value | `xml:<runtype>` or `xml` | under `chunks/<name>/xml`, named (below) by its tag: an element with a `value` attribute is a value (its attribute's text), any other a struct of its child elements |
-| `frames/<f>` | struct | | each chunk `ImageDataSeq|<f>!`: `header`, `name`, and for a placed frame (§4.1) `timestamp` (`<f8`), `pixels` (data: the frame's pixels; its form's recipe the range, or the rows of padded rows) and `trailing` (`bytes`, data after the pixels), else `data` (`bytes[d]`) |
+| `frames/<f>` | struct | | each chunk `ImageDataSeq|<f>!`: `header`, `name`, and for a placed frame ([§4.1](#41-frames)) `timestamp` (`<f8`), `pixels` (data: the frame's pixels; its form's recipe the range, or the rows of padded rows) and `trailing` (`bytes`, data after the pixels), else `data` (`bytes[d]`) |
 | `gaps/<offset>` | gap | | name padding, replaced map records, row padding and any other bytes no element claims |
 
 A chunk whose bytes an earlier element claims is an alias of it.
@@ -535,7 +535,7 @@ A chunk whose bytes an earlier element claims is an alias of it.
 level, and the child elements of an XML element take their names from the
 source, which may be empty (a list's members), repeat (an object with a
 repeated name; chunk names that read alike), or hold `/`; they are named so
-that conventions §8.1's rules hold. Among such siblings, in the source's
+that [conventions §8.1](../conventions.md#81-elements)'s rules hold. Among such siblings, in the source's
 order (map order for chunks, record order for records, document order for
 elements), one whose
 text `t` is not empty, holds no `/` or `~`, is not `header` or `table` (in
@@ -553,7 +553,7 @@ so the rule loses nothing.
 ### 5.4 Equivalence
 
 The elements are determined by the file, and the mirror by its elements
-(conventions §8.8: one order, one folding, one encoding): hierarchies of one
+([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
 file are compared entry for entry, `vzip_source` included
 ([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
 
@@ -641,13 +641,13 @@ channels:
 }
 ```
 
-Its `vzip_source` is the IR mirror (§5.2), whose elements hold every chunk,
+Its `vzip_source` is the IR mirror ([§5.2](#52-the-ir-mirror)), whose elements hold every chunk,
 the frames' timestamps (`frames/<f>/timestamp`) among them.
 
 # Part 2. The profile
 
 The ND2 profile of [spec/virtualize.md](../virtualize.md) (revision 16), numbered
-as its §5. §1 and §2 are in spec/virtualize.md and apply here.
+as its [§5](#5-nd2-profile). [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here.
 
 The output has the convention's layout for the input
 ([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
@@ -683,10 +683,10 @@ the file), not its data.
   the input. The map gives each named chunk's header offset; of duplicate
   names, the last is used. An offset is checked (≤ 2^53 − 1, chunk magic)
   only when that chunk is read.
-- **Inflation limit:** a chunk that the convention's §3 reads
+- **Inflation limit:** a chunk that the convention's [§3](#3-metadata) reads
   (`ImageAttributesLV!`, `ImageMetadataLV!`, `ImageMetadataSeqLV|0!`) and
-  that is a compressed record (the convention §2.2) MUST inflate to at most
-  2^26 bytes (64 MiB, the source metadata's budget, the convention §5.1),
+  that is a compressed record ([the convention §2.2](#22-lite-variant)) MUST inflate to at most
+  2^26 bytes (64 MiB, the source metadata's budget, [the convention §5.1](#51-decoded-chunks)),
   else the input is rejected; a virtualizer stops inflating there.
 - **Record budget:** those three chunks, read in that order, hold at most
   2^20 LV records and byte-array bytes together: each record counts 1, at
@@ -696,11 +696,11 @@ the file), not its data.
 
 ### 5.2 Rejection
 
-The input is rejected when a rule of §5.1 or §5.3 fails, and when the
-convention gives it no layout: wherever its §2.2 (for the chunks that its
-§3 reads), §3 or §4 says that the input is rejected, or that something
+The input is rejected when a rule of [§5.1](#51-chunks) or [§5.3](#53-frames) fails, and when the
+convention gives it no layout: wherever its [§2.2](#22-lite-variant) (for the chunks that its
+[§3](#3-metadata) reads), [§3](#3-metadata) or [§4](#4-the-image) says that the input is rejected, or that something
 MUST hold and it does not. The chunks that only the source metadata reads
-(the convention §5) never reject the input.
+([the convention §5](#5-source-metadata)) never reject the input.
 
 ### 5.3 Frames
 
@@ -715,10 +715,10 @@ then padding. Let `R = uiWidth × uiComp × uiBpcInMemory / 8`;
   frame (a frame `f < N` that the chunk map names), and reject the file if
   their name lengths `n` are not all the same, or if any one's data length
   `d` is less than `8 + uiHeight × uiWidthBytes` (a header without the
-  magic rejects it too, §5.1): the image takes every frame's pixels at the
+  magic rejects it too, [§5.1](#51-chunks)): the image takes every frame's pixels at the
   same distance from its chunk's offset. Frame `f`'s pixels start at
   `start = o + 16 + n + 8`, where `o` is its chunk's offset from the chunk
-  map. (A frame's ranges MUST lie within the file, §1.2; its chunk's data
+  map. (A frame's ranges MUST lie within the file, [§1.2](../virtualize.md#12-input); its chunk's data
   need not.) Row `r` of the frame is the range
   `(0, start + r × uiWidthBytes, R)`.
   - If `uiWidthBytes = R`, the frame is one chunk, the single range
@@ -726,7 +726,7 @@ then padding. Let `R = uiWidth × uiComp × uiBpcInMemory / 8`;
   - Otherwise (padded rows) the frame is split into **row blocks** of `h`
     rows: block `j` is the ranges of rows `j × h` to `j × h + h − 1`, in
     order. `h` is the largest divisor of `uiHeight` such that every block of
-    every present frame has a payload of at most 65519 bytes (§1.2). (`h = 1`
+    every present frame has a payload of at most 65519 bytes ([§1.2](../virtualize.md#12-input)). (`h = 1`
     always qualifies, so padded frames are never rejected for their payload.)
 - **Compressed:** `uiWidthBytes` MUST equal `R`. The virtualizer reads every
   present frame's header; the frame is one chunk, the single range
@@ -744,6 +744,6 @@ of positions `P` (the position loop's count, 1 without one) MUST be at most
 ### 5.4 Chunk references
 
 Frame `f` at position `p` (0 without a position loop) is the
-entry `<p>/0/c/<coords>` with its ranges (§5.3); coords are its `t`, 0 for
+entry `<p>/0/c/<coords>` with its ranges ([§5.3](#53-frames)); coords are its `t`, 0 for
 `c`, its `z` (each only when its axis is present), then 0, 0. With row
 blocks, block `j` is the entry with coords ..., `j`, 0.

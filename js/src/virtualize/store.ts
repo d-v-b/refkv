@@ -1,18 +1,36 @@
-// Store inputs (spec/virtualize.md §1.4–§1.6): the listing, object reads, the
-// strict JSON reader, and the output of a store profile (one url source per
-// chunk object). Shared by the N5 (§9), Zarr v2 (§10) and OME-Zarr (§11) profiles.
+// Store inputs (spec/virtualize.md §1.4
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>–§1.6
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>): the listing,
+// object reads, the strict JSON reader, and the output of a store profile (one url source per
+// chunk object). Shared by the N5 (§9
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#9-n5-profile>), Zarr v2 (§10
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>) and
+// OME-Zarr (§11
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#11-ome-zarr-profile>)
+// profiles.
 
 import { isUriReference } from "../uri.ts";
 import { CONVENTION_KEY, declare, type Profile, stringifyJson } from "./common.ts";
 import type { ArchiveDesc, EntryDesc } from "../writer.ts";
 
-/** The store input is rejected for a reason no single store profile owns (§1.4–§1.6). */
+/**
+ * The store input is rejected for a reason no single store profile owns (§1.4
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>–§1.6
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>).
+ */
 export class StoreError extends Error {}
 
-/** A resource limit of this implementation was exceeded: a failure, not a rejection (§1.2, §12). */
+/**
+ * A resource limit of this implementation was exceeded: a failure, not a rejection (§1.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>, §14
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-conformance>).
+ */
 export class StoreLimitError extends Error {}
 
-/** The listing or an object could not be read: a failure (§1.4). */
+/**
+ * The listing or an object could not be read: a failure (§1.4
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>).
+ */
 export class StoreReadError extends Error {}
 
 const reject = (message: string): never => {
@@ -22,7 +40,10 @@ const reject = (message: string): never => {
 export const MAX_SAFE = Number.MAX_SAFE_INTEGER;
 export const MAX_DOCUMENT = 1 << 24;
 const MAX_DEPTH = 256;
-/** The browser implementation's limit on listed objects (§14). */
+/**
+ * The browser implementation's limit on listed objects (§14
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-conformance>).
+ */
 export const MAX_OBJECTS = 100000;
 
 const SPLIT = /^(?:([^:/?#]+):)?(?:\/\/([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:#(.*))?$/;
@@ -39,17 +60,25 @@ function pct(s: string, safe: RegExp): string {
   return out;
 }
 
-/** The URL of the object with relative key `key` (§1.4). */
+/**
+ * The URL of the object with relative key `key` (§1.4
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>).
+ */
 export function objectUrl(storeUrl: string, key: string): string {
   return storeUrl + pct(key, PATH_SAFE);
 }
 
-/** `enc` of §1.5. */
+/**
+ * `enc` of §1.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>.
+ */
 export function queryEncode(s: string): string {
   return pct(s, UNRESERVED);
 }
 
-/** [scheme, authority, path] of a valid store URL (§1.4), or a rejection. */
+/**
+ * [scheme, authority, path] of a valid store URL (§1.4
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), or a rejection.
+ */
 export function checkStoreUrl(url: string): [string, string, string] {
   const m = url.match(SPLIT);
   if (!isUriReference(url) || m === null) reject(`${JSON.stringify(url)} is not a valid URI`);
@@ -77,7 +106,10 @@ function percentDecode(s: string): Uint8Array {
   return Uint8Array.from(out);
 }
 
-/** [endpoint, prefix P] of a store URL (§1.5). */
+/**
+ * [endpoint, prefix P] of a store URL (§1.5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>).
+ */
 export function listingEndpoint(url: string): [string, string] {
   const [scheme, authority, path] = checkStoreUrl(url);
   let host = authority;
@@ -109,7 +141,8 @@ export function listingEndpoint(url: string): [string, string] {
   return [endpoint, prefix];
 }
 
-// ---------------------------------------------------------------- listing bodies (§1.5)
+// ---------------------------------------------------------------- listing bodies (§1.5
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>)
 
 function isChar(c: number): boolean {
   return c === 0x9 || c === 0xa || c === 0xd || (c >= 0x20 && c <= 0xd7ff) || (c >= 0xe000 && c <= 0xfffd) ||
@@ -129,7 +162,7 @@ export interface XmlElement {
   attributes: [string, string][];
 }
 
-/** The XML subset of §1.5 (the same algorithm as the Python reference); `what` names the
+/** The XML subset of §1.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store> (the same algorithm as the Python reference); `what` names the
  * document in rejections, and `fail` makes the error. */
 class Xml {
   pos = 0;
@@ -280,7 +313,11 @@ class Xml {
   }
 }
 
-/** The root element of a document in the XML subset of §1.5, or a rejection (naming `what`). */
+/**
+ * The root element of a document in the XML subset of §1.5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>, or a rejection
+ * (naming `what`).
+ */
 export function parseXml(s: string, what: string, error: (m: string) => Error): XmlElement {
   return new Xml(s, what, error).document();
 }
@@ -290,7 +327,10 @@ function text(el: XmlElement): string {
   return el.text.join("");
 }
 
-/** The objects listed by one ListObjectsV2 response, and the continuation token if truncated (§1.5). */
+/**
+ * The objects listed by one ListObjectsV2 response, and the continuation token if truncated (§1.5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>).
+ */
 export function parseListing(body: Uint8Array, prefix: string): { objects: [string, number][]; token?: string } {
   let s = "";
   try {
@@ -330,7 +370,8 @@ export function parseListing(body: Uint8Array, prefix: string): { objects: [stri
   return { objects };
 }
 
-// ---------------------------------------------------------------- JSON (§1.6)
+// ---------------------------------------------------------------- JSON (§1.6
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>)
 
 export type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
 
@@ -360,7 +401,8 @@ export class NoSourceText extends Error {
 /** The JSON.parse reviver that keeps an integer literal beyond 2^53 − 1 exact, as the
  * raw JSON of its digits, so that a copied value keeps every digit (as Python's
  * parser does), and reads the literal `-0` as the integer 0. A literal whose binary64
- * value is infinite stays a number, which §1.6 rejects. */
+ * value is infinite stays a number, which §1.6
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents> rejects. */
 export function keepIntegers(_key: string, value: unknown, context?: { source?: string }): unknown {
   if (typeof value !== "number") return value;
   if (context?.source === undefined) throw new NoSourceText();
@@ -376,7 +418,10 @@ export function isRawInteger(v: unknown): boolean {
   return v !== null && typeof v === "object" && RawJSON.isRawJSON(v);
 }
 
-/** A metadata document by §1.6, or a rejection. */
+/**
+ * A metadata document by §1.6
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>, or a rejection.
+ */
 export function parseJson(data: Uint8Array): Json {
   if (data.length > MAX_DOCUMENT) reject(`JSON document of ${data.length} bytes exceeds ${MAX_DOCUMENT}`);
   if (data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) reject("JSON document starts with a byte order mark");
@@ -429,12 +474,20 @@ export function isNumber(v: unknown): boolean {
   return typeof v === "number" || isRawInteger(v);
 }
 
-/** A number as the layout reads it (§1.6): its binary64 value. */
+/**
+ * A number as the layout reads it (§1.6
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>): its binary64
+ * value.
+ */
 export function num(v: unknown): number {
   return isRawInteger(v) ? Number((v as { rawJSON: string }).rawJSON) : (v as number);
 }
 
-/** `v` as an integer of §1.6 within [lo, hi], or undefined. */
+/**
+ * `v` as an integer of §1.6
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents> within [lo, hi],
+ * or undefined.
+ */
 export function asInt(v: unknown, lo = -MAX_SAFE, hi = MAX_SAFE): number | undefined {
   if (isRawInteger(v)) v = num(v) + 0; // + 0: -0.0 reads as 0
   if (typeof v !== "number" || !Number.isInteger(v) || Math.abs(v) > MAX_SAFE) return undefined;
@@ -455,7 +508,9 @@ export function without(o: { [k: string]: Json }, drop: string[]): { [k: string]
   return Object.fromEntries(Object.entries(o).filter(([k]) => !drop.includes(k)));
 }
 
-// ---------------------------------------------------------------- stores (§1.4, §1.5)
+// ---------------------------------------------------------------- stores (§1.4
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>, §1.5
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>)
 
 /** Code point (UTF-8 byte) order, unlike JavaScript's UTF-16 order. */
 export function compareKeys(a: string, b: string): number {
@@ -473,23 +528,36 @@ function ignored(rel: string): boolean {
   return rel === "" || rel.endsWith("/") || rel.split("/").some((s) => s === "" || s === "." || s === "..");
 }
 
-/** An ignored object whose key is not recorded (§1.4): an empty one whose relative key is empty or ends in /. */
+/**
+ * An ignored object whose key is not recorded (§1.4
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): an empty one whose
+ * relative key is empty or ends in /.
+ */
 function folderMarker(rel: string, size: number): boolean {
   return size === 0 && (rel === "" || rel.endsWith("/"));
 }
 
 export interface Store {
   url: string;
-  /** Relative key → size, of the objects that are not ignored (§1.4). */
+  /**
+   * Relative key → size, of the objects that are not ignored (§1.4
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>).
+   */
   objects: Map<string, number>;
-  /** The relative keys of the ignored objects that are recorded (§1.4). */
+  /**
+   * The relative keys of the ignored objects that are recorded (§1.4
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>).
+   */
   ignored?: string[];
   /** The relative keys of the empty objects whose keys end in `/` (directories, to the SAFE profile). */
   folders?: string[];
   listed: number;
   requests: number;
   read(key: string): Promise<Uint8Array>;
-  /** The bytes [offset, offset + length) of the object `key` (spec/virtualize.md §12.2). */
+  /**
+   * The bytes [offset, offset + length) of the object `key` (spec/virtualize.md §12.2
+   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#122-objects-and-reading>).
+   */
   readRange?(key: string, offset: number, length: number): Promise<Uint8Array>;
   /** Documents read at a time by `prefetchDocuments`; read one at a time if absent or 1. */
   concurrency?: number;
@@ -603,7 +671,8 @@ export class Prefetch {
 }
 
 /** Starts reading the documents `keys`, in that order (the order the profile reads them),
- * `store.concurrency` at a time; once per store. Empty documents and documents §1.6 rejects
+ * `store.concurrency` at a time; once per store. Empty documents and documents §1.6
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents> rejects
  * for their size are not read. */
 export function prefetchDocuments(store: Store, keys: Iterable<string>, wanted?: (key: string) => boolean | undefined) {
   if ((store.concurrency ?? 1) <= 1 || store.prefetch !== undefined) return;
@@ -620,8 +689,9 @@ export function closeStore(store: Store) {
   store.prefetch?.close();
 }
 
-/** Adds listed objects to `store`, rejecting a key listed twice (§1.5), and
- * records the keys of the ignored ones that are not folder markers (§1.4). */
+/** Adds listed objects to `store`, rejecting a key listed twice (§1.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>), and
+ * records the keys of the ignored ones that are not folder markers (§1.4
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>). */
 export function addListed(store: Store, listed: [string, number][], prefix: string, seen: Set<string>) {
   store.ignored ??= [];
   store.folders ??= [];
@@ -636,7 +706,7 @@ export function addListed(store: Store, listed: [string, number][], prefix: stri
   store.listed = seen.size;
 }
 
-/** The JSON document at `key` (§1.6). With `keep`, its bytes are kept for the next read
+/** The JSON document at `key` (§1.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>). With `keep`, its bytes are kept for the next read
  * of `key` (each document is read once). */
 export async function readDocument(store: Store, key: string, { keep = false } = {}): Promise<Json> {
   const size = store.objects.get(key)!;
@@ -653,7 +723,11 @@ export async function readDocument(store: Store, key: string, { keep = false } =
 
 export type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
-/** A store listed by S3 ListObjectsV2 (§1.5). Fails (StoreLimitError) past `maxObjects`. */
+/**
+ * A store listed by S3 ListObjectsV2 (§1.5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>). Fails
+ * (StoreLimitError) past `maxObjects`.
+ */
 export async function openHttpStore(
   url: string,
   { fetch: f = (u, i) => fetch(u, i), maxObjects = MAX_OBJECTS, concurrency = CONCURRENCY }: {
@@ -722,14 +796,18 @@ export async function openHttpStore(
     if (store.listed > maxObjects) throw new StoreLimitError(`the store lists more than ${maxObjects} objects`);
     token = listing.token;
     if (token === undefined) break;
-    // The listing would repeat itself (§1.5).
+    // The listing would repeat itself (§1.5
+    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>).
     if (tokens.has(token)) reject(`the listing gives the continuation token ${JSON.stringify(token.slice(0, 80))} again`);
     tokens.add(token);
   }
   return store;
 }
 
-/** The store profile that the root keys select (§1.4). */
+/**
+ * The store profile that the root keys select (§1.4
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>).
+ */
 export function chooseProfile(store: Store): "n5" | "zarr2" | "safe" {
   if (store.objects.has(".zarray") || store.objects.has(".zgroup")) return "zarr2";
   if (store.objects.has("attributes.json")) return "n5";
@@ -754,7 +832,11 @@ export function parentOf(path: string): string {
   return i < 0 ? "" : path.slice(0, i);
 }
 
-/** Paths in classification order: by number of segments, then by key (spec/virtualize/n5.md §2, spec/virtualize/zarr2.md §2). */
+/**
+ * Paths in classification order: by number of segments, then by key (spec/virtualize/n5.md §2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#2-nodes>, spec/virtualize/zarr2.md
+ * §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>).
+ */
 export function byDepth(paths: Iterable<string>): string[] {
   return [...paths].sort((a, b) => depth(a) - depth(b) || compareKeys(a, b));
 }
@@ -816,7 +898,12 @@ export function implicitGroups(nodes: Iterable<string>): Set<string> {
   return out;
 }
 
-/** Is `s` a decimal integer without leading zeros below `limit` (spec/virtualize/n5.md §3.1, spec/virtualize/zarr2.md §3)? */
+/**
+ * Is `s` a decimal integer without leading zeros below `limit` (spec/virtualize/n5.md §3.1
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#31-chunks>,
+ * spec/virtualize/zarr2.md §3
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays>)?
+ */
 export function canonicalIndex(s: string, limit: number): boolean {
   return /^(0|[1-9][0-9]{0,16})$/.test(s) && Number(s) < limit;
 }
@@ -826,7 +913,11 @@ export function grid(shape: number[], chunks: number[]): number[] {
   return shape.map((s, i) => Number((BigInt(s) + BigInt(chunks[i]) - 1n) / BigInt(chunks[i])));
 }
 
-/** The chunk objects (§1.4): each object's nearest ancestor array decides. Sorted by key. */
+/**
+ * The chunk objects (§1.4
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): each object's
+ * nearest ancestor array decides. Sorted by key.
+ */
 export function findChunks(objects: Map<string, number>, arrays: Map<string, (rest: string) => boolean>): [string, number][] {
   const trie = new PathTrie<(rest: string) => boolean>();
   for (const [path, test] of arrays) trie.add(path, test);
@@ -841,8 +932,11 @@ export function findChunks(objects: Map<string, number>, arrays: Map<string, (re
 
 export const docKey = (path: string) => join(path, "zarr.json");
 
-/** Declares the profile's convention on the root node of `docs` (conventions §2). */
-/** Declares the profile's convention (conventions §2). Each document's `attributes`
+/**
+ * Declares the profile's convention on the root node of `docs` (conventions §2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>).
+ */
+/** Declares the profile's convention (conventions §2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>). Each document's `attributes`
  * holds, until then, the attributes copied from the source; they move into the
  * property `vzip_virtualized` (as its member named after the profile), and the
  * node's attributes are the member `ome` that `omes` gives for its path, if
@@ -874,21 +968,28 @@ export interface StoreResult {
 
 export const SOURCE_GROUP = "vzip_source";
 export const OBJECTS = "vzip_source/objects/";
-/** The empty objects' keys under a root array (spec/virtualize/zarr2.md §5). */
+/**
+ * The empty objects' keys under a root array (spec/virtualize/zarr2.md §5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
+ */
 export const EMPTY_KEY = "vzip_source/empty.json";
 // A last segment that a Zarr reader takes for a node's document, followed by any number of `~`.
 const NODE_NAME = /^(?:zarr\.json|\.zarray|\.zgroup)~*$/;
 
-/** The hierarchy's key of the other object `key` (spec/virtualize/zarr2.md §5,
- * spec/virtualize/n5.md §6): `vzip_source/objects/<key>`, with `~` appended to a last
+/** The hierarchy's key of the other object `key` (spec/virtualize/zarr2.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
+ * spec/virtualize/n5.md §6
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>):
+ * `vzip_source/objects/<key>`, with `~` appended to a last
  * segment that is `zarr.json`, `.zarray` or `.zgroup` followed by any number of `~`, so
  * that no Zarr reader opens a node there, and the key maps back one to one. */
 export function objectKey(key: string): string {
   return OBJECTS + key + (NODE_NAME.test(key.slice(key.lastIndexOf("/") + 1)) ? "~" : "");
 }
 
-/** A store node's source metadata S (spec/virtualize/zarr2.md §4, spec/virtualize/n5.md §5,
- * spec/virtualize/ome-zarr.md §8): `{"attributes": A, "metadata": M, "unversioned": U}`,
+/** A store node's source metadata S (spec/virtualize/zarr2.md §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>, spec/virtualize/n5.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#5-source-metadata>,
+ * spec/virtualize/ome-zarr.md §8
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>):
+ * `{"attributes": A, "metadata": M, "unversioned": U}`,
  * each member only when it is not empty. */
 export function sourceMetadata(
   attributes: { [k: string]: Json },
@@ -906,8 +1007,13 @@ export function sourceMetadata(
  * the hierarchy represents, the nonempty chunk objects, the objects referenced under
  * their own key, and those the convention leaves out), whole, at its `objectKey`, lists
  * the keys of the empty ones (empty chunk objects included) and the recorded `ignored`
- * keys (§1.4), and adds the group `vzip_source` when there is one
- * (spec/virtualize/zarr2.md §5, spec/virtualize/n5.md §6). Returns how many objects
+ * keys (§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), and
+ * adds the group `vzip_source` when there is one
+ * (spec/virtualize/zarr2.md §5
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
+ * spec/virtualize/n5.md §6
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>). Returns how
+ * many objects
  * are kept. A hierarchy with a node at `vzip_source` or below it then rejects the input
  * (`nodes`: every node path). */
 export function keepObjects(
@@ -946,7 +1052,11 @@ export function keepObjects(
   return kept.length;
 }
 
-/** The archive of a store profile's output (§1.4): one url source per chunk entry. */
+/**
+ * The archive of a store profile's output (§1.4
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): one url source per
+ * chunk entry.
+ */
 export function storeArchive(url: string, { docs, chunks, origins }: StoreResult): ArchiveDesc {
   for (const key of [...docs.keys(), ...chunks.map(([k]) => k)]) {
     if (utf8.encode(key).length > 65535) reject("an output key is longer than 65535 bytes");
@@ -960,7 +1070,8 @@ export function storeArchive(url: string, { docs, chunks, origins }: StoreResult
     const compress = key.startsWith(SOURCE_GROUP + "/");
     entries.push({ key, bytes: utf8.encode(stringifyJson(doc)), ...(compress ? { compress } : {}) });
   }
-  // Each source pins its object's listed size (§1.4).
+  // Each source pins its object's listed size (§1.4
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>).
   return { sources: chunks.map(([key, size]) => ({ url: objectUrl(url, origins?.get(key) ?? key), size: BigInt(size) })), entries };
 }
 

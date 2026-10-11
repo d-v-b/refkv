@@ -1,4 +1,6 @@
-"""Walking a DICOM file's elements (spec/virtualize.md §6.1–§6.3)."""
+"""Walking a DICOM file's elements (spec/virtualize.md §6.1
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#61-elements>–§6.3
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#63-datasets-and-sequences>)."""
 
 from __future__ import annotations
 
@@ -13,8 +15,9 @@ VRS = LONG_VRS | {"AE", "AS", "AT", "CS", "DA", "DS", "DT", "FD", "FL", "IS", "L
 UNDEFINED = 0xFFFFFFFF
 ITEM, ITEM_END, SEQUENCE_END = 0xFFFEE000, 0xFFFEE00D, 0xFFFEE0DD
 PIXEL_DATA = 0x7FE00010
-# The sequences of defined length that are walked (§6.3, rule 3): Shared
-# Functional Groups and Pixel Measures.
+# The sequences of defined length that are walked (§6.3
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#63-datasets-and-sequences>, rule
+# 3): Shared Functional Groups and Pixel Measures.
 WALKED = {0x52009229, 0x00289110}
 MAX_DEPTH = 64
 
@@ -52,7 +55,8 @@ class Walker:
         self.size = size
 
     def header(self, pos: int, end: int, enc: Encoding) -> Element:
-        """The element at `pos`, whose header must end by `end` (§6.1)."""
+        """The element at `pos`, whose header must end by `end` (§6.1
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#61-elements>)."""
         if pos + 8 > end:
             raise Rejected(f"the element at {pos} runs past its container")
         b = self.read(pos, 8)
@@ -71,7 +75,8 @@ class Walker:
         return Element(tag, vr, pos + 8, struct.unpack(order + "H", b[6:])[0], enc.little)
 
     def meta(self) -> tuple[Dataset, int]:
-        """The File Meta Information, and where the dataset starts (§6.2)."""
+        """The File Meta Information, and where the dataset starts (§6.2
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#62-file>)."""
         elements: Dataset = {}
         pos = 132
         while pos + 2 <= self.size and struct.unpack("<H", self.read(pos, 2))[0] == 2:
@@ -87,8 +92,9 @@ class Walker:
     def dataset(self, pos: int, end: int, defined: bool, enc: Encoding, depth: int,
                 top: bool = False) -> tuple[Dataset, int]:
         """The elements from `pos`: to `end` (defined), or to an item
-        delimiter within `end` (§6.3). The top-level dataset stops at Pixel
-        Data, whose header is the last one read."""
+        delimiter within `end` (§6.3
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#63-datasets-and-sequences>).
+        The top-level dataset stops at Pixel Data, whose header is the last one read."""
         elements: Dataset = {}
         while True:
             if defined and pos == end:
@@ -127,7 +133,8 @@ class Walker:
     def sequence(self, pos: int, end: int | None, limit: int, enc: Encoding,
                  depth: int) -> tuple[list[Dataset], int]:
         """A sequence's items: to `end` if its length is defined, else to a
-        sequence delimiter within `limit` (§6.3)."""
+        sequence delimiter within `limit` (§6.3
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#63-datasets-and-sequences>)."""
         container = limit if end is None else end
         items: list[Dataset] = []
         while True:
@@ -153,7 +160,8 @@ class Walker:
 
     def fragments(self, pos: int, limit: int, little: bool) -> tuple[list[tuple[int, int, int]], int]:
         """The items of a fragment sequence at `pos`, as (item offset, data
-        offset, data length), and where the sequence ends (§6.5)."""
+        offset, data length), and where the sequence ends (§6.5
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#65-frames>)."""
         order = "<" if little else ">"
         items = []
         while True:

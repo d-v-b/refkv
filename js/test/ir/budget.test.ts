@@ -1,5 +1,6 @@
-// The mirror's row budget in the browser host (conventions §8.3): a crafted IR, loaded
-// into the core's test module (rust/vzip-ir/target/web-test, built with the test-only
+// The mirror's row budget in the browser host (conventions §8.3
+// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#83-column-runs>): a crafted IR,
+// loaded into the core's test module (rust/vzip-ir/target/web-test, built with the test-only
 // hooks by `just js::wasm-test`), whose mirror would have more rows than
 // 2^22 + floor(size / 4), is a rejection with the exact message, as Python's and
 // Rust's tests have it. The shipped module has no such hook.

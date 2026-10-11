@@ -1,4 +1,5 @@
-// The ND2 lite-variant structure, spec/virtualize.md §4.2.
+// The ND2 lite-variant structure, spec/virtualize.md §4.2
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#42-lite-variant>.
 
 import { inflateSync } from "node:zlib";
 import { MAX_SAFE, reject } from "./lib.ts";
@@ -169,7 +170,9 @@ export function parseChunk(data: Uint8Array): LV {
   return parseRecords(data);
 }
 
-// ---- Typed access (§4.2 "Paths") ----
+// ---- Typed access (§4.2
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#42-lite-variant>
+// "Paths") ----
 
 export function isObj(v: LV): v is { k: "object"; m: Map<string, LV> } {
   return v.k === "object";

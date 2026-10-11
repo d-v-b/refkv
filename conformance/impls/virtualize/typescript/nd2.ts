@@ -1,4 +1,5 @@
-// ND2 profile, spec/virtualize.md §4.
+// ND2 profile, spec/virtualize.md §4
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#4-nd2-profile>.
 
 import {
   AXIS_TYPE,
@@ -197,7 +198,9 @@ function hex6(c: number): string {
 }
 
 export async function virtualizeNd2(src: Source, out: Output): Promise<void> {
-  // §4.1 signature
+  // §4.1
+  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#41-chunks>
+  // signature
   const sig = await readChunk(src, 0, "signature chunk");
   if (sig.h.n !== 32 || sig.h.d !== 64 || latin1(sig.name) !== SIG_NAME) reject("bad signature chunk");
   const sd = latin1(sig.data);
@@ -235,7 +238,9 @@ export async function virtualizeNd2(src: Source, out: Output): Promise<void> {
     return parseChunk(c.data);
   };
 
-  // §4.3 attributes
+  // §4.3
+  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#43-metadata>
+  // attributes
   const attrChunk = await metaChunk("ImageAttributesLV!");
   if (attrChunk === undefined) reject("no ImageAttributesLV! chunk");
   const attrsV = member(attrChunk, "SLxImageAttributes");
@@ -317,7 +322,9 @@ export async function virtualizeNd2(src: Source, out: Output): Promise<void> {
     }
   }
 
-  // §4.4 frames
+  // §4.4
+  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#44-frames>
+  // frames
   let N = 1n;
   for (const l of loops) N *= BigInt(l.count);
   if (N > MAX_SAFE_BIG) reject("too many frames");
@@ -401,7 +408,9 @@ export async function virtualizeNd2(src: Source, out: Output): Promise<void> {
     }
   }
 
-  // §4.5 channels
+  // §4.5
+  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#45-channels>
+  // channels
   const channels: { label: string; color: string }[] = [];
   let labeled = false;
   if (planeCount >= 1) {
@@ -431,7 +440,9 @@ export async function virtualizeNd2(src: Source, out: Output): Promise<void> {
   }
   if (!labeled) for (let k = 0; k < comp; k++) channels.push({ label: `C${k}`, color: "FFFFFF" });
 
-  // §4.6 output
+  // §4.6
+  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#46-output>
+  // output
   const tLoop = loops.find((l) => l.kind === "time");
   const zLoop = loops.find((l) => l.kind === "z");
   const pLoop = loops.find((l) => l.kind === "position");

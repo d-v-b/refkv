@@ -1,5 +1,6 @@
-// The zip form of a SAFE product (spec/virtualize.md §12.4): the ZIP archive's end
-// records, its central directory, its local headers, and its deflated XML documents.
+// The zip form of a SAFE product (spec/virtualize.md §12.4
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#124-the-zip-form>): the ZIP
+// archive's end records, its central directory, its local headers, and its deflated XML documents.
 
 import type { ByteReader } from "../common.ts";
 import { crc32 } from "../../deflate.ts";
@@ -22,7 +23,10 @@ function u64(v: DataView, at: number): number {
   return x > BigInt(Number.MAX_SAFE_INTEGER) ? reject("a zip file's offset or size is above 2^53 − 1") : Number(x);
 }
 
-/** A central directory file header, as §12.4 reads it. */
+/**
+ * A central directory file header, as §12.4
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#124-the-zip-form> reads it.
+ */
 export interface Entry {
   name: string;
   flags: number;
@@ -53,7 +57,10 @@ function zip64Values(extra: Uint8Array, wanted: number): number[] {
   return reject("a zip entry needs a ZIP64 extra field and has none");
 }
 
-/** The entries of the zip file of `n` bytes (§12.4). */
+/**
+ * The entries of the zip file of `n` bytes (§12.4
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#124-the-zip-form>).
+ */
 export async function centralDirectory(read: ByteReader, n: number): Promise<Directory> {
   const tailLen = Math.min(n, MAX_TAIL);
   const tail = await read(n - tailLen, tailLen);
@@ -127,7 +134,8 @@ export async function centralDirectory(read: ByteReader, n: number): Promise<Dir
 }
 
 /** [the root directory D, the objects by key, the recorded keys of the directory entries, and the
- * keys of every directory entry but D's] (§12.4). */
+ * keys of every directory entry but D's] (§12.4
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#124-the-zip-form>). */
 export function productEntries(d: Directory): [string, Map<string, Entry>, string[], string[]] {
   const names = new Set<string>();
   let root: string | undefined;
@@ -157,7 +165,10 @@ export function productEntries(d: Directory): [string, Map<string, Entry>, strin
   return [root!, objects, ignored, dirs];
 }
 
-/** Each nonempty object's data start, from its local header (§12.4). */
+/**
+ * Each nonempty object's data start, from its local header (§12.4
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#124-the-zip-form>).
+ */
 export async function locate(read: ByteReader, d: Directory, objects: Map<string, Entry>): Promise<void> {
   const todo = [...objects.values()].filter((e) => e.us);
   for (const e of todo) if (e.lho + 30 > d.cdOffset) reject("a zip entry's local header is beyond the entries");
@@ -178,7 +189,7 @@ export async function locate(read: ByteReader, d: Directory, objects: Map<string
   }
 }
 
-/** A deflated entry's bytes (§12.4): the raw deflate stream must end exactly at its
+/** A deflated entry's bytes (§12.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#124-the-zip-form>): the raw deflate stream must end exactly at its
  * compressed size and give exactly its size, with its CRC-32. */
 export async function inflate(data: Uint8Array, e: Entry): Promise<Uint8Array> {
   const out = new Uint8Array(e.us);
