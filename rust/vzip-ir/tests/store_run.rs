@@ -83,6 +83,21 @@ fn a_store_run_reads_each_batch_as_one_request_per_object() {
 }
 
 #[test]
+fn a_batch_of_empty_ranges_alone_is_fed_without_a_request() {
+    let mut r = run(vec![vec![(2, 0, 0), (0, 3, 0)], vec![(2, 0, 3)]], vec![]).unwrap();
+    let seen = drive(&mut r).unwrap();
+    assert_eq!(seen.iter().map(|b| b.len()).collect::<Vec<_>>(), vec![0, 1]);
+    let (_, facts, _) = r.finish().unwrap();
+    assert_eq!(facts["fed"], json!([[2, 0, []], [0, 3, []], [2, 0, bytes(2)]]));
+}
+
+#[test]
+fn a_batch_of_no_reads_is_refused() {
+    let mut r = run(vec![vec![]], vec![]).unwrap();
+    assert_eq!(r.poll().unwrap_err(), "internal: a batch of no reads");
+}
+
+#[test]
 fn a_read_outside_its_object_is_refused() {
     let mut r = run(vec![vec![(2, 1, 3)]], vec![]).unwrap();
     assert_eq!(r.poll().unwrap_err(), "b: a read of [1, 4) outside its 3 bytes");

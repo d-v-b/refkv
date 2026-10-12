@@ -583,7 +583,8 @@ impl Ir {
 
     /// The bytes of held object `o` of a store IR (conventions §8.9
     /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), which the mirror
-    /// holds: as many as its size.
+    /// holds: as many as its size. The value table is then out of order: call
+    /// [`Ir::sort_values`] once after holding every object.
     pub fn hold(&mut self, o: u32, raw: &[u8]) -> Res<()> {
         let ou = o as usize;
         if ou >= self.len() || self.kind[ou] != OBJECT || self.len[ou] != raw.len() as u64 {
@@ -592,10 +593,7 @@ impl Ir {
         if raw.len() > u32::MAX as usize {
             return Err(format!("budget: a held object of more than {} bytes", u32::MAX));
         }
-        if self.value_bytes(o).is_none() {
-            self.put_value(o, raw);
-            self.sort_values();
-        }
+        self.put_value(o, raw);
         Ok(())
     }
 

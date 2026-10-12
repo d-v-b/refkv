@@ -183,6 +183,12 @@ fn a_store_table_whose_objects_are_not_its_description_s_is_refused() {
 }
 
 #[test]
+fn a_store_table_of_too_many_name_bytes_is_refused() {
+    let e = invalid(|t| t.names.push("x".repeat(1 << 24)));
+    assert_eq!(e, "budget: the mirror's names total more than 16777216 bytes");
+}
+
+#[test]
 fn a_store_column_read_from_an_array_is_refused() {
     let e = invalid(|t| {
         let c = (0..t.columns.len()).find(|&k| t.columns[k][2] == 0).expect("a name index column");

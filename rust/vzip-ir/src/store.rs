@@ -155,7 +155,8 @@ impl StoreRun {
         if self.done {
             return Ok(None);
         }
-        if !self.round.is_empty() {
+        // a batch is pending until served, even one of empty ranges only (no request)
+        if !self.round.is_empty() || !self.asked.is_empty() {
             if self.got.iter().any(|g| g.is_none()) {
                 return Err("poll before every request of the batch completed".into());
             }
@@ -175,6 +176,9 @@ impl StoreRun {
     }
 
     fn begin(&mut self, ranges: Vec<(usize, u64, u64)>) -> Res<()> {
+        if ranges.is_empty() {
+            return Err("internal: a batch of no reads".into());
+        }
         let mut by: std::collections::BTreeMap<usize, Vec<(u64, u64)>> = Default::default();
         for &(k, o, n) in &ranges {
             let (key, size) = self.keys.get(k).ok_or(format!("internal: a read of object {k}, which the listing has not"))?;
@@ -239,6 +243,7 @@ impl StoreRun {
                 self.whole.insert(q.object, parts[0].clone());
             }
             spans.entry(q.object).or_default().extend(q.spans.into_iter().zip(parts));
+
         }
         let p = self.parser.as_mut().ok_or("internal: no parser")?;
         for (k, o, n) in std::mem::take(&mut self.asked) {
@@ -259,15 +264,22 @@ impl StoreRun {
         }
         let p = self.parser.take().ok_or("internal: no parser")?;
         let (mut ir, facts) = p.finish()?;
+        ir.sort_values();
         let kids = ir.has_children();
+        let mut want = Vec::new();
         for (k, &o) in self.objects.iter().enumerate() {
             let ou = o as usize;
             if ir.kind[ou] != OBJECT || !kids[ou] || ir.len[ou] == 0 || ir.value_bytes(o).is_some() {
                 continue;
             }
+            want.push((k, o));
+        }
+        // held once each, then the value table sorted once
+        for (k, o) in want {
             let b = self.whole.get(&k).ok_or(format!("internal: the held object {:?} was not read whole", self.keys[k].0))?;
             ir.hold(o, b)?;
         }
+        ir.sort_values();
         let stats = self.stats_json();
         Ok((ir, facts, stats))
     }

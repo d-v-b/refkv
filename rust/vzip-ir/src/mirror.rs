@@ -1080,6 +1080,9 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
     if t.objects.is_some_and(|o| o > MAX_OBJECTS) {
         return Err(format!("budget: more than {MAX_OBJECTS} objects"));
     }
+    if t.objects.is_some() && t.names.iter().map(|s| s.len() as u64).sum::<u64>() > NAME_BYTES {
+        return Err(format!("budget: the mirror's names total more than {NAME_BYTES} bytes"));
+    }
     let limit = match t.objects { Some(o) => store_row_limit(t.size, o), None => row_limit(t.size) };
     // expanded ids: member 0 of a column run is stored; members 1.. follow it
     let mut extra: HashMap<u64, (u64, u64, usize)> = HashMap::new(); // template root -> (count, size, crun)
