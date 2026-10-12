@@ -236,6 +236,16 @@ fn members_named_gaps_or_json_keep_the_ir_valid_and_rebuild() {
         let bytes: Vec<&Vec<u8>> = files.values().collect();
         let (ir, _, _) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone()).unwrap_or_else(|e| panic!("{n}: {e}"));
         vzip_ir::check::check(&ir).unwrap_or_else(|e| panic!("{n}: {e}"));
+        // the members `gaps` and `json` are escaped and indexed, as repeated keys are
+        let o = (0..ir.len() as u32).find(|&i| ir.kind[i as usize] == vzip_ir::ir::OBJECT && ir.key(i) == ".zattrs").unwrap();
+        let names: Vec<(String, u64)> = ir.children(o).iter().filter(|&&c| ir.kind[c as usize] == vzip_ir::ir::VALUE)
+            .map(|&c| (ir.names.get(ir.name[c as usize]).to_string(), ir.nidx[c as usize])).collect();
+        let want: Vec<(String, u64)> = if n > 4096 {
+            vec![("json".into(), vzip_ir::ir::NO_INDEX)]
+        } else {
+            vec![("gaps~".into(), 0), ("json~".into(), 0), ("gaps%2F~".into(), 0)]
+        };
+        assert_eq!(names, want, "{n}");
         let mut out = Out::new("https://data.test/s/");
         mirror(&ir, &mut out, "zarr2").unwrap_or_else(|e| panic!("{n}: {e}"));
         let get = |k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone());

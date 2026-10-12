@@ -13,7 +13,7 @@
 use crate::ir::Ir;
 use crate::json::{self, Jv};
 use crate::out::{Out, Part};
-pub use super::store::{canonical_index, check_key, declare, object_key, record_ignored, OBJECTS};
+use super::store::{canonical_index, check_key, declare, object_key};
 use serde_json::{json, Value as J};
 use std::collections::{HashMap, HashSet};
 
