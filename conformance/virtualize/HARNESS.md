@@ -186,17 +186,20 @@ checks that it is canonical (folded again from what it loads, it is the same
 table, entry for entry); a mirror that fails is a crash of the
 implementation that wrote it.
 
-**The frozen reference records revision 20 (IMS: 25).** The frozen TIFF, ND2 and CZI
-profiles have their own revision constant
+**The frozen reference records revision 20 (IMS: 25).** The frozen profiles have
+their own revision constants
 (`conformance/virtualize/reference/vzip_reference/revision.py`,
-`conformance/virtualize/reference/ts/revision.ts`), 20, the last revision before the
-mirror, which their roots record with their old `vzip_source`; nothing else
-in them changed (an edit made so that a reference archive does not claim a
-revision it does not implement). `compare.py` compares a reference
-root that records 20 (an IMS root, 25: `IMS_REVISION`, the last revision before IMS's
-mirror) as if it recorded the current revision, so the revision
-number is the one difference it does not report; every other profile's
-reference is the shipped code, which records the current revision.
+`conformance/virtualize/reference/ts/revision.ts`): TIFF, ND2 and CZI 20
+(`REVISION`), the last revision before their mirror, and IMS 25
+(`IMS_REVISION`), the last before IMS's; their roots record it with their old
+`vzip_source`. Nothing else in them changed (an edit made so that a reference
+archive does not claim a revision it does not implement), but for the frozen
+IMS code's citations of IMS §5, which point at the revision-25 snapshot
+`spec/history/virtualize/ims.r25.md`, since §5 no longer has those sections.
+`compare.py` compares a reference root that records its profile's frozen
+revision as if it recorded the current revision, so the revision number is the
+one difference it does not report; every other profile's reference is the
+shipped code, which records the current revision.
 
 **The frozen reference stays.** The frozen implementations
 (`conformance/virtualize/reference`, `conformance/virtualize/reference/ts`) are kept

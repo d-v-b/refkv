@@ -1190,9 +1190,10 @@ objects it could map: an unsupported object kept its record, not its bytes.
   documents.
 
 **Output.** Outside `vzip_source`, every IMS output is the revision-25 one
-(the revision number aside), and every rejection is the same: on the 44 IMS
-fixtures, 26 accepted and 18 rejected by both the frozen reference and the
-IR. `vzip_source` is the IR mirror in place of `vzip_source/hdf5`,
+(the revision number aside), and every rejection is the same: on the 45 IMS
+fixtures (the new `ims_latest_global_heaps.ims` has variable-length
+attributes in three global heap collections), 27 accepted and 18 rejected by
+both the frozen reference and the IR. `vzip_source` is the IR mirror in place of `vzip_source/hdf5`,
 `vzip_source/objects`, `attributes/<i>`, `json/<i>` and `spilled/<j>`.
 
 **Implementations.** The Rust core parses IMS (`rust/vzip-ir/src/hdf5.rs`,

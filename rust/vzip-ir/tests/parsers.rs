@@ -42,7 +42,7 @@ fn accepted<P: vzip_ir::Parser>(dir: &str) -> usize {
 fn accepted_fixtures_are_valid_irs_that_rebuild() {
     assert_eq!(accepted::<Tiff>("tiff"), 33);
     assert_eq!(accepted::<Czi>("czi"), 32);
-    assert_eq!(accepted::<Ims>("ims"), 25);
+    assert_eq!(accepted::<Ims>("ims"), 26);
     assert_eq!(accepted::<Ims>("ims/exact"), 1);
 }
 
@@ -371,4 +371,14 @@ fn the_walk_stops_inside_heaps_b_trees_and_global_heaps() {
         let kept = paths(&ir).iter().filter(|p| p.starts_with(parent)).count();
         assert!(kept >= 1 && kept < total, "{name}: {kept} of {total} under {parent}");
     }
+    // the room spent right after the first collection: no later collection is described
+    let data = std::fs::read(fixtures().join("ims/ims_latest_global_heaps.ims")).unwrap();
+    let (all, _) = ims_with_room(&data, None);
+    let full: Vec<String> = (0..all.len() as u32).map(|i| all.path(i)).collect();
+    assert!(full.iter().any(|p| p.starts_with("global_heaps/2")), "fewer than three collections");
+    let last = full.iter().rposition(|p| p.starts_with("global_heaps/0")).unwrap();
+    let (ir, _) = ims_with_room(&data, Some(last as u64 + 1));
+    let paths: Vec<String> = (0..ir.len() as u32).map(|i| ir.path(i)).collect();
+    assert!(paths.iter().any(|p| p.starts_with("global_heaps/0/")));
+    assert!(!paths.iter().any(|p| p.starts_with("global_heaps/1")), "a later collection is described");
 }
