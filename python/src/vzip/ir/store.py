@@ -65,7 +65,8 @@ def _whole(store: Store, key: str) -> bytes:
 def drive_store(run, store: Store, workers: int | None = None, fmt: str | None = None) -> None:
     """Performs the object reads a store run asks for until it is done, at most `workers`
     (default `store.workers`) at a time; each reading thread closes its kept-alive
-    connections at the end."""
+    connections at the end. `fmt` is the run's store format, which a rejection names
+    (`Rejected.format`); pass it whenever it is known."""
     import vzip_ir
 
     workers = max(1, workers or store.workers)
@@ -171,7 +172,9 @@ def from_rust(t) -> StoreIrOutput:
 def run_store(store: Store, fmt: str = "zarr2", mirror: bool = True):
     """(output, IR, run counts) of the listed `store`, parsed by the core's store format `fmt`:
     its ignored keys recorded, its objects read at most `store.workers` at a time, and the
-    summary's `listingRequests` the store's requests."""
+    summary's `listingRequests` the store's requests. With `mirror` false the output has no
+    `vzip_source` mirror, and so no record of the ignored keys either. A rejection names `fmt`
+    (`Rejected.format`)."""
     import vzip_ir
 
     if store._prefetch is not None:
@@ -198,7 +201,7 @@ def virtualize_store(location: str, url: str | None = None, fmt: str = "zarr2", 
                      policy=None, workers: int | None = None, opener=None):
     """(output, IR, run counts) of the store at `location` (an http(s) store URL, listed and
     read under `policy`, or a local directory served at `url`), parsed by the core's store
-    format `fmt`."""
+    format `fmt`, as `run_store` (`mirror` false: no mirror, and no record of the ignored keys)."""
     kw = {} if workers is None else {"workers": workers}
     store = open_store(location, url, policy=policy, opener=opener, **kw)
     try:

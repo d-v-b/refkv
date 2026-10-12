@@ -73,9 +73,9 @@ async function fetchSpans(store: Store, key: string, spans: [number, number][]):
 
 /** Virtualizes the listed `store` with the core's store format `format`: its ignored keys
  * recorded, its objects read at most `store.concurrency` at a time. A store the core refuses
- * is a StoreError; an object that cannot be read, its own error. */
-// `options.mirror` false leaves `vzip_source`'s mirror out, and with it the source metadata that
-// records the listing's ignored keys (tools and tests; every virtualizer writes the mirror).
+ * is a StoreError naming the format; an object that cannot be read, its own error.
+ * @param options.mirror false leaves `vzip_source`'s mirror out, and with it the source
+ * metadata that records the listing's ignored keys: such an output keeps neither. */
 export async function virtualizeStoreIr(
   format: StoreFormat,
   store: Store,
