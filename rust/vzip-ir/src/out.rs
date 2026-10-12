@@ -227,7 +227,7 @@ pub fn profile(p: &str) -> (&'static str, u64, &'static str) {
         // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)
         "n5" => ("ad5d4c39-c69e-48f7-a3ef-4cc8c607d416", 0, "N5"),
         "zarr2" => ("8e792619-d671-4687-ab51-752885dd3ee6", 0, "Zarr v2"),
-        "ome-zarr" => ("b74ea302-65bb-49ae-b81f-f9bb52cd4eed", 0, "OME-Zarr 0.4"),
+        "ome-zarr" => ("b74ea302-65bb-49ae-b81f-f9bb52cd4eed", 0, "OME-Zarr"),
         "safe" => ("ef81346c-19e8-42ad-93b0-a279ccaf44c1", 0, "Sentinel-2 SAFE"),
         _ => panic!("no profile {p}"),
     }

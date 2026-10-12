@@ -17,6 +17,7 @@ pub mod json;
 pub mod lv;
 pub mod mirror;
 pub mod nd2;
+pub mod ome_zarr;
 pub mod out;
 pub mod plan;
 pub mod project;

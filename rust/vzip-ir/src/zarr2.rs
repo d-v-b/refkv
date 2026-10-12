@@ -12,6 +12,12 @@
 //! [`crate::ir::source_names`] names texts), the rest gaps; a document of more than 4096
 //! members is one value, `json`. Every other object (chunks among
 //! them) stays referenced. A store this format refuses is rejected with the reason.
+//!
+//! After the batch it decides whether the root declares OME-NGFF 0.4 (spec/virtualize.md §1.4
+//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), reading the
+//! documents that test names and the batch did not (one batch each). A store that does is the
+//! OME-Zarr profile's: the OME layer (`ome_zarr.rs`) checks it and gives what the projection
+//! writes in place of the Zarr v2 convention's, and the facts' `profile` is `ome-zarr`.
 
 use crate::ir::{source_names, Ir, Res, GAP, NO_INDEX};
 use crate::json::{self, Jv};
@@ -66,6 +72,10 @@ pub struct Zarr2 {
     docs: Vec<usize>,
     asked: bool,
     got: HashMap<usize, Vec<u8>>,
+    /// whether the root declares OME-NGFF 0.4 (the OME-Zarr profile's store), once decided
+    ome: Option<bool>,
+    /// the documents the test of OME-NGFF 0.4 read, parsed
+    tested: HashMap<usize, Res<Jv>>,
 }
 
 impl Zarr2 {
@@ -139,7 +149,31 @@ impl Zarr2 {
                 return Err(format!("{key}: JSON document of {n} bytes exceeds {}", json::MAX_DOCUMENT));
             }
         }
-        Ok(Zarr2 { ir, objects, keys: keys.to_vec(), index, nodes, implicit, docs, asked: false, got: HashMap::new() })
+        Ok(Zarr2 { ir, objects, keys: keys.to_vec(), index, nodes, implicit, docs, asked: false, got: HashMap::new(),
+                   ome: None, tested: HashMap::new() })
+    }
+
+    /// Whether the root declares OME-NGFF 0.4 (spec/virtualize.md §1.4
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), or the
+    /// document to read first. A document the test reads and cannot parse rejects the store.
+    fn detect(&mut self) -> Res<crate::ome_zarr::Detect> {
+        let (keys, index, got, tested) = (&self.keys, &self.index, &self.got, &mut self.tested);
+        crate::ome_zarr::declares_04(&|key| index.contains_key(key), &mut |key| {
+            let k = index[key];
+            if let Some(r) = tested.get(&k) {
+                return Some(r.clone());
+            }
+            let n = keys[k].1;
+            let r = if n == 0 {
+                Err(format!("{key}: invalid JSON: an empty document"))
+            } else if n > json::MAX_DOCUMENT {
+                Err(format!("{key}: JSON document of {n} bytes exceeds {}", json::MAX_DOCUMENT))
+            } else {
+                json::parse(got.get(&k)?).map(|d| d.value).map_err(|e| format!("{key}: {e}"))
+            };
+            tested.insert(k, r.clone());
+            Some(r)
+        })
     }
 
     fn doc(&self, key: &str) -> Res<Option<json::Doc>> {
@@ -307,12 +341,24 @@ fn compressor(path: &str, c: Option<&Jv>, b: u64) -> Res<(Option<Jv>, Jv)> {
 
 impl StoreParser for Zarr2 {
     fn step(&mut self) -> Res<StoreStep> {
-        if self.asked {
-            return Ok(StoreStep::Done);
+        if !self.asked {
+            self.asked = true;
+            // every node's documents, which the listing names, in one batch
+            return Ok(StoreStep::Read(self.docs.iter().map(|&k| (k, 0, self.keys[k].1)).collect()));
         }
-        self.asked = true;
-        // every node's documents, which the listing names, in one batch
-        Ok(StoreStep::Read(self.docs.iter().map(|&k| (k, 0, self.keys[k].1)).collect()))
+        if self.ome.is_none() {
+            // then whether the root declares OME-NGFF 0.4: the documents its test names that
+            // the batch did not read (one inside an array, say), one batch each
+            match self.detect()? {
+                crate::ome_zarr::Detect::Yes => self.ome = Some(true),
+                crate::ome_zarr::Detect::No => self.ome = Some(false),
+                crate::ome_zarr::Detect::Need(key) => {
+                    let k = self.index[&key];
+                    return Ok(StoreStep::Read(vec![(k, 0, self.keys[k].1)]));
+                }
+            }
+        }
+        Ok(StoreStep::Done)
     }
 
     fn feed(&mut self, object: usize, _offset: u64, data: &[u8]) {
@@ -321,7 +367,10 @@ impl StoreParser for Zarr2 {
 
     fn finish(self: Box<Self>) -> Res<(Ir, J)> {
         let s = schema();
-        let mut nodes = Vec::new();
+        let ome = self.ome.ok_or("internal: the parser is not done")?;
+        // each node: its facts, its attributes (an explicit group's, for the OME layer) and M
+        let mut found: Vec<(J, Option<Jv>, Jv)> = Vec::new();
+        let mut arrays: BTreeMap<String, crate::ome_zarr::ArrayInfo> = BTreeMap::new();
         // each document read (a listing index) and its top-level members' extents
         let mut parsed: Vec<(usize, Members)> = Vec::new();
         for (path, &is_array) in &self.nodes {
@@ -333,6 +382,9 @@ impl StoreParser for Zarr2 {
             let mut node = json!({"path": path});
             let meta = if is_array {
                 let (zarr, sep, grid, meta) = array(shown, &doc.value)?;
+                let dims = match zarr.get("shape") { Some(Jv::Arr(a)) => a.len(), _ => 0 };
+                let data_type = zarr.get("data_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                arrays.insert(path.clone(), crate::ome_zarr::ArrayInfo { dims, data_type });
                 node["kind"] = json!("array");
                 node["zarr"] = json!(zarr.text());
                 node["sep"] = json!(sep);
@@ -348,19 +400,52 @@ impl StoreParser for Zarr2 {
                 Jv::Obj(doc.value.members().iter().filter(|(k, _)| k.text != "zarr_format").cloned().collect())
             };
             parsed.push((self.index[&key], doc.members));
-            let mut own = Jv::obj(vec![]);
-            if let Some(a) = attrs {
+            let mut a = None;
+            if let Some(d) = attrs {
                 let mut env = Vars::default();
                 env.insert("key", rules::text(&akey));
-                env.insert("object", rules::flag(matches!(a.value, Jv::Obj(_))));
+                env.insert("object", rules::flag(matches!(d.value, Jv::Obj(_))));
                 s.check("zattrs", &mut env)?;
-                if !a.value.is_empty_object() {
-                    own.set("attributes", a.value);
-                }
-                parsed.push((self.index[&akey], a.members));
+                parsed.push((self.index[&akey], d.members));
+                a = Some(d.value);
+            }
+            found.push((node, a, meta));
+        }
+        // the OME layer (spec/virtualize/ome-zarr.md
+        // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md>): its checks, and
+        // what it writes in place of the Zarr v2 convention's
+        let layer = if ome {
+            let groups: BTreeMap<String, Jv> = found.iter().filter(|(n, _, _)| n["kind"] == "group")
+                .map(|(n, a, _)| (n["path"].as_str().unwrap_or("").to_string(), a.clone().unwrap_or(Jv::Obj(Vec::new())))).collect();
+            Some(crate::ome_zarr::layer(&groups, &arrays, &self.keys)?)
+        } else {
+            None
+        };
+        let mut nodes = Vec::new();
+        for (mut node, a, meta) in found {
+            let path = node["path"].as_str().unwrap_or("").to_string();
+            let mut own = Jv::obj(vec![]);
+            let g = layer.as_ref().and_then(|l| l.groups.get(&path));
+            let attributes = match g {
+                Some(g) => Some(g.attributes.clone()),
+                None => a,
+            };
+            if let Some(a) = attributes.filter(|a| !a.is_empty_object()) {
+                own.set("attributes", a);
             }
             if !meta.is_empty_object() {
                 own.set("metadata", meta);
+            }
+            if let Some(g) = g {
+                if !g.unversioned.is_empty() {
+                    own.set("unversioned", Jv::Arr(g.unversioned.iter().map(|u| Jv::str(u)).collect()));
+                }
+                if let Some(o) = &g.ome {
+                    node["ome"] = json!(o.text());
+                }
+            }
+            if let Some(d) = layer.as_ref().and_then(|l| l.dims.get(&path)) {
+                node["dims"] = json!(d.text());
             }
             if !own.is_empty_object() {
                 node["s"] = json!(own.text());
@@ -391,6 +476,11 @@ impl StoreParser for Zarr2 {
         }
         crate::check::finish(&mut ir)?;
         let documents: Vec<&str> = parsed.iter().map(|(k, _)| keys[*k].0.as_str()).collect();
-        Ok((ir, json!({"nodes": nodes, "documents": documents})))
+        let mut facts = json!({"nodes": nodes, "documents": documents, "profile": if ome { "ome-zarr" } else { "zarr2" }});
+        if let Some(l) = layer {
+            facts["xml"] = json!(l.xml);
+            facts["ome"] = l.summary;
+        }
+        Ok((ir, facts))
     }
 }

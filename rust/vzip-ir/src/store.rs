@@ -320,18 +320,19 @@ impl StoreRun {
 /// object counts and what the mirror's table folded.
 pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str, mirror: bool) -> Res<crate::out::Out> {
     let mut out = match format {
-        StoreFormat::Zarr2 => crate::project::zarr2::project(ir, facts, url, format.profile())?,
+        StoreFormat::Zarr2 => crate::project::zarr2::project(ir, facts, url)?,
     };
     let mut summary = std::mem::take(&mut out.summary);
     if let Some(m) = summary.as_object_mut() {
-        m.insert("format".into(), json!(format.name()));
+        // the profile: a Zarr v2 store whose root declares OME-NGFF 0.4 is OME-Zarr's
+        m.insert("format".into(), json!(facts["profile"].as_str().unwrap_or(format.name())));
         m.insert("reads".into(), stats);
         m.insert("elements".into(), json!(ir.len()));
         m.insert("objects".into(), json!(ir.objects));
     }
     out.summary = summary;
     if mirror {
-        let folded = crate::mirror::mirror(ir, &mut out, format.profile())?;
+        let folded = crate::mirror::mirror(ir, &mut out, facts["profile"].as_str().unwrap_or(format.profile()))?;
         out.summary["folded"] = folded.json();
     }
     Ok(out)

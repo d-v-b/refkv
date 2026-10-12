@@ -85,8 +85,16 @@ fn check_key(key: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn project(ir: &Ir, facts: &J, url: &str, profile: &str) -> Result<Out, String> {
+/// The hierarchy of a Zarr v2 store, or, when the facts say the root declares OME-NGFF 0.4
+/// (`profile` "ome-zarr"), of an OME-Zarr one (spec/virtualize/ome-zarr.md
+/// §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>–§8
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>): its
+/// groups' `ome`, its levels' `dimension_names` and its OME-XML at its own key, and the
+/// OME-Zarr convention declared in place of the Zarr v2 one.
+pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+    let profile = facts["profile"].as_str().unwrap_or("zarr2");
     let mut out = Out::new(url);
+    let xml: HashSet<&str> = facts["xml"].as_array().into_iter().flatten().filter_map(|x| x.as_str()).collect();
     let nodes = facts["nodes"].as_array().cloned().unwrap_or_default();
     let documents: HashSet<&str> = facts["documents"].as_array().into_iter().flatten().filter_map(|x| x.as_str()).collect();
     let mut arrays: HashMap<String, (Vec<u64>, String)> = HashMap::new();
@@ -98,13 +106,24 @@ pub fn project(ir: &Ir, facts: &J, url: &str, profile: &str) -> Result<Out, Stri
             Some(t) => Some(json::parse_within(t.as_bytes(), json::MAX_DEPTH + 1)?.value),
             None => None,
         };
-        let attributes = declare(profile, path.is_empty().then_some(url), s);
+        let mut attributes = declare(profile, path.is_empty().then_some(url), s);
+        if let Some(o) = n["ome"].as_str() {
+            // an OME group's `ome` comes first, then the convention
+            let mut a = Jv::obj(vec![("ome", json::parse_within(o.as_bytes(), json::MAX_DEPTH + 1)?.value)]);
+            for (k, v) in attributes.members() {
+                a.set(&k.text, v.clone());
+            }
+            attributes = a;
+        }
         let doc = match n["kind"].as_str() {
             Some("array") => {
                 narrays += 1;
                 let grid = n["grid"].as_array().into_iter().flatten().filter_map(|x| x.as_u64()).collect();
                 arrays.insert(path.to_string(), (grid, n["sep"].as_str().unwrap_or(".").to_string()));
                 let mut d = json::parse(n["zarr"].as_str().unwrap_or("").as_bytes())?.value;
+                if let Some(names) = n["dims"].as_str() {
+                    d.set("dimension_names", json::parse(names.as_bytes())?.value);
+                }
                 d.set("attributes", attributes);
                 d
             }
@@ -138,7 +157,14 @@ pub fn project(ir: &Ir, facts: &J, url: &str, profile: &str) -> Result<Out, Stri
             }
         }
         let chunk = owner.is_some_and(|(rest, g, sep)| is_chunk(rest, g, sep));
-        if chunk {
+        if xml.contains(key.as_str()) && !chunk {
+            // an OME-XML object of a collection, at its own key (spec/virtualize/ome-zarr.md
+            // §7 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#7-chunks-and-ome-xml>)
+            if n > 0 {
+                check_key(&key)?;
+                out.refs(&key, vec![Part::Obj(key.clone(), 0, n)]);
+            }
+        } else if chunk {
             if n > 0 {
                 chunks += 1;
                 check_key(&key)?;
@@ -159,5 +185,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str, profile: &str) -> Result<Out, Stri
     }
     out.summary = json!({"groups": groups, "arrays": narrays, "chunks": chunks, "emptyChunks": empty_chunks,
                          "objects": ir.objects, "otherObjects": others});
+    for (k, v) in facts["ome"].as_object().into_iter().flatten() {
+        out.summary[k] = v.clone();
+    }
     Ok(out)
 }
