@@ -20,7 +20,15 @@ import type { ArchiveDesc, EntryDesc } from "../writer.ts";
  * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>–§1.6
  * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>).
  */
-export class StoreError extends Error {}
+export class StoreError extends Error {
+  /** The store format that refused the input, once one was chosen (the Rust core's store run:
+   * `zarr2`, ...); none for a rejection before that. */
+  readonly format?: string;
+  constructor(message?: string, format?: string) {
+    super(message);
+    if (format !== undefined) this.format = format;
+  }
+}
 
 /**
  * A resource limit of this implementation was exceeded: a failure, not a rejection (§1.2

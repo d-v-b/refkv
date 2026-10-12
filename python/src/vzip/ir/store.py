@@ -179,16 +179,20 @@ def run_store(store: Store, fmt: str = "zarr2", mirror: bool = True):
         # the rest itself, so that at most `store.workers` reads are in flight
         store._prefetch.drain()
     try:
-        run = vzip_ir.StoreRun(fmt, listing(store), max(1, store.workers))
-        run.ignore(list(store.ignored))
-    except vzip_ir.Rejected as e:
-        raise Rejected(str(e)) from None
-    drive_store(run, store)
-    stats = json.loads(run.stats())
-    try:
-        t, ir = run.output(store.url, mirror)
-    except vzip_ir.Rejected as e:
-        raise Rejected(str(e)) from None
+        try:
+            run = vzip_ir.StoreRun(fmt, listing(store), max(1, store.workers))
+            run.ignore(list(store.ignored))
+        except vzip_ir.Rejected as e:
+            raise Rejected(str(e)) from None
+        drive_store(run, store)
+        stats = json.loads(run.stats())
+        try:
+            t, ir = run.output(store.url, mirror)
+        except vzip_ir.Rejected as e:
+            raise Rejected(str(e)) from None
+    except Rejected as e:
+        e.format = fmt  # the store format that refused the input, as the browser's StoreError names it
+        raise
     out = from_rust(t)
     out.summary["listingRequests"] = store.requests
     return out, ir, stats
