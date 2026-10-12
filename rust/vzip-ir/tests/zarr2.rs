@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use vzip_ir::json;
 use vzip_ir::mirror::rebuild_store;
 use vzip_ir::out::{Out, Part};
-use vzip_ir::store::{run_store, store_output, StoreFormat};
+use vzip_ir::project::zarr2::{is_chunk, object_key};
+use vzip_ir::store::{run_store, store_output, StoreFormat, StoreRun};
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/zarr2")
@@ -121,8 +122,46 @@ fn documents_are_read_as_json_by_the_store_rules() {
         let e = json::parse(bad).err().unwrap();
         assert!(e.contains(why), "{bad:?}: {e}");
     }
+    // an unpaired surrogate escape is a key of its own, not the text its marker reads as
+    let d = json::parse(br#"{"\ud800": 1, "\ufffdd800": 2, "\uD800": 3}"#).unwrap();
+    assert_eq!(d.value.text(), r#"{"\ud800":3,"\ufffdd800":2}"#);
     let deep = format!("{}{}", "[".repeat(257), "]".repeat(257));
     assert!(json::parse(deep.as_bytes()).err().unwrap().contains("nests more than 256"));
+}
+
+#[test]
+fn other_objects_are_escaped_and_chunk_keys_follow_the_grid() {
+    for (key, at) in [("a/README", "a/README"), ("zarr.json", "zarr.json~"), ("a/.zarray", "a/.zarray~"),
+                      ("x/.zgroup~~", "x/.zgroup~~~"), ("x/zarr.jsonx", "x/zarr.jsonx"), ("~", "~")] {
+        assert_eq!(object_key(key), format!("vzip_source/objects/{at}"), "{key}");
+    }
+    for (rest, grid, sep, chunk) in [
+        ("0", &[][..], ".", true), ("1", &[][..], ".", false), ("0.1", &[2, 2][..], ".", true),
+        ("0/1", &[2, 2][..], "/", true), ("0/1", &[2, 2][..], ".", false), ("0.1", &[2, 2][..], "/", false),
+        ("01.0", &[20, 2][..], ".", false), ("2.0", &[2, 2][..], ".", false), ("0", &[2, 2][..], ".", false),
+        ("0.0.0", &[2, 2][..], ".", false), ("+1.0", &[2, 2][..], ".", false), ("0.0", &[0, 2][..], ".", false),
+    ] {
+        assert_eq!(is_chunk(rest, grid, sep), chunk, "{rest} {grid:?} {sep}");
+    }
+}
+
+#[test]
+fn the_ignored_keys_are_vzip_source_ignored_json_in_byte_order() {
+    let files = walk(&fixtures().join("zarr2_hierarchy"));
+    for ignored in [vec![], vec!["b//c".to_string(), "./x".into(), "\u{e9}/..".into()]] {
+        let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
+        let bytes: Vec<&Vec<u8>> = files.values().collect();
+        let mut r = StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
+        r.ignore(ignored.clone());
+        while let Some(reqs) = r.poll().unwrap() {
+            for (k, q) in reqs.iter().enumerate() {
+                r.complete(k, q.spans.iter().map(|&(a, e)| bytes[q.object][a as usize..e as usize].to_vec()).collect()).unwrap();
+            }
+        }
+        let out = r.into_output("https://data.test/h/", true).unwrap();
+        let doc = out.entries.iter().find(|e| e.0 == "vzip_source/ignored.json").map(|e| String::from_utf8(e.1.clone()).unwrap());
+        assert_eq!(doc, (!ignored.is_empty()).then(|| "{\"ignored\":[\"./x\",\"b//c\",\"\u{e9}/..\"]}".to_string()));
+    }
 }
 
 macro_rules! reject {

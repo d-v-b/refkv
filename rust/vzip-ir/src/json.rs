@@ -16,23 +16,25 @@ use std::collections::HashMap;
 pub const MAX_DOCUMENT: u64 = 1 << 24;
 pub const MAX_DEPTH: usize = 256;
 
-/// A string: its text (an unpaired surrogate escape kept as `\u{FFFD}` and the escape's
-/// four hex digits, so that two such strings still differ) and its literal as written.
+/// A string: its text, its literal as written, and whether it holds an unpaired surrogate
+/// escape (`lone`), which the text keeps as `\u{FFFD}` and the escape's four hex digits (in
+/// lower case): two strings are one when their texts are and both or neither have one.
 #[derive(Clone, Debug)]
 pub struct Js {
     pub text: String,
     pub raw: String,
+    pub lone: bool,
 }
 
 impl Js {
     pub fn new(s: &str) -> Js {
-        Js { text: s.to_string(), raw: serde_json::to_string(s).unwrap() }
+        Js { text: s.to_string(), raw: serde_json::to_string(s).unwrap(), lone: false }
     }
 }
 
 impl PartialEq for Js {
     fn eq(&self, o: &Js) -> bool {
-        self.text == o.text
+        self.text == o.text && self.lone == o.lone
     }
 }
 
@@ -56,7 +58,7 @@ impl Jv {
     /// The member `k` of an object (None when absent or not an object).
     pub fn get(&self, k: &str) -> Option<&Jv> {
         match self {
-            Jv::Obj(m) => m.iter().find(|(n, _)| n.text == k).map(|(_, v)| v),
+            Jv::Obj(m) => m.iter().find(|(n, _)| !n.lone && n.text == k).map(|(_, v)| v),
             _ => None,
         }
     }
@@ -109,7 +111,7 @@ impl Jv {
     /// Sets the member `k` (replacing it in its place, or appending it).
     pub fn set(&mut self, k: &str, v: Jv) {
         if let Jv::Obj(m) = self {
-            match m.iter_mut().find(|(n, _)| n.text == k) {
+            match m.iter_mut().find(|(n, _)| !n.lone && n.text == k) {
                 Some(e) => e.1 = v,
                 None => m.push((Js::new(k), v)),
             }
@@ -282,7 +284,7 @@ impl P<'_> {
     fn object(&mut self, top: bool) -> Result<Jv, String> {
         self.enter()?;
         let mut m: Vec<(Js, Jv)> = Vec::new();
-        let mut index: HashMap<String, usize> = HashMap::new();
+        let mut index: HashMap<(bool, String), usize> = HashMap::new();
         self.ws();
         if self.peek() == Some(b'}') {
             self.at += 1;
@@ -306,10 +308,10 @@ impl P<'_> {
             if top {
                 self.members.push((k.text.clone(), start as u64, self.at as u64));
             }
-            match index.get(&k.text) {
+            match index.get(&(k.lone, k.text.clone())) {
                 Some(&i) => m[i].1 = v, // the last one written, in the place of the first
                 None => {
-                    index.insert(k.text.clone(), m.len());
+                    index.insert((k.lone, k.text.clone()), m.len());
                     m.push((k, v));
                 }
             }
@@ -367,9 +369,15 @@ impl P<'_> {
         let start = self.at;
         self.at += 1;
         let mut text = String::new();
+        let mut lone = false;
         loop {
-            let c = self.peek().ok_or_else(|| self.fail("unterminated string"))?;
-            match c {
+            // the plain bytes up to the next quote, backslash or control character, at once (the
+            // document is UTF-8, and these are ASCII, so the run ends on a character boundary)
+            let run = self.s[self.at..].iter().position(|&c| c == b'"' || c == b'\\' || c < 0x20)
+                .ok_or_else(|| { self.at = self.s.len(); self.fail("unterminated string") })?;
+            text.push_str(std::str::from_utf8(&self.s[self.at..self.at + run]).unwrap());
+            self.at += run;
+            match self.s[self.at] {
                 b'"' => {
                     self.at += 1;
                     break;
@@ -402,7 +410,8 @@ impl P<'_> {
                             match char::from_u32(u) {
                                 Some(ch) => text.push(ch),
                                 None => {
-                                    // an unpaired surrogate: kept apart from every other text
+                                    // an unpaired surrogate
+                                    lone = true;
                                     text.push('\u{FFFD}');
                                     text.push_str(&format!("{u:04x}"));
                                 }
@@ -411,18 +420,11 @@ impl P<'_> {
                         _ => return Err(self.fail("invalid escape")),
                     }
                 }
-                c if c < 0x20 => return Err(self.fail("invalid control character in a string")),
-                _ => {
-                    // a whole UTF-8 character (the text is UTF-8)
-                    let rest = std::str::from_utf8(&self.s[self.at..]).unwrap_or("");
-                    let ch = rest.chars().next().ok_or_else(|| self.fail("unterminated string"))?;
-                    text.push(ch);
-                    self.at += ch.len_utf8();
-                }
+                _ => return Err(self.fail("invalid control character in a string")),
             }
         }
         let raw = std::str::from_utf8(&self.s[start..self.at]).unwrap().to_string();
-        Ok(Js { text, raw })
+        Ok(Js { text, raw, lone })
     }
 
     fn number(&mut self) -> Result<Jv, String> {
