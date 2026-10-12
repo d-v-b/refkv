@@ -20,8 +20,8 @@ of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "nifti"`, `"version": 0`, `"revision": 25` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
-and the source metadata of [§5](#5-source-metadata) as the member `"nifti"`. Its CMO is:
+with `"profile": "nifti"`, `"version": 0`, `"revision": 26` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
+and the root's source metadata of [§5.1](#51-the-root) as the member `"nifti"`. Its CMO is:
 
 ```json
 {
@@ -33,7 +33,10 @@ and the source metadata of [§5](#5-source-metadata) as the member `"nifti"`. It
 }
 ```
 
-No other node declares it: the array has no source metadata.
+`vzip_source` declares it too, with the IR mirror's description ([§5.2](#52-the-ir-mirror),
+[conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
+the mirror's view that has a member; the array and the mirror's arrays have no
+attributes.
 
 ## 2. The header
 
@@ -295,101 +298,28 @@ axes present). Otherwise it has none.
 ## 5. Source metadata
 
 The root's source metadata `S` ([conventions §2](../conventions.md#2-attributes))
-is an object with these members, in this order, translated by
-[conventions §6](../conventions.md#6-source-metadata-as-json). With them, the
-whole file is in the hierarchy, byte for byte, but the voxel data (the
-image), the NULs that pad text values (a character field's, or a text
-extension's, whose length is kept), and bytes before the voxel data that
-are all zero (padding):
+is an object with the members of [§5.1](#51-the-root), in that order,
+translated by [conventions §6](../conventions.md#6-source-metadata-as-json).
+Everything the file holds is on `vzip_source`, the file's **IR mirror**
+([§5.2](#52-the-ir-mirror)), from which the file is rebuilt byte for byte.
+
+### 5.1 The root
 
 - `nifti_version`: 1 or 2.
 - `byte_order`: `"little"` or `"big"`.
 - `header`: an object with one member per field of [§2](#2-the-header) for the file's
   version, in the order of [§2](#2-the-header) and named as there. A `char[k]` field is
-  text; every other field is a number, or an array of `k` numbers for
-  `T[k]`. (For example, `magic` is `"n+1"` or `"n+2"`, the bytes before
-  the first NUL.) A float (`f32` or `f64`) value whose bits a JSON number
-  or `"NaN"` does not keep is instead the object `{"bits": H}`, `H` its
-  IEEE 754 bits as 8 (`f32`) or 16 (`f64`) lowercase hexadecimal digits,
-  most significant first, whatever the file's byte order. These values
-  are a negative zero (bits `80000000` or `8000000000000000`), which some
-  JSON writers write as `0`, and every NaN but the canonical one
-  (`7fc00000` or `7ff8000000000000`), which `"NaN"` stands for: one with
-  a payload, a negative one or a signaling one. So every header byte is
-  recovered: a number is written back as its value in the field's type, `"NaN"` as the
-  canonical NaN, and `{"bits": H}` as its bits.
-- `header_rest`: present when a `char[k]` field other than `magic` has a
-  NUL followed by a byte that is not NUL. An object with one member per
-  such field, in the order of [§2](#2-the-header) and named as there: the field's bytes
-  after its first NUL, to its end, in base64. (`magic`'s bytes are fixed by
-  the profile's choice of the file.)
-- `extender`: present when the 4 **extender** bytes at offset `L` are
-  neither `00 00 00 00` nor `01 00 00 00`: those bytes, in base64.
-- `extensions`: present when the extender's first byte is not 0. The
-  extensions form a chain: the first starts at `q = L + 4`; while
-  `q + 8 ≤ v`, the extension at `q` has `esize` (`i32`) at `q` and `ecode`
-  (`i32`) at `q + 4`, both in the file's byte order, and the next starts at
-  `q + esize`. The chain stops, without the extension at `q`, when
-  `esize < 8` or `q + esize > v`. (The standard's rule that `esize` is a
-  multiple of 16 is not checked.) The chain **ends** at the `q` where it
-  stops. Each extension is `{"ecode": c, ...}`, `c` its `ecode`, and its
-  `esize − 8` bytes of data `D` are:
-  - for the codes of text extensions, 4 (AFNI, XML), 6 (comment), 8 (XCEDE,
-    XML), 32 (CIFTI, XML) and 44 (MRS, JSON), when `D` is at most 2^16 bytes
-    and every byte after its first NUL is NUL (the padding): `"text"`, the
-    text value ([conventions §6](../conventions.md#6-source-metadata-as-json)) of `D` up to its first NUL, `t` bytes;
-    and `"esize"`, the extension's `esize`, when it is not `ceil((t + 8) /
-    16) × 16` (the fewest NULs that pad the extension to a multiple of 16
-    bytes, none when `t + 8` is one). `D` is then the text's bytes followed
-    by `esize − 8 − t` NULs;
-  - otherwise, when `D` is at most 64 bytes: `"edata"`, `D` in base64;
-  - otherwise: `"data"`, the path (`vzip_source/extensions/<i>`, `i` its
-    index in the array) of a `uint8` array holding `D`
-    ([conventions §7](../conventions.md#7-source-values-as-arrays)), referenced
-    where the file holds it.
-
-  The array `E` of the extensions, in file order, is the value when its
-  JSON is at most 16384 bytes (the **budget**), counting the UTF-8 encoding
-  of its compact JSON (no whitespace, and no character escaped that JSON
-  does not require escaping, as JavaScript's `JSON.stringify` writes it).
-  (Each extension takes at least 12 of those bytes, with its comma, so `E`
-  is never the value when there are over 1365 extensions.)
-  Otherwise, with `N` the number of extensions, the value is the object
-  `{"ecode": "vzip_source/extensions/ecode", "esize":
-  "vzip_source/extensions/esize", "data": "vzip_source/extensions/data",
-  "text": T}`, where:
-  - `vzip_source/extensions/ecode` and `vzip_source/extensions/esize` are
-    `int32` arrays of shape `[N]`, dimension `index`, in the file's byte
-    order: the `ecode` and the `esize` of each extension. Their values are
-    scattered in the file, so they are copied, each in `k = ceil(N / 2^22)`
-    chunks of `ceil(N / k)` values (the last padded with zero bytes). (A
-    text extension's `esize` gives its padding, as `"esize"` does in `E`.)
-  - `T` holds the text extensions that fit: taking each extension that the
-    rules above make `"text"`, in file order, its text value is the member
-    of `T` named by its index `i` in decimal when, with it, the JSON of the
-    whole object is still at most the budget (counted as for `E`), and is
-    left out otherwise (a later, shorter one may still fit). `"text"` is
-    absent when `T` would be empty.
-  - `vzip_source/extensions/data` is a family of byte values
-    ([conventions §7](../conventions.md#7-source-values-as-arrays)) of `N`
-    members, always in its second form, the arrays `offsets` and `data`
-    (also when every member has the same length): member `i` is the
-    extension's `D`, whole, unless `i` is in `T`, in which case it is
-    absent (empty).
-- `extensions_truncated`: `true` when the extender's first byte is not 0
-  and `unparsed` is present (the chain did not reach the voxel data, and
-  what it left is not padding).
-- `unparsed`: present when the bytes from `e` to `v` are not all zero,
-  where `e` is where the chain ends, or `L + 4` when the extender's first
-  byte is 0: the path `vzip_source/unparsed` of a `uint8` array of those
-  `v − e` bytes ([conventions §7](../conventions.md#7-source-values-as-arrays)), referenced where the file holds them.
-  These are, for example, bytes after an extender whose first byte is 0, an
-  extension the chain could not read, or the fewer than 8 bytes after its
-  last extension. Bytes from `e` to `v` that are all zero are padding, and
-  are not kept.
-- `trailing`: when the file goes on after the voxel data (`v + B` is less
-  than its size), the path `vzip_source/trailing` of a `uint8` array of
-  those bytes.
+  text: its bytes up to the first NUL, as a text value. Every other field is a number,
+  or an array of `k` numbers for `T[k]`. (For example, `magic` is `"n+1"` or `"n+2"`,
+  the bytes before the first NUL.) A float (`f32` or `f64`) value whose bits a JSON
+  number or `"NaN"` does not keep is instead the object `{"bits": H}`, `H` its
+  IEEE 754 bits as 8 (`f32`) or 16 (`f64`) lowercase hexadecimal digits, most
+  significant first, whatever the file's byte order. These values are a negative
+  zero (bits `80000000` or `8000000000000000`), which some JSON writers write as
+  `0`, and every NaN but the canonical one (`7fc00000` or `7ff8000000000000`),
+  which `"NaN"` stands for: one with a payload, a negative one or a signaling one.
+  (The header's bytes, those after a character field's first NUL included, are
+  also the mirror's `header` element.)
 - `scaling`: `{"slope": s, "inter": i}`, present when the scaling is
   nontrivial ([§4.2](#42-value-scaling)).
 - `affine`: present when the image has an affine ([§4.3](#43-scales-units-and-position)):
@@ -404,8 +334,49 @@ use, so that a reader who needs, say, the slice timing (`slice_code`,
 it here. `scaling` is derived from `header`; it is there so that a reader
 need not repeat the rules of [§4.2](#42-value-scaling).
 
-`vzip_source` has no source metadata: it does not declare the convention.
-The node exists when it has an array ([conventions §2](../conventions.md#2-attributes)).
+### 5.2 The IR mirror
+
+`vzip_source` is the file's **IR mirror**
+([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
+file is rebuilt byte for byte, and its view, `vzip_source/tree`. The IR's
+elements (the NIfTI **source model**) are below; nothing is left out: the
+header, the extender, the extensions, the voxel data, and every byte between
+and after them.
+
+### 5.3 Elements
+
+Paths are relative to the IR's root, whose path is `""`; `<i>` is a decimal
+name index ([conventions §8.1](../conventions.md#81-elements)). Types are those of
+[conventions §8.6](../conventions.md#86-types), with `E` the file's byte order
+(`<` little, `>` big).
+
+| path | kind | type | extent: what |
+|---|---|---|---|
+| `""` | struct | | the root: the whole file, `(0, size)` |
+| `header` | value | record | `(0, L)`: the header as one record, a field per field of [§2](#2-the-header) in its order and named as there: `Ei2`, `Ei4`, `Ei8`, `u1`, `Ef4` or `Ef8` for its type (`[k]` for `T[k]`), and `cstr[k]` for `char[k]` |
+| `extender` | value | `u1[4]` | `(L, 4)`: the extender bytes |
+| `extensions/<i>` | value | record | extension `i` of the chain, when the extender's first byte is not 0: `{esize:Ei4,ecode:Ei4,data:cstr[d]}` for the ecodes of text extensions, 4 (AFNI, XML), 6 (comment), 8 (XCEDE, XML), 32 (CIFTI, XML) and 44 (MRS, JSON), `{esize:Ei4,ecode:Ei4,data:bytes[d]}` for the others, and `{esize:Ei4,ecode:Ei4}` when `d` is 0, `d = esize − 8` |
+| `voxels` | data | | `(v, B)`: the voxel data; its form's geometry is `{"data_type": D, "samples": s}` ([§3](#3-data-types)), its codec `{"endian": "little" \| "big"}`, and its recipe `[["src", 0, null]]` |
+| `gaps/<offset>` | gap | | bytes no other element claims: padding, bytes the chain does not hold before the voxel data, and bytes after it |
+
+**The chain.** The first extension starts at `q = L + 4`; while `q + 8 ≤ v`,
+the extension at `q` has `esize` (`i32`) at `q` and `ecode` (`i32`) at
+`q + 4`, both in the file's byte order, and the next starts at `q + esize`.
+The chain stops, without the extension at `q`, when `esize < 8` or
+`q + esize > v`. (The standard's rule that `esize` is a multiple of 16 is not
+checked.)
+
+The view ([conventions §8.7](../conventions.md#87-the-view)) shows the header,
+the extender and each extension of at most 1024 bytes; a text extension's
+data is shown as its text up to the first NUL, with the bytes from the NUL
+on when they are not all NUL.
+
+### 5.4 Equivalence
+
+The elements are determined by the file, and the mirror by its elements
+([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
+file are compared entry for entry, `vzip_source` included
+([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
 
 ## 6. Example
 
@@ -428,7 +399,7 @@ root `zarr.json` has these attributes (`M` elided):
   "vzip_virtualized": {
     "profile": "nifti",
     "version": 0,
-    "revision": 25,
+    "revision": 26,
     "source": {"url": "https://example.org/brain.nii"},
     "nifti": {
       "nifti_version": 1,
@@ -461,23 +432,15 @@ root `zarr.json` has these attributes (`M` elided):
 Its array has the chunk shape `[5, 2, 3, 4]`: its 240 bytes of voxels are
 a single chunk.
 
-A NIfTI-2 file written by nibabel with one comment extension (`ecode` 6,
-the fixture `nifti_nibabel_n2_vector_ext.nii`) has, after `header`:
-
-```json
-"extensions": [{"ecode": 6, "text": "written by write_fixtures.py"}]
-```
-
 A NIfTI-1 file whose one extension is followed by 4 bytes before the voxel
-data, too few for another (the fixture `nifti_region_chain_tail.nii`), has:
+data, too few for another (the fixture `nifti_region_chain_tail.nii`), has
+the elements `header`, `extender`, `extensions/0`, `gaps/368` (the 4 bytes)
+and `voxels`, and its view `vzip_source/tree` shows, after `header`:
 
 ```json
-"extensions": [{"ecode": 6, "text": "abcdefg"}],
-"extensions_truncated": true,
-"unparsed": "vzip_source/unparsed"
+"extender": [1, 0, 0, 0],
+"extensions/0": {"esize": 16, "ecode": 6, "data": "abcdefg"}
 ```
-
-and `vzip_source/unparsed` is a `uint8` array of shape `[4]`.
 
 A `200 × 700` uint8 slice (the fixture `nifti_rowblock_split.nii`) is
 140000 bytes, over `L`, so the cut axis is `y`, of rows of 200 bytes: `k =
@@ -535,10 +498,8 @@ window whose scaling overflows binary64 is left out, by the convention
 [§4.4](#44-channels), rather than rejected by [§1.3](../virtualize.md#13-arithmetic); no other number the layout computes can
 overflow.)
 
-**Extensions.** The 4 extender bytes at offset `L`, the extension chain
-when the first of them is not 0, and the bytes from where the chain ends
-(or from `L + 4`) to `v`, of the
-[convention §5](#5-source-metadata), are read
+**Extensions.** The 4 extender bytes at offset `L` and the extension chain
+when the first of them is not 0 ([the convention §5.3](#53-elements)) are read
 to make the source metadata. They never reject the input, and never change
 where the voxel data starts: it starts at `v` whatever they hold. A
 header-and-image pair (magic `ni1` or `ni2`) and a gzipped file are rejected
@@ -559,16 +520,15 @@ as [conventions §7](../conventions.md#7-source-values-as-arrays)
 references a chunk of contiguous values (with the chunk limit 2^17 bytes):
 one range of source 0, the chunk's bytes in the file, followed for an edge
 chunk by its zero padding as a literal range; when that reference does not
-fit in a payload ([§1.2](../virtualize.md#12-input)), the chunk is copied, with its padding. The ranges
+fit in a payload ([§1.2](../virtualize.md#12-input)), or the array would have more than 2^22 chunks,
+the input is rejected (no file of less than hundreds of megabytes per row
+reaches either). The ranges
 lie within the file (by the data size check). The output has no data
 sources: its source table is source 0 alone.
 
-The arrays of `vzip_source` ([the convention §5](#5-source-metadata)) are referenced where the
-file holds them, and copied where they must be, as [conventions §7](../conventions.md#7-source-values-as-arrays) says (the
-ecodes of `vzip_source/extensions/ecode` and the esizes of
-`vzip_source/extensions/esize`, scattered in the file, are copied). The archive has no other entries
-than these, the root's and the array's `zarr.json`, and `vzip_source`'s
-documents.
+`vzip_source` is the IR mirror ([the convention §5.2](#52-the-ir-mirror)). The
+archive has no other entries than the root's and the array's `zarr.json`, the
+array's chunks, and the mirror's.
 
 ### 7.3 Summary
 

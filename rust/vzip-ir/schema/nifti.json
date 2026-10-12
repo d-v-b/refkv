@@ -1,7 +1,7 @@
 {
   "source_model": "nifti",
   "version": 1,
-  "about": "The source model of a NIfTI-1 or NIfTI-2 single file (spec/virtualize/nifti.md <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>): the elements a parser emits, the table of data types, and the roles the file, its dimensions, its data type, its voxel offset and its voxel data play, each with the constraints a file must meet to have the NIfTI convention's layout (spec/virtualize/nifti.md §7.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#71-header>). The parser checks them in this order; the extension chain never rejects; projections read a valid IR and check nothing.",
+  "about": "The source model of a NIfTI-1 or NIfTI-2 single file (spec/virtualize/nifti.md §5.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#53-elements>): the elements a parser emits, the table of data types, and the roles the file, its dimensions, its data type, its voxel offset and its voxel data play, each with the constraints a file must meet to have the NIfTI convention's layout (spec/virtualize/nifti.md §7.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#71-header>). The parser checks them in this order; the extension chain never rejects; projections read a valid IR and check nothing.",
   "limits": {
     "max_safe": 9007199254740991
   },
@@ -32,7 +32,7 @@
   },
   "elements": {
     "about": "The IR of a NIfTI file. E is the file's byte order (< or >), L the header's length (348 or 540), v the voxel offset, B the voxel data's size.",
-    "header": {"kind": "value", "type": "the header as one record, a field per field of spec/virtualize/nifti.md §2 in its order: numbers Ei2, Ei4, Ei8, u1, Ef4, Ef8 (arrays for T[k]), text cstr[k]", "extent": "(0, L)"},
+    "header": {"kind": "value", "type": "the header as one record, a field per field of spec/virtualize/nifti.md §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#2-the-header> in its order: numbers Ei2, Ei4, Ei8, u1, Ef4, Ef8 (arrays for T[k]), text cstr[k]", "extent": "(0, L)"},
     "extender": {"kind": "value", "type": "u1[4]", "extent": "(L, 4)"},
     "extensions/<i>": {"kind": "value", "type": "{esize:Ei4,ecode:Ei4,data:cstr[d]} for a text ecode (4, 6, 8, 32, 44), {esize:Ei4,ecode:Ei4,data:bytes[d]} otherwise, {esize:Ei4,ecode:Ei4} when d is 0 (d = esize - 8)", "extent": "the extension, when the extender's first byte is not 0, in chain order"},
     "voxels": {"kind": "data", "form": "{geometry: {data_type, samples}, codec: {endian}, recipe: [[src, 0, null]]}", "extent": "(v, B)"},

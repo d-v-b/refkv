@@ -27,7 +27,7 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "dicom"`, `"version": 0`, `"revision": 25` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
+with `"profile": "dicom"`, `"version": 0`, `"revision": 26` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
 and the source metadata of [§5](#5-source-metadata) as the member `"dicom"`. Its CMO is:
 
 ```json
@@ -680,7 +680,7 @@ referenced image sequence and shared functional groups
 "vzip_virtualized": {
   "profile": "dicom",
   "version": 0,
-  "revision": 25,
+  "revision": 26,
   "source": {
     "url": "https://example.org/a.dcm"
   },

@@ -1,6 +1,6 @@
-//! A sans-IO parser of NIfTI-1 and NIfTI-2 single files into the IR
-//! ([spec/virtualize/nifti.md](https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md),
-//! the profile's [§7](https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#7-nifti-profile)).
+//! A sans-IO parser of NIfTI-1 and NIfTI-2 single files into the IR (spec/virtualize/nifti.md §7
+//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#7-nifti-profile>, and the
+//! source model of §5.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#53-elements>).
 //!
 //! Rounds: (1) the first 552 bytes (the header and its extender); (2) the extension
 //! chain, a window of up to 1 MiB at a time from the extension it stopped at. The
