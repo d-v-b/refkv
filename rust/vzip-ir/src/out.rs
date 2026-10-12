@@ -23,6 +23,12 @@ pub enum Part {
     Src(u64, u64),
     Data(u32, u64, u64),
     Lit(Vec<u8>),
+    /// (key, offset, length): bytes of a store's object (conventions §8.9
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), whose url source
+    /// the host makes (spec/virtualize.md §1.4
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>: one per
+    /// object referenced, its size pinned, in order of the entries' keys).
+    Obj(String, u64, u64),
 }
 
 pub const MAX_PAYLOAD: usize = 65519;
@@ -151,6 +157,12 @@ impl Out {
                         b.push(2);
                         s(&mut b, x);
                     }
+                    Part::Obj(k, o, n) => {
+                        b.push(3);
+                        s(&mut b, k.as_bytes());
+                        b.extend_from_slice(&o.to_le_bytes());
+                        b.extend_from_slice(&n.to_le_bytes());
+                    }
                 }
             }
         }
@@ -181,6 +193,8 @@ fn range_size(r: &Part) -> usize {
         Part::Lit(b) => 1 + varint_size(b.len() as u64) + b.len(),
         Part::Src(o, n) => [0, *o, *n].iter().filter(|&&v| v != 0).map(|&v| 1 + varint_size(v)).sum(),
         Part::Data(s, o, n) => [*s as u64, *o, *n].iter().filter(|&&v| v != 0).map(|&v| 1 + varint_size(v)).sum(),
+        // the host numbers the objects' sources: at most the objects a store IR has
+        Part::Obj(_, o, n) => [crate::ir::MAX_OBJECTS, *o, *n].iter().filter(|&&v| v != 0).map(|&v| 1 + varint_size(v)).sum(),
     }
 }
 
@@ -210,6 +224,12 @@ pub fn profile(p: &str) -> (&'static str, u64, &'static str) {
         "nd2" => ("59612f14-e314-4207-ba00-8f422ba71490", 0, "ND2"),
         "czi" => ("7a0733c7-d4be-4482-a64f-6904d9354ea5", 0, "CZI"),
         "dicom" => ("acf17198-e5a5-48d3-8187-22ec4bb40ea5", 0, "DICOM"),
+        // the store conventions, whose sources a store IR describes (conventions §8.9
+        // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)
+        "n5" => ("ad5d4c39-c69e-48f7-a3ef-4cc8c607d416", 0, "N5"),
+        "zarr2" => ("8e792619-d671-4687-ab51-752885dd3ee6", 0, "Zarr v2"),
+        "ome-zarr" => ("b74ea302-65bb-49ae-b81f-f9bb52cd4eed", 0, "OME-Zarr 0.4"),
+        "safe" => ("ef81346c-19e8-42ad-93b0-a279ccaf44c1", 0, "Sentinel-2 SAFE"),
         _ => panic!("no profile {p}"),
     }
 }

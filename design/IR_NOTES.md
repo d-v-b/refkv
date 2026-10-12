@@ -1720,3 +1720,51 @@ revision 24, not an amendment.
 | `just fixtures-check` (last, alone) | see the hand-back |
 
 The offline corpus was not run (no EBI access in this round).
+
+## 48. Revision 26: stores, many sources
+
+The store profiles move onto the IR in revision 26; this round gives the core
+what they need, specified in conventions
+[§8.9](../spec/conventions.md#89-stores), and switches no format.
+
+**The model.** Each object of a store is a source: an element of kind 6
+(`OBJECT`) whose extent `(0, s)` its descendants' extents index, so an element
+names its source by its object, with no source column. The root (no extent) and
+the directories (structs, no extent) are the listing as a tree, each object's
+path its key; `key_name` makes a key segment's full name the segment, trailing
+digits an index, so chunk keys fold. An object with children is **held** (its
+leaves partition it; the mirror holds its bytes in `ir/held`); one without is
+**referenced** (one leaf, its whole source; not rebuilt). A file IR is the case
+of no objects, unchanged: TIFF, ND2 and CZI archives are byte for byte those of
+main (220 fixtures, 98 archives and 122 rejections compared).
+
+**Why held bytes.** A store's documents are not url sources of the archive (the
+hierarchy decodes them), so a mirror that read its sources back, as a file's
+does, could not rebuild them from the archive. Holding them makes the table
+alone rebuild every document and the listing, and read the view's values, with
+no request.
+
+**The checker** runs on virtual offsets (the objects end to end in id order),
+so `layout`, the tiles and the sweep are a file's; `store_shape` first checks
+that nothing leaves its object, and `finish` cuts its gaps at objects' ends.
+
+**Folding.** 10^5 chunk objects of one array (100 × 1000, synthetic):
+
+| keys | stored rows | column runs | table (raw) | table (zlib) | mirror | rebuild + canonical check |
+|---|---|---|---|---|---|---|
+| `i/j` | 1,009 of 100,108 | 1 | 1,056,402 B | 25,121 B | 0.18 s | 0.20 s |
+| `i.j` | 108 of 100,008 | 100 | 960,013 B | 16,094 B | 0.25 s | 0.16 s |
+
+The table is about 10 bytes an object raw (its size, a column value), well under
+1 a zlib'd. The 27 Zarr v2 and OME-Zarr fixture stores today's profiles accept
+keep 4,156 bytes (3,588 zlib) of `{attributes, metadata}` source metadata in
+all; their mirrors hold 173,115 (51,521 zlib): every document whole, byte for
+byte, against only what `zarr.json` does not reproduce, plus about 1.5 KB of
+array documents each.
+
+**Hosts.** `store.rs`'s `StoreRun` turns a parser's batches into one request
+per object (its ranges merged within 4 KiB), keeps whole reads, and holds them
+for held objects; `vzip_ir.StoreRun` and `vzip.ir.store` drive it through the
+store readers (S3 or a directory, the reader policy, the store's workers),
+`vz_store_*` and `wasm/store.mjs` in wasm. Native and wasm agree on the 117
+fixture stores.
