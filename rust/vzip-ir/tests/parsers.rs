@@ -378,7 +378,11 @@ fn the_walk_stops_inside_heaps_b_trees_and_global_heaps() {
     assert!(full.iter().any(|p| p.starts_with("global_heaps/2")), "fewer than three collections");
     let last = full.iter().rposition(|p| p.starts_with("global_heaps/0")).unwrap();
     let (ir, _) = ims_with_room(&data, Some(last as u64 + 1));
+    check::check(&ir).unwrap();
+    assert!(rebuilt(&ir, &data) == data);
     let paths: Vec<String> = (0..ir.len() as u32).map(|i| ir.path(i)).collect();
-    assert!(paths.iter().any(|p| p.starts_with("global_heaps/0/")));
+    for p in full.iter().filter(|p| p.starts_with("global_heaps/0")) {
+        assert!(paths.contains(p), "{p} of collection 0 is not described");
+    }
     assert!(!paths.iter().any(|p| p.starts_with("global_heaps/1")), "a later collection is described");
 }

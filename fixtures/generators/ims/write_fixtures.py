@@ -809,6 +809,7 @@ def global_heaps() -> None:
             f["Notes"].attrs.create(f"note{session}", data=np.array([f"{session}:" + "n" * 300] * 3, dtype=object),
                                     dtype=h5py.string_dtype())
 
+
 if __name__ == "__main__":
     import sys
 
