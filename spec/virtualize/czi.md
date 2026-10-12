@@ -36,7 +36,7 @@ file is in an array, referenced where the file holds it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "czi"`, `"version": 0`, `"revision": 25` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`, and
+with `"profile": "czi"`, `"version": 0`, `"revision": 26` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`, and
 the source metadata of [§5.1](#51-the-root) as the member `"czi"`. Its CMO is:
 
 ```json
@@ -670,7 +670,7 @@ JPEG XR, overlapping layer-0 tiles and five pyramid levels; this is
     "vzip_virtualized": {
       "profile": "czi",
       "version": 0,
-      "revision": 25,
+      "revision": 26,
       "source": {"url": "https://example.org/a.czi"},
       "czi": {
         "version": [1, 0],
