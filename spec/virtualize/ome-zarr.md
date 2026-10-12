@@ -96,7 +96,7 @@ are its other objects, kept whole under `vzip_source/objects/`
 **Empty objects and `vzip_source`.** The Zarr v2 convention keeps a store's
 listing and documents in an IR mirror on `vzip_source` since revision 26
 ([its §4.1](zarr2.md#41-elements)); this convention does not yet, and keeps the
-rules [its §5](zarr2.md#5-other-objects) gave until then. The **empty
+rules [its §5](zarr2.md#5-other-objects) gave in revision 25, restated here. The **empty
 objects** are the store's objects of size 0 (the empty chunk objects among
 them), and the **ignored keys** the relative keys of the listed objects that
 [spec/virtualize.md §1.4](../virtualize.md#14-store-inputs) ignores and
@@ -107,8 +107,10 @@ When there is at least one other object, empty object or ignored key and the
 root is a group, the hierarchy has the group `vzip_source`, a child of the
 root, whose `zarr.json` is `{"zarr_format": 3, "node_type": "group",
 "attributes": A}`: `A` is `{}` when `E` is empty, and otherwise declares the
-convention with the source metadata `E`; a hierarchy that then has a node at
-the path `vzip_source`, or below it, is rejected. When the root is an array,
+convention with the source metadata `E`; the directories between it and the
+other objects are not nodes. A hierarchy that then has a node at the path
+`vzip_source`, or below it, is rejected. When there is none, there is no
+group `vzip_source`. When the root is an array,
 there is no `vzip_source` group: `E`, when not empty, is the key
 `vzip_source/empty.json`, the compact JSON of `E` in UTF-8.
 
@@ -588,6 +590,11 @@ has no entry; its key is one of the empty objects' keys ([§2](#2-hierarchy)),
 as an empty chunk object's is). Every other object of the convention (those of
 [the Zarr v2 convention §5](zarr2.md#5-other-objects))
 is an entry under `vzip_source/objects/<k>`, escaped as [§10.2](zarr2.md#102-chunks-and-other-objects) says.
+Under a root array, `E` ([§2](#2-hierarchy)) is the document `vzip_source/empty.json`,
+written as UTF-8 compact JSON, as `JSON.stringify` writes it. The documents
+under `vzip_source/` are deflated and, like the chunks, not among the
+documents a reader fetches when it opens the archive
+([conventions §2](../conventions.md#2-attributes)).
 
 ### 11.3 Summary
 
