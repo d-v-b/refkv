@@ -1,7 +1,7 @@
-//! The Zarr v2 store format on the IR (spec/virtualize/zarr2.md
-//! [§2](https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes)–[§4](https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata),
+//! The Zarr v2 store format on the IR (spec/virtualize/zarr2.md §2
+//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>–§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>,
 //! the store IR of conventions
-//! [§8.9](https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores)), sans-IO.
+//! §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), sans-IO.
 //!
 //! From the listing it finds the nodes (the candidates, classified from the root down), then
 //! reads every node's documents (its `.zarray` or `.zgroup`, and its `.zattrs` if listed) in
@@ -29,7 +29,7 @@ pub fn schema() -> &'static Rules {
 }
 
 /// The group the mirror and the other objects go in (spec/virtualize/zarr2.md
-/// [§5](https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects)).
+/// §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
 pub const SOURCE_GROUP: &str = "vzip_source";
 const MAX_SAFE: f64 = 9007199254740991.0;
 
@@ -66,7 +66,7 @@ pub struct Zarr2 {
 
 impl Zarr2 {
     /// The nodes of the listing (spec/virtualize/zarr2.md
-    /// [§2](https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes)), and the
+    /// §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>), and the
     /// documents to read; a store with no root node, a candidate with both `.zarray` and
     /// `.zgroup`, a node where the source metadata goes, or a document that cannot be read as
     /// JSON for its size is rejected.
@@ -152,8 +152,8 @@ fn given(z: &Jv, k: &str) -> V {
 
 /// An array's `zarr.json` without its attributes, its separator, its chunk grid and its
 /// metadata `M` (spec/virtualize/zarr2.md
-/// [§3](https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays),
-/// [§4](https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata)).
+/// §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays>,
+/// §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>).
 fn array(path: &str, z: &Jv) -> Res<(Jv, String, Vec<u64>, Jv)> {
     let s = schema();
     let mut env = Vars::default();
@@ -214,7 +214,8 @@ fn array(path: &str, z: &Jv) -> Res<(Jv, String, Vec<u64>, Jv)> {
     });
     let (codec, extra) = compressor(path, z.get("compressor").filter(|v| **v != Jv::Null), b)?;
     codecs.extend(codec);
-    // M: the members §3 does not read, as written; null fill values; a float type's integer
+    // M (§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>): the members §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays> does not
+    // read, as written; null fill values; a float type's integer
     // fill beyond 2^53 − 1; the compressor's members its codec does not carry
     let read: Vec<&str> = s.table("zarray_read").as_array().into_iter().flatten().filter_map(|x| x.as_str()).collect();
     let mut meta = Jv::Obj(z.members().iter().filter(|(k, _)| !read.contains(&k.text.as_str())).cloned().collect());
@@ -242,7 +243,7 @@ fn array(path: &str, z: &Jv) -> Res<(Jv, String, Vec<u64>, Jv)> {
 }
 
 /// The compressor's codec (spec/virtualize/zarr2.md
-/// [§3.1](https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#31-compressors)), and
+/// §3.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#31-compressors>), and
 /// its members the codec does not carry.
 fn compressor(path: &str, c: Option<&Jv>, b: u64) -> Res<(Option<Jv>, Jv)> {
     let s = schema();

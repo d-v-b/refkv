@@ -1,8 +1,8 @@
 //! The Zarr v2 projection (spec/virtualize/zarr2.md
-//! [§2](https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes),
-//! [§3](https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays),
-//! [§5](https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects),
-//! [§10.2](https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#102-chunks-and-other-objects)):
+//! §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>,
+//! §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays>,
+//! §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
+//! §10.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#102-chunks-and-other-objects>):
 //! a valid store IR and the facts of `zarr2.rs` into the hierarchy. A `zarr.json` per node (the
 //! convention declared on the root and on every node with source metadata), an entry per
 //! present chunk referencing its whole object, and every other object of a length referenced
@@ -22,7 +22,7 @@ pub const IGNORED_KEY: &str = "vzip_source/ignored.json";
 /// The hierarchy's key of the other object `key`: under `vzip_source/objects/`, with `~`
 /// appended to a last segment that is `zarr.json`, `.zarray` or `.zgroup` followed by any
 /// number of `~`, so that no Zarr reader opens a node there (spec/virtualize/zarr2.md
-/// [§5](https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects)).
+/// §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
 pub fn object_key(key: &str) -> String {
     let last = key.rsplit('/').next().unwrap_or("");
     let base = last.trim_end_matches('~');
@@ -32,7 +32,7 @@ pub fn object_key(key: &str) -> String {
 
 /// A node's attributes: the convention declared when the node is the root (`url`) or has
 /// source metadata `s` (conventions
-/// [§2](https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes)).
+/// §2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>).
 pub fn declare(profile: &str, url: Option<&str>, s: Option<Jv>) -> Jv {
     let mut value = match url {
         Some(u) => Jv::from_j(&J::Object(root_property(profile, u))),
@@ -56,7 +56,7 @@ fn doc_key(path: &str) -> String {
 }
 
 /// Is `rest` (a key below an array) one of the array's chunk keys (spec/virtualize/zarr2.md
-/// [§3.2](https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#32-chunks))?
+/// §3.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#32-chunks>)?
 pub fn is_chunk(rest: &str, grid: &[u64], sep: &str) -> bool {
     if grid.is_empty() {
         return rest == "0";

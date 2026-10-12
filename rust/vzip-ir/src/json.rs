@@ -1,5 +1,5 @@
 //! A store's JSON documents as the store profiles read them
-//! ([spec/virtualize.md §1.6](https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents)):
+//! (spec/virtualize.md §1.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>):
 //! UTF-8 without a byte order mark, at most 16 MiB, nesting at most 256 deep, no `NaN` or
 //! `Infinity` literal, every number finite in binary64, a repeated member the last one
 //! written (in the place of the first). An integer literal (no fraction, no exponent) keeps
@@ -88,7 +88,8 @@ impl Jv {
         }
     }
 
-    /// An integer of §1.6 from `lo` to `hi` (within ±(2^53 − 1)): an integer literal, or a
+    /// An integer of spec/virtualize.md §1.6
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents> from `lo` to `hi` (within ±(2^53 − 1)): an integer literal, or a
     /// number whose value is an integer.
     pub fn int(&self, lo: i64, hi: i64) -> Option<i64> {
         const MAX_SAFE: f64 = 9007199254740991.0;
@@ -201,7 +202,8 @@ pub struct Doc {
     pub members: Vec<(String, u64, u64)>,
 }
 
-/// The document `data` by §1.6, or the reason it is rejected.
+/// The document `data` by spec/virtualize.md §1.6
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>, or the reason it is rejected.
 pub fn parse(data: &[u8]) -> Result<Doc, String> {
     if data.len() as u64 > MAX_DOCUMENT {
         return Err(format!("JSON document of {} bytes exceeds {MAX_DOCUMENT}", data.len()));

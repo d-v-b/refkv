@@ -13,7 +13,7 @@
       "int_ranges": "the values of each integer data type, for its fill value",
       "float_max": "the largest finite value of each float data type but float64, by size b, compared as binary64",
       "compressors": "spec/virtualize/zarr2.md §3.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#31-compressors>: each id's levels (lo, hi) and the level numcodecs uses when the member is absent, and the members its codec carries",
-      "zarray_read": "the members of .zarray that §3 reads; the others are kept in the source metadata M"
+      "zarray_read": "the members of .zarray that §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays> reads; the others are kept in the source metadata M (§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>)"
     },
     "dtypes": {
       "|b1": {
@@ -261,11 +261,11 @@
     ]
   },
   "elements": {
-    "about": "spec/virtualize/zarr2.md §4.1: the store's directories and objects (conventions §8.9), and in each document a node's documents read, a value per top-level member"
+    "about": "spec/virtualize/zarr2.md §4.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#41-elements>: the store's directories and objects (conventions §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), and in each node document read, a value per top-level member"
   },
   "roles": {
     "zarray": {
-      "about": "an array's .zarray (spec/virtualize/zarr2.md §3)",
+      "about": "an array's .zarray (spec/virtualize/zarr2.md §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays>)",
       "given": {
         "path": "the array's path (/ for the root)",
         "object": "the document is a JSON object",
@@ -316,7 +316,7 @@
       ]
     },
     "fill": {
-      "about": "an array's fill_value (spec/virtualize/zarr2.md §3), given its data type",
+      "about": "an array's fill_value (spec/virtualize/zarr2.md §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays>), given its data type",
       "given": {
         "path": "",
         "fill": "the member (absent when null)",
@@ -332,7 +332,7 @@
       ]
     },
     "compressor": {
-      "about": "an array's compressor (spec/virtualize/zarr2.md §3.1); has_<member>: the member is written, null included",
+      "about": "an array's compressor (spec/virtualize/zarr2.md §3.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#31-compressors>); has_<member>: the member is written, null included",
       "given": {
         "path": "",
         "compressor": "the member (absent when null)",
@@ -380,7 +380,7 @@
       ]
     },
     "zgroup": {
-      "about": "an explicit group's .zgroup (spec/virtualize/zarr2.md §2)",
+      "about": "an explicit group's .zgroup (spec/virtualize/zarr2.md §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>)",
       "given": {
         "key": "",
         "object": "",
@@ -394,7 +394,7 @@
       ]
     },
     "zattrs": {
-      "about": "a node's .zattrs (spec/virtualize/zarr2.md §2)",
+      "about": "a node's .zattrs (spec/virtualize/zarr2.md §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>)",
       "given": {
         "key": "",
         "object": ""
