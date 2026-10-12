@@ -192,7 +192,7 @@ export type Profile = "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "n5"
  * convention is at version 0 and the root property records it (conventions §1
  * <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#1-conventions>, §2
  * <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>). */
-export const REVISION = 25;
+export const REVISION = 26;
 export const PROFILES: Record<Profile, [uuid: string, version: number, title: string]> = {
   tiff: ["48e9ac4e-1156-4a62-955e-20467d9c2700", 0, "TIFF"],
   ndpi: ["6cac71ef-dbb2-4acd-b60c-00389aa4238a", 0, "NDPI"],
