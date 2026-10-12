@@ -67,6 +67,11 @@ declares it with `{"ome-zarr": S}`. Its CMO is:
 }
 ```
 
+`vzip_source` declares it too, with the store's IR mirror's description
+([§8.2](#82-the-store-ir), [conventions §8.9](../conventions.md#89-stores)), and so does each group of
+the mirror's view that has a member; the mirror's arrays have no
+attributes.
+
 ## 2. Hierarchy
 
 The nodes, the arrays and the chunks are [the Zarr v2 convention](zarr2.md)'s. Every rule of [the Zarr v2 convention §2–§3](zarr2.md#2-nodes)
@@ -93,27 +98,11 @@ are its other objects, kept whole under `vzip_source/objects/`
 ([the Zarr v2 convention §5](zarr2.md#5-other-objects)), except
 [§7](#7-chunks-and-ome-xml)'s.
 
-**Empty objects and `vzip_source`.** The Zarr v2 convention keeps a store's
-listing and documents in an IR mirror on `vzip_source` since revision 26
-([its §4.1](zarr2.md#41-elements)); this convention does not yet, and keeps the
-rules [its §5](zarr2.md#5-other-objects) gave in revision 25, restated here. The **empty
-objects** are the store's objects of size 0 (the empty chunk objects among
-them), and the **ignored keys** the relative keys of the listed objects that
-[spec/virtualize.md §1.4](../virtualize.md#14-store-inputs) ignores and
-records. Let `K` be the empty objects' keys and `I` the ignored keys, each in
-ascending order of their UTF-8 bytes, and `E` the object
-`{"empty": K, "ignored": I}`, each member present only when it is not empty.
-When there is at least one other object, empty object or ignored key and the
-root is a group, the hierarchy has the group `vzip_source`, a child of the
-root, whose `zarr.json` is `{"zarr_format": 3, "node_type": "group",
-"attributes": A}`: `A` is `{}` when `E` is empty, and otherwise declares the
-convention with the source metadata `E`; the directories between it and the
-other objects are not nodes. When there is no other object, empty object or
-ignored key, there is no group `vzip_source`. When the group `vzip_source`
-exists, a hierarchy that has a node at the path `vzip_source`, or below it,
-is rejected. When the root is an array,
-there is no `vzip_source` group: `E`, when not empty, is the key
-`vzip_source/empty.json`, the compact JSON of `E` in UTF-8.
+**Empty objects, ignored keys and `vzip_source`.** They are
+[the Zarr v2 convention §5](zarr2.md#5-other-objects)'s: the empty objects have no entry and
+the mirror lists them, the ignored keys are `vzip_source/ignored.json`, and the group
+`vzip_source` holds the store's IR mirror ([§8.2](#82-the-store-ir)), so a node at
+`vzip_source`, or below it, rejects the input.
 
 ## 3. OME groups
 
@@ -376,8 +365,8 @@ A bioformats2raw collection SHOULD hold its OME-XML metadata in
 collection `C`, the object `C/OME/METADATA.ome.xml` (`OME/METADATA.ome.xml`
 for the root), if the store has it and its size is not 0, is in the
 hierarchy under that key, as the object is. It is not read. (An empty one
-holds nothing: it is one of the empty objects, whose key
-[§2](#2-hierarchy) keeps.) (The
+holds nothing: it is one of [the Zarr v2 convention §5](zarr2.md#5-other-objects)'s empty objects,
+which the mirror lists.) (The
 group `OME` itself is a node only if it has a `.zgroup`; the object is kept
 either way.) Every other object that is not a node's document or a chunk,
 OME-XML elsewhere included, is one of the
@@ -385,6 +374,8 @@ OME-XML elsewhere included, is one of the
 kept whole under `vzip_source/objects/`.
 
 ## 8. Source metadata
+
+### 8.1 Nodes
 
 A node's source metadata `S` ([conventions §2](../conventions.md#2-attributes)) is
 the [Zarr v2 convention](zarr2.md#4-source-metadata)'s,
@@ -404,6 +395,16 @@ members are the `.zgroup`'s own.) Every other node's `A` is its whole
 an OME group whose `.zattrs` has only OME members of version `"0.4"` (a
 typical image or well), and whose `.zgroup` has only `zarr_format`, has
 none, and does not declare the convention unless it is the root.
+
+### 8.2 The store IR
+
+`vzip_source` is the store's IR mirror, as for the Zarr v2 convention: the store's IR is
+[its §4.1](zarr2.md#41-elements)'s, element for element (the listing, each node document held
+as a value per top-level member, every other object referenced or empty), and its view
+`vzip_source/tree`; the mirror declares this convention. The OME layer adds no element: what
+it reads is in the node documents the mirror holds. Hierarchies of one store are compared
+entry for entry, `vzip_source` included
+([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
 
 ## 9. Not checked
 
@@ -571,7 +572,10 @@ references the store. "The convention §n" below is a section of Part 1.
 
 The profile was chosen because the store's root has a `.zarray` or a
 `.zgroup` and the store declares OME-NGFF 0.4 ([§1.4](../virtualize.md#14-store-inputs)). The store is read
-as [§10](zarr2.md#10-zarr-v2-profile) reads it, integer literals included.
+as [§10](zarr2.md#10-zarr-v2-profile) reads it, integer literals included: its node documents in one
+round; then each document the test of OME-NGFF 0.4 names that the round did not read (one
+inside an array, say), one round each, a document the test cannot parse rejecting the input.
+The choice between this profile and [§10](zarr2.md#10-zarr-v2-profile) reads the same rounds.
 
 ### 11.1 Rejection
 
@@ -587,15 +591,8 @@ referencing the whole object through its own `url` source ([§1.4](../virtualize
 OME-XML object of [the convention §7](#7-chunks-and-ome-xml)
 is referenced whole in the same way: an entry under its key, with its own
 source, in the order of [§1.4](../virtualize.md#14-store-inputs) among the chunk entries (an object of size 0
-has no entry; its key is one of the empty objects' keys ([§2](#2-hierarchy)),
-as an empty chunk object's is). Every other object of the convention (those of
-[the Zarr v2 convention §5](zarr2.md#5-other-objects))
-is an entry under `vzip_source/objects/<k>`, escaped as [§10.2](zarr2.md#102-chunks-and-other-objects) says.
-Under a root array, `E` ([§2](#2-hierarchy)), when not empty, is the document `vzip_source/empty.json`,
-written as UTF-8 compact JSON, as `JSON.stringify` writes it. The documents
-under `vzip_source/` are deflated and, like the chunks, not among the
-documents a reader fetches when it opens the archive
-([conventions §2](../conventions.md#2-attributes)).
+has no entry; it is an empty object, which the mirror lists, as an empty chunk object is).
+Every other object, and the ignored keys, are as [§10.2](zarr2.md#102-chunks-and-other-objects) says.
 
 ### 11.3 Summary
 
@@ -605,5 +602,6 @@ entries), `emptyChunks` (chunk objects of size 0), `objects` (the store's
 objects), `images`, `labels` (label images), `droppedLabelLevels` (the
 datasets L7 drops, over all label images), `plates`, `wells`, `fields`
 (the images wells list), `omeXml` (OME-XML entries), `otherObjects` (the
-entries under `vzip_source/objects/`) and `listingRequests`.
+entries under `vzip_source/objects/`) and `listingRequests`, and the Rust core's counts
+([§10.3](zarr2.md#103-summary)).
 

@@ -82,7 +82,7 @@ sources with identical bytes), the same set of keys, and for every key:
 
 **IR mirrors.** For the TIFF, ND2 and CZI profiles, `vzip_source` is the
 source's IR mirror ([conventions §8](conventions.md#8-the-ir-mirror)); for
-the Zarr v2 profile (not OME-Zarr), the store's ([conventions §8.9](conventions.md#89-stores),
+the Zarr v2 and OME-Zarr profiles, the store's ([conventions §8.9](conventions.md#89-stores),
 whose limits replace those below).
 Its table and view are canonical: a function of the source's IR, folded and
 encoded one way only ([conventions §8.8](conventions.md#88-canonical-form)).
@@ -322,8 +322,8 @@ objects** of each array: objects whose keys are chunk keys of the array,
 and the other objects it references whole ([§11.2](virtualize/ome-zarr.md#112-chunks-and-ome-xml), the only one that does).
 Of these, an object of size 0 is not used: it has no entry (so the chunk
 reads as the fill value) and no source, and the store conventions keep its
-key (with the empty objects' keys, or, for the Zarr v2 profile (not
-OME-Zarr), as an object of size 0 of the store's IR mirror,
+key (with the empty objects' keys, or, for the Zarr v2 and OME-Zarr profiles,
+as an object of size 0 of the store's IR mirror,
 [the Zarr v2 convention §4.1](virtualize/zarr2.md#41-elements)). Every other chunk object `k` gives
 one entry, whose key is `k` itself, referencing the whole object. Every
 other object of the store that the hierarchy doesn't represent (the store
@@ -536,10 +536,10 @@ This section is informative. There are two maintained implementations:
   `js/conformance/virtualize.ts`.
 
 Both are organized by profile: `tiff/`, `ndpi/`, `nd2/`, `dicom/`, `nifti/`,
-`ims/`, `n5/`, `zarr2/`, `ome_zarr/` (`ome-zarr/` in the browser one), `safe/` and `czi/`,
-next to the parts they share (`common`, and `store` for store inputs: the
-listing, the object reader and the JSON reader of [§1.4](#14-store-inputs)–[§1.6](#16-json-documents)). The OME-Zarr
-profile reuses the Zarr v2 profile's hierarchy reader.
+`ims/`, `n5/`, `safe/` and `czi/`, next to the parts they share (`common`, and `store`
+for store inputs: the listing, the object reader and the JSON reader of
+[§1.4](#14-store-inputs)–[§1.6](#16-json-documents)). The Zarr v2 and OME-Zarr profiles are the Rust
+core's (its `zarr2` store format and its OME layer), as TIFF, ND2 and CZI are.
 
 **Resource limit.** The browser implementation fails (it does not reject)
 a store whose listing has more than 100000 objects (counting every listed
