@@ -1148,6 +1148,8 @@ still records 20.
 
 ## Revision 26: every format on the IR
 
+Each format's subsection below says what changed for it.
+
 ### The IR mirror of stores: many sources
 
 **What prompted it.** The store profiles (N5, Zarr v2, OME-Zarr, SAFE
@@ -1172,7 +1174,7 @@ the rebuild gave back that one file. A store is many objects and a listing.
   canonical order puts each directory's children in the order of their names.
 - **Conventions §8, [§8.1](../../conventions.md#81-elements) and
   [§8.4](../../conventions.md#84-reading-the-source-back)** point to §8.9; for
-  a file's IR (TIFF, ND2, CZI) nothing changes.
+  a file's IR (TIFF, ND2, CZI, IMS) nothing changes.
 
 **Output.** None yet: no store profile writes the store IR's mirror until its
 own change of this revision moves it. TIFF, ND2 and CZI outputs are byte for

@@ -194,8 +194,10 @@ their own revision constants
 (`IMS_REVISION`), the last before IMS's; their roots record it with their old
 `vzip_source`. Nothing else in them changed (an edit made so that a reference
 archive does not claim a revision it does not implement), but for the frozen
-IMS code's citations of [IMS §5](../../spec/virtualize/ims.md#5-source-metadata), which point at the revision-25 snapshot
-`spec/history/virtualize/ims.r25.md`, since [IMS §5](../../spec/virtualize/ims.md#5-source-metadata) no longer has those sections.
+IMS code's citations of the subsections of revision 25's
+[IMS §5](../../spec/history/virtualize/ims.r25.md#5-source-metadata), which point
+at that snapshot, since [IMS §5](../../spec/virtualize/ims.md#5-source-metadata) no longer has
+them.
 `compare.py` compares a reference root that records its profile's frozen
 revision as if it recorded the current revision, so the revision number is the
 one difference it does not report; every other profile's reference is the

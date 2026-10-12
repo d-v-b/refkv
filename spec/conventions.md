@@ -146,7 +146,7 @@ it opens the node (vzip writes them with the chunks, not with the documents
 read when an archive is opened). The node exists only when it has
 source metadata or arrays, or, for the store conventions, other objects of
 the store, which it holds whole under `vzip_source/objects/`, or the keys of
-the store's empty objects. For the TIFF, ND2 and CZI conventions,
+the store's empty objects. For the TIFF, ND2, CZI and IMS conventions,
 `vzip_source` is the source's IR mirror ([§8](#8-the-ir-mirror)), from which the source is
 rebuilt byte for byte.
 
@@ -402,7 +402,7 @@ another, such as a TIFF's contiguous strips, are referenced, not copied.
 
 ## 8. The IR mirror
 
-The TIFF, ND2 and CZI conventions keep the source's metadata as one
+The TIFF, ND2, CZI and IMS conventions keep the source's metadata as one
 format-free structure on `vzip_source`: the source's **IR** (intermediate
 representation), a tree of **elements** whose leaves partition the source's
 bytes, stored as a table (the **mirror**) and shown as JSON (the **view**).
@@ -460,8 +460,8 @@ key, an XML tag), which may be empty, repeat, or hold `/`, names those
 elements so that this holds; [ND2 §5.3](virtualize/nd2.md#53-elements) gives one
 rule for that, which any format may adopt.
 
-These rules are those of every single-file profile's IR: TIFF, ND2 and CZI
-today, and any format whose source model a later revision moves onto the
+These rules are those of every single-file profile's IR: TIFF, ND2, CZI and
+IMS today, and any format whose source model a later revision moves onto the
 IR (such as DICOM or NIfTI), without restating them. A format's convention
 lists its elements by their paths below the root.
 

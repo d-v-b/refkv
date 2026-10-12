@@ -1781,11 +1781,12 @@ structure it reads. The revision-25 Python and TypeScript profiles are frozen
 in `conformance/virtualize/reference/` (`IMS_REVISION`).
 
 **Read-ahead.** A version 1 B-tree node (a chunk index's or a group's) or a
-symbol table node that a round misses is asked for at its allocated size
+symbol table node that a round misses is asked for at its allocated size, at most 64 KiB
 (`24 + 2K × (key + 8) + key`, K from the superblock), so that its header and
 its entries come in one request and one round; a node's children are asked
-for in the round that parses it, all of them. The IR is unchanged: the same
-digest on all 487 fixtures, probes, amplification files and mutants, and on
+for in the round that parses it, all of them. The hint is at most 64 KiB (K
+comes from the file). The IR is unchanged: the same digest on 487 inputs (the
+45 fixtures, the 10 probes, 2 amplification files and 430 mutants), and on
 the 18 sparse corpus copies.
 
 | file | server | before: requests, time | after: requests, time | reference (32) |
@@ -1815,5 +1816,5 @@ with the mirror checks):
 | IMS fixtures (45) | 27 equivalent, 18 rejected by all |
 | fixtures, 4 shards of `compare.py` | 0 divergent |
 | IMS mutants (430) | 183 equivalent, 247 rejected by all, 0 divergent |
-| native and wasm32 parity | 486 of 486 |
+| native and wasm32 parity | 486 of 486 (the 487 inputs above but `ims_latest_global_heaps.ims`, added after the parity run) |
 | `just verify-ims` | 0 failures (pixels against h5py, the mirror rebuilt byte for byte) |

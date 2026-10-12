@@ -29,6 +29,11 @@ pub const MAX_BLOCKS: usize = 1000;
 pub const MAX_BTREE2_DEPTH: u64 = 16;
 /// The least a missed read asks for (a window, so that the structure's next bytes come with it).
 pub const WINDOW: u64 = 1024;
+/// The most a structure's read-ahead asks for (its allocated size comes from the file).
+pub const HINT_MAX: u64 = 1 << 16;
+/// The version 1 B-tree K values HDF5 uses when a superblock does not give them: a symbol
+/// table node's (leaf), a group node's (internal) and a chunk node's (indexed storage).
+pub const DEFAULT_K: (u64, u64, u64) = (4, 16, 32);
 
 // Message types (§8.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#82-object-headers>).
 pub const NIL: u16 = 0x00;
@@ -155,13 +160,14 @@ pub struct Src {
 }
 
 impl Src {
-    /// The `n` bytes at `at`, as `read`; a miss asks for at least `hint` bytes (the
-    /// structure's allocated size, so that what follows its header comes with it).
+    /// The `n` bytes at `at`, as `read`; a miss asks for at least `hint` bytes, at most
+    /// `HINT_MAX` (the structure's allocated size, so that what follows its header comes
+    /// with it).
     pub fn read_hint(&mut self, at: u64, n: u64, hint: u64) -> R<Vec<u8>> {
         let r = self.read(at, n);
         if r == Err(Fail::Miss) {
             if let Some(w) = self.want.last_mut() {
-                w.1 = w.1.max(hint.min(self.size - at));
+                w.1 = w.1.max(hint.min(HINT_MAX).min(self.size - at));
             }
         }
         r
@@ -839,7 +845,7 @@ impl H5 {
         }
         let Some(root) = address(le(&sb, root_at, 8)?)? else { return bad("no HDF5 root group") };
         let extension = if version >= 2 { address(le(&sb, 20, 8)?).ok().flatten() } else { None };
-        let (mut leaf_k, mut internal_k, mut istore_k) = (4, 16, 32);
+        let (mut leaf_k, mut internal_k, mut istore_k) = DEFAULT_K;
         if version <= 1 {
             leaf_k = le(&sb, 16, 2)?.max(1);
             internal_k = le(&sb, 18, 2)?.max(1);
@@ -1023,7 +1029,7 @@ impl H5 {
             let mut entries_of = Vec::new();
             for &(_, snod) in &tree.leaves {
                 let r = (|| -> R<(u64, Vec<u8>)> {
-                    let hint = 8 + 2 * self.sb.as_ref().map_or(4, |sb| sb.leaf_k) * 40;
+                    let hint = 8 + 2 * self.ks().0 * 40;
                     let head = self.src.read_hint(snod, 8, hint)?;
                     if &head[..4] != b"SNOD" || head[4] != 1 {
                         return bad(format!("no symbol table node at {snod}"));
@@ -1160,17 +1166,18 @@ impl H5 {
         memo_put(&mut self.lheaps, at, r)
     }
 
-    fn node1(&mut self, at: u64, key_size: u64) -> R<Rc<Node1>> {
+    /// The K values of version 1 B-trees (`DEFAULT_K` before the superblock is read).
+    fn ks(&self) -> (u64, u64, u64) {
+        self.sb.as_ref().map_or(DEFAULT_K, |sb| (sb.leaf_k, sb.internal_k, sb.istore_k))
+    }
+
+    fn node1(&mut self, at: u64, node_type: u8, key_size: u64) -> R<Rc<Node1>> {
         if let Some(r) = memo_get(&self.nodes1, &(at, key_size)) {
             return r;
         }
         let r = (|| -> R<Node1> {
             // read ahead the node's allocated size: 2K entries of its type (K from the superblock)
-            let k = match self.sb.as_ref() {
-                Some(sb) if key_size == 8 => sb.internal_k,
-                Some(sb) => sb.istore_k,
-                None => 32,
-            };
+            let k = if node_type == 0 { self.ks().1 } else { self.ks().2 };
             let hint = 24 + 2 * k * (key_size + 8) + key_size;
             let head = self.src.read_hint(at, 24, hint)?;
             if &head[..4] != b"TREE" {
@@ -1196,7 +1203,7 @@ impl H5 {
         if !seen.insert(at) {
             return bad(format!("B-tree node at {at} read twice"));
         }
-        let node = match self.node1(at, key_size) {
+        let node = match self.node1(at, node_type, key_size) {
             Err(Fail::Bad(m)) if m.starts_with("no B-tree node") => return bad(format!("no B-tree node of type {node_type} at {at}")),
             r => r?,
         };
@@ -2148,6 +2155,20 @@ mod tests {
         assert!(b.stopped());
         b.take::<u8>(Err(Fail::Miss));
         assert_eq!(b.done(), Err(Fail::Bad("y".into())));
+    }
+
+    #[test]
+    fn a_read_ahead_asks_for_the_hint_within_its_bounds() {
+        // (offset, hint) -> the range wanted on a miss
+        for (at, hint, want) in [(10, 3000, (10, 3000)), (10, 100, (10, WINDOW)), (10, 1 << 20, (10, HINT_MAX)), (99_000, 3000, (99_000, 1000))] {
+            let mut s = Src::new(100_000);
+            assert_eq!(s.read_hint(at, 24, hint), Err(Fail::Miss));
+            assert_eq!(s.want, vec![want]);
+        }
+        let mut s = Src::new(100_000);
+        s.store.feed(0, vec![7; 64]);
+        assert_eq!(s.read_hint(8, 24, 3000).unwrap(), vec![7; 24]);
+        assert!(s.want.is_empty());
     }
 
     #[test]
