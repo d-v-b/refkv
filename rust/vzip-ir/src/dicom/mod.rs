@@ -1118,7 +1118,7 @@ fn order(little: bool) -> &'static str {
 fn header_fields(el: &El, enc: Enc) -> String {
     let e = order(enc.little);
     match el.vr {
-        Some(v) if is_long(&v) => format!("group:{e}u2,element:{e}u2,vr:ascii[2],reserved:bytes[2],length:{e}u4"),
+        Some(v) if is_long(&v) => format!("group:{e}u2,element:{e}u2,vr:ascii[2],reserved:{e}u2,length:{e}u4"),
         Some(_) => format!("group:{e}u2,element:{e}u2,vr:ascii[2],length:{e}u2"),
         None => format!("group:{e}u2,element:{e}u2,length:{e}u4"),
     }
@@ -1132,7 +1132,7 @@ fn is_long(v: &Vr) -> bool {
 fn value_type(vr: &str, n: u64, little: bool) -> String {
     let e = order(little);
     if is_text(vr) {
-        return format!("ascii[{n}]");
+        return format!("cstr[{n}]");
     }
     if vr == "AT" && n % 4 == 0 {
         return format!("{e}u2[{},2]", n / 4);

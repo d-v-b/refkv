@@ -37,7 +37,7 @@
     "dataset": {"kind": "struct", "about": "the top-level dataset: its elements to Pixel Data, Pixel Data, and the elements after it"},
     "<dataset>/<tag>": {
       "kind": "value, or struct",
-      "about": "the first element of a tag in its dataset. A value of type {group:Eu2,element:Eu2,vr:ascii[2],length:Eu2,v:T} (explicit VR), {group:Eu2,element:Eu2,vr:ascii[2],reserved:bytes[2],length:Eu4,v:T} (explicit VR with a 4-byte length) or {group:Eu2,element:Eu2,length:Eu4,v:T} (implicit VR); T by the VR (the dictionary's when the file states none): ascii[n] for text, Eu2[k,2] for AT, Ef4[k], Ef8[k], Ei4[k], Ei2[k], Eu4[k], Eu2[k], Ei8[k], Eu8[k] for numbers, else bytes[n]. A sequence (and a sequence of defined length that parses) is a struct: `header`, its items, `end` (undefined length)."
+      "about": "the first element of a tag in its dataset. A value of type {group:Eu2,element:Eu2,vr:ascii[2],length:Eu2,v:T} (explicit VR), {group:Eu2,element:Eu2,vr:ascii[2],reserved:Eu2,length:Eu4,v:T} (explicit VR with a 4-byte length) or {group:Eu2,element:Eu2,length:Eu4,v:T} (implicit VR); T by the VR (the dictionary's when the file states none): cstr[n] for text, Eu2[k,2] for AT, Ef4[k], Ef8[k], Ei4[k], Ei2[k], Eu4[k], Eu2[k], Ei8[k], Eu8[k] for numbers, else bytes[n]. A sequence (and a sequence of defined length that parses) is a struct: `header`, its items, `end` (undefined length)."
     },
     "<dataset>/duplicates/<k>/<tag>": {"kind": "struct", "about": "the k-th later element of a tag already in its dataset, in file order"},
     "<sequence>/<i>": {"kind": "struct", "run": true, "about": "item i: `header`, its elements, `end` (undefined length)"},
