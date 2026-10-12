@@ -1,6 +1,6 @@
 # Virtualizing image files and stores as OME-Zarr in vzip
 
-Profiles version: 0 (**draft**) · Revision: 25
+Profiles version: 0 (**draft**) · Revision: 26
 
 ## 1. Introduction
 
@@ -243,7 +243,7 @@ begins with the prefix `P` ([§1.5](#15-listing-a-store)); its **relative key** 
 (segments are the parts between `/`). An ignored object is not read, and
 its relative key is **recorded** unless its size is 0 and its relative key
 is empty or ends in `/` (a folder marker, which some tools write): the
-store conventions keep the recorded keys with the empty objects' keys
+store conventions keep the recorded keys
 ([the Zarr v2 convention §5](virtualize/zarr2.md#5-other-objects),
 [the N5 convention §6](virtualize/n5.md#6-other-objects)), so that
 no listed object is dropped without a trace. The store's objects are the
@@ -321,8 +321,9 @@ digits (the encoding of [spec/archive.md §5](archive.md#5-source-table) for loc
 objects** of each array: objects whose keys are chunk keys of the array,
 and the other objects it references whole ([§11.2](virtualize/ome-zarr.md#112-chunks-and-ome-xml), the only one that does).
 Of these, an object of size 0 is not used: it has no entry (so the chunk
-reads as the fill value) and no source, and its key is one of the store
-conventions' empty objects' keys. Every other chunk object `k` gives
+reads as the fill value) and no source, and the store conventions keep its
+key (with the empty objects' keys, or, for Zarr v2, as an object of size 0 of
+the store's IR mirror, [its §4.1](virtualize/zarr2.md#41-elements)). Every other chunk object `k` gives
 one entry, whose key is `k` itself, referencing the whole object. Every
 other object of the store that the hierarchy doesn't represent (the store
 conventions' "Other objects") gives one entry `vzip_source/objects/<k>` (with

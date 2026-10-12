@@ -93,6 +93,25 @@ are its other objects, kept whole under `vzip_source/objects/`
 ([the Zarr v2 convention §5](zarr2.md#5-other-objects)), except
 [§7](#7-chunks-and-ome-xml)'s.
 
+**Empty objects and `vzip_source`.** The Zarr v2 convention keeps a store's
+listing and documents in an IR mirror on `vzip_source` since revision 26
+([its §4.1](zarr2.md#41-elements)); this convention does not yet, and keeps the
+rules [its §5](zarr2.md#5-other-objects) gave until then. The **empty
+objects** are the store's objects of size 0 (the empty chunk objects among
+them), and the **ignored keys** the relative keys of the listed objects that
+[spec/virtualize.md §1.4](../virtualize.md#14-store-inputs) ignores and
+records. Let `K` be the empty objects' keys and `I` the ignored keys, each in
+ascending order of their UTF-8 bytes, and `E` the object
+`{"empty": K, "ignored": I}`, each member present only when it is not empty.
+When there is at least one other object, empty object or ignored key and the
+root is a group, the hierarchy has the group `vzip_source`, a child of the
+root, whose `zarr.json` is `{"zarr_format": 3, "node_type": "group",
+"attributes": A}`: `A` is `{}` when `E` is empty, and otherwise declares the
+convention with the source metadata `E`; a hierarchy that then has a node at
+the path `vzip_source`, or below it, is rejected. When the root is an array,
+there is no `vzip_source` group: `E`, when not empty, is the key
+`vzip_source/empty.json`, the compact JSON of `E` in UTF-8.
+
 ## 3. OME groups
 
 A **relative path** is a string of one or more segments separated by `/`,
@@ -354,8 +373,8 @@ A bioformats2raw collection SHOULD hold its OME-XML metadata in
 collection `C`, the object `C/OME/METADATA.ome.xml` (`OME/METADATA.ome.xml`
 for the root), if the store has it and its size is not 0, is in the
 hierarchy under that key, as the object is. It is not read. (An empty one
-holds nothing: it is one of the Zarr v2 convention's empty objects, whose
-key its [§5](zarr2.md#5-other-objects) keeps.) (The
+holds nothing: it is one of the empty objects, whose key
+[§2](#2-hierarchy) keeps.) (The
 group `OME` itself is a node only if it has a `.zgroup`; the object is kept
 either way.) Every other object that is not a node's document or a chunk,
 OME-XML elsewhere included, is one of the
@@ -565,8 +584,8 @@ referencing the whole object through its own `url` source ([§1.4](../virtualize
 OME-XML object of [the convention §7](#7-chunks-and-ome-xml)
 is referenced whole in the same way: an entry under its key, with its own
 source, in the order of [§1.4](../virtualize.md#14-store-inputs) among the chunk entries (an object of size 0
-has no entry; its key is one of [the Zarr v2 convention §5](zarr2.md#5-other-objects)'s empty objects'
-keys, as an empty chunk object's is). Every other object of the convention (those of
+has no entry; its key is one of the empty objects' keys ([§2](#2-hierarchy)),
+as an empty chunk object's is). Every other object of the convention (those of
 [the Zarr v2 convention §5](zarr2.md#5-other-objects))
 is an entry under `vzip_source/objects/<k>`, escaped as [§10.2](zarr2.md#102-chunks-and-other-objects) says.
 
