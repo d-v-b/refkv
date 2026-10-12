@@ -26,7 +26,7 @@ ir-build:
 ir-wasm:
     rust/vzip-ir/wasm/build.sh
     node rust/vzip-ir/wasm/nd2.mjs fixtures/nd2/nd2_tz_uint16.nd2
-    node rust/vzip-ir/wasm/run.mjs fixtures/tiff/jpeg_gray.tif fixtures/czi/czi_zstd.czi
+    node rust/vzip-ir/wasm/run.mjs fixtures/tiff/jpeg_gray.tif fixtures/czi/czi_zstd.czi fixtures/dicom/dicom_jpeg_mono_bot.dcm
 
 # Test the IR core (Rust) and its Python host (after ir-build)
 ir-test *args: ir-build
