@@ -1,11 +1,11 @@
 """Virtualizing image files and N5 / Zarr v2 stores in vzip archives (spec/virtualize.md).
 
-TIFF, ND2 and CZI files, and Zarr v2 stores, go through the IR (`vzip.ir`): the Rust core's
+TIFF, ND2 and CZI files, and Zarr v2 and N5 stores, go through the IR (`vzip.ir`): the Rust core's
 sans-IO parser of the format, driven by its read planner (a store's, by `vzip.ir.store`) over
 this package's I/O, projected to the convention's hierarchy and mirrored under `vzip_source` by
 the Rust core.
-Every other profile is a subpackage: ndpi, dicom, nifti, ims (file inputs), n5,
-zarr2, ome_zarr (store inputs, spec/virtualize/n5.md, spec/virtualize/zarr2.md and
+Every other profile is a subpackage: ndpi, dicom, nifti, ims (file inputs),
+zarr2 (its hierarchy reader, for OME-Zarr), ome_zarr (store inputs, spec/virtualize/zarr2.md and
 spec/virtualize/ome-zarr.md), and safe (Sentinel-2 SAFE products, spec/virtualize/safe.md: a
 store input, or a zip file); common holds what they share, and store the store
 machinery (§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>–§1.6
@@ -48,7 +48,6 @@ from vzip.virtualize import ndpi, nifti
 from vzip.virtualize.common import Output, Rejected, file_reader, http_reader
 from vzip.virtualize.dicom import is_dicom, virtualize_dicom
 from vzip.virtualize.ims import virtualize_ims
-from vzip.virtualize.n5 import virtualize_n5
 from vzip.virtualize.ome_zarr import declares_04, virtualize_ome_zarr
 from vzip.virtualize.safe import SafeOutput, is_zip, virtualize_safe_store, virtualize_safe_zip
 from vzip.virtualize.store import WORKERS, StoreOutput, choose_profile, object_url, open_store
@@ -84,7 +83,9 @@ def virtualize_store(location: str, url: str | None = None, *, max_objects: int 
         if fmt == "safe":
             fmt, out = fmt, virtualize_safe_store(store)
         elif fmt == "n5":
-            fmt, out = fmt, virtualize_n5(store)
+            from vzip.ir.store import run_store
+
+            out = run_store(store, "n5")[0]
         elif declares_04(store):
             fmt, out = "ome-zarr", virtualize_ome_zarr(store)
         else:

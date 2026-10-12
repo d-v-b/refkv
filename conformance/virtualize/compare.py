@@ -25,16 +25,16 @@ corpus_hash.py records and checks.
 Implementations are `name=command`, where the command is run as
 `command <url> <out>`. The built-in ones write vzip archives: `ref` (the
 reference, the frozen Python profiles of conformance/virtualize/reference/ for
-TIFF, ND2, CZI and Zarr v2 and the shipped ones for the others), `py` (`python -m
+TIFF, ND2, CZI, Zarr v2 and N5 and the shipped ones for the others), `py` (`python -m
 vzip.virtualize`) and `web` (the browser code under Node). Others write
 HARNESS.md's JSON description; give them as `--impl name=command`.
 
-`py` and `web` virtualize TIFF, ND2 and CZI files, and Zarr v2 stores, through one Rust
+`py` and `web` virtualize TIFF, ND2 and CZI files, and Zarr v2 and N5 stores, through one Rust
 core (rust/vzip-ir, natively and as wasm32), and write its mirror under `vzip_source`, which
 the frozen reference does not: for those profiles an implementation is compared with
 the reference outside `vzip_source`, and `py` and `web` with each other entirely,
 entry for entry (they must give the same archive contents, `vzip_source` included).
-The frozen reference records the revision it implements (20, and 25 for Zarr v2) in its
+The frozen reference records the revision it implements (20, and 25 for Zarr v2 and N5) in its
 root, where the shipped code records the current one: compared with it, the reference's root
 is read at the current revision. Each mirror is also checked on its own (`mirror_problem`):
 it reads, it rebuilds a source of source 0's size (a store's: its listing, the sizes its
@@ -92,12 +92,13 @@ BUILTIN = {
     "web": ("vzip", ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"]),
 }
 # The profiles whose shipped implementations write the IR's mirror under vzip_source.
-IR_PROFILES = ("tiff", "nd2", "czi", "zarr2")
+IR_PROFILES = ("tiff", "nd2", "czi", "zarr2", "n5")
 SOURCE = "vzip_source/"
 # The revision the frozen reference's TIFF, ND2 and CZI roots record (HARNESS.md).
 REFERENCE_REVISION = 20
 # The revision each frozen reference twin's root records, by profile.
-REFERENCE_REVISIONS = {"tiff": REFERENCE_REVISION, "nd2": REFERENCE_REVISION, "czi": REFERENCE_REVISION, "zarr2": 25}
+REFERENCE_REVISIONS = {"tiff": REFERENCE_REVISION, "nd2": REFERENCE_REVISION, "czi": REFERENCE_REVISION, "zarr2": 25,
+                       "n5": 25}
 
 
 class Unreadable(Exception):
