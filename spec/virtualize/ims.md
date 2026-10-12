@@ -365,12 +365,13 @@ messages, its chunk index or a global heap collection) is not described.
   The walk stops after level 64, or when a level is empty.
 - Each object read: its header; a group's links (and the structures that
   hold them); its attributes (and, when dense, their heap and index); a
-  dataset's messages ([spec/virtualize.md §8.9](#89-source-metadata-structures)'s
-  datasets of every layout; a dataset that reading rejects is read as the
-  layout reads one, [spec/virtualize.md §8.5](#85-datasets-and-chunks)) and,
-  when chunked, its chunk index and allocated chunks (any filters, any filter masks); and the global heap collections
-  that its attributes' variable-length (16-byte) or region reference
-  (12-byte) elements name, at most 4,096 per object.
+  dataset's messages ([spec/virtualize.md
+  §8.9](#89-source-metadata-structures)'s datasets of every layout; a
+  dataset that reading rejects is read as the layout reads one,
+  [spec/virtualize.md §8.5](#85-datasets-and-chunks)) and, when chunked, its
+  chunk index and allocated chunks (any filters, any filter masks); and the
+  global heap collections that its attributes' variable-length (16-byte) or
+  region reference (12-byte) elements name, at most 4,096 per object.
 
 The walk's **room** is `2^21 + floor(size / 8)` elements (the source
 model's limits `walk_elements` and `walk_bytes_per_element`), so that the
