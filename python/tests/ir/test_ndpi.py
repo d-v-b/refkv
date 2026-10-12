@@ -1,0 +1,87 @@
+"""NDPI on the IR (spec/virtualize/ndpi.md): the Rust TIFF parser's NDPI variant and the
+NDPI projection against the frozen profile, the mirror, the header's data sources, and
+the hostile probes (gen_probes.py)."""
+
+import io
+
+import pytest
+
+from conftest import FIXTURES, same_hierarchy
+from vzip.ir import virtualize as via_ir
+from vzip.ir.cmirror import rebuild_from_archive
+from vzip.virtualize import Rejected
+from vzip_reference import virtualize  # the frozen reference (conftest)
+
+NDPIS = sorted((FIXTURES / "ndpi").iterdir())
+
+
+@pytest.mark.parametrize("path", NDPIS, ids=lambda p: p.name)
+def test_projects_as_today_and_rebuilds(path, tmp_path):
+    data = path.read_bytes()
+    url = f"https://data.test/{path.name}"
+    try:
+        _, today = virtualize(str(path), url)
+    except Rejected:
+        with pytest.raises(Rejected):
+            via_ir(str(path), url)
+        return
+    fmt, out, ir = via_ir(str(path), url)
+    assert fmt == "ndpi"
+    ir.check()
+    same_hierarchy(today, out)
+    out.write(str(tmp_path / "a.vzip"))
+    buf = io.BytesIO()
+    rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
+    assert buf.getvalue() == data
+
+
+def test_header_pieces_are_data_sources():
+    """§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: the
+    header before and after SOF0 are data sources, one per distinct byte string in order of
+    first use, shared by every chunk and level; the strip's own SOF0, which each chunk
+    replaces, is in the mirror (the strip is an element, rebuilt byte for byte)."""
+    path = FIXTURES / "ndpi" / "ndpi_levels.ndpi"
+    _, out, _ = via_ir(str(path), "https://data.test/x.ndpi")
+    data = list(out.data)
+    assert [out.data[d] for d in data] == list(range(1, len(data) + 1))
+    file = path.read_bytes()
+    used = set()
+    for key, ranges in out.refs.items():
+        if key.startswith("vzip_source/") or len(ranges) == 1:  # the mirror, or a whole strip
+            continue
+        before, sof, after = ranges[:3]
+        head, tail = data[before[0] - 1], data[after[0] - 1]
+        assert before[1:] == (0, len(head)) and after[1:] == (0, len(tail)) and isinstance(sof, bytes), key
+        p = file.rfind(head + b"\xff\xc0" + sof[2:4], 0, ranges[3][0])  # this level's strip
+        assert head.startswith(b"\xff\xd8") and p >= 0, key
+        assert file[p + len(head) + len(sof):].startswith(tail), key
+        used |= {before[0], after[0]}
+    assert used == set(range(1, len(data) + 1))
+
+
+def test_every_ifd_and_high_word_is_an_element():
+    """§5.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#51-elements>: the
+    12-byte header, each IFD's entries and their high words, the pointer tags' IFDs read in
+    NDPI's layout, a duplicate tag, and the strips."""
+    _, _, ir = via_ir(str(FIXTURES / "ndpi" / "ndpi_pointers.ndpi"), "u")
+    paths = {ir.path(i): i for i in range(len(ir))}
+    assert ir.extent(paths["header"]) == (0, 12)
+    assert ir.type(paths["header/first_ifd"]) == "<u8"
+    for p in ("ifds/1/exif", "ifds/1/ifd_65449", "ifds/1/tags/65420~1", "ifds/1/tags/65500/high", "ifds/1/strips/0",
+              "ifds/0/next_ifd"):
+        assert p in paths, p
+    assert ir.type(paths["ifds/0/next_ifd"]) == "<u8"
+    assert ir.type(paths["ifds/1/tags/65500/high"]) == "<u4"
+
+
+def test_reads_only_the_values_it_uses():
+    """§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: the
+    values of an IFD that is not a level are not checked, so the macro image's McuStarts
+    (LONG8, above 2^53 - 1) does not reject."""
+    _, out, _ = via_ir(str(FIXTURES / "ndpi" / "ndpi_unused_values.ndpi"), "u")
+    assert out.summary["levels"] == [[3, 48, 64]]
+
+
+def test_a_tiff_is_not_ndpi():
+    fmt, _, _ = via_ir(str(FIXTURES / "tiff" / "jpeg_gray.tif"), "u")
+    assert fmt == "tiff"
