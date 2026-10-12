@@ -11,18 +11,26 @@ ROOT = Path(__file__).parents[3]
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
 
 
+# The members of a frozen root's source metadata the IR's mirror holds instead, for the
+# profiles frozen at revision 25 (conformance/virtualize/compare.py's MIRRORED).
+MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_truncated", "unparsed", "trailing")}
+
+
 def same_hierarchy(a, b) -> None:
     """The frozen reference's output `a` and the IR's `b` hold the same hierarchy but
     vzip_source: documents, references and data sources. The reference's root records
     the revision it implements (vzip_reference.revision), read as the current one."""
     from vzip.virtualize.common import REVISION
-    from vzip_reference.revision import REVISION as FROZEN
+    from vzip_reference.revision import REVISION as FROZEN, REVISION_25
 
     def docs(o):
         d = {k: json.loads(v) for k, v in o.bytes_entries.items() if not k.startswith("vzip_source")}
         prop = d.get("zarr.json", {}).get("attributes", {}).get("vzip_virtualized", {})
-        if o is a and prop.get("revision") == FROZEN:
+        moved = MIRRORED.get(prop.get("profile"))
+        if o is a and prop.get("revision") == (REVISION_25 if moved else FROZEN):
             prop["revision"] = REVISION
+            for k in moved or ():
+                prop[prop["profile"]].pop(k, None)
         return d
 
     def refs(o):
