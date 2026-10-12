@@ -346,3 +346,29 @@ fn past_the_walks_room_the_image_is_described_and_the_rest_is_gaps() {
         }
     }
 }
+
+#[test]
+fn the_walk_stops_inside_heaps_b_trees_and_global_heaps() {
+    // (fixture, a structure whose children the room cuts: its path's start, and a child's)
+    for (name, under) in [
+        ("ims_latest_review2", "global_heaps/0/objects/"),
+        ("ims_latest_dense_links", "/links/heap/blocks/"),
+        ("ims_latest_dense_links", "/links/index/nodes/"),
+        ("ims_latest_review2", "/attributes/heap/blocks/"),
+    ] {
+        let data = std::fs::read(fixtures().join(format!("ims/{name}.ims"))).unwrap();
+        let (all, _) = ims_with_room(&data, None);
+        let paths = |ir: &vzip_ir::ir::Ir| (0..ir.len() as u32).map(|i| ir.path(i)).collect::<Vec<_>>();
+        let full = paths(&all);
+        // the room is spent right after the structure's first child: the walk is in it
+        let first = full.iter().position(|p| p.contains(under)).unwrap_or_else(|| panic!("{name}: no {under}"));
+        let parent = &full[first][..full[first].find(under).unwrap() + under.len()];
+        let total = full.iter().filter(|p| p.starts_with(parent)).count();
+        assert!(total > 1, "{name}: {parent} has one child");
+        let (ir, _) = ims_with_room(&data, Some(first as u64 + 1));
+        check::check(&ir).unwrap();
+        assert!(rebuilt(&ir, &data) == data);
+        let kept = paths(&ir).iter().filter(|p| p.starts_with(parent)).count();
+        assert!(kept >= 1 && kept < total, "{name}: {kept} of {total} under {parent}");
+    }
+}
