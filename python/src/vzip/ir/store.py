@@ -62,7 +62,7 @@ def _whole(store: Store, key: str) -> bytes:
     return value
 
 
-def drive_store(run, store: Store, workers: int | None = None) -> None:
+def drive_store(run, store: Store, workers: int | None = None, fmt: str | None = None) -> None:
     """Performs the object reads a store run asks for until it is done, at most `workers`
     (default `store.workers`) at a time; each reading thread closes its kept-alive
     connections at the end."""
@@ -75,7 +75,7 @@ def drive_store(run, store: Store, workers: int | None = None) -> None:
             try:
                 reqs = run.poll()
             except vzip_ir.Rejected as e:
-                raise Rejected(str(e)) from None
+                raise Rejected(str(e), format=fmt) from None
             if reqs is None:
                 return
             if pool is None or len(reqs) == 1:
@@ -86,7 +86,7 @@ def drive_store(run, store: Store, workers: int | None = None) -> None:
                 try:
                     run.complete(k, parts)
                 except vzip_ir.Rejected as e:
-                    raise Rejected(str(e)) from None
+                    raise Rejected(str(e), format=fmt) from None
     finally:
         if pool is not None:
             # one release per thread: each task waits until every thread holds one
@@ -179,20 +179,16 @@ def run_store(store: Store, fmt: str = "zarr2", mirror: bool = True):
         # the rest itself, so that at most `store.workers` reads are in flight
         store._prefetch.drain()
     try:
-        try:
-            run = vzip_ir.StoreRun(fmt, listing(store), max(1, store.workers))
-            run.ignore(list(store.ignored))
-        except vzip_ir.Rejected as e:
-            raise Rejected(str(e)) from None
-        drive_store(run, store)
-        stats = json.loads(run.stats())
-        try:
-            t, ir = run.output(store.url, mirror)
-        except vzip_ir.Rejected as e:
-            raise Rejected(str(e)) from None
-    except Rejected as e:
-        e.format = fmt  # the store format that refused the input, as the browser's StoreError names it
-        raise
+        run = vzip_ir.StoreRun(fmt, listing(store), max(1, store.workers))
+        run.ignore(list(store.ignored))
+    except vzip_ir.Rejected as e:
+        raise Rejected(str(e), format=fmt) from None
+    drive_store(run, store, fmt=fmt)
+    stats = json.loads(run.stats())
+    try:
+        t, ir = run.output(store.url, mirror)
+    except vzip_ir.Rejected as e:
+        raise Rejected(str(e), format=fmt) from None
     out = from_rust(t)
     out.summary["listingRequests"] = store.requests
     return out, ir, stats

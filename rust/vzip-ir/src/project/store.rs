@@ -61,8 +61,9 @@ pub fn check_key(key: &str) -> Result<(), String> {
 /// their UTF-8 bytes, as the member `ignored` of `vzip_source`'s source metadata, beside the
 /// mirror's `ir` (spec/virtualize/zarr2.md §5
 /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>). Nothing
-/// when there are none, or when there is no mirror (an output without one, for tools and tests,
-/// has no `vzip_source` source metadata at all).
+/// when there are none. An output made without its mirror (`mirror` false, which no virtualizer
+/// does) has no `vzip_source` source metadata at all, and so does not record the ignored keys
+/// either: like the mirror, they are what such an output leaves out.
 pub fn record_ignored(out: &mut Out, facts: &J, profile: &str) -> Result<(), String> {
     let mut ignored: Vec<&str> = facts["ignored"].as_array().into_iter().flatten().filter_map(J::as_str).collect();
     if ignored.is_empty() {

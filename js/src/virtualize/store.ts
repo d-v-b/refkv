@@ -13,6 +13,7 @@ import { checkAddress, checkPolicy, type Policy, VzipError } from "../archive.ts
 import { checkedFetch } from "#net";
 import { checkHttpUrl, isUriReference } from "../uri.ts";
 import { CONVENTION_KEY, declare, type Profile, stringifyJson } from "./common.ts";
+import type { StoreFormat } from "./ir/store.ts";
 import type { ArchiveDesc, EntryDesc } from "../writer.ts";
 
 /**
@@ -23,8 +24,8 @@ import type { ArchiveDesc, EntryDesc } from "../writer.ts";
 export class StoreError extends Error {
   /** The store format that refused the input, once one was chosen (the Rust core's store run:
    * `zarr2`, ...); none for a rejection before that. */
-  readonly format?: string;
-  constructor(message?: string, format?: string) {
+  readonly format?: StoreFormat;
+  constructor(message?: string, format?: StoreFormat) {
     super(message);
     if (format !== undefined) this.format = format;
   }

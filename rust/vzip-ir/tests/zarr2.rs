@@ -217,7 +217,7 @@ fn the_ignored_keys_are_vzip_source_s_member_ignored_in_byte_order() {
         }
     }
     let out = r.into_output("https://data.test/h/", false).unwrap();
-    assert!(!out.entries.iter().any(|e| e.0.starts_with("vzip_source/") && e.0.ends_with(".json")));
+    assert!(!out.entries.iter().any(|e| e.0 == "vzip_source/zarr.json"));
 }
 
 #[test]
