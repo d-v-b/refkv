@@ -581,6 +581,24 @@ impl Ir {
         h
     }
 
+    /// The bytes of held object `o` of a store IR (conventions §8.9
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), which the mirror
+    /// holds: as many as its size.
+    pub fn hold(&mut self, o: u32, raw: &[u8]) -> Res<()> {
+        let ou = o as usize;
+        if ou >= self.len() || self.kind[ou] != OBJECT || self.len[ou] != raw.len() as u64 {
+            return Err(format!("internal: {} bytes held for element {o}, which is no object of that size", raw.len()));
+        }
+        if raw.len() > u32::MAX as usize {
+            return Err(format!("budget: a held object of more than {} bytes", u32::MAX));
+        }
+        if self.value_bytes(o).is_none() {
+            self.put_value(o, raw);
+            self.sort_values();
+        }
+        Ok(())
+    }
+
     pub fn put_value(&mut self, i: u32, raw: &[u8]) {
         self.values
             .push((i, self.vbytes.len() as u64, raw.len() as u32));

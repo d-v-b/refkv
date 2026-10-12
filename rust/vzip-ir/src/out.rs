@@ -209,6 +209,12 @@ pub fn profile(p: &str) -> (&'static str, u64, &'static str) {
         "tiff" => ("48e9ac4e-1156-4a62-955e-20467d9c2700", 0, "TIFF"),
         "nd2" => ("59612f14-e314-4207-ba00-8f422ba71490", 0, "ND2"),
         "czi" => ("7a0733c7-d4be-4482-a64f-6904d9354ea5", 0, "CZI"),
+        // the store conventions, whose sources a store IR describes (conventions §8.9
+        // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)
+        "n5" => ("ad5d4c39-c69e-48f7-a3ef-4cc8c607d416", 0, "N5"),
+        "zarr2" => ("8e792619-d671-4687-ab51-752885dd3ee6", 0, "Zarr v2"),
+        "ome-zarr" => ("b74ea302-65bb-49ae-b81f-f9bb52cd4eed", 0, "OME-Zarr 0.4"),
+        "safe" => ("ef81346c-19e8-42ad-93b0-a279ccaf44c1", 0, "Sentinel-2 SAFE"),
         _ => panic!("no profile {p}"),
     }
 }

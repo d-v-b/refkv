@@ -17,6 +17,13 @@
 //! | `rows` | int64 [8, m] | a column a row: kind, up (the row's id minus its parent's), name, name index (−1: none), type, space, start (for a row with a length, its distance from the end of the last earlier row with one), length |
 //! | `tables` | int64 [k, 7] | (code, ...): 0 a run (root, count, stride), never written; 1 an alias (alias, target); 2 a form (element, form); 3 a column run (first row, count, size); 4 a column (column run, row in the member, field, encoding, x, y); 5 six values of the stored columns |
 //! | `shared` | family | the shared data sources recipes name (when there are any) |
+//! | `held` | family | a store IR's held objects' bytes, in id order (when there are any) |
+//!
+//! **Stores** (conventions §8.9
+//! <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>). A store IR's
+//! description has `objects`; its object rows' starts are stored as they are (0), and the next
+//! row with a length codes its start from the object's; the held objects' bytes are `ir/held`,
+//! so the table alone rebuilds them and reads their shown values.
 //!
 //! Rebuilding reads the table, expands its column runs (within the record budget),
 //! checks the invariants with the checker, and concatenates the source's bytes for
@@ -78,6 +85,20 @@ impl Folded {
 /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#83-column-runs>).
 pub fn row_limit(size: u64) -> u64 {
     (1 << 22) + size / 4
+}
+
+/// The rows a store IR's table may expand to (conventions §8.9
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): `2^22 + floor(Z / 4)
+/// + 4 × o` for `o` objects of `Z` bytes in all.
+pub fn store_row_limit(size: u64, objects: u64) -> u64 {
+    row_limit(size).saturating_add(objects.saturating_mul(4))
+}
+
+/// The most bytes of a store IR's distinct names (the description holds them).
+pub const NAME_BYTES: u64 = 1 << 24;
+
+fn limit_of(ir: &Ir) -> u64 {
+    if ir.store { store_row_limit(ir.size, ir.objects) } else { row_limit(ir.size) }
 }
 
 /// The `["shared", k]` parts of a form, in order: (byte offset of k, its length, k).
@@ -220,7 +241,7 @@ pub fn canonical(ir: &Ir) -> Result<Ir, String> {
     let form_map: HashMap<u32, u32> = form_old.iter().map(|(&f, s)| (f, renamed_map[&renamed.map[s]])).collect();
     let targets: HashMap<u32, u32> = x.targets.iter().copied().collect();
     let m = kept.len();
-    let mut y = Ir { size: x.size, budget: None, names, types, forms, ..Default::default() };
+    let mut y = Ir { size: x.size, store: x.store, objects: x.objects, budget: None, names, types, forms, ..Default::default() };
     y.kind.reserve(m);
     for &i in &kept {
         let iu = i as usize;
@@ -454,8 +475,11 @@ pub fn table(y: &Ir, profile: &str, array: &dyn Fn(u32) -> Option<Vec<u8>>) -> (
     let mut end = 0u64;
     for k in (0..n).filter(|&k| !skip[k]) {
         let (s, l) = (y.start[k], y.len[k]);
-        let d = if l > 0 { s.wrapping_sub(end) as i64 } else { s as i64 };
-        if l > 0 {
+        // an object's start is stored as it is, and its source's starts code from it
+        let d = if l > 0 && y.kind[k] != OBJECT { s.wrapping_sub(end) as i64 } else { s as i64 };
+        if y.kind[k] == OBJECT {
+            end = s;
+        } else if l > 0 {
             end = s.wrapping_add(l);
         }
         t.kind.push(y.kind[k]);
@@ -479,6 +503,15 @@ pub fn table(y: &Ir, profile: &str, array: &dyn Fn(u32) -> Option<Vec<u8>>) -> (
     t.types = y.types.list.clone();
     t.form_text = y.forms.list.clone();
     t.shared = y.shared.clone();
+    if y.store {
+        t.objects = Some(y.objects);
+        let kids = y.has_children();
+        for i in 0..n {
+            if y.kind[i] == OBJECT && kids[i] && y.len[i] > 0 {
+                t.held.push(y.value_bytes(i as u32).map(|b| b.to_vec()).unwrap_or_default());
+            }
+        }
+    }
     (t, folded)
 }
 
@@ -494,8 +527,20 @@ pub fn expanded_rows(t: &Table) -> u64 {
 /// when there are shared sources, `ir/shared`. `deflate` (for tests of what a
 /// validator flags) deflates every chunk; the canonical table does not.
 pub fn write(t: &Table, out: &mut Out, profile: &str, deflate: bool) {
-    let own = json!({"ir": {"version": VERSION, "size": t.size, "elements": expanded_rows(t), "rows": t.kind.len(),
+    let mut own = json!({"ir": {"version": VERSION, "size": t.size, "elements": expanded_rows(t), "rows": t.kind.len(),
                             "names": t.names, "types": t.types, "forms": t.form_text}});
+    if let Some(o) = t.objects {
+        // a store IR (§8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)
+        let ir = own["ir"].as_object_mut().unwrap();
+        let mut m = Map::new();
+        for (k, v) in std::mem::take(ir) {
+            m.insert(k.clone(), v);
+            if k == "size" {
+                m.insert("objects".into(), json!(o));
+            }
+        }
+        *ir = m;
+    }
     metadata_group(out, SOURCE_NODE, Some(declare(Map::new(), profile, None, Some(own))));
     let m = t.kind.len();
     let mut rows: Vec<i64> = Vec::with_capacity(8 * m);
@@ -534,11 +579,21 @@ pub fn write(t: &Table, out: &mut Out, profile: &str, deflate: bool) {
             copied_as(out, "ir/shared/data", "uint8", 1, &[data.len() as u64], &data, deflate);
         }
     }
+    if !t.held.is_empty() {
+        let mut starts = vec![0i64];
+        for b in &t.held {
+            starts.push(starts.last().unwrap() + b.len() as i64);
+        }
+        metadata_group(out, &format!("{SOURCE_NODE}/ir/held"), None);
+        copied_as(out, "ir/held/offsets", "int64", 8, &[starts.len() as u64], &flat(&starts), deflate);
+        let data: Vec<u8> = t.held.concat();
+        copied_as(out, "ir/held/data", "uint8", 1, &[data.len() as u64], &data, deflate);
+    }
 }
 
 /// Writes the mirror of `ir` under `vzip_source`: the canonical IR's table and view.
 pub fn mirror(ir: &Ir, out: &mut Out, profile: &str) -> Result<Folded, String> {
-    let limit = row_limit(ir.size);
+    let limit = limit_of(ir);
     let over = || format!("budget: the mirror would have more than {limit} rows");
     // at least the rows outside derived spaces, every run expanded: rejected before expanding
     let extra: u64 = ir.runs.iter()
@@ -548,9 +603,16 @@ pub fn mirror(ir: &Ir, out: &mut Out, profile: &str) -> Result<Folded, String> {
     if outside.saturating_add(extra) > limit {
         return Err(over());
     }
-    let y = canonical(ir)?;
+    let mut y = canonical(ir)?;
     if y.len() as u64 > limit {
         return Err(over());
+    }
+    if y.store {
+        hold_shown(&mut y, profile)?;
+        let names: u64 = y.names.list.iter().map(|s| s.len() as u64).sum();
+        if names > NAME_BYTES {
+            return Err(format!("budget: the mirror's names would total more than {NAME_BYTES} bytes"));
+        }
     }
     // a derived space holds shown values only when a validator can derive it (§8.8
     // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>)
@@ -567,6 +629,34 @@ pub fn mirror(ir: &Ir, out: &mut Out, profile: &str) -> Result<Folded, String> {
     write(&t, out, profile, false);
     View::new(&y, profile).tree(out);
     Ok(folded)
+}
+
+/// A store IR's held objects (conventions §8.9
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>) each have their bytes
+/// (`Ir::hold`), and the values the view shows in their sources are read from them.
+fn hold_shown(y: &mut Ir, profile: &str) -> Result<(), String> {
+    let kids = y.has_children();
+    let src = y.sources();
+    for &o in &src.objects {
+        if kids[o as usize] && y.len[o as usize] > 0 && y.value_bytes(o).is_none_or(|b| b.len() as u64 != y.len[o as usize]) {
+            return Err(format!("internal: the held object {:?} has no bytes", y.key(o)));
+        }
+    }
+    let mut put = Vec::new();
+    for i in 0..y.len() as u32 {
+        let iu = i as usize;
+        let o = src.of[iu];
+        if o != NONE && y.space[iu] == 0 && y.value_bytes(i).is_none() && shown(y, profile, i) {
+            let b = y.value_bytes(o).unwrap_or(&[]);
+            let r = b.get(y.start[iu] as usize..(y.start[iu] + y.len[iu]) as usize).ok_or("internal: a value past its object")?;
+            put.push((i, r.to_vec()));
+        }
+    }
+    for (i, b) in put {
+        y.put_value(i, &b);
+    }
+    y.sort_values();
+    Ok(())
 }
 
 /// (item size, big-endian) of a type that is a 1-D array of unsigned integers.
@@ -750,6 +840,17 @@ impl<'a> View<'a> {
         View { y, profile, spent: 0, groups: 0, visited: 0, paths: HashSet::new(), tys: HashMap::new() }
     }
 
+    /// Whether element `i` of a store IR is outside every object (a directory).
+    fn outside(&self, mut i: u32) -> bool {
+        while i != NONE && i != 0 {
+            if self.y.kind[i as usize] == OBJECT {
+                return false;
+            }
+            i = self.y.parent[i as usize];
+        }
+        true
+    }
+
     fn id(&self, i: u32) -> J {
         json!({"$vz": "element", "id": i})
     }
@@ -800,6 +901,11 @@ impl<'a> View<'a> {
         }
         let mut left = DOC;
         for &c in y.children(s) {
+            // a store's referenced and empty objects are not shown, nor visited (§8.9
+            // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)
+            if y.kind[c as usize] == OBJECT && y.children(c).is_empty() {
+                continue;
+            }
             self.visited += 1;
             if left < 1 << 10 || self.visited > WORK {
                 doc.insert("$partial".into(), json!(true));
@@ -809,9 +915,12 @@ impl<'a> View<'a> {
             let k = y.kind[cu];
             let name = y.name_of(c);
             let key = escape_key(&name);
-            let mut v = if k == STRUCT || k == DERIVED {
+            let mut v = if k == STRUCT || k == DERIVED || k == OBJECT {
                 let sub = format!("{path}/{}", escape_path(&name));
                 let m = self.render(out, c, &sub);
+                if y.store && k == STRUCT && m.is_empty() && y.space[cu] == 0 && y.len[cu] == 0 && self.outside(c) {
+                    continue; // a directory that shows nothing
+                }
                 let v = J::Object(m);
                 if json_size(&v) > INLINE {
                     let J::Object(m) = v else { unreachable!() };
@@ -954,6 +1063,10 @@ pub struct Table {
     pub form_text: Vec<String>,
     /// the shared data sources (`ir/shared`)
     pub shared: Vec<Vec<u8>>,
+    /// a store IR's objects (the description's `objects`; None: a file IR)
+    pub objects: Option<u64>,
+    /// a store IR's held objects' bytes (`ir/held`), in id order
+    pub held: Vec<Vec<u8>>,
 }
 
 /// The IR a stored table describes, its column runs expanded (at most the record
@@ -964,7 +1077,10 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
     if [t.up.len(), t.name.len(), t.nidx.len(), t.ty.len(), t.space.len(), t.start.len(), t.length.len()].iter().any(|&x| x != m) {
         return Err("columns of different lengths".into());
     }
-    let limit = (1u64 << 22) + t.size / 4;
+    if t.objects.is_some_and(|o| o > MAX_OBJECTS) {
+        return Err(format!("budget: more than {MAX_OBJECTS} objects"));
+    }
+    let limit = match t.objects { Some(o) => store_row_limit(t.size, o), None => row_limit(t.size) };
     // expanded ids: member 0 of a column run is stored; members 1.. follow it
     let mut extra: HashMap<u64, (u64, u64, usize)> = HashMap::new(); // template root -> (count, size, crun)
     let mut total = m as u64;
@@ -982,7 +1098,8 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
         }
     }
     let n = total as usize;
-    let mut ir = Ir { size: t.size, budget: None, ..Default::default() };
+    let mut ir = Ir { size: t.size, store: t.objects.is_some(), objects: t.objects.unwrap_or(0), budget: None, ..Default::default() };
+    let max_kind = if ir.store { OBJECT } else { GAP };
     for s in &t.names {
         ir.names.id(s);
     }
@@ -1022,7 +1139,7 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
         }
         stored_at.push(id);
         ir.kind[id] = t.kind[k];
-        if t.kind[k] > GAP {
+        if t.kind[k] > max_kind {
             return Err(format!("row {id}: kind {}", t.kind[k]));
         }
         let up = t.up[k] as usize;
@@ -1038,8 +1155,11 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
         ir.ty[id] = t.ty[k] as u32;
         ir.space[id] = t.space[k];
         let l = t.length[k];
-        let s = if l > 0 { end.wrapping_add(t.start[k] as u64) } else { t.start[k] as u64 };
-        if l > 0 {
+        let object = t.kind[k] == OBJECT;
+        let s = if l > 0 && !object { end.wrapping_add(t.start[k] as u64) } else { t.start[k] as u64 };
+        if object {
+            end = s;
+        } else if l > 0 {
             end = s.checked_add(l).ok_or("an extent past 2^64")?;
         }
         ir.start[id] = s;
@@ -1133,6 +1253,7 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
                     let mut acc = 0i64;
                     vals.iter().map(|d| { acc = acc.wrapping_add(*d); acc }).collect()
                 }
+                2 if ir.store => return Err("a column read from an array, in a store IR".into()),
                 2 => {
                     if !arrays.contains_key(&x) {
                         let e = usize::try_from(x).ok().filter(|&e| e < n).ok_or("a column of no row")?;
@@ -1230,6 +1351,23 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
     ir.targets.extend(new_targets);
     ir.form_of.sort();
     ir.targets.sort();
+    if ir.store {
+        // the held objects' bytes, in id order (§8.9
+        // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)
+        let kids = ir.has_children();
+        let held: Vec<u32> = (0..n).filter(|&i| ir.kind[i] == OBJECT && kids[i] && ir.len[i] > 0).map(|i| i as u32).collect();
+        if held.len() != t.held.len() {
+            return Err(format!("the table has {} held objects, ir/held {}", held.len(), t.held.len()));
+        }
+        for (&o, b) in held.iter().zip(&t.held) {
+            if b.len() as u64 != ir.len[o as usize] {
+                return Err(format!("held object {:?}: {} bytes, its size {}", ir.key(o), b.len(), ir.len[o as usize]));
+            }
+            ir.put_value(o, b);
+        }
+    } else if !t.held.is_empty() {
+        return Err("ir/held in a file IR".into());
+    }
     ir.finished = true;
     ir.build_children();
     Ok(ir)
@@ -1323,6 +1461,18 @@ pub fn table_from(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Table, String
     if col(0).iter().any(|&x| !(0..=255).contains(&x)) || col(1).iter().any(|&x| !(0..=u32::MAX as i64).contains(&x)) {
         return Err("a row's kind or parent out of range".into());
     }
+    t.objects = match &attrs["objects"] {
+        J::Null => None,
+        o => Some(o.as_u64().ok_or("objects: not a count")?),
+    };
+    if get(&format!("{SOURCE_NODE}/ir/held/zarr.json")).is_some() {
+        let offsets = ints(array("ir/held/offsets")?);
+        let data = if offsets.last().is_some_and(|&x| x > 0) { array("ir/held/data")? } else { Vec::new() };
+        for w in offsets.windows(2) {
+            let (a, b) = (usize::try_from(w[0]).map_err(|_| "a bad held offset")?, usize::try_from(w[1]).map_err(|_| "a bad held offset")?);
+            t.held.push(data.get(a..b).ok_or("a held object past its data")?.to_vec());
+        }
+    }
     if get(&format!("{SOURCE_NODE}/ir/shared/zarr.json")).is_some() {
         let offsets = ints(array("ir/shared/offsets")?);
         let data = if offsets.last().is_some_and(|&x| x > 0) { array("ir/shared/data")? } else { Vec::new() };
@@ -1363,7 +1513,7 @@ pub fn canonical_problem(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn F
     if !t.runs.is_empty() {
         return Some("a run (table code 0): the canonical table expands every run".into());
     }
-    let docs = ["ir/rows", "ir/tables", "ir/shared/offsets", "ir/shared/data"];
+    let docs = ["ir/rows", "ir/tables", "ir/shared/offsets", "ir/shared/data", "ir/held/offsets", "ir/held/data"];
     for p in docs {
         if let Some(b) = get(&format!("{SOURCE_NODE}/{p}/zarr.json")) {
             let doc: J = serde_json::from_slice(&b).unwrap_or(J::Null);
@@ -1448,11 +1598,10 @@ pub fn canonical_problem(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn F
 /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#85-forms-and-recipes>, §8.8
 /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>): its
 /// form's transform (`transform.rs`) applied to its extent.
-fn derived_bytes(y: &Ir, d: u32, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>) -> Result<Vec<u8>, String> {
-    let du = d as usize;
+fn derived_bytes(y: &Ir, d: u32, read: &mut dyn FnMut(u32) -> Result<Vec<u8>, String>) -> Result<Vec<u8>, String> {
     let form = y.form(d).unwrap_or("");
     let t = crate::transform::Transform::of_form(form).ok_or(format!("a derived element of an unknown transform: {form}"))?;
-    let raw = read(y.start[du], y.len[du])?;
+    let raw = read(d)?;
     let form: J = serde_json::from_str(form).unwrap_or(J::Null);
     t.rederive(&raw, &form).unwrap_or_else(|| Err(format!("a value the view shows in a space of transform {}, which a validator cannot derive", t.name())))
 }
@@ -1495,6 +1644,16 @@ pub fn rebuilt_view(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn FnMut(
     let profile = stored_profile(get);
     let back = load(&t, read)?;
     let mut y = canonical(&back)?;
+    // a store IR's held objects' bytes (§8.9
+    // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): its sources
+    let src = y.sources();
+    let held: HashMap<u32, Vec<u8>> = src.objects.iter().filter_map(|&o| y.value_bytes(o).map(|b| (o, b.to_vec()))).collect();
+    let (starts, lens) = if y.store { (y.start.clone(), y.len.clone()) } else { (Vec::new(), Vec::new()) };
+    let mut from_held = |e: u32| -> Result<Vec<u8>, String> {
+        let eu = e as usize;
+        let b = held.get(&src.of[eu]).ok_or("a value in an object the mirror does not hold")?;
+        Ok(b.get(starts[eu] as usize..(starts[eu] + lens[eu]) as usize).ok_or("a value past its object")?.to_vec())
+    };
     y.values.clear();
     y.vbytes.clear();
     let shown_rows: Vec<u32> = (0..y.len() as u32).filter(|&i| shown(&y, &profile, i)).collect();
@@ -1503,7 +1662,9 @@ pub fn rebuilt_view(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn FnMut(
     for &i in &shown_rows {
         let iu = i as usize;
         if y.space[iu] == 0 {
-            want.push((y.start[iu], y.len[iu]));
+            if !y.store {
+                want.push((y.start[iu], y.len[iu]));
+            }
         } else {
             spaces.push(y.space[iu]);
         }
@@ -1513,12 +1674,19 @@ pub fn rebuilt_view(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn FnMut(
     let got = read_merged(&want, read)?;
     let mut derived: HashMap<u32, Vec<u8>> = HashMap::new();
     for d in spaces {
-        derived.insert(d, derived_bytes(&y, d, read)?);
+        let b = if y.store {
+            derived_bytes(&y, d, &mut from_held)?
+        } else {
+            derived_bytes(&y, d, &mut |e| read(y.start[e as usize], y.len[e as usize]))?
+        };
+        derived.insert(d, b);
     }
     for &i in &shown_rows {
         let iu = i as usize;
         let (s, n) = (y.start[iu], y.len[iu]);
-        let raw = if y.space[iu] == 0 {
+        let raw = if y.space[iu] == 0 && y.store {
+            from_held(i)?
+        } else if y.space[iu] == 0 {
             got[&(s, n)].clone()
         } else {
             let b = &derived[&y.space[iu]];
@@ -1618,4 +1786,31 @@ pub fn ordered(ir: &Ir) -> (Vec<(u8, u32, String, u64, String, u32, u64, u64)>, 
     }).collect();
     let forms = y.form_of.iter().map(|&(e, f)| (e, y.forms.get(f).to_string())).collect();
     (rows, y.targets.clone(), forms)
+}
+
+/// The rebuild of a store's mirror (conventions §8.9
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), from the archive's
+/// entries alone (`get`): the table loaded and checked, then every object of the listing in id
+/// order as (key, size, bytes), the bytes of a held object its leaves' bytes in order of their
+/// start, read from `ir/held` (None for a referenced or an empty object: the archive references
+/// a referenced object; it is not rebuilt).
+#[allow(clippy::type_complexity)]
+pub fn rebuild_store(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Vec<(String, u64, Option<Vec<u8>>)>, String> {
+    let t = table_from(get)?;
+    if t.objects.is_none() {
+        return Err("the mirror is a file's, not a store's".into());
+    }
+    let ir = load(&t, &mut |_, _| Err("a store's mirror reads no source".into()))?;
+    crate::check::check(&ir)?;
+    let mut rebuilt: HashMap<u32, Vec<u8>> = HashMap::new();
+    for (o, ranges) in crate::check::held_leaves(&ir)? {
+        let b = ir.value_bytes(o).ok_or("a held object without bytes")?;
+        let mut v = Vec::with_capacity(b.len());
+        for (a, n) in ranges {
+            v.extend_from_slice(&b[a as usize..(a + n) as usize]);
+        }
+        rebuilt.insert(o, v);
+    }
+    let src = ir.sources();
+    Ok(src.objects.iter().map(|&o| (ir.key(o), ir.len[o as usize], rebuilt.remove(&o))).collect())
 }
