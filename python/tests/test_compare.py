@@ -5,6 +5,7 @@ reading of every archive (spec/archive.md, through the independent reader and th
 
 import io
 import sys
+import urllib.parse
 import zipfile
 from pathlib import Path
 
@@ -187,3 +188,43 @@ def test_mirror_problem_finds_a_view_that_is_not_the_tables(tmp_path):
 
     path = _mirror_archive(tmp_path, drop)
     assert compare.mirror_problem(path, compare._zip_view(path), _jpeg_gray) == 'view tree: member ["header"]["magic"] is missing'
+
+
+def _store_archive(tmp_path, name="zarr2_hierarchy", edit=None) -> tuple[Path, callable]:
+    """A Zarr v2 fixture store's archive (its mirror a store IR's), and a fetch of its objects by URL."""
+    from vzip.virtualize import virtualize
+
+    url = f"https://data.test/{name}/"
+    _, out = virtualize(str(ROOT / "fixtures/zarr2" / name), url)
+    if edit:
+        edit(out)
+    path = tmp_path / "s.vzip"
+    out.write(str(path))
+
+    def fetch(u: str) -> bytes:
+        return (ROOT / "fixtures/zarr2" / name / urllib.parse.unquote(u[len(url):])).read_bytes()
+
+    return path, fetch
+
+
+def test_store_mirror_problem(tmp_path):
+    """A store's mirror (conventions §8.9
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>) that reads, rebuilds
+    the listing and the documents, and is canonical: no problem."""
+    for name in ("zarr2_hierarchy", "zarr2_objects", "zarr2_root_array_empty"):
+        path, fetch = _store_archive(tmp_path, name)
+        assert compare.store_mirror_problem(path, compare._zip_view(path), fetch) is None, name
+
+
+def test_store_mirror_problem_finds_a_document_other_than_the_store_s(tmp_path):
+    path, fetch = _store_archive(tmp_path)
+    assert compare.store_mirror_problem(path, compare._zip_view(path), lambda u: fetch(u) + b" ") == \
+        ".zattrs: the mirror's bytes are not the object's"
+
+
+def test_store_mirror_problem_finds_a_table_that_does_not_read(tmp_path):
+    def corrupt(out):
+        out.entries["vzip_source/ir/rows/c/0/0"] = b"not raw int64"
+
+    path, fetch = _store_archive(tmp_path, edit=corrupt)
+    assert compare.store_mirror_problem(path, compare._zip_view(path), fetch).startswith("Violation")

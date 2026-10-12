@@ -25,20 +25,21 @@ corpus_hash.py records and checks.
 Implementations are `name=command`, where the command is run as
 `command <url> <out>`. The built-in ones write vzip archives: `ref` (the
 reference, the frozen Python profiles of conformance/virtualize/reference/ for
-TIFF, ND2 and CZI and the shipped ones for the others), `py` (`python -m
+TIFF, ND2, CZI and Zarr v2 and the shipped ones for the others), `py` (`python -m
 vzip.virtualize`) and `web` (the browser code under Node). Others write
 HARNESS.md's JSON description; give them as `--impl name=command`.
 
-`py` and `web` virtualize TIFF, ND2 and CZI through one Rust core (rust/vzip-ir,
-natively and as wasm32), and write its mirror under `vzip_source`, which the
-frozen reference does not: for those profiles an implementation is compared with
+`py` and `web` virtualize TIFF, ND2 and CZI files, and Zarr v2 stores, through one Rust
+core (rust/vzip-ir, natively and as wasm32), and write its mirror under `vzip_source`, which
+the frozen reference does not: for those profiles an implementation is compared with
 the reference outside `vzip_source`, and `py` and `web` with each other entirely,
 entry for entry (they must give the same archive contents, `vzip_source` included).
-The frozen reference records the revision it implements (20) in its root, where the
-shipped code records the current one: compared with it, the reference's root is read
-at the current revision. Each mirror is also checked on its own (`mirror_problem`):
-it reads, it rebuilds a source of source 0's size, it is canonical, and its view is the
-one its table and the source give.
+The frozen reference records the revision it implements (20, and 25 for Zarr v2) in its
+root, where the shipped code records the current one: compared with it, the reference's root
+is read at the current revision. Each mirror is also checked on its own (`mirror_problem`):
+it reads, it rebuilds a source of source 0's size (a store's: its listing, the sizes its
+sources pin, and every held object byte for byte, read from the store), it is canonical, and
+its view is the one its table and the source give.
 
 Usage: uv run python conformance/virtualize/compare.py <out dir>
            [--impl name=command ...] [--no-builtin web] [--quick] [--only <substring>]
@@ -91,10 +92,12 @@ BUILTIN = {
     "web": ("vzip", ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"]),
 }
 # The profiles whose shipped implementations write the IR's mirror under vzip_source.
-IR_PROFILES = ("tiff", "nd2", "czi")
+IR_PROFILES = ("tiff", "nd2", "czi", "zarr2")
 SOURCE = "vzip_source/"
 # The revision the frozen reference's TIFF, ND2 and CZI roots record (HARNESS.md).
 REFERENCE_REVISION = 20
+# Every revision a frozen reference twin's root records: TIFF, ND2 and CZI 20, Zarr v2 25.
+REFERENCE_REVISIONS = (REFERENCE_REVISION, 25)
 
 
 class Unreadable(Exception):
@@ -298,6 +301,8 @@ def mirror_problem(path: Path, view: dict, read=None) -> str | None:
     own = (doc[1].get("attributes", {}).get("vzip_virtualized", {}) if doc and doc[0] == "json" else {})
     if not any(isinstance(v, dict) and "ir" in v for v in own.values()):
         return None
+    if any(isinstance(v, dict) and isinstance(v.get("ir"), dict) and "objects" in v["ir"] for v in own.values()):
+        return store_mirror_problem(path, view)
     from vzip.ir.cmirror import Archive, canonical_problem, load, view_problem
 
     url = view["sources"][0]
@@ -321,6 +326,49 @@ def mirror_problem(path: Path, view: dict, read=None) -> str | None:
     if problem:
         return f"not canonical: {problem}"
     return view_problem(Archive(str(path), read))
+
+
+def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
+    """For an archive whose vzip_source is a store IR's mirror (conventions §8.9
+    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): None when its table
+    reads and its invariants hold, it rebuilds the store's listing (every object the archive
+    references has the size its source pins) and every held object byte for byte (each read
+    whole from the store, `fetch(url)`, by default over HTTP), it is canonical and its view is
+    the one its table gives; else what is wrong. No source is read for these last two."""
+    import vzip_ir
+
+    from vzip.ir.cmirror import Archive, canonical_problem, load, view_problem
+    from vzip.virtualize.store import object_url
+
+    def never(o: int, n: int) -> bytes:
+        raise AssertionError("a store's mirror reads no source")
+
+    def get_url(url: str) -> bytes:
+        with urllib.request.urlopen(url, timeout=120) as r:
+            return r.read()
+
+    fetch = fetch or get_url
+    try:
+        archive = Archive(str(path), never)
+        load(archive).check()
+        rebuilt = vzip_ir.rebuild_store(archive.get)
+    except Exception as e:  # noqa: BLE001
+        return f"{type(e).__name__}: {e}"
+    root = view["entries"].get("zarr.json")
+    url = root[1]["attributes"]["vzip_virtualized"]["source"]["url"] if root and root[0] == "json" else None
+    if url is None:
+        return "no store URL on the root"
+    pins = {s.url: s.size for s in decode_source_table(zipfile.ZipFile(path).read("__vz__/sources"))}
+    for key, size, held in rebuilt:
+        u = object_url(url, key)
+        if u in pins and pins[u] != size:
+            return f"{key}: the mirror lists {size} bytes, its source pins {pins[u]}"
+        if held is not None and fetch(u) != held:
+            return f"{key}: the mirror's bytes are not the object's"
+    problem = canonical_problem(archive)
+    if problem:
+        return f"not canonical: {problem}"
+    return view_problem(archive)
 
 
 def _source_size(path: Path) -> int | None:
@@ -372,7 +420,7 @@ def at_revision(output: dict) -> dict:
     reference's (REFERENCE_REVISION), for comparing the reference with shipped code."""
     root = output["entries"].get("zarr.json")
     prop = root[1].get("attributes", {}).get("vzip_virtualized") if root and root[0] == "json" else None
-    if not isinstance(prop, dict) or prop.get("revision") != REFERENCE_REVISION:
+    if not isinstance(prop, dict) or prop.get("revision") not in REFERENCE_REVISIONS:
         return output
     attrs = {**root[1]["attributes"], "vzip_virtualized": {**prop, "revision": REVISION}}
     return {**output, "entries": {**output["entries"], "zarr.json": (root[0], {**root[1], "attributes": attrs})}}
