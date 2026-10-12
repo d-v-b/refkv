@@ -198,7 +198,27 @@ fn the_ignored_keys_are_vzip_source_s_member_ignored_in_byte_order() {
         let get = |k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone());
         let mut never = |_: u64, _: u64| -> Result<Vec<u8>, String> { Err("no source".into()) };
         assert_eq!(vzip_ir::mirror::canonical_problem(&get, &mut never), None);
+        // any other member beside `ir` is a difference
+        let mut d = doc(&out, "vzip_source/zarr.json");
+        d["attributes"]["vzip_virtualized"]["zarr2"]["junk"] = serde_json::json!(1);
+        let junk = serde_json::to_vec(&d).unwrap();
+        let get = |k: &str| if k == "vzip_source/zarr.json" { Some(junk.clone()) } else { out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone()) };
+        assert_eq!(vzip_ir::mirror::canonical_problem(&get, &mut never).as_deref(), Some("vzip_source/zarr.json differs from the canonical table's"));
     }
+    // without a mirror, vzip_source declares the ignored keys alone
+    let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
+    let bytes: Vec<&Vec<u8>> = files.values().collect();
+    let mut r = StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
+    r.ignore(vec!["b//c".into(), "./x".into()]);
+    while let Some(reqs) = r.poll().unwrap() {
+        for (k, q) in reqs.iter().enumerate() {
+            r.complete(k, q.spans.iter().map(|&(a, e)| bytes[q.object][a as usize..e as usize].to_vec()).collect()).unwrap();
+        }
+    }
+    let out = r.into_output("https://data.test/h/", false).unwrap();
+    let d = doc(&out, "vzip_source/zarr.json");
+    assert_eq!(d["attributes"]["vzip_virtualized"], serde_json::json!({"zarr2": {"ignored": ["./x", "b//c"]}}));
+    assert_eq!(d["attributes"]["zarr_conventions"][0]["uuid"], "8e792619-d671-4687-ab51-752885dd3ee6");
 }
 
 macro_rules! reject {

@@ -164,7 +164,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, profile: &str) -> Result<Out, Stri
 /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>; spec/virtualize/zarr2.md
 /// §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
 /// spec/virtualize/n5.md §6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>):
-/// every store format's rule. The group is made when there is no mirror. Nothing when there are
+/// every store format's rule. The group is made when there is no mirror (tests). Nothing when there are
 /// none.
 pub fn record_ignored(out: &mut Out, facts: &J, profile: &str) -> Result<(), String> {
     let mut ignored: Vec<&str> = facts["ignored"].as_array().into_iter().flatten().filter_map(J::as_str).collect();
@@ -173,18 +173,15 @@ pub fn record_ignored(out: &mut Out, facts: &J, profile: &str) -> Result<(), Str
     }
     ignored.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
     let key = format!("{}/zarr.json", crate::out::SOURCE_NODE);
-    let mut doc: J = match out.entries.iter().find(|e| e.0 == key) {
-        Some(e) => serde_json::from_slice(&e.1).map_err(|e| format!("internal: {e}"))?,
-        None => json!({"zarr_format": 3, "node_type": "group", "attributes": {}}),
+    let Some(e) = out.entries.iter().find(|e| e.0 == key) else {
+        // no mirror: a group of its own, whose source metadata is the ignored keys alone
+        let attributes = crate::out::declare(serde_json::Map::new(), profile, None, Some(json!({"ignored": ignored})));
+        out.json(&key, &crate::out::group_doc(attributes));
+        return Ok(());
     };
-    let a = doc["attributes"].as_object_mut().ok_or("internal: vzip_source has no attributes")?;
-    if !a.contains_key(CONVENTION_KEY) {
-        a.insert("zarr_conventions".into(), json!([convention(profile)]));
-        a.insert(CONVENTION_KEY.into(), json!({}));
-    }
-    let v = a[CONVENTION_KEY].as_object_mut().ok_or("internal: a convention that is not an object")?;
-    let own = v.entry(profile).or_insert_with(|| json!({}));
-    own["ignored"] = json!(ignored);
+    let mut doc: J = serde_json::from_slice(&e.1).map_err(|e| format!("internal: {e}"))?;
+    let own = doc["attributes"][CONVENTION_KEY][profile].as_object_mut().ok_or("internal: vzip_source declares no mirror")?;
+    own.insert("ignored".into(), json!(ignored));
     out.json(&key, &doc);
     Ok(())
 }
