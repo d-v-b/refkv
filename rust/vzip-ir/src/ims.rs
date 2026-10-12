@@ -836,8 +836,8 @@ impl Ims {
         let is_ds = header.has(hdf5::LAYOUT);
         let links = if is_group { acc.take(lenient(self.h.links(at))).flatten() } else { None };
         let attrs = acc.take(lenient(self.h.attributes(at))).flatten();
-        // a dataset as the source metadata reads one, else as the layout does (an image
-        // dataset the layout accepted is described, whatever the stricter reading says)
+        // a dataset as the source metadata reads one; a dataset that reading rejects is read
+        // as the layout reads one (so an image dataset the layout accepted is described)
         let ds = if is_ds {
             match acc.take(lenient(self.h.dataset(at, true))).flatten() {
                 Some(d) => Some(d),

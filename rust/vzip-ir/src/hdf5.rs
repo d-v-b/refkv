@@ -1728,13 +1728,16 @@ impl H5 {
 
     /// The allocated chunks of the chunked dataset whose header is at `at` (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>). A chunk's
     /// filter mask MUST be 0 unless `masks`; a partial edge chunk stored unfiltered has every
-    /// filter's bit set. Memoized by (header, masks).
+    /// filter's bit set. The index is parsed once, any masks allowed, and memoized by header
+    /// (a dataset's two readings, `dataset(at, true)` and `dataset(at, false)`, agree on
+    /// everything the index needs); a caller that allows no mask checks them after the whole
+    /// index is read, so its rejection may name a later chunk's fault first.
     pub fn chunks(&mut self, at: u64, ds: &Dataset, masks: bool) -> R<Rc<Chunks>> {
         // one parse, any masks allowed; a caller that allows none checks them
         let r = match memo_get(&self.chunks, &at) {
             Some(r) => r,
             None => {
-                let r = self.read_chunks(ds, true);
+                let r = self.read_chunks(ds);
                 memo_put(&mut self.chunks, at, r)
             }
         };
@@ -1745,7 +1748,7 @@ impl H5 {
         Ok(c)
     }
 
-    fn read_chunks(&mut self, ds: &Dataset, masks: bool) -> R<Chunks> {
+    fn read_chunks(&mut self, ds: &Dataset) -> R<Chunks> {
         let mut out = Chunks::default();
         let mut seen: HashSet<Vec<u64>> = HashSet::new();
         let nbytes = Self::nbytes(ds);
@@ -1755,9 +1758,6 @@ impl H5 {
         let mut add = |out: &mut Chunks, coords: Vec<u64>, at: u64, sz: u64, mut mask: u32| -> R<()> {
             if ds.raw_edges && coords.iter().zip(&ds.chunk).zip(&ds.dims).any(|((&c, &k), &n)| (c as u128 + 1) * k as u128 > n as u128) {
                 mask = if nf >= 32 { u32::MAX } else { (1u32 << nf) - 1 };
-            }
-            if mask != 0 && !masks {
-                return bad("a chunk's filter mask is not 0");
             }
             if !seen.insert(coords.clone()) {
                 return bad(format!("chunk {} indexed twice", coords_text(&coords)));

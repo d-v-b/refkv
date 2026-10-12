@@ -1781,13 +1781,13 @@ structure it reads. The revision-25 Python and TypeScript profiles are frozen
 in `conformance/virtualize/reference/` (`IMS_REVISION`).
 
 **Read-ahead.** A version 1 B-tree node (a chunk index's or a group's) or a
-symbol table node that a round misses is asked for at its allocated size, at most 64 KiB
-(`24 + 2K × (key + 8) + key`, K from the superblock), so that its header and
-its entries come in one request and one round; a node's children are asked
-for in the round that parses it, all of them. The hint is at most 64 KiB (K
-comes from the file). The IR is unchanged: the same digest on 487 inputs (the
-45 fixtures, the 10 probes, 2 amplification files and 430 mutants), and on
-the 18 sparse corpus copies.
+symbol table node that a round misses is asked for at its allocated size
+(`24 + 2K × (key + 8) + key`, K from the superblock), at most 64 KiB, so that
+its header and its entries come in one request and one round; a node's
+children are asked for in the round that parses it, all of them. The IR is
+unchanged: the same digest on 487 inputs (the fixtures, probes, amplification
+files and mutants before `ims_latest_global_heaps.ims` was added), and on the
+18 sparse corpus copies.
 
 | file | server | before: requests, time | after: requests, time | reference (32) |
 |---|---|---|---|---|
@@ -1815,6 +1815,6 @@ with the mirror checks):
 |---|---|
 | IMS fixtures (45) | 27 equivalent, 18 rejected by all |
 | fixtures, 4 shards of `compare.py` | 0 divergent |
-| IMS mutants (440, 10 per fixture) | 195 equivalent, 245 rejected by all, 0 divergent |
+| IMS mutants (440: 10 for each of the 44 fixtures under 256 KiB; `ims_latest_review3.ims` is larger) | 195 equivalent, 245 rejected by all, 0 divergent |
 | native and wasm32 parity | 497 of 497 (the fixtures, probes and amplification files, and the 440 mutants) |
 | `just verify-ims` | 0 failures (pixels against h5py, the mirror rebuilt byte for byte) |
