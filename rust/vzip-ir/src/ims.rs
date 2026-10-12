@@ -43,6 +43,8 @@ struct Image {
     c: usize,
     at: u64,
     grid: [u64; 3],
+    /// it has allocated chunks
+    allocated: bool,
 }
 
 /// What an object of the walk is, as far as the reader can read it.
@@ -74,6 +76,8 @@ pub struct Ims {
     level: Vec<u64>,
     depth: u64,
     extension: Option<Visit>,
+    /// the walk's room in elements, when a test sets it (else the schema's)
+    pub room: Option<u64>,
 }
 
 fn lenient<T>(r: R<T>) -> R<Option<T>> {
@@ -261,6 +265,7 @@ impl Ims {
             level: Vec::new(),
             depth: 0,
             extension: None,
+            room: None,
         }
     }
 
@@ -504,8 +509,8 @@ impl Ims {
                             data_type.get_or_insert(dt);
                             info.get_or_insert(this.unwrap());
                             let ch = self.h.chunks(at, &ds, false);
-                            if acc.take(ch).is_some() {
-                                chunk_list.push(Image { r, t, c, at, grid: [ds.grid[0], ds.grid[1], ds.grid[2]] });
+                            if let Some(ch) = acc.take(ch) {
+                                chunk_list.push(Image { r, t, c, at, grid: [ds.grid[0], ds.grid[1], ds.grid[2]], allocated: !ch.list.is_empty() });
                             }
                         }
                         if acc.stopped() {
@@ -949,7 +954,8 @@ impl Ims {
         }
         let size = self.h.size();
         let must: HashSet<u64> = self.image_sets.iter().map(|im| im.at).collect();
-        let mut e = Emit { ir: Ir::new(size), h: &self.h, chunks_of: HashMap::new(), room: (1 << 21) + size / 8, must };
+        let room = self.room.unwrap_or(self.rules.limit("walk_elements") as u64 + size / self.rules.limit("walk_bytes_per_element") as u64);
+        let mut e = Emit { ir: Ir::new(size), h: &self.h, chunks_of: HashMap::new(), room, must };
         let sb = self.h.sb.clone().ok_or("internal: no superblock")?;
         e.superblock(&sb)?;
         if let Some(ext) = self.extension.take() {
@@ -1008,7 +1014,11 @@ impl Ims {
         // the image's datasets, by the structs that hold their chunks (None: no chunk allocated)
         let mut images = Vec::new();
         for im in &self.image_sets {
-            let el = e.chunks_of.get(&im.at).map_or(J::Null, |&x| json!(x));
+            let el = match e.chunks_of.get(&im.at) {
+                Some(&x) => json!(x),
+                None if im.allocated => return Err(format!("internal: the chunks of the dataset at {} are not described", im.at)),
+                None => J::Null,
+            };
             images.push(json!([im.r, im.t, im.c, el, im.grid]));
         }
         let mut ir = e.ir;
@@ -1061,6 +1071,12 @@ fn num_type(code: char, size: u64, big: bool) -> String {
 impl Emit<'_> {
     fn full(&self) -> bool {
         self.ir.len() as u64 >= self.room
+    }
+
+    /// The object at `at` has no more room: it is not one of the image's datasets, and the
+    /// IR is full.
+    fn spent(&self, at: u64) -> bool {
+        !self.must.contains(&at) && self.full()
     }
 
     /// A value of `ty` over `[o, o + n)`, with its bytes when the view may show it.
@@ -1127,7 +1143,7 @@ impl Emit<'_> {
             _ => "{type:u1,size:<u2,flags:u1}",
         };
         for (k, m) in h.msgs.iter().enumerate() {
-            if self.full() {
+            if self.spent(h.at) {
                 break;
             }
             let s = self.ir.struct_(ms, "", k as u64, 0, None)?;
@@ -1318,6 +1334,9 @@ impl Emit<'_> {
                     if !nodes.is_empty() {
                         let ns = self.ir.struct_(s, "nodes", NO_INDEX, 0, None)?;
                         for (k, &(a, n)) in nodes.iter().enumerate() {
+                            if self.spent(at) {
+                                break;
+                            }
                             let x = self.ir.struct_(ns, "", k as u64, 0, None)?;
                             self.val(x, "header", NO_INDEX, "{signature:ascii[4],type:u1,level:u1,entries:<u2,left:<u8,right:<u8}", a, 24)?;
                             self.bytes(x, "entries", NO_INDEX, a + 24, n - 24)?;
@@ -1326,6 +1345,9 @@ impl Emit<'_> {
                     if !snods.is_empty() {
                         let ss = self.ir.struct_(s, "snods", NO_INDEX, 0, None)?;
                         for (k, &(a, n)) in snods.iter().enumerate() {
+                            if self.spent(at) {
+                                break;
+                            }
                             let x = self.ir.struct_(ss, "", k as u64, 0, None)?;
                             self.val(x, "header", NO_INDEX, "{signature:ascii[4],version:u1,reserved:u1,entries:<u2}", a, 8)?;
                             let c = (n - 8) / 40;
@@ -1342,6 +1364,9 @@ impl Emit<'_> {
                     self.btree2(s, "index", index)?;
                     let items = self.ir.struct_(s, "items", NO_INDEX, 0, None)?;
                     for (k, &(a, n)) in objects.iter().enumerate() {
+                        if self.spent(at) {
+                            break;
+                        }
                         if let Some(d) = self.h.src.store.get(a, n).map(|b| b.to_vec()) {
                             self.link(items, "", k as u64, a, &d)?;
                         } else {
@@ -1358,6 +1383,9 @@ impl Emit<'_> {
                 self.btree2(s, "index", index)?;
                 let items = self.ir.struct_(s, "items", NO_INDEX, 0, None)?;
                 for (k, attr) in a.list.iter().filter(|x| x.dense).enumerate() {
+                    if self.spent(at) {
+                        break;
+                    }
                     self.attribute(items, "", k as u64, attr.at, &attr.data)?;
                 }
             }
@@ -1368,6 +1396,9 @@ impl Emit<'_> {
                     let s = self.ir.struct_(o, "index", NO_INDEX, 0, None)?;
                     let mut groups: BTreeMap<&str, (u32, u64)> = BTreeMap::new();
                     for &(what, a, n) in &ch.parts {
+                        if self.spent(at) {
+                            break;
+                        }
                         let key = match what {
                             "header" => "headers",
                             "node" => "nodes",
@@ -1393,8 +1424,10 @@ impl Emit<'_> {
                     // an implicit index's chunks lie one after the other: one element for them all
                     let first = ch.list.iter().map(|c| c.1).min().unwrap();
                     let end = ch.list.iter().map(|c| c.1 + c.2).max().unwrap();
-                    let form = json!({"geometry": {"chunk": ds.chunk, "size": ds.datatype.size, "implicit": true}, "codec": {"filters": ds.filters}, "recipe": [["src", 0, null]]});
-                    self.ir.data(o, "data", NO_INDEX, 0, (first, end - first), &form.to_string())?;
+                    if self.h.src.within(first, end - first) {
+                        let form = json!({"geometry": {"chunk": ds.chunk, "size": ds.datatype.size, "implicit": true}, "codec": {"filters": ds.filters}, "recipe": [["src", 0, null]]});
+                        self.ir.data(o, "data", NO_INDEX, 0, (first, end - first), &form.to_string())?;
+                    }
                 } else if !ch.list.is_empty() && (image || !self.full()) {
                     let s = self.ir.struct_(o, "chunks", NO_INDEX, 0, None)?;
                     self.chunks_of.insert(at, s);
@@ -1404,7 +1437,7 @@ impl Emit<'_> {
                         ch.list.iter().map(|c| (hdf5::ravel(&c.0, &ds.grid), c)).collect();
                     sorted.sort_by_key(|x| x.0);
                     for (idx, (_, a, n, mask)) in sorted {
-                        if !image && self.full() {
+                        if self.spent(at) {
                             break;
                         }
                         let form = if *mask == 0 {

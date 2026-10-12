@@ -12,6 +12,8 @@
     "walk_objects": 100000,
     "walk_per_image": 5,
     "walk_depth": 64,
+    "walk_elements": 2097152,
+    "walk_bytes_per_element": 8,
     "max_collections": 65536,
     "max_rounds": 4096
   },

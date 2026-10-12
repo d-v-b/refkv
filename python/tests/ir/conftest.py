@@ -47,6 +47,8 @@ def probes(tmp_path_factory) -> Path:
 def ims_probes(tmp_path_factory) -> Path:
     """The IMS probes at the tests' sizes (python/tests/ir/gen_ims_probes.py --small)."""
     out = tmp_path_factory.mktemp("ims_probes")
-    subprocess.run([sys.executable, "python/tests/ir/gen_ims_probes.py", str(out), "--small"], cwd=ROOT,
-                   check=True, capture_output=True)
+    p = subprocess.run([sys.executable, "python/tests/ir/gen_ims_probes.py", str(out), "--small"], cwd=ROOT,
+                       capture_output=True, text=True)
+    if p.returncode:
+        raise RuntimeError(f"gen_ims_probes.py failed: {p.stderr[-2000:]}")
     return out

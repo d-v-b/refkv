@@ -291,3 +291,49 @@ fn a_segment_id_with_bytes_after_its_nul_is_not_the_id() {
         Ok(_) => panic!("accepted"),
     }
 }
+
+/// Runs the IMS parser over bytes in memory, the walk's room in elements set to `room`.
+fn ims_with_room(data: &[u8], room: Option<u64>) -> (vzip_ir::ir::Ir, serde_json::Value) {
+    let mut p = Ims::new(data.len() as u64);
+    p.room = room;
+    loop {
+        match p.step().unwrap() {
+            vzip_ir::nd2::Step::Read(r) => {
+                for (o, n) in r {
+                    p.feed(o, data[o as usize..(o + n) as usize].to_vec());
+                }
+            }
+            vzip_ir::nd2::Step::Done => break,
+        }
+    }
+    p.finish().unwrap()
+}
+
+#[test]
+fn past_the_walks_room_the_image_is_described_and_the_rest_is_gaps() {
+    let data = std::fs::read(fixtures().join("ims/ims_latest_many_channels.ims")).unwrap();
+    let project = |ir: &vzip_ir::ir::Ir, facts: &serde_json::Value| {
+        let out = vzip_ir::project::project(vzip_ir::run::Format::Ims, ir, facts, "u").unwrap();
+        out.refs.iter().map(|(k, p)| format!("{k}{p:?}")).collect::<Vec<_>>()
+    };
+    let (all, facts) = ims_with_room(&data, None);
+    for room in [0, 100, 1000] {
+        let (ir, f) = ims_with_room(&data, Some(room));
+        check::check(&ir).unwrap();
+        assert!(rebuilt(&ir, &data) == data);
+        assert!(ir.len() < all.len(), "room {room}");
+        assert_eq!(project(&ir, &f), project(&all, &facts), "room {room}");
+        // past the room, only the image's datasets are described (and the objects' structs)
+        if room == 0 {
+            let paths: Vec<String> = (0..ir.len() as u32).filter(|&i| ir.kind[i as usize] != vzip_ir::ir::GAP).map(|i| ir.path(i)).collect();
+            let images: std::collections::HashSet<&str> =
+                paths.iter().filter_map(|p| p.strip_suffix("/chunks")).collect();
+            for p in &paths {
+                let parts: Vec<&str> = p.splitn(3, '/').collect();
+                if parts[0] == "objects" && parts.len() == 3 {
+                    assert!(images.contains(&format!("objects/{}", parts[1])[..]), "{p} is described past the room");
+                }
+            }
+        }
+    }
+}

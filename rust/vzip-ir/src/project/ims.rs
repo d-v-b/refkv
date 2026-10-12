@@ -38,6 +38,9 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         let mut members = ir.members(el as u32);
         members.sort_unstable();
         for (idx, start, length, form) in members {
+            if form == u32::MAX {
+                return Err("internal: a chunk without a form".into());
+            }
             let coords = hdf5::unravel(idx as u128, &grid);
             if (0..3).any(|i| coords[i] as u128 * chunk[i] as u128 >= sizes[i] as u128) {
                 continue; // padding, wholly outside the image

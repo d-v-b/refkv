@@ -53,8 +53,9 @@ for name, n, size in (("ims_amp_times", 4, (2, 64, 64)), *(() if small else (("i
         for t in range(1, n):
             tp[f"TimePoint {t}"] = tp["TimePoint 0"]
 
-# A loop in the version 1 B-tree of a group the layout does not read (accepted: the group
-# is not described), and in the root group's (rejected).
+# A version 1 B-tree leaf whose child is the node itself, in a group the layout does not
+# read (accepted: the group is not described) and in the root group (rejected); and an
+# internal node (two entries per node: a deep tree) whose child is the root node.
 for name, where in (("ims_btree_loop_extra", "Extra"), ("ims_btree_loop_root", "/")):
     with wf.open_file(name) as f:
         wf.imaris(f, LEVEL, dtype="u1")
@@ -65,6 +66,28 @@ for name, where in (("ims_btree_loop_extra", "Extra"), ("ims_btree_loop_root", "
     at = f.root if where == "/" else f.links(f.root)[b"Extra"]
     tree = symtab_btree(f, at)
     patch(p, tree + 24 + 8, struct.pack("<Q", tree))  # child 0 is the node itself
+with wf.open_file("ims_btree_cycle_extra", small_k=True) as f:
+    wf.imaris(f, LEVEL, dtype="u1")
+    for k in range(40):
+        f.create_group(f"Extra/g{k:02d}")
+p = out / "ims_btree_cycle_extra.ims"
+f = h5(p)
+tree = symtab_btree(f, f.links(f.root)[b"Extra"])
+data = p.read_bytes()
+if data[tree + 5] == 0:
+    raise SystemExit("ims_btree_cycle_extra: the tree has one level")
+patch(p, tree + 24 + 8 + 8 + 8, struct.pack("<Q", tree))  # the root's child 1 is the root
+
+# A dataset the image does not use, its chunks allocated early: an implicit chunk index.
+with wf.open_file("ims_implicit_extra", "latest") as f:
+    wf.imaris(f, LEVEL, dtype="u1")
+    import h5py
+    space = h5py.h5s.create_simple((40, 6))
+    dcpl = h5py.h5p.create(h5py.h5p.DATASET_CREATE)
+    dcpl.set_chunk((4, 6))
+    dcpl.set_alloc_time(h5py.h5d.ALLOC_TIME_EARLY)
+    h5py.h5d.create(f.id, b"Implicit", h5py.h5t.STD_U16LE, space, dcpl=dcpl)
+    f["Implicit"][...] = np.arange(240, dtype="u2").reshape(40, 6)
 
 # An object header whose continuation names its own first block (rejected where the layout
 # reads it, not described elsewhere).
