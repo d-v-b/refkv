@@ -1,10 +1,11 @@
-//! The TIFF and CZI parsers: every fixture they accept is a valid IR that rebuilds
+//! The TIFF, CZI and IMS parsers: every fixture they accept is a valid IR that rebuilds
 //! its source; one test per rejected fixture (each the role the schema names); and
 //! the round-3 probes built here (IFD loops, huge counts, too many IFDs).
 
 use std::path::Path;
 use vzip_ir::check;
 use vzip_ir::czi::Czi;
+use vzip_ir::ims::Ims;
 use vzip_ir::parse_bytes;
 use vzip_ir::tiff::Tiff;
 
@@ -24,6 +25,9 @@ fn accepted<P: vzip_ir::Parser>(dir: &str) -> usize {
     let mut n = 0;
     for e in std::fs::read_dir(fixtures().join(dir)).unwrap() {
         let path = e.unwrap().path();
+        if path.is_dir() {
+            continue;
+        }
         let data = std::fs::read(&path).unwrap();
         if let Ok((ir, _)) = parse_bytes::<P>(&data) {
             check::check(&ir).unwrap_or_else(|m| panic!("{path:?}: {m}"));
@@ -38,6 +42,8 @@ fn accepted<P: vzip_ir::Parser>(dir: &str) -> usize {
 fn accepted_fixtures_are_valid_irs_that_rebuild() {
     assert_eq!(accepted::<Tiff>("tiff"), 33);
     assert_eq!(accepted::<Czi>("czi"), 32);
+    assert_eq!(accepted::<Ims>("ims"), 25);
+    assert_eq!(accepted::<Ims>("ims/exact"), 1);
 }
 
 macro_rules! reject {
@@ -132,6 +138,24 @@ reject!(czi_reject_subblock_id, Czi, "czi/czi_reject_subblock_id.czi", "subblock
 reject!(czi_reject_subblock_outside_file, Czi, "czi/czi_reject_subblock_outside_file.czi", "subblock 0's parts is outside the file");
 reject!(czi_reject_unknown_schema, Czi, "czi/czi_reject_unknown_schema.czi", "directory entry 0 has schema XX, not DV");
 reject!(czi_reject_zero_size, Czi, "czi/czi_reject_zero_size.czi", "directory entry 0's X Size and StoredSize must b");
+reject!(ims_reject_chunk_mismatch, Ims, "ims/ims_reject_chunk_mismatch.ims", "the datasets of level 0 differ in size, chunk shape or filters");
+reject!(ims_reject_contiguous, Ims, "ims/ims_reject_contiguous.ims", "dataset layout class 1 is not chunked");
+reject!(ims_reject_dtype_mismatch, Ims, "ims/ims_reject_dtype_mismatch.ims", "the datasets have different data types");
+reject!(ims_reject_fill_value, Ims, "ims/ims_reject_fill_value.ims", "the fill value is not zero");
+reject!(ims_reject_fletcher32, Ims, "ims/ims_reject_fletcher32.ims", "unsupported HDF5 filters [3]");
+reject!(ims_reject_float64, Ims, "ims/ims_reject_float64.ims", "unsupported HDF5 datatype (class 1, 8 bytes)");
+reject!(ims_reject_image_larger, Ims, "ims/ims_reject_image_larger.ims", "the image of level 0 is larger than its dataset");
+reject!(ims_reject_imagesize_text, Ims, "ims/ims_reject_imagesize_text.ims", "ImageSizeX of level 0 is not a positive integer");
+reject!(ims_reject_imagesize_vlen, Ims, "ims/ims_reject_imagesize_vlen.ims", "attribute ImageSizeX is not a string");
+reject!(ims_reject_missing_channel, Ims, "ims/ims_reject_missing_channel.ims", "no Channel 1");
+reject!(ims_reject_not_imaris, Ims, "ims/ims_reject_not_imaris.ims", "not an Imaris file (no DataSet group)");
+reject!(ims_reject_offset_size, Ims, "ims/ims_reject_offset_size.ims", "HDF5 offsets and lengths of 4 and 8 bytes are not supported");
+reject!(ims_reject_rank, Ims, "ims/ims_reject_rank.ims", "a dataset of level 0 is not 3-dimensional");
+reject!(ims_reject_raw_edges_image, Ims, "ims/ims_reject_raw_edges_image.ims", "a chunk's filter mask is not 0");
+reject!(ims_reject_relative_soft_link, Ims, "ims/ims_reject_relative_soft_link.ims", "soft link \"Data\" to a relative path");
+reject!(ims_reject_shuffle, Ims, "ims/ims_reject_shuffle.ims", "unsupported HDF5 filters [2, 1]");
+reject!(ims_reject_size_mismatch, Ims, "ims/ims_reject_size_mismatch.ims", "the datasets of level 0 differ in size, chunk shape or filters");
+reject!(ims_reject_z_levels, Ims, "ims/ims_reject_z_levels.ims", "a level has more than one z plane, and level 0 has one");
 
 // ---- the round-3 TIFF probes, built here
 

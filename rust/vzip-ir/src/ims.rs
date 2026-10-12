@@ -1455,3 +1455,42 @@ impl Emit<'_> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn texts_read_as_numbers() {
+        for (s, want) in [("1", Some(1.0)), (" -2.5e1\t", Some(-25.0)), ("1.", Some(1.0)), (".5", Some(0.5)), ("+3", Some(3.0)),
+                          ("1e400", None), ("e5", None), ("1e", None), (".", None), ("", None), ("0x10", None), ("1 2", None)] {
+            assert_eq!(decimal(Some(s)), want, "{s:?}");
+        }
+        assert_eq!(decimal(None), None);
+        assert_eq!(decimals(Some(" 0 0.5\n1 "), 3), Some(vec![0.0, 0.5, 1.0]));
+        assert_eq!(decimals(Some("0 0.5"), 3), None);
+        assert_eq!(decimals(Some("0 x 1"), 3), None);
+        assert_eq!(decimals(Some(""), 1), None);
+        for (s, want) in [("12", Some(12)), (" 007 ", Some(7)), ("0", None), ("9007199254740991", Some(9007199254740991)),
+                          ("9007199254740992", None), ("00000000000000000001", Some(1)), ("+1", None), ("1.0", None)] {
+            assert_eq!(integer(Some(s)), want, "{s:?}");
+        }
+        assert_eq!(decode_text(b"ab\0cd"), "ab");
+        assert_eq!(decode_text(&[0xb5, b'm']), "\u{b5}m");
+        assert_eq!(unit_rgb(Some(&[0.0, 0.5, 1.0])).as_deref(), Some("0080FF"));
+        assert_eq!(unit_rgb(Some(&[0.0, 1.5, 1.0])), None);
+        assert_eq!(length_unit("\u{3bc}m"), Some("micrometer"));
+        assert_eq!(length_unit("s"), None);
+    }
+
+    #[test]
+    fn time_points_read_as_seconds() {
+        assert_eq!(timestamp(Some("1970-01-01 00:00:00")), Some((0, 0.0)));
+        assert_eq!(timestamp(Some("2000-02-29 12:30:15.25")), Some((951827415, 0.25)));
+        assert_eq!(timestamp(Some("1969-12-31 23:59:59")), Some((-1, 0.0)));
+        for bad in ["1900-02-29 00:00:00", "2001-13-01 00:00:00", "2001-01-01 24:00:00", "2001-01-01 00:00:00.", "2001-01-01T00:00:00",
+                    "2001-01-01 00:00", "2001-01-01 00:00:00.5x"] {
+            assert_eq!(timestamp(Some(bad)), None, "{bad}");
+        }
+    }
+}
