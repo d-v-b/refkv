@@ -1421,11 +1421,16 @@ impl Emit<'_> {
                 }
                 let image = self.must.contains(&at);
                 if !image && ds.index == Some(hdf5::Index::Implicit) && !ch.list.is_empty() {
-                    // an implicit index's chunks lie one after the other: one element for them all
+                    // an implicit index's chunks lie in the row-major order of the maximum grid,
+                    // which the storage holds whole: one element for them all, with that grid
+                    let max_grid: Vec<u64> = match &ds.maxdims {
+                        Some(m) => m.iter().zip(&ds.chunk).map(|(&m, &c)| m.div_ceil(c)).collect(),
+                        None => ds.grid.clone(),
+                    };
                     let first = ch.list.iter().map(|c| c.1).min().unwrap();
                     let end = ch.list.iter().map(|c| c.1 + c.2).max().unwrap();
                     if self.h.src.within(first, end - first) {
-                        let form = json!({"geometry": {"chunk": ds.chunk, "size": ds.datatype.size, "implicit": true}, "codec": {"filters": ds.filters}, "recipe": [["src", 0, null]]});
+                        let form = json!({"geometry": {"chunk": ds.chunk, "size": ds.datatype.size, "grid": max_grid}, "codec": {"filters": ds.filters}, "recipe": [["src", 0, null]]});
                         self.ir.data(o, "data", NO_INDEX, 0, (first, end - first), &form.to_string())?;
                     }
                 } else if !ch.list.is_empty() && (image || !self.full()) {

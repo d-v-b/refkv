@@ -334,7 +334,7 @@ class Checker:
             names = sorted(h5py.h5a.open(obj.id, index=i).name for i in range(h5py.h5a.get_num_attrs(obj.id)))
         except OSError as e:
             if "invalid datatype size" in str(e):
-                return  # a string of no bytes, which h5py cannot open (python/tests/test_virtualize_ims.py checks it)
+                return  # a string of no bytes, which h5py cannot open (python/tests/reference/test_virtualize_ims.py checks it)
             raise
         keys: set[str] = set()
         for name in names:

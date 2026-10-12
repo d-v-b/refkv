@@ -78,11 +78,12 @@ if data[tree + 5] == 0:
     raise SystemExit("ims_btree_cycle_extra: the tree has one level")
 patch(p, tree + 24 + 8 + 8 + 8, struct.pack("<Q", tree))  # the root's child 1 is the root
 
-# A dataset the image does not use, its chunks allocated early: an implicit chunk index.
+# A dataset the image does not use, its chunks allocated early: an implicit chunk index, over
+# a maximum grid larger than its grid.
 with wf.open_file("ims_implicit_extra", "latest") as f:
     wf.imaris(f, LEVEL, dtype="u1")
     import h5py
-    space = h5py.h5s.create_simple((40, 6))
+    space = h5py.h5s.create_simple((40, 6), (64, 6))
     dcpl = h5py.h5p.create(h5py.h5p.DATASET_CREATE)
     dcpl.set_chunk((4, 6))
     dcpl.set_alloc_time(h5py.h5d.ALLOC_TIME_EARLY)

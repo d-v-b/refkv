@@ -1,7 +1,7 @@
 // The source metadata node of the frozen TypeScript IMS virtualizer (revision 25) on the files of the
 // review (spec/virtualize/ims.md §5
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata>);
-// python/tests/test_virtualize_ims.py has the same cases.
+// python/tests/reference/test_virtualize_ims.py has the same cases.
 
 import assert from "node:assert/strict";
 import fs from "node:fs";

@@ -85,8 +85,9 @@ def test_an_implicit_index_outside_the_image_is_one_range(ims_probes):
     _, _, ir = via_ir(str(ims_probes / "ims_implicit_extra.ims"), "https://data.test/x")
     data = [i for i in range(len(ir)) if ir.path(i).endswith("/data") and ir.kind(i) == 2]
     forms = [json.loads(ir.form(i)) for i in data]
-    implicit = [(i, f) for i, f in zip(data, forms) if f["geometry"].get("implicit")]
+    implicit = [(i, f) for i, f in zip(data, forms) if "grid" in f["geometry"]]
     assert len(implicit) == 1
     i, f = implicit[0]
-    assert f["geometry"] == {"chunk": [4, 6], "size": 2, "implicit": True}
-    assert ir.extent(i)[1] == 40 * 6 * 2  # ten chunks of 4 × 6, one after the other
+    assert f["geometry"] == {"chunk": [4, 6], "size": 2, "grid": [16, 1]}
+    # 10 chunks of 4 × 6 allocated over a maximum grid of 16 (maxshape 64 × 6)
+    assert ir.extent(i)[1] == 10 * 4 * 6 * 2
