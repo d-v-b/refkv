@@ -176,3 +176,36 @@ fn a_store_root_with_an_extent_is_refused() {
     ir.len[0] = 3;
     assert_eq!(check(&ir).unwrap_err(), "the root's extent is (0, 3): a store's root has none");
 }
+
+#[test]
+fn held_objects_take_their_bytes_once_in_any_order() {
+    let (mut ir, objs) = store();
+    ir.hold_all([(objs[1], &[1u8; 40][..])]).unwrap();
+    let before = ir.vbytes.len();
+    ir.hold_all([(objs[7], &[7u8; 5][..]), (objs[0], &[0u8; 24][..]), (objs[7], &[7u8; 5][..]), (objs[1], &[9u8; 40][..])]).unwrap();
+    assert_eq!(ir.vbytes.len(), before + 29);
+    assert_eq!(ir.value_bytes(objs[1]), Some(&[1u8; 40][..]));
+    assert_eq!(ir.value_bytes(objs[0]), Some(&[0u8; 24][..]));
+    assert_eq!(ir.value_bytes(objs[7]), Some(&[7u8; 5][..]));
+}
+
+#[test]
+fn held_bytes_of_another_size_are_refused() {
+    let (mut ir, objs) = store();
+    assert!(ir.hold_all([(objs[0], &[0u8; 3][..])]).unwrap_err().contains("which is no object of that size"));
+}
+
+#[test]
+fn held_bytes_of_an_element_that_is_no_object_are_refused() {
+    let (mut ir, _) = store();
+    let v = (ir.len() - 1) as u32;
+    assert!(ir.hold_all([(v, &[0u8; 30][..])]).unwrap_err().contains("which is no object of that size"));
+    assert!(ir.hold_all([(10_000, &[0u8; 1][..])]).unwrap_err().contains("which is no object of that size"));
+}
+
+#[test]
+fn an_object_held_twice_with_other_bytes_is_refused() {
+    let (mut ir, objs) = store();
+    let e = ir.hold_all([(objs[0], &[0u8; 24][..]), (objs[0], &[1u8; 24][..])]).unwrap_err();
+    assert_eq!(e, format!("internal: element {} held twice, with other bytes", objs[0]));
+}

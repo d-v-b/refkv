@@ -584,7 +584,8 @@ impl Ir {
     /// The bytes of held objects of a store IR (conventions §8.9
     /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), which the mirror
     /// holds: for each (object, bytes), as many as its size; an object that has bytes already
-    /// keeps them. The value table is sorted once, after all.
+    /// keeps them, and one given twice must be given the same bytes. The value table is sorted
+    /// once, after all.
     pub fn hold_all<'a>(&mut self, held: impl IntoIterator<Item = (u32, &'a [u8])>) -> Res<()> {
         self.sort_values();
         let mut put = Vec::new();
@@ -601,6 +602,9 @@ impl Ir {
             }
         }
         put.sort_by_key(|p| p.0);
+        if let Some(w) = put.windows(2).find(|w| w[0].0 == w[1].0 && w[0].1 != w[1].1) {
+            return Err(format!("internal: element {} held twice, with other bytes", w[0].0));
+        }
         put.dedup_by_key(|p| p.0);
         for (o, raw) in put {
             self.put_value(o, raw);

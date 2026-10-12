@@ -265,6 +265,7 @@ impl StoreRun {
         let (mut ir, facts) = p.finish()?;
         ir.sort_values();
         let kids = ir.has_children();
+        // objects that hold bytes already (the parser's) need no whole read
         let mut want = Vec::new();
         for (k, &o) in self.objects.iter().enumerate() {
             let ou = o as usize;
