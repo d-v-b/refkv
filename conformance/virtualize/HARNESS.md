@@ -173,8 +173,9 @@ which the reference does not write. So, for those profiles:
   checks are the byte-exact rebuild of the source from it and its canonical
   form (below).
 
-For every other profile (Zarr v2 and N5 stores aside: below), `py` and `web` are still two hand-written
-implementations, and `ref` runs the same code as `py`.
+For every other profile (Zarr v2 and N5 stores aside: below), `py` and `web`
+are still two hand-written implementations, and `ref` runs the same code as
+`py`.
 
 Since revision 21, `vzip_source` of these three profiles is the IR mirror of
 [conventions §8](../../spec/conventions.md#8-the-ir-mirror); since revision 22 the mirror is canonical ([conventions §8.8](../../spec/conventions.md#88-canonical-form))
@@ -195,7 +196,8 @@ in them changed (an edit made so that a reference archive does not claim a
 revision it does not implement). `compare.py` compares a reference
 root that records 20 as if it recorded the current revision, so the revision
 number is the one difference it does not report; every other profile's
-reference is the shipped code, which records the current revision.
+reference but the Zarr v2 and N5 stores' (below) is the shipped code, which
+records the current revision.
 
 **Zarr v2 stores, since revision 26,** are on the core too (its `zarr2` store
 format), and compared as TIFF, ND2 and CZI are: `ref` runs the frozen Zarr v2

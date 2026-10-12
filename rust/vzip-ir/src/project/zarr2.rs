@@ -160,9 +160,12 @@ pub fn project(ir: &Ir, facts: &J, url: &str, profile: &str) -> Result<Out, Stri
 /// After the mirror: the recorded ignored keys (spec/virtualize.md §1.4
 /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), in the order of
 /// their UTF-8 bytes, as the member `ignored` of `vzip_source`'s source metadata, beside the
-/// mirror's `ir` (spec/virtualize/zarr2.md §5
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>); the group
-/// is made when there is no mirror. Nothing when there are none.
+/// mirror's `ir` (conventions §8.9
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>; spec/virtualize/zarr2.md
+/// §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
+/// spec/virtualize/n5.md §6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>):
+/// every store format's rule. The group is made when there is no mirror. Nothing when there are
+/// none.
 pub fn record_ignored(out: &mut Out, facts: &J, profile: &str) -> Result<(), String> {
     let mut ignored: Vec<&str> = facts["ignored"].as_array().into_iter().flatten().filter_map(J::as_str).collect();
     if ignored.is_empty() {
