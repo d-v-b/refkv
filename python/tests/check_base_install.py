@@ -5,8 +5,9 @@ the argument `zarr`, only `pip install '.[zarr]'`.
 The base install: `import vzip` imports neither xarray nor zarr, which are not
 installed, and the operations work without them: build a ReferenceStore from a
 mapping, read a bytes value and a reference, save it, reopen the archive with
-vzip.open and read it again, run the conformance CLI on it, and virtualize a
-NIfTI file and a Zarr v2 store. Each optional part names the extra it needs.
+vzip.open and read it again, run the conformance CLI on it, and virtualize an
+NDPI file and a Zarr v2 store (the formats of the Rust core need its module,
+which `pip install .` does not build). Each optional part names the extra it needs.
 
 With `zarr`: vzip.zarr reads the same archive through zarr, and the image
 codecs and the VirtualiZarr conversion name their extras."""
@@ -79,12 +80,12 @@ with tempfile.TemporaryDirectory() as d:
 
     from vzip.virtualize import virtualize, virtualize_store
 
-    fmt, o = virtualize(str(FIXTURES / "nifti" / "nifti_block_x_split.nii"))
+    fmt, o = virtualize(str(FIXTURES / "ndpi" / "ndpi_levels.ndpi"))
     o.write("n.vzip")
     fmt2, o2 = virtualize_store(str(FIXTURES / "zarr2" / "zarr2_hierarchy"),
                                 "https://example.test/z/")
     o2.write("z.vzip")
-    assert (fmt, fmt2) == ("nifti", "zarr2") and vzip.open("n.vzip").get("zarr.json")
+    assert (fmt, fmt2) == ("ndpi", "zarr2") and vzip.open("n.vzip").get("zarr.json")
 
     if mode == "zarr":
         import zarr

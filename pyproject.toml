@@ -9,7 +9,7 @@ requires-python = ">=3.12"
 license = "MIT OR Apache-2.0"
 license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
 # The base install reads and writes vzip archives, holds a ReferenceStore and
-# virtualizes image files and stores, without Zarr (numpy: the NIfTI virtualizer); the
+# virtualizes image files and stores, without Zarr (numpy: vzip.shards); the
 # extras add the rest (python/src/vzip/_extras.py), and the dependency groups hold
 # what only this repository's tests, fixture generators and benchmarks use.
 dependencies = [

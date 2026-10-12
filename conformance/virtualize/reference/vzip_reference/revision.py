@@ -5,3 +5,5 @@
 20 as recording the current revision (HARNESS.md)."""
 
 REVISION = 20
+
+REVISION_25 = 25

@@ -5,3 +5,5 @@
 // recording the current revision (conformance/virtualize/HARNESS.md).
 
 export const REVISION = 20;
+
+export const REVISION_25 = 25;

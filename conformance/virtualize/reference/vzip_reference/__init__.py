@@ -17,7 +17,8 @@ from vzip.virtualize import is_store, virtualize_store
 from vzip.virtualize.common import Output, Rejected, file_reader, http_reader
 from vzip.virtualize.dicom import is_dicom, virtualize_dicom
 from vzip.virtualize.ims import virtualize_ims
-from vzip.virtualize import ndpi, nifti
+from vzip.virtualize import ndpi
+from vzip_reference import nifti
 from vzip.virtualize.safe import SafeOutput, is_zip, virtualize_safe_zip
 from vzip_reference.czi import is_czi, virtualize_czi
 from vzip_reference.nd2 import is_nd2, virtualize_nd2

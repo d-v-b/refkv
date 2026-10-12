@@ -11,6 +11,7 @@ from array import array
 
 import numpy as np
 
+from vzip_reference.revision import REVISION_25
 from vzip.virtualize.common import (
     MAX_PAYLOAD, RAGGED_CHUNK, SOURCE_NODE, Output, Plan, Reader, Rejected, array_json, declare, emit_plans,
     grid_chunks, image_ome, json_base64, json_number, json_text, payload_size, root_json, row_chunks, text_json,
@@ -499,7 +500,7 @@ def virtualize_nifti(url: str, read: Reader, size: int) -> Output:
         meta["scaling"] = {"slope": scaling[0], "inter": scaling[1]}
     if affine is not None:
         meta["affine"] = {"form": affine, "applied": diagonal is not None}
-    root = root_json(ome, "nifti", url, meta)
+    root = root_json(ome, "nifti", url, meta, REVISION_25)
     transpose = {"name": "transpose", "configuration": {"order": [axes.index(a) for a in stored]}}
     codecs = ([transpose] if stored != axes else []) + [
         {"name": "bytes", "configuration": {"endian": endian}} if bits // samples > 8 else {"name": "bytes"}]
