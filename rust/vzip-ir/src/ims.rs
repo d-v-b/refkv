@@ -35,14 +35,14 @@ enum Phase {
     Done,
 }
 
-/// A chunk of the image: its key in the hierarchy, its dataset's header, its row-major index
-/// over the dataset's grid, and its range.
-struct ImageChunk {
-    key: String,
-    dataset: u64,
-    index: u128,
+/// A Data dataset of the image: its level, time point and channel, its header, and its
+/// chunk grid (z, y, x).
+struct Image {
+    r: usize,
+    t: usize,
+    c: usize,
     at: u64,
-    size: u64,
+    grid: [u64; 3],
 }
 
 /// What an object of the walk is, as far as the reader can read it.
@@ -65,7 +65,7 @@ pub struct Ims {
     requested: u64,
     /// the layout's outcome
     facts: Option<J>,
-    chunks: Vec<ImageChunk>,
+    image_sets: Vec<Image>,
     /// the objects the layout reads (they are walked first, whatever the budget)
     core: BTreeSet<u64>,
     images: u64,
@@ -254,7 +254,7 @@ impl Ims {
             requests: 0,
             requested: 0,
             facts: None,
-            chunks: Vec::new(),
+            image_sets: Vec::new(),
             core: BTreeSet::new(),
             images: 0,
             visited: HashMap::new(),
@@ -429,42 +429,16 @@ impl Ims {
         let (level_info, data_type, chunk_list) = images.unwrap();
         let meta = meta.unwrap();
         let facts = self.output(&level_info, &data_type, meta, levels, times, channels)?;
-        let axes: Vec<String> = facts["axes"].as_array().unwrap().iter().map(|a| a.as_str().unwrap().to_string()).collect();
-        self.chunks.clear();
-        for (r, t, c, at, list) in chunk_list {
-            let (sizes, chunk, _) = &level_info[r];
-            let grid: Vec<u64> = (0..3).map(|i| self.dims_of(at)[i].div_ceil(chunk[i])).collect();
-            for (coords, a, n) in list {
-                if (0..3).any(|i| coords[i] as u128 * chunk[i] as u128 >= sizes[i] as u128) {
-                    continue; // padding, wholly outside the image
-                }
-                let mut key = format!("{r}/c");
-                for ax in &axes {
-                    let v = match ax.as_str() {
-                        "t" => t as u64,
-                        "c" => c as u64,
-                        "z" => coords[0],
-                        "y" => coords[1],
-                        _ => coords[2],
-                    };
-                    key.push_str(&format!("/{v}"));
-                }
-                self.chunks.push(ImageChunk { key, dataset: at, index: hdf5::ravel(&coords, &grid), at: a, size: n });
-            }
-        }
+        self.image_sets = chunk_list;
         self.images = level_info.len() as u64 * times * channels;
         self.facts = Some(facts);
         Ok(())
     }
 
-    fn dims_of(&mut self, at: u64) -> Vec<u64> {
-        self.h.dataset(at, false).map(|d| d.dims).unwrap_or_default()
-    }
-
     /// Levels' (sizes, chunk, compressed), the data type, and each dataset's chunks.
     #[allow(clippy::type_complexity)]
     fn datasets(&mut self, dataset: &Links, level0: &Rc<Links>, first_time: &Rc<Links>, levels: u64, times: u64, channels: u64)
-                -> R<(Vec<([u64; 3], [u64; 3], bool)>, (String, Option<&'static str>, Option<(i64, i64)>), Vec<(usize, usize, usize, u64, Vec<(Vec<u64>, u64, u64)>)>)> {
+                -> R<(Vec<([u64; 3], [u64; 3], bool)>, (String, Option<&'static str>, Option<(i64, i64)>), Vec<Image>)> {
         let mut acc = Acc::default();
         let mut data_type: Option<(String, Option<&'static str>, Option<(i64, i64)>)> = None;
         let mut level_info = Vec::new();
@@ -530,10 +504,8 @@ impl Ims {
                             data_type.get_or_insert(dt);
                             info.get_or_insert(this.unwrap());
                             let ch = self.h.chunks(at, &ds, false);
-                            if let Some(ch) = acc.take(ch) {
-                                chunk_list.push((r, 0, c, at, ch.list.iter().map(|(k, a, n, _)| (k.clone(), *a, *n)).collect::<Vec<_>>()));
-                                let last = chunk_list.last_mut().unwrap();
-                                last.1 = t;
+                            if acc.take(ch).is_some() {
+                                chunk_list.push(Image { r, t, c, at, grid: [ds.grid[0], ds.grid[1], ds.grid[2]] });
                             }
                         }
                         if acc.stopped() {
@@ -786,7 +758,7 @@ impl Ims {
             if *compressed {
                 codecs.push(json!({"name": "zlib", "configuration": {"level": 1}}));
             }
-            arrays.push(json!({"shape": shape, "chunks": chunks, "codecs": codecs}));
+            arrays.push(json!({"shape": shape, "chunks": chunks, "codecs": codecs, "sizes": sizes, "chunk": chunk}));
         }
         let translations = if spatial.iter().all(|a| extent.contains_key(a)) {
             let t: Vec<J> = axes
@@ -975,7 +947,9 @@ impl Ims {
         if self.phase != Phase::Done {
             return Err("internal: the parse is not done".into());
         }
-        let mut e = Emit { ir: Ir::new(self.h.size()), h: &self.h, chunk_el: HashMap::new() };
+        let size = self.h.size();
+        let must: HashSet<u64> = self.image_sets.iter().map(|im| im.at).collect();
+        let mut e = Emit { ir: Ir::new(size), h: &self.h, chunks_of: HashMap::new(), room: (1 << 21) + size / 8, must };
         let sb = self.h.sb.clone().ok_or("internal: no superblock")?;
         e.superblock(&sb)?;
         if let Some(ext) = self.extension.take() {
@@ -1009,34 +983,39 @@ impl Ims {
         order.extend(rest);
         let objects = e.ir.struct_(0, "objects", NO_INDEX, 0, None)?;
         let mut collections: BTreeMap<u64, Rc<hdf5::Collection>> = BTreeMap::new();
-        for (i, at) in order.iter().enumerate() {
-            let v = &self.visited[at];
-            let o = e.ir.struct_(objects, "", i as u64, 0, None)?;
-            e.object(o, *at, v)?;
+        let mut structs = Vec::with_capacity(order.len());
+        for i in 0..order.len() {
+            structs.push(e.ir.struct_(objects, "", i as u64, 0, None)?);
+        }
+        // the objects the layout reads first, then the others while the IR has room
+        let (first, rest): (Vec<usize>, Vec<usize>) = (0..order.len()).partition(|&i| self.core.contains(&order[i]));
+        for i in first.into_iter().chain(rest) {
+            if e.full() && !e.must.contains(&order[i]) {
+                continue;
+            }
+            let v = &self.visited[&order[i]];
+            e.object(structs[i], order[i], v)?;
             for c in &v.collections {
                 collections.insert(c.at, c.clone());
             }
         }
-        if !collections.is_empty() {
+        if !collections.is_empty() && !e.full() {
             let g = e.ir.struct_(0, "global_heaps", NO_INDEX, 0, None)?;
             for (k, c) in collections.values().enumerate() {
                 e.collection(g, k as u64, c)?;
             }
         }
-        // the image's chunks, by the elements that hold them
-        let mut refs = Vec::new();
-        for ch in &self.chunks {
-            let el = e.chunk_el.get(&(ch.dataset, ch.index)).copied();
-            let Some(el) = el else {
-                return Err(format!("internal: no element for the chunk {} at {}+{}", ch.key, ch.at, ch.size));
-            };
-            refs.push(json!([ch.key, el]));
+        // the image's datasets, by the structs that hold their chunks (None: no chunk allocated)
+        let mut images = Vec::new();
+        for im in &self.image_sets {
+            let el = e.chunks_of.get(&im.at).map_or(J::Null, |&x| json!(x));
+            images.push(json!([im.r, im.t, im.c, el, im.grid]));
         }
         let mut ir = e.ir;
         ir.sort_values();
         check::finish(&mut ir)?;
         let mut facts = self.facts.take().unwrap_or(J::Null);
-        facts["chunks"] = J::Array(refs);
+        facts["images"] = J::Array(images);
         facts["objects"] = json!(order.len());
         facts["requests"] = json!(self.requests);
         facts["requested"] = json!(self.requested);
@@ -1060,8 +1039,13 @@ struct Meta {
 struct Emit<'a> {
     ir: Ir,
     h: &'a H5,
-    /// (dataset header, row-major chunk index) -> its data element
-    chunk_el: HashMap<(u64, u128), u32>,
+    /// dataset header -> the struct of its chunks
+    chunks_of: HashMap<u64, u32>,
+    /// the elements the walk describes, at most (the IR's records and the mirror's rows
+    /// leave room for the gaps between them): past it, structures are not described
+    room: u64,
+    /// the image's datasets, whose chunks are described whatever the room
+    must: HashSet<u64>,
 }
 
 type Res<T> = Result<T, String>;
@@ -1075,6 +1059,10 @@ fn num_type(code: char, size: u64, big: bool) -> String {
 }
 
 impl Emit<'_> {
+    fn full(&self) -> bool {
+        self.ir.len() as u64 >= self.room
+    }
+
     /// A value of `ty` over `[o, o + n)`, with its bytes when the view may show it.
     fn val(&mut self, parent: u32, name: &str, nidx: u64, ty: &str, o: u64, n: u64) -> Res<Option<u32>> {
         if n == 0 || !self.h.src.within(o, n) {
@@ -1139,6 +1127,9 @@ impl Emit<'_> {
             _ => "{type:u1,size:<u2,flags:u1}",
         };
         for (k, m) in h.msgs.iter().enumerate() {
+            if self.full() {
+                break;
+            }
             let s = self.ir.struct_(ms, "", k as u64, 0, None)?;
             self.val(s, "header", NO_INDEX, mty, m.head, h.mh)?;
             let n = m.data.len() as u64;
@@ -1397,14 +1388,25 @@ impl Emit<'_> {
                         groups.get_mut(key).unwrap().1 += 1;
                     }
                 }
-                if !ch.list.is_empty() {
+                let image = self.must.contains(&at);
+                if !image && ds.index == Some(hdf5::Index::Implicit) && !ch.list.is_empty() {
+                    // an implicit index's chunks lie one after the other: one element for them all
+                    let first = ch.list.iter().map(|c| c.1).min().unwrap();
+                    let end = ch.list.iter().map(|c| c.1 + c.2).max().unwrap();
+                    let form = json!({"geometry": {"chunk": ds.chunk, "size": ds.datatype.size, "implicit": true}, "codec": {"filters": ds.filters}, "recipe": [["src", 0, null]]});
+                    self.ir.data(o, "data", NO_INDEX, 0, (first, end - first), &form.to_string())?;
+                } else if !ch.list.is_empty() && (image || !self.full()) {
                     let s = self.ir.struct_(o, "chunks", NO_INDEX, 0, None)?;
+                    self.chunks_of.insert(at, s);
                     let base = json!({"geometry": {"chunk": ds.chunk, "size": ds.datatype.size}, "codec": {"filters": ds.filters}, "recipe": [["src", 0, null]]});
                     let plain = base.to_string();
                     let mut sorted: Vec<(u128, &(Vec<u64>, u64, u64, u32))> =
                         ch.list.iter().map(|c| (hdf5::ravel(&c.0, &ds.grid), c)).collect();
                     sorted.sort_by_key(|x| x.0);
                     for (idx, (_, a, n, mask)) in sorted {
+                        if !image && self.full() {
+                            break;
+                        }
                         let form = if *mask == 0 {
                             plain.clone()
                         } else {
@@ -1412,8 +1414,7 @@ impl Emit<'_> {
                             f["codec"]["mask"] = json!(mask);
                             f.to_string()
                         };
-                        let el = self.ir.data(s, "", idx as u64, 0, (*a, *n), &form)?;
-                        self.chunk_el.insert((at, idx), el);
+                        self.ir.data(s, "", idx as u64, 0, (*a, *n), &form)?;
                     }
                 }
             }

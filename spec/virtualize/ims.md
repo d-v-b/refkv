@@ -322,7 +322,7 @@ whose type is not given is `bytes[n]`.
 | `…/index`, `…/huge_index` | struct | | a version 2 B-tree: its `header` (`{signature:ascii[4],version:u1,type:u1,node_size:<u4,record_size:<u2,depth:<u2,split:u1,merge:u1,root:<u8,root_records:<u2,records:<u8,checksum:<u4}`) and `nodes/<k>`, each node's records, child pointers and checksum |
 | `objects/<i>/index` | struct | | a chunked dataset's chunk index ([spec/virtualize.md §8.5](#85-datasets-and-chunks)): its structures by kind, each in index order: `headers/<k>` (a fixed array's, extensible array's or version 2 B-tree's header), `nodes/<k>` (version 1 or 2 B-tree nodes), `index_blocks/<k>`, `super_blocks/<k>`, `data_blocks/<k>` and `pages/<k>` |
 | `objects/<i>/chunks/<n>` | data | | the allocated chunk of grid index `n` (the row-major index of its grid coordinates, the last dimension fastest): form geometry `{"chunk": [...], "size": s}` (the chunk shape and the datatype's size), codec `{"filters": [...]}` (the pipeline's identifiers, and `"mask"` when the chunk's filter mask is not 0), recipe the whole chunk |
-| `objects/<i>/data` | data | | a contiguous dataset's allocated data: form geometry `{"shape": [...], "size": s}`, codec `{"filters": []}`, recipe the whole range |
+| `objects/<i>/data` | data | | a contiguous dataset's allocated data: form geometry `{"shape": [...], "size": s}`, codec `{"filters": []}`, recipe the whole range; or, for a dataset with an implicit chunk index that is not one of the image's, its chunks, which lie one after the other, as one range from the first to the end of the last: geometry `{"chunk": [...], "size": s, "implicit": true}` |
 | `global_heaps/<k>` | struct | | a global heap collection that an attribute's variable-length or region reference elements name ([spec/virtualize.md §8.9](#89-source-metadata-structures)), in address order: its `header` (`{signature:ascii[4],version:u1,reserved:bytes[3],size:<u8}`), `objects/<p>` (the `p`th object of the collection: its `header`, `{index:<u2,references:<u2,reserved:bytes[4],size:<u8}`, and `data`) and `free` (the free space's `header`) |
 | `gaps/<offset>` | gap | | any byte no element claims |
 
@@ -370,6 +370,13 @@ messages, its chunk index or a global heap collection) is not described.
   chunks (any filters, any filter masks); and the global heap collections
   that its attributes' variable-length (16-byte) or region reference
   (12-byte) elements name, at most 4,096 per object.
+
+The walk describes at most `2^21 + floor(size / 8)` elements (so that the
+IR's records and the mirror's rows, [conventions §8.3](../conventions.md#83-column-runs),
+leave room for the gaps between them): the objects of level 0 first, then
+the others in the order below, and an object's messages and chunks in order,
+each while the IR holds fewer; the chunks of the image's `Data` datasets are
+described whatever the count. What is not described is a gap.
 
 The objects are numbered (`objects/<i>`) depth first from the root group,
 each group's hard links taken in ascending byte order of their names, each
