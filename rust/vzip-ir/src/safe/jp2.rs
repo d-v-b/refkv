@@ -13,7 +13,6 @@ use crate::fed::Fed;
 use crate::rules::{self, Rules, flag, num, text};
 
 pub const MAX_BOXES: usize = 1024;
-pub const MAX_REST: u64 = 1 << 16;
 pub const MAX_TAIL: u64 = 1 << 12;
 const BLOCK: u64 = 1 << 16;
 const SMALL_TILE: u64 = 1 << 14;
@@ -219,8 +218,9 @@ fn main_header(rules: &Rules, c: &Cache, boxes: Vec<Jp2Box>, c0: u64) -> W<Codes
     let rest_at = c0 + 4 + lsiz;
     loop {
         // the rest's bound, before reading on: a long run of segments is refused at 64 KiB
-        if pos - rest_at > rules.limit("max_rest") as u64 {
-            return Err("a band file's main header is more than 65536 bytes".to_string().into());
+        let max_rest = rules.limit("max_rest") as u64;
+        if pos - rest_at > max_rest {
+            return Err(format!("a band file's main header is more than {max_rest} bytes").into());
         }
         if pos + 2 > c1 {
             return Err("a band file's main header has no SOT".to_string().into());
