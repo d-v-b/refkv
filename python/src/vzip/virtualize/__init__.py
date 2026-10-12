@@ -1,8 +1,9 @@
 """Virtualizing image files and N5 / Zarr v2 stores in vzip archives (spec/virtualize.md).
 
-TIFF, ND2 and CZI files go through the IR (`vzip.ir`): the Rust core's sans-IO
-parser of the format, driven by its read planner over this package's I/O, projected
-to the convention's hierarchy and mirrored under `vzip_source` by the Rust core.
+TIFF, ND2 and CZI files, and Zarr v2 stores, go through the IR (`vzip.ir`): the Rust core's
+sans-IO parser of the format, driven by its read planner (a store's, by `vzip.ir.store`) over
+this package's I/O, projected to the convention's hierarchy and mirrored under `vzip_source` by
+the Rust core.
 Every other profile is a subpackage: ndpi, dicom, nifti, ims (file inputs), n5,
 zarr2, ome_zarr (store inputs, spec/virtualize/n5.md, spec/virtualize/zarr2.md and
 spec/virtualize/ome-zarr.md), and safe (Sentinel-2 SAFE products, spec/virtualize/safe.md: a
@@ -48,8 +49,8 @@ from vzip.virtualize.ims import virtualize_ims
 from vzip.virtualize.n5 import virtualize_n5
 from vzip.virtualize.ome_zarr import declares_04, virtualize_ome_zarr
 from vzip.virtualize.safe import SafeOutput, is_zip, virtualize_safe_store, virtualize_safe_zip
+from vzip.ir.store import StoreIrOutput
 from vzip.virtualize.store import WORKERS, StoreOutput, choose_profile, object_url, open_store
-from vzip.virtualize.zarr2 import virtualize_zarr2
 
 # The HDF5 signature, which starts Imaris IMS files (§1.2
 # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>).
@@ -66,7 +67,7 @@ __all__ = ["Output", "Rejected", "StoreOutput", "virtualize", "virtualize_store"
 
 def virtualize_store(location: str, url: str | None = None, *, max_objects: int | None = None,
                      checksums: bool = False, workers: int = WORKERS,
-                     policy: Policy | None = None) -> tuple[str, StoreOutput | SafeOutput]:
+                     policy: Policy | None = None) -> tuple[str, StoreOutput | StoreIrOutput | SafeOutput]:
     """(format, output) for the store at `location` (§1.4
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), its documents
     read by up to `workers` requests at a time; with `checksums`, the output's ranges
@@ -83,7 +84,9 @@ def virtualize_store(location: str, url: str | None = None, *, max_objects: int 
         elif declares_04(store):
             fmt, out = "ome-zarr", virtualize_ome_zarr(store)
         else:
-            fmt, out = fmt, virtualize_zarr2(store)
+            from vzip.ir.store import run_store
+
+            fmt, out = fmt, run_store(store, "zarr2")[0]
     finally:
         store.close()
     if checksums:

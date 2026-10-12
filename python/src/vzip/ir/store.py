@@ -13,19 +13,21 @@ directory), and drives the run:
 - `drive_store(run, store)`: the loop. Each `poll()` is a batch: one request per object (its
   spans, a whole object being one span), made at most `store.workers` at a time (the
   concurrency of #37's prefetch of documents), then `complete()`.
-- `virtualize_store(location, url, fmt)`: the store listed under the policy, run, and the
+- `run_store(store, fmt)`: a listed store run, and its output; `virtualize_store(location,
+  url, fmt)`: the store listed under the policy, then run, and the
   output (`StoreIrOutput`), whose references to objects become one url source per object
   referenced, its size pinned, in order of the entries' keys (spec/virtualize.md §1.4
   <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>).
 
-No production profile uses it yet: `zarr2-proto` (rust/vzip-ir/src/proto_zarr2.rs) is the
-only store format of the core, a prototype.
+The core's store formats: `zarr2` (rust/vzip-ir/src/zarr2.rs, spec/virtualize/zarr2.md), which
+`vzip.virtualize` sends Zarr v2 stores to.
 """
 
 from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
@@ -41,8 +43,23 @@ def listing(store: Store) -> list[tuple[str, int]]:
 def _fetch(store: Store, key: str, spans: list[tuple[int, int]]) -> list[bytes]:
     size = store.objects[key]
     if len(spans) == 1 and spans[0] == (0, size):
-        return [store.read(key)]
+        return [_whole(store, key)]
     return [store.read_range(key, a, b - a) for a, b in spans]
+
+
+def _whole(store: Store, key: str) -> bytes:
+    """The object `key`, from what the store read already when it has it (a document kept, or
+    read ahead by `Store.prefetch`, as choosing the profile does), else read now: so no
+    document is read twice."""
+    r = store._kept.pop(key, None) if store._kept is not None else None
+    if r is None and store._prefetch is not None:
+        r = store._prefetch.take(key)
+    if r is None:
+        return store.read(key)
+    ok, value = r
+    if not ok:
+        raise value
+    return value
 
 
 def drive_store(run, store: Store, workers: int | None = None) -> None:
@@ -98,6 +115,25 @@ class StoreIrOutput:
     refs: dict[str, tuple[str, int]] = field(default_factory=dict)
     lazy: tuple[str, ...] = ("vzip_source/",)
     summary: dict = field(default_factory=dict)
+    # The CRC-32C of a url source's bytes, when the references are to carry checksums
+    # (spec/archive.md §4.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>);
+    # set by vzip.virtualize.virtualize_store.
+    checksum: Callable[[str, int, int], int] | None = None
+
+    @property
+    def docs(self) -> dict[str, object]:
+        """The JSON documents (the entries whose keys end in `.json`), parsed."""
+        return {k: json.loads(v) for k, v in self.entries.items() if k.endswith(".json")}
+
+    @property
+    def chunks(self) -> list[tuple[str, int]]:
+        """The references as (entry key, size), in order of the entries' keys."""
+        return [(k, self.refs[k][1]) for k in sorted(self.refs, key=lambda k: k.encode())]
+
+    @property
+    def origins(self) -> dict[str, str]:
+        """The object key of each reference whose entry key is not its object's."""
+        return {k: o for k, (o, _) in self.refs.items() if k != o}
 
     @property
     def sources(self) -> list[str]:
@@ -108,7 +144,7 @@ class StoreIrOutput:
         from vzip.archive import VZipWriter
 
         with open(out_path, "wb") as fh:
-            w = VZipWriter(fh, page_size=1 << 16)
+            w = VZipWriter(fh, page_size=1 << 16, checksum=self.checksum)
             keys = sorted(self.refs, key=lambda k: k.encode())
             w.add_url_refs(((k, object_url(self.url, self.refs[k][0]), self.refs[k][1]) for k in keys), pin_size=True)
             for key in sorted(self.entries):
@@ -132,17 +168,15 @@ def from_rust(t) -> StoreIrOutput:
     return out
 
 
-def virtualize_store(location: str, url: str | None = None, fmt: str = "zarr2-proto", mirror: bool = True,
-                     policy=None, workers: int | None = None, opener=None):
-    """(output, IR, run counts) of the store at `location` (an http(s) store URL, listed and
-    read under `policy`, or a local directory served at `url`), parsed by the core's store
-    format `fmt`."""
+def run_store(store: Store, fmt: str = "zarr2", mirror: bool = True):
+    """(output, IR, run counts) of the listed `store`, parsed by the core's store format `fmt`:
+    its ignored keys recorded, its objects read at most `store.workers` at a time, and the
+    summary's `listingRequests` the store's requests."""
     import vzip_ir
 
-    kw = {} if workers is None else {"workers": workers}
-    store = open_store(location, url, policy=policy, opener=opener, **kw)
     try:
         run = vzip_ir.StoreRun(fmt, listing(store), max(1, store.workers))
+        run.ignore(list(store.ignored))
     except vzip_ir.Rejected as e:
         raise Rejected(str(e)) from None
     drive_store(run, store)
@@ -151,4 +185,19 @@ def virtualize_store(location: str, url: str | None = None, fmt: str = "zarr2-pr
         t, ir = run.output(store.url, mirror)
     except vzip_ir.Rejected as e:
         raise Rejected(str(e)) from None
-    return from_rust(t), ir, stats
+    out = from_rust(t)
+    out.summary["listingRequests"] = store.requests
+    return out, ir, stats
+
+
+def virtualize_store(location: str, url: str | None = None, fmt: str = "zarr2", mirror: bool = True,
+                     policy=None, workers: int | None = None, opener=None):
+    """(output, IR, run counts) of the store at `location` (an http(s) store URL, listed and
+    read under `policy`, or a local directory served at `url`), parsed by the core's store
+    format `fmt`."""
+    kw = {} if workers is None else {"workers": workers}
+    store = open_store(location, url, policy=policy, opener=opener, **kw)
+    try:
+        return run_store(store, fmt, mirror)
+    finally:
+        store.close()
