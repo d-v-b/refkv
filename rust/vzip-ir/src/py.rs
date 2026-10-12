@@ -618,9 +618,77 @@ impl PyRun {
     }
 }
 
+/// A store run (src/store.rs): `StoreRun(format, listing, concurrency)` over the listing
+/// [(key, size)]; the host loops `poll()` (the requests to make now, concurrently: (object
+/// index, key, spans [(start, end)])) and `complete(k, parts)` (each span's bytes) until
+/// `poll()` gives None; then `output(url, mirror)` or `finish()`.
+#[pyclass(name = "StoreRun", module = "vzip_ir")]
+pub struct PyStoreRun {
+    r: Option<crate::store::StoreRun>,
+}
+
+impl PyStoreRun {
+    fn get(&mut self) -> PyResult<&mut crate::store::StoreRun> {
+        self.r.as_mut().ok_or_else(|| PyValueError::new_err("finished"))
+    }
+}
+
+#[pymethods]
+impl PyStoreRun {
+    #[new]
+    fn new(format: &str, listing: Vec<(String, u64)>, concurrency: usize) -> PyResult<Self> {
+        let f = crate::store::StoreFormat::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no store format {format:?}")))?;
+        let r = crate::store::StoreRun::new(f, listing, concurrency).map_err(Rejected::new_err)?;
+        Ok(PyStoreRun { r: Some(r) })
+    }
+    #[allow(clippy::type_complexity)]
+    fn poll(&mut self, py: Python<'_>) -> PyResult<Option<Vec<(usize, String, Vec<(u64, u64)>)>>> {
+        let r = self.get()?;
+        let got = py.detach(|| r.poll()).map_err(Rejected::new_err)?;
+        Ok(got.map(|v| v.into_iter().map(|q| (q.object, q.key, q.spans)).collect()))
+    }
+    fn complete(&mut self, k: usize, parts: Vec<Vec<u8>>) -> PyResult<()> {
+        self.get()?.complete(k, parts).map_err(Rejected::new_err)
+    }
+    /// The run's counts (JSON).
+    fn stats(&mut self) -> PyResult<String> {
+        Ok(self.get()?.stats_json().to_string())
+    }
+    #[pyo3(signature = (url, mirror=true))]
+    fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool) -> PyResult<(Bound<'py, PyAny>, PyIr)> {
+        let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
+        let format = r.format;
+        let (o, ir) = py
+            .detach(|| -> Result<_, String> {
+                let (ir, facts, stats) = r.finish()?;
+                Ok((crate::store::store_output(format, &ir, &facts, stats, url, mirror)?, ir))
+            })
+            .map_err(Rejected::new_err)?;
+        Ok((out_py(py, &o)?, PyIr::new(ir)))
+    }
+    fn finish(&mut self, py: Python<'_>) -> PyResult<(PyIr, String, String)> {
+        let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
+        let (ir, facts, stats) = py.detach(|| r.finish()).map_err(Rejected::new_err)?;
+        Ok((PyIr::new(ir), facts.to_string(), stats.to_string()))
+    }
+}
+
+/// The rebuild of a store's mirror (conventions §8.9
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>) from an archive's
+/// entries (`get(key)`: bytes or None): every object as (key, size, bytes), the bytes of a held
+/// object rebuilt from its leaves, None for a referenced or empty one; or Rejected.
+#[pyfunction]
+#[allow(clippy::type_complexity)]
+fn rebuild_store<'py>(py: Python<'py>, get: Bound<'py, PyAny>) -> PyResult<Vec<(String, u64, Option<Bound<'py, PyBytes>>)>> {
+    let g = |k: &str| -> Option<Vec<u8>> { get.call1((k,)).ok()?.extract::<Option<Vec<u8>>>().ok()? };
+    let v = crate::mirror::rebuild_store(&g).map_err(Rejected::new_err)?;
+    Ok(v.into_iter().map(|(k, n, b)| (k, n, b.map(|b| PyBytes::new(py, &b)))).collect())
+}
+
 /// An `Out` as Python objects: (url, entries [(key, bytes)], refs [(key, parts)],
 /// data sources [bytes], lazy prefixes [str], summary JSON); a part is (offset,
-/// length) of source 0, (source, offset, length), or bytes.
+/// length) of source 0, (source, offset, length), bytes, or ("object", key, offset, length) of a
+/// store's object.
 fn out_py<'py>(py: Python<'py>, o: &crate::out::Out) -> PyResult<Bound<'py, PyAny>> {
     use crate::out::Part;
     let entries = PyList::empty(py);
@@ -635,6 +703,7 @@ fn out_py<'py>(py: Python<'py>, o: &crate::out::Out) -> PyResult<Bound<'py, PyAn
                 Part::Src(a, n) => ps.append((*a, *n))?,
                 Part::Data(s, a, n) => ps.append((*s, *a, *n))?,
                 Part::Lit(b) => ps.append(PyBytes::new(py, b))?,
+                Part::Obj(k, a, n) => ps.append(("object", k.as_str(), *a, *n))?,
             }
         }
         refs.append((k.as_str(), ps))?;
@@ -712,6 +781,8 @@ fn vzip_ir(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCzi>()?;
     m.add_class::<PyTiff>()?;
     m.add_class::<PyRun>()?;
+    m.add_class::<PyStoreRun>()?;
+    m.add_function(wrap_pyfunction!(rebuild_store, m)?)?;
     m.add_function(wrap_pyfunction!(plan_spans, m)?)?;
     m.add_function(wrap_pyfunction!(project, m)?)?;
     m.add_function(wrap_pyfunction!(mirror, m)?)?;
