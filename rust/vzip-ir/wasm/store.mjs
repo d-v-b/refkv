@@ -3,14 +3,14 @@
 // each batch of object reads (one request per object, its spans) served from the files.
 // Prints one JSON line per store: the output's entries (key and SHA-256 of the bytes) and
 // references, or the rejection, and the batches, requests and bytes read.
-// Usage: node rust/vzip-ir/wasm/store.mjs [--wasm <vzip_ir.wasm>] [--format zarr2-proto] <dir>...
+// Usage: node rust/vzip-ir/wasm/store.mjs [--wasm <vzip_ir.wasm>] [--format zarr2] <dir>...
 import { readFileSync, readdirSync, statSync, openSync, readSync, closeSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 
 const args = process.argv.slice(2);
 let wasmPath = new URL("../target/web/vzip_ir.wasm", import.meta.url);
-let format = "zarr2-proto";
+let format = "zarr2";
 for (;;) {
   if (args[0] === "--wasm") { wasmPath = args[1]; args.splice(0, 2); continue; }
   if (args[0] === "--format") { format = args[1]; args.splice(0, 2); continue; }

@@ -43,36 +43,35 @@ pub trait StoreParser: Send + Sync {
     fn finish(self: Box<Self>) -> Res<(Ir, J)>;
 }
 
-/// The store formats the core reads. Only the prototype today; the store profiles (N5, Zarr
-/// v2, OME-Zarr, SAFE directories) join it as they move onto the IR.
+/// The store formats the core reads (the store profiles move onto the IR one by one).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum StoreFormat {
-    /// A Zarr v2 store's listing and documents, every document held whole as one value
-    /// (`proto_zarr2.rs`): the prototype of the store IR. No production path uses it.
-    Zarr2Proto,
+    /// A Zarr v2 store (`zarr2.rs`; spec/virtualize/zarr2.md
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md>).
+    Zarr2,
 }
 
 impl StoreFormat {
     pub fn from_name(s: &str) -> Option<StoreFormat> {
         match s {
-            "zarr2-proto" => Some(StoreFormat::Zarr2Proto),
+            "zarr2" => Some(StoreFormat::Zarr2),
             _ => None,
         }
     }
     pub fn name(self) -> &'static str {
         match self {
-            StoreFormat::Zarr2Proto => "zarr2-proto",
+            StoreFormat::Zarr2 => "zarr2",
         }
     }
     /// The convention the mirror declares.
     pub fn profile(self) -> &'static str {
         match self {
-            StoreFormat::Zarr2Proto => "zarr2",
+            StoreFormat::Zarr2 => "zarr2",
         }
     }
     fn parser(self, ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Box<dyn StoreParser>> {
         match self {
-            StoreFormat::Zarr2Proto => Ok(Box::new(crate::proto_zarr2::Zarr2Proto::new(ir, objects, keys))),
+            StoreFormat::Zarr2 => Ok(Box::new(crate::zarr2::Zarr2::new(ir, objects, keys)?)),
         }
     }
 }
@@ -115,6 +114,7 @@ pub struct StoreRun {
     bytes_limit: u64,
     pub stats: StoreStats,
     done: bool,
+    ignored: Vec<String>,
 }
 
 impl StoreRun {
@@ -147,7 +147,18 @@ impl StoreRun {
             concurrency: concurrency.max(1),
             stats: StoreStats::default(),
             done: false,
+            ignored: Vec::new(),
         })
+    }
+
+    /// The relative keys of the listed objects the store reader ignored and recorded
+    /// (spec/virtualize.md §1.4
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): not objects
+    /// of the IR; the facts carry them (`ignored`, in the order of their UTF-8 bytes) to the
+    /// projection, which records them as its convention says.
+    pub fn ignore(&mut self, keys: Vec<String>) {
+        self.ignored = keys;
+        self.ignored.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
     }
 
     /// The requests to make now, concurrently; None when the parser is done.
@@ -262,7 +273,10 @@ impl StoreRun {
             return Err("the run is not done".into());
         }
         let p = self.parser.take().ok_or("internal: no parser")?;
-        let (mut ir, facts) = p.finish()?;
+        let (mut ir, mut facts) = p.finish()?;
+        if let Some(m) = facts.as_object_mut().filter(|_| !self.ignored.is_empty()) {
+            m.insert("ignored".into(), json!(self.ignored));
+        }
         ir.sort_values();
         let kids = ir.has_children();
         // objects that hold bytes already (the parser's) need no whole read
@@ -292,8 +306,8 @@ impl StoreRun {
                "requests": s.requests, "spans": s.spans, "bytes": s.bytes, "listed": self.keys.len()})
     }
 
-    /// Finishes and mirrors: the output (the projection is the format's; the prototype has
-    /// none, so its output is the mirror under `vzip_source`).
+    /// Finishes and mirrors: the output (the format's projection, and the mirror under
+    /// `vzip_source` when `mirror`).
     pub fn into_output(self, url: &str, mirror: bool) -> Res<crate::out::Out> {
         let format = self.format;
         let (ir, facts, stats) = self.finish()?;
@@ -302,22 +316,20 @@ impl StoreRun {
 }
 
 /// The output of a store parse: the format's projection, the mirror under `vzip_source` when
-/// `mirror`, and a summary with the run's counts, the IR's element and object counts and what
-/// the mirror's table folded.
-pub fn store_output(format: StoreFormat, ir: &Ir, _facts: &J, stats: J, url: &str, mirror: bool) -> Res<crate::out::Out> {
-    let mut out = crate::out::Out::new(url);
-    if format == StoreFormat::Zarr2Proto {
-        // the prototype's projection: each referenced object at its own key, whole
-        let kids = ir.has_children();
-        for o in ir.sources().objects {
-            let ou = o as usize;
-            if !kids[ou] && ir.len[ou] > 0 {
-                let k = ir.key(o);
-                out.refs(&k, vec![crate::out::Part::Obj(k.clone(), 0, ir.len[ou])]);
-            }
-        }
+/// `mirror`, and a summary: the projection's, with the run's counts, the IR's element and
+/// object counts and what the mirror's table folded.
+pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str, mirror: bool) -> Res<crate::out::Out> {
+    let mut out = match format {
+        StoreFormat::Zarr2 => crate::project::zarr2::project(ir, facts, url, format.profile())?,
+    };
+    let mut summary = std::mem::take(&mut out.summary);
+    if let Some(m) = summary.as_object_mut() {
+        m.insert("format".into(), json!(format.name()));
+        m.insert("reads".into(), stats);
+        m.insert("elements".into(), json!(ir.len()));
+        m.insert("objects".into(), json!(ir.objects));
     }
-    out.summary = json!({"format": format.name(), "reads": stats, "elements": ir.len(), "objects": ir.objects});
+    out.summary = summary;
     if mirror {
         let folded = crate::mirror::mirror(ir, &mut out, format.profile())?;
         out.summary["folded"] = folded.json();

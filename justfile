@@ -22,7 +22,7 @@ ir-build:
     uv run --with maturin env VIRTUAL_ENV="$PWD/.venv" maturin develop --release -m rust/vzip-ir/Cargo.toml
 
 # Build the IR core for the browser (wasm32, without the Python bindings) and run its ND2,
-# TIFF and CZI parsers, and its prototype store format, from Node on fixtures
+# TIFF and CZI parsers, and its Zarr v2 store format, from Node on fixtures
 ir-wasm:
     rust/vzip-ir/wasm/build.sh
     node rust/vzip-ir/wasm/nd2.mjs fixtures/nd2/nd2_tz_uint16.nd2

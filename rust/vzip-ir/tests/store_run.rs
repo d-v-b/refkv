@@ -43,7 +43,7 @@ fn bytes(k: usize) -> Vec<u8> {
 }
 
 fn run(batches: Vec<Vec<(usize, u64, u64)>>, hold: Vec<usize>) -> Res<StoreRun> {
-    StoreRun::with(StoreFormat::Zarr2Proto, keys(), 4, &|ir, objects, _| {
+    StoreRun::with(StoreFormat::Zarr2, keys(), 4, &|ir, objects, _| {
         Ok(Box::new(Asks { ir: Some(ir), objects, batches: batches.clone(), hold: hold.clone(), fed: Vec::new() }))
     })
 }
@@ -132,6 +132,6 @@ fn a_held_object_not_read_whole_is_refused() {
 
 #[test]
 fn a_listing_the_ir_cannot_hold_is_refused() {
-    let e = StoreRun::new(StoreFormat::Zarr2Proto, vec![("a/./b".into(), 1)], 4).err().unwrap();
+    let e = StoreRun::new(StoreFormat::Zarr2, vec![("a/./b".into(), 1)], 4).err().unwrap();
     assert_eq!(e, "key \"a/./b\" has an empty, . or .. segment");
 }

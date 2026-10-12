@@ -620,7 +620,8 @@ impl PyRun {
 /// A store run (src/store.rs): `StoreRun(format, listing, concurrency)` over the listing
 /// [(key, size)]; the host loops `poll()` (the requests to make now, concurrently: (object
 /// index, key, spans [(start, end)])) and `complete(k, parts)` (each span's bytes) until
-/// `poll()` gives None; then `output(url, mirror)` or `finish()`.
+/// `poll()` gives None; then `output(url, mirror)` or `finish()`. `ignore(keys)` gives the
+/// ignored keys the projection records.
 #[pyclass(name = "StoreRun", module = "vzip_ir")]
 pub struct PyStoreRun {
     r: Option<crate::store::StoreRun>,
@@ -652,6 +653,12 @@ impl PyStoreRun {
     /// The run's counts (JSON).
     fn stats(&mut self) -> PyResult<String> {
         Ok(self.get()?.stats_json().to_string())
+    }
+    /// The relative keys the store reader ignored and recorded (`Store.ignored`), which the
+    /// projection records as its convention says.
+    fn ignore(&mut self, keys: Vec<String>) -> PyResult<()> {
+        self.get()?.ignore(keys);
+        Ok(())
     }
     #[pyo3(signature = (url, mirror=true))]
     fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool) -> PyResult<(Bound<'py, PyAny>, PyIr)> {

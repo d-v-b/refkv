@@ -1,6 +1,6 @@
 //! The mirror of a store IR (conventions §8.9
-//! <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), on the prototype
-//! Zarr v2 store format (src/proto_zarr2.rs) over the Zarr v2 and OME-Zarr fixture stores and
+//! <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), on the Zarr v2
+//! store format (src/zarr2.rs) over the Zarr v2 and OME-Zarr fixture stores it accepts and
 //! large synthetic stores: the table loads back to the canonical IR, keeps the invariants,
 //! rebuilds every held object byte for byte and the listing, is canonical and a fixed point,
 //! its view is the one it rebuilds, and the chunk objects of an array fold into column runs.
@@ -51,13 +51,20 @@ fn no_source(_: u64, _: u64) -> Result<Vec<u8>, String> {
     Err("a store's mirror reads no source".into())
 }
 
-/// The mirror of a store held in memory, and its IR.
-fn mirrored(files: &BTreeMap<String, Vec<u8>>) -> (Out, Ir) {
+/// The mirror of a store held in memory, its IR and the documents the format read; or the
+/// rejection.
+fn try_mirrored(files: &BTreeMap<String, Vec<u8>>) -> Result<(Out, Ir, Vec<String>), String> {
     let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
     let bytes: Vec<&Vec<u8>> = files.values().collect();
-    let (ir, _, _) = run_store(StoreFormat::Zarr2Proto, keys, &|k| bytes[k].clone()).unwrap();
+    let (ir, facts, _) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone())?;
     let mut out = Out::new("https://example.org/s/");
     mirror(&ir, &mut out, "zarr2").unwrap();
+    let docs = facts["documents"].as_array().unwrap().iter().map(|d| d.as_str().unwrap().to_string()).collect();
+    Ok((out, ir, docs))
+}
+
+fn mirrored(files: &BTreeMap<String, Vec<u8>>) -> (Out, Ir) {
+    let (out, ir, _) = try_mirrored(files).unwrap();
     (out, ir)
 }
 
@@ -68,10 +75,11 @@ fn table_bytes(out: &Out) -> usize {
 
 #[test]
 fn a_store_s_mirror_rebuilds_its_documents_and_listing_and_is_canonical() {
-    let mut held = 0;
+    let (mut held, mut accepted) = (0, 0);
     for p in stores() {
         let files = walk(&p);
-        let (out, ir) = mirrored(&files);
+        let Ok((out, ir, docs)) = try_mirrored(&files) else { continue };
+        accepted += 1;
         let t = table_from_out(&out).unwrap();
         assert_eq!(t.objects, Some(files.len() as u64), "{p:?}");
         let back = load(&t, &mut no_source).unwrap_or_else(|e| panic!("{p:?}: {e}"));
@@ -84,8 +92,7 @@ fn a_store_s_mirror_rebuilds_its_documents_and_listing_and_is_canonical() {
         sorted.sort();
         assert_eq!(sorted, files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect::<Vec<_>>(), "{p:?}");
         for (k, _, b) in &rebuilt {
-            let doc = [".zarray", ".zgroup", ".zattrs"].contains(&k.rsplit('/').next().unwrap()) && !files[k].is_empty();
-            assert_eq!(b.is_some(), doc, "{p:?} {k}");
+            assert_eq!(b.is_some(), docs.contains(k), "{p:?} {k}");
             if let Some(b) = b {
                 assert!(b == &files[k], "{p:?} {k}");
                 held += 1;
@@ -96,7 +103,7 @@ fn a_store_s_mirror_rebuilds_its_documents_and_listing_and_is_canonical() {
         let keys: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
         assert_eq!(view_problem(&keys, &entry(&out), &mut no_source), None, "{p:?}");
     }
-    assert!(held > 50, "{held}");
+    assert!(accepted > 20 && held > 50, "{accepted} stores, {held} documents");
 }
 
 /// A Zarr v2 store of one array whose chunks are `rows × cols` objects, keys `i.j` (`sep`
@@ -124,9 +131,11 @@ fn the_chunk_objects_of_an_array_fold_into_column_runs() {
         let dt = t0.elapsed();
         let summary = &out.summary;
         let t = table_from_out(&out).unwrap();
-        assert_eq!(t.cruns.len() as u64, cruns, "{rows}x{cols} {sep} {summary}");
-        // member 0 of each run stored (a row of chunks for "/", one chunk for "."), not every object
-        assert!((t.kind.len() as u64) < 16 + if sep == "/" { cols + 1 } else { 2 * rows }, "{rows}x{cols} {sep}: {} rows stored", t.kind.len());
+        // and one of the .zarray's gaps between members
+        assert_eq!(t.cruns.len() as u64, cruns + 1, "{rows}x{cols} {sep} {summary}");
+        // member 0 of each run stored (a row of chunks for "/", one chunk for "."), not every
+        // object; and the two documents, a value per member and the gaps between them
+        assert!((t.kind.len() as u64) < 48 + if sep == "/" { cols + 1 } else { 2 * rows }, "{rows}x{cols} {sep}: {} rows stored", t.kind.len());
         let n = rows * cols;
         let bytes = table_bytes(&out);
         // about 8 bytes an object: its size, a column value (the listing's data)

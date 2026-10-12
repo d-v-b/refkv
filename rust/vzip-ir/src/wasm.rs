@@ -323,7 +323,7 @@ pub unsafe extern "C" fn vz_run_free(p: *mut Run) {
 
 use crate::store::{StoreFormat, StoreRun};
 
-/// A store run of the store format named `format` (UTF-8, e.g. `zarr2-proto`) over the
+/// A store run of the store format named `format` (UTF-8, e.g. `zarr2`) over the
 /// listing `listing` (the JSON `[[key, size], ...]`; both from `vz_alloc`, consumed), the
 /// host reading at most `concurrency` objects at a time: the run (a pointer, positive), or
 /// minus the length of a rejection's message at `vz_out()`.
@@ -416,6 +416,24 @@ pub unsafe extern "C" fn vz_store_output(p: *mut StoreRun, url: *mut u8, n: usiz
     match r.into_output(&url, mirror != 0) {
         Ok(o) => set_out(o.encode()) as i64,
         Err(e) => err_out(e),
+    }
+}
+
+/// The relative keys the store reader ignored and recorded (`json`: the JSON `[key, ...]`,
+/// from `vz_alloc`, consumed), which the projection records: 0, or minus the length of the
+/// error's message.
+///
+/// # Safety
+/// `p` from `vz_store_new`; `json`, `n` from `vz_alloc(n)`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_store_ignore(p: *mut StoreRun, json: *mut u8, n: usize) -> i64 {
+    let b = unsafe { Vec::from_raw_parts(json, n, n) };
+    match serde_json::from_slice::<Vec<String>>(&b) {
+        Ok(keys) => {
+            unsafe { &mut *p }.ignore(keys);
+            0
+        }
+        Err(e) => err_out(format!("the ignored keys: {e}")),
     }
 }
 

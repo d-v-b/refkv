@@ -15,6 +15,7 @@
 mod czi;
 mod nd2;
 mod tiff;
+pub mod zarr2;
 
 use crate::ir::Ir;
 use crate::out::Out;
