@@ -85,3 +85,21 @@ def test_reads_only_the_values_it_uses():
 def test_a_tiff_is_not_ndpi():
     fmt, _, _ = via_ir(str(FIXTURES / "tiff" / "jpeg_gray.tif"), "u")
     assert fmt == "tiff"
+
+
+def test_probes_decide_as_today(probes):
+    """NDPI's hostile probes (gen_probes.py): loops, huge counts and offsets are rejected where
+    today rejects them; pointer loops and overlapping extents are aliases; many intervals and
+    McuStartsHighBytes are projected as today; every IR the parser returns is checked."""
+    for path in sorted(probes.glob("ndpi_*")):
+        url = f"https://data.test/{path.name}"
+        try:
+            _, today = virtualize(str(path), url)
+        except Rejected:
+            with pytest.raises(Rejected):
+                via_ir(str(path), url, mirror=False)
+            continue
+        fmt, out, ir = via_ir(str(path), url, mirror=False)
+        assert fmt == "ndpi", path.name
+        ir.check()
+        same_hierarchy(today, out)
