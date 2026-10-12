@@ -16,19 +16,19 @@ use std::collections::HashMap;
 pub const MAX_DOCUMENT: u64 = 1 << 24;
 pub const MAX_DEPTH: usize = 256;
 
-/// A string: its text, its literal as written, and whether it holds an unpaired surrogate
-/// escape (`lone`), which the text keeps as `\u{FFFD}` and the escape's four hex digits (in
-/// lower case): two strings are one when their texts are and both or neither have one.
+/// A string: its text, its literal as written, and where its unpaired surrogate escapes are
+/// (`lone`: the byte offsets in `text` of each one's marker, `\u{FFFD}` and the escape's four
+/// hex digits in lower case): two strings are one when their texts and markers are.
 #[derive(Clone, Debug)]
 pub struct Js {
     pub text: String,
     pub raw: String,
-    pub lone: bool,
+    pub lone: Vec<u32>,
 }
 
 impl Js {
     pub fn new(s: &str) -> Js {
-        Js { text: s.to_string(), raw: serde_json::to_string(s).unwrap(), lone: false }
+        Js { text: s.to_string(), raw: serde_json::to_string(s).unwrap(), lone: Vec::new() }
     }
 }
 
@@ -58,7 +58,7 @@ impl Jv {
     /// The member `k` of an object (None when absent or not an object).
     pub fn get(&self, k: &str) -> Option<&Jv> {
         match self {
-            Jv::Obj(m) => m.iter().find(|(n, _)| !n.lone && n.text == k).map(|(_, v)| v),
+            Jv::Obj(m) => m.iter().find(|(n, _)| n.lone.is_empty() && n.text == k).map(|(_, v)| v),
             _ => None,
         }
     }
@@ -111,7 +111,7 @@ impl Jv {
     /// Sets the member `k` (replacing it in its place, or appending it).
     pub fn set(&mut self, k: &str, v: Jv) {
         if let Jv::Obj(m) = self {
-            match m.iter_mut().find(|(n, _)| !n.lone && n.text == k) {
+            match m.iter_mut().find(|(n, _)| n.lone.is_empty() && n.text == k) {
                 Some(e) => e.1 = v,
                 None => m.push((Js::new(k), v)),
             }
@@ -284,7 +284,7 @@ impl P<'_> {
     fn object(&mut self, top: bool) -> Result<Jv, String> {
         self.enter()?;
         let mut m: Vec<(Js, Jv)> = Vec::new();
-        let mut index: HashMap<(bool, String), usize> = HashMap::new();
+        let mut index: HashMap<(Vec<u32>, String), usize> = HashMap::new();
         self.ws();
         if self.peek() == Some(b'}') {
             self.at += 1;
@@ -308,10 +308,10 @@ impl P<'_> {
             if top {
                 self.members.push((k.text.clone(), start as u64, self.at as u64));
             }
-            match index.get(&(k.lone, k.text.clone())) {
+            match index.get(&(k.lone.clone(), k.text.clone())) {
                 Some(&i) => m[i].1 = v, // the last one written, in the place of the first
                 None => {
-                    index.insert((k.lone, k.text.clone()), m.len());
+                    index.insert((k.lone.clone(), k.text.clone()), m.len());
                     m.push((k, v));
                 }
             }
@@ -369,7 +369,7 @@ impl P<'_> {
         let start = self.at;
         self.at += 1;
         let mut text = String::new();
-        let mut lone = false;
+        let mut lone = Vec::new();
         loop {
             // the plain bytes up to the next quote, backslash or control character, at once (the
             // document is UTF-8, and these are ASCII, so the run ends on a character boundary)
@@ -411,7 +411,7 @@ impl P<'_> {
                                 Some(ch) => text.push(ch),
                                 None => {
                                     // an unpaired surrogate
-                                    lone = true;
+                                    lone.push(text.len() as u32);
                                     text.push('\u{FFFD}');
                                     text.push_str(&format!("{u:04x}"));
                                 }

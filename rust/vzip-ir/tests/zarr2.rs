@@ -125,6 +125,8 @@ fn documents_are_read_as_json_by_the_store_rules() {
     // an unpaired surrogate escape is a key of its own, not the text its marker reads as
     let d = json::parse(br#"{"\ud800": 1, "\ufffdd800": 2, "\uD800": 3}"#).unwrap();
     assert_eq!(d.value.text(), r#"{"\ud800":3,"\ufffdd800":2}"#);
+    let d = json::parse(br#"{"\ud800\ufffdd800": 1, "\ufffdd800\ud800": 2}"#).unwrap();
+    assert_eq!(d.value.members().len(), 2);
     let deep = format!("{}{}", "[".repeat(257), "]".repeat(257));
     assert!(json::parse(deep.as_bytes()).err().unwrap().contains("nests more than 256"));
 }
