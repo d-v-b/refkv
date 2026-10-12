@@ -19,7 +19,6 @@ import { ImageError } from "./virtualize/common.ts";
 import { isStoreUrl, virtualizeSource, virtualizeStore } from "./virtualize/index.ts";
 import { virtualizeIr } from "./virtualize/ir/run.ts";
 import { openHttpSource, type RangeSource, readerSource } from "./virtualize/ir/source.ts";
-import { N5Error } from "./virtualize/n5/virtualize.ts";
 import { openHttpStore, StoreError, StoreLimitError, StoreReadError } from "./virtualize/store.ts";
 import { Zarr2Error } from "./virtualize/zarr2/virtualize.ts";
 import { OmeZarrError } from "./virtualize/ome-zarr/virtualize.ts";
@@ -226,7 +225,6 @@ export function makeHandler(options: HandlerOptions) {
       if (e instanceof DicomError) return response(422, `DICOM: ${message}`);
       if (e instanceof NiftiError) return response(422, `NIfTI: ${message}`);
       if (e instanceof ImsError) return response(422, `IMS: ${message}`);
-      if (e instanceof N5Error) return response(422, `N5: ${message}`);
       if (e instanceof Zarr2Error) return response(422, `Zarr v2: ${message}`);
       if (e instanceof OmeZarrError) return response(422, `OME-Zarr: ${message}`);
       if (e instanceof SafeError) return response(422, `SAFE: ${message}`);

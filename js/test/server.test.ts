@@ -166,7 +166,7 @@ test("serves virtualized stores, and reports rejected ones", async () => {
   assert.equal((await chunk.arrayBuffer()).byteLength, fs.statSync(new URL("n5_cosem/em/fibsem-uint8/s0/0/0/0", root)).size);
   const rejected = await get(h, `image/${encodeId("https://data.test/b/n5_reject_compression_lz4/")}/zarr.json`);
   assert.equal(rejected.status, 422);
-  assert.match(await rejected.text(), /^N5: .*lz4/);
+  assert.match(await rejected.text(), /^store: .*lz4/); // the Rust core's N5 store format refuses it
   const missing = await get(h, `image/${encodeId("https://data.test/b/no_such_store/")}/zarr.json`);
   assert.equal(missing.status, 422);
   assert.match(await missing.text(), /^store: the store has no listing/);

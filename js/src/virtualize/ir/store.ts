@@ -14,7 +14,7 @@ import { decodeOutput } from "./run.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
 /** The core's store formats. */
-export type StoreFormat = "zarr2";
+export type StoreFormat = "zarr2" | "n5";
 
 /** The store run exports of rust/vzip-ir/src/wasm.rs. */
 interface StoreExports extends IrExports {
@@ -102,13 +102,20 @@ export async function virtualizeStoreIr(
       const reqs = decodeRequests(out(w, r - 1));
       const got: (Uint8Array[] | undefined)[] = new Array(reqs.length);
       let next = 0;
+      let failure: { error: unknown } | undefined;
       const worker = async () => {
-        while (next < reqs.length) {
+        // after a read fails, no worker starts another
+        while (failure === undefined && next < reqs.length) {
           const k = next++;
-          got[k] = await fetchSpans(store, listing[reqs[k][0]][0], reqs[k][1]);
+          try {
+            got[k] = await fetchSpans(store, listing[reqs[k][0]][0], reqs[k][1]);
+          } catch (e) {
+            failure ??= { error: e };
+          }
         }
       };
       await Promise.all(Array.from({ length: Math.min(concurrency, reqs.length) }, worker));
+      if (failure !== undefined) throw failure.error;
       for (let k = 0; k < reqs.length; k++) {
         const parts = got[k]!;
         const n = parts.reduce((s, x) => s + x.length, 0);

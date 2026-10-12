@@ -3,9 +3,9 @@
 // hierarchy as a Zarr v3 one, each chunk a whole-object reference under its own key.
 
 import type { Profile } from "../common.ts";
-import { bloscCodec } from "../n5/virtualize.ts";
 import {
   asInt,
+  bloscCodec,
   byDepth,
   canonicalIndex,
   compareKeys,

@@ -1,6 +1,7 @@
 // The N5 profile (spec/virtualize.md, §9
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#9-n5-profile>): an N5 container as
 // a Zarr v3 hierarchy, each block a whole-object chunk read by the n5_default codec.
+// Frozen at revision 25 (the last before N5 moved onto the IR), which its root records.
 
 import {
   asInt,
@@ -30,9 +31,14 @@ import {
   show,
   type StoreResult,
   without,
-} from "../store.ts";
+} from "../../../../../js/src/virtualize/store.ts";
+import { CONVENTION_KEY } from "../../../../../js/src/virtualize/common.ts";
 
 export class N5Error extends Error {}
+
+// The revision of spec/virtualize.md this frozen profile implements (compare.py reads a root that
+// records it as recording the current revision).
+export const REVISION = 25;
 
 const reject = (message: string): never => {
   throw new N5Error(message);
@@ -446,6 +452,7 @@ export async function virtualizeN5(store: Store): Promise<StoreResult & { summar
   for (const [path, doc] of groups) out.set(docKey(path), doc);
   for (const [path, doc] of arrays) out.set(docKey(path), doc as unknown as Json);
   declareNodes(out, "n5", store.url, omes);
+  ((out.get("zarr.json") as { attributes: Record<string, Record<string, Json>> }).attributes[CONVENTION_KEY]).revision = REVISION;
 
   const tests = new Map<string, (rest: string) => boolean>();
   for (const [path, a] of arrays) {

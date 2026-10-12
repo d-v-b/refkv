@@ -1,4 +1,4 @@
-// The frozen TypeScript virtualizers of TIFF, ND2 and CZI, and of Zarr v2 stores (the twins in
+// The frozen TypeScript virtualizers of TIFF, ND2 and CZI, and of Zarr v2 and N5 stores (the twins in
 // this directory, as they were before the browser adopted the Rust core for them), dispatched as
 // js/src/virtualize/index.ts dispatched them; the other profiles are the shipped
 // code's. For comparing the Rust core's output with the TypeScript one's.

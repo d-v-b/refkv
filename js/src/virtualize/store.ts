@@ -1192,3 +1192,33 @@ export function storeArchive(url: string, { docs, chunks, origins }: StoreResult
 }
 
 export const GROUP_IMPLICIT = (): Json => ({ zarr_format: 3, node_type: "group", attributes: {} });
+
+// ---------------------------------------------------------------- codecs
+
+const BLOSC_NAMES = ["blosclz", "lz4", "lz4hc", "snappy", "zlib", "zstd"];
+const MAX_BLOCK = 2 ** 31 - 1;
+
+/**
+ * The Zarr v3 blosc codec of an n5-blosc or numcodecs Blosc configuration (spec/virtualize/n5.md §3
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#3-datasets>,
+ * spec/virtualize/zarr2.md §3.1
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#31-compressors>).
+ */
+export function bloscCodec(
+  c: { [k: string]: Json },
+  typesize: number,
+  shuffles: Map<number, string>,
+  fail: (m: string) => never,
+): Json {
+  const cname = c.cname;
+  const clevel = asInt(c.clevel, 0, 9);
+  const shuffle = asInt(c.shuffle);
+  const blocksize = asInt(has(c, "blocksize") ? c.blocksize : 0, 0, MAX_BLOCK);
+  if (typeof cname !== "string" || !BLOSC_NAMES.includes(cname)) fail(`blosc cname ${JSON.stringify(cname)} is not supported`);
+  if (clevel === undefined) fail(`blosc clevel ${JSON.stringify(c.clevel)} is not an integer from 0 to 9`);
+  if (shuffle === undefined || !shuffles.has(shuffle)) fail(`blosc shuffle ${JSON.stringify(c.shuffle)} is not supported`);
+  if (blocksize === undefined) fail(`blosc blocksize ${JSON.stringify(c.blocksize)} is not supported`);
+  let s = shuffles.get(shuffle!)!;
+  if (s === "auto") s = typesize === 1 ? "bitshuffle" : "shuffle";
+  return { name: "blosc", configuration: { cname: cname as string, clevel: clevel!, shuffle: s, typesize, blocksize: blocksize! } };
+}

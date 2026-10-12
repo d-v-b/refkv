@@ -13,7 +13,11 @@ and zarr-python (with vzip.zarr.codecs' n5_default codec) and must equal:
   where zarr-n5 supports it.
 
 `n5_reject_*` stores must be rejected; reading `n5_edge_varlength_block`'s
-array must fail (its varlength block is refused by the codec).
+array must fail (its varlength block is refused by the codec). The archive's
+`vzip_source` is the store's IR mirror (spec/virtualize/n5.md §5.1
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>): rebuilt from
+the archive alone, its listing must be the store's (every object's key and size, the empty ones
+included) and every node's attributes.json must be the store's, byte for byte.
 
 With `--remote <store URL> <array path>`, a public store is virtualized
 directly and that array is compared with `read_n5` reading the blocks over
@@ -120,11 +124,14 @@ def zarr_n5_read(store_dir: Path, path: str) -> np.ndarray | None:
 
 
 def arrays_of(out: Path) -> list[str]:
+    """The arrays of the hierarchy (the mirror's, under vzip_source/, are not datasets)."""
     import zipfile
 
     z = zipfile.ZipFile(out)
     paths = []
     for name in z.namelist():
+        if name.startswith("vzip_source/"):
+            continue
         if name.endswith("zarr.json") and json.loads(z.read(name)).get("node_type") == "array":
             paths.append(name[: -len("zarr.json")].rstrip("/"))
     return sorted(paths)
@@ -160,6 +167,36 @@ def check_store(store_dir: Path, out: Path) -> list[str]:
         other = zarr_n5_read(store_dir, path)
         if other is not None and not np.array_equal(other, want, equal_nan=True):
             problems.append(f"{path}: zarr-n5 differs from read_n5")
+    return problems
+
+
+def mirror_problems(store_dir: Path, out: Path) -> list[str]:
+    """The store IR's mirror against the store: its listing is the store's objects and sizes, and
+    each object it holds (a node's attributes.json) is the store's, byte for byte."""
+    import zipfile
+
+    import vzip_ir
+
+    from vzip.ir.cmirror import Archive
+
+    def never(o: int, n: int) -> bytes:
+        raise AssertionError("a store's mirror reads no source")
+
+    stored = {f.relative_to(store_dir).as_posix(): f for f in store_dir.rglob("*") if f.is_file()}
+    rebuilt = vzip_ir.rebuild_store(Archive(str(out), never).get)
+    problems = []
+    if {k: n for k, n, _ in rebuilt} != {k: f.stat().st_size for k, f in stored.items()}:
+        problems.append("the mirror's listing is not the store's")
+    held = {k for k, _, data in rebuilt if data is not None}
+    with zipfile.ZipFile(out) as z:
+        names = set(z.namelist())
+    documents = {k for k, n, _ in rebuilt if (k == "attributes.json" or k.endswith("/attributes.json"))
+                 and k.removesuffix("attributes.json") + "zarr.json" in names}
+    if held != documents:
+        problems.append(f"the mirror holds {sorted(held ^ documents)[:3]} wrongly")
+    for k, _, data in rebuilt:
+        if data is not None and (k not in stored or stored[k].read_bytes() != data):
+            problems.append(f"the mirror's {k} is not the store's")
     return problems
 
 
@@ -209,7 +246,10 @@ def main(argv: list[str]) -> int:
                 failures += 1
                 print(f"{store_dir.name:40s} FAILED: {p.stderr.strip()[-300:]}")
                 continue
-            problems = check_store(store_dir, out) + zarr2_verify.objects_problems(store_dir, out)
+            # objects_problems checks a store mirror's listing and held bytes too; mirror_problems
+            # that it holds exactly the nodes' documents
+            objects = zarr2_verify.objects_problems(store_dir, out)
+            problems = check_store(store_dir, out) + objects + mirror_problems(store_dir, out)
             failures += bool(problems)
             print(f"{store_dir.name:40s} {problems[:3] if problems else 'ok'} ({len(arrays_of(out))} arrays)")
     print(f"\n{failures} failures")
