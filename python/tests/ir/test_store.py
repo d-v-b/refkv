@@ -122,3 +122,21 @@ def test_a_document_shorter_than_listed_fails_the_run():
 def test_an_unknown_store_format_is_refused():
     with pytest.raises(ValueError, match="no store format"):
         vzip_ir.StoreRun("n5", [("attributes.json", 2)], 4)
+
+
+def test_a_store_output_numbers_its_sources_by_first_use():
+    """One url source per object a reference uses, in order of first use (references by
+    key, ranges in order), each pinning its listed size; then the data sources, by first
+    use too; literals stay."""
+    from vzip.ir.store import StoreIrOutput
+
+    out = StoreIrOutput(URL, refs={
+        "b/c/0": [b"\x01", ("object", "x.jp2", 10, 4), (2, 0, 3)],
+        "a/c/0": [("object", "y.jp2", 0, 8), (1, 0, 2), (2, 0, 3)],
+        "z": [("object", "x.jp2", 0, 1)],
+    }, data=[b"ab", b"cde"], sizes={"x.jp2": 20, "y.jp2": 9})
+    urls, data, refs = out.table()
+    assert urls == [object_url(URL, "y.jp2"), object_url(URL, "x.jp2")]
+    assert data == [b"ab", b"cde"]
+    assert refs == {"a/c/0": [(0, 0, 8), (2, 0, 2), (3, 0, 3)], "b/c/0": [b"\x01", (1, 10, 4), (3, 0, 3)],
+                    "z": [(1, 0, 1)]}

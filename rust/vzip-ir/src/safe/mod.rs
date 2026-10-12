@@ -414,7 +414,7 @@ impl Safe {
             let short_base: String = image.basename.chars().take(100).collect();
             let twice = found.len() == 1 && ascii && !names.insert((r, name.clone()));
             self.rules.check("band", &mut rules::env([("key", text(&short_key)), ("w", num(cs.width as f64)), ("h", num(cs.height as f64)),
-                ("matches", num(found.len() as f64)), ("name", text(&format!("{short_name:?}"))), ("basename", text(&format!("{short_base:?}"))),
+                ("matches", num(found.len() as f64)), ("name", text(&format!("{short_name:?}"))), ("plain", text(&short_name)), ("basename", text(&format!("{short_base:?}"))),
                 ("ascii", flag(ascii)), ("twice", flag(twice)), ("r", num(r as f64))]))?;
             let o = self.by_key[&image.key];
             self.bands.push(Band { image, obj: o, cs, resolution: r, name });

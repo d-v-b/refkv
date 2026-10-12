@@ -163,16 +163,34 @@ def test_mirror_problem_finds_a_table_that_is_not_canonical(tmp_path):
 
 
 def test_at_revision():
-    """The frozen reference's root (revision 20) reads at the current revision; any other
-    root, or an output without one, is unchanged."""
+    """The frozen reference's roots (revisions 20 and 25) read at the current revision; any
+    other root, or an output without one, is unchanged."""
     def root(revision):
         prop = {"profile": "tiff", "version": 0, "revision": revision, "source": {"url": "u"}}
         return {"sources": [], "entries": {"zarr.json": ("json", {"attributes": {"vzip_virtualized": prop}}),
                                            "a": ("bytes", b"x")}}
 
-    assert compare.at_revision(root(compare.REFERENCE_REVISION)) == root(compare.REVISION)
+    for frozen in compare.REFERENCE_REVISIONS:
+        assert compare.at_revision(root(frozen)) == root(compare.REVISION)
     for other in (root(compare.REVISION), root(19), {"sources": [], "entries": {}}):
         assert compare.at_revision(other) == other
+
+
+def test_without_source():
+    """The entries under vzip_source go; the others' sources are those they use, in order of
+    first use (entries by key), so two outputs whose url sources differ only in what
+    vzip_source used, or in order, compare equal."""
+    data = {"data": "AAE="}
+    a = {"sources": ["u/x", "u/b", "u/a", data], "entries": {
+        "r/c/1": ("ranges", [[2, 0, 4], [3, 0, 2]]), "r/c/0": ("ranges", [[1, 0, 4], ["data", "AA=="]]),
+        "r/zarr.json": ("json", {}), "vzip_source/objects/x": ("ranges", [[0, 0, 9]])}}
+    b = {"sources": ["u/a", "u/b", data], "entries": {
+        "r/c/0": ("ranges", [[1, 0, 4], ["data", "AA=="]]), "r/c/1": ("ranges", [[0, 0, 4], [2, 0, 2]]),
+        "r/zarr.json": ("json", {}), "vzip_source/ir/rows/c/0/0": ("bytes", "h")}}
+    want = {"sources": ["u/b", "u/a", data], "entries": {
+        "r/c/0": ("ranges", [[0, 0, 4], ["data", "AA=="]]), "r/c/1": ("ranges", [[1, 0, 4], [2, 0, 2]]),
+        "r/zarr.json": ("json", {})}}
+    assert compare.without_source(a) == want == compare.without_source(b)
 
 
 def test_mirror_problem_finds_a_view_that_is_not_the_tables(tmp_path):
