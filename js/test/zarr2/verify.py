@@ -10,7 +10,8 @@ fixture directory by zarr-python as Zarr v2 (`zarr_format=2`, which reads
 and fill value. Zero-size chunk objects have no entry (spec/virtualize.md §1.4
 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>),
 so the reference reads a copy of the store without them (zarr-python fails on
-them); their keys are listed with the empty objects. Each object under
+them); their keys are listed with the empty objects (the IR's mirror lists them as objects of size
+0, and rebuilds every document it holds, which must be the store's). Each object under
 `vzip_source/objects/` must read as the store's object at its unescaped key,
 none may open as a Zarr node, and the keys listed as empty must be exactly
 the store's empty objects, and none listed as ignored (spec/virtualize/zarr2.md §5
@@ -122,6 +123,22 @@ def objects_problems(store_dir: Path, out: Path) -> list[str]:
         own = next(iter(attrs.values()), {})
     if "vzip_source/empty.json" in names:
         own = json.loads(zipfile.ZipFile(out).read("vzip_source/empty.json"))
+    if isinstance(own, dict) and "ir" in own:
+        # a store IR's mirror (spec/virtualize/zarr2.md §4.1
+        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#41-elements>): it lists
+        # every object with its size, the empty ones included, and rebuilds each document it holds
+        import vzip_ir
+
+        z = zipfile.ZipFile(out)
+        rebuilt = vzip_ir.rebuild_store(lambda k: z.read(k) if k in names else None)
+        files = {f.relative_to(store_dir).as_posix(): f for f in store_dir.rglob("*") if f.is_file()}
+        if {k: n for k, n, _ in rebuilt} != {k: f.stat().st_size for k, f in files.items()}:
+            problems.append("the mirror's listing is not the store's")
+        problems += [f"{k}: the mirror's bytes are not the object's" for k, _, b in rebuilt
+                     if b is not None and files[k].read_bytes() != b]
+        own = {"empty": sorted((k for k, n, _ in rebuilt if n == 0), key=lambda k: k.encode())}
+        if "vzip_source/ignored.json" in names:
+            own["ignored"] = json.loads(z.read("vzip_source/ignored.json"))["ignored"]
     empty = own.get("empty", [])
     for key in empty:
         if not (store_dir / key).is_file() or (store_dir / key).stat().st_size:

@@ -164,15 +164,20 @@ def test_mirror_problem_finds_a_table_that_is_not_canonical(tmp_path):
 
 
 def test_at_revision():
-    """The frozen reference's root (revision 20) reads at the current revision; any other
-    root, or an output without one, is unchanged."""
-    def root(revision):
-        prop = {"profile": "tiff", "version": 0, "revision": revision, "source": {"url": "u"}}
+    """A frozen twin's root (TIFF, ND2 and CZI at revision 20, Zarr v2 at 25) reads at the current
+    revision; any other root (another revision, another profile's frozen one, no revision, a
+    profile with no twin), or an output without one, is unchanged."""
+    def root(revision, profile="tiff"):
+        prop = {"profile": profile, "version": 0, "revision": revision, "source": {"url": "u"}}
+        if revision is None:
+            del prop["revision"]
         return {"sources": [], "entries": {"zarr.json": ("json", {"attributes": {"vzip_virtualized": prop}}),
                                            "a": ("bytes", b"x")}}
 
-    assert compare.at_revision(root(compare.REFERENCE_REVISION)) == root(compare.REVISION)
-    for other in (root(compare.REVISION), root(19), {"sources": [], "entries": {}}):
+    for profile, revision in compare.REFERENCE_REVISIONS.items():
+        assert compare.at_revision(root(revision, profile)) == root(compare.REVISION, profile), profile
+    for other in (root(compare.REVISION), root(19), root(25), root(20, "zarr2"), root(None), root(None, "n5"),
+                  root(20, "n5"), {"sources": [], "entries": {}}):
         assert compare.at_revision(other) == other
 
 

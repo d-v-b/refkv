@@ -294,8 +294,10 @@ def mirror_problem(path: Path, view: dict, read=None, fetch=None) -> str | None:
     the one the table and the source give (§8.7
     <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>); else what is wrong.
     The array columns' bytes and the view's values are read from source 0 (small ranges;
-    `read(offset, length)`, by default its URL). These are checks in addition to
-    comparing mirrors entry for entry (spec/virtualize.md §1.1
+    `read(offset, length)`, by default its URL). A store IR's mirror is checked by
+    `store_mirror_problem`, which reads no source and fetches the held objects with
+    `fetch(url, size)` (by default over HTTP); `read` applies to a file's mirror only. These are
+    checks in addition to comparing mirrors entry for entry (spec/virtualize.md §1.1
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>)."""
     doc = view["entries"].get("vzip_source/zarr.json")
     own = (doc[1].get("attributes", {}).get("vzip_virtualized", {}) if doc and doc[0] == "json" else {})
@@ -307,12 +309,12 @@ def mirror_problem(path: Path, view: dict, read=None, fetch=None) -> str | None:
 
     url = view["sources"][0]
 
-    def fetch(o: int, n: int) -> bytes:
+    def read_source(o: int, n: int) -> bytes:
         req = urllib.request.Request(url, headers={"Range": f"bytes={o}-{o + n - 1}"})
         with urllib.request.urlopen(req, timeout=120) as r:
             return r.read()
 
-    read = read or fetch
+    read = read or read_source
 
     try:
         ir = load(Archive(str(path), read))
@@ -430,7 +432,8 @@ def at_revision(output: dict) -> dict:
     shipped code."""
     root = output["entries"].get("zarr.json")
     prop = root[1].get("attributes", {}).get("vzip_virtualized") if root and root[0] == "json" else None
-    if not isinstance(prop, dict) or prop.get("revision") != REFERENCE_REVISIONS.get(prop.get("profile")):
+    want = REFERENCE_REVISIONS.get(prop.get("profile")) if isinstance(prop, dict) else None
+    if want is None or prop.get("revision") != want:
         return output
     attrs = {**root[1]["attributes"], "vzip_virtualized": {**prop, "revision": REVISION}}
     return {**output, "entries": {**output["entries"], "zarr.json": (root[0], {**root[1], "attributes": attrs})}}
