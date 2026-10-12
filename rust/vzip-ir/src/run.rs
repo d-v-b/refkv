@@ -109,6 +109,10 @@ pub struct Run {
     fill: Vec<(u32, u64, u64)>,
     /// the fill batch's ranges, and the planner's (requests, bytes) before and after it
     fill_counts: (u64, (u64, u64), (u64, u64)),
+    /// the source's ranges the projection copies (`project::reads`), read after the fill,
+    /// and their bytes
+    copies: Vec<(u64, u64)>,
+    copied: crate::project::Copied,
     pub planner: Planner,
     /// TIFF and CZI take whole responses (they find each range in them); ND2 exact ranges.
     whole: bool,
@@ -124,6 +128,8 @@ impl Run {
             parsed: None,
             fill: Vec::new(),
             fill_counts: (0, (0, 0), (0, 0)),
+            copies: Vec::new(),
+            copied: Default::default(),
             planner: Planner::new(size, remote, concurrency),
             whole: format != Format::Nd2,
             in_batch: false,
@@ -144,6 +150,17 @@ impl Run {
                 }
                 let got = self.planner.take()?;
                 self.in_batch = false;
+                if !self.copies.is_empty() {
+                    // the ranges the projection copies, read last
+                    let at: std::collections::HashMap<(u64, u64), Vec<u8>> =
+                        got.into_iter().map(|(o, b)| ((o, b.len() as u64), b)).collect();
+                    for r in std::mem::take(&mut self.copies) {
+                        let b = at.get(&r).ok_or("internal: a range the projection copies was not read")?;
+                        self.copied.insert(r, b.clone());
+                    }
+                    self.done = true;
+                    return Ok(None);
+                }
                 if let Some((ir, _)) = self.parsed.as_mut() {
                     // the values the view shows, read after the parser
                     let at: std::collections::HashMap<(u64, u64), &Vec<u8>> =
@@ -154,8 +171,7 @@ impl Run {
                     }
                     ir.sort_values();
                     self.fill_counts.2 = (self.planner.stats.requests, self.planner.stats.bytes);
-                    self.done = true;
-                    return Ok(None);
+                    return self.read_copies();
                 }
                 let p = self.parser.as_mut().ok_or("internal: no parser")?;
                 for (o, b) in got {
@@ -179,8 +195,7 @@ impl Run {
                     };
                     self.parsed = Some((ir, facts));
                     if ranges.is_empty() {
-                        self.done = true;
-                        return Ok(None);
+                        return self.read_copies();
                     }
                     self.fill_counts = (ranges.len() as u64, (self.planner.stats.requests, self.planner.stats.bytes), (0, 0));
                     self.planner.begin(ranges, false);
@@ -190,6 +205,22 @@ impl Run {
         }
     }
 
+    /// After the fill: the batch of the ranges the projection copies, if any; else done.
+    fn read_copies(&mut self) -> Result<Option<Vec<Request>>, String> {
+        let (ir, facts) = self.parsed.as_ref().ok_or("internal: no IR")?;
+        let mut ranges = crate::project::reads(self.format, ir, facts)?;
+        ranges.sort_unstable();
+        ranges.dedup();
+        if ranges.is_empty() {
+            self.done = true;
+            return Ok(None);
+        }
+        self.planner.begin(ranges.clone(), false);
+        self.copies = ranges;
+        self.in_batch = true;
+        self.poll()
+    }
+
     /// Request `k` of the last poll: each span's bytes (None: a multi-range request
     /// the server did not answer with its ranges), and the seconds it took.
     pub fn complete(&mut self, k: usize, data: Option<Vec<Vec<u8>>>, seconds: f64) -> Result<(), String> {
@@ -197,6 +228,11 @@ impl Run {
     }
 
     pub fn finish(self) -> Result<(Ir, serde_json::Value, serde_json::Value), String> {
+        self.finish_copied().map(|(ir, facts, stats, _)| (ir, facts, stats))
+    }
+
+    /// `finish`, and the bytes of the ranges the projection copies.
+    pub fn finish_copied(self) -> Result<(Ir, serde_json::Value, serde_json::Value, crate::project::Copied), String> {
         if !self.done {
             return Err("the run is not done".into());
         }
@@ -206,7 +242,7 @@ impl Run {
         let (requests, bytes) = if n == 0 { (0, 0) } else { (b.0 - a.0, b.1 - a.1) };
         stats["fill"] = serde_json::json!({"ranges": n, "requests": requests, "bytes": bytes});
         let (ir, facts) = self.parsed.ok_or("internal: no IR")?;
-        Ok((ir, facts, stats))
+        Ok((ir, facts, stats, self.copied))
     }
 }
 
@@ -227,10 +263,11 @@ pub fn unread_shown(ir: &Ir, profile: &str) -> Vec<(u32, u64, u64)> {
 
 /// The output of a parse: the image projection of `format`, the mirror under
 /// `vzip_source` when `mirror`, and a summary with the planner's counts, the IR's
-/// element count and what the mirror's table folded.
-pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_json::Value, url: &str, mirror: bool)
-              -> Result<crate::out::Out, String> {
-    let mut out = crate::project::project(format, ir, facts, url)?;
+/// element count and what the mirror's table folded. `copied` holds the bytes of the
+/// ranges the projection copies (`project::reads`).
+pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_json::Value, url: &str, mirror: bool,
+              copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+    let mut out = crate::project::project(format, ir, facts, url, copied)?;
     if let Some(m) = out.summary.as_object_mut() {
         m.insert("planner".into(), stats);
         m.insert("elements".into(), ir.len().into());
@@ -248,8 +285,8 @@ impl Run {
     /// Finishes, projects and mirrors: the output (`output`).
     pub fn into_output(self, url: &str, mirror: bool) -> Result<crate::out::Out, String> {
         let format = self.format;
-        let (ir, facts, stats) = self.finish()?;
-        output(format, &ir, &facts, stats, url, mirror)
+        let (ir, facts, stats, copied) = self.finish_copied()?;
+        output(format, &ir, &facts, stats, url, mirror, &copied)
     }
 }
 

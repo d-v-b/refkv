@@ -24,7 +24,8 @@ def same_hierarchy(a, b) -> None:
     from vzip_reference.revision import REVISION as FROZEN, REVISION_25
 
     def docs(o):
-        d = {k: json.loads(v) for k, v in o.bytes_entries.items() if not k.startswith("vzip_source")}
+        d = {k: json.loads(v) if k.endswith(".json") else v for k, v in o.bytes_entries.items()
+             if not k.startswith("vzip_source")}
         prop = d.get("zarr.json", {}).get("attributes", {}).get("vzip_virtualized", {})
         moved = MIRRORED.get(prop.get("profile"))
         if o is a and prop.get("revision") == (REVISION_25 if moved else FROZEN):

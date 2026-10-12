@@ -363,6 +363,8 @@ pub fn image_ome(axes: &[&str], units: &Map<String, J>, scales: &[J], name: Opti
 pub enum Chunk {
     Ranges(Vec<Part>),
     Bytes(Vec<u8>),
+    /// copied from the source: (offset, length), then that many zero bytes of padding
+    Copy(u64, u64, u64),
 }
 
 pub fn metadata_group(out: &mut Out, path: &str, attributes: Option<Map<String, J>>) {
@@ -391,6 +393,7 @@ pub fn metadata_array(out: &mut Out, path: &str, data_type: &str, shape: &[u64],
         match c {
             Chunk::Bytes(b) => out.bytes(&key, b),
             Chunk::Ranges(r) => out.refs(&key, r),
+            Chunk::Copy(..) => unreachable!("a metadata array's chunks are ranges or bytes"),
         }
     }
 }
@@ -420,21 +423,13 @@ pub fn blob_chunks(offset: u64, length: u64) -> (u64, Vec<(Vec<u64>, Chunk)>) {
 /// The C-order array of `shape`, of `item`-byte elements contiguous at `offset`, cut
 /// as conventions §7
 /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
-/// contiguous values (`common.grid_chunks` with no reader):
-/// its chunk shape and chunks, or None when an edge chunk's padding does not fit in a
-/// reference, where `common.grid_chunks` copies it. Any number of chunks is cut (the
+/// contiguous values (`common.grid_chunks`): its chunk shape and chunks, or None when an
+/// element is larger than `limit` or the sizes overflow. An edge chunk whose reference
+/// (its range and its zero padding) is a payload of more than `max_payload` bytes
+/// (MAX_PAYLOAD, but in tests) is `Chunk::Copy`, for the caller to copy, as
+/// `common.grid_chunks` copies it with its reader. Any number of chunks is cut (the
 /// references' budget bounds them).
-///
-/// NIfTI is the only caller (spec/virtualize/nifti.md §7.2
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#72-chunks>), and for it
-/// None does not happen in practice: a padding past the payload is more than 64512 bytes,
-/// which the cut keeps only on the last axis (elements of at most 8 bytes), when no count
-/// from k to 2k chunks pads by at most 64512 bytes. The padding kept is then less than one
-/// chunk of `ceil(n / k)` elements, so `ceil(n / k) > 8189`, and count k pads by fewer than
-/// k elements, so `k > 8064`: a row of more than 2^29 bytes, every one of whose 8065 or more
-/// counts leaves a padding of over 8064 elements (the residues of n modulo the chunk lengths
-/// would all have to avoid a range of half their size).
-pub fn grid_chunks(offset: u64, shape: &[u64], item: u64, limit: u64) -> Option<(Vec<u64>, Vec<(Vec<u64>, Chunk)>)> {
+pub fn grid_chunks(offset: u64, shape: &[u64], item: u64, limit: u64, max_payload: usize) -> Option<(Vec<u64>, Vec<(Vec<u64>, Chunk)>)> {
     if item > limit {
         return None;
     }
@@ -490,17 +485,17 @@ pub fn grid_chunks(offset: u64, shape: &[u64], item: u64, limit: u64) -> Option<
         o.reverse();
         for q in 0..n.div_ceil(c) {
             let m = c.min(n - q * c);
-            let mut parts = vec![Part::Src(offset + (base * n + q * c) * slab, m * slab)];
+            let (start, length) = (offset + (base * n + q * c) * slab, m * slab);
+            let mut chunk = Chunk::Ranges(vec![Part::Src(start, length)]);
             if m < c {
-                parts.push(Part::Lit(vec![0; ((c - m) * slab) as usize]));
-                if payload_size(&parts) > MAX_PAYLOAD {
-                    return None;
-                }
+                let pad = (c - m) * slab;
+                let parts = vec![Part::Src(start, length), Part::Lit(vec![0; pad as usize])];
+                chunk = if payload_size(&parts) > max_payload { Chunk::Copy(start, length, pad) } else { Chunk::Ranges(parts) };
             }
             let mut coords = o.clone();
             coords.push(q);
             coords.extend_from_slice(&tail);
-            chunks.push((coords, Chunk::Ranges(parts)));
+            chunks.push((coords, chunk));
         }
     }
     let mut cs = vec![1u64; a];
@@ -563,3 +558,19 @@ pub fn json_size(v: &J) -> usize {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Three 1-byte elements, at most 2 a chunk: the edge chunk is its byte and one byte
+    /// of padding, a reference of 11 bytes, copied past a payload of 4.
+    #[test]
+    fn grid_chunks_copies_an_edge_chunk_past_the_payload() {
+        let (shape, chunks) = grid_chunks(0, &[3], 1, 2, 4).unwrap();
+        assert_eq!(shape, vec![2]);
+        assert!(matches!(chunks[1], (ref c, Chunk::Copy(2, 1, 1)) if *c == vec![1]));
+        let (_, chunks) = grid_chunks(0, &[3], 1, 2, MAX_PAYLOAD).unwrap();
+        assert!(matches!(&chunks[1].1, Chunk::Ranges(p) if *p == vec![Part::Src(2, 1), Part::Lit(vec![0])]));
+    }
+}

@@ -599,8 +599,8 @@ impl PyRun {
         let format = r.format;
         let (o, ir) = py
             .detach(|| -> Result<_, String> {
-                let (ir, facts, stats) = r.finish()?;
-                Ok((crate::run::output(format, &ir, &facts, stats, url, mirror)?, ir))
+                let (ir, facts, stats, copied) = r.finish_copied()?;
+                Ok((crate::run::output(format, &ir, &facts, stats, url, mirror, &copied)?, ir))
             })
             .map_err(Rejected::new_err)?;
         Ok((out_py(py, &o)?, PyIr::new(ir)))
@@ -644,7 +644,7 @@ fn out_py<'py>(py: Python<'py>, o: &crate::out::Out) -> PyResult<Bound<'py, PyAn
 fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str) -> PyResult<Bound<'py, PyAny>> {
     let f = crate::run::Format::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no format {format:?}")))?;
     let facts: serde_json::Value = serde_json::from_str(facts).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let o = py.detach(|| crate::project::project(f, &ir.ir, &facts, url)).map_err(Rejected::new_err)?;
+    let o = py.detach(|| crate::project::project(f, &ir.ir, &facts, url, &Default::default())).map_err(Rejected::new_err)?;
     out_py(py, &o)
 }
 
@@ -693,6 +693,15 @@ fn plan_spans(ranges: Vec<(u64, u64)>, threshold: u64, cap: f64, concurrency: us
     crate::plan::plan_spans(&ranges, threshold, cap, concurrency)
 }
 
+/// For tests: the reference payload past which a NIfTI edge chunk is copied (None: the
+/// payload limit), so that small files reach the copy (spec/virtualize/nifti.md §7.2
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#72-chunks>).
+#[pyfunction]
+#[pyo3(signature = (n=None))]
+fn _set_nifti_copy_threshold(n: Option<usize>) {
+    crate::project::nifti::set_copy_threshold(n);
+}
+
 #[pymodule]
 fn vzip_ir(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyIr>()?;
@@ -701,6 +710,7 @@ fn vzip_ir(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTiff>()?;
     m.add_class::<PyRun>()?;
     m.add_function(wrap_pyfunction!(plan_spans, m)?)?;
+    m.add_function(wrap_pyfunction!(_set_nifti_copy_threshold, m)?)?;
     m.add_function(wrap_pyfunction!(project, m)?)?;
     m.add_function(wrap_pyfunction!(mirror, m)?)?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;

@@ -5,10 +5,11 @@
 //! IR: the header is the IR's `header` value, and the array's chunks are cut from its
 //! `voxels` element.
 
-use super::{json_text, n};
+use super::{json_text, n, Copied};
 use crate::ir::Ir;
 use crate::nifti::{Header, Num};
-use crate::out::{array_json, grid_chunks, image_ome, root_json, Chunk, Out};
+use crate::out::{array_json, grid_chunks, image_ome, root_json, Chunk, Out, MAX_PAYLOAD};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -76,21 +77,96 @@ fn int_or(v: Option<f64>, default: i64) -> J {
     v.map(|x| json!(x)).unwrap_or(json!(default))
 }
 
-pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
-    let header = n(&facts["header"]) as u32;
-    let raw = ir.value_bytes(header).ok_or("internal: the header is not held")?;
-    let version = n(&facts["version"]) as u8;
-    let h = Header::new(raw, version);
-    let voxels = n(&facts["voxels"]) as u32;
-    let (vox, form) = (ir.start[voxels as usize], ir.form_id(voxels).ok_or("internal: the voxels have no form")?);
-    let length = ir.len[voxels as usize];
+/// The array's axes, the voxels' axes in file order (dimension 5 outermost, a color
+/// type's samples innermost) and their sizes, the bytes of an element of the stored
+/// array, and its cut (§4.1
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#41-the-array>).
+struct Cut {
+    axes: Vec<&'static str>,
+    stored: Vec<&'static str>,
+    shape: Vec<u64>,
+    item: u64,
+    grid: Vec<u64>,
+    chunks: Vec<(Vec<u64>, Chunk)>,
+}
+
+/// The largest reference payload of a chunk, past which an edge chunk is copied:
+/// MAX_PAYLOAD, but in tests (`set_copy_threshold`), which reach the copy with small files.
+static COPY_THRESHOLD: AtomicUsize = AtomicUsize::new(MAX_PAYLOAD);
+
+/// For tests: the payload past which an edge chunk is copied (None: MAX_PAYLOAD). Its
+/// padding never exceeds MAX_PAYLOAD in practice with NIfTI's chunk limit, so the copy
+/// (spec/virtualize/nifti.md §7.2
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#72-chunks>) is only
+/// reached this way.
+pub fn set_copy_threshold(n: Option<usize>) {
+    COPY_THRESHOLD.store(n.unwrap_or(MAX_PAYLOAD), Ordering::Relaxed);
+}
+
+fn cut(h: &Header, vox: u64) -> Result<Cut, String> {
     let dim: Vec<i64> = h.values("dim").iter().map(|x| x.i()).collect();
     let nd = dim[0];
     let size = |i: usize| if (i as i64) <= nd { dim[i] as u64 } else { 1 };
-    let (x, y, z, t, c) = (size(1), size(2), size(3), size(4), size(5));
-    let code = h.get("datatype").i();
-    let spec = &crate::rules::nifti().table("datatypes")[code.to_string()];
-    let (data_type, bits, samples) = (spec["dtype"].as_str().unwrap_or("uint8"), n(&spec["bits"]), n(&spec["samples"]));
+    let spec = &crate::rules::nifti().table("datatypes")[h.get("datatype").i().to_string()];
+    let (bits, samples) = (n(&spec["bits"]), n(&spec["samples"]));
+    let color = samples > 1;
+    let mut axes: Vec<&'static str> = Vec::new();
+    if nd >= 4 {
+        axes.push("t");
+    }
+    if nd >= 5 || color {
+        axes.push("c");
+    }
+    if nd >= 3 {
+        axes.push("z");
+    }
+    axes.extend(["y", "x"]);
+    let mut stored: Vec<&'static str> = if nd >= 5 { vec!["c"] } else { vec![] };
+    stored.extend(axes.iter().filter(|a| **a != "c"));
+    if color {
+        stored.push("c");
+    }
+    let shape: Vec<u64> = stored
+        .iter()
+        .map(|a| match *a {
+            "t" => size(4),
+            "c" => if color { samples } else { size(5) },
+            "z" => size(3),
+            "y" => size(2),
+            _ => size(1),
+        })
+        .collect();
+    let item = bits / 8 / samples;
+    let (grid, chunks) = grid_chunks(vox, &shape, item, CHUNK_BYTES, COPY_THRESHOLD.load(Ordering::Relaxed)).ok_or("internal: the voxel data cannot be cut into chunks")?;
+    Ok(Cut { axes, stored, shape, item, grid, chunks })
+}
+
+/// The header and the voxel data's element.
+fn parts<'a>(ir: &'a Ir, facts: &J) -> Result<(Header<'a>, u32), String> {
+    let raw = ir.value_bytes(n(&facts["header"]) as u32).ok_or("internal: the header is not held")?;
+    Ok((Header::new(raw, n(&facts["version"]) as u8), n(&facts["voxels"]) as u32))
+}
+
+/// The source's ranges of the edge chunks the projection copies (§7.2
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#72-chunks>).
+pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
+    let (h, voxels) = parts(ir, facts)?;
+    let c = cut(&h, ir.start[voxels as usize])?;
+    Ok(c.chunks.iter().filter_map(|(_, k)| match k {
+        Chunk::Copy(o, n, _) => Some((*o, *n)),
+        _ => None,
+    }).collect())
+}
+
+pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
+    let (h, voxels) = parts(ir, facts)?;
+    let version = h.version;
+    let (vox, form) = (ir.start[voxels as usize], ir.form_id(voxels).ok_or("internal: the voxels have no form")?);
+    let length = ir.len[voxels as usize];
+    let dim: Vec<i64> = h.values("dim").iter().map(|x| x.i()).collect();
+    let c = if dim[0] >= 5 { dim[5] as u64 } else { 1 };
+    let spec = &crate::rules::nifti().table("datatypes")[h.get("datatype").i().to_string()];
+    let (data_type, samples) = (spec["dtype"].as_str().unwrap_or("uint8"), n(&spec["samples"]));
     let color = samples > 1;
     let f = |name: &str| h.get(name).f();
 
@@ -178,34 +254,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     }
 
     // the array (§4.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#41-the-array>)
-    let mut axes: Vec<&str> = Vec::new();
-    if nd >= 4 {
-        axes.push("t");
-    }
-    if nd >= 5 || color {
-        axes.push("c");
-    }
-    if nd >= 3 {
-        axes.push("z");
-    }
-    axes.extend(["y", "x"]);
-    let shape_of = |a: &str| match a {
-        "t" => t,
-        "c" => if color { samples } else { c },
-        "z" => z,
-        "y" => y,
-        _ => x,
-    };
-    // the voxels in file order: dimension 5 outermost, a color type's samples innermost
-    let mut stored: Vec<&str> = if nd >= 5 { vec!["c"] } else { vec![] };
-    stored.extend(axes.iter().filter(|a| **a != "c"));
-    if color {
-        stored.push("c");
-    }
-    let item = bits / 8 / samples;
-    let stored_shape: Vec<u64> = stored.iter().map(|a| shape_of(a)).collect();
-    let (grid, chunks) = grid_chunks(vox, &stored_shape, item, CHUNK_BYTES)
-        .ok_or("internal: an edge chunk whose padding does not fit in a reference (out::grid_chunks says why none does)")?;
+    let Cut { axes, stored, shape: stored_shape, item, grid, chunks } = cut(&h, vox)?;
+    let shape_of = |a: &str| stored_shape[stored.iter().position(|s| *s == a).unwrap()];
     let pos = |a: &str| stored.iter().position(|s| *s == a).unwrap();
     let chunk_shape: Vec<u64> = axes.iter().map(|a| grid[pos(a)]).collect();
     let shape: Vec<u64> = axes.iter().map(|a| shape_of(a)).collect();
@@ -247,9 +297,17 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let count = chunks.len();
     let mut refs = Refs::new(ir, out);
     for (piece, (coords, chunk)) in chunks.into_iter().enumerate() {
-        let Chunk::Ranges(parts) = chunk else { return Err("internal: a copied chunk".into()) };
         let key = format!("0/c/{}", axes.iter().map(|a| coords[pos(a)].to_string()).collect::<Vec<_>>().join("/"));
-        refs.chunk(key, vox, length, form, Some(parts), piece as u64)?;
+        match chunk {
+            Chunk::Ranges(parts) => refs.chunk(key, vox, length, form, Some(parts), piece as u64)?,
+            // an edge chunk whose padding does not fit in a reference: its bytes, then the padding
+            Chunk::Copy(o, len, pad) => {
+                let mut b = copied.get(&(o, len)).ok_or("internal: a copied chunk was not read")?.clone();
+                b.resize(b.len() + pad as usize, 0);
+                refs.out.bytes(&key, b);
+            }
+            Chunk::Bytes(b) => refs.out.bytes(&key, b),
+        }
     }
     let mut out = refs.out;
     let sizes: Map<String, J> = axes.iter().map(|a| (a.to_string(), json!(shape_of(a)))).collect();

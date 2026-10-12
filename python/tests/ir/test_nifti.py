@@ -6,7 +6,6 @@ import io
 import json
 import os
 import struct
-import sys
 import time
 
 import pytest
@@ -38,6 +37,39 @@ def test_projects_as_the_reference_and_rebuilds(path, tmp_path):
     buf = io.BytesIO()
     rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
     assert buf.getvalue() == data
+
+
+def test_edge_chunks_past_the_payload_are_copied_as_the_reference_copies_them(tmp_path, monkeypatch):
+    """An edge chunk whose reference (its range and its zero padding) does not fit in a
+    payload is copied into the archive, padding included (spec/virtualize/nifti.md §7.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#72-chunks>). With
+    NIfTI's chunk limit no file reaches it in practice, so both sides take a payload limit
+    of 8 bytes here: every padded edge chunk is copied, by the run's last batch, and the
+    hierarchy is the frozen reference's."""
+    import vzip_ir
+
+    from vzip.virtualize import common
+
+    monkeypatch.setattr(common, "MAX_PAYLOAD", 8)
+    vzip_ir._set_nifti_copy_threshold(8)
+    copied = 0
+    try:
+        for path in NIIS:
+            url = f"https://data.test/{path.name}"
+            try:
+                _, ref = virtualize(str(path), url)
+            except Rejected:
+                continue
+            _, out, _ = via_ir(str(path), url)
+            same_hierarchy(ref, out)
+            data = path.read_bytes()
+            for key, b in out.bytes_entries.items():
+                if key.startswith("0/c/"):
+                    copied += 1
+                    assert b.rstrip(b"\0") in data  # the chunk's bytes, then its padding
+    finally:
+        vzip_ir._set_nifti_copy_threshold(None)
+    assert copied >= 1  # nifti_chunk_edge_literal.nii's edge chunk
 
 
 def nifti1(chain: bytes, vox: int, voxels: bytes = bytes(8), dims=(1, 8)) -> bytes:
@@ -132,7 +164,7 @@ def test_a_large_extension_is_not_read(tmp_path):
 
 @pytest.mark.skipif(os.environ.get("VZIP_LARGE_TESTS") != "1",
                     reason="a 16 GiB sparse file, 5 GB of memory and about 13 minutes: set VZIP_LARGE_TESTS=1")
-def test_more_than_2_22_chunks_are_cut_as_the_reference_cuts_them(tmp_path):
+def test_more_than_2_22_chunks_are_cut_as_the_reference_cuts_them(tmp_path, monkeypatch):
     """A NIfTI-2 uint8 volume of 4096 x 43 x 97542 voxels (a sparse file of 16 GiB): its
     rows of 43 x 4096 bytes do not fit the chunk limit with a small padding, so the cut
     moves to x, and the array has 97542 x 43 = 4194306 chunks of one row, more than 2^22
@@ -142,7 +174,7 @@ def test_more_than_2_22_chunks_are_cut_as_the_reference_cuts_them(tmp_path):
     vzip_source."""
     from pathlib import Path
 
-    sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize"))
+    monkeypatch.syspath_prepend(str(Path(__file__).parents[3] / "conformance" / "virtualize"))
     import compare
 
     x, y, z = 4096, 43, 97542
