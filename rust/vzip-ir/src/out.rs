@@ -209,6 +209,7 @@ pub fn profile(p: &str) -> (&'static str, u64, &'static str) {
         "tiff" => ("48e9ac4e-1156-4a62-955e-20467d9c2700", 0, "TIFF"),
         "nd2" => ("59612f14-e314-4207-ba00-8f422ba71490", 0, "ND2"),
         "czi" => ("7a0733c7-d4be-4482-a64f-6904d9354ea5", 0, "CZI"),
+        "dicom" => ("acf17198-e5a5-48d3-8187-22ec4bb40ea5", 0, "DICOM"),
         _ => panic!("no profile {p}"),
     }
 }

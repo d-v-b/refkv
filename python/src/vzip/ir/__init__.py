@@ -1,7 +1,7 @@
 """vzip's intermediate representation (design/ARCHITECTURE.md §3
 <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
 the path `vzip.virtualize`
-takes for TIFF, ND2 and CZI: the Rust core (rust/vzip-ir, the `vzip_ir` module)
+takes for TIFF, ND2, CZI and DICOM: the Rust core (rust/vzip-ir, the `vzip_ir` module)
 parses, checking each format's source model schema, plans the reads, projects the
 convention's hierarchy and mirrors the IR under `vzip_source`; this package is the
 host: the I/O (`planner.py`), the archive writer (`output.py` into `Output`), and
@@ -19,7 +19,10 @@ ND2_MAGIC = bytes.fromhex("DACEBE0A")
 
 
 def sniff(head: bytes) -> str | None:
-    """The IR format a file's first 16 bytes give, if any."""
+    """The IR format a file's first 132 bytes give, if any (DICOM first: a dual-personality
+    file's preamble may hold a TIFF header)."""
+    if head[128:132] == b"DICM":
+        return "dicom"
     if head[:4] == ND2_MAGIC:
         return "nd2"
     if head[:4] in TIFF_MAGIC:
@@ -58,10 +61,12 @@ def virtualize(location: str, url: str | None = None, mirror: bool = True, polic
     from vzip.ir.planner import drive, new_run, open_transport
 
     transport = transport or open_transport(location, policy)
-    head = transport.head[1][:16] if transport.head[1] else transport.get(0, min(16, transport.size))
+    head = transport.head[1][:132] if transport.head[1] else transport.get(0, min(132, transport.size))
+    if len(head) < min(132, transport.size):
+        head = transport.get(0, min(132, transport.size))
     fmt = sniff(head)
     if fmt is None:
-        raise Rejected("not a TIFF, CZI or ND2 file")
+        raise Rejected("not a TIFF, CZI, ND2 or DICOM file")
     run = new_run(fmt, transport, connections, byte_cost)
     drive(run, transport, connections)
     try:
