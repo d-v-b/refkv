@@ -15,7 +15,23 @@ use crate::fed::Fed;
 use crate::ir::*;
 use crate::nd2::Step;
 use crate::rules::{self, Rules, Vars, flag, num, text};
+use crate::out::MAX_PAYLOAD;
 use serde_json::{Value as J, json};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// The largest reference payload of a chunk, past which the projection copies an edge
+/// chunk: MAX_PAYLOAD, but in tests (`set_copy_threshold`). Each run reads it once, into
+/// its facts.
+static COPY_THRESHOLD: AtomicUsize = AtomicUsize::new(MAX_PAYLOAD);
+
+/// For tests: the payload past which an edge chunk is copied (None: MAX_PAYLOAD). With
+/// NIfTI's chunk limit no file pads an edge chunk past MAX_PAYLOAD in practice, so the copy
+/// (spec/virtualize/nifti.md §7.2
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#72-chunks>) is reached
+/// this way.
+pub fn set_copy_threshold(n: Option<usize>) {
+    COPY_THRESHOLD.store(n.unwrap_or(MAX_PAYLOAD), Ordering::Relaxed);
+}
 
 /// The bytes of the chain read at a time.
 const SCAN: u64 = 1 << 20;
@@ -318,7 +334,10 @@ impl Nifti {
         self.vox = vox;
         self.q = length + 4;
         self.chaining = ext[0] != 0;
-        self.facts = json!({"version": version, "header": header, "voxels": voxels, "extended": ext[0] != 0});
+        // the payload past which the projection copies an edge chunk, read once per run
+        let copy_threshold = COPY_THRESHOLD.load(Ordering::Relaxed);
+        self.facts = json!({"version": version, "header": header, "voxels": voxels, "extended": ext[0] != 0,
+                            "copy_threshold": copy_threshold});
         Ok(())
     }
 

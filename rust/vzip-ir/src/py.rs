@@ -699,7 +699,7 @@ fn plan_spans(ranges: Vec<(u64, u64)>, threshold: u64, cap: f64, concurrency: us
 #[pyfunction]
 #[pyo3(signature = (n=None))]
 fn _set_nifti_copy_threshold(n: Option<usize>) {
-    crate::project::nifti::set_copy_threshold(n);
+    crate::nifti::set_copy_threshold(n);
 }
 
 #[pymodule]

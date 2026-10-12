@@ -61,12 +61,13 @@ def test_edge_chunks_past_the_payload_are_copied_as_the_reference_copies_them(tm
             except Rejected:
                 continue
             _, out, _ = via_ir(str(path), url)
-            same_hierarchy(ref, out)
+            same_hierarchy(ref, out)  # the copied chunks' bytes included
+            copied += sum(k.startswith("0/c/") for k in out.bytes_entries)
             data = path.read_bytes()
-            for key, b in out.bytes_entries.items():
-                if key.startswith("0/c/"):
-                    copied += 1
-                    assert b.rstrip(b"\0") in data  # the chunk's bytes, then its padding
+            out.write(str(tmp_path / "a.vzip"))
+            buf = io.BytesIO()
+            rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
+            assert buf.getvalue() == data
     finally:
         vzip_ir._set_nifti_copy_threshold(None)
     assert copied >= 1  # nifti_chunk_edge_literal.nii's edge chunk

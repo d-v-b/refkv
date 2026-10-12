@@ -14,7 +14,7 @@
 
 mod czi;
 mod nd2;
-pub mod nifti;
+mod nifti;
 mod tiff;
 
 use crate::ir::Ir;
