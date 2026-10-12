@@ -294,3 +294,54 @@ fn a_segment_id_with_bytes_after_its_nul_is_not_the_id() {
         Ok(_) => panic!("accepted"),
     }
 }
+
+/// A DICOM file in explicit VR little endian: `body` after the File Meta Information.
+fn dicom(syntax: &str, body: &[u8]) -> Vec<u8> {
+    let mut uid = syntax.as_bytes().to_vec();
+    if uid.len() % 2 == 1 {
+        uid.push(0);
+    }
+    let mut out = vec![0u8; 128];
+    out.extend_from_slice(b"DICM");
+    out.extend(short(2, 0x10, b"UI", &uid));
+    out.extend_from_slice(body);
+    out
+}
+
+/// One element of a short VR in explicit VR little endian.
+fn short(g: u16, e: u16, vr: &[u8; 2], v: &[u8]) -> Vec<u8> {
+    let mut b = Vec::new();
+    for x in [g, e] {
+        b.extend_from_slice(&x.to_le_bytes());
+    }
+    b.extend_from_slice(vr);
+    b.extend_from_slice(&(v.len() as u16).to_le_bytes());
+    b.extend_from_slice(v);
+    b
+}
+
+#[test]
+fn a_long_fragment_chain_is_walked_to_its_end() {
+    // 600 frames of 70,000 bytes, without an offset table: each fragment's item header is
+    // past the window that read the one before, so a round each
+    let n = 600u32;
+    let mut body = Vec::new();
+    for (e, v) in [(2u16, 1u16), (0x10, 1), (0x11, 1), (0x100, 8), (0x101, 8), (0x103, 0)] {
+        body.extend(short(0x28, e, b"US", &v.to_le_bytes()));
+    }
+    body.extend(short(0x28, 4, b"CS", b"MONOCHROME2 "));
+    body.extend(short(0x28, 8, b"IS", n.to_string().as_bytes()));
+    body.extend_from_slice(&[0xE0, 0x7F, 0x10, 0x00, b'O', b'B', 0, 0, 0xFF, 0xFF, 0xFF, 0xFF]);
+    body.extend_from_slice(&[0xFE, 0xFF, 0x00, 0xE0, 0, 0, 0, 0]);
+    for _ in 0..n {
+        body.extend_from_slice(&[0xFE, 0xFF, 0x00, 0xE0]);
+        body.extend_from_slice(&70_000u32.to_le_bytes());
+        body.extend(std::iter::repeat_n(0u8, 70_000));
+    }
+    body.extend_from_slice(&[0xFE, 0xFF, 0xDD, 0xE0, 0, 0, 0, 0]);
+    let data = dicom("1.2.840.10008.1.2.4.90", &body);
+    let (ir, facts, _) = vzip_ir::run::run_bytes(vzip_ir::run::Format::Dicom, &data).unwrap();
+    check::check(&ir).unwrap();
+    assert!(rebuilt(&ir, &data) == data);
+    assert!(facts["rounds"].as_u64().unwrap() > n as u64);
+}

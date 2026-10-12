@@ -34,8 +34,10 @@ const MAX_WINDOW: u64 = 1 << 24;
 pub const ADOBE: [u8; 17] = [0xFF, 0xD8, 0xFF, 0xEE, 0x00, 0x0E, 0x41, 0x64, 0x6F, 0x62, 0x65, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00];
 /// The most bytes of an element the IR holds (the view shows at most 1024).
 const HOLD: u64 = 1 << 10;
-/// The most times the parser asks again for bytes a walk missed.
-const MAX_RETRIES: u32 = 256;
+/// The most times the root's translation and the IR's walk, which the scan prepares, start
+/// again for bytes they missed (each start walks the whole dataset again). The scan and
+/// the profile need no such bound: each of their rounds asks for bytes not yet fed.
+const MAX_RETRIES: u32 = 64;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Phase {
@@ -370,9 +372,11 @@ impl Dicom {
 
     /// Asks for what a walk missed (and what it said it will want), or fails.
     fn missed(&mut self, o: u64, n: u64) -> Result<Step, String> {
-        self.retries += 1;
-        if self.retries > MAX_RETRIES + (self.size >> 20) as u32 {
-            return Err("internal: the DICOM parser asked for bytes too many times".into());
+        if self.phase == Phase::Translate {
+            self.retries += 1;
+            if self.retries > MAX_RETRIES {
+                return Err("internal: the DICOM parser asked for bytes too many times".into());
+            }
         }
         let mut r = std::mem::take(&mut self.want);
         if !self.b.has(o, n) && o.saturating_add(n) <= self.size {
