@@ -17,7 +17,6 @@ import { OmeZarrError } from "../../../../js/src/virtualize/ome-zarr/virtualize.
 import { NiftiError } from "../../../../js/src/virtualize/nifti/virtualize.ts";
 import { ImsError } from "../../../../js/src/virtualize/ims/virtualize.ts";
 import { SafeError } from "../../../../js/src/virtualize/safe/virtualize.ts";
-import { TiffError as NdpiError } from "../../../../js/src/virtualize/tiff/ifd.ts";
 import { writeVzip } from "../../../../js/src/writer.ts";
 import { directoryStore } from "../../../../js/conformance/directory_store.ts";
 import { CziError } from "./czi/virtualize.ts";
@@ -40,7 +39,7 @@ try {
   fs.writeFileSync(outPath, await writeVzip(virtual));
   console.log(JSON.stringify(virtual.summary));
 } catch (e) {
-  if (!(e instanceof TiffError || e instanceof NdpiError || e instanceof Nd2Error || e instanceof LVError || e instanceof DicomError ||
+  if (!(e instanceof TiffError || e instanceof Nd2Error || e instanceof LVError || e instanceof DicomError ||
     e instanceof NiftiError || e instanceof ImsError || e instanceof ImageError || e instanceof StoreError || e instanceof N5Error || e instanceof Zarr2Error || e instanceof OmeZarrError || e instanceof SafeError || e instanceof CziError)) {
     console.error(e);
     process.exit(2); // a crash, not a refusal

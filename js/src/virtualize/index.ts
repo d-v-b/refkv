@@ -4,16 +4,15 @@
 // store by the profile its root keys select (§1.4
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): N5, Zarr v2,
 // OME-Zarr 0.4 or a
-// SAFE directory. TIFF (but not NDPI), ND2 and CZI are virtualized by the Rust core
-// (ir/, rust/vzip-ir); each other profile is in its own directory; store.ts holds the
-// store machinery.
+// SAFE directory. TIFF (NDPI included: the core's TIFF parser finds it), ND2 and CZI are
+// virtualized by the Rust core (ir/, rust/vzip-ir); each other profile is in its own
+// directory; store.ts holds the store machinery.
 
 import { blockReader, type ByteReader, ImageError } from "./common.ts";
 import { isDicom, virtualizeDicom } from "./dicom/virtualize.ts";
 import { virtualizeIms } from "./ims/virtualize.ts";
 import { type IrFormat, virtualizeIr } from "./ir/run.ts";
 import { type RangeSource, readerSource } from "./ir/source.ts";
-import { detectNdpi, virtualizeNdpi } from "./ndpi/virtualize.ts";
 import { detectNifti, virtualizeNifti } from "./nifti/virtualize.ts";
 import { virtualizeN5 } from "./n5/virtualize.ts";
 import { declares04, virtualizeOmeZarr } from "./ome-zarr/virtualize.ts";
@@ -77,7 +76,7 @@ type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "ni
 
 /** `exact`, when given, reads exactly the ranges asked for, past `read`'s block cache: the
  * SAFE profile's tile-part headers, scattered through a zip file, are read with it, and the
- * Rust core's requests (TIFF, ND2, CZI), which it plans itself.
+ * Rust core's requests (TIFF and NDPI, ND2, CZI), which it plans itself.
  * Source 0 pins the file's size, and its ETag when `pins.etag` gives one (§1.2
  * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>); with
  * `pins.checksums`, the ranges of source 0 carry the CRC-32C of their bytes. */
@@ -120,7 +119,8 @@ async function virtualizeWith(url: string, input: Input, pins: PinOptions): Prom
 
 /**
  * The profile of the Rust core a file's first bytes select, if one (§1.2
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>; NDPI, a TIFF, is not).
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>; an NDPI is a TIFF
+ * here, and the core's run reports it as NDPI).
  */
 export function irFormat(head: Uint8Array): IrFormat | undefined {
   if (isTiffMagic(head)) return "tiff";
@@ -132,10 +132,6 @@ export function irFormat(head: Uint8Array): IrFormat | undefined {
 async function virtualizeFile(url: string, { read, size: fileSize, exact, source }: Input): Promise<ImageDesc> {
   const head = await read(0, Math.min(552, fileSize));
   if (isDicom(head)) return { format: "dicom", ...(await virtualizeDicom(url, read, fileSize)) };
-  if (isTiffMagic(head)) {
-    const first = await detectNdpi(read, fileSize);
-    if (first !== undefined) return { format: "ndpi", ...(await virtualizeNdpi(url, read, fileSize, first)) };
-  }
   const ir = irFormat(head);
   if (ir === "tiff" || ir === "nd2") return virtualizeIr(ir, url, source);
   if (HDF5.every((b, i) => head[i] === b)) return { format: "ims", ...(await virtualizeIms(url, read, fileSize)) };
