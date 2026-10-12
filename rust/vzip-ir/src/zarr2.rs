@@ -13,7 +13,7 @@
 //! members is one value, `json`. Every other object (chunks among
 //! them) stays referenced. A store this format refuses is rejected with the reason.
 
-use crate::ir::{source_names, Ir, Res, GAP, NO_INDEX};
+use crate::ir::{Ir, Res};
 use crate::json::{self, Jv};
 use crate::rules::{self, Rules, Vars};
 use crate::expr::V;
@@ -33,9 +33,7 @@ pub fn schema() -> &'static Rules {
 /// §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
 pub const SOURCE_GROUP: &str = "vzip_source";
 const MAX_SAFE: f64 = 9007199254740991.0;
-/// The top-level members a document may have and be a value per member; one with more is one
-/// value (the view would show only the first few thousand of them anyway).
-pub const MAX_MEMBERS: usize = 4096;
+pub use crate::json::MAX_MEMBERS;
 
 /// A document's top-level members: key, and the extent (start, end) of the value's text.
 type Members = Vec<(String, u64, u64)>;
@@ -374,20 +372,7 @@ impl StoreParser for Zarr2 {
         // each document read is a held object: a value per top-level member, the rest gaps (a
         // document of no member is a gap, one of more than MAX_MEMBERS one value, `json`)
         for (k, members) in &parsed {
-            let o = objects[*k];
-            let n = keys[*k].1;
-            if members.is_empty() {
-                ir.add(GAP, o, "gaps/", 0, "", 0, Some((0, n)))?;
-                continue;
-            }
-            if members.len() > MAX_MEMBERS {
-                ir.value(o, "json", NO_INDEX, &format!("ascii[{n}]"), 0, (0, n), None)?;
-                continue;
-            }
-            let texts: Vec<&str> = members.iter().map(|m| m.0.as_str()).collect();
-            for ((name, nidx), (_, a, e)) in source_names(&texts, &[]).into_iter().zip(members) {
-                ir.value(o, &name, nidx, &format!("ascii[{}]", e - a), 0, (*a, e - a), None)?;
-            }
+            json::hold(&mut ir, objects[*k], keys[*k].1, members)?;
         }
         crate::check::finish(&mut ir)?;
         let documents: Vec<&str> = parsed.iter().map(|(k, _)| keys[*k].0.as_str()).collect();

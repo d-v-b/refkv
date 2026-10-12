@@ -32,6 +32,13 @@ impl Js {
     }
 }
 
+impl Js {
+    /// The text, when no escape in it left a surrogate unpaired.
+    pub fn as_str(&self) -> Option<&str> {
+        self.lone.is_empty().then_some(self.text.as_str())
+    }
+}
+
 impl PartialEq for Js {
     fn eq(&self, o: &Js) -> bool {
         self.text == o.text && self.lone == o.lone
@@ -482,5 +489,65 @@ impl P<'_> {
             return Ok(Jv::Int(d.to_string()));
         }
         Ok(Jv::Float(x))
+    }
+}
+
+/// The top-level members a document may have and be held as a value per member; one with more
+/// is one value, `json` (the view would show only the first few thousand of them anyway, and
+/// the rows of distinct names do not fold).
+pub const MAX_MEMBERS: usize = 4096;
+
+/// The names a member cannot take plainly: the gaps' (`gaps/<o>`) and the whole document's.
+pub const FIXED_NAMES: [&str; 2] = ["gaps", "json"];
+
+/// Holds a store's document, the object `o` of `n` bytes, in its IR (conventions §8.9
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): a value per
+/// top-level member (`members`, from [`parse`]: its value's text, `ascii[n]`, named by its key
+/// as [`crate::ir::source_names`] names texts, with [`FIXED_NAMES`] fixed), the rest gaps
+/// ([`crate::check::finish`] fills them); a document of no member is one gap, one of more than
+/// [`MAX_MEMBERS`] one value, `json`.
+pub fn hold(ir: &mut crate::ir::Ir, o: u32, n: u64, members: &[(String, u64, u64)]) -> Result<(), String> {
+    use crate::ir::{source_names, GAP, NO_INDEX};
+    if members.is_empty() {
+        ir.add(GAP, o, "gaps/", 0, "", 0, Some((0, n)))?;
+        return Ok(());
+    }
+    if members.len() > MAX_MEMBERS {
+        ir.value(o, "json", NO_INDEX, &format!("ascii[{n}]"), 0, (0, n), None)?;
+        return Ok(());
+    }
+    let texts: Vec<&str> = members.iter().map(|m| m.0.as_str()).collect();
+    for ((name, nidx), (_, a, e)) in source_names(&texts, &FIXED_NAMES).into_iter().zip(members) {
+        ir.value(o, &name, nidx, &format!("ascii[{}]", e - a), 0, (*a, e - a), None)?;
+    }
+    Ok(())
+}
+
+impl Jv {
+    /// Whether an object has the member `k` (`null` included).
+    pub fn has(&self, k: &str) -> bool {
+        self.get(k).is_some()
+    }
+
+    pub fn is_obj(&self) -> bool {
+        matches!(self, Jv::Obj(_))
+    }
+
+    /// An array's items.
+    pub fn items(&self) -> Option<&[Jv]> {
+        match self {
+            Jv::Arr(a) => Some(a),
+            _ => None,
+        }
+    }
+
+    /// An object's members but those named in `drop`.
+    pub fn without(&self, drop: &[&str]) -> Vec<(Js, Jv)> {
+        self.members().iter().filter(|(k, _)| !(k.lone.is_empty() && drop.contains(&k.text.as_str()))).cloned().collect()
+    }
+
+    /// An integer, as an integer literal.
+    pub fn integer(v: i64) -> Jv {
+        Jv::Int(v.to_string())
     }
 }

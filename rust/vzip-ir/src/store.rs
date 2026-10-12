@@ -49,29 +49,36 @@ pub enum StoreFormat {
     /// A Zarr v2 store (`zarr2.rs`; spec/virtualize/zarr2.md
     /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md>).
     Zarr2,
+    /// An N5 container (`n5.rs`; spec/virtualize/n5.md
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md>).
+    N5,
 }
 
 impl StoreFormat {
     pub fn from_name(s: &str) -> Option<StoreFormat> {
         match s {
             "zarr2" => Some(StoreFormat::Zarr2),
+            "n5" => Some(StoreFormat::N5),
             _ => None,
         }
     }
     pub fn name(self) -> &'static str {
         match self {
             StoreFormat::Zarr2 => "zarr2",
+            StoreFormat::N5 => "n5",
         }
     }
     /// The convention the mirror declares.
     pub fn profile(self) -> &'static str {
         match self {
             StoreFormat::Zarr2 => "zarr2",
+            StoreFormat::N5 => "n5",
         }
     }
     fn parser(self, ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Box<dyn StoreParser>> {
         match self {
             StoreFormat::Zarr2 => Ok(Box::new(crate::zarr2::Zarr2::new(ir, objects, keys)?)),
+            StoreFormat::N5 => Ok(Box::new(crate::n5::N5::new(ir, objects, keys))),
         }
     }
 }
@@ -321,6 +328,7 @@ impl StoreRun {
 pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str, mirror: bool) -> Res<crate::out::Out> {
     let mut out = match format {
         StoreFormat::Zarr2 => crate::project::zarr2::project(ir, facts, url, format.profile())?,
+        StoreFormat::N5 => crate::project::n5::project(ir, facts, url)?,
     };
     let mut summary = std::mem::take(&mut out.summary);
     if let Some(m) = summary.as_object_mut() {
@@ -334,7 +342,37 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         let folded = crate::mirror::mirror(ir, &mut out, format.profile())?;
         out.summary["folded"] = folded.json();
     }
+    if format == StoreFormat::N5 {
+        record_ignored(&mut out, facts, format.profile())?;
+    }
     Ok(out)
+}
+
+/// After the mirror: the recorded ignored keys (spec/virtualize.md §1.4
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), in the order of
+/// their UTF-8 bytes, as the member `ignored` of `vzip_source`'s source metadata, beside the
+/// mirror's `ir` (a group of its own when there is no mirror).
+pub fn record_ignored(out: &mut crate::out::Out, facts: &J, profile: &str) -> Res<()> {
+    let mut ignored: Vec<&str> = facts["ignored"].as_array().map(Vec::as_slice).unwrap_or(&[]).iter().filter_map(J::as_str).collect();
+    if ignored.is_empty() {
+        return Ok(());
+    }
+    ignored.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+    let key = format!("{}/zarr.json", crate::out::SOURCE_NODE);
+    let mut doc: J = match out.entries.iter().find(|e| e.0 == key) {
+        Some(e) => serde_json::from_slice(&e.1).map_err(|e| format!("internal: {e}"))?,
+        None => json!({"zarr_format": 3, "node_type": "group", "attributes": {}}),
+    };
+    let a = doc["attributes"].as_object_mut().ok_or("internal: vzip_source has no attributes")?;
+    if !a.contains_key(crate::out::CONVENTION_KEY) {
+        a.insert("zarr_conventions".into(), json!([crate::out::convention(profile)]));
+        a.insert(crate::out::CONVENTION_KEY.into(), json!({}));
+    }
+    let v = a[crate::out::CONVENTION_KEY].as_object_mut().ok_or("internal: a convention that is not an object")?;
+    let own = v.entry(profile).or_insert_with(|| json!({}));
+    own["ignored"] = json!(ignored);
+    out.json(&key, &doc);
+    Ok(())
 }
 
 /// Runs a store format over objects in memory through a run (tests, tools): `read(k)` gives

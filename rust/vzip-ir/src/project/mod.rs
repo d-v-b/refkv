@@ -13,6 +13,7 @@
 //! and reads nothing (the IR holds what it needs).
 
 mod czi;
+pub mod n5;
 mod nd2;
 mod tiff;
 pub mod zarr2;
