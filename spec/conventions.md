@@ -411,7 +411,10 @@ source 0, with no knowledge of the format; the format's convention says what
 the elements are (its **source model**). Sections 8.1 to 8.7 are all a reader
 needs to read the table, check it, and rebuild the source; 8.8 is how a
 producer writes it, one way only, so that the mirror of a source is the same
-whoever writes it.
+whoever writes it. A store (an N5, Zarr v2 or OME-Zarr store, a SAFE
+directory) is many objects: its IR has many sources, one per object, and
+[§8.9](#89-stores) says how 8.1 to 8.8 apply to it. An IR of one file is the
+special case of one source, source 0, which 8.1 to 8.8 describe as they stand.
 
 ### 8.1 Elements
 
@@ -420,8 +423,9 @@ a declared type, 8.6), `2` data (a decodable unit: a tile, a frame, a
 subblock's pixels, with a form, 8.5), `3` derived (bytes that exist only
 after a transform, such as a deflated record, with a form that names the
 transform and may give their `size`), `4` alias (a second name for an
-element already described, its **target**; it claims no bytes) or `5` gap
-(bytes no other element claims). It has a **parent** (every element but the
+element already described, its **target**; it claims no bytes), `5` gap
+(bytes no other element claims) or `6` object (an object of a store, a source
+of its own, only in a store's IR: [§8.9](#89-stores)). It has a **parent** (every element but the
 root, which is element 0), a **name** and an optional **name index** (the
 element's full name is the name followed by the index in decimal, so
 `tags/` with index 256 is `tags/256`), a **type** (values), a **space** (0:
@@ -609,7 +613,8 @@ A reader that rebuilds the source:
 The result is the source, byte for byte: its length is `Z`, which source 0
 pins ([spec/virtualize.md §1.2](virtualize.md#12-input)), and a range checksum, when the archive carries
 one, checks each range read. The extents index source 0 directly; there is
-no array of the source's bytes.
+no array of the source's bytes. (A store's IR rebuilds each of its held
+objects from the table alone: [§8.9](#89-stores).)
 
 ### 8.5 Forms and recipes
 
@@ -859,3 +864,136 @@ parsers emit, `nd2-lv-zlib` and `xml-variant` can, and `gzip` (a CZI's
 compressed attachment, whose space holds nothing) may hold none. A new
 transform that would hold shown values comes with its re-derivation, in a
 revision of this section.
+
+### 8.9 Stores
+
+A store input ([spec/virtualize.md §1.4](virtualize.md#14-store-inputs)) is
+a set of objects named by keys. Its IR, a **store IR**, has many sources: each
+object of the store is one. Sections [8.1](#81-elements) to
+[8.8](#88-canonical-form) hold for a store IR with the changes this section
+gives. An IR without objects, a **file IR**, is the special case of one
+source, source 0: this section changes nothing in it, its table or its view.
+
+**Objects and directories.** An element of kind `6` is an **object**: one
+object of the store, and a source of its own. Its extent is `(0, s)`, where `s`
+is the object's listed size (no extent when `s` is 0), in space 0. The extents
+in space 0 of its descendants are ranges of that object's bytes, so an element
+names its source by the object it is in, its nearest ancestor of kind 6.
+Objects do not nest, and an object is not a run. The root is the store's root
+directory: a struct named `""` with no name index, in space 0, with no extent
+(in place of 8.1's `(0, Z)`). Every other element outside every object is a
+**directory**: a struct with no extent, in space 0, that is not a run, one per
+directory of the store
+([spec/virtualize.md §1.4](virtualize.md#14-store-inputs)). An object's parent
+is the root or a directory. The path of an object or a directory is its key:
+the full name of each is its key's segment, by the rule below. So the tree is
+the listing: the paths of the objects are the store's keys, and the lengths of
+their extents its sizes. A key the listing does not have (a chunk an array
+does not store) has no element. The keys a store reader ignores
+([spec/virtualize.md §1.4](virtualize.md#14-store-inputs)) are not objects:
+the store conventions record them as they do without an IR.
+
+**Names.** A key segment `t` has the name and name index:
+
+- when `t` holds no `~` and is not the key of an object that is also a
+  directory's (S3 allows the keys `a` and `a/b` together): let `d` be the digits
+  that end `t` (as many as there are). When there are none, the name is `t`, with
+  no index. Otherwise the leading zeros of `d` but its last digit stay in the name:
+  the index is the value of the rest of `d`, and the name is `t` without that rest.
+  When that value is 2^64 − 1 or more, the name is `t`, with no index;
+- otherwise the name is `t` with `%`, `/` and `~` written `%25`, `%2F` and `%7E`,
+  then `~`, and the index 0, or 1 for an object whose key is also a directory's.
+
+So `0` is (`""`, 0), `a.12` is (`a.`, 12), `007` is (`00`, 7), `.zarray` is
+(`.zarray`, none), `c~d` is (`c%7Ed~`, 0), and the object `a` beside the directory
+`a` is (`a~`, 1). A full name without `~` is its segment; one with `~` is a
+segment the escape gives back. Siblings' full names are therefore distinct, and
+hold no `/`: 8.1's rules for names hold. The rule makes the chunk keys of one
+array siblings of one name with consecutive indexes (`0`, `1`, … in a nested
+directory, `3.0`, `3.1`, … after a `.`), which canonical form folds (below).
+
+**Held, referenced and empty objects.** An object that has children is
+**held**: the leaves among its descendants partition `[0, s)` of its bytes, as
+the leaves of a file IR partition its source (8.1's coverage and injectivity,
+for each object), and the table holds its bytes (`ir/held`, below), so the
+mirror alone rebuilds it. A store's documents (an N5 `attributes.json`, a Zarr
+`.zarray`, `.zgroup` or `.zattrs`, a SAFE manifest) are held. An object with a
+length and no children is **referenced**: it is a leaf, which claims its whole
+source; the hierarchy references it whole (its convention says at which key,
+such as a chunk object at its own key), and the mirror does not rebuild it. An
+object whose size is 0 is **empty**: no element in it has a length. The
+invariants of 8.1 then become, for a store IR: the elements outside every object
+are the root and the directories above; each object's leaves (a referenced
+object being its one leaf) partition `[0, s)` of that object, every member of a
+run inside it included; and the objects number `o`, the description's (below).
+A checker MAY check them at once on **virtual offsets**: byte `x` of object `j`
+at `b_j + x`, where `b_j` is the sum of the sizes of the objects before `j` in id
+order. The leaves then partition `[0, Z)`, as a file's do, once each leaf is
+checked to end within its object.
+
+**The table** (changes to [8.2](#82-the-table)). The description `I` has the
+member `"objects": o` after `size`, `o` the number of objects; its presence is
+what makes the IR a store's. `Z` is the sum of the objects' sizes. An object
+row's start (column 6) is stored as it is (0, since its extent is `(0, s)`),
+and the next row with a length codes its start from the object's start (its
+distance from 0), as if the object row were a row of length 0 ending there: an
+object's descendants' starts count from the start of their own source. The
+kinds of rows go to 6. When the IR has held objects, `vzip_source/ir/held` is a
+group of two arrays holding their bytes, `offsets` and `data`, as
+`vzip_source/ir/shared` holds the shared data sources ([8.2](#82-the-table)):
+one byte string per held object, in id order, each the object's `s` bytes. A
+column of encoding 2 ([8.3](#83-column-runs)) is invalid in a store IR (no
+profile has a named array rule for stores).
+
+**Limits** (changes to [8.3](#83-column-runs)). A store IR has at most 2^24
+objects, and its expanded table at most `N = 2^22 + floor(Z / 4) + 4 × o` rows;
+the distinct names (the description holds them) total at most 2^24 UTF-8 bytes.
+A producer rejects a store past one of these with the message
+`budget: more than 16777216 objects`,
+`budget: the mirror would have more than N rows` (N in decimal) or
+`budget: the mirror's names would total more than 16777216 bytes`, and a reader
+rejects such a table. A reader also rejects a table whose held objects (objects with
+children and a length) are not as many as `ir/held`'s byte strings, or one of
+whose byte strings is not as long as its object.
+
+**Reading the store back** (in place of [8.4](#84-reading-the-source-back)). A
+reader reads `rows`, `tables` and `held`, expands the column runs, checks the
+invariants above, and then has:
+
+- **the listing**: every object's path, its key, and the length of its extent,
+  its size;
+- **every held object, byte for byte**: the bytes of its leaves, in order of
+  their start, from its byte string in `ir/held`. (The byte string is the object;
+  the leaves say what each of its bytes is.)
+
+It reads no source: a referenced object is not rebuilt, since the hierarchy
+references it (a chunk's bytes are the archive's references to the store).
+
+**The view** (changes to [8.7](#87-the-view)). Referenced and empty objects are
+neither shown nor visited (a store's chunk objects would fill the view's budget
+of visits); a held object is shown as a struct is, by its own document; a
+directory whose document would be empty is not shown. A shown value of a held
+object is read from that object's bytes in `ir/held`, so a validator rebuilds
+the view from the archive alone.
+
+**Canonical form** (changes to [8.8](#88-canonical-form)). An object's first
+byte is 0, the start of its source, whether or not it has a length, so the
+first byte of a directory is 0 too: the objects and directories of one
+directory are ordered by name, then by name index, which is the order of the
+keys' segments with each family of chunk keys in the order of its indexes.
+Within an object, 8.8's order holds, its first bytes being those of that
+object's source. The rest of 8.8 is unchanged. In particular, column runs fold
+sibling subtrees of one shape: the chunk objects of one array, siblings of one
+name with consecutive indexes, fold into a column run of one stored row whose
+columns are the name index (encoding 0) and the length (encoding 1, the chunks'
+sizes, or 0 when they are all one size). Nested chunk keys (`i/j/k`) fold whole
+directories at once, one column run for a full grid; flat keys (`i.j.k`) fold one
+column run per name (`i.j.`). The held objects' byte strings are in id order.
+
+**Producers.** A producer lists the store
+([spec/virtualize.md §1.5](virtualize.md#15-listing-a-store)), builds the
+directories and objects from the listing, then reads the objects its format
+names, whole, in as few rounds as the format's structure allows: a round is the
+documents whose keys the listing and the documents read so far name (every
+`.zarray`, `.zgroup` and `.zattrs` of a Zarr v2 store is one round), read
+concurrently, each read once. A held object is an object it read whole.
