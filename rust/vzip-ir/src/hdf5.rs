@@ -155,6 +155,18 @@ pub struct Src {
 }
 
 impl Src {
+    /// The `n` bytes at `at`, as `read`; a miss asks for at least `hint` bytes (the
+    /// structure's allocated size, so that what follows its header comes with it).
+    pub fn read_hint(&mut self, at: u64, n: u64, hint: u64) -> R<Vec<u8>> {
+        let r = self.read(at, n);
+        if r == Err(Fail::Miss) {
+            if let Some(w) = self.want.last_mut() {
+                w.1 = w.1.max(hint.min(self.size - at));
+            }
+        }
+        r
+    }
+
     pub fn new(size: u64) -> Src {
         Src { size, store: Store::default(), want: Vec::new() }
     }
@@ -715,6 +727,12 @@ pub struct Super {
     pub len: u64,
     pub root: u64,
     pub extension: Option<u64>,
+    /// the version 1 B-tree K values: a symbol table node's (leaf), a group node's
+    /// (internal) and a chunk node's (indexed storage); the defaults where the superblock
+    /// does not give them. They size read-ahead only, never a rule.
+    pub leaf_k: u64,
+    pub internal_k: u64,
+    pub istore_k: u64,
 }
 
 type Memo<K, T> = HashMap<K, Result<Rc<T>, String>>;
@@ -821,7 +839,15 @@ impl H5 {
         }
         let Some(root) = address(le(&sb, root_at, 8)?)? else { return bad("no HDF5 root group") };
         let extension = if version >= 2 { address(le(&sb, 20, 8)?).ok().flatten() } else { None };
-        let s = Super { version, len: len.min(self.size()), root, extension };
+        let (mut leaf_k, mut internal_k, mut istore_k) = (4, 16, 32);
+        if version <= 1 {
+            leaf_k = le(&sb, 16, 2)?.max(1);
+            internal_k = le(&sb, 18, 2)?.max(1);
+            if version == 1 {
+                istore_k = le(&sb, 24, 2)?.max(1);
+            }
+        }
+        let s = Super { version, len: len.min(self.size()), root, extension, leaf_k, internal_k, istore_k };
         self.sb = Some(s.clone());
         Ok(s)
     }
@@ -997,7 +1023,8 @@ impl H5 {
             let mut entries_of = Vec::new();
             for &(_, snod) in &tree.leaves {
                 let r = (|| -> R<(u64, Vec<u8>)> {
-                    let head = self.read(snod, 8)?;
+                    let hint = 8 + 2 * self.sb.as_ref().map_or(4, |sb| sb.leaf_k) * 40;
+                    let head = self.src.read_hint(snod, 8, hint)?;
                     if &head[..4] != b"SNOD" || head[4] != 1 {
                         return bad(format!("no symbol table node at {snod}"));
                     }
@@ -1138,7 +1165,14 @@ impl H5 {
             return r;
         }
         let r = (|| -> R<Node1> {
-            let head = self.read(at, 24)?;
+            // read ahead the node's allocated size: 2K entries of its type (K from the superblock)
+            let k = match self.sb.as_ref() {
+                Some(sb) if key_size == 8 => sb.internal_k,
+                Some(sb) => sb.istore_k,
+                None => 32,
+            };
+            let hint = 24 + 2 * k * (key_size + 8) + key_size;
+            let head = self.src.read_hint(at, 24, hint)?;
             if &head[..4] != b"TREE" {
                 return bad(format!("no B-tree node at {at}"));
             }
