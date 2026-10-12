@@ -422,7 +422,18 @@ pub fn blob_chunks(offset: u64, length: u64) -> (u64, Vec<(Vec<u64>, Chunk)>) {
 /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
 /// contiguous values (`common.grid_chunks` with no reader):
 /// its chunk shape and chunks, or None when an edge chunk's padding does not fit in a
-/// reference.
+/// reference, where `common.grid_chunks` copies it. Any number of chunks is cut (the
+/// references' budget bounds them).
+///
+/// NIfTI is the only caller (spec/virtualize/nifti.md §7.2
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#72-chunks>), and for it
+/// None does not happen in practice: a padding past the payload is more than 64512 bytes,
+/// which the cut keeps only on the last axis (elements of at most 8 bytes), when no count
+/// from k to 2k chunks pads by at most 64512 bytes. The padding kept is then less than one
+/// chunk of `ceil(n / k)` elements, so `ceil(n / k) > 8189`, and count k pads by fewer than
+/// k elements, so `k > 8064`: a row of more than 2^29 bytes, every one of whose 8065 or more
+/// counts leaves a padding of over 8064 elements (the residues of n modulo the chunk lengths
+/// would all have to avoid a range of half their size).
 pub fn grid_chunks(offset: u64, shape: &[u64], item: u64, limit: u64) -> Option<(Vec<u64>, Vec<(Vec<u64>, Chunk)>)> {
     if item > limit {
         return None;
@@ -468,9 +479,6 @@ pub fn grid_chunks(offset: u64, shape: &[u64], item: u64, limit: u64) -> Option<
     };
     let tail = vec![0u64; shape.len() - a - 1];
     let outer_count: u64 = shape[..a].iter().product();
-    if outer_count.saturating_mul(n.div_ceil(c)) > 1 << 22 {
-        return None;
-    }
     let mut chunks = Vec::new();
     for base in 0..outer_count {
         let mut o = Vec::with_capacity(a);

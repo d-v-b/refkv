@@ -205,7 +205,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let item = bits / 8 / samples;
     let stored_shape: Vec<u64> = stored.iter().map(|a| shape_of(a)).collect();
     let (grid, chunks) = grid_chunks(vox, &stored_shape, item, CHUNK_BYTES)
-        .ok_or("the voxel data cannot be cut into chunks: an edge chunk's padding does not fit in a reference, or more than 2^22 chunks")?;
+        .ok_or("internal: an edge chunk whose padding does not fit in a reference (out::grid_chunks says why none does)")?;
     let pos = |a: &str| stored.iter().position(|s| *s == a).unwrap();
     let chunk_shape: Vec<u64> = axes.iter().map(|a| grid[pos(a)]).collect();
     let shape: Vec<u64> = axes.iter().map(|a| shape_of(a)).collect();

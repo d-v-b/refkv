@@ -520,9 +520,7 @@ as [conventions §7](../conventions.md#7-source-values-as-arrays)
 references a chunk of contiguous values (with the chunk limit 2^17 bytes):
 one range of source 0, the chunk's bytes in the file, followed for an edge
 chunk by its zero padding as a literal range; when that reference does not
-fit in a payload ([§1.2](../virtualize.md#12-input)), or the array would have more than 2^22 chunks,
-the input is rejected (no file of less than hundreds of megabytes per row
-reaches either). The ranges
+fit in a payload ([§1.2](../virtualize.md#12-input)), the chunk is copied, with its padding. The ranges
 lie within the file (by the data size check). The output has no data
 sources: its source table is source 0 alone.
 

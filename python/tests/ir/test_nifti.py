@@ -4,7 +4,9 @@ an esize past the voxel data, a negative esize, dimensions past the file)."""
 
 import io
 import json
+import os
 import struct
+import sys
 import time
 
 import pytest
@@ -126,3 +128,42 @@ def test_a_large_extension_is_not_read(tmp_path):
     path.write_bytes(data)
     _, out, _ = via_ir(str(path), "https://data.test/l.nii")
     assert out.summary["planner"]["asked"] < 1 << 21
+
+
+@pytest.mark.skipif(os.environ.get("VZIP_LARGE_TESTS") != "1",
+                    reason="a 16 GiB sparse file, 5 GB of memory and about 13 minutes: set VZIP_LARGE_TESTS=1")
+def test_more_than_2_22_chunks_are_cut_as_the_reference_cuts_them(tmp_path):
+    """A NIfTI-2 uint8 volume of 4096 x 43 x 97542 voxels (a sparse file of 16 GiB): its
+    rows of 43 x 4096 bytes do not fit the chunk limit with a small padding, so the cut
+    moves to x, and the array has 97542 x 43 = 4194306 chunks of one row, more than 2^22
+    (spec/virtualize/nifti.md §4.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#41-the-array>). The IR
+    cuts them all, as the frozen reference does: the archives are equivalent outside
+    vzip_source."""
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize"))
+    import compare
+
+    x, y, z = 4096, 43, 97542
+    h = bytearray(540)
+    struct.pack_into("<i", h, 0, 540)
+    h[4:12] = b"n+2\0\r\n\x1a\n"
+    struct.pack_into("<hh", h, 12, 2, 8)
+    struct.pack_into("<8q", h, 16, 3, x, y, z, 1, 1, 1, 1)
+    struct.pack_into("<q", h, 168, 544)
+    path = tmp_path / "big.nii"
+    with open(path, "wb") as f:
+        f.write(bytes(h) + bytes(4))
+        f.truncate(544 + x * y * z)
+    url = "https://data.test/big.nii"
+    _, ref = virtualize(str(path), url)
+    ref.write(str(tmp_path / "ref.vzip"))
+    del ref
+    _, out, _ = via_ir(str(path), url)
+    assert out.summary["chunks"] == z * y > 1 << 22
+    out.write(str(tmp_path / "ir.vzip"))
+    del out
+    a = compare._zip_view(tmp_path / "ref.vzip")
+    b = compare._zip_view(tmp_path / "ir.vzip")
+    assert compare.differences(compare.without_source(compare.at_revision(a)), compare.without_source(b)) == []

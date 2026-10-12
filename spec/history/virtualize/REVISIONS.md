@@ -1166,10 +1166,6 @@ trailing bytes), which the IR mirror replaces.
   elements (the header as one record, the extender, each extension as one
   record value, the voxel data, gaps). Its view shows the header, the
   extender and each extension of at most 1024 bytes.
-- **NIfTI §7.2:** an edge chunk whose reference does not fit in a payload,
-  or an array of more than 2^22 chunks, rejects the input (the chunk was
-  copied before). Only a file with rows of hundreds of megabytes reaches
-  either; no fixture or corpus file does.
 - **Conventions:** the root property records `"revision": 26`; the schemas
   were regenerated (NIfTI's describes the mirror).
 
