@@ -221,6 +221,31 @@ fn the_ignored_keys_are_vzip_source_s_member_ignored_in_byte_order() {
     assert_eq!(d["attributes"]["zarr_conventions"][0]["uuid"], "8e792619-d671-4687-ab51-752885dd3ee6");
 }
 
+#[test]
+fn members_named_gaps_or_json_keep_the_ir_valid_and_rebuild() {
+    use vzip_ir::mirror::{canonical_problem, mirror, view_problem};
+    let mut never = |_: u64, _: u64| -> Result<Vec<u8>, String> { Err("no source".into()) };
+    for n in [3usize, 4097] {
+        let mut files = walk(&fixtures().join("zarr2_hierarchy"));
+        let mut members = vec!["\"gaps\": [1, 2]".to_string(), "\"json\": {\"a\": 1}".to_string(), "\"gaps/\": 3".to_string()];
+        members.extend((members.len()..n).map(|i| format!("\"k{i}\": {i}")));
+        let doc = format!("{{ {} }}", members.join(", "));
+        files.insert(".zattrs".into(), doc.clone().into_bytes());
+        let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
+        let bytes: Vec<&Vec<u8>> = files.values().collect();
+        let (ir, _, _) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone()).unwrap_or_else(|e| panic!("{n}: {e}"));
+        vzip_ir::check::check(&ir).unwrap_or_else(|e| panic!("{n}: {e}"));
+        let mut out = Out::new("https://data.test/s/");
+        mirror(&ir, &mut out, "zarr2").unwrap_or_else(|e| panic!("{n}: {e}"));
+        let get = |k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone());
+        let rebuilt = rebuild_store(&get).unwrap();
+        assert!(rebuilt.iter().any(|(k, _, b)| k == ".zattrs" && b.as_deref() == Some(doc.as_bytes())), "{n}");
+        assert_eq!(canonical_problem(&get, &mut never), None, "{n}");
+        let names: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
+        assert_eq!(view_problem(&names, &get, &mut never), None, "{n}");
+    }
+}
+
 macro_rules! reject {
     ($name:ident, $dir:expr, $why:expr) => {
         #[test]
