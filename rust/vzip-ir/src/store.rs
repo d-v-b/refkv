@@ -36,7 +36,7 @@ pub enum StoreStep {
 
 /// A store format's sans-IO parser: it starts from the IR of the listing (`ir`, with
 /// `objects[k]` the element of listed key `k`) and adds the held objects' elements.
-pub trait StoreParser {
+pub trait StoreParser: Send + Sync {
     fn step(&mut self) -> Res<StoreStep>;
     fn feed(&mut self, object: usize, offset: u64, data: &[u8]);
     /// The IR (finished: `check::finish`) and the facts its projection reads.
@@ -263,10 +263,16 @@ impl StoreRun {
             let b = self.whole.get(&k).ok_or(format!("internal: the held object {:?} was not read whole", self.keys[k].0))?;
             ir.hold(o, b)?;
         }
-        let s = &self.stats;
-        let stats = json!({"objects": s.objects, "batches": s.batches, "ranges": s.ranges, "asked": s.asked,
-                           "requests": s.requests, "spans": s.spans, "bytes": s.bytes, "listed": self.keys.len()});
+        let stats = self.stats_json();
         Ok((ir, facts, stats))
+    }
+
+    /// The run's counts: objects read, batches, ranges asked and their bytes, requests, spans
+    /// and bytes read, objects listed.
+    pub fn stats_json(&self) -> J {
+        let s = &self.stats;
+        json!({"objects": s.objects, "batches": s.batches, "ranges": s.ranges, "asked": s.asked,
+               "requests": s.requests, "spans": s.spans, "bytes": s.bytes, "listed": self.keys.len()})
     }
 
     /// Finishes and mirrors: the output (the projection is the format's; the prototype has
@@ -283,6 +289,17 @@ impl StoreRun {
 /// the mirror's table folded.
 pub fn store_output(format: StoreFormat, ir: &Ir, _facts: &J, stats: J, url: &str, mirror: bool) -> Res<crate::out::Out> {
     let mut out = crate::out::Out::new(url);
+    if format == StoreFormat::Zarr2Proto {
+        // the prototype's projection: each referenced object at its own key, whole
+        let kids = ir.has_children();
+        for o in ir.sources().objects {
+            let ou = o as usize;
+            if !kids[ou] && ir.len[ou] > 0 {
+                let k = ir.key(o);
+                out.refs(&k, vec![crate::out::Part::Obj(k.clone(), 0, ir.len[ou])]);
+            }
+        }
+    }
     out.summary = json!({"format": format.name(), "reads": stats, "elements": ir.len(), "objects": ir.objects});
     if mirror {
         let folded = crate::mirror::mirror(ir, &mut out, format.profile())?;

@@ -23,6 +23,12 @@ pub enum Part {
     Src(u64, u64),
     Data(u32, u64, u64),
     Lit(Vec<u8>),
+    /// (key, offset, length): bytes of a store's object (conventions §8.9
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), whose url source
+    /// the host makes (spec/virtualize.md §1.4
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>: one per
+    /// object referenced, its size pinned, in order of the entries' keys).
+    Obj(String, u64, u64),
 }
 
 pub const MAX_PAYLOAD: usize = 65519;
@@ -151,6 +157,12 @@ impl Out {
                         b.push(2);
                         s(&mut b, x);
                     }
+                    Part::Obj(k, o, n) => {
+                        b.push(3);
+                        s(&mut b, k.as_bytes());
+                        b.extend_from_slice(&o.to_le_bytes());
+                        b.extend_from_slice(&n.to_le_bytes());
+                    }
                 }
             }
         }
@@ -181,6 +193,8 @@ fn range_size(r: &Part) -> usize {
         Part::Lit(b) => 1 + varint_size(b.len() as u64) + b.len(),
         Part::Src(o, n) => [0, *o, *n].iter().filter(|&&v| v != 0).map(|&v| 1 + varint_size(v)).sum(),
         Part::Data(s, o, n) => [*s as u64, *o, *n].iter().filter(|&&v| v != 0).map(|&v| 1 + varint_size(v)).sum(),
+        // the host numbers the objects' sources: at most the objects a store IR has
+        Part::Obj(_, o, n) => [crate::ir::MAX_OBJECTS, *o, *n].iter().filter(|&&v| v != 0).map(|&v| 1 + varint_size(v)).sum(),
     }
 }
 
