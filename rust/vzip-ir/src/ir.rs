@@ -584,7 +584,8 @@ impl Ir {
     /// The bytes of held objects of a store IR (conventions §8.9
     /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), which the mirror
     /// holds: for each (object, bytes), as many as its size; an object that has bytes already
-    /// keeps them, and one given twice must be given the same bytes. The value table is sorted
+    /// keeps them; bytes other than those an object holds or is given elsewhere in `held` are
+    /// refused (two reads of one object that disagree). The value table is sorted
     /// once, after all.
     pub fn hold_all<'a>(&mut self, held: impl IntoIterator<Item = (u32, &'a [u8])>) -> Res<()> {
         self.sort_values();
@@ -597,8 +598,10 @@ impl Ir {
             if raw.len() > u32::MAX as usize {
                 return Err(format!("budget: a held object of more than {} bytes", u32::MAX));
             }
-            if self.value_bytes(o).is_none() {
-                put.push((o, raw));
+            match self.value_bytes(o) {
+                None => put.push((o, raw)),
+                Some(b) if b != raw => return Err(format!("internal: element {o} held twice, with other bytes")),
+                Some(_) => {}
             }
         }
         put.sort_by_key(|p| p.0);

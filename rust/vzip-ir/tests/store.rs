@@ -182,7 +182,7 @@ fn held_objects_take_their_bytes_once_in_any_order() {
     let (mut ir, objs) = store();
     ir.hold_all([(objs[1], &[1u8; 40][..])]).unwrap();
     let before = ir.vbytes.len();
-    ir.hold_all([(objs[7], &[7u8; 5][..]), (objs[0], &[0u8; 24][..]), (objs[7], &[7u8; 5][..]), (objs[1], &[9u8; 40][..])]).unwrap();
+    ir.hold_all([(objs[7], &[7u8; 5][..]), (objs[0], &[0u8; 24][..]), (objs[7], &[7u8; 5][..]), (objs[1], &[1u8; 40][..])]).unwrap();
     assert_eq!(ir.vbytes.len(), before + 29);
     assert_eq!(ir.value_bytes(objs[1]), Some(&[1u8; 40][..]));
     assert_eq!(ir.value_bytes(objs[0]), Some(&[0u8; 24][..]));
@@ -207,5 +207,13 @@ fn held_bytes_of_an_element_that_is_no_object_are_refused() {
 fn an_object_held_twice_with_other_bytes_is_refused() {
     let (mut ir, objs) = store();
     let e = ir.hold_all([(objs[0], &[0u8; 24][..]), (objs[0], &[1u8; 24][..])]).unwrap_err();
+    assert_eq!(e, format!("internal: element {} held twice, with other bytes", objs[0]));
+}
+
+#[test]
+fn bytes_other_than_an_object_holds_are_refused() {
+    let (mut ir, objs) = store();
+    ir.hold_all([(objs[0], &[0u8; 24][..])]).unwrap();
+    let e = ir.hold_all([(objs[0], &[1u8; 24][..])]).unwrap_err();
     assert_eq!(e, format!("internal: element {} held twice, with other bytes", objs[0]));
 }
