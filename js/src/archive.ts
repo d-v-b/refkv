@@ -311,7 +311,6 @@ export function checkAddress(policy: Policy, url: string, address: string): void
  */
 export const MERGE_GAP = 1 << 16;
 
-const U16_ALL = 0xffff;
 const U32_ALL = 0xffffffff;
 const strictUtf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
@@ -413,32 +412,23 @@ export class Archive {
     if (magic !== "vzip/0") {
       throw new VzipError("archive", `unsupported version ${magic}`);
     }
-    let count = BigInt(view.getUint16(eocd + 10, true));
-    let cdSize = BigInt(view.getUint32(eocd + 12, true));
-    let cdOffset = BigInt(view.getUint32(eocd + 16, true));
-    if (
-      view.getUint16(eocd + 8, true) === U16_ALL ||
-      count === BigInt(U16_ALL) ||
-      cdSize === BigInt(U32_ALL) ||
-      cdOffset === BigInt(U32_ALL)
-    ) {
-      const loc = eocd - 20;
-      if (loc < 0 || view.getUint32(loc, true) !== 0x07064b50) {
-        throw new VzipError("archive", "missing zip64 locator");
-      }
-      const at = safe(view.getBigUint64(loc + 8, true), "zip64 record offset");
-      if (
-        at + 56 > n ||
-        view.getUint32(at, true) !== 0x06064b50 ||
-        view.getBigUint64(at + 4, true) !== 44n
-      ) {
-        throw new VzipError("archive", "invalid zip64 end of central directory");
-      }
-      count = view.getBigUint64(at + 32, true);
-      cdSize = view.getBigUint64(at + 40, true);
-      cdOffset = view.getBigUint64(at + 48, true);
+    // spec §10.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>: the directory's size and offset always come
+    // from the zip64 record; the end record's counts, size and offset, and the zip64
+    // record's counts, are ignored
+    const loc = eocd - 20;
+    if (loc < 0 || view.getUint32(loc, true) !== 0x07064b50) {
+      throw new VzipError("archive", "no zip64 locator before the end of central directory record");
     }
-    void count; // spec §10.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>: entry counts are not used beyond this point
+    const at64 = safe(view.getBigUint64(loc + 8, true), "zip64 record offset");
+    if (
+      at64 + 56 > n ||
+      view.getUint32(at64, true) !== 0x06064b50 ||
+      view.getBigUint64(at64 + 4, true) !== 44n
+    ) {
+      throw new VzipError("archive", "invalid zip64 end of central directory");
+    }
+    const cdSize = view.getBigUint64(at64 + 40, true);
+    const cdOffset = view.getBigUint64(at64 + 48, true);
     const cdStart = safe(cdOffset, "central directory offset");
     const cdEnd = cdStart + safe(cdSize, "central directory size");
     if (cdEnd > n) throw new VzipError("archive", "central directory outside the file");
@@ -451,8 +441,8 @@ export class Archive {
       }
       const flags = view.getUint16(at + 8, true);
       const method = view.getUint16(at + 10, true);
-      const csize = view.getUint32(at + 20, true);
-      const size = view.getUint32(at + 24, true);
+      let csize = view.getUint32(at + 20, true);
+      let size = view.getUint32(at + 24, true);
       const nameLen = view.getUint16(at + 28, true);
       const extraLen = view.getUint16(at + 30, true);
       const commentLen = view.getUint16(at + 32, true);
@@ -476,33 +466,44 @@ export class Archive {
       const blocks = parseExtra(extra, view, extraStart);
       const refs = blocks?.filter((b) => b.id === RANGE_ID || b.id === CONCAT_ID) ?? [];
       const zip64 = blocks?.filter((b) => b.id === 0x0001) ?? [];
+      // spec §10.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>: a large entry's sizes, then an
+      // offset that does not fit its field, come from the one ZIP64 block, in that order
+      const large = size === U32_ALL && csize === U32_ALL;
+      const need = (large ? 16 : 0) + (offset === U32_ALL ? 8 : 0);
       if (blocks === undefined) entry.error = "unparseable extra field";
       else if (refs.length > 1) entry.error = "more than one reference block";
       else if (zip64.length > 1) entry.error = "more than one zip64 block";
-      else if (csize === U32_ALL || size === U32_ALL) entry.error = "size field is 0xFFFFFFFF";
-      else if (offset === U32_ALL) {
-        if (zip64.length === 0 || zip64[0].data.length < 8) {
-          entry.error = "offset needs a zip64 block";
+      else if ((size === U32_ALL) !== (csize === U32_ALL)) {
+        entry.error = "exactly one size field is 0xFFFFFFFF";
+      } else if (need > 0) {
+        if (zip64.length === 0 || zip64[0].data.length < need) {
+          entry.error = "zip64 block missing or too short";
         } else {
-          offset = new DataView(
-            zip64[0].data.buffer,
-            zip64[0].data.byteOffset,
-          ).getBigUint64(0, true);
+          const z = new DataView(zip64[0].data.buffer, zip64[0].data.byteOffset, need);
+          if (large) {
+            size = safe(z.getBigUint64(0, true), "entry size");
+            csize = safe(z.getBigUint64(8, true), "entry size");
+          }
+          if (offset === U32_ALL) offset = z.getBigUint64(large ? 16 : 0, true);
         }
       }
       if (entry.error === undefined && method !== 0 && method !== 8) {
         entry.error = `compression method ${method}`;
       } else if (entry.error === undefined && flags & 1) {
         entry.error = "encrypted";
+      } else if (entry.error === undefined && large && method !== 0) {
+        // spec §10.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#101-structure> rule 7
+        entry.error = "large entry is not STORED";
       }
       if (entry.error === undefined && refs.length === 1) {
         if (method !== 0) entry.error = "reference entry with method 8";
+        else if (large) entry.error = "reference entry is large";
         entry.reference = { headerId: refs[0].id, payload: refs[0].data };
       }
+      entry.size = size;
+      entry.csize = csize;
       entry.bodyOffset =
-        typeof offset === "bigint"
-          ? Number(offset) + 30 + nameLen
-          : offset + 30 + nameLen;
+        (typeof offset === "bigint" ? Number(offset) : offset) + 30 + nameLen + (large ? 20 : 0);
     }
 
     const cview = new DataView(comment.buffer, comment.byteOffset, comment.byteLength);

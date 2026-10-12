@@ -248,7 +248,8 @@ node js/demo/e2e_examples.mjs <out dir> [example id …]      # every demo examp
 ```
 
 - `run_write.py` checks every unpaged write case with `conformance/archive/validate.py`
-  and the reference reader, plus a zip64 archive and every invalid description.
+  and the reference reader, plus an unpaged archive of 70,000 entries and every
+  invalid description.
 - `tiff/verify.py` virtualizes each fixture with the browser code. It then
   reads every level through the reference implementation (`python/src/vzip`) and
   zarr-python and compares it with tifffile, and rebuilds the file from the

@@ -32,7 +32,7 @@ export interface ArchiveDesc {
  * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#13-versioning>, §5
  * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>).
  */
-export const SPEC_REVISION = 10;
+export const SPEC_REVISION = 11;
 export const SOURCES_KEY = "__vz__/sources";
 export const INDEX_KEY = "__vz__/index";
 export const RANGE_ID = 0x7a76;
@@ -49,14 +49,101 @@ const reject = (message: string): never => {
   throw new InvalidInputError(message);
 };
 
-interface Built {
+/** An entry's headers, less its body. */
+export interface Header {
   name: Uint8Array;
   method: number;
   crc: number;
-  size: number;
-  body: Uint8Array;
+  size: number; // uncompressed
+  csize: number; // compressed: the body's length
   extra: Uint8Array; // reference block, or empty
   offset: number; // of the local header
+}
+
+interface Built extends Header {
+  body: Uint8Array;
+}
+
+/**
+ * Whether an entry is large: its sizes go in ZIP64 fields (spec §10.1
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#101-structure> rule 7).
+ */
+export const isLarge = (h: Pick<Header, "size" | "csize">): boolean =>
+  h.size >= U32_ALL || h.csize >= U32_ALL;
+
+/**
+ * The local file header, with the name: its extra field is empty, except a large entry's,
+ * which is the 20-byte ZIP64 field (spec §10.1
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#101-structure> rules 4 and 7).
+ */
+export function localHeader(h: Header): Uint8Array {
+  const large = isLarge(h);
+  const extra = large ? le([[1, 2], [16, 2], [h.size, 8], [h.csize, 8]]) : new Uint8Array();
+  return concat([
+    le([
+      [0x04034b50, 4], [large ? 45 : 20, 2], [0x0800, 2], [h.method, 2], [0, 2], [0x21, 2],
+      [h.crc, 4], [large ? U32_ALL : h.csize, 4], [large ? U32_ALL : h.size, 4],
+      [h.name.length, 2], [extra.length, 2],
+    ]),
+    h.name,
+    extra,
+  ]);
+}
+
+/** The body offset of an entry (spec §10.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#101-structure> rule 4). */
+export const bodyOffset = (h: Header): number =>
+  h.offset + 30 + h.name.length + (isLarge(h) ? 20 : 0);
+
+/**
+ * The central directory record. Its ZIP64 block holds a large entry's sizes, then an
+ * offset that does not fit its field, and nothing else (spec §10.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>).
+ */
+export function centralRecord(h: Header): Uint8Array {
+  const large = isLarge(h);
+  const farOffset = h.offset >= U32_ALL;
+  const values: [number, 8][] = [];
+  if (large) values.push([h.size, 8], [h.csize, 8]);
+  if (farOffset) values.push([h.offset, 8]);
+  const zip64 = values.length > 0 ? le([[1, 2], [8 * values.length, 2], ...values]) : new Uint8Array();
+  const extra = concat([zip64, h.extra]);
+  return concat([
+    le([
+      [0x02014b50, 4], [20, 2], [zip64.length > 0 ? 45 : 20, 2], [0x0800, 2], [h.method, 2],
+      [0, 2], [0x21, 2], [h.crc, 4], [large ? U32_ALL : h.csize, 4], [large ? U32_ALL : h.size, 4],
+      [h.name.length, 2], [extra.length, 2], [0, 2], [0, 2], [0, 2], [0, 4],
+      [farOffset ? U32_ALL : h.offset, 4],
+    ]),
+    h.name,
+    extra,
+  ]);
+}
+
+/**
+ * The end records, which every archive has (spec §10.2
+ * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>): the zip64 end of central
+ * directory record at `at`, its locator, and the end of central directory record, whose
+ * counts, size and offset are all ones, followed by `comment`.
+ */
+export function endRecords(
+  at: number,
+  count: number,
+  cdOffset: number,
+  cdSize: number,
+  comment: Uint8Array,
+): Uint8Array {
+  return concat([
+    le([
+      [0x06064b50, 4], [44, 8], [20, 2], [45, 2], [0, 4], [0, 4],
+      [count, 8], [count, 8], [cdSize, 8], [cdOffset, 8],
+    ]),
+    le([[0x07064b50, 4], [0, 4], [at, 8], [1, 4]]),
+    le([
+      [0x06054b50, 4], [0, 2], [0, 2], [U16_ALL, 2], [U16_ALL, 2],
+      [U32_ALL, 4], [U32_ALL, 4], [comment.length, 2],
+    ]),
+    comment,
+  ]);
 }
 
 /** The canonical extra block (header ID and payload) of a reference. */
@@ -108,7 +195,10 @@ function validate(desc: ArchiveDesc) {
   };
   for (const e of desc.entries) {
     if ("bytes" in e) {
-      if (e.bytes.length >= U32_ALL) reject(`${e.key}: too large`);
+      // spec §10.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#101-structure> rule 7
+      if (e.compress && e.bytes.length >= U32_ALL) {
+        reject(`${e.key}: an entry of 4 GiB or more must be STORED`);
+      }
       continue;
     }
     let total = 0n;
@@ -160,6 +250,12 @@ class Out {
   }
 }
 
+function concat(parts: Uint8Array[]): Uint8Array {
+  const out = new Out();
+  for (const p of parts) out.push(p);
+  return out.concat();
+}
+
 function le(fields: [number, 2 | 4 | 8][]): Uint8Array {
   const size = fields.reduce((n, [, w]) => n + w, 0);
   const out = new Uint8Array(size);
@@ -185,12 +281,15 @@ export async function writeVzip(desc: ArchiveDesc): Promise<Uint8Array> {
   for (const e of desc.entries) {
     if ("bytes" in e) {
       const body = e.compress ? await deflateRaw(e.bytes) : e.bytes;
-      if (body.length >= U32_ALL) reject(`${e.key}: compressed body too large`);
+      if (e.compress && body.length >= U32_ALL) {
+        reject(`${e.key}: a DEFLATE body of 4 GiB or more would make a large entry that is not STORED`);
+      }
       built.push({
         name: utf8.encode(e.key),
         method: e.compress ? 8 : 0,
         crc: crc32(e.bytes),
         size: e.bytes.length,
+        csize: body.length,
         body,
         extra: new Uint8Array(),
         offset: 0,
@@ -206,6 +305,7 @@ export async function writeVzip(desc: ArchiveDesc): Promise<Uint8Array> {
         method: 0,
         crc: crc32(body),
         size: body.length,
+        csize: body.length,
         body,
         extra,
         offset: 0,
@@ -213,12 +313,17 @@ export async function writeVzip(desc: ArchiveDesc): Promise<Uint8Array> {
     }
   }
   const table = encodeSourceTable(desc.sources, SPEC_REVISION);
+  const tableBody = await deflateRaw(table);
+  // a format entry is never large (spec §10.1
+  // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#101-structure> rule 7)
+  if (table.length >= U32_ALL || tableBody.length >= U32_ALL) reject("the source table reaches 4 GiB");
   const sources: Built = {
     name: utf8.encode(SOURCES_KEY),
     method: 8,
     crc: crc32(table),
     size: table.length,
-    body: await deflateRaw(table),
+    csize: tableBody.length,
+    body: tableBody,
     extra: new Uint8Array(),
     offset: 0,
   };
@@ -227,57 +332,17 @@ export async function writeVzip(desc: ArchiveDesc): Promise<Uint8Array> {
   const out = new Out();
   for (const b of built) {
     b.offset = out.length;
-    out.push(
-      le([
-        [0x04034b50, 4], [20, 2], [0x0800, 2], [b.method, 2], [0, 2], [0x21, 2],
-        [b.crc, 4], [b.body.length, 4], [b.size, 4], [b.name.length, 2], [0, 2],
-      ]),
-    );
-    out.push(b.name);
+    out.push(localHeader(b));
     out.push(b.body);
   }
   const cdOffset = out.length;
-  for (const b of built) {
-    const zip64 = b.offset >= U32_ALL;
-    const extra = zip64
-      ? new Uint8Array([...b.extra, ...le([[1, 2], [8, 2], [b.offset, 8]])])
-      : b.extra;
-    out.push(
-      le([
-        [0x02014b50, 4], [20, 2], [zip64 ? 45 : 20, 2], [0x0800, 2], [b.method, 2],
-        [0, 2], [0x21, 2], [b.crc, 4], [b.body.length, 4], [b.size, 4],
-        [b.name.length, 2], [extra.length, 2], [0, 2], [0, 2], [0, 2], [0, 4],
-        [zip64 ? U32_ALL : b.offset, 4],
-      ]),
-    );
-    out.push(b.name);
-    out.push(extra);
-  }
+  for (const b of built) out.push(centralRecord(b));
   const cdSize = out.length - cdOffset;
-  const count = built.length;
-  if (count >= U16_ALL || cdSize >= U32_ALL || cdOffset >= U32_ALL) {
-    const eocd64 = out.length;
-    out.push(
-      le([
-        [0x06064b50, 4], [44, 8], [20, 2], [45, 2], [0, 4], [0, 4],
-        [count, 8], [count, 8], [cdSize, 8], [cdOffset, 8],
-      ]),
-    );
-    out.push(le([[0x07064b50, 4], [0, 4], [eocd64, 8], [1, 4]]));
-  }
   const comment = new Uint8Array(22);
   comment.set(utf8.encode("vzip/0"));
   const view = new DataView(comment.buffer);
-  view.setBigUint64(6, BigInt(sources.offset + 30 + sources.name.length), true);
-  view.setBigUint64(14, BigInt(sources.body.length), true);
-  out.push(
-    le([
-      [0x06054b50, 4], [0, 2], [0, 2],
-      [Math.min(count, U16_ALL), 2], [Math.min(count, U16_ALL), 2],
-      [Math.min(cdSize, U32_ALL), 4], [Math.min(cdOffset, U32_ALL), 4],
-      [comment.length, 2],
-    ]),
-  );
-  out.push(comment);
+  view.setBigUint64(6, BigInt(bodyOffset(sources)), true);
+  view.setBigUint64(14, BigInt(sources.csize), true);
+  out.push(endRecords(out.length, built.length, cdOffset, cdSize, comment));
   return out.concat();
 }

@@ -1,10 +1,20 @@
 # vzip conformance harness interface
 
-For format version 0 (provisional), specification revision 8 (and 8.1 and
-8.2, which change no result). Revisions 9 and 10 (and 10.1, which changes
-no result) run the same suite: their
-new checks (range checksums, the reader policy) have no cases yet, and the
-policy is set as below.
+For format version 0 (provisional), specification revision 11. Revision 11
+changed the ZIP binding: every archive has the ZIP64 end records
+([spec §10.2](../../spec/archive.md#102-zip64)), and entries of 4 GiB or more
+are allowed ([spec §10.1](../../spec/archive.md#101-structure) rule 7). The
+suite has cases for both. The checks that revisions 9 and 10 added (range
+checksums, the reader policy) have no cases yet, and the policy is set as
+below.
+
+**Large entries.** The crafted archive `large_entries` holds entries of
+0xFFFFFFFF and 2^32 + 3 bytes, and entries after them past 8 GiB. The runner
+writes it as a sparse file, which takes little disk on file systems that
+support them. Its queries read short ranges, so a reader that reads only the
+bytes a window needs from a STORED body
+([spec §13.3](../../spec/archive.md#133-errors)) never holds a large body in
+memory.
 
 **Reader policy ([spec §6.7](../../spec/archive.md#67-reader-policy), revision 10).** The runner serves the `http`
 sources of its archives on the loopback interface (`127.0.0.1`), which rule

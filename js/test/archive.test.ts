@@ -49,24 +49,6 @@ test("reads back what the writer wrote", async () => {
   }
 });
 
-test("writes zip64 end records for 65535 or more entries", async () => {
-  const entries = Array.from({ length: 70000 }, (_, i) => ({
-    key: `c/${i}`,
-    ranges: [{ source: 0, offset: BigInt(i % 10), length: 1n }],
-  }));
-  const bytes = await writeVzip({ sources: [{ url: "blob.bin" }], entries });
-  const view = new DataView(bytes.buffer);
-  const eocd = bytes.length - 44;
-  assert.equal(view.getUint16(eocd + 10, true), 0xffff);
-  assert.equal(view.getUint32(eocd - 20, true), 0x07064b50, "zip64 locator");
-  const a = await Archive.open(bytes, "https://data.test/dir/a.vzip", async (_u, s, e) => ({
-    data: remote.subarray(s, e),
-    size: undefined,
-  }));
-  assert.equal(a.keys().length, 70000);
-  assert.equal(text(await a.read("c/69999")), "9");
-});
-
 test("rejects a file that is not a vzip archive", async () => {
   await assert.rejects(Archive.open(utf8("not a zip at all, not even close"), "https://x/"), (e) =>
     e instanceof VzipError && e.errorClass === "archive");
@@ -81,7 +63,9 @@ test("rejects an unsupported format version", async () => {
 test("reports an entry error for a reference stored with DEFLATE", async () => {
   const bytes = await writeVzip({ sources: [{ data: utf8("abc") }], entries: [{ key: "r", ranges: [{ source: 0, offset: 0n, length: 1n }] }] });
   const view = new DataView(bytes.buffer);
-  const cd = bytes.length - 22 - 22 - view.getUint32(bytes.length - 44 + 12, true);
+  // the central directory's offset, from the zip64 record (spec §10.2
+  // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>)
+  const cd = Number(view.getBigUint64(bytes.length - 44 - 76 + 48, true));
   view.setUint16(cd + 10, 8, true); // the reference's central directory record
   const a = await Archive.open(bytes, "https://x/");
   await assert.rejects(a.read("r"), (e) => e instanceof VzipError && e.errorClass === "entry");
