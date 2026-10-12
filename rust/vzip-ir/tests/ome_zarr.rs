@@ -330,7 +330,7 @@ fn probe_a_document_the_test_reads_outside_the_batch() {
         o
     };
     let keys = |o: &[(String, Vec<u8>)]| -> Vec<(String, u64)> {
-        // in the order of their bytes, as output_of lists them (and keyed to `o`'s order below)
+        // in the order of their bytes, as output_of lists them; read by listing index, found in o by key
         let mut k: Vec<(String, u64)> = o.iter().map(|(k, b)| (k.clone(), b.len() as u64)).collect();
         k.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
         k
