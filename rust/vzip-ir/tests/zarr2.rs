@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use vzip_ir::json;
 use vzip_ir::mirror::rebuild_store;
 use vzip_ir::out::{Out, Part};
-use vzip_ir::project::zarr2::{is_chunk, object_key};
+use vzip_ir::project::store::object_key;
+use vzip_ir::project::zarr2::is_chunk;
 use vzip_ir::store::{run_store, store_output, StoreFormat, StoreRun};
 
 fn fixtures() -> PathBuf {
@@ -205,7 +206,7 @@ fn the_ignored_keys_are_vzip_source_s_member_ignored_in_byte_order() {
         let get = |k: &str| if k == "vzip_source/zarr.json" { Some(junk.clone()) } else { out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone()) };
         assert_eq!(vzip_ir::mirror::canonical_problem(&get, &mut never).as_deref(), Some("vzip_source/zarr.json differs from the canonical table's"));
     }
-    // without a mirror, vzip_source declares the ignored keys alone
+    // without a mirror (tools, tests), there is no vzip_source source metadata, ignored keys or not
     let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let mut r = StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
@@ -216,9 +217,42 @@ fn the_ignored_keys_are_vzip_source_s_member_ignored_in_byte_order() {
         }
     }
     let out = r.into_output("https://data.test/h/", false).unwrap();
-    let d = doc(&out, "vzip_source/zarr.json");
-    assert_eq!(d["attributes"]["vzip_virtualized"], serde_json::json!({"zarr2": {"ignored": ["./x", "b//c"]}}));
-    assert_eq!(d["attributes"]["zarr_conventions"][0]["uuid"], "8e792619-d671-4687-ab51-752885dd3ee6");
+    assert!(!out.entries.iter().any(|e| e.0 == "vzip_source/zarr.json"));
+}
+
+#[test]
+fn members_named_gaps_or_json_keep_the_ir_valid_and_rebuild() {
+    use vzip_ir::mirror::{canonical_problem, mirror, view_problem};
+    let mut never = |_: u64, _: u64| -> Result<Vec<u8>, String> { Err("no source".into()) };
+    for n in [3usize, 4097] {
+        let mut files = walk(&fixtures().join("zarr2_hierarchy"));
+        let mut members = vec!["\"gaps\": [1, 2]".to_string(), "\"json\": {\"a\": 1}".to_string(), "\"gaps/\": 3".to_string()];
+        members.extend((members.len()..n).map(|i| format!("\"k{i}\": {i}")));
+        let doc = format!("{{ {} }}", members.join(", "));
+        files.insert(".zattrs".into(), doc.clone().into_bytes());
+        let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
+        let bytes: Vec<&Vec<u8>> = files.values().collect();
+        let (ir, _, _) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone()).unwrap_or_else(|e| panic!("{n}: {e}"));
+        vzip_ir::check::check(&ir).unwrap_or_else(|e| panic!("{n}: {e}"));
+        // the members `gaps` and `json` are escaped and indexed, as repeated keys are
+        let o = (0..ir.len() as u32).find(|&i| ir.kind[i as usize] == vzip_ir::ir::OBJECT && ir.key(i) == ".zattrs").unwrap();
+        let names: Vec<(String, u64)> = ir.children(o).iter().filter(|&&c| ir.kind[c as usize] == vzip_ir::ir::VALUE)
+            .map(|&c| (ir.names.get(ir.name[c as usize]).to_string(), ir.nidx[c as usize])).collect();
+        let want: Vec<(String, u64)> = if n > 4096 {
+            vec![("json".into(), vzip_ir::ir::NO_INDEX)]
+        } else {
+            vec![("gaps~".into(), 0), ("json~".into(), 0), ("gaps%2F~".into(), 0)]
+        };
+        assert_eq!(names, want, "{n}");
+        let mut out = Out::new("https://data.test/s/");
+        mirror(&ir, &mut out, "zarr2").unwrap_or_else(|e| panic!("{n}: {e}"));
+        let get = |k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone());
+        let rebuilt = rebuild_store(&get).unwrap();
+        assert!(rebuilt.iter().any(|(k, _, b)| k == ".zattrs" && b.as_deref() == Some(doc.as_bytes())), "{n}");
+        assert_eq!(canonical_problem(&get, &mut never), None, "{n}");
+        let names: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
+        assert_eq!(view_problem(&names, &get, &mut never), None, "{n}");
+    }
 }
 
 macro_rules! reject {

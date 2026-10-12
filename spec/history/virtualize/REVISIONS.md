@@ -1203,8 +1203,10 @@ Moving it onto the store IR keeps both, byte for byte.
   store's source model. `vzip_source` is the store IR's mirror: the root and
   the directories, an object per listed key, and in each document a node
   reads (held) a value per top-level member, the text of its value
-  (`ascii[n]`), named by its key, the rest gaps (a document of more than 4096
-  members is one value, `json`); every other object is
+  (`ascii[n]`), named by its key (a key `gaps` or `json` is escaped and
+  indexed, as a repeated one is, so that no member takes the gaps' name or the
+  whole document's), the rest gaps (a document of more than 4096 members is
+  one value, `json`); every other object is
   referenced or empty. Each node's source metadata `{attributes, metadata}`
   is unchanged.
 - **Zarr v2 [§5](../../virtualize/zarr2.md#5-other-objects):** the empty

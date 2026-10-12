@@ -344,7 +344,7 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
     }
     // the recorded ignored keys, beside the mirror's description: one rule for every store
     // format (conventions §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)
-    crate::project::zarr2::record_ignored(&mut out, facts, format.profile())?;
+    crate::project::store::record_ignored(&mut out, facts, format.profile())?;
     Ok(out)
 }
 

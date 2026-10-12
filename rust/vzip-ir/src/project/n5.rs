@@ -9,7 +9,7 @@
 use crate::ir::Ir;
 use crate::n5::{compression, document_key};
 use crate::out::{convention, root_property, Out, Part, CONVENTION_KEY, SOURCE_NODE};
-use crate::project::zarr2::{canonical_index, object_key};
+use crate::project::store::{canonical_index, check_key, object_key, OBJECTS};
 use crate::json::{self, Js, Jv};
 use serde_json::{json, Value as J};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -17,7 +17,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 const PROFILE: &str = "n5";
 /// The members of a dataset's document the Zarr array metadata holds.
 const LAYOUT: [&str; 6] = ["dimensions", "blockSize", "dataType", "compression", "compressionType", "n5"];
-use crate::project::zarr2::OBJECTS;
 
 fn join(parent: &str, name: &str) -> String {
     if parent.is_empty() { name.to_string() } else { format!("{parent}/{name}") }
@@ -575,12 +574,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         }
     }
     for k in written.iter().chain(refs.iter().map(|r| &r.0)) {
-        if k.len() > 65535 {
-            return Err("an output key is longer than 65535 bytes".into());
-        }
-        if k.starts_with("__vz__/") {
-            return Err(format!("output key {k:?} is in the reserved __vz__/ space"));
-        }
+        check_key(k)?;
     }
     for (entry, k, n) in refs {
         out.refs(&entry, vec![Part::Obj(k, 0, n)]);

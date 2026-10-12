@@ -7,44 +7,15 @@
 //! convention declared on the root and on every node with source metadata), an entry per
 //! present chunk referencing its whole object, and every other object of a length referenced
 //! whole under `vzip_source/objects/`; the ignored keys the host recorded are the member
-//! `ignored` of `vzip_source`'s source metadata, beside the mirror's `ir` ([`record_ignored`]).
+//! `ignored` of `vzip_source`'s source metadata, beside the mirror's `ir` ([`super::store::record_ignored`]).
 //! The IR's objects are the listing; the projection reads no object.
 
 use crate::ir::Ir;
 use crate::json::{self, Jv};
-use crate::out::{convention, root_property, Out, Part, CONVENTION_KEY};
+use crate::out::{Out, Part};
+use super::store::{canonical_index, check_key, declare, object_key};
 use serde_json::{json, Value as J};
 use std::collections::{HashMap, HashSet};
-
-pub const OBJECTS: &str = "vzip_source/objects/";
-
-/// The hierarchy's key of the other object `key`: under `vzip_source/objects/`, with `~`
-/// appended to a last segment that is `zarr.json`, `.zarray` or `.zgroup` followed by any
-/// number of `~`, so that no Zarr reader opens a node there (spec/virtualize/zarr2.md
-/// §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
-pub fn object_key(key: &str) -> String {
-    let last = key.rsplit('/').next().unwrap_or("");
-    let base = last.trim_end_matches('~');
-    let tilde = matches!(base, "zarr.json" | ".zarray" | ".zgroup");
-    format!("{OBJECTS}{key}{}", if tilde { "~" } else { "" })
-}
-
-/// A node's attributes: the convention declared when the node is the root (`url`) or has
-/// source metadata `s` (conventions
-/// §2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>).
-pub fn declare(profile: &str, url: Option<&str>, s: Option<Jv>) -> Jv {
-    let mut value = match url {
-        Some(u) => Jv::from_j(&J::Object(root_property(profile, u))),
-        None => Jv::obj(vec![]),
-    };
-    if let Some(s) = s.filter(|s| !s.is_empty_object()) {
-        value.set(profile, s);
-    }
-    if value.is_empty_object() {
-        return value;
-    }
-    Jv::obj(vec![("zarr_conventions", Jv::Arr(vec![Jv::from_j(&convention(profile))])), (CONVENTION_KEY, value)])
-}
 
 fn group(attributes: Jv) -> Jv {
     Jv::obj(vec![("zarr_format", Jv::Int("3".into())), ("node_type", Jv::str("group")), ("attributes", attributes)])
@@ -65,23 +36,6 @@ pub fn is_chunk(rest: &str, grid: &[u64], sep: &str) -> bool {
     }
     let parts: Vec<&str> = rest.split(sep).collect();
     parts.len() == grid.len() && parts.iter().zip(grid).all(|(s, &n)| canonical_index(s, n))
-}
-
-/// A decimal integer without leading zeros, below `limit`.
-pub fn canonical_index(s: &str, limit: u64) -> bool {
-    !s.is_empty() && s.len() <= 17 && s.bytes().all(|c| c.is_ascii_digit()) && (s == "0" || !s.starts_with('0'))
-        && s.parse::<u64>().is_ok_and(|v| v < limit)
-}
-
-/// Rejects the output keys spec/archive.md does not allow.
-fn check_key(key: &str) -> Result<(), String> {
-    if key.len() > 65535 {
-        return Err("an output key is longer than 65535 bytes".into());
-    }
-    if key.starts_with("__vz__/") {
-        return Err(format!("output key {key:?} is in the reserved __vz__/ space"));
-    }
-    Ok(())
 }
 
 pub fn project(ir: &Ir, facts: &J, url: &str, profile: &str) -> Result<Out, String> {
@@ -157,31 +111,3 @@ pub fn project(ir: &Ir, facts: &J, url: &str, profile: &str) -> Result<Out, Stri
     Ok(out)
 }
 
-/// After the mirror: the recorded ignored keys (spec/virtualize.md §1.4
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), in the order of
-/// their UTF-8 bytes, as the member `ignored` of `vzip_source`'s source metadata, beside the
-/// mirror's `ir` (conventions §8.9
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>; spec/virtualize/zarr2.md
-/// §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
-/// spec/virtualize/n5.md §6
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>): every store
-/// format's rule. The group is made when there is no mirror (tests). Nothing when there are none.
-pub fn record_ignored(out: &mut Out, facts: &J, profile: &str) -> Result<(), String> {
-    let mut ignored: Vec<&str> = facts["ignored"].as_array().into_iter().flatten().filter_map(J::as_str).collect();
-    if ignored.is_empty() {
-        return Ok(());
-    }
-    ignored.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
-    let key = format!("{}/zarr.json", crate::out::SOURCE_NODE);
-    let Some(e) = out.entries.iter().find(|e| e.0 == key) else {
-        // no mirror: a group of its own, whose source metadata is the ignored keys alone
-        let attributes = crate::out::declare(serde_json::Map::new(), profile, None, Some(json!({"ignored": ignored})));
-        out.json(&key, &crate::out::group_doc(attributes));
-        return Ok(());
-    };
-    let mut doc: J = serde_json::from_slice(&e.1).map_err(|e| format!("internal: {e}"))?;
-    let own = doc["attributes"][CONVENTION_KEY][profile].as_object_mut().ok_or("internal: vzip_source declares no mirror")?;
-    own.insert("ignored".into(), json!(ignored));
-    out.json(&key, &doc);
-    Ok(())
-}
