@@ -581,19 +581,31 @@ impl Ir {
         h
     }
 
-    /// The bytes of held object `o` of a store IR (conventions §8.9
+    /// The bytes of held objects of a store IR (conventions §8.9
     /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), which the mirror
-    /// holds: as many as its size. The value table is then out of order: call
-    /// [`Ir::sort_values`] once after holding every object.
-    pub fn hold(&mut self, o: u32, raw: &[u8]) -> Res<()> {
-        let ou = o as usize;
-        if ou >= self.len() || self.kind[ou] != OBJECT || self.len[ou] != raw.len() as u64 {
-            return Err(format!("internal: {} bytes held for element {o}, which is no object of that size", raw.len()));
+    /// holds: for each (object, bytes), as many as its size; an object that has bytes already
+    /// keeps them. The value table is sorted once, after all.
+    pub fn hold_all<'a>(&mut self, held: impl IntoIterator<Item = (u32, &'a [u8])>) -> Res<()> {
+        self.sort_values();
+        let mut put = Vec::new();
+        for (o, raw) in held {
+            let ou = o as usize;
+            if ou >= self.len() || self.kind[ou] != OBJECT || self.len[ou] != raw.len() as u64 {
+                return Err(format!("internal: {} bytes held for element {o}, which is no object of that size", raw.len()));
+            }
+            if raw.len() > u32::MAX as usize {
+                return Err(format!("budget: a held object of more than {} bytes", u32::MAX));
+            }
+            if self.value_bytes(o).is_none() {
+                put.push((o, raw));
+            }
         }
-        if raw.len() > u32::MAX as usize {
-            return Err(format!("budget: a held object of more than {} bytes", u32::MAX));
+        put.sort_by_key(|p| p.0);
+        put.dedup_by_key(|p| p.0);
+        for (o, raw) in put {
+            self.put_value(o, raw);
         }
-        self.put_value(o, raw);
+        self.sort_values();
         Ok(())
     }
 

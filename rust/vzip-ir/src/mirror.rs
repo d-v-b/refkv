@@ -633,7 +633,7 @@ pub fn mirror(ir: &Ir, out: &mut Out, profile: &str) -> Result<Folded, String> {
 
 /// A store IR's held objects (conventions §8.9
 /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>) each have their bytes
-/// (`Ir::hold`), and the values the view shows in their sources are read from them.
+/// (`Ir::hold_all`), and the values the view shows in their sources are read from them.
 fn hold_shown(y: &mut Ir, profile: &str) -> Result<(), String> {
     let kids = y.has_children();
     let src = y.sources();

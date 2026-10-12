@@ -17,7 +17,7 @@
 //! its own URL.
 //!
 //! **Held objects.** The run keeps the bytes of every object it read whole; at the end, every
-//! object the parser gave children (a held object) takes them ([`Ir::hold`]), so the mirror
+//! object the parser gave children (a held object) takes them ([`Ir::hold_all`]), so the mirror
 //! rebuilds it. A held object the run did not read whole is an error of the parser.
 //!
 //! **Budget.** Requests at most `2^20 + 4 × objects`, bytes at most `2^24 + 2 × Z` (Z the
@@ -274,12 +274,12 @@ impl StoreRun {
             }
             want.push((k, o));
         }
-        // held once each, then the value table sorted once
+        let mut held = Vec::with_capacity(want.len());
         for (k, o) in want {
             let b = self.whole.get(&k).ok_or(format!("internal: the held object {:?} was not read whole", self.keys[k].0))?;
-            ir.hold(o, b)?;
+            held.push((o, b.as_slice()));
         }
-        ir.sort_values();
+        ir.hold_all(held)?;
         let stats = self.stats_json();
         Ok((ir, facts, stats))
     }
