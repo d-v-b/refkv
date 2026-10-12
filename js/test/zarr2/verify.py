@@ -140,9 +140,10 @@ def objects_problems(store_dir: Path, out: Path) -> list[str]:
             problems.append("the mirror's listing is not the store's")
         problems += [f"{k}: the mirror's bytes are not the object's" for k, _, b in rebuilt
                      if b is not None and (k not in files or files[k].read_bytes() != b)]
+        source = own
         own = {"empty": sorted((k for k, n, _ in rebuilt if n == 0), key=lambda k: k.encode())}
-        if "vzip_source/ignored.json" in names:
-            own["ignored"] = json.loads(z.read("vzip_source/ignored.json"))["ignored"]
+        if "ignored" in source:
+            own["ignored"] = source["ignored"]
     empty = own.get("empty", [])
     for key in empty:
         if not (store_dir / key).is_file() or (store_dir / key).stat().st_size:

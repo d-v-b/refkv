@@ -6,9 +6,9 @@
 //! a valid store IR and the facts of `zarr2.rs` into the hierarchy. A `zarr.json` per node (the
 //! convention declared on the root and on every node with source metadata), an entry per
 //! present chunk referencing its whole object, and every other object of a length referenced
-//! whole under `vzip_source/objects/`; the ignored keys the host recorded are the document
-//! `vzip_source/ignored.json`. The IR's objects are the listing; the projection reads no
-//! object.
+//! whole under `vzip_source/objects/`; the ignored keys the host recorded are the member
+//! `ignored` of `vzip_source`'s source metadata, beside the mirror's `ir` ([`record_ignored`]).
+//! The IR's objects are the listing; the projection reads no object.
 
 use crate::ir::Ir;
 use crate::json::{self, Jv};
@@ -17,7 +17,6 @@ use serde_json::{json, Value as J};
 use std::collections::{HashMap, HashSet};
 
 pub const OBJECTS: &str = "vzip_source/objects/";
-pub const IGNORED_KEY: &str = "vzip_source/ignored.json";
 
 /// The hierarchy's key of the other object `key`: under `vzip_source/objects/`, with `~`
 /// appended to a last segment that is `zarr.json`, `.zarray` or `.zgroup` followed by any
@@ -179,15 +178,36 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
             out.refs(&k, vec![Part::Obj(key.clone(), 0, n)]);
         }
     }
-    let ignored: Vec<&J> = facts["ignored"].as_array().into_iter().flatten().collect();
-    // (OME-Zarr's are vzip_source's source metadata, which the mirror writes: store_output)
-    if !ignored.is_empty() && profile != "ome-zarr" {
-        out.bytes(IGNORED_KEY, crate::out::to_text(&json!({"ignored": ignored})).into_bytes());
-    }
     out.summary = json!({"groups": groups, "arrays": narrays, "chunks": chunks, "emptyChunks": empty_chunks,
                          "objects": ir.objects, "otherObjects": others});
     for (k, v) in facts["ome"].as_object().into_iter().flatten() {
         out.summary[k] = v.clone();
     }
     Ok(out)
+}
+
+/// After the mirror: the recorded ignored keys (spec/virtualize.md §1.4
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), in the order of
+/// their UTF-8 bytes, as the member `ignored` of `vzip_source`'s source metadata, beside the
+/// mirror's `ir` (spec/virtualize/zarr2.md §5
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>); the group
+/// is made when there is no mirror (tests). Nothing when there are none.
+pub fn record_ignored(out: &mut Out, facts: &J, profile: &str) -> Result<(), String> {
+    let mut ignored: Vec<&str> = facts["ignored"].as_array().into_iter().flatten().filter_map(J::as_str).collect();
+    if ignored.is_empty() {
+        return Ok(());
+    }
+    ignored.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+    let key = format!("{}/zarr.json", crate::out::SOURCE_NODE);
+    let Some(e) = out.entries.iter().find(|e| e.0 == key) else {
+        // no mirror: a group of its own, whose source metadata is the ignored keys alone
+        let attributes = crate::out::declare(serde_json::Map::new(), profile, None, Some(json!({"ignored": ignored})));
+        out.json(&key, &crate::out::group_doc(attributes));
+        return Ok(());
+    };
+    let mut doc: J = serde_json::from_slice(&e.1).map_err(|e| format!("internal: {e}"))?;
+    let own = doc["attributes"][CONVENTION_KEY][profile].as_object_mut().ok_or("internal: vzip_source declares no mirror")?;
+    own.insert("ignored".into(), json!(ignored));
+    out.json(&key, &doc);
+    Ok(())
 }

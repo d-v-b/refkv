@@ -7,6 +7,7 @@ for byte from the archive's mirror, the listing too; a store the format rejects 
 only), and one per failure."""
 
 import io
+import json
 import threading
 import time
 import urllib.error
@@ -129,3 +130,15 @@ def test_a_document_shorter_than_listed_fails_the_run():
 def test_an_unknown_store_format_is_refused():
     with pytest.raises(ValueError, match="no store format"):
         vzip_ir.StoreRun("n5", [("attributes.json", 2)], 4)
+
+
+def test_the_ignored_keys_are_vzip_source_s_member_ignored():
+    """The listed keys the store reader ignores and records (spec/virtualize.md §1.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>) are the member
+    `ignored` of vzip_source's source metadata, beside `ir`, in the order of their UTF-8 bytes."""
+    root = FIXTURES / "zarr2" / "zarr2_hierarchy"
+    s3 = FakeS3({**directory(root), "z//y": b"1", "./x": b"2", "é/../w": b"3"})
+    out, _, _ = virtualize_store(URL, opener=s3, workers=2)
+    own = json.loads(out.entries["vzip_source/zarr.json"])["attributes"]["vzip_virtualized"]["zarr2"]
+    assert set(own) == {"ir", "ignored"}
+    assert own["ignored"] == sorted(["z//y", "./x", "é/../w"], key=str.encode)

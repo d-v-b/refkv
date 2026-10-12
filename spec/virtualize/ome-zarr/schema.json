@@ -215,9 +215,9 @@
         }
       ]
     },
-    "mirror": {
+    "storeMirror": {
       "type": "object",
-      "description": "vzip_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>)",
+      "description": "vzip_source's, for a store: the store IR's mirror's description (spec/conventions.md §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), and the recorded ignored keys",
       "properties": {
         "ir": {
           "type": "object",
@@ -228,12 +228,12 @@
             "size": {
               "type": "integer",
               "minimum": 0,
-              "description": "The source's size in bytes"
+              "description": "The objects' sizes, summed"
             },
             "objects": {
               "type": "integer",
               "minimum": 0,
-              "description": "A store IR's: its objects (spec/conventions.md §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)"
+              "description": "The store's objects"
             },
             "elements": {
               "type": "integer",
@@ -282,6 +282,7 @@
           "required": [
             "version",
             "size",
+            "objects",
             "elements",
             "rows",
             "names",
@@ -289,19 +290,6 @@
             "forms"
           ],
           "additionalProperties": false
-        }
-      },
-      "required": [
-        "ir"
-      ],
-      "additionalProperties": false
-    },
-    "storeMirror": {
-      "type": "object",
-      "description": "vzip_source's, for a store whose ignored keys its source metadata records: the IR mirror's description (spec/conventions.md §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), and the recorded keys the store reader ignores, which are not objects",
-      "properties": {
-        "ir": {
-          "$ref": "#/$defs/mirror/properties/ir"
         },
         "ignored": {
           "type": "array",
@@ -309,7 +297,7 @@
             "type": "string"
           },
           "minItems": 1,
-          "description": "The recorded keys of the listed objects that spec/virtualize.md §1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores, in the order of their UTF-8 bytes"
+          "description": "The recorded keys of the listed objects that spec/virtualize.md §1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"
         }
       },
       "required": [

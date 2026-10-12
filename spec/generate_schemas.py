@@ -271,7 +271,7 @@ SOURCE_METADATA: dict[str, dict] = {
             "minProperties": 1,
             "additionalProperties": False,
         },
-        {"$ref": "#/$defs/mirror"},
+        {"$ref": "#/$defs/storeMirror"},
         {"$ref": "#/$defs/mirrorView"},
     ]},
     "ome-zarr": {"anyOf": [
@@ -635,9 +635,12 @@ SOURCE_METADATA["czi"] = {"anyOf": [
 ]}
 # The IR mirror (spec/conventions.md §8
 # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2
-# and CZI conventions, and of the store conventions on the IR (Zarr v2, OME-Zarr): vzip_source's
+# and CZI conventions: vzip_source's
 # source metadata, and the view documents of the groups under vzip_source/tree.
-IR_PROFILES = ("tiff", "nd2", "czi", "zarr2", "ome-zarr")
+IR_PROFILES = ("tiff", "nd2", "czi")
+# The store profiles whose vzip_source is a store IR's mirror (spec/conventions.md §8.9
+# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>).
+IR_STORES = ("zarr2", "ome-zarr")
 MIRROR_DEFS = {
     "mirror": {
         "type": "object",
@@ -647,8 +650,6 @@ MIRROR_DEFS = {
             "properties": {
                 "version": {"const": 2},
                 "size": {"type": "integer", "minimum": 0, "description": "The source's size in bytes"},
-                "objects": {"type": "integer", "minimum": 0,
-                            "description": "A store IR's: its objects (spec/conventions.md §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)"},
                 "elements": {"type": "integer", "minimum": 1, "description": "The elements, column runs expanded"},
                 "rows": {"type": "integer", "minimum": 1, "description": "The rows the table stores"},
                 "names": {"type": "array", "items": {"type": "string"}, "minItems": 1,
@@ -662,17 +663,6 @@ MIRROR_DEFS = {
             "required": ["version", "size", "elements", "rows", "names", "types", "forms"],
             "additionalProperties": False,
         }},
-        "required": ["ir"],
-        "additionalProperties": False,
-    },
-    "storeMirror": {
-        "type": "object",
-        "description": "vzip_source's, for a store whose ignored keys its source metadata records: the IR mirror's description (spec/conventions.md §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), and the recorded keys the store reader ignores, which are not objects",
-        "properties": {
-            "ir": {"$ref": "#/$defs/mirror/properties/ir"},
-            "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                        "description": "The recorded keys of the listed objects that spec/virtualize.md §1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores, in the order of their UTF-8 bytes"},
-        },
         "required": ["ir"],
         "additionalProperties": False,
     },
@@ -697,6 +687,34 @@ MIRROR_DEFS = {
             {"type": "object"},
         ],
     },
+}
+
+
+# The store IR's mirror (spec/conventions.md §8.9
+# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): vzip_source's source
+# metadata for the store profiles of IR_STORES, the file IR's description with the member objects,
+# and the recorded ignored keys.
+_STORE_IR = json.loads(json.dumps(MIRROR_DEFS["mirror"]["properties"]["ir"]))
+_STORE_IR["properties"]["size"] = {"type": "integer", "minimum": 0, "description": "The objects' sizes, summed"}
+_STORE_IR["properties"] = {**{k: v for k, v in _STORE_IR["properties"].items() if k in ("version", "size")},
+                           "objects": {"type": "integer", "minimum": 0, "description": "The store's objects"},
+                           **{k: v for k, v in _STORE_IR["properties"].items() if k not in ("version", "size")}}
+_STORE_IR["required"] = ["version", "size", "objects", "elements", "rows", "names", "types", "forms"]
+STORE_MIRROR_DEFS = {
+    "storeMirror": {
+        "type": "object",
+        "description": "vzip_source's, for a store: the store IR's mirror's description (spec/conventions.md §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), and the recorded ignored keys",
+        "properties": {
+            "ir": _STORE_IR,
+            "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1,
+                        "description": "The recorded keys of the listed objects that spec/virtualize.md "
+                                       "§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"},
+        },
+        "required": ["ir"],
+        "additionalProperties": False,
+    },
+    "mirrorView": MIRROR_DEFS["mirrorView"],
+    "viewValue": MIRROR_DEFS["viewValue"],
 }
 
 # The GeoZarr members a SAFE node may hold besides the convention's (spec/virtualize/safe.md §5
@@ -768,6 +786,8 @@ def schema(profile: str) -> dict:
         defs.update(TIFF_DEFS)
     if profile in IR_PROFILES:
         defs.update(MIRROR_DEFS)
+    if profile in IR_STORES:
+        defs.update(STORE_MIRROR_DEFS)
     if profile == "ndpi":  # a level's strip's SOF0 segment (spec/virtualize/ndpi.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#5-source-metadata>)
         ifd = json.loads(json.dumps(TIFF_DEFS["ifd"]))
         ifd["properties"]["sof0"] = {"type": "string", "contentEncoding": "base64",
