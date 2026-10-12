@@ -207,6 +207,12 @@ pub struct Doc {
 /// The document `data` by spec/virtualize.md §1.6
 /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>, or the reason it is rejected.
 pub fn parse(data: &[u8]) -> Result<Doc, String> {
+    parse_within(data, MAX_DEPTH)
+}
+
+/// [`parse`], nesting at most `max_depth` deep (a document the parser built from documents it
+/// read, such as a node's source metadata, which nests its attributes two levels deeper).
+pub fn parse_within(data: &[u8], max_depth: usize) -> Result<Doc, String> {
     if data.len() as u64 > MAX_DOCUMENT {
         return Err(format!("JSON document of {} bytes exceeds {MAX_DOCUMENT}", data.len()));
     }
@@ -214,7 +220,7 @@ pub fn parse(data: &[u8]) -> Result<Doc, String> {
         return Err("JSON document starts with a byte order mark".into());
     }
     let text = std::str::from_utf8(data).map_err(|_| "JSON document is not UTF-8".to_string())?;
-    let mut p = P { s: text.as_bytes(), at: 0, depth: 0, members: Vec::new() };
+    let mut p = P { s: text.as_bytes(), at: 0, depth: 0, max_depth, members: Vec::new() };
     p.ws();
     let value = p.value(true)?;
     p.ws();
@@ -228,6 +234,7 @@ struct P<'a> {
     s: &'a [u8],
     at: usize,
     depth: usize,
+    max_depth: usize,
     members: Vec<(String, u64, u64)>,
 }
 
@@ -274,8 +281,8 @@ impl P<'_> {
 
     fn enter(&mut self) -> Result<(), String> {
         self.depth += 1;
-        if self.depth > MAX_DEPTH {
-            return Err(format!("JSON nests more than {MAX_DEPTH} deep"));
+        if self.depth > self.max_depth {
+            return Err(format!("JSON nests more than {} deep", self.max_depth));
         }
         self.at += 1;
         Ok(())

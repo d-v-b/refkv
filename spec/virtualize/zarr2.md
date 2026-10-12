@@ -327,6 +327,7 @@ digits are its name index). Types are those of
 | `…/<d>` | struct | | a directory of the store (no extent) |
 | `…/<k>` | object | | an object of the store: `(0, s)`, `s` its listed size. It is **held** when it is a document [§2](#2-nodes) reads (the `.zgroup` of an explicit group, the `.zarray` of an array, the `.zattrs` of either), and otherwise **referenced** (a chunk object, an other object of [§5](#5-other-objects)) or empty |
 | `…/<k>/<m>` | value | `ascii[n]` | in a held object: the text of the value of its top-level member `m`, as written (`n` its bytes); the members' keys are named as [conventions §8.1](../conventions.md#81-elements) names source texts (a key that is empty, holds `/` or `~`, or repeats an earlier one is escaped and indexed, as ND2's names are, [ND2 §5.3](nd2.md#53-elements)) |
+| `…/<k>/json` | value | `ascii[s]` | in a held object of more than 4096 top-level members: the whole document, in place of a value per member (the view would show only the first few thousand of them) |
 | `…/<k>/gaps/<offset>` | gap | | in a held object: the bytes between its members' values (the braces, the keys, the colons, commas and whitespace), or the whole object when it has no member |
 
 The view shows each member's text of at most 1024 bytes as a string

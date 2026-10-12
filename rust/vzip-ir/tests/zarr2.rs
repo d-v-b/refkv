@@ -127,6 +127,23 @@ fn documents_are_read_as_json_by_the_store_rules() {
     assert_eq!(d.value.text(), r#"{"\ud800":3,"\ufffdd800":2}"#);
     let d = json::parse(br#"{"\ud800\ufffdd800": 1, "\ufffdd800\ud800": 2}"#).unwrap();
     assert_eq!(d.value.members().len(), 2);
+    // a .zattrs nesting 256 deep is a node's attributes, which its source metadata nests deeper
+    let mut files = walk(&fixtures().join("zarr2_hierarchy"));
+    files.insert(".zattrs".into(), format!("{{\"a\":{}{}}}", "[".repeat(255), "]".repeat(255)).into_bytes());
+    output(&files).unwrap();
+    // a document of more than 4096 members is one value, `json`, and rebuilds as any other
+    for (n, values) in [(4096usize, 4096usize), (4097, 1)] {
+        let mut files = walk(&fixtures().join("zarr2_hierarchy"));
+        let doc = format!("{{{}}}", (0..n).map(|i| format!("\"k{i}\":{i}")).collect::<Vec<_>>().join(","));
+        files.insert(".zattrs".into(), doc.into_bytes());
+        let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
+        let bytes: Vec<&Vec<u8>> = files.values().collect();
+        let (ir, _, _) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone()).unwrap();
+        let o = (0..ir.len() as u32).find(|&i| ir.kind[i as usize] == vzip_ir::ir::OBJECT && ir.key(i) == ".zattrs").unwrap();
+        let kids: Vec<u32> = ir.children(o).iter().copied().filter(|&c| ir.kind[c as usize] == vzip_ir::ir::VALUE).collect();
+        assert_eq!(kids.len(), values, "{n}");
+        assert!(output(&files).is_ok());
+    }
     let deep = format!("{}{}", "[".repeat(257), "]".repeat(257));
     assert!(json::parse(deep.as_bytes()).err().unwrap().contains("nests more than 256"));
 }
