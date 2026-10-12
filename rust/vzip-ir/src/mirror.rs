@@ -1589,10 +1589,11 @@ pub fn canonical_problem(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn F
     write(&c, &mut out, &profile, false);
     for (k, v) in &out.entries {
         let mut stored = get(k);
-        if k == &format!("{SOURCE_NODE}/zarr.json") {
-            // a store convention keeps members of its own beside `ir` (the listing's ignored
-            // keys, §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>):
-            // the description is compared by `ir`
+        if k == &format!("{SOURCE_NODE}/zarr.json") && !matches!(profile.as_str(), "tiff" | "nd2" | "czi") {
+            // a store's convention (and SAFE's, in both forms) keeps members of its own beside
+            // `ir` (the listing's ignored keys, §8.9
+            // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): the
+            // description is compared by `ir`; the file profiles' by all of it
             stored = stored.map(|b| only_ir(&b, &profile));
         }
         let same = match (k.ends_with("zarr.json"), &stored) {

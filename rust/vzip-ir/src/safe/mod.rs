@@ -562,7 +562,7 @@ impl Safe {
                 continue;
             }
             let s = ir.struct_(0, "entries/", obj.entry as u64, 0, Some((e.lho, e.ds + e.cs - e.lho)))?;
-            ir.value(s, "local_header", NO_INDEX, LOCAL_TYPE, 0, (e.lho, 30), None)?;
+            ir.value(s, "local_header", NO_INDEX, LOCAL_TYPE, 0, (e.lho, 30), Some(&e.local))?;
             if e.local_nn > 0 {
                 ir.value(s, "name", NO_INDEX, &format!("ascii[{}]", e.local_nn), 0, (e.lho + 30, e.local_nn), None)?;
             }

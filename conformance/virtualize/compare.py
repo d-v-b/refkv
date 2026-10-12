@@ -366,7 +366,7 @@ def store_mirror_problem(path: Path, view: dict) -> str | None:
     for key, size, b in rebuilt:
         if b is not None and b != object_read(key, 0, size):
             return f"the held object {key!r} is not rebuilt byte for byte"
-    for s in decode_source_table(zipfile.ZipFile(path).read("__vz__/sources")):
+    for s in decode_source_table(archive.z.read("__vz__/sources")):
         if s.url is None or s.size is None:
             continue
         key = urllib.parse.unquote(s.url[len(store_url):]) if s.url.startswith(store_url) else None

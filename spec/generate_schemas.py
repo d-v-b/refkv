@@ -516,7 +516,7 @@ _MEASURE = {"anyOf": [{"type": ["number", "string"]}, {
     "required": ["value", "unit"], "additionalProperties": False}]}
 _VALUE = {"type": ["number", "string"]}
 _RECORDS = {"type": "array", "items": {"type": "object", "additionalProperties": _VALUE}, "minItems": 1}
-SOURCE_METADATA["safe"] = {"anyOf": [
+SOURCE_METADATA["safe"] = {"oneOf": [
     {
         "type": "object",
         "description": "The root's: the product's identity, from the product and tile metadata (§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)",
@@ -562,7 +562,11 @@ SOURCE_METADATA["safe"] = {"anyOf": [
         "required": ["ir"],
         "additionalProperties": False,
     },
-    {"$ref": "#/$defs/mirrorView"},
+    # a view document, but not one of the members the branches above require (or `vzip_source`'s
+    # members of revision 25), so that one of those with a wrong member is invalid
+    {"allOf": [{"$ref": "#/$defs/mirrorView"}, {"not": {"anyOf": [
+        {"required": [m]} for m in ("ir", "IMAGE_FILE", "siz", "HORIZONTAL_CS_CODE", "empty_dirs", "ignored",
+                                     "xml", "xml_arrays", "empty")]}}]},
 ]}
 _GUID = {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}
 _DIMENSIONS = {"type": "object", "description": "The Start of each of S, B, H, I, R, V the series key has",

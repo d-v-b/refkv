@@ -262,7 +262,6 @@ impl PyIr {
     fn shared<'py>(&self, py: Python<'py>) -> Vec<Bound<'py, PyBytes>> {
         self.ir.shared.iter().map(|b| PyBytes::new(py, b)).collect()
     }
-    /// A digest of every row (for comparing builds).
     /// A store IR's objects in id order: (key, virtual offset of its byte 0, size) (conventions
     /// §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), for reading
     /// an object described in place at virtual offsets; empty for a file IR.
@@ -270,6 +269,7 @@ impl PyIr {
         let src = self.ir.sources();
         src.objects.iter().map(|&o| (self.ir.key(o), src.base[o as usize], self.ir.len[o as usize])).collect()
     }
+    /// A digest of every row (for comparing builds).
     fn digest(&self) -> u64 {
         self.ir.digest()
     }

@@ -37,7 +37,10 @@ impl Format {
             Format::Safe => "safe",
         }
     }
-    /// The format a file's first bytes give, if one of these.
+    /// The format a file's first bytes give, if one of these: a hint, the format of its
+    /// signature (any zip file is taken for a SAFE product's zip form, which then rejects one
+    /// that is not, spec/virtualize/safe.md §12.1
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#121-choosing-the-profile>).
     pub fn sniff(head: &[u8]) -> Option<Format> {
         if head.len() >= 4 && head[..4] == [0xda, 0xce, 0xbe, 0x0a] {
             return Some(Format::Nd2);

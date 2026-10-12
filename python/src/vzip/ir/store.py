@@ -135,9 +135,11 @@ class StoreIrOutput:
                     ranges.append(bytes(p))
                 elif p[0] == "object":
                     ranges.append((objects[p[1]], p[2], p[3]))
-                else:
+                elif len(p) == 3:
                     i = data.setdefault(p[0], len(objects) + len(data))
                     ranges.append((i, p[1], p[2]))
+                else:
+                    raise AssertionError(f"{k}: a reference to source 0 in a store's output")
             out[k] = ranges
         urls = [object_url(self.url, k) for k in objects]
         return urls, [self.data[i - 1] for i in data], out

@@ -1,6 +1,6 @@
 # Virtualizing image files and stores as OME-Zarr in vzip
 
-Profiles version: 0 (**draft**) · Revision: 25
+Profiles version: 0 (**draft**) · Revision: 26
 
 ## 1. Introduction
 

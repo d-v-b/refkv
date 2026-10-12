@@ -42,7 +42,8 @@ pub struct Entry {
     pub lho: u64,
     /// data start, from the local header
     pub ds: u64,
-    /// the local header's name and extra lengths
+    /// the local header's 30 bytes, and its name and extra lengths
+    pub local: Vec<u8>,
     pub local_nn: u64,
     pub local_ne: u64,
     /// the header's offset in the file, and its name, extra and comment lengths
@@ -252,6 +253,7 @@ pub fn local_header(head: &[u8], e: &mut Entry, cd_offset: u64) -> Result<(), St
     if &head[0..4] != LOCAL {
         return Err("a zip entry has no local header where the central directory says".into());
     }
+    e.local = head[..30].to_vec();
     e.local_nn = le16(head, 26);
     e.local_ne = le16(head, 28);
     e.ds = e.lho + 30 + e.local_nn + e.local_ne;

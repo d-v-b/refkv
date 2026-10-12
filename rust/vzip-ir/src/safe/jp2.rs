@@ -34,7 +34,7 @@ pub type ChunkParts = (Vec<u8>, Vec<u8>, (u64, u64), Vec<u8>, bool);
 
 /// A box before the codestream, or the `jp2c` box: (offset, length, header length, type).
 #[derive(Clone, Debug)]
-pub struct Box {
+pub struct Jp2Box {
     pub at: u64,
     pub len: u64,
     pub header: u64,
@@ -47,7 +47,7 @@ pub struct Box {
 #[derive(Clone, Debug, Default)]
 pub struct Codestream {
     pub n: u64,
-    pub boxes: Vec<Box>,
+    pub boxes: Vec<Jp2Box>,
     /// where the codestream starts: the JP2 header is [0, c0)
     pub c0: u64,
     /// the SIZ segment, from its marker
@@ -120,7 +120,7 @@ impl Cache<'_> {
 }
 
 /// The boxes, up to and including the `jp2c` box, which must end at the end of the file.
-fn boxes(c: &Cache) -> W<Vec<Box>> {
+fn boxes(c: &Cache) -> W<Vec<Jp2Box>> {
     let (n, mut o) = (c.n, 0u64);
     let mut out = Vec::new();
     for i in 0..MAX_BOXES {
@@ -158,7 +158,7 @@ fn boxes(c: &Cache) -> W<Vec<Box>> {
             return Err("a band file's second box is not ftyp".to_string().into());
         }
         let raw = c.get(o, hl)?.to_vec();
-        out.push(Box { at: o, len: length, header: hl, tbox, raw });
+        out.push(Jp2Box { at: o, len: length, header: hl, tbox, raw });
         if &tbox == b"jp2c" {
             if o + length != n {
                 return Err("a band file's jp2c box does not end at the end of the file".to_string().into());
@@ -183,7 +183,7 @@ fn coding(rules: &Rules, seg: &[u8], at: usize, scod: u64, what: &str) -> W<Codi
 }
 
 /// The SIZ segment and the main header rest of the codestream at c0.
-fn main_header(rules: &Rules, c: &Cache, boxes: Vec<Box>, c0: u64) -> W<Codestream> {
+fn main_header(rules: &Rules, c: &Cache, boxes: Vec<Jp2Box>, c0: u64) -> W<Codestream> {
     let c1 = c.n;
     if c0 + 4 > c1 || u16_be(c.get(c0, 2)?, 0) != SOC as u64 {
         return Err("a band file's codestream does not start with SOC".to_string().into());
@@ -216,7 +216,12 @@ fn main_header(rules: &Rules, c: &Cache, boxes: Vec<Box>, c0: u64) -> W<Codestre
     let mut qcd = 0;
     let mut cocs: Vec<Option<Coding>> = vec![None; csiz as usize];
     let mut markers = Vec::new();
+    let rest_at = c0 + 4 + lsiz;
     loop {
+        // the rest's bound, before reading on: a long run of segments is refused at 64 KiB
+        if pos - rest_at > MAX_REST {
+            return Err(format!("a band file's main header is more than {MAX_REST} bytes").into());
+        }
         if pos + 2 > c1 {
             return Err("a band file's main header has no SOT".to_string().into());
         }
@@ -259,7 +264,6 @@ fn main_header(rules: &Rules, c: &Cache, boxes: Vec<Box>, c0: u64) -> W<Codestre
         markers.push((pos, marker, length as u16));
         pos += 2 + length;
     }
-    let rest_at = c0 + 4 + lsiz;
     let (nx, ny) = (xs.div_ceil(xt), ys.div_ceil(yt));
     rules.check("main_header", &mut rules::env([("cod", flag(cod.is_some())), ("qcd", num(qcd as f64)),
         ("rest", num((pos - rest_at) as f64)), ("tiles", num((nx * ny) as f64))]))?;

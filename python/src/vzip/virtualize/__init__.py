@@ -119,7 +119,7 @@ def virtualize(location: str, url: str | None = None, *, checksums: bool = False
     which reads them. `policy` is the reader policy a file
     or store at an http(s) URL is read under (default: `Policy()`, private hosts
     refused).
-    For TIFF, ND2 and CZI, `connections` is how many requests run at a time to a
+    For TIFF, ND2, CZI and SAFE zip files, `connections` is how many requests run at a time to a
     remote source (default 8), and `byte_cost` the seconds of wall time the read
     planner charges a byte fetched beyond those asked (default 0.1 s per MB).
     A store's documents are read by up to `workers` requests at a time."""
@@ -149,7 +149,7 @@ def virtualize(location: str, url: str | None = None, *, checksums: bool = False
             ir_format = "nd2"
         elif head[:16] == CZI_MAGIC:
             ir_format = "czi"
-        elif head[:4] == ZIP_MAGIC and head[:8] != HDF5 and nifti.detect(head) is None:
+        elif head[:4] == ZIP_MAGIC:
             ir_format = "safe"
     if ir_format is not None:
         from vzip.ir import virtualize as via_ir

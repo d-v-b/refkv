@@ -854,9 +854,7 @@ The product's objects are, in the directory form, the store's objects
 - of each band file, its boxes and codestream main header ([§12.3](#123-band-files)) and the
   first 12 bytes of each tile-part (its SOT marker segment), as the walk of
   [§12.3](#123-band-files) reaches them: from offset 0, in blocks of 64 KiB (each block from
-  the first byte the walk needs that the blocks read so far lack); then each
-  SOT segment, in 12 bytes, or in a block of 64 KiB after a tile-part of at
-  most 16384 bytes; then the 2 bytes of EOC. The band files are walked
+  the first byte the walk needs that the blocks read so far lack); then each SOT segment, the first in a block of 64 KiB (unless a block read for the main header holds it), each later one in 12 bytes, or in a block of 64 KiB after a tile-part of at most 16384 bytes; then the 2 bytes of EOC. The band files are walked
   together: each round reads the next range of every band file whose walk
   is not done.
 

@@ -152,7 +152,7 @@
       "additionalProperties": false
     },
     "sourceMetadata": {
-      "anyOf": [
+      "oneOf": [
         {
           "type": "object",
           "description": "The root's: the product's identity, from the product and tile metadata (§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)",
@@ -536,7 +536,62 @@
           "additionalProperties": false
         },
         {
-          "$ref": "#/$defs/mirrorView"
+          "allOf": [
+            {
+              "$ref": "#/$defs/mirrorView"
+            },
+            {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "ir"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "IMAGE_FILE"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "siz"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "HORIZONTAL_CS_CODE"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "empty_dirs"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "ignored"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "xml"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "xml_arrays"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "empty"
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
         }
       ]
     },
