@@ -333,7 +333,7 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): None when its table
     reads and its invariants hold, it rebuilds the store's listing (every object the archive
     references has the size its source pins) and every held object byte for byte (each read
-    whole from the store, `fetch(url)`, by default over HTTP), it is canonical and its view is
+    whole from the store, `fetch(url, size)`, by default over HTTP), it is canonical and its view is
     the one its table gives; else what is wrong. No source is read for these last two."""
     import vzip_ir
 
@@ -343,8 +343,9 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     def never(o: int, n: int) -> bytes:
         raise AssertionError("a store's mirror reads no source")
 
-    def get_url(url: str) -> bytes:
-        with urllib.request.urlopen(url, timeout=120) as r:
+    def get_url(url: str, size: int) -> bytes:
+        req = urllib.request.Request(url, headers={"Range": f"bytes=0-{size - 1}"})
+        with urllib.request.urlopen(req, timeout=120) as r:
             return r.read()
 
     fetch = fetch or get_url
@@ -363,7 +364,7 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
         u = object_url(url, key)
         if u in pins and pins[u] != size:
             return f"{key}: the mirror lists {size} bytes, its source pins {pins[u]}"
-        if held is not None and fetch(u) != held:
+        if held is not None and fetch(u, size) != held:
             return f"{key}: the mirror's bytes are not the object's"
     problem = canonical_problem(archive)
     if problem:

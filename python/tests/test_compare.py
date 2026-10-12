@@ -201,8 +201,8 @@ def _store_archive(tmp_path, name="zarr2_hierarchy", edit=None) -> tuple[Path, c
     path = tmp_path / "s.vzip"
     out.write(str(path))
 
-    def fetch(u: str) -> bytes:
-        return (ROOT / "fixtures/zarr2" / name / urllib.parse.unquote(u[len(url):])).read_bytes()
+    def fetch(u: str, size: int) -> bytes:
+        return (ROOT / "fixtures/zarr2" / name / urllib.parse.unquote(u[len(url):])).read_bytes()[:size]
 
     return path, fetch
 
@@ -218,7 +218,7 @@ def test_store_mirror_problem(tmp_path):
 
 def test_store_mirror_problem_finds_a_document_other_than_the_store_s(tmp_path):
     path, fetch = _store_archive(tmp_path)
-    assert compare.store_mirror_problem(path, compare._zip_view(path), lambda u: fetch(u) + b" ") == \
+    assert compare.store_mirror_problem(path, compare._zip_view(path), lambda u, n: fetch(u, n)[:-1] + b"!") == \
         ".zattrs: the mirror's bytes are not the object's"
 
 
