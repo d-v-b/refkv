@@ -311,37 +311,37 @@ fn ims_with_room(data: &[u8], room: Option<u64>) -> (vzip_ir::ir::Ir, serde_json
 
 #[test]
 fn past_the_walks_room_the_image_is_described_and_the_rest_is_gaps() {
-    let data = std::fs::read(fixtures().join("ims/ims_latest_many_channels.ims")).unwrap();
     let project = |ir: &vzip_ir::ir::Ir, facts: &serde_json::Value| {
         let out = vzip_ir::project::project(vzip_ir::run::Format::Ims, ir, facts, "u").unwrap();
         out.refs.iter().map(|(k, p)| format!("{k}{p:?}")).collect::<Vec<_>>()
     };
-    let (all, facts) = ims_with_room(&data, None);
-    for room in [0, 100, 1000] {
-        let (ir, f) = ims_with_room(&data, Some(room));
-        check::check(&ir).unwrap();
-        assert!(rebuilt(&ir, &data) == data);
-        assert!(ir.len() < all.len(), "room {room}");
-        assert_eq!(project(&ir, &f), project(&all, &facts), "room {room}");
-        // past the room, only the image's datasets are described (and the objects' structs); each
-        // loop stops at the room, so a structure started before it ends within a few elements
-        let paths: Vec<String> = (0..ir.len() as u32).filter(|&i| ir.kind[i as usize] != vzip_ir::ir::GAP).map(|i| ir.path(i)).collect();
-        let images: std::collections::HashSet<String> =
-            paths.iter().filter_map(|p| p.strip_suffix("/chunks")).map(|p| p.to_string()).collect();
-        let rest = paths.iter().filter(|p| {
-            let parts: Vec<&str> = p.splitn(3, '/').collect();
-            !(parts[0] == "objects" && parts.len() >= 2 && (parts.len() == 2 || images.contains(&format!("objects/{}", parts[1]))))
-        }).count();
-        assert!(rest <= room as usize + 30, "room {room}: {rest} elements outside the image");
-        if room == 0 {
+    // dense links and attributes (fractal heaps, version 2 B-trees), huge attributes, and
+    // variable-length attributes (global heap collections)
+    for name in ["ims_latest_many_channels", "ims_latest_dense_links", "ims_latest_huge_attribute", "ims_latest_review2",
+                 "ims_earliest_review2"] {
+        let data = std::fs::read(fixtures().join(format!("ims/{name}.ims"))).unwrap();
+        let (all, facts) = ims_with_room(&data, None);
+        let n = all.len() as u64;
+        for room in [0, n / 8, n / 4, n / 2, 3 * n / 4] {
+            let (ir, f) = ims_with_room(&data, Some(room));
+            check::check(&ir).unwrap();
+            assert!(rebuilt(&ir, &data) == data);
+            assert!(ir.len() < all.len(), "{name} room {room}");
+            assert_eq!(project(&ir, &f), project(&all, &facts), "{name} room {room}");
+            // the elements outside the image's datasets and the objects' structs: at most the
+            // room, and a few more (each loop stops at the room, within one structure)
             let paths: Vec<String> = (0..ir.len() as u32).filter(|&i| ir.kind[i as usize] != vzip_ir::ir::GAP).map(|i| ir.path(i)).collect();
-            let images: std::collections::HashSet<&str> =
-                paths.iter().filter_map(|p| p.strip_suffix("/chunks")).collect();
-            for p in &paths {
+            let images: std::collections::HashSet<String> =
+                paths.iter().filter_map(|p| p.strip_suffix("/chunks")).map(|p| p.to_string()).collect();
+            let outside = |p: &String| {
                 let parts: Vec<&str> = p.splitn(3, '/').collect();
-                if parts[0] == "objects" && parts.len() == 3 {
-                    assert!(images.contains(&format!("objects/{}", parts[1])[..]), "{p} is described past the room");
-                }
+                !(parts[0] == "objects" && parts.len() >= 2 && (parts.len() == 2 || images.contains(&format!("objects/{}", parts[1]))))
+            };
+            let rest: Vec<&String> = paths.iter().filter(|p| outside(p)).collect();
+            assert!(rest.len() <= room as usize + 30, "{name} room {room}: {} elements outside the image", rest.len());
+            if room == 0 {
+                // nothing of a non-image object but its struct
+                assert!(rest.iter().all(|p| !p.starts_with("objects/")), "{name}: {rest:?}");
             }
         }
     }
