@@ -18,6 +18,7 @@ function format(fd) {
   const s = String.fromCharCode(...head);
   if (head[0] === 0xda && head[1] === 0xce && head[2] === 0xbe && head[3] === 0x0a) return 0;
   if (s.startsWith("II*\0") || s.startsWith("MM\0*") || s.startsWith("II+\0") || s.startsWith("MM\0+")) return 1;
+  if (s.startsWith("\x89HDF\r\n\x1a\n")) return 3;
   return 2;
 }
 

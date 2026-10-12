@@ -719,8 +719,8 @@ def _raw_edges(group, name: str, shape, chunks, dtype, data, maxshape=None, shuf
 
 def review4() -> None:
     """Files with what the fourth adversarial review found (spec/virtualize/ims.md
-    §5.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#51-the-tree>, §5.4
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>): a time-lapse
+    §5.1 <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#51-the-tree>, §5.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>): a time-lapse
     whose image tree would use up a walk of a fixed
     number of objects, and partial edge chunks stored unfiltered."""
     with open_file("ims_latest_timelapse", "latest") as f:

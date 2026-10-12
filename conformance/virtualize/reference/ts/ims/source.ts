@@ -15,13 +15,13 @@ import {
 
 const MAX_VALUE_BYTES = 2 ** 26; // the most attribute data read per file
 const MAX_OBJECTS = 100000; // objects walked per file, besides PER_IMAGE for each Data dataset of the image
-const PER_IMAGE = 5; // its channel group, Data, Histogram, Histogram1024, and a time point group (§5.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#51-the-tree>)
+const PER_IMAGE = 5; // its channel group, Data, Histogram, Histogram1024, and a time point group (§5.1 <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#51-the-tree>)
 const MAX_ELEMENTS = 2 ** 20; // elements of a dataset whose datatype holds addresses (peak memory: under 1 KB each)
 const MAX_DEPTH = 16; // nesting of datatypes
 const INLINE = 64; // the most numbers of an attribute held as JSON
 const MAX_TEXT = 2 ** 20; // the longest text of an attribute held as JSON
 const MAX_RAW = 4096; // the most bytes of an attribute held as base64
-const BUDGET = 2 ** 16; // the cost of the entries one document holds (§5.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#56-documents>)
+const BUDGET = 2 ** 16; // the cost of the entries one document holds (§5.6 <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#56-documents>)
 const MAX_HEAP = 2 ** 16; // the most bytes of variable-length elements of an attribute held as JSON
 const MAX_COPY = 2 ** 24; // the most bytes of a dataset decoded and copied
 const MAX_SELECTIONS = 2 ** 22; // the most bytes of region references' selections read per file
@@ -48,7 +48,7 @@ type Json = unknown;
 type Type = Record<string, any>;
 
 // ---- datatypes (spec/virtualize/ims.md §5.2
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#52-datatypes>)
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#52-datatypes>)
 
 const choice = (names: string[], i: number) => (i < names.length ? names[i] : i);
 
@@ -247,7 +247,7 @@ function holdsAddresses(t: Type): boolean {
 
 /**
  * Whether a member's name can name a Zarr node of the hierarchy (§5.1
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#51-the-tree>).
+ * <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#51-the-tree>).
  */
 function nodeName(key: string): boolean {
   return key !== "" && key !== "." && key !== ".." && key !== "zarr.json" && !key.startsWith("__") && !key.includes("/");
@@ -277,7 +277,7 @@ function put(entry: Record<string, Json>, dims: number[], values: Json[]): Recor
 
 const CANONICAL_NAN: Record<number, bigint> = { 2: 0x7e00n, 4: 0x7fc00000n, 8: 0x7ff8000000000000n };
 
-/** The Zarr fill value that is exactly the dataset's fill value (§5.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>), or
+/** The Zarr fill value that is exactly the dataset's fill value (§5.4 <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>), or
  * undefined: the elements' number when they are all the same bytes (an
  * integer as it is, NaN only as the canonical quiet NaN, never -0), and the
  * byte for an array of bytes when they are all equal. */
@@ -382,7 +382,7 @@ function exactNumbers(t: Type, count: number, data: Uint8Array): Json[] | undefi
 }
 
 // ---- JSON texts and their sizes (spec/virtualize/ims.md §5.6
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#56-documents>)
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#56-documents>)
 
 /** Orders strings by their UTF-8 bytes (by code point). */
 function byCodePoint(a: string, b: string): number {
@@ -394,7 +394,7 @@ function byCodePoint(a: string, b: string): number {
   return x.length - y.length;
 }
 
-/** The JSON text of a value (§5.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#56-documents>): no whitespace, object members in ascending
+/** The JSON text of a value (§5.6 <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#56-documents>): no whitespace, object members in ascending
  * order of their keys' UTF-8 bytes, characters other than those JSON escapes as
  * themselves, and numbers as ECMAScript writes them. */
 export function canonical(v: Json): string {
@@ -410,7 +410,7 @@ const utf8 = new TextEncoder();
 const size = (v: Json) => utf8.encode(canonical(v)).length;
 
 /** How a dataset's elements of datatype `t`, which holds addresses, are kept
- * (§5.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>): a family of
+ * (§5.4 <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>): a family of
  * byte values, indexes into the object table, or a family of
  * region references; undefined when they are not. */
 function column(t: Type): "family" | "paths" | "regions" | undefined {
@@ -449,7 +449,7 @@ const LISTS = ["attribute_collisions", "collisions"];
 
 /**
  * Adds an entry to a source metadata object (§5.6
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#56-documents>).
+ * <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#56-documents>).
  */
 function merge(s: Record<string, Json>, entry: Record<string, Json>): void {
   for (const [k, v] of Object.entries(entry)) {
@@ -464,12 +464,12 @@ function merge(s: Record<string, Json>, entry: Record<string, Json>): void {
   }
 }
 
-const SHUFFLED = ["2", "2,1", "2,3", "2,1,3"]; // pipelines with shuffle, decoded and copied (§5.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>)
+const SHUFFLED = ["2", "2,1", "2,3", "2,1,3"]; // pipelines with shuffle, decoded and copied (§5.4 <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>)
 const REFERENCED = ["", "1", "3", "1,3"]; // pipelines whose chunks are referenced
 const ALLOWED = [...REFERENCED, ...SHUFFLED];
 
 // ---- the tree (spec/virtualize/ims.md §5.1
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#51-the-tree>)
+// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#51-the-tree>)
 
 type Item = [key: string, name: Json | undefined, raw: Uint8Array, clash: boolean, at: number];
 type Entry = ReturnType<typeof planEntries>[number];
@@ -489,7 +489,7 @@ type Job =
 
 /** A document of the source metadata node: its source metadata `s`, which
  * settling fills, and its entries in order (§5.6
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#56-documents>). */
+ * <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#56-documents>). */
 class Doc {
   s: Record<string, Json>;
   entries: DocEntry[] = [];
@@ -498,7 +498,7 @@ class Doc {
   }
 }
 
-/** A link of a type other than hard or soft (§5.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#51-the-tree>): an external link's file
+/** A link of a type other than hard or soft (§5.1 <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#51-the-tree>): an external link's file
  * and path, else the type and its value in base64. */
 function otherLink(kind: number, value: Uint8Array | null): Json {
   if (value === null) return { user: { type: kind, value: null } };
@@ -591,7 +591,7 @@ export class Tree {
 
   /**
    * Numbers an object the walk meets, in the object table (§5.7
-   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#57-the-object-table>).
+   * <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#57-the-object-table>).
    */
   private meet(at: number, path: string, parent: number | undefined, key: string): void {
     this.order.set(at, this.order.size);
@@ -611,7 +611,7 @@ export class Tree {
     return d;
   }
 
-  /** A datatype's members (§5.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#52-datatypes>): its description, or, when it is named and the
+  /** A datatype's members (§5.2 <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#52-datatypes>): its description, or, when it is named and the
    * walk met the committed datatype, its path alone. */
   private typePart(t: Type, named: number | undefined): Record<string, Json> {
     if (named === undefined) return { datatype: t };
@@ -620,7 +620,7 @@ export class Tree {
   }
 
   // ---- attributes (§5.3
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>)
+  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#53-attributes>)
 
   /** An object's attributes, in ascending byte order of their names: [key, name
    * as a text value when it must be given, message, collision, the message's
@@ -648,7 +648,7 @@ export class Tree {
 
   /**
    * An attribute's value and its cost, held as JSON only within `room` (§5.6
-   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#56-documents>).
+   * <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#56-documents>).
    */
   private async attributeEntry(item: Item, room: number): Promise<[Json, number]> {
     const [key, name, raw, clash, at] = item;
@@ -700,7 +700,7 @@ export class Tree {
 
   /** [the attribute's value as JSON, or undefined; whether it is large; the
    * array form, a function of its path giving its members] (§5.3
-   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>). The file
+   * <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#53-attributes>). The file
    * holds the data at `at`, where the array form references it. */
   private async forms(t: Type, dims: number[], data: Uint8Array, count: number, plain: boolean, at: number): Promise<[
     Record<string, Json> | ["bare", Json] | undefined, boolean, (path: string) => Record<string, Json>,
@@ -799,7 +799,7 @@ export class Tree {
 
   /**
    * An element of a datatype that holds addresses, as JSON (§5.3
-   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>).
+   * <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#53-attributes>).
    */
   private async structured(t: Type, b: Uint8Array, counted: boolean): Promise<Json> {
     if (!holdsAddresses(t)) {
@@ -862,7 +862,7 @@ export class Tree {
 
   /**
    * A region reference as JSON (§5.3
-   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>): null, or its
+   * <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#53-attributes>): null, or its
    * object's index and its selection.
    */
   private regionValue(found: Region): Json {
@@ -900,7 +900,7 @@ export class Tree {
   }
 
   // ---- settling the documents (§5.6
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#56-documents>)
+  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#56-documents>)
 
   private async settle(doc: Doc): Promise<void> {
     let kept = 0, spilling = false;
@@ -995,7 +995,7 @@ export class Tree {
   }
 
   // ---- datasets (§5.4
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>)
+  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>)
 
   /** A dataset's array, or its group: a family, a compound of several, or a null dataspace. */
   async dataset(at: number, path: string): Promise<void> {
@@ -1099,7 +1099,7 @@ export class Tree {
     this.plans.push({ path, dataType, shape, chunkShape, dims: undefined, chunks, fill, attributes: s, endian, compressor });
   }
 
-  /** [chunk shape, chunks] of an implicitly indexed dataset (§5.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>) whose chunks
+  /** [chunk shape, chunks] of an implicitly indexed dataset (§5.4 <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>) whose chunks
    * are its elements in row-major order: cut as contiguous values; or whose
    * chunk shape is 1 but along its last dimension: a chunk per row, its chunks'
    * adjacent runs one range. Undefined for any other. */
@@ -1123,7 +1123,7 @@ export class Tree {
     return [[...new Array(rank - 1).fill(1), dims[rank - 1], ...shape.slice(rank)], chunks];
   }
 
-  /** Elements that hold addresses as an array (§5.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>): a family of their
+  /** Elements that hold addresses as an array (§5.4 <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>): a family of their
    * variable-length values, the indexes of the objects they refer to in the
    * object table, or a family of region references. Element `i` of the
    * `count` is the bytes of `data` at `i * stride + offset`, read in place
@@ -1147,7 +1147,7 @@ export class Tree {
     }
   }
 
-  /** A compound dataset with members that hold addresses (§5.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>): the group of its
+  /** A compound dataset with members that hold addresses (§5.4 <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>): the group of its
    * bytes, those members' zeroed, and of each such member's array. */
   private async compound(ds: Dataset, t: Type, path: string, count: number, s: Record<string, Json>): Promise<void> {
     const members: [number, number, Type, string][] = [];
@@ -1222,7 +1222,7 @@ export class Tree {
   }
 
   // ---- unsupported objects (§5.5
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#55-unsupported-objects>)
+  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#55-unsupported-objects>)
 
   /** What can be read of an object that is not mapped: its datatype, shape,
    * fill value, external files or virtual mappings, and attributes. */
@@ -1296,7 +1296,7 @@ export class Tree {
     return out;
   }
 
-  // ---- groups (§5.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#51-the-tree>)
+  // ---- groups (§5.1 <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#51-the-tree>)
 
   async kind(at: number): Promise<string> {
     const types = new Set((await this.f.header(at)).map((m) => m.type));
@@ -1420,7 +1420,7 @@ export class Tree {
  * order: a chunk shape of 1 before some dimension `a` and of the whole dimension
  * after it, and `a`'s size a multiple of its chunk shape unless the dimensions
  * before it are all 1 (the maximum grid aside, §5.4
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>). */
+ * <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>). */
 function rowMajor(ds: Dataset): boolean {
   const dims = ds.dims!;
   let a = 0;

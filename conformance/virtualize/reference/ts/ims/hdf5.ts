@@ -1267,7 +1267,7 @@ function parseFilters(d: Uint8Array | undefined): number[] {
 
 /** The serialized dataspace selection at `p`: its description
  * (spec/virtualize/ims.md §5.3
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>) and where it ends
+ * <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#53-attributes>) and where it ends
  * (§8.9
  * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
  * */

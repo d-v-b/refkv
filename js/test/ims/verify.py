@@ -126,13 +126,13 @@ CLASSES = {H5T.INTEGER: "integer", H5T.FLOAT: "float", H5T.TIME: "time", H5T.STR
            H5T.ENUM: "enum", H5T.VLEN: "variable-length", H5T.ARRAY: "array"}
 IMARIS_TEXT = {"class": "string", "size": 1, "padding": "null-terminated", "charset": "ascii"}
 # The reasons of datasets over the limits of spec/virtualize/ims.md §5.4
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>.
+# <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>.
 LIMITS = ("a chunk of more than 2^24 bytes to decode", "over the budget of region selections")
 
 
 def type_ok(d: dict, tid) -> bool:
     """Whether the description `d` (spec/virtualize/ims.md §5.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#52-datatypes>) is the datatype
+    <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#52-datatypes>) is the datatype
     `tid`."""
     cls = tid.get_class()
     if cls == H5T.STRING and tid.is_variable_str():
@@ -181,7 +181,7 @@ def numeric(d: dict) -> bool:
 
 
 def supported_column(d: dict) -> bool:
-    """Whether §5.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>
+    """Whether §5.4 <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>
     maps a dataset of datatype `d`, which holds addresses."""
     def column(t: dict) -> bool:
         return (t["class"] == "variable-length" and not holds_addresses(t["base"])
@@ -193,7 +193,7 @@ def supported_column(d: dict) -> bool:
 
 def same_selection(sel: dict, space) -> bool:
     """A selection's description (spec/virtualize/ims.md §5.3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>) against an h5py
+    <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#53-attributes>) against an h5py
     dataspace's."""
     kind = space.get_select_type()
     if sel["select"] == "all":
@@ -254,7 +254,7 @@ class Checker:
         self.problems: list[str] = []
         self.pending: list = []  # checks of references and named datatypes, after the walk
         # The object table (§5.7
-        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#57-the-object-table>):
+        # <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#57-the-object-table>):
         # each object's path, from its parent's and its key.
         parents, names = np.asarray(source["objects/parent"][...]), self.family(source["objects/name"])
         self.table: list[str] = []
@@ -274,7 +274,7 @@ class Checker:
 
     def load(self, node) -> dict:
         """A document's source metadata, with its spilled entries merged in (§5.6
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#56-documents>)."""
+        <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#56-documents>)."""
         s = dict(dict(node.attrs).get("vzip_virtualized", {}).get("ims", {}))
         if "spilled" in s:
             for text in self.family(self.source[s.pop("spilled")]):
@@ -289,7 +289,7 @@ class Checker:
 
     def described(self, entry: dict) -> dict:
         """An entry's datatype description: its own, or its named datatype's (§5.2
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#52-datatypes>)."""
+        <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#52-datatypes>)."""
         if "datatype" in entry or not isinstance(entry.get("named"), int):
             return entry.get("datatype", {"class": None})
         parent, _, key = self.table[entry["named"]].rpartition("/")
@@ -320,7 +320,7 @@ class Checker:
     def attributes(self, where: str, obj, entry: dict) -> None:
         """h5py's attributes of `obj` against the members `attributes` and
         `attribute_collisions` of `entry` (§5.3
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>)."""
+        <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#53-attributes>)."""
         got, collided = entry.get("attributes", {}), list(entry.get("attribute_collisions", []))
         if got is None:
             self.problems.append(f"{where}: attributes not read")
@@ -439,7 +439,7 @@ class Checker:
 
     def structured(self, where: str, d: dict, v, want, tid) -> None:
         """A value of a datatype that holds addresses (§5.3
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>) against
+        <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#53-attributes>) against
         h5py's."""
         cls = d["class"]
         if not holds_addresses(d):
@@ -497,7 +497,7 @@ class Checker:
 
     def dataset(self, where: str, ds, node) -> None:
         """h5py's dataset `ds` against its array, or its group (§5.4
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>)."""
+        <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>)."""
         s = self.load(node)
         d = self.described(s)
         if not type_ok(d, ds.id.get_type()):
@@ -567,7 +567,7 @@ class Checker:
 
     def column(self, where: str, d: dict, node, flat, shape: list[int], s: dict | None = None) -> None:
         """Elements that hold addresses (§5.4
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>) against
+        <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>) against
         h5py's."""
         flat = np.asarray(flat, dtype=object).reshape(-1)
         if d["class"] == "reference" and d["kind"] == 0:
@@ -589,7 +589,7 @@ class Checker:
 
     def unsupported(self, where: str, obj, entry: dict) -> None:
         """An unsupported object's record against h5py: what it keeps (§5.1
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#51-the-tree>)."""
+        <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#51-the-tree>)."""
         if "reason" not in entry:
             self.problems.append(f"{where}: no reason")
         if isinstance(obj, (h5py.Dataset, h5py.Datatype)):
@@ -653,7 +653,7 @@ class Checker:
                 if key in unsupported:
                     self.unsupported(child, obj, unsupported[key])
                     # What §5.4
-                    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>
+                    # <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>
                     # does not map: other filters, external or virtual data,
                     # addresses inside other datatypes than its columns, and what is
                     # over its limits.

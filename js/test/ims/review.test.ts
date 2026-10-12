@@ -12,7 +12,7 @@ const FIXTURES = new URL("../../../fixtures/ims/", import.meta.url);
 
 /**
  * The paths of the object table (spec/virtualize/ims.md §5.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#57-the-object-table>).
+ * <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#57-the-object-table>).
  */
 function objects(docs: Map<string, Uint8Array>): string[] {
   const parents = new Int32Array(docs.get("vzip_source/objects/parent/c/0")!.slice().buffer);
@@ -203,7 +203,7 @@ test("reads every chunk index", async () => {
 test("walks a time-lapse whole", async () => {
   // 57 objects of the image's tree and 8 others: within 100,000 + 5 per Data dataset
   // (spec/virtualize/ims.md §5.1
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#51-the-tree>).
+  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#51-the-tree>).
   const docs = await documents("ims_latest_timelapse.ims");
   for (const [k, v] of docs) {
     if (!k.startsWith("vzip_source/hdf5") || !k.endsWith("zarr.json")) continue;

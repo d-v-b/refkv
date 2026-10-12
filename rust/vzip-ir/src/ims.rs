@@ -2,7 +2,7 @@
 //! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md>): an Imaris file is an HDF5
 //! file, read by `hdf5.rs`. Two phases, each run in rounds (`hdf5.rs`'s replay):
 //!
-//! 1. **The layout** (spec/virtualize/ims.md §2–§4): the groups, attributes and datasets the
+//! 1. **The layout** (spec/virtualize/ims.md §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#2-the-source>–§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#4-output>): the groups, attributes and datasets the
 //!    convention reads, in its order, every rejection of the profile checked here (the HDF5
 //!    subset by the reader, the Imaris layout by `schema/ims.json`'s roles). Its outcome is the
 //!    facts the projection writes: the root's metadata, the level arrays, and each chunk's key.
@@ -320,10 +320,10 @@ impl Ims {
         }
     }
 
-    // ---- phase 1: the layout (spec/virtualize/ims.md §2–§4)
+    // ---- phase 1: the layout (spec/virtualize/ims.md §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#2-the-source>–§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#4-output>)
 
     /// The object a group's link `name` leads to, None when the link is absent and not
-    /// `required` (spec/virtualize/ims.md §2.2).
+    /// `required` (spec/virtualize/ims.md §2.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>).
     fn group(&mut self, links: &Links, name: &str, required: bool) -> R<Option<u64>> {
         if !links.has(name) {
             if required {
@@ -551,7 +551,7 @@ impl Ims {
         Ok((level_info, data_type.unwrap(), chunk_list))
     }
 
-    /// A channel group's image size and Data dataset (spec/virtualize/ims.md §2.2).
+    /// A channel group's image size and Data dataset (spec/virtualize/ims.md §2.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>).
     fn image(&mut self, time_links: &Links, r: usize, c: usize) -> R<([u64; 3], hdf5::Dataset, u64)> {
         let channel = self.group(time_links, &format!("Channel {c}"), true)?.unwrap();
         let attrs = self.h.attributes(channel)?;
@@ -571,7 +571,7 @@ impl Ims {
         Ok((sizes, ds, data_at))
     }
 
-    /// The metadata groups' attributes (spec/virtualize/ims.md §3), and the channels' colors.
+    /// The metadata groups' attributes (spec/virtualize/ims.md §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#3-metadata>), and the channels' colors.
     fn metadata(&mut self, root: &Links, times: u64, channels: u64) -> R<Meta> {
         let meta = if root.has("DataSetInfo") {
             let (_, l) = self.opened(root, "DataSetInfo")?;
@@ -659,7 +659,7 @@ impl Ims {
         Ok((attrs, links))
     }
 
-    /// A channel's omero color (spec/virtualize/ims.md §4).
+    /// A channel's omero color (spec/virtualize/ims.md §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#4-output>).
     fn channel_color(&mut self, attrs: Option<&hdf5::Attrs>, links: Option<&Links>) -> R<String> {
         let base = unit_rgb(decimals(self.attr_text(attrs, "Color")?.as_deref(), 3).as_deref());
         let mode = self.optional_text(attrs, "ColorMode")?;
@@ -677,7 +677,7 @@ impl Ims {
     }
 
     /// A channel's ColorTable, as text: its attribute, else the small string dataset its link
-    /// leads to; None if neither can be read, never rejecting (spec/virtualize/ims.md §3).
+    /// leads to; None if neither can be read, never rejecting (spec/virtualize/ims.md §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#3-metadata>).
     fn color_table(&mut self, attrs: Option<&hdf5::Attrs>, links: Option<&Links>) -> R<Option<String>> {
         if attrs.is_some_and(|a| a.get("ColorTable").is_some()) {
             return self.optional_text(attrs, "ColorTable");
@@ -713,7 +713,7 @@ impl Ims {
         Ok(lenient(r)?.flatten())
     }
 
-    /// The facts the projection writes (spec/virtualize/ims.md §4).
+    /// The facts the projection writes (spec/virtualize/ims.md §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#4-output>).
     fn output(&self, level_info: &[([u64; 3], [u64; 3], bool)], data_type: &(String, Option<&'static str>, Option<(i64, i64)>), meta: Meta,
               levels: u64, times: u64, channels: u64) -> R<J> {
         let z0 = level_info[0].0[0];

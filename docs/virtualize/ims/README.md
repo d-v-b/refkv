@@ -41,9 +41,11 @@ resolution level.
   contrast range.
 - **Metadata:** the rest of the HDF5 file (every group's attributes, which
   hold the extents, units, channels, acquisition settings and time points;
-  the histograms; the thumbnail; `DataSetTimes`; the `Scene` objects), mirrored
-  as a Zarr hierarchy under `vzip_source/hdf5`: each HDF5 group a Zarr
-  group, each dataset a Zarr array, attributes and links as JSON.
+  the histograms; the thumbnail; `DataSetTimes`; the `Scene` objects), kept
+  by `vzip_source`, the file's IR mirror: a table that rebuilds the file
+  byte for byte, and a JSON view under `vzip_source/tree` of every object
+  header, message, attribute, link, heap and chunk index the walk reads
+  ([spec/virtualize/ims.md §5](../../../spec/virtualize/ims.md#5-source-metadata)).
 
 ## Try it
 
@@ -142,15 +144,20 @@ Rejected, with the message the command prints:
 
 ## How it's verified
 
-`js/test/ims/verify.py` virtualizes 42 synthetic IMS files (including
-inputs to reject) with the browser code, reads them back through `python/src/vzip`
+IMS is virtualized by vzip's Rust core, natively in Python and as
+WebAssembly in the browser. `js/test/ims/verify.py` virtualizes the synthetic
+IMS files (including inputs to reject) with the browser code, reads them back through `python/src/vzip`
 and zarr-python, and compares the pixels with h5py (cropped to the image
-size). `compare.py` checks that the Python and browser outputs are
-equivalent on those files and on the 21 public files of
+size), and rebuilds each file byte for byte from its archive's mirror.
+`compare.py` checks that the Python and browser outputs are identical, and
+equivalent outside `vzip_source` to the frozen reference (the Python
+profile of revision 25), on those files and on the 21 public files of
 [corpus_ims.txt](../../../conformance/virtualize/corpus_ims.txt), two of
 which must be rejected (the LZ4 file and a scene file).
 
 - Profile: [spec/virtualize/ims.md](../../../spec/virtualize/ims.md#part-2-the-profile)
-- Python: [python/src/vzip/virtualize/ims/](../../../python/src/vzip/virtualize/ims/)
-- Browser: [js/src/virtualize/ims/](../../../js/src/virtualize/ims/)
+- Rust core: [rust/vzip-ir/src/ims.rs](../../../rust/vzip-ir/src/ims.rs) (the layout and the walk),
+  [rust/vzip-ir/src/hdf5.rs](../../../rust/vzip-ir/src/hdf5.rs) (the HDF5 reader),
+  [rust/vzip-ir/schema/ims.json](../../../rust/vzip-ir/schema/ims.json) (the source model)
+- Frozen reference (revision 25): [conformance/virtualize/reference/vzip_reference/ims/](../../../conformance/virtualize/reference/vzip_reference/ims/)
 - Fixtures: [fixtures/ims/](../../../fixtures/ims/)

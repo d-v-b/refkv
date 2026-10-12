@@ -1,7 +1,7 @@
 {
   "source_model": "ims",
   "version": 1,
-  "about": "The source model of an Imaris IMS file (HDF5; spec/virtualize/ims.md, spec/virtualize.md §8 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#8-ims-profile>): the elements a parser emits, and the roles the Imaris layout's groups, attributes and datasets play, each with the constraints a file must meet to have the IMS convention's layout. The rules of the HDF5 subset (§8.1–§8.6: signatures, versions, sizes, addresses within the file, a chunked layout with a zero fill value, filter masks of 0, loops and duplicates) are the binary layer, checked by the HDF5 reader (`hdf5.rs`) where the profile reads each structure; a parser checks this schema while it parses, and projections read a valid IR and check nothing.",
+  "about": "The source model of an Imaris IMS file (HDF5; spec/virtualize/ims.md, spec/virtualize.md §8 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#8-ims-profile>): the elements a parser emits, and the roles the Imaris layout's groups, attributes and datasets play, each with the constraints a file must meet to have the IMS convention's layout. The rules of the HDF5 subset (§8.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#81-hdf5-structures>–§8.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#86-attributes>: signatures, versions, sizes, addresses within the file, a chunked layout with a zero fill value, filter masks of 0, loops and duplicates) are the binary layer, checked by the HDF5 reader (`hdf5.rs`) where the profile reads each structure; a parser checks this schema while it parses, and projections read a valid IR and check nothing.",
   "limits": {
     "max_safe": 9007199254740991,
     "max_levels": 64,
@@ -82,7 +82,7 @@
       "constraints": [{"require": "integer && in_range", "message": "ImageSize{axis} of level {level} is not a positive integer"}]
     },
     "datatype": {
-      "about": "a Data dataset's datatype (§2.2)",
+      "about": "a Data dataset's datatype (§2.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>)",
       "given": {"class": "", "size": "", "plain": "bit offset 0 and precision 8 × size", "ieee32": "bit fields and properties of IEEE binary32"},
       "constraints": [
         {"require": "class != 0 || !in(size, [1, 2, 4]) || plain", "message": "fixed-point data with padding bits"},
@@ -110,5 +110,5 @@
       "constraints": [{"require": "finite", "message": "ExtMax{i} - ExtMin{i} is not finite"}]
     }
   },
-  "about_builtins": "Which groups are opened and in what order, the text of an attribute (UTF-8, else Latin-1, up to the first NUL), decimals, timestamps, the color and the walk of the IR (objects by level from the root group, the objects the layout reads first, at most walk_objects + walk_per_image × the Data datasets, to walk_depth) are code: spec/virtualize/ims.md §2–§5 state them."
+  "about_builtins": "Which groups are opened and in what order, the text of an attribute (UTF-8, else Latin-1, up to the first NUL), decimals, timestamps, the color and the walk of the IR (objects by level from the root group, the objects the layout reads first, at most walk_objects + walk_per_image × the Data datasets, to walk_depth) are code: spec/virtualize/ims.md §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#2-the-source>–§5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata> state them."
 }

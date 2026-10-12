@@ -1145,3 +1145,61 @@ rejection is unchanged.
 only when the color needs it. The Rust core records 25. The frozen
 reference has no IMS profile (compare.py runs the shipped one for it) and
 still records 20.
+
+## Revision 26: every format on the Rust IR
+
+Revision 26 moves the remaining formats onto the Rust IR core, as revision 21
+moved TIFF, ND2 and CZI. Each format's subsection below says what changed for
+it.
+
+### IMS
+
+**What prompted it.** IMS kept its own source metadata: a translation of the
+HDF5 file into a Zarr hierarchy under `vzip_source/hdf5` (groups, datasets,
+attributes as JSON, budgets, spilled documents, an object table), stated in
+nine subsections of IMS §5 and implemented twice (Python and TypeScript,
+about 2,700 lines each with the HDF5 reader). It was lossless only for the
+objects it could map: an unsupported object kept its record, not its bytes.
+
+**The changes.**
+- **IMS §5:** `vzip_source` is the file's IR mirror
+  ([conventions §8](../../conventions.md#8-the-ir-mirror)), as for TIFF, ND2 and
+  CZI. Its elements are the HDF5 structures the **walk** reads: the
+  superblock (and its extension's object header), each object's header
+  (prefix, messages, continuation blocks and checksums; attribute and link
+  messages split into their parts), the structures that hold a group's links
+  (local heap, version 1 B-tree nodes and symbol table nodes; or fractal heap
+  and version 2 B-tree), dense attributes (fractal heap, its huge objects'
+  B-tree, the name index), a dataset's chunk index (version 1 or 2 B-tree
+  nodes, fixed and extensible array blocks and pages) and its allocated
+  chunks and contiguous data as data elements, and the global heap
+  collections attributes name. Every other byte is a gap, so the mirror
+  rebuilds the whole file, objects the profile cannot read included.
+- **The walk** (IMS §5.3): the root group and the objects the layout opens,
+  then the objects their hard links reach, level by level, at most
+  `100,000 + 5 × N` objects to level 64; objects are numbered depth first
+  by link name. It never rejects.
+- **IMS §8.7, §8.9:** the source metadata no longer reads external data
+  files, object and region references' targets, selections or virtual
+  dataset mappings (their bytes are kept, as gaps or values).
+- **Unchanged:** IMS §1–§4 and §8.1–§8.8 outside the source metadata: the
+  layout, every rejection, the chunk references. The root has no source
+  metadata, as before.
+- **Conventions:** the root property records `"revision": 26`; the IMS
+  schema's source metadata is the mirror's (`{"ir": ...}`) and its view
+  documents.
+
+**Output.** Outside `vzip_source`, every IMS output is the revision-25 one
+(the revision number aside), and every rejection is the same: on the 44 IMS
+fixtures, 26 accepted and 18 rejected by both the frozen reference and the
+IR. `vzip_source` is the IR mirror in place of `vzip_source/hdf5`,
+`vzip_source/objects`, `attributes/<i>`, `json/<i>` and `spilled/<j>`.
+
+**Implementations.** The Rust core parses IMS (`rust/vzip-ir/src/hdf5.rs`,
+a format-free sans-IO HDF5 reader; `ims.rs`, the layout against
+`schema/ims.json` and the walk) and projects it (`project/ims.rs`), natively
+for Python and as wasm32 in the browser. The Python and TypeScript IMS
+profiles are frozen in `conformance/virtualize/reference/` and record 25
+(`IMS_REVISION`); `compare.py` reads their roots at the current revision. IMS
+§5 of revision 25 is kept as `spec/history/virtualize/ims.r25.md`, which
+the frozen code cites.

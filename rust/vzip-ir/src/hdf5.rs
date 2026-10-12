@@ -24,13 +24,13 @@ use std::sync::Arc as Rc;
 pub const SIGNATURE: &[u8; 8] = b"\x89HDF\r\n\x1a\n";
 pub const UNDEFINED: u64 = u64::MAX;
 pub const MAX_SAFE: u64 = (1 << 53) - 1;
-/// Blocks of one object header (§8.2).
+/// Blocks of one object header (§8.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#82-object-headers>).
 pub const MAX_BLOCKS: usize = 1000;
 pub const MAX_BTREE2_DEPTH: u64 = 16;
 /// The least a missed read asks for (a window, so that the structure's next bytes come with it).
 pub const WINDOW: u64 = 1024;
 
-// Message types (§8.2).
+// Message types (§8.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#82-object-headers>).
 pub const NIL: u16 = 0x00;
 pub const DATASPACE: u16 = 0x01;
 pub const LINK_INFO: u16 = 0x02;
@@ -159,7 +159,7 @@ impl Src {
         Src { size, store: Store::default(), want: Vec::new() }
     }
 
-    /// The `n` bytes at `at`, which MUST lie within the file (§8.1).
+    /// The `n` bytes at `at`, which MUST lie within the file (§8.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#81-hdf5-structures>).
     pub fn read(&mut self, at: u64, n: u64) -> R<Vec<u8>> {
         match at.checked_add(n) {
             Some(e) if e <= self.size => {}
@@ -367,7 +367,7 @@ pub enum Target {
     Other(u8, Option<Vec<u8>>),
 }
 
-/// A link message: (name, target) (§8.3).
+/// A link message: (name, target) (§8.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#83-groups-and-links>).
 pub fn parse_link(d: &[u8]) -> R<(Vec<u8>, Target)> {
     if le(d, 0, 1)? != 1 {
         return bad("unsupported link message version");
@@ -454,7 +454,7 @@ pub fn attribute_parts_at(d: &[u8]) -> R<AttrParts> {
     Ok(AttrParts { flags, name, datatype: (t, type_size), dataspace: (s, space_size), data })
 }
 
-/// An attribute's (datatype message, dimensions, data) (§8.6): its flag bits 0 and 1
+/// An attribute's (datatype message, dimensions, data) (§8.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#86-attributes>): its flag bits 0 and 1
 /// clear, its dataspace not null, its data within the message.
 pub fn attribute_parts(d: &[u8]) -> R<(Vec<u8>, Vec<u64>, Vec<u8>)> {
     let (flags, name_size, type_size, space_size, mut p) = attribute_layout(d)?;
@@ -483,7 +483,7 @@ pub fn attribute_parts(d: &[u8]) -> R<(Vec<u8>, Vec<u64>, Vec<u8>)> {
     Ok((d[q as usize..(q + type_size) as usize].to_vec(), dims, d[p as usize..(p as u128 + n) as usize].to_vec()))
 }
 
-/// An attribute's (datatype, element count, data) (§8.6).
+/// An attribute's (datatype, element count, data) (§8.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#86-attributes>).
 pub fn attribute_value(d: &[u8]) -> R<(Datatype, u128, Vec<u8>)> {
     let (t, dims, data) = attribute_parts(d)?;
     Ok((parse_datatype(&t)?, product(&dims), data))
@@ -502,7 +502,7 @@ pub struct Msg {
     pub data: Vec<u8>,
 }
 
-/// An object header (§8.2): its blocks and messages, as the file lays them out.
+/// An object header (§8.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#82-object-headers>): its blocks and messages, as the file lays them out.
 #[derive(Debug, Clone)]
 pub struct Header {
     pub at: u64,
@@ -525,7 +525,7 @@ impl Header {
         self.msgs.iter().filter(|m| m.ty != CONTINUATION)
     }
 
-    /// The data of the one message of type `typ` (§8.2).
+    /// The data of the one message of type `typ` (§8.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#82-object-headers>).
     pub fn message(&self, typ: u16, required: bool) -> R<Option<&[u8]>> {
         let found: Vec<&Msg> = self.messages().filter(|m| m.ty == typ).collect();
         if found.len() > 1 {
@@ -679,7 +679,7 @@ pub struct Chunks {
     pub parts: Vec<(&'static str, u64, u64)>,
 }
 
-/// A fractal heap's parameters (§8.4).
+/// A fractal heap's parameters (§8.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#84-version-2-b-trees-and-fractal-heaps>).
 #[derive(Debug, Clone)]
 pub struct Fheap {
     pub at: u64,
@@ -789,7 +789,7 @@ impl H5 {
         self.src.read(at, n)
     }
 
-    // ---- the superblock (§8.1)
+    // ---- the superblock (§8.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#81-hdf5-structures>)
 
     pub fn superblock(&mut self) -> R<Super> {
         if let Some(s) = &self.sb {
@@ -826,7 +826,7 @@ impl H5 {
         Ok(s)
     }
 
-    // ---- object headers (§8.2)
+    // ---- object headers (§8.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#82-object-headers>)
 
     pub fn header(&mut self, at: u64) -> R<Rc<Header>> {
         if let Some(r) = memo_get(&self.headers, &at) {
@@ -925,7 +925,7 @@ impl H5 {
     }
 
     /// The datatype message of the committed datatype that a shared datatype message leads
-    /// to, and its object header (§8.9).
+    /// to, and its object header (§8.9 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
     pub fn committed(&mut self, shared: &[u8]) -> R<(Vec<u8>, u64)> {
         let version = le(shared, 0, 1)?;
         let at = if version == 1 {
@@ -955,7 +955,7 @@ impl H5 {
         Ok((found[0].data.clone(), None))
     }
 
-    // ---- groups (§8.3)
+    // ---- groups (§8.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#83-groups-and-links>)
 
     pub fn links(&mut self, at: u64) -> R<Rc<Links>> {
         if let Some(r) = memo_get(&self.links, &at) {
@@ -1085,7 +1085,7 @@ impl H5 {
         Ok(Links { list, by_name, storage })
     }
 
-    /// The object header that the link `name` of a group leads to (§8.3).
+    /// The object header that the link `name` of a group leads to (§8.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#83-groups-and-links>).
     pub fn follow(&mut self, links: &Links, name: &[u8]) -> R<u64> {
         match links.get(name) {
             Some(Target::Hard(a)) => Ok(*a),
@@ -1149,7 +1149,7 @@ impl H5 {
         memo_put(&mut self.nodes1, (at, key_size), r)
     }
 
-    /// The version 1 B-tree at `at` (§8.3): its nodes, and its leaves' children with their
+    /// The version 1 B-tree at `at` (§8.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#83-groups-and-links>): its nodes, and its leaves' children with their
     /// keys (symbol table nodes for type 0, chunks for type 1).
     pub fn btree1(&mut self, at: u64, node_type: u8, key_size: u64) -> R<Bt1> {
         let mut out = Bt1::default();
@@ -1203,7 +1203,7 @@ impl H5 {
         acc.done()
     }
 
-    // ---- version 2 B-trees and fractal heaps (§8.4)
+    // ---- version 2 B-trees and fractal heaps (§8.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#84-version-2-b-trees-and-fractal-heaps>)
 
     /// The records of the version 2 B-tree at `at`, which MUST have type `typ` and a record
     /// size among `sizes`.
@@ -1338,7 +1338,7 @@ impl H5 {
     }
 
     /// The (address, size) of the object of the fractal heap at `heap` with this heap ID: one
-    /// run of the file (§8.4).
+    /// run of the file (§8.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#84-version-2-b-trees-and-fractal-heaps>).
     pub fn fh_where(&mut self, heap: u64, id: &[u8]) -> R<(u64, u64)> {
         let fh = self.fheap(heap)?;
         if id.len() as u64 != fh.id_length {
@@ -1441,7 +1441,7 @@ impl H5 {
         bad("fractal heap offset outside the heap")
     }
 
-    // ---- attributes (§8.6)
+    // ---- attributes (§8.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#86-attributes>)
 
     pub fn attributes(&mut self, at: u64) -> R<Rc<Attrs>> {
         if let Some(r) = memo_get(&self.attrs, &at) {
@@ -1512,10 +1512,10 @@ impl H5 {
         Ok(out)
     }
 
-    // ---- datasets (§8.5, §8.9)
+    // ---- datasets (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>, §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)
 
-    /// A dataset: a chunked one with a zero fill value (§8.5), or, with `any_layout`, one of
-    /// any layout and fill value (§8.9).
+    /// A dataset: a chunked one with a zero fill value (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>), or, with `any_layout`, one of
+    /// any layout and fill value (§8.9 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
     pub fn dataset(&mut self, at: u64, any_layout: bool) -> R<Dataset> {
         let h = self.header(at)?;
         let space = parse_dataspace(h.message(DATASPACE, true)?.unwrap())?;
@@ -1685,7 +1685,7 @@ impl H5 {
         product(&ds.chunk).saturating_mul(ds.datatype.size as u128)
     }
 
-    /// The allocated chunks of the chunked dataset whose header is at `at` (§8.5). A chunk's
+    /// The allocated chunks of the chunked dataset whose header is at `at` (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>). A chunk's
     /// filter mask MUST be 0 unless `masks`; a partial edge chunk stored unfiltered has every
     /// filter's bit set. Memoized by (header, masks).
     pub fn chunks(&mut self, at: u64, ds: &Dataset, masks: bool) -> R<Rc<Chunks>> {
@@ -2039,7 +2039,7 @@ impl H5 {
         Ok(())
     }
 
-    // ---- the global heap (§8.9)
+    // ---- the global heap (§8.9 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)
 
     pub fn collection(&mut self, at: u64) -> R<Rc<Collection>> {
         if let Some(r) = memo_get(&self.collections, &at) {

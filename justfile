@@ -22,11 +22,11 @@ ir-build:
     uv run --with maturin env VIRTUAL_ENV="$PWD/.venv" maturin develop --release -m rust/vzip-ir/Cargo.toml
 
 # Build the IR core for the browser (wasm32, without the Python bindings) and run its ND2,
-# TIFF and CZI parsers from Node on fixtures
+# TIFF, CZI and IMS parsers from Node on fixtures
 ir-wasm:
     rust/vzip-ir/wasm/build.sh
     node rust/vzip-ir/wasm/nd2.mjs fixtures/nd2/nd2_tz_uint16.nd2
-    node rust/vzip-ir/wasm/run.mjs fixtures/tiff/jpeg_gray.tif fixtures/czi/czi_zstd.czi
+    node rust/vzip-ir/wasm/run.mjs fixtures/tiff/jpeg_gray.tif fixtures/czi/czi_zstd.czi fixtures/ims/ims_latest_dense_links.ims
 
 # Test the IR core (Rust) and its Python host (after ir-build)
 ir-test *args: ir-build
