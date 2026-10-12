@@ -401,8 +401,8 @@ none, and does not declare the convention unless it is the root.
 `vzip_source` is the store's IR mirror, as for the Zarr v2 convention: the store's IR is
 [its §4.1](zarr2.md#41-elements)'s, element for element (the listing, each node document held
 as a value per top-level member, every other object referenced or empty), and its view
-`vzip_source/tree`; the mirror declares this convention. `vzip_source`'s source metadata is
-`{"ir": D, "ignored": I}`: `D` the mirror's description
+`vzip_source/tree`. `vzip_source` declares this convention with the source metadata
+`{"ir": D, "ignored": I}` (that is, `{"ome-zarr": {"ir": D, "ignored": I}}`): `D` the mirror's description
 ([conventions §8.9](../conventions.md#89-stores)), `I` the ignored keys of
 [the Zarr v2 convention §5](zarr2.md#5-other-objects) in ascending order of their UTF-8 bytes,
 present only when not empty. The OME layer adds no element: what
@@ -578,7 +578,8 @@ The profile was chosen because the store's root has a `.zarray` or a
 `.zgroup` and the store declares OME-NGFF 0.4 ([§1.4](../virtualize.md#14-store-inputs)). The store is read
 as [§10](zarr2.md#10-zarr-v2-profile) reads it, integer literals included: its node documents in one
 round; then each document the test of OME-NGFF 0.4 names that the round did not read (one
-inside an array, say), one round each, a document the test cannot parse rejecting the input.
+inside an array, say), one round each, a document the test cannot parse rejecting the input,
+and one that cannot be read failing the virtualizer, as in [§10.2](zarr2.md#102-chunks-and-other-objects).
 The choice between this profile and [§10](zarr2.md#10-zarr-v2-profile) reads the same rounds.
 
 ### 11.1 Rejection

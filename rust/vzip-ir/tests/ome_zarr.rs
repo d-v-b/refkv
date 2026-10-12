@@ -310,4 +310,8 @@ fn ignored_keys_are_vzip_source_metadata() {
     let own = &doc["attributes"]["vzip_virtualized"]["ome-zarr"];
     assert_eq!(own["ignored"], serde_json::json!(["donn\u{e9}es/./x", "z/./a"]));
     assert!(own["ir"].is_object());
+    // the mirror is canonical with its ignored keys beside it
+    let get = |k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone());
+    let mut never = |_: u64, _: u64| -> Result<Vec<u8>, String> { panic!("a store's mirror reads no source") };
+    assert_eq!(vzip_ir::mirror::canonical_problem(&get, &mut never), None);
 }
