@@ -124,3 +124,23 @@ with wf.open_file("ims_wide_group", "latest") as f:
     for k in range(2000 if small else 50000):
         g[f"link{k:06d}"] = f["DataSet"]  # hard links to one group: walked once
     g.create_dataset("table", data=np.arange(10, dtype="u4"))
+
+# An image dataset whose fill value is zero but not of the datatype's size: 2 bytes for a
+# 1-byte datatype (written as uint16 with deflate, then patched to uint8). The layout reads
+# it (the fill value is zero); the walk's stricter reading does not, and must not lose it.
+with wf.open_file("ims_fill_size_image") as f:
+    wf.imaris(f, [{"size": (1, 4, 4), "dims": (1, 4, 4), "chunks": (1, 4, 4)}], dtype="<u2", compression="gzip",
+              extras=False, fillvalue=0)
+p = out / "ims_fill_size_image.ims"
+f = h5(p)
+links = f.links(f.root)
+at = f.links(f.links(f.links(f.links(links[b"DataSet"])[b"ResolutionLevel 0"])[b"TimePoint 0"])[b"Channel 0"])[b"Data"]
+msgs = {m.type: m for m in f.header(at)}
+dt, layout = msgs[0x03], msgs[0x08]
+patch(p, dt.offset + 4, struct.pack("<I", 1))  # the datatype's size
+patch(p, dt.offset + 10, struct.pack("<H", 8))  # its precision
+assert layout.data[0] == 3, "layout version"
+ndims = layout.data[2]
+patch(p, layout.offset + 11 + 4 * (ndims - 1), struct.pack("<I", 1))  # the chunk's last dimension
+fill = msgs[0x05]
+assert len(fill_value_bytes := fill.data[8:8 + struct.unpack_from("<I", fill.data, 4)[0]]) == 2 and not any(fill_value_bytes)

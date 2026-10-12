@@ -836,7 +836,17 @@ impl Ims {
         let is_ds = header.has(hdf5::LAYOUT);
         let links = if is_group { acc.take(lenient(self.h.links(at))).flatten() } else { None };
         let attrs = acc.take(lenient(self.h.attributes(at))).flatten();
-        let ds = if is_ds { acc.take(lenient(self.h.dataset(at, true))).flatten() } else { None };
+        // a dataset as the source metadata reads one, else as the layout does (an image
+        // dataset the layout accepted is described, whatever the stricter reading says)
+        let ds = if is_ds {
+            match acc.take(lenient(self.h.dataset(at, true))).flatten() {
+                Some(d) => Some(d),
+                None if !acc.missed() => acc.take(lenient(self.h.dataset(at, false))).flatten(),
+                None => None,
+            }
+        } else {
+            None
+        };
         let chunks = match &ds {
             Some(d) if d.layout == hdf5::Layout::Chunked => {
                 let d = d.clone();
@@ -873,7 +883,7 @@ impl Ims {
                 for k in 0..count as u64 {
                     let o = (p.data + k * step + off) as usize;
                     if let Ok(Some(a)) = address(le(d, o, 8).unwrap_or(hdf5::UNDEFINED)) {
-                        if a != 0 && addrs.len() < 4096 {
+                        if a != 0 && addrs.len() < self.rules.limit("walk_collections") as usize {
                             addrs.insert(a);
                         }
                     }

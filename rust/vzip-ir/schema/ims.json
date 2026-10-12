@@ -14,7 +14,7 @@
     "walk_depth": 64,
     "walk_elements": 2097152,
     "walk_bytes_per_element": 8,
-    "max_collections": 65536,
+    "walk_collections": 4096,
     "max_rounds": 4096
   },
   "tables": {

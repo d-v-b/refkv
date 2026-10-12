@@ -1730,12 +1730,19 @@ impl H5 {
     /// filter mask MUST be 0 unless `masks`; a partial edge chunk stored unfiltered has every
     /// filter's bit set. Memoized by (header, masks).
     pub fn chunks(&mut self, at: u64, ds: &Dataset, masks: bool) -> R<Rc<Chunks>> {
-        let key = at.wrapping_mul(2).wrapping_add(masks as u64);
-        if let Some(r) = memo_get(&self.chunks, &key) {
-            return r;
+        // one parse, any masks allowed; a caller that allows none checks them
+        let r = match memo_get(&self.chunks, &at) {
+            Some(r) => r,
+            None => {
+                let r = self.read_chunks(ds, true);
+                memo_put(&mut self.chunks, at, r)
+            }
+        };
+        let c = r?;
+        if !masks && c.list.iter().any(|x| x.3 != 0) {
+            return bad("a chunk's filter mask is not 0");
         }
-        let r = self.read_chunks(ds, masks);
-        memo_put(&mut self.chunks, key, r)
+        Ok(c)
     }
 
     fn read_chunks(&mut self, ds: &Dataset, masks: bool) -> R<Chunks> {

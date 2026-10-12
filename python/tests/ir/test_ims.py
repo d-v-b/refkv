@@ -49,6 +49,7 @@ def test_projects_as_the_reference_and_rebuilds(path, tmp_path):
     ("ims_btree_loop_root", False),
     ("ims_btree_cycle_extra", True),
     ("ims_implicit_extra", True),
+    ("ims_fill_size_image", True),  # the walk reads it as the layout does
     ("ims_continuation_loop_extra", True),
     ("ims_continuation_loop_root", False),
     ("ims_deep_groups", True),
