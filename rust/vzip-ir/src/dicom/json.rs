@@ -451,7 +451,7 @@ impl GroupLengths {
             .unwrap_or_default();
         for (key, value, length, extent) in self.closed.drain(..) {
             if value.is_some_and(|v| v as u64 == length) && !duplicated.contains(&key) {
-                out.remove(&key);
+                out.swap_remove(&key); // the members are sorted after
                 if let Some(e) = extent {
                     extents[e].dropped = true;
                 }
@@ -857,7 +857,7 @@ impl<'a> Translator<'a> {
         }
         self.extents.truncate(mark);
         groups.finish(tail, &mut dataset, &mut self.extents);
-        dataset.remove(PER_FRAME);
+        dataset.swap_remove(PER_FRAME);
         move_large(&mut meta, &mut dataset);
         root.insert("meta".into(), J::Object(sorted(meta)));
         root.insert("dataset".into(), J::Object(sorted(dataset)));
@@ -923,7 +923,7 @@ fn move_large(meta: &mut Obj, dataset: &mut Obj) {
         for k in keys {
             let n = json_size(&members[&k]);
             if n > MAX_MEMBER {
-                members.remove(&k);
+                members.swap_remove(&k);
             } else {
                 sizes[i].push((k, n));
             }
@@ -938,7 +938,7 @@ fn move_large(meta: &mut Obj, dataset: &mut Obj) {
         }
         let members = if i == 0 { &mut *meta } else { &mut *dataset };
         total -= js_string_size(&k) + 1 + n + usize::from(members.len() > 1);
-        members.remove(&k);
+        members.swap_remove(&k);
     }
 }
 
