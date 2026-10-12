@@ -1182,10 +1182,13 @@ block holds several tile headers only when the tiles are small (masks,
 mostly empty tiles). The output is about 3100–3300 chunk entries, 10–40 data
 sources (main header rests and edge tails), and the product's 60–150 other entries.
 
-Measured on the 12 accepted products of `corpus_safe.txt` (revision 17): a
-product takes 857–3126 range requests and 1.6–22 MB of reads (the reads
-after a small tile-part fetch a 64 KiB block, which holds the next headers;
-after a larger one, 12 bytes). The archive is 1.0–1.13 MB, the root
-`zarr.json` 3.2–4.0 KB, and the largest document, `vzip_source/zarr.json`,
-at most 64.4 KB, within its budget. Level-1C products take longest: their
-true-color image's 1849 tile-part headers are read one after another.
+Measured on the 14 accepted products of `corpus_safe.txt` (revision 26,
+through the harness's caching proxy): a product in the directory form takes
+346–3217 range requests and 5.3–22 MB of reads (the reads after a small
+tile-part fetch a 64 KiB block, which holds the next headers; after a larger
+one, 12 bytes), the same requests and bytes as revision 25's; the zip form
+2508–3197 requests and 2.5–22 MB. The archive is 1.04–1.22 MB in the
+directory form (5–12% more than revision 25's: the held XML documents and the
+mirror's table) and 1.01–1.06 MB in the zip form (1% more). Level-1C products
+take longest: their true-color image's 1849 tile-part headers are read one
+after another.
