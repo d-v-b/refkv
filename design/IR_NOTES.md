@@ -1814,7 +1814,7 @@ Hamamatsu-1 56):
 | Hamamatsu-1 | today | 68.2 s · 11956 · 3.9× | 163 s · 11956 · 3.9× | 35.9 s | 1258 s | 68.2 s | 163 s |
 | | IR planner, per chunk | 62.9 s · 17304 · 1.5× | 160 s · 11761 · 5.2× | 15.2 s | 1281 s | 13.9 s · 870 · 1.4× | 12.6 s |
 | | IR planner, per view | 34.0 s · 7571 · 1.5× | 93.4 s · 6809 · 2.2× | 14.1 s | 694 s · 7187 · 1.7× | 13.3 s · 214 · 1.4× | 4.1 s |
-| | IR planner, per view, span cache | as per view | 93.4 s | 14.1 s | 694 s | 13.3 s | 4.1 s |
+| | IR planner, per view, span cache | 34.0 s · 7571 · 1.5× | 93.4 s | 14.1 s | 694 s | 13.3 s | 4.1 s |
 | | bound | 13.2 s · 36 | 4.1 s | 13.2 s | 136 s | 13.2 s | 4.1 s |
 
 - **Per view, the planner beats today almost everywhere**: CMU-1 at 20 ms
