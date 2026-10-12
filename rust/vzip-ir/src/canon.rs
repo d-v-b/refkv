@@ -4,6 +4,9 @@
 //! of their first byte, the least start of an element with a length in their
 //! subtrees), then by name index (none last), then by first byte. The mirror's table
 //! is in this order, and `finish` gives a byte two leaves claim to the one first in it.
+//! In a store IR an object's first byte is 0, the start of its source (conventions §8.9
+//! <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), so the objects and
+//! directories of one directory are in order of their names.
 
 use crate::ir::*;
 use std::collections::HashMap;
@@ -14,7 +17,13 @@ pub fn first_bytes(ir: &Ir) -> Vec<u64> {
     let mut acc = vec![u64::MAX; n];
     let mut first = vec![u64::MAX; n];
     for i in (0..n).rev() {
-        let own = if ir.len[i] > 0 { ir.start[i] } else { acc[i] };
+        let own = if ir.kind[i] == OBJECT {
+            0
+        } else if ir.len[i] > 0 {
+            ir.start[i]
+        } else {
+            acc[i]
+        };
         first[i] = own;
         let p = ir.parent[i];
         if p != NONE && (p as usize) < i {
