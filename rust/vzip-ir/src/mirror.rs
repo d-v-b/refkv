@@ -1583,10 +1583,23 @@ pub fn canonical_problem(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn F
     // entry for entry: the description and the arrays' documents and chunks
     let mut out = Out::new("");
     write(&c, &mut out, &profile, false);
+    // vzip_source's source metadata may hold, beside `ir`, members its convention keeps outside
+    // the IR (a store's ignored keys, conventions §8.9
+    // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): only `ir` is the table's
+    let description = format!("{SOURCE_NODE}/zarr.json");
+    let table_part = |k: &str, mut d: J| -> J {
+        if k == description {
+            if let Some(own) = d["attributes"][crate::out::CONVENTION_KEY][profile.as_str()].as_object_mut() {
+                own.retain(|m, _| m == "ir");
+            }
+        }
+        d
+    };
     for (k, v) in &out.entries {
         let stored = get(k);
         let same = match (k.ends_with("zarr.json"), &stored) {
-            (true, Some(s)) => serde_json::from_slice::<J>(s).ok() == serde_json::from_slice::<J>(v).ok(),
+            (true, Some(s)) => serde_json::from_slice::<J>(s).ok().map(|d| table_part(k, d))
+                == serde_json::from_slice::<J>(v).ok(),
             (false, Some(s)) => s == v,
             _ => false,
         };

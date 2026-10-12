@@ -334,6 +334,9 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         let folded = crate::mirror::mirror(ir, &mut out, format.profile())?;
         out.summary["folded"] = folded.json();
     }
+    match format {
+        StoreFormat::Zarr2 => crate::project::zarr2::record_ignored(&mut out, facts, format.profile())?,
+    }
     Ok(out)
 }
 
