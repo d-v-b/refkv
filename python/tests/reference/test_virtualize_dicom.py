@@ -1,18 +1,24 @@
-"""The Python DICOM virtualizer (spec/virtualize/dicom.md) on the synthetic fixtures.
+"""The frozen Python DICOM virtualizer (spec/virtualize/dicom.md) on the synthetic fixtures.
 
 Equivalence with the browser virtualizer is checked by
 conformance/virtualize/compare.py, and pixel correctness against pydicom by
 js/test/dicom/verify.py.
 """
 
-import json
+import sys
 from pathlib import Path
+
+# the frozen reference twins (conformance/virtualize/reference/vzip_reference)
+sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
+
+import json
 
 import pytest
 
-from vzip.virtualize import Rejected, virtualize
+from vzip.virtualize import Rejected
+from vzip_reference import virtualize
 
-FIXTURES = Path(__file__).parents[2] / "fixtures" / "dicom"
+FIXTURES = Path(__file__).parents[3] / "fixtures" / "dicom"
 
 
 def _ome(out) -> dict:
@@ -107,7 +113,7 @@ def test_value_json():
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
     import struct
 
-    from vzip.virtualize.dicom.source import value_json
+    from vzip_reference.dicom.source import value_json
 
     cases = [
         ("CS", b"ORIGINAL\\PRIMARY ", True, {"vr": "CS", "Value": ["ORIGINAL", "PRIMARY"]}),
@@ -150,7 +156,7 @@ def test_json_size():
     """The size of an attribute as JSON.stringify writes it, which decides
     whether it stays on the root (spec/virtualize/dicom.md §5
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
-    from vzip.virtualize.dicom.source import json_size
+    from vzip_reference.dicom.source import json_size
 
     numbers = [1e21, 1e-7, 0.1, 9.0, -0.0, 123456789012345680000.0, 1.5e-6, -2.5e-300, 5e-324, 2**53]
     # As JSON.stringify writes them: 1e+21, 1e-7, 0.1, 9, 0, 123456789012345680000, 0.0000015, -2.5e-300, 5e-324,
@@ -162,8 +168,8 @@ def test_json_size():
 def test_a_malformed_sequence_that_the_profile_does_not_walk_keeps_its_bytes():
     import struct
 
-    from vzip.virtualize.dicom.dataset import EXPLICIT_LE
-    from vzip.virtualize.dicom.source import Translator
+    from vzip_reference.dicom.dataset import EXPLICIT_LE
+    from vzip_reference.dicom.source import Translator
 
     def el(group, element, vr, value):
         if vr in ("SQ", "OB", "UN", "UT"):
@@ -217,7 +223,7 @@ def test_a_gathered_sequence_whose_arrays_cost_over_16_times_its_bytes_keeps_its
 def test_dictionary_vr():
     """The VR of an element whose file does not state it (spec/virtualize/dicom.md §5
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
-    from vzip.virtualize.dicom.source import dictionary_vr
+    from vzip_reference.dicom.source import dictionary_vr
 
     cases = {
         0x00280010: "US",  # Rows
@@ -237,8 +243,8 @@ def test_dictionary_vr():
 def test_elements_without_a_stated_vr_take_the_dictionarys():
     import struct
 
-    from vzip.virtualize.dicom.dataset import EXPLICIT_LE, IMPLICIT_LE
-    from vzip.virtualize.dicom.source import Translator
+    from vzip_reference.dicom.dataset import EXPLICIT_LE, IMPLICIT_LE
+    from vzip_reference.dicom.source import Translator
 
     def implicit(group, element, value):
         return struct.pack("<HHI", group, element, len(value)) + value
