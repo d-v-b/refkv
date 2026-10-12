@@ -2,7 +2,7 @@
 // on every Zarr v2 fixture store, the core accepts what the frozen TypeScript twin accepts and
 // writes its hierarchy outside `vzip_source` (each reference to the same object URL, its size
 // pinned), and rejects what it rejects, as a StoreError; `vzip_source` is the IR's mirror, and
-// the ignored keys a listing records are `vzip_source/ignored.json`.
+// the ignored keys a listing records are the member `ignored` of its source metadata.
 
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -57,16 +57,20 @@ test("the core virtualizes every Zarr v2 fixture store as the frozen twin does, 
     assert.ok(isDeepStrictEqual(hierarchy(ir), hierarchy(ref)), name);
     const source = ir.entries.find((e) => e.key === "vzip_source/zarr.json") as { bytes: Uint8Array };
     const own = JSON.parse(new TextDecoder().decode(source.bytes)).attributes.vzip_virtualized.zarr2;
-    assert.deepEqual(Object.keys(own), ["ir"], name);
+    assert.deepEqual(Object.keys(own), ["ir"], name); // a directory records no ignored key
     assert.equal(own.ir.objects, directoryStore(FIXTURES + name, url).objects.size, name);
   }
   assert.ok(accepted >= 14, `${accepted}`);
 });
 
-test("the ignored keys a listing records are vzip_source/ignored.json", async () => {
-  const store = directoryStore(FIXTURES + "zarr2_hierarchy", "https://data.test/h/");
-  store.ignored = ["b//c", "./x"];
-  const v = await virtualizeStore(store);
-  const e = v.entries.find((x) => x.key === "vzip_source/ignored.json") as { bytes: Uint8Array };
-  assert.equal(new TextDecoder().decode(e.bytes), '{"ignored":["./x","b//c"]}');
+test("the ignored keys a listing records are vzip_source's member ignored, in UTF-8 byte order", async () => {
+  for (const [ignored, want] of [[[], undefined], [["b//c", "./x", "\u00e9/.."], ["./x", "b//c", "\u00e9/.."]]] as const) {
+    const store = directoryStore(FIXTURES + "zarr2_hierarchy", "https://data.test/h/");
+    store.ignored = [...ignored];
+    const v = await virtualizeStore(store);
+    const e = v.entries.find((x) => x.key === "vzip_source/zarr.json") as { bytes: Uint8Array };
+    const own = JSON.parse(new TextDecoder().decode(e.bytes)).attributes.vzip_virtualized.zarr2;
+    assert.deepEqual(own.ignored, want);
+    assert.ok(!v.entries.some((x) => x.key === "vzip_source/ignored.json"));
+  }
 });

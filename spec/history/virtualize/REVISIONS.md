@@ -1210,9 +1210,10 @@ Moving it onto the store IR keeps both, byte for byte.
 - **Zarr v2 [§5](../../virtualize/zarr2.md#5-other-objects):** the empty
   objects are no longer listed in `vzip_source`'s source metadata (or in
   `vzip_source/empty.json` under a root array): the mirror lists them, as
-  objects of size 0. The ignored keys are the document
-  `vzip_source/ignored.json` (`{"ignored": I}`), under a root group and a
-  root array alike. The group `vzip_source` is always present (the mirror),
+  objects of size 0. The ignored keys are the member `ignored` of
+  `vzip_source`'s source metadata, beside the mirror's `ir` (as the other
+  store conventions on the IR keep them), under a root group and a root array
+  alike, and absent when there are none. The group `vzip_source` is always present (the mirror),
   so a node at `vzip_source` or below it now always rejects the input, where
   it rejected only when there was an other object, an empty object or an
   ignored key.

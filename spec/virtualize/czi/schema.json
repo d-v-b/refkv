@@ -357,11 +357,6 @@
               "minimum": 0,
               "description": "The source's size in bytes"
             },
-            "objects": {
-              "type": "integer",
-              "minimum": 0,
-              "description": "A store IR's: its objects (spec/conventions.md §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)"
-            },
             "elements": {
               "type": "integer",
               "minimum": 1,
