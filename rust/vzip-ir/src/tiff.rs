@@ -2313,7 +2313,11 @@ impl Tiff {
                 None => J::Null,
                 Some((starts, _)) => {
                     let Some(hb) = self.heads.get(&(s0, starts[0])).cloned() else {
-                        return Err(Stop::Need(vec![(s0, starts[0])])); // a header the batch above did not foresee
+                        // a header the batch above did not foresee: ask for it, when it is in the file
+                        if !self.within(s0, starts[0]) {
+                            return Err(Stop::Reject("internal: a strip header outside the file passed the checks".into()));
+                        }
+                        return Err(Stop::Need(vec![(s0, starts[0])]));
                     };
                     let hd = ndpi::header(&hb, self.rules)?;
                     let (before, after) = (piece(&hb[..hd.sof.0]), piece(&hb[hd.sof.1..]));
