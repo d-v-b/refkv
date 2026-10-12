@@ -3,6 +3,7 @@ profile (revision 25), the mirror's rebuild, and hostile probes (huge extension 
 an esize past the voxel data, a negative esize, dimensions past the file)."""
 
 import io
+import json
 import struct
 import time
 
@@ -87,20 +88,23 @@ def test_an_esize_past_the_voxels_or_negative_ends_the_chain(tmp_path):
 
 
 def test_integers_past_2_53_are_text_in_the_root(tmp_path):
-    """A NIfTI-2 header's i64 fields the profile never checks (slice_start, and dim[7]
-    beyond n) at i64::MIN: the root records them as text, as the reference does."""
+    """NIfTI-2 i64 fields the profile never checks (slice_start, slice_end, and dim[4..7]
+    beyond n): an integer within +-(2^53 - 1) is a number in the root, any other text
+    (i64::MIN included), as the reference writes them."""
+    edges = [2**53 - 1, -(2**53 - 1), 2**53, -(2**53), 2**63 - 1]
     h = bytearray(540)
     struct.pack_into("<i", h, 0, 540)
     h[4:12] = b"n+2\0\r\n\x1a\n"
     struct.pack_into("<hh", h, 12, 2, 8)
-    struct.pack_into("<8q", h, 16, 3, 2, 2, 2, 1, 1, 1, -(1 << 63))
+    struct.pack_into("<8q", h, 16, 3, 2, 2, 2, *edges[:3], -(1 << 63))
     struct.pack_into("<q", h, 168, 544)
-    struct.pack_into("<q", h, 224, -(1 << 63))
+    struct.pack_into("<qq", h, 224, edges[3], edges[4])
     path = tmp_path / "m.nii"
     path.write_bytes(bytes(h) + bytes(4) + bytes(8))
     _, out, _ = via_ir(str(path), "https://data.test/m.nii")
-    header = __import__("json").loads(out.bytes_entries["zarr.json"])["attributes"]["vzip_virtualized"]["nifti"]["header"]
-    assert header["slice_start"] == "-9223372036854775808" and header["dim"][7] == "-9223372036854775808"
+    header = json.loads(out.bytes_entries["zarr.json"])["attributes"]["vzip_virtualized"]["nifti"]["header"]
+    assert header["dim"][4:] == [2**53 - 1, -(2**53 - 1), str(2**53), str(-(1 << 63))]
+    assert (header["slice_start"], header["slice_end"]) == (str(-(2**53)), str(2**63 - 1))
     _, ref = virtualize(str(path), "https://data.test/m.nii")
     same_hierarchy(ref, out)
 
