@@ -2217,6 +2217,7 @@ impl Tiff {
         let mut tags: Vec<(usize, NVals)> = Vec::new();
         let mut levels: Vec<(usize, f64, u64, u64)> = Vec::new(); // (IFD, magnification, w, h)
         for (j, &k) in self.chain.iter().enumerate() {
+            self.nload(k, Some(&[65421]), &mut need, true)?; // the profile reads Magnification first
             let mag = self.nreq(&mags[j], 65421, "Magnification")?;
             if !(mag > 0.0) {
                 continue;
@@ -2311,7 +2312,9 @@ impl Tiff {
             let grid = match head {
                 None => J::Null,
                 Some((starts, _)) => {
-                    let hb = self.heads.get(&(s0, starts[0])).ok_or_else(|| "internal: no strip header".to_string())?.clone();
+                    let Some(hb) = self.heads.get(&(s0, starts[0])).cloned() else {
+                        return Err(Stop::Need(vec![(s0, starts[0])])); // a header the batch above did not foresee
+                    };
                     let hd = ndpi::header(&hb, self.rules)?;
                     let (before, after) = (piece(&hb[..hd.sof.0]), piece(&hb[hd.sof.1..]));
                     ndpi::Grid::new(s0, n, w, h, hb, hd, starts, &before, &after, self.rules)?.facts()

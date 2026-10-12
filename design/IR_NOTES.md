@@ -1821,8 +1821,9 @@ Hamamatsu-1 56):
   41 → 18 s, Hamamatsu-1 68 → 34 s and 163 → 93 s, openslide 401 → 268 s and
   1258 → 694 s; with multi-range requests it is at the bound (4.8 s, 3.1 s;
   13.3 s, 4.1 s). Batching across chunks is most of the gain: per chunk, the
-  planner gains at 20 ms, with HTTP/2 and with multi-range requests, but loses at
-  80 ms and on openslide, since a chunk alone is 128 small ranges a row apart.
+  planner gains at 20 ms (with or without multi-range) and with HTTP/2; at 80 ms
+  it is level for Hamamatsu-1 and loses for CMU-1, even with multi-range; on
+  openslide it loses for both, since a chunk alone is 128 small ranges a row apart.
 - **Where it does not: CMU-1 at 80 ms and 500 Mbit/s** (16.0 s against today's
   6.9 s, the same with no byte cost). There, reading whole strip rows (13.9× the
   bytes) is cheaper than requests, and today's 64 KiB gap reads them; the
@@ -1835,7 +1836,8 @@ Hamamatsu-1 56):
   parsing.
 - **The byte cost** (0.1 s per MB) changes nothing for CMU-1, and is most of
   the cost of Hamamatsu-1 at 80 ms: with 0, per view goes 93 → 55 s, and with
-  the span cache 93 → 25 s (the span cache adds nothing there at 0.1 s per MB).
+  the span cache 93 → 25 s (the span cache adds nothing there at 0.1 s per MB);
+  `bench_ir.py --byte-cost 0` gives these.
 
 Not done: the store readers (`vzip.store`, `js/src/archive.ts`) still read chunk
 by chunk with a 64 KiB gap; adopting the planner there (a batch per view, a

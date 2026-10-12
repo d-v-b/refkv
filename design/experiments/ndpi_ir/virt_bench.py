@@ -29,13 +29,17 @@ try:
         servers.append(subprocess.Popen([sys.executable, str(W / "design/experiments/ir_round2/rangeserver.py"), str(sparse),
                                          str(port), str(lat), str(mp)] + ([str(rate)] if rate else []),
                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-    for pr in profiles:  # until each server answers
+    for pr, proc in zip(profiles, servers):  # until each server answers (and is the one started here)
         for _ in range(100):
+            if proc.poll() is not None:
+                raise RuntimeError(f"{pr}: the range server exited (is its port taken?)")
             try:
                 stats(PROFILES[pr][0])
                 break
             except OSError:
                 time.sleep(0.1)
+        else:
+            raise RuntimeError(f"{pr}: the range server did not start")
     for name in ["CMU-1.ndpi", "Hamamatsu-2.ndpi", "Hamamatsu-1.ndpi"]:
         for pr in profiles:
             port = PROFILES[pr][0]
