@@ -64,7 +64,8 @@ NUMCODECS = {"blosc": {"id", "cname", "clevel", "shuffle", "blocksize"}, "zlib":
 def arrays_of(out: Path) -> list[str]:
     z = zipfile.ZipFile(out)
     return sorted(name[: -len("zarr.json")].rstrip("/") for name in z.namelist()
-                  if name.endswith("zarr.json") and json.loads(z.read(name)).get("node_type") == "array")
+                  if name.endswith("zarr.json") and not name.startswith("vzip_source/")  # the mirror's arrays
+                  and json.loads(z.read(name)).get("node_type") == "array")
 
 
 def virtualize(url: str, out: Path) -> subprocess.CompletedProcess:
