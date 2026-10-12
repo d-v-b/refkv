@@ -25,7 +25,7 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "ims"`, `"version": 0`, `"revision": 25` ([conventions §1](../conventions.md#1-conventions)) and the file's URL as `source.url`.
+with `"profile": "ims"`, `"version": 0`, `"revision": 26` ([conventions §1](../conventions.md#1-conventions)) and the file's URL as `source.url`.
 The root has no source metadata of its own: the whole HDF5 file is described
 on the source metadata node ([§5](#5-source-metadata)). Its CMO is:
 
@@ -762,7 +762,7 @@ The root of a file at `https://example.org/a.ims`:
 "vzip_virtualized": {
   "profile": "ims",
   "version": 0,
-  "revision": 25,
+  "revision": 26,
   "source": {
     "url": "https://example.org/a.ims"
   }

@@ -81,7 +81,9 @@ sources with identical bytes), the same set of keys, and for every key:
 - **other bytes entries:** identical bytes.
 
 **IR mirrors.** For the TIFF, ND2 and CZI profiles, `vzip_source` is the
-source's IR mirror ([conventions §8](conventions.md#8-the-ir-mirror)).
+source's IR mirror ([conventions §8](conventions.md#8-the-ir-mirror)); for
+the Zarr v2 profile, the store's ([conventions §8.9](conventions.md#89-stores),
+whose limits replace those below).
 Its table and view are canonical: a function of the source's IR, folded and
 encoded one way only ([conventions §8.8](conventions.md#88-canonical-form)).
 Mirrors are therefore compared entry for entry, as above, like the rest of the

@@ -197,6 +197,17 @@ root that records 20 as if it recorded the current revision, so the revision
 number is the one difference it does not report; every other profile's
 reference is the shipped code, which records the current revision.
 
+**Zarr v2 stores, since revision 26,** are on the core too (its `zarr2` store
+format), and compared as TIFF, ND2 and CZI are: `ref` runs the frozen Zarr v2
+profiles (`vzip_reference/zarr2`, `reference/ts/zarr2`, with the store dispatch
+as it was), whose roots record revision 25 (their own constant, in
+`zarr2/output.py` and `zarr2/declare.ts`), which `compare.py` also reads as the
+current one. A store's mirror is checked on its own as a store IR's
+([conventions §8.9](../../spec/conventions.md#89-stores)): it loads and checks,
+rebuilds the listing (every referenced object of the size its source pins) and
+every held document byte for byte as the store serves it, is canonical, and its
+view is the one its table gives, with no source read.
+
 **The frozen reference stays.** The frozen implementations
 (`conformance/virtualize/reference`, `conformance/virtualize/reference/ts`) are kept
 unchanged as the independent check of the IR path's hierarchy, at least until

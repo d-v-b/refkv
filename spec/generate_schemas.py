@@ -259,21 +259,21 @@ SOURCE_METADATA: dict[str, dict] = {
         },
         "additionalProperties": False,
     },
-    "zarr2": {
-        "type": "object",
-        "properties": {
-            "attributes": {"type": "object", "minProperties": 1, "description": "The node's .zattrs, as copied"},
-            "empty": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                      "description": "vzip_source only: the keys of the store's empty objects, empty chunk objects "
-                                     "included"},
-            "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                        "description": "vzip_source only: the recorded keys of the listed objects that spec/virtualize.md "
-                                       "§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"},
-            "metadata": {"type": "object", "minProperties": 1,
-                         "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"},
+    "zarr2": {"anyOf": [
+        {
+            "type": "object",
+            "description": "A node's (spec/virtualize/zarr2.md §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>)",
+            "properties": {
+                "attributes": {"type": "object", "minProperties": 1, "description": "The node's .zattrs, as copied"},
+                "metadata": {"type": "object", "minProperties": 1,
+                             "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"},
+            },
+            "minProperties": 1,
+            "additionalProperties": False,
         },
-        "additionalProperties": False,
-    },
+        {"$ref": "#/$defs/mirror"},
+        {"$ref": "#/$defs/mirrorView"},
+    ]},
     "ome-zarr": {
         "type": "object",
         "properties": {
@@ -635,9 +635,9 @@ SOURCE_METADATA["czi"] = {"anyOf": [
 ]}
 # The IR mirror (spec/conventions.md §8
 # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2
-# and CZI conventions: vzip_source's
+# and CZI conventions, and of the store conventions on the IR (Zarr v2): vzip_source's
 # source metadata, and the view documents of the groups under vzip_source/tree.
-IR_PROFILES = ("tiff", "nd2", "czi")
+IR_PROFILES = ("tiff", "nd2", "czi", "zarr2")
 MIRROR_DEFS = {
     "mirror": {
         "type": "object",
@@ -647,6 +647,8 @@ MIRROR_DEFS = {
             "properties": {
                 "version": {"const": 2},
                 "size": {"type": "integer", "minimum": 0, "description": "The source's size in bytes"},
+                "objects": {"type": "integer", "minimum": 0,
+                            "description": "A store IR's: its objects (spec/conventions.md §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)"},
                 "elements": {"type": "integer", "minimum": 1, "description": "The elements, column runs expanded"},
                 "rows": {"type": "integer", "minimum": 1, "description": "The rows the table stores"},
                 "names": {"type": "array", "items": {"type": "string"}, "minItems": 1,

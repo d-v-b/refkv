@@ -1189,3 +1189,57 @@ document and the listing rebuild from the archive alone, the mirrors are
 canonical and their views the rebuilt ones, and the native and wasm outputs are
 identical; 10^5 chunk objects fold into one column run (nested keys) or one per
 grid row (flat keys).
+
+### Zarr v2 on the IR
+
+**What prompted it.** The Zarr v2 profile was two implementations (Python
+and TypeScript) that kept a node's attributes and the members of its
+documents the Zarr v3 metadata does not reproduce, and listed the keys of
+empty objects; the documents themselves, and the listing, were not kept.
+Moving it onto the store IR keeps both, byte for byte.
+
+**The changes.**
+- **Zarr v2 [§4.1](../../virtualize/zarr2.md#41-elements)** (new): the
+  store's source model. `vzip_source` is the store IR's mirror: the root and
+  the directories, an object per listed key, and in each document a node
+  reads (held) a value per top-level member, the text of its value
+  (`ascii[n]`), named by its key, the rest gaps; every other object is
+  referenced or empty. Each node's source metadata `{attributes, metadata}`
+  is unchanged.
+- **Zarr v2 [§5](../../virtualize/zarr2.md#5-other-objects):** the empty
+  objects are no longer listed in `vzip_source`'s source metadata (or in
+  `vzip_source/empty.json` under a root array): the mirror lists them, as
+  objects of size 0. The ignored keys are the document
+  `vzip_source/ignored.json` (`{"ignored": I}`), under a root group and a
+  root array alike. The group `vzip_source` is always present (the mirror),
+  so a node at `vzip_source` or below it now always rejects the input, where
+  it rejected only when there was an other object, an empty object or an
+  ignored key.
+- **Zarr v2 [§10.2](../../virtualize/zarr2.md#102-chunks-and-other-objects):**
+  every node document is read in one round before any is checked, so a
+  document that cannot be read fails the run even when another would reject
+  the input (the profile used to read and check them one at a time, in path
+  order).
+- **[spec/virtualize.md §1.1](../../virtualize.md#11-output-and-equivalence):**
+  the Zarr v2 profile's `vzip_source` is a store IR's mirror, compared entry
+  for entry.
+- **Conventions:** the root property records `"revision": 26`; the schemas
+  were regenerated (the Zarr v2 schema takes the mirror's description and the
+  view's documents, as TIFF's does; the mirror's description may have
+  `objects`).
+
+**Output.** Outside `vzip_source`, every Zarr v2 fixture's output is the
+same as revision 25's, and every rejection is the same but for the one
+above; under `vzip_source`, the mirror replaces the empty objects' keys.
+
+**Implementations.** The Rust core's `zarr2` store format
+(`rust/vzip-ir/src/zarr2.rs`, its schema `schema/zarr2.json`, its
+projection `src/project/zarr2.rs`, JSON documents read by `src/json.rs`) is
+the only implementation; Python (`vzip.ir.store.run_store`) and the browser
+(`js/src/virtualize/ir/store.ts`) list the store and perform the reads. The
+test-only prototype `proto_zarr2.rs` is removed. Today's Python and
+TypeScript profiles are frozen in `conformance/virtualize/reference`
+(recording revision 25), and `compare.py` compares them with the core
+outside `vzip_source`; the shipped `vzip.virtualize.zarr2` and
+`js/src/virtualize/zarr2` stay for the OME-Zarr profile, which builds on
+them.
