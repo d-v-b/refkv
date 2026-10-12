@@ -1821,7 +1821,7 @@ Hamamatsu-1 56):
 - **Where it does not: CMU-1 at 80 ms and 500 Mbit/s** (16.0 s against today's
   6.9 s, the same with no byte cost). There, reading whole strip rows (13.9× the
   bytes) is cheaper than requests, and today's 64 KiB gap reads them; the
-  planner's **amplification ceiling of 16** (design/IR_NOTES §29: a batch never
+  planner's **amplification ceiling of 16** ([§29](#29-the-read-cap-per-server): a batch never
   fetches more than 16 times what it asks, so header reads cannot fetch whole
   files) stops at about one in two of those merges, since one view's share of a
   CMU-1 row at level 0 is 1 or 2 of its 25 intervals. A span cache recovers it
