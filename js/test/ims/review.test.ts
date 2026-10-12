@@ -1,4 +1,4 @@
-// The source metadata node of the browser IMS virtualizer on the files of the
+// The source metadata node of the frozen TypeScript IMS virtualizer (revision 25) on the files of the
 // review (spec/virtualize/ims.md §5
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata>);
 // python/tests/test_virtualize_ims.py has the same cases.
@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
-import { virtualizeImage } from "../../src/virtualize/index.ts";
+import { virtualizeImage } from "../../../conformance/virtualize/reference/ts/index.ts";
 
 const FIXTURES = new URL("../../../fixtures/ims/", import.meta.url);
 

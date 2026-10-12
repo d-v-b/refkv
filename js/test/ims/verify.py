@@ -6,7 +6,10 @@ browser code, run under Node). Every level of the archive is read through the
 reference reader and zarr-python, and must equal, for every time point and
 channel, what h5py reads from `/DataSet/ResolutionLevel r/TimePoint t/Channel
 c/Data`, cropped to the channel's ImageSize (unallocated chunks read as 0 in
-both). `ims_reject_*` files must be rejected.
+both). `ims_reject_*` files must be rejected. The archive's vzip_source is the
+IR mirror: it must rebuild the file byte for byte, the hierarchy outside it
+must be the frozen reference's (revision 25), and the frozen reference's
+source metadata node must rebuild every HDF5 object as h5py reads it.
 
 Usage: uv run python js/test/ims/verify.py [<file.ims> ...]
 """
@@ -44,6 +47,8 @@ import vzip.zarr  # noqa: E402  (a vzip archive as a zarr store)
 # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
 # default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
+sys.path.insert(0, str(HERE.parent))
+from ir_mirror import is_mirror, mirror_problems  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -700,12 +705,34 @@ def tree_problems(root, path: Path) -> list[str]:
         return Checker(f, root["vzip_source"]).tree()
 
 
-def check(path: Path, out: Path) -> list[str]:
+def mirror_check(path: Path, url: str, out: Path) -> list[str]:
+    """An archive of the IR, whose vzip_source is its mirror: the frozen reference's
+    archive of the same file (revision 25) must have the same hierarchy outside
+    vzip_source (its root read at the current revision, compare.py's `at_revision`),
+    its source metadata node must rebuild every HDF5 object (`tree_problems`), and the
+    IR's mirror must rebuild the source byte for byte."""
+    sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
+    from compare import at_revision, differences, from_vzip, without_source
+
+    ref = out.with_suffix(".ref.vzip")
+    p = subprocess.run(["node", str(ROOT / "conformance" / "virtualize" / "reference" / "ts" / "virtualize.ts"), url, str(ref)],
+                       capture_output=True, text=True, cwd=ROOT)
+    if p.returncode:
+        return [f"the reference failed: {(p.stderr or p.stdout)[-200:]}"]
+    problems = [f"differs from the reference: {d}" for d in
+                differences(without_source(at_revision(from_vzip(ref))), without_source(from_vzip(out)))]
+    problems += mirror_problems(out, path)
+    root = zarr.open_group(vzip.zarr.open(str(ref), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
+    problems += [f"reference: {x}" for x in tree_problems(root, path)]
+    return problems
+
+
+def check(path: Path, out: Path, url: str) -> list[str]:
     """The differences between the archive at 'out' and h5py's reading of 'path'."""
     problems = []
     root = zarr.open_group(vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
     levels = root.attrs["ome"]["multiscales"][0]["datasets"]
-    problems += tree_problems(root, path)
+    problems += mirror_check(path, url, out) if is_mirror(out) else tree_problems(root, path)
     with h5py.File(path, "r") as f:
         for r in range(len(levels)):
             arr = root[str(r)]
@@ -747,7 +774,7 @@ def main(paths: list[str]) -> int:
                 failures += 1
                 print(f"{path.name:36s} FAILED: {p.stderr.strip()[-300:]}")
                 continue
-            problems = check(path, out)
+            problems = check(path, out, server.base + path.name)
             failures += bool(problems)
             print(f"{path.name:36s} {problems[:3] if problems else 'ok'} {p.stdout.strip()[:160]}")
     print(f"\n{failures} failures")

@@ -1,13 +1,13 @@
-// The datatype descriptions of the browser IMS virtualizer
+// The datatype descriptions of the frozen TypeScript IMS virtualizer (revision 25)
 // (spec/virtualize/ims.md §5.2
 // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#52-datatypes>);
 // python/tests/test_virtualize_ims.py has the same cases.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ImsError, parseSelection } from "../../src/virtualize/ims/hdf5.ts";
-import { canonical } from "../../src/virtualize/ims/source.ts";
-import { describeType } from "../../src/virtualize/ims/source.ts";
+import { ImsError, parseSelection } from "../../../conformance/virtualize/reference/ts/ims/hdf5.ts";
+import { canonical } from "../../../conformance/virtualize/reference/ts/ims/source.ts";
+import { describeType } from "../../../conformance/virtualize/reference/ts/ims/source.ts";
 
 const INT32 = [0x10, 0x08, 0, 0, 4, 0, 0, 0, 0, 0, 32, 0];
 const CASES: [number[], unknown][] = [
