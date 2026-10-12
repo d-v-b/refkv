@@ -243,7 +243,6 @@ impl StoreRun {
                 self.whole.insert(q.object, parts[0].clone());
             }
             spans.entry(q.object).or_default().extend(q.spans.into_iter().zip(parts));
-
         }
         let p = self.parser.as_mut().ok_or("internal: no parser")?;
         for (k, o, n) in std::mem::take(&mut self.asked) {
