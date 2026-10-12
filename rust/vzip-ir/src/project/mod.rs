@@ -14,6 +14,7 @@
 
 mod czi;
 mod nd2;
+pub mod safe;
 mod tiff;
 
 use crate::ir::Ir;
@@ -28,6 +29,7 @@ pub fn project(format: Format, ir: &Ir, facts: &J, url: &str) -> Result<Out, Str
         Format::Tiff => tiff::project(ir, facts, url),
         Format::Czi => czi::project(ir, facts, url),
         Format::Nd2 => nd2::project(ir, facts, url),
+        Format::Safe => safe::project(ir, facts, url),
     }
 }
 

@@ -23,6 +23,7 @@ pub mod proto_zarr2;
 pub mod refs;
 pub mod rules;
 pub mod run;
+pub mod safe;
 pub mod schema;
 pub mod store;
 pub mod tiff;
@@ -66,6 +67,7 @@ macro_rules! parser {
 parser!(nd2::Nd2);
 parser!(tiff::Tiff);
 parser!(czi::Czi);
+parser!(safe::Safe);
 
 /// Runs a parser over bytes in memory (tests, tools).
 pub fn parse_bytes<P: Parser>(data: &[u8]) -> Result<(ir::Ir, serde_json::Value), String> {

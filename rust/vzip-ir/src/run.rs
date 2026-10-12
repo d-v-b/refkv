@@ -6,6 +6,7 @@ use crate::czi::Czi;
 use crate::ir::Ir;
 use crate::nd2::{Nd2, Step};
 use crate::plan::{Planner, Request};
+use crate::safe::Safe;
 use crate::tiff::Tiff;
 use crate::Parser;
 
@@ -14,6 +15,8 @@ pub enum Format {
     Nd2,
     Tiff,
     Czi,
+    /// a Sentinel-2 SAFE product's zip form (`.SAFE.zip`)
+    Safe,
 }
 
 impl Format {
@@ -22,6 +25,7 @@ impl Format {
             0 => Some(Format::Nd2),
             1 => Some(Format::Tiff),
             2 => Some(Format::Czi),
+            3 => Some(Format::Safe),
             _ => None,
         }
     }
@@ -30,6 +34,7 @@ impl Format {
             Format::Nd2 => "nd2",
             Format::Tiff => "tiff",
             Format::Czi => "czi",
+            Format::Safe => "safe",
         }
     }
     /// The format a file's first bytes give, if one of these.
@@ -43,6 +48,9 @@ impl Format {
         if head.len() >= 16 && &head[..16] == b"ZISRAWFILE\0\0\0\0\0\0" {
             return Some(Format::Czi);
         }
+        if head.len() >= 4 && &head[..4] == b"PK\x03\x04" {
+            return Some(Format::Safe);
+        }
         None
     }
 }
@@ -51,6 +59,7 @@ pub enum AnyParser {
     Nd2(Nd2),
     Tiff(Tiff),
     Czi(Czi),
+    Safe(Box<Safe>),
 }
 
 impl AnyParser {
@@ -59,6 +68,7 @@ impl AnyParser {
             Format::Nd2 => AnyParser::Nd2(Nd2::new(size)),
             Format::Tiff => AnyParser::Tiff(Tiff::new(size)),
             Format::Czi => AnyParser::Czi(Czi::new(size)),
+            Format::Safe => AnyParser::Safe(Box::new(Safe::new(size))),
         }
     }
     pub fn step(&mut self) -> Result<Step, String> {
@@ -66,6 +76,7 @@ impl AnyParser {
             AnyParser::Nd2(x) => x.step(),
             AnyParser::Tiff(x) => x.step(),
             AnyParser::Czi(x) => x.step(),
+            AnyParser::Safe(x) => x.step(),
         }
     }
     pub fn feed(&mut self, o: u64, b: Vec<u8>) {
@@ -73,6 +84,7 @@ impl AnyParser {
             AnyParser::Nd2(x) => x.feed(o, b),
             AnyParser::Tiff(x) => x.feed(o, b),
             AnyParser::Czi(x) => x.feed(o, b),
+            AnyParser::Safe(x) => x.feed(o, b),
         }
     }
     pub fn finish(self) -> Result<(Ir, serde_json::Value), String> {
@@ -80,6 +92,7 @@ impl AnyParser {
             AnyParser::Nd2(x) => Parser::finish(x),
             AnyParser::Tiff(x) => Parser::finish(x),
             AnyParser::Czi(x) => Parser::finish(x),
+            AnyParser::Safe(x) => Parser::finish(*x),
         }
     }
 }
@@ -109,7 +122,8 @@ impl Run {
             fill: Vec::new(),
             fill_counts: (0, (0, 0), (0, 0)),
             planner: Planner::new(size, remote, concurrency),
-            whole: format != Format::Nd2,
+            // TIFF and CZI find their ranges in whole responses; ND2 and SAFE take exact ranges
+            whole: !matches!(format, Format::Nd2 | Format::Safe),
             in_batch: false,
             done: false,
         }
@@ -223,6 +237,9 @@ pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_j
         let folded = crate::mirror::mirror(ir, &mut out, format.name())?;
         if let Some(m) = out.summary.as_object_mut() {
             m.insert("folded".into(), folded.json());
+        }
+        if format == Format::Safe {
+            crate::project::safe::source_members(&mut out, facts);
         }
     }
     Ok(out)

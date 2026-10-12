@@ -263,6 +263,13 @@ impl PyIr {
         self.ir.shared.iter().map(|b| PyBytes::new(py, b)).collect()
     }
     /// A digest of every row (for comparing builds).
+    /// A store IR's objects in id order: (key, virtual offset of its byte 0, size) (conventions
+    /// §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), for reading
+    /// an object described in place at virtual offsets; empty for a file IR.
+    fn object_bases(&self) -> Vec<(String, u64, u64)> {
+        let src = self.ir.sources();
+        src.objects.iter().map(|&o| (self.ir.key(o), src.base[o as usize], self.ir.len[o as usize])).collect()
+    }
     fn digest(&self) -> u64 {
         self.ir.digest()
     }
@@ -552,6 +559,7 @@ impl PyRun {
             "nd2" => crate::run::Format::Nd2,
             "tiff" => crate::run::Format::Tiff,
             "czi" => crate::run::Format::Czi,
+            "safe" => crate::run::Format::Safe,
             _ => return Err(PyValueError::new_err(format!("no format {format:?}"))),
         };
         let mut r = crate::run::Run::new(f, size, remote, concurrency);
@@ -649,6 +657,11 @@ impl PyStoreRun {
     fn complete(&mut self, k: usize, parts: Vec<Vec<u8>>) -> PyResult<()> {
         self.get()?.complete(k, parts).map_err(Rejected::new_err)
     }
+    /// The keys the listing ignores, before the first poll: its empty `d/` keys (`folders`)
+    /// and its recorded ignored keys (`recorded`).
+    fn set_ignored(&mut self, folders: Vec<String>, recorded: Vec<String>) -> PyResult<()> {
+        self.get()?.set_ignored(folders, recorded).map_err(Rejected::new_err)
+    }
     /// The run's counts (JSON).
     fn stats(&mut self) -> PyResult<String> {
         Ok(self.get()?.stats_json().to_string())
@@ -720,6 +733,7 @@ fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str
         "nd2" => crate::run::Format::Nd2,
         "tiff" => crate::run::Format::Tiff,
         "czi" => crate::run::Format::Czi,
+        "safe" => crate::run::Format::Safe,
         _ => return Err(PyValueError::new_err(format!("no format {format:?}"))),
     };
     let facts: serde_json::Value = serde_json::from_str(facts).map_err(|e| PyValueError::new_err(e.to_string()))?;
