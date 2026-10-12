@@ -7,10 +7,15 @@ js/test/store.test.ts.
 """
 
 import io
+import sys
 import urllib.error
 import zipfile
+from pathlib import Path
 
 import pytest
+
+# the frozen reference twins (conformance/virtualize/reference)
+sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "virtualize" / "reference"))
 
 from vzip.archive import VZipWriter
 from vzip.pb import Range, decode_source_table
@@ -272,12 +277,7 @@ def test_records_ignored_keys_and_empty_chunks():
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>); in UTF-8
     byte order, each member only when not empty."""
     from vzip.virtualize.n5.virtualize import virtualize_n5
-    import sys
-    from pathlib import Path
-
-    # the frozen Zarr v2 profile, revision 25's rules (conformance/virtualize/reference)
-    sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "virtualize" / "reference"))
-    from vzip_reference.zarr2.virtualize import virtualize_zarr2
+    from vzip_reference.zarr2.virtualize import virtualize_zarr2  # the frozen profile: revision 25's rules
 
     zarray = b'{"zarr_format": 2, "shape": [4], "chunks": [2], "dtype": "|u1", "compressor": null, ' \
              b'"fill_value": 7, "order": "C", "filters": null}'

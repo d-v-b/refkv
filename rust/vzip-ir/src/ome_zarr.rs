@@ -114,6 +114,12 @@ impl Read for Jv {
     }
 }
 
+/// A value a check of `schema/ome-zarr.json` made sure of just before: its absence is the
+/// schema's and the code's disagreeing, a rejection rather than a panic.
+fn got<T>(v: Option<T>) -> Res<T> {
+    v.ok_or_else(|| "internal: a value the schema checked is not there".to_string())
+}
+
 /// An array of the hierarchy, as the checks read it.
 pub struct ArrayInfo {
     pub dims: usize,
@@ -272,7 +278,7 @@ fn transforms(where_: &str, ts: Option<&Jv>, n: usize) -> Res<Vec<f64>> {
         ("first", ty(first)), ("scale_numbers", flag(sn)), ("scale_len", num(sl as f64)), ("second", ty(second)),
         ("translation_numbers", flag(tn)), ("translation_len", num(tl as f64)), ("n", num(n as f64)),
     ]))?;
-    Ok(first.unwrap().get("scale").unwrap().as_arr().unwrap().iter().map(|x| x.num().unwrap()).collect())
+    got(first.and_then(|f| f.get("scale")).and_then(|s| s.as_arr()))?.iter().map(|x| got(x.num())).collect()
 }
 
 fn version(where_: &str, obj: &Jv) -> Res<()> {
@@ -303,7 +309,7 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
         let w = format!("{}: multiscales", place(&g));
         let ok = ms.as_arr().is_some_and(|m| !m.is_empty() && m.iter().all(|x| x.is_obj()));
         check("multiscales", rules::env([("where", text(&w)), ("ok", flag(ok))]))?;
-        let ms = ms.as_arr().unwrap();
+        let ms = got(ms.as_arr())?;
         multiscales.insert(g.clone(), ms);
         for (i, m) in ms.iter().enumerate() {
             let w = format!("{w}[{i}]");
@@ -332,7 +338,7 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
             let ok = datasets.and_then(|d| d.as_arr()).is_some_and(|d| !d.is_empty() && d.iter().all(|x| x.is_obj()));
             check("datasets", rules::env([("where", text(&w)), ("ok", flag(ok))]))?;
             let mut prev: Option<Vec<f64>> = None;
-            for (j, d) in datasets.unwrap().as_arr().unwrap().iter().enumerate() {
+            for (j, d) in got(datasets.and_then(|d| d.as_arr()))?.iter().enumerate() {
                 let wd = format!("{w}.datasets[{j}]");
                 let p = d.get("path");
                 let rel = rel_path(p);
@@ -363,7 +369,7 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
         let w = format!("{}: omero", place(g));
         let channels = o.get("channels").filter(|c| c.as_arr().is_some_and(|c| c.iter().all(|x| x.is_obj())));
         check("omero", rules::env([("where", text(&w)), ("channels", flag(channels.is_some()))]))?;
-        for c in channels.unwrap().as_arr().unwrap() {
+        for c in got(channels.and_then(|c| c.as_arr()))? {
             let win = c.get("window");
             let window = win.is_some_and(|x| x.is_obj() && ["min", "max", "start", "end"].iter().all(|k| x.get(k).is_some_and(|v| v.is_number())));
             check("channel", rules::env([("where", text(&w)), ("color", shown(c.get("color"))), ("hex", flag(hex6(c.get("color")))), ("window", flag(window))]))?;
@@ -377,7 +383,7 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
         let a = &attrs[g];
         if let Some(ls) = a.get("labels") {
             check("labels", rules::env([("where", text(&place(g))), ("list", flag(ls.as_arr().is_some()))]))?;
-            for x in ls.as_arr().unwrap() {
+            for x in got(ls.as_arr())? {
                 let image = rel_path(Some(x)) && images.contains(&join(g, x.s().unwrap()));
                 check("label", rules::env([("where", text(&place(g))), ("label", shown(Some(x))), ("image", flag(image))]))?;
                 label_images.insert(join(g, x.s().unwrap()));
@@ -395,7 +401,7 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
                 check("label_values", rules::env([("where", text(&w)), ("key", text(key)), ("ok", flag(ok))]))?;
             }
             if let Some(colors) = il.get("colors").and_then(|c| c.as_arr()) {
-                let values = V::List(colors.iter().map(|c| num(c.get("label-value").unwrap().num().unwrap())).collect());
+                let values = V::List(colors.iter().map(|c| got(c.get("label-value").and_then(|v| v.num())).map(num)).collect::<Res<_>>()?);
                 check("label_colors", rules::env([("where", text(&w)), ("values", values)]))?;
                 for c in colors {
                     if let Some(rgba) = c.get("rgba") {
@@ -451,7 +457,7 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
         version(&w, wl)?;
         let ims = wl.get("images").filter(|i| i.is_arr_of_obj());
         check("well", rules::env([("where", text(&w)), ("object", flag(true)), ("images", flag(ims.is_some()))]))?;
-        let ims = ims.unwrap().as_arr().unwrap();
+        let ims = got(ims.and_then(|i| i.as_arr()))?;
         for i in ims {
             let p = i.get("path");
             let target = p.and_then(|p| p.s()).map(|p| join(g, p)).unwrap_or_default();
@@ -480,7 +486,7 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
                 ("where", text(&w)), ("key", text(&key[..key.len() - 1])), ("objects", flag(items.is_some())), ("alnum", flag(ok)),
                 ("names", V::List(list.iter().map(|c| val(c.get("name"))).collect())),
             ]))?;
-            named.insert(key, list.iter().map(|c| c.get("name").unwrap().s().unwrap().to_string()).collect());
+            named.insert(key, list.iter().map(|c| got(c.get("name").and_then(|n| n.s())).map(String::from)).collect::<Res<_>>()?);
         }
         check("plate_members", rules::env([
             ("where", text(&w)), ("field_count", flag(pl.get("field_count").is_none_or(|f| f.as_int(1, i64::MAX).is_some()))),
@@ -490,7 +496,7 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
         let mut ids: Option<HashSet<i64>> = None;
         if let Some(acq) = pl.get("acquisitions") {
             check("acquisitions", rules::env([("where", text(&w)), ("objects", flag(acq.is_arr_of_obj()))]))?;
-            for a in acq.as_arr().unwrap() {
+            for a in got(acq.as_arr())? {
                 check("acquisition", rules::env([
                     ("where", text(&w)), ("id", flag(a.get("id").is_some_and(|i| i.as_int(0, i64::MAX).is_some()))), ("value", shown(a.get("id"))),
                     ("maximumfieldcount", flag(a.get("maximumfieldcount").is_none_or(|m| m.as_int(1, i64::MAX).is_some()))),
@@ -498,14 +504,14 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
                     ("times", flag(["starttime", "endtime"].iter().all(|k| a.get(k).is_none_or(|v| is_int(Some(v)))))),
                 ]))?;
             }
-            let v: Vec<i64> = acq.as_arr().unwrap().iter().map(|a| a.get("id").unwrap().int_of().unwrap()).collect();
+            let v: Vec<i64> = got(acq.as_arr())?.iter().map(|a| got(a.get("id").and_then(|i| i.int_of()))).collect::<Res<_>>()?;
             check("acquisition_ids", rules::env([("where", text(&w)), ("ids", V::List(v.iter().map(|x| num(*x as f64)).collect()))]))?;
             ids = Some(v.into_iter().collect());
         }
         let ws = pl.get("wells").filter(|x| x.is_arr_of_obj());
         let mut checked: HashSet<String> = HashSet::new();
         check("plate_wells", rules::env([("where", text(&w)), ("objects", flag(ws.is_some()))]))?;
-        for x in ws.unwrap().as_arr().unwrap() {
+        for x in got(ws.and_then(|w| w.as_arr()))? {
             let r = x.get("rowIndex").and_then(|v| v.as_int(0, i64::MAX)).map(|v| v as usize);
             let c = x.get("columnIndex").and_then(|v| v.as_int(0, i64::MAX)).map(|v| v as usize);
             let indexes = r.is_some_and(|r| r < named["rows"].len()) && c.is_some_and(|c| c < named["columns"].len());

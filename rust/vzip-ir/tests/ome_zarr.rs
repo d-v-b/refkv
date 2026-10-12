@@ -315,3 +315,27 @@ fn ignored_keys_are_vzip_source_metadata() {
     let mut never = |_: u64, _: u64| -> Result<Vec<u8>, String> { panic!("a store's mirror reads no source") };
     assert_eq!(vzip_ir::mirror::canonical_problem(&get, &mut never), None);
 }
+
+#[test]
+fn probe_a_document_the_test_reads_outside_the_batch() {
+    // the plate's first well lies inside an array (`A`), so its `.zattrs` is no node document:
+    // the test of OME-NGFF 0.4 reads it in a round of its own
+    let base = |well: &[u8]| -> Vec<(String, Vec<u8>)> {
+        let mut o = vec![doc(".zgroup", serde_json::json!({"zarr_format": 2})), doc(".zattrs", serde_json::json!({
+            "bioformats2raw.layout": 3, "plate": {"wells": [{"path": "A/1"}]}}))];
+        o.push(doc("A/.zarray", serde_json::json!({"zarr_format": 2, "shape": [4], "chunks": [2], "dtype": "|u1",
+            "order": "C", "compressor": null, "fill_value": 0, "filters": null})));
+        o.push(doc("A/1/.zgroup", serde_json::json!({"zarr_format": 2})));
+        o.push(("A/1/.zattrs".into(), well.to_vec()));
+        o
+    };
+    let keys = |o: &[(String, Vec<u8>)]| -> Vec<(String, u64)> { o.iter().map(|(k, b)| (k.clone(), b.len() as u64)).collect() };
+    // a well with no images: not OME-NGFF 0.4, Zarr v2's, after two rounds
+    let o = base(br#"{"well": {"images": []}}"#);
+    let (_, _, stats) = run_store(StoreFormat::Zarr2, keys(&o), &|k| o[k].1.clone()).unwrap();
+    assert_eq!(stats["batches"], 2);
+    assert_eq!(output_of(&o).0.unwrap().summary["format"], "zarr2");
+    // a document the test cannot parse rejects the store
+    let o = base(b"{not json");
+    assert!(output_of(&o).0.err().unwrap().starts_with("A/1/.zattrs: invalid JSON"));
+}
