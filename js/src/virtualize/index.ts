@@ -4,15 +4,16 @@
 // store by the profile its root keys select (§1.4
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): N5, Zarr v2,
 // OME-Zarr 0.4 or a
-// SAFE directory. TIFF (but not NDPI), ND2 and CZI are virtualized by the Rust core
-// (ir/, rust/vzip-ir); each other profile is in its own directory; store.ts holds the
-// store machinery.
+// SAFE directory. TIFF (but not NDPI), ND2 and CZI files, and Zarr v2 stores, are
+// virtualized by the Rust core (ir/, rust/vzip-ir); each other profile is in its own
+// directory; store.ts holds the store machinery.
 
 import { blockReader, type ByteReader, ImageError } from "./common.ts";
 import { isDicom, virtualizeDicom } from "./dicom/virtualize.ts";
 import { virtualizeIms } from "./ims/virtualize.ts";
 import { type IrFormat, virtualizeIr } from "./ir/run.ts";
 import { type RangeSource, readerSource } from "./ir/source.ts";
+import { virtualizeStoreIr } from "./ir/store.ts";
 import { detectNdpi, virtualizeNdpi } from "./ndpi/virtualize.ts";
 import { detectNifti, virtualizeNifti } from "./nifti/virtualize.ts";
 import { virtualizeN5 } from "./n5/virtualize.ts";
@@ -21,7 +22,6 @@ import { isZip, virtualizeSafeStore, virtualizeSafeZip } from "./safe/virtualize
 import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store, storeArchive } from "./store.ts";
 import type { Policy } from "../archive.ts";
 import { crc32c } from "../deflate.ts";
-import { virtualizeZarr2 } from "./zarr2/virtualize.ts";
 import type { ArchiveDesc } from "../writer.ts";
 
 /**
@@ -192,11 +192,8 @@ async function virtualizeStoreProfile(
     if (chosen === "safe") return { format: "safe", ...(await virtualizeSafeStore(store)) };
     let format: "n5" | "zarr2" | "ome-zarr" = chosen;
     if (format === "zarr2" && (await declares04(store))) format = "ome-zarr";
-    const result = format === "n5"
-      ? await virtualizeN5(store)
-      : format === "ome-zarr"
-      ? await virtualizeOmeZarr(store)
-      : await virtualizeZarr2(store);
+    if (format === "zarr2") return { format, ...(await virtualizeStoreIr("zarr2", store)) };
+    const result = format === "n5" ? await virtualizeN5(store) : await virtualizeOmeZarr(store);
     return { format, ...storeArchive(store.url, result), summary: result.summary };
   } finally {
     closeStore(store);

@@ -126,8 +126,13 @@ async function perform(w: IrExports, p: number, source: RangeSource, reqs: Span[
 /** A run's output (`Out::encode`) as the writer's archive description: source 0 the
  * file, then the data sources; the hierarchy's documents stored, and the source
  * metadata node's documents (and those under the other lazy prefixes) and copied
- * bytes compressed, as the Python host writes them. */
-export function decodeOutput(b: Uint8Array): ArchiveDesc & { summary: Record<string, unknown> } {
+ * bytes compressed, as the Python host writes them. A store run's references to its
+ * objects (part kind 3: the object's key, offset and length) are the ranges `object`
+ * gives for them (ir/store.ts). */
+export function decodeOutput(
+  b: Uint8Array,
+  object?: (entry: string, key: string, offset: bigint, length: bigint) => Range,
+): ArchiveDesc & { summary: Record<string, unknown> } {
   const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
   let at = 0;
   const u8 = () => v.getUint8(at++);
@@ -163,7 +168,10 @@ export function decodeOutput(b: Uint8Array): ArchiveDesc & { summary: Record<str
       if (tag === 0) ranges.push({ source: 0, offset: u64(), length: u64() });
       else if (tag === 1) ranges.push({ source: u32(), offset: u64(), length: u64() });
       else if (tag === 2) ranges.push({ data: bytes() });
-      else throw new Error(`unknown part kind ${tag} in the IR core's output`);
+      else if (tag === 3 && object !== undefined) {
+        const k = str();
+        ranges.push(object(key, k, u64(), u64()));
+      } else throw new Error(`unknown part kind ${tag} in the IR core's output`);
     }
     entries.push({ key, ranges });
   }

@@ -1,5 +1,5 @@
-// The frozen TypeScript virtualizers of TIFF, ND2 and CZI (the twins in this
-// directory, as they were before the browser adopted the Rust core), dispatched as
+// The frozen TypeScript virtualizers of TIFF, ND2 and CZI, and of Zarr v2 stores (the twins in
+// this directory, as they were before the browser adopted the Rust core for them), dispatched as
 // js/src/virtualize/index.ts dispatched them; the other profiles are the shipped
 // code's. For comparing the Rust core's output with the TypeScript one's.
 
@@ -15,7 +15,8 @@ import { isCzi, virtualizeCzi } from "./czi/virtualize.ts";
 import { isNd2, virtualizeNd2 } from "./nd2/virtualize.ts";
 import { virtualizeTiff } from "./tiff/virtualize.ts";
 
-export { isStoreUrl, virtualizeStore } from "../../../../js/src/virtualize/index.ts";
+export { isStoreUrl } from "../../../../js/src/virtualize/index.ts";
+export { virtualizeStore } from "./store.ts";
 
 const NOT_SUPPORTED = "not a TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file";
 

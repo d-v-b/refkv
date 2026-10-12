@@ -141,12 +141,13 @@ test("a short read is the same failure", async () => {
   assert.match(failed[2] as string, /the listing says/);
 });
 
-test("a failed read the profile never makes is not a failure", async () => {
-  // a/.zarray rejects the input before the profile reads b/.zarray, which the concurrent
-  // reads have read (and failed to).
+test("a failed read of a document fails the run, whatever the others say", async () => {
+  // The Rust core reads every node's documents in one batch before it checks any (conventions
+  // §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): b/.zarray's
+  // failed read fails the run, at any concurrency, though a/.zarray would reject it.
   const objects = new Map<string, Uint8Array | number>([[".zgroup", ZGROUP], ["a/.zarray", utf8.encode('{"zarr_format": 3}')],
     ["b/.zarray", 404]]);
-  const rejected = await outcome(new FakeS3(objects), 8);
-  assert.deepEqual(rejected, await outcome(new FakeS3(objects), 1));
-  assert.deepEqual(rejected, ["rejected", "Zarr2Error", "a/.zarray: zarr_format is not 2"]);
+  const failed = await outcome(new FakeS3(objects), 8);
+  assert.deepEqual(failed, await outcome(new FakeS3(objects), 1));
+  assert.deepEqual(failed, ["failed", "StoreReadError", "http://h/b/s/b/.zarray: HTTP 404"]);
 });
