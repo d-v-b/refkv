@@ -112,6 +112,32 @@ def parse(buf: bytes, problems: list) -> dict:
             "any_zip64_extra": any_zip64_extra}
 
 
+
+LFH_SIG = b"PK\x03\x04"
+
+
+def check_spans(buf: bytes, spans: list[tuple[int, int]], cd_off: int) -> list[str]:
+    """The writer requirements on the bytes before the central directory (spec §10.1
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#101-structure> rules 1 and 2):
+    the first entry starts at offset 0, entries don't overlap each other or the central
+    directory, and bytes that belong to no entry (padding between entries) hold no
+    local file header signature. `spans` are the entries' [local header, end of body)."""
+    problems = []
+    if spans and min(spans)[0] != 0:
+        problems.append(f"bytes [0, {min(spans)[0]}) before the first entry belong to no entry")
+    end = 0
+    for a, b in sorted(spans) + [(cd_off, cd_off)]:
+        if a < end:
+            problems.append(f"bytes [{a}, {end}) belong to two entries, or to an entry and the "
+                            "central directory")
+        elif a > end:
+            at = buf.find(LFH_SIG, end, a)
+            if at >= 0:
+                problems.append(f"bytes [{end}, {a}) belong to no entry but hold a local file "
+                                f"header signature at {at}")
+        end = max(end, b)
+    return problems
+
 def validate(path: Path, desc: dict) -> list[str]:
     problems: list[str] = []
     buf = path.read_bytes()
@@ -186,16 +212,7 @@ def validate(path: Path, desc: dict) -> list[str]:
             problems.append(f"{nm}: CRC-32 mismatch")
         bodies[nm] = body
 
-    # spec §10.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#101-structure> rule 2: every local
-    # header belongs to an entry, so the entries fill the
-    # file from offset 0 up to the central directory, with no gaps
-    end = 0
-    for a, b in sorted(spans):
-        if a != end:
-            problems.append(f"bytes [{end}, {a}) belong to no entry")
-        end = max(end, b)
-    if end != z["cd_off"]:
-        problems.append(f"bytes [{end}, {z['cd_off']}) before the central directory belong to no entry")
+    problems += check_spans(buf, spans, z["cd_off"])
 
     # ---- comment and source table
     c = z["comment"]

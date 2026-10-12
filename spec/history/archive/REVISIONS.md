@@ -970,7 +970,7 @@ result.
 | § | r10.1 | r11 |
 |---|---|---|
 | [9.1](../../archive.md#91-related-zip-profiles-informative) | — | new, informative: vzip does not aim to produce `.ozx` files, and an `.ozx` file is one of the objects a vzip archive can refer to; vzip does not support SOZip |
-| [10.1](../../archive.md#101-structure) rule 2 | "every entry has exactly one local file header", silent on local headers that belong to no entry | a writer MUST NOT write a local header that no central directory record points to (SOZip's index files are such headers); readers never look for one |
+| [10.1](../../archive.md#101-structure) rule 2 | "every entry has exactly one local file header", silent on local headers that belong to no entry | a writer MUST NOT write a local header that no central directory record points to (SOZip's index files are such headers); readers never look for one. Bytes that belong to no entry MAY lie between entries (padding), but MUST NOT contain a local file header signature |
 | [14.3](../../archive.md#143-archive-file-names) | — | new: archives SHOULD be named `.vzip`; an archive with reference entries SHOULD NOT be named `.ozx` |
 
 **Why rule 2 forbids them.** Rule 2 could be read either way, and issue 15
@@ -983,6 +983,18 @@ central directory" literally true. The rule is a writer requirement that
 readers need not detect
 ([§13.4](../../archive.md#134-violations-readers-need-not-detect)), which is
 why it changes no reader result.
+
+**Why padding between entries is allowed.** Rule 2 forbids headers outside
+the central directory, not bytes. A writer may pad so that bodies start at
+aligned offsets, which lets readers map or read chunks directly from
+storage; vzip cannot align with a local extra field, as zipalign does,
+because rule 4 keeps that field empty. The cost is that ZIP tools which read
+local headers in sequence (Java's `ZipInputStream`, streaming unzippers)
+cannot read a padded archive. That trade raises the ceiling for readers that
+go through the central directory, which every vzip reader does, and the
+writers in this repository don't pad. Padding MUST NOT contain the local
+file header signature, so that no tool that scans for headers can mistake it
+for an entry.
 
 **Not adopted, and why:**
 
@@ -1026,8 +1038,9 @@ A tool without ZIP64 support cannot read a vzip archive any more.
   all-ones end record. For a large entry it requires the 20-byte local ZIP64
   field, all-ones size fields in both headers and method 0, and on every
   other entry an empty local extra field and equal local sizes. It checks
-  that the entries fill the file from offset 0 to the central directory with
-  no gaps, which rule 2 now requires.
+  that the first entry starts at offset 0, that entries overlap neither each
+  other nor the central directory, and that bytes between entries hold no
+  local file header signature (rule 2); padding itself is allowed.
 - **Retired crafted cases:** `false_zip64_locator_signature` and
   `zip64_sentinel_without_locator`, which tested the two conditional rules.
   `end_record_signatures_in_name` keeps the part of the first that still

@@ -1163,6 +1163,13 @@ also satisfies the following:
    local header that no central directory record points to (as SOZip's
    index files are, [§9.1](#91-related-zip-profiles-informative)). Readers
    never look for one ([§13.4](#134-violations-readers-need-not-detect)).
+   Bytes that belong to no entry MAY lie between entries, and between the
+   last entry and the central directory, for example padding that makes
+   bodies start at aligned offsets ([§14.2](#142-recommended-layout-informative)).
+   They MUST NOT contain the local file header signature 0x04034b50.
+   Readers never read them. An archive with such bytes may not be readable
+   by ZIP tools that read local headers one after another instead of
+   through the central directory, such as Java's `ZipInputStream`.
 3. Every entry uses compression method 0 (STORED) or 8 (DEFLATE). DEFLATE
    bodies are raw DEFLATE streams (RFC 1951) with no zlib or gzip wrapper.
 4. Every local file header has an extra field length of 0, except that of a
@@ -1676,6 +1683,12 @@ follows every entry, so they don't constrain where the index goes.
 [zip64 end record + locator]      always
 [end of central directory + vzip comment]
 ```
+
+Writers MAY pad between entries ([§10.1](#101-structure) rule 2) so that
+bodies start at aligned offsets, for readers that map or read chunks
+directly from storage. The cost is that ZIP tools which read local headers
+in sequence, instead of through the central directory, cannot read the
+archive.
 
 With this layout a reader can open an archive with two range requests. It
 reads the last 64 KiB, which holds the end records and comment, and then the
