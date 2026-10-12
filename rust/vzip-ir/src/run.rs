@@ -6,6 +6,7 @@ use crate::czi::Czi;
 use crate::ir::Ir;
 use crate::nd2::{Nd2, Step};
 use crate::plan::{Planner, Request};
+use crate::nifti::Nifti;
 use crate::tiff::Tiff;
 use crate::Parser;
 
@@ -14,6 +15,7 @@ pub enum Format {
     Nd2,
     Tiff,
     Czi,
+    Nifti,
 }
 
 impl Format {
@@ -22,6 +24,7 @@ impl Format {
             0 => Some(Format::Nd2),
             1 => Some(Format::Tiff),
             2 => Some(Format::Czi),
+            3 => Some(Format::Nifti),
             _ => None,
         }
     }
@@ -30,7 +33,12 @@ impl Format {
             Format::Nd2 => "nd2",
             Format::Tiff => "tiff",
             Format::Czi => "czi",
+            Format::Nifti => "nifti",
         }
+    }
+    /// The format of a name ("nd2", "tiff", "czi", "nifti").
+    pub fn from_name(s: &str) -> Option<Format> {
+        [Format::Nd2, Format::Tiff, Format::Czi, Format::Nifti].into_iter().find(|f| f.name() == s)
     }
     /// The format a file's first bytes give, if one of these.
     pub fn sniff(head: &[u8]) -> Option<Format> {
@@ -43,6 +51,9 @@ impl Format {
         if head.len() >= 16 && &head[..16] == b"ZISRAWFILE\0\0\0\0\0\0" {
             return Some(Format::Czi);
         }
+        if crate::nifti::detect(head).is_some() {
+            return Some(Format::Nifti);
+        }
         None
     }
 }
@@ -51,6 +62,7 @@ pub enum AnyParser {
     Nd2(Nd2),
     Tiff(Tiff),
     Czi(Czi),
+    Nifti(Nifti),
 }
 
 impl AnyParser {
@@ -59,6 +71,7 @@ impl AnyParser {
             Format::Nd2 => AnyParser::Nd2(Nd2::new(size)),
             Format::Tiff => AnyParser::Tiff(Tiff::new(size)),
             Format::Czi => AnyParser::Czi(Czi::new(size)),
+            Format::Nifti => AnyParser::Nifti(Nifti::new(size)),
         }
     }
     pub fn step(&mut self) -> Result<Step, String> {
@@ -66,6 +79,7 @@ impl AnyParser {
             AnyParser::Nd2(x) => x.step(),
             AnyParser::Tiff(x) => x.step(),
             AnyParser::Czi(x) => x.step(),
+            AnyParser::Nifti(x) => x.step(),
         }
     }
     pub fn feed(&mut self, o: u64, b: Vec<u8>) {
@@ -73,6 +87,7 @@ impl AnyParser {
             AnyParser::Nd2(x) => x.feed(o, b),
             AnyParser::Tiff(x) => x.feed(o, b),
             AnyParser::Czi(x) => x.feed(o, b),
+            AnyParser::Nifti(x) => x.feed(o, b),
         }
     }
     pub fn finish(self) -> Result<(Ir, serde_json::Value), String> {
@@ -80,6 +95,7 @@ impl AnyParser {
             AnyParser::Nd2(x) => Parser::finish(x),
             AnyParser::Tiff(x) => Parser::finish(x),
             AnyParser::Czi(x) => Parser::finish(x),
+            AnyParser::Nifti(x) => Parser::finish(x),
         }
     }
 }

@@ -548,12 +548,7 @@ impl PyRun {
     #[pyo3(signature = (format, size, remote, concurrency, amplification=None, byte_cost=None, whole_below=None))]
     fn new(format: &str, size: u64, remote: bool, concurrency: usize, amplification: Option<f64>, byte_cost: Option<f64>,
            whole_below: Option<u64>) -> PyResult<Self> {
-        let f = match format {
-            "nd2" => crate::run::Format::Nd2,
-            "tiff" => crate::run::Format::Tiff,
-            "czi" => crate::run::Format::Czi,
-            _ => return Err(PyValueError::new_err(format!("no format {format:?}"))),
-        };
+        let f = crate::run::Format::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no format {format:?}")))?;
         let mut r = crate::run::Run::new(f, size, remote, concurrency);
         r.planner.cap_override = amplification;
         if let Some(c) = byte_cost {
@@ -643,22 +638,17 @@ fn out_py<'py>(py: Python<'py>, o: &crate::out::Out) -> PyResult<Bound<'py, PyAn
     Ok(t.into_pyobject(py)?.into_any())
 }
 
-/// The image projection of an IR (format "nd2", "tiff" or "czi"; facts as JSON) as
+/// The image projection of an IR (format "nd2", "tiff", "czi" or "nifti"; facts as JSON) as
 /// Python objects (`out_py`), or Rejected.
 #[pyfunction]
 fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str) -> PyResult<Bound<'py, PyAny>> {
-    let f = match format {
-        "nd2" => crate::run::Format::Nd2,
-        "tiff" => crate::run::Format::Tiff,
-        "czi" => crate::run::Format::Czi,
-        _ => return Err(PyValueError::new_err(format!("no format {format:?}"))),
-    };
+    let f = crate::run::Format::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no format {format:?}")))?;
     let facts: serde_json::Value = serde_json::from_str(facts).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let o = py.detach(|| crate::project::project(f, &ir.ir, &facts, url)).map_err(Rejected::new_err)?;
     out_py(py, &o)
 }
 
-/// The mirror of an IR (for the profile "nd2", "tiff" or "czi"): its entries and
+/// The mirror of an IR (for the profile "nd2", "tiff", "czi" or "nifti"): its entries and
 /// references under `vzip_source` (`out_py`'s form, the url empty), and what the
 /// table folded (JSON).
 #[pyfunction]
