@@ -212,6 +212,11 @@ impl StoreRun {
         Ok(())
     }
 
+    /// The spans of request `k` of the last poll (none: no such request).
+    pub fn round_spans(&self, k: usize) -> Vec<(u64, u64)> {
+        self.round.get(k).map(|q| q.spans.clone()).unwrap_or_default()
+    }
+
     /// Request `k` of the last poll: each span's bytes.
     pub fn complete(&mut self, k: usize, parts: Vec<Vec<u8>>) -> Res<()> {
         let q = self.round.get(k).ok_or(format!("no request {k}"))?;
