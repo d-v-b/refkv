@@ -1,5 +1,5 @@
-"""The frozen reference oracle of the TIFF, ND2 and CZI profiles, and of the Zarr v2
-store profile: the Python implementations `vzip.virtualize` shipped before it moved these
+"""The frozen reference oracle of the TIFF, ND2 and CZI profiles, and of the Zarr v2 and
+OME-Zarr store profiles: the Python implementations `vzip.virtualize` shipped before it moved these
 formats to the Rust IR (rust/vzip-ir), kept unchanged (but for their import paths, and the
 revision their roots record) so that `compare.py` can compare the IR path against an
 independent implementation. Nothing shipped imports this package. Every other format, and what

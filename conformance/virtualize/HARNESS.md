@@ -208,6 +208,12 @@ rebuilds the listing (every referenced object of the size its source pins) and
 every held document byte for byte as the store serves it, is canonical, and its
 view is the one its table gives, with no source read.
 
+**OME-Zarr stores, since revision 26,** go through the same store format: after
+reading the node documents it decides whether the root declares OME-NGFF 0.4, and its
+OME layer gives OME-Zarr's hierarchy. `ref` runs the frozen OME-Zarr profiles
+(`vzip_reference/ome_zarr`, `reference/ts/ome-zarr`, on the frozen Zarr v2 ones), whose
+roots record revision 25 as the frozen Zarr v2 profiles' do.
+
 **The frozen reference stays.** The frozen implementations
 (`conformance/virtualize/reference`, `conformance/virtualize/reference/ts`) are kept
 unchanged as the independent check of the IR path's hierarchy, at least until

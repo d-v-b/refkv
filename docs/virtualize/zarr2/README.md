@@ -166,6 +166,10 @@ those stores and on the 6 OpenOrganelle stores of
 [corpus_zarr2.txt](../../../conformance/virtualize/corpus_zarr2.txt).
 
 - Profile: [spec/virtualize/zarr2.md](../../../spec/virtualize/zarr2.md#part-2-the-profile)
-- Python: [python/src/vzip/virtualize/zarr2/](../../../python/src/vzip/virtualize/zarr2/)
-- Browser: [js/src/virtualize/zarr2/](../../../js/src/virtualize/zarr2/)
+- Rust core: [rust/vzip-ir/src/zarr2.rs](../../../rust/vzip-ir/src/zarr2.rs) (the parser) and
+  [rust/vzip-ir/src/project/zarr2.rs](../../../rust/vzip-ir/src/project/zarr2.rs) (the projection)
+- Python host: [python/src/vzip/ir/store.py](../../../python/src/vzip/ir/store.py); browser host:
+  [js/src/virtualize/ir/store.ts](../../../js/src/virtualize/ir/store.ts)
+- Frozen reference: [conformance/virtualize/reference/vzip_reference/zarr2/](../../../conformance/virtualize/reference/vzip_reference/zarr2/)
+  and [conformance/virtualize/reference/ts/zarr2/](../../../conformance/virtualize/reference/ts/zarr2/)
 - Fixtures: [fixtures/zarr2/](../../../fixtures/zarr2/)

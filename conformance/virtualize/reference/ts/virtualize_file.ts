@@ -12,8 +12,8 @@ import { blockReader, ImageError } from "../../../../js/src/virtualize/common.ts
 import { DicomError } from "../../../../js/src/virtualize/dicom/virtualize.ts";
 import { N5Error } from "../../../../js/src/virtualize/n5/virtualize.ts";
 import { StoreError } from "../../../../js/src/virtualize/store.ts";
-import { Zarr2Error } from "../../../../js/src/virtualize/zarr2/virtualize.ts";
-import { OmeZarrError } from "../../../../js/src/virtualize/ome-zarr/virtualize.ts";
+import { Zarr2Error } from "./zarr2/virtualize.ts";
+import { OmeZarrError } from "./ome-zarr/virtualize.ts";
 import { NiftiError } from "../../../../js/src/virtualize/nifti/virtualize.ts";
 import { ImsError } from "../../../../js/src/virtualize/ims/virtualize.ts";
 import { SafeError } from "../../../../js/src/virtualize/safe/virtualize.ts";

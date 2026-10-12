@@ -274,25 +274,25 @@ SOURCE_METADATA: dict[str, dict] = {
         {"$ref": "#/$defs/mirror"},
         {"$ref": "#/$defs/mirrorView"},
     ]},
-    "ome-zarr": {
-        "type": "object",
-        "properties": {
-            "attributes": {"type": "object", "minProperties": 1,
-                           "description": "The node's .zattrs, without the OME members the ome object gives back"},
-            "unversioned": {"type": "array", "minItems": 1, "uniqueItems": True,
-                            "items": {"enum": ["multiscales", "omero", "image-label", "plate", "well"]},
-                            "description": "The OME members that had no version, which ome gives back as they are"},
-            "empty": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                      "description": "vzip_source only: the keys of the store's empty objects, empty chunk objects "
-                                     "included"},
-            "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                        "description": "vzip_source only: the recorded keys of the listed objects that spec/virtualize.md "
-                                       "§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"},
-            "metadata": {"type": "object", "minProperties": 1,
-                         "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"},
+    "ome-zarr": {"anyOf": [
+        {
+            "type": "object",
+            "description": "A node's (spec/virtualize/ome-zarr.md §8 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>)",
+            "properties": {
+                "attributes": {"type": "object", "minProperties": 1,
+                               "description": "The node's .zattrs, without the OME members the ome object gives back"},
+                "unversioned": {"type": "array", "minItems": 1, "uniqueItems": True,
+                                "items": {"enum": ["multiscales", "omero", "image-label", "plate", "well"]},
+                                "description": "The OME members that had no version, which ome gives back as they are"},
+                "metadata": {"type": "object", "minProperties": 1,
+                             "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"},
+            },
+            "minProperties": 1,
+            "additionalProperties": False,
         },
-        "additionalProperties": False,
-    },
+        {"$ref": "#/$defs/mirror"},
+        {"$ref": "#/$defs/mirrorView"},
+    ]},
 }
 
 # An IFD and its tags (spec/virtualize/tiff.md §5
@@ -635,9 +635,9 @@ SOURCE_METADATA["czi"] = {"anyOf": [
 ]}
 # The IR mirror (spec/conventions.md §8
 # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2
-# and CZI conventions, and of the store conventions on the IR (Zarr v2): vzip_source's
+# and CZI conventions, and of the store conventions on the IR (Zarr v2, OME-Zarr): vzip_source's
 # source metadata, and the view documents of the groups under vzip_source/tree.
-IR_PROFILES = ("tiff", "nd2", "czi", "zarr2")
+IR_PROFILES = ("tiff", "nd2", "czi", "zarr2", "ome-zarr")
 MIRROR_DEFS = {
     "mirror": {
         "type": "object",

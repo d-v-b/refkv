@@ -4,8 +4,8 @@
 // store by the profile its root keys select (§1.4
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): N5, Zarr v2,
 // OME-Zarr 0.4 or a
-// SAFE directory. TIFF (but not NDPI), ND2 and CZI files, and Zarr v2 stores, are
-// virtualized by the Rust core (ir/, rust/vzip-ir); each other profile is in its own
+// SAFE directory. TIFF (but not NDPI), ND2 and CZI files, and Zarr v2 and OME-Zarr stores,
+// are virtualized by the Rust core (ir/, rust/vzip-ir); each other profile is in its own
 // directory; store.ts holds the store machinery.
 
 import { blockReader, type ByteReader, ImageError } from "./common.ts";
@@ -17,7 +17,6 @@ import { virtualizeStoreIr } from "./ir/store.ts";
 import { detectNdpi, virtualizeNdpi } from "./ndpi/virtualize.ts";
 import { detectNifti, virtualizeNifti } from "./nifti/virtualize.ts";
 import { virtualizeN5 } from "./n5/virtualize.ts";
-import { declares04, virtualizeOmeZarr } from "./ome-zarr/virtualize.ts";
 import { isZip, virtualizeSafeStore, virtualizeSafeZip } from "./safe/virtualize.ts";
 import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store, storeArchive } from "./store.ts";
 import type { Policy } from "../archive.ts";
@@ -190,11 +189,13 @@ async function virtualizeStoreProfile(
   try {
     const chosen = chooseProfile(store);
     if (chosen === "safe") return { format: "safe", ...(await virtualizeSafeStore(store)) };
-    let format: "n5" | "zarr2" | "ome-zarr" = chosen;
-    if (format === "zarr2" && (await declares04(store))) format = "ome-zarr";
-    if (format === "zarr2") return { format, ...(await virtualizeStoreIr("zarr2", store)) };
-    const result = format === "n5" ? await virtualizeN5(store) : await virtualizeOmeZarr(store);
-    return { format, ...storeArchive(store.url, result), summary: result.summary };
+    if (chosen === "zarr2") {
+      // the core decides between Zarr v2 and OME-Zarr 0.4 (its summary's `format`)
+      const desc = await virtualizeStoreIr("zarr2", store);
+      return { format: desc.summary.format === "ome-zarr" ? "ome-zarr" : "zarr2", ...desc };
+    }
+    const result = await virtualizeN5(store);
+    return { format: chosen, ...storeArchive(store.url, result), summary: result.summary };
   } finally {
     closeStore(store);
   }
