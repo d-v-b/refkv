@@ -1146,7 +1146,49 @@ only when the color needs it. The Rust core records 25. The frozen
 reference has no IMS profile (compare.py runs the shipped one for it) and
 still records 20.
 
-## Revision 26: more formats on the IR
+## Revision 26: every format on the IR
+
+### The IR mirror of stores: many sources
+
+**What prompted it.** The store profiles (N5, Zarr v2, OME-Zarr, SAFE
+directories) move onto the IR in this revision, but the IR mirror described
+one file: every extent indexed source 0, the leaves partitioned `[0, Z)`, and
+the rebuild gave back that one file. A store is many objects and a listing.
+
+**The changes.**
+- **Conventions [§8.9](../../conventions.md#89-stores)** (new): a store's IR
+  has many sources, each object of the store one. An object is an element of
+  kind 6, whose extent `(0, s)` its descendants' extents index; the other
+  elements outside every object are the root (now without an extent) and the
+  directories, so the tree is the listing, each path a key. A key segment's
+  name and name index make chunk keys siblings of one name with consecutive
+  indexes. An object with children is **held**: its leaves partition it, and
+  the table holds its bytes in the new `vzip_source/ir/held`, so the mirror
+  alone rebuilds every document and the listing. An object without children is
+  **referenced**, one leaf, and is not rebuilt. The description gains
+  `objects`; an object row's start is stored as is, and its source's starts
+  code from it; the limits are 2^24 objects, `2^22 + floor(Z / 4) + 4 × o` rows
+  and 2^24 bytes of names. The view skips referenced and empty objects;
+  canonical order puts each directory's children in the order of their names.
+- **Conventions §8, [§8.1](../../conventions.md#81-elements) and
+  [§8.4](../../conventions.md#84-reading-the-source-back)** point to §8.9; for
+  a file's IR (TIFF, ND2, CZI) nothing changes.
+
+**Output.** None yet: no store profile writes the store IR's mirror until its
+own change of this revision moves it. TIFF, ND2 and CZI outputs are byte for
+byte those of revision 25 (but for the revision number the batch records).
+
+**Implementations.** The Rust core (`ir.rs`, `check.rs`, `canon.rs`,
+`mirror.rs`) builds, checks, mirrors and rebuilds store IRs; `store.rs` runs a
+store format's parser over batches of object reads (one request per object),
+behind `vzip_ir.StoreRun` (Python: `vzip.ir.store`, through the store readers
+and the reader policy) and `vz_store_*` (wasm). `proto_zarr2.rs` is a prototype
+store format, used by tests only, that holds a Zarr v2 store's documents and
+references the rest: on the 117 Zarr v2 and OME-Zarr fixture stores every
+document and the listing rebuild from the archive alone, the mirrors are
+canonical and their views the rebuilt ones, and the native and wasm outputs are
+identical; 10^5 chunk objects fold into one column run (nested keys) or one per
+grid row (flat keys).
 
 ### NIfTI on the IR
 

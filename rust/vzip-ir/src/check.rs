@@ -22,12 +22,23 @@
 //! hole after it), so a parser's runs stay runs; it unfolds a run whose members
 //! overlap another claim, and makes every other overlapping leaf an alias of its
 //! first claimant.
+//!
+//! **Stores.** A store IR (conventions §8.9
+//! <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>) has many sources, its
+//! objects. The checks run on **virtual offsets**: the objects end to end, in id order, each
+//! byte of object `o` at `x` at `base(o) + x` ([`Sources`]). A referenced object (one of a
+//! length with no children) is one leaf, its whole source; a held object's leaves partition it.
+//! So the sweep over virtual offsets checks every object's coverage and injectivity at once,
+//! once [`store_shape`] has checked that no leaf (nor run member) leaves its object. Tiles never
+//! join families of two objects, and the gaps `finish` adds go to the object they are in.
 
 use crate::ir::*;
 
 #[derive(Debug, Clone)]
 pub struct Fam {
     pub root: u32,
+    /// the object the run is in (NONE: a file IR)
+    pub obj: u32,
     pub count: u64,
     pub ext: Vec<(u64, u64, u32)>, // member 0's leaves: (start, len, id), sorted
 }
@@ -130,17 +141,32 @@ pub struct Layout {
     pub tiles: Vec<Tile>,
     /// runs whose members overlap one another (or span more than the stride)
     pub bad: Vec<u32>,
+    pub src: Sources,
+}
+
+/// Whether element `i` is a leaf (conventions §8.1
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>, §8.9
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): a value, data, derived
+/// element or gap with a length in space 0, or a referenced object (`kids`: whether each element
+/// has children).
+pub fn claims(ir: &Ir, kids: &[bool], i: usize) -> bool {
+    if ir.len[i] == 0 || ir.space[i] != 0 {
+        return false;
+    }
+    is_leaf(ir.kind[i]) || (ir.kind[i] == OBJECT && !kids.get(i).copied().unwrap_or(false))
 }
 
 pub fn layout(ir: &Ir) -> Layout {
     let rr = ir.run_roots();
+    let src = ir.sources();
+    let kids = if ir.store { ir.has_children() } else { Vec::new() };
     let mut singles = Vec::new();
     let mut fams: std::collections::BTreeMap<u32, Vec<(u64, u64, u32)>> = Default::default();
     for i in 0..ir.len() {
-        if !is_leaf(ir.kind[i]) || ir.space[i] != 0 || ir.len[i] == 0 {
+        if !claims(ir, &kids, i) {
             continue;
         }
-        let e = (ir.start[i], ir.len[i], i as u32);
+        let e = (src.vstart(ir, i), ir.len[i], i as u32);
         if rr[i] == NONE {
             singles.push(e);
         } else {
@@ -158,7 +184,8 @@ pub fn layout(ir: &Ir) -> Layout {
             bad.push(root);
             continue;
         }
-        good.push((stride, ext[0].0, Fam { root, count, ext }));
+        let obj = src.of.get(root as usize).copied().unwrap_or(NONE);
+        good.push((stride, ext[0].0, Fam { root, obj, count, ext }));
     }
     good.sort_by_key(|g| (g.0, g.1, g.2.root));
     let mut tiles: Vec<Tile> = Vec::new();
@@ -170,7 +197,7 @@ pub fn layout(ir: &Ir) -> Layout {
                 .iter()
                 .flat_map(|f| f.ext.iter())
                 .any(|&(s, n, _)| fam.ext.iter().any(|&(s2, n2, _)| s < s2 + n2 && s2 < s + n));
-            if t.stride == stride && base >= t.a0 && end <= t.a0 + stride && !overlaps {
+            if t.stride == stride && t.fams[0].obj == fam.obj && base >= t.a0 && end <= t.a0 + stride && !overlaps {
                 t.fams.push(fam);
                 continue;
             }
@@ -185,7 +212,109 @@ pub fn layout(ir: &Ir) -> Layout {
         singles,
         tiles,
         bad,
+        src,
     }
+}
+
+/// Where the virtual offset `v` of object `obj` (NONE: a file IR, or unknown) is: (the
+/// element a gap there goes under, its offset in that source).
+fn local(ir: &Ir, src: &Sources, obj: u32, v: u64) -> (u32, u64) {
+    let o = if obj != NONE { Some((obj, src.base[obj as usize])) } else { src.at(ir, v) };
+    match o {
+        Some((o, b)) => (o, v - b),
+        None => (0, v),
+    }
+}
+
+/// The virtual range [a, a + n) cut at the objects' ends: (object, offset in it, length)
+/// (one piece of the root, element 0, in a file IR).
+fn pieces(ir: &Ir, src: &Sources, mut a: u64, mut n: u64) -> Res<Vec<(u32, u64, u64)>> {
+    if !ir.store {
+        return Ok(vec![(0, a, n)]);
+    }
+    let mut v = Vec::new();
+    while n > 0 {
+        let (o, b) = src.at(ir, a).ok_or(format!("virtual byte {a} is in no object"))?;
+        let end = b + ir.len[o as usize];
+        if a >= end {
+            return Err(format!("virtual byte {a} is in no object"));
+        }
+        let m = n.min(end - a);
+        v.push((o, a - b, m));
+        a += m;
+        n -= m;
+    }
+    Ok(v)
+}
+
+/// The virtual range [s, e) as text: bytes of the source, or of an object of a store.
+fn bytes_text(ir: &Ir, src: &Sources, s: u64, e: u64) -> String {
+    match ir.store.then(|| src.at(ir, s)).flatten() {
+        Some((o, b)) => format!("bytes [{}, {}) of object {:?}", s - b, e.saturating_sub(b), ir.key(o)),
+        None => format!("bytes [{s}, {e})"),
+    }
+}
+
+/// The shape of a store IR (conventions §8.9
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), or of a file IR's
+/// lack of objects: outside its objects a store IR has only the root and directories (structs
+/// with no extent, in space 0, not runs); an object's parent is the root or a directory, its
+/// extent is `(0, size)` in space 0, and it is not a run; an empty object (size 0) has no
+/// element with a length; every other element with a length in space 0, each member of a run
+/// included, ends within its object; and the objects number `ir.objects`. Parents precede
+/// their children (checked first).
+pub fn store_shape(ir: &Ir) -> Res<()> {
+    let n = ir.len();
+    if !ir.store {
+        if let Some(i) = (0..n).find(|&i| ir.kind[i] == OBJECT) {
+            return Err(format!("{} is an object, in a file IR", who(ir, i as u32)));
+        }
+        return Ok(());
+    }
+    let src = ir.sources();
+    if src.objects.len() as u64 != ir.objects {
+        return Err(format!("the store IR has {} objects, its description {}", src.objects.len(), ir.objects));
+    }
+    if src.objects.len() as u64 > MAX_OBJECTS {
+        return Err(format!("budget: more than {MAX_OBJECTS} objects"));
+    }
+    for i in 1..n {
+        let o = src.of[i];
+        let (k, iu) = (ir.kind[i], i as u32);
+        if ir.parent[i] == NONE || ir.parent[i] as usize >= i {
+            return Err(format!("{} has parent {}", who(ir, iu), ir.parent[i]));
+        }
+        if k == OBJECT {
+            let p = ir.parent[i] as usize;
+            if src.of[p] != NONE {
+                return Err(format!("{} is inside object {:?}", who(ir, iu), ir.key(src.of[p])));
+            }
+            if ir.start[i] != 0 || ir.space[i] != 0 || ir.run(iu).is_some() {
+                return Err(format!("{} does not span its source (extent ({}, {}), space {})", who(ir, iu), ir.start[i], ir.len[i], ir.space[i]));
+            }
+            continue;
+        }
+        if o == NONE {
+            if k != STRUCT || ir.len[i] != 0 || ir.space[i] != 0 || ir.run(iu).is_some() {
+                return Err(format!("{} is outside every object of the store, and is not a directory", who(ir, iu)));
+            }
+            continue;
+        }
+        if ir.space[i] != 0 || ir.len[i] == 0 {
+            continue;
+        }
+        let size = ir.len[o as usize];
+        if size == 0 {
+            return Err(format!("{} has a length in the empty object {:?}", who(ir, iu), ir.key(o)));
+        }
+        let (count, stride) = ir.run(iu).unwrap_or((1, 0));
+        let end = (count - 1).checked_mul(stride).and_then(|x| x.checked_add(ir.start[i])).and_then(|x| x.checked_add(ir.len[i]));
+        if end.is_none_or(|e| e > size) {
+            return Err(format!("{} claims bytes past the end of object {:?} ({size} bytes)", who(ir, iu), ir.key(o)));
+        }
+    }
+    // a run's members below its root lie in the root's object, as the root does
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -284,6 +413,7 @@ fn expansion_limit(ir: &Ir) -> u64 {
 /// first claimant (a run that overlaps is unfolded first), and the bytes nobody
 /// claims become gaps (gap runs inside a tile).
 pub fn finish(ir: &mut Ir) -> Res<()> {
+    store_shape(ir)?;
     let mut rounds = 0;
     loop {
         rounds += 1;
@@ -309,8 +439,8 @@ pub fn finish(ir: &mut Ir) -> Res<()> {
             }
             if let Some((_, holes)) = t.holes() {
                 for (r, n, c) in holes {
-                    let o = t.a0 + r;
-                    let g = ir.add(GAP, 0, &format!("gaps/{o}/"), 0, "", 0, Some((o, n)))?;
+                    let (parent, o) = local(ir, &lay.src, t.fams[0].obj, t.a0 + r);
+                    let g = ir.add(GAP, parent, &format!("gaps/{o}/"), 0, "", 0, Some((o, n)))?;
                     if c > 1 {
                         let pos = ir.runs.partition_point(|e| e.0 < g);
                         ir.runs.insert(pos, (g, c, t.stride));
@@ -371,9 +501,11 @@ pub fn finish(ir: &mut Ir) -> Res<()> {
         if pos < ir.size {
             gaps.push((pos, ir.size - pos));
         }
-        for (o, n) in gaps {
+        for (a, n) in gaps {
             // named `gaps/<offset>`: the offset is the name's index, so that gaps fold
-            ir.add(GAP, 0, "gaps/", o, "", 0, Some((o, n)))?;
+            for (parent, o, n) in pieces(ir, &lay.src, a, n)? {
+                ir.add(GAP, parent, "gaps/", o, "", 0, Some((o, n)))?;
+            }
         }
         break;
     }
@@ -383,7 +515,7 @@ pub fn finish(ir: &mut Ir) -> Res<()> {
 }
 
 /// The sweep of a finished IR: its leaves (blocks for complete tiles) in source order.
-fn sweep(ir: &Ir) -> Res<Vec<(u64, u64, u32, What)>> {
+fn sweep(ir: &Ir) -> Res<(Vec<(u64, u64, u32, What)>, Sources)> {
     let lay = layout(ir);
     if let Some(&r) = lay.bad.first() {
         return Err(format!(
@@ -392,7 +524,7 @@ fn sweep(ir: &Ir) -> Res<Vec<(u64, u64, u32, What)>> {
         ));
     }
     let blocks: Vec<bool> = lay.tiles.iter().map(|t| t.complete().is_some()).collect();
-    items(ir, &lay, &blocks, expansion_limit(ir), None)
+    Ok((items(ir, &lay, &blocks, expansion_limit(ir), None)?, lay.src))
 }
 
 fn who_member(ir: &Ir, i: u32, j: u64) -> String {
@@ -429,7 +561,10 @@ pub fn names(ir: &Ir) -> Res<()> {
     if ir.space[0] != 0 {
         return Err(format!("the root (element 0) is in space {}, not 0", ir.space[0]));
     }
-    if (ir.start[0], ir.len[0]) != (0, ir.size) {
+    if ir.store && (ir.start[0], ir.len[0]) != (0, 0) {
+        return Err(format!("the root's extent is ({}, {}): a store's root has none", ir.start[0], ir.len[0]));
+    }
+    if !ir.store && (ir.start[0], ir.len[0]) != (0, ir.size) {
         return Err(format!(
             "the root's extent is ({}, {}), not (0, {}): the root spans the source",
             ir.start[0], ir.len[0], ir.size
@@ -525,7 +660,8 @@ pub fn check(ir: &Ir) -> Res<()> {
         }
     }
     names(ir)?;
-    let v = sweep(ir)?;
+    store_shape(ir)?;
+    let (v, src) = sweep(ir)?;
     let mut pos = 0u64;
     let mut last = NONE;
     for &(s, e, id, _) in &v {
@@ -541,15 +677,16 @@ pub fn check(ir: &Ir) -> Res<()> {
         }
         if s < pos {
             return Err(format!(
-                "bytes [{s}, {}) are claimed by {} and {}",
-                pos.min(e),
+                "{} are claimed by {} and {}",
+                bytes_text(ir, &src, s, pos.min(e)),
                 who(ir, last),
                 who(ir, id)
             ));
         }
         if s > pos {
             return Err(format!(
-                "bytes [{pos}, {s}) are claimed by no element (next: {})",
+                "{} are claimed by no element (next: {})",
+                bytes_text(ir, &src, pos, s),
                 who(ir, id)
             ));
         }
@@ -558,8 +695,8 @@ pub fn check(ir: &Ir) -> Res<()> {
     }
     if pos != ir.size {
         return Err(format!(
-            "bytes [{pos}, {}) are claimed by no element",
-            ir.size
+            "{} are claimed by no element",
+            bytes_text(ir, &src, pos, ir.size)
         ));
     }
     check_derived(ir)
@@ -615,7 +752,7 @@ fn check_derived(ir: &Ir) -> Res<()> {
 /// The leaves in source order as ranges (offset, length), adjacent ranges merged:
 /// the rebuild reads and concatenates them.
 pub fn leaves(ir: &Ir) -> Res<Vec<(u64, u64)>> {
-    let v = sweep(ir)?;
+    let (v, _) = sweep(ir)?;
     let mut out: Vec<(u64, u64)> = Vec::new();
     for (s, e, id, _) in v {
         if ir.kind[id as usize] == ALIAS {
@@ -624,6 +761,32 @@ pub fn leaves(ir: &Ir) -> Res<Vec<(u64, u64)>> {
         match out.last_mut() {
             Some(l) if l.0 + l.1 == s => l.1 += e - s,
             _ => out.push((s, e - s)),
+        }
+    }
+    Ok(out)
+}
+
+/// The rebuild of a store IR's held objects (conventions §8.9
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): for each held object
+/// (one with children), in id order, its leaves in order of their start as ranges (offset,
+/// length) of its own source, adjacent ranges merged. Referenced objects are not rebuilt.
+pub fn held_leaves(ir: &Ir) -> Res<Vec<(u32, Vec<(u64, u64)>)>> {
+    let (v, src) = sweep(ir)?;
+    let mut out: Vec<(u32, Vec<(u64, u64)>)> = Vec::new();
+    for (s, e, id, _) in v {
+        let k = ir.kind[id as usize];
+        if k == ALIAS || k == OBJECT {
+            continue;
+        }
+        for (o, a, n) in pieces(ir, &src, s, e - s)? {
+            if out.last().is_none_or(|l| l.0 != o) {
+                out.push((o, Vec::new()));
+            }
+            let r = &mut out.last_mut().unwrap().1;
+            match r.last_mut() {
+                Some(l) if l.0 + l.1 == a => l.1 += n,
+                _ => r.push((a, n)),
+            }
         }
     }
     Ok(out)

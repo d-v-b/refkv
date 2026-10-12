@@ -19,7 +19,7 @@
 //! **Spaces.** An element's extent is in the source (space 0) or, under a
 //! `derived` element `d`, in `d`'s derived bytes (space `d`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub const STRUCT: u8 = 0;
 pub const VALUE: u8 = 1;
@@ -27,7 +27,14 @@ pub const DATA: u8 = 2;
 pub const DERIVED: u8 = 3;
 pub const ALIAS: u8 = 4;
 pub const GAP: u8 = 5;
-pub const KINDS: [&str; 6] = ["struct", "value", "data", "derived", "alias", "gap"];
+/// An object of a store (conventions §8.9
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): a source of its own,
+/// whose extent `(0, size)` its descendants' extents index.
+pub const OBJECT: u8 = 6;
+pub const KINDS: [&str; 7] = ["struct", "value", "data", "derived", "alias", "gap", "object"];
+/// The most objects a store IR describes (conventions §8.9
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>).
+pub const MAX_OBJECTS: u64 = 1 << 24;
 pub const NONE: u32 = u32::MAX;
 pub const NO_INDEX: u64 = u64::MAX;
 
@@ -99,6 +106,72 @@ pub fn source_text(name: &str, nidx: u64) -> String {
         k += 3;
     }
     String::from_utf8(out).unwrap_or_else(|_| e.to_string())
+}
+
+/// The (name, name index) of a store key's segment (conventions §8.9
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), so that its full
+/// name is the segment and chunk keys fold: a segment without `~` whose last characters are
+/// digits is the text before them (with their leading zeros, but for the last digit) and
+/// their value as the index (`0` is `("", 0)`, `a.12` is `("a.", 12)`, `007` is `("00",
+/// 7)`), when the value is below 2^64 − 1; any other segment without `~` is the name, with no
+/// index. A segment with `~`, and the segment of an object whose key is also a directory
+/// (`shadowed`), is the segment with `%`, `/` and `~` percent-encoded, then `~`, with the
+/// index 0 (1 when shadowed). So two segments, or a directory and an object of one key, never
+/// have one full name.
+pub fn key_name(seg: &str, shadowed: bool) -> (String, u64) {
+    if shadowed || seg.contains('~') {
+        return (format!("{}~", escape_name(seg)), shadowed as u64);
+    }
+    let d = seg.bytes().rev().take_while(|c| c.is_ascii_digit()).count();
+    if d == 0 {
+        return (seg.to_string(), NO_INDEX);
+    }
+    let digits = &seg[seg.len() - d..];
+    let z = digits.bytes().take_while(|&c| c == b'0').count().min(d - 1);
+    let r = &digits[z..];
+    match r.parse::<u64>() {
+        Ok(v) if v != NO_INDEX => (seg[..seg.len() - r.len()].to_string(), v),
+        _ => (seg.to_string(), NO_INDEX),
+    }
+}
+
+/// The key segment a (name, name index) of [`key_name`] gives back.
+pub fn key_segment(name: &str, nidx: u64) -> String {
+    match name.strip_suffix('~') {
+        Some(e) if nidx == 0 || nidx == 1 => source_text(&format!("{e}~"), 0),
+        _ if nidx == NO_INDEX => name.to_string(),
+        _ => format!("{name}{nidx}"),
+    }
+}
+
+/// The sources of a store IR's elements: `of[i]`, the object element `i` is in (itself for
+/// an object; NONE for the root and the directories); `base[o]`, for an object `o`, the sum
+/// of the sizes of the objects before it, in id order (the **virtual offset** of a byte of
+/// `o` at `x` is `base[o] + x`: the store's objects end to end); `objects`, the objects in id
+/// order. Empty for a file IR, where every extent is of source 0.
+#[derive(Default, Clone)]
+pub struct Sources {
+    pub of: Vec<u32>,
+    pub base: Vec<u64>,
+    pub objects: Vec<u32>,
+}
+
+impl Sources {
+    /// The virtual offset of element `i`'s start.
+    pub fn vstart(&self, ir: &Ir, i: usize) -> u64 {
+        match self.of.get(i) {
+            Some(&o) if o != NONE => self.base[o as usize].wrapping_add(ir.start[i]),
+            _ => ir.start[i],
+        }
+    }
+
+    /// The object holding the virtual offset `v` (the last object of a length that starts at
+    /// or before it), with its base: None for a file IR.
+    pub fn at(&self, ir: &Ir, v: u64) -> Option<(u32, u64)> {
+        let k = self.objects.partition_point(|&o| self.base[o as usize] <= v);
+        self.objects[..k].iter().rev().find(|&&o| ir.len[o as usize] > 0)
+            .map(|&o| (o, self.base[o as usize]))
+    }
 }
 
 /// Strings stored once: names, types, forms.
@@ -187,6 +260,12 @@ pub struct Ir {
     pub shared: Vec<Vec<u8>>,
     pub shared_index: HashMap<Vec<u8>, u32>,
     pub finished: bool,
+    /// A store IR (conventions §8.9
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): many sources, its
+    /// objects; `size` is the sum of their sizes. Otherwise a file IR: one source, source 0.
+    pub store: bool,
+    /// the objects of a store IR
+    pub objects: u64,
     pub budget: Option<Budget>,
     /// children, built by finish(): CSR over parents
     pub kid_index: Vec<u32>,
@@ -216,6 +295,141 @@ impl Ir {
         ir.add(STRUCT, NONE, "", NO_INDEX, "", 0, Some((0, size)))
             .unwrap();
         ir
+    }
+
+    /// A store IR (conventions §8.9
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): the root, a struct
+    /// named `""` with no extent, the store's root directory. [`Ir::listing`] adds the
+    /// directories and objects; the profile adds each held object's elements under it.
+    pub fn new_store() -> Self {
+        let mut ir = Ir {
+            size: 0,
+            store: true,
+            budget: Some(Budget::new(0)),
+            ..Default::default()
+        };
+        ir.types.id("");
+        ir.add(STRUCT, NONE, "", NO_INDEX, "", 0, None).unwrap();
+        ir
+    }
+
+    /// An object of `size` bytes under `parent` (the root or a directory) of a store IR: its
+    /// extent is `(0, size)` of its own source. The budgets grow with it: 4 rows, and one
+    /// per 4 of its bytes.
+    pub fn object(&mut self, parent: u32, name: &str, nidx: u64, size: u64) -> Res<u32> {
+        if !self.store {
+            return Err("an object in a file IR".into());
+        }
+        self.objects += 1;
+        if self.objects > MAX_OBJECTS {
+            return Err(format!("budget: more than {MAX_OBJECTS} objects"));
+        }
+        self.size = self.size.checked_add(size).ok_or("the store's objects total more than 2^64 bytes")?;
+        if let Some(b) = self.budget.as_mut() {
+            let more = 4 + size / 4;
+            b.records += more;
+            b.elements += more;
+            b.read += 2 * size;
+            b.reads += 1 + size / 64;
+        }
+        self.add(OBJECT, parent, name, nidx, "", 0, Some((0, size)))
+    }
+
+    /// The directories and objects of a store's listing (keys relative to the store, with
+    /// their sizes, in any order): each object's element, in the listing's order. A
+    /// directory is a struct with no extent; names are [`key_name`]'s. A key listed twice,
+    /// or with an empty, `.` or `..` segment, is an error (the store reader ignores such keys).
+    pub fn listing(&mut self, keys: &[(String, u64)]) -> Res<Vec<u32>> {
+        let mut dirs: HashSet<&str> = HashSet::new();
+        let mut seen: HashSet<&str> = HashSet::with_capacity(keys.len());
+        for (k, _) in keys {
+            if !seen.insert(k.as_str()) {
+                return Err(format!("key {k:?} is listed twice"));
+            }
+            if k.split('/').any(|s| s.is_empty() || s == "." || s == "..") {
+                return Err(format!("key {k:?} has an empty, . or .. segment"));
+            }
+            for (at, _) in k.match_indices('/') {
+                dirs.insert(&k[..at]);
+            }
+        }
+        let mut order: Vec<usize> = (0..keys.len()).collect();
+        order.sort_by(|&a, &b| keys[a].0.as_bytes().cmp(keys[b].0.as_bytes()));
+        let mut made: HashMap<&str, u32> = HashMap::new();
+        let mut out = vec![NONE; keys.len()];
+        for k in order {
+            let key = keys[k].0.as_str();
+            let mut parent = 0;
+            let mut from = 0;
+            for (at, _) in key.match_indices('/') {
+                let dir = &key[..at];
+                parent = match made.get(dir) {
+                    Some(&p) => p,
+                    None => {
+                        let (n, x) = key_name(&key[from..at], false);
+                        let p = self.struct_(parent, &n, x, 0, None)?;
+                        made.insert(dir, p);
+                        p
+                    }
+                };
+                from = at + 1;
+            }
+            let (n, x) = key_name(&key[from..], dirs.contains(key));
+            out[k] = self.object(parent, &n, x, keys[k].1)?;
+        }
+        Ok(out)
+    }
+
+    /// The key of element `i` of a store IR (an object's, or a directory's): its path with
+    /// each full name read back as the key segment it names ([`key_segment`]).
+    pub fn key(&self, mut i: u32) -> String {
+        let mut parts = Vec::new();
+        while i != 0 && i != NONE && (i as usize) < self.len() && parts.len() < self.len() {
+            parts.push(key_segment(self.names.get(self.name[i as usize]), self.nidx[i as usize]));
+            i = self.parent[i as usize];
+        }
+        parts.reverse();
+        parts.join("/")
+    }
+
+    /// Each element's source (conventions §8.9
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), as [`Sources`].
+    pub fn sources(&self) -> Sources {
+        let n = self.len();
+        if !self.store {
+            return Sources { of: Vec::new(), base: Vec::new(), objects: Vec::new() };
+        }
+        let mut of = vec![NONE; n];
+        let mut base = vec![0u64; n];
+        let mut objects = Vec::new();
+        let mut acc = 0u64;
+        for i in 0..n {
+            if self.kind[i] == OBJECT {
+                of[i] = i as u32;
+                base[i] = acc;
+                acc = acc.saturating_add(self.len[i]);
+                objects.push(i as u32);
+            } else {
+                let p = self.parent[i];
+                if p != NONE && (p as usize) < i {
+                    of[i] = of[p as usize];
+                }
+            }
+        }
+        Sources { of, base, objects }
+    }
+
+    /// Whether object `i` (of kind object) has children: a held object, whose bytes the
+    /// mirror holds; one without, of a length, is referenced (a leaf, its whole source).
+    pub fn has_children(&self) -> Vec<bool> {
+        let mut v = vec![false; self.len()];
+        for i in 1..self.len() {
+            let p = self.parent[i];
+            if p != NONE && (p as usize) < self.len() {
+                v[p as usize] = true;
+            }
+        }
+        v
     }
 
     pub fn len(&self) -> usize {
@@ -365,6 +579,41 @@ impl Ir {
             eat(b);
         }
         h
+    }
+
+    /// The bytes of held objects of a store IR (conventions §8.9
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), which the mirror
+    /// holds: for each (object, bytes), as many as its size; an object that has bytes already
+    /// keeps them; bytes other than those an object holds or is given elsewhere in `held` are
+    /// refused (two reads of one object that disagree). The value table is sorted
+    /// once, after all.
+    pub fn hold_all<'a>(&mut self, held: impl IntoIterator<Item = (u32, &'a [u8])>) -> Res<()> {
+        self.sort_values();
+        let mut put = Vec::new();
+        for (o, raw) in held {
+            let ou = o as usize;
+            if ou >= self.len() || self.kind[ou] != OBJECT || self.len[ou] != raw.len() as u64 {
+                return Err(format!("internal: {} bytes held for element {o}, which is no object of that size", raw.len()));
+            }
+            if raw.len() > u32::MAX as usize {
+                return Err(format!("budget: a held object of more than {} bytes", u32::MAX));
+            }
+            match self.value_bytes(o) {
+                None => put.push((o, raw)),
+                Some(b) if b != raw => return Err(format!("internal: element {o} held twice, with other bytes")),
+                Some(_) => {}
+            }
+        }
+        put.sort_by_key(|p| p.0);
+        if let Some(w) = put.windows(2).find(|w| w[0].0 == w[1].0 && w[0].1 != w[1].1) {
+            return Err(format!("internal: element {} held twice, with other bytes", w[0].0));
+        }
+        put.dedup_by_key(|p| p.0);
+        for (o, raw) in put {
+            self.put_value(o, raw);
+        }
+        self.sort_values();
+        Ok(())
     }
 
     pub fn put_value(&mut self, i: u32, raw: &[u8]) {
