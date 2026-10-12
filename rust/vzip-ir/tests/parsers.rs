@@ -345,3 +345,23 @@ fn a_long_fragment_chain_is_walked_to_its_end() {
     assert!(rebuilt(&ir, &data) == data);
     assert!(facts["rounds"].as_u64().unwrap() > n as u64);
 }
+
+#[test]
+fn rejects_a_dicom_range_asked_for_and_not_fed() {
+    use vzip_ir::nd2::Step;
+    let err = |r: Result<Step, String>| match r {
+        Err(m) => m,
+        Ok(_) => panic!("stepped on"),
+    };
+    let data = std::fs::read(fixtures().join("dicom/dicom_implicit_mono16.dcm")).unwrap();
+    // fed short: one byte less than asked
+    let mut p = Dicom::new(data.len() as u64);
+    let Step::Read(r) = p.step().unwrap() else { panic!("no batch") };
+    let (o, n) = r[0];
+    p.feed(o, data[o as usize..(o + n - 1) as usize].to_vec());
+    assert_eq!(err(p.step()), format!("internal: the range ({o}, {n}) was asked for and not fed"));
+    // not fed at all
+    let mut p = Dicom::new(data.len() as u64);
+    assert!(p.step().is_ok());
+    assert!(err(p.step()).ends_with("was asked for and not fed"));
+}

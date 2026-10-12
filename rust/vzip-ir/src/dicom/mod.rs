@@ -36,7 +36,8 @@ pub const ADOBE: [u8; 17] = [0xFF, 0xD8, 0xFF, 0xEE, 0x00, 0x0E, 0x41, 0x64, 0x6
 const HOLD: u64 = 1 << 10;
 /// The most times the root's translation and the IR's walk, which the scan prepares, start
 /// again for bytes they missed (each start walks the whole dataset again). The scan and
-/// the profile need no such bound: each of their rounds asks for bytes not yet fed.
+/// the profile need no such bound: each of their rounds asks for bytes not yet fed, and
+/// `step` fails when a range asked for was not fed.
 const MAX_RETRIES: u32 = 64;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -303,6 +304,8 @@ pub struct Dicom {
     window: u64,
     last_end: u64,
     want: Vec<(u64, u64)>,
+    /// the last batch asked for: each must be fed before the next step
+    asked: Vec<(u64, u64)>,
     image: Option<Image>,
     layout: Option<Layout>,
     chain: Option<Chain>,
@@ -333,6 +336,7 @@ impl Dicom {
             window: FIRST,
             last_end: 0,
             want: Vec::new(),
+            asked: Vec::new(),
             image: None,
             layout: None,
             chain: None,
@@ -358,6 +362,7 @@ impl Dicom {
         self.requests += r.len() as u64;
         self.requested += r.iter().map(|x| x.1).sum::<u64>();
         self.rounds += 1;
+        self.asked = r.clone();
         Step::Read(r)
     }
 
@@ -391,6 +396,11 @@ impl Dicom {
     }
 
     pub fn step(&mut self) -> Result<Step, String> {
+        // every range asked for was fed: so each round reads bytes not yet fed, and ends
+        if let Some(&(o, n)) = self.asked.iter().find(|&&(o, n)| !self.b.has(o, n)) {
+            return Err(format!("internal: the range ({o}, {n}) was asked for and not fed"));
+        }
+        self.asked.clear();
         loop {
             match self.phase {
                 Phase::Start => {
