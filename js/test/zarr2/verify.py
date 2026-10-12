@@ -141,7 +141,8 @@ def objects_problems(store_dir: Path, out: Path) -> list[str]:
         problems += [f"{k}: the mirror's bytes are not the object's" for k, _, b in rebuilt
                      if b is not None and (k not in files or files[k].read_bytes() != b)]
         own = {"empty": sorted((k for k, n, _ in rebuilt if n == 0), key=lambda k: k.encode())}
-        source = json.loads(z.read("vzip_source/zarr.json"))["attributes"]["vzip_virtualized"]["zarr2"]
+        # the profile's member (zarr2 or n5) of the convention's property
+        source = next(iter(json.loads(z.read("vzip_source/zarr.json"))["attributes"]["vzip_virtualized"].values()))
         if "ignored" in source:
             own["ignored"] = source["ignored"]
     empty = own.get("empty", [])

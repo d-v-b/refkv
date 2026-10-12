@@ -407,7 +407,7 @@ fn n5_viewer(g: &str, attrs: &Jv, ndim: &BTreeMap<String, usize>, docs: &HashMap
     let units: Vec<Option<String>> = axes.iter().map(|a| if axis_type(a) == Some("space") { u.clone() } else { None }).collect();
     let scales: Vec<Vec<f64>> = factors.iter().map(|f| (0..n).map(|j| r[j] * f[j]).collect()).collect();
     if scales.iter().flatten().any(|v| v.is_infinite()) {
-        return Err("a scale is not finite".into());
+        return Err(format!("{}: a scale is not finite", if g.is_empty() { "/" } else { g }));
     }
     // a downsampled voxel's center is (f − 1) / 2 source voxels from the origin
     let translations: Vec<Vec<f64>> = factors.iter().map(|f| (0..n).map(|j| (f[j] - 1.0) / 2.0 * r[j]).collect()).collect();

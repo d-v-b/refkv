@@ -180,11 +180,16 @@ Notes:
 reject) with the browser code, and compares every array, read through
 `python/src/vzip` and zarr-python's `n5_default`, with an independent block reader
 in the script and with `zarr-n5`. `compare.py` checks that the Python and
-browser outputs are equivalent on those stores and on the 7 OpenOrganelle
+browser outputs, and the frozen reference's outside `vzip_source`, are equivalent on those stores and on the 7 OpenOrganelle
 stores of [corpus_n5.txt](../../../conformance/virtualize/corpus_n5.txt)
 (the full-resolution level with the Python command only).
 
 - Profile: [spec/virtualize/n5.md](../../../spec/virtualize/n5.md#part-2-the-profile)
-- Python: [python/src/vzip/virtualize/n5/](../../../python/src/vzip/virtualize/n5/)
-- Browser: [js/src/virtualize/n5/](../../../js/src/virtualize/n5/)
+- Rust core: [rust/vzip-ir/src/n5.rs](../../../rust/vzip-ir/src/n5.rs)
+  (the parser) and [rust/vzip-ir/src/project/n5.rs](../../../rust/vzip-ir/src/project/n5.rs)
+  (the projection)
+- Python host: [python/src/vzip/ir/store.py](../../../python/src/vzip/ir/store.py); browser host:
+  [js/src/virtualize/ir/store.ts](../../../js/src/virtualize/ir/store.ts)
+- Frozen reference: [conformance/virtualize/reference/vzip_reference/n5/](../../../conformance/virtualize/reference/vzip_reference/n5/)
+  and [conformance/virtualize/reference/ts/n5/](../../../conformance/virtualize/reference/ts/n5/)
 - Fixtures: [fixtures/n5/](../../../fixtures/n5/)

@@ -143,8 +143,8 @@ with the first's:
 
 - `ref`, the reference: `conformance/virtualize/reference/cli.py
   --allow-private-hosts` (the harness serves its inputs from 127.0.0.1, which
-  the reader policy refuses by default). For TIFF, ND2 and CZI it runs the
-  frozen Python profiles in
+  the reader policy refuses by default). For TIFF, ND2 and CZI, and Zarr v2
+  and N5 stores, it runs the frozen Python profiles in
   `conformance/virtualize/reference/vzip_reference/` (what `vzip.virtualize`
   shipped before these formats moved to the IR, unchanged but for their import
   paths); for every other profile, the shipped code.
@@ -173,7 +173,7 @@ which the reference does not write. So, for those profiles:
   checks are the byte-exact rebuild of the source from it and its canonical
   form (below).
 
-For every other profile, `py` and `web` are still two hand-written
+For every other profile (Zarr v2 and N5 stores aside: below), `py` and `web` are still two hand-written
 implementations, and `ref` runs the same code as `py`.
 
 Since revision 21, `vzip_source` of these three profiles is the IR mirror of

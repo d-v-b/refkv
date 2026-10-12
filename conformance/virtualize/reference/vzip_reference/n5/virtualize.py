@@ -1,16 +1,16 @@
 """The N5 profile (spec/virtualize.md, §9
 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#9-n5-profile>).
 
-Frozen at revision 25 (the last before N5 moved onto the IR), which its root records."""
+Frozen at revision 25 (the last before N5 moved onto the IR), which its root records (the
+frozen Zarr v2 profile's StoreOutput declares it)."""
 
 from __future__ import annotations
 
-from vzip.virtualize.common import CONVENTION_KEY, UNITS, Rejected
+from vzip.virtualize.common import UNITS, Rejected
 from vzip.virtualize.store import (
     GROUP_IMPLICIT,
     PathTrie,
     Store,
-    StoreOutput,
     as_int,
     canonical_index,
     classify,
@@ -24,6 +24,7 @@ from vzip.virtualize.store import (
     parent_of,
     source_metadata,
 )
+from vzip_reference.zarr2.output import StoreOutput  # its root records revision 25
 
 DATA_TYPES = {"uint8": 1, "int8": 1, "uint16": 2, "int16": 2, "uint32": 4, "int32": 4, "float32": 4,
               "uint64": 8, "int64": 8, "float64": 8}
@@ -33,9 +34,6 @@ UNIT_NAMES = set(UNITS.values())
 MAX_BLOCK = 2**31 - 1
 # The layout members of a dataset's attributes.json: the Zarr array metadata holds them.
 LAYOUT_KEYS = ("dimensions", "blockSize", "dataType", "compression", "compressionType", "n5")
-# The revision of spec/virtualize.md this frozen profile implements (compare.py reads a root that
-# records it as recording the current revision).
-REVISION = 25
 
 
 def blosc_codec(c: dict, typesize: int, shuffles: dict) -> dict:
@@ -411,7 +409,6 @@ def virtualize_n5(store: Store) -> StoreOutput:
     for path, doc in arrays.items():
         out.docs[doc_key(path)] = doc
     out.declare("n5", omes)
-    out.docs[doc_key("")]["attributes"][CONVENTION_KEY]["revision"] = REVISION
 
     tests = {}
     for path, a in arrays.items():

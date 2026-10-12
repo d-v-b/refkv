@@ -342,10 +342,9 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         let folded = crate::mirror::mirror(ir, &mut out, format.profile())?;
         out.summary["folded"] = folded.json();
     }
-    // the recorded ignored keys, beside the mirror's description (one rule for the store formats)
-    match format {
-        StoreFormat::Zarr2 | StoreFormat::N5 => crate::project::zarr2::record_ignored(&mut out, facts, format.profile())?,
-    }
+    // the recorded ignored keys, beside the mirror's description: one rule for every store
+    // format (conventions §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)
+    crate::project::zarr2::record_ignored(&mut out, facts, format.profile())?;
     Ok(out)
 }
 

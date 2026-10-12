@@ -110,6 +110,8 @@ fn the_view_shows_each_member_and_ignored_keys_are_recorded() {
     let (out, _) = virtualize(&files, &["x/", "a//b"]).unwrap();
     let own = &doc(&out, "vzip_source/zarr.json")["attributes"]["vzip_virtualized"]["n5"];
     assert_eq!(own["ignored"], serde_json::json!(["a//b", "x/"]));
+    assert_eq!(canonical_problem(&entry(&out), &mut no_source), None);
+    assert_eq!(rebuild_store(&entry(&out)).unwrap().len(), files.len());
     let tree = doc(&out, "vzip_source/tree/zarr.json");
     let view = &tree["attributes"]["vzip_virtualized"]["n5"];
     let s0 = &view["em"]["fibsem-uint8"]["s0"]["attributes.json"];
@@ -181,7 +183,7 @@ fn a_scale_that_is_not_finite_is_refused() {
     let mut files = walk(&fixtures().join("n5_viewer_downsampling"));
     files.insert("g/attributes.json".into(), br#"{"pixelResolution": [1e300, 1e300], "scales": [[1, 1], [1e300, 2]]}"#.to_vec());
     let e = virtualize(&files, &[]).err().unwrap();
-    assert!(e.contains("a scale is not finite"), "{e}");
+    assert!(e.contains("g: a scale is not finite"), "{e}");
 }
 
 #[test]
@@ -240,6 +242,8 @@ fn ignored_keys_under_a_root_dataset_are_recorded_beside_its_mirror() {
     let own = &doc(&out, "vzip_source/zarr.json")["attributes"]["vzip_virtualized"]["n5"];
     assert_eq!(own["ignored"], serde_json::json!(["a//c", "b/"]));
     assert!(own["ir"].is_object());
+    assert_eq!(canonical_problem(&entry(&out), &mut no_source), None);
+    assert_eq!(rebuild_store(&entry(&out)).unwrap().len(), files.len());
     assert!(entry(&out)("vzip_source/empty.json").is_none());
 }
 

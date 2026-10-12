@@ -936,7 +936,10 @@ checked to end within its object.
 
 **The table** (changes to [8.2](#82-the-table)). The description `I` has the
 member `"objects": o` after `size`, `o` the number of objects; its presence is
-what makes the IR a store's. `Z` is the sum of the objects' sizes. An object
+what makes the IR a store's. Beside `ir`, `vzip_source`'s source metadata may have
+the member `ignored`: the keys the store reader ignores and records
+([spec/virtualize.md §1.4](virtualize.md#14-store-inputs)), which are not
+objects, as the store's convention keeps them; it is not part of the table. `Z` is the sum of the objects' sizes. An object
 row's start (column 6) is stored as it is (0, since its extent is `(0, s)`),
 and the next row with a length codes its start from the object's start (its
 distance from 0), as if the object row were a row of length 0 ending there: an
