@@ -251,7 +251,12 @@ write("ndpi_overlap.ndpi", ndpi([e, [*macro, e[6], e[7], (65426, 4, e[10][2], e[
 blobs2, e2 = ndpi_level(8, 8)
 ho = 16 + len(blobs2)
 write("ndpi_high_bytes.ndpi", ndpi([[*e2, (65432, 4, e2[10][2], ho)]], blobs2 + bytes(4 * e2[10][2])))
-# many IFDs: past 100000, rejected
+# fewer McuStartsHighBytes than McuStarts: rejected; McuStartsHighBytes of 2^32 as LONG8 (an offset of
+# 2^64 and more, which 64 bits would wrap to the low words alone): rejected
+write("ndpi_high_bytes_short.ndpi", ndpi([[*e2, (65432, 4, 2, ho)]], blobs2 + bytes(8)))
+write("ndpi_high_bytes_wrap.ndpi", ndpi([[*e2, (65432, 16, e2[10][2], ho)]],
+                                        blobs2 + struct.pack(f"<{e2[10][2]}Q", *[1 << 32] * e2[10][2])))
+# many IFDs: past 100000, rejected (the full size only; with --small, 1001 IFDs, accepted)
 write("ndpi_many_ifds.ndpi", ndpi([e] + [macro] * (1000 if small else 100001), blobs))
 
 print(sorted(p.name for p in out.iterdir()))

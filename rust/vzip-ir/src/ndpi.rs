@@ -271,11 +271,17 @@ pub fn tag_values(ir: &Ir, value: u32, typ: u16, high: Option<u32>) -> Vec<u64> 
     v
 }
 
-/// McuStarts with McuStartsHighBytes: `M[i] + H[i] × 2^32`.
+/// McuStarts with McuStartsHighBytes: `M[i] + H[i] × 2^32`, saturating at 2^64 − 1 (an
+/// offset that large is outside every strip, which the `mcu_starts` and `intervals` roles
+/// reject, as the profile rejects the exact value).
 pub fn combine(starts: Vec<u64>, high: Option<&[u64]>) -> Vec<u64> {
     match high {
         None => starts,
-        Some(h) => starts.iter().zip(h).map(|(&s, &x)| s + (x << 32)).collect(),
+        Some(h) => starts
+            .iter()
+            .zip(h)
+            .map(|(&s, &x)| x.checked_mul(1 << 32).and_then(|x| s.checked_add(x)).unwrap_or(u64::MAX))
+            .collect(),
     }
 }
 
@@ -401,6 +407,13 @@ mod tests {
         assert_eq!(g.ends, vec![48, 58]);
         let parts = g.parts(0, 0, 1, &Part::Data(1, 0, 2), &g.sof(1), &Part::Data(2, 0, 10));
         assert_eq!(parts[3..], [Part::Src(140, 8), Part::Lit(vec![0xFF, 0xD0]), Part::Src(150, 8), Part::Lit(vec![0xFF, 0xD9])]);
+    }
+
+    #[test]
+    fn high_bytes_combine_and_saturate() {
+        assert_eq!(combine(vec![5, 6], None), vec![5, 6]);
+        assert_eq!(combine(vec![5, 6], Some(&[0, 1])), vec![5, 6 + (1 << 32)]);
+        assert_eq!(combine(vec![5, u64::MAX - 1], Some(&[1 << 32, 1])), vec![u64::MAX, u64::MAX]);
     }
 
     #[test]

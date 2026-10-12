@@ -2096,8 +2096,8 @@ type NVals = HashMap<u16, Nv>;
 impl Tiff {
     /// The values of IFD `k`'s tags of NDPI's table (those of `only`, or all): a scalar's
     /// first, an array's every value. The bytes not read yet are added to `need` (and the
-    /// tag left out); an integer tag's values are checked (the `values` role).
-    fn nload(&self, k: usize, only: Option<&[u16]>, need: &mut Vec<(u64, u64)>) -> Res<NVals> {
+    /// tag left out); with `check`, an integer tag's values are checked (the `values` role).
+    fn nload(&self, k: usize, only: Option<&[u16]>, need: &mut Vec<(u64, u64)>, check: bool) -> Res<NVals> {
         let f = &self.ifds[k];
         let mut tags: Vec<(u16, usize)> = f
             .first
@@ -2117,8 +2117,10 @@ impl Tiff {
                     continue;
                 };
                 v.truncate(n as usize);
-                let safe = v.iter().all(|&x| x <= MAX_SAFE);
-                self.check("values", rules::env([("tag", int(tag as i128)), ("safe", flag(safe))]))?;
+                if check {
+                    let safe = v.iter().all(|&x| x <= MAX_SAFE);
+                    self.check("values", rules::env([("tag", int(tag as i128)), ("safe", flag(safe))]))?;
+                }
                 Nv::Ints(v)
             } else {
                 let Some(b) = self.bytes_of(e, n * z) else {
@@ -2166,20 +2168,45 @@ impl Tiff {
     /// The NDPI layout: levels, chunk grids, scales and translation, as facts for
     /// `project/ndpi.rs`. Asks for the values and strip headers not read yet.
     fn derive_ndpi(&self) -> Got<Layout> {
-        // every main-chain IFD's Magnification, then each level's tags, each in one batch
+        // The bytes first, each kind in one batch, with no check: every main-chain IFD's
+        // Magnification, the tags of those it makes levels, and their strips' headers. Then the
+        // checks, in the profile's order (an IFD's Magnification, then, for a level, its tags
+        // and the level's checks; then, level by level, its strip, McuStarts, header and chunks),
+        // so that a file with several faults is rejected for the one the profile meets first.
         let mut need = Vec::new();
         let mut mags = Vec::new();
         for &k in &self.chain {
-            mags.push(self.nload(k, Some(&[65421]), &mut need)?);
+            mags.push(self.nload(k, Some(&[65421]), &mut need, false)?);
         }
         if !need.is_empty() {
             return Err(Stop::Need(need));
         }
-        let mut tags: Vec<(usize, f64, NVals)> = Vec::new();
+        let positive = |j: usize| mags[j].get(&65421).and_then(|v| v.first()).is_some_and(|m| m > 0.0);
         for (j, &k) in self.chain.iter().enumerate() {
-            let mag = self.nreq(&mags[j], 65421, "Magnification")?;
-            if mag > 0.0 {
-                tags.push((k, mag, self.nload(k, None, &mut need)?));
+            if positive(j) {
+                self.nload(k, None, &mut need, false)?;
+            }
+        }
+        if !need.is_empty() {
+            return Err(Stop::Need(need));
+        }
+        let starts_of = |m: &NVals| -> Option<(Vec<u64>, bool)> {
+            let starts = m.get(&65426).and_then(|v| v.ints())?;
+            let high = m.get(&65432).and_then(|v| v.ints());
+            let same_length = high.is_none_or(|h| h.len() == starts.len());
+            Some((if same_length { ndpi::combine(starts.to_vec(), high) } else { starts.to_vec() }, same_length))
+        };
+        for (j, &k) in self.chain.iter().enumerate() {
+            if !positive(j) {
+                continue;
+            }
+            let m = self.nload(k, None, &mut need, false)?;
+            let (s0, n) = (Self::nint(&m, 273).unwrap_or(0), Self::nint(&m, 279).unwrap_or(0));
+            if let Some((starts, true)) = starts_of(&m) {
+                let fits = (s0 as u128 + n as u128) <= self.size as u128 && starts.first().is_some_and(|&f| f >= 2 && f <= n);
+                if fits && !self.heads.contains_key(&(s0, starts[0])) {
+                    need.push((s0, starts[0]));
+                }
             }
         }
         if !need.is_empty() {
@@ -2187,25 +2214,31 @@ impl Tiff {
         }
         // the levels (spec/virtualize/ndpi.md §3
         // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#3-levels>)
+        let mut tags: Vec<(usize, NVals)> = Vec::new();
         let mut levels: Vec<(usize, f64, u64, u64)> = Vec::new(); // (IFD, magnification, w, h)
-        for (k, mag, m) in &tags {
-            let w = self.nreq(m, 256, "ImageWidth")? as u64;
-            let h = self.nreq(m, 257, "ImageLength")? as u64;
-            let w = Self::nint(m, 256).unwrap_or(w);
-            let h = Self::nint(m, 257).unwrap_or(h);
-            let compression = Self::nint(m, 259).unwrap_or(1);
-            let photometric = if compression == 7 { Some(self.nreq(m, 262, "PhotometricInterpretation")? as u64) } else { Self::nint(m, 262) };
+        for (j, &k) in self.chain.iter().enumerate() {
+            let mag = self.nreq(&mags[j], 65421, "Magnification")?;
+            if !(mag > 0.0) {
+                continue;
+            }
+            let m = self.nload(k, None, &mut need, true)?;
+            let w = self.nreq(&m, 256, "ImageWidth")? as u64;
+            let h = self.nreq(&m, 257, "ImageLength")? as u64;
+            let w = Self::nint(&m, 256).unwrap_or(w);
+            let h = Self::nint(&m, 257).unwrap_or(h);
+            let compression = Self::nint(&m, 259).unwrap_or(1);
+            let photometric = if compression == 7 { Some(self.nreq(&m, 262, "PhotometricInterpretation")? as u64) } else { Self::nint(&m, 262) };
             let bits = m.get(&258).and_then(|v| v.ints()).map(|v| v.to_vec()).unwrap_or_default();
-            let f = &self.ifds[*k];
+            let f = &self.ifds[k];
             let one_strip = [273u16, 279].iter().all(|&t| f.field(t).is_some_and(|e| e.count == 1));
             let smaller = levels.last().is_none_or(|l| w < l.2 && h < l.3);
-            let new_magnification = !levels.iter().any(|l| l.1 == *mag);
+            let new_magnification = !levels.iter().any(|l| l.1 == mag);
             self.check(
                 "level",
                 rules::env([
                     ("compression", num(compression as f64)),
                     ("photometric", photometric.map(|p| num(p as f64)).unwrap_or(V::Absent)),
-                    ("spp", num(Self::nint(m, 277).unwrap_or(1) as f64)),
+                    ("spp", num(Self::nint(&m, 277).unwrap_or(1) as f64)),
                     ("bits", V::List(bits.iter().map(|&b| V::Num(b as f64)).collect())),
                     ("one_strip", flag(one_strip)),
                     ("smaller", flag(smaller)),
@@ -2214,44 +2247,11 @@ impl Tiff {
                     ("height", num(h as f64)),
                 ]),
             )?;
-            levels.push((*k, *mag, w, h));
+            levels.push((k, mag, w, h));
+            tags.push((k, m));
         }
         self.check("images", rules::env([("levels", num(levels.len() as f64))]))?;
-        let vals = |k: usize| &tags.iter().find(|t| t.0 == k).unwrap().2;
-        // the strips' headers, in one batch
-        let mut headers: Vec<Option<(Vec<u64>, u64, u64)>> = Vec::new(); // (McuStarts, strip, length)
-        for &(k, _, _, _) in &levels {
-            let m = vals(k);
-            let (s0, n) = (Self::nint(m, 273).unwrap_or(0), Self::nint(m, 279).unwrap_or(0));
-            let within = (s0 as u128 + n as u128) <= self.size as u128;
-            self.check("strip", rules::env([("within", flag(within)), ("length", num(n as f64))]))?;
-            let Some(starts) = m.get(&65426).and_then(|v| v.ints()) else {
-                headers.push(None);
-                continue;
-            };
-            let high = m.get(&65432).and_then(|v| v.ints());
-            let same_length = high.is_none_or(|h| h.len() == starts.len());
-            let starts = if same_length {
-                ndpi::combine(starts.to_vec(), high)
-            } else {
-                starts.to_vec()
-            };
-            self.check(
-                "mcu_starts",
-                rules::env([
-                    ("same_length", flag(same_length)),
-                    ("first", starts.first().map(|&f| num(f as f64)).unwrap_or(V::Absent)),
-                    ("length", num(n as f64)),
-                ]),
-            )?;
-            if !self.heads.contains_key(&(s0, starts[0])) {
-                need.push((s0, starts[0]));
-            }
-            headers.push(Some((starts, s0, n)));
-        }
-        if !need.is_empty() {
-            return Err(Stop::Need(need));
-        }
+        let vals = |k: usize| &tags.iter().find(|t| t.0 == k).unwrap().1;
         // scale and position (spec/virtualize/ndpi.md §4
         // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-the-image>)
         let (k0, _, bw, bh) = levels[0];
@@ -2292,12 +2292,25 @@ impl Tiff {
         };
         let mut out = Vec::new();
         let mut scales = Vec::new();
-        for (&(k, _, w, h), head) in levels.iter().zip(headers) {
+        for &(k, _, w, h) in &levels {
             let m = vals(k);
             let (s0, n) = (Self::nint(m, 273).unwrap_or(0), Self::nint(m, 279).unwrap_or(0));
+            let within = (s0 as u128 + n as u128) <= self.size as u128;
+            self.check("strip", rules::env([("within", flag(within)), ("length", num(n as f64))]))?;
+            let head = starts_of(m);
+            if let Some((starts, same_length)) = &head {
+                self.check(
+                    "mcu_starts",
+                    rules::env([
+                        ("same_length", flag(*same_length)),
+                        ("first", starts.first().map(|&f| num(f as f64)).unwrap_or(V::Absent)),
+                        ("length", num(n as f64)),
+                    ]),
+                )?;
+            }
             let grid = match head {
                 None => J::Null,
-                Some((starts, _, _)) => {
+                Some((starts, _)) => {
                     let hb = self.heads.get(&(s0, starts[0])).ok_or_else(|| "internal: no strip header".to_string())?.clone();
                     let hd = ndpi::header(&hb, self.rules)?;
                     let (before, after) = (piece(&hb[..hd.sof.0]), piece(&hb[hd.sof.1..]));

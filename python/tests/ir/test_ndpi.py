@@ -87,18 +87,25 @@ def test_a_tiff_is_not_ndpi():
     assert fmt == "tiff"
 
 
+ACCEPTED = {"ndpi_high_bytes.ndpi", "ndpi_high_pointer.ndpi", "ndpi_intervals_256x256.ndpi",
+            "ndpi_loop_pointers.ndpi", "ndpi_many_ifds.ndpi", "ndpi_overlap.ndpi"}  # at the tests' sizes
+
+
 def test_probes_decide_as_today(probes):
     """NDPI's hostile probes (gen_probes.py): loops, huge counts and offsets are rejected where
     today rejects them; pointer loops and overlapping extents are aliases; many intervals and
     McuStartsHighBytes are projected as today; every IR the parser returns is checked."""
-    for path in sorted(probes.glob("ndpi_*")):
-        url = f"https://data.test/{path.name}"
-        try:
-            _, today = virtualize(str(path), url)
-        except Rejected:
+    names = sorted(p.name for p in probes.glob("ndpi_*"))
+    assert ACCEPTED <= set(names) and len(names) == 13
+    for name in names:
+        path, url = probes / name, f"https://data.test/{name}"
+        if name not in ACCEPTED:
+            with pytest.raises(Rejected):
+                virtualize(str(path), url)
             with pytest.raises(Rejected):
                 via_ir(str(path), url, mirror=False)
             continue
+        _, today = virtualize(str(path), url)
         fmt, out, ir = via_ir(str(path), url, mirror=False)
         assert fmt == "ndpi", path.name
         ir.check()
