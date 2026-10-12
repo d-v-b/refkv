@@ -5,3 +5,7 @@
 // recording the current revision (conformance/virtualize/HARNESS.md).
 
 export const REVISION = 20;
+
+// The revision the frozen DICOM twin records: 25, the last before the IR mirror
+// became DICOM's `vzip_source` (revision 26).
+export const DICOM_REVISION = 25;
