@@ -216,9 +216,9 @@ fn main_header(rules: &Rules, c: &Cache, boxes: Vec<Jp2Box>, c0: u64) -> W<Codes
     let mut cocs: Vec<Option<Coding>> = vec![None; csiz as usize];
     let mut markers = Vec::new();
     let rest_at = c0 + 4 + lsiz;
+    let max_rest = rules.limit("max_rest") as u64;
     loop {
         // the rest's bound, before reading on: a long run of segments is refused at 64 KiB
-        let max_rest = rules.limit("max_rest") as u64;
         if pos - rest_at > max_rest {
             return Err(format!("a band file's main header is more than {max_rest} bytes").into());
         }
