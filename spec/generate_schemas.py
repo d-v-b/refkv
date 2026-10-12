@@ -562,11 +562,12 @@ SOURCE_METADATA["safe"] = {"oneOf": [
         "required": ["ir"],
         "additionalProperties": False,
     },
-    # a view document, but not one of the members the branches above require (or `vzip_source`'s
-    # members of revision 25), so that one of those with a wrong member is invalid
+    # a view document, without the members the branches above require (or `vzip_source`'s of
+    # revision 25), which name no SAFE IR element (`siz` and `xml` do: they are not excluded), so
+    # that a document of those branches with a wrong member is invalid
     {"allOf": [{"$ref": "#/$defs/mirrorView"}, {"not": {"anyOf": [
-        {"required": [m]} for m in ("ir", "IMAGE_FILE", "siz", "HORIZONTAL_CS_CODE", "empty_dirs", "ignored",
-                                     "xml", "xml_arrays", "empty")]}}]},
+        {"required": [m]} for m in ("ir", "IMAGE_FILE", "HORIZONTAL_CS_CODE", "empty_dirs", "ignored",
+                                     "xml_arrays", "empty")]}}]},
 ]}
 _GUID = {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}
 _DIMENSIONS = {"type": "object", "description": "The Start of each of S, B, H, I, R, V the series key has",

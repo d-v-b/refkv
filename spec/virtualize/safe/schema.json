@@ -555,11 +555,6 @@
                   },
                   {
                     "required": [
-                      "siz"
-                    ]
-                  },
-                  {
-                    "required": [
                       "HORIZONTAL_CS_CODE"
                     ]
                   },
@@ -571,11 +566,6 @@
                   {
                     "required": [
                       "ignored"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "xml"
                     ]
                   },
                   {

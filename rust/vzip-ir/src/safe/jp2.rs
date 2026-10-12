@@ -219,8 +219,8 @@ fn main_header(rules: &Rules, c: &Cache, boxes: Vec<Jp2Box>, c0: u64) -> W<Codes
     let rest_at = c0 + 4 + lsiz;
     loop {
         // the rest's bound, before reading on: a long run of segments is refused at 64 KiB
-        if pos - rest_at > MAX_REST {
-            return Err(format!("a band file's main header is more than {MAX_REST} bytes").into());
+        if pos - rest_at > rules.limit("max_rest") as u64 {
+            return Err("a band file's main header is more than 65536 bytes".to_string().into());
         }
         if pos + 2 > c1 {
             return Err("a band file's main header has no SOT".to_string().into());

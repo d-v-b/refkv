@@ -211,3 +211,34 @@ fn a_value_the_view_shows_unread_in_an_object_described_in_place_is_refused() {
     let e = vzip_ir::mirror::mirror(&ir, &mut out, "safe").unwrap_err();
     assert!(e.contains("described in place, was not read"), "{e}");
 }
+
+#[test]
+fn a_band_file_whose_main_header_passes_64_kib_is_refused_near_the_bound() {
+    use vzip_ir::safe::jp2::BandReader;
+    // a JP2 signature and file type, then a codestream whose main header after SIZ is COD, QCD
+    // and COM segments, 70000 bytes in all, and no SOT
+    let mut f = vec![0, 0, 0, 12, b'j', b'P', b' ', b' ', 13, 10, 0x87, 10];
+    f.extend_from_slice(&[0, 0, 0, 20, b'f', b't', b'y', b'p', b'j', b'p', b'2', b' ', 0, 0, 0, 0, b'j', b'p', b'2', b' ']);
+    f.extend_from_slice(&[0, 0, 0, 0, b'j', b'p', b'2', b'c', 0xFF, 0x4F, 0xFF, 0x51, 0, 41, 0, 0]);
+    for v in [16u32, 16, 0, 0, 16, 16, 0, 0] {
+        f.extend_from_slice(&v.to_be_bytes());
+    }
+    f.extend_from_slice(&[0, 1, 14, 1, 1]);
+    f.extend_from_slice(&[0xFF, 0x52, 0, 12, 0, 0, 0, 1, 0, 0, 4, 4, 0, 0, 0xFF, 0x5C, 0, 4, 0, 0]);
+    while f.len() < 70000 {
+        f.extend_from_slice(&[0xFF, 0x64, 0x03, 0xE8]);
+        f.extend(std::iter::repeat_n(b'x', 1000 - 2));
+    }
+    f.extend_from_slice(&[0xFF, 0x90]);
+    let mut r = BandReader::new(f.len() as u64);
+    let rules = vzip_ir::rules::safe();
+    let e = loop {
+        match r.step(rules) {
+            Ok(Some((o, n))) => r.feed(o, f[o as usize..(o + n) as usize].to_vec()),
+            Ok(None) => panic!("accepted"),
+            Err(e) => break e,
+        }
+    };
+    assert_eq!(e, "a band file's main header is more than 65536 bytes");
+    assert!(r.bytes <= (1 << 16) + (1 << 16), "{} bytes read", r.bytes);
+}

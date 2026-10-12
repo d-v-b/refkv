@@ -378,7 +378,9 @@ def store_mirror_problem(path: Path, view: dict) -> str | None:
         k = bisect.bisect_right(starts, v) - 1
         while k > 0 and bases[k][2] == 0:
             k -= 1
-        key, base, _ = bases[k]
+        key, base, size = bases[k]
+        if v - base + n > size:
+            raise ValueError(f"[{v - base}, {v - base + n}) runs past the object {key!r} of {size} bytes")
         return object_read(key, v - base, n)
 
     problem = vzip_ir.canonical_problem(archive.get, never)

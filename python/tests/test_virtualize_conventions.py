@@ -164,3 +164,20 @@ def test_schemas_reject_an_unknown_version():
         for bad in ({**root, "version": 1}, {k: v for k, v in root.items() if k != "revision"}):
             doc["attributes"][CONVENTION_KEY] = bad
             assert list(validator.iter_errors(doc)), (profile, bad)
+
+
+def test_the_safe_schema_tells_view_documents_from_source_metadata():
+    """A view document whose members name IR elements (a codestream's `siz`, an XML document's
+    `xml`) is valid; a band array's or vzip_source's source metadata with a wrong member is not."""
+    validator = schema("safe")
+
+    def node(s):
+        return {"zarr_format": 3, "node_type": "group",
+                "attributes": {"zarr_conventions": [convention("safe")], CONVENTION_KEY: {"safe": s}}}
+
+    view = {"soc": 65359, "siz": {"marker": 65361, "lsiz": 41}, "tiles/0": {"sot": {"psot": 14}}, "xml": "<a/>"}
+    assert not list(validator.iter_errors(node(view)))
+    for bad in ({"IMAGE_FILE": "f", "siz": "AA==", "nope": 1},
+                {"ir": {"version": 2}, "xml": {}},
+                {"empty_dirs": ["a"]}):
+        assert list(validator.iter_errors(node(bad))), bad
