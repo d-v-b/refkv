@@ -342,37 +342,11 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         let folded = crate::mirror::mirror(ir, &mut out, format.profile())?;
         out.summary["folded"] = folded.json();
     }
-    if format == StoreFormat::N5 {
-        record_ignored(&mut out, facts, format.profile())?;
+    // the recorded ignored keys, beside the mirror's description (one rule for the store formats)
+    match format {
+        StoreFormat::Zarr2 | StoreFormat::N5 => crate::project::zarr2::record_ignored(&mut out, facts, format.profile())?,
     }
     Ok(out)
-}
-
-/// After the mirror: the recorded ignored keys (spec/virtualize.md §1.4
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), in the order of
-/// their UTF-8 bytes, as the member `ignored` of `vzip_source`'s source metadata, beside the
-/// mirror's `ir` (a group of its own when there is no mirror).
-pub fn record_ignored(out: &mut crate::out::Out, facts: &J, profile: &str) -> Res<()> {
-    let mut ignored: Vec<&str> = facts["ignored"].as_array().map(Vec::as_slice).unwrap_or(&[]).iter().filter_map(J::as_str).collect();
-    if ignored.is_empty() {
-        return Ok(());
-    }
-    ignored.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
-    let key = format!("{}/zarr.json", crate::out::SOURCE_NODE);
-    let mut doc: J = match out.entries.iter().find(|e| e.0 == key) {
-        Some(e) => serde_json::from_slice(&e.1).map_err(|e| format!("internal: {e}"))?,
-        None => json!({"zarr_format": 3, "node_type": "group", "attributes": {}}),
-    };
-    let a = doc["attributes"].as_object_mut().ok_or("internal: vzip_source has no attributes")?;
-    if !a.contains_key(crate::out::CONVENTION_KEY) {
-        a.insert("zarr_conventions".into(), json!([crate::out::convention(profile)]));
-        a.insert(crate::out::CONVENTION_KEY.into(), json!({}));
-    }
-    let v = a[crate::out::CONVENTION_KEY].as_object_mut().ok_or("internal: a convention that is not an object")?;
-    let own = v.entry(profile).or_insert_with(|| json!({}));
-    own["ignored"] = json!(ignored);
-    out.json(&key, &doc);
-    Ok(())
 }
 
 /// Runs a store format over objects in memory through a run (tests, tools): `read(k)` gives

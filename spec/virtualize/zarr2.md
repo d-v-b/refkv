@@ -380,23 +380,24 @@ entry, and the mirror lists them, each an object of the IR of size 0
 ([§4.1](#41-elements)). The **ignored keys** are the relative keys of the
 listed objects that
 [spec/virtualize.md §1.4](../virtualize.md#14-store-inputs) ignores and
-records, which are not objects of the IR. When there is at least one, the
-archive has the key `vzip_source/ignored.json`, whose bytes are the compact
-JSON (no whitespace), in UTF-8, of `{"ignored": I}`, `I` the ignored keys in
-ascending order of their UTF-8 bytes.
+records, which are not objects of the IR. When there is at least one,
+`vzip_source`'s source metadata has, beside the mirror's description `ir`,
+the member `"ignored": I`, `I` the ignored keys in ascending order of their
+UTF-8 bytes; otherwise it has no such member.
 
 **The group `vzip_source`.** The hierarchy has the group `vzip_source`, a
 child of the root (the source metadata node of
 [conventions §2](../conventions.md#2-attributes)), whose `zarr.json` declares
-the convention with the mirror's description as its source metadata
-([conventions §8.2](../conventions.md#82-the-table)), and the mirror's arrays
+the convention with the source metadata `{"ir": D, "ignored": I}` (`D` the
+mirror's description, [conventions §8.2](../conventions.md#82-the-table);
+`ignored` as above), and the mirror's arrays
 and view groups below it. The directories between it and the other objects are
 not nodes and have no `zarr.json`. A hierarchy that has a node ([§2](#2-nodes)),
 an implicit group included, at the path `vzip_source`, or below it, is
 rejected, since its keys would mix with these. When the root is an array,
-which can have no children, the mirror's keys, the objects' keys under
-`vzip_source/objects/` and `vzip_source/ignored.json` are plain keys of the
-archive, which Zarr readers do not read as nodes.
+which can have no children, the mirror's keys (`vzip_source/zarr.json`
+among them) and the objects' keys under `vzip_source/objects/` are plain keys
+of the archive, which Zarr readers do not read as nodes.
 
 ## 6. Example
 
@@ -541,10 +542,9 @@ escapes `k`'s last segment) whose `url` source is the URL of the object `k`
 ([§1.4](../virtualize.md#14-store-inputs)). (This is the one place where an entry's key is not its object's
 key; [§1.4](../virtualize.md#14-store-inputs)'s rules otherwise apply: the sources are in ascending order of
 their entries' keys, each entry referencing its object's whole range.)
-The ignored keys are the document `vzip_source/ignored.json`
-([the convention §5](#5-other-objects)), written as UTF-8 compact JSON, as
-`JSON.stringify` writes it. The documents under `vzip_source/` (the mirror,
-and these keys) are deflated and, like the chunks, not among the documents a
+The ignored keys are the member `ignored` of `vzip_source`'s source metadata
+([the convention §5](#5-other-objects)). The documents under `vzip_source/`
+(the mirror) are deflated and, like the chunks, not among the documents a
 reader fetches when it opens the archive
 ([conventions §2](../conventions.md#2-attributes)).
 

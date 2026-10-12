@@ -1210,9 +1210,10 @@ Moving it onto the store IR keeps both, byte for byte.
 - **Zarr v2 [§5](../../virtualize/zarr2.md#5-other-objects):** the empty
   objects are no longer listed in `vzip_source`'s source metadata (or in
   `vzip_source/empty.json` under a root array): the mirror lists them, as
-  objects of size 0. The ignored keys are the document
-  `vzip_source/ignored.json` (`{"ignored": I}`), under a root group and a
-  root array alike. The group `vzip_source` is always present (the mirror),
+  objects of size 0. The ignored keys are the member `ignored` of
+  `vzip_source`'s source metadata, beside the mirror's `ir` (as the other
+  store conventions on the IR keep them), under a root group and a root array
+  alike, and absent when there are none. The group `vzip_source` is always present (the mirror),
   so a node at `vzip_source` or below it now always rejects the input, where
   it rejected only when there was an other object, an empty object or an
   ignored key.
@@ -1278,8 +1279,8 @@ TypeScript).
   `empty.json`; [§9.3](../../virtualize/n5.md#93-summary) adds the run's counts.
 - **Conventions [§2](../../conventions.md#2-attributes)** and
   **spec/virtualize.md [§1.1](../../virtualize.md#11-output-and-equivalence)** name N5's
-  mirror; N5's `schema.json` describes it (the shared `mirror` definition, which now also
-  admits `ignored` beside `ir`).
+  mirror; N5's `schema.json` describes it with the store mirror definition the store
+  formats share (`storeMirror`: the description with `objects`, and `ignored`).
 - **Zarr v2 [§4.1](../../virtualize/zarr2.md#41-elements):** a member named `gaps` or
   `json` is escaped like a repeated one, as N5's are (both formats hold documents with one
   function, `json::hold`); before, a `.zattrs` member named `gaps` broke the IR's name rule.
