@@ -60,8 +60,9 @@ pub fn check_key(key: &str) -> Result<(), String> {
 /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), in the order of
 /// their UTF-8 bytes, as the member `ignored` of `vzip_source`'s source metadata, beside the
 /// mirror's `ir` (spec/virtualize/zarr2.md §5
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>); the group
-/// is made when there is no mirror (tests). Nothing when there are none.
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>). Nothing
+/// when there are none, or when there is no mirror (an output without one, for tools and tests,
+/// has no `vzip_source` source metadata at all).
 pub fn record_ignored(out: &mut Out, facts: &J, profile: &str) -> Result<(), String> {
     let mut ignored: Vec<&str> = facts["ignored"].as_array().into_iter().flatten().filter_map(J::as_str).collect();
     if ignored.is_empty() {
@@ -69,12 +70,7 @@ pub fn record_ignored(out: &mut Out, facts: &J, profile: &str) -> Result<(), Str
     }
     ignored.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
     let key = format!("{}/zarr.json", crate::out::SOURCE_NODE);
-    let Some(e) = out.entries.iter().find(|e| e.0 == key) else {
-        // no mirror: a group of its own, whose source metadata is the ignored keys alone
-        let attributes = crate::out::declare(serde_json::Map::new(), profile, None, Some(json!({"ignored": ignored})));
-        out.json(&key, &crate::out::group_doc(attributes));
-        return Ok(());
-    };
+    let Some(e) = out.entries.iter().find(|e| e.0 == key) else { return Ok(()) };
     let mut doc: J = serde_json::from_slice(&e.1).map_err(|e| format!("internal: {e}"))?;
     let own = doc["attributes"][CONVENTION_KEY][profile].as_object_mut().ok_or("internal: vzip_source declares no mirror")?;
     own.insert("ignored".into(), json!(ignored));

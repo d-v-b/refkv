@@ -7,7 +7,7 @@
 //! convention declared on the root and on every node with source metadata), an entry per
 //! present chunk referencing its whole object, and every other object of a length referenced
 //! whole under `vzip_source/objects/`; the ignored keys the host recorded are the member
-//! `ignored` of `vzip_source`'s source metadata, beside the mirror's `ir` ([`record_ignored`]).
+//! `ignored` of `vzip_source`'s source metadata, beside the mirror's `ir` ([`super::store::record_ignored`]).
 //! The IR's objects are the listing; the projection reads no object.
 
 use crate::ir::Ir;
