@@ -22,7 +22,7 @@ for p in sorted(Path("fixtures/ndpi").glob("*.ndpi")):
         for i in range(n):
             tag, typ, cnt, low = struct.unpack("<HHII", data[o + 2 + 12 * i:o + 14 + 12 * i])
             if tag in (273, 65426) and typ == 4:
-                at = low if tag == 273 and cnt == 1 else low
+                at = low  # the fixtures are under 4 GiB: their high words are 0
                 if at < len(data):
                     spots.append((at, min(len(data), at + 600)))
         o = struct.unpack("<Q", data[o + 2 + 12 * n:o + 10 + 12 * n])[0]

@@ -1723,6 +1723,9 @@ The offline corpus was not run (no EBI access in this round).
 
 ## NDPI on the IR (VIRTUALIZE revision 26)
 
+(Unnumbered: the other formats of revision 26 add their sections beside this one, in
+parallel changes; numbering them is left to the merge.)
+
 NDPI is read by the TIFF parser in an **NDPI variant** (`tiff.rs`): after the
 header, the parser tests a little-endian magic-42 TIFF for NDPI (the IFD at the
 u64 at bytes 4–11 has tag 65420; usually no extra round, since that IFD is the
@@ -1811,13 +1814,15 @@ Hamamatsu-1 56):
 | Hamamatsu-1 | today | 68.2 s · 11956 · 3.9× | 163 s · 11956 · 3.9× | 35.9 s | 1258 s | 68.2 s | 163 s |
 | | IR planner, per chunk | 62.9 s · 17304 · 1.5× | 160 s · 11761 · 5.2× | 15.2 s | 1281 s | 13.9 s · 870 · 1.4× | 12.6 s |
 | | IR planner, per view | 34.0 s · 7571 · 1.5× | 93.4 s · 6809 · 2.2× | 14.1 s | 694 s · 7187 · 1.7× | 13.3 s · 214 · 1.4× | 4.1 s |
+| | IR planner, per view, span cache | as per view | 93.4 s | 14.1 s | 694 s | 13.3 s | 4.1 s |
 | | bound | 13.2 s · 36 | 4.1 s | 13.2 s | 136 s | 13.2 s | 4.1 s |
 
 - **Per view, the planner beats today almost everywhere**: CMU-1 at 20 ms
   41 → 18 s, Hamamatsu-1 68 → 34 s and 163 → 93 s, openslide 401 → 268 s and
   1258 → 694 s; with multi-range requests it is at the bound (4.8 s, 3.1 s;
-  13.3 s, 4.1 s). Batching across chunks is the gain: per chunk, the planner is
-  no better than today, since a chunk alone is 128 small ranges a row apart.
+  13.3 s, 4.1 s). Batching across chunks is most of the gain: per chunk, the
+  planner gains at 20 ms, with HTTP/2 and with multi-range requests, but loses at
+  80 ms and on openslide, since a chunk alone is 128 small ranges a row apart.
 - **Where it does not: CMU-1 at 80 ms and 500 Mbit/s** (16.0 s against today's
   6.9 s, the same with no byte cost). There, reading whole strip rows (13.9× the
   bytes) is cheaper than requests, and today's 64 KiB gap reads them; the
@@ -1828,8 +1833,9 @@ Hamamatsu-1 56):
   (4.5 s): the over-read rows are the next pans' bytes. A planner for chunk
   reads would want a higher ceiling (or none, with a cache) than the one for
   parsing.
-- **The byte cost** (0.1 s per MB) changes little: with 0, Hamamatsu-1 at 80 ms
-  goes 93 → 55 s (and 25 s with the span cache), CMU-1 unchanged.
+- **The byte cost** (0.1 s per MB) changes nothing for CMU-1, and is most of
+  the cost of Hamamatsu-1 at 80 ms: with 0, per view goes 93 → 55 s, and with
+  the span cache 93 → 25 s (the span cache adds nothing there at 0.1 s per MB).
 
 Not done: the store readers (`vzip.store`, `js/src/archive.ts`) still read chunk
 by chunk with a 64 KiB gap; adopting the planner there (a batch per view, a

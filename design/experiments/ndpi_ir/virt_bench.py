@@ -1,6 +1,7 @@
 """Virtualization (metadata reads) of the NDPI slides, today (the frozen reference) against the IR,
 over design/experiments/ir_round2/rangeserver.py serving the sparse copies: time, peak RSS,
-requests, bytes, archive size. Usage: virt_bench.py <sparse dir> <out.json> <profile,...>"""
+requests, bytes, archive size (macOS: `/usr/bin/time -l` gives the RSS).
+Usage: virt_bench.py <sparse dir> <out.json> <profile,...>"""
 import ast, json, re, subprocess, sys, time, urllib.request
 from pathlib import Path
 W = Path.cwd()
@@ -28,7 +29,13 @@ try:
         servers.append(subprocess.Popen([sys.executable, str(W / "design/experiments/ir_round2/rangeserver.py"), str(sparse),
                                          str(port), str(lat), str(mp)] + ([str(rate)] if rate else []),
                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-    time.sleep(1.5)
+    for pr in profiles:  # until each server answers
+        for _ in range(100):
+            try:
+                stats(PROFILES[pr][0])
+                break
+            except OSError:
+                time.sleep(0.1)
     for name in ["CMU-1.ndpi", "Hamamatsu-2.ndpi", "Hamamatsu-1.ndpi"]:
         for pr in profiles:
             port = PROFILES[pr][0]
