@@ -86,6 +86,25 @@ def test_an_esize_past_the_voxels_or_negative_ends_the_chain(tmp_path):
         assert out.summary["extensions"] is True
 
 
+def test_integers_past_2_53_are_text_in_the_root(tmp_path):
+    """A NIfTI-2 header's i64 fields the profile never checks (slice_start, and dim[7]
+    beyond n) at i64::MIN: the root records them as text, as the reference does."""
+    h = bytearray(540)
+    struct.pack_into("<i", h, 0, 540)
+    h[4:12] = b"n+2\0\r\n\x1a\n"
+    struct.pack_into("<hh", h, 12, 2, 8)
+    struct.pack_into("<8q", h, 16, 3, 2, 2, 2, 1, 1, 1, -(1 << 63))
+    struct.pack_into("<q", h, 168, 544)
+    struct.pack_into("<q", h, 224, -(1 << 63))
+    path = tmp_path / "m.nii"
+    path.write_bytes(bytes(h) + bytes(4) + bytes(8))
+    _, out, _ = via_ir(str(path), "https://data.test/m.nii")
+    header = __import__("json").loads(out.bytes_entries["zarr.json"])["attributes"]["vzip_virtualized"]["nifti"]["header"]
+    assert header["slice_start"] == "-9223372036854775808" and header["dim"][7] == "-9223372036854775808"
+    _, ref = virtualize(str(path), "https://data.test/m.nii")
+    same_hierarchy(ref, out)
+
+
 def test_dimensions_past_the_file_are_rejected(tmp_path):
     """Huge dimensions whose voxel data the file does not hold: rejected, not read."""
     path = tmp_path / "d.nii"

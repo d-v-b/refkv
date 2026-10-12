@@ -192,8 +192,8 @@ def header_problems(nii: Path, meta: dict, out: Path) -> list[str]:
         problems.append(f"extensions shown {sorted(shown)[:5]} != the chain's {sorted(expected)[:5]}")
     for k, (code, esize, d) in expected.items():
         v = shown.get(k)
-        if v is None or (v.get("$vz") == "element" and esize > 1024):
-            continue  # over the view's budget, or a value the view does not show (over 1024 bytes)
+        if v is None or v.get("$vz") == "element":
+            continue  # over the view's budget, a value it does not show (over 1024 bytes), or a spilled one
         got = shown_bytes(v.get("data")) if d else b""  # text without the NULs that pad it
         if (v.get("ecode"), v.get("esize")) != (code, esize) or d[:len(got)] != got or d[len(got):].strip(b"\0"):
             problems.append(f"{k}: {v} is not ({code}, {esize}, {d[:16]!r})")

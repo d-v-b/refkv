@@ -5,7 +5,7 @@
 //! IR: the header is the IR's `header` value, and the array's chunks are cut from its
 //! `voxels` element.
 
-use super::n;
+use super::{json_text, n};
 use crate::ir::Ir;
 use crate::nifti::{Header, Num};
 use crate::out::{array_json, grid_chunks, image_ome, root_json, Chunk, Out};
@@ -21,23 +21,13 @@ const MAX_CHANNELS: i64 = 64;
 const MAX_SAFE: i64 = (1 << 53) - 1;
 const COLORS: [(&str, &str); 4] = [("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF"), ("A", "FFFFFF")];
 
-/// Bytes as a text value (conventions §6
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>): UTF-8
-/// if valid, else {"latin1": ...}.
-fn text_json(b: &[u8]) -> J {
-    match std::str::from_utf8(b) {
-        Ok(s) => json!(s),
-        Err(_) => json!({"latin1": b.iter().map(|&c| c as char).collect::<String>()}),
-    }
-}
-
 /// A header value as the root's source metadata writes it (spec/virtualize/nifti.md §5
 /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>): an
 /// integer exactly (as text past 2^53 - 1); a float as a number, "NaN", "Infinity" or
 /// "-Infinity", or {"bits": hex} for a negative zero or a NaN other than the canonical one.
 fn value_json(h: &Header, at: usize, kind: &str) -> J {
     match h.number(at, kind) {
-        Num::Int(v) if v.abs() <= MAX_SAFE => json!(v),
+        Num::Int(v) if (-MAX_SAFE..=MAX_SAFE).contains(&v) => json!(v),
         Num::Int(v) => json!(v.to_string()),
         Num::Float(v) => {
             let w = crate::nifti::width(kind);
@@ -65,8 +55,7 @@ pub fn header_json(h: &Header) -> J {
     let mut out = Map::new();
     for &(name, at, kind, count) in h.fields() {
         let v = if kind == "c" {
-            let raw = &h.raw[at..at + count];
-            text_json(&raw[..raw.iter().position(|&c| c == 0).unwrap_or(count)])
+            json_text(&h.raw[at..at + count])
         } else if count == 1 {
             value_json(h, at, kind)
         } else {

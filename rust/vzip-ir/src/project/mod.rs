@@ -35,6 +35,18 @@ pub fn project(format: Format, ir: &Ir, facts: &J, url: &str) -> Result<Out, Str
 
 // ---- reading the facts (JSON the parsers wrote)
 
+/// A fixed-size character field: its bytes up to the first NUL, as a text value
+/// (conventions §6
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>):
+/// UTF-8 if valid, else {"latin1": ...}.
+fn json_text(b: &[u8]) -> J {
+    let b = &b[..b.iter().position(|&c| c == 0).unwrap_or(b.len())];
+    match std::str::from_utf8(b) {
+        Ok(s) => J::String(s.to_string()),
+        Err(_) => serde_json::json!({"latin1": b.iter().map(|&c| c as char).collect::<String>()}),
+    }
+}
+
 /// A count or index of the facts (an integer, or a number written as a float).
 fn n(v: &J) -> u64 {
     v.as_u64().or_else(|| v.as_f64().map(|f| f as u64)).unwrap_or(0)
