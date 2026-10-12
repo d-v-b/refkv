@@ -228,3 +228,38 @@ def test_store_mirror_problem_finds_a_table_that_does_not_read(tmp_path):
 
     path, fetch = _store_archive(tmp_path, edit=corrupt)
     assert compare.store_mirror_problem(path, compare._zip_view(path), fetch).startswith("Violation")
+
+
+def test_store_mirror_problem_finds_a_size_other_than_the_pin(tmp_path):
+    def resize(out):
+        key, size = out.refs["a/c/0/0"]
+        out.refs["a/c/0/0"] = (key, size + 1)
+
+    path, fetch = _store_archive(tmp_path, edit=resize)
+    assert compare.store_mirror_problem(path, compare._zip_view(path), fetch) == \
+        "a/c/0/0: the mirror lists 16 bytes, its source pins 17"
+
+
+def test_store_mirror_problem_finds_an_object_no_source_names(tmp_path):
+    def drop(out):
+        del out.refs["a/c/0/0"]
+
+    path, fetch = _store_archive(tmp_path, edit=drop)
+    assert compare.store_mirror_problem(path, compare._zip_view(path), fetch) == \
+        "a/c/0/0: a referenced object of 16 bytes that no source names"
+
+
+def test_store_mirror_problem_finds_a_root_without_a_store_url(tmp_path):
+    path, fetch = _store_archive(tmp_path)
+    view = compare._zip_view(path)
+    view["entries"]["zarr.json"] = ("json", {"attributes": {}})
+    assert compare.store_mirror_problem(path, view, fetch) == "no store URL on the root"
+
+
+def test_store_mirror_problem_finds_an_object_the_store_does_not_serve(tmp_path):
+    path, _ = _store_archive(tmp_path)
+
+    def refuse(u, n):
+        raise OSError("refused")
+
+    assert compare.store_mirror_problem(path, compare._zip_view(path), refuse) == ".zattrs: OSError: refused"

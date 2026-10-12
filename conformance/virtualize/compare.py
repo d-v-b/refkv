@@ -96,8 +96,8 @@ IR_PROFILES = ("tiff", "nd2", "czi", "zarr2")
 SOURCE = "vzip_source/"
 # The revision the frozen reference's TIFF, ND2 and CZI roots record (HARNESS.md).
 REFERENCE_REVISION = 20
-# Every revision a frozen reference twin's root records: TIFF, ND2 and CZI 20, Zarr v2 25.
-REFERENCE_REVISIONS = (REFERENCE_REVISION, 25)
+# The revision each frozen reference twin's root records, by profile.
+REFERENCE_REVISIONS = {"tiff": REFERENCE_REVISION, "nd2": REFERENCE_REVISION, "czi": REFERENCE_REVISION, "zarr2": 25}
 
 
 class Unreadable(Exception):
@@ -285,7 +285,7 @@ def run(impl: tuple[str, list[str]], url: str, out: Path) -> tuple[str, object]:
         out.unlink(missing_ok=True)
 
 
-def mirror_problem(path: Path, view: dict, read=None) -> str | None:
+def mirror_problem(path: Path, view: dict, read=None, fetch=None) -> str | None:
     """For an archive whose vzip_source is an IR mirror (conventions §8
     <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>): None when its
     table reads, its invariants hold, it describes a source of source 0's size, it is
@@ -302,7 +302,7 @@ def mirror_problem(path: Path, view: dict, read=None) -> str | None:
     if not any(isinstance(v, dict) and "ir" in v for v in own.values()):
         return None
     if any(isinstance(v, dict) and isinstance(v.get("ir"), dict) and "objects" in v["ir"] for v in own.values()):
-        return store_mirror_problem(path, view)
+        return store_mirror_problem(path, view, fetch)
     from vzip.ir.cmirror import Archive, canonical_problem, load, view_problem
 
     url = view["sources"][0]
@@ -356,16 +356,24 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     except Exception as e:  # noqa: BLE001
         return f"{type(e).__name__}: {e}"
     root = view["entries"].get("zarr.json")
-    url = root[1]["attributes"]["vzip_virtualized"]["source"]["url"] if root and root[0] == "json" else None
-    if url is None:
+    prop = root[1].get("attributes", {}).get("vzip_virtualized") if root and root[0] == "json" else None
+    url = prop.get("source", {}).get("url") if isinstance(prop, dict) else None
+    if not isinstance(url, str):
         return "no store URL on the root"
     pins = {s.url: s.size for s in decode_source_table(zipfile.ZipFile(path).read("__vz__/sources"))}
     for key, size, held in rebuilt:
         u = object_url(url, key)
         if u in pins and pins[u] != size:
             return f"{key}: the mirror lists {size} bytes, its source pins {pins[u]}"
-        if held is not None and fetch(u, size) != held:
-            return f"{key}: the mirror's bytes are not the object's"
+        if held is None and size > 0 and u not in pins:
+            return f"{key}: a referenced object of {size} bytes that no source names"
+        if held is not None:
+            try:
+                same_bytes = fetch(u, size) == held
+            except Exception as e:  # noqa: BLE001
+                return f"{key}: {type(e).__name__}: {e}"
+            if not same_bytes:
+                return f"{key}: the mirror's bytes are not the object's"
     problem = canonical_problem(archive)
     if problem:
         return f"not canonical: {problem}"
@@ -417,11 +425,12 @@ def profile(output: dict) -> str | None:
 
 
 def at_revision(output: dict) -> dict:
-    """The output with its root's `revision` the current one when it is the frozen
-    reference's (REFERENCE_REVISION), for comparing the reference with shipped code."""
+    """The output with its root's `revision` the current one when it is the one the frozen
+    reference of its profile records (REFERENCE_REVISIONS), for comparing the reference with
+    shipped code."""
     root = output["entries"].get("zarr.json")
     prop = root[1].get("attributes", {}).get("vzip_virtualized") if root and root[0] == "json" else None
-    if not isinstance(prop, dict) or prop.get("revision") not in REFERENCE_REVISIONS:
+    if not isinstance(prop, dict) or prop.get("revision") != REFERENCE_REVISIONS.get(prop.get("profile")):
         return output
     attrs = {**root[1]["attributes"], "vzip_virtualized": {**prop, "revision": REVISION}}
     return {**output, "entries": {**output["entries"], "zarr.json": (root[0], {**root[1], "attributes": attrs})}}
