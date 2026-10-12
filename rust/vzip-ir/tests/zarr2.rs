@@ -198,6 +198,12 @@ fn the_ignored_keys_are_vzip_source_s_member_ignored_in_byte_order() {
         let get = |k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone());
         let mut never = |_: u64, _: u64| -> Result<Vec<u8>, String> { Err("no source".into()) };
         assert_eq!(vzip_ir::mirror::canonical_problem(&get, &mut never), None);
+        // any other member beside `ir` is a difference
+        let mut d = doc(&out, "vzip_source/zarr.json");
+        d["attributes"]["vzip_virtualized"]["zarr2"]["junk"] = serde_json::json!(1);
+        let junk = serde_json::to_vec(&d).unwrap();
+        let get = |k: &str| if k == "vzip_source/zarr.json" { Some(junk.clone()) } else { out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone()) };
+        assert_eq!(vzip_ir::mirror::canonical_problem(&get, &mut never).as_deref(), Some("vzip_source/zarr.json differs from the canonical table's"));
     }
     // without a mirror, vzip_source declares the ignored keys alone
     let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
