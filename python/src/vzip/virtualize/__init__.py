@@ -41,6 +41,8 @@ in `/`, or a local directory, is a store input.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from vzip.policy import Policy, crc32c
 from vzip.virtualize import ndpi, nifti
 from vzip.virtualize.common import Output, Rejected, file_reader, http_reader
@@ -49,8 +51,10 @@ from vzip.virtualize.ims import virtualize_ims
 from vzip.virtualize.n5 import virtualize_n5
 from vzip.virtualize.ome_zarr import declares_04, virtualize_ome_zarr
 from vzip.virtualize.safe import SafeOutput, is_zip, virtualize_safe_store, virtualize_safe_zip
-from vzip.ir.store import StoreIrOutput
 from vzip.virtualize.store import WORKERS, StoreOutput, choose_profile, object_url, open_store
+
+if TYPE_CHECKING:
+    from vzip.ir.store import StoreIrOutput
 
 # The HDF5 signature, which starts Imaris IMS files (§1.2
 # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>).

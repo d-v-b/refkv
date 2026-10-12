@@ -670,6 +670,13 @@ export class Prefetch {
   close() {
     this.#closed = true;
   }
+
+  /** Starts no more reads, and waits for those running to end: their results stay to be
+   * taken, and a key not started is the caller's to read. */
+  async drain(): Promise<void> {
+    this.#closed = true;
+    await Promise.all(this.#result.values());
+  }
 }
 
 /** Starts reading the documents `keys`, in that order (the order the profile reads them),

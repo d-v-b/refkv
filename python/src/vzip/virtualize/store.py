@@ -567,6 +567,15 @@ class _Prefetch:
             self._closed = True
             self._cv.notify_all()
 
+    def drain(self) -> None:
+        """Starts no more reads, and waits for those running to end: their results stay to be
+        taken, and a key not started is the caller's to read."""
+        with self._cv:
+            self._closed = True
+            self._cv.notify_all()
+            while any(v == "running" for v in self._state.values()):
+                self._cv.wait()
+
 
 class Store:
     """A listed store: `objects` maps each relative key to its size (§1.4

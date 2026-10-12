@@ -174,6 +174,10 @@ def run_store(store: Store, fmt: str = "zarr2", mirror: bool = True):
     summary's `listingRequests` the store's requests."""
     import vzip_ir
 
+    if store._prefetch is not None:
+        # documents read ahead (choosing the profile does): the run takes those read, and reads
+        # the rest itself, so that at most `store.workers` reads are in flight
+        store._prefetch.drain()
     try:
         run = vzip_ir.StoreRun(fmt, listing(store), max(1, store.workers))
         run.ignore(list(store.ignored))

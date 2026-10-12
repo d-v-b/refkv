@@ -64,8 +64,11 @@ async function whole(store: Store, key: string): Promise<Uint8Array> {
 async function fetchSpans(store: Store, key: string, spans: [number, number][]): Promise<Uint8Array[]> {
   const size = store.objects.get(key)!;
   if (spans.length === 1 && spans[0][0] === 0 && spans[0][1] === size) return [await whole(store, key)];
-  return Promise.all(spans.map(async ([a, e]) =>
-    store.readRange ? store.readRange(key, a, e - a) : (await store.read(key)).subarray(a, e)));
+  if (!store.readRange) {
+    const all = await store.read(key); // a store without range reads: the object once
+    return spans.map(([a, e]) => all.subarray(a, e));
+  }
+  return Promise.all(spans.map(([a, e]) => store.readRange!(key, a, e - a)));
 }
 
 /** Virtualizes the listed `store` with the core's store format `format`: its ignored keys
@@ -77,6 +80,9 @@ export async function virtualizeStoreIr(
   options: { mirror?: boolean } = {},
 ): Promise<ArchiveDesc & { summary: Record<string, unknown> }> {
   const w = (await ir()) as StoreExports;
+  // documents read ahead (choosing the profile does): the run takes those read, and reads the
+  // rest itself, so that at most `store.concurrency` reads are in flight
+  await store.prefetch?.drain();
   const listing = [...store.objects].sort((a, b) => compareKeys(a[0], b[0]));
   const f = utf8.encode(format);
   const l = utf8.encode(JSON.stringify(listing));
@@ -129,6 +135,10 @@ export async function virtualizeStoreIr(
       return range;
     });
     if (desc.sources.length !== 1) throw new Error("a store run's output with data sources");
+    const refRanges = new Set(refs.map((r) => r[3]));
+    for (const e of desc.entries) {
+      if ("ranges" in e && e.ranges.some((r) => !refRanges.has(r))) throw new Error(`${e.key}: a store run's output with a range of no object`);
+    }
     refs.sort((a, b) => compareKeys(a[0], b[0]));
     const sources: Source[] = refs.map(([, key, , range], i) => {
       (range as { source: number }).source = i;
