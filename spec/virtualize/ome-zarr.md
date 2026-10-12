@@ -108,9 +108,10 @@ root is a group, the hierarchy has the group `vzip_source`, a child of the
 root, whose `zarr.json` is `{"zarr_format": 3, "node_type": "group",
 "attributes": A}`: `A` is `{}` when `E` is empty, and otherwise declares the
 convention with the source metadata `E`; the directories between it and the
-other objects are not nodes. A hierarchy that then has a node at the path
-`vzip_source`, or below it, is rejected. When there is none, there is no
-group `vzip_source`. When the root is an array,
+other objects are not nodes. When there is no other object, empty object or
+ignored key, there is no group `vzip_source`. When the group `vzip_source`
+exists, a hierarchy that has a node at the path `vzip_source`, or below it,
+is rejected. When the root is an array,
 there is no `vzip_source` group: `E`, when not empty, is the key
 `vzip_source/empty.json`, the compact JSON of `E` in UTF-8.
 
@@ -590,7 +591,7 @@ has no entry; its key is one of the empty objects' keys ([§2](#2-hierarchy)),
 as an empty chunk object's is). Every other object of the convention (those of
 [the Zarr v2 convention §5](zarr2.md#5-other-objects))
 is an entry under `vzip_source/objects/<k>`, escaped as [§10.2](zarr2.md#102-chunks-and-other-objects) says.
-Under a root array, `E` ([§2](#2-hierarchy)) is the document `vzip_source/empty.json`,
+Under a root array, `E` ([§2](#2-hierarchy)), when not empty, is the document `vzip_source/empty.json`,
 written as UTF-8 compact JSON, as `JSON.stringify` writes it. The documents
 under `vzip_source/` are deflated and, like the chunks, not among the
 documents a reader fetches when it opens the archive

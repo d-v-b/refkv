@@ -142,7 +142,14 @@ fn documents_are_read_as_json_by_the_store_rules() {
         let o = (0..ir.len() as u32).find(|&i| ir.kind[i as usize] == vzip_ir::ir::OBJECT && ir.key(i) == ".zattrs").unwrap();
         let kids: Vec<u32> = ir.children(o).iter().copied().filter(|&c| ir.kind[c as usize] == vzip_ir::ir::VALUE).collect();
         assert_eq!(kids.len(), values, "{n}");
-        assert!(output(&files).is_ok());
+        if values == 1 {
+            let c = kids[0] as usize;
+            assert_eq!((ir.names.get(ir.name[c]), ir.start[c], ir.len[c]), ("json", 0, files[".zattrs"].len() as u64));
+        }
+        let out = output(&files).unwrap();
+        let get = |k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone());
+        let rebuilt = rebuild_store(&get).unwrap();
+        assert!(rebuilt.iter().any(|(k, _, b)| k == ".zattrs" && b.as_deref() == Some(&files[".zattrs"][..])), "{n}");
     }
     let deep = format!("{}{}", "[".repeat(257), "]".repeat(257));
     assert!(json::parse(deep.as_bytes()).err().unwrap().contains("nests more than 256"));

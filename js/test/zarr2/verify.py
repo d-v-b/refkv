@@ -131,12 +131,15 @@ def objects_problems(store_dir: Path, out: Path) -> list[str]:
         import vzip_ir
 
         z = zipfile.ZipFile(out)
-        rebuilt = vzip_ir.rebuild_store(lambda k: z.read(k) if k in names else None)
+        try:
+            rebuilt = vzip_ir.rebuild_store(lambda k: z.read(k) if k in names else None)
+        except Exception as e:  # noqa: BLE001 - a broken mirror is a problem to report
+            return problems + [f"the mirror does not rebuild: {e}"]
         files = {f.relative_to(store_dir).as_posix(): f for f in store_dir.rglob("*") if f.is_file()}
         if {k: n for k, n, _ in rebuilt} != {k: f.stat().st_size for k, f in files.items()}:
             problems.append("the mirror's listing is not the store's")
         problems += [f"{k}: the mirror's bytes are not the object's" for k, _, b in rebuilt
-                     if b is not None and files[k].read_bytes() != b]
+                     if b is not None and (k not in files or files[k].read_bytes() != b)]
         own = {"empty": sorted((k for k, n, _ in rebuilt if n == 0), key=lambda k: k.encode())}
         if "vzip_source/ignored.json" in names:
             own["ignored"] = json.loads(z.read("vzip_source/ignored.json"))["ignored"]

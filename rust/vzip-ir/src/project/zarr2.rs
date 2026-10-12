@@ -94,8 +94,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str, profile: &str) -> Result<Out, Stri
     for n in &nodes {
         let path = n["path"].as_str().unwrap_or("");
         let s = match n["s"].as_str() {
-            // S nests a document's members two levels deeper than the document
-            Some(t) => Some(json::parse_within(t.as_bytes(), json::MAX_DEPTH + 2)?.value),
+            // S nests a document one level deeper than the document
+            Some(t) => Some(json::parse_within(t.as_bytes(), json::MAX_DEPTH + 1)?.value),
             None => None,
         };
         let attributes = declare(profile, path.is_empty().then_some(url), s);

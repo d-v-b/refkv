@@ -211,7 +211,7 @@ pub fn parse(data: &[u8]) -> Result<Doc, String> {
 }
 
 /// [`parse`], nesting at most `max_depth` deep (a document the parser built from documents it
-/// read, such as a node's source metadata, which nests its attributes two levels deeper).
+/// read, such as a node's source metadata, which nests its attributes one level deeper).
 pub fn parse_within(data: &[u8], max_depth: usize) -> Result<Doc, String> {
     if data.len() as u64 > MAX_DOCUMENT {
         return Err(format!("JSON document of {} bytes exceeds {MAX_DOCUMENT}", data.len()));
