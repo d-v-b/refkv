@@ -335,7 +335,7 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         out.summary["folded"] = folded.json();
     }
     match format {
-        StoreFormat::Zarr2 => crate::project::zarr2::record_ignored(&mut out, facts, format.profile())?,
+        StoreFormat::Zarr2 => crate::project::store::record_ignored(&mut out, facts, format.profile())?,
     }
     Ok(out)
 }

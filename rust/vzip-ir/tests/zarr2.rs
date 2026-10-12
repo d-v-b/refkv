@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use vzip_ir::json;
 use vzip_ir::mirror::rebuild_store;
 use vzip_ir::out::{Out, Part};
-use vzip_ir::project::zarr2::{is_chunk, object_key};
+use vzip_ir::project::store::object_key;
+use vzip_ir::project::zarr2::is_chunk;
 use vzip_ir::store::{run_store, store_output, StoreFormat, StoreRun};
 
 fn fixtures() -> PathBuf {
