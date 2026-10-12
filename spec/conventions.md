@@ -149,7 +149,7 @@ the store, which it holds whole under `vzip_source/objects/`, or the keys of
 the store's empty objects. For the TIFF, ND2 and CZI conventions,
 `vzip_source` is the source's IR mirror ([§8](#8-the-ir-mirror)), from which the source is
 rebuilt byte for byte; for the Zarr v2 convention (not OME-Zarr, which builds
-on it), the store's ([§8.9](#89-stores)), from which the listing and the
+on it) and the N5 convention, the store's ([§8.9](#89-stores)), from which the listing and the
 documents read are rebuilt: always present (under a root array, as plain keys
 of the archive).
 

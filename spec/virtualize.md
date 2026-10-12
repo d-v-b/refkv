@@ -82,7 +82,7 @@ sources with identical bytes), the same set of keys, and for every key:
 
 **IR mirrors.** For the TIFF, ND2 and CZI profiles, `vzip_source` is the
 source's IR mirror ([conventions §8](conventions.md#8-the-ir-mirror)); for
-the Zarr v2 profile (not OME-Zarr), the store's ([conventions §8.9](conventions.md#89-stores),
+the Zarr v2 profile (not OME-Zarr) and the N5 profile, the store's ([conventions §8.9](conventions.md#89-stores),
 whose limits replace those below).
 Its table and view are canonical: a function of the source's IR, folded and
 encoded one way only ([conventions §8.8](conventions.md#88-canonical-form)).
@@ -323,8 +323,9 @@ and the other objects it references whole ([§11.2](virtualize/ome-zarr.md#112-c
 Of these, an object of size 0 is not used: it has no entry (so the chunk
 reads as the fill value) and no source, and the store conventions keep its
 key (with the empty objects' keys, or, for the Zarr v2 profile (not
-OME-Zarr), as an object of size 0 of the store's IR mirror,
-[the Zarr v2 convention §4.1](virtualize/zarr2.md#41-elements)). Every other chunk object `k` gives
+OME-Zarr) and the N5 profile, as an object of size 0 of the store's IR mirror,
+[the Zarr v2 convention §4.1](virtualize/zarr2.md#41-elements),
+[the N5 convention §5.2](virtualize/n5.md#52-elements)). Every other chunk object `k` gives
 one entry, whose key is `k` itself, referencing the whole object. Every
 other object of the store that the hierarchy doesn't represent (the store
 conventions' "Other objects") gives one entry `vzip_source/objects/<k>` (with

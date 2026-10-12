@@ -1244,3 +1244,55 @@ TypeScript profiles are frozen in `conformance/virtualize/reference`
 outside `vzip_source`; the shipped `vzip.virtualize.zarr2` and
 `js/src/virtualize/zarr2` stay for the OME-Zarr profile, which builds on
 them.
+
+### N5 on the IR
+
+**What prompted it.** N5 is the first store profile to move onto the IR: its
+`vzip_source` held only what a node's `zarr.json` does not reproduce, the keys
+of the empty objects and the ignored keys, so a container's documents could not
+be rebuilt from an archive, and the profile existed twice (Python and
+TypeScript).
+
+**The changes.**
+- **N5 [§5](../../virtualize/n5.md#5-source-metadata):** a node's source
+  metadata is unchanged; new subsections [§5.1](../../virtualize/n5.md#51-the-ir-mirror)
+  to [§5.3](../../virtualize/n5.md#53-equivalence) make `vzip_source` the store's IR
+  mirror ([conventions §8.9](../../conventions.md#89-stores)), whose source metadata is
+  `{"ir": I, "ignored": K}`. Every node's `attributes.json` is a held object,
+  one `ascii[n]` value per top-level member (named by ND2 §5.3's rule, with
+  `gaps` and `json` fixed) and gaps for the rest, or one value `json` when it has more
+  than 4096 members; every other object is referenced or empty.
+- **N5 [§6](../../virtualize/n5.md#6-other-objects):** the empty objects are the
+  mirror's (objects with no extent), so the source metadata `E = {"empty",
+  "ignored"}` and the key `vzip_source/empty.json` are gone: the ignored keys are
+  `vzip_source`'s `ignored`. `vzip_source` always exists, so a node at
+  `vzip_source` or below is rejected whenever the root is a group (before, only
+  when the store had an other object, an empty object or an ignored key). Under a
+  root dataset the mirror's documents and arrays are plain keys of the archive
+  under `vzip_source/`.
+- **N5 [§1](../../virtualize/n5.md#1-declaration):** `vzip_source` and the view's
+  groups declare the convention.
+- **N5 Part 2, [§9](../../virtualize/n5.md#9-n5-profile):** the documents are read
+  in rounds, each the candidates whose candidates above them are read groups;
+  [§9.2](../../virtualize/n5.md#92-chunks-and-other-objects) no longer writes
+  `empty.json`; [§9.3](../../virtualize/n5.md#93-summary) adds the run's counts.
+- **Conventions [§2](../../conventions.md#2-attributes)** and
+  **spec/virtualize.md [§1.1](../../virtualize.md#11-output-and-equivalence)** name N5's
+  mirror; N5's `schema.json` describes it (the shared `mirror` definition, which now also
+  admits `ignored` beside `ir`).
+- **Zarr v2 [§4.1](../../virtualize/zarr2.md#41-elements):** a member named `gaps` or
+  `json` is escaped like a repeated one, as N5's are (both formats hold documents with one
+  function, `json::hold`); before, a `.zattrs` member named `gaps` broke the IR's name rule.
+
+**Output.** Outside `vzip_source`, every N5 output is unchanged (the 17 accepted
+fixture stores compared with the frozen reference, references and sources
+included), and so is every rejection (the 32 rejected fixtures). `vzip_source` is
+the mirror on every output; a store with a node at `vzip_source`, the root a group,
+and nothing else to keep there, is now rejected.
+
+**Implementations.** The Rust core reads N5 as a store format (`n5.rs`: the
+documents by spec/virtualize.md §1.6 in `json.rs`, which Zarr v2 shares, checked by `schema/n5.json`;
+`project/n5.rs`: the hierarchy and the references), from Python (`vzip.ir.store`)
+and the browser (`js/src/virtualize/ir/store.ts`, wasm32). The Python and
+TypeScript N5 profiles are frozen in `conformance/virtualize/reference`, recording
+revision 25, and `compare.py` compares them with the core outside `vzip_source`.

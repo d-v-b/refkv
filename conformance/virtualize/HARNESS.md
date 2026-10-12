@@ -208,6 +208,10 @@ rebuilds the listing (every referenced object of the size its source pins) and
 every held document byte for byte as the store serves it, is canonical, and its
 view is the one its table gives, with no source read.
 
+**N5 stores, since revision 26,** are on the core too (its `n5` store format),
+compared and checked as Zarr v2 stores are: `ref` runs the frozen N5 profiles
+(`vzip_reference/n5`, `reference/ts/n5`), whose roots record revision 25.
+
 **The frozen reference stays.** The frozen implementations
 (`conformance/virtualize/reference`, `conformance/virtualize/reference/ts`) are kept
 unchanged as the independent check of the IR path's hierarchy, at least until

@@ -236,29 +236,29 @@ SOURCE_METADATA: dict[str, dict] = {
         },
         "additionalProperties": False,
     },
-    "n5": {
-        "type": "object",
-        "properties": {
-            "attributes": {"type": "object", "minProperties": 1,
-                           "description": "The node's attributes.json without the layout members"},
-            "empty": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                      "description": "vzip_source only: the keys of the store's empty objects, empty chunk objects "
-                                     "included"},
-            "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                        "description": "vzip_source only: the recorded keys of the listed objects that spec/virtualize.md "
-                                       "§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"},
-            "metadata": {
-                "type": "object", "minProperties": 1,
-                "description": "The layout members the Zarr metadata does not reproduce",
-                "properties": {"n5": {"description": "The member n5 (the container's version)"},
-                               "compression": {"type": "object", "minProperties": 1,
-                                               "description": "The compression's members the codec does not carry"},
-                               "compressionType": {"description": "compressionType, when compression is present"}},
-                "additionalProperties": False,
+    "n5": {"anyOf": [
+        {
+            "type": "object",
+            "description": "A node's (spec/virtualize/n5.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#5-source-metadata>)",
+            "properties": {
+                "attributes": {"type": "object", "minProperties": 1,
+                               "description": "The node's attributes.json without the layout members"},
+                "metadata": {
+                    "type": "object", "minProperties": 1,
+                    "description": "The layout members the Zarr metadata does not reproduce",
+                    "properties": {"n5": {"description": "The member n5 (the container's version)"},
+                                   "compression": {"type": "object", "minProperties": 1,
+                                                   "description": "The compression's members the codec does not carry"},
+                                   "compressionType": {"description": "compressionType, when compression is present"}},
+                    "additionalProperties": False,
+                },
             },
+            "minProperties": 1,
+            "additionalProperties": False,
         },
-        "additionalProperties": False,
-    },
+        {"$ref": "#/$defs/mirror"},
+        {"$ref": "#/$defs/mirrorView"},
+    ]},
     "zarr2": {"anyOf": [
         {
             "type": "object",
@@ -635,9 +635,9 @@ SOURCE_METADATA["czi"] = {"anyOf": [
 ]}
 # The IR mirror (spec/conventions.md §8
 # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2
-# and CZI conventions, and of the store conventions on the IR (Zarr v2): vzip_source's
+# and CZI conventions, and of the store conventions on the IR (Zarr v2, N5): vzip_source's
 # source metadata, and the view documents of the groups under vzip_source/tree.
-IR_PROFILES = ("tiff", "nd2", "czi", "zarr2")
+IR_PROFILES = ("tiff", "nd2", "czi", "zarr2", "n5")
 MIRROR_DEFS = {
     "mirror": {
         "type": "object",
@@ -661,7 +661,10 @@ MIRROR_DEFS = {
             },
             "required": ["version", "size", "elements", "rows", "names", "types", "forms"],
             "additionalProperties": False,
-        }},
+        },
+            "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1,
+                        "description": "A store's: the recorded keys of the listed objects that spec/virtualize.md "
+                                       "§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"}},
         "required": ["ir"],
         "additionalProperties": False,
     },
