@@ -180,7 +180,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         }
     }
     let ignored: Vec<&J> = facts["ignored"].as_array().into_iter().flatten().collect();
-    if !ignored.is_empty() {
+    // (OME-Zarr's are vzip_source's source metadata, which the mirror writes: store_output)
+    if !ignored.is_empty() && profile != "ome-zarr" {
         out.bytes(IGNORED_KEY, crate::out::to_text(&json!({"ignored": ignored})).into_bytes());
     }
     out.summary = json!({"groups": groups, "arrays": narrays, "chunks": chunks, "emptyChunks": empty_chunks,

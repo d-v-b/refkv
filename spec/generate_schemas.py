@@ -290,7 +290,7 @@ SOURCE_METADATA: dict[str, dict] = {
             "minProperties": 1,
             "additionalProperties": False,
         },
-        {"$ref": "#/$defs/mirror"},
+        {"$ref": "#/$defs/storeMirror"},
         {"$ref": "#/$defs/mirrorView"},
     ]},
 }
@@ -662,6 +662,17 @@ MIRROR_DEFS = {
             "required": ["version", "size", "elements", "rows", "names", "types", "forms"],
             "additionalProperties": False,
         }},
+        "required": ["ir"],
+        "additionalProperties": False,
+    },
+    "storeMirror": {
+        "type": "object",
+        "description": "vzip_source's, for a store whose ignored keys its source metadata records: the IR mirror's description (spec/conventions.md §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), and the recorded keys the store reader ignores, which are not objects",
+        "properties": {
+            "ir": {"$ref": "#/$defs/mirror/properties/ir"},
+            "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1,
+                        "description": "The recorded keys of the listed objects that spec/virtualize.md §1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores, in the order of their UTF-8 bytes"},
+        },
         "required": ["ir"],
         "additionalProperties": False,
     },

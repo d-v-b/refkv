@@ -1261,9 +1261,9 @@ OME-NGFF 0.4 in each host.
   ([§8.1](../../virtualize/ome-zarr.md#81-nodes)) and the rest of the hierarchy are unchanged.
 - **OME-Zarr [§2](../../virtualize/ome-zarr.md#2-hierarchy)**: empty objects, ignored keys and
   the group `vzip_source` are [the Zarr v2 convention §5](../../virtualize/zarr2.md#5-other-objects)'s
-  (the mirror lists the empty objects, the ignored keys are
-  `vzip_source/ignored.json`, and a node at `vzip_source` always rejects), in place of
-  the revision-25 rules §2 and §11.2 restated.
+  (the mirror lists the empty objects, and a node at `vzip_source` always rejects), in
+  place of the revision-25 rules §2 and §11.2 restated. The ignored keys stay
+  `vzip_source`'s source metadata, now `{"ir": D, "ignored": I}`.
 - **OME-Zarr [§11](../../virtualize/ome-zarr.md#11-ome-zarr-profile)**: the node documents are read in
   one round, then each document the test of OME-NGFF 0.4 names that the round did
   not read; the choice between the OME-Zarr and Zarr v2 profiles reads the same

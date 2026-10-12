@@ -13,627 +13,266 @@
   "tables": {
     "axis_orders": {
       "about": "the axis kinds an multiscale may have, in order (I3): t a time axis, o another (channel, custom or no type), s a space axis",
-      "orders": [
-        "ss",
-        "sss",
-        "tss",
-        "tsss",
-        "oss",
-        "osss",
-        "toss",
-        "tosss"
-      ]
+      "orders": ["ss", "sss", "tss", "tsss", "oss", "osss", "toss", "tosss"]
     },
-    "label_types": [
-      "int8",
-      "uint8",
-      "int16",
-      "uint16",
-      "int32",
-      "uint32",
-      "int64",
-      "uint64"
-    ]
+    "label_types": ["int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64"]
   },
-  "elements": {
-    "about": "The store IR is the Zarr v2 format's (schema/zarr2.json, spec/virtualize/zarr2.md §4.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#41-elements>): the OME layer adds no element."
-  },
+  "elements": {"about": "The store IR is the Zarr v2 format's (schema/zarr2.json, spec/virtualize/zarr2.md §4.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#41-elements>): the OME layer adds no element."},
   "roles": {
     "group": {
       "about": "an explicit group (spec/virtualize/ome-zarr.md §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#3-ome-groups>)",
-      "given": {
-        "where": "",
-        "has_ome": "its attributes have the member ome"
-      },
+      "given": {"where": "", "has_ome": "its attributes have the member ome"},
       "constraints": [
-        {
-          "require": "!has_ome",
-          "message": "{where}: the group already has an `ome` attribute"
-        }
+        {"require": "!has_ome", "message": "{where}: the group already has an `ome` attribute"}
       ]
     },
     "version": {
       "about": "the member version of a multiscale, image-label, plate or well",
-      "given": {
-        "where": "",
-        "present": "",
-        "is_04": "it is the string 0.4",
-        "version": ""
-      },
+      "given": {"where": "", "present": "", "is_04": "it is the string 0.4", "version": ""},
       "constraints": [
-        {
-          "require": "!present || is_04",
-          "message": "{where}: version {version} is not 0.4"
-        }
+        {"require": "!present || is_04", "message": "{where}: version {version} is not 0.4"}
       ]
     },
     "multiscales": {
-      "given": {
-        "where": "",
-        "ok": "a nonempty array of objects"
-      },
+      "given": {"where": "", "ok": "a nonempty array of objects"},
       "constraints": [
-        {
-          "require": "ok",
-          "message": "{where} is not a nonempty array of objects"
-        }
+        {"require": "ok", "message": "{where} is not a nonempty array of objects"}
       ]
     },
     "axes": {
       "about": "I2, I3",
-      "given": {
-        "where": "",
-        "objects": "an array of objects",
-        "count": "",
-        "names_text": "every name a string",
-        "names": "",
-        "types_text": "every type absent, null or a string",
-        "bad_type": "the first type that is not",
-        "types": "the types",
-        "kinds": "each axis's kind, t, o or s"
-      },
+      "given": {"where": "", "objects": "an array of objects", "count": "", "names_text": "every name a string", "names": "", "types_text": "every type absent, null or a string", "bad_type": "the first type that is not", "types": "the types", "kinds": "each axis's kind, t, o or s"},
       "constraints": [
-        {
-          "require": "objects && count >= min_axes && count <= max_axes",
-          "message": "{where}: axes is not 2 to 5 axis objects"
-        },
-        {
-          "require": "names_text",
-          "message": "{where}: an axis name is not a string"
-        },
-        {
-          "require": "distinct(names) == count",
-          "message": "{where}: axis names {names} are not distinct"
-        },
-        {
-          "require": "types_text",
-          "message": "{where}: axis type {bad_type} is not a string"
-        },
-        {
-          "require": "in(kinds, axis_orders.orders)",
-          "message": "{where}: axis types {types} are not [time], [channel or custom], then 2 or 3 space"
-        }
+        {"require": "objects && count >= min_axes && count <= max_axes", "message": "{where}: axes is not 2 to 5 axis objects"},
+        {"require": "names_text", "message": "{where}: an axis name is not a string"},
+        {"require": "distinct(names) == count", "message": "{where}: axis names {names} are not distinct"},
+        {"require": "types_text", "message": "{where}: axis type {bad_type} is not a string"},
+        {"require": "in(kinds, axis_orders.orders)", "message": "{where}: axis types {types} are not [time], [channel or custom], then 2 or 3 space"}
       ]
     },
     "datasets": {
-      "given": {
-        "where": "",
-        "ok": "a nonempty array of objects"
-      },
+      "given": {"where": "", "ok": "a nonempty array of objects"},
       "constraints": [
-        {
-          "require": "ok",
-          "message": "{where}: datasets is not a nonempty array of objects"
-        }
+        {"require": "ok", "message": "{where}: datasets is not a nonempty array of objects"}
       ]
     },
     "dataset": {
       "about": "I4",
-      "given": {
-        "where": "",
-        "relative": "its path is a relative path",
-        "path": "",
-        "target": "",
-        "is_array": "",
-        "dims": "",
-        "n": ""
-      },
+      "given": {"where": "", "relative": "its path is a relative path", "path": "", "target": "", "is_array": "", "dims": "", "n": ""},
       "constraints": [
-        {
-          "require": "relative",
-          "message": "{where}: path {path} is not a relative path"
-        },
-        {
-          "require": "is_array",
-          "message": "{where}: {target} is not an array"
-        },
-        {
-          "require": "dims == n",
-          "message": "{where}: {target} has {dims} dimensions, not {n}"
-        }
+        {"require": "relative", "message": "{where}: path {path} is not a relative path"},
+        {"require": "is_array", "message": "{where}: {target} is not an array"},
+        {"require": "dims == n", "message": "{where}: {target} has {dims} dimensions, not {n}"}
       ]
     },
     "transforms": {
       "about": "I5, I6",
-      "given": {
-        "where": "",
-        "objects": "an array of objects",
-        "count": "",
-        "first": "the first one's type",
-        "scale_numbers": "",
-        "scale_len": "",
-        "second": "the second one's type",
-        "translation_numbers": "",
-        "translation_len": "",
-        "n": ""
-      },
+      "given": {"where": "", "objects": "an array of objects", "count": "", "first": "the first one's type", "scale_numbers": "", "scale_len": "", "second": "the second one's type", "translation_numbers": "", "translation_len": "", "n": ""},
       "constraints": [
-        {
-          "require": "objects && (count == 1 || count == 2)",
-          "message": "{where}: coordinateTransformations is not one or two transformation objects"
-        },
-        {
-          "require": "first == 'scale'",
-          "message": "{where}: the first transformation is not a scale"
-        },
-        {
-          "require": "scale_numbers && scale_len == n",
-          "message": "{where}: the scale is not {n} numbers"
-        },
-        {
-          "require": "count == 1 || second == 'translation'",
-          "message": "{where}: the second transformation is not a translation"
-        },
-        {
-          "require": "count == 1 || translation_numbers && translation_len == n",
-          "message": "{where}: the translation is not {n} numbers"
-        }
+        {"require": "objects && (count == 1 || count == 2)", "message": "{where}: coordinateTransformations is not one or two transformation objects"},
+        {"require": "first == 'scale'", "message": "{where}: the first transformation is not a scale"},
+        {"require": "scale_numbers && scale_len == n", "message": "{where}: the scale is not {n} numbers"},
+        {"require": "count == 1 || second == 'translation'", "message": "{where}: the second transformation is not a translation"},
+        {"require": "count == 1 || translation_numbers && translation_len == n", "message": "{where}: the translation is not {n} numbers"}
       ]
     },
     "level_order": {
       "about": "I7",
-      "given": {
-        "where": "",
-        "smaller": "the scale is smaller than the previous level's along an axis",
-        "scale": "",
-        "previous": ""
-      },
+      "given": {"where": "", "smaller": "the scale is smaller than the previous level's along an axis", "scale": "", "previous": ""},
       "constraints": [
-        {
-          "require": "!smaller",
-          "message": "{where}: the scale {scale} is smaller than the previous level's {previous}"
-        }
+        {"require": "!smaller", "message": "{where}: the scale {scale} is smaller than the previous level's {previous}"}
       ]
     },
     "level_axes": {
       "about": "I8",
-      "given": {
-        "target": "",
-        "same": "",
-        "names": "",
-        "other": ""
-      },
+      "given": {"target": "", "same": "", "names": "", "other": ""},
       "constraints": [
-        {
-          "require": "same",
-          "message": "{target} is a level of images with axes {names} and {other}"
-        }
+        {"require": "same", "message": "{target} is a level of images with axes {names} and {other}"}
       ]
     },
     "omero": {
       "about": "O1",
-      "given": {
-        "where": "",
-        "channels": "an object whose channels is an array of objects"
-      },
+      "given": {"where": "", "channels": "an object whose channels is an array of objects"},
       "constraints": [
-        {
-          "require": "channels",
-          "message": "{where}: channels is not an array of objects"
-        }
+        {"require": "channels", "message": "{where}: channels is not an array of objects"}
       ]
     },
     "channel": {
       "about": "O1",
-      "given": {
-        "where": "",
-        "color": "",
-        "hex": "its color is 6 hexadecimal digits",
-        "window": "its window has numbers min, max, start and end"
-      },
+      "given": {"where": "", "color": "", "hex": "its color is 6 hexadecimal digits", "window": "its window has numbers min, max, start and end"},
       "constraints": [
-        {
-          "require": "hex",
-          "message": "{where}: channel color {color} is not 6 hexadecimal digits"
-        },
-        {
-          "require": "window",
-          "message": "{where}: a channel window does not have numbers min, max, start and end"
-        }
+        {"require": "hex", "message": "{where}: channel color {color} is not 6 hexadecimal digits"},
+        {"require": "window", "message": "{where}: a channel window does not have numbers min, max, start and end"}
       ]
     },
     "labels": {
       "about": "L1",
-      "given": {
-        "where": "",
-        "list": "labels is an array"
-      },
+      "given": {"where": "", "list": "labels is an array"},
       "constraints": [
-        {
-          "require": "list",
-          "message": "{where}: labels is not an array"
-        }
+        {"require": "list", "message": "{where}: labels is not an array"}
       ]
     },
     "label": {
       "about": "L1",
-      "given": {
-        "where": "",
-        "label": "",
-        "image": "a relative path naming an image"
-      },
+      "given": {"where": "", "label": "", "image": "a relative path naming an image"},
       "constraints": [
-        {
-          "require": "image",
-          "message": "{where}: label {label} is not the path of an image"
-        }
+        {"require": "image", "message": "{where}: label {label} is not the path of an image"}
       ]
     },
     "image_label": {
       "about": "L2–L5",
-      "given": {
-        "where": "",
-        "object": "",
-        "image": "its group is an image"
-      },
+      "given": {"where": "", "object": "", "image": "its group is an image"},
       "constraints": [
-        {
-          "require": "object",
-          "message": "{where} is not an object"
-        },
-        {
-          "require": "image",
-          "message": "{where}: the group has no multiscales"
-        }
+        {"require": "object", "message": "{where} is not an object"},
+        {"require": "image", "message": "{where}: the group has no multiscales"}
       ]
     },
     "label_values": {
       "about": "L3, L4",
-      "given": {
-        "where": "",
-        "key": "colors or properties",
-        "ok": "an array of objects with an integer label-value"
-      },
+      "given": {"where": "", "key": "colors or properties", "ok": "an array of objects with an integer label-value"},
       "constraints": [
-        {
-          "require": "ok",
-          "message": "{where}: {key} is not an array of objects with an integer label-value"
-        }
+        {"require": "ok", "message": "{where}: {key} is not an array of objects with an integer label-value"}
       ]
     },
     "label_colors": {
       "about": "L3",
-      "given": {
-        "where": "",
-        "values": ""
-      },
+      "given": {"where": "", "values": ""},
       "constraints": [
-        {
-          "require": "distinct(values) == len(values)",
-          "message": "{where}: colors label-values are not unique"
-        }
+        {"require": "distinct(values) == len(values)", "message": "{where}: colors label-values are not unique"}
       ]
     },
     "rgba": {
       "about": "L3",
-      "given": {
-        "where": "",
-        "ok": "four integers from 0 to 255",
-        "rgba": ""
-      },
+      "given": {"where": "", "ok": "four integers from 0 to 255", "rgba": ""},
       "constraints": [
-        {
-          "require": "ok",
-          "message": "{where}: rgba {rgba} is not four integers from 0 to 255"
-        }
+        {"require": "ok", "message": "{where}: rgba {rgba} is not four integers from 0 to 255"}
       ]
     },
     "label_source": {
       "about": "L5",
-      "given": {
-        "where": "",
-        "ok": "an object whose image, if present, is a string"
-      },
+      "given": {"where": "", "ok": "an object whose image, if present, is a string"},
       "constraints": [
-        {
-          "require": "ok",
-          "message": "{where}: source is not an object with a string image"
-        }
+        {"require": "ok", "message": "{where}: source is not an object with a string image"}
       ]
     },
     "label_image": {
       "about": "L6, L7",
-      "given": {
-        "where": "",
-        "given_source": "image-label has source.image",
-        "source_is_image": "",
-        "image": "",
-        "levels": "the multiscale's datasets",
-        "image_levels": "the source image's first multiscale's datasets"
-      },
+      "given": {"where": "", "given_source": "image-label has source.image", "source_is_image": "", "image": "", "levels": "the multiscale's datasets", "image_levels": "the source image's first multiscale's datasets"},
       "constraints": [
-        {
-          "require": "!given_source || source_is_image",
-          "message": "{where}: the label's source image {image} is not an image"
-        },
-        {
-          "require": "!source_is_image || levels >= image_levels",
-          "message": "{where}: the label image has {levels} levels, fewer than its image {image}'s {image_levels}"
-        }
+        {"require": "!given_source || source_is_image", "message": "{where}: the label's source image {image} is not an image"},
+        {"require": "!source_is_image || levels >= image_levels", "message": "{where}: the label image has {levels} levels, fewer than its image {image}'s {image_levels}"}
       ]
     },
     "label_level": {
       "about": "L8",
-      "given": {
-        "level": "",
-        "data_type": ""
-      },
+      "given": {"level": "", "data_type": ""},
       "constraints": [
-        {
-          "require": "in(data_type, label_types)",
-          "message": "{level}: label data type {data_type} is not an integer type"
-        }
+        {"require": "in(data_type, label_types)", "message": "{level}: label data type {data_type} is not an integer type"}
       ]
     },
     "well": {
       "about": "P5",
-      "given": {
-        "where": "",
-        "object": "",
-        "images": "images is an array of objects",
-        "paths": ""
-      },
+      "given": {"where": "", "object": "", "images": "images is an array of objects", "paths": ""},
       "constraints": [
-        {
-          "require": "object",
-          "message": "{where} is not an object"
-        },
-        {
-          "require": "images",
-          "message": "{where}: images is not an array of objects"
-        }
+        {"require": "object", "message": "{where} is not an object"},
+        {"require": "images", "message": "{where}: images is not an array of objects"}
       ]
     },
     "field": {
       "about": "P5",
-      "given": {
-        "where": "",
-        "path": "",
-        "alnum": "a string of ASCII letters and digits",
-        "target": "",
-        "image": "",
-        "acquisition": "absent or an integer"
-      },
+      "given": {"where": "", "path": "", "alnum": "a string of ASCII letters and digits", "target": "", "image": "", "acquisition": "absent or an integer"},
       "constraints": [
-        {
-          "require": "alnum",
-          "message": "{where}: image path {path} is not alphanumeric"
-        },
-        {
-          "require": "image",
-          "message": "{where}: {target} is not an image"
-        },
-        {
-          "require": "acquisition",
-          "message": "{where}: acquisition is not an integer"
-        }
+        {"require": "alnum", "message": "{where}: image path {path} is not alphanumeric"},
+        {"require": "image", "message": "{where}: {target} is not an image"},
+        {"require": "acquisition", "message": "{where}: acquisition is not an integer"}
       ]
     },
     "well_paths": {
       "about": "P5",
-      "given": {
-        "where": "",
-        "paths": ""
-      },
+      "given": {"where": "", "paths": ""},
       "constraints": [
-        {
-          "require": "distinct(paths) == len(paths)",
-          "message": "{where}: image paths are not unique"
-        }
+        {"require": "distinct(paths) == len(paths)", "message": "{where}: image paths are not unique"}
       ]
     },
     "plate": {
       "about": "P1",
-      "given": {
-        "where": "",
-        "object": ""
-      },
+      "given": {"where": "", "object": ""},
       "constraints": [
-        {
-          "require": "object",
-          "message": "{where} is not an object"
-        }
+        {"require": "object", "message": "{where} is not an object"}
       ]
     },
     "plate_axis": {
       "about": "P1: rows and columns",
-      "given": {
-        "where": "",
-        "key": "",
-        "objects": "",
-        "alnum": "every name a string of ASCII letters and digits",
-        "names": ""
-      },
+      "given": {"where": "", "key": "", "objects": "", "alnum": "every name a string of ASCII letters and digits", "names": ""},
       "constraints": [
-        {
-          "require": "objects",
-          "message": "{where}: {key} is not an array of objects"
-        },
-        {
-          "require": "alnum",
-          "message": "{where}: a {key} name is not alphanumeric"
-        },
-        {
-          "require": "distinct(names) == len(names)",
-          "message": "{where}: {key} names are not unique"
-        }
+        {"require": "objects", "message": "{where}: {key} is not an array of objects"},
+        {"require": "alnum", "message": "{where}: a {key} name is not alphanumeric"},
+        {"require": "distinct(names) == len(names)", "message": "{where}: {key} names are not unique"}
       ]
     },
     "plate_members": {
       "about": "P4",
-      "given": {
-        "where": "",
-        "field_count": "absent or an integer of at least 1",
-        "count": "",
-        "name": "absent or a string"
-      },
+      "given": {"where": "", "field_count": "absent or an integer of at least 1", "count": "", "name": "absent or a string"},
       "constraints": [
-        {
-          "require": "field_count",
-          "message": "{where}: field_count {count} is not a positive integer"
-        },
-        {
-          "require": "name",
-          "message": "{where}: name is not a string"
-        }
+        {"require": "field_count", "message": "{where}: field_count {count} is not a positive integer"},
+        {"require": "name", "message": "{where}: name is not a string"}
       ]
     },
     "acquisitions": {
       "about": "P3",
-      "given": {
-        "where": "",
-        "objects": ""
-      },
+      "given": {"where": "", "objects": ""},
       "constraints": [
-        {
-          "require": "objects",
-          "message": "{where}: acquisitions is not an array of objects"
-        }
+        {"require": "objects", "message": "{where}: acquisitions is not an array of objects"}
       ]
     },
     "acquisition": {
       "about": "P3",
-      "given": {
-        "where": "",
-        "id": "an integer of at least 0",
-        "value": "the id",
-        "maximumfieldcount": "absent or an integer of at least 1",
-        "texts": "name and description absent or strings",
-        "times": "starttime and endtime absent or integers"
-      },
+      "given": {"where": "", "id": "an integer of at least 0", "value": "the id", "maximumfieldcount": "absent or an integer of at least 1", "texts": "name and description absent or strings", "times": "starttime and endtime absent or integers"},
       "constraints": [
-        {
-          "require": "id",
-          "message": "{where}: acquisition id {value} is not an integer from 0"
-        },
-        {
-          "require": "maximumfieldcount",
-          "message": "{where}: maximumfieldcount is not a positive integer"
-        },
-        {
-          "require": "texts",
-          "message": "{where}: an acquisition name or description is not a string"
-        },
-        {
-          "require": "times",
-          "message": "{where}: an acquisition starttime or endtime is not an integer"
-        }
+        {"require": "id", "message": "{where}: acquisition id {value} is not an integer from 0"},
+        {"require": "maximumfieldcount", "message": "{where}: maximumfieldcount is not a positive integer"},
+        {"require": "texts", "message": "{where}: an acquisition name or description is not a string"},
+        {"require": "times", "message": "{where}: an acquisition starttime or endtime is not an integer"}
       ]
     },
     "acquisition_ids": {
       "about": "P3",
-      "given": {
-        "where": "",
-        "ids": ""
-      },
+      "given": {"where": "", "ids": ""},
       "constraints": [
-        {
-          "require": "distinct(ids) == len(ids)",
-          "message": "{where}: acquisition ids are not unique"
-        }
+        {"require": "distinct(ids) == len(ids)", "message": "{where}: acquisition ids are not unique"}
       ]
     },
     "plate_wells": {
       "about": "P2",
-      "given": {
-        "where": "",
-        "objects": ""
-      },
+      "given": {"where": "", "objects": ""},
       "constraints": [
-        {
-          "require": "objects",
-          "message": "{where}: wells is not an array of objects"
-        }
+        {"require": "objects", "message": "{where}: wells is not an array of objects"}
       ]
     },
     "plate_well": {
       "about": "P2",
-      "given": {
-        "where": "",
-        "indexes": "rowIndex and columnIndex index rows and columns",
-        "named": "its path is <row name>/<column name>",
-        "path": "",
-        "expected": "",
-        "target": "",
-        "well": "the path names a well"
-      },
+      "given": {"where": "", "indexes": "rowIndex and columnIndex index rows and columns", "named": "its path is <row name>/<column name>", "path": "", "expected": "", "target": "", "well": "the path names a well"},
       "constraints": [
-        {
-          "require": "indexes",
-          "message": "{where}: well rowIndex or columnIndex is not an index of rows or columns"
-        },
-        {
-          "require": "named",
-          "message": "{where}: well path {path} is not {expected}"
-        },
-        {
-          "require": "well",
-          "message": "{where}: {target} is not a well"
-        }
+        {"require": "indexes", "message": "{where}: well rowIndex or columnIndex is not an index of rows or columns"},
+        {"require": "named", "message": "{where}: well path {path} is not {expected}"},
+        {"require": "well", "message": "{where}: {target} is not a well"}
       ]
     },
     "field_acquisition": {
       "about": "P6",
-      "given": {
-        "where": "",
-        "given_acquisition": "",
-        "acquisition": "",
-        "known": "it is the id of one of the plate's acquisitions",
-        "several": "the plate has more than one acquisition"
-      },
+      "given": {"where": "", "given_acquisition": "", "acquisition": "", "known": "it is the id of one of the plate's acquisitions", "several": "the plate has more than one acquisition"},
       "constraints": [
-        {
-          "require": "!given_acquisition || known",
-          "message": "{where}: acquisition {acquisition} is not one of the plate's"
-        },
-        {
-          "require": "given_acquisition || !several",
-          "message": "{where}: an image has no acquisition, and the plate has several"
-        }
+        {"require": "!given_acquisition || known", "message": "{where}: acquisition {acquisition} is not one of the plate's"},
+        {"require": "given_acquisition || !several", "message": "{where}: an image has no acquisition, and the plate has several"}
       ]
     },
     "collection": {
       "about": "B1–B3",
-      "given": {
-        "where": "",
-        "ome": "the path of its group OME",
-        "layout": "",
-        "series": "absent (no series) or an array of relative paths naming images",
-        "numbered": "the numbered images are 0 to k − 1, k ≥ 1 (true when not checked)"
-      },
+      "given": {"where": "", "ome": "the path of its group OME", "layout": "", "series": "absent (no series) or an array of relative paths naming images", "numbered": "the numbered images are 0 to k − 1, k ≥ 1 (true when not checked)"},
       "constraints": [
-        {
-          "require": "layout == 3",
-          "message": "{where}: bioformats2raw.layout is not 3"
-        },
-        {
-          "require": "series",
-          "message": "{ome}: series is not an array of image paths"
-        },
-        {
-          "require": "numbered",
-          "message": "{where}: the images are not numbered consecutively from 0"
-        }
+        {"require": "layout == 3", "message": "{where}: bioformats2raw.layout is not 3"},
+        {"require": "series", "message": "{ome}: series is not an array of image paths"},
+        {"require": "numbered", "message": "{where}: the images are not numbered consecutively from 0"}
       ]
     }
   },

@@ -100,9 +100,9 @@ are its other objects, kept whole under `vzip_source/objects/`
 
 **Empty objects, ignored keys and `vzip_source`.** They are
 [the Zarr v2 convention §5](zarr2.md#5-other-objects)'s: the empty objects have no entry and
-the mirror lists them, the ignored keys are `vzip_source/ignored.json`, and the group
-`vzip_source` holds the store's IR mirror ([§8.2](#82-the-store-ir)), so a node at
-`vzip_source`, or below it, rejects the input.
+the mirror lists them, and the group `vzip_source` holds the store's IR mirror
+([§8.2](#82-the-store-ir)), so a node at `vzip_source`, or below it, rejects the input. The
+ignored keys are `vzip_source`'s source metadata ([§8.2](#82-the-store-ir)).
 
 ## 3. OME groups
 
@@ -401,7 +401,11 @@ none, and does not declare the convention unless it is the root.
 `vzip_source` is the store's IR mirror, as for the Zarr v2 convention: the store's IR is
 [its §4.1](zarr2.md#41-elements)'s, element for element (the listing, each node document held
 as a value per top-level member, every other object referenced or empty), and its view
-`vzip_source/tree`; the mirror declares this convention. The OME layer adds no element: what
+`vzip_source/tree`; the mirror declares this convention. `vzip_source`'s source metadata is
+`{"ir": D, "ignored": I}`: `D` the mirror's description
+([conventions §8.9](../conventions.md#89-stores)), `I` the ignored keys of
+[the Zarr v2 convention §5](zarr2.md#5-other-objects) in ascending order of their UTF-8 bytes,
+present only when not empty. The OME layer adds no element: what
 it reads is in the node documents the mirror holds. Hierarchies of one store are compared
 entry for entry, `vzip_source` included
 ([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
@@ -592,7 +596,8 @@ OME-XML object of [the convention §7](#7-chunks-and-ome-xml)
 is referenced whole in the same way: an entry under its key, with its own
 source, in the order of [§1.4](../virtualize.md#14-store-inputs) among the chunk entries (an object of size 0
 has no entry; it is an empty object, which the mirror lists, as an empty chunk object is).
-Every other object, and the ignored keys, are as [§10.2](zarr2.md#102-chunks-and-other-objects) says.
+Every other object is as [§10.2](zarr2.md#102-chunks-and-other-objects) says; the ignored keys are
+`vzip_source`'s source metadata ([the convention §8.2](#82-the-store-ir)).
 
 ### 11.3 Summary
 

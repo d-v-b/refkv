@@ -290,3 +290,24 @@ fn probe_an_object_beside_a_directory_of_its_name_is_accepted() {
     let out = output_of(&objects).0.unwrap();
     assert!(out.refs.iter().any(|(k, _)| k == "vzip_source/objects/0"));
 }
+
+#[test]
+fn ignored_keys_are_vzip_source_metadata() {
+    // the recorded ignored keys sit beside the mirror's description, sorted by their bytes
+    let objects = image("", &["0"]);
+    let keys: Vec<(String, u64)> = objects.iter().map(|(k, b)| (k.clone(), b.len() as u64)).collect();
+    let mut r = vzip_ir::store::StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
+    r.ignore(vec!["z/./a".into(), "donn\u{e9}es/./x".into()]);
+    while let Some(reqs) = r.poll().unwrap() {
+        for (k, q) in reqs.iter().enumerate() {
+            let b = &objects[q.object].1;
+            r.complete(k, q.spans.iter().map(|&(a, e)| b[a as usize..e as usize].to_vec()).collect()).unwrap();
+        }
+    }
+    let out = r.into_output("https://example.org/s/", true).unwrap();
+    assert!(!out.entries.iter().any(|e| e.0 == "vzip_source/ignored.json"));
+    let doc: serde_json::Value = serde_json::from_slice(&out.entries.iter().find(|e| e.0 == "vzip_source/zarr.json").unwrap().1).unwrap();
+    let own = &doc["attributes"]["vzip_virtualized"]["ome-zarr"];
+    assert_eq!(own["ignored"], serde_json::json!(["donn\u{e9}es/./x", "z/./a"]));
+    assert!(own["ir"].is_object());
+}

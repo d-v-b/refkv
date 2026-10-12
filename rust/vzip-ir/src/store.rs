@@ -331,11 +331,30 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         m.insert("objects".into(), json!(ir.objects));
     }
     out.summary = summary;
+    let profile = facts["profile"].as_str().unwrap_or(format.profile());
     if mirror {
-        let folded = crate::mirror::mirror(ir, &mut out, facts["profile"].as_str().unwrap_or(format.profile()))?;
+        let folded = crate::mirror::mirror(ir, &mut out, profile)?;
         out.summary["folded"] = folded.json();
+        if profile == "ome-zarr" {
+            record_ignored(&mut out, profile, facts)?;
+        }
     }
     Ok(out)
+}
+
+/// The recorded ignored keys (spec/virtualize.md §1.4
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), which are not
+/// objects of the IR, as the member `ignored` of `vzip_source`'s source metadata, beside the
+/// mirror's description `ir` (spec/virtualize/ome-zarr.md §8.2
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#82-the-store-ir>).
+fn record_ignored(out: &mut crate::out::Out, profile: &str, facts: &J) -> Res<()> {
+    let Some(ignored) = facts["ignored"].as_array().filter(|a| !a.is_empty()) else { return Ok(()) };
+    let key = format!("{}/zarr.json", crate::out::SOURCE_NODE);
+    let at = out.entries.iter().position(|e| e.0 == key).ok_or("internal: the mirror wrote no vzip_source/zarr.json")?;
+    let mut doc: J = serde_json::from_slice(&out.entries[at].1).map_err(|e| format!("internal: {e}"))?;
+    doc["attributes"][crate::out::CONVENTION_KEY][profile]["ignored"] = J::Array(ignored.clone());
+    out.entries[at].1 = crate::out::to_text(&doc).into_bytes();
+    Ok(())
 }
 
 /// Runs a store format over objects in memory through a run (tests, tools): `read(k)` gives
