@@ -13,6 +13,7 @@ pub mod czi;
 pub mod expr;
 pub mod fed;
 pub mod hdf5;
+pub mod ims;
 pub mod ir;
 pub mod lv;
 pub mod mirror;
@@ -65,6 +66,7 @@ macro_rules! parser {
 parser!(nd2::Nd2);
 parser!(tiff::Tiff);
 parser!(czi::Czi);
+parser!(ims::Ims);
 
 /// Runs a parser over bytes in memory (tests, tools).
 pub fn parse_bytes<P: Parser>(data: &[u8]) -> Result<(ir::Ir, serde_json::Value), String> {

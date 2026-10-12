@@ -1,0 +1,1457 @@
+//! The sans-IO IMS parser (spec/virtualize/ims.md
+//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md>): an Imaris file is an HDF5
+//! file, read by `hdf5.rs`. Two phases, each run in rounds (`hdf5.rs`'s replay):
+//!
+//! 1. **The layout** (spec/virtualize/ims.md §2–§4): the groups, attributes and datasets the
+//!    convention reads, in its order, every rejection of the profile checked here (the HDF5
+//!    subset by the reader, the Imaris layout by `schema/ims.json`'s roles). Its outcome is the
+//!    facts the projection writes: the root's metadata, the level arrays, and each chunk's key.
+//! 2. **The walk**, which never rejects: every object reachable from the root group by hard
+//!    links (by level, at most `walk_objects` + `walk_per_image` × the Data datasets, to
+//!    `walk_depth` levels), its header, the structures that hold its links and attributes, its
+//!    chunk index and chunks, and the global heap collections its attributes name. A structure
+//!    outside the reader's subset is not described: its bytes are gaps.
+//!
+//! `finish` emits the IR from what the two phases read: the superblock, then the objects,
+//! numbered depth first from the root group (a group's hard links in ascending byte order of
+//! their names), then the global heap collections.
+
+use crate::check;
+use crate::hdf5::{self, address, le, Acc, Fail, Header, Links, R, Target, H5};
+use crate::ir::{Ir, NO_INDEX};
+use crate::nd2::Step;
+use crate::rules::{self, flag, num, text, Rules, Vars};
+use crate::expr::V;
+use serde_json::{json, Map, Value as J};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::rc::Rc;
+
+const WS: &[char] = &[' ', '\t', '\r', '\n'];
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Phase {
+    Layout,
+    Walk,
+    Done,
+}
+
+/// A chunk of the image: its key in the hierarchy, its dataset's header, its row-major index
+/// over the dataset's grid, and its range.
+struct ImageChunk {
+    key: String,
+    dataset: u64,
+    index: u128,
+    at: u64,
+    size: u64,
+}
+
+/// What an object of the walk is, as far as the reader can read it.
+#[derive(Default)]
+struct Visit {
+    header: Option<Rc<Header>>,
+    links: Option<Rc<Links>>,
+    attrs: Option<Rc<hdf5::Attrs>>,
+    ds: Option<hdf5::Dataset>,
+    chunks: Option<Rc<hdf5::Chunks>>,
+    collections: Vec<Rc<hdf5::Collection>>,
+}
+
+pub struct Ims {
+    h: H5,
+    rules: &'static Rules,
+    phase: Phase,
+    rounds: u64,
+    requests: u64,
+    requested: u64,
+    /// the layout's outcome
+    facts: Option<J>,
+    chunks: Vec<ImageChunk>,
+    /// the objects the layout reads (they are walked first, whatever the budget)
+    core: BTreeSet<u64>,
+    images: u64,
+    // the walk
+    visited: HashMap<u64, Visit>,
+    level: Vec<u64>,
+    depth: u64,
+    extension: Option<Visit>,
+}
+
+fn lenient<T>(r: R<T>) -> R<Option<T>> {
+    match r {
+        Ok(v) => Ok(Some(v)),
+        Err(Fail::Bad(_)) => Ok(None),
+        Err(Fail::Miss) => Err(Fail::Miss),
+    }
+}
+
+// ---- text (spec/virtualize/ims.md §2.1
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#21-attributes-as-text>)
+
+/// The text of a string's data: up to the first NUL, UTF-8 or else Latin-1.
+pub fn decode_text(data: &[u8]) -> String {
+    let raw = data.split(|&c| c == 0).next().unwrap_or(&[]);
+    match std::str::from_utf8(raw) {
+        Ok(s) => s.to_string(),
+        Err(_) => raw.iter().map(|&c| c as char).collect(),
+    }
+}
+
+fn is_decimal(s: &str) -> bool {
+    let b = s.as_bytes();
+    let mut i = 0;
+    if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
+        i += 1;
+    }
+    let d0 = i;
+    while i < b.len() && b[i].is_ascii_digit() {
+        i += 1;
+    }
+    let int_digits = i - d0;
+    let mut frac_digits = 0;
+    if i < b.len() && b[i] == b'.' {
+        i += 1;
+        let f0 = i;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        frac_digits = i - f0;
+    }
+    if int_digits == 0 && frac_digits == 0 {
+        return false;
+    }
+    if i < b.len() && (b[i] == b'e' || b[i] == b'E') {
+        i += 1;
+        if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
+            i += 1;
+        }
+        let e0 = i;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == e0 {
+            return false;
+        }
+    }
+    i == b.len()
+}
+
+/// A decimal number, or None if `s` is absent or not one.
+pub fn decimal(s: Option<&str>) -> Option<f64> {
+    let t = s?.trim_matches(WS);
+    if !is_decimal(t) {
+        return None;
+    }
+    let v: f64 = t.parse().ok()?;
+    v.is_finite().then_some(v)
+}
+
+/// `n` decimal numbers separated by whitespace, or None.
+pub fn decimals(s: Option<&str>, n: u64) -> Option<Vec<f64>> {
+    let t = s?.trim_matches(WS);
+    let parts: Vec<&str> = t.split(WS).filter(|p| !p.is_empty()).collect();
+    let parts = if t.is_empty() { vec![""] } else { parts };
+    if parts.len() as u64 != n {
+        return None;
+    }
+    parts.iter().map(|p| decimal(Some(p))).collect()
+}
+
+/// (all digits, the value from 1 to 2^53 − 1) of an integer's text.
+fn integer_text(s: &str) -> (bool, Option<u64>) {
+    let t = s.trim_matches(WS);
+    if t.is_empty() || !t.bytes().all(|c| c.is_ascii_digit()) {
+        return (false, None);
+    }
+    let d = t.trim_start_matches('0');
+    if d.is_empty() || d.len() > 16 {
+        return (true, None);
+    }
+    let v: u64 = d.parse().unwrap();
+    (true, (v <= hdf5::MAX_SAFE).then_some(v))
+}
+
+/// An integer from 1 to 2^53 − 1, or None.
+pub fn integer(s: Option<&str>) -> Option<u64> {
+    integer_text(s?).1
+}
+
+fn unit_rgb(values: Option<&[f64]>) -> Option<String> {
+    let v = values?;
+    if !v.iter().all(|&x| (0.0..=1.0).contains(&x)) {
+        return None;
+    }
+    Some(v.iter().map(|&x| format!("{:02X}", (x * 255.0 + 0.5).floor() as i64)).collect())
+}
+
+fn days(y: i64, m: i64, d: i64) -> i64 {
+    let y = y - (m <= 2) as i64;
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+/// (whole seconds from 1970-01-01, fraction of a second) of a valid time point.
+pub fn timestamp(s: Option<&str>) -> Option<(i64, f64)> {
+    let b = s?.as_bytes();
+    if b.len() < 19 {
+        return None;
+    }
+    let digits = |r: std::ops::Range<usize>| -> Option<i64> {
+        let p = &b[r];
+        p.iter().all(|c| c.is_ascii_digit()).then(|| std::str::from_utf8(p).unwrap().parse().unwrap())
+    };
+    if b[4] != b'-' || b[7] != b'-' || b[10] != b' ' || b[13] != b':' || b[16] != b':' {
+        return None;
+    }
+    let (y, mo, d, h, mi, sec) = (digits(0..4)?, digits(5..7)?, digits(8..10)?, digits(11..13)?, digits(14..16)?, digits(17..19)?);
+    let frac = if b.len() > 19 {
+        if b[19] != b'.' || b.len() == 20 || !b[20..].iter().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        &s.unwrap()[20..]
+    } else {
+        "0"
+    };
+    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let month = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if !((1..=12).contains(&mo) && d >= 1 && d <= month[(mo - 1) as usize] && h <= 23 && mi <= 59 && sec <= 59) {
+        return None;
+    }
+    Some((days(y, mo, d) * 86400 + h * 3600 + mi * 60 + sec, format!("0.{frac}").parse().unwrap()))
+}
+
+/// The length unit of a `Unit` text (conventions §5
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#5-units>).
+fn length_unit(s: &str) -> Option<&'static str> {
+    Some(match s {
+        "\u{b5}m" | "\u{3bc}m" | "um" => "micrometer",
+        "nm" => "nanometer",
+        "mm" => "millimeter",
+        "cm" => "centimeter",
+        "m" => "meter",
+        "\u{c5}" | "\u{212b}" => "angstrom",
+        "pm" => "picometer",
+        "in" => "inch",
+        "ft" => "foot",
+        _ => return None,
+    })
+}
+
+/// A JSON number: an integer when it is one (as Python writes an int), else a float.
+fn jf(x: f64) -> J {
+    json!(x)
+}
+
+impl Ims {
+    pub fn new(size: u64) -> Self {
+        Ims {
+            h: H5::new(size),
+            rules: rules::ims(),
+            phase: Phase::Layout,
+            rounds: 0,
+            requests: 0,
+            requested: 0,
+            facts: None,
+            chunks: Vec::new(),
+            core: BTreeSet::new(),
+            images: 0,
+            visited: HashMap::new(),
+            level: Vec::new(),
+            depth: 0,
+            extension: None,
+        }
+    }
+
+    pub fn feed(&mut self, offset: u64, data: Vec<u8>) {
+        self.h.src.store.feed(offset, data);
+    }
+
+    fn check(&self, role: &str, mut env: Vars<'static>) -> R<()> {
+        self.rules.check(role, &mut env).map_err(Fail::Bad)
+    }
+
+    pub fn step(&mut self) -> Result<Step, String> {
+        loop {
+            self.h.src.want.clear();
+            let r = match self.phase {
+                Phase::Layout => self.layout(),
+                Phase::Walk => self.walk(),
+                Phase::Done => return Ok(Step::Done),
+            };
+            match r {
+                Ok(()) => {
+                    self.phase = if self.phase == Phase::Layout { Phase::Walk } else { Phase::Done };
+                }
+                Err(Fail::Bad(m)) => {
+                    if self.phase == Phase::Layout {
+                        return Err(m);
+                    }
+                    return Err(format!("internal: the walk rejected: {m}"));
+                }
+                Err(Fail::Miss) => {
+                    let mut want = std::mem::take(&mut self.h.src.want);
+                    if want.is_empty() {
+                        return Err("internal: a round wants nothing".into());
+                    }
+                    self.rounds += 1;
+                    if self.rounds as f64 > self.rules.limit("max_rounds") {
+                        return Err(format!("more than {} rounds of dependent reads", self.rules.limit("max_rounds")));
+                    }
+                    want.sort_unstable();
+                    want.dedup();
+                    // merge ranges that overlap
+                    let mut merged: Vec<(u64, u64)> = Vec::new();
+                    for (o, n) in want {
+                        if let Some(last) = merged.last_mut() {
+                            if o <= last.0 + last.1 {
+                                last.1 = last.1.max(o + n - last.0);
+                                continue;
+                            }
+                        }
+                        merged.push((o, n));
+                    }
+                    self.requests += merged.len() as u64;
+                    self.requested += merged.iter().map(|r| r.1).sum::<u64>();
+                    return Ok(Step::Read(merged));
+                }
+            }
+        }
+    }
+
+    // ---- phase 1: the layout (spec/virtualize/ims.md §2–§4)
+
+    /// The object a group's link `name` leads to, None when the link is absent and not
+    /// `required` (spec/virtualize/ims.md §2.2).
+    fn group(&mut self, links: &Links, name: &str, required: bool) -> R<Option<u64>> {
+        if !links.has(name) {
+            if required {
+                self.check("link", rules::env([("name", text(name)), ("present", flag(false))]))?;
+            }
+            return Ok(None);
+        }
+        let at = self.h.follow(links, name.as_bytes())?;
+        self.core.insert(at);
+        Ok(Some(at))
+    }
+
+    fn opened(&mut self, links: &Links, name: &str) -> R<(u64, Rc<Links>)> {
+        let at = self.group(links, name, true)?.unwrap();
+        Ok((at, self.h.links(at)?))
+    }
+
+    /// The text of a string attribute, or None if it is absent.
+    fn attr_text(&self, attrs: Option<&hdf5::Attrs>, name: &str) -> R<Option<String>> {
+        let Some(d) = attrs.and_then(|a| a.get(name)) else { return Ok(None) };
+        let (dt, _, data) = hdf5::attribute_value(d)?;
+        self.check("string", rules::env([("name", text(name)), ("class", num(dt.cls))]))?;
+        Ok(Some(decode_text(&data)))
+    }
+
+    /// The text of an attribute that never rejects the input.
+    fn optional_text(&self, attrs: Option<&hdf5::Attrs>, name: &str) -> R<Option<String>> {
+        Ok(lenient(self.attr_text(attrs, name))?.flatten())
+    }
+
+    /// (Zarr data type, byte order or None for one byte, integer range) of a Data dataset.
+    fn data_type(&self, dt: &hdf5::Datatype) -> R<(String, Option<&'static str>, Option<(i64, i64)>)> {
+        let order = if dt.bits & 1 != 0 { "big" } else { "little" };
+        let plain = if dt.cls == 0 && [1, 2, 4].contains(&dt.size) {
+            le(&dt.props, 0, 2)? == 0 && le(&dt.props, 2, 2)? == 8 * dt.size
+        } else {
+            true
+        };
+        let ieee32 = if dt.cls == 1 && dt.size == 4 {
+            if dt.bits & 0x40 != 0 || (dt.bits >> 4) & 3 != 2 || (dt.bits >> 8) & 0xFF != 31 {
+                false
+            } else {
+                let (a, b) = (le(&dt.props, 0, 2)?, le(&dt.props, 2, 2)?);
+                let mid = dt.props.get(4..8).map(|x| x.to_vec());
+                let bias = le(&dt.props, 8, 4)?;
+                a == 0 && b == 32 && mid == Some(vec![23, 8, 0, 23]) && bias == 127
+            }
+        } else {
+            true
+        };
+        self.check(
+            "datatype",
+            rules::env([("class", num(dt.cls)), ("size", num(dt.size as f64)), ("plain", flag(plain)), ("ieee32", flag(ieee32))]),
+        )?;
+        let bits = 8 * dt.size;
+        if dt.cls == 0 {
+            let o = if bits > 8 { Some(order) } else { None };
+            if dt.bits & 8 != 0 {
+                return Ok((format!("int{bits}"), o, Some((-(1i64 << (bits - 1)), (1i64 << (bits - 1)) - 1))));
+            }
+            return Ok((format!("uint{bits}"), o, Some((0, (1i64 << bits) - 1))));
+        }
+        Ok(("float32".into(), Some(order), None))
+    }
+
+    fn layout(&mut self) -> R<()> {
+        if self.facts.is_some() {
+            return Ok(());
+        }
+        let sb = self.h.superblock()?;
+        self.core.insert(sb.root);
+        let root = self.h.links(sb.root)?;
+        self.check("imaris", rules::env([("dataset", flag(root.has("DataSet")))]))?;
+        let (_, dataset) = self.opened(&root, "DataSet")?;
+        self.check("imaris", rules::env([("dataset", flag(true)), ("level0", flag(dataset.has("ResolutionLevel 0")))]))?;
+        let mut levels = 0u64;
+        while levels <= 64 && dataset.has(&format!("ResolutionLevel {levels}")) {
+            levels += 1;
+        }
+        self.check("levels", rules::env([("levels", num(levels as f64))]))?;
+        let (_, level0) = self.opened(&dataset, "ResolutionLevel 0")?;
+        let mut times = 0u64;
+        while level0.has(&format!("TimePoint {times}")) {
+            times += 1;
+        }
+        self.check("times", rules::env([("times", num(times as f64))]))?;
+        let (_, first_time) = self.opened(&level0, "TimePoint 0")?;
+        let mut channels = 0u64;
+        while first_time.has(&format!("Channel {channels}")) {
+            channels += 1;
+        }
+        self.check("channels", rules::env([("channels", num(channels as f64))]))?;
+        self.check(
+            "datasets",
+            rules::env([("levels", num(levels as f64)), ("times", num(times as f64)), ("channels", num(channels as f64))]),
+        )?;
+
+        // the datasets of every level, time point and channel, and the metadata: independent reads
+        let mut top = Acc::default();
+        let images = top.take(self.datasets(&dataset, &level0, &first_time, levels, times, channels));
+        let meta = if top.stopped() { None } else { top.take(self.metadata(&root, times, channels)) };
+        top.done()?;
+        let (level_info, data_type, chunk_list) = images.unwrap();
+        let meta = meta.unwrap();
+        let facts = self.output(&level_info, &data_type, meta, levels, times, channels)?;
+        let axes: Vec<String> = facts["axes"].as_array().unwrap().iter().map(|a| a.as_str().unwrap().to_string()).collect();
+        self.chunks.clear();
+        for (r, t, c, at, list) in chunk_list {
+            let (sizes, chunk, _) = &level_info[r];
+            let grid: Vec<u64> = (0..3).map(|i| self.dims_of(at)[i].div_ceil(chunk[i])).collect();
+            for (coords, a, n) in list {
+                if (0..3).any(|i| coords[i] as u128 * chunk[i] as u128 >= sizes[i] as u128) {
+                    continue; // padding, wholly outside the image
+                }
+                let mut key = format!("{r}/c");
+                for ax in &axes {
+                    let v = match ax.as_str() {
+                        "t" => t as u64,
+                        "c" => c as u64,
+                        "z" => coords[0],
+                        "y" => coords[1],
+                        _ => coords[2],
+                    };
+                    key.push_str(&format!("/{v}"));
+                }
+                self.chunks.push(ImageChunk { key, dataset: at, index: hdf5::ravel(&coords, &grid), at: a, size: n });
+            }
+        }
+        self.images = level_info.len() as u64 * times * channels;
+        self.facts = Some(facts);
+        Ok(())
+    }
+
+    fn dims_of(&mut self, at: u64) -> Vec<u64> {
+        self.h.dataset(at, false).map(|d| d.dims).unwrap_or_default()
+    }
+
+    /// Levels' (sizes, chunk, compressed), the data type, and each dataset's chunks.
+    #[allow(clippy::type_complexity)]
+    fn datasets(&mut self, dataset: &Links, level0: &Rc<Links>, first_time: &Rc<Links>, levels: u64, times: u64, channels: u64)
+                -> R<(Vec<([u64; 3], [u64; 3], bool)>, (String, Option<&'static str>, Option<(i64, i64)>), Vec<(usize, usize, usize, u64, Vec<(Vec<u64>, u64, u64)>)>)> {
+        let mut acc = Acc::default();
+        let mut data_type: Option<(String, Option<&'static str>, Option<(i64, i64)>)> = None;
+        let mut level_info = Vec::new();
+        let mut chunk_list = Vec::new();
+        'levels: for r in 0..levels as usize {
+            let links = if r == 0 {
+                Some(level0.clone())
+            } else {
+                let x = self.opened(dataset, &format!("ResolutionLevel {r}")).map(|x| x.1);
+                acc.take(x)
+            };
+            let mut info: Option<([u64; 3], [u64; 3], bool)> = None;
+            if let Some(links) = links {
+                for t in 0..times as usize {
+                    let time_links = if r == 0 && t == 0 {
+                        Some(first_time.clone())
+                    } else {
+                        let x = self.opened(&links, &format!("TimePoint {t}")).map(|x| x.1);
+                        acc.take(x)
+                    };
+                    let Some(time_links) = time_links else {
+                        if acc.stopped() {
+                            break 'levels;
+                        }
+                        continue;
+                    };
+                    for c in 0..channels as usize {
+                        let one = self.image(&time_links, r, c);
+                        if let Some((sizes, ds, at)) = acc.take(one) {
+                            let dt = match self.data_type(&ds.datatype) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    acc.take::<()>(Err(e));
+                                    break 'levels;
+                                }
+                            };
+                            let larger = sizes.iter().zip(&ds.dims).any(|(s, n)| s > n);
+                            let this = if ds.dims.len() == 3 {
+                                Some(([sizes[0], sizes[1], sizes[2]], [ds.chunk[0], ds.chunk[1], ds.chunk[2]], !ds.filters.is_empty()))
+                            } else {
+                                None
+                            };
+                            let same_type = data_type.as_ref().is_none_or(|d| *d == dt);
+                            let same_level = info.is_none() || info == this;
+                            let filters = V::List(ds.filters.iter().map(|&f| V::Num(f as f64)).collect());
+                            let r_ = self.check(
+                                "image",
+                                rules::env([
+                                    ("level", num(r as f64)),
+                                    ("rank", num(ds.dims.len() as f64)),
+                                    ("larger", flag(larger)),
+                                    ("filters", filters),
+                                    ("same_type", flag(same_type)),
+                                    ("same_level", flag(same_level)),
+                                ]),
+                            );
+                            if acc.take(r_).is_none() {
+                                if acc.stopped() {
+                                    break 'levels;
+                                }
+                                continue;
+                            }
+                            data_type.get_or_insert(dt);
+                            info.get_or_insert(this.unwrap());
+                            let ch = self.h.chunks(at, &ds, false);
+                            if let Some(ch) = acc.take(ch) {
+                                chunk_list.push((r, 0, c, at, ch.list.iter().map(|(k, a, n, _)| (k.clone(), *a, *n)).collect::<Vec<_>>()));
+                                let last = chunk_list.last_mut().unwrap();
+                                last.1 = t;
+                            }
+                        }
+                        if acc.stopped() {
+                            break 'levels;
+                        }
+                    }
+                }
+            }
+            if acc.stopped() {
+                break;
+            }
+            level_info.push(info.unwrap_or(([1, 1, 1], [1, 1, 1], false)));
+        }
+        acc.done()?;
+        Ok((level_info, data_type.unwrap(), chunk_list))
+    }
+
+    /// A channel group's image size and Data dataset (spec/virtualize/ims.md §2.2).
+    fn image(&mut self, time_links: &Links, r: usize, c: usize) -> R<([u64; 3], hdf5::Dataset, u64)> {
+        let channel = self.group(time_links, &format!("Channel {c}"), true)?.unwrap();
+        let attrs = self.h.attributes(channel)?;
+        let mut sizes = [0u64; 3];
+        for (i, axis) in ["Z", "Y", "X"].iter().enumerate() {
+            let s = self.attr_text(Some(&attrs), &format!("ImageSize{axis}"))?;
+            let (integer, value) = s.as_deref().map(integer_text).unwrap_or((false, None));
+            self.check(
+                "image_size",
+                rules::env([("axis", text(axis)), ("level", num(r as f64)), ("integer", flag(integer)), ("in_range", flag(value.is_some()))]),
+            )?;
+            sizes[i] = value.unwrap();
+        }
+        let links = self.h.links(channel)?;
+        let data_at = self.group(&links, "Data", true)?.unwrap();
+        let ds = self.h.dataset(data_at, false)?;
+        Ok((sizes, ds, data_at))
+    }
+
+    /// The metadata groups' attributes (spec/virtualize/ims.md §3), and the channels' colors.
+    fn metadata(&mut self, root: &Links, times: u64, channels: u64) -> R<Meta> {
+        let meta = if root.has("DataSetInfo") {
+            let (_, l) = self.opened(root, "DataSetInfo")?;
+            Some(l)
+        } else {
+            None
+        };
+        let mut acc = Acc::default();
+        let image = acc.take(self.meta_group(meta.as_deref(), "Image"));
+        let mut groups = Vec::new();
+        if channels <= self.rules.limit("max_channels") as u64 {
+            for c in 0..channels {
+                let g = self.meta_group(meta.as_deref(), &format!("Channel {c}"));
+                groups.push(acc.take(g));
+                if acc.stopped() {
+                    break;
+                }
+            }
+        }
+        let time = if acc.stopped() { None } else { acc.take(self.meta_group(meta.as_deref(), "TimeInfo")) };
+        acc.done()?;
+        let (image, _) = image.unwrap();
+        let im = image.as_deref();
+        let mut ext_min = [None; 3];
+        let mut ext_max = [None; 3];
+        for i in 0..3 {
+            ext_min[i] = decimal(self.attr_text(im, &format!("ExtMin{i}"))?.as_deref());
+        }
+        for i in 0..3 {
+            ext_max[i] = decimal(self.attr_text(im, &format!("ExtMax{i}"))?.as_deref());
+        }
+        let unit_text = self.attr_text(im, "Unit")?;
+        let mut name = self.attr_text(im, "Name")?;
+        if name.as_ref().is_some_and(|n| n.len() > self.rules.limit("max_name") as usize) {
+            name = None;
+        }
+        let mut labels = Vec::new();
+        let mut colors = Vec::new();
+        let mut ranges = Vec::new();
+        let mut acc = Acc::default();
+        for (c, g) in groups.into_iter().enumerate() {
+            let (attrs, links) = g.unwrap();
+            let a = attrs.as_deref();
+            let label = self.attr_text(a, "Name")?;
+            labels.push(match label {
+                Some(l) if !l.is_empty() && l.len() <= self.rules.limit("max_name") as usize => l,
+                _ => format!("Channel {c}"),
+            });
+            let color = self.channel_color(a, links.as_deref());
+            match acc.take(color) {
+                Some(col) => colors.push(col),
+                None => colors.push(String::new()),
+            }
+            if acc.stopped() {
+                break;
+            }
+            ranges.push(decimals(self.attr_text(a, "ColorRange")?.as_deref(), 2));
+        }
+        acc.done()?;
+        let (time_attrs, _) = time.unwrap();
+        let mut period = None;
+        if times > 1 {
+            let ta = time_attrs.as_deref();
+            let first = timestamp(self.attr_text(ta, "TimePoint1")?.as_deref());
+            let last = timestamp(self.attr_text(ta, &format!("TimePoint{times}"))?.as_deref());
+            if let (Some(f), Some(l)) = (first, last) {
+                let elapsed = (l.0 - f.0) as f64 + (l.1 - f.1);
+                if elapsed > 0.0 {
+                    period = Some(elapsed / (times - 1) as f64);
+                }
+            }
+        }
+        Ok(Meta { ext_min, ext_max, unit_text, name, labels, colors, ranges, period })
+    }
+
+    /// A group's attributes and links, or none if it is missing.
+    #[allow(clippy::type_complexity)]
+    fn meta_group(&mut self, meta: Option<&Links>, name: &str) -> R<(Option<Rc<hdf5::Attrs>>, Option<Rc<Links>>)> {
+        let Some(meta) = meta else { return Ok((None, None)) };
+        let Some(at) = self.group(meta, name, false)? else { return Ok((None, None)) };
+        let mut acc = Acc::default();
+        let links = acc.take(self.h.links(at));
+        let attrs = if acc.stopped() { None } else { acc.take(self.h.attributes(at)) };
+        acc.done()?;
+        Ok((attrs, links))
+    }
+
+    /// A channel's omero color (spec/virtualize/ims.md §4).
+    fn channel_color(&mut self, attrs: Option<&hdf5::Attrs>, links: Option<&Links>) -> R<String> {
+        let base = unit_rgb(decimals(self.attr_text(attrs, "Color")?.as_deref(), 3).as_deref());
+        let mode = self.optional_text(attrs, "ColorMode")?;
+        let table_first = mode.as_deref().is_some_and(|m| m.trim_matches(WS) == "TableColor");
+        if base.is_some() && !table_first {
+            return Ok(base.unwrap());
+        }
+        let length = integer(self.optional_text(attrs, "ColorTableLength")?.as_deref());
+        let table = match length {
+            Some(l) => decimals(self.color_table(attrs, links)?.as_deref(), 3 * l),
+            None => None,
+        };
+        let top = table.as_ref().and_then(|t| unit_rgb(Some(&t[t.len() - 3..])));
+        Ok(top.or(base).unwrap_or_else(|| "FFFFFF".into()))
+    }
+
+    /// A channel's ColorTable, as text: its attribute, else the small string dataset its link
+    /// leads to; None if neither can be read, never rejecting (spec/virtualize/ims.md §3).
+    fn color_table(&mut self, attrs: Option<&hdf5::Attrs>, links: Option<&Links>) -> R<Option<String>> {
+        if attrs.is_some_and(|a| a.get("ColorTable").is_some()) {
+            return self.optional_text(attrs, "ColorTable");
+        }
+        let Some(links) = links.filter(|l| l.has("ColorTable")) else { return Ok(None) };
+        let max = self.rules.limit("max_color_table") as u128;
+        let r = (|| -> R<Option<String>> {
+            let at = self.h.follow(links, b"ColorTable")?;
+            self.core.insert(at);
+            let ds = self.h.dataset(at, true)?;
+            if ds.datatype.cls != 3 || ds.filters.len() > 0 || !matches!(ds.layout, hdf5::Layout::Compact | hdf5::Layout::Contiguous) {
+                return Ok(None);
+            }
+            let n = hdf5::product(&ds.dims).saturating_mul(ds.datatype.size as u128);
+            if n > max {
+                return Ok(None);
+            }
+            let n = n as u64;
+            let data = if ds.layout == hdf5::Layout::Compact {
+                if ds.compact.1.len() as u64 != n {
+                    return Ok(None);
+                }
+                ds.compact.1.clone()
+            } else {
+                let Some(a) = ds.contiguous.0 else { return Ok(None) };
+                if a as u128 + n as u128 > self.h.size() as u128 {
+                    return Ok(None);
+                }
+                self.h.read(a, n)?
+            };
+            Ok(Some(decode_text(&data)))
+        })();
+        Ok(lenient(r)?.flatten())
+    }
+
+    /// The facts the projection writes (spec/virtualize/ims.md §4).
+    fn output(&self, level_info: &[([u64; 3], [u64; 3], bool)], data_type: &(String, Option<&'static str>, Option<(i64, i64)>), meta: Meta,
+              levels: u64, times: u64, channels: u64) -> R<J> {
+        let z0 = level_info[0].0[0];
+        let has_z = z0 > 1 || level_info.iter().any(|i| i.1[0] > 1);
+        let mut axes: Vec<&str> = Vec::new();
+        if times > 1 {
+            axes.push("t");
+        }
+        if channels > 1 {
+            axes.push("c");
+        }
+        if has_z {
+            axes.push("z");
+        }
+        axes.extend(["y", "x"]);
+        let most = level_info.iter().map(|i| i.0[0]).max().unwrap_or(1);
+        self.check("z_levels", rules::env([("z0", num(z0 as f64)), ("most", num(most as f64))]))?;
+        let unit = match meta.unit_text.as_deref() {
+            None | Some("") => Some("micrometer"),
+            Some(u) => length_unit(u),
+        };
+        let mut extent: HashMap<&str, f64> = HashMap::new();
+        for (axis, i) in [("x", 0usize), ("y", 1), ("z", 2)] {
+            if let (Some(lo), Some(hi)) = (meta.ext_min[i], meta.ext_max[i]) {
+                let e = hi - lo;
+                self.check("extent", rules::env([("i", num(i as f64)), ("finite", flag(e.is_finite()))]))?;
+                if e > 0.0 {
+                    extent.insert(axis, e);
+                }
+            }
+        }
+        let spatial: Vec<&str> = axes.iter().copied().filter(|a| matches!(*a, "z" | "y" | "x")).collect();
+        let mut units = Map::new();
+        units.insert("t".into(), meta.period.map_or(J::Null, |_| json!("second")));
+        for a in &spatial {
+            units.insert((*a).into(), if extent.contains_key(a) { unit.map_or(J::Null, |u| json!(u)) } else { J::Null });
+        }
+        let mut scales = Vec::new();
+        let mut arrays = Vec::new();
+        for (sizes, chunk, compressed) in level_info {
+            let n = |a: &str| match a {
+                "z" => sizes[0],
+                "y" => sizes[1],
+                _ => sizes[2],
+            };
+            let scale: Vec<J> = axes
+                .iter()
+                .map(|a| match *a {
+                    "t" => meta.period.map_or(json!(1), jf),
+                    "c" => json!(1),
+                    a => extent.get(a).map_or(json!(1), |e| jf(e / n(a) as f64)),
+                })
+                .collect();
+            scales.push(J::Array(scale));
+            let shape: Vec<u64> = axes.iter().map(|a| match *a {
+                "t" => times,
+                "c" => channels,
+                a => n(a),
+            }).collect();
+            let chunks: Vec<u64> = axes.iter().map(|a| match *a {
+                "t" | "c" => 1,
+                "z" => chunk[0],
+                "y" => chunk[1],
+                _ => chunk[2],
+            }).collect();
+            let mut codecs = vec![match data_type.1 {
+                Some(e) => json!({"name": "bytes", "configuration": {"endian": e}}),
+                None => json!({"name": "bytes"}),
+            }];
+            if *compressed {
+                codecs.push(json!({"name": "zlib", "configuration": {"level": 1}}));
+            }
+            arrays.push(json!({"shape": shape, "chunks": chunks, "codecs": codecs}));
+        }
+        let translations = if spatial.iter().all(|a| extent.contains_key(a)) {
+            let t: Vec<J> = axes
+                .iter()
+                .map(|a| match *a {
+                    "x" => jf(meta.ext_min[0].unwrap()),
+                    "y" => jf(meta.ext_min[1].unwrap()),
+                    "z" => jf(meta.ext_min[2].unwrap()),
+                    _ => json!(0),
+                })
+                .collect();
+            J::Array(vec![J::Array(t); levels as usize])
+        } else {
+            J::Null
+        };
+        let mut omero = J::Null;
+        if channels <= self.rules.limit("max_channels") as u64 {
+            let mut chs = Vec::new();
+            for (k, label) in meta.labels.iter().enumerate() {
+                let rng = meta.ranges.get(k).cloned().flatten();
+                let mut ch = Map::new();
+                ch.insert("label".into(), json!(label));
+                ch.insert("color".into(), json!(meta.colors[k]));
+                ch.insert("active".into(), json!(true));
+                match (data_type.2, rng) {
+                    (Some((lo, hi)), Some(r)) => {
+                        ch.insert("window".into(), json!({"min": lo, "max": hi, "start": jf(r[0]), "end": jf(r[1])}));
+                    }
+                    (Some((lo, hi)), None) => {
+                        ch.insert("window".into(), json!({"min": lo, "max": hi, "start": lo, "end": hi}));
+                    }
+                    (None, Some(r)) => {
+                        ch.insert("window".into(), json!({"min": jf(r[0]), "max": jf(r[1]), "start": jf(r[0]), "end": jf(r[1])}));
+                    }
+                    (None, None) => {}
+                }
+                chs.push(J::Object(ch));
+            }
+            omero = json!({"channels": chs});
+        }
+        let name = meta.name.filter(|n| !n.is_empty()).map_or(J::Null, |n| json!(n));
+        Ok(json!({
+            "axes": axes,
+            "units": units,
+            "scales": scales,
+            "name": name,
+            "translations": translations,
+            "omero": omero,
+            "dtype": data_type.0,
+            "arrays": arrays,
+            "summary": {
+                "levels": levels,
+                "sizes": {"t": times, "c": channels, "z": level_info[0].0[0], "y": level_info[0].0[1], "x": level_info[0].0[2]},
+                "dataType": data_type.0,
+                "chunkShape": level_info[0].1,
+                "compressed": level_info.iter().map(|i| i.2).collect::<Vec<_>>(),
+                "channels": meta.labels,
+            },
+        }))
+    }
+
+    // ---- phase 2: the walk
+
+    /// An object as far as the reader can read it: its header, links, attributes, dataset,
+    /// chunks and the global heap collections its attributes name (never rejecting).
+    fn visit(&mut self, at: u64) -> R<Visit> {
+        let Some(header) = lenient(self.h.header(at))? else { return Ok(Visit::default()) };
+        let mut acc = Acc::default();
+        let is_group = header.has(hdf5::SYMBOL_TABLE) || header.has(hdf5::LINK_INFO);
+        let is_ds = header.has(hdf5::LAYOUT);
+        let links = if is_group { acc.take(lenient(self.h.links(at))).flatten() } else { None };
+        let attrs = acc.take(lenient(self.h.attributes(at))).flatten();
+        let ds = if is_ds { acc.take(lenient(self.h.dataset(at, true))).flatten() } else { None };
+        let chunks = match &ds {
+            Some(d) if d.layout == hdf5::Layout::Chunked => {
+                let d = d.clone();
+                acc.take(lenient(self.h.chunks(at, &d, true))).flatten()
+            }
+            _ => None,
+        };
+        acc.done()?;
+        let mut collections = Vec::new();
+        if let Some(a) = &attrs {
+            let mut addrs = BTreeSet::new();
+            for attr in &a.list {
+                let Ok(p) = hdf5::attribute_parts_at(&attr.data) else { continue };
+                if p.flags & 3 != 0 {
+                    continue;
+                }
+                let d = &attr.data;
+                let (Ok(dt), Ok(space)) = (
+                    hdf5::parse_datatype(&d[p.datatype.0 as usize..(p.datatype.0 + p.datatype.1) as usize]),
+                    hdf5::parse_dataspace(&d[p.dataspace.0 as usize..(p.dataspace.0 + p.dataspace.1) as usize]),
+                ) else {
+                    continue;
+                };
+                let Some(dims) = space.dims else { continue };
+                let (step, off) = match (dt.cls, dt.size) {
+                    (9, 16) => (16u64, 4u64),
+                    (7, 12) if dt.bits & 15 == 1 => (12, 0),
+                    _ => continue,
+                };
+                let count = hdf5::product(&dims);
+                if p.data as u128 + count * step as u128 > d.len() as u128 {
+                    continue;
+                }
+                for k in 0..count as u64 {
+                    let o = (p.data + k * step + off) as usize;
+                    if let Ok(Some(a)) = address(le(d, o, 8).unwrap_or(hdf5::UNDEFINED)) {
+                        if a != 0 && addrs.len() < 4096 {
+                            addrs.insert(a);
+                        }
+                    }
+                }
+            }
+            let mut acc = Acc::default();
+            for a in addrs {
+                if let Some(Some(c)) = acc.take(lenient(self.h.collection(a))) {
+                    collections.push(c);
+                }
+            }
+            acc.done()?;
+        }
+        Ok(Visit { header: Some(header), links, attrs, ds, chunks, collections })
+    }
+
+    fn walk(&mut self) -> R<()> {
+        let sb = self.h.superblock()?;
+        if self.depth == 0 && self.level.is_empty() {
+            self.level = self.core.iter().copied().collect();
+            if !self.level.contains(&sb.root) {
+                self.level.insert(0, sb.root);
+            }
+        }
+        if self.extension.is_none() {
+            if let Some(e) = sb.extension {
+                let mut acc = Acc::default();
+                let h = acc.take(lenient(self.h.header(e)));
+                acc.done()?;
+                self.extension = Some(Visit { header: h.flatten(), ..Default::default() });
+            } else {
+                self.extension = Some(Visit::default());
+            }
+        }
+        let budget = self.rules.limit("walk_objects") as u64 + self.rules.limit("walk_per_image") as u64 * self.images;
+        let max_depth = self.rules.limit("walk_depth") as u64;
+        loop {
+            let mut acc = Acc::default();
+            for at in self.level.clone() {
+                if self.visited.contains_key(&at) {
+                    continue;
+                }
+                if let Some(v) = acc.take(self.visit(at)) {
+                    self.visited.insert(at, v);
+                }
+            }
+            acc.done()?;
+            self.depth += 1;
+            if self.depth > max_depth {
+                return Ok(());
+            }
+            let mut next = BTreeSet::new();
+            for at in &self.level {
+                if let Some(l) = self.visited.get(at).and_then(|v| v.links.as_ref()) {
+                    for (_, t) in &l.list {
+                        if let Target::Hard(a) = t {
+                            if !self.visited.contains_key(a) {
+                                next.insert(*a);
+                            }
+                        }
+                    }
+                }
+            }
+            let room = budget.saturating_sub(self.visited.len() as u64) as usize;
+            let next: Vec<u64> = next.into_iter().take(room).collect();
+            if next.is_empty() {
+                return Ok(());
+            }
+            self.level = next;
+        }
+    }
+
+    // ---- the IR
+
+    pub fn finish(mut self) -> Result<(Ir, J), String> {
+        if self.phase != Phase::Done {
+            return Err("internal: the parse is not done".into());
+        }
+        let mut e = Emit { ir: Ir::new(self.h.size()), h: &self.h, chunk_el: HashMap::new() };
+        let sb = self.h.sb.clone().ok_or("internal: no superblock")?;
+        e.superblock(&sb)?;
+        if let Some(ext) = self.extension.take() {
+            if let Some(h) = &ext.header {
+                let s = e.ir.struct_(0, "superblock_extension", NO_INDEX, 0, None)?;
+                e.header(s, h)?;
+            }
+        }
+        // objects, depth first from the root group, links in ascending byte order of names
+        let mut order = Vec::new();
+        let mut seen = HashSet::new();
+        let mut stack = vec![sb.root];
+        while let Some(at) = stack.pop() {
+            if !self.visited.contains_key(&at) || !seen.insert(at) {
+                continue;
+            }
+            order.push(at);
+            if let Some(l) = &self.visited[&at].links {
+                let mut kids: Vec<(&Vec<u8>, u64)> =
+                    l.list.iter().filter_map(|(n, t)| if let Target::Hard(a) = t { Some((n, *a)) } else { None }).collect();
+                kids.sort();
+                for (_, a) in kids.into_iter().rev() {
+                    if !seen.contains(&a) {
+                        stack.push(a);
+                    }
+                }
+            }
+        }
+        let mut rest: Vec<u64> = self.visited.keys().copied().filter(|a| !seen.contains(a)).collect();
+        rest.sort_unstable();
+        order.extend(rest);
+        let objects = e.ir.struct_(0, "objects", NO_INDEX, 0, None)?;
+        let mut collections: BTreeMap<u64, Rc<hdf5::Collection>> = BTreeMap::new();
+        for (i, at) in order.iter().enumerate() {
+            let v = &self.visited[at];
+            let o = e.ir.struct_(objects, "", i as u64, 0, None)?;
+            e.object(o, *at, v)?;
+            for c in &v.collections {
+                collections.insert(c.at, c.clone());
+            }
+        }
+        if !collections.is_empty() {
+            let g = e.ir.struct_(0, "global_heaps", NO_INDEX, 0, None)?;
+            for (k, c) in collections.values().enumerate() {
+                e.collection(g, k as u64, c)?;
+            }
+        }
+        // the image's chunks, by the elements that hold them
+        let mut refs = Vec::new();
+        for ch in &self.chunks {
+            let el = e.chunk_el.get(&(ch.dataset, ch.index)).copied();
+            let Some(el) = el else {
+                return Err(format!("internal: no element for the chunk {} at {}+{}", ch.key, ch.at, ch.size));
+            };
+            refs.push(json!([ch.key, el]));
+        }
+        let mut ir = e.ir;
+        ir.sort_values();
+        check::finish(&mut ir)?;
+        let mut facts = self.facts.take().unwrap_or(J::Null);
+        facts["chunks"] = J::Array(refs);
+        facts["objects"] = json!(order.len());
+        facts["requests"] = json!(self.requests);
+        facts["requested"] = json!(self.requested);
+        facts["rounds"] = json!(self.rounds);
+        Ok((ir, facts))
+    }
+}
+
+struct Meta {
+    ext_min: [Option<f64>; 3],
+    ext_max: [Option<f64>; 3],
+    unit_text: Option<String>,
+    name: Option<String>,
+    labels: Vec<String>,
+    colors: Vec<String>,
+    ranges: Vec<Option<Vec<f64>>>,
+    period: Option<f64>,
+}
+
+/// The IR's emission from what the phases read.
+struct Emit<'a> {
+    ir: Ir,
+    h: &'a H5,
+    /// (dataset header, row-major chunk index) -> its data element
+    chunk_el: HashMap<(u64, u128), u32>,
+}
+
+type Res<T> = Result<T, String>;
+
+fn num_type(code: char, size: u64, big: bool) -> String {
+    if size == 1 {
+        format!("{code}1")
+    } else {
+        format!("{}{code}{size}", if big { ">" } else { "<" })
+    }
+}
+
+impl Emit<'_> {
+    /// A value of `ty` over `[o, o + n)`, with its bytes when the view may show it.
+    fn val(&mut self, parent: u32, name: &str, nidx: u64, ty: &str, o: u64, n: u64) -> Res<Option<u32>> {
+        if n == 0 || !self.h.src.within(o, n) {
+            return Ok(None);
+        }
+        let raw = if n <= 1024 && !ty.starts_with("bytes") { self.h.src.store.get(o, n).map(|b| b.to_vec()) } else { None };
+        Ok(Some(self.ir.value(parent, name, nidx, ty, 0, (o, n), raw.as_deref())?))
+    }
+
+    fn bytes(&mut self, parent: u32, name: &str, nidx: u64, o: u64, n: u64) -> Res<Option<u32>> {
+        self.val(parent, name, nidx, &format!("bytes[{n}]"), o, n)
+    }
+
+    fn superblock(&mut self, sb: &hdf5::Super) -> Res<()> {
+        let ty = match (sb.version, sb.len) {
+            (2 | 3, 48) => "{signature:bytes[8],version:u1,offset_size:u1,length_size:u1,flags:u1,base:<u8,extension:<u8,eof:<u8,root:<u8,checksum:<u4}".to_string(),
+            (0 | 1, n) if n == 96 || n == 100 => format!(
+                "{{signature:bytes[8],version:u1,free_space_version:u1,root_version:u1,reserved:u1,shared_header_version:u1,offset_size:u1,length_size:u1,reserved1:u1,leaf_k:<u2,internal_k:<u2,flags:<u4{},base:<u8,free_space:<u8,eof:<u8,driver:<u8,root_name:<u8,root_header:<u8,root_cache_type:<u4,root_reserved:<u4,root_scratch:bytes[16]}}",
+                if n == 100 { ",indexed_k:<u2,reserved2:<u2" } else { "" }
+            ),
+            (_, n) => format!("bytes[{n}]"),
+        };
+        self.val(0, "superblock", NO_INDEX, &ty, 0, sb.len)?;
+        Ok(())
+    }
+
+    /// An object header's prefix, blocks and messages.
+    fn header(&mut self, parent: u32, h: &Header) -> Res<()> {
+        let ty = if h.v2 {
+            let mut t = String::from("{signature:ascii[4],version:u1,flags:u1");
+            if h.flags & 0x20 != 0 {
+                t.push_str(",times:<u4[4]");
+            }
+            if h.flags & 0x10 != 0 {
+                t.push_str(",phase:<u2[2]");
+            }
+            t.push_str(&format!(",size:{}}}", num_type('u', 1 << (h.flags & 3), false)));
+            t
+        } else {
+            "{version:u1,reserved:u1,messages:<u2,references:<u4,size:<u4,padding:bytes[4]}".to_string()
+        };
+        self.val(parent, "prefix", NO_INDEX, &ty, h.at, h.prefix)?;
+        if h.v2 {
+            let (s, n) = h.blocks[0];
+            self.val(parent, "checksum", NO_INDEX, "<u4", s + n, 4)?;
+            if h.blocks.len() > 1 {
+                let b = self.ir.struct_(parent, "blocks", NO_INDEX, 0, None)?;
+                for (j, &(s, n)) in h.blocks.iter().enumerate().skip(1) {
+                    let k = self.ir.struct_(b, "", j as u64, 0, None)?;
+                    self.val(k, "signature", NO_INDEX, "ascii[4]", s - 4, 4)?;
+                    self.val(k, "checksum", NO_INDEX, "<u4", s + n, 4)?;
+                }
+            }
+        }
+        if h.msgs.is_empty() {
+            return Ok(());
+        }
+        let ms = self.ir.struct_(parent, "messages", NO_INDEX, 0, None)?;
+        let mty = match h.mh {
+            8 => "{type:<u2,size:<u2,flags:u1,reserved:bytes[3]}",
+            6 => "{type:u1,size:<u2,flags:u1,order:<u2}",
+            _ => "{type:u1,size:<u2,flags:u1}",
+        };
+        for (k, m) in h.msgs.iter().enumerate() {
+            let s = self.ir.struct_(ms, "", k as u64, 0, None)?;
+            self.val(s, "header", NO_INDEX, mty, m.head, h.mh)?;
+            let n = m.data.len() as u64;
+            match m.ty {
+                hdf5::ATTRIBUTE if m.flags & 2 == 0 => self.attribute(s, "data", NO_INDEX, m.at, &m.data)?,
+                hdf5::LINK if m.flags & 2 == 0 => self.link(s, "data", NO_INDEX, m.at, &m.data)?,
+                _ => {
+                    self.bytes(s, "data", NO_INDEX, m.at, n)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// An attribute message (in a header, or a heap's object) at `at`: its parts.
+    fn attribute(&mut self, parent: u32, name: &str, nidx: u64, at: u64, d: &[u8]) -> Res<()> {
+        let Ok(p) = hdf5::attribute_parts_at(d) else {
+            self.bytes(parent, name, nidx, at, d.len() as u64)?;
+            return Ok(());
+        };
+        let s = self.ir.struct_(parent, name, nidx, 0, None)?;
+        let pre = if p.name.0 == 9 {
+            "{version:u1,flags:u1,name_size:<u2,datatype_size:<u2,dataspace_size:<u2,encoding:u1}"
+        } else {
+            "{version:u1,flags:u1,name_size:<u2,datatype_size:<u2,dataspace_size:<u2}"
+        };
+        self.val(s, "prelude", NO_INDEX, pre, at, p.name.0)?;
+        self.val(s, "name", NO_INDEX, &format!("cstr[{}]", p.name.1), at + p.name.0, p.name.1)?;
+        self.bytes(s, "datatype", NO_INDEX, at + p.datatype.0, p.datatype.1)?;
+        self.bytes(s, "dataspace", NO_INDEX, at + p.dataspace.0, p.dataspace.1)?;
+        if p.flags & 3 != 0 {
+            let rest = d.len() as u64 - p.data;
+            self.bytes(s, "value", NO_INDEX, at + p.data, rest)?;
+            return Ok(());
+        }
+        let dt = hdf5::parse_datatype(&d[p.datatype.0 as usize..(p.datatype.0 + p.datatype.1) as usize]);
+        let space = hdf5::parse_dataspace(&d[p.dataspace.0 as usize..(p.dataspace.0 + p.dataspace.1) as usize]);
+        let (Ok(dt), Ok(space)) = (dt, space) else {
+            self.bytes(s, "value", NO_INDEX, at + p.data, d.len() as u64 - p.data)?;
+            return Ok(());
+        };
+        let Some(dims) = space.dims else { return Ok(()) };
+        let count = hdf5::product(&dims);
+        let n = count.saturating_mul(dt.size as u128);
+        if p.data as u128 + n > d.len() as u128 || n == 0 {
+            self.bytes(s, "value", NO_INDEX, at + p.data, d.len() as u64 - p.data)?;
+            return Ok(());
+        }
+        let n = n as u64;
+        let big = dt.bits & 1 != 0;
+        let plain = |dt: &hdf5::Datatype| le(&dt.props, 0, 2).ok() == Some(0) && le(&dt.props, 2, 2).ok() == Some(8 * dt.size);
+        let ieee = |dt: &hdf5::Datatype, e: [u8; 4], bias: u64, sign: u32| {
+            dt.bits & 0x40 == 0
+                && (dt.bits >> 4) & 3 == 2
+                && (dt.bits >> 8) & 0xFF == sign
+                && plain(dt)
+                && dt.props.get(4..8) == Some(&e[..])
+                && le(&dt.props, 8, 4).ok() == Some(bias)
+        };
+        let dims_text = if dims.is_empty() { String::new() } else { format!("[{count}]") };
+        let ty = match (dt.cls, dt.size) {
+            (3, _) => format!("ascii[{n}]"),
+            (0, 1 | 2 | 4 | 8) if plain(&dt) => format!("{}{dims_text}", num_type(if dt.bits & 8 != 0 { 'i' } else { 'u' }, dt.size, big)),
+            (1, 4) if ieee(&dt, [23, 8, 0, 23], 127, 31) => format!("{}{dims_text}", num_type('f', 4, big)),
+            (1, 8) if ieee(&dt, [52, 11, 0, 52], 1023, 63) => format!("{}{dims_text}", num_type('f', 8, big)),
+            _ => format!("bytes[{n}]"),
+        };
+        self.val(s, "value", NO_INDEX, &ty, at + p.data, n)?;
+        Ok(())
+    }
+
+    /// A link message at `at`: its fields, name and target.
+    fn link(&mut self, parent: u32, name: &str, nidx: u64, at: u64, d: &[u8]) -> Res<()> {
+        let parsed = (|| -> R<(String, u64, u64, u64, u64)> {
+            if le(d, 0, 1)? != 1 {
+                return hdf5::bad("version");
+            }
+            let flags = le(d, 1, 1)?;
+            let mut t = String::from("{version:u1,flags:u1");
+            let mut p = 2u64;
+            let mut kind = 0;
+            if flags & 8 != 0 {
+                kind = le(d, 2, 1)?;
+                t.push_str(",type:u1");
+                p += 1;
+            }
+            if flags & 4 != 0 {
+                t.push_str(",order:<u8");
+                p += 8;
+            }
+            if flags & 16 != 0 {
+                t.push_str(",charset:u1");
+                p += 1;
+            }
+            let ls = 1u64 << (flags & 3);
+            let nl = le(d, p as usize, ls as usize)?;
+            t.push_str(&format!(",name_size:{}}}", num_type('u', ls, false)));
+            p += ls;
+            if p + nl > d.len() as u64 {
+                return hdf5::bad("truncated");
+            }
+            Ok((t, p, nl, kind, p + nl))
+        })();
+        let Ok((t, p, nl, kind, q)) = parsed else {
+            self.bytes(parent, name, nidx, at, d.len() as u64)?;
+            return Ok(());
+        };
+        let s = self.ir.struct_(parent, name, nidx, 0, None)?;
+        self.val(s, "fields", NO_INDEX, &t, at, p)?;
+        self.val(s, "name", NO_INDEX, &format!("cstr[{nl}]"), at + p, nl)?;
+        let rest = d.len() as u64 - q;
+        let m = if rest >= 2 { le(d, q as usize, 2).unwrap_or(0) } else { 0 };
+        let target = match kind {
+            0 if rest >= 8 => Some(("<u8".to_string(), 8)),
+            1 if rest >= 2 + m => Some((format!("{{size:<u2,path:ascii[{m}]}}"), 2 + m)),
+            k if k > 1 && rest >= 2 + m => Some((format!("{{size:<u2,value:bytes[{m}]}}"), 2 + m)),
+            _ => None,
+        };
+        match target {
+            Some((ty, n)) if !(kind == 1 && m == 0) && !(kind > 1 && m == 0) => {
+                self.val(s, "target", NO_INDEX, &ty, at + q, n)?;
+            }
+            Some((_, n)) => {
+                self.val(s, "target", NO_INDEX, "<u2", at + q, n.min(2))?;
+            }
+            None => {
+                self.bytes(s, "target", NO_INDEX, at + q, rest)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn btree2(&mut self, parent: u32, name: &str, t: &hdf5::Bt2) -> Res<()> {
+        let s = self.ir.struct_(parent, name, NO_INDEX, 0, None)?;
+        self.val(
+            s,
+            "header",
+            NO_INDEX,
+            "{signature:ascii[4],version:u1,type:u1,node_size:<u4,record_size:<u2,depth:<u2,split:u1,merge:u1,root:<u8,root_records:<u2,records:<u8,checksum:<u4}",
+            t.at,
+            38,
+        )?;
+        if !t.nodes.is_empty() {
+            let ns = self.ir.struct_(s, "nodes", NO_INDEX, 0, None)?;
+            for (k, &(o, n)) in t.nodes.iter().enumerate() {
+                self.bytes(ns, "", k as u64, o, n)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn fheap(&mut self, parent: u32, heap: u64) -> Res<()> {
+        let s = self.ir.struct_(parent, "heap", NO_INDEX, 0, None)?;
+        self.val(
+            s,
+            "header",
+            NO_INDEX,
+            "{signature:ascii[4],version:u1,id_length:<u2,filter_length:<u2,flags:u1,max_managed:<u4,next_huge_id:<u8,huge_index:<u8,free_space:<u8,free_space_manager:<u8,managed_space:<u8,allocated_space:<u8,iterator_offset:<u8,managed_objects:<u8,huge_size:<u8,huge_objects:<u8,tiny_size:<u8,tiny_objects:<u8,width:<u2,start_block:<u8,max_direct:<u8,max_heap_bits:<u2,start_rows:<u2,root:<u8,rows:<u2,checksum:<u4}",
+            heap,
+            146,
+        )?;
+        if let Some(blocks) = self.h.fh_blocks.get(&heap) {
+            let blocks: Vec<(u64, (bool, u64))> = blocks.iter().map(|(a, b)| (*a, *b)).collect();
+            let bs = self.ir.struct_(s, "blocks", NO_INDEX, 0, None)?;
+            for (k, (a, (_, n))) in blocks.into_iter().enumerate() {
+                self.bytes(bs, "", k as u64, a, n)?;
+            }
+        }
+        if let Some(huge) = self.h.huge_tree(heap) {
+            let t = huge.1.clone();
+            self.btree2(s, "huge_index", &t)?;
+        }
+        Ok(())
+    }
+
+    fn object(&mut self, o: u32, at: u64, v: &Visit) -> Res<()> {
+        let Some(h) = &v.header else { return Ok(()) };
+        self.header(o, h)?;
+        if let Some(l) = &v.links {
+            match &l.storage {
+                hdf5::LinkStorage::Symtab { heap, nodes, snods } => {
+                    let s = self.ir.struct_(o, "symbol_table", NO_INDEX, 0, None)?;
+                    let hp = self.ir.struct_(s, "heap", NO_INDEX, 0, None)?;
+                    self.val(hp, "header", NO_INDEX, "{signature:ascii[4],version:u1,reserved:bytes[3],data_size:<u8,free_list:<u8,data:<u8}", heap.at, 32)?;
+                    self.bytes(hp, "data", NO_INDEX, heap.data_at, heap.data.len() as u64)?;
+                    if !nodes.is_empty() {
+                        let ns = self.ir.struct_(s, "nodes", NO_INDEX, 0, None)?;
+                        for (k, &(a, n)) in nodes.iter().enumerate() {
+                            let x = self.ir.struct_(ns, "", k as u64, 0, None)?;
+                            self.val(x, "header", NO_INDEX, "{signature:ascii[4],type:u1,level:u1,entries:<u2,left:<u8,right:<u8}", a, 24)?;
+                            self.bytes(x, "entries", NO_INDEX, a + 24, n - 24)?;
+                        }
+                    }
+                    if !snods.is_empty() {
+                        let ss = self.ir.struct_(s, "snods", NO_INDEX, 0, None)?;
+                        for (k, &(a, n)) in snods.iter().enumerate() {
+                            let x = self.ir.struct_(ss, "", k as u64, 0, None)?;
+                            self.val(x, "header", NO_INDEX, "{signature:ascii[4],version:u1,reserved:u1,entries:<u2}", a, 8)?;
+                            let c = (n - 8) / 40;
+                            if c > 0 {
+                                self.val(x, "entries", NO_INDEX, &format!("{{name:<u8,header:<u8,cache_type:<u4,reserved:<u4,scratch:bytes[16]}}[{c}]"), a + 8, n - 8)?;
+                            }
+                        }
+                    }
+                }
+                hdf5::LinkStorage::Compact => {}
+                hdf5::LinkStorage::Dense { heap, index, objects } => {
+                    let s = self.ir.struct_(o, "links", NO_INDEX, 0, None)?;
+                    self.fheap(s, *heap)?;
+                    self.btree2(s, "index", index)?;
+                    let items = self.ir.struct_(s, "items", NO_INDEX, 0, None)?;
+                    for (k, &(a, n)) in objects.iter().enumerate() {
+                        if let Some(d) = self.h.src.store.get(a, n).map(|b| b.to_vec()) {
+                            self.link(items, "", k as u64, a, &d)?;
+                        } else {
+                            self.bytes(items, "", k as u64, a, n)?;
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(a) = &v.attrs {
+            if let Some((heap, index)) = &a.dense {
+                let s = self.ir.struct_(o, "attributes", NO_INDEX, 0, None)?;
+                self.fheap(s, *heap)?;
+                self.btree2(s, "index", index)?;
+                let items = self.ir.struct_(s, "items", NO_INDEX, 0, None)?;
+                for (k, attr) in a.list.iter().filter(|x| x.dense).enumerate() {
+                    self.attribute(items, "", k as u64, attr.at, &attr.data)?;
+                }
+            }
+        }
+        if let Some(ds) = &v.ds {
+            if let Some(ch) = &v.chunks {
+                if !ch.parts.is_empty() {
+                    let s = self.ir.struct_(o, "index", NO_INDEX, 0, None)?;
+                    let mut groups: BTreeMap<&str, (u32, u64)> = BTreeMap::new();
+                    for &(what, a, n) in &ch.parts {
+                        let key = match what {
+                            "header" => "headers",
+                            "node" => "nodes",
+                            "data_block" => "data_blocks",
+                            "index_block" => "index_blocks",
+                            "super_block" => "super_blocks",
+                            _ => "pages",
+                        };
+                        let g = match groups.get(key) {
+                            Some(&g) => g,
+                            None => {
+                                let id = self.ir.struct_(s, key, NO_INDEX, 0, None)?;
+                                groups.insert(key, (id, 0));
+                                (id, 0)
+                            }
+                        };
+                        self.bytes(g.0, "", g.1, a, n)?;
+                        groups.get_mut(key).unwrap().1 += 1;
+                    }
+                }
+                if !ch.list.is_empty() {
+                    let s = self.ir.struct_(o, "chunks", NO_INDEX, 0, None)?;
+                    let base = json!({"geometry": {"chunk": ds.chunk, "size": ds.datatype.size}, "codec": {"filters": ds.filters}, "recipe": [["src", 0, null]]});
+                    let plain = base.to_string();
+                    let mut sorted: Vec<(u128, &(Vec<u64>, u64, u64, u32))> =
+                        ch.list.iter().map(|c| (hdf5::ravel(&c.0, &ds.grid), c)).collect();
+                    sorted.sort_by_key(|x| x.0);
+                    for (idx, (_, a, n, mask)) in sorted {
+                        let form = if *mask == 0 {
+                            plain.clone()
+                        } else {
+                            let mut f = base.clone();
+                            f["codec"]["mask"] = json!(mask);
+                            f.to_string()
+                        };
+                        let el = self.ir.data(s, "", idx as u64, 0, (*a, *n), &form)?;
+                        self.chunk_el.insert((at, idx), el);
+                    }
+                }
+            }
+            if ds.layout == hdf5::Layout::Contiguous {
+                if let (Some(a), n) = ds.contiguous {
+                    if n > 0 && self.h.src.within(a, n) {
+                        let form = json!({"geometry": {"shape": ds.dims, "size": ds.datatype.size}, "codec": {"filters": ds.filters}, "recipe": [["src", 0, null]]});
+                        self.ir.data(o, "data", NO_INDEX, 0, (a, n), &form.to_string())?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn collection(&mut self, parent: u32, k: u64, c: &hdf5::Collection) -> Res<()> {
+        let s = self.ir.struct_(parent, "", k, 0, None)?;
+        self.val(s, "header", NO_INDEX, "{signature:ascii[4],version:u1,reserved:bytes[3],size:<u8}", c.at, 16)?;
+        let mut objs = None;
+        let oty = "{index:<u2,references:<u2,reserved:bytes[4],size:<u8}";
+        for (p, &(i, a, n)) in c.order.iter().enumerate() {
+            if i == 0 {
+                let f = self.ir.struct_(s, "free", NO_INDEX, 0, None)?;
+                self.val(f, "header", NO_INDEX, oty, a, 16.min(c.at + c.size - a))?;
+                continue;
+            }
+            let os = match objs {
+                Some(x) => x,
+                None => {
+                    let x = self.ir.struct_(s, "objects", NO_INDEX, 0, None)?;
+                    objs = Some(x);
+                    x
+                }
+            };
+            let x = self.ir.struct_(os, "", p as u64, 0, None)?;
+            self.val(x, "header", NO_INDEX, oty, a, 16)?;
+            self.bytes(x, "data", NO_INDEX, a + 16, n)?;
+        }
+        Ok(())
+    }
+}
