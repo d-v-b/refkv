@@ -99,7 +99,7 @@
         },
         "revision": {
           "type": "integer",
-          "const": 25,
+          "const": 26,
           "description": "The spec/virtualize.md revision that produced the hierarchy (version 0 only)"
         },
         "source": {
@@ -356,6 +356,11 @@
               "type": "integer",
               "minimum": 0,
               "description": "The source's size in bytes"
+            },
+            "objects": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "A store IR's objects (spec/conventions.md §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>); a file IR has none"
             },
             "elements": {
               "type": "integer",

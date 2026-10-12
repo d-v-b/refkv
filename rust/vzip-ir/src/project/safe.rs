@@ -141,7 +141,8 @@ pub fn project(_ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         let (k, size) = (o[0].as_str().unwrap_or("").to_string(), n(&o[1]));
         refs.push((object_key(&k), vec![Pre::Part(Part::Obj(k, 0, size))]));
     }
-    // the data sources, numbered by first use in the order of the entries' keys (§12.8)
+    // the data sources, numbered by first use in the order of the entries' keys (§12.8
+    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#128-the-source-table>)
     refs.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
     for (key, pre) in refs {
         let parts: Vec<Part> = pre.into_iter().map(|p| match p {

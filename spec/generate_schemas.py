@@ -516,7 +516,7 @@ _MEASURE = {"anyOf": [{"type": ["number", "string"]}, {
     "required": ["value", "unit"], "additionalProperties": False}]}
 _VALUE = {"type": ["number", "string"]}
 _RECORDS = {"type": "array", "items": {"type": "object", "additionalProperties": _VALUE}, "minItems": 1}
-SOURCE_METADATA["safe"] = {"oneOf": [
+SOURCE_METADATA["safe"] = {"anyOf": [
     {
         "type": "object",
         "description": "The root's: the product's identity, from the product and tile metadata (§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)",
@@ -552,18 +552,17 @@ SOURCE_METADATA["safe"] = {"oneOf": [
     },
     {
         "type": "object",
-        "description": "vzip_source's: the XML documents kept as text, the keys of those kept as arrays, of the empty "
-                       "objects, the empty directories, and the keys of the ignored objects (§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)",
+        "description": "vzip_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>), "
+                       "the empty directories and the keys of the ignored objects (§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)",
         "properties": {
-            "xml": {"type": "object", "additionalProperties": {"$ref": "#/$defs/text"}, "minProperties": 1},
-            "xml_arrays": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-            "empty": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+            "ir": {"$ref": "#/$defs/mirror/properties/ir"},
             "empty_dirs": {"type": "array", "items": {"type": "string"}, "minItems": 1},
             "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1},
         },
-        "anyOf": [{"required": ["xml"]}, {"required": ["xml_arrays"]}],
+        "required": ["ir"],
         "additionalProperties": False,
     },
+    {"$ref": "#/$defs/mirrorView"},
 ]}
 _GUID = {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}
 _DIMENSIONS = {"type": "object", "description": "The Start of each of S, B, H, I, R, V the series key has",
@@ -634,10 +633,10 @@ SOURCE_METADATA["czi"] = {"anyOf": [
     {"$ref": "#/$defs/mirrorView"},
 ]}
 # The IR mirror (spec/conventions.md §8
-# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2
-# and CZI conventions: vzip_source's
+# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2,
+# CZI and SAFE conventions: vzip_source's
 # source metadata, and the view documents of the groups under vzip_source/tree.
-IR_PROFILES = ("tiff", "nd2", "czi")
+IR_PROFILES = ("tiff", "nd2", "czi", "safe")
 MIRROR_DEFS = {
     "mirror": {
         "type": "object",
@@ -647,6 +646,8 @@ MIRROR_DEFS = {
             "properties": {
                 "version": {"const": 2},
                 "size": {"type": "integer", "minimum": 0, "description": "The source's size in bytes"},
+                "objects": {"type": "integer", "minimum": 0,
+                            "description": "A store IR's objects (spec/conventions.md §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>); a file IR has none"},
                 "elements": {"type": "integer", "minimum": 1, "description": "The elements, column runs expanded"},
                 "rows": {"type": "integer", "minimum": 1, "description": "The rows the table stores"},
                 "names": {"type": "array", "items": {"type": "string"}, "minItems": 1,

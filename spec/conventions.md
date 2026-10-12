@@ -620,7 +620,9 @@ objects from the table alone: [§8.9](#89-stores).)
 
 A form is a JSON object: for a data element, `geometry` (the format's
 description of the unit, such as its shape and data type), `codec` and
-`recipe`; for a derived element, the transform and, when known, `size`.
+`recipe`; for a derived element, the transform and, when known, `size`;
+for an object of a store described in place, `{"bytes":"source"}`
+([§8.9](#89-stores)).
 A **recipe** is the bytes of the unit as a list of parts: `["src", o, n]`,
 the `n` bytes (`null`: up to the element's end) at offset `o` from the
 element's start; and `["shared", k]`, shared data source `k` (8.2). The
@@ -861,7 +863,8 @@ by group and member by member, and flags the first group or member missing,
 extra or different. So **a derived transform may hold shown values only if
 validators can derive it again** from source 0: of the transforms the
 parsers emit, `nd2-lv-zlib` and `xml-variant` can, and `gzip` (a CZI's
-compressed attachment, whose space holds nothing) may hold none. A new
+compressed attachment) and `deflate` (a SAFE zip entry's raw deflate stream),
+whose spaces hold nothing, may hold none. A new
 transform that would hold shown values comes with its re-derivation, in a
 revision of this section.
 
@@ -921,8 +924,22 @@ mirror alone rebuilds it. A store's documents (an N5 `attributes.json`, a Zarr
 length and no children is **referenced**: it is a leaf, which claims its whole
 source; the hierarchy references it whole (its convention says at which key,
 such as a chunk object at its own key), and the mirror does not rebuild it. An
-object whose size is 0 is **empty**: no element in it has a length. The
-invariants of 8.1 then become, for a store IR: the elements outside every object
+object whose size is 0 is **empty**: no element in it has a length.
+
+**Described in place.** A held object's bytes are copied into the archive,
+which suits documents, read whole and small. An object that a format reads
+in ranges (a SAFE band file: its boxes, main header and tile-part headers,
+a few kilobytes of a file of up to 160 MB) can be described without being
+held: an object that has children and whose form ([8.5](#85-forms-and-recipes))
+is `{"bytes":"source"}` is **described in place**. Its leaves partition
+`[0, s)` of its bytes, as a held object's do, but the table does not hold its
+bytes: they are its own source's, which a reader reads at the object's URL
+([spec/virtualize.md §1.4](virtualize.md#14-store-inputs)), as it reads a file
+IR's source 0 ([8.4](#84-reading-the-source-back)). A producer reads every value
+the view shows in such an object (its parser holds them). A held object is
+then an object with children that is not described in place.
+
+The invariants of 8.1 then become, for a store IR: the elements outside every object
 are the root and the directories above; each object's leaves (a referenced
 object being its one leaf) partition `[0, s)` of that object, every member of a
 run inside it included; and the objects number `o`, the description's (below).
@@ -941,8 +958,8 @@ object's descendants' starts count from the start of their own source. The
 kinds of rows go to 6. When the IR has held objects, `vzip_source/ir/held` is a
 group of two arrays holding their bytes, `offsets` and `data`, as
 `vzip_source/ir/shared` holds the shared data sources ([8.2](#82-the-table)):
-one byte string per held object, in id order, each the object's `s` bytes. A
-column of encoding 2 ([8.3](#83-column-runs)) is invalid in a store IR (no
+one byte string per held object, in id order, each the object's `s` bytes. An object described in place has its form row (code 2) and no byte string
+in `ir/held`. A column of encoding 2 ([8.3](#83-column-runs)) is invalid in a store IR (no
 profile has a named array rule for stores).
 
 **Limits** (changes to [8.3](#83-column-runs)). A store IR has at most 2^24
@@ -953,7 +970,8 @@ A producer rejects a store past one of these with the message
 `budget: the mirror would have more than N rows` (N in decimal) or
 `budget: the mirror's names would total more than 16777216 bytes`, and a reader
 rejects such a table. A reader also rejects a table whose held objects (objects with
-children and a length) are not as many as `ir/held`'s byte strings, or one of
+children and a length, not described in place) are not as many as `ir/held`'s
+byte strings, or one of
 whose byte strings is not as long as its object.
 
 **Reading the store back** (in place of [8.4](#84-reading-the-source-back)). A
@@ -966,15 +984,21 @@ invariants above, and then has:
   their start, from its byte string in `ir/held`. (The byte string is the object;
   the leaves say what each of its bytes is.)
 
-It reads no source: a referenced object is not rebuilt, since the hierarchy
-references it (a chunk's bytes are the archive's references to the store).
+- **every object described in place, by its elements**: its leaves, which
+  partition it, say what each of its bytes is; its bytes are its source's.
+
+It reads no source to do so: a referenced object is not rebuilt, since the
+hierarchy references it (a chunk's bytes are the archive's references to the
+store), and an object described in place is its own source (the hierarchy
+references its ranges; reading it rebuilds it).
 
 **The view** (changes to [8.7](#87-the-view)). Referenced and empty objects are
 neither shown nor visited (a store's chunk objects would fill the view's budget
 of visits); a held object is shown as a struct is, by its own document; a
 directory whose document would be empty is not shown. A shown value of a held
 object is read from that object's bytes in `ir/held`, so a validator rebuilds
-the view from the archive alone.
+the view from the archive alone; one of an object described in place, from
+that object's source.
 
 **Canonical form** (changes to [8.8](#88-canonical-form)). An object's first
 byte is 0, the start of its source, whether or not it has a length, so the

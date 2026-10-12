@@ -152,7 +152,7 @@ with the first's:
 - `web`: the browser code under Node, `js/conformance/virtualize.ts
   --allow-private-hosts`.
 
-For TIFF, ND2 and CZI, `py` and `web` are one implementation: the Rust core
+For TIFF, ND2, CZI and SAFE, `py` and `web` are one implementation: the Rust core
 `rust/vzip-ir` (its parsers, schemas, read planner, projections and mirror),
 built natively for Python and as wasm32 for the browser, each with a thin host
 (the I/O, and the archive writer). Their `vzip_source` is the IR's mirror,
@@ -160,7 +160,11 @@ which the reference does not write. So, for those profiles:
 
 - `ref` against `py` and `web`, outside `vzip_source`: proves that the IR path
   writes the hierarchy, references and data sources an independent
-  implementation (the frozen one) writes, and rejects the same inputs. It is
+  implementation (the frozen one) writes, and rejects the same inputs. The
+  sources compared are those the other entries use, in order of first use,
+  and references name them by URL or bytes: a store's objects only
+  `vzip_source` referenced, and the order a profile gives its url sources,
+  do not count. It is
   the same check as before the switch-over, with one of its two sides now the
   core.
 - `py` against `web`, entirely (`vzip_source` included): proves that the two
@@ -184,18 +188,25 @@ to that comparison: it loads the table, checks its invariants (conventions
 [§8.4](../../spec/conventions.md#84-reading-the-source-back)), checks that it describes a source of the size source 0 pins, and
 checks that it is canonical (folded again from what it loads, it is the same
 table, entry for entry); a mirror that fails is a crash of the
-implementation that wrote it.
+implementation that wrote it. A store's mirror (SAFE's directory form,
+[conventions §8.9](../../spec/conventions.md#89-stores)) is checked likewise, with
+the store in place of source 0: every held object it rebuilds is the store's
+object byte for byte, every url source pins its object's listed size, it is
+canonical, and its view is the one it rebuilds, the values of an object
+described in place read from that object, each its own range.
 
-**The frozen reference records revision 20.** The frozen TIFF, ND2 and CZI
-profiles have their own revision constant
+**The frozen reference records revision 20 (TIFF, ND2, CZI) or 25 (SAFE).** The
+frozen TIFF, ND2 and CZI profiles have their own revision constant
 (`conformance/virtualize/reference/vzip_reference/revision.py`,
 `conformance/virtualize/reference/ts/revision.ts`), 20, the last revision before the
 mirror, which their roots record with their old `vzip_source`; nothing else
 in them changed (an edit made so that a reference archive does not claim a
 revision it does not implement). `compare.py` compares a reference
 root that records 20 as if it recorded the current revision, so the revision
-number is the one difference it does not report; every other profile's
-reference is the shipped code, which records the current revision.
+number is the one difference it does not report; the frozen SAFE profile records
+25 (`STORES_REVISION`, the last revision before its mirror), read the same way.
+Every other profile's reference is the shipped code, which records the current
+revision.
 
 **The frozen reference stays.** The frozen implementations
 (`conformance/virtualize/reference`, `conformance/virtualize/reference/ts`) are kept

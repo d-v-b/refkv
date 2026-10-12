@@ -27,7 +27,7 @@ fn le64(b: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(b[at..at + 8].try_into().unwrap())
 }
 
-/// A central directory file header, as §12.4 reads it, with where it is.
+/// A central directory file header, as §12.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#124-the-zip-form> reads it, with where it is.
 #[derive(Clone, Debug, Default)]
 pub struct Entry {
     pub name: String,
@@ -225,7 +225,7 @@ pub fn product_entries(entries: &[Entry]) -> Result<Product, String> {
     Ok(Product { root, objects, ignored, dirs })
 }
 
-/// The method checks of the objects (§12.4, Methods), before anything is read: which are
+/// The method checks of the objects (§12.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#124-the-zip-form>, Methods), before anything is read: which are
 /// deflated (an XML document each).
 pub fn methods(rules: &Rules, entries: &[Entry], objects: &[(String, usize)], is_xml: &dyn Fn(&str) -> bool) -> Result<Vec<bool>, String> {
     let mut deflated = vec![false; entries.len()];

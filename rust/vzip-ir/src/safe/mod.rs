@@ -195,7 +195,7 @@ impl Safe {
         self.by_key.get(key).is_some_and(|o| !self.markers.contains(o))
     }
 
-    // ---- the zip form's own structures (§12.4)
+    // ---- the zip form's own structures (§12.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#124-the-zip-form>)
 
     fn zip_step(&mut self) -> Result<(), String> {
         let n = self.size;
@@ -299,7 +299,7 @@ impl Safe {
         Ok(())
     }
 
-    // ---- the product (§2)
+    // ---- the product (§2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#2-the-source>)
 
     fn start(&mut self) -> Result<(), String> {
         let keys: Vec<&str> = self.objs.iter().map(|o| o.key.as_str()).collect();
@@ -399,7 +399,8 @@ impl Safe {
         Ok(())
     }
 
-    /// Each band's resolution and band name, and its chunks' empty tiles, checked (§2.5, §12.6).
+    /// Each band's resolution and band name, and its chunks' empty tiles, checked (§2.5
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#25-band-files>, §12.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#126-chunks>).
     fn finish_bands(&mut self) -> Result<(), String> {
         let geo = self.geo.as_ref().unwrap();
         let mut names: HashSet<(u64, String)> = HashSet::new();
@@ -635,7 +636,8 @@ const ZIP64_END_TYPE: &str = "{signature:<u4,size:<u8,version_made:<u2,version_n
 const ZIP64_LOCATOR_TYPE: &str = "{signature:<u4,cd_disk:<u4,record_offset:<u8,disks:<u4}";
 const END_TYPE: &str = "{signature:<u4,disk:<u2,cd_disk:<u2,entries_here:<u2,entries:<u2,cd_size:<u4,cd_offset:<u4,comment_length:<u2}";
 
-/// A band file's elements under `parent`, its offsets from `base` (spec/virtualize/safe.md §5).
+/// A band file's elements under `parent`, its offsets from `base` (spec/virtualize/safe.md §6.3
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
 fn emit_band(ir: &mut Ir, parent: u32, base: u64, cs: &Codestream) -> Result<(), String> {
     for (i, b) in cs.boxes.iter().enumerate() {
         let bx = ir.struct_(parent, "boxes/", i as u64, 0, Some((base + b.at, b.len)))?;

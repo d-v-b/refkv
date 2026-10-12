@@ -7,8 +7,8 @@ Node, through js/conformance/documents.ts). In each accepted output, every
 node that declares the profile's convention validates against its JSON Schema
 (spec/virtualize/<profile>/schema.json): the root always declares it, with the
 provenance members, and another node only when it has source metadata, with
-only that member. No node has any other attribute besides `ome`. (For TIFF, ND2
-and CZI, `vzip_source` and the groups of its view are the IR mirror of
+only that member. No node has any other attribute besides `ome`. (For TIFF, ND2,
+CZI and SAFE, `vzip_source` and the groups of its view are the IR mirror of
 conventions §8 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>,
 validated by the same schemas.) """
 
@@ -61,7 +61,8 @@ def python_docs(path: Path, url: str):
         return None
     if hasattr(out, "docs"):  # the zarr.json documents (not vzip_source/empty.json, which is not a node's)
         return fmt, {k: v for k, v in out.docs.items() if k.endswith("zarr.json")}
-    return fmt, {k: json.loads(v) for k, v in out.bytes_entries.items() if k.endswith("zarr.json")}
+    entries = out.bytes_entries if hasattr(out, "bytes_entries") else out.entries  # a file's, or a store IR's
+    return fmt, {k: json.loads(v) for k, v in entries.items() if k.endswith("zarr.json")}
 
 
 def declares(doc: dict) -> bool:
