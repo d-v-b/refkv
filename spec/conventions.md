@@ -138,21 +138,21 @@ equivalent hierarchies from the same source.
 
 **The source metadata node.** A file format's metadata that grows with the
 data (one item per frame, plane or channel), and the source's values kept as
-arrays ([§7](#7-source-values-as-arrays)), are on the group `vzip_source`, a child of the root. It declares
-the convention, with its own source metadata, when it has any, and holds the
-arrays at paths the format's convention gives. OME-NGFF readers ignore it.
-Producers SHOULD store its documents so that a reader fetches them only when
-it opens the node (vzip writes them with the chunks, not with the documents
-read when an archive is opened). The node exists only when it has
-source metadata or arrays, or, for the store conventions, other objects of
-the store, which it holds whole under `vzip_source/objects/`, the keys of
-the store's empty objects (OME-Zarr), or the recorded ignored keys. For the
-TIFF, ND2 and CZI conventions,
-`vzip_source` is the source's IR mirror ([§8](#8-the-ir-mirror)), from which the source is
-rebuilt byte for byte; for the Zarr v2 convention (not OME-Zarr, which builds
-on it) and the N5 convention, the store's ([§8.9](#89-stores)), from which the listing and the
-documents read are rebuilt: always present (under a root array, as plain keys
-of the archive).
+arrays ([§7](#7-source-values-as-arrays)), are on the group `vzip_source`, a
+child of the root. It declares the convention, with its own source metadata,
+when it has any, and holds the arrays at paths the format's convention
+gives. OME-NGFF readers ignore it. Producers SHOULD store its documents so
+that a reader fetches them only when it opens the node (vzip writes them
+with the chunks, not with the documents read when an archive is opened). The
+node exists only when it has source metadata or arrays, or, for the store
+conventions, other objects of the store, which it holds whole under
+`vzip_source/objects/`, the keys of the store's empty objects (OME-Zarr), or
+the recorded ignored keys. For the TIFF, ND2 and CZI conventions,
+`vzip_source` is the source's IR mirror ([§8](#8-the-ir-mirror)), from which
+the source is rebuilt byte for byte; for the Zarr v2 convention (not
+OME-Zarr, which builds on it) and the N5 convention, the store's
+([§8.9](#89-stores)), from which the listing and the documents read are
+rebuilt: always present (under a root array, as plain keys of the archive).
 
 **Nothing else.** Outside `vzip_virtualized`, a node's attributes hold only
 members that the hierarchy's target formats define, where the format's
