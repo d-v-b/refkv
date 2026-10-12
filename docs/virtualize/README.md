@@ -181,7 +181,8 @@ each format's metadata is:
   little: a TIFF's byte order and BigTIFF flag, an ND2 file's decoded
   metadata chunks (attributes, experiment, picture metadata, text info) that
   fit its budget, and a CZI file's header.
-- **NDPI:** every tag of every IFD, under `vzip_source/ifds/<i>`.
+- **NDPI:** the IR mirror on `vzip_source`, as for TIFF: every IFD, tag,
+  high word and strip.
 - **DICOM:** the file's attributes, in the DICOM JSON Model, on the root;
   the ones that would make the root large are on `vzip_source`.
 - **NIfTI:** the header, field by field, its extensions and the affine, on
