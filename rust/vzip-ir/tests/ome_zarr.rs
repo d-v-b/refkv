@@ -329,10 +329,17 @@ fn probe_a_document_the_test_reads_outside_the_batch() {
         o.push(("A/1/.zattrs".into(), well.to_vec()));
         o
     };
-    let keys = |o: &[(String, Vec<u8>)]| -> Vec<(String, u64)> { o.iter().map(|(k, b)| (k.clone(), b.len() as u64)).collect() };
+    let keys = |o: &[(String, Vec<u8>)]| -> Vec<(String, u64)> {
+        // in the order of their bytes, as output_of lists them (and keyed to `o`'s order below)
+        let mut k: Vec<(String, u64)> = o.iter().map(|(k, b)| (k.clone(), b.len() as u64)).collect();
+        k.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
+        k
+    };
     // a well with no images: not OME-NGFF 0.4, Zarr v2's, after two rounds
     let o = base(br#"{"well": {"images": []}}"#);
-    let (_, _, stats) = run_store(StoreFormat::Zarr2, keys(&o), &|k| o[k].1.clone()).unwrap();
+    let listing = keys(&o);
+    let bytes = |k: usize| o.iter().find(|x| x.0 == listing[k].0).unwrap().1.clone();
+    let (_, _, stats) = run_store(StoreFormat::Zarr2, listing.clone(), &bytes).unwrap();
     assert_eq!(stats["batches"], 2);
     assert_eq!(output_of(&o).0.unwrap().summary["format"], "zarr2");
     // a document the test cannot parse rejects the store

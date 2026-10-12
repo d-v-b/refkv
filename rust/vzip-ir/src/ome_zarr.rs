@@ -342,7 +342,7 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
                 let wd = format!("{w}.datasets[{j}]");
                 let p = d.get("path");
                 let rel = rel_path(p);
-                let target = if rel { join(&g, p.unwrap().s().unwrap()) } else { String::new() };
+                let target = if rel { join(&g, got(p.and_then(|p| p.s()))?) } else { String::new() };
                 let a = arrays.get(&target);
                 check("dataset", rules::env([
                     ("where", text(&wd)), ("relative", flag(rel)), ("path", shown(p)), ("target", text(&target)),
@@ -384,9 +384,9 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
         if let Some(ls) = a.get("labels") {
             check("labels", rules::env([("where", text(&place(g))), ("list", flag(ls.as_arr().is_some()))]))?;
             for x in got(ls.as_arr())? {
-                let image = rel_path(Some(x)) && images.contains(&join(g, x.s().unwrap()));
+                let image = rel_path(Some(x)) && x.s().is_some_and(|x| images.contains(&join(g, x)));
                 check("label", rules::env([("where", text(&place(g))), ("label", shown(Some(x))), ("image", flag(image))]))?;
-                label_images.insert(join(g, x.s().unwrap()));
+                label_images.insert(join(g, got(x.s())?));
             }
         }
         if let Some(il) = a.get("image-label") {
@@ -426,9 +426,12 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
             None => resolve(x, "../../"),
         };
         let source_is_image = source.as_ref().is_some_and(|s| images.contains(s));
-        let n = if source_is_image { multiscales[source.as_ref().unwrap()][0].get("datasets").unwrap().as_arr().unwrap().len() } else { 0 };
+        let n = match source.as_ref().filter(|_| source_is_image) {
+            Some(src) => got(multiscales[src][0].get("datasets").and_then(|d| d.as_arr()))?.len(),
+            None => 0,
+        };
         for (i, m) in multiscales[x].iter().enumerate() {
-            let have = m.get("datasets").unwrap().as_arr().unwrap().len();
+            let have = got(m.get("datasets").and_then(|d| d.as_arr()))?.len();
             check("label_image", rules::env([
                 ("where", text(x)), ("given_source", flag(rel.is_some())), ("source_is_image", flag(source_is_image)),
                 ("image", text(&rel_text.clone().unwrap_or_else(|| place(source.as_deref().unwrap_or(""))))),
@@ -439,10 +442,10 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
             }
         }
         for (i, m) in multiscales[x].iter().enumerate() {
-            let ds = m.get("datasets").unwrap().as_arr().unwrap();
+            let ds = got(m.get("datasets").and_then(|d| d.as_arr()))?;
             for d in &ds[..*kept.get(&(x.clone(), i)).unwrap_or(&ds.len())] {
-                let level = join(x, d.get("path").unwrap().s().unwrap());
-                check("label_level", rules::env([("level", text(&level)), ("data_type", text(&arrays[&level].data_type))]))?;
+                let level = join(x, got(d.get("path").and_then(|p| p.s()))?);
+                check("label_level", rules::env([("level", text(&level)), ("data_type", text(&got(arrays.get(&level))?.data_type))]))?;
             }
         }
     }
@@ -515,7 +518,10 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
             let r = x.get("rowIndex").and_then(|v| v.as_int(0, i64::MAX)).map(|v| v as usize);
             let c = x.get("columnIndex").and_then(|v| v.as_int(0, i64::MAX)).map(|v| v as usize);
             let indexes = r.is_some_and(|r| r < named["rows"].len()) && c.is_some_and(|c| c < named["columns"].len());
-            let (row, column) = if indexes { (named["rows"][r.unwrap()].clone(), named["columns"][c.unwrap()].clone()) } else { Default::default() };
+            let (row, column) = match (r, c) {
+                (Some(r), Some(c)) if indexes => (named["rows"][r].clone(), named["columns"][c].clone()),
+                _ => Default::default(),
+            };
             let expected = format!("{row}/{column}");
             let p = x.get("path");
             let is_named = indexes && p.and_then(|p| p.s()) == Some(expected.as_str());
@@ -643,8 +649,8 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
     // the axis names as written, of each level's first multiscale (I8: all agree)
     let mut dims: HashMap<String, Jv> = HashMap::new();
     for (p, (g, i)) in &first {
-        let axes = multiscales[g][*i].get("axes").unwrap().as_arr().unwrap();
-        dims.insert(p.clone(), Jv::Arr(axes.iter().map(|a| a.get("name").unwrap().clone()).collect()));
+        let axes = got(multiscales[g][*i].get("axes").and_then(|a| a.as_arr()))?;
+        dims.insert(p.clone(), Jv::Arr(axes.iter().map(|a| got(a.get("name")).cloned()).collect::<Res<_>>()?));
     }
     let listed: HashMap<&str, u64> = keys.iter().map(|(k, n)| (k.as_str(), *n)).collect();
     let xml: Vec<(String, u64)> = collections.iter().map(|c| join(&join(c, "OME"), "METADATA.ome.xml"))
