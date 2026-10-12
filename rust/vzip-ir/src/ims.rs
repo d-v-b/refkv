@@ -24,7 +24,7 @@ use crate::rules::{self, flag, num, text, Rules, Vars};
 use crate::expr::V;
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::rc::Rc;
+use std::sync::Arc as Rc;
 
 const WS: &[char] = &[' ', '\t', '\r', '\n'];
 

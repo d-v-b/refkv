@@ -19,7 +19,7 @@
 //! is the one a sequential reading would give).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::rc::Rc;
+use std::sync::Arc as Rc;
 
 pub const SIGNATURE: &[u8; 8] = b"\x89HDF\r\n\x1a\n";
 pub const UNDEFINED: u64 = u64::MAX;

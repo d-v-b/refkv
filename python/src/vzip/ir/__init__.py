@@ -1,7 +1,7 @@
 """vzip's intermediate representation (design/ARCHITECTURE.md §3
 <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
 the path `vzip.virtualize`
-takes for TIFF, ND2 and CZI: the Rust core (rust/vzip-ir, the `vzip_ir` module)
+takes for TIFF, ND2, CZI and IMS: the Rust core (rust/vzip-ir, the `vzip_ir` module)
 parses, checking each format's source model schema, plans the reads, projects the
 convention's hierarchy and mirrors the IR under `vzip_source`; this package is the
 host: the I/O (`planner.py`), the archive writer (`output.py` into `Output`), and
@@ -16,6 +16,7 @@ from vzip.virtualize.common import Rejected
 TIFF_MAGIC = (b"II*\0", b"MM\0*", b"II+\0", b"MM\0+")
 CZI_MAGIC = b"ZISRAWFILE" + bytes(6)
 ND2_MAGIC = bytes.fromhex("DACEBE0A")
+HDF5 = b"\x89HDF\r\n\x1a\n"
 
 
 def sniff(head: bytes) -> str | None:
@@ -26,6 +27,8 @@ def sniff(head: bytes) -> str | None:
         return "tiff"
     if head[:16] == CZI_MAGIC:
         return "czi"
+    if head[:8] == HDF5:
+        return "ims"
     return None
 
 
@@ -61,7 +64,7 @@ def virtualize(location: str, url: str | None = None, mirror: bool = True, polic
     head = transport.head[1][:16] if transport.head[1] else transport.get(0, min(16, transport.size))
     fmt = sniff(head)
     if fmt is None:
-        raise Rejected("not a TIFF, CZI or ND2 file")
+        raise Rejected("not a TIFF, CZI, ND2 or IMS file")
     run = new_run(fmt, transport, connections, byte_cost)
     drive(run, transport, connections)
     try:

@@ -3,6 +3,7 @@
 //! one's bytes and time), until `poll()` gives None; then `finish()`.
 
 use crate::czi::Czi;
+use crate::ims::Ims;
 use crate::ir::Ir;
 use crate::nd2::{Nd2, Step};
 use crate::plan::{Planner, Request};
@@ -14,6 +15,7 @@ pub enum Format {
     Nd2,
     Tiff,
     Czi,
+    Ims,
 }
 
 impl Format {
@@ -22,6 +24,7 @@ impl Format {
             0 => Some(Format::Nd2),
             1 => Some(Format::Tiff),
             2 => Some(Format::Czi),
+            3 => Some(Format::Ims),
             _ => None,
         }
     }
@@ -30,6 +33,7 @@ impl Format {
             Format::Nd2 => "nd2",
             Format::Tiff => "tiff",
             Format::Czi => "czi",
+            Format::Ims => "ims",
         }
     }
     /// The format a file's first bytes give, if one of these.
@@ -43,6 +47,9 @@ impl Format {
         if head.len() >= 16 && &head[..16] == b"ZISRAWFILE\0\0\0\0\0\0" {
             return Some(Format::Czi);
         }
+        if head.len() >= 8 && &head[..8] == crate::hdf5::SIGNATURE {
+            return Some(Format::Ims);
+        }
         None
     }
 }
@@ -51,6 +58,7 @@ pub enum AnyParser {
     Nd2(Nd2),
     Tiff(Tiff),
     Czi(Czi),
+    Ims(Ims),
 }
 
 impl AnyParser {
@@ -59,6 +67,7 @@ impl AnyParser {
             Format::Nd2 => AnyParser::Nd2(Nd2::new(size)),
             Format::Tiff => AnyParser::Tiff(Tiff::new(size)),
             Format::Czi => AnyParser::Czi(Czi::new(size)),
+            Format::Ims => AnyParser::Ims(Ims::new(size)),
         }
     }
     pub fn step(&mut self) -> Result<Step, String> {
@@ -66,6 +75,7 @@ impl AnyParser {
             AnyParser::Nd2(x) => x.step(),
             AnyParser::Tiff(x) => x.step(),
             AnyParser::Czi(x) => x.step(),
+            AnyParser::Ims(x) => x.step(),
         }
     }
     pub fn feed(&mut self, o: u64, b: Vec<u8>) {
@@ -73,6 +83,7 @@ impl AnyParser {
             AnyParser::Nd2(x) => x.feed(o, b),
             AnyParser::Tiff(x) => x.feed(o, b),
             AnyParser::Czi(x) => x.feed(o, b),
+            AnyParser::Ims(x) => x.feed(o, b),
         }
     }
     pub fn finish(self) -> Result<(Ir, serde_json::Value), String> {
@@ -80,6 +91,7 @@ impl AnyParser {
             AnyParser::Nd2(x) => Parser::finish(x),
             AnyParser::Tiff(x) => Parser::finish(x),
             AnyParser::Czi(x) => Parser::finish(x),
+            AnyParser::Ims(x) => Parser::finish(x),
         }
     }
 }

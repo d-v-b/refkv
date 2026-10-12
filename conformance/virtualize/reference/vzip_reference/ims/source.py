@@ -13,7 +13,7 @@ from vzip.virtualize.common import (
     MAX_CHUNK, RAGGED_CHUNK, SOURCE_NODE, Output, Plan, Reader, Rejected, declare, decode_text, family_plans, grid_chunks,
     json_base64, json_number, json_text, metadata_array, metadata_group, text_json,
 )
-from vzip.virtualize.ims.hdf5 import (
+from vzip_reference.ims.hdf5 import (
     DATASPACE, DATATYPE, EXTERNAL_FILES, FILL_VALUE, LAYOUT, LINK_INFO, MAX_SAFE, SYMBOL_TABLE, Dataset, Hdf5,
     address, attribute_full, fill_value, le, parse_dataspace, parse_selection,
 )

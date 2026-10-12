@@ -1,9 +1,9 @@
 """Virtualizing image files and N5 / Zarr v2 stores in vzip archives (spec/virtualize.md).
 
-TIFF, ND2 and CZI files go through the IR (`vzip.ir`): the Rust core's sans-IO
+TIFF, ND2, CZI and IMS files go through the IR (`vzip.ir`): the Rust core's sans-IO
 parser of the format, driven by its read planner over this package's I/O, projected
 to the convention's hierarchy and mirrored under `vzip_source` by the Rust core.
-Every other profile is a subpackage: ndpi, dicom, nifti, ims (file inputs), n5,
+Every other profile is a subpackage: ndpi, dicom, nifti (file inputs), n5,
 zarr2, ome_zarr (store inputs, spec/virtualize/n5.md, spec/virtualize/zarr2.md and
 spec/virtualize/ome-zarr.md), and safe (Sentinel-2 SAFE products, spec/virtualize/safe.md: a
 store input, or a zip file); common holds what they share, and store the store
@@ -44,7 +44,6 @@ from vzip.policy import Policy, crc32c
 from vzip.virtualize import ndpi, nifti
 from vzip.virtualize.common import Output, Rejected, file_reader, http_reader
 from vzip.virtualize.dicom import is_dicom, virtualize_dicom
-from vzip.virtualize.ims import virtualize_ims
 from vzip.virtualize.n5 import virtualize_n5
 from vzip.virtualize.ome_zarr import declares_04, virtualize_ome_zarr
 from vzip.virtualize.safe import SafeOutput, is_zip, virtualize_safe_store, virtualize_safe_zip
@@ -61,7 +60,7 @@ ND2_MAGIC = bytes.fromhex("DACEBE0A")
 CZI_MAGIC = b"ZISRAWFILE" + bytes(6)
 NOT_SUPPORTED = "not a TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file"
 
-__all__ = ["Output", "Rejected", "StoreOutput", "virtualize", "virtualize_store", "virtualize_dicom", "virtualize_ims"]
+__all__ = ["Output", "Rejected", "StoreOutput", "virtualize", "virtualize_store", "virtualize_dicom"]
 
 
 def virtualize_store(location: str, url: str | None = None, *, max_objects: int | None = None,
@@ -114,7 +113,7 @@ def virtualize(location: str, url: str | None = None, *, checksums: bool = False
     which reads them. `policy` is the reader policy a file
     or store at an http(s) URL is read under (default: `Policy()`, private hosts
     refused).
-    For TIFF, ND2 and CZI, `connections` is how many requests run at a time to a
+    For TIFF, ND2, CZI and IMS, `connections` is how many requests run at a time to a
     remote source (default 8), and `byte_cost` the seconds of wall time the read
     planner charges a byte fetched beyond those asked (default 0.1 s per MB).
     A store's documents are read by up to `workers` requests at a time."""
@@ -144,6 +143,8 @@ def virtualize(location: str, url: str | None = None, *, checksums: bool = False
             ir_format = "nd2"
         elif head[:16] == CZI_MAGIC:
             ir_format = "czi"
+        elif head[:8] == HDF5:
+            ir_format = "ims"
     if ir_format is not None:
         from vzip.ir import virtualize as via_ir
 
@@ -174,8 +175,6 @@ def _virtualize_file(url: str, read, size: int) -> tuple[str, Output | SafeOutpu
         first = ndpi.detect(read, size)
         if first is not None:
             return "ndpi", ndpi.virtualize_ndpi(url, read, size, first)
-    if head[:8] == HDF5:
-        return "ims", virtualize_ims(url, read, size)
     if nifti.detect(head) is not None:
         return "nifti", nifti.virtualize_nifti(url, read, size)
     if is_zip(head):

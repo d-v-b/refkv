@@ -15,7 +15,7 @@ import { StoreError } from "../../../../js/src/virtualize/store.ts";
 import { Zarr2Error } from "../../../../js/src/virtualize/zarr2/virtualize.ts";
 import { OmeZarrError } from "../../../../js/src/virtualize/ome-zarr/virtualize.ts";
 import { NiftiError } from "../../../../js/src/virtualize/nifti/virtualize.ts";
-import { ImsError } from "../../../../js/src/virtualize/ims/virtualize.ts";
+import { ImsError } from "./ims/virtualize.ts";
 import { SafeError } from "../../../../js/src/virtualize/safe/virtualize.ts";
 import { TiffError as NdpiError } from "../../../../js/src/virtualize/tiff/ifd.ts";
 import { writeVzip } from "../../../../js/src/writer.ts";

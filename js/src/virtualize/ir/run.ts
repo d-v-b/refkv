@@ -1,4 +1,4 @@
-// Virtualizing an ND2, TIFF or CZI file with the Rust core (rust/vzip-ir): its
+// Virtualizing an ND2, TIFF, CZI or IMS file with the Rust core (rust/vzip-ir): its
 // parser, read planner, image projection and source mirror run in WebAssembly;
 // this host performs the requests a run asks for (`RangeSource`) and turns its
 // output (`Out::encode`) into the writer's archive description. The twin of
@@ -10,8 +10,8 @@ import { ImageError } from "../common.ts";
 import type { RangeSource, Span } from "./source.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
-export type IrFormat = "nd2" | "tiff" | "czi";
-const CODES: Record<IrFormat, number> = { nd2: 0, tiff: 1, czi: 2 };
+export type IrFormat = "nd2" | "tiff" | "czi" | "ims";
+const CODES: Record<IrFormat, number> = { nd2: 0, tiff: 1, czi: 2, ims: 3 };
 
 export interface IrOutput extends ArchiveDesc {
   format: IrFormat;

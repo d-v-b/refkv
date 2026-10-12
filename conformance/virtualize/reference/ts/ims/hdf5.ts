@@ -5,7 +5,7 @@
 // attributes, and the chunk index of a chunked dataset. Pixel data is never
 // read, and checksums are not checked.
 
-import { type ByteReader, jsonNumber, textJson } from "../common.ts";
+import { type ByteReader, jsonNumber, textJson } from "../../../../js/src/virtualize/common.ts";
 
 export class ImsError extends Error {}
 

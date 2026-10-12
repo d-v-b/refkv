@@ -5,3 +5,7 @@
 // recording the current revision (conformance/virtualize/HARNESS.md).
 
 export const REVISION = 20;
+
+// The revision the frozen IMS virtualizer records: 25, the last before the IR mirror
+// became IMS's `vzip_source` (revision 26).
+export const IMS_REVISION = 25;

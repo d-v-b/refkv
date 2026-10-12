@@ -5,7 +5,6 @@
 
 import { type ByteReader, ImageError } from "../../../../js/src/virtualize/common.ts";
 import { isDicom, virtualizeDicom } from "../../../../js/src/virtualize/dicom/virtualize.ts";
-import { virtualizeIms } from "../../../../js/src/virtualize/ims/virtualize.ts";
 import { detectNdpi, virtualizeNdpi } from "../../../../js/src/virtualize/ndpi/virtualize.ts";
 import { detectNifti, virtualizeNifti } from "../../../../js/src/virtualize/nifti/virtualize.ts";
 import { isZip, virtualizeSafeZip } from "../../../../js/src/virtualize/safe/virtualize.ts";
@@ -13,6 +12,7 @@ import { addChecksums, type PinOptions } from "../../../../js/src/virtualize/ind
 import type { ArchiveDesc } from "../../../../js/src/writer.ts";
 import { isCzi, virtualizeCzi } from "./czi/virtualize.ts";
 import { isNd2, virtualizeNd2 } from "./nd2/virtualize.ts";
+import { virtualizeIms } from "./ims/virtualize.ts";
 import { virtualizeTiff } from "./tiff/virtualize.ts";
 
 export { isStoreUrl, virtualizeStore } from "../../../../js/src/virtualize/index.ts";

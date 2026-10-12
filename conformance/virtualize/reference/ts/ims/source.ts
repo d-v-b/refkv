@@ -6,7 +6,7 @@
 import {
   base64, type ByteReader, declare, decodeText, familyPlans, gridChunks, jsonNumber, jsonText, type Part, type Plan,
   planEntries, planGrid, setMember, SOURCE_NODE, textJson, stringifyJson,
-} from "../common.ts";
+} from "../../../../js/src/virtualize/common.ts";
 import {
   address, attributeFull, attributeSharedType, DATASPACE, DATATYPE, type Dataset, EXTERNAL_FILES, FILL_VALUE,
   fillValue, Hdf5, ImsError, LAYOUT, le, LINK_INFO, type Message, parseDataspace, parseSelection, ravel, showCoords,
