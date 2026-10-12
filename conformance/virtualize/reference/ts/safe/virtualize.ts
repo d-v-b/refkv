@@ -5,9 +5,10 @@
 import {
   base64, type ByteReader, blobChunks, CONVENTION_KEY, convention, declare, MAX_PAYLOAD, type Part, payloadSize,
   PROFILES, rootProperty, SOURCE_NODE, textJson, toRange, stringifyJson,
-} from "../common.ts";
-import { compareKeys, objectKey, objectUrl, type Store } from "../store.ts";
-import type { ArchiveDesc, EntryDesc } from "../../writer.ts";
+} from "../../../../../js/src/virtualize/common.ts";
+import { compareKeys, objectKey, objectUrl, type Store } from "../../../../../js/src/virtualize/store.ts";
+import { STORES_REVISION } from "../revision.ts";
+import type { ArchiveDesc, EntryDesc } from "../../../../../js/src/writer.ts";
 import { chunkParts, type Codestream, grid, readBand, tailLength } from "./jp2.ts";
 import { bandMetadata, chooseTexts, groupAttributes, rootGeozarr, rootMetadata } from "./metadata.ts";
 import { bandName, folders, type Image, isXml, readProduct, resolution, SafeError } from "./product.ts";
@@ -198,7 +199,7 @@ async function virtualizeProduct(url: string, objects: Objects): Promise<Archive
   const [cmos, geo] = rootGeozarr(product, resolutions);
   docs.set("zarr.json", group({
     zarr_conventions: [convention(PROFILE), ...cmos],
-    [CONVENTION_KEY]: { ...rootProperty(PROFILE, url), [PROFILE]: rootMetadata(product) },
+    [CONVENTION_KEY]: { ...rootProperty(PROFILE, url, STORES_REVISION), [PROFILE]: rootMetadata(product) },
     ...geo,
   }));
   for (const r of resolutions) docs.set(`r${r}m/zarr.json`, group(groupAttributes(product.geocoding, r)));

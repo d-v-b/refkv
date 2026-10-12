@@ -3,8 +3,8 @@
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>, §6
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#6-source-metadata>).
 
-import { jsonNumber } from "../common.ts";
-import type { XmlElement } from "../store.ts";
+import { jsonNumber } from "../../../../../js/src/virtualize/common.ts";
+import type { XmlElement } from "../../../../../js/src/virtualize/store.ts";
 import { attr, DECIMAL, type Geocoding, kids, path, type Product, text } from "./product.ts";
 
 type Json = unknown;

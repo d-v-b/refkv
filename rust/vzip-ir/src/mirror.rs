@@ -1684,6 +1684,7 @@ pub fn rebuilt_view(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn FnMut(
     y.vbytes.clear();
     let shown_rows: Vec<u32> = (0..y.len() as u32).filter(|&i| shown(&y, &profile, i)).collect();
     let mut want: Vec<(u64, u64)> = Vec::new();
+    let mut exact: Vec<(u64, u64)> = Vec::new();
     let mut spaces: Vec<u32> = Vec::new();
     for &i in &shown_rows {
         let iu = i as usize;
@@ -1692,8 +1693,9 @@ pub fn rebuilt_view(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn FnMut(
                 want.push((y.start[iu], y.len[iu]));
             } else if y.in_place(src.of[iu]) {
                 // an object described in place: its source, at virtual offsets (§8.9
-                // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)
-                want.push((src.vstart(&y, iu), y.len[iu]));
+                // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>),
+                // each value read exactly (a store's objects are read by key, not merged)
+                exact.push((src.vstart(&y, iu), y.len[iu]));
             }
         } else {
             spaces.push(y.space[iu]);
@@ -1701,7 +1703,16 @@ pub fn rebuilt_view(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn FnMut(
     }
     spaces.sort_unstable();
     spaces.dedup();
-    let got = read_merged(&want, read)?;
+    let mut got = read_merged(&want, read)?;
+    for (o, n) in exact {
+        if let std::collections::hash_map::Entry::Vacant(e) = got.entry((o, n)) {
+            let b = read(o, n)?;
+            if b.len() as u64 != n {
+                return Err(format!("the source gave {} bytes for [{o}, {})", b.len(), o + n));
+            }
+            e.insert(b);
+        }
+    }
     let mut derived: HashMap<u32, Vec<u8>> = HashMap::new();
     for d in spaces {
         let b = if y.store {

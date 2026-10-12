@@ -1,7 +1,8 @@
-"""The frozen reference oracle of the TIFF, ND2 and CZI profiles: the Python
-implementations `vzip.virtualize` shipped before it moved these three formats to
-the Rust IR (rust/vzip-ir), kept unchanged (but for their import paths) so that
-`compare.py` can compare the IR path against an independent implementation.
+"""The frozen reference oracle of the TIFF, ND2, CZI and SAFE profiles: the Python
+implementations `vzip.virtualize` shipped before it moved these formats to the Rust IR
+(rust/vzip-ir), kept unchanged (but for their import paths, and the revision SAFE
+records, 25) so that `compare.py` can compare the IR path against an independent
+implementation.
 Nothing shipped imports this package. Every other format, and what the profiles
 share (`vzip.virtualize.common`), is the shipped code.
 
@@ -13,12 +14,14 @@ shipped readers under `policy` (default: `Policy()`, private hosts refused)."""
 from __future__ import annotations
 
 from vzip.policy import Policy, crc32c
-from vzip.virtualize import is_store, virtualize_store
+from vzip.virtualize import is_store
+from vzip.virtualize import virtualize_store as shipped_store
 from vzip.virtualize.common import Output, Rejected, file_reader, http_reader
 from vzip.virtualize.dicom import is_dicom, virtualize_dicom
 from vzip.virtualize.ims import virtualize_ims
 from vzip.virtualize import ndpi, nifti
-from vzip.virtualize.safe import SafeOutput, is_zip, virtualize_safe_zip
+from vzip.virtualize.store import open_store, choose_profile, object_url
+from vzip_reference.safe import SafeOutput, is_zip, virtualize_safe_store, virtualize_safe_zip
 from vzip_reference.czi import is_czi, virtualize_czi
 from vzip_reference.nd2 import is_nd2, virtualize_nd2
 from vzip_reference.tiff import virtualize_tiff
@@ -26,6 +29,23 @@ from vzip_reference.tiff import virtualize_tiff
 HDF5 = b"\x89HDF\r\n\x1a\n"
 TIFF_MAGIC = (b"II*\0", b"MM\0*", b"II+\0", b"MM\0+")
 NOT_SUPPORTED = "not a TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file"
+
+
+def virtualize_store(location: str, url: str | None = None, *, checksums: bool = False, policy: Policy | None = None):
+    """`vzip.virtualize.virtualize_store` as it was: a SAFE directory goes to the frozen
+    profile, any other store to the shipped code."""
+    store = open_store(location, url, policy=policy)
+    try:
+        if choose_profile(store) != "safe":
+            store.close()
+            return shipped_store(location, url, checksums=checksums, policy=policy)
+        out = virtualize_safe_store(store)
+    finally:
+        store.close()
+    if checksums:
+        keys = {object_url(store.url, k): k for k in store.objects}
+        out.checksum = lambda u, offset, length: crc32c(store.read_range(keys[u], offset, length))
+    return "safe", out
 
 
 def virtualize(location: str, url: str | None = None, *, checksums: bool = False,

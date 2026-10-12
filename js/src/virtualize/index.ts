@@ -4,9 +4,9 @@
 // store by the profile its root keys select (§1.4
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): N5, Zarr v2,
 // OME-Zarr 0.4 or a
-// SAFE directory. TIFF (but not NDPI), ND2 and CZI are virtualized by the Rust core
-// (ir/, rust/vzip-ir); each other profile is in its own directory; store.ts holds the
-// store machinery.
+// SAFE directory. TIFF (but not NDPI), ND2, CZI and SAFE (both forms) are virtualized by
+// the Rust core (ir/, rust/vzip-ir); each other profile is in its own directory; store.ts
+// holds the store machinery.
 
 import { blockReader, type ByteReader, ImageError } from "./common.ts";
 import { isDicom, virtualizeDicom } from "./dicom/virtualize.ts";
@@ -17,7 +17,7 @@ import { detectNdpi, virtualizeNdpi } from "./ndpi/virtualize.ts";
 import { detectNifti, virtualizeNifti } from "./nifti/virtualize.ts";
 import { virtualizeN5 } from "./n5/virtualize.ts";
 import { declares04, virtualizeOmeZarr } from "./ome-zarr/virtualize.ts";
-import { isZip, virtualizeSafeStore, virtualizeSafeZip } from "./safe/virtualize.ts";
+import { virtualizeIrStore } from "./ir/store.ts";
 import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store, storeArchive } from "./store.ts";
 import type { Policy } from "../archive.ts";
 import { crc32c } from "../deflate.ts";
@@ -126,6 +126,9 @@ export function irFormat(head: Uint8Array): IrFormat | undefined {
   if (isTiffMagic(head)) return "tiff";
   if (head.length >= 4 && head[0] === 0xda && head[1] === 0xce && head[2] === 0xbe && head[3] === 0x0a) return "nd2";
   if (head.length >= 16 && String.fromCharCode(...head.subarray(0, 16)) === "ZISRAWFILE\0\0\0\0\0\0") return "czi";
+  // a ZIP local file header: a SAFE product's zip form (spec/virtualize/safe.md §12.1
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#121-choosing-the-profile>)
+  if (head.length >= 4 && head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04) return "safe";
   return undefined;
 }
 
@@ -140,8 +143,7 @@ async function virtualizeFile(url: string, { read, size: fileSize, exact, source
   if (ir === "tiff" || ir === "nd2") return virtualizeIr(ir, url, source);
   if (HDF5.every((b, i) => head[i] === b)) return { format: "ims", ...(await virtualizeIms(url, read, fileSize)) };
   if (detectNifti(head) !== undefined) return { format: "nifti", ...(await virtualizeNifti(url, read, fileSize)) };
-  if (ir === "czi") return virtualizeIr(ir, url, source);
-  if (isZip(head)) return { format: "safe", ...(await virtualizeSafeZip(url, read, fileSize, exact ?? read)) };
+  if (ir === "czi" || ir === "safe") return virtualizeIr(ir, url, source);
   throw new ImageError(NOT_SUPPORTED);
 }
 
@@ -189,7 +191,7 @@ async function virtualizeStoreProfile(
 ): Promise<ArchiveDesc & { format: "n5" | "zarr2" | "ome-zarr" | "safe"; summary: object }> {
   try {
     const chosen = chooseProfile(store);
-    if (chosen === "safe") return { format: "safe", ...(await virtualizeSafeStore(store)) };
+    if (chosen === "safe") return { format: "safe", ...(await virtualizeIrStore("safe", store)) };
     let format: "n5" | "zarr2" | "ome-zarr" = chosen;
     if (format === "zarr2" && (await declares04(store))) format = "ome-zarr";
     const result = format === "n5"

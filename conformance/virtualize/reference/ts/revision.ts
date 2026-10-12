@@ -5,3 +5,7 @@
 // recording the current revision (conformance/virtualize/HARNESS.md).
 
 export const REVISION = 20;
+
+// The revision the frozen SAFE twin implements (and the other store profiles that move onto
+// the IR in revision 26): 25, the last before the IR mirror became their `vzip_source`.
+export const STORES_REVISION = 25;

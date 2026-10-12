@@ -167,7 +167,7 @@ fn err_out(e: String) -> i64 {
     -(set_out(e.into_bytes()) as i64)
 }
 
-/// A run of `format` (0 ND2, 1 TIFF, 2 CZI) over a source of `size` bytes, remote
+/// A run of `format` (0 ND2, 1 TIFF, 2 CZI, 3 a SAFE zip) over a source of `size` bytes, remote
 /// or not, read by the host at most `concurrency` requests at a time.
 #[unsafe(no_mangle)]
 pub extern "C" fn vz_run_new(format: u32, size: u64, remote: u32, concurrency: u32) -> *mut Run {
@@ -341,6 +341,24 @@ pub unsafe extern "C" fn vz_store_new(format: *mut u8, nf: usize, listing: *mut 
     })();
     match made {
         Ok(r) => Box::into_raw(Box::new(r)) as usize as i64,
+        Err(e) => err_out(e),
+    }
+}
+
+/// The keys the listing ignores (`StoreRun::set_ignored`), before the first poll: `json`
+/// (from `vz_alloc`, consumed) is `[[folder keys...], [recorded keys...]]`. 0, or minus the
+/// length of a rejection's message.
+///
+/// # Safety
+/// `p` from `vz_store_new`; `json`, `n` from `vz_alloc(n)`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_store_ignored(p: *mut StoreRun, json: *mut u8, n: usize) -> i64 {
+    let r = unsafe { &mut *p };
+    let b = unsafe { Vec::from_raw_parts(json, n, n) };
+    let got = serde_json::from_slice::<(Vec<String>, Vec<String>)>(&b).map_err(|e| format!("the ignored keys: {e}"))
+        .and_then(|(f, i)| r.set_ignored(f, i));
+    match got {
+        Ok(()) => 0,
         Err(e) => err_out(e),
     }
 }

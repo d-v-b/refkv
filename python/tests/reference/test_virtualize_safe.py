@@ -13,14 +13,20 @@ from pathlib import Path
 
 import pytest
 
-from vzip.virtualize import Rejected, virtualize
-from vzip.virtualize.common import text_json
-from vzip.virtualize.safe import jp2, zipdir
-from vzip.virtualize.safe.metadata import BUDGET, MULTISCALES, PROJ, SPATIAL, choose_texts, json_size, typed, wkt2
-from vzip.virtualize.safe.product import folders
-from vzip.virtualize.safe.virtualize import Shared
+import sys
 
-FIXTURES = Path(__file__).parents[2] / "fixtures" / "safe"
+# the frozen reference twins (conformance/virtualize/reference/vzip_reference)
+sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
+
+from vzip.virtualize import Rejected
+from vzip.virtualize.common import text_json
+from vzip_reference import virtualize
+from vzip_reference.safe import jp2, zipdir
+from vzip_reference.safe.metadata import BUDGET, MULTISCALES, PROJ, SPATIAL, choose_texts, json_size, typed, wkt2
+from vzip_reference.safe.product import folders
+from vzip_reference.safe.virtualize import Shared
+
+FIXTURES = Path(__file__).parents[3] / "fixtures" / "safe"
 URL = "https://data.test/safe/{}"
 J2K = [{"name": "imagecodecs_jpeg2k"}]
 RGB = [{"name": "transpose", "configuration": {"order": [1, 2, 0]}}, {"name": "imagecodecs_jpeg2k"}]
