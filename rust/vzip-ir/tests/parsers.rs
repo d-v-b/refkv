@@ -323,7 +323,16 @@ fn past_the_walks_room_the_image_is_described_and_the_rest_is_gaps() {
         assert!(rebuilt(&ir, &data) == data);
         assert!(ir.len() < all.len(), "room {room}");
         assert_eq!(project(&ir, &f), project(&all, &facts), "room {room}");
-        // past the room, only the image's datasets are described (and the objects' structs)
+        // past the room, only the image's datasets are described (and the objects' structs); each
+        // loop stops at the room, so a structure started before it ends within a few elements
+        let paths: Vec<String> = (0..ir.len() as u32).filter(|&i| ir.kind[i as usize] != vzip_ir::ir::GAP).map(|i| ir.path(i)).collect();
+        let images: std::collections::HashSet<String> =
+            paths.iter().filter_map(|p| p.strip_suffix("/chunks")).map(|p| p.to_string()).collect();
+        let rest = paths.iter().filter(|p| {
+            let parts: Vec<&str> = p.splitn(3, '/').collect();
+            !(parts[0] == "objects" && parts.len() >= 2 && (parts.len() == 2 || images.contains(&format!("objects/{}", parts[1]))))
+        }).count();
+        assert!(rest <= room as usize + 30, "room {room}: {rest} elements outside the image");
         if room == 0 {
             let paths: Vec<String> = (0..ir.len() as u32).filter(|&i| ir.kind[i as usize] != vzip_ir::ir::GAP).map(|i| ir.path(i)).collect();
             let images: std::collections::HashSet<&str> =

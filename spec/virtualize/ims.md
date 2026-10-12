@@ -371,12 +371,16 @@ messages, its chunk index or a global heap collection) is not described.
   that its attributes' variable-length (16-byte) or region reference
   (12-byte) elements name, at most 4,096 per object.
 
-The walk describes at most `2^21 + floor(size / 8)` elements (so that the
-IR's records and the mirror's rows, [conventions §8.3](../conventions.md#83-column-runs),
-leave room for the gaps between them): the objects of level 0 first, then
-the others in the order below, and an object's messages and chunks in order,
-each while the IR holds fewer; the chunks of the image's `Data` datasets are
-described whatever the count. What is not described is a gap.
+The walk's **room** is `2^21 + floor(size / 8)` elements (the source
+model's limits `walk_elements` and `walk_bytes_per_element`), so that the
+IR's records and the mirror's rows ([conventions §8.3](../conventions.md#83-column-runs))
+leave room for the gaps between them. The objects of level 0 are described
+first, then the others in the order below; within an object its messages,
+link and attribute structures, heap blocks, B-tree nodes, chunk index
+structures and chunks, and then the global heap collections and their
+objects, each in order, are described only while the IR holds fewer
+elements than the room. The image's `Data` datasets are described in full
+whatever the count. What is not described is a gap.
 
 The objects are numbered (`objects/<i>`) depth first from the root group,
 each group's hard links taken in ascending byte order of their names, each

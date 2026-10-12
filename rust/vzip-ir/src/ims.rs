@@ -1008,6 +1008,9 @@ impl Ims {
         if !collections.is_empty() && !e.full() {
             let g = e.ir.struct_(0, "global_heaps", NO_INDEX, 0, None)?;
             for (k, c) in collections.values().enumerate() {
+                if e.full() {
+                    break;
+                }
                 e.collection(g, k as u64, c)?;
             }
         }
@@ -1278,7 +1281,7 @@ impl Emit<'_> {
         Ok(())
     }
 
-    fn btree2(&mut self, parent: u32, name: &str, t: &hdf5::Bt2) -> Res<()> {
+    fn btree2(&mut self, owner: u64, parent: u32, name: &str, t: &hdf5::Bt2) -> Res<()> {
         let s = self.ir.struct_(parent, name, NO_INDEX, 0, None)?;
         self.val(
             s,
@@ -1291,13 +1294,16 @@ impl Emit<'_> {
         if !t.nodes.is_empty() {
             let ns = self.ir.struct_(s, "nodes", NO_INDEX, 0, None)?;
             for (k, &(o, n)) in t.nodes.iter().enumerate() {
+                if self.spent(owner) {
+                    break;
+                }
                 self.bytes(ns, "", k as u64, o, n)?;
             }
         }
         Ok(())
     }
 
-    fn fheap(&mut self, parent: u32, heap: u64) -> Res<()> {
+    fn fheap(&mut self, owner: u64, parent: u32, heap: u64) -> Res<()> {
         let s = self.ir.struct_(parent, "heap", NO_INDEX, 0, None)?;
         self.val(
             s,
@@ -1311,12 +1317,15 @@ impl Emit<'_> {
             let blocks: Vec<(u64, (bool, u64))> = blocks.iter().map(|(a, b)| (*a, *b)).collect();
             let bs = self.ir.struct_(s, "blocks", NO_INDEX, 0, None)?;
             for (k, (a, (_, n))) in blocks.into_iter().enumerate() {
+                if self.spent(owner) {
+                    break;
+                }
                 self.bytes(bs, "", k as u64, a, n)?;
             }
         }
         if let Some(huge) = self.h.huge_tree(heap) {
             let t = huge.1.clone();
-            self.btree2(s, "huge_index", &t)?;
+            self.btree2(owner, s, "huge_index", &t)?;
         }
         Ok(())
     }
@@ -1360,8 +1369,8 @@ impl Emit<'_> {
                 hdf5::LinkStorage::Compact => {}
                 hdf5::LinkStorage::Dense { heap, index, objects } => {
                     let s = self.ir.struct_(o, "links", NO_INDEX, 0, None)?;
-                    self.fheap(s, *heap)?;
-                    self.btree2(s, "index", index)?;
+                    self.fheap(at, s, *heap)?;
+                    self.btree2(at, s, "index", index)?;
                     let items = self.ir.struct_(s, "items", NO_INDEX, 0, None)?;
                     for (k, &(a, n)) in objects.iter().enumerate() {
                         if self.spent(at) {
@@ -1379,8 +1388,8 @@ impl Emit<'_> {
         if let Some(a) = &v.attrs {
             if let Some((heap, index)) = &a.dense {
                 let s = self.ir.struct_(o, "attributes", NO_INDEX, 0, None)?;
-                self.fheap(s, *heap)?;
-                self.btree2(s, "index", index)?;
+                self.fheap(at, s, *heap)?;
+                self.btree2(at, s, "index", index)?;
                 let items = self.ir.struct_(s, "items", NO_INDEX, 0, None)?;
                 for (k, attr) in a.list.iter().filter(|x| x.dense).enumerate() {
                     if self.spent(at) {
@@ -1474,6 +1483,9 @@ impl Emit<'_> {
         let mut objs = None;
         let oty = "{index:<u2,references:<u2,reserved:bytes[4],size:<u8}";
         for (p, &(i, a, n)) in c.order.iter().enumerate() {
+            if self.full() {
+                break;
+            }
             if i == 0 {
                 let f = self.ir.struct_(s, "free", NO_INDEX, 0, None)?;
                 self.val(f, "header", NO_INDEX, oty, a, 16.min(c.at + c.size - a))?;
