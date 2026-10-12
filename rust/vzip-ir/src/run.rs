@@ -14,6 +14,11 @@ pub enum Format {
     Nd2,
     Tiff,
     Czi,
+    /// A TIFF the TIFF parser found to be NDPI: a run of `Tiff` becomes one of `Ndpi`
+    /// when its parser does (spec/virtualize/ndpi.md §4
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), so
+    /// hosts never test for NDPI themselves.
+    Ndpi,
 }
 
 impl Format {
@@ -22,6 +27,7 @@ impl Format {
             0 => Some(Format::Nd2),
             1 => Some(Format::Tiff),
             2 => Some(Format::Czi),
+            3 => Some(Format::Ndpi),
             _ => None,
         }
     }
@@ -30,6 +36,7 @@ impl Format {
             Format::Nd2 => "nd2",
             Format::Tiff => "tiff",
             Format::Czi => "czi",
+            Format::Ndpi => "ndpi",
         }
     }
     /// The format a file's first bytes give, if one of these.
@@ -57,7 +64,7 @@ impl AnyParser {
     pub fn new(f: Format, size: u64) -> Self {
         match f {
             Format::Nd2 => AnyParser::Nd2(Nd2::new(size)),
-            Format::Tiff => AnyParser::Tiff(Tiff::new(size)),
+            Format::Tiff | Format::Ndpi => AnyParser::Tiff(Tiff::new(size)),
             Format::Czi => AnyParser::Czi(Czi::new(size)),
         }
     }
@@ -153,7 +160,11 @@ impl Run {
                     self.in_batch = true;
                 }
                 Step::Done => {
-                    let (ir, facts) = self.parser.take().unwrap().finish()?;
+                    let p = self.parser.take().unwrap();
+                    if let AnyParser::Tiff(t) = &p {
+                        self.format = if t.ndpi { Format::Ndpi } else { Format::Tiff };
+                    }
+                    let (ir, facts) = p.finish()?;
                     self.fill = unread_shown(&ir, self.format.name());
                     let ranges: Vec<(u64, u64)> = {
                         let mut r: Vec<(u64, u64)> = self.fill.iter().map(|&(_, o, n)| (o, n)).collect();
@@ -216,6 +227,7 @@ pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_j
               -> Result<crate::out::Out, String> {
     let mut out = crate::project::project(format, ir, facts, url)?;
     if let Some(m) = out.summary.as_object_mut() {
+        m.insert("format".into(), format.name().into());
         m.insert("planner".into(), stats);
         m.insert("elements".into(), ir.len().into());
     }

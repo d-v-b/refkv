@@ -12,12 +12,32 @@
 //! tables), as the layout asks for them; (6) the IFDs other pointer tags lead to,
 //! for the IR only. The schema (`schema/tiff.json`) is checked as the profile
 //! meets each role: a file that fails is rejected there, and nowhere else.
+//!
+//! **The NDPI variant** (spec/virtualize/ndpi.md
+//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md>). After the header, the
+//! parser tests the file for NDPI (§4
+//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>, which never
+//! rejects): a little-endian magic-42 TIFF whose IFD at the u64 at bytes 4–11 has tag 65420. An
+//! NDPI is read by the same rounds with these extension points, each a method that asks
+//! `self.ndpi`:
+//! - the IFD layout (`ifd_len`, `next_of`, `ifd`): a u16 entry count, 12-byte entries, a u64
+//!   next-IFD offset, then a u32 high word per entry, which extends the entry's value field
+//!   (`Ent::high`: an out-of-line value is at `low + high × 2^32`, and `ints` reads an in-line
+//!   LONG or IFD of count 1 as `low + high × 2^32`); the high words are `tags/<tag>/high`;
+//! - the tags (`table`, `layout_tag`, `is_pointer`): NDPI's table and layout tags, with
+//!   SubIFDs followed as a pointer tag (an NDPI's tree is its main chain only), against the
+//!   schema `schema/ndpi.json`;
+//! - the checks of the chain (`check_offset`) and the layout (`derive_ndpi`, with the strips'
+//!   JPEG headers and restart intervals read by `ndpi.rs`), whose facts the NDPI projection
+//!   (`project/ndpi.rs`) reads.
 
 use crate::check;
 use crate::expr::V;
 use crate::fed::{Fed, u16_at, u32_at, u64_at};
 use crate::ir::*;
 use crate::nd2::Step;
+use crate::ndpi;
+use crate::out::Part;
 use crate::rules::{self, Rules, Vars, flag, int, num, text};
 use crate::xml::{self, Ev};
 use serde_json::{Value as J, json};
@@ -36,6 +56,16 @@ const WINDOW: u64 = 4096; // the bytes asked at an IFD, before its entry count i
 fn is_table(tag: u16) -> bool {
     TABLE.contains(&tag)
 }
+
+/// The tags of NDPI's table (spec/virtualize/ndpi.md §2
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#2-the-source>), and the tags
+/// NDPI adds to TIFF's layout tags (McuStarts and McuStartsHighBytes).
+const NDPI_TABLE: [u16; 17] = [
+    256, 257, 258, 259, 262, 273, 277, 279, 282, 283, 296, 65420, 65421, 65422, 65423, 65426, 65432,
+];
+const NDPI_SCALARS: [u16; 15] = [256, 257, 259, 262, 273, 277, 279, 282, 283, 296, 65420, 65421, 65422, 65423, 65432];
+const NDPI_LAYOUT: [u16; 2] = [65426, 65432];
+const MAX_SAFE: u64 = (1 << 53) - 1;
 
 fn is_used(tag: u16) -> bool {
     is_table(tag) && tag != 270 && tag != 330
@@ -59,16 +89,6 @@ fn unsigned(t: u16) -> bool {
     matches!(t, 1 | 3 | 4 | 13 | 16 | 18)
 }
 
-/// A pointer tag (spec/virtualize/tiff.md §5
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>): it leads
-/// to IFDs the IR describes.
-fn pointer(tag: u16, typ: u16) -> bool {
-    match tag {
-        330 | 34665 | 34853 | 40965 => unsigned(typ),
-        400 => typ == 4,
-        _ => matches!(typ, 13 | 18) && !is_table(tag) && !LAYOUT.contains(&tag),
-    }
-}
 
 fn label(tag: u16) -> String {
     match tag {
@@ -119,6 +139,9 @@ struct Ent {
     /// its value element (in line, or out of line within the file)
     val: Option<u32>,
     dup: bool,
+    /// NDPI: the entry's high word, and its element
+    high: u64,
+    hi: Option<u32>,
 }
 
 #[derive(Clone)]
@@ -148,6 +171,8 @@ impl Ifd {
 enum Phase {
     Start,
     Header,
+    Detect,
+    DetectEntries,
     Chain,
     ChainValues,
     SubPlan,
@@ -227,6 +252,10 @@ pub struct Tiff {
     pub requests: u64,
     pub requested: u64,
     pub rounds: u64,
+    /// the file is an NDPI (the variant of the module's documentation)
+    pub ndpi: bool,
+    /// the header's bytes, kept until the NDPI test decides how to read it
+    head: Vec<u8>,
 }
 
 struct Level {
@@ -282,7 +311,37 @@ impl Tiff {
             requests: 0,
             requested: 0,
             rounds: 0,
+            ndpi: false,
+            head: Vec::new(),
         }
+    }
+
+    // ---- the extension points of the NDPI variant
+
+    /// A tag of the table the variant checks.
+    fn table(&self, tag: u16) -> bool {
+        if self.ndpi { NDPI_TABLE.contains(&tag) } else { is_table(tag) }
+    }
+
+    /// A layout tag: its values only locate the file's bytes.
+    fn layout_tag(&self, tag: u16) -> bool {
+        LAYOUT.contains(&tag) || (self.ndpi && NDPI_LAYOUT.contains(&tag))
+    }
+
+    /// A pointer tag (spec/virtualize/tiff.md §5.2
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#52-which-ifds>), of the
+    /// variant's table and layout tags.
+    fn is_pointer(&self, tag: u16, typ: u16) -> bool {
+        match tag {
+            330 | 34665 | 34853 | 40965 => unsigned(typ),
+            400 => typ == 4,
+            _ => matches!(typ, 13 | 18) && !self.table(tag) && !self.layout_tag(tag),
+        }
+    }
+
+    /// The offset of an IFD's next-IFD offset, after its count and entries.
+    fn next_of(&self, count: u64) -> usize {
+        (self.cs() + count * self.es()) as usize
     }
 
     pub fn feed(&mut self, offset: u64, data: Vec<u8>) {
@@ -330,8 +389,37 @@ impl Tiff {
                     let n = 16.min(self.size);
                     let h = self.fed.get(0, n).ok_or("internal: no header")?.to_vec();
                     self.fed.clear();
+                    // the NDPI test (spec/virtualize/ndpi.md §4
+                    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>):
+                    // the IFD at V, the u64 at bytes 4–11, of a little-endian classic TIFF
+                    if h.len() >= 12 && h[..4] == *b"II*\0" {
+                        let v = u64_at(&h, 4, true);
+                        if v >= 16 && v.checked_add(2).is_some_and(|e| e <= self.size) {
+                            self.head = h;
+                            self.phase = Phase::Detect;
+                            return Ok(self.ask(vec![(v, WINDOW.min(self.size - v))]));
+                        }
+                    }
                     self.header(&h)?;
                     self.phase = Phase::Chain;
+                }
+                Phase::Detect => {
+                    let h = std::mem::take(&mut self.head);
+                    let v = u64_at(&h, 4, true);
+                    let n = u16_at(self.fed.get(v, 2).ok_or("internal: no NDPI entry count")?, 0, true) as u64;
+                    let end = v + 2 + 12 * n;
+                    if end <= self.size && self.fed.get(v + 2, 12 * n).is_none() {
+                        self.head = h;
+                        self.phase = Phase::DetectEntries;
+                        return Ok(self.ask(vec![(v + 2, 12 * n)]));
+                    }
+                    self.decide(&h, v, n)?;
+                }
+                Phase::DetectEntries => {
+                    let h = std::mem::take(&mut self.head);
+                    let v = u64_at(&h, 4, true);
+                    let n = u16_at(self.fed.get(v, 2).ok_or("internal: no NDPI entry count")?, 0, true) as u64;
+                    self.decide(&h, v, n)?;
                 }
                 Phase::Chain => {
                     // the main chain, an IFD a round: each names the next
@@ -343,7 +431,11 @@ impl Tiff {
                         continue;
                     }
                     let o = self.next;
-                    self.check_offset(o, true)?;
+                    if self.ndpi {
+                        self.check_ndpi_offset(o, true, true)?;
+                    } else {
+                        self.check_offset(o, true)?;
+                    }
                     self.pending = vec![Pending {
                         parent: 0,
                         name: "ifds/".into(),
@@ -376,7 +468,8 @@ impl Tiff {
                 }
                 Phase::SubPlan => {
                     // the SubIFDs of the tree's IFDs at this depth, checked before they are read
-                    if self.depth >= 4 {
+                    // (an NDPI's tree is its main chain: its SubIFDs are a pointer tag's)
+                    if self.depth >= 4 || self.ndpi {
                         self.phase = Phase::Layout;
                         continue;
                     }
@@ -407,7 +500,7 @@ impl Tiff {
                         }
                         self.fed.clear();
                     }
-                    match self.derive() {
+                    match if self.ndpi { self.derive_ndpi() } else { self.derive() } {
                         Ok(l) => {
                             self.layout = Some(l);
                             self.emit_data()?;
@@ -524,6 +617,44 @@ impl Tiff {
         Ok(())
     }
 
+    /// Decides whether the file is NDPI, from its header `h` and the IFD at `v` of `n`
+    /// entries (fed), and reads the header as the variant does.
+    fn decide(&mut self, h: &[u8], v: u64, n: u64) -> Res<()> {
+        let within = v + 2 + 12 * n <= self.size;
+        let ndpi = within
+            && self.fed.get(v + 2, 12 * n).is_some_and(|e| (0..n as usize).any(|i| u16_at(e, 12 * i, true) == 65420));
+        if ndpi {
+            self.ndpi = true;
+            self.rules = rules::ndpi();
+            self.hs = 16;
+            let s = self.ir.struct_(0, "header", NO_INDEX, 0, Some((0, 12)))?;
+            self.ir.value(s, "byte_order", NO_INDEX, "ascii[2]", 0, (0, 2), Some(&h[..2]))?;
+            self.ir.value(s, "magic", NO_INDEX, "<u2", 0, (2, 2), Some(&h[2..4]))?;
+            self.ir.value(s, "first_ifd", NO_INDEX, "<u8", 0, (4, 8), Some(&h[4..12]))?;
+            self.next = v;
+        } else {
+            self.header(h)?;
+        }
+        self.phase = Phase::Chain;
+        Ok(())
+    }
+
+    /// An NDPI IFD (the `ifd_offset` role of `schema/ndpi.json`): in the file, not read
+    /// before, within the IFD limit; its count and its body within the file.
+    fn check_ndpi_offset(&self, o: u64, count_within: bool, within: bool) -> Res<()> {
+        self.check(
+            "ifd_offset",
+            rules::env([
+                ("offset", num(o as f64)),
+                ("safe", flag(o <= MAX_SAFE)),
+                ("seen", flag(self.by_offset.contains_key(&o))),
+                ("read", num(self.by_offset.len() as f64)),
+                ("count_within", flag(count_within && self.within(o, 2))),
+                ("within", flag(within)),
+            ]),
+        )
+    }
+
     fn check_offset(&self, o: u64, chain: bool) -> Res<()> {
         self.check(
             "ifd_offset",
@@ -572,6 +703,10 @@ impl Tiff {
 
     /// The IFD's length: entry count, entries, next offset (None past u64).
     fn ifd_len(&self, count: u64) -> Option<u64> {
+        if self.ndpi {
+            // the count, the entries, the u64 next offset and a u32 high word per entry
+            return count.checked_mul(16)?.checked_add(10);
+        }
         count.checked_mul(self.es())?.checked_add(self.cs() + self.fs())
     }
 
@@ -590,6 +725,9 @@ impl Tiff {
                 let count = self.word_n(c);
                 let len = self.ifd_len(count);
                 let within = len.is_some_and(|n| self.within(p.offset, n));
+                if !within && self.ndpi {
+                    self.check_ndpi_offset(p.offset, true, false)?;
+                }
                 if !within {
                     self.check(
                         "ifd_offset",
@@ -624,8 +762,12 @@ impl Tiff {
             let k = self.ifd(&p, &body)?;
             if p.tree && p.depth == 0 {
                 self.chain.push(k);
-                let f = self.fs() as usize;
-                self.next = self.word(&body, body.len() - f);
+                if self.ndpi {
+                    self.next = u64_at(&body, self.next_of(count), true);
+                } else {
+                    let f = self.fs() as usize;
+                    self.next = self.word(&body, body.len() - f);
+                }
             }
             if let Some(parent) = p.from {
                 self.ifds[parent].subs.push(k);
@@ -674,7 +816,10 @@ impl Tiff {
             let field = raw[4 + fs..4 + 2 * fs].to_vec();
             let nbytes = type_size(typ).and_then(|z| z.checked_mul(n));
             let inline = nbytes.is_some_and(|b| b <= fs as u64);
-            let off = if inline { 0 } else { self.word(&field, 0) };
+            // NDPI: the entry's high word, after the next-IFD offset
+            let hat = self.next_of(count) + 8 + 4 * i;
+            let high = if self.ndpi { u32_at(body, hat, true) as u64 } else { 0 };
+            let off = if inline { 0 } else { self.word(&field, 0) + (high << 32) };
             let dup = *dups.get(&tag).unwrap_or(&0);
             dups.insert(tag, dup + 1);
             let t = if dup == 0 {
@@ -704,8 +849,13 @@ impl Tiff {
                     }
                 }
             }
-            let ent = Ent { tag, typ, count: n, field, nbytes, inline, off, val, dup: dup > 0 };
-            if dup == 0 && is_table(tag) && p.tree {
+            let hi = if self.ndpi {
+                Some(self.ir.value(t, "high", NO_INDEX, "<u4", 0, (o + hat as u64, 4), Some(&body[hat..hat + 4]))?)
+            } else {
+                None
+            };
+            let ent = Ent { tag, typ, count: n, field, nbytes, inline, off, val, dup: dup > 0, high, hi };
+            if dup == 0 && self.table(tag) && p.tree {
                 let outside = !inline && !nbytes.is_some_and(|nb| self.within(off, nb));
                 let mut env = rules::env([
                     ("tag", int(tag as i128)),
@@ -722,7 +872,11 @@ impl Tiff {
             ifd.entries.push(ent);
         }
         let f0 = cs + count as usize * es;
-        self.ir.value(s, "next_ifd", NO_INDEX, &format!("{e}{wt}"), 0, (o + f0 as u64, fs as u64), Some(&body[f0..f0 + fs]))?;
+        if self.ndpi {
+            self.ir.value(s, "next_ifd", NO_INDEX, "<u8", 0, (o + f0 as u64, 8), Some(&body[f0..f0 + 8]))?;
+        } else {
+            self.ir.value(s, "next_ifd", NO_INDEX, &format!("{e}{wt}"), 0, (o + f0 as u64, fs as u64), Some(&body[f0..f0 + fs]))?;
+        }
         self.ifds.push(ifd);
         Ok(k)
     }
@@ -745,6 +899,10 @@ impl Tiff {
     fn ints(&self, e: &Ent, first: bool) -> Option<Vec<u64>> {
         let z = type_size(e.typ)?;
         let n = if first { 1.min(e.count) } else { e.count };
+        if self.ndpi && e.inline && e.count == 1 && matches!(e.typ, 4 | 13) {
+            // an NDPI LONG or IFD of count 1 in line: its 4 bytes plus its high word
+            return Some(vec![u32_at(&e.field, 0, true) as u64 + (e.high << 32)]);
+        }
         let b = self.bytes_of(e, n * z)?;
         Some(
             b.chunks(z as usize)
@@ -802,7 +960,7 @@ impl Tiff {
                     }
                 }
                 let required = e.tag == 330 && f.tree && f.depth < 4 && !e.dup;
-                let describe = !e.dup && (is_table(e.tag) || LAYOUT.contains(&e.tag) || pointer(e.tag, e.typ));
+                let describe = !e.dup && (self.table(e.tag) || self.layout_tag(e.tag) || self.is_pointer(e.tag, e.typ));
                 let eager = describe && n <= max_decode && (want.contains_key(&(e.off, n)) || self.eager + n <= eager_limit);
                 // every numeric value of at most 1024 bytes is held, whatever its tag: the
                 // mirror's view shows it (conventions §8.7
@@ -1619,6 +1777,9 @@ impl Tiff {
 impl Tiff {
     /// An IFD's JPEG prefix by its own tags (for an IFD no level uses).
     fn own_prefix(&self, k: usize) -> Vec<u8> {
+        if self.ndpi {
+            return Vec::new(); // an NDPI strip is a whole JPEG stream
+        }
         let f = &self.ifds[k];
         let one = |t: u16| f.field(t).filter(|e| unsigned(e.typ)).and_then(|e| self.ints(e, true)).and_then(|v| v.first().copied());
         let mut out = Vec::new();
@@ -1719,6 +1880,9 @@ impl Tiff {
         }
         self.data_keys = by_key;
         let lay = self.layout.as_mut().unwrap();
+        if self.ndpi {
+            return Ok(()); // derive_ndpi wrote the levels
+        }
         let levels: Vec<J> = lay
             .levels
             .iter()
@@ -1751,7 +1915,7 @@ impl Tiff {
         for &k in ks {
             let f = &self.ifds[k];
             for e in &f.entries {
-                if e.dup || !pointer(e.tag, e.typ) || (e.tag == 330 && f.tree) {
+                if e.dup || !self.is_pointer(e.tag, e.typ) || (e.tag == 330 && f.tree && !self.ndpi) {
                     continue;
                 }
                 let Some(v) = self.ints(e, false) else { continue };
@@ -1892,5 +2056,277 @@ impl Tiff {
         facts["requested"] = json!(self.requested);
         facts["rounds"] = json!(self.rounds);
         Ok((self.ir, facts))
+    }
+}
+
+// ---- the NDPI layout (spec/virtualize/ndpi.md §3
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#3-levels>, §4
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-the-image>), as the profile
+// reads it
+
+/// An NDPI tag's values, as the profile reads them.
+#[derive(Clone, Debug)]
+enum Nv {
+    Ints(Vec<u64>),
+    Signed(Vec<i64>),
+    Floats(Vec<f64>),
+    Rats(Vec<(u64, u64)>),
+}
+
+impl Nv {
+    fn ints(&self) -> Option<&[u64]> {
+        match self {
+            Nv::Ints(v) => Some(v),
+            _ => None,
+        }
+    }
+    /// The first value as a number.
+    fn first(&self) -> Option<f64> {
+        match self {
+            Nv::Ints(v) => v.first().map(|&x| x as f64),
+            Nv::Signed(v) => v.first().map(|&x| x as f64),
+            Nv::Floats(v) => v.first().copied(),
+            Nv::Rats(_) => None,
+        }
+    }
+}
+
+type NVals = HashMap<u16, Nv>;
+
+impl Tiff {
+    /// The values of IFD `k`'s tags of NDPI's table (those of `only`, or all): a scalar's
+    /// first, an array's every value. The bytes not read yet are added to `need` (and the
+    /// tag left out); an integer tag's values are checked (the `values` role).
+    fn nload(&self, k: usize, only: Option<&[u16]>, need: &mut Vec<(u64, u64)>) -> Res<NVals> {
+        let f = &self.ifds[k];
+        let mut tags: Vec<(u16, usize)> = f
+            .first
+            .iter()
+            .map(|(&t, &i)| (t, i))
+            .filter(|&(t, _)| self.table(t) && only.is_none_or(|o| o.contains(&t)))
+            .collect();
+        tags.sort_unstable_by_key(|x| x.1);
+        let mut out = NVals::new();
+        for (tag, i) in tags {
+            let e = &f.entries[i];
+            let z = type_size(e.typ).ok_or("internal: a checked NDPI tag of unknown type")?;
+            let n = if NDPI_SCALARS.contains(&tag) { 1.min(e.count) } else { e.count };
+            let v = if matches!(e.typ, 1 | 3 | 4 | 13 | 16 | 18) {
+                let Some(mut v) = self.ints(e, n == 1 && e.count >= 1) else {
+                    need.push((e.off, n * z));
+                    continue;
+                };
+                v.truncate(n as usize);
+                let safe = v.iter().all(|&x| x <= MAX_SAFE);
+                self.check("values", rules::env([("tag", int(tag as i128)), ("safe", flag(safe))]))?;
+                Nv::Ints(v)
+            } else {
+                let Some(b) = self.bytes_of(e, n * z) else {
+                    need.push((e.off, n * z));
+                    continue;
+                };
+                let c = b.chunks_exact(z as usize);
+                match e.typ {
+                    8 => Nv::Signed(c.map(|x| i16::from_le_bytes([x[0], x[1]]) as i64).collect()),
+                    9 => Nv::Signed(c.map(|x| i32::from_le_bytes(x.try_into().unwrap()) as i64).collect()),
+                    11 => Nv::Floats(c.map(|x| f32::from_le_bytes(x.try_into().unwrap()) as f64).collect()),
+                    12 => Nv::Floats(c.map(|x| f64::from_le_bytes(x.try_into().unwrap())).collect()),
+                    5 => Nv::Rats(c.map(|x| (u32_at(x, 0, true) as u64, u32_at(x, 4, true) as u64)).collect()),
+                    _ => return Err("internal: an NDPI tag of an unexpected type".into()),
+                }
+            };
+            out.insert(tag, v);
+        }
+        Ok(out)
+    }
+
+    /// A tag's first value, or the `required` role's rejection naming it.
+    fn nreq(&self, m: &NVals, tag: u16, what: &str) -> Res<f64> {
+        match m.get(&tag).and_then(|v| v.first()) {
+            Some(x) => Ok(x),
+            None => {
+                self.check("required", rules::env([("what", text(what)), ("present", flag(false))]))?;
+                Ok(0.0)
+            }
+        }
+    }
+
+    fn nint(m: &NVals, tag: u16) -> Option<u64> {
+        m.get(&tag).and_then(|v| v.ints()).and_then(|v| v.first().copied())
+    }
+
+    /// An entry's elements for the projection: its value, field type and high word.
+    fn ent_facts(&self, k: usize, tag: u16) -> J {
+        match self.ifds[k].field(tag) {
+            Some(e) => json!({"value": e.val, "type": e.typ, "high": if e.inline { e.hi } else { None }}),
+            None => J::Null,
+        }
+    }
+
+    /// The NDPI layout: levels, chunk grids, scales and translation, as facts for
+    /// `project/ndpi.rs`. Asks for the values and strip headers not read yet.
+    fn derive_ndpi(&self) -> Got<Layout> {
+        // every main-chain IFD's Magnification, then each level's tags, each in one batch
+        let mut need = Vec::new();
+        let mut mags = Vec::new();
+        for &k in &self.chain {
+            mags.push(self.nload(k, Some(&[65421]), &mut need)?);
+        }
+        if !need.is_empty() {
+            return Err(Stop::Need(need));
+        }
+        let mut tags: Vec<(usize, f64, NVals)> = Vec::new();
+        for (j, &k) in self.chain.iter().enumerate() {
+            let mag = self.nreq(&mags[j], 65421, "Magnification")?;
+            if mag > 0.0 {
+                tags.push((k, mag, self.nload(k, None, &mut need)?));
+            }
+        }
+        if !need.is_empty() {
+            return Err(Stop::Need(need));
+        }
+        // the levels (spec/virtualize/ndpi.md §3
+        // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#3-levels>)
+        let mut levels: Vec<(usize, f64, u64, u64)> = Vec::new(); // (IFD, magnification, w, h)
+        for (k, mag, m) in &tags {
+            let w = self.nreq(m, 256, "ImageWidth")? as u64;
+            let h = self.nreq(m, 257, "ImageLength")? as u64;
+            let w = Self::nint(m, 256).unwrap_or(w);
+            let h = Self::nint(m, 257).unwrap_or(h);
+            let compression = Self::nint(m, 259).unwrap_or(1);
+            let photometric = if compression == 7 { Some(self.nreq(m, 262, "PhotometricInterpretation")? as u64) } else { Self::nint(m, 262) };
+            let bits = m.get(&258).and_then(|v| v.ints()).map(|v| v.to_vec()).unwrap_or_default();
+            let f = &self.ifds[*k];
+            let one_strip = [273u16, 279].iter().all(|&t| f.field(t).is_some_and(|e| e.count == 1));
+            let smaller = levels.last().is_none_or(|l| w < l.2 && h < l.3);
+            let new_magnification = !levels.iter().any(|l| l.1 == *mag);
+            self.check(
+                "level",
+                rules::env([
+                    ("compression", num(compression as f64)),
+                    ("photometric", photometric.map(|p| num(p as f64)).unwrap_or(V::Absent)),
+                    ("spp", num(Self::nint(m, 277).unwrap_or(1) as f64)),
+                    ("bits", V::List(bits.iter().map(|&b| V::Num(b as f64)).collect())),
+                    ("one_strip", flag(one_strip)),
+                    ("smaller", flag(smaller)),
+                    ("new_magnification", flag(new_magnification)),
+                    ("width", num(w as f64)),
+                    ("height", num(h as f64)),
+                ]),
+            )?;
+            levels.push((*k, *mag, w, h));
+        }
+        self.check("images", rules::env([("levels", num(levels.len() as f64))]))?;
+        let vals = |k: usize| &tags.iter().find(|t| t.0 == k).unwrap().2;
+        // the strips' headers, in one batch
+        let mut headers: Vec<Option<(Vec<u64>, u64, u64)>> = Vec::new(); // (McuStarts, strip, length)
+        for &(k, _, _, _) in &levels {
+            let m = vals(k);
+            let (s0, n) = (Self::nint(m, 273).unwrap_or(0), Self::nint(m, 279).unwrap_or(0));
+            let within = (s0 as u128 + n as u128) <= self.size as u128;
+            self.check("strip", rules::env([("within", flag(within)), ("length", num(n as f64))]))?;
+            let Some(starts) = m.get(&65426).and_then(|v| v.ints()) else {
+                headers.push(None);
+                continue;
+            };
+            let high = m.get(&65432).and_then(|v| v.ints());
+            let same_length = high.is_none_or(|h| h.len() == starts.len());
+            let starts = if same_length {
+                ndpi::combine(starts.to_vec(), high)
+            } else {
+                starts.to_vec()
+            };
+            self.check(
+                "mcu_starts",
+                rules::env([
+                    ("same_length", flag(same_length)),
+                    ("first", starts.first().map(|&f| num(f as f64)).unwrap_or(V::Absent)),
+                    ("length", num(n as f64)),
+                ]),
+            )?;
+            if !self.heads.contains_key(&(s0, starts[0])) {
+                need.push((s0, starts[0]));
+            }
+            headers.push(Some((starts, s0, n)));
+        }
+        if !need.is_empty() {
+            return Err(Stop::Need(need));
+        }
+        // scale and position (spec/virtualize/ndpi.md §4
+        // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-the-image>)
+        let (k0, _, bw, bh) = levels[0];
+        let m0 = vals(k0);
+        let per_unit = self
+            .rules
+            .table("resolution_units")
+            .get(Self::nint(m0, 296).unwrap_or(0).to_string())
+            .and_then(|x| x.as_f64());
+        let physical = |tag: u16| -> Option<f64> {
+            let pu = per_unit?;
+            let Some(Nv::Rats(r)) = m0.get(&tag) else { return None };
+            let (n, d) = *r.first()?;
+            if n == 0 || d == 0 {
+                return None;
+            }
+            let pixel = pu / (n as f64 / d as f64);
+            (pixel < 25.4).then_some(pixel)
+        };
+        let (px, py) = (physical(282), physical(283));
+        let mut units = serde_json::Map::new();
+        for (a, p) in [("x", px), ("y", py)] {
+            if p.is_some() {
+                units.insert(a.into(), json!("micrometer"));
+            }
+        }
+        // the chunks of each level; the header's pieces are data sources, numbered by first use
+        let mut pieces: Vec<Vec<u8>> = Vec::new();
+        let mut piece = |b: &[u8]| -> Part {
+            let i = match pieces.iter().position(|p| p == b) {
+                Some(i) => i,
+                None => {
+                    pieces.push(b.to_vec());
+                    pieces.len() - 1
+                }
+            };
+            Part::Data(i as u32 + 1, 0, b.len() as u64)
+        };
+        let mut out = Vec::new();
+        let mut scales = Vec::new();
+        for (&(k, _, w, h), head) in levels.iter().zip(headers) {
+            let m = vals(k);
+            let (s0, n) = (Self::nint(m, 273).unwrap_or(0), Self::nint(m, 279).unwrap_or(0));
+            let grid = match head {
+                None => J::Null,
+                Some((starts, _, _)) => {
+                    let hb = self.heads.get(&(s0, starts[0])).ok_or_else(|| "internal: no strip header".to_string())?.clone();
+                    let hd = ndpi::header(&hb, self.rules)?;
+                    let (before, after) = (piece(&hb[..hd.sof.0]), piece(&hb[hd.sof.1..]));
+                    ndpi::Grid::new(s0, n, w, h, hb, hd, starts, &before, &after, self.rules)?.facts()
+                }
+            };
+            out.push(json!({
+                "w": w, "h": h, "strip": s0, "length": n,
+                "starts": self.ent_facts(k, 65426), "high": self.ent_facts(k, 65432), "grid": grid,
+            }));
+            scales.push(json!([1, py.unwrap_or(1.0) * (bh as f64 / h as f64), px.unwrap_or(1.0) * (bw as f64 / w as f64)]));
+        }
+        let mut translation = J::Null;
+        if let (Some(sx), Some(sy), Some(ox), Some(oy)) =
+            (px, py, m0.get(&65422).and_then(|v| v.first()), m0.get(&65423).and_then(|v| v.first()))
+        {
+            let (x, y) = (ox / 1000.0 - bw as f64 * sx / 2.0, oy / 1000.0 - bh as f64 * sy / 2.0);
+            self.check("translation", rules::env([("x", num(x)), ("y", num(y))]))?;
+            translation = json!([0, y, x]);
+        }
+        let facts = json!({
+            "profile": "ndpi",
+            "ifds": self.chain.len(),
+            "axes": ["c", "y", "x"],
+            "units": units,
+            "scales": scales,
+            "translation": translation,
+            "levels": out,
+        });
+        Ok(Layout { facts, prefixes: HashMap::new(), levels: Vec::new(), planes: None })
     }
 }
