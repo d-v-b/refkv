@@ -1815,6 +1815,6 @@ with the mirror checks):
 |---|---|
 | IMS fixtures (45) | 27 equivalent, 18 rejected by all |
 | fixtures, 4 shards of `compare.py` | 0 divergent |
-| IMS mutants (430) | 183 equivalent, 247 rejected by all, 0 divergent |
-| native and wasm32 parity | 486 of 486 (the 487 inputs above but `ims_latest_global_heaps.ims`, added after the parity run) |
+| IMS mutants (440, 10 per fixture) | 195 equivalent, 245 rejected by all, 0 divergent |
+| native and wasm32 parity | 497 of 497 (the fixtures, probes and amplification files, and the 440 mutants) |
 | `just verify-ims` | 0 failures (pixels against h5py, the mirror rebuilt byte for byte) |
