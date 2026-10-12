@@ -14,6 +14,7 @@
 
 mod czi;
 mod nd2;
+pub mod store;
 mod tiff;
 pub mod zarr2;
 

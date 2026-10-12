@@ -13,6 +13,7 @@ import { checkAddress, checkPolicy, type Policy, VzipError } from "../archive.ts
 import { checkedFetch } from "#net";
 import { checkHttpUrl, isUriReference } from "../uri.ts";
 import { CONVENTION_KEY, declare, type Profile, stringifyJson } from "./common.ts";
+import type { StoreProfile } from "./ir/store.ts";
 import type { ArchiveDesc, EntryDesc } from "../writer.ts";
 
 /**
@@ -20,7 +21,15 @@ import type { ArchiveDesc, EntryDesc } from "../writer.ts";
  * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>–§1.6
  * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>).
  */
-export class StoreError extends Error {}
+export class StoreError extends Error {
+  /** The store format that refused the input, once one was chosen (the Rust core's store run:
+   * `zarr2`, or `ome-zarr` once its 0.4 test passed); none for a rejection before that. */
+  readonly format?: StoreProfile;
+  constructor(message?: string, format?: StoreProfile) {
+    super(message);
+    if (format !== undefined) this.format = format;
+  }
+}
 
 /**
  * A resource limit of this implementation was exceeded: a failure, not a rejection (§1.2

@@ -41,6 +41,11 @@ pub trait StoreParser: Send + Sync {
     fn feed(&mut self, object: usize, offset: u64, data: &[u8]);
     /// The IR (finished: `check::finish`) and the facts its projection reads.
     fn finish(self: Box<Self>) -> Res<(Ir, J)>;
+    /// The profile the store is decided to be, once the parser has decided (a Zarr v2 store
+    /// is OME-Zarr's when its root declares OME-NGFF 0.4); None before that.
+    fn profile(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 /// The store formats the core reads (the store profiles move onto the IR one by one).
@@ -159,6 +164,13 @@ impl StoreRun {
     pub fn ignore(&mut self, keys: Vec<String>) {
         self.ignored = keys;
         self.ignored.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+    }
+
+    /// The profile the run's store is decided to be so far (the format's own until its parser
+    /// decides otherwise), which a rejection names: a host asks it after the last poll, before
+    /// the output, whose checks are that profile's.
+    pub fn profile(&self) -> &'static str {
+        self.parser.as_ref().and_then(|p| p.profile()).unwrap_or(self.format.profile())
     }
 
     /// The requests to make now, concurrently; None when the parser is done.
@@ -337,7 +349,7 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         out.summary["folded"] = folded.json();
     }
     match format {
-        StoreFormat::Zarr2 => crate::project::zarr2::record_ignored(&mut out, facts, profile)?,
+        StoreFormat::Zarr2 => crate::project::store::record_ignored(&mut out, facts, profile)?,
     }
     Ok(out)
 }

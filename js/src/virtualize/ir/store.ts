@@ -15,11 +15,14 @@ import { ir, type IrExports, out, put } from "./wasm.ts";
 
 /** The core's store formats. */
 export type StoreFormat = "zarr2";
+/** The profiles a store format's run decides between (its rejections name them). */
+export type StoreProfile = StoreFormat | "ome-zarr";
 
 /** The store run exports of rust/vzip-ir/src/wasm.rs. */
 interface StoreExports extends IrExports {
   vz_store_new(format: number, nf: number, listing: number, nl: number, concurrency: number): bigint;
   vz_store_ignore(p: number, json: number, n: number): bigint;
+  vz_store_profile(p: number): bigint;
   vz_store_poll(p: number): bigint;
   vz_store_complete(p: number, k: number, data: number, n: number): bigint;
   vz_store_output(p: number, url: number, n: number, mirror: number): bigint;
@@ -29,8 +32,8 @@ interface StoreExports extends IrExports {
 const utf8 = new TextEncoder();
 const text = (b: Uint8Array) => new TextDecoder().decode(b);
 
-function rejection(w: IrExports, r: number): StoreError {
-  return new StoreError(text(out(w, -r)));
+function rejection(w: IrExports, r: number, format: StoreProfile): StoreError {
+  return new StoreError(text(out(w, -r)), format);
 }
 
 /** The requests of a poll: each one's object (an index of the listing) and spans [start, end). */
@@ -73,7 +76,9 @@ async function fetchSpans(store: Store, key: string, spans: [number, number][]):
 
 /** Virtualizes the listed `store` with the core's store format `format`: its ignored keys
  * recorded, its objects read at most `store.concurrency` at a time. A store the core refuses
- * is a StoreError; an object that cannot be read, its own error. */
+ * is a StoreError naming the format; an object that cannot be read, its own error.
+ * @param options.mirror false leaves `vzip_source`'s mirror out, and with it the source
+ * metadata that records the listing's ignored keys: such an output keeps neither. */
 export async function virtualizeStoreIr(
   format: StoreFormat,
   store: Store,
@@ -88,16 +93,16 @@ export async function virtualizeStoreIr(
   const l = utf8.encode(JSON.stringify(listing));
   const concurrency = Math.max(1, store.concurrency ?? 1);
   const made = Number(w.vz_store_new(put(w, f), f.length, put(w, l), l.length, concurrency));
-  if (made < 0) throw rejection(w, made);
+  if (made < 0) throw rejection(w, made, format);
   const p = made;
   let live = true;
   try {
     const ig = utf8.encode(JSON.stringify(store.ignored ?? []));
     const g = Number(w.vz_store_ignore(p, put(w, ig), ig.length));
-    if (g < 0) throw rejection(w, g);
+    if (g < 0) throw rejection(w, g, format);
     for (;;) {
       const r = Number(w.vz_store_poll(p));
-      if (r < 0) throw rejection(w, r);
+      if (r < 0) throw rejection(w, r, format);
       if (r === 0) break;
       const reqs = decodeRequests(out(w, r - 1));
       const got: (Uint8Array[] | undefined)[] = new Array(reqs.length);
@@ -120,13 +125,16 @@ export async function virtualizeStoreIr(
           at += x.length;
         }
         const c = Number(w.vz_store_complete(p, k, ptr, n));
-        if (c < 0) throw rejection(w, c);
+        if (c < 0) throw rejection(w, c, format);
       }
     }
+    // the output's checks are the decided profile's (OME-Zarr's for a Zarr v2 store whose root
+    // declares OME-NGFF 0.4), which its rejection names
+    const decided = text(out(w, Number(w.vz_store_profile(p)))) as StoreProfile;
     live = false; // vz_store_output consumes the run
     const u = utf8.encode(store.url);
     const n = Number(w.vz_store_output(p, put(w, u), u.length, options.mirror === false ? 0 : 1));
-    if (n < 0) throw rejection(w, n);
+    if (n < 0) throw rejection(w, n, decided);
     // each reference to an object is a url source of its own, in the order of the entries' keys
     const refs: [string, string, bigint, Range][] = [];
     const desc = decodeOutput(out(w, n), (entry, key, offset, length) => {

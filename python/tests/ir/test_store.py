@@ -142,3 +142,10 @@ def test_the_ignored_keys_are_vzip_source_s_member_ignored():
     own = json.loads(out.entries["vzip_source/zarr.json"])["attributes"]["vzip_virtualized"]["zarr2"]
     assert set(own) == {"ir", "ignored"}
     assert own["ignored"] == sorted(["z//y", "./x", "é/../w"], key=str.encode)
+
+
+def test_a_rejection_names_the_store_format():
+    s3 = FakeS3({".zgroup": b'{"zarr_format": 2}', "a/.zarray": b'{"zarr_format": 3}'})
+    with pytest.raises(Rejected, match="zarr_format is not 2") as e:
+        virtualize_store(URL, opener=s3, workers=2)
+    assert e.value.format == "zarr2"

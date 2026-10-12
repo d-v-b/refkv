@@ -15,7 +15,7 @@
 use crate::expr::V;
 use crate::ir::Res;
 use crate::json::Jv;
-use crate::project::zarr2::canonical_index;
+use crate::project::store::canonical_index;
 use crate::rules::{self, Rules, Vars};
 use serde_json::{json, Value as J};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -53,11 +53,9 @@ trait Read {
     /// The text of a string with no unpaired surrogate (a string with one names no key and
     /// equals no constant).
     fn s(&self) -> Option<&str>;
-    fn is_obj(&self) -> bool;
     fn as_arr(&self) -> Option<&Vec<Jv>>;
     fn is_str(&self) -> bool;
-    fn has(&self, k: &str) -> bool;
-    fn without(&self, drop: &[&str]) -> Jv;
+    fn minus(&self, drop: &[&str]) -> Jv;
     fn int_of(&self) -> Option<i64>;
     fn as_int(&self, lo: i64, hi: i64) -> Option<i64>;
     fn is_arr_of_obj(&self) -> bool;
@@ -73,9 +71,6 @@ impl Read for Jv {
             _ => None,
         }
     }
-    fn is_obj(&self) -> bool {
-        matches!(self, Jv::Obj(_))
-    }
     fn as_arr(&self) -> Option<&Vec<Jv>> {
         match self {
             Jv::Arr(a) => Some(a),
@@ -85,10 +80,7 @@ impl Read for Jv {
     fn is_str(&self) -> bool {
         matches!(self, Jv::Str(_))
     }
-    fn has(&self, k: &str) -> bool {
-        self.get(k).is_some()
-    }
-    fn without(&self, drop: &[&str]) -> Jv {
+    fn minus(&self, drop: &[&str]) -> Jv {
         match self {
             Jv::Obj(m) => Jv::Obj(m.iter().filter(|(k, _)| !(k.lone.is_empty() && drop.contains(&k.text.as_str()))).cloned().collect()),
             other => other.clone(),
@@ -613,7 +605,7 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
                     }
                 }
                 Jv::Arr(ms.iter().enumerate().map(|(i, m)| {
-                    let mut out = m.without(&["version"]);
+                    let mut out = m.minus(&["version"]);
                     if let Some(&n) = kept.get(&(path.clone(), i)) {
                         let ds = m.get("datasets").unwrap().as_arr().unwrap()[..n].to_vec();
                         out.set("datasets", Jv::Arr(ds));
@@ -631,7 +623,7 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
                     }
                     _ => {}
                 }
-                v.without(&["version"])
+                v.minus(&["version"])
             } else {
                 restored.insert(k);
                 v.clone()
@@ -639,7 +631,7 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
             ome.set(k, v);
         }
         let restored: Vec<&str> = restored.into_iter().collect();
-        groups.insert(path.clone(), a.without(&restored));
+        groups.insert(path.clone(), a.minus(&restored));
         omes.insert(path.clone(), ome);
         if !bare.is_empty() {
             unversioned.insert(path.clone(), bare);

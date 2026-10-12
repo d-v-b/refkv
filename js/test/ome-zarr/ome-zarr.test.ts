@@ -179,7 +179,7 @@ const REJECTIONS: [string, RegExp][] = [
 
 for (const [name, message] of REJECTIONS) {
   test(`rejects ome_zarr_reject_${name}`, async () => {
-    await assert.rejects(virtualize(`ome_zarr_reject_${name}`), (e) => e instanceof StoreError && message.test(e.message));
+    await assert.rejects(virtualize(`ome_zarr_reject_${name}`), (e) => e instanceof StoreError && e.format === "ome-zarr" && message.test(e.message));
   });
 }
 

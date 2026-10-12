@@ -437,6 +437,16 @@ pub unsafe extern "C" fn vz_store_ignore(p: *mut StoreRun, json: *mut u8, n: usi
     }
 }
 
+/// The profile the run's store is decided to be so far (`StoreRun::profile`): its UTF-8 at
+/// `vz_out()`, the length returned.
+///
+/// # Safety
+/// `p` from `vz_store_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_store_profile(p: *mut StoreRun) -> i64 {
+    set_out(unsafe { &*p }.profile().as_bytes().to_vec()) as i64
+}
+
 /// Drops a store run without finishing it.
 ///
 /// # Safety

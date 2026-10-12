@@ -66,3 +66,14 @@ def test_the_mirror_rebuilds_each_node_document():
         for k, b in held.items():
             assert (store / k).read_bytes() == b, (store.name, k)
         assert {k for k, _, _ in rebuilt} == {p.relative_to(store).as_posix() for p in store.rglob("*") if p.is_file()}
+
+
+def test_a_rejection_names_the_profile_the_store_was_decided_to_be():
+    # a store whose root declares OME-NGFF 0.4 is refused by OME-Zarr's checks; a Zarr v2 rule
+    # that fails before the test decides is the zarr2 format's
+    with pytest.raises(Rejected) as e:
+        virtualize(str(FIXTURES / "ome_zarr_reject_axes_count"), URL.format("a"))
+    assert e.value.format == "ome-zarr"
+    with pytest.raises(Rejected) as e:
+        virtualize(str(FIXTURES.parent / "zarr2" / "zarr2_reject_dtype_complex"), "https://data.test/z/")
+    assert e.value.format == "zarr2"

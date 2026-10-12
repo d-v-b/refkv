@@ -26,7 +26,11 @@ import { DicomError } from "./virtualize/dicom/virtualize.ts";
 import { ImsError } from "./virtualize/ims/virtualize.ts";
 import { NiftiError } from "./virtualize/nifti/virtualize.ts";
 import { TiffError } from "./virtualize/tiff/ifd.ts";
+import type { StoreProfile } from "./virtualize/ir/store.ts";
 import { writeVzip } from "./writer.ts";
+
+/** The titles rejections of the Rust core's store formats carry, as the profiles' own errors did. */
+const STORE_FORMATS: Record<StoreProfile, string> = { zarr2: "Zarr v2", "ome-zarr": "OME-Zarr" };
 
 export const ARCHIVE_KEY = "__vz__/archive.vzip";
 
@@ -226,7 +230,8 @@ export function makeHandler(options: HandlerOptions) {
       if (e instanceof ImsError) return response(422, `IMS: ${message}`);
       if (e instanceof N5Error) return response(422, `N5: ${message}`);
       if (e instanceof SafeError) return response(422, `SAFE: ${message}`);
-      if (e instanceof StoreError) return response(422, `store: ${message}`);
+      // a store format the core refused names itself; a rejection before one was chosen is the store's
+      if (e instanceof StoreError) return response(422, `${e.format !== undefined ? STORE_FORMATS[e.format] : "store"}: ${message}`);
       if (e instanceof ImageError) return response(422, message);
       if (e instanceof StoreLimitError) return response(507, message);
       if (e instanceof StoreReadError) return response(502, message);

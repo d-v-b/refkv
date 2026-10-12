@@ -346,3 +346,19 @@ fn probe_a_document_the_test_reads_outside_the_batch() {
     let o = base(b"{not json");
     assert!(output_of(&o).0.err().unwrap().starts_with("A/1/.zattrs: invalid JSON"));
 }
+
+#[test]
+fn a_run_names_the_profile_it_decided() {
+    // before its batch a Zarr v2 run is zarr2's; after it, OME-Zarr's when the root declares 0.4
+    let objects = image("", &["0"]);
+    let keys: Vec<(String, u64)> = objects.iter().map(|(k, b)| (k.clone(), b.len() as u64)).collect();
+    let mut r = vzip_ir::store::StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
+    assert_eq!(r.profile(), "zarr2");
+    while let Some(reqs) = r.poll().unwrap() {
+        for (k, q) in reqs.iter().enumerate() {
+            let b = &objects[q.object].1;
+            r.complete(k, q.spans.iter().map(|&(a, e)| b[a as usize..e as usize].to_vec()).collect()).unwrap();
+        }
+    }
+    assert_eq!(r.profile(), "ome-zarr");
+}
