@@ -538,7 +538,9 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
     // Collections (B1–B3)
     for g in &collections {
         let a = &attrs[g];
-        let layout = a.get("bioformats2raw.layout").and_then(|v| v.int_of()).map_or(V::Absent, |v| num(v as f64));
+        // a value that is not an integer (a string, null) is not 3: never absent, which would
+        // pass B1's constraint
+        let layout = a.get("bioformats2raw.layout").and_then(|v| v.int_of()).map_or(V::Num(f64::NAN), |v| num(v as f64));
         let ome = join(g, "OME");
         let mut series = true;
         let mut numbered = true;

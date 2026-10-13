@@ -362,3 +362,26 @@ fn a_run_names_the_profile_it_decided() {
     }
     assert_eq!(r.profile(), "ome-zarr");
 }
+
+#[test]
+fn a_layout_that_is_not_an_integer_is_not_3() {
+    // B1: a string (or null) layout rejects as 2 does, never passing as an absent value
+    for layout in ["\"3\"", "null"] {
+        let dir = std::env::temp_dir().join(format!("vzip-ome-layout-{}-{}", std::process::id(), layout.len()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let src = fixtures().join("ome-zarr/ome_zarr_empty_xml");
+        let mut keys = Vec::new();
+        walk(&src, "", &mut keys);
+        for (k, _) in &keys {
+            std::fs::create_dir_all(dir.join(k).parent().unwrap()).unwrap();
+            std::fs::copy(src.join(k), dir.join(k)).unwrap();
+        }
+        std::fs::write(dir.join(".zattrs"), format!("{{\"bioformats2raw.layout\": {layout}}}")).unwrap();
+        let r = output(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        match r {
+            Err(m) => assert!(m.contains("bioformats2raw.layout is not 3"), "{m}"),
+            Ok(_) => panic!("layout {layout} was accepted"),
+        }
+    }
+}
