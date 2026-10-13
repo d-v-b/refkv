@@ -33,7 +33,7 @@ SOURCE_METADATA: dict[str, dict] = {
         {"$ref": "#/$defs/mirror"},
         {"$ref": "#/$defs/mirrorView"},
     ]},
-    "ndpi": {"oneOf": [{"$ref": "#/$defs/sourceNode"}, {"$ref": "#/$defs/ifd"}]},
+    "ndpi": {"anyOf": [{"$ref": "#/$defs/mirror"}, {"$ref": "#/$defs/mirrorView"}]},
     "nd2": {"anyOf": [
         {
             "type": "object",
@@ -295,85 +295,6 @@ SOURCE_METADATA: dict[str, dict] = {
             "metadata": {"type": "object", "minProperties": 1,
                          "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"},
         },
-        "additionalProperties": False,
-    },
-}
-
-# An IFD and its tags (spec/virtualize/tiff.md §5
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>).
-TAG_MEMBERS = {
-    "type": {"type": "integer", "minimum": 0, "maximum": 65535},
-    "count": {"anyOf": [{"type": "integer", "minimum": 0}, {"type": "string", "pattern": "^[0-9]+$"}]},
-    "value": {"anyOf": [
-        {"$ref": "#/$defs/text"},
-        {"type": "array", "items": {"anyOf": [
-            {"type": "number"}, {"type": "string"},
-            {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2}]}},
-    ]},
-    "field": {"type": "string", "contentEncoding": "base64",
-              "description": "The value field of an entry whose field type TIFF does not define"},
-}
-TIFF_DEFS = {
-    "sourceNode": {
-        "type": "object",
-        "description": "vzip_source's: the number of IFDs in the main chain, each a group at ifds/<i>",
-        "properties": {"ifd_count": {"type": "integer", "minimum": 1}},
-        "required": ["ifd_count"],
-        "additionalProperties": False,
-    },
-    "ifd": {
-        "type": "object",
-        "description": "An IFD's group",
-        "properties": {
-            "tags": {
-                "type": "object",
-                "description": "Each tag but the layout and pointer tags, by its number in decimal",
-                "propertyNames": {"pattern": "^(0|[1-9][0-9]*)$"},
-                "additionalProperties": {"$ref": "#/$defs/tag"},
-            },
-            "pointers": {
-                "type": "object",
-                "description": "Each pointer tag, by its number in decimal",
-                "propertyNames": {"pattern": "^(0|[1-9][0-9]*)$"},
-                "additionalProperties": {"$ref": "#/$defs/pointer"},
-            },
-            "duplicates": {"type": "array", "items": {"$ref": "#/$defs/duplicate"},
-                           "description": "The entries after the first of their tag"},
-            "record": {"type": "integer", "minimum": 0,
-                       "description": "The IFD's record number, when a pointer tag's array refers to it"},
-            "same_as": {
-                "type": "object",
-                "description": "Each array or family of bytes the IFD shares with one kept earlier, by its name: "
-                               "the earlier one's path under vzip_source",
-                "propertyNames": {"pattern": "^(data|strips|jpeg_q_tables|jpeg_dc_tables|jpeg_ac_tables|0|[1-9][0-9]*)$"},
-                "additionalProperties": {"type": "string"},
-            },
-        },
-        "required": ["tags"],
-        "additionalProperties": False,
-    },
-    "tag": {
-        "type": "object",
-        "properties": TAG_MEMBERS,
-        "required": ["type", "count"],
-        "additionalProperties": False,
-    },
-    "duplicate": {
-        "type": "object",
-        "properties": {"tag": {"type": "integer", "minimum": 0, "maximum": 65535}, **TAG_MEMBERS},
-        "required": ["tag", "type", "count"],
-        "additionalProperties": False,
-    },
-    "pointer": {
-        "type": "object",
-        "properties": {
-            "type": TAG_MEMBERS["type"],
-            "count": TAG_MEMBERS["count"],
-            "ifds": {"type": "array", "items": {"type": ["string", "null"]}, "maxItems": 64,
-                     "description": "For each value (at most 64; with more, they are the array <path>/<tag> of "
-                                    "record numbers), the path under vzip_source of the IFD it leads to, or null"},
-        },
-        "required": ["type", "count"],
         "additionalProperties": False,
     },
 }
@@ -644,9 +565,9 @@ SOURCE_METADATA["czi"] = {"anyOf": [
 ]}
 # The IR mirror (spec/conventions.md §8
 # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2,
-# CZI, DICOM and SAFE conventions: vzip_source's
+# CZI, DICOM, NDPI and SAFE conventions: vzip_source's
 # source metadata, and the view documents of the groups under vzip_source/tree.
-IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "safe")
+IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "ndpi", "safe")
 MIRROR_DEFS = {
     "mirror": {
         "type": "object",
@@ -762,15 +683,8 @@ def schema(profile: str) -> dict:
                                            "required": ["latin1"], "additionalProperties": False}],
         },
     }
-    if profile == "ndpi":
-        defs.update(TIFF_DEFS)
     if profile in IR_PROFILES:
         defs.update(MIRROR_DEFS)
-    if profile == "ndpi":  # a level's strip's SOF0 segment (spec/virtualize/ndpi.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#5-source-metadata>)
-        ifd = json.loads(json.dumps(TIFF_DEFS["ifd"]))
-        ifd["properties"]["sof0"] = {"type": "string", "contentEncoding": "base64",
-                                     "description": "A McuStarts level's strip's SOF0 segment, which its chunks replace"}
-        defs["ifd"] = ifd
     if profile == "dicom":
         defs.update(DICOM_DEFS)
     if profile == "ims":

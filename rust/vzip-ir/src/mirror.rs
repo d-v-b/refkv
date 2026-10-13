@@ -311,7 +311,7 @@ fn child(y: &Ir, p: u32, name: &str, nidx: u64) -> Option<u32> {
 /// The array an encoding-2 column reads (conventions §8.8
 /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>, the named array
 /// rules): for a column run whose member 0 is row `r`, its field `f`, by the profile's rules.
-/// Returns (row, item size, big-endian). TIFF has one rule; ND2 and CZI none.
+/// Returns (row, item size, big-endian). TIFF has one rule; the others none.
 fn array_rule(profile: &str, y: &Ir, r: usize, f: i64) -> Option<(u32, usize, bool)> {
     match profile {
         "tiff" => tiff_layout(y, r, f),

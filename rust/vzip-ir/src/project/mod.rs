@@ -15,6 +15,7 @@
 mod czi;
 mod dicom;
 mod nd2;
+mod ndpi;
 pub mod safe;
 mod tiff;
 
@@ -32,6 +33,7 @@ pub fn project(format: Format, ir: &Ir, facts: &J, url: &str) -> Result<Out, Str
         Format::Nd2 => nd2::project(ir, facts, url),
         Format::Dicom => dicom::project(ir, facts, url),
         Format::Safe => safe::project(ir, facts, url),
+        Format::Ndpi => ndpi::project(ir, facts, url),
     }
 }
 

@@ -173,7 +173,8 @@ fn err_out(e: String) -> i64 {
     -(set_out(e.into_bytes()) as i64)
 }
 
-/// A run of `format` (0 ND2, 1 TIFF, 2 CZI, 3 DICOM, 6 a SAFE zip) over a source of `size` bytes, remote
+/// A run of `format` (0 ND2, 1 TIFF, 2 CZI, 3 DICOM, 6 a SAFE zip, 7 NDPI; a TIFF run becomes an NDPI one when its
+/// parser finds the file is NDPI: the output's summary names the format) over a source of `size` bytes, remote
 /// or not, read by the host at most `concurrency` requests at a time.
 #[unsafe(no_mangle)]
 pub extern "C" fn vz_run_new(format: u32, size: u64, remote: u32, concurrency: u32) -> *mut Run {

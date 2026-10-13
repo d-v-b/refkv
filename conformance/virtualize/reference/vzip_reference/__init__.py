@@ -1,4 +1,4 @@
-"""The frozen reference oracle of the TIFF, ND2, CZI and SAFE profiles: the Python
+"""The frozen reference oracle of the TIFF, ND2, CZI, NDPI, DICOM and SAFE profiles: the Python
 implementations `vzip.virtualize` shipped before it moved these formats to the Rust IR
 (rust/vzip-ir), kept unchanged (but for their import paths, and the revision SAFE
 records, 25) so that `compare.py` can compare the IR path against an independent
@@ -7,8 +7,8 @@ Nothing shipped imports this package. Every other format, and what the profiles
 share (`vzip.virtualize.common`), is the shipped code.
 
 `virtualize(location, url, checksums=...)` is `vzip.virtualize.virtualize` as it
-was: the same dispatch by first bytes, the same readers, with TIFF, ND2 and CZI
-going to the frozen modules. A file or store at an http(s) URL is read by the
+was: the same dispatch by first bytes, the same readers, with TIFF, ND2, CZI, NDPI, DICOM and
+SAFE going to the frozen modules. A file or store at an http(s) URL is read by the
 shipped readers under `policy` (default: `Policy()`, private hosts refused)."""
 
 from __future__ import annotations
@@ -19,8 +19,9 @@ from vzip.virtualize import virtualize_store as shipped_store
 from vzip.virtualize.common import Output, Rejected, file_reader, http_reader
 from vzip_reference.dicom import is_dicom, virtualize_dicom
 from vzip.virtualize.ims import virtualize_ims
-from vzip.virtualize import ndpi, nifti
+from vzip.virtualize import nifti
 from vzip.virtualize.store import open_store, choose_profile, object_url
+from vzip_reference import ndpi
 from vzip_reference.safe import SafeOutput, is_zip, virtualize_safe_store, virtualize_safe_zip
 from vzip_reference.czi import is_czi, virtualize_czi
 from vzip_reference.nd2 import is_nd2, virtualize_nd2
