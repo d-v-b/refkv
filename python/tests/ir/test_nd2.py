@@ -15,7 +15,7 @@ from vzip.ir import parse
 from vzip.ir.planner import FileTransport, HttpTransport
 from vzip.policy import Policy
 from vzip.virtualize import Rejected
-from vzip_reference import virtualize  # the frozen reference (ir_helpers)
+from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
 LOOPBACK = Policy(allow_private_hosts=True)  # the test servers are on 127.0.0.1
 ND2S = sorted((FIXTURES / "nd2").glob("*.nd2"))

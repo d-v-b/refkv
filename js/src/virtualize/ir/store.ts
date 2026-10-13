@@ -1,4 +1,4 @@
-// Virtualizing a store with the Rust core's store formats (rust/vzip-ir/src/store.rs;
+// Virtualizing a store with the Rust core's store formats (rust/refkv-ir/src/store.rs;
 // conventions §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): the
 // core parses the listing and the objects it reads, projects the convention's hierarchy and
 // mirrors the store IR; this host lists the store (store.ts), gives the core the keys the
@@ -7,7 +7,7 @@
 // writer's archive description: one url source per object some reference uses, its listed
 // size pinned, in order of first use, then the data sources (spec/virtualize.md §1.4
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>). The twin of
-// `run_store` and `StoreIrOutput` in python/src/vzip/ir/store.py.
+// `run_store` and `StoreIrOutput` in python/src/refkv/ir/store.py.
 
 import type { Range, Source } from "../../protobuf.ts";
 import type { ArchiveDesc, EntryDesc } from "../../writer.ts";

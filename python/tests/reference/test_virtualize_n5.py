@@ -1,5 +1,5 @@
 """The frozen Python N5 virtualizer (spec/virtualize/n5.md at revision 25,
-conformance/virtualize/reference/vzip_reference/n5) on the synthetic stores.
+conformance/virtualize/reference/refkv_reference/n5) on the synthetic stores.
 
 Equivalence with the IR path is checked by conformance/virtualize/compare.py, and
 pixel correctness against an independent block reader and zarr-n5 by
@@ -9,7 +9,7 @@ js/test/n5/verify.py.
 import sys
 from pathlib import Path
 
-# the frozen reference twins (conformance/virtualize/reference/vzip_reference)
+# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
 
 import json
@@ -20,8 +20,8 @@ import pytest
 
 from vzip.virtualize import Rejected
 from vzip.virtualize.common import declare as declare_now
-from vzip_reference import virtualize
-from vzip_reference.revision import STORES_REVISION
+from refkv_reference import virtualize
+from refkv_reference.revision import STORES_REVISION
 
 # the frozen profile's root records revision 25
 declare = partial(declare_now, revision=STORES_REVISION)

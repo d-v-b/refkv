@@ -12,11 +12,11 @@ idr_tiff := "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant
 default:
     @just --list --list-submodules
 
-# Test the Python package (python/src/vzip; it virtualizes TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2, N5 and OME-Zarr stores, with the Rust core, built first)
+# Test the Python package (python/src/refkv; it virtualizes TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2, N5 and OME-Zarr stores, with the Rust core, built first)
 test *args: ir-build
     uv run pytest -q python/tests {{args}}
 
-# Build the IR core (rust/vzip-ir: the parsers, the read planner, the projections and the
+# Build the IR core (rust/refkv-ir: the parsers, the read planner, the projections and the
 # mirror) into the project's environment as the Python module vzip_ir, part of the vzip
 # distribution: `uv sync` (and `uv run`) build it with maturin, in release, and again whenever
 # its Rust sources or source models change (pyproject.toml's cache-keys)
@@ -26,11 +26,11 @@ ir-build:
 # Build the IR core for the browser (wasm32, without the Python bindings) and run its ND2,
 # TIFF, CZI, DICOM, NIfTI and IMS parsers, and its Zarr v2 and N5 store formats, from Node on fixtures
 ir-wasm:
-    rust/vzip-ir/wasm/build.sh
-    node rust/vzip-ir/wasm/nd2.mjs fixtures/nd2/nd2_tz_uint16.nd2
-    node rust/vzip-ir/wasm/run.mjs fixtures/tiff/jpeg_gray.tif fixtures/czi/czi_zstd.czi fixtures/dicom/dicom_jpeg_mono_bot.dcm fixtures/nifti/nifti_dims_2d.nii fixtures/ims/ims_latest_dense_links.ims
-    node rust/vzip-ir/wasm/store.mjs fixtures/zarr2/zarr2_hierarchy > /dev/null
-    node rust/vzip-ir/wasm/store.mjs --format n5 fixtures/n5/n5_cosem > /dev/null
+    rust/refkv-ir/wasm/build.sh
+    node rust/refkv-ir/wasm/nd2.mjs fixtures/nd2/nd2_tz_uint16.nd2
+    node rust/refkv-ir/wasm/run.mjs fixtures/tiff/jpeg_gray.tif fixtures/czi/czi_zstd.czi fixtures/dicom/dicom_jpeg_mono_bot.dcm fixtures/nifti/nifti_dims_2d.nii fixtures/ims/ims_latest_dense_links.ims
+    node rust/refkv-ir/wasm/store.mjs fixtures/zarr2/zarr2_hierarchy > /dev/null
+    node rust/refkv-ir/wasm/store.mjs --format n5 fixtures/n5/n5_cosem > /dev/null
 
 # Test the IR core (Rust) and its Python host (after ir-build)
 ir-test *args: ir-rust-test ir-build
@@ -38,7 +38,7 @@ ir-test *args: ir-rust-test ir-build
 
 # Test the IR core's Rust crate alone
 ir-rust-test:
-    cargo test --release --manifest-path rust/vzip-ir/Cargo.toml
+    cargo test --release --manifest-path rust/refkv-ir/Cargo.toml
 
 # Run every offline test: the Python reference, the browser code and the independent implementations
 test-all: test js::test impls::test
@@ -76,7 +76,7 @@ sections:
 
 # Run the spec/archive.md conformance suite against the three independent implementations
 conformance out="conformance/results/latest": impls::build
-    uv run python conformance/archive/run.py --out {{out}} \
+    uv run python conformance/vzip/run.py --out {{out}} \
         --impl rust=conformance/impls/rust/vzip --impl typescript=conformance/impls/typescript/vzip --impl python=conformance/impls/python/vzip
 
 # Regenerate the synthetic files in fixtures/<format> (all but NDPI, which needs the network)
@@ -252,6 +252,6 @@ archives-idr:
     uv run python design/experiments/tiff_to_vzip.py --no-pins {{quote(idr_tiff)}} \
         design/experiments/out/ng_idr/idr0096_4000_d11_m5_LT_2_unpinned.vzip
 
-# Build and publish a demo to https://d-v-b.github.io/vzip-demo/ (see js/demo/pages.sh)
+# Build and publish a demo to https://d-v-b.github.io/vzip-demo/ (see demo/pages.sh)
 deploy-demo *args: js::build
-    js/demo/pages.sh {{args}}
+    demo/pages.sh {{args}}

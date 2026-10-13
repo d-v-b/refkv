@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "fixtures" / "generators" / "ims"))
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
 import write_fixtures as wf  # noqa: E402
-from vzip_reference.ims.hdf5 import Hdf5, le  # noqa: E402
+from refkv_reference.ims.hdf5 import Hdf5, le  # noqa: E402
 
 out = Path(sys.argv[1])
 out.mkdir(parents=True, exist_ok=True)

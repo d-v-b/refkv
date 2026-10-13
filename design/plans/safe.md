@@ -51,7 +51,7 @@ tasks.
   image, and 40 × 40 RGB tiles on 101 × 101, whose tile origins are not
   multiples of `2^N`.
 - **Edge tiles.** An edge tile is smaller than the chunk. vzip's
-  `imagecodecs_jpeg2k` codec (`python/src/vzip/codecs.py`) reshapes the decoded
+  `imagecodecs_jpeg2k` codec (`python/src/refkv/codecs.py`) reshapes the decoded
   image to the chunk shape, and conventions §3 says a codestream decodes to
   the chunk's shape. So the chunk codestream fills the chunk with empty
   tiles. OpenJPEG accepts a wrong count of empty packets without
@@ -112,7 +112,7 @@ tasks.
 
 ## 2. Modules
 
-Python, `python/src/vzip/virtualize/safe/`:
+Python, `python/src/refkv/virtualize/safe/`:
 
 | module | holds |
 |---|---|
@@ -163,7 +163,7 @@ concurrency limit of about 16 in TypeScript, keep a product at about
 
 **Dispatch.**
 
-- `vzip/virtualize/__init__.py`: in `virtualize_store`, after `choose_profile`
+- `refkv/virtualize/__init__.py`: in `virtualize_store`, after `choose_profile`
   returns `"safe"` (`store.choose_profile` gains the `manifest.safe` row);
   in `virtualize`, `head[:4] == b"PK\x03\x04"` → `virtualize_safe_zip`
   (before the final rejection).
@@ -206,7 +206,7 @@ Shared documents to change when this lands (the design does not edit them):
   band and `vzip_source` source metadata. It should also validate the
   `proj`, `spatial` and `multiscales` members against their own v0.1
   schemas in `python/tests/test_virtualize_conventions.py`.
-- `python/src/vzip/codecs.py`: no change. `imagecodecs_jpeg2k` already decodes
+- `python/src/refkv/codecs.py`: no change. `imagecodecs_jpeg2k` already decodes
   each chunk, and every chunk decodes to the full chunk shape.
 - `spec/TECHNIQUES.md` §2's table gains the technique "the unit is
   smaller than the chunk at the edge → pad the codestream with empty tiles

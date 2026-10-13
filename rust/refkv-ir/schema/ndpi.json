@@ -1,0 +1,214 @@
+{
+  "source_model": "ndpi",
+  "version": 1,
+  "about": "The source model of a Hamamatsu NDPI slide (spec/virtualize/ndpi.md <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md>): a little-endian classic TIFF with 64-bit offsets (an 8-byte first-IFD offset, 8-byte next-IFD offsets, a high word per entry after each IFD) whose levels are single JPEG strips with restart markers. The TIFF parser reads it in its NDPI variant (rust/refkv-ir/src/tiff.rs) and checks this schema where the profile meets each role; the strip's JPEG header and its restart intervals are read by rust/refkv-ir/src/ndpi.rs. Projections read a valid IR and check nothing.",
+  "limits": {
+    "max_safe": 9007199254740991,
+    "max_ifds": 100000,
+    "max_depth": 4,
+    "max_tries": 10000,
+    "max_decode": 65536,
+    "eager_decode": 16777216,
+    "max_side": 65535,
+    "max_payload": 65519
+  },
+  "tables": {
+    "kinds": {
+      "about": "the field types a tag of each kind may have",
+      "integer": [1, 3, 4, 13, 16, 18],
+      "rational": [5],
+      "float": [11, 12],
+      "offset": [3, 4, 8, 9]
+    },
+    "tags": {
+      "about": "The tags of the table (spec/virtualize/ndpi.md §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#2-the-source>): kind (the field types allowed), scalar (the first value is read, and there must be one).",
+      "256": {"name": "ImageWidth", "kind": "integer", "scalar": true},
+      "257": {"name": "ImageLength", "kind": "integer", "scalar": true},
+      "258": {"name": "BitsPerSample", "kind": "integer", "scalar": false},
+      "259": {"name": "Compression", "kind": "integer", "scalar": true},
+      "262": {"name": "PhotometricInterpretation", "kind": "integer", "scalar": true},
+      "273": {"name": "StripOffsets", "kind": "integer", "scalar": true},
+      "277": {"name": "SamplesPerPixel", "kind": "integer", "scalar": true},
+      "279": {"name": "StripByteCounts", "kind": "integer", "scalar": true},
+      "282": {"name": "XResolution", "kind": "rational", "scalar": true},
+      "283": {"name": "YResolution", "kind": "rational", "scalar": true},
+      "296": {"name": "ResolutionUnit", "kind": "integer", "scalar": true},
+      "65420": {"name": "NDPI format flag", "kind": "integer", "scalar": true},
+      "65421": {"name": "Magnification", "kind": "float", "scalar": true},
+      "65422": {"name": "XOffsetFromSlideCenter", "kind": "offset", "scalar": true},
+      "65423": {"name": "YOffsetFromSlideCenter", "kind": "offset", "scalar": true},
+      "65426": {"name": "McuStarts", "kind": "integer", "scalar": false},
+      "65432": {"name": "McuStartsHighBytes", "kind": "integer", "scalar": false}
+    },
+    "layout_tags": [273, 279, 288, 289, 324, 325, 513, 514, 519, 520, 521, 65426, 65432],
+    "pointers": {"330": "subifds", "34665": "exif", "34853": "gps", "40965": "interoperability"},
+    "resolution_units": {"2": 25400.0, "3": 10000.0}
+  },
+  "elements": {
+    "about": "The IR of an NDPI file (spec/virtualize/ndpi.md §5.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#51-elements>). Names in angle brackets are variables.",
+    "header": {
+      "kind": "struct",
+      "children": {"byte_order": "ascii[2]", "magic": "<u2", "first_ifd": "<u8"}
+    },
+    "ifds/<i>": {
+      "kind": "struct",
+      "about": "the main chain; the IFDs pointer tags lead to (SubIFDs among them) are subifds/<j>, exif, gps, interoperability or ifd_<tag> (/<j> when the tag has several values), read in NDPI's layout; an IFD read before is an alias",
+      "children": {
+        "entry_count": "<u2",
+        "tags/<tag>": "struct of entry {tag,type,count[,offset][,field]}, value (in the value field, or at its 64-bit offset) and high (<u4: the entry's high word); a duplicate tag is tags/<tag>~<k>",
+        "next_ifd": "<u8",
+        "strips/<k>": "data: a strip of StripOffsets (64-bit) and StripByteCounts with a byte count above 0 within the file; a level's strip is one JPEG stream, cut into chunks by the projection along McuStarts"
+      }
+    },
+    "gaps/<offset>": {"kind": "gap"}
+  },
+  "roles": {
+    "ifd_offset": {
+      "about": "a main-chain IFD, checked before its entries are read",
+      "given": {
+        "offset": "",
+        "safe": "the offset is at most 2^53 - 1",
+        "seen": "read before",
+        "read": "IFDs read so far",
+        "count_within": "its entry count is within the file",
+        "within": "its entries, next offset and high words are within the file (known after the count)"
+      },
+      "constraints": [
+        {"require": "offset >= 16 && safe", "message": "IFD offset {offset} is not in the file"},
+        {"require": "!seen", "message": "IFD offset {offset} read twice"},
+        {"require": "read < max_ifds", "message": "too many IFDs"},
+        {"require": "count_within", "message": "the IFD at {offset} is not within the file"},
+        {"require": "within", "message": "the IFD at {offset} is not within the file"}
+      ]
+    },
+    "field": {
+      "about": "the first entry of a tag of the table, in every main-chain IFD",
+      "given": {"tag": "", "type": "", "count": "", "outside": "out of line, and its bytes (at its 64-bit offset) do not end within the file"},
+      "derive": {"spec": "at(tags, tag)", "allowed": "at(kinds, spec.kind)"},
+      "constraints": [
+        {"require": "in(type, allowed)", "message": "tag {tag} has field type {type}"},
+        {"require": "!spec.scalar || count > 0", "message": "tag {tag} has no value"},
+        {"require": "!outside", "message": "the value of tag {tag} is outside the file"}
+      ]
+    },
+    "values": {
+      "about": "an integer tag's values as the profile reads them (a scalar's first value, an array's every value; an inline LONG or IFD of count 1 with its high word)",
+      "given": {"tag": "", "safe": "every value read is at most 2^53 - 1"},
+      "constraints": [{"require": "safe", "message": "tag {tag} has a value above 2^53 - 1"}]
+    },
+    "required": {
+      "about": "a tag the profile needs a value of",
+      "given": {"what": "the tag's name", "present": "the IFD has the tag"},
+      "constraints": [{"require": "present", "message": "an NDPI image has no {what}"}]
+    },
+    "images": {
+      "about": "the file",
+      "given": {"levels": "levels found (after the chain)"},
+      "constraints": [{"require": "levels >= 1", "message": "no NDPI levels"}]
+    },
+    "level": {
+      "about": "a main-chain IFD whose Magnification is positive (spec/virtualize/ndpi.md §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#3-levels>)",
+      "given": {
+        "compression": "(default 1)",
+        "photometric": "",
+        "spp": "(default 1)",
+        "bits": "BitsPerSample's values (empty when absent)",
+        "one_strip": "StripOffsets and StripByteCounts have one value each",
+        "smaller": "strictly smaller than the level before in both sizes (true for the first)",
+        "new_magnification": "no earlier level has its Magnification",
+        "width": "",
+        "height": ""
+      },
+      "constraints": [
+        {
+          "require": "compression == 7 && photometric == 6 && spp == 3 && len(bits) >= 1 && distinct(bits) == 1 && first(bits) == 8",
+          "message": "an NDPI level is not 8-bit YCbCr JPEG with 3 samples"
+        },
+        {"require": "one_strip", "message": "an NDPI level does not have exactly one strip"},
+        {"require": "smaller", "message": "NDPI levels do not decrease in size"},
+        {"require": "new_magnification", "message": "NDPI focal planes (two levels with one magnification) are not supported"},
+        {"require": "width >= 1 && height >= 1", "message": "an NDPI level is empty"}
+      ]
+    },
+    "strip": {
+      "about": "a level's strip, the JPEG stream S",
+      "given": {"within": "it ends within the file", "length": "StripByteCounts"},
+      "constraints": [
+        {"require": "within", "message": "an NDPI strip is outside the file"},
+        {"require": "length >= 4", "message": "an NDPI strip of {length} bytes is shorter than 4"}
+      ]
+    },
+    "mcu_starts": {
+      "about": "a level's McuStarts (and McuStartsHighBytes), before its header is read",
+      "given": {"same_length": "McuStartsHighBytes is absent or has as many values", "first": "M[0] (absent when McuStarts has no value)", "length": "len(S)"},
+      "constraints": [
+        {"require": "same_length", "message": "McuStartsHighBytes and McuStarts differ in length"},
+        {"require": "present(first) && first >= 2 && first <= length", "message": "McuStarts[0] is outside the strip"}
+      ]
+    },
+    "jpeg_segment": {
+      "about": "a marker segment of the strip's header (its first M[0] bytes), from after the SOI to SOS",
+      "given": {
+        "whole": "a marker FF, its length of at least 2, and its end within the header",
+        "marker": "the marker's second byte",
+        "hex": "it as two hex digits",
+        "sofs": "SOF0 segments before it",
+        "length": "the segment's length field",
+        "ends_header": "it ends where the header ends"
+      },
+      "constraints": [
+        {"require": "whole", "message": "malformed JPEG header in an NDPI strip"},
+        {"require": "marker != 192 || sofs == 0", "message": "an NDPI strip has two SOF0 segments"},
+        {
+          "require": "marker < 193 || marker > 207 || in(marker, [196, 200, 204])",
+          "message": "an NDPI strip is not baseline JPEG (marker FF{hex})"
+        },
+        {"require": "marker != 221 || length == 4", "message": "malformed DRI segment in an NDPI strip"},
+        {"require": "marker != 218 || ends_header", "message": "an NDPI strip's SOS does not end at McuStarts[0]"}
+      ]
+    },
+    "jpeg_header": {
+      "about": "the strip's header: its start, then, after its segments, the whole",
+      "given": {
+        "soi": "it starts with FF D8",
+        "done": "the segments have been read (the rest is given then)",
+        "has_sof0": "",
+        "restart": "the DRI's restart interval R (0 when absent)",
+        "sof0_ok": "the SOF0 segment is 10 + 3 × its component count bytes long, with at least one component",
+        "sampling": "the largest horizontal and vertical sampling factors are both above 0"
+      },
+      "constraints": [
+        {"require": "soi", "message": "an NDPI strip does not start with a JPEG SOI marker"},
+        {"require": "!done || (has_sof0 && restart > 0)", "message": "an NDPI strip has no SOF0 or no restart interval"},
+        {"require": "!done || sof0_ok", "message": "malformed SOF0 segment in an NDPI strip"},
+        {"require": "!done || sampling", "message": "an NDPI strip has a sampling factor of 0"}
+      ]
+    },
+    "intervals": {
+      "about": "a level's restart intervals (spec/virtualize/ndpi.md §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>)",
+      "given": {
+        "matches": "McuStarts has q × r values, increasing, the last before len(S)",
+        "nonempty": "every interval holds at least one byte"
+      },
+      "constraints": [
+        {"require": "matches", "message": "McuStarts does not match the strip's intervals"},
+        {"require": "nonempty", "message": "an NDPI restart interval is empty"}
+      ]
+    },
+    "chunks": {
+      "about": "a McuStarts level's chunks, a × b intervals each: their width before b is chosen, then their height and largest payload at the b chosen",
+      "given": {"width": "a × R × mw", "height": "b × mh (0 before b is chosen)", "payload": "the largest chunk's reference payload (0 before b is chosen)"},
+      "constraints": [
+        {"require": "width <= max_side", "message": "an NDPI chunk would be {width} pixels wide, more than {max_side}"},
+        {"require": "height <= max_side", "message": "an NDPI chunk would be {height} pixels high, more than {max_side}"},
+        {"require": "payload <= max_payload", "message": "an NDPI chunk's reference payload exceeds {max_payload} bytes"}
+      ]
+    },
+    "translation": {
+      "about": "the image's translation, when it has one",
+      "given": {"x": "", "y": ""},
+      "constraints": [{"require": "finite(x) && finite(y)", "message": "a translation is not finite"}]
+    }
+  },
+  "about_builtins": "What the parser's code computes and the roles above check: detection (spec/virtualize/ndpi.md §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: a little-endian magic-42 TIFF whose IFD at the u64 at bytes 4-11 has tag 65420 among its entries; it never rejects); the main chain in NDPI's IFD layout (each next offset, a u64, until 0); each value with its high word; the levels (main-chain IFDs whose Magnification is positive, every IFD's Magnification read); the strip's JPEG header (its marker segments, SOF0's sampling factors, DRI's restart interval); the intervals and the chunk size a × b (b the largest within the payload limit)."
+}

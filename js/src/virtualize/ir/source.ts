@@ -3,7 +3,7 @@
 // the caller can read itself (`readerSource`), and an http(s)
 // object read under the reader policy of spec/archive.md §6.7
 // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> (`openHttpSource`),
-// the twin of `HttpTransport` in python/src/vzip/ir/planner.py.
+// the twin of `HttpTransport` in python/src/refkv/ir/planner.py.
 
 import { checkAddress, checkPolicy, type Policy, VzipError } from "../../archive.ts";
 import { EtagLog, HttpResolutionError } from "../../http.ts";

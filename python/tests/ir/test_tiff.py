@@ -9,7 +9,7 @@ from ir_helpers import FIXTURES, same_hierarchy
 from vzip.ir import virtualize as via_ir
 from vzip.ir.cmirror import rebuild_from_archive
 from vzip.virtualize import Rejected
-from vzip_reference import virtualize  # the frozen reference (ir_helpers)
+from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
 TIFFS = sorted((FIXTURES / "tiff").iterdir())
 

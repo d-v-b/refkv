@@ -160,16 +160,16 @@ Notes:
 `js/test/zarr2/verify.py` virtualizes the synthetic Zarr v2 stores in
 [fixtures/zarr2/](../../../fixtures/zarr2/) (including
 stores to reject) with the browser code and compares every array, read
-through `python/src/vzip` and zarr-python, with zarr-python's own Zarr v2 reader.
+through `python/src/refkv` and zarr-python, with zarr-python's own Zarr v2 reader.
 `compare.py` checks that the Python and browser outputs are equivalent on
 those stores and on the 6 OpenOrganelle stores of
 [corpus_zarr2.txt](../../../conformance/virtualize/corpus_zarr2.txt).
 
 - Profile: [spec/virtualize/zarr2.md](../../../spec/virtualize/zarr2.md#part-2-the-profile)
-- Rust core: [rust/vzip-ir/src/zarr2.rs](../../../rust/vzip-ir/src/zarr2.rs) (the parser) and
-  [rust/vzip-ir/src/project/zarr2.rs](../../../rust/vzip-ir/src/project/zarr2.rs) (the projection)
-- Python host: [python/src/vzip/ir/store.py](../../../python/src/vzip/ir/store.py); browser host:
+- Rust core: [rust/refkv-ir/src/zarr2.rs](../../../rust/refkv-ir/src/zarr2.rs) (the parser) and
+  [rust/refkv-ir/src/project/zarr2.rs](../../../rust/refkv-ir/src/project/zarr2.rs) (the projection)
+- Python host: [python/src/refkv/ir/store.py](../../../python/src/refkv/ir/store.py); browser host:
   [js/src/virtualize/ir/store.ts](../../../js/src/virtualize/ir/store.ts)
-- Frozen reference: [conformance/virtualize/reference/vzip_reference/zarr2/](../../../conformance/virtualize/reference/vzip_reference/zarr2/)
+- Frozen reference: [conformance/virtualize/reference/refkv_reference/zarr2/](../../../conformance/virtualize/reference/refkv_reference/zarr2/)
   and [conformance/virtualize/reference/ts/zarr2/](../../../conformance/virtualize/reference/ts/zarr2/)
 - Fixtures: [fixtures/zarr2/](../../../fixtures/zarr2/)

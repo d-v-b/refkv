@@ -7,7 +7,7 @@ in the tree; git history keeps them (for example
 `git show fa64d87:src/vzip/ir/model.py`).
 
 A prototype of design/ARCHITECTURE.md §3 for TIFF and CZI, in Python only. Nothing
-outside `python/src/vzip/ir/` and `python/tests/ir/` changes; the existing profiles are the
+outside `python/src/refkv/ir/` and `python/tests/ir/` changes; the existing profiles are the
 reference the projections reproduce.
 
 ## 1. The core (`model.py`, `types.py`, `check.py`, `emit.py`, `mirror.py`)
@@ -272,12 +272,12 @@ Round 2 takes the hardest format left (ND2: compressed LV chunks, XML
 variants, sparse frame indexes, budgets that depend on map order) through a
 Rust core, and addresses round 1's three open problems: per-element cost, the
 missing read planner, and rejections living in the projections. Nothing in
-`python/src/vzip/virtualize/` or the specs changes; today's ND2 profile is the
+`python/src/refkv/virtualize/` or the specs changes; today's ND2 profile is the
 reference.
 
 ## 8. What was built
 
-**The crate** (`rust/vzip-ir/`, `just ir-build`, `just ir-test`, `just ir-wasm`):
+**The crate** (`rust/refkv-ir/`, `just ir-build`, `just ir-test`, `just ir-wasm`):
 
 | file | what |
 |---|---|
@@ -365,7 +365,7 @@ content.
 - Each `derived` element whose form gives its size is checked separately: its
   space's leaves partition `[0, size)`.
 
-Tests: `rust/vzip-ir/tests/core.rs` (one test over contiguous runs, runs with
+Tests: `rust/refkv-ir/tests/core.rs` (one test over contiguous runs, runs with
 holes, a single after, inside and before a run; one per violation).
 
 **Do runs fit the invariants cleanly?** Yes, with one rule (tiles) and two
@@ -571,7 +571,7 @@ server (multipart):
 
 ## 13. Schema-driven validation
 
-`rust/vzip-ir/schema/nd2.json` is ND2's source model as data: the element
+`rust/refkv-ir/schema/nd2.json` is ND2's source model as data: the element
 vocabulary the parser emits; the limits (budgets, depths, counts); the three
 objects the convention reads with each member's kind (number, integer, color,
 flag, string, object, list, members), `required` (with its message),
@@ -672,7 +672,7 @@ Round 3 moves TIFF and CZI onto round 2's Rust core: sans-IO parsers, a
 source-model schema per format that holds every semantic check, Python
 projections that check nothing, the read planner for both formats, and the
 wasm32 build. It closes round 1's CZI review findings, each with a probe, and
-rebuilds round 1's TIFF amplification probes. Nothing in `python/src/vzip/virtualize/`,
+rebuilds round 1's TIFF amplification probes. Nothing in `python/src/refkv/virtualize/`,
 `js/` or the specs changes; today's profiles are the reference.
 
 ## 17. What was built
@@ -724,7 +724,7 @@ names every expression can use.
 
 Every rejection of today's profiles is one of these constraints: the 40 TIFF
 and 39 CZI fixtures today rejects are rejected here, each with its role's
-message (`rust/vzip-ir/tests/parsers.rs`: one test per fixture), and the
+message (`rust/refkv-ir/tests/parsers.rs`: one test per fixture), and the
 rejections match today's on every input below. The projections check nothing:
 `tiff/image.py` and `czi/image.py` read facts and elements, and the only checks
 left in Python are the budget's (references and repeated references, in
@@ -1063,12 +1063,12 @@ moved into the parser with the checks. The source-metadata translators
 
 `just ir-test` runs them all (Rust, then Python):
 
-- `rust/vzip-ir/tests/rules.rs` (9): the expression language over valid
+- `rust/refkv-ir/tests/rules.rs` (9): the expression language over valid
   combinations, and one test per error (an unterminated string, an unclosed
   list, trailing tokens); roles derive then check in order, and one test per
   error (an unknown role, a constraint without a message, a bad expression);
   both schemas load.
-- `rust/vzip-ir/tests/parsers.rs` (88): every accepted TIFF and CZI fixture is
+- `rust/refkv-ir/tests/parsers.rs` (88): every accepted TIFF and CZI fixture is
   a valid IR whose leaves rebuild it; one test per rejected fixture (79, each
   asserting its role's message); the TIFF probes built in Rust (one test over
   accepted probes, one per rejection: a chain that loops, an IFD that is its
@@ -1107,7 +1107,7 @@ paths, as frozen reference oracles out of the shipped trees.
 
 ## 29. The read cap, per server
 
-`rust/vzip-ir/src/plan.rs` (the policy, sans-IO) and `python/src/vzip/ir/planner.py` /
+`rust/refkv-ir/src/plan.rs` (the policy, sans-IO) and `python/src/refkv/ir/planner.py` /
 `js/src/virtualize/ir/source.ts` (the I/O). The cost model: a request costs a
 latency `L`, a byte `1 / B` per connection; merging two ranges pays when the gap
 `g < L × B`. What the planner learns about the server sets the threshold and the
@@ -1187,7 +1187,7 @@ which prefetches 32 at a time; wall clock of one process):
 
 ## 30. The mirror: column runs, and its size
 
-`rust/vzip-ir/src/mirror.rs` (documented there). The mirror's table (version 2)
+`rust/refkv-ir/src/mirror.rs` (documented there). The mirror's table (version 2)
 stores the IR's rows depth-first and folds consecutive siblings of one shape (kinds,
 names, spaces, parents; one to four sibling subtrees a member, so a CZI directory's
 alternating entries and dimensions fold too) into **column runs**: member 0 is
@@ -1244,7 +1244,7 @@ Round 3: SVS 1.04–1.37×, IDR 1.08–1.47× of today.
 
 | | before (4a4e08e) | after |
 |---|---|---|
-| TIFF, ND2, CZI profiles, Python | 3,121 (`vzip/virtualize/{tiff,nd2,czi}`) | 299 shipped (`tiff/tags.py`, for NDPI); 3,199 frozen in `conformance/virtualize/reference` |
+| TIFF, ND2, CZI profiles, Python | 3,121 (`refkv/virtualize/{tiff,nd2,czi}`) | 299 shipped (`tiff/tags.py`, for NDPI); 3,199 frozen in `conformance/virtualize/reference` |
 | the same, TypeScript | 3,883 | 627 shipped (`tiff/{ifd,tags}.ts`, for NDPI); 4,030 frozen in `conformance/virtualize/reference/ts` |
 | Python IR host (planner, mirror, projections, refs, parse drivers) | 1,020 | 341 (`planner.py` 237: the I/O; `cmirror.py`, `output.py`, `__init__`, `__main__`) |
 | TypeScript IR host | — | 523 (`js/src/virtualize/ir`: wasm loading, range sources, the driver) |
@@ -1271,7 +1271,7 @@ over entries, references and data sources, and each host writes them.
   (`virtualizeSource`, and `virtualizeImage` for callers with byte readers); its
   http source honors the TypeScript reader policy, through `#net`'s checked fetch
   under Node.
-- The frozen oracles: `conformance/virtualize/reference/vzip_reference` (Python,
+- The frozen oracles: `conformance/virtualize/reference/refkv_reference` (Python,
   with `cli.py` and the old tests in `python/tests/reference`) and
   `conformance/virtualize/reference/ts` (TypeScript, with CLIs; the old Node tests import it).
   They are not deleted.
@@ -1322,7 +1322,7 @@ ready in 51 ms, the module's fetch and compilation included.
 | native and wasm32 parity | parsers: 1,971 of 1,971 inputs (fixtures, probes, mutants) give the same IR digest; whole outputs: `py` and `web` identical on the 667 fixtures and 5,290 mutants |
 | `just test --ignore=python/tests/ir`, `just ir-test`, `just js::test` | green |
 | verify scripts (`just verify`, CZI, SAFE; private hosts opted in) | 0 failures (TIFF/ND2/CZI archives of the IR check their mirror's rebuild) |
-| `conformance/archive/run.py --impl ref="python -m vzip.cli --allow-private-hosts"` | 5,125/5,125 reads, 11/11 writes, 45/45 rejects, 4,973/4,973 cross-reads, 1,582/1,582 http |
+| `conformance/vzip/run.py --impl ref="python -m vzip.cli --allow-private-hosts"` | 5,125/5,125 reads, 11/11 writes, 45/45 rejects, 4,973/4,973 cross-reads, 1,582/1,582 http |
 | `node build.mjs`, the service worker in Chromium | builds; virtualizes a TIFF, an ND2 and a CZI |
 | `just fixtures-check` (last, alone) | passes: two runs agree, and with the committed fixtures |
 
@@ -1440,10 +1440,10 @@ and keep their extra rounds: reading 7 MB whole costs more at 2.5 MB/s.
 
 ## 38. The wasm module
 
-`rust/vzip-ir/wasm/build.sh`: cargo's `wasm` profile (LTO, one codegen unit,
+`rust/refkv-ir/wasm/build.sh`: cargo's `wasm` profile (LTO, one codegen unit,
 opt-level 2, panic=abort), then binaryen's `wasm-opt -O3` when installed
 (installed here with Homebrew; CI installs it with apt), into
-`rust/vzip-ir/target/web/vzip_ir.wasm`. Measured with
+`rust/refkv-ir/target/web/vzip_ir.wasm`. Measured with
 `design/experiments/ir_adopt/wasm_bench.ts` under Node (compile and instantiate cold;
 the 220 fixtures through the shipped driver twice; four files from disk):
 
@@ -1476,7 +1476,7 @@ same archives on every fixture and mutant.
 | hostile probes and copies (50) | 31 equivalent, 10 rejected by both, the 9 by-design differences of §21; 37 of 37 accepted rebuilt byte for byte |
 | native and wasm32 parity | 1,971 of 1,971 |
 | verify scripts, CZI and SAFE verifiers | 0 failures |
-| `conformance/archive/run.py` | all pass |
+| `conformance/vzip/run.py` | all pass |
 | actionlint | clean |
 | `just fixtures-check` (last, alone) | passes |
 
@@ -1525,7 +1525,7 @@ and §8.7 makes the view a function of the IR too. In short:
   addition to comparing `py` and `web` entry for entry; VIRTUALIZE §1.1 now
   compares mirrors entry for entry.
 - **The frozen reference** records revision 20 through its own constant
-  (`vzip_reference/revision.py`, `conformance/virtualize/reference/ts/revision.ts`);
+  (`refkv_reference/revision.py`, `conformance/virtualize/reference/ts/revision.ts`);
   `compare.py`, the IR tests, the corpus and probe scripts and the CZI
   verifier read its root at the current revision.
 
@@ -1552,7 +1552,7 @@ run on the IR for a while.
 | hostile probes and copies (50) | 31 equivalent, 10 rejected by both, the 9 by-design differences of §21; 37 of 37 accepted rebuilt byte for byte |
 | native and wasm32 parity | 1,826 of 1,826 parser digests (fixtures, mutants, probes) |
 | `just verify`, CZI and SAFE verifiers | 0 failures |
-| `conformance/archive/run.py` | all pass |
+| `conformance/vzip/run.py` | all pass |
 | actionlint | clean |
 | `just fixtures-check` (last, alone) | passes |
 
@@ -1607,7 +1607,7 @@ The validator on the corpus's 250 IR archives (local cache): load and check
 | schemas | 250 IR archives, 6,347 declaring nodes, 0 invalid |
 | probes and copies (50) | as §42 |
 | native and wasm32 parity | 1,826 of 1,826 |
-| `just verify`, CZI and SAFE verifiers, `conformance/archive/run.py`, actionlint | pass |
+| `just verify`, CZI and SAFE verifiers, `conformance/vzip/run.py`, actionlint | pass |
 | `just fixtures-check` (last, alone) | passes |
 
 ## 45. Revision 23's follow-ups
@@ -1640,7 +1640,7 @@ equivalent, 374 rejected by all; mutants 5,290: 0 divergent; the offline
 corpus as before, its 250 IR archives identical to revision 23's, all
 canonical and with the view their table gives, the view check 14.8 s; schemas
 0 invalid; probes as §42; parity 1,826 of 1,826; verify scripts,
-conformance/archive/run.py and actionlint pass); `just js::test` 435, `just ir-test`
+conformance/vzip/run.py and actionlint pass); `just js::test` 435, `just ir-test`
 252 + Rust 140, the Python suite 628; `just fixtures-check` last.
 
 Commits: 9627410 test(web) (the hook and the browser's budget test), 17a6aae
@@ -1672,7 +1672,7 @@ concurrently). They were applied as a 3-way merge with 4f41a32 as the base.
 | fixtures, 4 shards of `compare.py` | 667 inputs: 293 equivalent, 374 rejected by all, 0 divergent |
 | mutants | 5,290: 1,895 equivalent, 3,395 rejected by all, 0 divergent |
 | `just verify`, CZI and SAFE verifiers | 0 failures |
-| `conformance/archive/run.py --impl ref=...` | 5,125/5,125 reads, 11/11 writes, 45/45 rejects, 4,973/4,973 cross-reads, 1,582/1,582 http |
+| `conformance/vzip/run.py --impl ref=...` | 5,125/5,125 reads, 11/11 writes, 45/45 rejects, 4,973/4,973 cross-reads, 1,582/1,582 http |
 | actionlint | pass |
 | `just fixtures-check` (last, alone) | passes |
 
@@ -1715,7 +1715,7 @@ revision 24, not an amendment.
 | fixtures, 4 shards of `compare.py` | 667 inputs: 293 equivalent, 374 rejected by all, 0 divergent |
 | mutants | 5,290: 1,895 equivalent, 3,395 rejected by all, 0 divergent |
 | `just verify`, CZI and SAFE verifiers | 0 failures |
-| `conformance/archive/run.py --impl ref=...` | 5,125/5,125 reads, 11/11 writes, 45/45 rejects, 4,973/4,973 cross-reads, 1,582/1,582 http |
+| `conformance/vzip/run.py --impl ref=...` | 5,125/5,125 reads, 11/11 writes, 45/45 rejects, 4,973/4,973 cross-reads, 1,582/1,582 http |
 | actionlint | pass |
 | `just fixtures-check` (last, alone) | see the hand-back |
 

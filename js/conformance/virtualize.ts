@@ -5,7 +5,7 @@
 // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>), which refuses
 // private and special hosts unless --allow-private-hosts (UNSAFE; the harness serves
 // its inputs from 127.0.0.1); TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2, N5 and OME-Zarr stores, are virtualized by the Rust core
-// (rust/vzip-ir, as WebAssembly), which plans the requests.
+// (rust/refkv-ir, as WebAssembly), which plans the requests.
 // Source 0 (or each store object's source) pins its size, and a file's its ETag
 // when every response gave the same strong one; --checksums also records the
 // CRC-32C of every range of a url source (spec/archive.md §4.2

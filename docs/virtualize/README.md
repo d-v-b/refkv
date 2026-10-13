@@ -68,7 +68,7 @@ just virtualize <url or path> out.vzip
 ```
 
 TIFF (and SVS and NDPI), ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2, N5 and OME-Zarr stores, are virtualized by vzip's Rust core,
-[rust/vzip-ir](../../rust/vzip-ir/), part of the vzip
+[rust/refkv-ir](../../rust/refkv-ir/), part of the vzip
 distribution: installing vzip (`pip install`, or `uv sync` in a clone) builds
 it as the Python module `vzip_ir`, which needs a Rust toolchain. The core parses the file into an intermediate representation (IR),
 plans the range requests, projects the IR onto the format's convention, and
@@ -162,7 +162,7 @@ archive for download. Two limits apply:
 
 - The live demo currently virtualizes TIFF, NDPI and ND2 files only. CZI,
   DICOM, NIfTI, IMS, SAFE and the store formats work in a local build of the
-  demo (`just js::build && node js/demo/serve.mjs 8080`; the build compiles the
+  demo (`just js::build && node demo/serve.mjs 8080`; the build compiles the
   Rust core to WebAssembly first, `dist/vzip_ir.wasm`, so it needs a Rust
   toolchain with the `wasm32` target), which is not yet deployed.
 - The host must allow cross-origin reads (CORS). zenodo.org, ftp.ebi.ac.uk,

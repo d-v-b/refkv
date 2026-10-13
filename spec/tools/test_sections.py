@@ -96,30 +96,30 @@ def test_headings(repo):
     ("path", "text", "status", "target"),
     [
         # a qualifier names the document
-        ("python/src/vzip/x.py", "# spec/archive.md §1.1\n", "ok", "spec/archive.md#11-output-and-equivalence"),
-        ("python/src/vzip/x.py", "# SPEC.md §1.1\n", "ok", "spec/archive.md#11-output-and-equivalence"),
-        ("python/src/vzip/x.py", "# (spec §1.1)\n", "ok", "spec/archive.md#11-output-and-equivalence"),
+        ("python/src/refkv/x.py", "# spec/archive.md §1.1\n", "ok", "spec/archive.md#11-output-and-equivalence"),
+        ("python/src/refkv/x.py", "# SPEC.md §1.1\n", "ok", "spec/archive.md#11-output-and-equivalence"),
+        ("python/src/refkv/x.py", "# (spec §1.1)\n", "ok", "spec/archive.md#11-output-and-equivalence"),
         ("js/src/x.ts", "// conventions §3\n", "ok", "spec/conventions.md#3-arrays"),
         # spec/virtualize.md's §3-§13 are the profiles
-        ("python/src/vzip/virtualize/x.py", "# spec/virtualize.md §3.1\n", "ok", "spec/virtualize/tiff.md#31-reading"),
+        ("python/src/refkv/virtualize/x.py", "# spec/virtualize.md §3.1\n", "ok", "spec/virtualize/tiff.md#31-reading"),
         # a format's document by its path, or by its name, is its convention
-        ("rust/vzip-ir/src/xml.rs", "// spec/virtualize/tiff.md §3\n", "ok", "spec/virtualize/tiff.md#3-ome-xml"),
+        ("rust/refkv-ir/src/xml.rs", "// spec/virtualize/tiff.md §3\n", "ok", "spec/virtualize/tiff.md#3-ome-xml"),
         ("spec/virtualize.md", "decimal (TIFF §3)\n", "ok", "spec/virtualize/tiff.md#3-ome-xml"),
-        ("python/src/vzip/virtualize/tiff/x.py", "# the profile §3\n", "ok", "spec/virtualize/tiff.md#3-tiff-profile"),
+        ("python/src/refkv/virtualize/tiff/x.py", "# the profile §3\n", "ok", "spec/virtualize/tiff.md#3-tiff-profile"),
         # a bare reference takes the file's document; a format's code, its format's
-        ("python/src/vzip/store.py", "# §2 here\n", "ambiguous", ""),
-        ("python/src/vzip/virtualize/tiff/x.py", "# §4\n", "ok", "spec/virtualize/tiff.md#4-the-image"),
-        ("python/src/vzip/virtualize/tiff/x.py", "# §3\n", "ambiguous", ""),
-        ("python/src/vzip/virtualize/tiff/x.py", "# §1.2\n", "review", "spec/virtualize.md#12-input"),
+        ("python/src/refkv/store.py", "# §2 here\n", "ambiguous", ""),
+        ("python/src/refkv/virtualize/tiff/x.py", "# §4\n", "ok", "spec/virtualize/tiff.md#4-the-image"),
+        ("python/src/refkv/virtualize/tiff/x.py", "# §3\n", "ambiguous", ""),
+        ("python/src/refkv/virtualize/tiff/x.py", "# §1.2\n", "review", "spec/virtualize.md#12-input"),
         # a chain keeps the qualifier
         ("js/src/x.ts", "// spec/virtualize.md §1.2, §3.1\n", "ok", "spec/virtualize/tiff.md#31-reading"),
         # other standards, links, and what cannot be settled
-        ("python/src/vzip/x.py", "# RFC 3986 §5.2.2\n", "external", ""),
-        ("python/src/vzip/x.py", "# RFC 9110 §5.6.7 and §1.1\n", "external", ""),
-        ("python/src/vzip/x.py", f"# §1.1 <{URL}spec/archive.md#11-output-and-equivalence>\n", "linked", ""),
+        ("python/src/refkv/x.py", "# RFC 3986 §5.2.2\n", "external", ""),
+        ("python/src/refkv/x.py", "# RFC 9110 §5.6.7 and §1.1\n", "external", ""),
+        ("python/src/refkv/x.py", f"# §1.1 <{URL}spec/archive.md#11-output-and-equivalence>\n", "linked", ""),
         ("spec/archive.md", "[§1.1](#11-output-and-equivalence)\n", "linked", ""),
-        ("python/src/vzip/x.py", "# spec/archive.md §7\n", "unresolved", ""),
-        ("python/src/vzip/x.py", "# nothing.md §1\n", "unresolved", ""),
+        ("python/src/refkv/x.py", "# spec/archive.md §7\n", "unresolved", ""),
+        ("python/src/refkv/x.py", "# nothing.md §1\n", "unresolved", ""),
         ("somewhere/else.py", "# §1\n", "unresolved", ""),
     ],
 )
@@ -140,11 +140,11 @@ def test_resolve_by_part(repo):
 
 
 def test_override(repo, monkeypatch):
-    row = ["python/src/vzip/virtualize/tiff/x.py", "1", "§3", "0", "spec/virtualize/tiff.md#3-ome-xml", ""]
+    row = ["python/src/refkv/virtualize/tiff/x.py", "1", "§3", "0", "spec/virtualize/tiff.md#3-ome-xml", ""]
     (repo / "o.tsv").write_text("# a comment\n" + "\t".join(row) + "\n")
     monkeypatch.setattr(sections, "OVERRIDES_FILE", repo / "o.tsv")
     sections.overrides.cache_clear()
-    ref = sections.analyze("python/src/vzip/virtualize/tiff/x.py", "# §3\n")[0]
+    ref = sections.analyze("python/src/refkv/virtualize/tiff/x.py", "# §3\n")[0]
     assert (ref.status, ref.target.anchor) == ("ok", "3-ome-xml")
 
 
@@ -161,12 +161,12 @@ def test_rewrite(repo):
             FORMAT + "\n[conventions §3](../conventions.md#3-arrays)\n",
         ),
         (
-            "python/src/vzip/x.py",
+            "python/src/refkv/x.py",
             "x = 1  # spec §1.1\n",
             f"x = 1  # spec §1.1 <{URL}spec/archive.md#11-output-and-equivalence>\n",
         ),
         (
-            "python/src/vzip/x.py",
+            "python/src/refkv/x.py",
             'raise ValueError("bad (spec §1)")\n',
             f'raise ValueError("bad (spec §1 <{URL}spec/archive.md#1-introduction>)")\n',
         ),
@@ -178,14 +178,14 @@ def test_rewrite(repo):
             f"  // <{URL}spec/archive.md#11-output-and-equivalence>) more\n",
         ),
         (
-            "python/src/vzip/x.py",
+            "python/src/refkv/x.py",
             'def f():\n    """' + "word " * 14 + '(spec §1.1)."""\n',
             'def f():\n    """' + "word " * 14 + "(spec §1.1\n"
             f'    <{URL}spec/archive.md#11-output-and-equivalence>)."""\n',
         ),
         # and its last piece joins the next line of the same text, when they fit
         (
-            "python/src/vzip/x.py",
+            "python/src/refkv/x.py",
             'def f():\n    """' + "word " * 14 + '(spec §1.1) a\n    b c."""\n',
             'def f():\n    """' + "word " * 14 + "(spec §1.1\n"
             f'    <{URL}spec/archive.md#11-output-and-equivalence>) a b c."""\n',
@@ -199,7 +199,7 @@ def test_rewrite(repo):
         ),
         # but not when it closes the docstring
         (
-            "python/src/vzip/x.py",
+            "python/src/refkv/x.py",
             'def f():\n    """' + "word " * 14 + '(spec §1.1)."""\n    return 1\n',
             'def f():\n    """' + "word " * 14 + "(spec §1.1\n"
             f'    <{URL}spec/archive.md#11-output-and-equivalence>)."""\n    return 1\n',
@@ -249,7 +249,7 @@ def test_check_accepts(repo):
         {
             "spec/new.md": "[§1.1](archive.md#11-output-and-equivalence), [§2](#x), RFC 9110 §5.6.7, "
             "cited as §n.\n\n## x\n",
-            "python/src/vzip/y.py": f"# spec §1.1 <{URL}spec/archive.md#11-output-and-equivalence>\n"
+            "python/src/refkv/y.py": f"# spec §1.1 <{URL}spec/archive.md#11-output-and-equivalence>\n"
             f"# a §2\n# <{URL}spec/archive.md#2-the-layout-1>\n",
             "js/src/y.ts": f"const s = `(spec §2 <{URL}spec/archive.md#2-the-layout>)`;\n",
             "design/conformance/archive/r1/x.md": "bare §3.1 is a record\n",
@@ -260,7 +260,7 @@ def test_check_accepts(repo):
 
 
 def test_check_bare_reference(repo):
-    assert write(repo, {"python/src/vzip/y.py": "# see §1.1\n"}) == ["python/src/vzip/y.py:1: bare reference '§1.1'"]
+    assert write(repo, {"python/src/refkv/y.py": "# see §1.1\n"}) == ["python/src/refkv/y.py:1: bare reference '§1.1'"]
 
 
 def test_check_missing_heading(repo):

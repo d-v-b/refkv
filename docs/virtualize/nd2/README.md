@@ -20,7 +20,7 @@ which every Zarr chunk is one frame of the file, or a block of its rows.
 Stage positions become separate images placed where the stage was.
 
 ND2 files are virtualized by vzip's Rust core,
-[rust/vzip-ir](../../../rust/vzip-ir/), the same code in Python and (built
+[rust/refkv-ir](../../../rust/refkv-ir/), the same code in Python and (built
 for WebAssembly) in the browser: it parses the file into an intermediate
 representation (IR), plans the range requests, and projects the IR onto the
 ND2 convention. Installing vzip builds it, which needs a Rust toolchain
@@ -170,11 +170,11 @@ the Python ND2 profile vzip shipped before the core.
 
 - Profile: [spec/virtualize/nd2.md](../../../spec/virtualize/nd2.md#part-2-the-profile); convention:
   [spec/virtualize/nd2.md](../../../spec/virtualize/nd2.md)
-- Rust core: [rust/vzip-ir/src/nd2.rs](../../../rust/vzip-ir/src/nd2.rs)
-  (the parser) and [rust/vzip-ir/src/project/nd2.rs](../../../rust/vzip-ir/src/project/nd2.rs)
+- Rust core: [rust/refkv-ir/src/nd2.rs](../../../rust/refkv-ir/src/nd2.rs)
+  (the parser) and [rust/refkv-ir/src/project/nd2.rs](../../../rust/refkv-ir/src/project/nd2.rs)
   (the projection)
-- Python host: [python/src/vzip/ir/](../../../python/src/vzip/ir/); browser host:
+- Python host: [python/src/refkv/ir/](../../../python/src/refkv/ir/); browser host:
   [js/src/virtualize/ir/](../../../js/src/virtualize/ir/)
-- Frozen reference: [conformance/virtualize/reference/vzip_reference/nd2/](../../../conformance/virtualize/reference/vzip_reference/nd2/)
+- Frozen reference: [conformance/virtualize/reference/refkv_reference/nd2/](../../../conformance/virtualize/reference/refkv_reference/nd2/)
   and [conformance/virtualize/reference/ts/nd2/](../../../conformance/virtualize/reference/ts/nd2/)
 - Fixtures: [fixtures/nd2/](../../../fixtures/nd2/)

@@ -11,7 +11,7 @@ import {
   DicomError, type Element, type Encoding, EXPLICIT_LE, IMPLICIT_LE, ITEM, ITEM_END, MAX_DEPTH, PIXEL_DATA,
   SEQUENCE_END, UNDEFINED, Walker,
 } from "./dataset.ts";
-import dictionary from "../../vzip_reference/dicom/dictionary.json" with { type: "json" };
+import dictionary from "../../refkv_reference/dicom/dictionary.json" with { type: "json" };
 
 const MULTI = new Set(["AE", "AS", "CS", "DA", "DS", "DT", "IS", "LO", "PN", "SH", "TM", "UC", "UI"]);
 const TEXT = new Set([...MULTI, "LT", "ST", "UT", "UR"]);

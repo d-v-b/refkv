@@ -179,7 +179,7 @@ LUTs, palettes and overlays. The values are the stored ones.
 ## How it's verified
 
 `js/test/dicom/verify.py` virtualizes 68 synthetic DICOM files (including
-inputs to reject) with the browser code, reads them back through `python/src/vzip`
+inputs to reject) with the browser code, reads them back through `python/src/refkv`
 and zarr-python, and compares the pixels with pydicom. `compare.py` checks
 that the Python and browser outputs are equivalent on those files and on the
 17 public files of
@@ -188,6 +188,6 @@ pydicom's test files and six whole-slide levels from the IDC, with JPEG,
 JPEG 2000 and native tiles.
 
 - Profile: [spec/virtualize/dicom.md](../../../spec/virtualize/dicom.md#part-2-the-profile)
-- Python: [python/src/vzip/virtualize/dicom/](../../../python/src/vzip/virtualize/dicom/)
+- Python: [python/src/refkv/virtualize/dicom/](../../../python/src/refkv/virtualize/dicom/)
 - Browser: [js/src/virtualize/dicom/](../../../js/src/virtualize/dicom/)
 - Fixtures: [fixtures/dicom/](../../../fixtures/dicom/)

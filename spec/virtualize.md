@@ -532,7 +532,7 @@ is the format's Zarr convention:
 
 This section is informative. There are two maintained implementations:
 - the Python reference, `python -m vzip.virtualize <url> <out.vzip>`
-  (`python/src/vzip/virtualize/`);
+  (`python/src/refkv/virtualize/`);
 - the browser one, `js/src/virtualize/`, run under Node by
   `js/conformance/virtualize.ts`.
 

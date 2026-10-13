@@ -141,7 +141,7 @@ Rejected:
 ## How it's verified
 
 `js/test/nifti/verify.py` virtualizes 88 synthetic NIfTI files (including
-inputs to reject) with the browser code, reads them back through `python/src/vzip`
+inputs to reject) with the browser code, reads them back through `python/src/refkv`
 and zarr-python, and compares the values with nibabel's unscaled data.
 `compare.py` checks that the Python and browser outputs are equivalent on
 those files and on the 12 public files of
@@ -150,6 +150,6 @@ those files and on the 12 public files of
 data).
 
 - Profile: [spec/virtualize/nifti.md](../../../spec/virtualize/nifti.md#part-2-the-profile)
-- Python: [python/src/vzip/virtualize/nifti/](../../../python/src/vzip/virtualize/nifti/)
+- Python: [python/src/refkv/virtualize/nifti/](../../../python/src/refkv/virtualize/nifti/)
 - Browser: [js/src/virtualize/nifti/](../../../js/src/virtualize/nifti/)
 - Fixtures: [fixtures/nifti/](../../../fixtures/nifti/)

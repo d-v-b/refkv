@@ -382,7 +382,7 @@ a gathered sequence, `"Gathered"`; and, for a gathered sequence,
   in little endian in every transfer syntax (PS3.5 §6.2.2): in explicit VR
   big endian too, its values (and an array of them) are read in little
   endian, as its items are read in implicit VR little endian (below). The dictionary is
-  [python/src/vzip/virtualize/dicom/dictionary.json](../../python/src/vzip/virtualize/dicom/dictionary.json)
+  [python/src/refkv/virtualize/dicom/dictionary.json](../../python/src/refkv/virtualize/dicom/dictionary.json)
   (PS3.6 as pydicom 3.0.2 ships it, written by
   [generate_dictionary.py](dicom/generate_dictionary.py)); it is normative, and a
   new edition of it is a new version of this convention. A tag's VR is,

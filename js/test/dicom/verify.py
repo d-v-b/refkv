@@ -8,7 +8,7 @@ source metadata is checked against pydicom's DICOM JSON as before.
 Each fixtures/dicom/*.dcm (or, given as arguments, other DICOM files
 or http(s) URLs) is served over local HTTP and virtualized by
 js/conformance/virtualize.ts (the browser code, run under Node). The whole
-array is then read through the reference reader (python/src/vzip) and zarr-python,
+array is then read through the reference reader (python/src/refkv) and zarr-python,
 and must equal what pydicom reads from the file: its pixel_array for native
 pixel data, and for encapsulated pixel data its frames (pydicom's
 generate_frames) decoded by imagecodecs, with the color space that the
@@ -51,13 +51,13 @@ import vzip.zarr  # noqa: E402  (a vzip archive as a zarr store; registers image
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
-sys.path.insert(0, str(ROOT / "conformance" / "archive"))
+sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 sys.path.insert(0, str(HERE.parent))
 # the frozen reference's data dictionary (the archives of revision 25 and before)
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
 from http_server import Server  # noqa: E402
 from ir_mirror import is_mirror, mirror_problems  # noqa: E402
-from vzip_reference.dicom.source import dictionary_vr  # noqa: E402
+from refkv_reference.dicom.source import dictionary_vr  # noqa: E402
 
 WHOLE_SLIDE = "1.2.840.10008.5.1.4.1.1.77.1.6"
 NATIVE = {"1.2.840.10008.1.2", "1.2.840.10008.1.2.1", "1.2.840.10008.1.2.2"}

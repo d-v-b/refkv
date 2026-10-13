@@ -10,7 +10,13 @@
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
     "skipLibCheck": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    // ../demo is outside this package: its imports resolve to this package's node_modules
+    "paths": {
+      "ol/*": ["./node_modules/ol/*"],
+      "proj4": ["./node_modules/proj4"],
+      "zarrita": ["./node_modules/zarrita"]
+    }
   },
-  "include": ["src", "test", "conformance", "demo", "../conformance/virtualize/reference/ts"]
+  "include": ["src", "test", "conformance", "../demo", "../conformance/virtualize/reference/ts"]
 }

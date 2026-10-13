@@ -37,7 +37,7 @@ from zarr.registry import register_codec
 
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
-sys.path.insert(0, str(ROOT / "conformance" / "archive"))
+sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 from http_server import Server  # noqa: E402
 
 from vzip.policy import Policy  # noqa: E402

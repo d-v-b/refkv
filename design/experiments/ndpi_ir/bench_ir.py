@@ -1,5 +1,5 @@
 """The NDPI access benchmark (research/ndpi-access) with the IR's read planner: the policy of
-rust/vzip-ir/src/plan.rs (`Planner::policy`, calibrated, on a remote server: the gap threshold
+rust/refkv-ir/src/plan.rs (`Planner::policy`, calibrated, on a remote server: the gap threshold
 and amplification cap from the latency, rate, connections and byte cost; `packs` for
 multi-range servers) and its merge (`vzip_ir.plan_spans`, the Rust function itself).
 Usage: bench_ir.py [--byte-cost S_PER_MB]"""

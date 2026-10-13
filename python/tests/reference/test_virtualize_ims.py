@@ -14,12 +14,12 @@ import pytest
 
 import numpy as np
 
-# the frozen reference twins (conformance/virtualize/reference/vzip_reference)
+# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
 
 from vzip.virtualize import Rejected  # noqa: E402
-from vzip_reference import virtualize  # noqa: E402
-from vzip_reference.ims.source import canonical  # noqa: E402
+from refkv_reference import virtualize  # noqa: E402
+from refkv_reference.ims.source import canonical  # noqa: E402
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "ims"
 
@@ -198,7 +198,7 @@ def test_describe_type():
     """Each datatype class's description (spec/virtualize/ims.md §5.2
     <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#52-datatypes>);
     js/test/ims/source.test.ts has the same cases."""
-    from vzip_reference.ims.source import describe_type
+    from refkv_reference.ims.source import describe_type
 
     cases = [
         ([0x10, 0, 0, 0, 2, 0, 0, 0, 0, 0, 16, 0], {"class": "integer", "size": 2, "order": "little", "signed": False}),
@@ -225,21 +225,21 @@ def test_describe_type():
 
 
 def test_describe_type_rejects_an_unknown_version():
-    from vzip_reference.ims.source import describe_type
+    from refkv_reference.ims.source import describe_type
 
     with pytest.raises(Rejected, match="unsupported datatype message version 6"):
         describe_type(bytes([0x60, 0, 0, 0, 1, 0, 0, 0]))
 
 
 def test_describe_type_rejects_an_unknown_class():
-    from vzip_reference.ims.source import describe_type
+    from refkv_reference.ims.source import describe_type
 
     with pytest.raises(Rejected, match="unknown datatype class 11"):
         describe_type(bytes([0x1B, 0, 0, 0, 1, 0, 0, 0]))
 
 
 def test_describe_type_rejects_a_truncated_datatype():
-    from vzip_reference.ims.source import describe_type
+    from refkv_reference.ims.source import describe_type
 
     with pytest.raises(Rejected, match="truncated HDF5 structure"):
         describe_type(bytes([0x10, 0, 0, 0, 2, 0, 0, 0, 0]))
@@ -382,7 +382,7 @@ def test_source_node_counts_the_members_beyond_the_object_limit(monkeypatch, max
     image's tree leaves DataSetInfo and Thumbnail room; the members beyond are counted.
     The time-lapse has 12 Data datasets (2 levels, 3 time points, 2 channels), each with Histogram and
     Histogram1024: 57 objects of the image's tree and 8 others, the root included."""
-    from vzip_reference.ims import source
+    from refkv_reference.ims import source
 
     monkeypatch.setattr(source, "MAX_OBJECTS", max_objects)
     monkeypatch.setattr(source, "PER_IMAGE", per_image)
@@ -599,7 +599,7 @@ def test_json_text():
     """The JSON text whose size a document's budget counts (spec/virtualize/ims.md §5.6
     <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#56-documents>);
     js/test/ims/source.test.ts has the same cases."""
-    from vzip_reference.ims.source import canonical, size
+    from refkv_reference.ims.source import canonical, size
 
     cases = [
         (None, "null"), (True, "true"), (0, "0"), (-0.0, "0"), (2.0, "2"), (1.5, "1.5"), (1e-7, "1e-7"),
@@ -618,7 +618,7 @@ def test_parse_selection():
     """Serialized selections of each type and version (spec/virtualize.md §8.9
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>);
     js/test/ims/source.test.ts has the same cases."""
-    from vzip_reference.ims.hdf5 import parse_selection
+    from refkv_reference.ims.hdf5 import parse_selection
 
     u32 = lambda *v: b"".join(x.to_bytes(4, "little") for x in v)  # noqa: E731
     u64 = lambda *v: b"".join(x.to_bytes(8, "little") for x in v)  # noqa: E731
@@ -638,28 +638,28 @@ def test_parse_selection():
 
 
 def test_parse_selection_rejects_an_unknown_type():
-    from vzip_reference.ims.hdf5 import parse_selection
+    from refkv_reference.ims.hdf5 import parse_selection
 
     with pytest.raises(Rejected, match="unknown selection type 4"):
         parse_selection(bytes([4, 0, 0, 0, 1, 0, 0, 0]), 0)
 
 
 def test_parse_selection_rejects_an_unknown_version():
-    from vzip_reference.ims.hdf5 import parse_selection
+    from refkv_reference.ims.hdf5 import parse_selection
 
     with pytest.raises(Rejected, match="unsupported selection version 4"):
         parse_selection(bytes([2, 0, 0, 0, 4, 0, 0, 0]), 0)
 
 
 def test_parse_selection_rejects_an_unknown_encoding_size():
-    from vzip_reference.ims.hdf5 import parse_selection
+    from refkv_reference.ims.hdf5 import parse_selection
 
     with pytest.raises(Rejected, match="invalid selection encoding size 3"):
         parse_selection(bytes([2, 0, 0, 0, 3, 0, 0, 0, 0, 3, 1, 0, 0, 0]), 0)
 
 
 def test_parse_selection_rejects_unknown_flags():
-    from vzip_reference.ims.hdf5 import parse_selection
+    from refkv_reference.ims.hdf5 import parse_selection
 
     with pytest.raises(Rejected, match="unknown selection flags"):
         parse_selection(bytes([2, 0, 0, 0, 3, 0, 0, 0, 2, 8, 1, 0, 0, 0]), 0)
@@ -667,7 +667,7 @@ def test_parse_selection_rejects_unknown_flags():
 
 def test_parse_selection_rejects_rank_0():
     """Points and irregular hyperslabs of rank 0, whose count no bytes bound."""
-    from vzip_reference.ims.hdf5 import parse_selection
+    from refkv_reference.ims.hdf5 import parse_selection
 
     for data in (bytes([1, 0, 0, 0, 1, 0, 0, 0, *[0] * 8, 0, 0, 0, 0, 255, 255, 255, 255]),
                  bytes([2, 0, 0, 0, 3, 0, 0, 0, 0, 8, 0, 0, 0, 0, *[0, 0, 0, 0, 4, 0, 0, 0]])):
@@ -676,14 +676,14 @@ def test_parse_selection_rejects_rank_0():
 
 
 def test_parse_selection_rejects_a_truncated_selection():
-    from vzip_reference.ims.hdf5 import parse_selection
+    from refkv_reference.ims.hdf5 import parse_selection
 
     with pytest.raises(Rejected, match="truncated selection"):
         parse_selection(bytes([1, 0, 0, 0, 2, 0, 0, 0, 4, 1, 0, 0, 0, 9, 0, 0, 0]), 0)
 
 
 def _dataset(dims, maxdims, chunk):
-    from vzip_reference.ims.hdf5 import Dataset, Datatype
+    from refkv_reference.ims.hdf5 import Dataset, Datatype
 
     grid = [-(-n // c) for n, c in zip(dims, chunk)]
     return Dataset(dims, maxdims, Datatype(0, 1, 0, b""), chunk, grid, [], "farray", None, None)
@@ -692,7 +692,7 @@ def _dataset(dims, maxdims, chunk):
 def test_max_grid():
     """The chunk counts at the maximum dimensions (spec/virtualize.md §8.5
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>)."""
-    from vzip_reference.ims.hdf5 import UNDEFINED, _max_grid
+    from refkv_reference.ims.hdf5 import UNDEFINED, _max_grid
 
     assert _max_grid(_dataset([5, 6], None, [2, 4]), False) == [3, 2]
     assert _max_grid(_dataset([5, 6], [9, 6], [2, 4]), False) == [5, 2]
@@ -700,14 +700,14 @@ def test_max_grid():
 
 
 def test_max_grid_rejects_a_maximum_below_the_size():
-    from vzip_reference.ims.hdf5 import _max_grid
+    from refkv_reference.ims.hdf5 import _max_grid
 
     with pytest.raises(Rejected, match="maximum dimension"):
         _max_grid(_dataset([5, 6], [4, 6], [2, 4]), False)
 
 
 def test_max_grid_rejects_an_unlimited_dimension_the_index_does_not_allow():
-    from vzip_reference.ims.hdf5 import UNDEFINED, _max_grid
+    from refkv_reference.ims.hdf5 import UNDEFINED, _max_grid
 
     with pytest.raises(Rejected, match="maximum dimension"):
         _max_grid(_dataset([5, 6], [UNDEFINED, 6], [2, 4]), False)

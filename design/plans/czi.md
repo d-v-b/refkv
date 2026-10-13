@@ -48,7 +48,7 @@ Findings that shaped the design:
 
 ## 2. Modules
 
-Python, `python/src/vzip/virtualize/czi/`, and its TypeScript twin,
+Python, `python/src/refkv/virtualize/czi/`, and its TypeScript twin,
 `js/src/virtualize/czi/`, with the same module names and functions, as
 for ND2:
 
@@ -74,7 +74,7 @@ Shared changes:
   complex fill value; add a `rectilinear(shape, edges)` helper.
 - `Output.write`: treat `tiles/*/zarr.json` like `vzip_source/` documents
   (lazy), so opening an archive does not read one document per tile array.
-- `python/src/vzip/codecs.py`: register `imagecodecs_jpegxr` (decode with
+- `python/src/refkv/codecs.py`: register `imagecodecs_jpegxr` (decode with
   `imagecodecs.jpegxr_decode`, reshape to the chunk) like
   `imagecodecs_jpeg2k`. `numcodecs.shuffle` and `zstd` are zarr-python's.
   Readers with rectilinear levels need

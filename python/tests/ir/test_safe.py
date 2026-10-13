@@ -1,7 +1,7 @@
 """SAFE through the IR (vzip.virtualize, the Rust core natively): the directory form as a store
 run, whose output references ranges of its band files and data sources, and the zip form as a
 file run. Equivalence with the frozen reference is compare.py's; the IR, its mirror and every
-rejection are rust/vzip-ir/tests/safe.rs's."""
+rejection are rust/refkv-ir/tests/safe.rs's."""
 
 from pathlib import Path
 

@@ -1,7 +1,7 @@
-"""N5 stores through the IR (vzip.virtualize → vzip.ir.store → rust/vzip-ir/src/n5.rs;
+"""N5 stores through the IR (vzip.virtualize → vzip.ir.store → rust/refkv-ir/src/n5.rs;
 spec/virtualize/n5.md <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md>). One test
 of the accepted fixture stores: the hierarchy outside vzip_source is the frozen reference's
-(conformance/virtualize/reference/vzip_reference/n5, revision 25), the references are each a
+(conformance/virtualize/reference/refkv_reference/n5, revision 25), the references are each a
 whole object at the reference's keys, and vzip_source is the store IR's mirror, which rebuilds
 every node's document byte for byte and the listing. One test of the recorded ignored keys, and
 one of the rejected fixtures (each rejected by both)."""
@@ -17,7 +17,7 @@ import vzip_ir
 from vzip.ir.store import StoreIrOutput, virtualize_store
 from vzip.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
 from vzip.virtualize.common import REVISION, same
-from vzip_reference.revision import STORES_REVISION
+from refkv_reference.revision import STORES_REVISION
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "n5"
 STORES = sorted(p for p in FIXTURES.iterdir() if p.is_dir())
@@ -29,7 +29,7 @@ def files(root: Path) -> dict[str, bytes]:
 
 
 def test_accepted_stores_have_the_reference_hierarchy_and_a_store_mirror():
-    from vzip_reference import virtualize as frozen
+    from refkv_reference import virtualize as frozen
 
     accepted = 0
     for root in STORES:
@@ -98,7 +98,7 @@ def test_ignored_keys_are_recorded_beside_the_mirror():
 
 @pytest.mark.parametrize("root", [p for p in STORES if p.name.startswith("n5_reject_")], ids=lambda p: p.name)
 def test_rejects_what_the_reference_rejects(root):
-    from vzip_reference import virtualize as frozen
+    from refkv_reference import virtualize as frozen
 
     url = URL.format(root.name)
     with pytest.raises(Rejected):
@@ -124,7 +124,7 @@ def test_hostile_stores_are_refused_or_virtualized_as_the_reference_does(n5_prob
     vzip_source and a mirror that rebuilds every node's document; none takes long."""
     import time
 
-    from vzip_reference import virtualize as frozen
+    from refkv_reference import virtualize as frozen
 
     seen = 0
     for root in sorted(n5_probes.iterdir()):

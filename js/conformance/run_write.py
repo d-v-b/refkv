@@ -1,7 +1,7 @@
 """Runs the conformance kit's write cases against the browser writer.
 
-For each valid description (conformance/archive/cases.py): write it with
-`js/conformance/cli.ts`, check the archive with conformance/archive/validate.py, and
+For each valid description (conformance/vzip/cases.py): write it with
+`js/conformance/cli.ts`, check the archive with conformance/vzip/validate.py, and
 read it back with the reference reader. Descriptions with a page index are
 skipped, since this writer does not write one. Each invalid description must
 be rejected with no file left behind.
@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "conformance" / "archive"))
+sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
 import cases  # noqa: E402
 from model import Model  # noqa: E402

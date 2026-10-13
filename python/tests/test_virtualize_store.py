@@ -34,7 +34,7 @@ from vzip.virtualize.store import (
     parse_listing,
 )
 
-# the frozen reference twins (conformance/virtualize/reference/vzip_reference): the N5 profile
+# the frozen reference twins (conformance/virtualize/reference/refkv_reference): the N5 profile
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "virtualize" / "reference"))
 
 XML = '<?xml version="1.0" encoding="UTF-8"?>\n<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">{}</ListBucketResult>'
@@ -280,8 +280,8 @@ def test_records_ignored_keys_and_empty_chunks(monkeypatch):
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>); in UTF-8
     byte order, each member only when not empty."""
     monkeypatch.syspath_prepend(REFERENCE)
-    from vzip_reference.n5.virtualize import virtualize_n5  # the frozen N5 profile (revision 25)
-    from vzip_reference.zarr2.virtualize import virtualize_zarr2  # the frozen profile: revision 25's rules
+    from refkv_reference.n5.virtualize import virtualize_n5  # the frozen N5 profile (revision 25)
+    from refkv_reference.zarr2.virtualize import virtualize_zarr2  # the frozen profile: revision 25's rules
 
     zarray = b'{"zarr_format": 2, "shape": [4], "chunks": [2], "dtype": "|u1", "compressor": null, ' \
              b'"fill_value": 7, "order": "C", "filters": null}'

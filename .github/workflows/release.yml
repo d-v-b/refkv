@@ -15,7 +15,7 @@ on:
       - pyproject.toml
       - python/README.md
       - LICENSE-*
-      - rust/vzip-ir/**
+      - rust/refkv-ir/**
       - python/src/vzip_ir/**
       - python/tests/check_base_install.py
       - .github/workflows/release.yml

@@ -15,16 +15,16 @@ import pytest
 
 import sys
 
-# the frozen reference twins (conformance/virtualize/reference/vzip_reference)
+# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
 
 from vzip.virtualize import Rejected
 from vzip.virtualize.common import text_json
-from vzip_reference import virtualize
-from vzip_reference.safe import jp2, zipdir
-from vzip_reference.safe.metadata import BUDGET, MULTISCALES, PROJ, SPATIAL, choose_texts, json_size, typed, wkt2
-from vzip_reference.safe.product import folders
-from vzip_reference.safe.virtualize import Shared
+from refkv_reference import virtualize
+from refkv_reference.safe import jp2, zipdir
+from refkv_reference.safe.metadata import BUDGET, MULTISCALES, PROJ, SPATIAL, choose_texts, json_size, typed, wkt2
+from refkv_reference.safe.product import folders
+from refkv_reference.safe.virtualize import Shared
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "safe"
 URL = "https://data.test/safe/{}"

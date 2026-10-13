@@ -5,7 +5,7 @@ stores: the reference twin conformance/virtualize/compare.py compares the Rust I
 import sys
 from pathlib import Path
 
-# the frozen reference twins (conformance/virtualize/reference/vzip_reference)
+# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
 
 import json
@@ -16,8 +16,8 @@ import pytest
 
 from vzip.virtualize import Rejected
 from vzip.virtualize.common import declare as _declare
-from vzip_reference import virtualize
-from vzip_reference.revision import STORES_REVISION as REVISION
+from refkv_reference import virtualize
+from refkv_reference.revision import STORES_REVISION as REVISION
 
 # the reference's roots record the revision it is frozen at
 declare = partial(_declare, revision=REVISION)

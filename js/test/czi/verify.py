@@ -50,7 +50,7 @@ from zarr.core.buffer import default_buffer_prototype
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 FIXTURES = ROOT / "fixtures" / "czi"
-sys.path.insert(0, str(ROOT / "conformance" / "archive"))
+sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
 from http_server import Server  # noqa: E402
 

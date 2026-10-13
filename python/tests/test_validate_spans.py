@@ -1,4 +1,4 @@
-"""conformance/archive/validate.py's check of the bytes before the central directory
+"""conformance/vzip/validate.py's check of the bytes before the central directory
 (spec §10.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#101-structure>
 rules 1 and 2): entries may be padded apart, but padding holds no local header."""
 
@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).parents[2]
-sys.path.insert(0, str(ROOT / "conformance" / "archive"))
+sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
 from validate import check_spans  # noqa: E402
 

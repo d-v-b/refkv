@@ -650,8 +650,8 @@ def sized_level(target: int, legacy: bool = True) -> bytes:
 
     # the frozen reference twin of the ND2 profile (conformance/virtualize/reference)
     sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
-    from vzip_reference.nd2.lv import decode_lv
-    from vzip_reference.nd2.source import json_size, lv_json
+    from refkv_reference.nd2.lv import decode_lv
+    from refkv_reference.nd2.source import json_size, lv_json
 
     members = [lv(f"f{i}", x) for i, x in enumerate(
         [0.1, 1e-7, 1e21, 123456789.125, 5e-324, -2.5e-300, 2.0, 1e16, 1.5e-6, 1e-6, 123e20, -0.0])]

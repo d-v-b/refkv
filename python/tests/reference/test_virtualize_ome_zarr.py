@@ -9,7 +9,7 @@ zarr-python by js/test/ome-zarr/verify.py.
 import sys
 from pathlib import Path
 
-# the frozen reference twins (conformance/virtualize/reference/vzip_reference)
+# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
 
 import json
@@ -18,10 +18,10 @@ import pytest
 
 from vzip.virtualize import Rejected
 from vzip.virtualize.common import declare
-from vzip_reference import virtualize
-from vzip_reference.revision import STORES_REVISION as STORE_REVISION
+from refkv_reference import virtualize
+from refkv_reference.revision import STORES_REVISION as STORE_REVISION
 from vzip.virtualize.store import DirStore
-from vzip_reference.zarr2 import virtualize_zarr2
+from refkv_reference.zarr2 import virtualize_zarr2
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "ome-zarr"
 URL = "https://data.test/ome-zarr/{}/"

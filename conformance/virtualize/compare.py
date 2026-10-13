@@ -30,7 +30,7 @@ for the others), `py` (`python -m vzip.virtualize`) and `web` (the browser code 
 Others write HARNESS.md's JSON description; give them as `--impl name=command`.
 
 `py` and `web` virtualize TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE files, and
-SAFE directories and Zarr v2, N5 and OME-Zarr stores, through one Rust core (rust/vzip-ir,
+SAFE directories and Zarr v2, N5 and OME-Zarr stores, through one Rust core (rust/refkv-ir,
 natively and as wasm32), and write its mirror under `vzip_source`, which the frozen reference
 does not: for those profiles an implementation is compared with the reference outside
 `vzip_source`, and `py` and `web` with each other entirely, entry for entry (they must give the
@@ -74,7 +74,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
-sys.path.insert(0, str(ROOT / "conformance" / "archive"))
+sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 sys.path.insert(0, str(ROOT / "conformance" / "impls" / "python"))
 from corpus_hash import entries as corpus_entries  # noqa: E402
 from proxy import Proxy  # noqa: E402
@@ -171,7 +171,7 @@ def strict(path: Path, view: dict) -> list[str]:
     <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#11-entries>, §12
     <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#12-page-index-optional>, §14
     <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#14-writing-a-vzip-archive>) as
-    conformance/archive/validate.py,
+    conformance/vzip/validate.py,
     with its own ZIP parser, checks them: canonical payloads, reference bodies,
     duplicate names, hidden entries, CRC-32s, local headers and the page index."""
     try:

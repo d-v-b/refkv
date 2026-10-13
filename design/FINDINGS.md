@@ -14,7 +14,7 @@ classifier:
 | reference   | a `Range` (the default) or a `Concat` of several ranges     |
 | (neither)   | missing → zarr fill value                                   |
 
-The schema is a few small protobuf messages ([spec/proto/vzip.proto](../spec/proto/vzip.proto)).
+The schema is a few small protobuf messages ([spec/proto/refkv.proto](../spec/proto/refkv.proto)).
 
 - The archive has one **source table**: a deduplicated list of things bytes
   can come from. It is deflated, and the open request already fetches it.
@@ -41,7 +41,7 @@ The schema is a few small protobuf messages ([spec/proto/vzip.proto](../spec/pro
 Every kind of source costs the same per reference: a small integer. The writer
 gives the most-used URL index 0, which costs zero bytes. The common case is a
 bare `Range` of **6–9 bytes** on the wire, e.g. `18 cf 52 20 85 09`. The
-codec is ~150 lines of hand-written Python ([pb.py](../python/src/vzip/pb.py)), and a
+codec is ~150 lines of hand-written Python ([pb.py](../python/src/refkv/pb.py)), and a
 test checks it byte-for-byte against the official protobuf runtime.
 
 ## Realization as a ZIP file
@@ -149,7 +149,7 @@ Python overhead; don't read much into them.
      read, regardless of N.
    - It is still a 100% standard zip, and every key is still a visible entry.
    - Listing everything still reads the whole CD.
-3. **Virtual shards are the best result** ([shards.py](../python/src/vzip/shards.py)).
+3. **Virtual shards are the best result** ([shards.py](../python/src/refkv/shards.py)).
    - When every chunk in a block of the chunk grid comes from one file, store
      *one* reference per block: `[file bytes 0..end] ++ [zarr shard index]`.
    - The array metadata says `sharding_indexed`. zarr-python's own sharding
@@ -256,12 +256,12 @@ Where vzip is clearly worse:
 ## Layout / reproduce
 
 ```
-spec/proto/vzip.proto          wire schema
-python/src/vzip/pb.py            protobuf codec (no protoc)
-python/src/vzip/archive.py       zip writer + CD/EOCD parsing, paged CD index
-python/src/vzip/store.py         zarr Store: overlay resolver (obstore IO, request stats)
-python/src/vzip/convert.py       virtualizarr Dataset -> vzip (per-chunk refs)
-python/src/vzip/shards.py        virtualizarr Dataset -> vzip (virtual shards)
+spec/proto/refkv.proto          wire schema
+python/src/refkv/pb.py            protobuf codec (no protoc)
+python/src/refkv/archive.py       zip writer + CD/EOCD parsing, paged CD index
+python/src/refkv/store.py         zarr Store: overlay resolver (obstore IO, request stats)
+python/src/refkv/convert.py       virtualizarr Dataset -> vzip (per-chunk refs)
+python/src/refkv/shards.py        virtualizarr Dataset -> vzip (virtual shards)
 design/experiments/naive_view.py what naive tools see
 design/experiments/bench.py      local size/latency comparison
 design/experiments/http_bench.py request-level comparison over HTTP
@@ -296,7 +296,7 @@ pyramidal OME-TIFF in place on EBI's FTP/HTTPS server.
   The OME-XML is stored as a real (deflated) bytes entry, `OME/METADATA.ome.xml`,
   next to the references.
 - **Codec:** Zarr v3 has no standard JPEG 2000 codec, so
-  [`vzip/zarr/codecs.py`](../python/src/vzip/zarr/codecs.py) registers a small
+  [`refkv/zarr/codecs.py`](../python/src/refkv/zarr/codecs.py) registers a small
   `imagecodecs_jpeg2k` array-to-bytes codec. Each TIFF tile is a standalone
   codestream.
 

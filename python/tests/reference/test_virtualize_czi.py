@@ -10,7 +10,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# the frozen reference twins (conformance/virtualize/reference/vzip_reference)
+# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
 
 
@@ -23,10 +23,10 @@ from pathlib import Path
 import pytest
 
 from vzip.virtualize import Rejected
-from vzip_reference import virtualize
-from vzip_reference.czi.coding import jpeg_frame, jpegxr_size, zstd1_header, zstd_content_size
-from vzip_reference.czi.layout import layer, row_band
-from vzip_reference.czi.segments import guid
+from refkv_reference import virtualize
+from refkv_reference.czi.coding import jpeg_frame, jpegxr_size, zstd1_header, zstd_content_size
+from refkv_reference.czi.layout import layer, row_band
+from refkv_reference.czi.segments import guid
 
 ROOT = Path(__file__).parents[3]
 FIXTURES = ROOT / "fixtures" / "czi"

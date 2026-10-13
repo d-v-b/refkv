@@ -23,7 +23,7 @@ conformance/results/
 conformance/impls/typescript/test/.tmp/
 
 # The IR core's build output
-rust/vzip-ir/target/
+rust/refkv-ir/target/
 
 # the Rust core, compiled into its package by `uv sync` (pyproject.toml)
 python/src/vzip_ir/*.so

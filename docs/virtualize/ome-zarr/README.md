@@ -159,12 +159,12 @@ with the Python command only).
 
 - Profile: [spec/virtualize/ome-zarr.md](../../../spec/virtualize/ome-zarr.md#part-2-the-profile), which
   builds on [spec/virtualize/zarr2.md](../../../spec/virtualize/zarr2.md#part-2-the-profile)
-- Rust core: the Zarr v2 store format ([rust/vzip-ir/src/zarr2.rs](../../../rust/vzip-ir/src/zarr2.rs),
-  [project/zarr2.rs](../../../rust/vzip-ir/src/project/zarr2.rs)) and its OME layer,
-  [rust/vzip-ir/src/ome_zarr.rs](../../../rust/vzip-ir/src/ome_zarr.rs), whose checks are the roles of
-  [rust/vzip-ir/schema/ome-zarr.json](../../../rust/vzip-ir/schema/ome-zarr.json)
-- Python host: [python/src/vzip/ir/store.py](../../../python/src/vzip/ir/store.py); browser host:
+- Rust core: the Zarr v2 store format ([rust/refkv-ir/src/zarr2.rs](../../../rust/refkv-ir/src/zarr2.rs),
+  [project/zarr2.rs](../../../rust/refkv-ir/src/project/zarr2.rs)) and its OME layer,
+  [rust/refkv-ir/src/ome_zarr.rs](../../../rust/refkv-ir/src/ome_zarr.rs), whose checks are the roles of
+  [rust/refkv-ir/schema/ome-zarr.json](../../../rust/refkv-ir/schema/ome-zarr.json)
+- Python host: [python/src/refkv/ir/store.py](../../../python/src/refkv/ir/store.py); browser host:
   [js/src/virtualize/ir/store.ts](../../../js/src/virtualize/ir/store.ts)
-- Frozen reference: [conformance/virtualize/reference/vzip_reference/ome_zarr/](../../../conformance/virtualize/reference/vzip_reference/ome_zarr/)
+- Frozen reference: [conformance/virtualize/reference/refkv_reference/ome_zarr/](../../../conformance/virtualize/reference/refkv_reference/ome_zarr/)
   and [conformance/virtualize/reference/ts/ome-zarr/](../../../conformance/virtualize/reference/ts/ome-zarr/)
 - Fixtures: [fixtures/ome-zarr/](../../../fixtures/ome-zarr/)

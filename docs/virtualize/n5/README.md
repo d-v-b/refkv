@@ -44,7 +44,7 @@ A Zarr v3 hierarchy with a node at the path of every N5 group and dataset.
   ([conventions §8.9](../../../spec/conventions.md#89-stores)): the listing (every
   object's key and size, empty ones included) and every node's
   `attributes.json`, byte for byte, with a view of each document's members
-  under `vzip_source/tree`. The Rust core ([rust/vzip-ir](../../../rust/vzip-ir/))
+  under `vzip_source/tree`. The Rust core ([rust/refkv-ir](../../../rust/refkv-ir/))
   reads and checks the documents and writes it, natively from Python and as
   WebAssembly in the browser.
 - **Multiscales:** a group with COSEM `multiscales` (as on OpenOrganelle) or
@@ -178,18 +178,18 @@ Notes:
 `js/test/n5/verify.py` virtualizes the synthetic N5 stores in
 [fixtures/n5/](../../../fixtures/n5/) (including stores to
 reject) with the browser code, and compares every array, read through
-`python/src/vzip` and zarr-python's `n5_default`, with an independent block reader
+`python/src/refkv` and zarr-python's `n5_default`, with an independent block reader
 in the script and with `zarr-n5`. `compare.py` checks that the Python and
 browser outputs, and the frozen reference's outside `vzip_source`, are equivalent on those stores and on the 7 OpenOrganelle
 stores of [corpus_n5.txt](../../../conformance/virtualize/corpus_n5.txt)
 (the full-resolution level with the Python command only).
 
 - Profile: [spec/virtualize/n5.md](../../../spec/virtualize/n5.md#part-2-the-profile)
-- Rust core: [rust/vzip-ir/src/n5.rs](../../../rust/vzip-ir/src/n5.rs)
-  (the parser) and [rust/vzip-ir/src/project/n5.rs](../../../rust/vzip-ir/src/project/n5.rs)
+- Rust core: [rust/refkv-ir/src/n5.rs](../../../rust/refkv-ir/src/n5.rs)
+  (the parser) and [rust/refkv-ir/src/project/n5.rs](../../../rust/refkv-ir/src/project/n5.rs)
   (the projection)
-- Python host: [python/src/vzip/ir/store.py](../../../python/src/vzip/ir/store.py); browser host:
+- Python host: [python/src/refkv/ir/store.py](../../../python/src/refkv/ir/store.py); browser host:
   [js/src/virtualize/ir/store.ts](../../../js/src/virtualize/ir/store.ts)
-- Frozen reference: [conformance/virtualize/reference/vzip_reference/n5/](../../../conformance/virtualize/reference/vzip_reference/n5/)
+- Frozen reference: [conformance/virtualize/reference/refkv_reference/n5/](../../../conformance/virtualize/reference/refkv_reference/n5/)
   and [conformance/virtualize/reference/ts/n5/](../../../conformance/virtualize/reference/ts/n5/)
 - Fixtures: [fixtures/n5/](../../../fixtures/n5/)

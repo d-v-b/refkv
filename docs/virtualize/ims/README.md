@@ -146,7 +146,7 @@ Rejected, with the message the command prints:
 
 IMS is virtualized by vzip's Rust core, natively in Python and as
 WebAssembly in the browser. `js/test/ims/verify.py` virtualizes the synthetic
-IMS files (including inputs to reject) with the browser code, reads them back through `python/src/vzip`
+IMS files (including inputs to reject) with the browser code, reads them back through `python/src/refkv`
 and zarr-python, and compares the pixels with h5py (cropped to the image
 size), and rebuilds each file byte for byte from its archive's mirror.
 `compare.py` checks that the Python and browser outputs are identical, and
@@ -156,8 +156,8 @@ profile of revision 25), on those files and on the 21 public files of
 which must be rejected (the LZ4 file and a scene file).
 
 - Profile: [spec/virtualize/ims.md](../../../spec/virtualize/ims.md#part-2-the-profile)
-- Rust core: [rust/vzip-ir/src/ims.rs](../../../rust/vzip-ir/src/ims.rs) (the layout and the walk),
-  [rust/vzip-ir/src/hdf5.rs](../../../rust/vzip-ir/src/hdf5.rs) (the HDF5 reader),
-  [rust/vzip-ir/schema/ims.json](../../../rust/vzip-ir/schema/ims.json) (the source model)
-- Frozen reference (revision 25): [conformance/virtualize/reference/vzip_reference/ims/](../../../conformance/virtualize/reference/vzip_reference/ims/)
+- Rust core: [rust/refkv-ir/src/ims.rs](../../../rust/refkv-ir/src/ims.rs) (the layout and the walk),
+  [rust/refkv-ir/src/hdf5.rs](../../../rust/refkv-ir/src/hdf5.rs) (the HDF5 reader),
+  [rust/refkv-ir/schema/ims.json](../../../rust/refkv-ir/schema/ims.json) (the source model)
+- Frozen reference (revision 25): [conformance/virtualize/reference/refkv_reference/ims/](../../../conformance/virtualize/reference/refkv_reference/ims/)
 - Fixtures: [fixtures/ims/](../../../fixtures/ims/)

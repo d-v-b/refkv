@@ -2,7 +2,7 @@
 
 Each directory holds a reader, writer and harness CLI that an agent built from
 [spec/archive.md](../../spec/archive.md) (format version 0, **revision 7**; the current spec is revision 11) and
-[HARNESS.md](../archive/HARNESS.md) alone. The agents had no access to the
+[HARNESS.md](../vzip/HARNESS.md) alone. The agents had no access to the
 reference implementation, the test vectors or each other's code. Each agent's
 `SPEC_NOTES.md` lists the ambiguities it reported; notes from every round are
 in [design/conformance/archive/](../../design/conformance/archive/).

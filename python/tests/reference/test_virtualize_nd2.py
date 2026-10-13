@@ -8,7 +8,7 @@ js/test/nd2/verify.py.
 import sys
 from pathlib import Path
 
-# the frozen reference twins (conformance/virtualize/reference/vzip_reference)
+# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
 
 import json
@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from vzip.virtualize import Rejected
-from vzip_reference import virtualize
+from refkv_reference import virtualize
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "nd2"
 
@@ -42,7 +42,7 @@ def test_virtualizes_the_synthetic_files():
 def test_frame_headers_are_prefetched_with_a_padded_name():
     """Real files pad frame names to 4072 bytes: the prefetch covers the header and a 4 KiB name."""
     from vzip.virtualize.common import file_reader
-    from vzip_reference.nd2 import virtualize_nd2
+    from refkv_reference.nd2 import virtualize_nd2
 
     for name, frames in (("nd2_tz_uint16.nd2", 12), ("nd2_compressed_positions.nd2", 8)):
         read, size = file_reader(str(FIXTURES / name))
@@ -101,7 +101,7 @@ def test_rejects(name, message):
 
 def test_variant_json():
     """An XML variant document as JSON (spec/virtualize/nd2.md §5)."""
-    from vzip_reference.nd2.source import variant_json
+    from refkv_reference.nd2.source import variant_json
 
     doc = (b'<?xml version="1.0"?><variant version="1.0"><a runtype="CLxListVariant">'
            b'<i runtype="lx_int32" value="-7"/><u runtype="lx_uint64" value="18446744073709551615"/>'
@@ -143,8 +143,8 @@ def test_every_chunk_is_in_the_hierarchy():
 
 def test_a_multi_phase_time_loop_has_a_period_only_when_its_phases_agree():
     """spec/virtualize/nd2.md §3, eType 8."""
-    from vzip_reference.nd2.lv import LVList, Scalar
-    from vzip_reference.nd2.virtualize import flatten_experiment
+    from refkv_reference.nd2.lv import LVList, Scalar
+    from refkv_reference.nd2.virtualize import flatten_experiment
 
     def phase(n, ms):
         return {"uiCount": Scalar((3, n)), "dPeriod": Scalar((6, ms))}
@@ -220,7 +220,7 @@ def test_source_metadata_keeps_every_chunk():
 
 def test_a_chunk_over_16_kib_of_json_is_on_vzip_source():
     """The size is that of JSON.stringify's text, in UTF-8 (spec/virtualize/nd2.md §5.1)."""
-    from vzip_reference.nd2.source import json_size
+    from refkv_reference.nd2.source import json_size
 
     cases = {0.1: 3, 1e-7: 4, 1e21: 5, 123456789.125: 13, 5e-324: 6, -2.5e-300: 9, 2.0: 1, 1e16: 17,
              1.5e-6: 9, 1e-6: 8, 123e20: 8, -0.0: 1, 1e-5: 7, 123.456e-10: 10, 1.7976931348623157e308: 23}
@@ -302,7 +302,7 @@ def test_sparse_frames_and_families_are_bounded():
 
 def test_the_root_keeps_at_most_64_kib_of_chunks():
     """spec/virtualize/nd2.md §5.1: the largest move first, of equal sizes the first in map order."""
-    from vzip_reference.nd2.source import json_size
+    from refkv_reference.nd2.source import json_size
 
     _, root, node, _ = _source("nd2_source_root_budget.nd2")
     assert list(node["chunks"]) == ["BLV!"]
@@ -314,7 +314,7 @@ def test_the_node_keeps_at_most_64_kib_of_chunks():
     """spec/virtualize/nd2.md §5.1: vzip_source's chunks in map order while they
     fit (a later, smaller one too); byte arrays as JSON arrays; names that are
     array indices make pairs; -0 is a tag, guessed, named and in XML."""
-    from vzip_reference.nd2.source import json_size
+    from refkv_reference.nd2.source import json_size
 
     out, root, node, arrays = _source("nd2_source_node_budget.nd2")
     assert list(node["chunks"]) == ["ImageMetadataSeqLV|1!", "ImageMetadataSeqLV|2!", "ImageMetadataSeqLV|4!"]
@@ -341,7 +341,7 @@ def test_a_chunk_that_does_not_fit_the_node_is_bytes():
 def test_other_and_empty_past_the_node_budget_are_arrays():
     """spec/virtualize/nd2.md §5.4: each list over what is left of vzip_source's
     64 KiB is the path of an array holding its JSON text."""
-    from vzip_reference.nd2.source import json_size
+    from refkv_reference.nd2.source import json_size
 
     out, _, node, arrays = _source("nd2_source_names_spill.nd2")
     assert node == {"other": "other/names", "empty": "other/empty"}
@@ -414,7 +414,7 @@ def test_grid_cut_is_the_cut_of_contiguous_values():
     import random
 
     from vzip.virtualize.common import grid_chunks
-    from vzip_reference.nd2.source import grid_chunk, grid_cut
+    from refkv_reference.nd2.source import grid_chunk, grid_cut
 
     cases = [([1], 8), ([5, 7], 4), ([3_000_000], 8), ([2_097_153], 8), ([4096, 1024], 8), ([3, 5_000_000], 4),
              ([1000, 3, 7000], 8), ([2**21 + 1, 3], 8), ([65537, 257], 8), ([4195, 1000], 8), ([40, 2**21], 8)]
@@ -449,8 +449,8 @@ def test_lv_exact_decoding():
     name-ordered offset tables, k = 0 empty names, and compression."""
     import zlib
 
-    from vzip_reference.nd2.lv import decode_lv
-    from vzip_reference.nd2.source import lv_json
+    from refkv_reference.nd2.lv import decode_lv
+    from refkv_reference.nd2.source import lv_json
 
     b_rec, a_rec = b"\x03\x02b\0\0\0\x01\0\0\0", b"\x03\x02a\0\0\0\x02\0\0\0"
     head = 2 + 4 + 12  # level "t"
@@ -476,7 +476,7 @@ def test_lv_exact_decoding():
 ])
 def test_a_stream_that_does_not_inflate_is_charged_the_most_it_could(data, limit):
     """min(limit, 1032 x the data's length) (spec/virtualize/nd2.md §5.1, the budget)."""
-    from vzip_reference.nd2.lv import decode_lv
+    from refkv_reference.nd2.lv import decode_lv
 
     inflated: list[int] = []
     with pytest.raises(Rejected):
@@ -486,7 +486,7 @@ def test_a_stream_that_does_not_inflate_is_charged_the_most_it_could(data, limit
 
 def test_lv_data_past_its_room_is_too_large():
     """1 per record and 1 per byte of a byte array (each at least a byte of JSON)."""
-    from vzip_reference.nd2.lv import TooLarge, decode_lv
+    from refkv_reference.nd2.lv import TooLarge, decode_lv
 
     data = b"\x09\x02b\0\0\0" + struct.pack("<Q", 3) + b"\1\2\3"
     decode_lv(data, room=4)
@@ -508,7 +508,7 @@ def test_lv_data_past_its_room_is_too_large():
     (b"\x4c\x00" + bytes(10) + __import__("zlib").compress(b"\x01\x02a\0\0\0\x02"), "bool"),
 ])
 def test_lv_exact_decoding_rejects(data, message):
-    from vzip_reference.nd2.lv import Lossy, decode_lv
+    from refkv_reference.nd2.lv import Lossy, decode_lv
 
     decode_lv(data)  # it decodes, with a loss
     with pytest.raises(Lossy, match=message):

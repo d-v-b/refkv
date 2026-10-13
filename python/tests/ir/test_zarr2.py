@@ -1,4 +1,4 @@
-"""Zarr v2 stores through the Rust IR (rust/vzip-ir/src/zarr2.rs; spec/virtualize/zarr2.md) on
+"""Zarr v2 stores through the Rust IR (rust/refkv-ir/src/zarr2.rs; spec/virtualize/zarr2.md) on
 the synthetic stores: the hierarchy outside `vzip_source` as the convention gives it, and the
 IR's mirror under `vzip_source`, which rebuilds the listing and every document read.
 

@@ -23,7 +23,7 @@ mirror); the tiles are read from the IDR's server only when a reader asks
 for them.
 
 TIFF files are virtualized by vzip's Rust core,
-[rust/vzip-ir](../../../rust/vzip-ir/), the same code in Python and (built
+[rust/refkv-ir](../../../rust/refkv-ir/), the same code in Python and (built
 for WebAssembly) in the browser: it parses the file into an intermediate
 representation (IR), plans the range requests, and projects the IR onto the
 TIFF convention. Installing vzip builds it, which needs a Rust toolchain
@@ -233,7 +233,7 @@ A file that is none of the formats vzip reads is rejected with
 
 `js/test/tiff/verify.py` virtualizes each synthetic file with the browser
 code (the Rust core as WebAssembly), reads every level back through
-`python/src/vzip` and zarr-python, and compares it with tifffile; it also rebuilds
+`python/src/refkv` and zarr-python, and compares it with tifffile; it also rebuilds
 each file from its archive's IR mirror and checks that it is the file, byte
 for byte. `compare.py` compares three virtualizers
 ([overview](../README.md#the-implementations-agree)) on the 73 synthetic
@@ -245,11 +245,11 @@ frozen reference: the Python TIFF profile vzip shipped before the core.
 
 - Profile: [spec/virtualize/tiff.md](../../../spec/virtualize/tiff.md#part-2-the-profile); convention:
   [spec/virtualize/tiff.md](../../../spec/virtualize/tiff.md)
-- Rust core: [rust/vzip-ir/src/tiff.rs](../../../rust/vzip-ir/src/tiff.rs)
-  (the parser) and [rust/vzip-ir/src/project/tiff.rs](../../../rust/vzip-ir/src/project/tiff.rs)
+- Rust core: [rust/refkv-ir/src/tiff.rs](../../../rust/refkv-ir/src/tiff.rs)
+  (the parser) and [rust/refkv-ir/src/project/tiff.rs](../../../rust/refkv-ir/src/project/tiff.rs)
   (the projection)
-- Python host: [python/src/vzip/ir/](../../../python/src/vzip/ir/); browser host:
+- Python host: [python/src/refkv/ir/](../../../python/src/refkv/ir/); browser host:
   [js/src/virtualize/ir/](../../../js/src/virtualize/ir/)
-- Frozen reference: [conformance/virtualize/reference/vzip_reference/tiff/](../../../conformance/virtualize/reference/vzip_reference/tiff/)
+- Frozen reference: [conformance/virtualize/reference/refkv_reference/tiff/](../../../conformance/virtualize/reference/refkv_reference/tiff/)
   and [conformance/virtualize/reference/ts/tiff/](../../../conformance/virtualize/reference/ts/tiff/)
 - Fixtures: [fixtures/tiff/](../../../fixtures/tiff/)

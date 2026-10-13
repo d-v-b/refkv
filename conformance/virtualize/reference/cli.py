@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from vzip.errors import ResolutionError  # noqa: E402
 from vzip.policy import Policy  # noqa: E402
 from vzip.virtualize.common import Rejected  # noqa: E402
-from vzip_reference import virtualize  # noqa: E402
+from refkv_reference import virtualize  # noqa: E402
 
 
 def main(argv: list[str]) -> int:

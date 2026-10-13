@@ -108,7 +108,7 @@ Very little in its data model is new.
   - **Chunk manifests:** VirtualiZarr's chunk manifests (a path, offset and
     length for every chunk of an array) are what vzip's references record.
   - **The code:** vzip's Python converters
-    ([convert.py](../python/src/vzip/convert.py), [shards.py](../python/src/vzip/shards.py)) take
+    ([convert.py](../python/src/refkv/convert.py), [shards.py](../python/src/refkv/shards.py)) take
     VirtualiZarr's `ManifestArray` datasets as input and reuse helpers from
     its Icechunk writer. The benchmarks build their datasets with its
     `ChunkManifest`.

@@ -5,7 +5,7 @@
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): N5, Zarr v2,
 // OME-Zarr 0.4 or a SAFE directory. TIFF (NDPI included: the core's TIFF parser finds it), ND2,
 // CZI, DICOM, NIfTI, IMS and SAFE files, and SAFE directories and Zarr v2, N5 and OME-Zarr
-// stores, are virtualized by the Rust core (ir/, rust/vzip-ir); each other profile is in its
+// stores, are virtualized by the Rust core (ir/, rust/refkv-ir); each other profile is in its
 // own directory; store.ts holds the store machinery.
 
 import { blockReader, type ByteReader, ImageError } from "./common.ts";

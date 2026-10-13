@@ -8,7 +8,7 @@ js/test/tiff/verify.py.
 import sys
 from pathlib import Path
 
-# the frozen reference twins (conformance/virtualize/reference/vzip_reference)
+# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
 
 import json
@@ -18,10 +18,10 @@ from pathlib import Path
 import pytest
 import tifffile
 
-from vzip_reference.tiff.tags import LAYOUT, json_size
+from refkv_reference.tiff.tags import LAYOUT, json_size
 
 from vzip.virtualize import Rejected
-from vzip_reference import virtualize
+from refkv_reference import virtualize
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "tiff"
 

@@ -1,4 +1,4 @@
-// Zarr v2 stores through the Rust core (src/virtualize/ir/store.ts, rust/vzip-ir/src/zarr2.rs):
+// Zarr v2 stores through the Rust core (src/virtualize/ir/store.ts, rust/refkv-ir/src/zarr2.rs):
 // on every Zarr v2 fixture store, the core accepts what the frozen TypeScript twin accepts and
 // writes its hierarchy outside `vzip_source` (each reference to the same object URL, its size
 // pinned), and rejects what it rejects, as a StoreError; `vzip_source` is the IR's mirror, and

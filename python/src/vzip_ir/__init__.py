@@ -1,4 +1,4 @@
-"""vzip's Rust core (rust/vzip-ir), built into the vzip distribution: the compiled module
+"""vzip's Rust core (rust/refkv-ir), built into the vzip distribution: the compiled module
 is vzip_ir.vzip_ir, and this package re-exports it, as maturin's own wrapper does."""
 
 from .vzip_ir import *  # noqa: F403

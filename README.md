@@ -33,11 +33,11 @@ code is organized by language.
 | [spec/](spec/) | the specifications: the reference value type and its ZIP binding ([archive.md](spec/archive.md)), virtualization ([virtualize.md](spec/virtualize.md)), the conventions every virtualized hierarchy shares ([conventions.md](spec/conventions.md)), one document per format with its Zarr convention and its profile ([virtualize/](spec/virtualize/), each `<format>.md` beside `<format>/schema.json`), the wire schema ([proto/](spec/proto/)), and earlier revisions ([history/](spec/history/)) |
 | [docs/](docs/README.md) | user documentation: [virtual datasets with xarray](docs/virtual-datasets.md), and a page per format in [docs/virtualize/](docs/virtualize/README.md) |
 | [design/](design/) | design notes and studies: [ARCHITECTURE.md](design/ARCHITECTURE.md), [FINDINGS.md](design/FINDINGS.md), [PITCH.md](design/PITCH.md), [COMPARISON.md](design/COMPARISON.md), the IR notes ([IR_NOTES.md](design/IR_NOTES.md)), the conformance rounds' notes and proposals, and the experiment scripts the notes cite |
-| [python/](python/) | the Python package `vzip` (`python/src/vzip`) and its tests (`python/tests`); its `pyproject.toml` is at the root |
-| [js/](js/README.md) | the TypeScript library (`js/src`), its Node tests, and the browser demo (`js/demo`) |
-| [rust/vzip-ir](rust/vzip-ir/) | the Rust IR core and parsers, built for Python (PyO3) and for the browser (wasm32) |
+| [python/](python/) | the Python package `vzip` (`python/src/refkv`) and its tests (`python/tests`); its `pyproject.toml` is at the root |
+| [js/](js/README.md) | the TypeScript library (`js/src`), its Node tests, and the browser demo (`demo`) |
+| [rust/refkv-ir](rust/refkv-ir/) | the Rust IR core and parsers, built for Python (PyO3) and for the browser (wasm32) |
 | [fixtures/](fixtures/) | the synthetic test inputs every implementation shares, one directory per format, and their generators ([fixtures/generators/](fixtures/generators/)) |
-| [conformance/](conformance/) | the conformance harnesses: [archive/](conformance/archive/HARNESS.md) for the archive format, [virtualize/](conformance/virtualize/HARNESS.md) for virtualization (with the frozen reference implementations, Python and TypeScript), and the agent-written independent implementations ([impls/](conformance/impls/README.md)) |
+| [conformance/](conformance/) | the conformance harnesses: [archive/](conformance/vzip/HARNESS.md) for the archive format, [virtualize/](conformance/virtualize/HARNESS.md) for virtualization (with the frozen reference implementations, Python and TypeScript), and the agent-written independent implementations ([impls/](conformance/impls/README.md)) |
 
 `just` lists the recipes: `just test` (Python), `just js::test` (Node),
 `just ir-test` (Rust), `just compare` and `just compare-mutants` (the

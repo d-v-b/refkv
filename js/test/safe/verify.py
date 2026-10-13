@@ -421,7 +421,7 @@ def check_dirs(url: str, out: Path, docs: dict) -> list[str]:
         dirs = {k[: -len("_$folder$")] for k in open_store(url).objects if k.endswith("_$folder$") and len(k) > 9}
     else:
         from vzip.virtualize.common import http_reader
-        from vzip_reference.safe import zipdir
+        from refkv_reference.safe import zipdir
 
         read, size = http_reader(url)
         dirs = {k[:-1] for k in zipdir.product_entries(zipdir.central_directory(read, size))[3]}
@@ -437,7 +437,7 @@ def zip_entries(url: str) -> tuple:
     """(root, entries by key, reader) of a remote zip file, read once."""
     if url not in _ZIPS:
         from vzip.virtualize.common import http_reader
-        from vzip_reference.safe import zipdir
+        from refkv_reference.safe import zipdir
 
         read, size = http_reader(url)
         d = zipdir.central_directory(read, size)
@@ -454,7 +454,7 @@ def fetch(url: str, key: str) -> bytes:
     if url.endswith("/"):
         with urllib.request.urlopen(object_url(url, key), timeout=300) as r:
             return r.read()
-    from vzip_reference.safe import zipdir
+    from refkv_reference.safe import zipdir
 
     _, entries, read = zip_entries(url)
     e = entries[key]

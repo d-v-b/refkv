@@ -19,7 +19,7 @@ import * as esbuild from "esbuild";
 const here = path.dirname(new URL(import.meta.url).pathname);
 
 const dist = path.join(here, "dist");
-const wasm = process.env.VZIP_IR_WASM || path.join(here, "../rust/vzip-ir/target/web/vzip_ir.wasm");
+const wasm = process.env.VZIP_IR_WASM || path.join(here, "../rust/refkv-ir/target/web/vzip_ir.wasm");
 if (!fs.existsSync(wasm)) {
   console.error(`${wasm} is missing: build it with \`just js::wasm\``);
   process.exit(1);
@@ -30,21 +30,24 @@ const decoders = [
   path.join(neuroglancer, "src/sliceview/jpegxr/jpegxr.wasm"),
 ];
 fs.rmSync(dist, { recursive: true, force: true });
-const common = { bundle: true, target: "es2022", sourcemap: true, logLevel: "info" };
+// ../demo is outside this package: its imports resolve to this package's node_modules
+const common = {
+  bundle: true, target: "es2022", sourcemap: true, logLevel: "info", nodePaths: [path.join(here, "node_modules")],
+};
 const build = (entry, outfile, options = {}) =>
   esbuild.build({ ...common, entryPoints: [path.join(here, entry)], outfile: path.join(dist, outfile), ...options });
 await build("src/sw.ts", "vzip-sw.js", { format: "iife" });
-await build("demo/demo.ts", "demo.js", { format: "esm" });
+await build("../demo/demo.ts", "demo.js", { format: "esm" });
 // zarrita imports its blosc, lz4 and zstd codecs (numcodecs, 1.4 MB with their
 // wasm inline) dynamically: split them out, to be loaded only when an array
 // uses them.
 await esbuild.build({
-  ...common, entryPoints: { map: path.join(here, "demo/map/map.ts") }, outdir: dist,
+  ...common, entryPoints: { map: path.join(here, "../demo/map/map.ts") }, outdir: dist,
   format: "esm", minify: true, splitting: true, chunkNames: "map-chunks/[name]-[hash]",
 });
-await build("demo/map/jpeg2k_worker.ts", "jpeg2k_worker.js", { format: "iife", minify: true });
-fs.copyFileSync(path.join(here, "demo/index.html"), path.join(dist, "index.html"));
-fs.copyFileSync(path.join(here, "demo/map/map.html"), path.join(dist, "map.html"));
+await build("../demo/map/jpeg2k_worker.ts", "jpeg2k_worker.js", { format: "iife", minify: true });
+fs.copyFileSync(path.join(here, "../demo/index.html"), path.join(dist, "index.html"));
+fs.copyFileSync(path.join(here, "../demo/map/map.html"), path.join(dist, "map.html"));
 fs.copyFileSync(wasm, path.join(dist, "vzip_ir.wasm"));
 for (const decoder of decoders) {
   if (fs.existsSync(decoder)) {

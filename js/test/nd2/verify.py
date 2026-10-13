@@ -31,7 +31,7 @@ from zarr.registry import register_codec
 
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
-sys.path.insert(0, str(ROOT / "conformance" / "archive"))
+sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 from http_server import Server  # noqa: E402
 
 from vzip.policy import Policy  # noqa: E402
@@ -281,8 +281,8 @@ def chunk_problems(path: Path, root) -> list[str]:
         exp = r._load_chunk(b"ImageMetadataLV!") if b"ImageMetadataLV!" in r.chunkmap else None
     # the frozen reference twin of the ND2 profile (conformance/virtualize/reference)
     sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
-    from vzip_reference.nd2.lv import decode_lv
-    from vzip_reference.nd2.virtualize import flatten_experiment
+    from refkv_reference.nd2.lv import decode_lv
+    from refkv_reference.nd2.virtualize import flatten_experiment
 
     loops = flatten_experiment(decode_lv(exp).get("SLxExperiment") if exp is not None else None)
     return problems + frame_problems(root, loops, placed_frames, attrs)

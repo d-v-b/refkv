@@ -7,7 +7,7 @@ from pathlib import Path
 
 FIXTURES = Path(__file__).parents[3] / "fixtures"
 ROOT = Path(__file__).parents[3]
-# the frozen reference twins the IR is compared against (vzip_reference)
+# the frozen reference twins the IR is compared against (refkv_reference)
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
 
 
@@ -19,11 +19,11 @@ MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_trunc
 def same_hierarchy(a, b) -> None:
     """The frozen reference's output `a` and the IR's `b` hold the same hierarchy but
     vzip_source: documents, references and data sources. The reference's root records
-    the revision it implements (vzip_reference.revision: 20, or 25 for DICOM, NIfTI, IMS and NDPI),
+    the revision it implements (refkv_reference.revision: 20, or 25 for DICOM, NIfTI, IMS and NDPI),
     read as the current one."""
     from vzip.virtualize.common import REVISION
-    from vzip_reference.revision import DICOM_REVISION, IMS_REVISION, REVISION_25
-    from vzip_reference.revision import REVISION as FROZEN
+    from refkv_reference.revision import DICOM_REVISION, IMS_REVISION, REVISION_25
+    from refkv_reference.revision import REVISION as FROZEN
 
     def docs(o):
         d = {k: json.loads(v) if k.endswith(".json") else v for k, v in o.bytes_entries.items()

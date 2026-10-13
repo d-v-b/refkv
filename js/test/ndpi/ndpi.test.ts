@@ -1,7 +1,7 @@
 // NDPI in the browser virtualizer, through the Rust core (spec/virtualize/ndpi.md §4
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>): the
 // data sources that hold the strips' headers, and rejections. The JPEG header parser is
-// tested in Rust (rust/vzip-ir/src/ndpi.rs); whole files are checked against tifffile
+// tested in Rust (rust/refkv-ir/src/ndpi.rs); whole files are checked against tifffile
 // by ndpi/verify.py.
 
 import assert from "node:assert/strict";

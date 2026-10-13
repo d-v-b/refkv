@@ -1,6 +1,6 @@
 // The browser's host of the Rust core (src/virtualize/ir): its output against the
 // frozen TypeScript virtualizers (conformance/reference), and its http source,
-// the twin of HttpTransport in python/src/vzip/ir/planner.py.
+// the twin of HttpTransport in python/src/refkv/ir/planner.py.
 
 import assert from "node:assert/strict";
 import fs from "node:fs";

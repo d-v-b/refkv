@@ -50,7 +50,7 @@ missing):
 ```bash
 (cd js && npm install)
 just js::build
-node js/demo/serve.mjs 8080
+node demo/serve.mjs 8080
 ```
 
 The demo opens images in Neuroglancer, and Sentinel-2 SAFE products on a map
@@ -61,7 +61,7 @@ metadata has no usable contrast window gets one sampled from a chunk of its
 coarsest level (`demo/contrast.ts`), decoded in the page, JPEG 2000 and
 JPEG XR chunks with the fork's wasm modules.
 
-Live demo: https://d-v-b.github.io/vzip-demo/image-to-zarr/ (formerly `tiff-to-zarr/`, which now redirects). `js/demo/pages.sh`
+Live demo: https://d-v-b.github.io/vzip-demo/image-to-zarr/ (formerly `tiff-to-zarr/`, which now redirects). `demo/pages.sh`
 publishes it, with the Neuroglancer build, to its own directory of the demo
 site (the `gh-pages` branch of `d-v-b/vzip-demo`, which hosts each vzip demo
 in a directory and lists them at https://d-v-b.github.io/vzip-demo/).
@@ -75,7 +75,7 @@ The rules are [spec/virtualize.md](../spec/virtualize.md)'s profiles:
 [N5](../spec/virtualize/n5.md#part-2-the-profile), [Zarr v2](../spec/virtualize/zarr2.md#part-2-the-profile),
 [OME-Zarr](../spec/virtualize/ome-zarr.md#part-2-the-profile), [SAFE](../spec/virtualize/safe.md#part-2-the-profile) and
 [CZI](../spec/virtualize/czi.md#part-2-the-profile). TIFF, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr are virtualized by the
-Rust core (`rust/vzip-ir`) built for wasm32: `src/virtualize/ir/` performs the
+Rust core (`rust/refkv-ir`) built for wasm32: `src/virtualize/ir/` performs the
 requests its read planner asks for (several at once, multi-range ones under
 Node), under the reader policy, and writes its output. `just js::wasm` builds
 the module, which `just js::build` copies to `dist/vzip_ir.wasm` (beside the
@@ -243,15 +243,15 @@ uv run python js/test/ims/verify.py                         # IMS fixtures vs h5
 uv run python js/test/czi/verify.py                         # CZI fixtures vs czifile (and libCZI)
 uv run python js/test/safe/verify.py                        # SAFE fixtures vs GDAL
 uv run python conformance/virtualize/compare.py /tmp/vcmp    # reference vs Python vs browser virtualizer
-node js/demo/e2e.mjs <image file url> <out dir>             # demo + Neuroglancer in Chromium
-node js/demo/e2e_examples.mjs <out dir> [example id …]      # every demo example, with its viewer
+node demo/e2e.mjs <image file url> <out dir>             # demo + Neuroglancer in Chromium
+node demo/e2e_examples.mjs <out dir> [example id …]      # every demo example, with its viewer
 ```
 
-- `run_write.py` checks every unpaged write case with `conformance/archive/validate.py`
+- `run_write.py` checks every unpaged write case with `conformance/vzip/validate.py`
   and the reference reader, plus an unpaged archive of 70,000 entries and every
   invalid description.
 - `tiff/verify.py` virtualizes each fixture with the browser code. It then
-  reads every level through the reference implementation (`python/src/vzip`) and
+  reads every level through the reference implementation (`python/src/refkv`) and
   zarr-python and compares it with tifffile, and rebuilds the file from the
   archive's IR mirror, byte for byte. `ndpi/verify.py` does the same for the
   NDPI files (which have no IR mirror).

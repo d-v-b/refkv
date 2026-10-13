@@ -12,11 +12,11 @@ from pathlib import Path
 
 import pytest
 
-# the frozen reference twins (conformance/virtualize/reference/vzip_reference)
+# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
 
 from vzip.virtualize import Rejected  # noqa: E402
-from vzip_reference import virtualize  # noqa: E402
+from refkv_reference import virtualize  # noqa: E402
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "nifti"
 

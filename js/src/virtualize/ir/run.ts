@@ -1,8 +1,8 @@
-// Virtualizing an ND2, TIFF (NDPI included), CZI, DICOM, NIfTI or IMS file or a SAFE zip file with the Rust core (rust/vzip-ir): its
+// Virtualizing an ND2, TIFF (NDPI included), CZI, DICOM, NIfTI or IMS file or a SAFE zip file with the Rust core (rust/refkv-ir): its
 // parser, read planner, image projection and source mirror run in WebAssembly;
 // this host performs the requests a run asks for (`RangeSource`) and turns its
 // output (`Out::encode`) into the writer's archive description. The twin of
-// `new_run` and `drive` in python/src/vzip/ir/planner.py.
+// `new_run` and `drive` in python/src/refkv/ir/planner.py.
 
 import type { Range, Source } from "../../protobuf.ts";
 import type { ArchiveDesc, EntryDesc } from "../../writer.ts";

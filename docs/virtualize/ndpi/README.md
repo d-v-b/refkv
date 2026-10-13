@@ -157,7 +157,7 @@ requests.
 ## How it's verified
 
 `js/test/ndpi/verify.py` virtualizes the 9 synthetic NDPI files (including
-inputs to reject) with the browser code, reads every level back through `python/src/vzip`
+inputs to reject) with the browser code, reads every level back through `python/src/refkv`
 and zarr-python, compares the pixels with tifffile, and rebuilds each file
 from its mirror. `compare.py` checks that the Python and browser outputs are
 the same, and equivalent to the frozen reference's outside `vzip_source`, on
@@ -167,8 +167,8 @@ them the 6.9 GB Hamamatsu-1.ndpi.
 
 - Profile: [spec/virtualize/ndpi.md](../../../spec/virtualize/ndpi.md#part-2-the-profile), which builds on
   [spec/virtualize/tiff.md](../../../spec/virtualize/tiff.md#part-2-the-profile)
-- Rust core (Python and the browser): [rust/vzip-ir/src/tiff.rs](../../../rust/vzip-ir/src/tiff.rs) (its NDPI
-  variant), [rust/vzip-ir/src/ndpi.rs](../../../rust/vzip-ir/src/ndpi.rs),
-  [rust/vzip-ir/src/project/ndpi.rs](../../../rust/vzip-ir/src/project/ndpi.rs)
+- Rust core (Python and the browser): [rust/refkv-ir/src/tiff.rs](../../../rust/refkv-ir/src/tiff.rs) (its NDPI
+  variant), [rust/refkv-ir/src/ndpi.rs](../../../rust/refkv-ir/src/ndpi.rs),
+  [rust/refkv-ir/src/project/ndpi.rs](../../../rust/refkv-ir/src/project/ndpi.rs)
 - Frozen reference (revision 25): [conformance/virtualize/reference/](../../../conformance/virtualize/reference/)
 - Fixtures: [fixtures/ndpi/](../../../fixtures/ndpi/)

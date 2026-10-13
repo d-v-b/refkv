@@ -17,7 +17,7 @@ from vzip.virtualize import Rejected, _virtualize as virtualize  # the profile o
 from vzip.virtualize.common import CONVENTION_KEY, REVISION
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "virtualize" / "reference"))
-from vzip_reference import virtualize as reference  # noqa: E402
+from refkv_reference import virtualize as reference  # noqa: E402
 
 FIXTURES = Path(__file__).parents[2] / "fixtures" / "ome-zarr"
 URL = "https://data.test/ome-zarr/{}/"

@@ -21,7 +21,7 @@ classifiers = [
 # The base install reads and writes vzip archives, holds a ReferenceStore and
 # virtualizes image files and stores, without Zarr (numpy: vzip.shards), through
 # the Rust core this package builds and ships as the module vzip_ir (below); the
-# extras add the rest (python/src/vzip/_extras.py), and the dependency groups hold
+# extras add the rest (python/src/refkv/_extras.py), and the dependency groups hold
 # what only this repository's tests, fixture generators and benchmarks use.
 dependencies = [
     "google-crc32c>=1.9.0",
@@ -52,8 +52,8 @@ virtualizarr = [
     "virtualizarr>=2.7.3",
 ]
 
-# One distribution, two modules: the Python package python/src/vzip, and the Rust core
-# rust/vzip-ir as vzip_ir (its compiled module vzip_ir.vzip_ir, re-exported by
+# One distribution, two modules: the Python package python/src/refkv, and the Rust core
+# rust/refkv-ir as vzip_ir (its compiled module vzip_ir.vzip_ir, re-exported by
 # python/src/vzip_ir), so vzip always runs the core of its own commit. Building it needs a
 # Rust toolchain. This file stays at the root, where the conformance harnesses and the
 # fixture generators share its environment.
@@ -62,7 +62,7 @@ requires = ["maturin>=1.15,<2"]
 build-backend = "maturin"
 
 [tool.maturin]
-manifest-path = "rust/vzip-ir/Cargo.toml"
+manifest-path = "rust/refkv-ir/Cargo.toml"
 features = ["python"]
 module-name = "vzip_ir.vzip_ir"
 python-source = "python/src"
@@ -105,10 +105,10 @@ bench = [
 # rebuild the core when its Rust sources or source models change (`uv sync`, `uv run`)
 cache-keys = [
     { file = "pyproject.toml" },
-    { file = "rust/vzip-ir/Cargo.toml" },
-    { file = "rust/vzip-ir/Cargo.lock" },
-    { file = "rust/vzip-ir/src/**/*.rs" },
-    { file = "rust/vzip-ir/schema/*.json" },
+    { file = "rust/refkv-ir/Cargo.toml" },
+    { file = "rust/refkv-ir/Cargo.lock" },
+    { file = "rust/refkv-ir/src/**/*.rs" },
+    { file = "rust/refkv-ir/schema/*.json" },
 ]
 # `uv sync` and `uv run` install every group, as CI's `uv sync --all-groups` does
 default-groups = "all"

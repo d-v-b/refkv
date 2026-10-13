@@ -2,7 +2,7 @@
 
 Each supported fixture in fixtures/tiff/ (or, given as an argument,
 another directory) is virtualized by js/conformance/virtualize_file.ts (the browser code, run under Node). The archive is
-then read by the reference reader (python/src/vzip) and zarr-python, and every
+then read by the reference reader (python/src/refkv) and zarr-python, and every
 pyramid level must equal what tifffile reads from the TIFF directly. The
 unsupported fixtures must be refused.
 

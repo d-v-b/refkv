@@ -17,8 +17,8 @@ from vzip.ir import parse
 from vzip.ir.planner import HttpTransport
 from vzip.policy import Policy
 from vzip.virtualize import Rejected
-from vzip_reference import virtualize  # the frozen reference (ir_helpers)
-from vzip_reference.czi.xml import read_xml_values
+from refkv_reference import virtualize  # the frozen reference (ir_helpers)
+from refkv_reference.czi.xml import read_xml_values
 
 CZIS = sorted((FIXTURES / "czi").iterdir())
 
