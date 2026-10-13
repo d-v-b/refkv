@@ -49,7 +49,7 @@ names.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "safe"`, `"version": 0`, `"revision": 25` ([conventions §1](../conventions.md#1-conventions)), the input's URL as `source.url`
+with `"profile": "safe"`, `"version": 0`, `"revision": 26` ([conventions §1](../conventions.md#1-conventions)), the input's URL as `source.url`
 (the store URL, ending in `/`, of a directory, or the URL of a zip file),
 and the root's source metadata ([§6.1](#61-values)) as the member `"safe"`. Each band
 array and `vzip_source` declare it with their own source metadata ([§6.2](#62-band-arrays),

@@ -16,12 +16,13 @@ def same_hierarchy(a, b) -> None:
     vzip_source: documents, references and data sources. The reference's root records
     the revision it implements (vzip_reference.revision), read as the current one."""
     from vzip.virtualize.common import REVISION
+    from vzip_reference.revision import DICOM_REVISION
     from vzip_reference.revision import REVISION as FROZEN
 
     def docs(o):
         d = {k: json.loads(v) for k, v in o.bytes_entries.items() if not k.startswith("vzip_source")}
         prop = d.get("zarr.json", {}).get("attributes", {}).get("vzip_virtualized", {})
-        if o is a and prop.get("revision") == FROZEN:
+        if o is a and prop.get("revision") == (DICOM_REVISION if prop.get("profile") == "dicom" else FROZEN):
             prop["revision"] = REVISION
         return d
 

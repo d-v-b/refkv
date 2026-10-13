@@ -552,6 +552,7 @@ impl PyRun {
             "nd2" => crate::run::Format::Nd2,
             "tiff" => crate::run::Format::Tiff,
             "czi" => crate::run::Format::Czi,
+            "dicom" => crate::run::Format::Dicom,
             _ => return Err(PyValueError::new_err(format!("no format {format:?}"))),
         };
         let mut r = crate::run::Run::new(f, size, remote, concurrency);
@@ -720,6 +721,7 @@ fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str
         "nd2" => crate::run::Format::Nd2,
         "tiff" => crate::run::Format::Tiff,
         "czi" => crate::run::Format::Czi,
+        "dicom" => crate::run::Format::Dicom,
         _ => return Err(PyValueError::new_err(format!("no format {format:?}"))),
     };
     let facts: serde_json::Value = serde_json::from_str(facts).map_err(|e| PyValueError::new_err(e.to_string()))?;

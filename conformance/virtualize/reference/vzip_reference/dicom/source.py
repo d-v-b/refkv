@@ -15,7 +15,7 @@ from vzip.virtualize.common import (
     MAX_CHUNK, MAX_PAYLOAD, SOURCE_NODE, Plan, Reader, Rejected, family_plans, grid_chunks, json_base64, json_number,
     payload_size, row_chunks, text_json,
 )
-from vzip.virtualize.dicom.dataset import (
+from vzip_reference.dicom.dataset import (
     EXPLICIT_LE, IMPLICIT_LE, ITEM, ITEM_END, MAX_DEPTH, PIXEL_DATA, SEQUENCE_END, UNDEFINED, Element, Encoding,
     Walker,
 )

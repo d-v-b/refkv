@@ -215,7 +215,7 @@ pub fn payload_size(ranges: &[Part]) -> usize {
 
 pub const CONVENTION_KEY: &str = "vzip_virtualized";
 /// The revision of spec/virtualize.md the projections follow (`common.REVISION` in Python).
-pub const REVISION: u64 = 25;
+pub const REVISION: u64 = 26;
 
 /// (uuid, version, title) of a profile's convention.
 pub fn profile(p: &str) -> (&'static str, u64, &'static str) {
@@ -223,6 +223,7 @@ pub fn profile(p: &str) -> (&'static str, u64, &'static str) {
         "tiff" => ("48e9ac4e-1156-4a62-955e-20467d9c2700", 0, "TIFF"),
         "nd2" => ("59612f14-e314-4207-ba00-8f422ba71490", 0, "ND2"),
         "czi" => ("7a0733c7-d4be-4482-a64f-6904d9354ea5", 0, "CZI"),
+        "dicom" => ("acf17198-e5a5-48d3-8187-22ec4bb40ea5", 0, "DICOM"),
         // the store conventions, whose sources a store IR describes (conventions §8.9
         // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)
         "n5" => ("ad5d4c39-c69e-48f7-a3ef-4cc8c607d416", 0, "N5"),

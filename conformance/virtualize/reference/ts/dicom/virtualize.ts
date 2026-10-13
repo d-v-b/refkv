@@ -2,7 +2,7 @@
 // §6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#6-dicom-profile>): its
 // frames, native or JPEG/JPEG 2000 encapsulated, become Zarr chunks that reference the file.
 
-import { type ByteReader, declare, emitPlans, MAX_PAYLOAD, payloadSize, stringifyJson } from "../common.ts";
+import { type ByteReader, declare, emitPlans, MAX_PAYLOAD, payloadSize, stringifyJson } from "../../../../../js/src/virtualize/common.ts";
 import {
   type Dataset,
   DicomError,
@@ -17,9 +17,10 @@ import {
   UNDEFINED,
   Walker,
 } from "./dataset.ts";
-import type { Range } from "../../protobuf.ts";
+import type { Range } from "../../../../../js/src/protobuf.ts";
+import { DICOM_REVISION } from "../revision.ts";
 import { sourceMetadata } from "./source.ts";
-import type { ArchiveDesc, EntryDesc } from "../../writer.ts";
+import type { ArchiveDesc, EntryDesc } from "../../../../../js/src/writer.ts";
 
 export { DicomError };
 
@@ -539,7 +540,7 @@ export async function virtualizeDicom(
             }],
             omero: { channels },
           },
-        }, "dicom", url, rootMeta),
+        }, "dicom", url, rootMeta, DICOM_REVISION),
       }),
     },
     {

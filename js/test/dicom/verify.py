@@ -1,5 +1,10 @@
 """Checks the browser DICOM virtualizer's output against pydicom.
 
+The browser virtualizes DICOM with the Rust core (wasm32), whose archives hold the IR's
+mirror under `vzip_source`: their source check is the mirror's, the file rebuilt from
+the archive alone, byte for byte (js/test/ir_mirror.py); an archive with revision 25's
+source metadata is checked against pydicom's DICOM JSON as before.
+
 Each fixtures/dicom/*.dcm (or, given as arguments, other DICOM files
 or http(s) URLs) is served over local HTTP and virtualized by
 js/conformance/virtualize.ts (the browser code, run under Node). The whole
@@ -44,12 +49,15 @@ import vzip.zarr  # noqa: E402  (a vzip archive as a zarr store; registers image
 # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
 # default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
-from vzip.virtualize.dicom.source import dictionary_vr
-
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "archive"))
+sys.path.insert(0, str(HERE.parent))
+# the frozen reference's data dictionary (the archives of revision 25 and before)
+sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
 from http_server import Server  # noqa: E402
+from ir_mirror import is_mirror, mirror_problems  # noqa: E402
+from vzip_reference.dicom.source import dictionary_vr  # noqa: E402
 
 WHOLE_SLIDE = "1.2.840.10008.5.1.4.1.1.77.1.6"
 NATIVE = {"1.2.840.10008.1.2", "1.2.840.10008.1.2.1", "1.2.840.10008.1.2.2"}
@@ -387,7 +395,12 @@ def check(name: str, url: str, data: bytes, tmp: Path) -> tuple[bool, str]:
     if p.returncode:
         return False, f"FAILED: {p.stderr.strip()[-300:]}"
     root = zarr.open_group(vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
-    header = header_problems(root, data)
+    if is_mirror(out):  # the IR's mirror (revision 26): the source rebuilt from it
+        source = tmp / "source.dcm"
+        source.write_bytes(data)
+        header = mirror_problems(out, source)
+    else:
+        header = header_problems(root, data)
     if header:
         return False, f"HEADER: {header[:3]}"
     arr = root["0"]
