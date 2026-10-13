@@ -231,9 +231,10 @@ def virtualize_store(location: str, url: str | None = None, *, max_objects: int 
                      checksums: bool = False, workers: int = WORKERS,
                      policy: Policy | None = None) -> ReferenceStore:
     """The store at `location` (§1.4
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), virtualized as
-    `virtualize` does, which calls this for a store; `max_objects` caps how many
-    objects a store may list."""
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), virtualized: what
+    `virtualize` does for a store, with the same `url` (needed for a local directory),
+    `checksums`, `policy` and `workers`; `max_objects` caps how many objects the
+    store may list."""
     fmt, out = _virtualize_store(location, url, max_objects=max_objects, checksums=checksums,
                                  workers=workers, policy=policy)
     return out.to_store(policy=policy, info={"format": fmt, **out.summary})

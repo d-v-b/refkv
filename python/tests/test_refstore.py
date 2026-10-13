@@ -190,6 +190,20 @@ def test_save_refuses_sources_the_reader_policy_refuses(tmp_path):
     assert not (tmp_path / "x.vzip").exists()
 
 
+def test_save_counts_each_refused_source_of_a_shared_origin(tmp_path):
+    """The policy decides once per origin without a prefix list, but counts every source;
+    a prefix list decides each source by its whole URL."""
+    urls = ["https://data.test/a", "http://127.0.0.1/b", "https://data.test/c", "http://127.0.0.1/d",
+            "http://127.0.0.1/e"]
+    store = vzip.ReferenceStore({f"k{i}": Range(source=i, offset=0, length=1) for i in range(5)},
+                                [Source(url=u) for u in urls])
+    with pytest.raises(ValueError, match=r"refuses 3 of its 5 sources.*127\.0\.0\.1/b"):
+        store.save(tmp_path / "x.vzip")
+    with pytest.raises(ValueError, match=r"refuses 4 of its 5 sources.*127\.0\.0\.1/b"):
+        store.save(tmp_path / "x.vzip", policy=vzip.Policy(prefixes=("https://data.test/a",)))
+    assert not (tmp_path / "x.vzip").exists()
+
+
 def test_save_checks_against_the_policy_given(tmp_path):
     store = _s3_store()
     store.save(tmp_path / "ok.vzip", policy=vzip.Policy(schemes={"s3"}))
