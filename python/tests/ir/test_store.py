@@ -82,9 +82,10 @@ def is_doc(key: str, data: bytes) -> bool:
 def test_a_store_run_reads_each_document_once_and_its_mirror_rebuilds_them(root, tmp_path):
     objects = directory(root)
     s3 = FakeS3(objects)
-    if root.name.startswith("zarr2_reject_"):
-        # the Zarr v2 rejection fixtures (and only they) are rejected: from the listing, or after
-        # reading documents only (an OME-Zarr store is a Zarr v2 store to the core's format)
+    if root.name.startswith(("zarr2_reject_", "ome_zarr_reject_")):
+        # the Zarr v2 and OME-Zarr rejection fixtures (and only they) are rejected: from the
+        # listing, or after reading documents only (an OME-Zarr store is a Zarr v2 store to the
+        # core's format, which decides it is OME-Zarr's from its documents)
         with pytest.raises(Rejected):
             virtualize_store(URL, opener=s3, workers=4)
         assert all(is_doc(k, objects[k]) and n == 1 for k, n in s3.reads.items()), s3.reads
