@@ -15,8 +15,8 @@ import { compareKeys, objectUrl, type Store, StoreError } from "../store.ts";
 import { bytesEntry, decodeRaw, type RawOutput } from "./run.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
-/** The core's store formats: a Zarr v2 store, a SAFE product's directory. */
-export type StoreFormat = "zarr2" | "safe";
+/** The core's store formats: a Zarr v2 store, a SAFE product's directory, an N5 container. */
+export type StoreFormat = "zarr2" | "safe" | "n5";
 
 const utf8 = new TextEncoder();
 const text = (b: Uint8Array) => new TextDecoder().decode(b);

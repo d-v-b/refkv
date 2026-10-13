@@ -19,6 +19,7 @@ pub mod ir;
 pub mod json;
 pub mod lv;
 pub mod mirror;
+pub mod n5;
 pub mod nd2;
 pub mod nifti;
 pub mod ndpi;

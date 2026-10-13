@@ -1,14 +1,14 @@
 """Virtualizing image files and N5 / Zarr v2 stores in vzip archives (spec/virtualize.md).
 
 TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and IMS files, Sentinel-2 SAFE products
-(spec/virtualize/safe.md: a `.SAFE.zip` file, or a `.SAFE` directory, a store input) and
-Zarr v2 stores go through the IR (`vzip.ir`): the Rust core's sans-IO parser of the format,
-driven by its read planner (a file) or by the store's reads (`vzip.ir.store`), projected to
-the convention's hierarchy and mirrored under `vzip_source` by the Rust core, whose TIFF
-parser finds NDPI itself (spec/virtualize/ndpi.md §4
+(spec/virtualize/safe.md: a `.SAFE.zip` file, or a `.SAFE` directory, a store input), and
+Zarr v2 and N5 stores go through the IR (`vzip.ir`): the Rust core's sans-IO parser of the
+format, driven by its read planner (a file) or by the store's reads (`vzip.ir.store`),
+projected to the convention's hierarchy and mirrored under `vzip_source` by the Rust core, whose
+TIFF parser finds NDPI itself (spec/virtualize/ndpi.md §4
 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>).
-Every other profile is a subpackage: n5, zarr2, ome_zarr
-(store inputs, spec/virtualize/n5.md, spec/virtualize/zarr2.md and
+Every other profile is a subpackage: zarr2 (its hierarchy reader, for OME-Zarr), ome_zarr
+(store inputs, spec/virtualize/zarr2.md and
 spec/virtualize/ome-zarr.md); common holds what they share, and store the store
 machinery (§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>–§1.6
 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>).
@@ -52,7 +52,6 @@ from __future__ import annotations
 from vzip.policy import Policy, crc32c
 from vzip.refstore import ReferenceStore
 from vzip.virtualize.common import Output, Rejected, file_reader, http_reader
-from vzip.virtualize.n5 import virtualize_n5
 from vzip.virtualize.ome_zarr import declares_04, virtualize_ome_zarr
 from vzip.virtualize.store import WORKERS, StoreOutput, choose_profile, object_url, open_store
 from vzip.ir.store import StoreIrOutput
@@ -91,15 +90,13 @@ def _virtualize_store(location: str, url: str | None = None, *, max_objects: int
     store = open_store(location, url, max_objects=max_objects, workers=workers, policy=policy)
     try:
         fmt = choose_profile(store)
-        if fmt == "n5":
-            fmt, out = fmt, virtualize_n5(store)
-        elif declares_04(store):
+        if fmt == "zarr2" and declares_04(store):
             fmt, out = "ome-zarr", virtualize_ome_zarr(store)
         else:
             from vzip.ir.store import run_store
 
-            # the core's store formats: a SAFE directory, a Zarr v2 store
-            fmt, out = fmt, run_store(store, "safe" if fmt == "safe" else "zarr2")[0]
+            # the core's store formats: an N5 container, a SAFE directory, a Zarr v2 store
+            out = run_store(store, fmt)[0]
     finally:
         store.close()
     if checksums:

@@ -8,11 +8,11 @@ import re
 from dataclasses import dataclass, field
 
 from vzip.virtualize.common import Rejected
-from vzip.virtualize.n5.virtualize import blosc_codec
 from vzip.virtualize.store import (
     GROUP_IMPLICIT,
     Store,
     as_int,
+    blosc_codec,
     canonical_index,
     classify,
     doc_key,

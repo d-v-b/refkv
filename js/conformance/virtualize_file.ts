@@ -1,7 +1,7 @@
 // Virtualizes a local image file, or a local directory as a store (§1.4
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>,
 // §1.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>), with the
-// browser code (TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE and Zarr v2 by the Rust core), under Node:
+// browser code (TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2 and N5 by the Rust core), under Node:
 //   node js/conformance/virtualize_file.ts <file or directory> <out.vzip> <source url>
 // For a directory, <source url> is the store URL it is served from (ending in
 // "/"). Prints the summary as JSON; exits 1 if the input is rejected, 2 on a
@@ -10,7 +10,6 @@
 import fs from "node:fs";
 import { blockReader, ImageError } from "../src/virtualize/common.ts";
 import { virtualizeImage, virtualizeStore } from "../src/virtualize/index.ts";
-import { N5Error } from "../src/virtualize/n5/virtualize.ts";
 import { StoreError } from "../src/virtualize/store.ts";
 import { Zarr2Error } from "../src/virtualize/zarr2/virtualize.ts";
 import { OmeZarrError } from "../src/virtualize/ome-zarr/virtualize.ts";
@@ -32,7 +31,7 @@ try {
   console.log(JSON.stringify(virtual.summary));
 } catch (e) {
   if (!(
-    e instanceof ImageError || e instanceof StoreError || e instanceof N5Error || e instanceof Zarr2Error || e instanceof OmeZarrError)) {
+    e instanceof ImageError || e instanceof StoreError || e instanceof Zarr2Error || e instanceof OmeZarrError)) {
     console.error(e);
     process.exit(2); // a crash, not a refusal
   }

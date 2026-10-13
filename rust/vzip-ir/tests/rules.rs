@@ -112,3 +112,37 @@ fn the_tiff_czi_and_ims_schemas_are_valid() {
     assert!(t.has_role("field") && t.has_role("tile") && c.has_role("entry") && c.has_role("extent"));
     assert!(i.has_role("imaris") && i.has_role("image") && i.has_role("datatype") && i.limit("max_levels") == 64.0);
 }
+
+#[test]
+fn kind_and_int_read_json_values() {
+    let mut env: Env = HashMap::new();
+    env.insert("mixed".into(), V::List(vec![V::Num(8.0), V::Num(16.0)]));
+    env.insert("flag".into(), V::Bool(true));
+    env.insert("none".into(), V::List(vec![]));
+    env.insert("table".into(), V::from_json(&serde_json::json!({"x": 1})));
+    env.insert("name".into(), V::Str("II".into()));
+    let cases: [(&str, V); 13] = [
+        ("kind(mixed)", V::Str("list".into())),
+        ("kind(name)", V::Str("string".into())),
+        ("kind(table)", V::Str("object".into())),
+        ("kind(flag)", V::Str("bool".into())),
+        ("kind(3)", V::Str("number".into())),
+        ("kind(missing)", V::Str("absent".into())),
+        ("int(mixed, 8, 16)", V::Bool(true)),
+        ("int(mixed, 9, 16)", V::Bool(false)),
+        ("int(2.5, 0, 9)", V::Bool(false)),
+        ("int(flag, 0, 9)", V::Bool(false)), // a boolean is not a number
+        ("int(none, 0, 9)", V::Bool(true)),  // no item to fail: a list's kind and length are checked apart
+        ("int(missing, 0, 9)", V::Bool(false)),
+        ("int(9007199254740992)", V::Bool(false)),
+    ];
+    for (s, want) in cases {
+        assert_eq!(ev(s, &env), want, "{s}");
+    }
+}
+
+#[test]
+fn the_n5_schema_is_valid() {
+    let n = vzip_ir::n5::schema();
+    assert!(n.has_role("candidate") && n.has_role("document") && n.has_role("dataset"));
+}

@@ -58,6 +58,9 @@ pub enum StoreFormat {
     /// A Sentinel-2 SAFE product's directory (`safe/`; spec/virtualize/safe.md
     /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md>).
     Safe,
+    /// An N5 container (`n5.rs`; spec/virtualize/n5.md
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md>).
+    N5,
 }
 
 impl StoreFormat {
@@ -65,6 +68,7 @@ impl StoreFormat {
         match s {
             "zarr2" => Some(StoreFormat::Zarr2),
             "safe" => Some(StoreFormat::Safe),
+            "n5" => Some(StoreFormat::N5),
             _ => None,
         }
     }
@@ -72,6 +76,7 @@ impl StoreFormat {
         match self {
             StoreFormat::Zarr2 => "zarr2",
             StoreFormat::Safe => "safe",
+            StoreFormat::N5 => "n5",
         }
     }
     /// The convention the mirror declares.
@@ -79,12 +84,14 @@ impl StoreFormat {
         match self {
             StoreFormat::Zarr2 => "zarr2",
             StoreFormat::Safe => "safe",
+            StoreFormat::N5 => "n5",
         }
     }
     fn parser(self, ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Box<dyn StoreParser>> {
         match self {
             StoreFormat::Zarr2 => Ok(Box::new(crate::zarr2::Zarr2::new(ir, objects, keys)?)),
             StoreFormat::Safe => Ok(Box::new(crate::safe::Safe::new_store(ir, objects, keys))),
+            StoreFormat::N5 => Ok(Box::new(crate::n5::N5::new(ir, objects, keys))),
         }
     }
 }
@@ -347,6 +354,7 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
     let mut out = match format {
         StoreFormat::Zarr2 => crate::project::zarr2::project(ir, facts, url, format.profile())?,
         StoreFormat::Safe => crate::project::safe::project(ir, facts, url)?,
+        StoreFormat::N5 => crate::project::n5::project(ir, facts, url)?,
     };
     let mut summary = std::mem::take(&mut out.summary);
     if let Some(m) = summary.as_object_mut() {

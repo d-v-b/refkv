@@ -10,7 +10,7 @@
 import fs from "node:fs";
 import { blockReader, ImageError } from "../../../../js/src/virtualize/common.ts";
 import { DicomError } from "./dicom/virtualize.ts";
-import { N5Error } from "../../../../js/src/virtualize/n5/virtualize.ts";
+import { N5Error } from "./n5/virtualize.ts";
 import { StoreError } from "../../../../js/src/virtualize/store.ts";
 import { Zarr2Error } from "../../../../js/src/virtualize/zarr2/virtualize.ts";
 import { OmeZarrError } from "../../../../js/src/virtualize/ome-zarr/virtualize.ts";

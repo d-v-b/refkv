@@ -40,6 +40,13 @@ A Zarr v3 hierarchy with a node at the path of every N5 group and dataset.
 - **Other objects:** any object of the store that is neither an
   `attributes.json` nor a block (a README, say) is kept whole, referenced in
   place, under `vzip_source/objects/`.
+- **The store itself:** `vzip_source` is the store's IR mirror
+  ([conventions §8.9](../../../spec/conventions.md#89-stores)): the listing (every
+  object's key and size, empty ones included) and every node's
+  `attributes.json`, byte for byte, with a view of each document's members
+  under `vzip_source/tree`. The Rust core ([rust/vzip-ir](../../../rust/vzip-ir/))
+  reads and checks the documents and writes it, natively from Python and as
+  WebAssembly in the browser.
 - **Multiscales:** a group with COSEM `multiscales` (as on OpenOrganelle) or
   n5-viewer `scales`/`downsamplingFactors` (BigDataViewer, Paintera) also
   gets `"ome"`: an OME-NGFF 0.5 multiscale with axes, units, scales and
@@ -64,7 +71,8 @@ uv run python -m vzip.virtualize https://janelia-cosem-datasets.s3.amazonaws.com
 This took 5 s and wrote a 198 KB archive, at spec/virtualize.md revision 16
 ([overview](../README.md#formats)). (`otherObjects`, the objects kept under
 `vzip_source/objects/`, is new since then; it is 0 here, as the store's 1618
-objects are its 6 documents and 1612 blocks.)
+objects are its 6 documents and 1612 blocks. Since revision 26 the summary also
+has the store run's `reads`, the IR's `elements` and the mirror's `folded`.)
 
 ```python
 import zarr
@@ -172,11 +180,16 @@ Notes:
 reject) with the browser code, and compares every array, read through
 `python/src/vzip` and zarr-python's `n5_default`, with an independent block reader
 in the script and with `zarr-n5`. `compare.py` checks that the Python and
-browser outputs are equivalent on those stores and on the 7 OpenOrganelle
+browser outputs, and the frozen reference's outside `vzip_source`, are equivalent on those stores and on the 7 OpenOrganelle
 stores of [corpus_n5.txt](../../../conformance/virtualize/corpus_n5.txt)
 (the full-resolution level with the Python command only).
 
 - Profile: [spec/virtualize/n5.md](../../../spec/virtualize/n5.md#part-2-the-profile)
-- Python: [python/src/vzip/virtualize/n5/](../../../python/src/vzip/virtualize/n5/)
-- Browser: [js/src/virtualize/n5/](../../../js/src/virtualize/n5/)
+- Rust core: [rust/vzip-ir/src/n5.rs](../../../rust/vzip-ir/src/n5.rs)
+  (the parser) and [rust/vzip-ir/src/project/n5.rs](../../../rust/vzip-ir/src/project/n5.rs)
+  (the projection)
+- Python host: [python/src/vzip/ir/store.py](../../../python/src/vzip/ir/store.py); browser host:
+  [js/src/virtualize/ir/store.ts](../../../js/src/virtualize/ir/store.ts)
+- Frozen reference: [conformance/virtualize/reference/vzip_reference/n5/](../../../conformance/virtualize/reference/vzip_reference/n5/)
+  and [conformance/virtualize/reference/ts/n5/](../../../conformance/virtualize/reference/ts/n5/)
 - Fixtures: [fixtures/n5/](../../../fixtures/n5/)

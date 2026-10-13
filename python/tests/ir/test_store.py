@@ -131,7 +131,7 @@ def test_a_document_shorter_than_listed_fails_the_run():
 
 def test_an_unknown_store_format_is_refused():
     with pytest.raises(ValueError, match="no store format"):
-        vzip_ir.StoreRun("n5", [("attributes.json", 2)], 4)
+        vzip_ir.StoreRun("no-such-format", [("attributes.json", 2)], 4)
 
 
 def test_the_ignored_keys_are_vzip_source_s_member_ignored():

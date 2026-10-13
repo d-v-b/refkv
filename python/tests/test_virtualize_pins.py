@@ -21,6 +21,7 @@ FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 TIFF = FIXTURES / "tiff" / "tczyx_uint16_deflate.ome.tif"
 JPEG = FIXTURES / "tiff" / "jpeg_ycbcr.tif"  # has data sources (shared JPEG tables)
 STORE = FIXTURES / "zarr2" / "zarr2_dtypes"
+N5_STORE = FIXTURES / "n5" / "n5_objects"
 LOOPBACK = Policy(allow_private_hosts=True)  # the test server is on 127.0.0.1 (spec/archive.md §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3)
 
 
@@ -112,16 +113,17 @@ def test_pins_and_checksums(tmp_path, server):
             for k in refs:
                 assert s.get(k) is not None
 
-    # a store input: every source pins its object's size
-    for checksums in (False, True):
-        virtualize(str(STORE), "https://example.test/s/", checksums=checksums).save(tmp_path / "s.vzip")
-        sources, refs = _table(tmp_path / "s.vzip")
-        sizes = {f"https://example.test/s/{p.relative_to(STORE).as_posix()}": p.stat().st_size
-                 for p in STORE.rglob("*") if p.is_file()}
-        assert sources and all(s.size == sizes[s.url] and s.etag is None for s in sources)
-        for k, (r,) in refs.items():
-            obj = STORE / sources[r.source].url.removeprefix("https://example.test/s/")
-            assert r.crc32c == (crc32c(obj.read_bytes()) if checksums else None), k
+    # a store input: every source pins its object's size (N5 through the IR's store run)
+    for store in (STORE, N5_STORE):
+        for checksums in (False, True):
+            virtualize(str(store), "https://example.test/s/", checksums=checksums).save(tmp_path / "s.vzip")
+            sources, refs = _table(tmp_path / "s.vzip")
+            sizes = {f"https://example.test/s/{p.relative_to(store).as_posix()}": p.stat().st_size
+                     for p in store.rglob("*") if p.is_file()}
+            assert sources and all(s.size == sizes[s.url] and s.etag is None for s in sources)
+            for k, (r,) in refs.items():
+                obj = store / sources[r.source].url.removeprefix("https://example.test/s/")
+                assert r.crc32c == (crc32c(obj.read_bytes()) if checksums else None), k
 
 
 def test_no_etag_pin_when_the_responses_disagree(tmp_path, server):

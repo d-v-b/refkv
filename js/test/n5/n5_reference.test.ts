@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { directoryStore } from "../../conformance/directory_store.ts";
-import { virtualizeStore } from "../../src/virtualize/index.ts";
-import { N5Error } from "../../src/virtualize/n5/virtualize.ts";
+import { virtualizeStore } from "../../../conformance/virtualize/reference/ts/index.ts";
+import { N5Error } from "../../../conformance/virtualize/reference/ts/n5/virtualize.ts";
 import { StoreError } from "../../src/virtualize/store.ts";
 
 const FIXTURES = fileURLToPath(new URL("../../../fixtures/n5/", import.meta.url));

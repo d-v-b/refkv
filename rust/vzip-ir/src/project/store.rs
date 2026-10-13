@@ -60,13 +60,15 @@ pub fn check_key(key: &str) -> Result<(), String> {
 /// mirror's `ir`, outside the IR (conventions §8.9
 /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), by profile: Zarr v2's
 /// ignored keys (spec/virtualize/zarr2.md §5
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>), and SAFE's
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>), N5's
+/// (spec/virtualize/n5.md §5.1
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>), and SAFE's
 /// empty directories and ignored keys, in both its forms (spec/virtualize/safe.md §6.3
 /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
 /// The mirror check sets these aside, and only these.
 pub fn kept(profile: &str) -> &'static [&'static str] {
     match profile {
-        "zarr2" => &["ignored"],
+        "zarr2" | "n5" => &["ignored"],
         "safe" => &["empty_dirs", "ignored"],
         _ => &[],
     }
