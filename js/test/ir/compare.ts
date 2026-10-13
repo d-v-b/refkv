@@ -5,6 +5,13 @@
 import type { Range, Source } from "../../src/protobuf.ts";
 import { REVISION } from "../../src/virtualize/common.ts";
 import type { ArchiveDesc } from "../../src/writer.ts";
+import { REVISION_25 } from "../../../conformance/virtualize/reference/ts/revision.ts";
+
+/** The profiles frozen at revision 25, and the members of their root's source metadata
+ * the mirror holds instead (conformance/virtualize/compare.py's MIRRORED). */
+const FROZEN_25: Record<string, string[]> = {
+  nifti: ["header_rest", "extender", "extensions", "extensions_truncated", "unparsed", "trailing"],
+};
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 
@@ -17,8 +24,9 @@ function resolve(r: Range, sources: Source[]): unknown {
 }
 
 /** The entries outside `vzip_source/`: documents parsed, other bytes as hex, ranges
- * resolved. A root that records `frozen` (the frozen reference's revision) reads as
- * recording the current one. */
+ * resolved. A root that records `frozen` (the frozen reference's revision; 25 for the
+ * profiles of FROZEN_25) reads as recording the current one, without the members the
+ * mirror holds instead. */
 export function hierarchy(desc: ArchiveDesc, frozen?: number): Map<string, unknown> {
   const out = new Map<string, unknown>();
   for (const e of desc.entries) {
@@ -27,7 +35,11 @@ export function hierarchy(desc: ArchiveDesc, frozen?: number): Map<string, unkno
     else if (e.key === "zarr.json") {
       const json = JSON.parse(new TextDecoder().decode(e.bytes));
       const prop = json.attributes?.vzip_virtualized;
-      if (frozen !== undefined && prop?.revision === frozen) prop.revision = REVISION;
+      const moved = FROZEN_25[prop?.profile];
+      if (frozen !== undefined && prop?.revision === (moved ? REVISION_25 : frozen)) {
+        prop.revision = REVISION;
+        for (const k of moved ?? []) delete prop[prop.profile]?.[k];
+      }
       out.set(e.key, { json, compress: !!e.compress });
     } else if (e.key.endsWith(".json")) out.set(e.key, { json: JSON.parse(new TextDecoder().decode(e.bytes)), compress: !!e.compress });
     else out.set(e.key, { bytes: hex(e.bytes), compress: !!e.compress });

@@ -1,4 +1,4 @@
-"""The Python NIfTI virtualizer (spec/virtualize/nifti.md) on the synthetic fixtures.
+"""The frozen Python NIfTI virtualizer (spec/virtualize/nifti.md, revision 25) on the synthetic fixtures.
 
 Equivalence with the browser virtualizer is checked by
 conformance/virtualize/compare.py, and pixel correctness against nibabel by
@@ -7,13 +7,18 @@ js/test/nifti/verify.py.
 
 import json
 import struct
+import sys
 from pathlib import Path
 
 import pytest
 
-from vzip.virtualize import Rejected, virtualize
+# the frozen reference twins (conformance/virtualize/reference/vzip_reference)
+sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
 
-FIXTURES = Path(__file__).parents[2] / "fixtures" / "nifti"
+from vzip.virtualize import Rejected  # noqa: E402
+from vzip_reference import virtualize  # noqa: E402
+
+FIXTURES = Path(__file__).parents[3] / "fixtures" / "nifti"
 
 MM = "millimeter"
 # fixture: (summary members, [(axis, unit)], scale, translation, `nifti` attribute, first omero window,

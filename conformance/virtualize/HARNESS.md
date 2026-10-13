@@ -143,7 +143,7 @@ with the first's:
 
 - `ref`, the reference: `conformance/virtualize/reference/cli.py
   --allow-private-hosts` (the harness serves its inputs from 127.0.0.1, which
-  the reader policy refuses by default). For TIFF, ND2, CZI, DICOM, NDPI and SAFE it runs the
+  the reader policy refuses by default). For TIFF, ND2, CZI, DICOM, NIfTI, NDPI and SAFE it runs the
   frozen Python profiles in
   `conformance/virtualize/reference/vzip_reference/` (what `vzip.virtualize`
   shipped before these formats moved to the IR, unchanged but for their import
@@ -152,7 +152,7 @@ with the first's:
 - `web`: the browser code under Node, `js/conformance/virtualize.ts
   --allow-private-hosts`.
 
-For TIFF (NDPI included), ND2, CZI, DICOM and SAFE, `py` and `web` are one implementation: the Rust core
+For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and SAFE, `py` and `web` are one implementation: the Rust core
 `rust/vzip-ir` (its parsers, schemas, read planner, projections and mirror),
 built natively for Python and as wasm32 for the browser, each with a thin host
 (the I/O, and the archive writer). Their `vzip_source` is the IR's mirror,
@@ -181,7 +181,7 @@ For every other profile, `py` and `web` are still two hand-written
 implementations, and `ref` runs the same code as `py`.
 
 Since revision 21, `vzip_source` of TIFF, ND2 and CZI is the IR mirror of
-[conventions §8](../../spec/conventions.md#8-the-ir-mirror), and since revision 26 that of DICOM, NDPI and SAFE too; since revision 22 the mirror is canonical ([conventions §8.8](../../spec/conventions.md#88-canonical-form))
+[conventions §8](../../spec/conventions.md#8-the-ir-mirror), and since revision 26 that of DICOM, NIfTI, NDPI and SAFE too; since revision 22 the mirror is canonical ([conventions §8.8](../../spec/conventions.md#88-canonical-form))
 and [spec/virtualize.md §1.1](../../spec/virtualize.md#11-output-and-equivalence) compares it entry for entry, as `py` against `web`
 does. `compare.py` also checks each archive's mirror on its own, in addition
 to that comparison: it loads the table, checks its invariants (conventions
@@ -195,20 +195,23 @@ object byte for byte, every url source pins its object's listed size, it is
 canonical, and its view is the one it rebuilds, the values of an object
 described in place read from that object, each its own range.
 
-**The frozen reference records revision 20 (DICOM, NDPI and SAFE 25).** The frozen TIFF,
-ND2 and CZI profiles have their own revision constant
+**The frozen reference records the revision it implements.** The frozen
+profiles have their own revision constants
 (`conformance/virtualize/reference/vzip_reference/revision.py`,
-`conformance/virtualize/reference/ts/revision.ts`), 20, the last revision before the
-mirror, which their roots record with their old `vzip_source`; the frozen DICOM
-profiles record 25, the last revision before DICOM's mirror (`DICOM_REVISION`), the
-frozen NDPI profiles 25, the last before NDPI's mirror (`REVISION` in each
-`ndpi/virtualize`), and the frozen SAFE profiles 25, the last revision before SAFE's
-mirror (`STORES_REVISION`); nothing else in them changed (an edit made so that a
-reference archive does not claim a revision it does not implement). `compare.py`
-compares a reference root that records its profile's frozen revision as if it
-recorded the current one, so the revision number is the one difference it does not
-report; every other profile's reference is the shipped code, which records the
-current revision.
+`conformance/virtualize/reference/ts/revision.ts`): 20 for TIFF, ND2 and CZI,
+the last revision before the mirror, and 25 for DICOM (`DICOM_REVISION`), NIfTI
+(`REVISION_25`), NDPI (`REVISION` in each `ndpi/virtualize`) and SAFE
+(`STORES_REVISION`), the last before they moved to the IR (revision 26), which
+their roots record with their old `vzip_source`; nothing else in them changed (an
+edit made so that a reference archive does not claim a revision it does not
+implement). `compare.py` compares a reference root that records its profile's
+frozen revision as if it recorded the current revision. For NIfTI it also leaves
+out of that root's source metadata the members the mirror now holds instead
+(`header_rest`, `extender`, `extensions`, `extensions_truncated`, `unparsed` and
+`trailing`: raw bytes, and paths of the reference's `vzip_source` arrays). So the
+revision number and those members are the only differences it does not report;
+every other profile's reference is the shipped code, which records the current
+revision.
 
 **The frozen reference stays.** The frozen implementations
 (`conformance/virtualize/reference`, `conformance/virtualize/reference/ts`) are kept

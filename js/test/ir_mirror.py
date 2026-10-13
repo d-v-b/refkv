@@ -1,4 +1,4 @@
-"""For the verify scripts: TIFF (NDPI included), ND2, CZI, DICOM and SAFE archives the IR wrote hold its mirror
+"""For the verify scripts: TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and SAFE archives the IR wrote hold its mirror
 under `vzip_source` (rust/vzip-ir/src/mirror.rs), not the source metadata of
 conventions §6
 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>. Their

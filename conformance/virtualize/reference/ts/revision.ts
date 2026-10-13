@@ -6,6 +6,10 @@
 
 export const REVISION = 20;
 
+// The revision the frozen NIfTI twin records: 25, the last before the IR mirror
+// became NIfTI's `vzip_source` (revision 26).
+export const REVISION_25 = 25;
+
 // The revision the frozen DICOM twin records: 25, the last before the IR mirror
 // became DICOM's `vzip_source` (revision 26).
 export const DICOM_REVISION = 25;

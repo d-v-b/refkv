@@ -50,7 +50,7 @@ fn directory(files: &BTreeMap<String, Vec<u8>>) -> Result<(Out, Ir), String> {
 /// The zip form's output (mirrored), its IR, or the rejection.
 fn zip(data: &[u8]) -> Result<(Out, Ir), String> {
     let (ir, facts, stats) = run_bytes(Format::Safe, data)?;
-    Ok((output(Format::Safe, &ir, &facts, stats, "https://example.org/p.SAFE.zip", true)?, ir))
+    Ok((output(Format::Safe, &ir, &facts, stats, "https://example.org/p.SAFE.zip", true, &Default::default())?, ir))
 }
 
 fn check_directory(path: &Path, files: &BTreeMap<String, Vec<u8>>, out: &Out, ir: &Ir) {

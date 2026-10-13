@@ -1,13 +1,13 @@
 """Virtualizing image files and N5 / Zarr v2 stores in vzip archives (spec/virtualize.md).
 
-TIFF (NDPI included), ND2, CZI and DICOM files, and Sentinel-2 SAFE products
+TIFF (NDPI included), ND2, CZI, DICOM and NIfTI files, and Sentinel-2 SAFE products
 (spec/virtualize/safe.md: a `.SAFE.zip` file, or a `.SAFE` directory, a store input), go
 through the IR (`vzip.ir`): the Rust core's sans-IO parser of the format, driven by its
 read planner (a file) or by the store's reads (`vzip.ir.store`), projected to the
 convention's hierarchy and mirrored under `vzip_source` by the Rust core, whose TIFF
 parser finds NDPI itself (spec/virtualize/ndpi.md §4
 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>).
-Every other profile is a subpackage: nifti, ims (file inputs), n5, zarr2, ome_zarr
+Every other profile is a subpackage: ims (file inputs), n5, zarr2, ome_zarr
 (store inputs, spec/virtualize/n5.md, spec/virtualize/zarr2.md and
 spec/virtualize/ome-zarr.md); common holds what they share, and store the store
 machinery (§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>–§1.6
@@ -43,7 +43,6 @@ in `/`, or a local directory, is a store input.
 from __future__ import annotations
 
 from vzip.policy import Policy, crc32c
-from vzip.virtualize import nifti
 from vzip.virtualize.common import Output, Rejected, file_reader, http_reader
 from vzip.virtualize.ims import virtualize_ims
 from vzip.virtualize.n5 import virtualize_n5
@@ -126,12 +125,13 @@ def virtualize(location: str, url: str | None = None, *, checksums: bool = False
     which reads them. `policy` is the reader policy a file
     or store at an http(s) URL is read under (default: `Policy()`, private hosts
     refused).
-    For TIFF (NDPI included), ND2, CZI, DICOM and SAFE zip files, `connections` is how many requests run at a time to a
+    For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and SAFE zip files, `connections` is how many requests run at a time to a
     remote source (default 8), and `byte_cost` the seconds of wall time the read
     planner charges a byte fetched beyond those asked (default 0.1 s per MB).
     A store's documents are read by up to `workers` requests at a time."""
     if is_store(location):
         return virtualize_store(location, url, checksums=checksums, workers=workers, policy=policy)
+    from vzip.ir import nifti_version
     from vzip.ir.planner import open_transport
 
     transport = open_transport(location, policy)
@@ -155,6 +155,8 @@ def virtualize(location: str, url: str | None = None, *, checksums: bool = False
             ir_format = "nd2"
         elif head[:16] == CZI_MAGIC:
             ir_format = "czi"
+        elif nifti_version(head) is not None:
+            ir_format = "nifti"
         elif head[:4] == ZIP_MAGIC:
             ir_format = "safe"
     if ir_format is not None:
@@ -183,6 +185,4 @@ def _virtualize_file(url: str, read, size: int) -> tuple[str, Output]:
     head = read(0, min(552, size))
     if head[:8] == HDF5:
         return "ims", virtualize_ims(url, read, size)
-    if nifti.detect(head) is not None:
-        return "nifti", nifti.virtualize_nifti(url, read, size)
     raise Rejected(NOT_SUPPORTED)
