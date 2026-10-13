@@ -2,11 +2,12 @@
 //! step/feed/finish over linear memory. The host reads the ranges each step asks
 //! for, writes their bytes into buffers it allocates here, and feeds them.
 //!
-//! `vz_new(format, size)` makes a parser (0 ND2, 1 TIFF, 2 CZI, 3 DICOM, 4 NIfTI); `vz_step`,
+//! `vz_new(format, size)` makes a parser (0 ND2, 1 TIFF, 2 CZI, 3 DICOM, 4 NIfTI, 5 IMS); `vz_step`,
 //! `vz_feed` and `vz_finish` drive it. The `nd2_*` names are round 2's, kept.
 
 use crate::czi::Czi;
 use crate::dicom::Dicom;
+use crate::ims::Ims;
 use crate::nd2::{Nd2, Step};
 use crate::nifti::Nifti;
 use crate::tiff::Tiff;
@@ -49,6 +50,7 @@ pub enum Any {
     Czi(Czi),
     Dicom(Dicom),
     Nifti(Nifti),
+    Ims(Ims),
 }
 
 fn step_out(r: Result<Step, String>) -> i64 {
@@ -82,6 +84,7 @@ pub extern "C" fn vz_new(format: u32, size: u64) -> *mut Any {
         1 => Any::Tiff(Tiff::new(size)),
         3 => Any::Dicom(Dicom::new(size)),
         4 => Any::Nifti(Nifti::new(size)),
+        5 => Any::Ims(Ims::new(size)),
         _ => Any::Czi(Czi::new(size)),
     }))
 }
@@ -99,6 +102,7 @@ pub unsafe extern "C" fn vz_step(p: *mut Any) -> i64 {
         Any::Czi(x) => x.step(),
         Any::Dicom(x) => x.step(),
         Any::Nifti(x) => x.step(),
+        Any::Ims(x) => x.step(),
     })
 }
 
@@ -113,6 +117,7 @@ pub unsafe extern "C" fn vz_feed(p: *mut Any, offset: u64, data: *mut u8, n: usi
         Any::Czi(x) => x.feed(offset, v),
         Any::Dicom(x) => x.feed(offset, v),
         Any::Nifti(x) => x.feed(offset, v),
+        Any::Ims(x) => x.feed(offset, v),
     }
 }
 
@@ -130,6 +135,7 @@ pub unsafe extern "C" fn vz_finish(p: *mut Any) -> i64 {
         Any::Czi(x) => Parser::finish(x),
         Any::Dicom(x) => Parser::finish(x),
         Any::Nifti(x) => Parser::finish(x),
+        Any::Ims(x) => Parser::finish(x),
     })
 }
 
@@ -179,7 +185,7 @@ fn err_out(e: String) -> i64 {
     -(set_out(e.into_bytes()) as i64)
 }
 
-/// A run of `format` (0 ND2, 1 TIFF, 2 CZI, 3 DICOM, 4 NIfTI, 6 a SAFE zip, 7 NDPI; a TIFF run becomes an NDPI one when its
+/// A run of `format` (0 ND2, 1 TIFF, 2 CZI, 3 DICOM, 4 NIfTI, 5 IMS, 6 a SAFE zip, 7 NDPI; a TIFF run becomes an NDPI one when its
 /// parser finds the file is NDPI: the output's summary names the format) over a source of `size` bytes, remote
 /// or not, read by the host at most `concurrency` requests at a time.
 #[unsafe(no_mangle)]

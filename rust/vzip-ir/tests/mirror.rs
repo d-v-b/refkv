@@ -14,7 +14,7 @@ use vzip_ir::run::{run_bytes, Format};
 fn fixtures() -> Vec<(Format, std::path::PathBuf)> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
     let mut v = Vec::new();
-    for (f, dir, ext) in [(Format::Tiff, "tiff", "tif"), (Format::Czi, "czi", "czi"), (Format::Nd2, "nd2", "nd2"), (Format::Dicom, "dicom", "dcm"), (Format::Nifti, "nifti", "nii"), (Format::Ndpi, "ndpi", "ndpi")] {
+    for (f, dir, ext) in [(Format::Tiff, "tiff", "tif"), (Format::Czi, "czi", "czi"), (Format::Nd2, "nd2", "nd2"), (Format::Dicom, "dicom", "dcm"), (Format::Nifti, "nifti", "nii"), (Format::Ims, "ims", "ims"), (Format::Ndpi, "ndpi", "ndpi")] {
         let mut ps: Vec<_> = std::fs::read_dir(root.join(dir)).unwrap().map(|e| e.unwrap().path())
             .filter(|p| p.extension().is_some_and(|e| e == ext)).collect();
         ps.sort();

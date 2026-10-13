@@ -4,6 +4,7 @@
 
 use crate::czi::Czi;
 use crate::dicom::Dicom;
+use crate::ims::Ims;
 use crate::ir::Ir;
 use crate::nd2::{Nd2, Step};
 use crate::plan::{Planner, Request};
@@ -19,6 +20,7 @@ pub enum Format {
     Czi,
     Dicom,
     Nifti,
+    Ims,
     /// a Sentinel-2 SAFE product's zip form (`.SAFE.zip`)
     Safe,
     /// A TIFF the TIFF parser found to be NDPI: a run of `Tiff` becomes one of `Ndpi`
@@ -36,6 +38,7 @@ impl Format {
             2 => Some(Format::Czi),
             3 => Some(Format::Dicom),
             4 => Some(Format::Nifti),
+            5 => Some(Format::Ims),
             6 => Some(Format::Safe),
             7 => Some(Format::Ndpi),
             _ => None,
@@ -48,13 +51,14 @@ impl Format {
             Format::Czi => "czi",
             Format::Dicom => "dicom",
             Format::Nifti => "nifti",
+            Format::Ims => "ims",
             Format::Safe => "safe",
             Format::Ndpi => "ndpi",
         }
     }
-    /// The format of a name ("nd2", "tiff", "czi", "dicom", "nifti", "safe", "ndpi").
+    /// The format of a name ("nd2", "tiff", "czi", "dicom", "nifti", "ims", "safe", "ndpi").
     pub fn from_name(s: &str) -> Option<Format> {
-        [Format::Nd2, Format::Tiff, Format::Czi, Format::Dicom, Format::Nifti, Format::Safe, Format::Ndpi].into_iter().find(|f| f.name() == s)
+        [Format::Nd2, Format::Tiff, Format::Czi, Format::Dicom, Format::Nifti, Format::Ims, Format::Safe, Format::Ndpi].into_iter().find(|f| f.name() == s)
     }
     /// The format a file's first bytes give, if one of these: a hint, the format of its
     /// signature (any zip file is taken for a SAFE product's zip form, which then rejects one
@@ -77,6 +81,9 @@ impl Format {
         if crate::nifti::detect(head).is_some() {
             return Some(Format::Nifti);
         }
+        if head.len() >= 8 && &head[..8] == crate::hdf5::SIGNATURE {
+            return Some(Format::Ims);
+        }
         if head.len() >= 4 && &head[..4] == b"PK\x03\x04" {
             return Some(Format::Safe);
         }
@@ -90,6 +97,7 @@ pub enum AnyParser {
     Czi(Czi),
     Dicom(Dicom),
     Nifti(Nifti),
+    Ims(Ims),
     Safe(Box<Safe>),
 }
 
@@ -101,6 +109,7 @@ impl AnyParser {
             Format::Czi => AnyParser::Czi(Czi::new(size)),
             Format::Dicom => AnyParser::Dicom(Dicom::new(size)),
             Format::Nifti => AnyParser::Nifti(Nifti::new(size)),
+            Format::Ims => AnyParser::Ims(Ims::new(size)),
             Format::Safe => AnyParser::Safe(Box::new(Safe::new(size))),
         }
     }
@@ -111,6 +120,7 @@ impl AnyParser {
             AnyParser::Czi(x) => x.step(),
             AnyParser::Dicom(x) => x.step(),
             AnyParser::Nifti(x) => x.step(),
+            AnyParser::Ims(x) => x.step(),
             AnyParser::Safe(x) => x.step(),
         }
     }
@@ -121,6 +131,7 @@ impl AnyParser {
             AnyParser::Czi(x) => x.feed(o, b),
             AnyParser::Dicom(x) => x.feed(o, b),
             AnyParser::Nifti(x) => x.feed(o, b),
+            AnyParser::Ims(x) => x.feed(o, b),
             AnyParser::Safe(x) => x.feed(o, b),
         }
     }
@@ -131,6 +142,7 @@ impl AnyParser {
             AnyParser::Czi(x) => Parser::finish(x),
             AnyParser::Dicom(x) => Parser::finish(x),
             AnyParser::Nifti(x) => Parser::finish(x),
+            AnyParser::Ims(x) => Parser::finish(x),
             AnyParser::Safe(x) => Parser::finish(*x),
         }
     }

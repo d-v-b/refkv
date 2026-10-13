@@ -4,7 +4,7 @@
 # comparison of the virtualizers against the frozen reference (spec/virtualize.md §1.1
 # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>, with
 # spec/archive.md's strict reading of every archive), the reproducibility of the fixture
-# generators, and the section references, each a link to a heading that exists. TIFF, NDPI, ND2, CZI, DICOM, NIfTI and SAFE go through the Rust core (rust/vzip-ir), built natively
+# generators, and the section references, each a link to a heading that exists. TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2 stores, go through the Rust core (rust/vzip-ir), built natively
 # for Python (`uv sync`, which builds it into vzip as the module vzip_ir) and for wasm32 for the browser code (`just js::wasm`).
 name: ci
 

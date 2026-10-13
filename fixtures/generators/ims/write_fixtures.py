@@ -719,8 +719,8 @@ def _raw_edges(group, name: str, shape, chunks, dtype, data, maxshape=None, shuf
 
 def review4() -> None:
     """Files with what the fourth adversarial review found (spec/virtualize/ims.md
-    §5.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#51-the-tree>, §5.4
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#54-datasets>): a time-lapse
+    §5.1 <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#51-the-tree>, §5.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>): a time-lapse
     whose image tree would use up a walk of a fixed
     number of objects, and partial edge chunks stored unfiltered."""
     with open_file("ims_latest_timelapse", "latest") as f:
@@ -796,6 +796,20 @@ def table_color() -> None:
             make(f[f"DataSetInfo/Channel {c}"])
 
 
+def global_heaps() -> None:
+    """Variable-length string attributes in more than one global heap collection (written
+    in three sessions of the file, each of which starts a collection), on a group the
+    layout does not read: the IR describes each collection (spec/virtualize/ims.md §5.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#52-elements>)."""
+    with open_file("ims_latest_global_heaps", "latest") as f:
+        imaris(f, [{"size": (1, 5, 6), "dims": (1, 8, 8), "chunks": (1, 4, 4)}], dtype="u1")
+        f.create_group("Notes")
+    for session in range(3):
+        with h5py.File(OUT / "ims_latest_global_heaps.ims", "a", libver="latest") as f:
+            f["Notes"].attrs.create(f"note{session}", data=np.array([f"{session}:" + "n" * 300] * 3, dtype=object),
+                                    dtype=h5py.string_dtype())
+
+
 if __name__ == "__main__":
     import sys
 
@@ -804,7 +818,7 @@ if __name__ == "__main__":
     # does not write the same bytes twice, so regenerating them all changes them).
     writers = {"accepted": accepted, "rejected": rejected, "reconstruction": reconstruction, "review": review,
                "indexes": indexes, "review2": review2, "review3": review3, "review4": review4,
-               "table_color": table_color}
+               "table_color": table_color, "global_heaps": global_heaps}
     if len(sys.argv) == 1:
         for p in OUT.glob("ims_*.ims"):
             p.unlink()

@@ -1198,7 +1198,7 @@ def parse_filters(d: bytes | None) -> list[int]:
 
 def parse_selection(d: bytes, p: int) -> tuple[dict, int]:
     """The serialized dataspace selection at `p`: its description (spec/virtualize/ims.md
-    §5.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>) and where
+    §5.3 <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#53-attributes>) and where
     it ends (§8.9
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)."""
     kind, version = le(d, p, 4), le(d, p + 4, 4)

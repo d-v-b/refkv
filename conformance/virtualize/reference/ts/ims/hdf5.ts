@@ -5,7 +5,7 @@
 // attributes, and the chunk index of a chunked dataset. Pixel data is never
 // read, and checksums are not checked.
 
-import { type ByteReader, jsonNumber, textJson } from "../common.ts";
+import { type ByteReader, jsonNumber, textJson } from "../../../../../js/src/virtualize/common.ts";
 
 export class ImsError extends Error {}
 
@@ -1267,7 +1267,7 @@ function parseFilters(d: Uint8Array | undefined): number[] {
 
 /** The serialized dataspace selection at `p`: its description
  * (spec/virtualize/ims.md §5.3
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>) and where it ends
+ * <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#53-attributes>) and where it ends
  * (§8.9
  * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
  * */
