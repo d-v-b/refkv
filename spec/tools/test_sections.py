@@ -26,6 +26,19 @@ SPEC = """# A spec
 ```
 
 ## 2. The layout
+
+## 4. Shared
+"""
+
+BINDING = """# A binding
+
+# Part 2. The ZIP binding
+
+## 4. Shared
+
+## 9. What the binding defines
+
+### 9.1 Structure
 """
 
 FORMAT = """# TIFF
@@ -48,7 +61,9 @@ FORMAT = """# TIFF
 def repo(tmp_path, monkeypatch):
     """A repository of a few documents, as sections.ROOT."""
     files = {
-        "spec/archive.md": SPEC,
+        "spec/refkv.md": SPEC,
+        "spec/bindings/vzip.md": BINDING,
+        "spec/history/archive/SPEC.r1.md": "# S\n\n## 1. Introduction\n\n### 1.1 Old\n",
         "spec/virtualize.md": "# V\n\n## 1. Introduction\n\n### 1.2 Input\n",
         "spec/virtualize/tiff.md": FORMAT,
         "spec/conventions.md": "# C\n\n## 3. Arrays\n",
@@ -80,13 +95,14 @@ def test_slug():
 
 
 def test_headings(repo):
-    hs = sections.headings("spec/archive.md")
+    hs = sections.headings("spec/refkv.md")
     assert [(h.number, h.anchor) for h in hs] == [
         (None, "a-spec"),
         ("1", "1-introduction"),
         ("1.1", "11-output-and-equivalence"),
         ("2", "2-the-layout"),
         ("2", "2-the-layout-1"),  # a repeat; the fenced one is no heading
+        ("4", "4-shared"),
     ]
     parts = [(h.number, h.part) for h in sections.headings("spec/virtualize/tiff.md") if h.number]
     assert parts == [("3", 1), ("4", 1), ("3", 2), ("3.1", 2)]
@@ -96,9 +112,15 @@ def test_headings(repo):
     ("path", "text", "status", "target"),
     [
         # a qualifier names the document
-        ("python/src/refkv/x.py", "# spec/archive.md §1.1\n", "ok", "spec/archive.md#11-output-and-equivalence"),
-        ("python/src/refkv/x.py", "# SPEC.md §1.1\n", "ok", "spec/archive.md#11-output-and-equivalence"),
-        ("python/src/refkv/x.py", "# (spec §1.1)\n", "ok", "spec/archive.md#11-output-and-equivalence"),
+        ("python/src/refkv/x.py", "# spec/refkv.md §1.1\n", "ok", "spec/refkv.md#11-output-and-equivalence"),
+        ("python/src/refkv/x.py", "# SPEC.md §1.1\n", "ok", "spec/refkv.md#11-output-and-equivalence"),
+        ("python/src/refkv/x.py", "# (spec §1.1)\n", "ok", "spec/refkv.md#11-output-and-equivalence"),
+        # the specification is two documents, numbered as one
+        ("python/src/refkv/x.py", "# SPEC.md §9.1\n", "ok", "spec/bindings/vzip.md#91-structure"),
+        ("python/src/refkv/vzip/x.py", "# §9.1 here\n", "ok", "spec/bindings/vzip.md#91-structure"),
+        ("python/src/refkv/x.py", "# (spec §4)\n", "ambiguous", ""),
+        # a record of a past round cites the snapshot of its revision
+        ("design/conformance/archive/r1/x.md", "SPEC.md §1.1\n", "ok", "spec/history/archive/SPEC.r1.md#11-old"),
         ("js/src/x.ts", "// conventions §3\n", "ok", "spec/conventions.md#3-arrays"),
         # spec/virtualize.md's §3-§13 are the profiles
         ("python/src/refkv/virtualize/x.py", "# spec/virtualize.md §3.1\n", "ok", "spec/virtualize/tiff.md#31-reading"),
@@ -116,9 +138,9 @@ def test_headings(repo):
         # other standards, links, and what cannot be settled
         ("python/src/refkv/x.py", "# RFC 3986 §5.2.2\n", "external", ""),
         ("python/src/refkv/x.py", "# RFC 9110 §5.6.7 and §1.1\n", "external", ""),
-        ("python/src/refkv/x.py", f"# §1.1 <{URL}spec/archive.md#11-output-and-equivalence>\n", "linked", ""),
-        ("spec/archive.md", "[§1.1](#11-output-and-equivalence)\n", "linked", ""),
-        ("python/src/refkv/x.py", "# spec/archive.md §7\n", "unresolved", ""),
+        ("python/src/refkv/x.py", f"# §1.1 <{URL}spec/refkv.md#11-output-and-equivalence>\n", "linked", ""),
+        ("spec/refkv.md", "[§1.1](#11-output-and-equivalence)\n", "linked", ""),
+        ("python/src/refkv/x.py", "# spec/refkv.md §7\n", "unresolved", ""),
         ("python/src/refkv/x.py", "# nothing.md §1\n", "unresolved", ""),
         ("somewhere/else.py", "# §1\n", "unresolved", ""),
     ],
@@ -151,7 +173,7 @@ def test_override(repo, monkeypatch):
 def test_rewrite(repo):
     cases = [
         (
-            "spec/archive.md",
+            "spec/refkv.md",
             "See §1.1 and spec/virtualize.md §1.2.\n",
             "See [§1.1](#11-output-and-equivalence) and [spec/virtualize.md §1.2](virtualize.md#12-input).\n",
         ),
@@ -163,46 +185,46 @@ def test_rewrite(repo):
         (
             "python/src/refkv/x.py",
             "x = 1  # spec §1.1\n",
-            f"x = 1  # spec §1.1 <{URL}spec/archive.md#11-output-and-equivalence>\n",
+            f"x = 1  # spec §1.1 <{URL}spec/refkv.md#11-output-and-equivalence>\n",
         ),
         (
             "python/src/refkv/x.py",
             'raise ValueError("bad (spec §1)")\n',
-            f'raise ValueError("bad (spec §1 <{URL}spec/archive.md#1-introduction>)")\n',
+            f'raise ValueError("bad (spec §1 <{URL}spec/refkv.md#1-introduction>)")\n',
         ),
         # a comment line made too long is wrapped, the URL whole
         (
             "js/src/x.ts",
-            "  // " + "word " * 14 + "(spec/archive.md §1.1) more\n",
-            "  // " + "word " * 14 + "(spec/archive.md §1.1\n"
-            f"  // <{URL}spec/archive.md#11-output-and-equivalence>) more\n",
+            "  // " + "word " * 14 + "(spec/refkv.md §1.1) more\n",
+            "  // " + "word " * 14 + "(spec/refkv.md §1.1\n"
+            f"  // <{URL}spec/refkv.md#11-output-and-equivalence>) more\n",
         ),
         (
             "python/src/refkv/x.py",
             'def f():\n    """' + "word " * 14 + '(spec §1.1)."""\n',
             'def f():\n    """' + "word " * 14 + "(spec §1.1\n"
-            f'    <{URL}spec/archive.md#11-output-and-equivalence>)."""\n',
+            f'    <{URL}spec/refkv.md#11-output-and-equivalence>)."""\n',
         ),
         # and its last piece joins the next line of the same text, when they fit
         (
             "python/src/refkv/x.py",
             'def f():\n    """' + "word " * 14 + '(spec §1.1) a\n    b c."""\n',
             'def f():\n    """' + "word " * 14 + "(spec §1.1\n"
-            f'    <{URL}spec/archive.md#11-output-and-equivalence>) a b c."""\n',
+            f'    <{URL}spec/refkv.md#11-output-and-equivalence>) a b c."""\n',
         ),
         # a one-line JSDoc comment made too long becomes a block
         (
             "js/src/x.ts",
             "  /** " + "word " * 14 + "(spec §1.1). */\n",
             "  /**\n   * " + "word " * 14 + "(spec §1.1\n"
-            f"   * <{URL}spec/archive.md#11-output-and-equivalence>).\n   */\n",
+            f"   * <{URL}spec/refkv.md#11-output-and-equivalence>).\n   */\n",
         ),
         # but not when it closes the docstring
         (
             "python/src/refkv/x.py",
             'def f():\n    """' + "word " * 14 + '(spec §1.1)."""\n    return 1\n',
             'def f():\n    """' + "word " * 14 + "(spec §1.1\n"
-            f'    <{URL}spec/archive.md#11-output-and-equivalence>)."""\n    return 1\n',
+            f'    <{URL}spec/refkv.md#11-output-and-equivalence>)."""\n    return 1\n',
         ),
     ]
     for path, text, want in cases:
@@ -247,11 +269,11 @@ def test_check_accepts(repo):
     problems = write(
         repo,
         {
-            "spec/new.md": "[§1.1](archive.md#11-output-and-equivalence), [§2](#x), RFC 9110 §5.6.7, "
+            "spec/new.md": "[§1.1](refkv.md#11-output-and-equivalence), [§2](#x), RFC 9110 §5.6.7, "
             "cited as §n.\n\n## x\n",
-            "python/src/refkv/y.py": f"# spec §1.1 <{URL}spec/archive.md#11-output-and-equivalence>\n"
-            f"# a §2\n# <{URL}spec/archive.md#2-the-layout-1>\n",
-            "js/src/y.ts": f"const s = `(spec §2 <{URL}spec/archive.md#2-the-layout>)`;\n",
+            "python/src/refkv/y.py": f"# spec §1.1 <{URL}spec/refkv.md#11-output-and-equivalence>\n"
+            f"# a §2\n# <{URL}spec/refkv.md#2-the-layout-1>\n",
+            "js/src/y.ts": f"const s = `(spec §2 <{URL}spec/refkv.md#2-the-layout>)`;\n",
             "design/conformance/archive/r1/x.md": "bare §3.1 is a record\n",
             "spec/history/archive/SPEC.r1.md": "[§9](#nowhere)\n",
         },
@@ -264,8 +286,8 @@ def test_check_bare_reference(repo):
 
 
 def test_check_missing_heading(repo):
-    assert write(repo, {"spec/new.md": "[§9](archive.md#9-nothing)\n"}) == [
-        "spec/new.md:1: broken link archive.md#9-nothing (no heading #9-nothing in spec/archive.md)"
+    assert write(repo, {"spec/new.md": "[§9](refkv.md#9-nothing)\n"}) == [
+        "spec/new.md:1: broken link refkv.md#9-nothing (no heading #9-nothing in spec/refkv.md)"
     ]
 
 
@@ -276,8 +298,8 @@ def test_check_missing_document(repo):
 
 
 def test_check_missing_heading_by_url(repo):
-    assert write(repo, {"js/src/y.ts": f"// §9 <{URL}spec/archive.md#9-nothing>\n"}) == [
-        f"js/src/y.ts:1: broken link {URL}spec/archive.md#9-nothing (no heading #9-nothing in spec/archive.md)"
+    assert write(repo, {"js/src/y.ts": f"// §9 <{URL}spec/refkv.md#9-nothing>\n"}) == [
+        f"js/src/y.ts:1: broken link {URL}spec/refkv.md#9-nothing (no heading #9-nothing in spec/refkv.md)"
     ]
 
 

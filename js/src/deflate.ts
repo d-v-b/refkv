@@ -29,7 +29,7 @@ const CRC32C_TABLE = (() => {
 
 /**
  * CRC-32C of `data`, the range checksum of spec §4.2
- * <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>.
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>.
  */
 export function crc32c(data: Uint8Array): number {
   let c = 0xffffffff;
@@ -39,7 +39,7 @@ export function crc32c(data: Uint8Array): number {
 
 /**
  * A DEFLATE stream inflates to more than the reader allows (spec §6.7
- * <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 6).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 6).
  */
 export class InflateLimitError extends Error {}
 
@@ -61,7 +61,7 @@ export function deflateRaw(data: Uint8Array): Promise<Uint8Array> {
  * Inflates a raw DEFLATE stream; trailing data after its end is an error.
  * With `limit`, inflating stops as soon as the output passes `limit` bytes,
  * which throws InflateLimitError (spec §6.7
- * <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 6).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 6).
  */
 export async function inflateRaw(data: Uint8Array, limit?: number): Promise<Uint8Array> {
   if (limit === undefined) return transform(data, new DecompressionStream("deflate-raw"));

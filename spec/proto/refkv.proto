@@ -1,4 +1,4 @@
-// Generated from spec/archive.md, Appendix A (format version 0). Edit the spec, not this file.
+// Generated from spec/refkv.md, Appendix A (format version 0). Edit the spec, not this file.
 syntax = "proto3";
 package vzip.v0;
 

@@ -741,7 +741,7 @@ export async function readDocument(store: Store, key: string, { keep = false } =
 
 export type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
-/** Throws a resolution error unless the reader policy (spec/archive.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>) lets the store at
+/** Throws a resolution error unless the reader policy (spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) lets the store at
  * `base` request `url`: an http(s) URL (§6.2
  * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#62-file>), allowed by rules 1
  * and 2, its host as
@@ -756,8 +756,8 @@ function allowStoreUrl(policy: Policy, base: string, url: string): void {
 }
 
 /**
- * Requests for the store at `base` under the reader policy (spec/archive.md §6.7
- * <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>), as an
+ * Requests for the store at `base` under the reader policy (spec/refkv.md §6.7
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>), as an
  * image file's (`HttpSource`, ir/source.ts): each URL, and each redirect target, is
  * checked by `checkPolicy`. Under Node (`#net`), unless the policy has
  * `allowPrivateHosts`, redirects are followed here (at most 5), each target checked
@@ -822,8 +822,8 @@ export function storeFetch(
 
 /** A store listed by S3 ListObjectsV2 (§1.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store>). Fails (StoreLimitError) past `maxObjects`.
  * Every request (the listing's, each object read's, and each redirect's) is made under
- * the reader policy `policy` (spec/archive.md §6.7
- * <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>; default: private and
+ * the reader policy `policy` (spec/refkv.md §6.7
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>; default: private and
  * special hosts refused),
  * by `storeFetch`; a `fetch` given in its place is still checked by the policy on each
  * URL as written and on each response's final URL. A refusal is a resolution error
@@ -833,8 +833,8 @@ export async function openHttpStore(
   { fetch: given, policy = {}, headers = {}, maxObjects = MAX_OBJECTS, concurrency = CONCURRENCY }: {
     fetch?: Fetch;
     /**
-     * The reader policy (spec/archive.md §6.7
-     * <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>).
+     * The reader policy (spec/refkv.md §6.7
+     * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>).
      */
     policy?: Policy;
     /** Extra request headers (such as a `User-Agent` under Node), sent by `storeFetch`. */

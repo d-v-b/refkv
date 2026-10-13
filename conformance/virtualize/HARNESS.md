@@ -89,9 +89,9 @@ literal with every digit, so `9007199254740993` differs from
 `9007199254740992`), and a number against a non-integer by its binary64
 value (so `1` equals `1.0`); booleans are not numbers.
 
-`compare.py` also reads every vzip archive by spec/archive.md before it compares it:
-the independent reader in `conformance/impls/python` (written from spec/archive.md alone) must
-open it and see the same entries, and the archive must meet spec/archive.md's writer
+`compare.py` also reads every vzip archive by spec/bindings/vzip.md before it compares it:
+the independent reader in `conformance/impls/python` (written from spec/bindings/vzip.md alone) must
+open it and see the same entries, and the archive must meet spec/bindings/vzip.md's writer
 requirements as `conformance/vzip/validate.py` checks them (canonical payloads,
 reference bodies, no duplicate names or extra `__vz__/` entries, CRC-32s,
 local headers, the page index). A JSON document with a duplicate member is

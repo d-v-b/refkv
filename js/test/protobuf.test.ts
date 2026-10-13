@@ -24,7 +24,7 @@ test("messages encode canonically and decode back", () => {
     assert.deepEqual(decodeReference(0x7a76, encodeRange(range), 2), [range]);
   }
   // Every Concat part is emitted, even an empty one (spec §4.1
-  // <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#41-encoding>).
+  // <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#41-encoding>).
   assert.equal(hex(encodeConcat([{ source: 0, offset: 0n, length: 0n }])), "0a00");
   assert.deepEqual(decodeReference(0x7a77, encodeConcat([]), 0), []);
 

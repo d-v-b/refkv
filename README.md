@@ -5,10 +5,10 @@ store to refer to a byte range, or sequence of byte ranges, in other storage bac
 
 refkv is used to define vzip, a single-file reference-aware storage solution.
 
-The [spec](spec/archive.md) has two parts:
-[the reference value type](spec/archive.md#part-1-reference-values), which
+The [spec](spec/refkv.md) has two parts:
+[the reference value type](spec/refkv.md#part-1-reference-values), which
 needs no particular backend, and
-[the ZIP binding](spec/archive.md#part-2-the-zip-binding), which keeps a
+[the ZIP binding](spec/bindings/vzip.md#part-2-the-zip-binding), which keeps a
 store in one ordinary ZIP file, a vzip archive. ZIP is the one binding
 specified today. Read the [pitch](design/PITCH.md) for why.
 [docs/](docs/README.md) is for users: the live demos, and how to virtualize
@@ -30,7 +30,7 @@ code is organized by language.
 
 | directory | holds |
 |---|---|
-| [spec/](spec/) | the specifications: the reference value type and its ZIP binding ([archive.md](spec/archive.md)), virtualization ([virtualize.md](spec/virtualize.md)), the conventions every virtualized hierarchy shares ([conventions.md](spec/conventions.md)), one document per format with its Zarr convention and its profile ([virtualize/](spec/virtualize/), each `<format>.md` beside `<format>/schema.json`), the wire schema ([proto/](spec/proto/)), and earlier revisions ([history/](spec/history/)) |
+| [spec/](spec/) | the specifications: the reference value type and its ZIP binding ([archive.md](spec/refkv.md)), virtualization ([virtualize.md](spec/virtualize.md)), the conventions every virtualized hierarchy shares ([conventions.md](spec/conventions.md)), one document per format with its Zarr convention and its profile ([virtualize/](spec/virtualize/), each `<format>.md` beside `<format>/schema.json`), the wire schema ([proto/](spec/proto/)), and earlier revisions ([history/](spec/history/)) |
 | [docs/](docs/README.md) | user documentation: [virtual datasets with xarray](docs/virtual-datasets.md), and a page per format in [docs/virtualize/](docs/virtualize/README.md) |
 | [design/](design/) | design notes and studies: [ARCHITECTURE.md](design/ARCHITECTURE.md), [FINDINGS.md](design/FINDINGS.md), [PITCH.md](design/PITCH.md), [COMPARISON.md](design/COMPARISON.md), the IR notes ([IR_NOTES.md](design/IR_NOTES.md)), the conformance rounds' notes and proposals, and the experiment scripts the notes cite |
 | [python/](python/) | the Python package `vzip` (`python/src/refkv`) and its tests (`python/tests`); its `pyproject.toml` is at the root |

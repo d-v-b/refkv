@@ -4,8 +4,8 @@ input that the Rust core parses, projects and mirrors.
 
 The core is sans-IO. The host lists the store and reads its objects through the store readers
 of `refkv.virtualize.store` (`HttpStore`: S3 `ListObjectsV2` and range requests, every request
-under the reader policy of spec/archive.md §6.7
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>; `DirStore`: a local
+under the reader policy of spec/refkv.md §6.7
+<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>; `DirStore`: a local
 directory), and drives the run:
 
 - `listing(store)`: the store's objects as (key, size), keys in byte order: what
@@ -125,7 +125,7 @@ class StoreIrOutput:
     summary: dict = field(default_factory=dict)
     sizes: dict[str, int] = field(default_factory=dict)
     # The CRC-32C of a url source's bytes, when the ranges are to carry checksums
-    # (spec/archive.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>);
+    # (spec/refkv.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>);
     # set by refkv.virtualize._virtualize_store.
     checksum: Callable[[str, int, int], int] | None = None
 

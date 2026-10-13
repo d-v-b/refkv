@@ -1,11 +1,11 @@
 """refkv: a reference value type for key-value stores.
 
 A reference store maps keys to values that are either bytes or references to byte ranges
-of other objects (spec/archive.md, Part 1
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#part-1-reference-values>). Any
+of other objects (spec/refkv.md, Part 1
+<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#part-1-reference-values>). Any
 backend that can tell a bytes value from a reference value can hold one; a binding says
 how. The ZIP binding keeps a store in one ZIP file, a vzip archive (Part 2
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#part-2-the-zip-binding>), which
+<https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#part-2-the-zip-binding>), which
 `refkv.vzip` reads and writes.
 
 - `ReferenceStore`: a store in memory. `ReferenceStore.from_virtualizarr(vds)` builds
@@ -13,8 +13,8 @@ how. The ZIP binding keeps a store in one ZIP file, a vzip archive (Part 2
   vzip archive.
 - `open(url)`: a saved store, as a store that reads the same values: with the ZIP
   binding (the default, and today the only one), a `refkv.vzip.VZipStore`.
-- Both have the operations of spec/archive.md §6.2
-  <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#62-operations>: `get(key)`,
+- Both have the operations of spec/refkv.md §6.2
+  <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>: `get(key)`,
   or `get(key, RangeRequest(start, end))` (also `OffsetRequest`, `SuffixRequest`),
   `classify`, `raw`, `list`, each also a coroutine (`get_async`, ...).
 - `Policy`, `Stats`: what a store may read, and what it fetched. Every store also

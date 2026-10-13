@@ -1257,7 +1257,7 @@ Rust, behind PyO3 (`vzip_ir.Run`: `poll`, `complete`, `output`) and the wasm C-A
 (`vz_run_new`, `vz_run_poll`, `vz_run_complete`, `vz_run_output`, …; an output is
 one buffer, `Out::encode`). The archive writer stays per language: Python's
 `Output.write` and the browser's `writeVzip` already exist, are tested by the
-conformance suite against spec/archive.md, and differ in what each host needs (paging,
+conformance suite against spec/bindings/vzip.md, and differ in what each host needs (paging,
 streaming), so a Rust writer would be a third one to keep equal; the core hands
 over entries, references and data sources, and each host writes them.
 

@@ -1,8 +1,8 @@
 """python -m refkv.ir <url or path> <out.vzip> [--url <source url>] [--no-mirror]
 [--allow-private-hosts]: as python -m refkv.virtualize, through the IR (exit status 3
 when rejected). Every format reads through the read planner, under the reader
-policy (spec/archive.md §6.7
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>): a source on a loopback
+policy (spec/refkv.md §6.7
+<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>): a source on a loopback
 or private host needs
 --allow-private-hosts."""
 

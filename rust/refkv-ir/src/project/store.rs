@@ -45,7 +45,7 @@ pub fn canonical_index(s: &str, limit: u64) -> bool {
         && s.parse::<u64>().is_ok_and(|v| v < limit)
 }
 
-/// Rejects the output keys spec/archive.md does not allow.
+/// Rejects the output keys spec/bindings/vzip.md does not allow.
 pub fn check_key(key: &str) -> Result<(), String> {
     if key.len() > 65535 {
         return Err("an output key is longer than 65535 bytes".into());

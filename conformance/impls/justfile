@@ -1,5 +1,5 @@
 # Independent implementations written by agents from the specifications
-# alone (see README.md): spec/archive.md readers and writers in rust/, typescript/
+# alone (see README.md): spec/bindings/vzip.md readers and writers in rust/, typescript/
 # and python/, and spec/virtualize.md virtualizers in virtualize/.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]

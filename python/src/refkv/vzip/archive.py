@@ -4,7 +4,7 @@ Layout written by `VZipWriter`:
 
     [local header + body]*      one per entry, STORED unless compress=True; no local
                                 extra field, except a 20-byte ZIP64 field on an entry
-                                of 4 GiB or more (spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure> rules 4 and 7)
+                                of 4 GiB or more (spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#101-structure> rules 4 and 7)
     [SourceTable]               reserved entry "__vz__/sources" (deflated)
     [late entries]              entries added with late=True (e.g. zarr.json), so a
                                 reader's open request covers them
@@ -12,7 +12,7 @@ Layout written by `VZipWriter`:
     [central directory]         sorted; __vz__/sources and __vz__/index records last.
                                 Reference entries carry extra field 0x7a76 with a
                                 serialized Range, or 0x7a77 with a serialized Concat
-    [zip64 EOCD + locator]      always (spec §10.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#102-zip64>); the EOCD's counts,
+    [zip64 EOCD + locator]      always (spec §10.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#102-zip64>); the EOCD's counts,
                                 size and offset are all ones
     [EOCD]                      archive comment = b"vzip/0" + u64 offset + u64 size
                                 of the (deflated) SourceTable body [+ the same for
@@ -55,9 +55,9 @@ RANGE_EXTRA_ID = 0x7A76  # "vz": payload is a Range
 CONCAT_EXTRA_ID = 0x7A77  # payload is a Concat
 ZIP64_EXTRA_ID = 0x0001
 FORMAT_VERSION = 0
-# The revision of spec/archive.md the writer follows, recorded in every archive's source table (§1.3
-# <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#13-versioning>, §5
-# <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#5-source-table>)
+# The revision of spec/refkv.md the writer follows, recorded in every archive's source table (§1.3
+# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#13-versioning>, §5
+# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)
 SPEC_REVISION = 11
 MAGIC_COMMENT = b"vzip/%d" % FORMAT_VERSION
 
@@ -77,7 +77,7 @@ _U32 = 0xFFFFFFFF
 _U16 = 0xFFFF
 _FLAG_UTF8 = 0x0800
 _DOS_DATE = (0 << 9) | (1 << 5) | 1  # 1980-01-01, for reproducible archives
-_MADE_BY = 20  # spec §14.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#142-recommended-layout-informative>
+_MADE_BY = 20  # spec §14.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#142-recommended-layout-informative>
 _EXT_ATTR = 0
 
 
@@ -92,7 +92,7 @@ class Entry:
     payload: tuple[int, bytes] | None = None
     # offset of the body, if it is known without reading the local header
     data_offset: int | None = None
-    # spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#64-errors> entry error:
+    # spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors> entry error:
     # every operation on this key fails with it
     error: str | None = None
     _ref: Reference | None = None
@@ -108,7 +108,7 @@ class Entry:
             return None
         if self._ref is None:
             hid, raw = self.payload
-            if len(raw) > MAX_PAYLOAD:  # spec §11.3 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#113-reference-entries>: a payload error, even if it fits
+            if len(raw) > MAX_PAYLOAD:  # spec §11.3 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#113-reference-entries>: a payload error, even if it fits
                 raise ValueError(f"reference payload of {len(raw)} bytes exceeds {MAX_PAYLOAD}")
             self._ref = (Range if hid == RANGE_EXTRA_ID else Concat).decode(raw)
         return self._ref
@@ -125,7 +125,7 @@ class VZipWriter:
 
         `checksum(url, offset, length)`: if set, the CRC-32C of those bytes of a url
         source, recorded on every range of a url source that has none (spec §4.2
-        <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>)."""
         self._f = f
         self._checksum = checksum
         self._page_size = page_size
@@ -135,7 +135,7 @@ class VZipWriter:
         self._cd: list[tuple[str, int, int, int, int, int, bytes]] = []
         self._names: set[str] = set()
         self._ref_names: set[str] = set()
-        self._range_checks: list = []  # (key, Range) for spec §7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#7-writing> bounds checks
+        self._range_checks: list = []  # (key, Range) for spec §7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing> bounds checks
         self._sources: dict[Source, int] = {}
         # every source in table order: a Source, or a (url, size pin or None) pair from add_url_refs
         self._source_list: list[Source | tuple[str, int | None]] = []
@@ -177,7 +177,7 @@ class VZipWriter:
 
     def _local_header(self, bname: bytes, method: int, crc: int, size: int, csize: int) -> None:
         """Write a local file header; a large entry's sizes go in a 20-byte
-        ZIP64 extra field (spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure> rules 4 and 7)."""
+        ZIP64 extra field (spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#101-structure> rules 4 and 7)."""
         if _is_large(size, csize):
             extra = struct.pack("<HHQQ", ZIP64_EXTRA_ID, 16, size, csize)
             self._write(_LFH.pack(_SIG_LFH, 45, _FLAG_UTF8, method, 0, _DOS_DATE, crc, _U32, _U32,
@@ -191,7 +191,7 @@ class VZipWriter:
     def _entry(self, name: str, body: bytes, extra: bytes = b"", compress: bool = False) -> None:
         self._check_new_key(name)
         if compress and len(body) >= _U32:
-            raise ValueError("entries of 4 GiB or more must be STORED (spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure> rule 7)")
+            raise ValueError("entries of 4 GiB or more must be STORED (spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#101-structure> rule 7)")
         bname = name.encode()
         crc = zlib.crc32(body)
         method, stored = 0, body
@@ -200,7 +200,7 @@ class VZipWriter:
             method, stored = 8, c.compress(body) + c.flush()
             if len(stored) >= _U32:
                 raise ValueError("a DEFLATE body of 4 GiB or more would make a large entry that "
-                                 "is not STORED (spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure> rule 7)")
+                                 "is not STORED (spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#101-structure> rule 7)")
         self._names.add(name)
         off = self._pos
         self._local_header(bname, method, crc, len(body), len(stored))
@@ -291,20 +291,20 @@ class VZipWriter:
             if r.data is None and r.source >= len(self._source_list):
                 raise ValueError(f"range of {key!r} uses unregistered source {r.source}")
             if r.data is not None and r.crc32c is not None:
-                raise ValueError(f"literal range of {key!r} with a crc32c (spec §7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#7-writing>)")
+                raise ValueError(f"literal range of {key!r} with a crc32c (spec §7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>)")
         if self._checksum is not None:
             ranges = [self._with_checksum(r) for r in ranges]
         # url sources are not bounds-checked (spec §7
-        # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#7-writing>): only the others are kept
+        # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>): only the others are kept
         self._range_checks.extend((key, r) for r in ranges if r.data is None and self._url_of(r.source) is None)
         if len(ranges) == 1:
             hid, payload = RANGE_EXTRA_ID, ranges[0].encode()
         else:
             hid, payload = CONCAT_EXTRA_ID, Concat(tuple(ranges)).encode()
-        # spec §11.3 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#113-reference-entries>:
+        # spec §11.3 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#113-reference-entries>:
         # fixed limit, leaving room for a ZIP64 block wherever the entry lands
         if len(payload) > MAX_PAYLOAD:
-            raise ValueError("reference payload too large for a zip extra field (spec §11.3 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#113-reference-entries>)")
+            raise ValueError("reference payload too large for a zip extra field (spec §11.3 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#113-reference-entries>)")
         extra = struct.pack("<HH", hid, len(payload)) + payload
         self._entry(key, payload if self._mirror else b"", extra)
         self._ref_names.add(key)
@@ -323,7 +323,7 @@ class VZipWriter:
         """Bulk path for many objects referenced whole: for each (key, url, size),
         a new url source (not interned) and a reference entry `(source, 0, size)`.
         With `pin_size`, each source also pins the object's size (spec §5.1
-        <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#51-pins>).
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#51-pins>).
 
         Avoids a Source object, an interning lookup and a deferred bounds check per
         entry (url sources are not bounds-checked), so millions of entries fit.
@@ -336,7 +336,7 @@ class VZipWriter:
             payload = bytearray()
             _put_uint(payload, 1, i)
             _put_uint(payload, 4, size)
-            if self._checksum is not None:  # field 6, crc32c (spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>)
+            if self._checksum is not None:  # field 6, crc32c (spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>)
                 _put_varint(payload, 6 << 3)
                 _put_varint(payload, self._checksum(url, 0, size))
             payload = bytes(payload)
@@ -346,7 +346,7 @@ class VZipWriter:
 
     def _check_sources(self, all_sources: list) -> None:
         """Writer requirements on the source table (spec §7
-        <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#7-writing>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>)."""
         from refkv.uri import is_uri_reference
 
         bulk = [x[0] for x in all_sources if isinstance(x, tuple)]
@@ -382,7 +382,7 @@ class VZipWriter:
     @staticmethod
     def _cd_record(name, off, size, csize, method, crc, extra) -> bytes:
         bname = name.encode()
-        # spec §10.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#102-zip64>: the ZIP64 block holds the sizes of a large entry, then an
+        # spec §10.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#102-zip64>: the ZIP64 block holds the sizes of a large entry, then an
         # offset that does not fit, in that order, and nothing else.
         z64, size32, csize32, off32 = b"", size, csize, off
         if _is_large(size, csize):
@@ -449,7 +449,7 @@ class VZipWriter:
         cd_size = self._pos - cd_start
         n = len(self._cd)
 
-        # spec §10.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#102-zip64>: the zip64 end records are written in every archive, and the end of
+        # spec §10.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#102-zip64>: the zip64 end records are written in every archive, and the end of
         # central directory record's counts, size and offset are always all ones
         eocd64_off = self._pos
         self._write(_EOCD64.pack(_SIG_EOCD64, 44, _MADE_BY, 45, 0, 0, n, n, cd_size, cd_start))
@@ -468,7 +468,7 @@ class VZipWriter:
 def _encode_sources(sources: list, revision: int | None = None) -> bytes:
     """The SourceTable of `sources` (Source objects, or (url, size pin) pairs), with
     the spec revision (spec §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#5-source-table>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)."""
     if all(isinstance(x, Source) for x in sources):
         return encode_source_table(sources, revision)
     out = bytearray()
@@ -511,7 +511,7 @@ class Directory:
 
 def parse_tail(tail: bytes, file_size: int) -> Directory:
     """Decode the end records of a vzip archive from its last bytes (spec §10.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#104-end-of-central-directory-record-and-archive-comment>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#104-end-of-central-directory-record-and-archive-comment>)."""
     for clen in (38, 22):
         i = len(tail) - _EOCD.size - clen
         if i >= 0 and tail[i : i + 4] == struct.pack("<I", _SIG_EOCD):
@@ -526,7 +526,7 @@ def parse_tail(tail: bytes, file_size: int) -> Directory:
     if not comment.startswith(MAGIC_COMMENT):
         raise ValueError(f"unsupported vzip format version {comment[5:6]!r}; this reader "
                          f"implements version {FORMAT_VERSION}")
-    # spec §10.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#102-zip64>: the directory's size and offset always come from the zip64 record; the
+    # spec §10.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#102-zip64>: the directory's size and offset always come from the zip64 record; the
     # EOCD's own counts, size and offset are ignored
     loc = i - _LOC64.size
     if loc < 0 or tail[loc : loc + 4] != struct.pack("<I", _SIG_LOC64):
@@ -547,7 +547,7 @@ def parse_tail(tail: bytes, file_size: int) -> Directory:
 
 
 def _is_large(size: int, csize: int) -> bool:
-    """Whether an entry needs ZIP64 sizes (spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure> rule 7)."""
+    """Whether an entry needs ZIP64 sizes (spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#101-structure> rule 7)."""
     return size >= _U32 or csize >= _U32
 
 
@@ -567,11 +567,11 @@ def parse_central_directory(cd: bytes, *, trust_offsets: bool) -> dict[str, Entr
     """Decode the central directory into {key: Entry}.
 
     This is the classifier for the overlay (spec §11.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#111-classification>): an entry with one
+    <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#111-classification>): an entry with one
     0x7a76 or 0x7a77 extra field block belongs to the reference key space, any
     other entry to the bytes key space, and a key with no entry to neither.
     Problems confined to one record become that entry's `error` (spec §13.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#133-errors>). """
+    <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#133-errors>). """
     entries: dict[str, Entry] = {}
     mv = memoryview(cd)
     pos = 0
@@ -593,7 +593,7 @@ def parse_central_directory(cd: bytes, *, trust_offsets: bool) -> dict[str, Entr
         pos += nlen
         extra = bytes(mv[pos : pos + xlen])
         pos += xlen + clen
-        if not name:  # spec §10.3 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#103-file-names>: such records name no key
+        if not name:  # spec §10.3 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#103-file-names>: such records name no key
             continue
         if name in entries:
             raise ValueError(f"duplicate central directory record for {name!r}")
@@ -607,7 +607,7 @@ def parse_central_directory(cd: bytes, *, trust_offsets: bool) -> dict[str, Entr
                     z64.append(data)
         except (ValueError, IndexError, struct.error) as e:
             error = f"unparseable extra field: {e}"
-        # spec §10.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#102-zip64>: a large entry's sizes, then an offset of 4 GiB or more,
+        # spec §10.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#102-zip64>: a large entry's sizes, then an offset of 4 GiB or more,
         # come from the one ZIP64 block, in that order
         large = size == _U32 and csize == _U32
         need = (16 if large else 0) + (8 if off == _U32 else 0)
@@ -644,16 +644,16 @@ def parse_central_directory(cd: bytes, *, trust_offsets: bool) -> dict[str, Entr
 
 class InflateLimitError(ValueError):
     """A DEFLATE stream inflates to more than the reader allows (spec §6.7
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 6)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 6)."""
 
 
 def inflate_clean(raw: bytes, limit: int | None = None) -> bytes:
     """Inflate one complete raw DEFLATE stream that fills `raw` exactly (spec §13.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#131-opening>).
+    <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#131-opening>).
 
     With `limit`, inflating stops as soon as the output passes `limit` bytes,
     which raises InflateLimitError (spec §6.7
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 6)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 6)."""
     d = zlib.decompressobj(-15)
     if limit is None:
         out = d.decompress(raw)
@@ -685,5 +685,5 @@ def read_source_table(body: bytes) -> list[Source]:
 
 def read_table(body: bytes) -> tuple[list[Source], int | None]:
     """The sources and the recorded spec revision of a SourceTable (spec §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#5-source-table>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)."""
     return decode_table(body)

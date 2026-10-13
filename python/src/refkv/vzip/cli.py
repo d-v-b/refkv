@@ -4,7 +4,7 @@
     python -m refkv.vzip.cli write <description.json> <out>
 
 `read` uses the reader's default policy (spec §6.7
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>). --allow-private-hosts
+<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>). --allow-private-hosts
 is UNSAFE: it lets the archive's sources reach loopback, private, link-local and
 other special addresses. The harness needs it, since the runner serves its
 HTTP sources on 127.0.0.1.

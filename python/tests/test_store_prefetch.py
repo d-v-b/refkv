@@ -209,8 +209,8 @@ def test_concurrent_reads_over_kept_alive_connections(s3_server):
     results = []
     for workers in (1, 8):
         state["reads"].clear()
-        # the server is on 127.0.0.1, which the reader policy refuses by default (spec/archive.md
-        # §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>)
+        # the server is on 127.0.0.1, which the reader policy refuses by default (spec/refkv.md
+        # §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)
         fmt, out = virtualize_store(url, workers=workers, policy=Policy(allow_private_hosts=True))
         results.append((fmt, json.dumps(out.docs, sort_keys=True), out.chunks))
         assert set(state["reads"].values()) == {1}

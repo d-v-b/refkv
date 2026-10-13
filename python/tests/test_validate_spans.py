@@ -1,5 +1,5 @@
 """conformance/vzip/validate.py's check of the bytes before the central directory
-(spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure>
+(spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#101-structure>
 rules 1 and 2): entries may be padded apart, but padding holds no local header."""
 
 import sys

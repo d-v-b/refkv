@@ -13,7 +13,7 @@ Reads only the TIFF's IFDs over HTTP range requests, then writes:
 * `OME/METADATA.ome.xml`: the OME-XML, as a real (deflated) bytes entry
 
 The URL source is pinned to the object's size, ETag and Last-Modified (spec §5.1
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#51-pins>),
+<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#51-pins>),
 unless `--no-pins` is given. Browsers can only check pins on servers that expose
 those headers to cross-origin pages, which many (EBI's included) do not.
 

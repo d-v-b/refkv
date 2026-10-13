@@ -1,4 +1,4 @@
-# The TypeScript spec/archive.md implementation (Node >= 23, no dependencies).
+# The TypeScript spec/bindings/vzip.md implementation (Node >= 23, no dependencies).
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 

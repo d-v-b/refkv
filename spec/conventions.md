@@ -445,7 +445,7 @@ Its extent states the range the leaves partition; it claims nothing itself,
 since a struct is not a leaf, so coverage and injectivity (below) concern
 the leaves alone and are unchanged by it. (When `Z` is 0 the root's length
 is 0, so it has no extent.) The empty path is an IR path only: archive keys
-stay non-empty ([spec/archive.md §2.1](archive.md#21-keys)).
+stay non-empty ([spec/refkv.md §2.1](refkv.md#21-keys)).
 
 **Names.** Every element but the root has a full name that is not empty.
 Among the children of one element (each member of a run being one child),
@@ -837,7 +837,7 @@ compares mirrors entry for entry. In order:
    zeros to a multiple of six.
 8. **Arrays.** The chunk shapes are those of 8.2, and the codecs `bytes`
    (little-endian) alone: no `zlib`. The archive's own entry compression
-   (spec/archive.md) does the work, and is not part of the output.
+   (spec/bindings/vzip.md) does the work, and is not part of the output.
 9. **Description and view.** `S` is `{"ir": I}` of 8.2 with `version` 2,
    and the view is 8.7's, from the elements in this order.
 

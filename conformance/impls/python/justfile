@@ -1,4 +1,4 @@
-# The Python spec/archive.md implementation (Python 3.12, standard library only).
+# The Python spec/bindings/vzip.md implementation (Python 3.12, standard library only).
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 

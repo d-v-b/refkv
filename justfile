@@ -74,7 +74,7 @@ sections:
     uv run pytest -q spec/tools
     uv run python spec/tools/sections.py check
 
-# Run the spec/archive.md conformance suite against the three independent implementations
+# Run the spec/bindings/vzip.md conformance suite against the three independent implementations
 conformance out="conformance/results/latest": impls::build
     uv run python conformance/vzip/run.py --out {{out}} \
         --impl rust=conformance/impls/rust/vzip --impl typescript=conformance/impls/typescript/vzip --impl python=conformance/impls/python/vzip

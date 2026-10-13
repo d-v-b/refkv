@@ -1,4 +1,4 @@
-# The Rust spec/archive.md implementation (./vzip runs the release build).
+# The Rust spec/bindings/vzip.md implementation (./vzip runs the release build).
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 

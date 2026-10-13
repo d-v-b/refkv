@@ -3,7 +3,7 @@
 vzip can present an image file, or a chunked array store, as an OME-Zarr
 dataset without converting or copying its pixels. A **virtualizer** reads
 only the input's structure (headers, tile tables, metadata documents) and
-writes a small vzip archive ([spec/archive.md](../../spec/archive.md)): a ZIP file
+writes a small vzip archive ([spec/bindings/vzip.md](../../spec/bindings/vzip.md)): a ZIP file
 whose values are bytes or references. Its metadata entries are OME-Zarr 0.5
 (Zarr v3) documents, and its chunk entries are references to byte ranges of
 the original file, or to the store's own chunk objects. A Zarr reader that understands vzip then reads the pixels
@@ -84,7 +84,7 @@ store by the objects at its root. Options:
 - `--url <url>`: the URL to record as the source, for a local file or
   directory that will be served from that URL (a local directory needs it);
 - `--checksums`: also record the CRC-32C of every referenced range
-  ([spec/archive.md §4.2](../../spec/archive.md#42-range)), which reads every byte the
+  ([spec/refkv.md §4.2](../../spec/refkv.md#42-range)), which reads every byte the
   archive references (off by default);
 - `--allow-private-hosts`: let a file or store at an http(s) URL be read
   from a loopback, private or link-local host (below; unsafe);
@@ -97,11 +97,11 @@ store by the objects at its root. Options:
 
 Every `url` source records the size of the object it names. The input
 file's source also records its ETag when every response gave the same
-strong one ([spec/archive.md §5.1](../../spec/archive.md#51-pins)). A reader then notices a
+strong one ([spec/refkv.md §5.1](../../spec/refkv.md#51-pins)). A reader then notices a
 source that has changed since the archive was written.
 
 **Reader policy.** A file or a store at an http(s) URL is read under the
-reader policy of [spec/archive.md §6.7](../../spec/archive.md#67-reader-policy) (a store's
+reader policy of [spec/refkv.md §6.7](../../spec/refkv.md#67-reader-policy) (a store's
 listing, every object read and every redirect). A host that is, or
 resolves to, a loopback, private, link-local or other special address is
 refused, and so is a request that would go through a proxy the reader cannot

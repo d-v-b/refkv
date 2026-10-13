@@ -1,8 +1,8 @@
 """The reader policy (spec §6.7
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>), range checksums (§4.2
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>), pins (§5.1
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#51-pins>) and the
-recorded revision (§1.3 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#13-versioning>), in
+<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>), range checksums (§4.2
+<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>), pins (§5.1
+<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#51-pins>) and the
+recorded revision (§1.3 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#13-versioning>), in
 the reference reader and writer."""
 
 import threading
@@ -21,7 +21,7 @@ from refkv.vzip.store import VZipStore
 
 BLOB = bytes(range(256)) * 64  # 16 KiB
 # The test server is on 127.0.0.1, which spec §6.7
-# <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
+# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3 refuses by
 # default.
 SERVED = Policy(allow_private_hosts=True)
 

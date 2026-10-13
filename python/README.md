@@ -4,7 +4,7 @@ vzip is ZIP plus a reference value type: a key-value store in which every
 value is either bytes or a reference to byte ranges of other objects, such
 as the chunks inside HDF5, netCDF or TIFF files. A vzip archive keeps such a
 reference store in one ordinary ZIP file
-([spec](https://github.com/d-v-b/refkv/blob/main/spec/archive.md)).
+([spec](https://github.com/d-v-b/refkv/blob/main/spec/refkv.md)).
 
 This package reads and writes vzip archives, and virtualizes TIFF, NDPI, ND2,
 CZI, DICOM, NIfTI and Imaris files, N5, Zarr v2 and OME-Zarr stores, and

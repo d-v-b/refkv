@@ -345,8 +345,8 @@ def open_vzip(url, ctx, cfg):
     from refkv.policy import Policy
 
     # the benchmark serves the archive and its sources on 127.0.0.1, which the default
-    # policy refuses (spec/archive.md §6.7
-    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 3)
+    # policy refuses (spec/refkv.md §6.7
+    # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3)
     # no request cap, as when design/COMPARISON.md was measured (the default is 8)
     return refkv.zarr.open(url, policy=Policy(allow_private_hosts=True), max_concurrency=None), 3
 

@@ -26,15 +26,15 @@ export interface PinOptions {
   /** The input file's strong ETag, if every response gave the same one (an `etag` pin). */
   etag?: () => string | undefined;
   /**
-   * Record the CRC-32C of every range of a url source (spec/archive.md §4.2
-   * <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>), reading its bytes.
+   * Record the CRC-32C of every range of a url source (spec/refkv.md §4.2
+   * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>), reading its bytes.
    */
   checksums?: boolean;
 }
 
 /**
- * Records on every range of a url source the CRC-32C of its bytes (spec/archive.md
- * §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>), read by `read(url,
+ * Records on every range of a url source the CRC-32C of its bytes (spec/refkv.md
+ * §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>), read by `read(url,
  * offset, length)`.
  */
 export async function addChecksums(
@@ -170,8 +170,8 @@ export function isStoreUrl(url: string): boolean {
 
 /** Virtualizes a store by the profile its root keys select (§1.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>): a listed one, or the
  * one at an http(s) URL, listed and read by `openHttpStore` under the reader policy
- * `options.policy` (spec/archive.md §6.7
- * <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>; default: private and
+ * `options.policy` (spec/refkv.md §6.7
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>; default: private and
  * special hosts refused). Every
  * source pins its object's size; with `options.checksums`, every range carries the
  * CRC-32C of its bytes. */

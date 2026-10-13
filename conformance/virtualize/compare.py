@@ -51,7 +51,7 @@ Usage: uv run python conformance/virtualize/compare.py <out dir>
            [--shard k/n]  (only every n-th input, from the k-th: one of n parallel runs)
            [--idr-listing <file>]  (idr0096's listing, saved, instead of fetching it)
 
-Every archive is also read by spec/archive.md's strict reading (`strict`): an archive the
+Every archive is also read by spec/bindings/vzip.md's strict reading (`strict`): an archive the
 independent reader refuses, or reads differently, or that breaks a writer requirement,
 counts as a crash of the implementation that wrote it.
 """
@@ -88,8 +88,8 @@ from refkv.virtualize.common import REVISION, same  # noqa: E402
 IDR = "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant/20210609-ftp-ome-tiffs/"
 BUILTIN = {
     # the inputs are served from 127.0.0.1, which the reader policy refuses by default
-    # (spec/archive.md §6.7
-    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>)
+    # (spec/refkv.md §6.7
+    # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)
     "ref": ("vzip", ["uv", "run", "python", str(HERE / "reference" / "cli.py"), "--allow-private-hosts"]),
     "py": ("vzip", ["uv", "run", "python", "-m", "refkv.virtualize", "--allow-private-hosts"]),
     "web": ("vzip", ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"]),
@@ -108,7 +108,7 @@ MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_trunc
 
 
 class Unreadable(Exception):
-    """An archive that spec/archive.md's strict reading refuses, or that breaks a writer requirement."""
+    """An archive that spec/bindings/vzip.md's strict reading refuses, or that breaks a writer requirement."""
 
 
 def _no_duplicates(pairs: list) -> dict:
@@ -122,7 +122,7 @@ def from_vzip(path: Path) -> dict:
     """An archive's output (§1.1
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>), once it
     has passed `strict`."""
-    try:  # first, so that zipfile never reads what spec/archive.md does not
+    try:  # first, so that zipfile never reads what spec/bindings/vzip.md does not
         strict_reader.Archive(str(path)).close()
     except VzError as e:
         raise Unreadable(f"strict reader: {e.cls} error: {e}") from e
@@ -163,14 +163,14 @@ def _b64(b: bytes) -> str:
 
 
 def strict(path: Path, view: dict) -> list[str]:
-    """The problems spec/archive.md finds in an archive, by code that shares nothing with the
-    writers under test: the independent reader (conformance/impls/python, written from spec/archive.md
+    """The problems spec/bindings/vzip.md finds in an archive, by code that shares nothing with the
+    writers under test: the independent reader (conformance/impls/python, written from spec/bindings/vzip.md
     alone) must open it and see exactly the output `view` holds, and the archive must
-    meet the writer requirements (spec/archive.md §10
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#10-zip-container>, §11
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#11-entries>, §12
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#12-page-index-optional>, §14
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#14-writing-a-vzip-archive>) as
+    meet the writer requirements (spec/bindings/vzip.md §10
+    <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#10-zip-container>, §11
+    <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#11-entries>, §12
+    <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#12-page-index-optional>, §14
+    <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#14-writing-a-vzip-archive>) as
     conformance/vzip/validate.py,
     with its own ZIP parser, checks them: canonical payloads, reference bodies,
     duplicate names, hidden entries, CRC-32s, local headers and the page index."""

@@ -1,5 +1,5 @@
 """The ZIP binding (Part 2 of the specification
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#part-2-the-zip-binding>): a
+<https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#part-2-the-zip-binding>): a
 reference store kept in one ZIP file, a vzip archive.
 
 - `open(url)`: the vzip archive at `url` (a local path or an `http(s)` URL), as a

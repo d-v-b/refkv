@@ -5,7 +5,7 @@ review of vzip as a whole (five independent reviews: the data model, the
 archive format, resource bounds, the two implementations, and remote I/O)
 and proposes one structural change, an intermediate representation, that
 addresses most of what they found. It changes no normative text; spec/virtualize.md,
-spec/archive.md and the conventions stay authoritative until a revision adopts parts
+spec/refkv.md and the conventions stay authoritative until a revision adopts parts
 of this.
 
 ## 1. Verdict
@@ -73,7 +73,7 @@ server ignores `Range`.
 
 - Readers resolve any scheme an archive names, with ambient credentials: a
   remote archive can read `file:///etc/hosts` or private buckets, and one
-  chunk can fan out to about 10,000 requests. [SPEC §8](../spec/archive.md#8-security-considerations) says SHOULD; no reader
+  chunk can fan out to about 10,000 requests. [SPEC §8](../spec/refkv.md#8-security-considerations) says SHOULD; no reader
   does.
 - No staleness detection: the profiles forbid pins, so a changed
   uncompressed source silently yields wrong pixels.

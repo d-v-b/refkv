@@ -2,13 +2,13 @@
 
 A reference store maps each key to bytes or to a reference value: the
 concatenation of byte ranges of other objects, named through the store's one
-source table (spec/archive.md, Part 1
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#part-1-reference-values>). A
+source table (spec/refkv.md, Part 1
+<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#part-1-reference-values>). A
 `ReferenceStore` holds that mapping in memory, and reads like any reference store
 (`refkv.reader.ReferenceReader`); `refkv.zarr.store(store)` opens it for zarr and
 xarray, as `refkv.zarr.open` does a saved archive. `save` writes it as a vzip
 archive, one ZIP file (Part 2
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#part-2-the-zip-binding>), which
+<https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#part-2-the-zip-binding>), which
 `refkv.open` reads back as a store with the same values.
 
 `refkv.virtualize.virtualize` returns one too, for an image file or a store:
@@ -150,14 +150,14 @@ class ReferenceStore(ReferenceReader):
     Keyword arguments:
 
     - `url`: the base URI that relative source URLs resolve against (spec §5
-      <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#5-source-table>). The default,
+      <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>). The default,
       the current directory, makes the store a local one for the reader policy:
       it may read `file:` sources, like an archive opened from a local path.
     - `read_at_open`: the keys a reader fetches when it opens the store, which
       `save` places where an archive's opening request reads them. The default
       is every `zarr.json` document.
     - `compressed`: the keys of bytes values that `save` writes DEFLATE-compressed
-      (spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure>):
+      (spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#101-structure>):
       a smaller archive, but a reader then fetches such a value whole to read any
       range of it. The default is none. Each must be a key of a bytes value.
     - `page_size`: the page index `save` writes when it is not given one (see
@@ -345,7 +345,7 @@ class ReferenceStore(ReferenceReader):
         - `page_size`: the store's `page_size` by default. None writes no page index, and a reader
           then loads the whole central directory, about 125 bytes per key, when
           it opens the archive. A number writes a page index (spec §12
-          <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#12-page-index-optional>) with
+          <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#12-page-index-optional>) with
           pages of about that many bytes, so a reader loads only the pages that
           hold the keys it reads. `65536` is a good value once the directory
           grows past a few MB, and matters most for an archive read over the
@@ -356,7 +356,7 @@ class ReferenceStore(ReferenceReader):
         - `mirror_refs`: True (the default) also writes each reference's
           payload as its entry's body, so a ZIP tool that ignores extra fields
           still sees it (spec §11.3
-          <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#113-reference-entries> says
+          <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#113-reference-entries> says
           writers should); False leaves those bodies empty, a smaller archive.
         - `relative_to`: a URL prefix, such as the URL of the directory the
           archive will be served from. Source URLs under it are written relative
@@ -465,7 +465,7 @@ class ReferenceStore(ReferenceReader):
     async def raw_async(self, key: str) -> bytes | None:
         """A bytes value, a hidden key's included; a reference's payload, as `save`
         writes it (spec §4.4
-        <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#44-reference-payloads>), with
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#44-reference-payloads>), with
         the source indexes of this store's table. The format entries an archive
         holds are written by `save`, and are missing here."""
         v = self._values.get(key)

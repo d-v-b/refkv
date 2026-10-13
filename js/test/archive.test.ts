@@ -64,7 +64,7 @@ test("reports an entry error for a reference stored with DEFLATE", async () => {
   const bytes = await writeVzip({ sources: [{ data: utf8("abc") }], entries: [{ key: "r", ranges: [{ source: 0, offset: 0n, length: 1n }] }] });
   const view = new DataView(bytes.buffer);
   // the central directory's offset, from the zip64 record (spec §10.2
-  // <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#102-zip64>)
+  // <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#102-zip64>)
   const cd = Number(view.getBigUint64(bytes.length - 44 - 76 + 48, true));
   view.setUint16(cd + 10, 8, true); // the reference's central directory record
   const a = await Archive.open(bytes, "https://x/");

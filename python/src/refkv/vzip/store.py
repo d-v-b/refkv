@@ -1,5 +1,5 @@
 """`VZipStore`: a vzip archive, the store kept in one ZIP file (Part 2
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#part-2-the-zip-binding>),
+<https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#part-2-the-zip-binding>),
 read as a reference store:
 
 * bytes keys      -> the body of the zip entry
@@ -44,7 +44,7 @@ from refkv.vzip.archive import (
 
 
 def _check_index(pages, pinned, cd_size: int, file_size: int) -> None:
-    """Spec §12.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#122-lookup>: a malformed
+    """Spec §12.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#122-lookup>: a malformed
     page index is an archive error."""
     pos, prev = 0, None
     for p in pages:
@@ -64,7 +64,7 @@ def _check_index(pages, pinned, cd_size: int, file_size: int) -> None:
         if e.method not in (0, 8):
             raise ArchiveError(f"pinned {e.key!r} has method {e.method}")
         if e.method != 0 and (e.size >= 0xFFFFFFFF or e.csize >= 0xFFFFFFFF):
-            raise ArchiveError(f"pinned {e.key!r} is large and not STORED (spec §12.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#122-lookup>)")
+            raise ArchiveError(f"pinned {e.key!r} is large and not STORED (spec §12.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#122-lookup>)")
         if e.data_offset + e.csize > file_size:
             raise ArchiveError(f"pinned {e.key!r} lies outside the file")
         seen.add(e.key)
@@ -95,11 +95,11 @@ class VZipStore(ReferenceReader):
 
     - `resolve`: True (the default) follows references; False gives the raw
       view (spec §13.2
-      <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#132-operations>), in which a
+      <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#132-operations>), in which a
       reference key's value is its serialized `Range` or `Concat`, as a ZIP
       tool sees it.
     - `policy`: which sources may be resolved, and the reader's limits (spec
-      §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>). The
+      §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>). The
       default, `Policy()`, lets every archive read `http` and `https` sources on
       public hosts, not through a proxy, and a local archive also read `file`
       sources; it refuses every other scheme, and loopback, private and special
@@ -126,7 +126,7 @@ class VZipStore(ReferenceReader):
         self.resolve = resolve
         self._entries: dict[str, Entry] = {}
         self._keys: list[str] = []
-        self.revision: int | None = None  # the spec revision the writer followed (spec §1.3 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#13-versioning>)
+        self.revision: int | None = None  # the spec revision the writer followed (spec §1.3 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#13-versioning>)
         self.is_vzip = False
         self._buf, self._buf_start = b"", 0  # bytes fetched while opening
         self._key_cache: dict[str, bytes] = {}  # values of hidden entries used by key ranges
@@ -153,7 +153,7 @@ class VZipStore(ReferenceReader):
             await self._open_archive()
         except ArchiveError:
             raise
-        except Exception as e:  # noqa: BLE001 - spec §6.1 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#61-opening>: every open failure
+        except Exception as e:  # noqa: BLE001 - spec §6.1 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#61-opening>: every open failure
             raise ArchiveError(f"{type(e).__name__}: {e}") from None
         self._refresh_keys()
         await super()._open()
@@ -221,7 +221,7 @@ class VZipStore(ReferenceReader):
             elif SOURCES_KEY in self._entries:
                 e = self._entries[SOURCES_KEY]
                 self._sources, self.revision = read_table(await self._entry_bytes(e, 0, e.size))
-        if len(self._sources) > self.policy.max_sources:  # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 4
+        if len(self._sources) > self.policy.max_sources:  # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 4
             raise ArchiveError(f"the source table has {len(self._sources)} sources; this reader "
                                f"allows {self.policy.max_sources}")
         if any(src.url == "" or src.key == "" for src in self._sources):
@@ -229,7 +229,7 @@ class VZipStore(ReferenceReader):
 
     def _slice(self, offset: int, n: int, method: int) -> bytes:
         """A format entry's body, fetched while opening (inflated within spec §6.7
-        <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 6)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 6)."""
         lo = offset - self._buf_start
         raw = self._buf[lo : lo + n]
         if method != 8:
@@ -238,7 +238,7 @@ class VZipStore(ReferenceReader):
             return inflate_clean(raw, self.policy.max_format_entry)
         except InflateLimitError as e:
             raise ArchiveError(f"a format entry {e}; this reader allows "
-                               f"{self.policy.max_format_entry} (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>)") from None
+                               f"{self.policy.max_format_entry} (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)") from None
 
     def _refresh_keys(self) -> None:
         self._keys = sorted(
@@ -270,7 +270,7 @@ class VZipStore(ReferenceReader):
                     self._bad_pages[i] = str(e)
                     parsed = {}
                 for k, e in parsed.items():
-                    if bisect.bisect_right(self._page_keys, k) - 1 == i:  # spec §12.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#122-lookup>
+                    if bisect.bisect_right(self._page_keys, k) - 1 == i:  # spec §12.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#122-lookup>
                         self._entries.setdefault(k, e)
                 self._loaded.add(i)
             self._refresh_keys()
@@ -292,7 +292,7 @@ class VZipStore(ReferenceReader):
     async def _load_prefix(self, prefix: str) -> None:
         if not self._pages:
             return
-        # spec §13.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#132-operations>: page
+        # spec §13.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#132-operations>: page
         # [lo, hi) is read iff (no hi or prefix < hi) and
         # (lo <= prefix or lo starts with prefix), comparing UTF-8 bytes
         pb = prefix.encode()
@@ -328,7 +328,7 @@ class VZipStore(ReferenceReader):
 
     def _inflate(self, e: Entry, raw: bytes) -> bytes:
         """An entry's DEFLATE body, inflated no further than its record's size allows
-        (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule
+        (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule
         6); a format entry by the policy's bound."""
         limit = self.policy.max_format_entry if e.name in (SOURCES_KEY, INDEX_KEY) else e.size
         return inflate_clean(raw, limit)
@@ -342,7 +342,7 @@ class VZipStore(ReferenceReader):
 
     async def _body(self, e: Entry, start: int, end: int) -> bytes:
         """A bytes entry's (inflated) body slice; failures are body errors (spec §6.4
-        <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#64-errors>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>)."""
         try:
             if e.method == 0 and e.csize != e.size:
                 raise ValueError(f"STORED entry with sizes {e.csize} != {e.size}")
@@ -359,7 +359,7 @@ class VZipStore(ReferenceReader):
 
     async def _key_bytes(self, key: str, start: int, end: int) -> bytes:
         """Bytes [start, end) of another entry's value (a `key` source, spec §5
-        <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#5-source-table>).
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>).
 
         The target must be a bytes entry. Hidden entries (shard indexes etc.) are
         cached whole; other STORED entries are range-read directly.
@@ -389,10 +389,10 @@ class VZipStore(ReferenceReader):
 
     def _classify(self, key: str) -> Kind:
         """The overlay's decision function, on the records loaded (spec §11.1
-        <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#111-classification>).
+        <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#111-classification>).
 
         Raises EntryError for an entry error (spec §6.4
-        <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#64-errors>). """
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>). """
         e = self._entries.get(key)
         if e is None or (self.resolve and key.startswith(RESERVED_PREFIX)):
             return "missing"
@@ -402,7 +402,7 @@ class VZipStore(ReferenceReader):
 
     async def classify_async(self, key: str) -> Kind:
         """`classify`, with the lookup, in the order of spec §6.4
-        <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#64-errors>."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>."""
         await self._ensure_open()
         if self.resolve and key.startswith(RESERVED_PREFIX):
             return "missing"
@@ -430,7 +430,7 @@ class VZipStore(ReferenceReader):
         """The inflated body of `key`'s entry, whatever it is: a reference
         entry's body (its payload, or empty if the writer did not mirror it), a
         hidden entry's, a format entry's (spec §13.2
-        <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#132-operations>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#132-operations>)."""
         await self._ensure_open()
         await self._lookup(key)
         e = self._entries.get(key)
@@ -452,11 +452,11 @@ class VZipStore(ReferenceReader):
         """The distinct next path segments of the keys under `prefix`.
 
         Keys are sorted (spec §12.1
-        <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#121-layout>), so after finding child
+        <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#121-layout>), so after finding child
         `c` with keys below it, the listing seeks straight past `prefix + c + "/"`: in an archive
         with a page index it reads the pages where each child starts, not
         every page under `prefix` as `list` must (spec §13.2
-        <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#132-operations>). """
+        <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#132-operations>). """
         await self._ensure_open()
         prefix = prefix.rstrip("/")
         prefix = prefix + "/" if prefix else ""

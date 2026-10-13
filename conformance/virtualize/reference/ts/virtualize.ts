@@ -7,7 +7,7 @@
 // these readers do not apply the reader policy.)
 // Source 0 (or each store object's source) pins its size, and a file's its ETag
 // when every response gave the same strong one; --checksums also records the
-// CRC-32C of every range of a url source (spec/archive.md §5.2), reading its bytes.
+// CRC-32C of every range of a url source (spec/refkv.md §5.2), reading its bytes.
 // Prints a JSON summary; exits 3 (writing nothing) if the input is rejected.
 // A store over the browser limit (§14) is a failure (exit 1), not a rejection.
 

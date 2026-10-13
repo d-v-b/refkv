@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end tests of the vzip CLI (HARNESS.md), derived from spec/archive.md.
+"""End-to-end tests of the vzip CLI (HARNESS.md), derived from spec/bindings/vzip.md.
 
 Run: python3 tests/cli_tests.py   (after `cargo build --release`)
 """

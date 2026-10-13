@@ -151,7 +151,7 @@ What each step does:
   115 kB ([design/COMPARISON.md](../design/COMPARISON.md#opening)). Once the
   directory passes a few MB, tens of thousands of keys, save with
   `store.save("oisst.vzip", page_size=65536)`
-  ([spec §12, Page index](../spec/archive.md#12-page-index-optional)).
+  ([spec §12, Page index](../spec/bindings/vzip.md#12-page-index-optional)).
 - **Requests.** `vzip.zarr.open(..., max_concurrency=16)` allows more requests in
   flight, and `max_concurrency=None` removes the cap. Respect the host's
   limits.
@@ -183,7 +183,7 @@ By default, vzip reads `http(s)` URLs (and local files, from a local
 archive), and never builds an `s3://`, `gs://` or `az://` store itself, so it
 cannot pick up your cloud credentials by accident. For a private bucket,
 register its store, as above; that allows its URLs. The rules are in
-[spec §6.7, Reader policy](../spec/archive.md#67-reader-policy).
+[spec §6.7, Reader policy](../spec/refkv.md#67-reader-policy).
 
 ## Troubleshooting
 

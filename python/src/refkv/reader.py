@@ -1,14 +1,14 @@
 """The read path every reference store shares: a mapping whose values are bytes or
 references.
 
-A reference store maps each key to bytes or to a reference (spec/archive.md, Part 1
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#part-1-reference-values>).
+A reference store maps each key to bytes or to a reference (spec/refkv.md, Part 1
+<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#part-1-reference-values>).
 `ReferenceReader` resolves references, whatever holds the mapping: the in-memory
 `refkv.ReferenceStore`, or `refkv.vzip.VZipStore`, which reads a vzip archive (the
 ZIP binding, Part 2
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#part-2-the-zip-binding>).
-Every store has the operations of spec/archive.md §6.2
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#62-operations>, as
+<https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#part-2-the-zip-binding>).
+Every store has the operations of spec/refkv.md §6.2
+<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>, as
 methods that return at once (`get`, `classify`, `raw`, `list`) and as coroutines
 (`get_async`, ...). Nothing here depends on Zarr, or on ZIP: `refkv.zarr` wraps a
 store as a read-only zarr store.
@@ -100,7 +100,7 @@ class Resolver:
 
     Registering a store is the application allowing it: a source URL under a
     registered prefix passes the reader policy's scheme rule (spec §6.7
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 1), so
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 1), so
     `Policy(schemes={"s3"})` is not needed to read it. The rest of the policy
     still applies to it:
 
@@ -198,7 +198,7 @@ class Resolver:
             raise ResolutionError(
                 f"{url}: no store is registered for {root}. refkv does not make one itself, "
                 f"since it would look for credentials outside the reader policy "
-                f"(spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>). "
+                f"(spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>). "
                 f"Pass registry={{{root!r}: store}}, such as an obstore S3Store, or an "
                 f"obspec_utils ObjectStoreRegistry"
                 + ("; or, for a public bucket, write its HTTPS URLs "
@@ -223,7 +223,7 @@ def _resolver(registry) -> Resolver:
 @dataclass(frozen=True)
 class RangeRequest:
     """Bytes `[min(start, n), min(end, n))` of a value of `n` bytes: spec §6.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#62-operations>'s
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>'s
     *range(start, end)*. `start > end` is a request error, whether or not the key
     is present."""
 
@@ -234,7 +234,7 @@ class RangeRequest:
 @dataclass(frozen=True)
 class OffsetRequest:
     """Bytes `[min(start, n), n)` of a value of `n` bytes: spec §6.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#62-operations>'s
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>'s
     *offset(start)*."""
 
     start: int
@@ -243,7 +243,7 @@ class OffsetRequest:
 @dataclass(frozen=True)
 class SuffixRequest:
     """The last `count` bytes of a value, or all of it if it is shorter: spec §6.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#62-operations>'s
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>'s
     *suffix(count)*."""
 
     count: int
@@ -255,7 +255,7 @@ Request = RangeRequest | OffsetRequest | SuffixRequest
 
 Kind = Literal["bytes", "reference", "missing"]
 """What `classify` says a key holds (spec §6.2
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#62-operations>)."""
+<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>)."""
 
 
 def _abs_range(size: int, request: Request | None) -> tuple[int, int]:
@@ -325,7 +325,7 @@ _getaddrinfo = socket.getaddrinfo
 
 Check = Callable[[str], None]
 """Raises ResolutionError for an IP address the reader's policy refuses (spec §6.7
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 3)."""
+<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3)."""
 
 
 def _refuse_unchecked(*args, **kwargs):
@@ -334,7 +334,7 @@ def _refuse_unchecked(*args, **kwargs):
 
 def _connect(conn: http.client.HTTPConnection, check: Check | None) -> None:
     """Open `conn` to an address of its host that `check` allows (spec §6.7
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 3).
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3).
 
     The host is resolved here, each address is checked, and the socket is
     connected to the checked address itself, so a name that resolves
@@ -398,7 +398,7 @@ def _send(url: str, headers: dict[str, str], check: Check | None = None,
     connection is opened, and again to a reused one's peer. A request that
     would go through a proxy cannot be checked, so with `check` it is
     refused unless `unchecked_proxy` (spec §6.7
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 3). `pool` keeps
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3). `pool` keeps
     the connections alive (default: the reader's, shared by its threads); it
     has `_Pool`'s `get` and `put`."""
     pool = _POOL if pool is None else pool
@@ -409,7 +409,7 @@ def _send(url: str, headers: dict[str, str], check: Check | None = None,
             if not unchecked_proxy:
                 raise ResolutionError(
                     f"{url}: the request would go through the proxy {proxy}, and the reader "
-                    f"cannot check the address the proxy connects to (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>); set "
+                    f"cannot check the address the proxy connects to (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>); set "
                     f"allow_unchecked_proxy=True to send it anyway, or exempt the host with "
                     f"no_proxy")
             # Check what the name resolves to here: this catches literal addresses and
@@ -473,10 +473,10 @@ def http_range(url: str, start: int, end: int, src: Source,
                address: Callable[[str, str], None] | None = None,
                unchecked_proxy: bool = False) -> tuple[bytes, int | None]:
     """Bytes [start, end) of an http(s) object, and its size if known (spec §5.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#52-reading-over-http>).
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>).
 
     `allow(url)` raises for a redirect target the reader's policy refuses
-    (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>); it is
+    (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>); it is
     called before the request to that target is sent.
     `address(url, ip)` raises for an IP address the policy refuses (rule 3);
     it is called on the address each request is sent to, before sending it.
@@ -498,7 +498,7 @@ def http_range(url: str, start: int, end: int, src: Source,
             seconds=t)
         headers["If-Unmodified-Since"] = email.utils.format_datetime(when, usegmt=True)
     first = url
-    for redirects in range(6):  # spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#52-reading-over-http>: at most 5 redirects
+    for redirects in range(6):  # spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>: at most 5 redirects
         check = None if address is None else (lambda ip, u=url: address(u, ip))
         try:
             status, msg, body = _send(url, headers, check, unchecked_proxy)
@@ -534,7 +534,7 @@ def http_range(url: str, start: int, end: int, src: Source,
     enc = ", ".join(e.strip() for e in encs).lower() if encs else "identity"
     crange = msg.get("Content-Range")
     etag, last_modified = msg.get("ETag"), msg.get("Last-Modified")
-    # spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#52-reading-over-http>:
+    # spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>:
     # servers may ignore conditional headers, so check the response itself
     if src.etag is not None and etag != src.etag:
         raise ResolutionError(f"{url}: the ETag is {etag!r}, but the archive pins {src.etag!r}: "
@@ -572,7 +572,7 @@ def _size_mismatch(url: str, pin: int, size: int | None) -> str:
 
 
 def _check_http_url(url: str) -> None:
-    """spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#52-reading-over-http>: no
+    """spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>: no
     userinfo, a non-empty host, a port of at most 65535."""
     pu = urlparse(url)
     if "@" in pu.netloc or not pu.hostname:
@@ -593,7 +593,7 @@ def imf_fixdate(v: str | None) -> int | None:
     m = re.fullmatch(r"(\w{3}), (\d{2}) (\w{3}) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT", v or "")
     if not m or m[1] not in _DAYS or m[3] not in _MONTHS:
         return None
-    leap = int(m[7]) == 60  # a leap second counts as the following second (§5.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#52-reading-over-http>)
+    leap = int(m[7]) == 60  # a leap second counts as the following second (§5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>)
     try:
         t = datetime.datetime(int(m[4]), _MONTHS.index(m[3]) + 1, int(m[2]), int(m[5]),
                               int(m[6]), 59 if leap else int(m[7]), tzinfo=datetime.timezone.utc)
@@ -616,10 +616,10 @@ UNCAPPED_THREADS = 64
 
 class ReferenceReader:
     """The read path that every reference store shares: a read-only mapping whose
-    values are bytes or references (spec/archive.md, Part 1
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#part-1-reference-values>), resolved
+    values are bytes or references (spec/refkv.md, Part 1
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#part-1-reference-values>), resolved
     under a reader policy (spec §6.7
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>).
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>).
 
     Subclasses say where the mapping and the source table come from:
     `refkv.ReferenceStore` holds them in memory, and `VZipStore` reads them from a
@@ -628,7 +628,7 @@ class ReferenceReader:
     before and after it is saved.
 
     The operations are those of spec §6.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#62-operations>, each
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>, each
     as a method that returns at once and as a coroutine:
 
     - `get(key, request=None)`: the value, or the part of it a `RangeRequest`,
@@ -642,7 +642,7 @@ class ReferenceReader:
     - `sources`: the source table.
 
     A failure raises one of the error classes of spec §6.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#64-errors> (`refkv.errors`).
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors> (`refkv.errors`).
     The methods that return at once run the coroutines on a thread of refkv's own,
     so they work in a notebook too; from a coroutine, await the `_async` forms.
     `refkv.zarr.store(s)` wraps a store as a read-only zarr store.
@@ -650,7 +650,7 @@ class ReferenceReader:
     Keyword arguments:
 
     - `url`: the store's base URI, against which relative source URLs resolve
-      (spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#5-source-table>); its
+      (spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>); its
       scheme decides whether the store is local or remote for the policy.
     - `registry`: the application's object stores, by URL prefix: an
       `obspec_utils.registry.ObjectStoreRegistry`, a mapping such as
@@ -689,7 +689,7 @@ class ReferenceReader:
             raise ValueError(f"max_concurrency must be a positive integer or None, "
                              f"not {max_concurrency!r}")
         self.policy = policy or Policy()
-        # spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#5-source-table>:
+        # spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>:
         # absolute, lexically normalised, symlinks not resolved
         self.url = url if urlparse(url).scheme else file_uri(url)
         self.resolver = _resolver(registry)
@@ -737,7 +737,7 @@ class ReferenceReader:
     def raw(self, key: str) -> bytes | None:
         """What the backend holds under `key`, without following references: a
         reference's serialized `Range` or `Concat` payload, and the hidden keys
-        too (spec §6.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#62-operations>).
+        too (spec §6.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>).
         None if it holds nothing."""
         return run(self.raw_async(key))
 
@@ -786,7 +786,7 @@ class ReferenceReader:
 
     async def _key_bytes(self, key: str, start: int, end: int) -> bytes:
         """Bytes [start, end) of the bytes value at `key` (a `key` source, spec §5
-        <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#5-source-table>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)."""
         raise NotImplementedError
 
     async def _read(
@@ -808,15 +808,15 @@ class ReferenceReader:
 
     async def _url_bytes(self, src: Source, start: int, end: int) -> bytes:
         """Bytes [start, end) of a url source, checking its pins (spec §5.1
-        <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#51-pins>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#51-pins>)."""
         url = resolve_reference(self.url, src.url)
         registered = self.resolver.registered(url) is not None
         allow = lambda u: self.policy.check(self.url, u, registered=registered)  # noqa: E731
-        # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule
+        # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule
         # 3: check every address, unless the application allows them all
         address = None if self.policy.allow_private_hosts else self.policy.check_address
-        allow(url)  # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>
-        if urlparse(url).scheme.lower() in ("http", "https") and not registered:  # spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#52-reading-over-http>, pinned or not
+        allow(url)  # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>
+        if urlparse(url).scheme.lower() in ("http", "https") and not registered:  # spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>, pinned or not
             async with self._limit():
                 data, size = await asyncio.get_running_loop().run_in_executor(
                     self._executor(), functools.partial(
@@ -861,14 +861,14 @@ class ReferenceReader:
 
     # Reads of the same url source closer than this are combined into one
     # request (spec §5.2
-    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#52-reading-over-http> allows it): a
+    # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http> allows it): a
     # Concat of many short ranges, such as
     # one per image row, would otherwise cost one request per range.
     MERGE_GAP = 1 << 16
 
     async def _ref_bytes(self, ref: Reference, start: int, end: int) -> bytes:
         """Bytes [start, end) of the value described by `ref` (spec §6.3
-        <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#63-resolving-a-reference>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>)."""
         for r in parts(ref):  # payload errors: every range, even ones outside [start, end)
             if r.data is None and r.source >= len(self._sources):
                 raise PayloadError(f"range uses source {r.source}; the table has "
@@ -876,7 +876,7 @@ class ReferenceReader:
         # Each piece is the bytes of a range overlapping the window: literal bytes, a
         # coroutine (a key source), or a (source, a, b) read of a url source. A range
         # with a crc32c is read whole and checked (spec §6.3
-        # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#63-resolving-a-reference>);
+        # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>);
         # `cuts` says which part of each piece the window takes, and which checksum it must have.
         pieces: list = []
         cuts: list[tuple[int, int, int | None]] = []
@@ -914,17 +914,17 @@ class ReferenceReader:
             else:
                 runs.append([source, a, b])
         coros = [p for p in pieces if not isinstance(p, (bytes, tuple))]
-        if len(runs) > self.policy.max_reads:  # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 5, before any read
+        if len(runs) > self.policy.max_reads:  # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 5, before any read
             for c in coros:
                 c.close()
             raise RequestError(f"the value needs {len(runs)} reads; this reader allows "
-                               f"{self.policy.max_reads} (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>)")
+                               f"{self.policy.max_reads} (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
         coros += [self._url_bytes(self._sources[s], a, b) for s, a, b in runs]
         try:
             done = await asyncio.gather(*coros)
         except ResolutionError:
             raise
-        except Exception as exc:  # noqa: BLE001 - spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#64-errors>: failures resolving a range
+        except Exception as exc:  # noqa: BLE001 - spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#64-errors>: failures resolving a range
             raise ResolutionError(f"{type(exc).__name__}: {exc}") from None
         other = iter(done[: len(done) - len(runs)])
         fetched = list(zip(runs, done[len(done) - len(runs):]))
@@ -943,7 +943,7 @@ class ReferenceReader:
                 data = from_runs(*p)
             else:
                 data = next(other)
-            if crc is not None and crc32c(data) != crc:  # spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>: the source changed
+            if crc is not None and crc32c(data) != crc:  # spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>: the source changed
                 raise ResolutionError(f"the bytes read do not match the range's crc32c "
                                       f"{crc:#010x} (got {crc32c(data):#010x}): the source "
                                       f"changed since the archive was written")

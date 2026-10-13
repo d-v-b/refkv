@@ -1,7 +1,7 @@
 # Independent implementations
 
 Each directory holds a reader, writer and harness CLI that an agent built from
-[spec/archive.md](../../spec/archive.md) (format version 0, **revision 7**; the current spec is revision 11) and
+[spec/refkv.md](../../spec/refkv.md) (format version 0, **revision 7**; the current spec is revision 11) and
 [HARNESS.md](../vzip/HARNESS.md) alone. The agents had no access to the
 reference implementation, the test vectors or each other's code. Each agent's
 `SPEC_NOTES.md` lists the ambiguities it reported; notes from every round are
@@ -32,8 +32,8 @@ because of their round-7 notes:
 
 **Against revision 11** they are unchanged, and `just conformance` reports
 what revision 11 changed in the ZIP binding
-([spec/archive.md §10.1](../../spec/archive.md#101-structure) rule 7,
-[§10.2](../../spec/archive.md#102-zip64)), besides the four rules above:
+([spec/bindings/vzip.md §10.1](../../spec/bindings/vzip.md#101-structure) rule 7,
+[§10.2](../../spec/bindings/vzip.md#102-zip64)), besides the four rules above:
 - **Writing:** none of their 11 written archives is valid, because none has
   the zip64 end records; the reference reader refuses to open them, which
   costs each 8 cross-read queries and 2 HTTP checks.

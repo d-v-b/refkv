@@ -3,7 +3,7 @@
 # tests, the fixture
 # comparison of the virtualizers against the frozen reference (spec/virtualize.md §1.1
 # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>, with
-# spec/archive.md's strict reading of every archive), the reproducibility of the fixture
+# spec/bindings/vzip.md's strict reading of every archive), the reproducibility of the fixture
 # generators, and the section references, each a link to a heading that exists. TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2, OME-Zarr and N5 stores, go through the Rust core (rust/refkv-ir), built natively
 # for Python (`uv sync`, which builds it into refkv as the module refkv._ir) and for wasm32 for the browser code (`just js::wasm`).
 name: ci

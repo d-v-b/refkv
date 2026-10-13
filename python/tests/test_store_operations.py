@@ -1,5 +1,5 @@
 """The operations of every reference store, without zarr (spec §6.2
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#62-operations>): `get` with and
+<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>): `get` with and
 without a request, `classify`, `list`, `list_dir`, `raw` and the source table, on a
 `ReferenceStore` and on the archives it saves, which read the same."""
 
@@ -127,7 +127,7 @@ def test_get_refuses_a_request_of_another_type(tmp_path):
 
 def test_get_of_a_refused_source_raises(tmp_path):
     """A source the reader policy refuses (a private host, spec §6.7
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 3) fails
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3) fails
     the get of a reference to it, in memory and from the archive, without reading it;
     classify, which reads no source, still says it is a reference."""
     store = refkv.ReferenceStore({"r": Range(source=0, offset=0, length=4)},

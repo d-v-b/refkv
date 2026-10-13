@@ -1,7 +1,7 @@
 """conformance/virtualize/compare.py: §1.1
 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence> equivalence
 with exact integers, and the strict
-reading of every archive (spec/archive.md, through the independent reader and the writer checks)."""
+reading of every archive (spec/bindings/vzip.md, through the independent reader and the writer checks)."""
 
 import io
 import sys

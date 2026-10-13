@@ -1,8 +1,8 @@
-// vzip writer (spec/archive.md §10
-// <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#10-zip-container>, §11
-// <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#11-entries>, §5
-// <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#5-source-table>, §14
-// <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#14-writing-a-vzip-archive>), without a page index.
+// vzip writer (spec/bindings/vzip.md §10
+// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#10-zip-container>, §11
+// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#11-entries>, §5
+// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>, §14
+// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#14-writing-a-vzip-archive>), without a page index.
 
 import { crc32, deflateRaw } from "./deflate.ts";
 import {
@@ -28,9 +28,9 @@ export interface ArchiveDesc {
 }
 
 /**
- * The revision of spec/archive.md the writer follows, recorded in every archive (§1.3
- * <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#13-versioning>, §5
- * <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#5-source-table>).
+ * The revision of spec/refkv.md the writer follows, recorded in every archive (§1.3
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#13-versioning>, §5
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>).
  */
 export const SPEC_REVISION = 11;
 export const SOURCES_KEY = "__vz__/sources";
@@ -66,7 +66,7 @@ interface Built extends Header {
 
 /**
  * Whether an entry is large: its sizes go in ZIP64 fields (spec §10.1
- * <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure> rule 7).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#101-structure> rule 7).
  */
 export const isLarge = (h: Pick<Header, "size" | "csize">): boolean =>
   h.size >= U32_ALL || h.csize >= U32_ALL;
@@ -74,7 +74,7 @@ export const isLarge = (h: Pick<Header, "size" | "csize">): boolean =>
 /**
  * The local file header, with the name: its extra field is empty, except a large entry's,
  * which is the 20-byte ZIP64 field (spec §10.1
- * <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure> rules 4 and 7).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#101-structure> rules 4 and 7).
  */
 export function localHeader(h: Header): Uint8Array {
   const large = isLarge(h);
@@ -90,14 +90,14 @@ export function localHeader(h: Header): Uint8Array {
   ]);
 }
 
-/** The body offset of an entry (spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure> rule 4). */
+/** The body offset of an entry (spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#101-structure> rule 4). */
 export const bodyOffset = (h: Header): number =>
   h.offset + 30 + h.name.length + (isLarge(h) ? 20 : 0);
 
 /**
  * The central directory record. Its ZIP64 block holds a large entry's sizes, then an
  * offset that does not fit its field, and nothing else (spec §10.2
- * <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#102-zip64>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#102-zip64>).
  */
 export function centralRecord(h: Header): Uint8Array {
   const large = isLarge(h);
@@ -121,7 +121,7 @@ export function centralRecord(h: Header): Uint8Array {
 
 /**
  * The end records, which every archive has (spec §10.2
- * <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#102-zip64>): the zip64 end of central
+ * <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#102-zip64>): the zip64 end of central
  * directory record at `at`, its locator, and the end of central directory record, whose
  * counts, size and offset are all ones, followed by `comment`.
  */
@@ -195,7 +195,7 @@ function validate(desc: ArchiveDesc) {
   };
   for (const e of desc.entries) {
     if ("bytes" in e) {
-      // spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure> rule 7
+      // spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#101-structure> rule 7
       if (e.compress && e.bytes.length >= U32_ALL) {
         reject(`${e.key}: an entry of 4 GiB or more must be STORED`);
       }
@@ -272,7 +272,7 @@ function le(fields: [number, 2 | 4 | 8][]): Uint8Array {
 
 /**
  * Writes an archive, or throws InvalidInputError (spec §7
- * <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#7-writing>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>).
  */
 export async function writeVzip(desc: ArchiveDesc): Promise<Uint8Array> {
   validate(desc);
@@ -315,7 +315,7 @@ export async function writeVzip(desc: ArchiveDesc): Promise<Uint8Array> {
   const table = encodeSourceTable(desc.sources, SPEC_REVISION);
   const tableBody = await deflateRaw(table);
   // a format entry is never large (spec §10.1
-  // <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure> rule 7)
+  // <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#101-structure> rule 7)
   if (table.length >= U32_ALL || tableBody.length >= U32_ALL) reject("the source table reaches 4 GiB");
   const sources: Built = {
     name: utf8.encode(SOURCES_KEY),

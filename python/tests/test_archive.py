@@ -120,7 +120,7 @@ def test_reserved_key_rejected():
 
 
 # ---------------------------------------------------------------- ZIP64 (spec §10.2
-# <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#102-zip64>)
+# <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#102-zip64>)
 
 
 def _small(path, page_size=None):
@@ -199,7 +199,7 @@ def test_open_fails_with_zip64_record_outside_file(tmp_path):
 
 
 # ---------------------------------------------------------------- large entries (spec §10.1
-# <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure> rule 7)
+# <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#101-structure> rule 7)
 
 
 def test_large_entry_headers():
@@ -231,7 +231,7 @@ def test_large_entry_headers():
 def _sparse(w, key, size, tail):
     """A STORED entry of `size` bytes, zeros then `tail`, the zeros left as a hole in the
     file. Its CRC-32 is not computed: readers need not verify it (spec §13.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#134-violations-readers-need-not-detect>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#134-violations-readers-need-not-detect>)."""
     w._check_new_key(key)
     w._names.add(key)
     off = w._pos
@@ -338,7 +338,7 @@ def test_entry_error_large_deflate(tmp_path):
 def test_open_fails_with_pinned_large_deflate():
     # a pinned key's record is never consulted, so the page index is where a large
     # DEFLATE entry is caught (spec §12.2
-    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#122-lookup>)
+    # <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#122-lookup>)
     for size, csize in [(U32, 1), (5, U32)]:
         with pytest.raises(ArchiveError, match="large and not STORED"):
             _check_index([], [Pinned("k", 0, size, csize, 8)], 0, 1 << 40)

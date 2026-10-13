@@ -1,6 +1,6 @@
 """The reader policy of spec §6.7
-<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>, and the range checksum
-of spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>."""
+<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>, and the range checksum
+of spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import google_crc32c
 from refkv.errors import ResolutionError
 
 # The defaults of spec §6.7
-# <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>'s table.
+# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>'s table.
 MAX_SOURCES = 1 << 22
 MAX_READS = 1024
 MAX_FORMAT_ENTRY = 256 << 20
@@ -29,14 +29,14 @@ def crc32c(data: bytes) -> int:
 
 def _scheme(url: str) -> str:
     """The scheme of an absolute URL, lowercase, with https counted as http (§6.7
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 1)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 1)."""
     s = url.split(":", 1)[0].lower() if ":" in url else ""
     return "http" if s == "https" else s
 
 
 def matches_prefix(url: str, prefix: str) -> bool:
     """Does `url` match `prefix` (spec §6.7
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 2)?"""
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 2)?"""
     if not url.startswith(prefix):
         return False
     rest = url[len(prefix):]
@@ -47,7 +47,7 @@ def matches_prefix(url: str, prefix: str) -> bool:
 
 
 # ------------------------------------------------------------ address classes (§6.7
-# <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 3)
+# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3)
 
 LOOPBACK, PRIVATE, LINK_LOCAL, SPECIAL, PUBLIC = "loopback", "private", "link-local", "special", "public"
 
@@ -67,7 +67,7 @@ _6TO4 = ipaddress.ip_network("2002::/16")
 
 def address_class(address: str | ipaddress.IPv4Address | ipaddress.IPv6Address) -> str:
     """The class of an IP address (spec §6.7
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 3): loopback,
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3): loopback,
     private, link-local, special or public. An IPv6 address that embeds an IPv4 one
     (IPv4-mapped, NAT64, 6to4) has the IPv4 address's class."""
     if isinstance(address, str):
@@ -131,7 +131,7 @@ def scheme_remedy(url: str) -> str:
 @dataclass(frozen=True)
 class Policy:
     """What a reader may resolve, and its resource limits (spec §6.7
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>).
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>).
 
     - `schemes`: schemes allowed besides those rule 1 allows by default
       (`http` and `https` for every archive, `file` for a local one), such as
@@ -197,16 +197,16 @@ class Policy:
         alone, and rule 3 still applies."""
         if self.prefixes is not None:
             if not any(matches_prefix(url, p) for p in self.prefixes):
-                raise ResolutionError(f"{url}: not under an allowed URL prefix (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>)")
+                raise ResolutionError(f"{url}: not under an allowed URL prefix (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
         else:
             s, local = _scheme(url), _scheme(base) == "file"
             if s == "file":
                 if not (local or self.allow_files_from_remote_archives):
                     raise ResolutionError(
                         f"{url}: an archive opened from a URL may not read local files "
-                        f"(spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>)")
+                        f"(spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
             elif s != "http" and not registered and s not in {_scheme(x + ":") for x in self.schemes}:
-                raise ResolutionError(f"{url}: the scheme {s!r} is not allowed (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>). "
+                raise ResolutionError(f"{url}: the scheme {s!r} is not allowed (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>). "
                                       + scheme_remedy(url))
         if _scheme(url) == "http":
             try:
@@ -226,4 +226,4 @@ class Policy:
             return
         at = f" (at {address})" if address else ""
         raise ResolutionError(f"{url}: the host{at} is a {c} address, which the reader does not "
-                              f"reach without allow_private_hosts=True (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>)")
+                              f"reach without allow_private_hosts=True (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")

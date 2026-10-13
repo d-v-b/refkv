@@ -80,8 +80,8 @@ class Output:
     lazy: tuple[str, ...] = ("vzip_source/",)
     # Source 0's pins (§1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>),
     # and the CRC-32C of a url source's bytes, when the
-    # ranges are to carry checksums (spec/archive.md §4.2
-    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>); set by
+    # ranges are to carry checksums (spec/refkv.md §4.2
+    # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>); set by
     # refkv.virtualize._virtualize.
     size: int | None = None
     etag: str | None = None
@@ -146,8 +146,8 @@ class Output:
         return reference_store(refs, entries, sources, checksum=self.checksum, policy=policy, info=info)
 
 
-PAGE_SIZE = 1 << 16  # the page index of a virtualized archive (spec/archive.md §12
-# <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#12-page-index-optional>)
+PAGE_SIZE = 1 << 16  # the page index of a virtualized archive (spec/bindings/vzip.md §12
+# <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#12-page-index-optional>)
 
 
 def reference_store(refs, entries, sources: list[Source], *, checksum=None,
@@ -157,8 +157,8 @@ def reference_store(refs, entries, sources: list[Source], *, checksum=None,
     entries (key, bytes, late), in the order given; a late entry is read when the
     archive opens (`read_at_open`), and every other one is compressed. With
     `checksum(url, offset, length)`, each range of a url source carries the CRC-32C
-    of its bytes (spec/archive.md §4.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>). The store
+    of its bytes (spec/refkv.md §4.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>). The store
     reads its sources under `policy`."""
     from refkv.pb import Concat
     from refkv.refstore import ReferenceStore, bulk
@@ -722,8 +722,8 @@ def follow(base: str, url: str, send: Callable, policy: Policy):
 def http_reader(url: str, block: int = 1 << 16, policy: Policy | None = None) -> tuple[Reader, int]:
     """A cached range reader for an http(s) URL, and the object's size. Every request
     (the size's, each range's, prefetch's) is made under the reader policy `policy`
-    (spec/archive.md §6.7
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>, default `Policy()`),
+    (spec/refkv.md §6.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>, default `Policy()`),
     as `HttpStore`'s are: each redirect target is
     checked before it is requested; unless the policy has `allow_private_hosts`, the
     address each request is sent to is checked, on a new connection and on a

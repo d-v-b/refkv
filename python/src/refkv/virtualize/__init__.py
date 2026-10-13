@@ -25,8 +25,8 @@ In Python, `virtualize(location)` (or `virtualize_store`, for a store) returns t
 result as a `refkv.ReferenceStore`: readable in memory, and written as a vzip archive
 by `store.save(path)`; `store.info` holds the format and the profile's summary.
 
-A file or a store at an http(s) URL is read under the reader policy (spec/archive.md
-§6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>): a host that is, or
+A file or a store at an http(s) URL is read under the reader policy (spec/refkv.md
+§6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>): a host that is, or
 resolves to, a loopback, private, link-local or special
 address is refused unless the policy has `allow_private_hosts`
 (`--allow-private-hosts`), and a request that would go through a proxy unless
@@ -39,7 +39,7 @@ every response for it gave the same strong one (spec/virtualize.md §1.2
 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>, §1.4
 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>).
 `--checksums` also records the CRC-32C of every range of a url source
-(spec/archive.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>), which
+(spec/refkv.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>), which
 reads all the bytes the archive references: off by default.
 
 The archive's source is the input URL (or, with --url, the given one, which is
@@ -66,8 +66,8 @@ def _virtualize_store(location: str, url: str | None = None, *, max_objects: int
     """(format, output) for the store at `location` (§1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>), its documents
     read by up to `workers` requests at a time; with `checksums`, the output's ranges
-    carry the CRC-32C of their bytes (spec/archive.md §4.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>). A store at an http(s) URL
+    carry the CRC-32C of their bytes (spec/refkv.md §4.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>). A store at an http(s) URL
     is listed and read under the reader policy `policy` (default: `Policy()`)."""
     store = open_store(location, url, max_objects=max_objects, workers=workers, policy=policy)
     try:
@@ -109,7 +109,7 @@ def _virtualize(location: str, url: str | None = None, *, checksums: bool = Fals
     same strong one and the output names the URL that was read (§1.2
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>). With
     `checksums`, the output's ranges of source 0 carry the CRC-32C of their
-    bytes (spec/archive.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>),
+    bytes (spec/refkv.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>),
     which reads them. `policy` is the reader policy a file
     or store at an http(s) URL is read under (default: `Policy()`, private hosts
     refused).
@@ -167,10 +167,10 @@ def virtualize(location: str, url: str | None = None, *, checksums: bool = False
     - `url`: the URL the archive names the source by (default: `location`); a
       local directory needs one, the store URL (ending in `/`) it is served from.
     - `checksums`: each range of a url source carries the CRC-32C of its bytes
-      (spec/archive.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>),
+      (spec/refkv.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>),
       which reads every byte the store references.
-    - `policy`: the reader policy (spec/archive.md §6.7
-      <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>) the input is
+    - `policy`: the reader policy (spec/refkv.md §6.7
+      <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) the input is
       read under, and the store's sources after it (default `Policy()`: private
       hosts refused). `save` checks the sources against the policy the archive's
       readers will use, `Policy()` unless given: pass it this one when the

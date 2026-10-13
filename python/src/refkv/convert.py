@@ -106,7 +106,7 @@ def read_at_open(key: str, vds: xr.Dataset) -> bool:
 
     Writers add these with `late=True`, so that they sit in the part of the
     archive a reader fetches when it opens it (spec §14.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#142-recommended-layout-informative>) and
+    <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#142-recommended-layout-informative>) and
     cost no request. """
     return key.endswith("zarr.json") or key.split("/", 1)[0] in vds.xindexes
 

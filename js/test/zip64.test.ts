@@ -1,6 +1,6 @@
 // The ZIP64 end records, which every archive has, and large entries (spec §10.1
-// <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure> rules 4 and 7, §10.2
-// <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#102-zip64>).
+// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#101-structure> rules 4 and 7, §10.2
+// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#102-zip64>).
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

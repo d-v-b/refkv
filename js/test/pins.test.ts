@@ -1,8 +1,8 @@
 // The virtualizers' pins and range checksums (spec/virtualize.md §1.2
 // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>, §1.4
 // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>;
-// spec/archive.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>, §5.1
-// <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#51-pins>): the twin of
+// spec/refkv.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>, §5.1
+// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#51-pins>): the twin of
 // python/tests/test_virtualize_pins.py.
 
 import assert from "node:assert/strict";
