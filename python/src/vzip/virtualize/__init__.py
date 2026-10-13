@@ -1,13 +1,13 @@
 """Virtualizing image files and N5 / Zarr v2 stores in vzip archives (spec/virtualize.md).
 
-TIFF (NDPI included), ND2, CZI, DICOM and NIfTI files, and Sentinel-2 SAFE products
+TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and IMS files, and Sentinel-2 SAFE products
 (spec/virtualize/safe.md: a `.SAFE.zip` file, or a `.SAFE` directory, a store input), go
 through the IR (`vzip.ir`): the Rust core's sans-IO parser of the format, driven by its
 read planner (a file) or by the store's reads (`vzip.ir.store`), projected to the
 convention's hierarchy and mirrored under `vzip_source` by the Rust core, whose TIFF
 parser finds NDPI itself (spec/virtualize/ndpi.md §4
 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>).
-Every other profile is a subpackage: ims (file inputs), n5, zarr2, ome_zarr
+Every other profile is a subpackage: n5, zarr2, ome_zarr
 (store inputs, spec/virtualize/n5.md, spec/virtualize/zarr2.md and
 spec/virtualize/ome-zarr.md); common holds what they share, and store the store
 machinery (§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>–§1.6
@@ -52,7 +52,6 @@ from __future__ import annotations
 from vzip.policy import Policy, crc32c
 from vzip.refstore import ReferenceStore
 from vzip.virtualize.common import Output, Rejected, file_reader, http_reader
-from vzip.virtualize.ims import virtualize_ims
 from vzip.virtualize.n5 import virtualize_n5
 from vzip.virtualize.ome_zarr import declares_04, virtualize_ome_zarr
 from vzip.virtualize.store import WORKERS, StoreOutput, choose_profile, object_url, open_store
@@ -133,7 +132,7 @@ def _virtualize(location: str, url: str | None = None, *, checksums: bool = Fals
     which reads them. `policy` is the reader policy a file
     or store at an http(s) URL is read under (default: `Policy()`, private hosts
     refused).
-    For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and SAFE zip files, `connections` is how many requests run at a time to a
+    For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and IMS files and SAFE zip files, `connections` is how many requests run at a time to a
     remote source (default 8), and `byte_cost` the seconds of wall time the read
     planner charges a byte fetched beyond those asked (default 0.1 s per MB).
     A store's documents are read by up to `workers` requests at a time."""
@@ -165,6 +164,8 @@ def _virtualize(location: str, url: str | None = None, *, checksums: bool = Fals
             ir_format = "czi"
         elif nifti_version(head) is not None:
             ir_format = "nifti"
+        elif head[:8] == HDF5:
+            ir_format = "ims"
         elif head[:4] == ZIP_MAGIC:
             ir_format = "safe"
     if ir_format is not None:
@@ -191,8 +192,6 @@ def _virtualize(location: str, url: str | None = None, *, checksums: bool = Fals
 def _virtualize_file(url: str, read, size: int) -> tuple[str, Output]:
     """The profiles that are not the IR's, by the file's first bytes."""
     head = read(0, min(552, size))
-    if head[:8] == HDF5:
-        return "ims", virtualize_ims(url, read, size)
     raise Rejected(NOT_SUPPORTED)
 
 

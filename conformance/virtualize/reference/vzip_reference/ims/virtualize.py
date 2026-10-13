@@ -7,9 +7,10 @@ import math
 import re
 from collections.abc import Callable
 
+from vzip_reference.revision import IMS_REVISION
 from vzip.virtualize.common import LENGTHS, UNITS, Output, Reader, Rejected, array_json, root_json, image_ome
-from vzip.virtualize.ims.source import source_tree
-from vzip.virtualize.ims.hdf5 import MAX_SAFE, Hdf5, attribute_value, le
+from vzip_reference.ims.source import source_tree
+from vzip_reference.ims.hdf5 import MAX_SAFE, Hdf5, attribute_value, le
 
 MAX_LEVELS = 64
 MAX_DATASETS = 100000
@@ -346,7 +347,7 @@ def virtualize_ims(url: str, read: Reader, size: int) -> Output:
     out = Output(url)
     # The source metadata (spec/virtualize/ims.md §5
     # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata>).
-    out.json("zarr.json", root_json(ome, "ims", url))
+    out.json("zarr.json", root_json(ome, "ims", url, revision=IMS_REVISION))
     for r, array in enumerate(arrays):
         out.json(f"{r}/zarr.json", array)
     for r, t, c, coords, (offset, n) in chunk_refs:

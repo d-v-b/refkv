@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
 import { virtualizeImage } from "../../src/virtualize/index.ts";
-import { ImsError } from "../../src/virtualize/ims/virtualize.ts";
+import { ImageError } from "../../src/virtualize/common.ts";
 
 const FIXTURES = new URL("../../../fixtures/ims/", import.meta.url);
 
@@ -67,6 +67,6 @@ for (const [name, message] of [
   ["ims_reject_raw_edges_image.ims", /a chunk's filter mask is not 0/],
 ] as const) {
   test(`rejects ${name}`, async () => {
-    await assert.rejects(virtualize(name), (e) => e instanceof ImsError && message.test(e.message));
+    await assert.rejects(virtualize(name), (e) => e instanceof ImageError && message.test(e.message));
   });
 }

@@ -26,12 +26,14 @@ def proxy(tmp_path_factory):
     return Proxy(FIXTURES, tmp_path_factory.mktemp("cache"))
 
 
-# (fixture, a store, checksums, format): a TIFF through the Rust core, NIfTI, a Zarr v2
-# store, and a SAFE product as a store and as a zip file
+# (fixture, a store, checksums, format): a TIFF through the Rust core, NIfTI, Imaris IMS,
+# a Zarr v2 store, and a SAFE product as a store and as a zip file
 INPUTS = [
     ("tiff/jpeg_gray.tif", False, False, "tiff"),
     ("tiff/jpeg_gray.tif", False, True, "tiff"),
     ("nifti/nifti_block_x_split.nii", False, False, "nifti"),
+    ("ims/ims_latest_uint8.ims", False, False, "ims"),
+    ("ims/ims_latest_uint8.ims", False, True, "ims"),
     ("zarr2/zarr2_hierarchy", True, True, "zarr2"),
     ("safe/safe_l2a_pb0207", True, False, "safe"),
     ("safe/safe_l2a_pb0207.SAFE.zip", False, False, "safe"),
