@@ -27,7 +27,8 @@ def proxy(tmp_path_factory):
 
 
 # (fixture, a store, checksums, format): a TIFF through the Rust core, NIfTI, Imaris IMS,
-# a Zarr v2 store, and a SAFE product as a store and as a zip file
+# a Zarr v2 store, and a SAFE product as a store (whose ranges start past byte 0, beside data
+# sources) and as a zip file
 INPUTS = [
     ("tiff/jpeg_gray.tif", False, False, "tiff"),
     ("tiff/jpeg_gray.tif", False, True, "tiff"),
@@ -37,6 +38,7 @@ INPUTS = [
     ("zarr2/zarr2_hierarchy", True, False, "zarr2"),
     ("zarr2/zarr2_hierarchy", True, True, "zarr2"),
     ("safe/safe_l2a_pb0207", True, False, "safe"),
+    ("safe/safe_l2a_pb0207", True, True, "safe"),
     ("safe/safe_l2a_pb0207.SAFE.zip", False, False, "safe"),
 ]
 
@@ -68,8 +70,9 @@ def test_reference_store_rejects_a_duplicate_key(entries):
         reference_store([ref] + ([] if entries else [ref]), entries, [Source(url="https://data.test/a")])
 
 
-def test_cli_refuses_to_save_sources_its_policy_refuses(tmp_path):
+@pytest.mark.parametrize("module", ["vzip.virtualize", "vzip.ir"])
+def test_cli_refuses_to_save_sources_its_policy_refuses(tmp_path, module):
     out = tmp_path / "out.vzip"
-    p = subprocess.run([sys.executable, "-m", "vzip.virtualize", str(FIXTURES / "nifti/nifti_block_x_split.nii"),
+    p = subprocess.run([sys.executable, "-m", module, str(FIXTURES / "nifti/nifti_block_x_split.nii"),
                         str(out), "--url", "http://127.0.0.1/x.nii"], capture_output=True, text=True)
     assert p.returncode == 1 and "error: not saving" in p.stderr and not out.exists(), p.stderr
