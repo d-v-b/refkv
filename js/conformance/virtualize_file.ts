@@ -17,7 +17,6 @@ import { OmeZarrError } from "../src/virtualize/ome-zarr/virtualize.ts";
 import { NiftiError } from "../src/virtualize/nifti/virtualize.ts";
 import { ImsError } from "../src/virtualize/ims/virtualize.ts";
 import { SafeError } from "../src/virtualize/safe/virtualize.ts";
-import { TiffError } from "../src/virtualize/tiff/ifd.ts";
 import { writeVzip } from "../src/writer.ts";
 import { directoryStore } from "./directory_store.ts";
 
@@ -35,7 +34,7 @@ try {
   fs.writeFileSync(outPath, await writeVzip(virtual));
   console.log(JSON.stringify(virtual.summary));
 } catch (e) {
-  if (!(e instanceof TiffError ||
+  if (!(
     e instanceof NiftiError || e instanceof ImsError || e instanceof ImageError || e instanceof StoreError || e instanceof N5Error || e instanceof Zarr2Error || e instanceof OmeZarrError || e instanceof SafeError)) {
     console.error(e);
     process.exit(2); // a crash, not a refusal

@@ -9,10 +9,14 @@
 // data sources, since every chunk shares it), a literal frame header for the
 // chunk's size, and a × b restart intervals.
 
-import { base64, type ByteReader, DataSources, declare, MAX_PAYLOAD, type Part, payloadSize, toRange, stringifyJson } from "../common.ts";
+import { base64, type ByteReader, DataSources, declare, MAX_PAYLOAD, type Part, payloadSize, toRange, stringifyJson } from "../../../../../js/src/virtualize/common.ts";
 import { TiffError } from "../tiff/ifd.ts";
 import { type Entry, type Found, LAYOUT, Translator } from "../tiff/tags.ts";
-import type { ArchiveDesc, EntryDesc } from "../../writer.ts";
+import type { ArchiveDesc, EntryDesc } from "../../../../../js/src/writer.ts";
+
+// The revision the frozen NDPI reference implements and its root records: 25, the last
+// before NDPI's vzip_source became the IR mirror (revision 26).
+const REVISION = 25;
 
 const MAX_IFDS = 100000;
 // Besides TIFF's, McuStarts and McuStartsHighBytes locate the strips' restart
@@ -365,7 +369,7 @@ export async function virtualizeNdpi(
             datasets,
           }],
         },
-      }, "ndpi", url),
+      }, "ndpi", url, undefined, REVISION),
     }),
   });
   const summary = { axes, levels: levels.map((l) => [3, l.h, l.w]), references: entries.length - levels.length - 1, codec: "imagecodecs_jpeg" };

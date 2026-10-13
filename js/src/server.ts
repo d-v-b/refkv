@@ -26,7 +26,6 @@ import { OmeZarrError } from "./virtualize/ome-zarr/virtualize.ts";
 import { SafeError } from "./virtualize/safe/virtualize.ts";
 import { ImsError } from "./virtualize/ims/virtualize.ts";
 import { NiftiError } from "./virtualize/nifti/virtualize.ts";
-import { TiffError } from "./virtualize/tiff/ifd.ts";
 import { writeVzip } from "./writer.ts";
 
 export const ARCHIVE_KEY = "__vz__/archive.vzip";
@@ -221,7 +220,6 @@ export function makeHandler(options: HandlerOptions) {
         const status = e.errorClass === "request" ? 416 : e.errorClass === "resolution" ? 502 : 500;
         return response(status, message);
       }
-      if (e instanceof TiffError) return response(422, `TIFF: ${message}`);
       if (e instanceof NiftiError) return response(422, `NIfTI: ${message}`);
       if (e instanceof ImsError) return response(422, `IMS: ${message}`);
       if (e instanceof N5Error) return response(422, `N5: ${message}`);

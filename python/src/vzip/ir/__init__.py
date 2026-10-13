@@ -1,7 +1,7 @@
 """vzip's intermediate representation (design/ARCHITECTURE.md §3
 <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
 the path `vzip.virtualize`
-takes for TIFF, ND2, CZI and DICOM: the Rust core (rust/vzip-ir, the `vzip_ir` module)
+takes for TIFF (NDPI included), ND2, CZI and DICOM: the Rust core (rust/vzip-ir, the `vzip_ir` module)
 parses, checking each format's source model schema, plans the reads, projects the
 convention's hierarchy and mirrors the IR under `vzip_source`; this package is the
 host: the I/O (`planner.py`), the archive writer (`output.py` into `Output`), and
@@ -69,6 +69,7 @@ def virtualize(location: str, url: str | None = None, mirror: bool = True, polic
         raise Rejected("not a TIFF, CZI, ND2 or DICOM file")
     run = new_run(fmt, transport, connections, byte_cost)
     drive(run, transport, connections)
+    fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"
     try:
         t, ir = run.output(url or location, mirror)
     except vzip_ir.Rejected as e:

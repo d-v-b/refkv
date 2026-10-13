@@ -1,8 +1,9 @@
 """The round-3 probes (design/IR_NOTES.md §21
 <https://github.com/d-v-b/vzip/blob/main/design/IR_NOTES.md#21-round-1s-findings-closed>): round 1's
 CZI review findings,
-rebuilt, and round 1's TIFF amplification probes, plus IFD loops and huge counts; and the
-DICOM probes of revision 26.
+rebuilt, and round 1's TIFF amplification probes, plus IFD loops and huge counts; the
+DICOM probes of revision 26; and NDPI's (revision 26): many intervals, loops, huge counts and
+offsets, overlapping extents.
 Usage: uv run python python/tests/ir/gen_probes.py <out dir> [--small]
 (--small writes the tests' sizes: no file over 1 MB.)"""
 import os
@@ -248,4 +249,95 @@ write("dicom_frames_many.dcm", dcm(image(1, 1, n) + el(0x7FE0, 0x10, b"OB", byte
 n = 10000 if small else 500000
 body = b"".join(el(0x0009 + 2 * (k >> 15), 0x1000 + (k & 0x7FFF), b"SH", b"ab") for k in range(n))
 write("dicom_many_elements.dcm", dcm(el(0x0009, 0x0010, b"LO", b"VZIP") + body + image(1, 1) + el(0x7FE0, 0x10, b"OB", b"\0\0")))
+
+# ---- NDPI (spec/virtualize/ndpi.md <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md>)
+
+def jpeg_head(w: int, h: int, r: int = 1) -> bytes:
+    """SOI, SOF0 (3 components sampled 1 × 1: MCUs of 8 × 8), DRI `r`, SOS."""
+    sof = struct.pack(">BHHB", 8, h, w, 3) + bytes([1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0])
+    sos = bytes([3, 1, 0, 2, 0, 3, 0, 0, 0x3F, 0])
+    return (b"\xff\xd8\xff\xc0" + struct.pack(">H", 2 + len(sof)) + sof + b"\xff\xdd\x00\x04" + struct.pack(">H", r)
+            + b"\xff\xda" + struct.pack(">H", 2 + len(sos)) + sos)
+
+
+def ndpi(ifds: list[list[tuple]], blobs: bytes, chain=None) -> bytes:
+    """An NDPI: a 16-byte header, `blobs` from 16, then the IFDs (entries (tag, type, count, value),
+    a value of up to 64 bits: its low 32 bits in the entry, the rest in its high word)."""
+    start = 16 + len(blobs)
+    sizes = [2 + 16 * len(e) + 8 for e in ifds]
+    offs = [start + sum(sizes[:k]) for k in range(len(sizes))]
+    body = bytearray()
+    for k, e in enumerate(ifds):
+        nxt = chain[k] if chain is not None else (k + 1 if k + 1 < len(ifds) else None)
+        e = sorted(e)
+        body += struct.pack("<H", len(e))
+        for tag, typ, count, value in e:
+            body += struct.pack("<HHII", tag, typ, count, value & 0xFFFFFFFF)
+        body += struct.pack("<Q", offs[nxt] if nxt is not None else 0)
+        for *_, value in e:
+            body += struct.pack("<I", value >> 32)
+    return b"II*\0" + struct.pack("<Q", offs[0]) + bytes(4) + blobs + bytes(body)
+
+
+def ndpi_level(q: int, r: int, size: int = 1, mag: float = 20.0):
+    """(blobs, entries) of one McuStarts level of q × r intervals of `size` bytes (R = 1)."""
+    head = jpeg_head(8 * q, 8 * r)
+    strip = bytearray(head)
+    starts = []
+    for i in range(q * r):
+        if i:
+            strip += bytes([0xFF, 0xD0 + (i - 1) % 8])
+        starts.append(len(strip))
+        strip += bytes([0x55]) * size
+    strip += b"\xff\xd9"
+    blobs = bytearray(struct.pack("<3H", 8, 8, 8) + bytes(2))
+    so = 16 + len(blobs)
+    blobs += strip + bytes(len(strip) % 2)
+    mo = 16 + len(blobs)
+    blobs += struct.pack(f"<{len(starts)}I", *starts)
+    f = struct.unpack("<I", struct.pack("<f", mag))[0]
+    entries = [(256, 4, 1, 8 * q), (257, 4, 1, 8 * r), (258, 3, 3, 16), (259, 3, 1, 7), (262, 3, 1, 6),
+               (277, 3, 1, 3), (273, 4, 1, so), (279, 4, 1, len(strip)), (65420, 4, 1, 1), (65421, 11, 1, f),
+               (65426, 4, len(starts), mo)]
+    return bytes(blobs), entries
+
+
+# huge counts: many intervals, each chunk's payload over the limit until b is small (each b tried
+# is a pass over every interval)
+q, r = (256, 256) if small else (1024, 1024)
+blobs, e = ndpi_level(q, r)
+write(f"ndpi_intervals_{q}x{r}.ndpi", ndpi([e], blobs))
+blobs, e = ndpi_level(4, 4)
+macro = [(256, 4, 1, 8), (257, 4, 1, 8), (65420, 4, 1, 1), (65421, 11, 1, struct.unpack("<I", struct.pack("<f", -1.0))[0])]
+# loops: rejected
+write("ndpi_loop_chain.ndpi", ndpi([e, macro], blobs, chain=[1, 0]))
+write("ndpi_loop_self.ndpi", ndpi([e], blobs, chain=[0]))
+# pointer loops: the macro image's EXIF pointer to itself and to IFD 0, SubIFDs to both: aliases, accepted
+first = 16 + len(blobs)
+second = first + 2 + 16 * len(e) + 8
+write("ndpi_loop_pointers.ndpi", ndpi([e, [*macro, (34665, 4, 1, second), (330, 13, 1, first)]], blobs))
+# huge counts and offsets: McuStarts past the file, an entry count past the file, a strip offset
+# whose high word puts it past the file: rejected; a pointer whose high word does: not followed
+write("ndpi_huge_mcustarts.ndpi", ndpi([[*e[:10], (65426, 4, 0xFFFFFFFF, 16)]], blobs))
+huge = bytearray(ndpi([e], blobs))
+struct.pack_into("<H", huge, first, 0xFFFF)
+write("ndpi_huge_entry_count.ndpi", bytes(huge))
+write("ndpi_high_strip.ndpi", ndpi([[*e[:6], (273, 4, 1, e[6][3] + (1 << 40)), *e[7:]]], blobs))
+write("ndpi_high_pointer.ndpi", ndpi([e, [*macro, (34665, 4, 1, second + (1 << 40))]], blobs))
+# overlapping extents: the macro image's strip is the level's strip, and its McuStarts the level's
+# (aliases); a value inside the level's strip (an alias of the strip): accepted
+write("ndpi_overlap.ndpi", ndpi([e, [*macro, e[6], e[7], (65426, 4, e[10][2], e[10][3]), (270, 2, 16, e[6][3] + 40)]],
+                                blobs))
+# McuStartsHighBytes, as many values as McuStarts (all 0, as the slides over 4 GiB write them
+# for intervals below it): accepted
+blobs2, e2 = ndpi_level(8, 8)
+ho = 16 + len(blobs2)
+write("ndpi_high_bytes.ndpi", ndpi([[*e2, (65432, 4, e2[10][2], ho)]], blobs2 + bytes(4 * e2[10][2])))
+# fewer McuStartsHighBytes than McuStarts: rejected; McuStartsHighBytes of 2^32 as LONG8 (an offset of
+# 2^64 and more, which 64 bits would wrap to the low words alone): rejected
+write("ndpi_high_bytes_short.ndpi", ndpi([[*e2, (65432, 4, 2, ho)]], blobs2 + bytes(8)))
+write("ndpi_high_bytes_wrap.ndpi", ndpi([[*e2, (65432, 16, e2[10][2], ho)]],
+                                        blobs2 + struct.pack(f"<{e2[10][2]}Q", *[1 << 32] * e2[10][2])))
+# many IFDs: past 100000, rejected (the full size only; with --small, 1001 IFDs, accepted)
+write("ndpi_many_ifds.ndpi", ndpi([e] + [macro] * (1000 if small else 100001), blobs))
 print(sorted(p.name for p in out.iterdir()))

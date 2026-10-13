@@ -143,7 +143,7 @@ with the first's:
 
 - `ref`, the reference: `conformance/virtualize/reference/cli.py
   --allow-private-hosts` (the harness serves its inputs from 127.0.0.1, which
-  the reader policy refuses by default). For TIFF, ND2, CZI and DICOM it runs the
+  the reader policy refuses by default). For TIFF, ND2, CZI, DICOM and NDPI it runs the
   frozen Python profiles in
   `conformance/virtualize/reference/vzip_reference/` (what `vzip.virtualize`
   shipped before these formats moved to the IR, unchanged but for their import
@@ -152,7 +152,7 @@ with the first's:
 - `web`: the browser code under Node, `js/conformance/virtualize.ts
   --allow-private-hosts`.
 
-For TIFF, ND2, CZI and DICOM, `py` and `web` are one implementation: the Rust core
+For TIFF (NDPI included), ND2, CZI and DICOM, `py` and `web` are one implementation: the Rust core
 `rust/vzip-ir` (its parsers, schemas, read planner, projections and mirror),
 built natively for Python and as wasm32 for the browser, each with a thin host
 (the I/O, and the archive writer). Their `vzip_source` is the IR's mirror,
@@ -177,7 +177,7 @@ For every other profile, `py` and `web` are still two hand-written
 implementations, and `ref` runs the same code as `py`.
 
 Since revision 21, `vzip_source` of TIFF, ND2 and CZI is the IR mirror of
-[conventions §8](../../spec/conventions.md#8-the-ir-mirror), and since revision 26 that of DICOM too; since revision 22 the mirror is canonical ([conventions §8.8](../../spec/conventions.md#88-canonical-form))
+[conventions §8](../../spec/conventions.md#8-the-ir-mirror), and since revision 26 that of DICOM and NDPI too; since revision 22 the mirror is canonical ([conventions §8.8](../../spec/conventions.md#88-canonical-form))
 and [spec/virtualize.md §1.1](../../spec/virtualize.md#11-output-and-equivalence) compares it entry for entry, as `py` against `web`
 does. `compare.py` also checks each archive's mirror on its own, in addition
 to that comparison: it loads the table, checks its invariants (conventions
@@ -186,14 +186,15 @@ checks that it is canonical (folded again from what it loads, it is the same
 table, entry for entry); a mirror that fails is a crash of the
 implementation that wrote it.
 
-**The frozen reference records revision 20 (DICOM 25).** The frozen TIFF, ND2 and CZI
+**The frozen reference records revision 20 (DICOM and NDPI 25).** The frozen TIFF, ND2 and CZI
 profiles have their own revision constant
 (`conformance/virtualize/reference/vzip_reference/revision.py`,
 `conformance/virtualize/reference/ts/revision.ts`), 20, the last revision before the
 mirror, which their roots record with their old `vzip_source`; the frozen DICOM
-profiles record 25, the last revision before DICOM's mirror (`DICOM_REVISION`);
-nothing else in them changed (an edit made so that a reference archive does not
-claim a revision it does not implement). `compare.py` compares a reference
+profiles record 25, the last revision before DICOM's mirror (`DICOM_REVISION`), and
+the frozen NDPI profiles 25, the last before NDPI's mirror (`REVISION` in each
+`ndpi/virtualize`); nothing else in them changed (an edit made so that a reference
+archive does not claim a revision it does not implement). `compare.py` compares a reference
 root that records its profile's frozen revision as if it recorded the current one,
 so the revision number is the one difference it does not report; every other
 profile's reference is the shipped code, which records the current revision.
