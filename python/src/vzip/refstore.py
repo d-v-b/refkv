@@ -88,10 +88,10 @@ def _page_size(page_size):
 
 @contextlib.contextmanager
 def bulk():
-    """Pauses the cyclic garbage collector (for the whole process) while millions of acyclic objects (a
-    store's ranges and sources, a writer's records) are built: each collection
-    would scan them all again, which made saving a million references take 2.5
-    times as long."""
+    """Pauses the cyclic garbage collector, for the whole process, while
+    millions of acyclic objects (a store's ranges and sources, a writer's
+    records) are built: each collection would scan them all again, which made
+    saving a million references take 2.5 times as long."""
     enabled = gc.isenabled()
     gc.disable()
     try:
@@ -357,9 +357,9 @@ class ReferenceStore(ReferenceReader):
           to the archive, so the archive and its sources can move together.
         - `policy`: the reader policy the sources are checked against before
           anything is written (default `Policy()`, the default reader's). A
-          source it refuses raises ResolutionError (a ValueError), which says how to fix it, and
-          nothing is written: write
-          `s3://` URLs of a public bucket as HTTPS
+          source it refuses raises ResolutionError (a ValueError), and nothing
+          is written. The error says how to fix it: write `s3://` URLs of a
+          public bucket as HTTPS
           (`ReferenceStore.from_virtualizarr(vds, rewrite_urls=vzip.public_s3_url)`),
           or pass the policy the archive's readers will use, such as
           `Policy(schemes={"s3"})`.

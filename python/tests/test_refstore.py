@@ -186,7 +186,7 @@ def test_reading_a_refused_scheme_says_how_to_fix_it():
 
 
 def test_save_refuses_sources_the_reader_policy_refuses(tmp_path):
-    with pytest.raises(ValueError, match=r"not saving .*default reader policy refuses 1 of its 1 "
+    with pytest.raises(ResolutionError, match=r"not saving .*default reader policy refuses 1 of its 1 "
                                          r"sources.*vzip\.public_s3_url"):
         _s3_store().save(tmp_path / "x.vzip")
     assert not (tmp_path / "x.vzip").exists()
@@ -199,9 +199,9 @@ def test_save_counts_each_refused_source_of_a_shared_origin(tmp_path):
             "http://127.0.0.1/e"]
     store = vzip.ReferenceStore({f"k{i}": Range(source=i, offset=0, length=1) for i in range(5)},
                                 [Source(url=u) for u in urls])
-    with pytest.raises(ValueError, match=r"refuses 3 of its 5 sources.*127\.0\.0\.1/b"):
+    with pytest.raises(ResolutionError, match=r"refuses 3 of its 5 sources.*127\.0\.0\.1/b"):
         store.save(tmp_path / "x.vzip")
-    with pytest.raises(ValueError, match=r"refuses 4 of its 5 sources.*127\.0\.0\.1/b"):
+    with pytest.raises(ResolutionError, match=r"refuses 4 of its 5 sources.*127\.0\.0\.1/b"):
         store.save(tmp_path / "x.vzip", policy=vzip.Policy(prefixes=("https://data.test/a",)))
     # a policy with its own check decides each source
 
@@ -211,14 +211,14 @@ def test_save_counts_each_refused_source_of_a_shared_origin(tmp_path):
                 raise ResolutionError(f"{url}: refused by path")
             super().check(base, url, **kwargs)
 
-    with pytest.raises(ValueError, match=r"refuses 1 of its 5 sources.*data\.test/c: refused by path"):
+    with pytest.raises(ResolutionError, match=r"refuses 1 of its 5 sources.*data\.test/c: refused by path"):
         store.save(tmp_path / "x.vzip", policy=ByPath(allow_private_hosts=True))
     # an invalid URL is refused on its own, after or before its origin's other sources
     for urls in (["https://data.test/a", "https://data.test/a b", "https://data.test/c"],
                  ["https://data.test/a b", "https://data.test/a", "https://data.test/c"]):
         store = vzip.ReferenceStore({f"k{i}": Range(source=i, offset=0, length=1) for i in range(3)},
                                     [Source(url=u) for u in urls])
-        with pytest.raises(ValueError, match=r"refuses 1 of its 3 sources.*not a valid URI reference"):
+        with pytest.raises(ResolutionError, match=r"refuses 1 of its 3 sources.*not a valid URI reference"):
             store.save(tmp_path / "x.vzip")
     assert not (tmp_path / "x.vzip").exists()
 
