@@ -151,7 +151,7 @@ def test_hostile_stores_are_refused_or_virtualized_as_the_reference_does(n5_prob
         stored = files(root)
         for key, size, data in vzip_ir.rebuild_store(out.entries.get):
             assert size == len(stored[key]) and data in (None, stored[key]), (root.name, key)
-    assert seen == 12
+    assert seen == 13
 
 
 def test_under_a_root_dataset_the_mirror_and_the_other_objects_are_keys_of_vzip_source():

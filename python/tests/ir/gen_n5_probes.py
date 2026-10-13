@@ -1,7 +1,7 @@
 """Hostile N5 stores (in the style of the round-3 probes, python/tests/ir/gen_probes.py): deep and
 wide candidates, a document of 800,000 members or of one name repeated, a grid at the integer
-limit, a multiscale group whose levels repeat, many empty objects, a dataset full of nested
-documents, deep JSON, and member names that break the IR's naming rules. Each must be refused or
+limit, a multiscale group whose levels repeat, many empty objects, many deep keys under a
+root dataset, a dataset full of nested documents, deep JSON, and member names that break the IR's naming rules. Each must be refused or
 virtualized as the frozen reference does it, never hang or blow up.
 Usage: uv run python python/tests/ir/gen_n5_probes.py <out dir> [--small]
 (--small writes the tests' sizes: each store under 2 MB and 3000 objects.)"""
@@ -55,6 +55,10 @@ store("n5_probe_levels", {
 # many empty objects, which the mirror lists
 empties = 2500 if small else 200_000
 store("n5_probe_empty", {"attributes.json": RAW, **{f"x/{k}": b"" for k in range(empties)}})
+# many deep keys under a root dataset: none is a chunk key (too many segments), each an other object
+deep_keys = 2000 if small else 20_000
+store("n5_probe_deep_keys", {"attributes.json": RAW,
+                             **{"/".join(["d"] * 300 + [str(k)]): b"x" for k in range(deep_keys)}})
 # a dataset whose directory holds many documents of nested datasets, none of which is read
 nested = 2000 if small else 50_000
 store("n5_probe_nested", {"attributes.json": RAW, **{f"n{k}/attributes.json": b"not JSON" for k in range(nested)}})

@@ -528,18 +528,30 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         let block: Vec<u64> = cfg.and_then(Jv::items).unwrap_or(&[]).iter().map(|x| int(Some(x)) as u64).collect();
         (p.as_str(), dims.iter().zip(&block).map(|(d, b)| d.div_ceil((*b).max(1))).collect())
     }).collect();
+    // Datasets do not nest (a candidate inside one is never read, so never a node: n5.rs), so a
+    // key has at most one dataset among its proper ancestors, and is a chunk key when that
+    // dataset's rank is the number of segments after it. So only the prefix that leaves `n`
+    // segments, for each rank `n` of a dataset, can be it: at most 32 lookups of borrowed
+    // slices, not one allocated prefix per segment of a deep key.
+    let mut ranks: Vec<usize> = grids.values().map(Vec::len).filter(|&n| n > 0).collect();
+    ranks.sort_unstable();
+    ranks.dedup();
     let chunk_of = |key: &str| -> bool {
-        let segs: Vec<&str> = key.split('/').collect();
-        // the nearest proper ancestor that is a dataset
-        let mut best: Option<(&Vec<u64>, usize)> = grids.get("").map(|g| (g, 0));
-        for j in 1..segs.len() {
-            if let Some(g) = grids.get(segs[..j].join("/").as_str()) {
-                best = Some((g, j));
+        let segments = key.bytes().filter(|&b| b == b'/').count() + 1;
+        for &n in &ranks {
+            let (prefix, rest) = if segments == n {
+                ("", key)
+            } else if segments > n {
+                let (i, _) = key.rmatch_indices('/').nth(n - 1).expect("more than n segments");
+                (&key[..i], &key[i + 1..])
+            } else {
+                continue;
+            };
+            if let Some(g) = grids.get(prefix).filter(|g| g.len() == n) {
+                return rest.split('/').zip(g).all(|(s, n)| canonical_index(s, *n));
             }
         }
-        let Some((g, j)) = best else { return false };
-        let rest = &segs[j..];
-        rest.len() == g.len() && rest.iter().zip(g).all(|(s, n)| canonical_index(s, *n))
+        false
     };
     let mut used: BTreeSet<&str> = BTreeSet::new();
     let documents: Vec<String> = nodes.iter().map(|p| document_key(p)).collect();
