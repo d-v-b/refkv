@@ -21,6 +21,17 @@ pip install "vzip[images]"     # and the JPEG, JPEG 2000 and JPEG XR codecs
 pip install "vzip[virtualizarr]"  # virtual datasets from VirtualiZarr
 ```
 
+Virtualizing returns a `vzip.ReferenceStore`, which reads right away, in
+memory; saving it writes the vzip archive:
+
+```python
+from vzip.virtualize import virtualize
+
+store = virtualize("https://example.org/image.ome.tiff")
+store.info["format"]      # "tiff", and the profile's summary
+store.save("image.vzip")  # one ZIP file: the hierarchy and the references
+```
+
 Wheels are built for Linux and macOS (Python 3.12 and later); Windows is not
 supported yet.
 
