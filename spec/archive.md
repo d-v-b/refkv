@@ -8,7 +8,7 @@ vzip is ZIP plus a reference value type: a key-value store in which every
 value is either bytes or a **reference**, a description of how to assemble
 the value from byte ranges of other objects. Because the reference type does
 not depend on ZIP, any storage backend that can tell a bytes value from a
-reference value can hold the same virtual store.
+reference value can hold the same reference store.
 
 This document has two parts:
 

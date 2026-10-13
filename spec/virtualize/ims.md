@@ -3,7 +3,7 @@
 The Zarr layout of an Imaris file (`.ims`, HDF5), and the translation of
 its HDF5 attributes into JSON. What all of vzip's conventions share is in
 [spec/conventions.md](../conventions.md), cited here as "conventions §n". How
-vzip produces this layout as a virtual store, and the subset of HDF5 that
+vzip produces this layout as a reference store, and the subset of HDF5 that
 it reads, is the IMS profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `5067a535-8261-4b25-a93c-1985ed333bde` ·

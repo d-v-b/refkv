@@ -3,7 +3,7 @@
 The Zarr layout of a NIfTI-1 or NIfTI-2 single file (`.nii`), and the
 translation of its header into JSON. What all of vzip's conventions share is
 in [spec/conventions.md](../conventions.md), cited here as "conventions §n".
-How vzip produces this layout as a virtual store, and which files it
+How vzip produces this layout as a reference store, and which files it
 accepts, is the NIfTI profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` ·

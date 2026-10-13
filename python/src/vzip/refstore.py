@@ -11,6 +11,16 @@ archive, one ZIP file (Part 2
 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#part-2-the-zip-binding>), which
 `vzip.open` reads back as a store with the same values.
 
+`vzip.virtualize.virtualize` returns one too, for an image file or a store:
+
+    import vzip
+    from vzip.virtualize import virtualize
+
+    store = virtualize("https://example.org/image.ome.tiff")
+    store.info["format"]                # "tiff", and what the profile found
+    store.get("zarr.json")              # readable now, in memory
+    store.save("image.vzip")            # the archive: one serialization of the store
+
 The workflow for virtual datasets, such as many netCDF files virtualized with
 VirtualiZarr and concatenated with xarray:
 
@@ -26,8 +36,12 @@ VirtualiZarr and concatenated with xarray:
 from __future__ import annotations
 
 import bisect
+import contextlib
+import copy
 import dataclasses
+import gc
 import os
+import re
 import types
 from collections import Counter
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
@@ -39,7 +53,7 @@ from vzip.errors import ResolutionError
 from vzip.pb import Concat, Range, Reference, Source, parts
 from vzip.policy import Policy
 from vzip.store import DEFAULT_CONCURRENCY, Kind, ReferenceReader, Request, Stats, _abs_range
-from vzip.uri import file_uri
+from vzip.uri import file_uri, is_uri_reference
 from vzip.uri import resolve as resolve_reference
 
 
@@ -64,6 +78,34 @@ class Summary:
     def __str__(self) -> str:
         return (f"{self.path}: {self.keys:,} keys, {self.references:,} of them references "
                 f"to {self.sources:,} sources; {self.bytes:,} bytes")
+
+
+def _page_size(page_size):
+    if page_size is not None and (type(page_size) is not int or page_size <= 0):
+        raise ValueError(f"page_size is a positive number of bytes or None, not {page_size!r}")
+    return page_size
+
+
+@contextlib.contextmanager
+def bulk():
+    """Pauses the cyclic garbage collector, for the whole process, while
+    millions of acyclic objects (a store's ranges and sources, a writer's
+    records) are built: each collection would scan them all again, which made
+    saving a million references take 2.5 times as long. The collector's state
+    is the process's, so this is not thread-safe: a thread that leaves it while
+    another is still inside turns the collector back on for both, and on exit it
+    restores the state it found, over any change another thread made since."""
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if enabled:
+            gc.enable()
+
+
+# An absolute URL's scheme and authority (RFC 3986 §3)
+_ORIGIN = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*")
 
 
 def _rewrite(rewrite_urls: Mapping[str, str] | Callable[[str], str | None] | None):
@@ -94,6 +136,8 @@ class ReferenceStore(ReferenceReader):
 
     Build one with a constructor:
 
+    - `vzip.virtualize.virtualize(location)`, from an image file or an N5, Zarr v2,
+      OME-Zarr or SAFE store;
     - `ReferenceStore.from_virtualizarr(vds)`, from a VirtualiZarr virtual dataset;
     - `ReferenceStore(mapping, sources)`, from a mapping of keys to `bytes`, `Range`
       or `Concat` values, and the `Source` table their ranges index.
@@ -112,6 +156,19 @@ class ReferenceStore(ReferenceReader):
     - `read_at_open`: the keys a reader fetches when it opens the store, which
       `save` places where an archive's opening request reads them. The default
       is every `zarr.json` document.
+    - `compressed`: the keys of bytes values that `save` writes DEFLATE-compressed
+      (spec §10.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#101-structure>):
+      a smaller archive, but a reader then fetches such a value whole to read any
+      range of it. The default is none. Each must be a key of a bytes value.
+    - `page_size`: the page index `save` writes when it is not given one (see
+      `save`; the default, None, writes none).
+    - `info`: what the store's builder says about it, as JSON-like values, read
+      back as `store.info`; `save` does not write it. `vzip.virtualize` records
+      the format and the profile's summary here.
+
+    `save` writes the values in the order of `mapping`, but for those of
+    `read_at_open`, which it writes last, in that order too: with `read_at_open`,
+    `compressed` and `page_size`, a builder decides the whole archive, byte for byte.
     - `registry`, `stats`, `policy`, `max_concurrency`: how references are
       resolved, as for every vzip store (`vzip.store.ReferenceReader`). The
       default policy, `Policy()`, reads `http(s)` sources on public hosts and,
@@ -128,6 +185,9 @@ class ReferenceStore(ReferenceReader):
         *,
         url: str | None = None,
         read_at_open: Iterable[str] | None = None,
+        compressed: Iterable[str] = (),
+        page_size: int | None = None,
+        info: Mapping | None = None,
         registry=None,
         stats: Stats | None = None,
         policy: Policy | None = None,
@@ -159,9 +219,18 @@ class ReferenceStore(ReferenceReader):
         self._values = values
         self._sources = list(sources)
         self._keys = sorted(k for k in values if not k.startswith(RESERVED_PREFIX))
+        for name, keys in (("read_at_open", read_at_open), ("compressed", compressed)):
+            if isinstance(keys, (str, bytes, bytearray, memoryview)):
+                raise TypeError(f"{name} is an iterable of keys, not a single {type(keys).__name__}")
         self._read_at_open = frozenset(
             k for k in values if k.endswith("zarr.json")) if read_at_open is None else frozenset(
             read_at_open)
+        self._compressed = frozenset(compressed)
+        for key in self._compressed:
+            if not isinstance(values.get(key), bytes):
+                raise ValueError(f"compressed names {key!r}, which is not a key of a bytes value")
+        self._page_size = _page_size(page_size)
+        self._info = copy.deepcopy(dict(info or {}))
 
     # ------------------------------------------------------------ constructors
 
@@ -214,6 +283,8 @@ class ReferenceStore(ReferenceReader):
         mapping.update((k, Range(source=index[u], offset=o, length=n))
                        for k, (u, o, n) in refs.items())
         kwargs.setdefault("read_at_open", [k for k in concrete if read_at_open(k, vds)])
+        # `save` writes in the mapping's order: the bytes values, then the references, each sorted
+        mapping = {k: mapping[k] for k in sorted(mapping, key=lambda k: (not isinstance(mapping[k], bytes), k))}
         return cls(mapping, [Source(url=u) for u in urls], **kwargs)
 
     # ------------------------------------------------------------ inspection
@@ -226,6 +297,23 @@ class ReferenceStore(ReferenceReader):
     @property
     def read_at_open(self) -> frozenset[str]:
         return self._read_at_open
+
+    @property
+    def compressed(self) -> frozenset[str]:
+        return self._compressed
+
+    @property
+    def page_size(self) -> int | None:
+        return self._page_size
+
+    @property
+    def info(self) -> dict:
+        """What the store's builder says about it, as a copy: changing it leaves the
+        store's own unchanged. For a store from
+        `vzip.virtualize.virtualize`: `format`, the profile that virtualized the
+        input (such as "tiff" or "zarr2"), and the profile's summary of what it
+        found, as `python -m vzip.virtualize` prints it. Empty otherwise."""
+        return copy.deepcopy(self._info)
 
     def __eq__(self, other: object) -> bool:
         return self is other
@@ -243,7 +331,7 @@ class ReferenceStore(ReferenceReader):
         self,
         path: str | os.PathLike,
         *,
-        page_size: int | None = None,
+        page_size: int | None | types.EllipsisType = ...,
         mirror_refs: bool = True,
         relative_to: str | None = None,
         policy: Policy | None = None,
@@ -251,7 +339,10 @@ class ReferenceStore(ReferenceReader):
         """Write the store as a vzip archive at the local `path`, and return a
         `Summary` of it. `vzip.open(path)` reads it back with the same values.
 
-        - `page_size`: None (the default) writes no page index, and a reader
+        The entries are written in the store's order (see the class), the bytes
+        values of `compressed` DEFLATE-compressed.
+
+        - `page_size`: the store's `page_size` by default. None writes no page index, and a reader
           then loads the whole central directory, about 125 bytes per key, when
           it opens the archive. A number writes a page index (spec §12
           <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#12-page-index-optional>) with
@@ -272,8 +363,9 @@ class ReferenceStore(ReferenceReader):
           to the archive, so the archive and its sources can move together.
         - `policy`: the reader policy the sources are checked against before
           anything is written (default `Policy()`, the default reader's). A
-          source it refuses raises ValueError, which says how to fix it: write
-          `s3://` URLs of a public bucket as HTTPS
+          source it refuses raises ResolutionError (a ValueError), and nothing
+          is written. The error says how to fix it: write `s3://` URLs of a
+          public bucket as HTTPS
           (`ReferenceStore.from_virtualizarr(vds, rewrite_urls=vzip.public_s3_url)`),
           or pass the policy the archive's readers will use, such as
           `Policy(schemes={"s3"})`.
@@ -287,33 +379,54 @@ class ReferenceStore(ReferenceReader):
                        for s in sources]
         check = policy or Policy()
         refused = []
+        # Without a prefix list, the policy decides a valid absolute URL by its scheme and
+        # host alone: one check per origin, not per source (a store has a source per
+        # object). Each URL is still checked to be a URI reference, as resolving it does.
+        by_origin: dict[str, str | None] = {}
+        cache = check.prefixes is None and type(check).check is Policy.check  # not a subclass's own check
         for s in sources:
-            if s.url is not None:
+            if s.url is None:
+                continue
+            origin = _ORIGIN.match(s.url) if cache else None
+            if origin is not None and origin[0] in by_origin and is_uri_reference(s.url):
+                error = by_origin[origin[0]]
+            else:
                 try:
-                    check.check(base, resolve_reference(base, s.url))
-                except (ResolutionError, ValueError) as e:
-                    refused.append(str(e))
+                    resolved = resolve_reference(base, s.url)
+                except ValueError as e:  # not a URI reference: its own error, not its origin's
+                    error = str(e)
+                else:
+                    try:
+                        check.check(base, resolved)
+                        error = None
+                    except (ResolutionError, ValueError) as e:
+                        error = str(e)
+                    if origin is not None:
+                        by_origin[origin[0]] = error
+            if error is not None:
+                refused.append(error)
         if refused:
             whose = "the default reader policy" if policy is None else "the reader policy given"
-            raise ValueError(f"not saving {path}: {whose} refuses {len(refused)} of its "
-                             f"{len(sources)} sources, so a reader could not read them. "
-                             f"The first: {refused[0]}")
+            raise ResolutionError(f"not saving {path}: {whose} refuses {len(refused)} of its "
+                                  f"{len(sources)} sources, so a reader could not read them. "
+                                  f"The first: {refused[0]}")
+        page_size = self._page_size if page_size is ... else _page_size(page_size)
         refs = 0
-        with open(path, "wb") as f, VZipWriter(f, mirror_refs=mirror_refs,
-                                               page_size=page_size) as w:
+        with bulk(), open(path, "wb") as f, VZipWriter(f, mirror_refs=mirror_refs,
+                                                       page_size=page_size) as w:
             index = [w.source(s) for s in sources]  # equal sources share an index
-            for k in sorted(k for k, v in self._values.items() if isinstance(v, bytes)):
-                late = k in self._read_at_open
-                if k.startswith(RESERVED_PREFIX):
-                    w.add_hidden(k[len(RESERVED_PREFIX):], self._values[k], compress=False,
-                                 late=late)
+            for k, v in self._values.items():
+                if isinstance(v, bytes):
+                    late, compress = k in self._read_at_open, k in self._compressed
+                    if k.startswith(RESERVED_PREFIX):
+                        w.add_hidden(k[len(RESERVED_PREFIX):], v, compress=compress, late=late)
+                    else:
+                        w.add_bytes(k, v, compress=compress, late=late)
                 else:
-                    w.add_bytes(k, self._values[k], late=late)
-            for k in sorted(k for k, v in self._values.items() if not isinstance(v, bytes)):
-                w.add_ranges(k, [r if r.data is not None else
-                                 dataclasses.replace(r, source=index[r.source])
-                                 for r in parts(self._values[k])])
-                refs += 1
+                    w.add_ranges(k, [r if r.data is not None or index[r.source] == r.source else
+                                     dataclasses.replace(r, source=index[r.source])
+                                     for r in parts(v)])
+                    refs += 1
             n_sources = len(w._source_list)
         return Summary(path, len(self._keys), refs, n_sources, Path(path).stat().st_size)
 

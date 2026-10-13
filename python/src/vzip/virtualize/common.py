@@ -80,7 +80,7 @@ class Output:
     # and the CRC-32C of a url source's bytes, when the
     # ranges are to carry checksums (spec/archive.md §4.2
     # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>); set by
-    # vzip.virtualize.virtualize.
+    # vzip.virtualize._virtualize.
     size: int | None = None
     etag: str | None = None
     checksum: Callable[[str, int, int], int] | None = None
@@ -120,6 +120,69 @@ class Output:
                 late = key.endswith("zarr.json") and not key.startswith(self.lazy)
                 w.add_bytes(key, self.bytes_entries[key], compress=not late, late=late)
             w.close()
+
+    def to_store(self, *, policy: Policy | None = None, info: dict | None = None):
+        """The output as a `vzip.ReferenceStore`, which `save` writes as the archive
+        `write` writes, byte for byte (`reference_store`)."""
+        sources = [Source(url=self.url, size=self.size, etag=self.etag)]
+        for value, i in sorted(self.data.items(), key=lambda item: item[1]):
+            if i != len(sources):
+                raise AssertionError("data sources out of order")
+            sources.append(Source(data=value))
+
+        def rng(r: Part) -> Range:
+            if isinstance(r, bytes):
+                return Range(data=r)
+            if len(r) == 3:
+                return Range(source=r[0], offset=r[1], length=r[2])
+            return Range(source=0, offset=r[0], length=r[1])
+
+        refs = [(key, [rng(r) for r in self.refs[key]]) for key in sorted(self.refs)]
+        entries = [(key, self.bytes_entries[key],
+                    key.endswith("zarr.json") and not key.startswith(self.lazy))
+                   for key in sorted(self.bytes_entries)]
+        return reference_store(refs, entries, sources, checksum=self.checksum, policy=policy, info=info)
+
+
+PAGE_SIZE = 1 << 16  # the page index of a virtualized archive (spec/archive.md §12
+# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#12-page-index-optional>)
+
+
+def reference_store(refs, entries, sources: list[Source], *, checksum=None,
+                    policy: Policy | None = None, info: dict | None = None):
+    """A profile output as a `vzip.ReferenceStore`, in the layout every output's
+    `write` gives its archive: the references (key, ranges) first, then the bytes
+    entries (key, bytes, late), in the order given; a late entry is read when the
+    archive opens (`read_at_open`), and every other one is compressed. With
+    `checksum(url, offset, length)`, each range of a url source carries the CRC-32C
+    of its bytes (spec/archive.md §4.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>). The store
+    reads its sources under `policy`."""
+    from vzip.pb import Concat
+    from vzip.refstore import ReferenceStore, bulk
+
+    def checked(r: Range) -> Range:
+        if checksum is None or r.data is not None or r.crc32c is not None:
+            return r
+        url = sources[r.source].url
+        return r if url is None else Range(r.source, r.offset, r.length, None, checksum(url, r.offset, r.length))
+
+    mapping: dict = {}
+    late: list[str] = []
+    compressed: list[str] = []
+    with bulk():
+        for key, ranges in refs:
+            if key in mapping:
+                raise ValueError(f"duplicate key {key!r}")
+            ranges = [checked(r) for r in ranges]
+            mapping[key] = ranges[0] if len(ranges) == 1 else Concat(tuple(ranges))
+        for key, data, is_late in entries:
+            if key in mapping:
+                raise ValueError(f"duplicate key {key!r}")
+            mapping[key] = data
+            (late if is_late else compressed).append(key)
+        return ReferenceStore(mapping, sources, read_at_open=late, compressed=compressed, page_size=PAGE_SIZE,
+                              policy=policy, info=info)
 
 
 MAX_PAYLOAD = 65519
