@@ -17,9 +17,11 @@ test *args: ir-build
     uv run pytest -q python/tests {{args}}
 
 # Build the IR core (rust/vzip-ir: the parsers, the read planner, the projections and the
-# mirror) into the project's environment as the Python module vzip_ir, which vzip.virtualize uses
+# mirror) into the project's environment as the Python module vzip_ir, part of the vzip
+# distribution: `uv sync` (and `uv run`) build it with maturin, in release, and again whenever
+# its Rust sources or source models change (pyproject.toml's cache-keys)
 ir-build:
-    uv run --with maturin env VIRTUAL_ENV="$PWD/.venv" maturin develop --release -m rust/vzip-ir/Cargo.toml
+    uv sync -q --locked
 
 # Build the IR core for the browser (wasm32, without the Python bindings) and run its ND2,
 # TIFF and CZI parsers, and its Zarr v2 store format, from Node on fixtures
