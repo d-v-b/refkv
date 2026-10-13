@@ -220,7 +220,7 @@ class ReferenceStore(ReferenceReader):
         self._sources = list(sources)
         self._keys = sorted(k for k in values if not k.startswith(RESERVED_PREFIX))
         for name, keys in (("read_at_open", read_at_open), ("compressed", compressed)):
-            if isinstance(keys, (str, bytes)):
+            if isinstance(keys, (str, bytes, bytearray, memoryview)):
                 raise TypeError(f"{name} is an iterable of keys, not a single {type(keys).__name__}")
         self._read_at_open = frozenset(
             k for k in values if k.endswith("zarr.json")) if read_at_open is None else frozenset(

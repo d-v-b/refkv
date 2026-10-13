@@ -453,9 +453,11 @@ def test_constructor_rejects_compressed_naming_no_bytes_value():
 
 
 @pytest.mark.parametrize("name", ["read_at_open", "compressed"])
-def test_constructor_rejects_a_single_key_for_a_key_set(name):
-    with pytest.raises(TypeError, match=f"{name} is an iterable of keys, not a single str"):
-        vzip.ReferenceStore({"zarr.json": b"{}"}, **{name: "zarr.json"})
+@pytest.mark.parametrize("key", ["zarr.json", b"zarr.json", bytearray(b"zarr.json"), memoryview(b"zarr.json")],
+                         ids=["str", "bytes", "bytearray", "memoryview"])
+def test_constructor_rejects_a_single_key_for_a_key_set(name, key):
+    with pytest.raises(TypeError, match=f"{name} is an iterable of keys, not a single {type(key).__name__}"):
+        vzip.ReferenceStore({"zarr.json": b"{}"}, **{name: key})
 
 
 @pytest.mark.parametrize("page_size", [0, -1, True])
