@@ -1,9 +1,10 @@
-# vzip documentation
+# refkv documentation
 
-vzip is ZIP plus a reference value type: a store whose values are either
-bytes or references to byte ranges of other objects. Any backend that can
-tell the two apart can hold one; the [spec](../spec/refkv.md) defines the
-reference value type and one backend, a single ZIP file (a vzip archive).
+refkv defines reference semantics for key-value storage: a value is either bytes or a reference to
+byte ranges of other objects, and any key-value store that can tell the two
+apart can hold references ([spec](../spec/refkv.md)). vzip is its single-file
+binding: a vzip archive keeps such a store in one ordinary ZIP file
+([spec/bindings/vzip.md](../spec/bindings/vzip.md)).
 
 [COMPARISON.md](../design/COMPARISON.md) compares vzip with kerchunk JSON, kerchunk Parquet and Icechunk on the same virtual dataset, read over HTTP.
 
@@ -13,19 +14,19 @@ Live demos are at https://d-v-b.github.io/vzip-demo/. For example, [image files 
 
 ## Virtualizing image files and stores
 
-vzip can present TIFF, NDPI, ND2, CZI, DICOM, NIfTI and Imaris files, and N5, Zarr v2 and OME-Zarr 0.4 stores, as OME-Zarr, and Sentinel-2 SAFE products as GeoZarr, without copying their pixels. TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, Imaris and SAFE, and Zarr v2 and OME-Zarr stores, are read by a Rust core ([rust/refkv-ir](../rust/refkv-ir/)) that runs natively from Python and as WebAssembly in the browser. [virtualize/](virtualize/README.md) has a page per format: who it is for, what you get, and how to run it from Python or in the browser. In Python, `vzip.virtualize.virtualize(location)`, for a local path or a URL, returns a `vzip.ReferenceStore`, which reads right away, and `store.save("image.vzip")` writes it as one vzip archive.
+refkv can present TIFF, NDPI, ND2, CZI, DICOM, NIfTI and Imaris files, and N5, Zarr v2 and OME-Zarr 0.4 stores, as OME-Zarr, and Sentinel-2 SAFE products as GeoZarr, without copying their pixels. TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, Imaris and SAFE, and Zarr v2 and OME-Zarr stores, are read by a Rust core ([rust/refkv-ir](../rust/refkv-ir/)) that runs natively from Python and as WebAssembly in the browser. [virtualize/](virtualize/README.md) has a page per format: who it is for, what you get, and how to run it from Python or in the browser. In Python, `refkv.virtualize.virtualize(location)`, for a local path or a URL, returns a `refkv.ReferenceStore`, which reads right away, and `store.save("image.vzip")` writes it as one vzip archive.
 
 ## Installing
 
-`pip install "vzip @ git+https://github.com/d-v-b/refkv"` installs the Python
+`pip install "refkv @ git+https://github.com/d-v-b/refkv"` installs the Python
 package's base: it reads and writes vzip archives, and virtualizes files and
-stores through vzip's Rust core, which the install compiles into the same
+stores through refkv's Rust core, which the install compiles into the same
 package (this needs a Rust toolchain, such as [rustup](https://rustup.rs)'s). Two extras add the rest:
-`vzip[virtualizarr]` for virtual datasets from VirtualiZarr (below; vzip
-itself does not import xarray), and `vzip[images]` for the JPEG, JPEG 2000 and JPEG XR codecs that
+`refkv[virtualizarr]` for virtual datasets from VirtualiZarr (below; refkv
+itself does not import xarray), and `refkv[images]` for the JPEG, JPEG 2000 and JPEG XR codecs that
 archives of image files use. In a clone, `uv sync` installs both, and the
 repository's test and benchmark tools.
 
 ## Virtual datasets from xarray and VirtualiZarr
 
-The Python package `vzip` stores a [VirtualiZarr](https://virtualizarr.readthedocs.io/) virtual dataset, such as many netCDF or HDF5 files concatenated along time with xarray, without copying their data. `vzip.ReferenceStore.from_virtualizarr(vds)` builds a store that `xr.open_zarr(vzip.zarr.store(store))` reads right away, `store.save("data.vzip")` writes it as one vzip archive, and `xr.open_zarr(vzip.zarr.open("data.vzip"))` reopens it, reading each chunk from the file it came from. [virtual-datasets.md](virtual-datasets.md) walks through it with five years of NOAA sea surface temperature: install, a runnable example ([examples/oisst.py](examples/oisst.py)), scaling up, publishing, private data, and troubleshooting.
+The Python package `refkv` stores a [VirtualiZarr](https://virtualizarr.readthedocs.io/) virtual dataset, such as many netCDF or HDF5 files concatenated along time with xarray, without copying their data. `refkv.ReferenceStore.from_virtualizarr(vds)` builds a store that `xr.open_zarr(refkv.zarr.store(store))` reads right away, `store.save("data.vzip")` writes it as one vzip archive, and `xr.open_zarr(refkv.zarr.open("data.vzip"))` reopens it, reading each chunk from the file it came from. [virtual-datasets.md](virtual-datasets.md) walks through it with five years of NOAA sea surface temperature: install, a runnable example ([examples/oisst.py](examples/oisst.py)), scaling up, publishing, private data, and troubleshooting.

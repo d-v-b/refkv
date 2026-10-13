@@ -1,9 +1,9 @@
 # NIfTI
 
 The Zarr layout of a NIfTI-1 or NIfTI-2 single file (`.nii`), and the
-translation of its header into JSON. What all of vzip's conventions share is
+translation of its header into JSON. What all of refkv's conventions share is
 in [spec/conventions.md](../conventions.md), cited here as "conventions §n".
-How vzip produces this layout as a reference store, and which files it
+How refkv produces this layout as a reference store, and which files it
 accepts, is the NIfTI profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` ·
@@ -11,7 +11,7 @@ Schema: [schema.json](nifti/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the NIfTI
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the NIfTI profile: how vzip reads the source, which inputs it rejects, and how
+is the NIfTI profile: how refkv reads the source, which inputs it rejects, and how
 each chunk references the source. The profile keeps its numbering as a section
 of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
 

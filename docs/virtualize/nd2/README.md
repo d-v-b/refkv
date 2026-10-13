@@ -1,6 +1,6 @@
 # Nikon ND2
 
-vzip turns an image file into an OME-Zarr dataset by writing a small archive
+refkv turns an image file into an OME-Zarr dataset by writing a small archive
 of references to the file's bytes, without copying the pixels
 ([overview](../README.md)). This page is about Nikon ND2 files.
 
@@ -14,16 +14,16 @@ Archive and on Zenodo. The people who have them want to look at a deposited
 dataset, or analyze it with zarr-python, without downloading 20 GB and
 converting it with Bio-Formats.
 
-vzip reads the file's chunk map, metadata and frame headers (a few batches
+refkv reads the file's chunk map, metadata and frame headers (a few batches
 of range requests, even for a 4.6 GB time-lapse) and writes an archive in
 which every Zarr chunk is one frame of the file, or a block of its rows.
 Stage positions become separate images placed where the stage was.
 
-ND2 files are virtualized by vzip's Rust core,
+ND2 files are virtualized by refkv's Rust core,
 [rust/refkv-ir](../../../rust/refkv-ir/), the same code in Python and (built
 for WebAssembly) in the browser: it parses the file into an intermediate
 representation (IR), plans the range requests, and projects the IR onto the
-ND2 convention. Installing vzip builds it, which needs a Rust toolchain
+ND2 convention. Installing refkv builds it, which needs a Rust toolchain
 ([overview](../README.md#two-ways-to-run-it)).
 
 ## What you get
@@ -68,7 +68,7 @@ A five-channel z-stack from BioImage Archive S-BIAD2077 (263 MB), from
 [corpus_nd2.txt](../../../conformance/virtualize/corpus_nd2.txt):
 
 ```bash
-uv run python -m vzip.virtualize https://ftp.ebi.ac.uk/biostudies/fire/S-BIAD/077/S-BIAD2077/Files/373_230614_A1_Blk_Reg2_40x.nd2 373_A1.vzip
+uv run python -m refkv.virtualize https://ftp.ebi.ac.uk/biostudies/fire/S-BIAD/077/S-BIAD2077/Files/373_230614_A1_Blk_Reg2_40x.nd2 373_A1.vzip
 ```
 
 ```
@@ -80,9 +80,9 @@ holds the file's IR mirror, so it is larger.
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-root = zarr.open_group(vzip.zarr.open("373_A1.vzip"), mode="r")
+root = zarr.open_group(refkv.zarr.open("373_A1.vzip"), mode="r")
 print(root["OME"].attrs["ome"]["series"])
 img = root["0"]
 ms = img.attrs["ome"]["multiscales"][0]
@@ -148,7 +148,7 @@ Rejected:
   file took 9 requests, and a 4.6 GB, 525-frame time-lapse 12.)
 - A chunk is one contiguous range of the file, so a frame read is one
   request. Padded frames are the exception: one range per row, which the
-  vzip readers merge into one request when the padding between rows is
+  refkv readers merge into one request when the padding between rows is
   under their 64 KiB merge gap.
 
 ## How it's verified
@@ -166,7 +166,7 @@ and the 17 public files of
 [corpus_nd2.txt](../../../conformance/virtualize/corpus_nd2.txt): the Python
 and browser hosts of the core must write the same archive, `refkv_source`
 included, and both must match, outside `refkv_source`, the frozen reference:
-the Python ND2 profile vzip shipped before the core.
+the Python ND2 profile refkv shipped before the core.
 
 - Profile: [spec/virtualize/nd2.md](../../../spec/virtualize/nd2.md#part-2-the-profile); convention:
   [spec/virtualize/nd2.md](../../../spec/virtualize/nd2.md)

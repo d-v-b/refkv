@@ -1,6 +1,6 @@
 # Hamamatsu NDPI
 
-vzip turns an image file into an OME-Zarr dataset by writing a small archive
+refkv turns an image file into an OME-Zarr dataset by writing a small archive
 of references to the file's bytes, without copying the pixels
 ([overview](../README.md)). This page is about Hamamatsu NDPI slides.
 
@@ -15,7 +15,7 @@ analysis in Python, without converting every slide first.
 
 NDPI is a TIFF variant that most Zarr tooling cannot read as tiles: each
 pyramid level is a single JPEG strip, which can be tens of thousands of
-pixels wide. vzip cuts each strip into chunks of about 1024 × 1024 pixels at
+pixels wide. refkv cuts each strip into chunks of about 1024 × 1024 pixels at
 the JPEG restart markers the scanner wrote, and makes every chunk a complete
 JPEG stream out of byte ranges of the file and the strip's shared header. The
 198 MB CMU-1.ndpi became a 5.5 MB archive in about 15 s (at spec/virtualize.md
@@ -51,7 +51,7 @@ OpenSlide's CMU-1.ndpi (198 MB, CC0), from
 [corpus_tiff.txt](../../../conformance/virtualize/corpus_tiff.txt):
 
 ```bash
-uv run python -m vzip.virtualize https://openslide.cs.cmu.edu/download/openslide-testdata/Hamamatsu/CMU-1.ndpi CMU-1.vzip
+uv run python -m refkv.virtualize https://openslide.cs.cmu.edu/download/openslide-testdata/Hamamatsu/CMU-1.ndpi CMU-1.vzip
 ```
 
 ```
@@ -65,9 +65,9 @@ tags, so it is larger.
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-g = zarr.open_group(vzip.zarr.open("CMU-1.vzip"), mode="r")
+g = zarr.open_group(refkv.zarr.open("CMU-1.vzip"), mode="r")
 ms = g.attrs["ome"]["multiscales"][0]
 for d in ms["datasets"]:
     a = g[d["path"]]

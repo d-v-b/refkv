@@ -1,6 +1,6 @@
 # Mapping image formats to Zarr: techniques
 
-vzip maps eleven source formats to Zarr v3 without copying their data:
+refkv maps eleven source formats to Zarr v3 without copying their data:
 - seven file formats: TIFF, NDPI, ND2, DICOM, NIfTI, IMS and CZI;
 - three store formats: N5, Zarr v2 and OME-Zarr 0.4;
 - Sentinel-2 SAFE products, a directory or a zip file of JPEG 2000 bands

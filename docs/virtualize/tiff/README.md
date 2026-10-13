@@ -1,6 +1,6 @@
 # TIFF, OME-TIFF and Aperio SVS
 
-vzip turns an image file into an OME-Zarr dataset by writing a small archive
+refkv turns an image file into an OME-Zarr dataset by writing a small archive
 of references to the file's bytes, without copying the pixels
 ([overview](../README.md)). This page is about tiled TIFF files.
 
@@ -15,18 +15,18 @@ OpenSlide's test-data server. The people who use them want to open a slide in
 an OME-Zarr viewer, or slice it with zarr-python or dask, without running a
 conversion that duplicates hundreds of gigabytes.
 
-vzip reads the TIFF's image file directories and, for OME-TIFF, its OME-XML,
+refkv reads the TIFF's image file directories and, for OME-TIFF, its OME-XML,
 and writes an archive in which every Zarr chunk is one tile of the file. A
 487 MB, 9-level OME-TIFF from the IDR became a 624 KB archive in a few
 seconds (at spec/virtualize.md revision 16, before the archive held the file's IR
 mirror); the tiles are read from the IDR's server only when a reader asks
 for them.
 
-TIFF files are virtualized by vzip's Rust core,
+TIFF files are virtualized by refkv's Rust core,
 [rust/refkv-ir](../../../rust/refkv-ir/), the same code in Python and (built
 for WebAssembly) in the browser: it parses the file into an intermediate
 representation (IR), plans the range requests, and projects the IR onto the
-TIFF convention. Installing vzip builds it, which needs a Rust toolchain
+TIFF convention. Installing refkv builds it, which needs a Rust toolchain
 ([overview](../README.md#two-ways-to-run-it)).
 
 ## What you get
@@ -65,7 +65,7 @@ level, `0` the full resolution.
 ### JPEG-tiled slides (Aperio SVS)
 
 SVS tiles are JPEG streams with their tables missing: the tables are in the
-TIFF's `JPEGTables` tag, and the color transform in a separate tag. vzip
+TIFF's `JPEGTables` tag, and the color transform in a separate tag. refkv
 makes each chunk a complete JPEG stream by inserting, through the chunk's
 reference, an Adobe color marker and the tables after the tile's
 start-of-image marker.
@@ -88,7 +88,7 @@ An OME-TIFF from IDR study idr0096 (487 MB, 9 levels, JPEG 2000 tiles; CC BY
 idr0096 set:
 
 ```bash
-uv run python -m vzip.virtualize "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant/20210609-ftp-ome-tiffs/4000_d11_m5_LT_2%20(20x_01).ome.tiff" idr0096.vzip
+uv run python -m refkv.virtualize "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant/20210609-ftp-ome-tiffs/4000_d11_m5_LT_2%20(20x_01).ome.tiff" idr0096.vzip
 ```
 
 ```
@@ -99,9 +99,9 @@ This took 5 s and wrote a 624 KB archive (at revision 16). Read it with zarr-pyt
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-g = zarr.open_group(vzip.zarr.open("idr0096.vzip"), mode="r")
+g = zarr.open_group(refkv.zarr.open("idr0096.vzip"), mode="r")
 ms = g.attrs["ome"]["multiscales"][0]
 print(ms["name"], [a["name"] for a in ms["axes"]])
 print(ms["datasets"][0]["coordinateTransformations"])
@@ -123,7 +123,7 @@ An Aperio SVS slide with JPEG tiles, OpenSlide's `CMU-1-Small-Region.svs`
 (1.9 MB, CC0):
 
 ```bash
-uv run python -m vzip.virtualize https://openslide.cs.cmu.edu/download/openslide-testdata/Aperio/CMU-1-Small-Region.svs CMU-1-Small-Region.vzip
+uv run python -m refkv.virtualize https://openslide.cs.cmu.edu/download/openslide-testdata/Aperio/CMU-1-Small-Region.svs CMU-1-Small-Region.vzip
 ```
 
 ```
@@ -132,9 +132,9 @@ uv run python -m vzip.virtualize https://openslide.cs.cmu.edu/download/openslide
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-g = zarr.open_group(vzip.zarr.open("CMU-1-Small-Region.vzip"), mode="r")
+g = zarr.open_group(refkv.zarr.open("CMU-1-Small-Region.vzip"), mode="r")
 print(g.attrs["ome"]["multiscales"][0]["datasets"][0]["coordinateTransformations"])
 a = g["0"]
 print(a.shape, a.dtype, a.chunks, a.metadata.codecs)
@@ -158,7 +158,7 @@ together (or pass `--url <url>` with the URL the file will be served from).
 For a plain 2048 × 1536 `uint16` TIFF with 512 × 512 DEFLATE tiles:
 
 ```bash
-uv run python -m vzip.virtualize plain.tif plain.vzip
+uv run python -m refkv.virtualize plain.tif plain.vzip
 ```
 
 ```
@@ -209,7 +209,7 @@ Rejected:
   that is not JPEG or JPEG 2000 (the codecs decode samples at full
   resolution).
 
-A file that is none of the formats vzip reads is rejected with
+A file that is none of the formats refkv reads is rejected with
 `not a TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file` (exit status
 3).
 
@@ -241,7 +241,7 @@ files (including inputs to reject), the 205 OME-TIFFs of idr0096 and the 4
 SVS slides of [corpus_tiff.txt](../../../conformance/virtualize/corpus_tiff.txt):
 the Python and browser hosts of the core must write the same archive,
 `refkv_source` included, and both must match, outside `refkv_source`, the
-frozen reference: the Python TIFF profile vzip shipped before the core.
+frozen reference: the Python TIFF profile refkv shipped before the core.
 
 - Profile: [spec/virtualize/tiff.md](../../../spec/virtualize/tiff.md#part-2-the-profile); convention:
   [spec/virtualize/tiff.md](../../../spec/virtualize/tiff.md)

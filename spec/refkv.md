@@ -70,7 +70,7 @@ conformance suite tests vzip archives.
 
 ### 1.3 Versioning
 
-vzip has an integer **format version**, recorded where the binding says
+refkv has an integer **format version**, recorded where the binding says
 ([§3.1](#31-what-a-binding-defines)): a vzip archive writes it in its comment
 as the magic `vzip/<version>`
 ([§10.4](bindings/vzip.md#104-end-of-central-directory-record-and-archive-comment)). This
@@ -108,18 +108,18 @@ the ZIP binding together: a change to either is a change to the format.
   format version, which matters while that version is provisional and
   revisions may still change results.
 
-**Releases.** Until vzip's first release, every store is format version 0
+**Releases.** Until refkv's first release, every store is format version 0
 and records its revision as above. The release rule is:
 
 1. At the first release, the text of this document becomes format version
-   1, and the commit is tagged `vzip-format-v1` in the specification's
+   1, and the commit is tagged `refkv-format-v1` in the specification's
    repository.
 2. After that, every **breaking change** (any change that
    [§1.3](#13-versioning) says needs a new version, and any change to the
    result of an operation on a valid store) increments the format version
    recorded by the binding (the magic of a vzip archive,
    [§10.4](bindings/vzip.md#104-end-of-central-directory-record-and-archive-comment)), and
-   the commit that makes it is tagged `vzip-format-v<N>`. Changes that are
+   the commit that makes it is tagged `refkv-format-v<N>`. Changes that are
    not breaking are revisions of the current version, and need no tag.
 3. Readers MUST reject a store whose format version they don't implement
    ([§10.4](bindings/vzip.md#104-end-of-central-directory-record-and-archive-comment)),
@@ -153,18 +153,18 @@ behavior each reading would produce.
 
 ### 1.4 Prior work (informative)
 
-vzip is a binary encoding for a model of references that other projects
+refkv is a binary encoding for a model of references that other projects
 established. This section credits them; nothing in it is normative.
 
 - **kerchunk.** Virtual Zarr originates with
   [kerchunk](https://github.com/fsspec/kerchunk) (Martin Durant and
   contributors, fsspec). kerchunk records where the chunks of HDF5, netCDF,
   GRIB, TIFF and FITS files live, and fsspec's `ReferenceFileSystem` serves
-  them so that Zarr can read the files in place. vzip's data model
+  them so that Zarr can read the files in place. refkv's data model
   ([§2](#2-data-model)) is the one defined by kerchunk's
   [reference specification](https://fsspec.github.io/kerchunk/spec.html):
 
-  | kerchunk reference specification | vzip |
+  | kerchunk reference specification | refkv |
   |---|---|
   | a string value: inline data | a `bytes` value ([§2](#2-data-model)) |
   | `[url, offset, length]` | a reference with one source range ([§4.2](#42-range)) |
@@ -187,7 +187,7 @@ established. This section credits them; nothing in it is normative.
   [Icechunk](https://icechunk.io/)'s checks of virtual chunks against the
   ETag or modification time of the object they reference.
 
-What vzip contributes is a reference value type with a binary encoding that
+What refkv contributes is a reference value type with a binary encoding that
 does not depend on the backend; its binding to a single ZIP file; and a
 specification with a conformance suite that is independent of any one
 language or library.
@@ -253,7 +253,7 @@ A binding defines exactly three things:
 2. **The source table:** where and how the store's source table
    ([§5](#5-source-table)) is stored, and how a reader finds it, together
    with any auxiliary data of the binding's own, such as ZIP's page index.
-   This is also where the binding identifies the store as vzip and records
+   This is also where the binding identifies the store as refkv and records
    its format version ([§1.3](#13-versioning)).
 3. **Names:** how keys map to the backend's names, and back, including any
    names the binding reserves for itself (for its source table or its
@@ -278,7 +278,7 @@ Nothing in Part 1 needs ZIP. The specification has no other binding, but
 other backends could hold a store:
 
 - **Object stores** (S3 and similar): each key is an object. A reference is
-  an object whose `Content-Type` is a vzip media type, or whose user metadata
+  an object whose `Content-Type` is a refkv media type, or whose user metadata
   holds a marker, with the payload in its body or in that metadata.
 - **File systems:** each key is a file. A reference is a file with an
   extended attribute (xattr) that holds the payload, or marks the file's
@@ -766,7 +766,7 @@ A conforming reader provides the following operations on an opened store:
   interpreting references, or *missing*. This view also shows the names the
   binding reserves. The binding says what it yields for those and for a
   reference. It is the view of a client of the backend that knows nothing
-  about vzip ([§13.2](bindings/vzip.md#132-operations) for ZIP).
+  about refkv ([§13.2](bindings/vzip.md#132-operations) for ZIP).
 
 ### 6.3 Resolving a reference
 

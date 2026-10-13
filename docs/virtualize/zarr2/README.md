@@ -1,6 +1,6 @@
 # Zarr v2
 
-vzip presents a chunked array store as a Zarr v3 hierarchy by writing a
+refkv presents a chunked array store as a Zarr v3 hierarchy by writing a
 small archive whose chunk entries point at the store's own objects, without
 copying them ([overview](../README.md)). This page is about Zarr v2
 hierarchies.
@@ -13,7 +13,7 @@ the `janelia-cosem-datasets` S3 bucket. Tools built for Zarr v3, and readers
 that expect Zarr v3 metadata, cannot use it directly, and rewriting the
 metadata in place is not possible on a bucket you do not own.
 
-vzip lists the store, reads its `.zgroup`, `.zarray` and `.zattrs`
+refkv lists the store, reads its `.zgroup`, `.zarray` and `.zattrs`
 documents, and writes an archive with a Zarr v3 `zarr.json` for every group
 and array. Each chunk entry references the existing chunk object under the
 same key, through Zarr v3's `v2` chunk key encoding, so nothing is copied or
@@ -55,7 +55,7 @@ blosc chunks (CC BY 4.0), from
 the trailing `/`:
 
 ```bash
-uv run python -m vzip.virtualize https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-2/jrc_hela-2.zarr/recon-1/em/fibsem-uint8/s5/ s5.vzip
+uv run python -m refkv.virtualize https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-2/jrc_hela-2.zarr/recon-1/em/fibsem-uint8/s5/ s5.vzip
 ```
 
 ```
@@ -70,9 +70,9 @@ array, so open it as one:
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-a = zarr.open_array(vzip.zarr.open("s5.vzip"), mode="r")
+a = zarr.open_array(refkv.zarr.open("s5.vzip"), mode="r")
 print(a.shape, a.dtype, a.chunks)
 print(a.metadata.chunk_key_encoding, a.metadata.codecs)
 print(a[100, 25, 180:188])

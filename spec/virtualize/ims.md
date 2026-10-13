@@ -1,9 +1,9 @@
 # IMS
 
 The Zarr layout of an Imaris file (`.ims`, HDF5), and the translation of
-its HDF5 attributes into JSON. What all of vzip's conventions share is in
+its HDF5 attributes into JSON. What all of refkv's conventions share is in
 [spec/conventions.md](../conventions.md), cited here as "conventions §n". How
-vzip produces this layout as a reference store, and the subset of HDF5 that
+refkv produces this layout as a reference store, and the subset of HDF5 that
 it reads, is the IMS profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `5067a535-8261-4b25-a93c-1985ed333bde` ·
@@ -11,7 +11,7 @@ Schema: [schema.json](ims/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the IMS
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the IMS profile: how vzip reads the source, which inputs it rejects, and how
+is the IMS profile: how refkv reads the source, which inputs it rejects, and how
 each chunk references the source. The profile keeps its numbering as a section
 of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
 

@@ -2,9 +2,9 @@
 
 The OME-Zarr 0.5 layout of an OME-Zarr 0.4 hierarchy on Zarr v2 storage,
 and its attributes. It builds on the [Zarr v2 convention](zarr2.md).
-What all of vzip's conventions share is in
+What all of refkv's conventions share is in
 [spec/conventions.md](../conventions.md), cited here as "conventions §n". How
-vzip produces this layout as a reference store from a listed store is the
+refkv produces this layout as a reference store from a listed store is the
 OME-Zarr profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` ·
@@ -12,7 +12,7 @@ Schema: [schema.json](ome-zarr/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the OME-Zarr
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the OME-Zarr profile: how vzip reads the source, which inputs it rejects, and how
+is the OME-Zarr profile: how refkv reads the source, which inputs it rejects, and how
 each chunk references the source. The profile keeps its numbering as a section
 of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
 
@@ -24,7 +24,7 @@ something MUST hold, a hierarchy that fails has no layout under this
 convention, and the profile rejects it.
 
 The other conventions describe data that is not Zarr. This one is a
-different use of vzip: **format migration without copying data**. Its input
+different use of refkv: **format migration without copying data**. Its input
 is already Zarr: an OME-Zarr 0.4 hierarchy
 ([OME-NGFF 0.4](https://ngff.openmicroscopy.org/0.4/)) on Zarr v2 storage.
 Its output is the same data as OME-Zarr 0.5

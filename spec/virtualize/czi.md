@@ -2,8 +2,8 @@
 
 The Zarr layout of a Zeiss CZI file (the ZISRAW container, file version 1),
 and the translation of its segments into Zarr arrays and JSON. What all of
-vzip's conventions share is in [spec/conventions.md](../conventions.md), cited
-here as "conventions §n". How vzip produces this layout as a reference store
+refkv's conventions share is in [spec/conventions.md](../conventions.md), cited
+here as "conventions §n". How refkv produces this layout as a reference store
 is the CZI profile, [Part 2](#part-2-the-profile) below, cited as
 "the profile §n".
 
@@ -12,7 +12,7 @@ Schema: [schema.json](czi/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the CZI
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the CZI profile: how vzip reads the source, which inputs it rejects, and how
+is the CZI profile: how refkv reads the source, which inputs it rejects, and how
 each chunk references the source. The profile keeps its numbering as a section
 of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
 
@@ -279,8 +279,8 @@ Each codec's JSON form, exactly:
   `[y, x, c]` with the samples in the order jxrlib gives them (R, G, B, and
   A for `Bgra32`), after which `transpose` applies. Its encoded form is
   jxrlib's, so it needs nothing beyond the chunk's shape and data type. It
-  is not in the zarr-extensions registry; vzip's Python reader registers it
-  (`vzip.zarr.codecs`), and its registration and a Neuroglancer decoder are a
+  is not in the zarr-extensions registry; refkv's Python reader registers it
+  (`refkv.zarr.codecs`), and its registration and a Neuroglancer decoder are a
   follow-up ([design/plans/czi.md §7](../../design/plans/czi.md#7-decisions-on-the-open-questions)).
 - `numcodecs.shuffle` is
   `{"name": "numcodecs.shuffle", "configuration": {"elementsize": 2}}`, a
@@ -905,12 +905,12 @@ The layout uses two things that are not in every Zarr reader:
   no rectilinear support, a clipped level can still be read chunk by chunk:
   the chunk at `y` index `j` and `x` index `i` holds the tile of that row
   and column, of the stored size `(W, H)`, or `W'` wide in the last column
-  and `H'` high in the last row (vzip's verifier,
+  and `H'` high in the last row (refkv's verifier,
   `js/test/czi/verify.py`, checks both ways).
 - **Codecs.** `imagecodecs_jpegxr` (JPEG XR subblocks) and
   `numcodecs.shuffle` (Zstd1 with hi-lo packing) are not in the
-  zarr-extensions registry, nor in the Neuroglancer fork vzip's viewer uses.
-  zarr-python 3 has `numcodecs.shuffle`; `vzip.zarr.codecs` registers
+  zarr-extensions registry, nor in the Neuroglancer fork refkv's viewer uses.
+  zarr-python 3 has `numcodecs.shuffle`; `refkv.zarr.codecs` registers
   `imagecodecs_jpegxr`. Files with these codecs are accepted, not
   rejected: their chunks are the subblocks' bytes, so the archive is
   complete whatever a reader supports. Their registration, and decoders in

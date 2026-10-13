@@ -1,9 +1,9 @@
-# vzip in the browser
+# refkv in the browser
 
-vzip is ZIP plus a reference value type: a store whose values are either
-bytes or references to byte ranges of other objects
-([spec/refkv.md](../spec/refkv.md)). This package reads and writes vzip
-archives, the ZIP binding of that store, in the browser and in Node.
+refkv defines reference semantics for key-value storage: a value is either bytes or a reference to
+byte ranges of other objects ([spec/refkv.md](../spec/refkv.md)), and vzip is
+its single-file binding. This package reads and writes vzip archives
+([spec/bindings/vzip.md](../spec/bindings/vzip.md)) in the browser and in Node.
 
 A service worker that turns a remote image file (TIFF, NDPI, ND2, CZI,
 DICOM, NIfTI or IMS), a Sentinel-2 SAFE product (a `.SAFE.zip` file, or a
@@ -24,7 +24,7 @@ without copying pixel data:
 3. It answers every request under that URL from the archive. Metadata comes
    from the archive; a chunk request becomes one range request to the file.
 
-Any Zarr reader on the same origin can then use the URL; it needs no vzip
+Any Zarr reader on the same origin can then use the URL; it needs no refkv
 support. The archive itself can be downloaded from
 `<zarr url>__vz__/archive.vzip`. Existing archives are served the same way
 from `<scope>vz/archive/<id>/`.
@@ -63,7 +63,7 @@ JPEG XR chunks with the fork's wasm modules.
 
 Live demo: https://d-v-b.github.io/vzip-demo/image-to-zarr/ (formerly `tiff-to-zarr/`, which now redirects). `demo/pages.sh`
 publishes it, with the Neuroglancer build, to its own directory of the demo
-site (the `gh-pages` branch of `d-v-b/vzip-demo`, which hosts each vzip demo
+site (the `gh-pages` branch of `d-v-b/vzip-demo`, which hosts each refkv demo
 in a directory and lists them at https://d-v-b.github.io/vzip-demo/).
 
 ## What is supported
@@ -78,14 +78,14 @@ The rules are [spec/virtualize.md](../spec/virtualize.md)'s profiles:
 Rust core (`rust/refkv-ir`) built for wasm32: `src/virtualize/ir/` performs the
 requests its read planner asks for (several at once, multi-range ones under
 Node), under the reader policy, and writes its output. `just js::wasm` builds
-the module, which `just js::build` copies to `dist/vzip_ir.wasm` (beside the
+the module, which `just js::build` copies to `dist/refkv_ir.wasm` (beside the
 service worker, which fetches it) and which the Node tests and CLIs read from
-cargo's target directory (or `$VZIP_IR_WASM`). The other profiles are each
+cargo's target directory (or `$REFKV_IR_WASM`). The other profiles are each
 implemented in their own directory of `src/virtualize/` (`store.ts` holds what
 the store profiles share). The TypeScript TIFF, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr virtualizers the
-core replaced are kept, frozen, in `conformance/reference/` (with CLIs
-`conformance/reference/virtualize.ts` and `virtualize_file.ts`), for
-comparisons. The Python implementation (`python -m vzip.virtualize`)
+core replaced are kept, frozen, in `conformance/virtualize/reference/ts/` (with CLIs
+`conformance/virtualize/reference/ts/virtualize.ts` and `virtualize_file.ts`), for
+comparisons. The Python implementation (`python -m refkv.virtualize`)
 produces equivalent archives; `conformance/virtualize/compare.py` checks that.
 
 A file or a store at an http(s) URL is read under the reader policy (spec/refkv.md

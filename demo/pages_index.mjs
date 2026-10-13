@@ -51,7 +51,7 @@ fs.writeFileSync(
 <body>
 <main>
   <h1>refkv demos</h1>
-  <p>Demos of <a href="https://github.com/d-v-b/refkv">refkv</a>, ZIP plus a reference value type, for reference stores.</p>
+  <p>Demos of <a href="https://github.com/d-v-b/refkv">refkv</a>, reference semantics for key-value storage.</p>
   <ul>
 ${demos.map((d) => `    <li><a href="${escape(d.dir)}/">${escape(d.title)}</a><span>${escape(d.description)}</span></li>`).join("\n")}
   </ul>
@@ -64,8 +64,7 @@ fs.writeFileSync(
   path.join(site, "README.md"),
   `# refkv demos
 
-Live demos of [refkv](https://github.com/d-v-b/refkv), ZIP plus a reference value type,
-for reference stores: **https://d-v-b.github.io/vzip-demo/**
+Live demos of [refkv](https://github.com/d-v-b/refkv), reference semantics for key-value storage: **https://d-v-b.github.io/vzip-demo/**
 
 | demo | what it does |
 |---|---|

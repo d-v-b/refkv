@@ -1,4 +1,4 @@
-# Virtualizing image files and stores as OME-Zarr in vzip
+# Virtualizing image files and stores as OME-Zarr in refkv
 
 Profiles version: 0 (**draft**) · Revision: 27
 
@@ -531,7 +531,7 @@ is the format's Zarr convention:
 ## 14. Conformance
 
 This section is informative. There are two maintained implementations:
-- the Python reference, `python -m vzip.virtualize <url> <out.vzip>`
+- the Python reference, `python -m refkv.virtualize <url> <out.vzip>`
   (`python/src/refkv/virtualize/`);
 - the browser one, `js/src/virtualize/`, run under Node by
   `js/conformance/virtualize.ts`.

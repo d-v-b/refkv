@@ -1,6 +1,6 @@
 # DICOM, including whole-slide images
 
-vzip turns an image file into an OME-Zarr dataset by writing a small archive
+refkv turns an image file into an OME-Zarr dataset by writing a small archive
 of references to the file's bytes, without copying the pixels
 ([overview](../README.md)). This page is about DICOM files.
 
@@ -14,7 +14,7 @@ the NCI Imaging Data Commons (IDC), serve these files from cloud buckets
 a slide or a volume with Zarr tools, or put it next to OME-Zarr data, would
 otherwise have to decode and rewrite every frame.
 
-vzip reads the DICOM header and the frame table and writes an archive in which
+refkv reads the DICOM header and the frame table and writes an archive in which
 every Zarr chunk is one frame (or one tile of a slide) of the file, still
 JPEG, JPEG 2000 or raw as stored. A 60 MB whole-slide level from the IDC
 became a 704 KB archive (at spec/virtualize.md revision 16, before the archive
@@ -58,7 +58,7 @@ A CT slice from pydicom's test data (39 KB), from
 [corpus_dicom.txt](../../../conformance/virtualize/corpus_dicom.txt):
 
 ```bash
-uv run python -m vzip.virtualize https://raw.githubusercontent.com/pydicom/pydicom/v3.0.1/src/pydicom/data/test_files/CT_small.dcm CT_small.vzip
+uv run python -m refkv.virtualize https://raw.githubusercontent.com/pydicom/pydicom/v3.0.1/src/pydicom/data/test_files/CT_small.dcm CT_small.vzip
 ```
 
 ```
@@ -67,9 +67,9 @@ uv run python -m vzip.virtualize https://raw.githubusercontent.com/pydicom/pydic
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-g = zarr.open_group(vzip.zarr.open("CT_small.vzip"), mode="r")
+g = zarr.open_group(refkv.zarr.open("CT_small.vzip"), mode="r")
 ome = g.attrs["ome"]
 print(ome["multiscales"][0]["axes"], ome["multiscales"][0]["datasets"][0]["coordinateTransformations"])
 print(ome["omero"]["channels"])
@@ -89,7 +89,7 @@ A whole-slide level from the IDC (TCGA-THYM, JPEG tiles, 60 MB, 4230
 frames):
 
 ```bash
-uv run python -m vzip.virtualize https://storage.googleapis.com/idc-open-data/76f1a2b6-bb09-4736-aa91-bf89ef57f877/e0e21b65-c170-4d76-85f4-1302414cd758.dcm idc-thym.vzip
+uv run python -m refkv.virtualize https://storage.googleapis.com/idc-open-data/76f1a2b6-bb09-4736-aa91-bf89ef57f877/e0e21b65-c170-4d76-85f4-1302414cd758.dcm idc-thym.vzip
 ```
 
 ```
@@ -101,9 +101,9 @@ revision 16 ([overview](../README.md#formats)).
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-g = zarr.open_group(vzip.zarr.open("idc-thym.vzip"), mode="r")
+g = zarr.open_group(refkv.zarr.open("idc-thym.vzip"), mode="r")
 ome = g.attrs["ome"]
 print([(a["name"], a.get("unit")) for a in ome["multiscales"][0]["axes"]])
 print(ome["multiscales"][0]["datasets"][0]["coordinateTransformations"])
@@ -159,7 +159,7 @@ Rejected, with the message the command prints:
 - `TILED_SPARSE` slides, and slides with several focal planes or optical
   paths.
 - Encapsulated multi-frame files with an empty offset table and neither one
-  fragment nor one fragment per frame (vzip does not split fragments by
+  fragment nor one fragment per frame (refkv does not split fragments by
   reading the JPEG data).
 
 Not applied to the pixels: Rescale Slope and Intercept, modality and VOI

@@ -145,10 +145,10 @@ with the first's:
   --allow-private-hosts` (the harness serves its inputs from 127.0.0.1, which
   the reader policy refuses by default). For TIFF, ND2, CZI, DICOM, NIfTI, IMS, NDPI and SAFE
   files, and SAFE directories and Zarr v2, OME-Zarr and N5 stores, it runs the frozen Python profiles in
-  `conformance/virtualize/reference/refkv_reference/` (what `vzip.virtualize`
+  `conformance/virtualize/reference/refkv_reference/` (what `refkv.virtualize`
   shipped before these formats moved to the IR, unchanged but for their import
   paths); for every other profile, the shipped code.
-- `py`: `python -m vzip.virtualize --allow-private-hosts`.
+- `py`: `python -m refkv.virtualize --allow-private-hosts`.
 - `web`: the browser code under Node, `js/conformance/virtualize.ts
   --allow-private-hosts`.
 

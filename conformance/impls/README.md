@@ -1,7 +1,9 @@
 # Independent implementations
 
 Each directory holds a reader, writer and harness CLI that an agent built from
-[spec/refkv.md](../../spec/refkv.md) (format version 0, **revision 7**; the current spec is revision 11) and
+[the archive spec of revision 7](../../spec/history/archive/SPEC.r7.md) (format version 0; the current
+spec, revision 11, is [spec/refkv.md](../../spec/refkv.md) and
+[spec/bindings/vzip.md](../../spec/bindings/vzip.md)) and
 [HARNESS.md](../vzip/HARNESS.md) alone. The agents had no access to the
 reference implementation, the test vectors or each other's code. Each agent's
 `SPEC_NOTES.md` lists the ambiguities it reported; notes from every round are

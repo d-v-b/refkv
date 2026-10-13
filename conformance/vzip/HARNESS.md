@@ -21,7 +21,7 @@ sources of its archives on the loopback interface (`127.0.0.1`), which rule
 3 refuses by default. The `read` command must therefore allow private
 hosts, and that permission is unsafe, so it is asked for by name: the
 runner is given each implementation's command line with whatever option
-does it, such as the reference's `uv run python -m vzip.cli
+does it, such as the reference's `uv run python -m refkv.vzip.cli
 --allow-private-hosts`. The archives are local files, so they may read
 `file` sources by default. The other limits are the implementation's
 defaults.

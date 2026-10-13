@@ -1,8 +1,8 @@
 # Zarr v2
 
 The Zarr v3 layout of a Zarr v2 hierarchy, and its attributes. What all of
-vzip's conventions share is in [spec/conventions.md](../conventions.md), cited
-here as "conventions §n". How vzip produces this layout as a reference store
+refkv's conventions share is in [spec/conventions.md](../conventions.md), cited
+here as "conventions §n". How refkv produces this layout as a reference store
 from a listed store is the Zarr v2 profile,
 [Part 2](#part-2-the-profile) below. The
 [OME-Zarr convention](ome-zarr.md) builds on this one.
@@ -12,7 +12,7 @@ Schema: [schema.json](zarr2/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the Zarr v2
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the Zarr v2 profile: how vzip reads the source, which inputs it rejects, and how
+is the Zarr v2 profile: how refkv reads the source, which inputs it rejects, and how
 each chunk references the source. The profile keeps its numbering as a section
 of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
 

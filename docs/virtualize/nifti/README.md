@@ -1,6 +1,6 @@
 # NIfTI
 
-vzip turns an image file into an OME-Zarr dataset by writing a small archive
+refkv turns an image file into an OME-Zarr dataset by writing a small archive
 of references to the file's bytes, without copying the pixels
 ([overview](../README.md)). This page is about NIfTI volumes.
 
@@ -13,7 +13,7 @@ repositories of tools and test data, and lab servers. Someone who wants to
 look at a volume in an OME-Zarr viewer next to microscopy data, or read one
 slice of a large 4-D series lazily, has to convert it today.
 
-A NIfTI file is a header followed by one block of voxels, so vzip reads the
+A NIfTI file is a header followed by one block of voxels, so refkv reads the
 header (348 or 540 bytes) and writes an archive in which every Zarr chunk is
 a run of at most 128 KiB of that block: several z-slices, one slice, or
 some rows of a large slice. The SPM `avg152T1.nii` template became a 12 KB
@@ -60,7 +60,7 @@ SPM's `avg152T1.nii` template (903 KB, GPL-2.0), from
 [corpus_nifti.txt](../../../conformance/virtualize/corpus_nifti.txt):
 
 ```bash
-uv run python -m vzip.virtualize https://raw.githubusercontent.com/spm/spm/main/canonical/avg152T1.nii avg152T1.vzip
+uv run python -m refkv.virtualize https://raw.githubusercontent.com/spm/spm/main/canonical/avg152T1.nii avg152T1.vzip
 ```
 
 ```
@@ -74,9 +74,9 @@ no translation. Read it:
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-g = zarr.open_group(vzip.zarr.open("avg152T1.vzip"), mode="r")
+g = zarr.open_group(refkv.zarr.open("avg152T1.vzip"), mode="r")
 print(g.attrs["ome"]["multiscales"][0]["axes"])
 print(g.attrs["ome"]["multiscales"][0]["datasets"])
 print(g.attrs["refkv_virtualized"]["nifti"]["scaling"])

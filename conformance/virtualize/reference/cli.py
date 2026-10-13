@@ -1,7 +1,8 @@
 """The frozen reference's command line (`python -m refkv.virtualize` as it was before
 the IR switch-over): python conformance/virtualize/reference/cli.py <url or path>
 <out.vzip> [--url <source url>] [--checksums] [--allow-private-hosts]. Exit status 3
-when rejected. A url source is read under the reader policy (spec/refkv.md §8.7), which refuses
+when rejected. A url source is read under the reader policy (spec/refkv.md §6.7
+<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>), which refuses
 private and special hosts unless --allow-private-hosts (UNSAFE)."""
 
 import json

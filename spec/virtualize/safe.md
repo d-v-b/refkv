@@ -2,9 +2,9 @@
 
 The Zarr v3 layout of a Sentinel-2 Level-1C or Level-2A product in the SAFE
 format (a `.SAFE` directory, or the `.SAFE.zip` archive of one), and the
-translation of its metadata into JSON. What all of vzip's conventions share
+translation of its metadata into JSON. What all of refkv's conventions share
 is in [spec/conventions.md](../conventions.md), cited here as "conventions §n".
-How vzip produces this layout as a reference store is the SAFE profile,
+How refkv produces this layout as a reference store is the SAFE profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `ef81346c-19e8-42ad-93b0-a279ccaf44c1` ·
@@ -12,7 +12,7 @@ Schema: [schema.json](safe/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the SAFE
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the SAFE profile: how vzip reads the source, which inputs it rejects, and how
+is the SAFE profile: how refkv reads the source, which inputs it rejects, and how
 each chunk references the source. The profile keeps its numbering as a section
 of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
 

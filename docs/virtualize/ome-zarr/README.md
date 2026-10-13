@@ -1,6 +1,6 @@
 # OME-Zarr 0.4 to 0.5, in place
 
-vzip presents a chunked array store as a Zarr v3 hierarchy by writing a
+refkv presents a chunked array store as a Zarr v3 hierarchy by writing a
 small archive whose chunk entries point at the store's own objects, without
 copying them ([overview](../README.md)). This page is about migrating
 OME-Zarr 0.4 data to OME-Zarr 0.5.
@@ -15,7 +15,7 @@ every chunk's metadata path and, in practice, copying the data; for a public
 dataset you do not own, it means a second copy.
 
 Here the input is already Zarr, so this is format migration rather than
-virtualization. vzip lists the 0.4 store, checks it against the parts of
+virtualization. refkv lists the 0.4 store, checks it against the parts of
 OME-NGFF 0.4 that 0.5 also requires, and writes an archive that is the same
 data as OME-Zarr 0.5: new `zarr.json` documents with the metadata rewritten
 under `ome`, and every chunk referenced in place, unchanged. The archive is
@@ -49,7 +49,7 @@ An IDR image with a label image (idr0062, 1475 objects; CC BY 4.0), from
 Note the trailing `/`:
 
 ```bash
-uv run python -m vzip.virtualize https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0062A/6001240.zarr/ 6001240.vzip
+uv run python -m refkv.virtualize https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0062A/6001240.zarr/ 6001240.vzip
 ```
 
 ```
@@ -64,9 +64,9 @@ its image's 3; one was dropped from its multiscale.
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-g = zarr.open_group(vzip.zarr.open("6001240.vzip"), mode="r")
+g = zarr.open_group(refkv.zarr.open("6001240.vzip"), mode="r")
 ome = g.attrs["ome"]
 print(ome["version"], [a["name"] for a in ome["multiscales"][0]["axes"]], g["labels"].attrs["ome"]["labels"])
 a = g["0"]

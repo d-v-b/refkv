@@ -1,12 +1,12 @@
 # Virtualizing image files and stores
 
-vzip can present an image file, or a chunked array store, as an OME-Zarr
+refkv can present an image file, or a chunked array store, as an OME-Zarr
 dataset without converting or copying its pixels. A **virtualizer** reads
 only the input's structure (headers, tile tables, metadata documents) and
 writes a small vzip archive ([spec/bindings/vzip.md](../../spec/bindings/vzip.md)): a ZIP file
 whose values are bytes or references. Its metadata entries are OME-Zarr 0.5
 (Zarr v3) documents, and its chunk entries are references to byte ranges of
-the original file, or to the store's own chunk objects. A Zarr reader that understands vzip then reads the pixels
+the original file, or to the store's own chunk objects. A Zarr reader that understands refkv then reads the pixels
 straight from where they already are.
 
 Each input format has a **profile**: a specification, written for
@@ -62,15 +62,15 @@ be measured again.
 `uv sync`:
 
 ```bash
-uv run python -m vzip.virtualize <url or path> out.vzip
+uv run python -m refkv.virtualize <url or path> out.vzip
 # or
 just virtualize <url or path> out.vzip
 ```
 
-TIFF (and SVS and NDPI), ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2, N5 and OME-Zarr stores, are virtualized by vzip's Rust core,
-[rust/refkv-ir](../../rust/refkv-ir/), part of the vzip
-distribution: installing vzip (`pip install`, or `uv sync` in a clone) builds
-it as the Python module `vzip_ir`, which needs a Rust toolchain. The core parses the file into an intermediate representation (IR),
+TIFF (and SVS and NDPI), ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2, N5 and OME-Zarr stores, are virtualized by refkv's Rust core,
+[rust/refkv-ir](../../rust/refkv-ir/), part of the refkv
+distribution: installing refkv (`pip install`, or `uv sync` in a clone) builds
+it as the Python module `refkv._ir`, which needs a Rust toolchain. The core parses the file into an intermediate representation (IR),
 plans the range requests, projects the IR onto the format's convention, and
 writes the source's IR mirror ([below](#the-sources-metadata-and-where-it-came-from-refkv_virtualized)).
 The other formats are implemented in Python and do not need it.
@@ -108,43 +108,43 @@ refused, and so is a request that would go through a proxy the reader cannot
 check. To virtualize a file or store served from your own machine or network (for
 example `http://127.0.0.1:8000/...`), pass `--allow-private-hosts`. Reading
 an archive applies the same policy to its sources, so an archive that refers
-to such a host opens only with `vzip.zarr.open(path,
-policy=Policy(allow_private_hosts=True))` (`from vzip.policy import
+to such a host opens only with `refkv.zarr.open(path,
+policy=Policy(allow_private_hosts=True))` (`from refkv.policy import
 Policy`). A local file or directory needs neither.
 
-Read the archive in Python with `vzip.zarr` and zarr-python
-(`pip install 'vzip[zarr]'`, or `vzip[images]` for the JPEG, JPEG 2000 and
-JPEG XR decoders). Importing `vzip.zarr` registers the codecs that some formats
+Read the archive in Python with `refkv.zarr` and zarr-python
+(`pip install 'refkv[zarr]'`, or `refkv[images]` for the JPEG, JPEG 2000 and
+JPEG XR decoders). Importing `refkv.zarr` registers the codecs that some formats
 need (JPEG, JPEG 2000, JPEG XR, `zlib`, `n5_default`):
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-g = zarr.open_group(vzip.zarr.open("out.vzip"), mode="r")
+g = zarr.open_group(refkv.zarr.open("out.vzip"), mode="r")
 ```
 
 **From Python.** The command is a thin wrapper over
-`vzip.virtualize.virtualize`, which returns the result as a
-`vzip.ReferenceStore` instead of writing a file. The store reads right away,
+`refkv.virtualize.virtualize`, which returns the result as a
+`refkv.ReferenceStore` instead of writing a file. The store reads right away,
 in memory; `store.save(path)` writes the archive, the same bytes the command
 writes; and `store.info` holds the format and the summary the command prints:
 
 ```python
 import zarr
-import vzip.zarr
-from vzip.virtualize import virtualize
+import refkv.zarr
+from refkv.virtualize import virtualize
 
 store = virtualize("https://openslide.cs.cmu.edu/download/openslide-testdata/Aperio/CMU-1-Small-Region.svs")
 store.info["format"]                                   # "tiff"
-g = zarr.open_group(vzip.zarr.store(store), mode="r")  # no archive yet
+g = zarr.open_group(refkv.zarr.store(store), mode="r")  # no archive yet
 store.save("CMU-1-Small-Region.vzip")
 ```
 
 `virtualize` takes the input's local path or URL, and the command's options as
 keyword arguments: `url` (the URL the archive names the source by),
 `checksums`, `policy`, `connections`, `byte_cost` (in seconds per byte, not
-per MB) and `workers`. It raises `vzip.virtualize.Rejected` when no profile
+per MB) and `workers`. It raises `refkv.virtualize.Rejected` when no profile
 accepts the input. The store reads its sources under the `policy` it was
 given. `save` checks the sources against the policy the archive's readers will
 use, `Policy()` unless it is given one, so for sources on a private host pass
@@ -163,7 +163,7 @@ archive for download. Two limits apply:
 - The live demo currently virtualizes TIFF, NDPI and ND2 files only. CZI,
   DICOM, NIfTI, IMS, SAFE and the store formats work in a local build of the
   demo (`just js::build && node demo/serve.mjs 8080`; the build compiles the
-  Rust core to WebAssembly first, `dist/vzip_ir.wasm`, so it needs a Rust
+  Rust core to WebAssembly first, `dist/refkv_ir.wasm`, so it needs a Rust
   toolchain with the `wasm32` target), which is not yet deployed.
 - The host must allow cross-origin reads (CORS). zenodo.org, ftp.ebi.ac.uk,
   raw.githubusercontent.com, OpenOrganelle's S3 bucket and the IDR's Embassy
@@ -243,7 +243,7 @@ NIFTI-1 Image {'slope': 0.003921568859368563, 'inter': 0.0}
 
 The record stays with the hierarchy if it is copied out of the archive. The
 format, version and revision name the exact rules that produced it, so it
-can be regenerated from the source and checked. Until vzip's first release,
+can be regenerated from the source and checked. Until refkv's first release,
 every convention is at version 0 and promises nothing: any revision may
 change a layout, and the recorded revision tells two layouts apart. From the
 release, conventions start at version 1, a convention's version increases
@@ -262,9 +262,9 @@ files and stores listed in
 and checks that their outputs are equivalent ([spec/virtualize.md §1.1](../../spec/virtualize.md#11-output-and-equivalence)):
 
 - `ref`, the reference (`conformance/virtualize/reference/cli.py`): for
-  TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr, the Python profiles vzip shipped before these formats
+  TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr, the Python profiles refkv shipped before these formats
   moved to the Rust core, frozen; for every other format, the shipped code;
-- `py`, `python -m vzip.virtualize`;
+- `py`, `python -m refkv.virtualize`;
 - `web`, the browser code under Node.
 
 For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr, `py` and `web` run one core, so the independent check

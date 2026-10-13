@@ -1,6 +1,6 @@
 # Imaris IMS
 
-vzip turns an image file into an OME-Zarr dataset by writing a small archive
+refkv turns an image file into an OME-Zarr dataset by writing a small archive
 of references to the file's bytes, without copying the pixels
 ([overview](../README.md)). This page is about Imaris `.ims` files.
 
@@ -14,7 +14,7 @@ and the OME sample-image server. A `.ims` file is HDF5, which most
 web-based viewers and Zarr tools cannot read without the HDF5 library and a
 local copy.
 
-vzip reads the file's HDF5 structure itself (superblock, groups, attributes
+refkv reads the file's HDF5 structure itself (superblock, groups, attributes
 and chunk B-trees, never the pixels) and writes an archive in which every
 Zarr chunk is one HDF5 chunk of the file. Imaris's own resolution pyramid
 becomes the OME-Zarr levels.
@@ -54,7 +54,7 @@ deflate; CC BY 4.0), from
 [corpus_ims.txt](../../../conformance/virtualize/corpus_ims.txt):
 
 ```bash
-uv run python -m vzip.virtualize https://downloads.openmicroscopy.org/images/Imaris-IMS/eliana/retina_large.ims retina.vzip
+uv run python -m refkv.virtualize https://downloads.openmicroscopy.org/images/Imaris-IMS/eliana/retina_large.ims retina.vzip
 ```
 
 ```
@@ -67,9 +67,9 @@ file's other objects, so it is larger.
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-g = zarr.open_group(vzip.zarr.open("retina.vzip"), mode="r")
+g = zarr.open_group(refkv.zarr.open("retina.vzip"), mode="r")
 ms = g.attrs["ome"]["multiscales"][0]
 print([(a["name"], a.get("unit")) for a in ms["axes"]])
 for d in ms["datasets"]:
@@ -144,7 +144,7 @@ Rejected, with the message the command prints:
 
 ## How it's verified
 
-IMS is virtualized by vzip's Rust core, natively in Python and as
+IMS is virtualized by refkv's Rust core, natively in Python and as
 WebAssembly in the browser. `js/test/ims/verify.py` virtualizes the synthetic
 IMS files (including inputs to reject) with the browser code, reads them back through `python/src/refkv`
 and zarr-python, and compares the pixels with h5py (cropped to the image

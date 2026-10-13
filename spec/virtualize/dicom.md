@@ -3,9 +3,9 @@
 The Zarr layout of a DICOM Part 10 file (PS3.10) with native or JPEG or
 JPEG 2000 encapsulated pixel data, including whole-slide images, and the
 translation of its File Meta Information and dataset into the DICOM JSON
-Model. What all of vzip's conventions share is in
+Model. What all of refkv's conventions share is in
 [spec/conventions.md](../conventions.md), cited here as "conventions §n". How
-vzip produces this layout as a reference store is the DICOM profile,
+refkv produces this layout as a reference store is the DICOM profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `acf17198-e5a5-48d3-8187-22ec4bb40ea5` ·
@@ -13,7 +13,7 @@ Schema: [schema.json](dicom/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the DICOM
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the DICOM profile: how vzip reads the source, which inputs it rejects, and how
+is the DICOM profile: how refkv reads the source, which inputs it rejects, and how
 each chunk references the source. The profile keeps its numbering as a section
 of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
 
@@ -382,7 +382,7 @@ a gathered sequence, `"Gathered"`; and, for a gathered sequence,
   in little endian in every transfer syntax (PS3.5 §6.2.2): in explicit VR
   big endian too, its values (and an array of them) are read in little
   endian, as its items are read in implicit VR little endian (below). The dictionary is
-  [python/src/refkv/virtualize/dicom/dictionary.json](../../python/src/refkv/virtualize/dicom/dictionary.json)
+  [rust/refkv-ir/schema/dicom_dictionary.json](../../rust/refkv-ir/schema/dicom_dictionary.json)
   (PS3.6 as pydicom 3.0.2 ships it, written by
   [generate_dictionary.py](dicom/generate_dictionary.py)); it is normative, and a
   new edition of it is a new version of this convention. A tag's VR is,

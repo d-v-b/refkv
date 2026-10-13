@@ -2,9 +2,9 @@
 
 The Zarr layout of a Hamamatsu NDPI slide, and its source model: the
 elements of its IR, which `refkv_source` holds as the IR mirror. NDPI is a variant of TIFF; this convention builds on the
-[TIFF convention](tiff.md). What all of vzip's conventions share is
+[TIFF convention](tiff.md). What all of refkv's conventions share is
 in [spec/conventions.md](../conventions.md), cited here as "conventions §n".
-How vzip produces this layout as a reference store is the NDPI profile,
+How refkv produces this layout as a reference store is the NDPI profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `6cac71ef-dbb2-4acd-b60c-00389aa4238a` ·
@@ -12,7 +12,7 @@ Schema: [schema.json](ndpi/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the NDPI
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the NDPI profile: how vzip reads the source, which inputs it rejects, and how
+is the NDPI profile: how refkv reads the source, which inputs it rejects, and how
 each chunk references the source. The profile keeps its numbering as a section
 of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
 
@@ -105,7 +105,7 @@ row-major order, `q` per row and `r` rows (the profile defines them from
 the strip's JPEG header); a chunk is `a × b` intervals, `a` =
 `min(q, max(1, floor(1024 / (R × mw))))` across and `b` down, so the chunk
 shape is `[3, b × mh, a × R × mw]`. (`b` is chosen by the profile, as the
-largest that keeps every chunk's reference within vzip's limits.) Chunk
+largest that keeps every chunk's reference within refkv's limits.) Chunk
 `(u, v)` (row `u`, column `v`), at `<level>/c/0/<u>/<v>`, holds a complete
 JPEG stream of those intervals, which decodes to the chunk's pixels; at the
 image's bottom and right edges, the pixels outside the array are
@@ -199,7 +199,7 @@ named array rule): hierarchies of one file are compared entry for entry,
 ## 6. Example
 
 A slide at `https://example.org/slide.ndpi`, the 207,434-byte
-`ndpi_levels.ndpi` of vzip's test fixtures: three levels, of which the first
+`ndpi_levels.ndpi` of refkv's test fixtures: three levels, of which the first
 two have McuStarts. The root's property:
 
 ```json

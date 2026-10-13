@@ -2,8 +2,8 @@
 
 The Zarr layout of a TIFF or BigTIFF file, including OME-TIFF and JPEG-tiled
 slides such as Aperio SVS, and the translation of its tags into JSON. What
-all of vzip's conventions share is in [spec/conventions.md](../conventions.md),
-cited here as "conventions §n". How vzip produces this layout as a reference
+all of refkv's conventions share is in [spec/conventions.md](../conventions.md),
+cited here as "conventions §n". How refkv produces this layout as a reference
 store is the TIFF profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `48e9ac4e-1156-4a62-955e-20467d9c2700` ·
@@ -11,7 +11,7 @@ Schema: [schema.json](tiff/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the TIFF
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the TIFF profile: how vzip reads the source, which inputs it rejects, and how
+is the TIFF profile: how refkv reads the source, which inputs it rejects, and how
 each chunk references the source. The profile keeps its numbering as a section
 of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
 
@@ -455,7 +455,7 @@ property:
 ```
 
 `refkv_source` is the IR mirror ([§5](#5-source-metadata)). For the 5,319-byte JPEG-tiled file
-`jpeg_gray.tif` of vzip's test fixtures, its property is:
+`jpeg_gray.tif` of refkv's test fixtures, its property is:
 
 ```json
 {

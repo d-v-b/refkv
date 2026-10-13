@@ -1,6 +1,6 @@
 # N5
 
-vzip presents a chunked array store as a Zarr v3 hierarchy by writing a
+refkv presents a chunked array store as a Zarr v3 hierarchy by writing a
 small archive whose chunk entries point at the store's own objects, without
 copying them ([overview](../README.md)). This page is about N5 containers.
 
@@ -13,7 +13,7 @@ publishes its FIB-SEM volumes and segmentations as N5 in the public S3 bucket
 v3 tools and OME-Zarr viewers, which do not read N5, without rewriting
 terabytes of blocks.
 
-vzip lists the store, reads its `attributes.json` documents, and writes an
+refkv lists the store, reads its `attributes.json` documents, and writes an
 archive in which every N5 dataset is a Zarr v3 array and every block is one
 chunk entry referencing the block object as it is. COSEM and n5-viewer
 multiscale metadata become OME-NGFF 0.5 multiscales.
@@ -61,7 +61,7 @@ of 5 levels and 1612 blocks (CC BY 4.0), from
 trailing `/`, which makes the URL a store:
 
 ```bash
-uv run python -m vzip.virtualize https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-2/jrc_hela-2.n5/labels/mito_seg/ mito_seg.vzip
+uv run python -m refkv.virtualize https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-2/jrc_hela-2.n5/labels/mito_seg/ mito_seg.vzip
 ```
 
 ```
@@ -76,9 +76,9 @@ has the store run's `reads`, the IR's `elements` and the mirror's `folded`.)
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-g = zarr.open_group(vzip.zarr.open("mito_seg.vzip"), mode="r")
+g = zarr.open_group(refkv.zarr.open("mito_seg.vzip"), mode="r")
 ms = g.attrs["ome"]["multiscales"][0]
 print([(a["name"], a.get("unit")) for a in ms["axes"]])
 for d in ms["datasets"]:
@@ -117,7 +117,7 @@ Neuroglancer view stays empty (next section). A store that lists more than
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
 cannot display N5 archives yet: it has no `n5_default` codec, so the layer
-loads no data. zarr-python, with `vzip` imported (which registers `n5_default`), reads them.
+loads no data. zarr-python, with `refkv.zarr` imported (which registers `n5_default`), reads them.
 Neuroglancer's own N5 data source (`<url>|n5:`), which the fork keeps,
 reads the original store directly, and is the way to view N5 data today.
 

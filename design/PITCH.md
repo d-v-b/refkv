@@ -148,7 +148,7 @@ spec binds it to, because:
   the first.
 - **Nobody owns it.** ZIP is documented by PKWARE's APPNOTE, and protobuf's
   wire format by a public spec. The vzip rules on top are [one
-  document](../spec/refkv.md). Every archive records its format version (`vzip/0`
+  document](../spec/bindings/vzip.md). Every archive records its format version (`vzip/0`
   today), so a reader knows whether it can read an archive before it tries.
 
 ## What it costs, measured

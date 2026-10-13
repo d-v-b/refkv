@@ -1,25 +1,39 @@
 # refkv: reference-aware key-value storage
 
-refkv defines reference semantics for key-value storage. This allows an object in one key-value 
-store to refer to a byte range, or sequence of byte ranges, in other storage backends.
+refkv defines reference semantics for key-value storage. This allows an object
+in one key-value store to refer to a byte range, or sequence of byte ranges,
+in other storage backends.
 
 refkv is used to define vzip, a single-file reference-aware storage solution.
 
-The [spec](spec/refkv.md) has two parts:
-[the reference value type](spec/refkv.md#part-1-reference-values), which
-needs no particular backend, and
-[the ZIP binding](spec/bindings/vzip.md#part-2-the-zip-binding), which keeps a
-store in one ordinary ZIP file, a vzip archive. ZIP is the one binding
-specified today. Read the [pitch](design/PITCH.md) for why.
-[docs/](docs/README.md) is for users: the live demos, and how to virtualize
-image files and stores. For netCDF, HDF5 and the other files
-[VirtualiZarr](https://virtualizarr.readthedocs.io/) reads, the Python package
-turns a virtual dataset into a store that xarray opens, and saves it as a vzip
-archive: `vzip.ReferenceStore.from_virtualizarr(vds)`, then
-`store.save("data.vzip")`, then `xr.open_zarr(vzip.zarr.open("data.vzip"))`
+The specification has two parts. [refkv](spec/refkv.md) defines the reference
+value type: a value is either bytes or a reference to byte ranges of other
+objects, such as the chunks inside HDF5, netCDF or TIFF files, and any
+key-value store that can tell the two apart can hold references. The
+[vzip binding](spec/bindings/vzip.md) keeps such a store in one ordinary ZIP
+file, a `.vzip` archive. ZIP is the one binding specified today; the
+[pitch](design/PITCH.md) says why.
+
+On top of that, refkv virtualizes data: it reads TIFF, NDPI, ND2, CZI, DICOM,
+NIfTI and Imaris files, N5, Zarr v2 and OME-Zarr stores, and Sentinel-2 SAFE
+products, and presents each as a Zarr hierarchy whose chunks are references to
+the original bytes, without copying them. A Rust core parses each format and
+runs natively from Python and as WebAssembly in the browser.
+
+```python
+from refkv.virtualize import virtualize
+
+store = virtualize("https://example.org/slide.ndpi")  # a refkv.ReferenceStore
+store.save("slide.vzip")                               # one vzip archive
+```
+
+For netCDF, HDF5 and the other files
+[VirtualiZarr](https://virtualizarr.readthedocs.io/) reads,
+`refkv.ReferenceStore.from_virtualizarr(vds)` turns a virtual dataset into a
+store that xarray opens, through `refkv.zarr` with the `zarr` extra
 ([docs/virtual-datasets.md](docs/virtual-datasets.md) has a runnable example).
-The package needs no Zarr to read and write stores; `vzip.zarr`, with the
-`zarr` extra, opens one for zarr-python and xarray.
+[docs/](docs/README.md) is for users: installing, the live demos, and a page
+per format.
 
 Status: experimental, proof of concept, anything can change.
 
@@ -30,25 +44,31 @@ code is organized by language.
 
 | directory | holds |
 |---|---|
-| [spec/](spec/) | the specifications: the reference value type and its ZIP binding ([archive.md](spec/refkv.md)), virtualization ([virtualize.md](spec/virtualize.md)), the conventions every virtualized hierarchy shares ([conventions.md](spec/conventions.md)), one document per format with its Zarr convention and its profile ([virtualize/](spec/virtualize/), each `<format>.md` beside `<format>/schema.json`), the wire schema ([proto/](spec/proto/)), and earlier revisions ([history/](spec/history/)) |
+| [spec/](spec/) | the specifications: the reference value type ([refkv.md](spec/refkv.md)) and its ZIP binding ([bindings/vzip.md](spec/bindings/vzip.md)), virtualization ([virtualize.md](spec/virtualize.md)), the conventions every virtualized hierarchy shares ([conventions.md](spec/conventions.md)), one document per format with its Zarr convention and its profile ([virtualize/](spec/virtualize/), each `<format>.md` beside `<format>/schema.json`), the wire schema ([proto/](spec/proto/)), and earlier revisions ([history/](spec/history/)) |
 | [docs/](docs/README.md) | user documentation: [virtual datasets with xarray](docs/virtual-datasets.md), and a page per format in [docs/virtualize/](docs/virtualize/README.md) |
 | [design/](design/) | design notes and studies: [ARCHITECTURE.md](design/ARCHITECTURE.md), [FINDINGS.md](design/FINDINGS.md), [PITCH.md](design/PITCH.md), [COMPARISON.md](design/COMPARISON.md), the IR notes ([IR_NOTES.md](design/IR_NOTES.md)), the conformance rounds' notes and proposals, and the experiment scripts the notes cite |
-| [python/](python/) | the Python package `vzip` (`python/src/refkv`) and its tests (`python/tests`); its `pyproject.toml` is at the root |
-| [js/](js/README.md) | the TypeScript library (`js/src`), its Node tests, and the browser demo (`demo`) |
-| [rust/refkv-ir](rust/refkv-ir/) | the Rust IR core and parsers, built for Python (PyO3) and for the browser (wasm32) |
+| [python/](python/) | the Python package `refkv` (`python/src/refkv`, with the ZIP binding in `refkv.vzip`) and its tests (`python/tests`); its `pyproject.toml` is at the root, and the wheel builds the Rust core in as `refkv._ir` |
+| [js/](js/README.md) | the TypeScript library (`js/src`) and its Node tests |
+| [demo/](demo/) | the browser demo, which `just js::build` bundles with the library and `demo/pages.sh` publishes to https://d-v-b.github.io/vzip-demo/ |
+| [rust/refkv-ir](rust/refkv-ir/) | the Rust core: the format parsers, the IR, the projections and the read planner, built for Python (PyO3) and for the browser (wasm32) |
 | [fixtures/](fixtures/) | the synthetic test inputs every implementation shares, one directory per format, and their generators ([fixtures/generators/](fixtures/generators/)) |
-| [conformance/](conformance/) | the conformance harnesses: [archive/](conformance/vzip/HARNESS.md) for the archive format, [virtualize/](conformance/virtualize/HARNESS.md) for virtualization (with the frozen reference implementations, Python and TypeScript), and the agent-written independent implementations ([impls/](conformance/impls/README.md)) |
+| [conformance/](conformance/) | the conformance harnesses: [vzip/](conformance/vzip/HARNESS.md) for the vzip binding, [virtualize/](conformance/virtualize/HARNESS.md) for virtualization (with the frozen reference implementations, Python and TypeScript), and the agent-written independent implementations ([impls/](conformance/impls/README.md)) |
 
 `just` lists the recipes: `just test` (Python), `just js::test` (Node),
 `just ir-test` (Rust), `just compare` and `just compare-mutants` (the
-virtualizers against the frozen reference), `just conformance` (the archive
-format's independent implementations).
+virtualizers against the frozen reference), `just conformance` (the vzip
+binding's independent implementations).
 
 ## How this was made
 
-I prompted Claude to explore serialization formats for the kind of virtual zarr stores created by [VirtualiZarr](https://virtualizarr.readthedocs.io/en/stable/index.html). Key to the prompt was the goal
-of re-using "boring" technology like Zip archives. Once Claude had cooked up a rough spec, I instructed Claude to have subagents write Python, Typescript, and Rust implementations, and to take notes along the way. 
-This ran in a loop, refining the spec each time. After 7 revs, we got something convergent.
+I prompted Claude to explore serialization formats for the kind of virtual
+zarr stores created by
+[VirtualiZarr](https://virtualizarr.readthedocs.io/en/stable/index.html). Key
+to the prompt was the goal of re-using "boring" technology like Zip archives.
+Once Claude had cooked up a rough spec, I instructed Claude to have subagents
+write Python, Typescript, and Rust implementations, and to take notes along
+the way. This ran in a loop, refining the spec each time. After 7 revs, we got
+something convergent.
 
 ## License
 

@@ -1,4 +1,4 @@
-# vzip's Zarr conventions
+# refkv's Zarr conventions
 
 A Zarr hierarchy made from a source in another format (a TIFF, an ND2 file, an
 N5 store, ...) looks like any other Zarr hierarchy. These conventions make
@@ -27,7 +27,7 @@ type, chunk grid, codecs, dimension names), the OME-NGFF metadata, and the
 attributes under the convention's key, including the translation of the
 source's header into JSON. It says what each chunk holds in terms of the
 source (for example, "the chunk at `0/c/t/0/z/0/0` is frame `f`"), but not
-how a store produces those bytes. vzip produces these hierarchies as
+how a store produces those bytes. refkv produces these hierarchies as
 reference stores whose chunks are byte ranges of the source; that is
 specified separately, in [spec/virtualize.md](virtualize.md) and its
 profiles, which refer to these conventions for the layout.
@@ -66,15 +66,15 @@ framework](https://github.com/zarr-conventions/zarr-conventions-spec).
 **Versions.** Each convention has a **version**, an integer stated in its
 document's header.
 
-- **Until vzip's first release**, every convention is at version **0**, and
+- **Until refkv's first release**, every convention is at version **0**, and
   hierarchies also record the **revision** of
   [spec/virtualize.md](virtualize.md) (the number in its header) that
   produced them ([§2](#2-attributes)). Version 0 promises nothing: any revision may change a
   layout, and the revision is what tells two layouts apart.
 - **At the release**, every convention becomes version 1, tagged
-  `virtualize-<p>-v1` in the vzip repository. From then on a convention's
+  `virtualize-<p>-v1` in the refkv repository. From then on a convention's
   version increases by 1 whenever the layout it specifies, or the reference
-  store that vzip's profile for that format specifies, changes for some
+  store that refkv's profile for that format specifies, changes for some
   source, including whether the source is accepted (a **breaking change**);
   an editorial change, or a change to another format, leaves it as it is.
   Version `N` of the convention for format `p` is tagged
@@ -142,7 +142,7 @@ arrays ([§7](#7-source-values-as-arrays)), are on the group `refkv_source`, a c
 the convention, with its own source metadata, when it has any, and holds the
 arrays at paths the format's convention gives. OME-NGFF readers ignore it.
 Producers SHOULD store its documents so that a reader fetches them only when
-it opens the node (vzip writes them with the chunks, not with the documents
+it opens the node (refkv writes them with the chunks, not with the documents
 read when an archive is opened). The node exists only when it has
 source metadata or arrays, or, for the store conventions, other objects of
 the store, which it holds whole under `refkv_source/objects/`, or the
