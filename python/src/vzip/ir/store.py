@@ -164,6 +164,11 @@ class StoreIrOutput:
         in order of the entries' keys; spec/virtualize/safe.md §12.8
         <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#128-the-source-table>).
         A reference's parts become (source, offset, length) or bytes."""
+        objects, data, refs = self._numbered()
+        return [object_url(self.url, k) for k in objects], data, refs
+
+    def _numbered(self) -> tuple[list[str], list[bytes], dict[str, list]]:
+        """`table`, with the url sources as the object keys they are the urls of."""
         keys = sorted(self.refs, key=lambda k: k.encode())
         objects: dict[str, int] = {}
         for k in keys:
@@ -185,8 +190,7 @@ class StoreIrOutput:
                 else:
                     raise AssertionError(f"{k}: a reference to source 0 in a store's output")
             out[k] = ranges
-        urls = [object_url(self.url, k) for k in objects]
-        return urls, [self.data[i - 1] for i in data], out
+        return list(objects), [self.data[i - 1] for i in data], out
 
     @property
     def sources(self) -> list[str]:
@@ -207,13 +211,12 @@ class StoreIrOutput:
                 keys = sorted(self.refs, key=lambda k: k.encode())
                 w.add_url_refs(((k, object_url(self.url, whole[k]), self.refs[k][0][3]) for k in keys), pin_size=True)
             else:
-                urls, data, refs = self.table()
-                by_url = {object_url(self.url, k): n for k, n in self.sizes.items()}
-                for i, u in enumerate(urls):
-                    if w.source(Source(url=u, size=by_url.get(u))) != i:
+                objects, data, refs = self._numbered()
+                for i, k in enumerate(objects):
+                    if w.source(Source(url=object_url(self.url, k), size=self.sizes.get(k))) != i:
                         raise AssertionError("url sources out of order")
                 for i, value in enumerate(data):
-                    if w.blob(value) != len(urls) + i:
+                    if w.blob(value) != len(objects) + i:
                         raise AssertionError("data sources out of order")
                 for key, ranges in refs.items():
                     w.add_ranges(key, [Range(data=r) if isinstance(r, bytes) else
@@ -229,9 +232,9 @@ class StoreIrOutput:
         from vzip.pb import Range, Source
         from vzip.virtualize.common import reference_store
 
-        urls, data, table = self.table()
-        by_url = {object_url(self.url, k): n for k, n in self.sizes.items()}
-        sources = [Source(url=u, size=by_url.get(u)) for u in urls] + [Source(data=v) for v in data]
+        objects, data, table = self._numbered()
+        sources = [Source(url=object_url(self.url, k), size=self.sizes.get(k)) for k in objects] + \
+            [Source(data=v) for v in data]
         refs = [(key, [Range(data=r) if isinstance(r, bytes) else Range(source=r[0], offset=r[1], length=r[2])
                        for r in ranges]) for key, ranges in table.items()]
         entries = [(key, self.entries[key], key.endswith("zarr.json") and not key.startswith(self.lazy))
