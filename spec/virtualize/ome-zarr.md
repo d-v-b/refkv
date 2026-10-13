@@ -4,7 +4,7 @@ The OME-Zarr 0.5 layout of an OME-Zarr 0.4 hierarchy on Zarr v2 storage,
 and its attributes. It builds on the [Zarr v2 convention](zarr2.md).
 What all of vzip's conventions share is in
 [spec/conventions.md](../conventions.md), cited here as "conventions §n". How
-vzip produces this layout as a virtual store from a listed store is the
+vzip produces this layout as a reference store from a listed store is the
 OME-Zarr profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` ·

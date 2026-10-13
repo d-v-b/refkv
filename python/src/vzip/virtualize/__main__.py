@@ -48,17 +48,22 @@ def main(argv: list[str]) -> int:
     if url is None and os.path.isdir(args[0]):
         print("a local directory needs --url, the store URL (ending in /) it is served from", file=sys.stderr)
         return 2
+    policy = Policy(allow_private_hosts=private)
     try:
-        fmt, out = virtualize(args[0], url, checksums=checksums, policy=Policy(allow_private_hosts=private),
-                             connections=connections, byte_cost=byte_cost, workers=workers)
+        store = virtualize(args[0], url, checksums=checksums, policy=policy,
+                           connections=connections, byte_cost=byte_cost, workers=workers)
     except Rejected as e:
         print(f"rejected: {e}", file=sys.stderr)
         return 3
     except ResolutionError as e:  # the reader policy refused the source
         print(f"error: {e}", file=sys.stderr)
         return 1
-    out.write(args[1])
-    print(json.dumps({"format": fmt, **out.summary}))
+    try:  # the archive's sources are checked against the policy the input was read under
+        store.save(args[1], policy=policy)
+    except ResolutionError as e:  # a source a reader under that policy could not read
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(json.dumps(store.info))
     return 0
 
 

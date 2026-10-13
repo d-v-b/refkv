@@ -77,7 +77,8 @@ The other formats are implemented in Python and do not need it.
 
 The command prints a one-line JSON summary. It exits with status 3 if the
 profile rejects the input, and with status 1 if the reader policy refuses the
-source (below). The format is chosen by the file's first bytes, or for a
+source, or a source the archive would name, such as a `--url` on a private
+host (below); it then writes no archive. The format is chosen by the file's first bytes, or for a
 store by the objects at its root. Options:
 
 - `--url <url>`: the URL to record as the source, for a local file or
@@ -123,6 +124,32 @@ import vzip.zarr
 g = zarr.open_group(vzip.zarr.open("out.vzip"), mode="r")
 ```
 
+**From Python.** The command is a thin wrapper over
+`vzip.virtualize.virtualize`, which returns the result as a
+`vzip.ReferenceStore` instead of writing a file. The store reads right away,
+in memory; `store.save(path)` writes the archive, the same bytes the command
+writes; and `store.info` holds the format and the summary the command prints:
+
+```python
+import zarr
+import vzip.zarr
+from vzip.virtualize import virtualize
+
+store = virtualize("https://openslide.cs.cmu.edu/download/openslide-testdata/Aperio/CMU-1-Small-Region.svs")
+store.info["format"]                                   # "tiff"
+g = zarr.open_group(vzip.zarr.store(store), mode="r")  # no archive yet
+store.save("CMU-1-Small-Region.vzip")
+```
+
+`virtualize` takes the input's local path or URL, and the command's options as
+keyword arguments: `url` (the URL the archive names the source by),
+`checksums`, `policy`, `connections`, `byte_cost` (in seconds per byte, not
+per MB) and `workers`. It raises `vzip.virtualize.Rejected` when no profile
+accepts the input. The store reads its sources under the `policy` it was
+given. `save` checks the sources against the policy the archive's readers will
+use, `Policy()` unless it is given one, so for sources on a private host pass
+that one too: `store.save(path, policy=policy)`.
+
 **The browser.** The same virtualizers run in a service worker
 ([js/](../../js/README.md)): the Rust core, built for WebAssembly, for
 TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS, SAFE and Zarr v2, and TypeScript implementations of the other formats. The
@@ -158,7 +185,7 @@ holding at most 64 MiB of documents ahead of the virtualizer.
 
 ## The source's metadata, and where it came from: `vzip_virtualized`
 
-A virtual hierarchy looks like any other Zarr, so it says what it is. Each
+A virtualized hierarchy looks like any other Zarr, so it says what it is. Each
 format has a [Zarr convention](https://github.com/zarr-conventions/zarr-conventions-spec)
 of its own, specified in [spec/conventions.md](../../spec/conventions.md): the
 hierarchy's whole Zarr layout, and the translation of the source's header
@@ -183,8 +210,11 @@ each format's metadata is:
   fit its budget, and a CZI file's header.
 - **NDPI:** the IR mirror on `vzip_source`, as for TIFF: every IFD, tag,
   high word and strip.
-- **DICOM:** the file's attributes, in the DICOM JSON Model, on the root;
-  the ones that would make the root large are on `vzip_source`.
+- **DICOM:** the IR mirror on `vzip_source`, as for TIFF: the file's data
+  elements themselves, layout, padding and dead space included. The root
+  keeps the File Meta Information and the dataset in the DICOM JSON Model,
+  without the members that would make it large
+  ([dicom §5](../../spec/virtualize/dicom.md#5-source-metadata)).
 - **NIfTI:** the IR mirror on `vzip_source`: the header, the extender, each
   extension and the voxel data. The root keeps the header, field by field,
   the scaling and the affine.

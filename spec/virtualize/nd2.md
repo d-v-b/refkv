@@ -3,7 +3,7 @@
 The Zarr layout of a Nikon ND2 file (format version 3 and later), and the
 translation of its metadata chunks into JSON. What all of vzip's
 conventions share is in [spec/conventions.md](../conventions.md), cited here as
-"conventions §n". How vzip produces this layout as a virtual store is the
+"conventions §n". How vzip produces this layout as a reference store is the
 ND2 profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `59612f14-e314-4207-ba00-8f422ba71490` ·

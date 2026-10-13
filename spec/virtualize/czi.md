@@ -3,7 +3,7 @@
 The Zarr layout of a Zeiss CZI file (the ZISRAW container, file version 1),
 and the translation of its segments into Zarr arrays and JSON. What all of
 vzip's conventions share is in [spec/conventions.md](../conventions.md), cited
-here as "conventions §n". How vzip produces this layout as a virtual store
+here as "conventions §n". How vzip produces this layout as a reference store
 is the CZI profile, [Part 2](#part-2-the-profile) below, cited as
 "the profile §n".
 

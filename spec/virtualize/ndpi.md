@@ -4,7 +4,7 @@ The Zarr layout of a Hamamatsu NDPI slide, and its source model: the
 elements of its IR, which `vzip_source` holds as the IR mirror. NDPI is a variant of TIFF; this convention builds on the
 [TIFF convention](tiff.md). What all of vzip's conventions share is
 in [spec/conventions.md](../conventions.md), cited here as "conventions §n".
-How vzip produces this layout as a virtual store is the NDPI profile,
+How vzip produces this layout as a reference store is the NDPI profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `6cac71ef-dbb2-4acd-b60c-00389aa4238a` ·
