@@ -1273,6 +1273,38 @@ intervals, and `project/ndpi.rs` writes the hierarchy; a TIFF run becomes
 an NDPI run. The NDPI profiles of revision 25 are frozen under
 `conformance/virtualize/reference/` (Python and TypeScript), recording 25.
 
+### NIfTI on the IR
+
+**What prompted it.** The user moved every format vzip virtualizes onto the
+Rust IR core, as TIFF, ND2 and CZI are. NIfTI's source metadata was its own
+translation of the bytes between the header and the voxels (the extender,
+the extension chain with its JSON budget and arrays, the unparsed and
+trailing bytes), which the IR mirror replaces.
+
+**The changes.**
+- **[NIfTI §5](../../virtualize/nifti.md#5-source-metadata):** the root's source metadata keeps `nifti_version`,
+  `byte_order`, `header` (translated as before), `scaling` and `affine`,
+  unchanged. `header_rest`, `extender`, `extensions`, `extensions_truncated`,
+  `unparsed` and `trailing` are gone, with the arrays of `vzip_source` they
+  named: `vzip_source` is the file's IR mirror
+  ([conventions §8](../../conventions.md#8-the-ir-mirror)), and [NIfTI §5.3](../../virtualize/nifti.md#53-elements) lists the
+  elements (the header as one record, the extender, each extension as one
+  record value, the voxel data, gaps). Its view shows the header, the
+  extender and each extension of at most 1024 bytes.
+- **Conventions:** the root property records `"revision": 26`; the schemas
+  were regenerated (NIfTI's describes the mirror).
+
+**Output.** Everything outside `vzip_source` is unchanged on every NIfTI
+fixture, but the root's source metadata, which loses the six members above;
+every rejection is unchanged.
+
+**Implementations.** `python -m vzip.virtualize` and the browser code
+virtualize NIfTI through the Rust core (`rust/vzip-ir/src/nifti.rs`,
+`schema/nifti.json`, `src/project/nifti.rs`). The Python and TypeScript NIfTI
+profiles are frozen in `conformance/virtualize/reference` at revision 25;
+`compare.py` compares them with the IR path outside `vzip_source`, without
+those six members.
+
 ### IMS
 
 **What prompted it.** IMS kept its own source metadata: a translation of the

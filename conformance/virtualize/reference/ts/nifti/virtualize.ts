@@ -9,8 +9,9 @@
 import {
   base64, type ByteReader, declare, emitPlans, gridChunks, jsonNumber, MAX_PAYLOAD_BYTES, type Part, payloadSize,
   type Plan, rowChunks, SOURCE_NODE, textJson, toRange, stringifyJson,
-} from "../common.ts";
-import type { ArchiveDesc, EntryDesc } from "../../writer.ts";
+} from "../../../../../js/src/virtualize/common.ts";
+import type { ArchiveDesc, EntryDesc } from "../../../../../js/src/writer.ts";
+import { REVISION_25 } from "../revision.ts";
 
 export class NiftiError extends Error {}
 
@@ -603,7 +604,7 @@ export async function virtualizeNifti(
   }
   if (nontrivial) meta.scaling = { slope: scaling![0], inter: scaling![1] };
   if (affine !== null) meta.affine = { form: affine, applied: diagonal !== undefined };
-  const attributes = declare({ ome }, "nifti", url, meta);
+  const attributes = declare({ ome }, "nifti", url, meta, REVISION_25);
   const entries: EntryDesc[] = [];
   for (const [coords, parts] of voxelChunks) { // spec/virtualize.md §7.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#72-chunks>
     const at = coords.split("/");

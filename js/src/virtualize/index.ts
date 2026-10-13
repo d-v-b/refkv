@@ -4,14 +4,13 @@
 // store by the profile its root keys select (§1.4
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): N5, Zarr v2,
 // OME-Zarr 0.4 or a
-// SAFE directory. TIFF (NDPI included: the core's TIFF parser finds it), ND2, CZI, DICOM and
-// IMS are virtualized by the Rust core (ir/, rust/vzip-ir); each other profile is in its own
+// SAFE directory. TIFF (NDPI included: the core's TIFF parser finds it), ND2, CZI, DICOM,
+// NIfTI and IMS are virtualized by the Rust core (ir/, rust/vzip-ir); each other profile is in its own
 // directory; store.ts holds the store machinery.
 
 import { blockReader, type ByteReader, ImageError } from "./common.ts";
 import { type IrFormat, virtualizeIr } from "./ir/run.ts";
 import { type RangeSource, readerSource } from "./ir/source.ts";
-import { detectNifti, virtualizeNifti } from "./nifti/virtualize.ts";
 import { virtualizeN5 } from "./n5/virtualize.ts";
 import { declares04, virtualizeOmeZarr } from "./ome-zarr/virtualize.ts";
 import { isZip, virtualizeSafeStore, virtualizeSafeZip } from "./safe/virtualize.ts";
@@ -80,7 +79,7 @@ type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "ni
 
 /** `exact`, when given, reads exactly the ranges asked for, past `read`'s block cache: the
  * SAFE profile's tile-part headers, scattered through a zip file, are read with it, and the
- * Rust core's requests (TIFF and NDPI, ND2, CZI, DICOM, IMS), which it plans itself.
+ * Rust core's requests (TIFF and NDPI, ND2, CZI, DICOM, NIfTI, IMS), which it plans itself.
  * Source 0 pins the file's size, and its ETag when `pins.etag` gives one (§1.2
  * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>); with
  * `pins.checksums`, the ranges of source 0 carry the CRC-32C of their bytes. */
@@ -122,6 +121,20 @@ async function virtualizeWith(url: string, input: Input, pins: PinOptions): Prom
 }
 
 /**
+ * The NIfTI version a file's first bytes (at least 348 of them, when the file has them)
+ * select (§1.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>), if one.
+ */
+export function niftiVersion(head: Uint8Array): 1 | 2 | undefined {
+  if (head.length < 12) return undefined;
+  const v = new DataView(head.buffer, head.byteOffset, head.byteLength);
+  const sizes = [v.getInt32(0, true), v.getInt32(0, false)];
+  const ascii = (a: number, b: number) => String.fromCharCode(...head.subarray(a, b));
+  if (sizes.includes(348) && head.length >= 348 && ascii(344, 348) === "n+1\0") return 1;
+  if (sizes.includes(540) && ascii(4, 12) === "n+2\0\r\n\x1a\n") return 2;
+  return undefined;
+}
+
+/**
  * The profile of the Rust core a file's first bytes select, if one (§1.2
  * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>; an NDPI is a TIFF
  * here, and the core's run reports it as NDPI).
@@ -132,6 +145,7 @@ export function irFormat(head: Uint8Array): IrFormat | undefined {
   if (isTiffMagic(head)) return "tiff";
   if (head.length >= 4 && head[0] === 0xda && head[1] === 0xce && head[2] === 0xbe && head[3] === 0x0a) return "nd2";
   if (head.length >= 16 && String.fromCharCode(...head.subarray(0, 16)) === "ZISRAWFILE\0\0\0\0\0\0") return "czi";
+  if (niftiVersion(head) !== undefined) return "nifti";
   if (HDF5.every((b, i) => head[i] === b)) return "ims";
   return undefined;
 }
@@ -141,9 +155,7 @@ async function virtualizeFile(url: string, { read, size: fileSize, exact, source
   if (isDicom(head)) return virtualizeIr("dicom", url, source);
   const ir = irFormat(head);
   if (ir === "tiff" || ir === "nd2") return virtualizeIr(ir, url, source);
-  if (ir === "ims") return virtualizeIr(ir, url, source);
-  if (detectNifti(head) !== undefined) return { format: "nifti", ...(await virtualizeNifti(url, read, fileSize)) };
-  if (ir === "czi") return virtualizeIr(ir, url, source);
+  if (ir === "nifti" || ir === "ims" || ir === "czi") return virtualizeIr(ir, url, source);
   if (isZip(head)) return { format: "safe", ...(await virtualizeSafeZip(url, read, fileSize, exact ?? read)) };
   throw new ImageError(NOT_SUPPORTED);
 }

@@ -67,7 +67,7 @@ uv run python -m vzip.virtualize <url or path> out.vzip
 just virtualize <url or path> out.vzip
 ```
 
-TIFF (and SVS and NDPI), ND2, CZI, DICOM and IMS are virtualized by vzip's Rust core,
+TIFF (and SVS and NDPI), ND2, CZI, DICOM, NIfTI and IMS are virtualized by vzip's Rust core,
 [rust/vzip-ir](../../rust/vzip-ir/), part of the vzip
 distribution: installing vzip (`pip install`, or `uv sync` in a clone) builds
 it as the Python module `vzip_ir`, which needs a Rust toolchain. The core parses the file into an intermediate representation (IR),
@@ -87,8 +87,8 @@ store by the objects at its root. Options:
   archive references (off by default);
 - `--allow-private-hosts`: let a file or store at an http(s) URL be read
   from a loopback, private or link-local host (below; unsafe);
-- `--connections N` and `--byte-cost SECONDS_PER_MB`: for TIFF (NDPI included), ND2, CZI, DICOM
-  and IMS, how many requests the read planner runs at a time (default 8), and how
+- `--connections N` and `--byte-cost SECONDS_PER_MB`: for TIFF (NDPI included), ND2, CZI, DICOM,
+  NIfTI and IMS, how many requests the read planner runs at a time (default 8), and how
   much wall time it charges for a megabyte read beyond those asked (default
   0.1 s);
 - `--workers N`: how many of a store's metadata documents are read at a time
@@ -125,7 +125,7 @@ g = zarr.open_group(vzip.zarr.open("out.vzip"), mode="r")
 
 **The browser.** The same virtualizers run in a service worker
 ([js/](../../js/README.md)): the Rust core, built for WebAssembly, for
-TIFF (NDPI included), ND2, CZI, DICOM and IMS, and TypeScript implementations of the other formats. The
+TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and IMS, and TypeScript implementations of the other formats. The
 service worker serves the
 result to any Zarr reader on the page's origin as a plain HTTP Zarr store. The
 live demo, <https://d-v-b.github.io/vzip-demo/image-to-zarr/>, takes a URL
@@ -147,7 +147,7 @@ archive for download. Two limits apply:
 The browser code also runs under Node:
 `node js/conformance/virtualize.ts <url> out.vzip [--checksums]
 [--allow-private-hosts]` writes an archive equivalent to the Python one. For
-TIFF (NDPI included), ND2, CZI, DICOM and IMS it runs the same Rust core as Python, built for wasm32
+TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and IMS it runs the same Rust core as Python, built for wasm32
 (`just js::wasm`).
 
 **Store reads.** Listing a store is sequential (S3 returns 1000 keys per
@@ -185,8 +185,9 @@ each format's metadata is:
   high word and strip.
 - **DICOM:** the file's attributes, in the DICOM JSON Model, on the root;
   the ones that would make the root large are on `vzip_source`.
-- **NIfTI:** the header, field by field, its extensions and the affine, on
-  the root (large extensions as arrays on `vzip_source`).
+- **NIfTI:** the IR mirror on `vzip_source`: the header, the extender, each
+  extension and the voxel data. The root keeps the header, field by field,
+  the scaling and the affine.
 - **N5, Zarr v2 and OME-Zarr:** each node's own attributes and the layout
   members its `zarr.json` does not reproduce, on the node, as
   `{"attributes": ..., "metadata": ...}` (with `"unversioned"` for an
@@ -206,7 +207,7 @@ print(v["nifti"]["header"]["descrip"], v["nifti"]["scaling"])
 ```
 
 ```
-{'profile': 'nifti', 'version': 0, 'revision': 25, 'source': {'url': 'https://raw.githubusercontent.com/spm/spm/main/canonical/avg152T1.nii'}}
+{'profile': 'nifti', 'version': 0, 'revision': 26, 'source': {'url': 'https://raw.githubusercontent.com/spm/spm/main/canonical/avg152T1.nii'}}
 NIFTI-1 Image {'slope': 0.003921568859368563, 'inter': 0.0}
 ```
 
@@ -231,12 +232,12 @@ files and stores listed in
 and checks that their outputs are equivalent ([spec/virtualize.md §1.1](../../spec/virtualize.md#11-output-and-equivalence)):
 
 - `ref`, the reference (`conformance/virtualize/reference/cli.py`): for
-  TIFF, NDPI, ND2, CZI, DICOM and IMS, the Python profiles vzip shipped before these formats
+  TIFF, NDPI, ND2, CZI, DICOM, NIfTI and IMS, the Python profiles vzip shipped before these formats
   moved to the Rust core, frozen; for every other format, the shipped code;
 - `py`, `python -m vzip.virtualize`;
 - `web`, the browser code under Node.
 
-For TIFF (NDPI included), ND2, CZI, DICOM and IMS, `py` and `web` run one core, so the independent check
+For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and IMS, `py` and `web` run one core, so the independent check
 is `ref`, compared with both everywhere but `vzip_source`. `py` and `web` are
 compared entirely, the mirror included, which shows that the two hosts drive
 the core alike. The mirror has no second implementation. Instead,

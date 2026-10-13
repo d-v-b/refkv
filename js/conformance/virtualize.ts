@@ -4,7 +4,7 @@
 // A file or a store is read under the reader policy (spec/archive.md §6.7
 // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>), which refuses
 // private and special hosts unless --allow-private-hosts (UNSAFE; the harness serves
-// its inputs from 127.0.0.1); TIFF, ND2 and CZI are virtualized by the Rust core
+// its inputs from 127.0.0.1); TIFF, NDPI, ND2, CZI, DICOM, NIfTI and IMS are virtualized by the Rust core
 // (rust/vzip-ir, as WebAssembly), which plans the requests.
 // Source 0 (or each store object's source) pins its size, and a file's its ETag
 // when every response gave the same strong one; --checksums also records the

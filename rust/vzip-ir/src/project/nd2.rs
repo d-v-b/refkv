@@ -4,7 +4,7 @@
 //! of §5.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>) from
 //! a valid IR: the IR holds what it needs.
 
-use super::{arr, n, truthy};
+use super::{arr, json_text, n, truthy};
 use crate::ir::{source_text, Ir, NO_INDEX, STRUCT};
 use crate::lv::{base64, well_formed};
 use crate::out::{array_json, group_json, image_ome, payload_size, root_json, transpose_codec, Out, Part, MAX_PAYLOAD};
@@ -119,15 +119,6 @@ fn decode_text(b: &[u8]) -> String {
     match std::str::from_utf8(b) {
         Ok(s) => s.to_string(),
         Err(_) => b.iter().map(|&c| c as char).collect(),
-    }
-}
-
-/// A fixed-size character field: its bytes up to the first NUL, as a text value.
-fn json_text(b: &[u8]) -> J {
-    let b = &b[..b.iter().position(|&c| c == 0).unwrap_or(b.len())];
-    match std::str::from_utf8(b) {
-        Ok(s) => json!(s),
-        Err(_) => json!({"latin1": decode_text(b)}),
     }
 }
 

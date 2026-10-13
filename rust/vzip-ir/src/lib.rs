@@ -19,6 +19,7 @@ pub mod ir;
 pub mod lv;
 pub mod mirror;
 pub mod nd2;
+pub mod nifti;
 pub mod ndpi;
 pub mod out;
 pub mod plan;
@@ -71,6 +72,7 @@ parser!(nd2::Nd2);
 parser!(tiff::Tiff);
 parser!(czi::Czi);
 parser!(dicom::Dicom);
+parser!(nifti::Nifti);
 parser!(ims::Ims);
 
 /// Runs a parser over bytes in memory (tests, tools).

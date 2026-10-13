@@ -548,15 +548,7 @@ impl PyRun {
     #[pyo3(signature = (format, size, remote, concurrency, amplification=None, byte_cost=None, whole_below=None))]
     fn new(format: &str, size: u64, remote: bool, concurrency: usize, amplification: Option<f64>, byte_cost: Option<f64>,
            whole_below: Option<u64>) -> PyResult<Self> {
-        let f = match format {
-            "nd2" => crate::run::Format::Nd2,
-            "tiff" => crate::run::Format::Tiff,
-            "czi" => crate::run::Format::Czi,
-            "dicom" => crate::run::Format::Dicom,
-            "ims" => crate::run::Format::Ims,
-            "ndpi" => crate::run::Format::Ndpi,
-            _ => return Err(PyValueError::new_err(format!("no format {format:?}"))),
-        };
+        let f = crate::run::Format::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no format {format:?}")))?;
         let mut r = crate::run::Run::new(f, size, remote, concurrency);
         r.planner.cap_override = amplification;
         if let Some(c) = byte_cost {
@@ -612,8 +604,8 @@ impl PyRun {
         let format = r.format;
         let (o, ir) = py
             .detach(|| -> Result<_, String> {
-                let (ir, facts, stats) = r.finish()?;
-                Ok((crate::run::output(format, &ir, &facts, stats, url, mirror)?, ir))
+                let (ir, facts, stats, copied) = r.finish_copied()?;
+                Ok((crate::run::output(format, &ir, &facts, stats, url, mirror, &copied)?, ir))
             })
             .map_err(Rejected::new_err)?;
         Ok((out_py(py, &o)?, PyIr::new(ir)))
@@ -720,25 +712,17 @@ fn out_py<'py>(py: Python<'py>, o: &crate::out::Out) -> PyResult<Bound<'py, PyAn
     Ok(t.into_pyobject(py)?.into_any())
 }
 
-/// The image projection of an IR (format "nd2", "tiff", "ndpi", "czi" or "ims"; facts as JSON) as
+/// The image projection of an IR (format "nd2", "tiff", "czi", "dicom", "nifti", "ims" or "ndpi"; facts as JSON) as
 /// Python objects (`out_py`), or Rejected.
 #[pyfunction]
 fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str) -> PyResult<Bound<'py, PyAny>> {
-    let f = match format {
-        "nd2" => crate::run::Format::Nd2,
-        "tiff" => crate::run::Format::Tiff,
-        "czi" => crate::run::Format::Czi,
-        "dicom" => crate::run::Format::Dicom,
-        "ims" => crate::run::Format::Ims,
-        "ndpi" => crate::run::Format::Ndpi,
-        _ => return Err(PyValueError::new_err(format!("no format {format:?}"))),
-    };
+    let f = crate::run::Format::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no format {format:?}")))?;
     let facts: serde_json::Value = serde_json::from_str(facts).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let o = py.detach(|| crate::project::project(f, &ir.ir, &facts, url)).map_err(Rejected::new_err)?;
+    let o = py.detach(|| crate::project::project(f, &ir.ir, &facts, url, &Default::default())).map_err(Rejected::new_err)?;
     out_py(py, &o)
 }
 
-/// The mirror of an IR (for the profile "nd2", "tiff", "ndpi", "czi" or "ims"): its entries and
+/// The mirror of an IR (for the profile "nd2", "tiff", "czi", "dicom", "nifti", "ims" or "ndpi"): its entries and
 /// references under `vzip_source` (`out_py`'s form, the url empty), and what the
 /// table folded (JSON).
 #[pyfunction]
@@ -783,6 +767,15 @@ fn plan_spans(ranges: Vec<(u64, u64)>, threshold: u64, cap: f64, concurrency: us
     crate::plan::plan_spans(&ranges, threshold, cap, concurrency)
 }
 
+/// For tests: the reference payload past which a NIfTI edge chunk is copied (None: the
+/// payload limit), so that small files reach the copy (spec/virtualize/nifti.md §7.2
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#72-chunks>).
+#[pyfunction]
+#[pyo3(signature = (n=None))]
+fn _set_nifti_copy_threshold(n: Option<usize>) {
+    crate::nifti::set_copy_threshold(n);
+}
+
 #[pymodule]
 fn vzip_ir(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyIr>()?;
@@ -793,6 +786,7 @@ fn vzip_ir(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyStoreRun>()?;
     m.add_function(wrap_pyfunction!(rebuild_store, m)?)?;
     m.add_function(wrap_pyfunction!(plan_spans, m)?)?;
+    m.add_function(wrap_pyfunction!(_set_nifti_copy_threshold, m)?)?;
     m.add_function(wrap_pyfunction!(project, m)?)?;
     m.add_function(wrap_pyfunction!(mirror, m)?)?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;

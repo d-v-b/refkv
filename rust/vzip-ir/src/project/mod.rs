@@ -17,6 +17,7 @@ mod dicom;
 mod ims;
 mod nd2;
 mod ndpi;
+mod nifti;
 mod tiff;
 
 use crate::ir::Ir;
@@ -25,19 +26,46 @@ use crate::run::Format;
 use serde_json::{Map, Value as J};
 use std::fmt::Write;
 
-/// The image projection of `format`: today's hierarchy, without `vzip_source`.
-pub fn project(format: Format, ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
+/// The bytes of the source's ranges a projection copies into the archive, by (offset, length).
+pub type Copied = std::collections::HashMap<(u64, u64), Vec<u8>>;
+
+/// The image projection of `format`: today's hierarchy, without `vzip_source`. `copied`
+/// holds the bytes of the ranges `reads` gives.
+pub fn project(format: Format, ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
     match format {
         Format::Tiff => tiff::project(ir, facts, url),
         Format::Czi => czi::project(ir, facts, url),
         Format::Nd2 => nd2::project(ir, facts, url),
         Format::Dicom => dicom::project(ir, facts, url),
+        Format::Nifti => nifti::project(ir, facts, url, copied),
         Format::Ims => ims::project(ir, facts, url),
         Format::Ndpi => ndpi::project(ir, facts, url),
     }
 }
 
+/// The source's ranges the projection of `format` copies into the archive (NIfTI's edge
+/// chunks whose padding does not fit in a reference), which the run reads after the
+/// parser: a projection reads nothing itself.
+pub fn reads(format: Format, ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
+    match format {
+        Format::Nifti => nifti::reads(ir, facts),
+        _ => Ok(Vec::new()),
+    }
+}
+
 // ---- reading the facts (JSON the parsers wrote)
+
+/// A fixed-size character field: its bytes up to the first NUL, as a text value
+/// (conventions §6
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>):
+/// UTF-8 if valid, else {"latin1": ...}.
+fn json_text(b: &[u8]) -> J {
+    let b = &b[..b.iter().position(|&c| c == 0).unwrap_or(b.len())];
+    match std::str::from_utf8(b) {
+        Ok(s) => J::String(s.to_string()),
+        Err(_) => serde_json::json!({"latin1": b.iter().map(|&c| c as char).collect::<String>()}),
+    }
+}
 
 /// A count or index of the facts (an integer, or a number written as a float).
 fn n(v: &J) -> u64 {
