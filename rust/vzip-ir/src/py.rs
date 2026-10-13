@@ -262,6 +262,13 @@ impl PyIr {
     fn shared<'py>(&self, py: Python<'py>) -> Vec<Bound<'py, PyBytes>> {
         self.ir.shared.iter().map(|b| PyBytes::new(py, b)).collect()
     }
+    /// A store IR's objects in id order: (key, virtual offset of its byte 0, size) (conventions
+    /// §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), for reading
+    /// an object described in place at virtual offsets; empty for a file IR.
+    fn object_bases(&self) -> Vec<(String, u64, u64)> {
+        let src = self.ir.sources();
+        src.objects.iter().map(|&o| (self.ir.key(o), src.base[o as usize], self.ir.len[o as usize])).collect()
+    }
     /// A digest of every row (for comparing builds).
     fn digest(&self) -> u64 {
         self.ir.digest()
@@ -620,8 +627,8 @@ impl PyRun {
 /// A store run (src/store.rs): `StoreRun(format, listing, concurrency)` over the listing
 /// [(key, size)]; the host loops `poll()` (the requests to make now, concurrently: (object
 /// index, key, spans [(start, end)])) and `complete(k, parts)` (each span's bytes) until
-/// `poll()` gives None; then `output(url, mirror)` or `finish()`. `ignore(keys)` gives the
-/// ignored keys the projection records.
+/// `poll()` gives None; then `output(url, mirror)` or `finish()`. `ignore(keys, folders)`,
+/// before the first poll, gives the keys the listing ignores.
 #[pyclass(name = "StoreRun", module = "vzip_ir")]
 pub struct PyStoreRun {
     r: Option<crate::store::StoreRun>,
@@ -654,11 +661,13 @@ impl PyStoreRun {
     fn stats(&mut self) -> PyResult<String> {
         Ok(self.get()?.stats_json().to_string())
     }
-    /// The relative keys the store reader ignored and recorded (`Store.ignored`), which the
-    /// projection records as its convention says.
-    fn ignore(&mut self, keys: Vec<String>) -> PyResult<()> {
-        self.get()?.ignore(keys);
-        Ok(())
+    /// The keys the listing ignores, before the first poll (`StoreRun::ignore`): `keys`, the
+    /// relative keys the store reader ignored and recorded (`Store.ignored`), which the
+    /// projection records as its convention says, and `folders`, its empty `d/` keys
+    /// (`Store.folders`), which a SAFE directory's parser reads as directories.
+    #[pyo3(signature = (keys, folders=Vec::new()))]
+    fn ignore(&mut self, keys: Vec<String>, folders: Vec<String>) -> PyResult<()> {
+        self.get()?.ignore(keys, folders).map_err(Rejected::new_err)
     }
     #[pyo3(signature = (url, mirror=true))]
     fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool) -> PyResult<(Bound<'py, PyAny>, PyIr)> {

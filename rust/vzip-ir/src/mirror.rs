@@ -31,7 +31,7 @@
 //! of the parser's rows: only the mirror renumbers.
 
 use crate::ir::*;
-use crate::out::{declare, json_size, metadata_array, metadata_group, Chunk, Out, SOURCE_NODE};
+use crate::out::{declare, json_size, metadata_array, metadata_group, Chunk, Out, CONVENTION_KEY, SOURCE_NODE};
 use crate::types::{self, Ty, Val};
 use serde_json::{json, Map, Value as J};
 use std::collections::{HashMap, HashSet};
@@ -311,7 +311,7 @@ fn child(y: &Ir, p: u32, name: &str, nidx: u64) -> Option<u32> {
 /// The array an encoding-2 column reads (conventions §8.8
 /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>, the named array
 /// rules): for a column run whose member 0 is row `r`, its field `f`, by the profile's rules.
-/// Returns (row, item size, big-endian). TIFF has one rule; ND2 and CZI none.
+/// Returns (row, item size, big-endian). TIFF has one rule; the others none.
 fn array_rule(profile: &str, y: &Ir, r: usize, f: i64) -> Option<(u32, usize, bool)> {
     match profile {
         "tiff" => tiff_layout(y, r, f),
@@ -507,7 +507,7 @@ pub fn table(y: &Ir, profile: &str, array: &dyn Fn(u32) -> Option<Vec<u8>>) -> (
         t.objects = Some(y.objects);
         let kids = y.has_children();
         for i in 0..n {
-            if y.kind[i] == OBJECT && kids[i] && y.len[i] > 0 {
+            if y.held(&kids, i) {
                 t.held.push(y.value_bytes(i as u32).map(|b| b.to_vec()).unwrap_or_default());
             }
         }
@@ -638,7 +638,7 @@ fn hold_shown(y: &mut Ir, profile: &str) -> Result<(), String> {
     let kids = y.has_children();
     let src = y.sources();
     for &o in &src.objects {
-        if kids[o as usize] && y.len[o as usize] > 0 && y.value_bytes(o).is_none_or(|b| b.len() as u64 != y.len[o as usize]) {
+        if y.held(&kids, o as usize) && y.value_bytes(o).is_none_or(|b| b.len() as u64 != y.len[o as usize]) {
             return Err(format!("internal: the held object {:?} has no bytes", y.key(o)));
         }
     }
@@ -647,6 +647,10 @@ fn hold_shown(y: &mut Ir, profile: &str) -> Result<(), String> {
         let iu = i as usize;
         let o = src.of[iu];
         if o != NONE && y.space[iu] == 0 && y.value_bytes(i).is_none() && shown(y, profile, i) {
+            if y.in_place(o) {
+                // a parser holds every value it shows of an object it describes in place
+                return Err(format!("internal: a value the view shows in {:?}, described in place, was not read", y.key(o)));
+            }
             let b = y.value_bytes(o).unwrap_or(&[]);
             let r = b.get(y.start[iu] as usize..(y.start[iu] + y.len[iu]) as usize).ok_or("internal: a value past its object")?;
             put.push((i, r.to_vec()));
@@ -1358,7 +1362,7 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
         // the held objects' bytes, in id order (§8.9
         // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)
         let kids = ir.has_children();
-        let held: Vec<u32> = (0..n).filter(|&i| ir.kind[i] == OBJECT && kids[i] && ir.len[i] > 0).map(|i| i as u32).collect();
+        let held: Vec<u32> = (0..n).filter(|&i| ir.held(&kids, i)).map(|i| i as u32).collect();
         if held.len() != t.held.len() {
             return Err(format!("the table has {} held objects, ir/held {}", held.len(), t.held.len()));
         }
@@ -1584,15 +1588,17 @@ pub fn canonical_problem(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn F
     let mut out = Out::new("");
     write(&c, &mut out, &profile, false);
     // vzip_source's source metadata may hold, beside `ir`, the members the store conventions keep
-    // outside the IR (the ignored keys, a SAFE directory's empty directories; conventions §8.9
+    // outside the IR (`project::store::kept`: the ignored keys, a SAFE product's empty
+    // directories; conventions §8.9
     // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): they are not the
-    // table's, and any other member is a difference
+    // table's, so they are set aside; any other member, and these in another profile, is a
+    // difference
     let description = format!("{SOURCE_NODE}/zarr.json");
+    let kept = crate::project::store::kept(&profile);
     let table_part = |k: &str, mut d: J| -> J {
-        if k == description {
-            if let Some(own) = d["attributes"][crate::out::CONVENTION_KEY][profile.as_str()].as_object_mut() {
-                own.retain(|m, _| !matches!(m.as_str(), "ignored" | "empty" | "empty_dirs"));
-            }
+        let own = if k == description { d.pointer_mut(&format!("/attributes/{CONVENTION_KEY}/{profile}")) } else { None };
+        if let Some(own) = own.and_then(J::as_object_mut) {
+            own.retain(|m, _| !kept.contains(&m.as_str()));
         }
         d
     };
@@ -1654,7 +1660,11 @@ fn read_merged(ranges: &[(u64, u64)], read: &mut dyn FnMut(u64, u64) -> Result<V
 /// The view a stored mirror's table gives (conventions §8.7
 /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>): the canonical IR it
 /// loads, every value the view shows read from the source (a derived space's from its
-/// transform, an `xml` value with its references decoded), rendered.
+/// transform, an `xml` value with its references decoded), rendered. A store IR's values are
+/// read from its held objects' bytes, or, in an object described in place, by `read` at
+/// their virtual offsets (§8.9
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>: object `o`'s byte
+/// `x` at the sum of the sizes of the objects before it, in id order, plus `x`).
 pub fn rebuilt_view(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>)
                     -> Result<Out, String> {
     let t = table_from(get)?;
@@ -1675,12 +1685,18 @@ pub fn rebuilt_view(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn FnMut(
     y.vbytes.clear();
     let shown_rows: Vec<u32> = (0..y.len() as u32).filter(|&i| shown(&y, &profile, i)).collect();
     let mut want: Vec<(u64, u64)> = Vec::new();
+    let mut exact: Vec<(u64, u64)> = Vec::new();
     let mut spaces: Vec<u32> = Vec::new();
     for &i in &shown_rows {
         let iu = i as usize;
         if y.space[iu] == 0 {
             if !y.store {
                 want.push((y.start[iu], y.len[iu]));
+            } else if y.in_place(src.of[iu]) {
+                // an object described in place: its source, at virtual offsets (§8.9
+                // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>),
+                // each value read exactly (a store's objects are read by key, not merged)
+                exact.push((src.vstart(&y, iu), y.len[iu]));
             }
         } else {
             spaces.push(y.space[iu]);
@@ -1688,7 +1704,16 @@ pub fn rebuilt_view(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn FnMut(
     }
     spaces.sort_unstable();
     spaces.dedup();
-    let got = read_merged(&want, read)?;
+    let mut got = read_merged(&want, read)?;
+    for (o, n) in exact {
+        if let std::collections::hash_map::Entry::Vacant(e) = got.entry((o, n)) {
+            let b = read(o, n)?;
+            if b.len() as u64 != n {
+                return Err(format!("the source gave {} bytes for [{o}, {})", b.len(), o + n));
+            }
+            e.insert(b);
+        }
+    }
     let mut derived: HashMap<u32, Vec<u8>> = HashMap::new();
     for d in spaces {
         let b = if y.store {
@@ -1701,7 +1726,9 @@ pub fn rebuilt_view(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn FnMut(
     for &i in &shown_rows {
         let iu = i as usize;
         let (s, n) = (y.start[iu], y.len[iu]);
-        let raw = if y.space[iu] == 0 && y.store {
+        let raw = if y.space[iu] == 0 && y.store && y.in_place(src.of[iu]) {
+            got[&(src.vstart(&y, iu), n)].clone()
+        } else if y.space[iu] == 0 && y.store {
             from_held(i)?
         } else if y.space[iu] == 0 {
             got[&(s, n)].clone()
@@ -1810,7 +1837,8 @@ pub fn ordered(ir: &Ir) -> (Vec<(u8, u32, String, u64, String, u32, u64, u64)>, 
 /// entries alone (`get`): the table loaded and checked, then every object of the listing in id
 /// order as (key, size, bytes), the bytes of a held object its leaves' bytes in order of their
 /// start, read from `ir/held` (None for a referenced or an empty object: the archive references
-/// a referenced object; it is not rebuilt).
+/// a referenced object; it is not rebuilt; and None for an object described in place, whose
+/// bytes are its source's, which its leaves partition).
 #[allow(clippy::type_complexity)]
 pub fn rebuild_store(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Vec<(String, u64, Option<Vec<u8>>)>, String> {
     let t = table_from(get)?;
@@ -1821,6 +1849,9 @@ pub fn rebuild_store(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Vec<(Strin
     crate::check::check(&ir)?;
     let mut rebuilt: HashMap<u32, Vec<u8>> = HashMap::new();
     for (o, ranges) in crate::check::held_leaves(&ir)? {
+        if ir.in_place(o) {
+            continue; // its bytes are its source's: the host reads them (its leaves cover it)
+        }
         let b = ir.value_bytes(o).ok_or("a held object without bytes")?;
         let mut v = Vec::with_capacity(b.len());
         for (a, n) in ranges {

@@ -20,6 +20,7 @@ function format(fd) {
   if (head[0] === 0xda && head[1] === 0xce && head[2] === 0xbe && head[3] === 0x0a) return 0;
   if (s.startsWith("II*\0") || s.startsWith("MM\0*") || s.startsWith("II+\0") || s.startsWith("MM\0+")) return 1;
   if (String.fromCharCode(...head.subarray(344, 348)) === "n+1\0" || s.slice(4, 12) === "n+2\0\r\n\x1a\n") return 4;
+  if (s.startsWith("PK\x03\x04")) return 6; // a SAFE product's zip form
   return 2;
 }
 

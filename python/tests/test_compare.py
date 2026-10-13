@@ -164,10 +164,10 @@ def test_mirror_problem_finds_a_table_that_is_not_canonical(tmp_path):
 
 
 def test_at_revision():
-    """A frozen reference's root (revision 20 for TIFF, ND2 and CZI, 25 for DICOM, NIfTI, NDPI and
-    Zarr v2) reads at the current revision, without the members of its source metadata the mirror
-    holds instead; any other root (another revision, another profile's frozen one, no revision, a
-    profile with no twin), or an output without one, is unchanged."""
+    """A frozen reference's root (revision 20 for TIFF, ND2 and CZI, 25 for DICOM, NIfTI, NDPI,
+    SAFE and Zarr v2) reads at the current revision, without the members of its source metadata
+    the mirror holds instead; any other root (another revision, another profile's frozen one, no
+    revision, a profile with no twin), or an output without one, is unchanged."""
     def root(revision, profile="tiff", own=None):
         prop = {"profile": profile, "version": 0, "revision": revision, "source": {"url": "u"}}
         if revision is None:
@@ -188,6 +188,23 @@ def test_at_revision():
         assert compare.at_revision(other) == other
 
 
+def test_without_source():
+    """The entries under vzip_source go; the others' sources are those they use, in order of
+    first use (entries by key), so two outputs whose url sources differ only in what
+    vzip_source used, or in order, compare equal."""
+    data = {"data": "AAE="}
+    a = {"sources": ["u/x", "u/b", "u/a", data], "entries": {
+        "r/c/1": ("ranges", [[2, 0, 4], [3, 0, 2]]), "r/c/0": ("ranges", [[1, 0, 4], ["data", "AA=="]]),
+        "r/zarr.json": ("json", {}), "vzip_source/objects/x": ("ranges", [[0, 0, 9]])}}
+    b = {"sources": ["u/a", "u/b", data], "entries": {
+        "r/c/0": ("ranges", [[1, 0, 4], ["data", "AA=="]]), "r/c/1": ("ranges", [[0, 0, 4], [2, 0, 2]]),
+        "r/zarr.json": ("json", {}), "vzip_source/ir/rows/c/0/0": ("bytes", "h")}}
+    want = {"sources": ["u/b", "u/a", data], "entries": {
+        "r/c/0": ("ranges", [[0, 0, 4], ["data", "AA=="]]), "r/c/1": ("ranges", [[1, 0, 4], [2, 0, 2]]),
+        "r/zarr.json": ("json", {})}}
+    assert compare.without_source(a) == want == compare.without_source(b)
+
+
 def test_mirror_problem_finds_a_view_that_is_not_the_tables(tmp_path):
     """A view whose root document lost a member: the validator's view check flags it."""
     import json
@@ -202,19 +219,20 @@ def test_mirror_problem_finds_a_view_that_is_not_the_tables(tmp_path):
     assert compare.mirror_problem(path, compare._zip_view(path), _jpeg_gray) == 'view tree: member ["header"]["magic"] is missing'
 
 
-def _store_archive(tmp_path, name="zarr2_hierarchy", edit=None) -> tuple[Path, callable]:
-    """A Zarr v2 fixture store's archive (its mirror a store IR's), and a fetch of its objects by URL."""
+def _store_archive(tmp_path, name="zarr2_hierarchy", edit=None, kind="zarr2") -> tuple[Path, callable]:
+    """A fixture store's archive (a Zarr v2 store's or a SAFE directory's: its mirror a store
+    IR's), and a fetch of ranges of its objects by URL."""
     from vzip.virtualize import virtualize
 
     url = f"https://data.test/{name}/"
-    _, out = virtualize(str(ROOT / "fixtures/zarr2" / name), url)
+    _, out = virtualize(str(ROOT / "fixtures" / kind / name), url)
     if edit:
         edit(out)
     path = tmp_path / "s.vzip"
     out.write(str(path))
 
-    def fetch(u: str, size: int) -> bytes:
-        return (ROOT / "fixtures/zarr2" / name / urllib.parse.unquote(u[len(url):])).read_bytes()[:size]
+    def fetch(u: str, o: int, n: int) -> bytes:
+        return (ROOT / "fixtures" / kind / name / urllib.parse.unquote(u[len(url):])).read_bytes()[o:o + n]
 
     return path, fetch
 
@@ -223,14 +241,15 @@ def test_store_mirror_problem(tmp_path):
     """A store's mirror (conventions §8.9
     <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>) that reads, rebuilds
     the listing and the documents, and is canonical: no problem."""
-    for name in ("zarr2_hierarchy", "zarr2_objects", "zarr2_root_array_empty"):
-        path, fetch = _store_archive(tmp_path, name)
+    for kind, name in (("zarr2", "zarr2_hierarchy"), ("zarr2", "zarr2_objects"), ("zarr2", "zarr2_root_array_empty"),
+                       ("safe", "safe_l2a_pb0207")):
+        path, fetch = _store_archive(tmp_path, name, kind=kind)
         assert compare.store_mirror_problem(path, compare._zip_view(path), fetch) is None, name
 
 
 def test_store_mirror_problem_finds_a_document_other_than_the_store_s(tmp_path):
     path, fetch = _store_archive(tmp_path)
-    assert compare.store_mirror_problem(path, compare._zip_view(path), lambda u, n: fetch(u, n)[:-1] + b"!") == \
+    assert compare.store_mirror_problem(path, compare._zip_view(path), lambda u, o, n: fetch(u, o, n)[:-1] + b"!") == \
         ".zattrs: the mirror's bytes are not the object's"
 
 
@@ -244,12 +263,33 @@ def test_store_mirror_problem_finds_a_table_that_does_not_read(tmp_path):
 
 def test_store_mirror_problem_finds_a_size_other_than_the_pin(tmp_path):
     def resize(out):
-        key, size = out.refs["a/c/0/0"]
-        out.refs["a/c/0/0"] = (key, size + 1)
+        (_, key, _, size), = out.refs["a/c/0/0"]
+        out.sizes[key] = size + 1
 
     path, fetch = _store_archive(tmp_path, edit=resize)
     assert compare.store_mirror_problem(path, compare._zip_view(path), fetch) == \
         "a/c/0/0: the mirror lists 16 bytes, its source pins 17"
+
+
+def test_store_mirror_problem_finds_a_source_of_no_listed_object(tmp_path):
+    def stray(out):
+        out.refs["a/c/0/0"] = [("object", "nowhere", 0, 16)]
+
+    path, fetch = _store_archive(tmp_path, edit=stray)
+    assert compare.store_mirror_problem(path, compare._zip_view(path), fetch) == \
+        "the url source https://data.test/zarr2_hierarchy/nowhere names no object of the listing"
+
+
+def test_store_mirror_problem_finds_a_value_described_in_place_other_than_the_store_s(tmp_path):
+    """A SAFE band file's values are read from the store at their virtual offsets: a store
+    that serves other bytes there gives another view."""
+    path, fetch = _store_archive(tmp_path, "safe_l2a_pb0207", kind="safe")
+
+    def other(u, o, n):
+        b = fetch(u, o, n)
+        return bytes(x ^ 0xFF for x in b) if u.endswith(".jp2") else b
+
+    assert compare.store_mirror_problem(path, compare._zip_view(path), other).startswith("view ")
 
 
 def test_store_mirror_problem_finds_an_object_no_source_names(tmp_path):
@@ -271,7 +311,7 @@ def test_store_mirror_problem_finds_a_root_without_a_store_url(tmp_path):
 def test_store_mirror_problem_finds_an_object_the_store_does_not_serve(tmp_path):
     path, _ = _store_archive(tmp_path)
 
-    def refuse(u, n):
+    def refuse(u, o, n):
         raise OSError("refused")
 
     assert compare.store_mirror_problem(path, compare._zip_view(path), refuse) == ".zattrs: OSError: refused"

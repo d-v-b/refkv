@@ -1,15 +1,15 @@
 """Virtualizing image files and N5 / Zarr v2 stores in vzip archives (spec/virtualize.md).
 
-TIFF (NDPI included), ND2, CZI, DICOM and NIfTI files, and Zarr v2 stores, go through the IR
-(`vzip.ir`): the Rust core's sans-IO parser of the format, driven by its read planner (a
-store's, by `vzip.ir.store`) over this package's I/O, projected to the convention's hierarchy
-and mirrored under `vzip_source` by the Rust core, whose TIFF parser finds NDPI itself
-(spec/virtualize/ndpi.md §4
+TIFF (NDPI included), ND2, CZI, DICOM and NIfTI files, Sentinel-2 SAFE products
+(spec/virtualize/safe.md: a `.SAFE.zip` file, or a `.SAFE` directory, a store input) and
+Zarr v2 stores go through the IR (`vzip.ir`): the Rust core's sans-IO parser of the format,
+driven by its read planner (a file) or by the store's reads (`vzip.ir.store`), projected to
+the convention's hierarchy and mirrored under `vzip_source` by the Rust core, whose TIFF
+parser finds NDPI itself (spec/virtualize/ndpi.md §4
 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>).
-Every other profile is a subpackage: ims (file inputs), n5,
-zarr2, ome_zarr (store inputs, spec/virtualize/n5.md, spec/virtualize/zarr2.md and
-spec/virtualize/ome-zarr.md), and safe (Sentinel-2 SAFE products, spec/virtualize/safe.md: a
-store input, or a zip file); common holds what they share, and store the store
+Every other profile is a subpackage: ims (file inputs), n5, zarr2, ome_zarr
+(store inputs, spec/virtualize/n5.md, spec/virtualize/zarr2.md and
+spec/virtualize/ome-zarr.md); common holds what they share, and store the store
 machinery (§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>–§1.6
 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>).
 
@@ -42,18 +42,13 @@ in `/`, or a local directory, is a store input.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from vzip.policy import Policy, crc32c
 from vzip.virtualize.common import Output, Rejected, file_reader, http_reader
 from vzip.virtualize.ims import virtualize_ims
 from vzip.virtualize.n5 import virtualize_n5
 from vzip.virtualize.ome_zarr import declares_04, virtualize_ome_zarr
-from vzip.virtualize.safe import SafeOutput, is_zip, virtualize_safe_store, virtualize_safe_zip
 from vzip.virtualize.store import WORKERS, StoreOutput, choose_profile, object_url, open_store
-
-if TYPE_CHECKING:
-    from vzip.ir.store import StoreIrOutput
+from vzip.ir.store import StoreIrOutput
 
 # The HDF5 signature, which starts Imaris IMS files (§1.2
 # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>).
@@ -63,6 +58,9 @@ HDF5 = b"\x89HDF\r\n\x1a\n"
 TIFF_MAGIC = (b"II*\0", b"MM\0*", b"II+\0", b"MM\0+")
 ND2_MAGIC = bytes.fromhex("DACEBE0A")
 CZI_MAGIC = b"ZISRAWFILE" + bytes(6)
+# A ZIP local file header: a SAFE product's zip form (spec/virtualize/safe.md §12.1
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#121-choosing-the-profile>).
+ZIP_MAGIC = b"PK\x03\x04"
 NOT_SUPPORTED = "not a TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file"
 
 __all__ = ["Output", "Rejected", "StoreOutput", "virtualize", "virtualize_store", "virtualize_ims"]
@@ -76,7 +74,7 @@ def is_dicom(head: bytes) -> bool:
 
 def virtualize_store(location: str, url: str | None = None, *, max_objects: int | None = None,
                      checksums: bool = False, workers: int = WORKERS,
-                     policy: Policy | None = None) -> tuple[str, StoreOutput | StoreIrOutput | SafeOutput]:
+                     policy: Policy | None = None) -> tuple[str, StoreOutput | StoreIrOutput]:
     """(format, output) for the store at `location` (§1.4
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), its documents
     read by up to `workers` requests at a time; with `checksums`, the output's ranges
@@ -86,16 +84,15 @@ def virtualize_store(location: str, url: str | None = None, *, max_objects: int 
     store = open_store(location, url, max_objects=max_objects, workers=workers, policy=policy)
     try:
         fmt = choose_profile(store)
-        if fmt == "safe":
-            fmt, out = fmt, virtualize_safe_store(store)
-        elif fmt == "n5":
+        if fmt == "n5":
             fmt, out = fmt, virtualize_n5(store)
         elif declares_04(store):
             fmt, out = "ome-zarr", virtualize_ome_zarr(store)
         else:
             from vzip.ir.store import run_store
 
-            fmt, out = fmt, run_store(store, "zarr2")[0]
+            # the core's store formats: a SAFE directory, a Zarr v2 store
+            fmt, out = fmt, run_store(store, "safe" if fmt == "safe" else "zarr2")[0]
     finally:
         store.close()
     if checksums:
@@ -114,7 +111,7 @@ def is_store(location: str) -> bool:
 
 def virtualize(location: str, url: str | None = None, *, checksums: bool = False,
                policy: Policy | None = None, connections: int | None = None,
-               byte_cost: float | None = None, workers: int = WORKERS) -> tuple[str, Output | StoreOutput | SafeOutput]:
+               byte_cost: float | None = None, workers: int = WORKERS) -> tuple[str, Output | StoreOutput | StoreIrOutput]:
     """(format, output) for the file at `location`, by its first bytes, or for
     the store at `location` (a URL ending in `/`, or a directory).
 
@@ -126,7 +123,7 @@ def virtualize(location: str, url: str | None = None, *, checksums: bool = False
     which reads them. `policy` is the reader policy a file
     or store at an http(s) URL is read under (default: `Policy()`, private hosts
     refused).
-    For TIFF (NDPI included), ND2, CZI, DICOM and NIfTI, `connections` is how many requests run at a time to a
+    For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and SAFE zip files, `connections` is how many requests run at a time to a
     remote source (default 8), and `byte_cost` the seconds of wall time the read
     planner charges a byte fetched beyond those asked (default 0.1 s per MB).
     A store's documents are read by up to `workers` requests at a time."""
@@ -158,6 +155,8 @@ def virtualize(location: str, url: str | None = None, *, checksums: bool = False
             ir_format = "czi"
         elif nifti_version(head) is not None:
             ir_format = "nifti"
+        elif head[:4] == ZIP_MAGIC:
+            ir_format = "safe"
     if ir_format is not None:
         from vzip.ir import virtualize as via_ir
 
@@ -179,11 +178,9 @@ def virtualize(location: str, url: str | None = None, *, checksums: bool = False
     return fmt, out
 
 
-def _virtualize_file(url: str, read, size: int) -> tuple[str, Output | SafeOutput]:
+def _virtualize_file(url: str, read, size: int) -> tuple[str, Output]:
     """The profiles that are not the IR's, by the file's first bytes."""
     head = read(0, min(552, size))
     if head[:8] == HDF5:
         return "ims", virtualize_ims(url, read, size)
-    if is_zip(head):
-        return "safe", virtualize_safe_zip(url, read, size)
     raise Rejected(NOT_SUPPORTED)

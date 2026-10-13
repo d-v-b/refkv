@@ -1,4 +1,4 @@
-// Virtualizing an ND2, TIFF (NDPI included), CZI, DICOM or NIfTI file with the Rust core (rust/vzip-ir): its
+// Virtualizing an ND2, TIFF (NDPI included), CZI, DICOM or NIfTI file or a SAFE zip file with the Rust core (rust/vzip-ir): its
 // parser, read planner, image projection and source mirror run in WebAssembly;
 // this host performs the requests a run asks for (`RangeSource`) and turns its
 // output (`Out::encode`) into the writer's archive description. The twin of
@@ -10,8 +10,8 @@ import { ImageError } from "../common.ts";
 import type { RangeSource, Span } from "./source.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
-export type IrFormat = "nd2" | "tiff" | "czi" | "dicom" | "nifti" | "ndpi";
-const CODES: Record<IrFormat, number> = { nd2: 0, tiff: 1, czi: 2, dicom: 3, nifti: 4, ndpi: 7 };
+export type IrFormat = "nd2" | "tiff" | "czi" | "dicom" | "nifti" | "safe" | "ndpi";
+const CODES: Record<IrFormat, number> = { nd2: 0, tiff: 1, czi: 2, dicom: 3, nifti: 4, safe: 6, ndpi: 7 };
 
 export interface IrOutput extends ArchiveDesc {
   format: IrFormat;
@@ -125,16 +125,26 @@ async function perform(w: IrExports, p: number, source: RangeSource, reqs: Span[
   if (failure !== undefined) throw failure.error;
 }
 
-/** A run's output (`Out::encode`) as the writer's archive description: source 0 the
- * file, then the data sources; the hierarchy's documents stored, and the source
- * metadata node's documents (and those under the other lazy prefixes) and copied
- * bytes compressed, as the Python host writes them. A store run's references to its
- * objects (part kind 3: the object's key, offset and length) are the ranges `object`
- * gives for them (ir/store.ts). */
-export function decodeOutput(
-  b: Uint8Array,
-  object?: (entry: string, key: string, offset: bigint, length: bigint) => Range,
-): ArchiveDesc & { summary: Record<string, unknown> } {
+/** A part of a reference of the core's output: of source 0 (kind 0), of a data source
+ * (1, numbered from 1), literal bytes (2), or of a store's object (3, by its key). */
+export type RawPart =
+  | { kind: 0; offset: bigint; length: bigint }
+  | { kind: 1; source: number; offset: bigint; length: bigint }
+  | { kind: 2; data: Uint8Array }
+  | { kind: 3; key: string; offset: bigint; length: bigint };
+
+/** A run's output (`Out::encode`) as it is: the url, the summary, the lazy prefixes, the
+ * data sources, the entries and the references. */
+export interface RawOutput {
+  url: string;
+  summary: Record<string, unknown>;
+  lazy: string[];
+  data: Uint8Array[];
+  entries: [string, Uint8Array][];
+  refs: [string, RawPart[]][];
+}
+
+export function decodeRaw(b: Uint8Array): RawOutput {
   const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
   let at = 0;
   const u8 = () => v.getUint8(at++);
@@ -152,31 +162,53 @@ export function decodeOutput(
   const summary = JSON.parse(str()) as Record<string, unknown>;
   const lazy: string[] = [];
   for (let n = u32(); n > 0; n--) lazy.push(str());
-  const sources: Source[] = [{ url }];
-  for (let n = u32(); n > 0; n--) sources.push({ data: bytes() });
-  const entries: EntryDesc[] = [];
+  const data: Uint8Array[] = [];
+  for (let n = u32(); n > 0; n--) data.push(bytes());
+  const entries: [string, Uint8Array][] = [];
+  for (let n = u32(); n > 0; n--) entries.push([str(), bytes()]);
+  const refs: [string, RawPart[]][] = [];
   for (let n = u32(); n > 0; n--) {
     const key = str();
-    const value = bytes();
-    const document = key === "zarr.json" || key.endsWith("/zarr.json");
-    const compress = !document || lazy.some((prefix) => key.startsWith(prefix));
-    entries.push(compress ? { key, bytes: value, compress } : { key, bytes: value });
-  }
-  for (let n = u32(); n > 0; n--) {
-    const key = str();
-    const ranges: Range[] = [];
+    const parts: RawPart[] = [];
     for (let m = u32(); m > 0; m--) {
       const tag = u8();
-      if (tag === 0) ranges.push({ source: 0, offset: u64(), length: u64() });
-      else if (tag === 1) ranges.push({ source: u32(), offset: u64(), length: u64() });
-      else if (tag === 2) ranges.push({ data: bytes() });
-      else if (tag === 3 && object !== undefined) {
-        const k = str();
-        ranges.push(object(key, k, u64(), u64()));
-      } else throw new Error(`unknown part kind ${tag} in the IR core's output`);
+      if (tag === 0) parts.push({ kind: 0, offset: u64(), length: u64() });
+      else if (tag === 1) parts.push({ kind: 1, source: u32(), offset: u64(), length: u64() });
+      else if (tag === 2) parts.push({ kind: 2, data: bytes() });
+      else if (tag === 3) parts.push({ kind: 3, key: str(), offset: u64(), length: u64() });
+      else throw new Error(`unknown part kind ${tag} in the IR core's output`);
     }
-    entries.push({ key, ranges });
+    refs.push([key, parts]);
   }
   if (at !== b.length) throw new Error("trailing bytes in the IR core's output");
-  return { sources, entries, summary };
+  return { url, summary, lazy, data, entries, refs };
+}
+
+/** An output's bytes entry: the hierarchy's documents stored, and the source metadata
+ * node's documents (and those under the other lazy prefixes) and copied bytes compressed,
+ * as the Python host writes them. */
+export function bytesEntry(key: string, value: Uint8Array, lazy: string[]): EntryDesc {
+  const document = key === "zarr.json" || key.endsWith("/zarr.json");
+  const compress = !document || lazy.some((prefix) => key.startsWith(prefix));
+  return compress ? { key, bytes: value, compress } : { key, bytes: value };
+}
+
+/** A run's output (`Out::encode`) as the writer's archive description: source 0 the
+ * file, then the data sources; the hierarchy's documents stored, and the source
+ * metadata node's documents (and those under the other lazy prefixes) and copied
+ * bytes compressed, as the Python host writes them. */
+export function decodeOutput(b: Uint8Array): ArchiveDesc & { summary: Record<string, unknown> } {
+  const raw = decodeRaw(b);
+  const sources: Source[] = [{ url: raw.url }, ...raw.data.map((data) => ({ data }))];
+  const entries: EntryDesc[] = raw.entries.map(([key, value]) => bytesEntry(key, value, raw.lazy));
+  for (const [key, parts] of raw.refs) {
+    const ranges: Range[] = parts.map((p) => {
+      if (p.kind === 0) return { source: 0, offset: p.offset, length: p.length };
+      if (p.kind === 1) return { source: p.source, offset: p.offset, length: p.length };
+      if (p.kind === 2) return { data: p.data };
+      throw new Error("a reference to a store's object in a file's output");
+    });
+    entries.push({ key, ranges });
+  }
+  return { sources, entries, summary: raw.summary };
 }

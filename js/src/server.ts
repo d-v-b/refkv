@@ -23,13 +23,12 @@ import { N5Error } from "./virtualize/n5/virtualize.ts";
 import { openHttpStore, StoreError, StoreLimitError, StoreReadError } from "./virtualize/store.ts";
 import { Zarr2Error } from "./virtualize/zarr2/virtualize.ts";
 import { OmeZarrError } from "./virtualize/ome-zarr/virtualize.ts";
-import { SafeError } from "./virtualize/safe/virtualize.ts";
 import { ImsError } from "./virtualize/ims/virtualize.ts";
 import type { StoreFormat } from "./virtualize/ir/store.ts";
 import { writeVzip } from "./writer.ts";
 
 /** The titles rejections of the Rust core's store formats carry, as the profiles' own errors did. */
-const STORE_FORMATS: Record<StoreFormat, string> = { zarr2: "Zarr v2" };
+const STORE_FORMATS: Record<StoreFormat, string> = { zarr2: "Zarr v2", safe: "SAFE" };
 
 export const ARCHIVE_KEY = "__vz__/archive.vzip";
 
@@ -227,7 +226,6 @@ export function makeHandler(options: HandlerOptions) {
       if (e instanceof N5Error) return response(422, `N5: ${message}`);
       if (e instanceof Zarr2Error) return response(422, `Zarr v2: ${message}`);
       if (e instanceof OmeZarrError) return response(422, `OME-Zarr: ${message}`);
-      if (e instanceof SafeError) return response(422, `SAFE: ${message}`);
       // a store format the core refused names itself; a rejection before one was chosen is the store's
       if (e instanceof StoreError) return response(422, `${e.format !== undefined ? STORE_FORMATS[e.format] : "store"}: ${message}`);
       if (e instanceof ImageError) return response(422, message);

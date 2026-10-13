@@ -11,7 +11,7 @@ import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
 import { directoryStore } from "../../conformance/directory_store.ts";
 import { virtualizeStore as referenceStore } from "../../../conformance/virtualize/reference/ts/index.ts";
-import { REVISION as FROZEN } from "../../../conformance/virtualize/reference/ts/zarr2/declare.ts";
+import { STORES_REVISION as FROZEN } from "../../../conformance/virtualize/reference/ts/revision.ts";
 import { REVISION } from "../../src/virtualize/common.ts";
 import { virtualizeStore } from "../../src/virtualize/index.ts";
 import { StoreError } from "../../src/virtualize/store.ts";

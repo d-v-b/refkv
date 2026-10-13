@@ -80,9 +80,9 @@ sources with identical bytes), the same set of keys, and for every key:
   `18446744073709552000`, an integer literal of another value;
 - **other bytes entries:** identical bytes.
 
-**IR mirrors.** For the TIFF, NDPI, ND2, CZI, DICOM and NIfTI profiles, `vzip_source` is the
+**IR mirrors.** For the TIFF, NDPI, ND2, CZI, DICOM, NIfTI and SAFE profiles, `vzip_source` is the
 source's IR mirror ([conventions §8](conventions.md#8-the-ir-mirror)); for
-the Zarr v2 profile (not OME-Zarr), the store's ([conventions §8.9](conventions.md#89-stores),
+a SAFE directory and the Zarr v2 profile (not OME-Zarr), the store's ([conventions §8.9](conventions.md#89-stores),
 whose limits replace those below).
 Its table and view are canonical: a function of the source's IR, folded and
 encoded one way only ([conventions §8.8](conventions.md#88-canonical-form)).

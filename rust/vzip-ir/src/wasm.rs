@@ -179,7 +179,7 @@ fn err_out(e: String) -> i64 {
     -(set_out(e.into_bytes()) as i64)
 }
 
-/// A run of `format` (0 ND2, 1 TIFF, 2 CZI, 3 DICOM, 4 NIfTI, 7 NDPI; a TIFF run becomes an NDPI one when its
+/// A run of `format` (0 ND2, 1 TIFF, 2 CZI, 3 DICOM, 4 NIfTI, 6 a SAFE zip, 7 NDPI; a TIFF run becomes an NDPI one when its
 /// parser finds the file is NDPI: the output's summary names the format) over a source of `size` bytes, remote
 /// or not, read by the host at most `concurrency` requests at a time.
 #[unsafe(no_mangle)]
@@ -432,21 +432,22 @@ pub unsafe extern "C" fn vz_store_output(p: *mut StoreRun, url: *mut u8, n: usiz
     }
 }
 
-/// The relative keys the store reader ignored and recorded (`json`: the JSON `[key, ...]`,
-/// from `vz_alloc`, consumed), which the projection records: 0, or minus the length of the
-/// error's message.
+/// The keys the listing ignores, before the first poll (`StoreRun::ignore`): `json` (from
+/// `vz_alloc`, consumed) is `[[key, ...], [folder, ...]]`, the relative keys the store reader
+/// ignored and recorded, which the projection records, and the empty `d/` keys, which a SAFE
+/// directory's parser reads as directories. 0, or minus the length of a rejection's message.
 ///
 /// # Safety
 /// `p` from `vz_store_new`; `json`, `n` from `vz_alloc(n)`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vz_store_ignore(p: *mut StoreRun, json: *mut u8, n: usize) -> i64 {
+    let r = unsafe { &mut *p };
     let b = unsafe { Vec::from_raw_parts(json, n, n) };
-    match serde_json::from_slice::<Vec<String>>(&b) {
-        Ok(keys) => {
-            unsafe { &mut *p }.ignore(keys);
-            0
-        }
-        Err(e) => err_out(format!("the ignored keys: {e}")),
+    let got = serde_json::from_slice::<(Vec<String>, Vec<String>)>(&b).map_err(|e| format!("the ignored keys: {e}"))
+        .and_then(|(keys, folders)| r.ignore(keys, folders));
+    match got {
+        Ok(()) => 0,
+        Err(e) => err_out(e),
     }
 }
 

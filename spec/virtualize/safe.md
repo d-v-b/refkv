@@ -35,8 +35,10 @@ by the band's chunks. The groups declare their coordinate reference system
 and affine transform with the zarr-conventions `proj` and `spatial`
 conventions ([§5](#5-georeferencing-geozarr)). The source's values are recorded but never applied: the
 radiometric offsets and the quantification values are metadata of each band
-([§6.2](#62-band-arrays)). Every file of the product is kept: the XML files as text or as
-arrays of their bytes, and the other files whole ([§6.3](#63-the-source-metadata-node)).
+([§6.2](#62-band-arrays)). Every file of the product is kept: `vzip_source` is the product's IR
+mirror, which lists every object, holds the XML documents it reads, describes
+each band file's boxes, codestream and tile-parts, and references every other
+object whole ([§6.3](#63-the-source-metadata-node)).
 
 Unlike the other conventions, the hierarchy has no OME-NGFF metadata. It is
 geospatial data, and its target formats are Zarr v3 and the GeoZarr
@@ -286,10 +288,11 @@ The profile says how these codestreams are made of byte ranges of the band
 file and a few bytes of their own
 ([spec/virtualize.md §12.6](#126-chunks)).
 
-The band file's other bytes are kept in the source metadata: the JP2 boxes
-before the codestream ([§6.3](#63-the-source-metadata-node)), and the original SIZ marker segment ([§6.2](#62-band-arrays)).
-The rest of the main header, its coding style, quantization and comments,
-is in every chunk.
+The band file's other bytes are kept in the source metadata: its JP2 boxes,
+main header and tile-part headers are elements of the IR mirror
+([§6.3](#63-the-source-metadata-node)), and the original SIZ marker segment is
+also in the band's own source metadata ([§6.2](#62-band-arrays)). The rest of the main
+header, its coding style, quantization and comments, is in every chunk.
 
 ## 5. Georeferencing (GeoZarr)
 
@@ -598,24 +601,18 @@ with the members, in this order, each present only when its value is:
   children of `Tile_Geocoding`, as strings.
 
 **`vzip_source`.** The group `vzip_source` (the source metadata node of
-[conventions §2](../conventions.md#2-attributes)) is always present. Its source
-metadata `S` is the object
+[conventions §2](../conventions.md#2-attributes)) is always present. It is the
+product's **IR mirror** ([conventions §8](../conventions.md#8-the-ir-mirror)): its
+table, from which the product is rebuilt ([§6.4](#64-reconstruction)), and its view,
+`vzip_source/tree`. Its source metadata `S` is the object
 
 ```json
-{"xml": {...}, "xml_arrays": [...], "empty": [...], "empty_dirs": [...], "ignored": [...]}
+{"ir": I, "empty_dirs": [...], "ignored": [...]}
 ```
 
-where each member is present only when it is not empty:
+where `I` is the mirror's description ([conventions §8.2](../conventions.md#82-the-table)),
+and each other member is present only when it is not empty:
 
-- `xml`: one member per XML document kept as **text** (below), in ascending
-  order of keys: its key, and its **text value** ([conventions §6](../conventions.md#6-source-metadata-as-json): the JSON
-  string of its bytes when they are UTF-8, else `{"latin1": T}`).
-- `xml_arrays`: the keys of the other XML documents, in ascending order of
-  keys. The `i`-th (from 0) is the array `vzip_source/xml/<i>`: its bytes as
-  an array of bytes ([conventions §7](../conventions.md#7-source-values-as-arrays),
-  **Bytes**), with no attributes. (Such are the tile metadata,
-  190–630 KB, and the datastrip metadata `MTD_DS.xml`, 15–25 MB.)
-- `empty`: the keys of the empty objects, ascending;
 - `empty_dirs`: the empty directories ([§2.1](#21-objects)), ascending, each without a
   final `/`;
 - `ignored`: the keys of the objects that the listing recorded but did
@@ -623,67 +620,117 @@ where each member is present only when it is not empty:
   that are recorded likewise, [spec/virtualize.md §12.4](#124-the-zip-form)),
   ascending.
 
-**Text or array.** An XML document of more than 65536 bytes is an array.
-The others, the **candidates**, are taken in ascending order of size, and
-of keys for equal sizes, starting from the state in which every XML
-document is an array. A candidate becomes text when `S`, with it as text
-and with the candidates after it still arrays, is at most 65536 bytes of
-JSON; otherwise it stays an array, and the candidates after it are still
-taken. The **size** of `S`'s JSON is measured as the ND2 convention
-measures its budgets: the length in bytes of the UTF-8 encoding of the
-text that ECMAScript's `JSON.stringify` writes for it, without whitespace,
-with its string escapes (`\"`, `\\`, `\b`, `\f`, `\n`, `\r`, `\t`, and
-`\u00XX` with lowercase hex digits for the other code points below
-U+0020). Moving a document from `xml_arrays` to `xml` only makes `S` larger,
-so the result does not depend on how a producer computes it (nor on
-whether it reads a candidate that cannot fit, [spec/virtualize.md §12.2](#122-objects-and-reading)).
-`empty`, `empty_dirs` and `ignored` count in the size but never move: a
-product whose listing records many keys may keep every XML document as an
-array. (So the budget bounds
-`vzip_source/zarr.json` to about 64 KiB, its declaration included, whenever
-the product's listing is ordinary. The order of sizes keeps as many
-documents as text as the budget allows: the XML schemas and quality reports
-of a few kB each, before the 45–70 KB product metadata and manifest, which
-then usually stay arrays.)
+(Neither is an object of the product, so the IR has neither: a listing's
+empty `d/` keys and ignored keys are not objects of a store IR,
+[conventions §8.9](../conventions.md#89-stores).)
 
-It also holds:
+The IR is the product's in each form:
 
-- `vzip_source/jp2/<group>/<band>`, for every band array `<group>/<band>`:
-  the bytes of its band file before the codestream (the JP2 signature, file
-  type and header boxes, the GML-in-JP2 georeferencing, any other boxes,
-  and the header of the contiguous codestream box `jp2c`), as an array of
-  bytes ([conventions §7](../conventions.md#7-source-values-as-arrays), **Bytes**), with no attributes. The groups
-  `vzip_source/jp2` and `vzip_source/jp2/<group>` have no attributes.
-- every other object, kept whole as the
-  [Zarr v2 convention §5](zarr2.md#5-other-objects) keeps one: the
-  archive's key `vzip_source/objects/<k>`, with `k` the object's key
-  escaped as it says, holds the object's bytes. The directories between
-  `vzip_source` and the objects are not nodes.
+- **The directory form** is a store input, and its IR a **store IR**
+  ([conventions §8.9](../conventions.md#89-stores)): every listed object is an
+  object of the IR, its key its path, folder markers and empty objects
+  included. Of these objects:
+  - the **XML documents read whole** ([spec/virtualize.md §12.2](#122-objects-and-reading)): the product
+    metadata, the tile metadata, and every other XML document of at most
+    65536 bytes, are **held**: each has one child, a value `xml` of type
+    `ascii[n]` spanning it, and the table holds its bytes;
+  - the **band files** are **described in place**: each has the band file's
+    elements below, its leaves partitioning it, and its bytes are its own
+    (it is the url source its chunks reference, [spec/virtualize.md §12.8](#128-the-source-table));
+  - every **other object** (the other XML documents, such as the datastrip
+    metadata, 15–25 MB, and the other objects of [§2.1](#21-objects)) is **referenced**:
+    it has no children, and the hierarchy references it whole at the
+    archive's key `vzip_source/objects/<k>`, with `k` the object's key escaped
+    as [Zarr v2 convention §5](zarr2.md#5-other-objects) says (the directories
+    between `vzip_source` and the objects are not nodes);
+  - a **folder marker** has no children and is not referenced: its bytes
+    are the mirror's layout ([§2.1](#21-objects)), and its key is in the listing;
+  - an **empty object** has no children; its key is in the listing.
+- **The zip form** is a file input, and its IR a **file IR** of the
+  `.SAFE.zip` file ([conventions §8.1](../conventions.md#81-elements)): its leaves
+  partition the zip file, which the mirror rebuilds byte for byte from
+  source 0. Its elements are the zip file's own structures, and, for each
+  object of the product that is not empty, its zip entry: its local header,
+  and its data, which is a band file's elements below, an XML document, or
+  another object. A deflated XML document is a derived element of transform
+  `deflate` (the raw deflate stream of the entry, which a reader inflates
+  to the document): its space holds nothing.
 
-The groups `vzip_source/xml` and `vzip_source/jp2` exist only when they
-have arrays.
+**Elements.** Paths are relative to the IR's root, whose path is `""`
+([conventions §8.1](../conventions.md#81-elements)); `<i>`, `<k>`, `<m>` are
+decimal name indexes. In the directory form, a band file's elements are below
+its object (whose path is its key, [conventions §8.9](../conventions.md#89-stores)), at
+offsets from its start; in the zip form, below `entries/<i>/data` of its zip
+entry, at offsets in the zip file. Types are those of
+[conventions §8.6](../conventions.md#86-types).
+
+| path | kind | type | extent: what |
+|---|---|---|---|
+| `""` | struct | | the root: the store's root directory (no extent), or the zip file, `(0, size)` |
+| `<directory>` | struct | | directory form: a directory of the listing, no extent |
+| `<key>` | object | | directory form: the object of that key, `(0, size)` (held, described in place, or referenced, above) |
+| `<key>/xml` | value | `ascii[n]` | an XML document read whole: all of it |
+| `…/boxes/<i>` | struct | | a band file's box `i` ([spec/virtualize.md §12.3](#123-band-files)), from offset 0, the `jp2c` box last |
+| `…/boxes/<i>/header` | value | `{lbox:>u4,tbox:ascii[4]}`, or `{lbox:>u4,tbox:ascii[4],xlbox:>u8}` | its `LBox`, `TBox` and `XLBox` |
+| `…/boxes/<i>/contents` | value | `bytes[n]` | the contents of a box other than `jp2c` (when not empty) |
+| `…/boxes/<i>/codestream` | struct | | the `jp2c` box's contents: the codestream `[c0, n)` |
+| `…/codestream/soc` | value | `>u2` | SOC |
+| `…/codestream/siz` | value | `{marker:>u2,lsiz:>u2,rsiz:>u2,xsiz:>u4,ysiz:>u4,xosiz:>u4,yosiz:>u4,xtsiz:>u4,ytsiz:>u4,xtosiz:>u4,ytosiz:>u4,csiz:>u2,components:{ssiz:u1,xrsiz:u1,yrsiz:u1}[C]}` | the SIZ segment |
+| `…/codestream/markers/<m>` | struct | | marker segment `m` of the main header rest `R`, in order |
+| `…/markers/<m>/header` | value | `{marker:>u2,length:>u2}` | its marker and length `L` |
+| `…/markers/<m>/body` | value | `bytes[L − 2]` | the rest of the segment (when not empty) |
+| `…/codestream/tiles/<k>` | struct | | the tile-part of tile `k`, `[s_k, s_k + Psot)` |
+| `…/tiles/<k>/sot` | value | `{marker:>u2,lsot:>u2,isot:>u2,psot:>u4,tpsot:u1,tnsot:u1}` | its SOT segment |
+| `…/tiles/<k>/body` | data | | its body `[s_k + 12, s_k + Psot)`; form `{"codec":"jpeg2000-tile-part","recipe":[["src",0,null]]}` |
+| `…/codestream/eoc` | value | `>u2` | EOC |
+| `end` | value | `{signature:<u4,disk:<u2,cd_disk:<u2,entries_here:<u2,entries:<u2,cd_size:<u4,cd_offset:<u4,comment_length:<u2}` | zip form: the EOCD record |
+| `end_comment` | value | `ascii[n]` | zip form: its comment (when not empty) |
+| `zip64_locator` | value | `{signature:<u4,cd_disk:<u4,record_offset:<u8,disks:<u4}` | zip form: the ZIP64 EOCD locator (ZIP64 only) |
+| `zip64_end` | value | `{signature:<u4,size:<u8,version_made:<u2,version_needed:<u2,disk:<u4,cd_disk:<u4,entries_here:<u8,entries:<u8,cd_size:<u8,cd_offset:<u8}` | zip form: the ZIP64 EOCD record's first 56 bytes (ZIP64 only) |
+| `central_directory` | struct | | zip form: the central directory (when not empty) |
+| `central_directory/entries/<i>` | struct | | its file header `i` |
+| `…/entries/<i>/header` | value | `{signature:<u4,version_made:<u2,version_needed:<u2,flags:<u2,method:<u2,time:<u2,date:<u2,crc32:<u4,compressed_size:<u4,size:<u4,name_length:<u2,extra_length:<u2,comment_length:<u2,disk:<u2,internal:<u2,external:<u4,local_header_offset:<u4}` | its 46 bytes |
+| `…/entries/<i>/name`, `…/comment` | value | `ascii[n]` | its name and comment (when not empty) |
+| `…/entries/<i>/extra` | value | `bytes[n]` | its extra field (when not empty) |
+| `entries/<i>` | struct | | zip form: the local header and data of central directory entry `i`, for an object of the product that is not empty, `[lho, ds + cs)` |
+| `entries/<i>/local_header` | value | `{signature:<u4,version:<u2,flags:<u2,method:<u2,time:<u2,date:<u2,crc32:<u4,compressed_size:<u4,size:<u4,name_length:<u2,extra_length:<u2}` | its local file header's 30 bytes |
+| `entries/<i>/name` | value | `ascii[n]` | the local header's name (when not empty) |
+| `entries/<i>/extra` | value | `bytes[n]` | the local header's extra field (when not empty) |
+| `entries/<i>/data` | struct | | a band file's data: its elements |
+| `entries/<i>/data` | value | `ascii[n]` | a stored XML document |
+| `entries/<i>/data` | derived | | a deflated XML document: form `{"transform":"deflate"}` |
+| `entries/<i>/data` | value | `bytes[n]` | another object's data |
+| `gaps/<offset>` | gap | | bytes no other element claims (in the zip form: the local headers of empty objects and directory entries, data descriptors, padding) |
+
+A value whose type is a record, a number or `ascii[n]` of at most 1024
+bytes is shown by the view ([conventions §8.7](../conventions.md#87-the-view)); in
+the directory form, its bytes are read from the object that holds it, or,
+for a band file, from the band file itself.
+
+**Equivalence.** The elements are determined by the product, and the mirror
+by its elements ([conventions §8.8](../conventions.md#88-canonical-form): one order, one
+folding, one encoding): hierarchies of one product in one form are compared
+entry for entry, `vzip_source` included
+([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
 
 ### 6.4 Reconstruction
 
 The product can be rebuilt from the hierarchy:
 
-- each XML document and each other object, from `vzip_source` (its text
-  value is its bytes; an array holds its bytes; an object is kept whole);
-- each empty directory, from `empty_dirs` (every other directory is one of
-  an object's);
-- each band file: the bytes of `vzip_source/jp2/<group>/<band>`, then the
-  codestream. The codestream is `FF 4F`, then the segment `siz`, then the
-  main header after the SIZ segment of any chunk, then, for each tile `t` in
-  raster order, the tile-part of the chunk's tile 0 with its `Isot` set to
-  `t`, and then `FF D9`.
+- **the zip form**: the zip file, byte for byte, from the mirror's leaves
+  and source 0 ([conventions §8.4](../conventions.md#84-reading-the-source-back));
+  each object is an entry of it (a deflated XML document inflated);
+- **the directory form**: the listing (every object's key and size) and
+  every held object, byte for byte, from the mirror alone
+  ([conventions §8.9](../conventions.md#89-stores)); each band file, described in
+  place, from its own source (the url source its chunks reference, whose
+  size the archive pins), its structure from its elements; each other
+  object from `vzip_source/objects/<k>`; each empty directory from
+  `empty_dirs` (every other directory is one of an object's).
 
-The band file's `jp2c` box ends at its end (the profile requires it), and
-each tile has one tile-part with `TPsot = 0` and `TNsot = 1`, so nothing
-else is needed. What is not kept is layout. That is the order of a
-directory listing, the ZIP container (its headers, the timestamps of its
-entries and its directory entries), the mirror's own metadata (generations
-and storage class) and its folder markers ([§2.1](#21-objects)), and, for an XML document
-of a zip file that was deflate-compressed, its compressed bytes. (A folder
+What is not kept is the directory form's layout: the order of the listing,
+the mirror's own metadata (generations and storage class), and the bytes of
+its folder markers ([§2.1](#21-objects)), whose keys the listing keeps. (A folder
 marker's 6 bytes are not kept, but its directory is.)
 
 ## 7. Example
@@ -748,7 +795,7 @@ are 370 × 370, and its tiles 1, 2 and 3 hold empty packets.
 
 # Part 2. The profile
 
-The SAFE profile of [spec/virtualize.md](../virtualize.md) (revision 17, draft),
+The SAFE profile of [spec/virtualize.md](../virtualize.md) (revision 26, draft),
 numbered as its [§12](#12-safe-profile). (Conformance is spec/virtualize.md's [§14](../virtualize.md#14-conformance).)
 [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here, with the changes this
 document states.
@@ -770,8 +817,9 @@ of two forms:
   file, and its entries are the product's objects ([§12.4](#124-the-zip-form)).
 
 The two forms give the same hierarchy for the same product, but for
-`source.url` and the source table: every document is the same, and every
-chunk holds the same bytes.
+`source.url`, the source table and `vzip_source` (the IR mirror of a store
+or of a file, [the convention §6.3](#63-the-source-metadata-node)): every other document is the same,
+and every chunk holds the same bytes.
 
 ### 12.1 Choosing the profile
 
@@ -798,24 +846,23 @@ The product's objects are, in the directory form, the store's objects
 
 - the product metadata and the tile metadata
   ([the convention §2](#2-the-source)), whole;
-- the XML documents of at most 65536 bytes (the candidates of
-  [the convention §6.3](#63-the-source-metadata-node)),
-  whole, for their text values, in the order in which [§6.3](#63-the-source-metadata-node) takes them, as
-  long as they can still become text: reading stops at the first candidate
-  of `n` bytes for which `J + n > 65536`, where `J` is the size of the JSON
-  of `S` with only its members `xml` (the texts chosen so far), `empty`,
-  `empty_dirs` and `ignored`. (`S` with that candidate as text would be
-  larger than `J + n`, and neither it nor any later candidate, which is no
-  smaller, can be text.) A virtualizer reads at most 16 candidates ahead of
-  the one it takes;
+- in the directory form, every other XML document of at most 65536 bytes,
+  whole: these and the product and tile metadata are the IR's held objects
+  ([the convention §6.3](#63-the-source-metadata-node));
+- in the zip form, every other deflated XML document, whole, to inflate
+  and check it ([§12.4](#124-the-zip-form));
 - of each band file, its boxes and codestream main header ([§12.3](#123-band-files)) and the
-  first 12 bytes of each tile-part (its SOT marker segment).
+  first 12 bytes of each tile-part (its SOT marker segment), as the walk of
+  [§12.3](#123-band-files) reaches them: from offset 0, in blocks of 64 KiB (each block from
+  the first byte the walk needs that the blocks read so far lack); then each SOT segment, the first in a block of 64 KiB (unless a block read for the main header holds it), each later one in 12 bytes, or in a block of 64 KiB after a tile-part of at most 16384 bytes; then the 2 bytes of EOC. The band files are walked
+  together: each round reads the next range of every band file whose walk
+  is not done.
 
-It reads no other bytes (but, in the zip form, those of [§12.4](#124-the-zip-form)). It does not
-read the folder markers
-([the convention §2.1](#21-objects)), the
-other objects, or the other XML documents but the product and tile
-metadata. The reads of a band file include no coded data
+It reads no other bytes (but, in the zip form, those of [§12.4](#124-the-zip-form), and
+the values the view shows that the walk did not read, [conventions §8.7](../conventions.md#87-the-view)).
+It does not read the folder markers
+([the convention §2.1](#21-objects)), the other objects, or the other XML
+documents. The reads of a band file include no coded data
 but what the blocks a reader fetches happen to hold (**Structure only**,
 [§1.2](../virtualize.md#12-input)). In the directory form, this replaces [§1.4](../virtualize.md#14-store-inputs)'s rule that an object is
 read whole, and the listing's empty objects whose keys end in `/` (which
@@ -938,24 +985,26 @@ integers are little-endian.
   bytes (several central entries naming one local entry, a zip bomb) are
   rejected.
 - **Methods.** An object with method 0 (stored) MUST have `cs = us`, and
-  its bytes are `[ds, ds + us)` of the file, which the output references.
+  its bytes are `[ds, ds + us)` of the file, which the output's chunks
+  reference.
   An object with method 8 (deflate) MUST be an XML document
   ([the convention §2.1](#21-objects)), with
   `us` at most 2^26 (a datastrip metadata is 15–25 MB), and the `us` of all
   of them together MUST be at most 2^27; both are checked before anything is
-  inflated. It is read whole and inflated when it is needed (the product
-  and tile metadata, a candidate for text, an array's bytes), one at a time,
-  not all at once. The raw deflate stream
+  inflated. Each is read whole and inflated once, one at a time, not all at
+  once (the product and tile metadata when they are parsed, the others
+  after them). The raw deflate stream
   MUST end exactly at `cs` bytes and give exactly `us` bytes, whose CRC-32
-  MUST be the entry's. The output copies its bytes ([§12.7](#127-metadata-arrays-and-other-objects)). Any other
+  MUST be the entry's. The IR describes it as a derived element
+  ([the convention §6.3](#63-the-source-metadata-node)), and the output holds no copy of its bytes:
+  the mirror rebuilds the zip file. Any other
   method, and method 8 for any other object, rejects the input. (The
   pixels can only be referenced in place when they are stored. ESA's SAFE
-  zips store every entry. The bytes copied from a deflated XML document are
-  metadata, not pixels.)
+  zips store every entry.)
 
-The local headers and the deflated XML documents (each when it is needed)
-are read, and the reads of [§12.2](#122-objects-and-reading) apply to the stored XML documents and band
-files, at their data start.
+The local headers and the deflated XML documents are read, and the reads of
+[§12.2](#122-objects-and-reading) apply to the stored XML documents and band files, at their data
+start.
 
 ### 12.5 Rejection and limits
 
@@ -1073,47 +1122,37 @@ header rests and edge tails, numbered as [§1.2](../virtualize.md#12-input) says
 COM marker segments (coding parameters and the encoder's comments), and
 empty tile-parts, not pixel data ([§1.2](../virtualize.md#12-input), **Structure only**).
 
-### 12.7 Metadata arrays and other objects
+### 12.7 Other objects
 
-- **XML arrays.** The array `vzip_source/xml/<i>` holds the bytes of an
-  XML document that [the convention §6.3](#63-the-source-metadata-node) keeps as an array (one of more than
-  65536 bytes, or one past the budget), as an array of bytes (conventions
-  [§7](../conventions.md#7-source-values-as-arrays)): `k = ceil(len / 2^24)`
-  chunks of `ceil(len / k)` bytes. Each chunk references its bytes in the
-  object (the last padded with literal zero bytes), or, for a deflated
-  entry of a zip file, holds them as copied bytes (an entry with bytes, not
-  a reference).
-- **JP2 headers.** The array `vzip_source/jp2/<group>/<band>` holds the JP2
-  header `[0, c0)` of its band file, as an array of bytes. Each chunk
-  references its bytes in the band file.
-- **Other objects.** Each other object is the entry `vzip_source/objects/<k>`
-  ([the convention §6.3](#63-the-source-metadata-node)),
-  which references the whole object: in the directory form, the range
-  `(i, 0, size)` of its own source, and in the zip form `(0, ds, size)`.
-  An empty object has no entry; its key is in `empty`.
+In the directory form, each object that the IR references
+([the convention §6.3](#63-the-source-metadata-node): an XML document
+not read whole, and every other object but the band files, the folder
+markers and the empty objects) is the entry `vzip_source/objects/<k>`, which
+references the whole object, the range `(i, 0, size)` of its own source.
+In the zip form there is no such entry: the mirror rebuilds the zip file,
+every entry included.
 
-The XML texts are in the documents (`vzip_source/zarr.json`). The
-documents under `vzip_source/` are deflated and, like the chunks, not among
-the documents a reader fetches when it opens the archive ([conventions §2](../conventions.md#2-attributes)).
+The documents under `vzip_source/` are deflated and, like the chunks, not
+among the documents a reader fetches when it opens the archive
+([conventions §2](../conventions.md#2-attributes)).
 
 ### 12.8 The source table
 
 References are listed in ascending order of their entries' keys (as UTF-8
 byte strings), and within a reference in order of its ranges. This order
-numbers the data sources ([§1.2](../virtualize.md#12-input)'s order of first use).
+numbers the sources ([§1.2](../virtualize.md#12-input)'s order of first use).
 
 - **Zip form.** Source 0 is `U` ([§1.2](../virtualize.md#12-input)), and the data sources follow, from
   1.
 - **Directory form.** The sources are first one `url` source per object
-  that some reference uses (every band file, every XML document with an
-  array, every other object), with a `size` pin, the object's listed size,
-  and the object's URL ([§1.4](../virtualize.md#14-store-inputs)),
-  in ascending order of the objects' keys, numbered from 0. The data
-  sources follow, numbered from the count `m` of url sources in order of
-  first use ([§1.2](../virtualize.md#12-input)'s rule, starting at `m` rather than 1). This
+  that some reference uses (every band file, and every object
+  [§12.7](#127-other-objects) references), with a `size` pin, the object's listed size,
+  and the object's URL ([§1.4](../virtualize.md#14-store-inputs)), in order of first use, numbered
+  from 0. The data sources follow, numbered from the count `m` of url sources
+  in order of first use ([§1.2](../virtualize.md#12-input)'s rule, starting at `m` rather than 1). This
   replaces [§1.4](../virtualize.md#14-store-inputs)'s rule that a store input's sources are one per entry and
-  that it has no data sources: a band file is used by many chunks, by its
-  JP2 header array, and by nothing else.
+  that it has no data sources: a band file is used by many chunks, and by
+  nothing else.
 
 ### 12.9 Summary
 
@@ -1122,11 +1161,12 @@ summary: `level` (`"L1C"` or `"L2A"`), `form` (`"store"` or `"zip"`),
 `groups` (resolution groups), `bands` (band arrays), `chunks`,
 `edgeChunks` (chunks with empty tiles), `dataSources`, `objects` (the
 product's objects, folder markers included), `folderMarkers`, `emptyDirs`,
-`xmlText`,
-`xmlArrays`, `otherObjects`, `emptyObjects`,
-`tileParts` (SOT segments read), `listingRequests`, and `readRequests` and
-`readBytes` (the range requests made, and the bytes they returned, when the
-implementation counts them).
+`heldXml` (the XML documents held, directory form), `otherObjects` (the
+objects referenced whole, directory form), `emptyObjects`, `tileParts`
+(SOT segments read), `bandReads` (the reads of band files), `batches` (the
+parser's rounds of reads), the run's or the read planner's counts, the IR's
+element count and what the mirror's table folded, and, in the directory
+form, `listingRequests`.
 
 ### 12.10 Cost
 
@@ -1142,10 +1182,13 @@ block holds several tile headers only when the tiles are small (masks,
 mostly empty tiles). The output is about 3100–3300 chunk entries, 10–40 data
 sources (main header rests and edge tails), and the product's 60–150 other entries.
 
-Measured on the 12 accepted products of `corpus_safe.txt` (revision 17): a
-product takes 857–3126 range requests and 1.6–22 MB of reads (the reads
-after a small tile-part fetch a 64 KiB block, which holds the next headers;
-after a larger one, 12 bytes). The archive is 1.0–1.13 MB, the root
-`zarr.json` 3.2–4.0 KB, and the largest document, `vzip_source/zarr.json`,
-at most 64.4 KB, within its budget. Level-1C products take longest: their
-true-color image's 1849 tile-part headers are read one after another.
+Measured on the 14 accepted products of `corpus_safe.txt` (revision 26,
+through the harness's caching proxy): a product in the directory form takes
+346–3217 range requests and 5.3–22 MB of reads (the reads after a small
+tile-part fetch a 64 KiB block, which holds the next headers; after a larger
+one, 12 bytes), the same requests and bytes as revision 25's; the zip form
+2508–3197 requests and 2.5–22 MB. The archive is 1.04–1.22 MB in the
+directory form (5–12% more than revision 25's: the held XML documents and the
+mirror's table) and 1.01–1.06 MB in the zip form (1% more). Level-1C products
+take longest: their true-color image's 1849 tile-part headers are read one
+after another.

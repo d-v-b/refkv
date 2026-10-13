@@ -16,17 +16,21 @@ pub enum Transform {
     XmlVariant,
     /// CZI: a compressed attachment (`Zip-Comp`, `ZIP`), whose space holds nothing
     Gzip,
+    /// SAFE: a zip entry's raw deflate stream (an XML document of a `.SAFE.zip`), whose space
+    /// holds nothing
+    Deflate,
 }
 
 impl Transform {
     /// Every transform; `index` keeps it complete (each variant at its index).
-    pub const ALL: [Transform; 3] = [Transform::Nd2LvZlib, Transform::XmlVariant, Transform::Gzip];
+    pub const ALL: [Transform; 4] = [Transform::Nd2LvZlib, Transform::XmlVariant, Transform::Gzip, Transform::Deflate];
 
     pub fn index(self) -> usize {
         match self {
             Transform::Nd2LvZlib => 0,
             Transform::XmlVariant => 1,
             Transform::Gzip => 2,
+            Transform::Deflate => 3,
         }
     }
 
@@ -35,6 +39,7 @@ impl Transform {
             Transform::Nd2LvZlib => "nd2-lv-zlib",
             Transform::XmlVariant => "xml-variant",
             Transform::Gzip => "gzip",
+            Transform::Deflate => "deflate",
         }
     }
 
@@ -51,7 +56,7 @@ impl Transform {
     pub fn may_hold_shown(self) -> bool {
         match self {
             Transform::Nd2LvZlib | Transform::XmlVariant => true,
-            Transform::Gzip => false,
+            Transform::Gzip | Transform::Deflate => false,
         }
     }
 
@@ -62,7 +67,7 @@ impl Transform {
             Transform::Nd2LvZlib if raw.len() < 12 => Some(Err("a compressed LV record of fewer than 12 bytes".into())),
             Transform::Nd2LvZlib => Some(crate::lv::inflate(raw, form["size"].as_u64())),
             Transform::XmlVariant => Some(Ok(raw.to_vec())),
-            Transform::Gzip => None,
+            Transform::Gzip | Transform::Deflate => None,
         }
     }
 }

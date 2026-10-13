@@ -2,8 +2,9 @@
 
 Each product in fixtures/safe/ (a directory, served by the harness
 proxy with its S3 listing, or a `.SAFE.zip` file) is virtualized by the
-Python reference (`python -m vzip.virtualize`) and by the browser code
-(js/conformance/virtualize.ts, under Node). Each archive is opened through
+shipped Python code (`python -m vzip.virtualize`, the Rust core natively) and
+by the browser code (js/conformance/virtualize.ts, under Node, the core as
+wasm32). Each archive is opened through
 vzip.zarr and zarr-python (with vzip.zarr.codecs' imagecodecs_jpeg2k), and:
 
 - every band array, read whole, must equal its band file as rasterio's
@@ -13,11 +14,13 @@ vzip.zarr and zarr-python (with vzip.zarr.codecs' imagecodecs_jpeg2k), and:
   files (from their GML-in-JP2), and `proj:wkt2` must be the same CRS as
   pyproj's EPSG definition;
 - the product must be rebuilt from the hierarchy (spec/virtualize/safe.md
-  §6.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#64-reconstruction>): every
-  XML document from its text or its array, every other object
-  from `vzip_source/objects/`, the empty objects from their keys, and every
-  band file from its JP2 header array, its `siz` and its chunks, byte for
-  byte, with nothing left over (folder markers excepted);
+  §6.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#64-reconstruction>): a
+  zip file byte for byte from its IR mirror; a directory's held XML documents
+  from its mirror alone, every other object from `vzip_source/objects/`, the
+  empty objects from their keys, and every band file, described in place,
+  from its own source up to its codestream; and, in both forms, every band
+  file's codestream from its `siz` and its chunks, byte for byte, with
+  nothing left over (folder markers excepted);
 - `safe_reject_*` products must be rejected by both.
 
 With `--remote <product URL> [<band path> ...]`, a public product (a `.SAFE/`
@@ -26,7 +29,7 @@ both implementations,
 and the listed band arrays (default: the 60 m group) are compared with GDAL
 reading the band files over HTTP (/vsicurl/), and, for a directory, with
 GDAL's SENTINEL2 driver reading the product metadata; the rebuild check
-covers the XML documents, the other objects and the listed bands' files.
+covers the listed bands' codestreams, rebuilt from their chunks.
 
 Usage: uv run python js/test/safe/verify.py [<fixture> ...] [--py-only]
        uv run python js/test/safe/verify.py --remote <url> [<band path> ...] [--py-only]
@@ -56,6 +59,8 @@ HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 FIXTURES = ROOT / "fixtures"
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
+# the frozen SAFE twin's zip reader, for reading remote zip files' entries
+sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
 from proxy import Proxy  # noqa: E402
 
 from vzip.policy import Policy  # noqa: E402
@@ -152,25 +157,14 @@ def check_bands(out: Path, docs: dict, read_band, only: list[str] | None = None)
     return problems, len(arrays)
 
 
-def rebuild(out: Path, docs: dict, bands_only: list[str] | None = None) -> dict[str, bytes]:
-    """The product's objects, rebuilt from the hierarchy (spec/virtualize/safe.md §6.4
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#64-reconstruction>)."""
+def band_codestreams(out: Path, docs: dict, bands_only: list[str] | None = None) -> dict[str, bytes]:
+    """Each band file's codestream, rebuilt from its array's chunks and `siz` (spec/virtualize/safe.md
+    §6.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#64-reconstruction>):
+    `FF 4F`, the SIZ segment, a chunk's main header after its SIZ, each tile's tile-part with
+    its `Isot` restored, and `FF D9`. A band file ends with its codestream."""
     vz = vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES)
-    z = zipfile.ZipFile(out)
-    names = z.namelist()
-    s = docs["vzip_source/zarr.json"]["attributes"]["vzip_virtualized"]["safe"]
+    names = zipfile.ZipFile(out).namelist()
     files: dict[str, bytes] = {}
-    for k, t in s.get("xml", {}).items():
-        files[k] = t.encode() if isinstance(t, str) else t["latin1"].encode("latin-1")
-    for i, k in enumerate(s.get("xml_arrays", [])):
-        files[k] = zarr.open_array(vz, path=f"vzip_source/xml/{i}", mode="r", zarr_format=3)[...].tobytes()
-    for k in s.get("empty", []):
-        files[k] = b""
-    kept = [n for n in names if n.startswith("vzip_source/objects/")]
-    for n, data in zip(kept, get_all(vz, kept)):
-        key = n.removeprefix("vzip_source/objects/")
-        last = key.rpartition("/")[2]
-        files[key[:-1] if ESCAPED.match(last) else key] = data
     for k, d in docs.items():
         if d.get("node_type") != "array" or not re.match(r"r[0-9]+m/", k):
             continue
@@ -178,13 +172,12 @@ def rebuild(out: Path, docs: dict, bands_only: list[str] | None = None) -> dict[
         if bands_only is not None and path not in bands_only and path.split("/")[0] not in bands_only:
             continue
         band = d["attributes"]["vzip_virtualized"]["safe"]
-        head = zarr.open_array(vz, path=f"vzip_source/jp2/{path}", mode="r", zarr_format=3)[...].tobytes()
         siz = base64.b64decode(band["siz"])
         chunk_keys = sorted((n for n in names if n.startswith(path + "/c/")),
                             key=lambda n: tuple(int(x) for x in n.split("/c/")[1].split("/")))
         cols = -(-d["shape"][-1] // d["chunk_grid"]["configuration"]["chunk_shape"][-1])
         chunks = get_all(vz, chunk_keys)
-        parts = [head, b"\xff\x4f", siz]
+        parts = [b"\xff\x4f", siz]
         rest = None
         for key, c in zip(chunk_keys, chunks):
             *_, v, u = (int(x) for x in key.split("/c/")[1].split("/"))
@@ -202,14 +195,94 @@ def rebuild(out: Path, docs: dict, bands_only: list[str] | None = None) -> dict[
     return files
 
 
-def check_rebuild(product: dict[str, bytes], out: Path, docs: dict, dirs: set[str] = frozenset()) -> list[str]:
-    """The rebuilt objects against the product's, and its directories (`dirs`, those its folder
-    markers or directory entries name): each must be a directory of a rebuilt object, or one
-    of the empty directories rebuilt from `empty_dirs`. The folder markers are layout of the
-    mirror, as directory entries are of a zip file, and are not rebuilt as objects."""
-    files = rebuild(out, docs)
+def _get(out: Path):
+    """The archive's plain entries (the mirror's arrays and documents), by key."""
+    z = zipfile.ZipFile(out)
+    names = set(z.namelist())
+    return lambda k: z.read(k) if k in names else None
+
+
+def rebuild_store(out: Path, docs: dict, read) -> dict[str, bytes]:
+    """The directory form's objects, rebuilt from the hierarchy (spec/virtualize/safe.md §6.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#64-reconstruction>): the
+    held ones from the mirror alone, the empty ones from their keys, the others from
+    `vzip_source/objects/`, and each band file, described in place, from its own source
+    (`read(key, offset, length)`) up to its codestream, then its codestream from its chunks.
+    The folder markers are not rebuilt."""
+    import vzip_ir
+
+    vz = vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES)
+    files: dict[str, bytes] = {}
+    objects = vzip_ir.rebuild_store(_get(out))
+    kept = [n for n in zipfile.ZipFile(out).namelist() if n.startswith("vzip_source/objects/")]
+    whole = {}
+    for n, data in zip(kept, get_all(vz, kept)):
+        key = n.removeprefix("vzip_source/objects/")
+        whole[key[:-1] if ESCAPED.match(key.rpartition("/")[2]) else key] = data
+    bands = band_codestreams(out, docs)
+    for key, size, data in objects:
+        if data is not None:
+            files[key] = data
+        elif size == 0:
+            files[key] = b""
+        elif key in whole:
+            files[key] = whole[key]
+        elif key in bands:
+            cs = bands[key]
+            files[key] = read(key, 0, size - len(cs)) + cs
+    return files
+
+
+def check_rebuild(item: Path, product: dict[str, bytes], out: Path, docs: dict, url: str,
+                  dirs: set[str] = frozenset()) -> list[str]:
+    """The product rebuilt from the hierarchy against the product: a zip file byte for byte from
+    its mirror, and each band file's codestream from its chunks; or a directory's objects
+    (`rebuild_store`), and its directories (`dirs`, those its folder markers name): each must be
+    a directory of a rebuilt object, or one of the empty directories rebuilt from `empty_dirs`.
+    The folder markers are layout of the mirror, and are not rebuilt as objects."""
+    from vzip.ir.cmirror import rebuild_from_archive
+    from vzip.virtualize.store import object_url
+
+    def ranged(u: str, o: int, n: int) -> bytes:
+        if n == 0:
+            return b""
+        req = urllib.request.Request(u, headers={"Range": f"bytes={o}-{o + n - 1}"})
+        with urllib.request.urlopen(req, timeout=120) as r:
+            return r.read()
+
+    if not item.is_dir():
+        from vzip.ir.cmirror import Archive, canonical_problem, view_problem
+
+        # the leaves partition the zip file (read from source 0); the values the mirror shows
+        # (the end records, the central directory's and local headers, the band files' SIZ,
+        # marker and SOT segments) are the source's bytes
+        rebuilt = bytearray()
+        rebuild_from_archive(str(out), lambda o, n: ranged(url, o, n), rebuilt.extend)
+        problems = [] if bytes(rebuilt) == item.read_bytes() else ["the zip file is not rebuilt byte for byte"]
+        archive = Archive(str(out), lambda o, n: ranged(url, o, n))
+        problems += [p for p in (canonical_problem(archive), view_problem(archive)) if p]
+        for k, cs in band_codestreams(out, docs).items():
+            if not product[k].endswith(cs):
+                problems.append(f"{k}: its codestream is not rebuilt from its chunks")
+        return problems
+    # a band file is read through the url source the archive records for it, whose size pin must
+    # be the product's object's
+    from vzip.pb import decode_source_table
+
+    with zipfile.ZipFile(out) as z:
+        pins = {s.url: s.size for s in decode_source_table(z.read("__vz__/sources")) if s.url is not None}
+    problems = [f"{k}: its url source pins {pins.get(object_url(url, k))} bytes, not {len(v)}"
+                for k, v in product.items() if object_url(url, k) in pins and pins[object_url(url, k)] != len(v)]
+
+    def read(k: str, o: int, n: int) -> bytes:
+        u = object_url(url, k)
+        if u not in pins:
+            raise AssertionError(f"{k}: the archive has no url source for it")
+        return ranged(u, o, n)
+
+    files = rebuild_store(out, docs, read)
     want = {k: v for k, v in product.items() if not (k.endswith("_$folder$") and k[: -len("_$folder$")] in dirs)}
-    problems = [f"{k}: not rebuilt" for k in sorted(set(want) - set(files))]
+    problems += [f"{k}: not rebuilt" for k in sorted(set(want) - set(files))]
     problems += [f"{k}: rebuilt, but not in the product" for k in sorted(set(files) - set(want))]
     problems += [f"{k}: rebuilt with other bytes" for k in sorted(set(want) & set(files)) if want[k] != files[k]]
     empty = docs["vzip_source/zarr.json"]["attributes"]["vzip_virtualized"]["safe"].get("empty_dirs", [])
@@ -244,7 +317,7 @@ def fixtures(argv: list[str], impls: list[str]) -> int:
                 product = product_files(item)
                 docs = documents(out)
                 problems, n = check_bands(out, docs, lambda key: gdal_read(product[key]))
-                problems += check_rebuild(product, out, docs, product_dirs(item))
+                problems += check_rebuild(item, product, out, docs, url, product_dirs(item))
                 failures += bool(problems)
                 print(f"{label} {problems[:4] if problems else 'ok'} ({n} bands, {len(product)} objects rebuilt)")
     print(f"\n{failures} failures")
@@ -316,28 +389,27 @@ def remote(url: str, only: list[str], impls: list[str]) -> int:
                 root = zip_entries(url)[0]
                 problems, n = check_bands(out, docs, lambda key: gdal_read(f"/vsizip/{{/vsicurl/{url}}}/{root}/{key}"),
                                           groups)
-            files = rebuild(out, docs, groups)
+            files = band_codestreams(out, docs, groups)
             problems += check_dirs(url, out, docs)
-            bad = [k for k, data in files.items() if (k.endswith(".jp2") or len(data) < (1 << 22)) and fetch(url, k) != data]
-            problems += [f"{k}: rebuilt with other bytes" for k in bad]
+            bad = [k for k, data in files.items() if not fetch(url, k).endswith(data)]
+            problems += [f"{k}: its codestream is not rebuilt from its chunks" for k in bad]
             failures += bool(problems)
             print(f"{impl}: {problems[:6] if problems else 'ok'} ({n} bands compared with GDAL, "
-                  f"{len(files)} objects rebuilt and compared)")
+                  f"{len(files)} band codestreams rebuilt and compared)")
     return 1 if failures else 0
 
 
-def described_keys(out: Path, docs: dict) -> set[str]:
-    """The keys of every object the hierarchy rebuilds, read from its documents and entry names."""
-    s = docs["vzip_source/zarr.json"]["attributes"]["vzip_virtualized"]["safe"]
-    keys = {*s.get("xml", {}), *s.get("xml_arrays", []), *s.get("empty", [])}
-    for n in zipfile.ZipFile(out).namelist():
-        if n.startswith("vzip_source/objects/"):
-            key = n.removeprefix("vzip_source/objects/")
-            keys.add(key[:-1] if ESCAPED.match(key.rpartition("/")[2]) else key)
-    for k, d in docs.items():
-        if d.get("node_type") == "array" and re.match(r"r[0-9]+m/", k):
-            keys.add(d["attributes"]["vzip_virtualized"]["safe"]["IMAGE_FILE"] + ".jp2")
-    return keys
+def described_keys(out: Path, docs: dict, url: str) -> set[str]:
+    """The keys of every object the mirror describes (spec/virtualize/safe.md §6.3
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>):
+    a directory's listing, from the mirror alone; or a zip file's objects, which its file IR
+    covers whole (its leaves partition the file), read from its central directory."""
+    import vzip_ir
+
+    desc = docs["vzip_source/zarr.json"]["attributes"]["vzip_virtualized"]["safe"]["ir"]
+    if "objects" in desc:
+        return {k for k, _, _ in vzip_ir.rebuild_store(_get(out))}
+    return set(zip_entries(url)[1])
 
 
 def check_dirs(url: str, out: Path, docs: dict) -> list[str]:
@@ -349,12 +421,12 @@ def check_dirs(url: str, out: Path, docs: dict) -> list[str]:
         dirs = {k[: -len("_$folder$")] for k in open_store(url).objects if k.endswith("_$folder$") and len(k) > 9}
     else:
         from vzip.virtualize.common import http_reader
-        from vzip.virtualize.safe import zipdir
+        from vzip_reference.safe import zipdir
 
         read, size = http_reader(url)
         dirs = {k[:-1] for k in zipdir.product_entries(zipdir.central_directory(read, size))[3]}
     empty = docs["vzip_source/zarr.json"]["attributes"]["vzip_virtualized"]["safe"].get("empty_dirs", [])
-    kept = parents(described_keys(out, docs)) | set(empty) | parents(empty)
+    kept = parents(described_keys(out, docs, url)) | set(empty) | parents(empty)
     return [f"{d}/: a directory not rebuilt" for d in sorted(dirs - kept)]
 
 
@@ -365,7 +437,7 @@ def zip_entries(url: str) -> tuple:
     """(root, entries by key, reader) of a remote zip file, read once."""
     if url not in _ZIPS:
         from vzip.virtualize.common import http_reader
-        from vzip.virtualize.safe import zipdir
+        from vzip_reference.safe import zipdir
 
         read, size = http_reader(url)
         d = zipdir.central_directory(read, size)
@@ -382,7 +454,7 @@ def fetch(url: str, key: str) -> bytes:
     if url.endswith("/"):
         with urllib.request.urlopen(object_url(url, key), timeout=300) as r:
             return r.read()
-    from vzip.virtualize.safe import zipdir
+    from vzip_reference.safe import zipdir
 
     _, entries, read = zip_entries(url)
     e = entries[key]

@@ -1,7 +1,7 @@
 """vzip's intermediate representation (design/ARCHITECTURE.md §3
 <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
 the path `vzip.virtualize`
-takes for TIFF (NDPI included), ND2, CZI, DICOM and NIfTI files, and Zarr v2 stores: the Rust core (rust/vzip-ir, the `vzip_ir` module)
+takes for TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and SAFE (a `.SAFE.zip` here; a `.SAFE` directory through `store.py`) files, and Zarr v2 stores (`store.py`): the Rust core (rust/vzip-ir, the `vzip_ir` module)
 parses, checking each format's source model schema, plans the reads, projects the
 convention's hierarchy and mirrors the IR under `vzip_source`; this package is the
 host: the I/O (`planner.py`), the archive writer (`output.py` into `Output`), and
@@ -16,6 +16,7 @@ from vzip.virtualize.common import Rejected
 TIFF_MAGIC = (b"II*\0", b"MM\0*", b"II+\0", b"MM\0+")
 CZI_MAGIC = b"ZISRAWFILE" + bytes(6)
 ND2_MAGIC = bytes.fromhex("DACEBE0A")
+ZIP_MAGIC = b"PK\x03\x04"
 
 
 def nifti_version(head: bytes) -> int | None:
@@ -45,6 +46,8 @@ def sniff(head: bytes) -> str | None:
         return "czi"
     if nifti_version(head) is not None:
         return "nifti"
+    if head[:4] == ZIP_MAGIC:
+        return "safe"
     return None
 
 
@@ -82,7 +85,7 @@ def virtualize(location: str, url: str | None = None, mirror: bool = True, polic
     head = held[:want] if len(held) >= want else transport.get(0, want)
     fmt = sniff(head)
     if fmt is None:
-        raise Rejected("not a TIFF, CZI, ND2, DICOM or NIfTI file")
+        raise Rejected("not a TIFF, CZI, ND2, DICOM or NIfTI file or SAFE zip file")
     run = new_run(fmt, transport, connections, byte_cost)
     drive(run, transport, connections)
     fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"

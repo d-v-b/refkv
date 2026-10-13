@@ -25,23 +25,24 @@ corpus_hash.py records and checks.
 Implementations are `name=command`, where the command is run as
 `command <url> <out>`. The built-in ones write vzip archives: `ref` (the
 reference, the frozen Python profiles of conformance/virtualize/reference/ for
-TIFF, ND2, CZI, DICOM, NIfTI, NDPI and Zarr v2 and the shipped ones for the others), `py` (`python -m
-vzip.virtualize`) and `web` (the browser code under Node). Others write
+TIFF, ND2, CZI, DICOM, NIfTI, NDPI, SAFE and Zarr v2 and the shipped ones for the others), `py`
+(`python -m vzip.virtualize`) and `web` (the browser code under Node). Others write
 HARNESS.md's JSON description; give them as `--impl name=command`.
 
-`py` and `web` virtualize TIFF (NDPI included), ND2, CZI, DICOM and NIfTI files, and Zarr v2
-stores, through one Rust core (rust/vzip-ir, natively and as wasm32), and write its mirror under
-`vzip_source`, which the frozen reference does not: for those profiles an implementation is
-compared with the reference outside `vzip_source`, and `py` and `web` with each other entirely,
-entry for entry (they must give the same archive contents, `vzip_source` included).
+`py` and `web` virtualize TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and SAFE files, and SAFE
+directories and Zarr v2 stores, through one Rust core (rust/vzip-ir, natively and as wasm32),
+and write its mirror under `vzip_source`, which the frozen reference does not: for those
+profiles an implementation is compared with the reference outside `vzip_source`, and `py` and
+`web` with each other entirely, entry for entry (they must give the same archive contents,
+`vzip_source` included).
 The frozen reference records the revision it implements (20 for TIFF, ND2 and CZI, 25
-for DICOM, NIfTI, NDPI and Zarr v2) in its root, where the shipped code records the current one:
-compared with it, the reference's root is read at the current revision, without the members of
-its source metadata that the mirror holds instead (NIfTI's extensions and raw bytes). Each
-mirror is also checked on its own (`mirror_problem`): it reads, it rebuilds a source of source
-0's size (a store's: its listing, the sizes its sources pin, and every held object byte for
-byte, read from the store), it is canonical, and its view is the one its table and the source
-give.
+for DICOM, NIfTI, NDPI, SAFE and Zarr v2) in its root, where the shipped code records the
+current one: compared with it, the reference's root is read at the current revision, without
+the members of its source metadata that the mirror holds instead (NIfTI's extensions and raw
+bytes). Each mirror is also checked on its own (`mirror_problem`): it reads, it rebuilds a
+source of source 0's size (a store's: its listing, the sizes its sources pin, and every held
+object byte for byte, read from the store), it is canonical, and its view is the one its
+table and the source give.
 
 Usage: uv run python conformance/virtualize/compare.py <out dir>
            [--impl name=command ...] [--no-builtin web] [--quick] [--only <substring>]
@@ -94,11 +95,12 @@ BUILTIN = {
     "web": ("vzip", ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"]),
 }
 # The profiles whose shipped implementations write the IR's mirror under vzip_source.
-IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ndpi", "zarr2")
+IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ndpi", "safe", "zarr2")
 SOURCE = "vzip_source/"
 # The revision each frozen profile's reference roots record (HARNESS.md): the last before
 # the profile moved to the IR.
-REFERENCE_REVISIONS = {"tiff": 20, "nd2": 20, "czi": 20, "dicom": 25, "nifti": 25, "ndpi": 25, "zarr2": 25}
+REFERENCE_REVISIONS = {"tiff": 20, "nd2": 20, "czi": 20, "dicom": 25, "nifti": 25, "ndpi": 25, "safe": 25,
+                       "zarr2": 25}
 # The members of a frozen reference root's source metadata that the IR's mirror holds
 # instead (they named arrays of the reference's vzip_source, or held raw bytes).
 MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_truncated", "unparsed", "trailing")}
@@ -334,30 +336,41 @@ def mirror_problem(path: Path, view: dict, read=None, fetch=None) -> str | None:
     return view_problem(Archive(str(path), read))
 
 
+# A SAFE folder marker's key ends in it (spec/virtualize/safe.md §2.1
+# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#21-objects>).
+SAFE_MARKER = "_$folder$"
+
+
 def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     """For an archive whose vzip_source is a store IR's mirror (conventions §8.9
     <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): None when its table
-    reads and its invariants hold, it rebuilds the store's listing (every object the archive
-    references has the size its source pins) and every held object byte for byte (each read
-    whole from the store, `fetch(url, size)`, by default over HTTP), it is canonical and its view is
-    the one its table gives; else what is wrong. No source is read for these last two."""
+    reads and its invariants hold, it rebuilds the store's listing (every url source names an
+    object of it and pins its size, and every object the archive references has a source) and
+    every held object byte for byte, it is canonical and its view is the one its table and the
+    store give; else what is wrong. The store's objects are read at its URL (the root's
+    `source.url`) by `fetch(url, offset, length)`, by default over HTTP: the held objects whole,
+    and the values the view shows of an object described in place (a SAFE band file) exactly,
+    each its own range, at the object's virtual offsets. No source 0 is read."""
+    import bisect
+
     import vzip_ir
 
     from vzip.ir.cmirror import Archive, canonical_problem, load, view_problem
     from vzip.virtualize.store import object_url
 
     def never(o: int, n: int) -> bytes:
-        raise AssertionError("a store's mirror reads no source")
+        raise AssertionError(f"a store's mirror read [{o}, {o + n}) of a source 0")
 
-    def get_url(url: str, size: int) -> bytes:
-        req = urllib.request.Request(url, headers={"Range": f"bytes=0-{size - 1}"})
+    def get_url(url: str, o: int, n: int) -> bytes:
+        req = urllib.request.Request(url, headers={"Range": f"bytes={o}-{o + n - 1}"})
         with urllib.request.urlopen(req, timeout=120) as r:
             return r.read()
 
     fetch = fetch or get_url
     try:
         archive = Archive(str(path), never)
-        load(archive).check()
+        ir = load(archive)
+        ir.check()
         rebuilt = vzip_ir.rebuild_store(archive.get)
     except Exception as e:  # noqa: BLE001
         return f"{type(e).__name__}: {e}"
@@ -366,16 +379,25 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     url = prop.get("source", {}).get("url") if isinstance(prop, dict) else None
     if not isinstance(url, str):
         return "no store URL on the root"
-    pins = {s.url: s.size for s in decode_source_table(zipfile.ZipFile(path).read("__vz__/sources"))}
+    pins = {s.url: s.size for s in decode_source_table(zipfile.ZipFile(path).read("__vz__/sources"))
+            if s.url is not None}
+    listed = {object_url(url, key): (key, size) for key, size, _ in rebuilt}
+    for u in pins:
+        if u not in listed:
+            return f"the url source {u} names no object of the listing"
     for key, size, held in rebuilt:
         u = object_url(url, key)
-        if u in pins and pins[u] != size:
+        if u in pins and pins[u] is not None and pins[u] != size:
             return f"{key}: the mirror lists {size} bytes, its source pins {pins[u]}"
-        if held is None and size > 0 and u not in pins:
+        # every object the archive references has a source: every object neither held nor
+        # empty, but a SAFE product's folder markers, which it drops (spec/virtualize/safe.md
+        # §2.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#21-objects>)
+        marker = prop.get("profile") == "safe" and key.endswith(SAFE_MARKER) and len(key) > len(SAFE_MARKER)
+        if held is None and size > 0 and u not in pins and not marker:
             return f"{key}: a referenced object of {size} bytes that no source names"
         if held is not None:
             try:
-                same_bytes = fetch(u, size) == held
+                same_bytes = fetch(u, 0, size) == held
             except Exception as e:  # noqa: BLE001
                 return f"{key}: {type(e).__name__}: {e}"
             if not same_bytes:
@@ -383,7 +405,23 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     problem = canonical_problem(archive)
     if problem:
         return f"not canonical: {problem}"
-    return view_problem(archive)
+    # the view's values of an object described in place, by virtual offset: object `o`'s byte
+    # `x` at the sum of the sizes of the objects before it, in id order, plus `x`
+    bases = ir.object_bases()
+    starts = [b for _, b, _ in bases]
+
+    def vread(v: int, n: int) -> bytes:
+        k = bisect.bisect_right(starts, v) - 1
+        while k > 0 and bases[k][2] == 0:
+            k -= 1
+        if k < 0:
+            raise ValueError(f"the virtual offset {v} is before every object")
+        key, base, size = bases[k]
+        if v - base + n > size:
+            raise ValueError(f"[{v - base}, {v - base + n}) runs past the object {key!r} of {size} bytes")
+        return fetch(object_url(url, key), v - base, n)
+
+    return view_problem(Archive(str(path), vread))
 
 
 def _source_size(path: Path) -> int | None:
@@ -448,9 +486,31 @@ def at_revision(output: dict) -> dict:
 
 
 def without_source(output: dict) -> dict:
-    """An output without the entries under vzip_source."""
-    return {"sources": output["sources"],
-            "entries": {k: v for k, v in output["entries"].items() if not k.startswith(SOURCE)}}
+    """An output without the entries under vzip_source, its sources those the other entries
+    use, in order of first use (the entries in order of their keys' UTF-8 bytes, each one's
+    ranges in order), renumbered: so that sources only vzip_source used (a store's objects
+    the mirror holds, a profile's own source metadata arrays) and the order a profile gives
+    its url sources do not count, and the hierarchy's references still compare by source."""
+    sources = output["sources"]
+    used: list = []
+    index: dict[str, int] = {}
+    entries = {}
+    for k in sorted((k for k in output["entries"] if not k.startswith(SOURCE)), key=lambda k: k.encode()):
+        kind, value = output["entries"][k]
+        if kind == "ranges":
+            ranges = []
+            for r in value:
+                if r[0] == "data":
+                    ranges.append(r)
+                    continue
+                ident = json.dumps(sources[r[0]], sort_keys=True)
+                if ident not in index:
+                    index[ident] = len(used)
+                    used.append(sources[r[0]])
+                ranges.append([index[ident], r[1], r[2]])
+            value = ranges
+        entries[k] = (kind, value)
+    return {"sources": used, "entries": entries}
 
 
 STORE_FORMATS = ("n5", "zarr2", "ome-zarr", "safe")

@@ -56,25 +56,56 @@ pub fn check_key(key: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// After the mirror: the recorded ignored keys (spec/virtualize.md §1.4
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), in the order of
-/// their UTF-8 bytes, as the member `ignored` of `vzip_source`'s source metadata, beside the
-/// mirror's `ir` (spec/virtualize/zarr2.md §5
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>). Nothing
-/// when there are none. An output made without its mirror (`mirror` false, which no virtualizer
-/// does) has no `vzip_source` source metadata at all, and so does not record the ignored keys
+/// The members of `vzip_source`'s source metadata that the store conventions keep beside the
+/// mirror's `ir`, outside the IR (conventions §8.9
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), by profile: Zarr v2's
+/// ignored keys (spec/virtualize/zarr2.md §5
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>), and SAFE's
+/// empty directories and ignored keys, in both its forms (spec/virtualize/safe.md §6.3
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
+/// The mirror check sets these aside, and only these.
+pub fn kept(profile: &str) -> &'static [&'static str] {
+    match profile {
+        "zarr2" => &["ignored"],
+        "safe" => &["empty_dirs", "ignored"],
+        _ => &[],
+    }
+}
+
+/// After the mirror: the members [`kept`] beside the mirror's `ir` in `vzip_source`'s source
+/// metadata, from the facts, each only when it is not empty: a SAFE product's empty
+/// directories (`empty_dirs`, as its parser sorted them), then the recorded ignored keys
+/// (spec/virtualize.md §1.4
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>; `ignored`), in
+/// the order of their UTF-8 bytes (spec/virtualize/zarr2.md §5
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
+/// spec/virtualize/safe.md §6.3
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
+/// Nothing when there are none. An output made without its mirror (`mirror` false, which no
+/// virtualizer does) has no `vzip_source` source metadata at all, and so does not record them
 /// either: like the mirror, they are what such an output leaves out.
 pub fn record_ignored(out: &mut Out, facts: &J, profile: &str) -> Result<(), String> {
-    let mut ignored: Vec<&str> = facts["ignored"].as_array().into_iter().flatten().filter_map(J::as_str).collect();
-    if ignored.is_empty() {
+    let strings = |m: &str| -> Vec<&str> { facts[m].as_array().into_iter().flatten().filter_map(J::as_str).collect() };
+    let mut members: Vec<(&str, Vec<&str>)> = Vec::new();
+    for &m in kept(profile) {
+        let mut v = strings(m);
+        if m == "ignored" {
+            v.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+        }
+        if !v.is_empty() {
+            members.push((m, v));
+        }
+    }
+    if members.is_empty() {
         return Ok(());
     }
-    ignored.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
     let key = format!("{}/zarr.json", crate::out::SOURCE_NODE);
     let Some(e) = out.entries.iter().find(|e| e.0 == key) else { return Ok(()) };
     let mut doc: J = serde_json::from_slice(&e.1).map_err(|e| format!("internal: {e}"))?;
     let own = doc["attributes"][CONVENTION_KEY][profile].as_object_mut().ok_or("internal: vzip_source declares no mirror")?;
-    own.insert("ignored".into(), json!(ignored));
+    for (m, v) in members {
+        own.insert(m.into(), json!(v));
+    }
     out.json(&key, &doc);
     Ok(())
 }

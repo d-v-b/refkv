@@ -26,6 +26,7 @@ pub mod project;
 pub mod refs;
 pub mod rules;
 pub mod run;
+pub mod safe;
 pub mod schema;
 pub mod store;
 pub mod tiff;
@@ -72,6 +73,7 @@ parser!(tiff::Tiff);
 parser!(czi::Czi);
 parser!(dicom::Dicom);
 parser!(nifti::Nifti);
+parser!(safe::Safe);
 
 /// Runs a parser over bytes in memory (tests, tools).
 pub fn parse_bytes<P: Parser>(data: &[u8]) -> Result<(ir::Ir, serde_json::Value), String> {

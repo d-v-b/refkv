@@ -13,3 +13,7 @@ REVISION_25 = 25
 # The revision the frozen DICOM profile records: 25, the last before the IR mirror became
 # DICOM's `vzip_source` (revision 26).
 DICOM_REVISION = 25
+
+# The revision the frozen SAFE and Zarr v2 profiles implement (and the other store profiles
+# that move onto the IR in revision 26): 25, the last before the IR mirror became their `vzip_source`.
+STORES_REVISION = 25
