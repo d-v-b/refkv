@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from vzip.virtualize import Rejected, virtualize
+from vzip.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
 from vzip.virtualize.common import text_json
 from vzip.virtualize.safe import jp2, zipdir
 from vzip.virtualize.safe.metadata import BUDGET, MULTISCALES, PROJ, SPATIAL, choose_texts, json_size, typed, wkt2

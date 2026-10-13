@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from vzip.virtualize import Rejected, virtualize
+from vzip.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
 from vzip.virtualize.common import declare
 
 FIXTURES = Path(__file__).parents[2] / "fixtures" / "zarr2"

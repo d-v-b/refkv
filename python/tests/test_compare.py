@@ -105,7 +105,7 @@ def _jpeg_gray(o: int, n: int) -> bytes:
 
 
 def _mirror_archive(tmp_path, edit=None) -> Path:
-    from vzip.virtualize import virtualize
+    from vzip.virtualize import _virtualize as virtualize  # the profile output, not the store
 
     _, out = virtualize(str(ROOT / "fixtures/tiff/jpeg_gray.tif"), "https://data.test/jpeg_gray.tif")
     if edit:

@@ -13,7 +13,7 @@ shipped readers under `policy` (default: `Policy()`, private hosts refused)."""
 from __future__ import annotations
 
 from vzip.policy import Policy, crc32c
-from vzip.virtualize import is_store, virtualize_store
+from vzip.virtualize import _virtualize_store as virtualize_store, is_store
 from vzip.virtualize.common import Output, Rejected, file_reader, http_reader
 from vzip_reference.dicom import is_dicom, virtualize_dicom
 from vzip.virtualize.ims import virtualize_ims

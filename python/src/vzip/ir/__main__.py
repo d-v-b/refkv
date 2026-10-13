@@ -28,7 +28,7 @@ def main(argv: list[str]) -> int:
     except Rejected as e:
         print(f"rejected: {e}", file=sys.stderr)
         return 3
-    out.write(args[1])
+    out.to_store(policy=policy).save(args[1], policy=policy)
     print(json.dumps({"format": fmt, "elements": len(ir), **out.summary}))
     return 0
 

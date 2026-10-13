@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
-from vzip.virtualize import Rejected, virtualize
+from vzip.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
 from vzip.virtualize.common import CONVENTION_KEY, PROFILES, REVISION, UUIDS, convention, declare, same
 
 ROOT = Path(__file__).parents[2]

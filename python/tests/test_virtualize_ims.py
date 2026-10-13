@@ -13,7 +13,7 @@ import pytest
 
 import numpy as np
 
-from vzip.virtualize import Rejected, virtualize
+from vzip.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
 from vzip.virtualize.ims.source import canonical
 
 FIXTURES = Path(__file__).parents[2] / "fixtures" / "ims"

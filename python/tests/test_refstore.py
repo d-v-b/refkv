@@ -140,6 +140,29 @@ def test_store_from_a_mapping(tmp_path):
     assert _values(vzip.open(tmp_path / "m.vzip")) == want
 
 
+def test_save_follows_the_store_layout(tmp_path):
+    """`save` writes the values in the mapping's order, `read_at_open` last, deflates
+    those of `compressed`, and writes the store's page index unless given another;
+    `info` is the builder's, kept out of the archive."""
+    import zipfile
+
+    mapping = {"z": b"z" * 64, "r": Range(source=0, offset=0, length=4), "a/zarr.json": b"{}", "m": b"m" * 64}
+    store = vzip.ReferenceStore(mapping, [Source(url="https://data.test/x")], read_at_open=["a/zarr.json"],
+                                compressed=["m"], page_size=1 << 16, info={"format": "x", "n": [1]})
+    assert store.info == {"format": "x", "n": [1]} and store.compressed == {"m"} and store.page_size == 1 << 16
+    for page_size, index in ((..., True), (None, False)):
+        path = tmp_path / f"{index}.vzip"
+        store.save(path, page_size=page_size)
+        entries = sorted(zipfile.ZipFile(path).infolist(), key=lambda e: e.header_offset)
+        names = [e.filename for e in entries if not e.filename.startswith("__vz__/")]
+        assert names == ["z", "r", "m", "a/zarr.json"]
+        assert [e.filename for e in entries if e.compress_type == zipfile.ZIP_DEFLATED
+                and not e.filename.startswith("__vz__/")] == ["m"]
+        assert any(e.filename == "__vz__/index" for e in entries) == index
+        saved = vzip.open(path)
+        assert {k: saved.get(k) for k in ("z", "a/zarr.json", "m")} == {k: mapping[k] for k in ("z", "a/zarr.json", "m")}
+
+
 # ------------------------------------------------------------ the reader policy
 
 
@@ -388,6 +411,12 @@ def test_constructor_rejects_a_format_entry_key():
 def test_constructor_rejects_an_empty_key():
     with pytest.raises(ValueError, match="non-empty"):
         vzip.ReferenceStore({"": b""})
+
+
+def test_constructor_rejects_compressed_naming_no_bytes_value():
+    with pytest.raises(ValueError, match="compressed names 'r', which is not a key of a bytes value"):
+        vzip.ReferenceStore({"r": Range(source=0, offset=0, length=1)}, [Source(url="https://a/b")],
+                            compressed=["r"])
 
 
 def test_constructor_rejects_a_source_of_another_type():
