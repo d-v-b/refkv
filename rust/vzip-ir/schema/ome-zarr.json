@@ -8,7 +8,7 @@
     "max_depth": 256,
     "min_axes": 2,
     "max_axes": 5,
-    "layout": 3
+    "collection_layout": 3
   },
   "tables": {
     "axis_orders": {
@@ -270,7 +270,7 @@
       "about": "B1–B3",
       "given": {"where": "", "ome": "the path of its group OME", "layout": "", "series": "absent (no series) or an array of relative paths naming images", "numbered": "the numbered images are 0 to k − 1, k ≥ 1 (true when not checked)"},
       "constraints": [
-        {"require": "layout == 3", "message": "{where}: bioformats2raw.layout is not 3"},
+        {"require": "layout == collection_layout", "message": "{where}: bioformats2raw.layout is not 3"},
         {"require": "series", "message": "{ome}: series is not an array of image paths"},
         {"require": "numbered", "message": "{where}: the images are not numbered consecutively from 0"}
       ]

@@ -365,9 +365,9 @@ fn a_run_names_the_profile_it_decided() {
 
 #[test]
 fn a_layout_that_is_not_an_integer_is_not_3() {
-    // B1: a string (or null) layout rejects as 2 does, never passing as an absent value
-    for layout in ["\"3\"", "null"] {
-        let dir = std::env::temp_dir().join(format!("vzip-ome-layout-{}-{}", std::process::id(), layout.len()));
+    // B1: a layout that is not the integer 3 rejects as 2 does, never passing as an absent value
+    for layout in ["\"3\"", "null", "3.5", "true"] {
+        let dir = std::env::temp_dir().join(format!("vzip-ome-layout-{}-{}", std::process::id(), layout.replace('"', "q")));
         let _ = std::fs::remove_dir_all(&dir);
         let src = fixtures().join("ome-zarr/ome_zarr_empty_xml");
         let mut keys = Vec::new();

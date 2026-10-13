@@ -107,6 +107,13 @@ fn a_bad_expression_is_an_error() {
 }
 
 #[test]
+fn a_given_named_as_a_limit_is_an_error() {
+    // an absent given would read the limit, and pass a constraint it should fail
+    let e = Rules::new(r#"{"limits": {"n": 3}, "roles": {"x": {"given": {"n": ""}, "constraints": [{"require": "n == 3", "message": "m"}]}}}"#).err().unwrap();
+    assert!(e.contains("shadows"), "{e}");
+}
+
+#[test]
 fn the_tiff_czi_and_ims_schemas_are_valid() {
     let (t, c, i) = (rules::tiff(), rules::czi(), rules::ims());
     assert!(t.has_role("field") && t.has_role("tile") && c.has_role("entry") && c.has_role("extent"));

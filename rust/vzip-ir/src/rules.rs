@@ -137,6 +137,13 @@ impl Rules {
                         derive.push((k.clone(), expr::parse(s).map_err(|e| format!("{name}.{k}: {e}"))?));
                     }
                 }
+                // a given absent from an env reads the limit or table of its name (`Layered`),
+                // so a given may not share a name with one
+                if let Some(J::Object(g)) = r.get("given") {
+                    if let Some(k) = g.keys().find(|k| consts.contains_key(*k)) {
+                        return Err(format!("{name}: the given {k} shadows a limit or table"));
+                    }
+                }
                 let mut constraints = Vec::new();
                 for c in r.get("constraints").and_then(|c| c.as_array()).into_iter().flatten() {
                     let req = c["require"].as_str().ok_or(format!("{name}: a constraint lacks require"))?;
