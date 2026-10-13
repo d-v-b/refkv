@@ -4,8 +4,9 @@
 # profile only applies at its own root), and this one has no tests of its own.
 [package]
 name = "refkv-python"
-# A placeholder: `just python::version` writes the version git describes (python/tools/version.py),
-# in release builds; refkv's version is this one (pyproject.toml's `dynamic = ["version"]`).
+# A placeholder: tools/version.py writes the version git describes, in release builds (CI runs
+# `tools/version.py write`; `just python::build` and `sdist` write it for the build alone);
+# refkv's version is this one (pyproject.toml's `dynamic = ["version"]`).
 version = "0.0.0"
 edition = "2024"
 description = "refkv's Python bindings (the module refkv._core)"

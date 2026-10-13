@@ -51,9 +51,10 @@ check: js::typecheck
 
 # Check the package without its extras, and with only the zarr extra (`just python::check`):
 # pass the Python of an environment where only `pip install python/` (or
-# `pip install 'python/[zarr]'`, with mode=zarr) was run (default: a fresh one of each)
+# `pip install 'python/[zarr]'`, with mode=zarr) was run (default: a fresh one of each); a
+# relative path is the current directory's
 base-install-check python="" mode="":
-    just python::check {{quote(python)}} {{quote(mode)}}
+    just python::check {{quote(if python == "" { "" } else { absolute_path(python) })}} {{quote(mode)}}
 
 # Run the example of docs/virtual-datasets.md on NOAA's data (network: 1 to 1.5 minutes,
 # 50 MB), in a temporary directory

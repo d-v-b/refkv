@@ -16,8 +16,10 @@ the tag's version, and publishes them to PyPI through trusted publishing.
 refkv's version is git's, not a number in a file. [pyproject.toml](pyproject.toml) declares
 `dynamic = ["version"]`, so maturin takes the version from [Cargo.toml](Cargo.toml), whose
 committed version is a placeholder, `0.0.0`. Before each build, the release workflow runs
-`just python::version-write` ([tools/version.py](tools/version.py)), which writes the version
-`git describe --tags --match 'v*'` gives into `Cargo.toml` and `Cargo.lock`:
+`tools/version.py write` ([tools/version.py](tools/version.py); `just python::version-write`
+does the same), which writes the version `git describe --tags --match 'v*'` gives into
+`Cargo.toml` and `Cargo.lock` (on a tag push, the pushed tag's, even when its commit also
+carries another, such as a release candidate's):
 
 | commit | semver (Cargo.toml) | PEP 440 (the wheel's name) |
 |---|---|---|

@@ -14,7 +14,9 @@ Usage, from anywhere (`just python::version` and the build recipes call it):
 
     version.py show           print the version
     version.py pep440 [V]     print V (default: the version), as PEP 440 spells it
-    version.py write          write the version into python/Cargo.toml and Cargo.lock
+    version.py write [TAG]    write the version into python/Cargo.toml and Cargo.lock: TAG's,
+                              when given (a tag push, which may share its commit with
+                              another tag, such as a release candidate's), else git's
     version.py run -- CMD...  write it, run CMD, and restore both files as they were
 
 `write` changes two tracked files, for a checkout that is thrown away (CI's release
@@ -115,7 +117,7 @@ def main(argv: list[str]) -> int:
     elif cmd == "pep440":
         print(pep440(argv[1] if len(argv) > 1 else current()))
     elif cmd == "write":
-        v = current()
+        v = version_for(argv[1], 0) if len(argv) > 1 and argv[1] else current()
         write(v)
         print(f"version.py: refkv {v} ({pep440(v)}) written to {CARGO_TOML.name} and {CARGO_LOCK.name}", file=sys.stderr)
     elif cmd == "run":

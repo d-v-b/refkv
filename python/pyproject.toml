@@ -9,8 +9,8 @@ build-backend = "maturin"
 
 [project]
 name = "refkv"
-# from Cargo.toml, whose committed version is a placeholder: `just python::version` writes
-# the one `git describe` gives (tools/version.py; RELEASING.md)
+# from Cargo.toml, whose committed version is a placeholder: tools/version.py writes the
+# one `git describe` gives, for a build (RELEASING.md)
 dynamic = ["version"]
 description = "refkv: a reference value type for key-value stores, its ZIP binding (vzip archives), and virtualization of image files and stores"
 # the PyPI page; it links to the repository's files by URL
@@ -68,6 +68,8 @@ virtualizarr = [
 [tool.maturin]
 module-name = "refkv._core"
 python-source = "src"
+# the module's earlier name, which a checkout built before it moved may still hold
+exclude = ["src/refkv/_ir*"]
 # The sdist keeps maturin's default generator, which takes `cargo package`'s file lists of
 # this crate and of the core (../rust/refkv-ir, a path dependency outside this directory),
 # so the sdist builds on its own. The "git" generator archives this directory alone, and
