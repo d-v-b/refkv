@@ -404,7 +404,7 @@ another, such as a TIFF's contiguous strips, are referenced, not copied.
 
 ## 8. The IR mirror
 
-The TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE and Zarr v2 conventions keep the source's metadata as one
+The TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2 and OME-Zarr conventions keep the source's metadata as one
 format-free structure on `vzip_source`: the source's **IR** (intermediate
 representation), a tree of **elements** whose leaves partition the source's
 bytes, stored as a table (the **mirror**) and shown as JSON (the **view**).
@@ -823,7 +823,7 @@ compares mirrors entry for entry. In order:
    |---|---|---|---|---|
    | TIFF | layout tables | the start or length of a column run of at least 16 members of one data row each, with a name index, in a struct `tiles` (or `strips`) with no index | the first child `value` (no index) of the first struct child `tags/` with index 324 for starts and 325 for lengths (273 and 279 for `strips`) of that struct's parent: TileOffsets and TileByteCounts (StripOffsets, StripByteCounts) | member 0's name index |
 
-   NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE and Zarr v2 have none. A format adds a rule by a revision of this
+   NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2 and OME-Zarr have none. A format adds a rule by a revision of this
    section and its convention: a new row in this table, whose conditions
    depend only on the canonical IR (so that every producer finds the same
    columns), and whose array a reader can read from source 0.

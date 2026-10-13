@@ -144,7 +144,7 @@ with the first's:
 - `ref`, the reference: `conformance/virtualize/reference/cli.py
   --allow-private-hosts` (the harness serves its inputs from 127.0.0.1, which
   the reader policy refuses by default). For TIFF, ND2, CZI, DICOM, NIfTI, IMS, NDPI and SAFE
-  files, and SAFE directories and Zarr v2 stores, it runs the frozen Python profiles in
+  files, and SAFE directories and Zarr v2 and OME-Zarr stores, it runs the frozen Python profiles in
   `conformance/virtualize/reference/vzip_reference/` (what `vzip.virtualize`
   shipped before these formats moved to the IR, unchanged but for their import
   paths); for every other profile, the shipped code.
@@ -152,7 +152,7 @@ with the first's:
 - `web`: the browser code under Node, `js/conformance/virtualize.ts
   --allow-private-hosts`.
 
-For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE files, and SAFE directories and Zarr v2 stores, `py` and `web` are one implementation: the Rust core
+For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE files, and SAFE directories and Zarr v2 and OME-Zarr stores, `py` and `web` are one implementation: the Rust core
 `rust/vzip-ir` (its parsers, schemas, read planner, projections and mirror),
 built natively for Python and as wasm32 for the browser, each with a thin host
 (the I/O, and the archive writer). Their `vzip_source` is the IR's mirror,
@@ -181,7 +181,7 @@ For every other profile, `py` and `web` are still two hand-written
 implementations, and `ref` runs the same code as `py`.
 
 Since revision 21, `vzip_source` of TIFF, ND2 and CZI is the IR mirror of
-[conventions §8](../../spec/conventions.md#8-the-ir-mirror), and since revision 26 those of DICOM, NIfTI, IMS, NDPI, SAFE and Zarr v2 too; since revision 22 the mirror is canonical ([conventions §8.8](../../spec/conventions.md#88-canonical-form))
+[conventions §8](../../spec/conventions.md#8-the-ir-mirror), and since revision 26 those of DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2 and OME-Zarr too; since revision 22 the mirror is canonical ([conventions §8.8](../../spec/conventions.md#88-canonical-form))
 and [spec/virtualize.md §1.1](../../spec/virtualize.md#11-output-and-equivalence) compares it entry for entry, as `py` against `web`
 does. `compare.py` also checks each archive's mirror on its own, in addition
 to that comparison: it loads the table, checks its invariants (conventions

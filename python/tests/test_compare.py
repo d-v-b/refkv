@@ -165,7 +165,7 @@ def test_mirror_problem_finds_a_table_that_is_not_canonical(tmp_path):
 
 def test_at_revision():
     """A frozen reference's root (revision 20 for TIFF, ND2 and CZI, 25 for DICOM, NIfTI, IMS,
-    NDPI, SAFE and Zarr v2) reads at the current revision, without the members of its source
+    NDPI, SAFE, Zarr v2 and OME-Zarr) reads at the current revision, without the members of its source
     metadata the mirror holds instead; any other root (another revision, another profile's frozen
     one, no revision, a profile with no twin), or an output without one, is unchanged."""
     def root(revision, profile="tiff", own=None):

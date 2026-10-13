@@ -1,7 +1,7 @@
 """vzip's intermediate representation (design/ARCHITECTURE.md §3
 <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
 the path `vzip.virtualize`
-takes for TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE (a `.SAFE.zip` here; a `.SAFE` directory through `store.py`) files, and Zarr v2 stores (`store.py`): the Rust core (rust/vzip-ir, the `vzip_ir` module)
+takes for TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE (a `.SAFE.zip` here; a `.SAFE` directory through `store.py`) files, and Zarr v2 and OME-Zarr stores (`store.py`): the Rust core (rust/vzip-ir, the `vzip_ir` module)
 parses, checking each format's source model schema, plans the reads, projects the
 convention's hierarchy and mirrors the IR under `vzip_source`; this package is the
 host: the I/O (`planner.py`), the archive writer (`output.py` into `Output`), and
