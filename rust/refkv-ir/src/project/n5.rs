@@ -3,8 +3,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>) from a valid
 //! store IR: the nodes the parser classified (the facts), their documents read back from the
 //! held objects, the chunk objects and the other objects from the listing. It writes the
-//! hierarchy outside `vzip_source` (whose group is the mirror's), and the references: each
-//! chunk object at its own key, each other object at `vzip_source/objects/<k>`, whole.
+//! hierarchy outside `refkv_source` (whose group is the mirror's), and the references: each
+//! chunk object at its own key, each other object at `refkv_source/objects/<k>`, whole.
 
 use crate::ir::Ir;
 use crate::n5::{compression, document_key};
@@ -434,7 +434,7 @@ fn implicit_groups(nodes: &BTreeSet<String>) -> BTreeSet<String> {
 }
 
 /// The N5 hierarchy of a valid store IR, its facts (`nodes`, from the parser; `ignored`, the
-/// recorded ignored keys, from the host), outside `vzip_source`, and its references.
+/// recorded ignored keys, from the host), outside `refkv_source`, and its references.
 pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let src = ir.sources();
     let listing: Vec<(String, u64, u32)> = src.objects.iter().map(|&o| (ir.key(o), ir.len[o as usize], o)).collect();
@@ -573,7 +573,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     }
     let root_array = kinds.get("").copied().unwrap_or(false);
     if !root_array {
-        // the group vzip_source is the mirror's: no node may be there
+        // the group refkv_source is the mirror's: no node may be there
         if let Some(p) = nodes.iter().chain(&implicit).find(|p| *p == SOURCE_NODE || p.starts_with(&format!("{SOURCE_NODE}/"))) {
             return Err(format!("the node {p} is where the store's other objects go ({OBJECTS}...)"));
         }

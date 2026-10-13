@@ -335,7 +335,7 @@ def main() -> None:
 
     # Objects that are neither node documents nor blocks (spec/virtualize/n5.md §6
     # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>): each is
-    # kept whole under vzip_source/objects/, a dataset nested in a dataset included; an empty
+    # kept whole under refkv_source/objects/, a dataset nested in a dataset included; an empty
     # object is not.
     d = store("n5_objects", {"n5": "4.0.0"})
     dataset(d, "a", arr((4,), "u1"), [4], RAW)
@@ -348,7 +348,7 @@ def main() -> None:
     reject("gzip_level", {**ok, "compression": {"type": "gzip", "level": 10}})
     reject("zstd_level", {**ok, "compression": {"type": "zstd", "level": 2.5}})
     d = store("n5_reject_objects_collision", {"n5": "4.0.0"})  # a node where the other objects go
-    write_json(d / "vzip_source/attributes.json", {"mine": True})
+    write_json(d / "refkv_source/attributes.json", {"mine": True})
     put(d / "README", b"x")
 
     total = sum(f.stat().st_size for f in OUT.rglob("*") if f.is_file())
@@ -356,8 +356,8 @@ def main() -> None:
 
 
 def exact_objects() -> None:
-    """Objects named zarr.json, escaped with `~` under vzip_source/objects/, and empty
-    objects, whose keys are vzip_source's source metadata (spec/virtualize/n5.md §6
+    """Objects named zarr.json, escaped with `~` under refkv_source/objects/, and empty
+    objects, whose keys are refkv_source's source metadata (spec/virtualize/n5.md §6
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>)."""
     d = store("n5_node_names", {"n5": "4.0.0"})
     put(d / "zarr.json", b'{"zarr_format": 3, "node_type": "group"}')
@@ -371,7 +371,7 @@ def exact_objects() -> None:
 
 def empty_chunks() -> None:
     """A root dataset with an empty block object, whose key is listed in
-    vzip_source/empty.json (spec/virtualize/n5.md §3.1
+    refkv_source/empty.json (spec/virtualize/n5.md §3.1
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#31-chunks>, §6
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>)."""
     d = store("n5_root_dataset_empty_block")
@@ -381,7 +381,7 @@ def empty_chunks() -> None:
 
 def root_objects() -> None:
     """A dataset at the root with another object beside its block (a README), which the
-    root keeps without a vzip_source group (spec/virtualize/n5.md §6
+    root keeps without a refkv_source group (spec/virtualize/n5.md §6
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>). Written byte
     for byte as the first, hand-made copy was: compact JSON with a newline, no RNG."""
     d = store("n5_root_dataset_objects")

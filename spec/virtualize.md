@@ -1,6 +1,6 @@
 # Virtualizing image files and stores as OME-Zarr in vzip
 
-Profiles version: 0 (**draft**) · Revision: 26
+Profiles version: 0 (**draft**) · Revision: 27
 
 ## 1. Introduction
 
@@ -80,7 +80,7 @@ sources with identical bytes), the same set of keys, and for every key:
   `18446744073709552000`, an integer literal of another value;
 - **other bytes entries:** identical bytes.
 
-**IR mirrors.** For the TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE profiles, `vzip_source` is the
+**IR mirrors.** For the TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE profiles, `refkv_source` is the
 source's IR mirror ([conventions §8](conventions.md#8-the-ir-mirror)); for
 a SAFE directory and the Zarr v2, N5 and OME-Zarr profiles, the store's ([conventions §8.9](conventions.md#89-stores),
 whose limits replace those below).
@@ -328,7 +328,7 @@ as an object of size 0 of the store's IR mirror,
 [the N5 convention §5.2](virtualize/n5.md#52-elements)). Every other chunk object `k` gives
 one entry, whose key is `k` itself, referencing the whole object. Every
 other object of the store that the hierarchy doesn't represent (the store
-conventions' "Other objects") gives one entry `vzip_source/objects/<k>` (with
+conventions' "Other objects") gives one entry `refkv_source/objects/<k>` (with
 the last segment escaped as those conventions say, so that no entry reads as
 a Zarr document), referencing it whole in the same way. The
 source table is one `url` source per such entry, with a `size` pin, the
@@ -492,7 +492,7 @@ A virtualizer's output presents its input as a Zarr hierarchy whose layout
 is specified by the input format's **convention**, in
 [conventions.md](conventions.md): the groups and arrays and their
 metadata, the OME-NGFF metadata, and the attributes under the key
-`vzip_virtualized`, including the translation of the input's header. The
+`refkv_virtualized`, including the translation of the input's header. The
 profiles ([§3](#313-profiles)–[§13](#313-profiles)) specify how to read and check the input, and how each
 chunk of that layout becomes a reference to the input's bytes; for the
 layout itself they refer to the convention, which builds on what all

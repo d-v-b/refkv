@@ -14,7 +14,7 @@ import struct
 from dataclasses import dataclass, field
 from typing import Callable
 
-from refkv.virtualize.common import Rejected
+from refkv_reference.legacy import Rejected
 
 MAX_BOXES = 1024
 MAX_REST = 1 << 16  # the most bytes of a main header after its SIZ segment (spec/virtualize.md §12.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>)

@@ -88,10 +88,10 @@ the Convention Metadata Object (CMO)
 ```json
 {
   "uuid": "<the UUID above>",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/vzip/refs/tags/virtualize-<p>-v<N>/spec/virtualize/<p>/schema.json",
-  "spec_url": "https://github.com/d-v-b/vzip/blob/virtualize-<p>-v<N>/spec/virtualize/<p>.md",
-  "name": "vzip_virtualized",
-  "description": "The Zarr layout of a <T> source virtualized by vzip, and the source's metadata"
+  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/tags/virtualize-<p>-v<N>/spec/virtualize/<p>/schema.json",
+  "spec_url": "https://github.com/d-v-b/refkv/blob/virtualize-<p>-v<N>/spec/virtualize/<p>.md",
+  "name": "refkv_virtualized",
+  "description": "The Zarr layout of a <T> source virtualized by refkv, and the source's metadata"
 }
 ```
 
@@ -100,7 +100,7 @@ development branch instead: `.../refs/heads/main/spec/virtualize/<p>/schema.json
 and `.../blob/main/spec/virtualize/<p>.md`. `T` is the format's title (`TIFF`, `NDPI`,
 `ND2`, `DICOM`, `NIfTI`, `IMS`, `N5`, `Zarr v2`, `OME-Zarr`, `Sentinel-2
 SAFE`, `CZI`). The UUID is the same for every version; the version is in the
-URLs. All eleven conventions nest their property under one key, `vzip_virtualized`, which is
+URLs. All eleven conventions nest their property under one key, `refkv_virtualized`, which is
 also their `name`: the framework asks a nesting convention's `name` to be
 its key, and a key without a colon is not mistaken for a namespace prefix.
 
@@ -112,9 +112,9 @@ and only when, the node has source metadata (below). A node that declares
 it has, in its attributes, the member `zarr_conventions`, whose value is
 `[C]` with `C` the format's CMO (for the SAFE convention, `C` followed by
 the CMOs of the GeoZarr conventions the node uses), and the member
-`vzip_virtualized`.
+`refkv_virtualized`.
 
-**The property.** On the root, `vzip_virtualized` is the object
+**The property.** On the root, `refkv_virtualized` is the object
 
 ```json
 {"profile": "<p>", "version": N, "revision": R, "source": {"url": "<U>"}, "<p>": S}
@@ -138,22 +138,22 @@ equivalent hierarchies from the same source.
 
 **The source metadata node.** A file format's metadata that grows with the
 data (one item per frame, plane or channel), and the source's values kept as
-arrays ([§7](#7-source-values-as-arrays)), are on the group `vzip_source`, a child of the root. It declares
+arrays ([§7](#7-source-values-as-arrays)), are on the group `refkv_source`, a child of the root. It declares
 the convention, with its own source metadata, when it has any, and holds the
 arrays at paths the format's convention gives. OME-NGFF readers ignore it.
 Producers SHOULD store its documents so that a reader fetches them only when
 it opens the node (vzip writes them with the chunks, not with the documents
 read when an archive is opened). The node exists only when it has
 source metadata or arrays, or, for the store conventions, other objects of
-the store, which it holds whole under `vzip_source/objects/`, or the
+the store, which it holds whole under `refkv_source/objects/`, or the
 recorded ignored keys. For the
 TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE conventions,
-`vzip_source` is the source's IR mirror ([§8](#8-the-ir-mirror)), from which the source is
+`refkv_source` is the source's IR mirror ([§8](#8-the-ir-mirror)), from which the source is
 rebuilt byte for byte; for the Zarr v2, N5 and OME-Zarr conventions, the store's
 ([§8.9](#89-stores)), from which the listing and the documents read are rebuilt: always
 present (under a root array, as plain keys of the archive).
 
-**Nothing else.** Outside `vzip_virtualized`, a node's attributes hold only
+**Nothing else.** Outside `refkv_virtualized`, a node's attributes hold only
 members that the hierarchy's target formats define, where the format's
 convention places them: `ome` (OME-NGFF 0.5, §4), the GeoZarr members of
 the zarr-conventions `proj`, `spatial` and `multiscales` conventions
@@ -406,7 +406,7 @@ another, such as a TIFF's contiguous strips, are referenced, not copied.
 ## 8. The IR mirror
 
 The TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr conventions keep the source's metadata as one
-format-free structure on `vzip_source`: the source's **IR** (intermediate
+format-free structure on `refkv_source`: the source's **IR** (intermediate
 representation), a tree of **elements** whose leaves partition the source's
 bytes, stored as a table (the **mirror**) and shown as JSON (the **view**).
 A reader rebuilds the source byte for byte from the table and the bytes of
@@ -486,7 +486,7 @@ into runs; the canonical table (8.8) expands them, and a reader accepts them.
 
 ### 8.2 The table
 
-`vzip_source` declares the convention ([§2](#2-attributes)). Its source metadata `S` is
+`refkv_source` declares the convention ([§2](#2-attributes)). Its source metadata `S` is
 `{"ir": I}`, where `I` is the object
 
 ```json
@@ -499,7 +499,7 @@ into runs; the canonical table (8.8) expands them, and a reader accepts them.
   and tables use; `names[0]` and `types[0]` are `""` (`names[0]` is the
   root's name, 8.1).
 
-The table is two arrays under `vzip_source/ir/` ([§3](#3-arrays) documents, data type
+The table is two arrays under `refkv_source/ir/` ([§3](#3-arrays) documents, data type
 `int64`, `fill_value` 0, codecs `bytes` little-endian, which a reader also
 accepts followed by `zlib` at any level, though the canonical table, 8.8, has
 none; edge chunks padded with zeros; no attributes):
@@ -531,7 +531,7 @@ none; edge chunks padded with zeros; no attributes):
   run rows name stored rows. A row of another code makes the table invalid.
 
 When the IR has shared data sources (bytes several recipes name, 8.5),
-`vzip_source/ir/shared` is a group of two arrays holding them, in order:
+`refkv_source/ir/shared` is a group of two arrays holding them, in order:
 `offsets`, `int64` `[s + 1]` (where each starts in `data`, then the total),
 and `data`, `uint8`, the sources one after another (chunks of at most
 131072 and 1048576 values, encoded as the table's). **The rows are
@@ -657,7 +657,7 @@ space).
 
 ### 8.7 The view
 
-`vzip_source/tree` and the groups under it show the canonical IR (8.8) as
+`refkv_source/tree` and the groups under it show the canonical IR (8.8) as
 JSON. Each is a group whose source metadata `S` ([§2](#2-attributes)) is a struct's **view
 document**, so it declares the convention when the document has a member. The
 document of the root, the element whose path is `""` (8.1), is `tree`'s.
@@ -694,7 +694,7 @@ members `$vz`, `$form` and `$partial` below are never a child's):
   the source holds;
 - a **struct or a derived element**: its own document, inline when at most
   16384 bytes; else `{"$vz": "group", "path": p}`, the group
-  `vzip_source/p` holding it, while there are fewer than 4096 such groups,
+  `refkv_source/p` holding it, while there are fewer than 4096 such groups,
   the documents stored so far and this one total at most 2^24 bytes, and no
   group has the path `p` yet (paths are the escaped names, each segment
   percent-encoded outside `[A-Za-z0-9._~-]`, an empty one as `%`); else the
@@ -729,7 +729,7 @@ view this section derives from the source's IR (its elements, and the
 decoded bytes of the values the view shows), whatever order the producer
 found the elements in and however it folded them. Two conforming producers
 therefore write identical `ir/rows`, `ir/tables` and `ir/shared`, the same
-description in `vzip_source`'s source metadata and the same view for one
+description in `refkv_source`'s source metadata and the same view for one
 source, and [spec/virtualize.md §1.1](virtualize.md#11-output-and-equivalence)
 compares mirrors entry for entry. In order:
 
@@ -958,9 +958,9 @@ row's start (column 6) is stored as it is (0, since its extent is `(0, s)`),
 and the next row with a length codes its start from the object's start (its
 distance from 0), as if the object row were a row of length 0 ending there: an
 object's descendants' starts count from the start of their own source. The
-kinds of rows go to 6. When the IR has held objects, `vzip_source/ir/held` is a
+kinds of rows go to 6. When the IR has held objects, `refkv_source/ir/held` is a
 group of two arrays holding their bytes, `offsets` and `data`, as
-`vzip_source/ir/shared` holds the shared data sources ([8.2](#82-the-table)):
+`refkv_source/ir/shared` holds the shared data sources ([8.2](#82-the-table)):
 one byte string per held object, in id order, each the object's `s` bytes. An object described in place has its form row (code 2) and no byte string
 in `ir/held`. A column of encoding 2 ([8.3](#83-column-runs)) is invalid in a store IR (no
 profile has a named array rule for stores).

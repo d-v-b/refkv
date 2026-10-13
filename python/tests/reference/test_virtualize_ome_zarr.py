@@ -17,10 +17,10 @@ import json
 import pytest
 
 from refkv.virtualize import Rejected
-from refkv.virtualize.common import declare
+from refkv_reference.legacy import declare
 from refkv_reference import virtualize
 from refkv_reference.revision import STORES_REVISION as STORE_REVISION
-from refkv.virtualize.store import DirStore
+from refkv_reference.legacy import DirStore
 from refkv_reference.zarr2 import virtualize_zarr2
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "ome-zarr"

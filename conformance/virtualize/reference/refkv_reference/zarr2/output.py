@@ -3,8 +3,8 @@ the revision the profile is frozen at (`refkv_reference.revision.STORES_REVISION
 before Zarr v2 stores moved onto the Rust IR in revision 26), as that module pins the other
 twins."""
 
-from refkv.virtualize.common import declare
-from refkv.virtualize.store import StoreOutput as _StoreOutput
+from refkv_reference.legacy import declare
+from refkv_reference.legacy import StoreOutput as _StoreOutput
 from refkv_reference.revision import STORES_REVISION
 
 

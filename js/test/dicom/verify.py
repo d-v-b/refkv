@@ -1,7 +1,7 @@
 """Checks the browser DICOM virtualizer's output against pydicom.
 
 The browser virtualizes DICOM with the Rust core (wasm32), whose archives hold the IR's
-mirror under `vzip_source`: their source check is the mirror's, the file rebuilt from
+mirror under `refkv_source`: their source check is the mirror's, the file rebuilt from
 the archive alone, byte for byte (js/test/ir_mirror.py); an archive with revision 25's
 source metadata is checked against pydicom's DICOM JSON as before.
 
@@ -130,7 +130,7 @@ def pydicom_json(ds: pydicom.Dataset, little: bool = True) -> dict:
 
 
 def array_bytes(root, uri: str) -> bytes:
-    """The value an array of vzip_source holds, as the file stores it: `uri` is
+    """The value an array of refkv_source holds, as the file stores it: `uri` is
     its path, then #i for member i of a family or row i of a 2-D array."""
     path, _, index = uri.partition("#")
     node = root[path]
@@ -160,7 +160,7 @@ def gathered_uri(path: str, sequence: str) -> str:
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>): `path` is
     <sequence>/<i>/<p>."""
     i, rest = path[len(sequence) + 1:].split("/", 1)
-    return f"vzip_source/{sequence}/items/{rest}/value#{i}"
+    return f"refkv_source/{sequence}/items/{rest}/value#{i}"
 
 
 def chunk_bytes(root, key: str) -> bytes:
@@ -202,7 +202,7 @@ def fragment_problems(root, source: dict, ds: pydicom.Dataset) -> list[str]:
 
 
 def array_values(root, uri: str) -> np.ndarray:
-    """The values of an array of vzip_source, or row i of it."""
+    """The values of an array of refkv_source, or row i of it."""
     path, _, index = uri.partition("#")
     return root[path][int(index)] if index else root[path][...]
 
@@ -217,7 +217,7 @@ def header_problems(root, data: bytes) -> list[str]:
     Offset Table skips, and every top-level element, duplicates included. An
     element that the dictionary leaves ambiguous (US or SS, OB or OW) is UN in
     ours, where pydicom resolves it."""
-    source = root.attrs["vzip_virtualized"]["dicom"]
+    source = root.attrs["refkv_virtualized"]["dicom"]
     problems = []
     if "trailing" in source:  # not elements: pydicom reads the file without them
         tail = array_bytes(root, source["trailing"])
@@ -229,11 +229,11 @@ def header_problems(root, data: bytes) -> list[str]:
     preamble = base64.b64decode(source["preamble"]) if "preamble" in source else bytes(128)
     if preamble != data[:128]:
         problems.append("preamble")
-    node = root["vzip_source"] if "vzip_source" in root else None
+    node = root["refkv_source"] if "refkv_source" in root else None
     meta, dataset = dict(source["meta"]), dict(source["dataset"])
-    if node is not None and "vzip_virtualized" in node.attrs:
-        meta.update(node.attrs["vzip_virtualized"]["dicom"].get("meta", {}))
-        dataset.update(node.attrs["vzip_virtualized"]["dicom"].get("dataset", {}))
+    if node is not None and "refkv_virtualized" in node.attrs:
+        meta.update(node.attrs["refkv_virtualized"]["dicom"].get("meta", {}))
+        dataset.update(node.attrs["refkv_virtualized"]["dicom"].get("dataset", {}))
 
     def strip(d: dict) -> dict:
         return {k: v for k, v in d.items() if k not in ("7FE00010", "FFFCFFFC")}
@@ -317,7 +317,7 @@ def header_problems(root, data: bytes) -> list[str]:
                 out.append(f"{where}{k}: only in {'pydicom' if a is None else 'ours'}")
                 continue
             if "Structures" in a:  # gathered: each item's structure, whose values are arrays
-                structure = root[f"vzip_source/{at}/items/structure"][...].tolist()
+                structure = root[f"refkv_source/{at}/items/structure"][...].tolist()
                 a = {"vr": a["vr"], "Value": [a["Structures"][j] for j in structure]}
             a = resolve(k, a, charsets, at, sequence)
             if a.get("vr") == "UN" and dictionary_vr(int(k, 16)) is None and b.get("vr") != "UN":

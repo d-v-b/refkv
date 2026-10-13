@@ -35,7 +35,7 @@ function rejection(w: IrExports, r: number, format: StoreProfile): StoreError {
  * StoreError naming the format (or, for one of the output's checks, the profile the run
  * decided: OME-Zarr's for a Zarr v2 store whose root declares OME-NGFF 0.4); an object that
  * cannot be read, its own error.
- * @param options.mirror false leaves `vzip_source`'s mirror out, and with it the source
+ * @param options.mirror false leaves `refkv_source`'s mirror out, and with it the source
  * metadata that records the listing's ignored keys: such an output keeps neither. */
 export async function virtualizeStoreIr(
   format: StoreFormat,

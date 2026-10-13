@@ -1,6 +1,6 @@
 //! The source mirror (design/ARCHITECTURE.md §3.4
 //! <https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#34-projections>) of an IR: one
-//! projection for every format, written under `vzip_source`. It never reads the source.
+//! projection for every format, written under `refkv_source`. It never reads the source.
 //!
 //! The mirror is canonical (spec/conventions.md §8.8
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>): a function of
@@ -520,9 +520,9 @@ pub fn expanded_rows(t: &Table) -> u64 {
     t.kind.len() as u64 + t.cruns.iter().map(|c| (c[1].max(1) as u64 - 1).saturating_mul(c[2].max(0) as u64)).sum::<u64>()
 }
 
-/// Stores table `t` under `vzip_source` (conventions §8.2
+/// Stores table `t` under `refkv_source` (conventions §8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>): its description in
-/// `vzip_source`'s source metadata under `profile`'s convention, `ir/rows`, `ir/tables`
+/// `refkv_source`'s source metadata under `profile`'s convention, `ir/rows`, `ir/tables`
 /// (codes in order: runs, aliases, forms, column runs, columns, column values) and,
 /// when there are shared sources, `ir/shared`. `deflate` (for tests of what a
 /// validator flags) deflates every chunk; the canonical table does not.
@@ -591,7 +591,7 @@ pub fn write(t: &Table, out: &mut Out, profile: &str, deflate: bool) {
     }
 }
 
-/// Writes the mirror of `ir` under `vzip_source`: the canonical IR's table and view.
+/// Writes the mirror of `ir` under `refkv_source`: the canonical IR's table and view.
 pub fn mirror(ir: &Ir, out: &mut Out, profile: &str) -> Result<Folded, String> {
     let limit = limit_of(ir);
     let over = || format!("budget: the mirror would have more than {limit} rows");
@@ -1044,7 +1044,7 @@ fn utf16(b: &[u8]) -> J {
 
 // ---- reading it back
 
-/// The stored table (`vzip_source/ir/...` decoded by the host).
+/// The stored table (`refkv_source/ir/...` decoded by the host).
 #[derive(Default)]
 pub struct Table {
     pub size: u64,
@@ -1074,7 +1074,7 @@ pub struct Table {
 }
 
 /// The IR a stored table describes, its column runs expanded (at most the record
-/// budget of rows). `read(offset, length)` gives source bytes (`vzip_source/bytes`),
+/// budget of rows). `read(offset, length)` gives source bytes (`refkv_source/bytes`),
 /// for the columns read from arrays in the source.
 pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>) -> Result<Ir, String> {
     let m = t.kind.len();
@@ -1441,8 +1441,8 @@ pub fn table_from(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Table, String
     };
     let ints = |b: Vec<u8>| -> Vec<i64> { b.chunks(8).map(|c| i64::from_le_bytes(c.try_into().unwrap())).collect() };
     let node = doc("")?;
-    let attrs = node["attributes"]["vzip_virtualized"].as_object().and_then(|m| m.values().next())
-        .map(|v| &v["ir"]).ok_or("vzip_source declares no mirror")?;
+    let attrs = node["attributes"]["refkv_virtualized"].as_object().and_then(|m| m.values().next())
+        .map(|v| &v["ir"]).ok_or("refkv_source declares no mirror")?;
     let strs = |k: &str| -> Result<Vec<String>, String> {
         attrs[k].as_array().ok_or(format!("no {k}"))?.iter()
             .map(|x| x.as_str().map(|s| s.to_string()).ok_or(format!("a non-string in {k}"))).collect()
@@ -1587,7 +1587,7 @@ pub fn canonical_problem(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn F
     // entry for entry: the description and the arrays' documents and chunks
     let mut out = Out::new("");
     write(&c, &mut out, &profile, false);
-    // vzip_source's source metadata may hold, beside `ir`, the members the store conventions keep
+    // refkv_source's source metadata may hold, beside `ir`, the members the store conventions keep
     // outside the IR (`project::store::kept`: the ignored keys, a SAFE product's empty
     // directories; conventions §8.9
     // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): they are not the
@@ -1774,7 +1774,7 @@ pub fn view_problem(keys: &[String], get: &dyn Fn(&str) -> Option<Vec<u8>>,
         if a == b {
             continue;
         }
-        let doc = |x: &J| x["attributes"]["vzip_virtualized"][profile.as_str()].clone();
+        let doc = |x: &J| x["attributes"]["refkv_virtualized"][profile.as_str()].clone();
         if let Some(d) = first_difference(&doc(&a), &doc(&b), String::new()) {
             return Some(format!("view {group}: {d}"));
         }
@@ -1811,11 +1811,11 @@ fn first_difference(a: &J, b: &J, path: String) -> Option<String> {
     }
 }
 
-/// The profile whose convention `vzip_source` declares.
+/// The profile whose convention `refkv_source` declares.
 fn stored_profile(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> String {
     get(&format!("{SOURCE_NODE}/zarr.json"))
         .and_then(|b| serde_json::from_slice::<J>(&b).ok())
-        .and_then(|d| d["attributes"]["vzip_virtualized"].as_object().and_then(|m| m.keys().next().cloned()))
+        .and_then(|d| d["attributes"]["refkv_virtualized"].as_object().and_then(|m| m.keys().next().cloned()))
         .unwrap_or_default()
 }
 

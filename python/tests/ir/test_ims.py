@@ -17,7 +17,7 @@ IMS = sorted((FIXTURES / "ims").rglob("*.ims"))
 
 
 def same_as_reference(path, tmp_path) -> bool:
-    """The IR's output equals the reference's but vzip_source, and its archive rebuilds the
+    """The IR's output equals the reference's but refkv_source, and its archive rebuilds the
     file; or both reject it. True when accepted."""
     data = path.read_bytes()
     url = f"https://data.test/{path.name}"
@@ -66,7 +66,8 @@ def objects(ir) -> list[str]:
 
 
 def reference_objects(path) -> int:
-    """The number of objects the frozen reference's object table lists."""
+    """The number of objects the frozen reference's object table lists (under its revision's
+    source metadata node, vzip_source)."""
     _, out = virtualize(str(path), "https://data.test/x")
     return json.loads(out.bytes_entries["vzip_source/objects/parent/zarr.json"])["shape"][0]
 

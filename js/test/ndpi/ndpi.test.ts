@@ -22,7 +22,7 @@ test("an NDPI is virtualized as NDPI, the header around SOF0 in data sources num
   assert.ok(data.length >= 2 && data[0][0] === 0xff && data[0][1] === 0xd8);
   let next = 1;
   for (const e of out.entries) {
-    if (!("ranges" in e) || e.ranges.length === 1 || e.key.startsWith("vzip_source/")) continue;
+    if (!("ranges" in e) || e.ranges.length === 1 || e.key.startsWith("refkv_source/")) continue;
     const [before, sof, after] = e.ranges;
     assert.ok("data" in sof && sof.data[1] === 0xc0, e.key);
     for (const r of [before, after]) {

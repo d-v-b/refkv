@@ -8,7 +8,7 @@ node that declares the profile's convention validates against its JSON Schema
 (spec/virtualize/<profile>/schema.json): the root always declares it, with the
 provenance members, and another node only when it has source metadata, with
 only that member. No node has any other attribute besides `ome`. (For TIFF (NDPI included), ND2,
-CZI, DICOM, NIfTI, IMS and SAFE, `vzip_source` and the groups of its view are the IR mirror of
+CZI, DICOM, NIfTI, IMS and SAFE, `refkv_source` and the groups of its view are the IR mirror of
 conventions §8 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>,
 validated by the same schemas.) """
 
@@ -59,7 +59,7 @@ def python_docs(path: Path, url: str):
         fmt, out = virtualize(str(path), url=url)
     except Rejected:
         return None
-    if hasattr(out, "docs"):  # the zarr.json documents (not vzip_source/empty.json, which is not a node's)
+    if hasattr(out, "docs"):  # the zarr.json documents (not refkv_source/empty.json, which is not a node's)
         return fmt, {k: v for k, v in out.docs.items() if k.endswith("zarr.json")}
     entries = out.bytes_entries if hasattr(out, "bytes_entries") else out.entries  # a file's, or a store IR's
     return fmt, {k: json.loads(v) for k, v in entries.items() if k.endswith("zarr.json")}
@@ -168,7 +168,7 @@ def test_schemas_reject_an_unknown_version():
 
 def test_the_safe_schema_tells_view_documents_from_source_metadata():
     """A view document whose members name IR elements (a codestream's `siz`, an XML document's
-    `xml`) is valid; a band array's or vzip_source's source metadata with a wrong member is not."""
+    `xml`) is valid; a band array's or refkv_source's source metadata with a wrong member is not."""
     validator = schema("safe")
 
     def node(s):

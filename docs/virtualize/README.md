@@ -72,7 +72,7 @@ TIFF (and SVS and NDPI), ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2, N5 a
 distribution: installing vzip (`pip install`, or `uv sync` in a clone) builds
 it as the Python module `vzip_ir`, which needs a Rust toolchain. The core parses the file into an intermediate representation (IR),
 plans the range requests, projects the IR onto the format's convention, and
-writes the source's IR mirror ([below](#the-sources-metadata-and-where-it-came-from-vzip_virtualized)).
+writes the source's IR mirror ([below](#the-sources-metadata-and-where-it-came-from-refkv_virtualized)).
 The other formats are implemented in Python and do not need it.
 
 The command prints a one-line JSON summary. It exits with status 3 if the
@@ -183,55 +183,55 @@ request). Its metadata documents (`attributes.json`, `.zgroup`, `.zarray`,
 (`--workers N` in Python, `concurrency` in the browser's `openHttpStore`),
 holding at most 64 MiB of documents ahead of the virtualizer.
 
-## The source's metadata, and where it came from: `vzip_virtualized`
+## The source's metadata, and where it came from: `refkv_virtualized`
 
 A virtualized hierarchy looks like any other Zarr, so it says what it is. Each
 format has a [Zarr convention](https://github.com/zarr-conventions/zarr-conventions-spec)
 of its own, specified in [spec/conventions.md](../../spec/conventions.md): the
 hierarchy's whole Zarr layout, and the translation of the source's header
-into JSON. Every output's root records, under the key `vzip_virtualized`,
+into JSON. Every output's root records, under the key `refkv_virtualized`,
 the format, the convention's version, the revision of spec/virtualize.md that
 produced it, and the source. The nodes also hold what the source says about
 them, under the same key. Metadata that is large, or that grows with the
-data, is on the group `vzip_source`, a child of the root that OME-NGFF
+data, is on the group `refkv_source`, a child of the root that OME-NGFF
 readers ignore and whose documents are fetched only when it is opened. Where
 each format's metadata is:
 
-- **TIFF (and SVS), ND2, CZI, DICOM and IMS:** `vzip_source` is the source's **IR
+- **TIFF (and SVS), ND2, CZI, DICOM and IMS:** `refkv_source` is the source's **IR
   mirror** ([conventions §8](../../spec/conventions.md#8-the-ir-mirror)).
-  It is a table under `vzip_source/ir/` that accounts for every byte of the
+  It is a table under `refkv_source/ir/` that accounts for every byte of the
   file, so that, with the source's bytes, the file is rebuilt byte for byte
   with no knowledge of the format, and a JSON view of it under
-  `vzip_source/tree`: every TIFF tag of every IFD, every ND2 chunk, every CZI
+  `refkv_source/tree`: every TIFF tag of every IFD, every ND2 chunk, every CZI
   segment, every HDF5 object header, attribute and link of an IMS file. Values of more than 1024 bytes, such as a long OME-XML, are not
   copied into the view; it points to them in the source. The root keeps a
   little: a TIFF's byte order and BigTIFF flag, an ND2 file's decoded
   metadata chunks (attributes, experiment, picture metadata, text info) that
   fit its budget, and a CZI file's header.
-- **NDPI:** the IR mirror on `vzip_source`, as for TIFF: every IFD, tag,
+- **NDPI:** the IR mirror on `refkv_source`, as for TIFF: every IFD, tag,
   high word and strip.
-- **DICOM:** the IR mirror on `vzip_source`, as for TIFF: the file's data
+- **DICOM:** the IR mirror on `refkv_source`, as for TIFF: the file's data
   elements themselves, layout, padding and dead space included. The root
   keeps the File Meta Information and the dataset in the DICOM JSON Model,
   without the members that would make it large
   ([dicom §5](../../spec/virtualize/dicom.md#5-source-metadata)).
-- **NIfTI:** the IR mirror on `vzip_source`: the header, the extender, each
+- **NIfTI:** the IR mirror on `refkv_source`: the header, the extender, each
   extension and the voxel data. The root keeps the header, field by field,
   the scaling and the affine.
 - **N5, Zarr v2 and OME-Zarr:** each node's own attributes and the layout
   members its `zarr.json` does not reproduce, on the node, as
   `{"attributes": ..., "metadata": ...}` (with `"unversioned"` for an
   OME-Zarr group); every other object of the store, kept whole under
-  `vzip_source/objects/`.
+  `refkv_source/objects/`.
 - **SAFE:** the product's identity on the root, each band's radiometric
-  values on its array, and every file of the product kept on `vzip_source`.
+  values on its array, and every file of the product kept on `refkv_source`.
 
 So a reader who needs, say, an ND2 file's objective or a DICOM series'
 acquisition parameters finds them in the hierarchy. For the NIfTI example
 in [nifti/](nifti/README.md):
 
 ```python
-v = g.attrs["vzip_virtualized"]
+v = g.attrs["refkv_virtualized"]
 print({k: v[k] for k in ("profile", "version", "revision", "source")})
 print(v["nifti"]["header"]["descrip"], v["nifti"]["scaling"])
 ```
@@ -268,7 +268,7 @@ and checks that their outputs are equivalent ([spec/virtualize.md §1.1](../../s
 - `web`, the browser code under Node.
 
 For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr, `py` and `web` run one core, so the independent check
-is `ref`, compared with both everywhere but `vzip_source`. `py` and `web` are
+is `ref`, compared with both everywhere but `refkv_source`. `py` and `web` are
 compared entirely, the mirror included, which shows that the two hosts drive
 the core alike. The mirror has no second implementation. Instead,
 `compare.py` checks every mirror on its own: it holds the mirror's

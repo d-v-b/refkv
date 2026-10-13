@@ -2,7 +2,7 @@
 
 import {
   base64, blobChunks, type ByteReader, declare, familyPlans, gridChunks, jsonText, type Part, type Plan, stringifyJson,
-} from "../../../../../js/src/virtualize/common.ts";
+} from "../legacy.ts";
 import { jsonSize } from "../nd2/source.ts";
 import {
   type Attachment, dataOffset, type Directory, dv, equal, guid, LETTERS, type MetadataSegment, type Segment,

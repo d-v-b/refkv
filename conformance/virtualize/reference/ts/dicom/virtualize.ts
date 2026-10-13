@@ -2,7 +2,7 @@
 // §6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#6-dicom-profile>): its
 // frames, native or JPEG/JPEG 2000 encapsulated, become Zarr chunks that reference the file.
 
-import { type ByteReader, declare, emitPlans, MAX_PAYLOAD, payloadSize, stringifyJson } from "../../../../../js/src/virtualize/common.ts";
+import { type ByteReader, declare, emitPlans, MAX_PAYLOAD, payloadSize, stringifyJson } from "../legacy.ts";
 import {
   type Dataset,
   DicomError,

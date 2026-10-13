@@ -5,7 +5,7 @@
 import type { Policy } from "../../../../js/src/archive.ts";
 import { addChecksums, type PinOptions } from "../../../../js/src/virtualize/index.ts";
 import { declares04, virtualizeOmeZarr } from "./ome-zarr/virtualize.ts";
-import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store, storeArchive } from "../../../../js/src/virtualize/store.ts";
+import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store, storeArchive } from "./legacy.ts";
 import type { ArchiveDesc } from "../../../../js/src/writer.ts";
 import { virtualizeSafeStore } from "./safe/virtualize.ts";
 import { virtualizeN5 } from "./n5/virtualize.ts";

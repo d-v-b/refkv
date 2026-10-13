@@ -1,6 +1,6 @@
 """Adoption: today's profile and the IR on corpus inputs through the caching proxy, offline
 (a block the cache lacks fails the request: no remote host is contacted), one process
-each (/usr/bin/time -l), outputs compared without vzip_source. The IR runs at
+each (/usr/bin/time -l), outputs compared without refkv_source. The IR runs at
 REFKV_CONCURRENCY (6) connections. `--today <cmd>` names today's command (default
 `python -m refkv.virtualize`); `--ir <cmd>` the IR's (default `python -m refkv.ir
 --allow-private-hosts`).
@@ -38,7 +38,7 @@ P.Upstream.block, P.Upstream.read, P.Upstream._open = block, read, offline
 def strip(o):
     # the frozen reference's root records its own revision (HARNESS.md): read at the current one
     o = at_revision(o)
-    return {"sources": o["sources"], "entries": {k: v for k, v in o["entries"].items() if not k.startswith("vzip_source")}}
+    return {"sources": o["sources"], "entries": {k: v for k, v in o["entries"].items() if not k.startswith("refkv_source")}}
 
 def timed(cmd, out):
     r0, m0 = dict(reads), len(misses)

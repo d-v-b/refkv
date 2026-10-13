@@ -51,13 +51,13 @@ level, `0` the full resolution.
 - **Translation:** the stage position of the first plane (OME-XML), or the
   slide position of an Aperio scan (`Left`, `Top`).
 - **Name:** the OME `Image` name.
-- **Metadata:** the root's `vzip_virtualized.tiff` holds the byte order and
-  whether the file is BigTIFF. Everything else is on `vzip_source`, the
+- **Metadata:** the root's `refkv_virtualized.tiff` holds the byte order and
+  whether the file is BigTIFF. Everything else is on `refkv_source`, the
   file's IR mirror ([conventions §8](../../../spec/conventions.md#8-the-ir-mirror)):
-  a table under `vzip_source/ir/` that accounts for every byte of the file
+  a table under `refkv_source/ir/` that accounts for every byte of the file
   (every tag of every IFD, SubIFDs and EXIF IFDs included, every tile, and
   the gaps between them), so that the file can be rebuilt from it and the
-  file's bytes, and a JSON view of it under `vzip_source/tree`, where the
+  file's bytes, and a JSON view of it under `refkv_source/tree`, where the
   tags are at `ifds/<i>/tags/<tag>`. A value of more than 1024 bytes, such
   as most OME-XML documents or a long Aperio description (tag 270), is not
   copied into the view: the view points to it in the file.
@@ -240,7 +240,7 @@ for byte. `compare.py` compares three virtualizers
 files (including inputs to reject), the 205 OME-TIFFs of idr0096 and the 4
 SVS slides of [corpus_tiff.txt](../../../conformance/virtualize/corpus_tiff.txt):
 the Python and browser hosts of the core must write the same archive,
-`vzip_source` included, and both must match, outside `vzip_source`, the
+`refkv_source` included, and both must match, outside `refkv_source`, the
 frozen reference: the Python TIFF profile vzip shipped before the core.
 
 - Profile: [spec/virtualize/tiff.md](../../../spec/virtualize/tiff.md#part-2-the-profile); convention:

@@ -1084,7 +1084,7 @@ A binding adds the reasons that come from its backend
 
 ```proto
 syntax = "proto3";
-package vzip.v0;
+package refkv.v0;
 
 message Range {
   uint32 source = 1;

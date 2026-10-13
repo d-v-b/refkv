@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from refkv.virtualize.common import Reader, Rejected, json_number, text_json
+from refkv_reference.legacy import Reader, Rejected, json_number, text_json
 
 SIGNATURE = b"\x89HDF\r\n\x1a\n"
 UNDEFINED = 2**64 - 1

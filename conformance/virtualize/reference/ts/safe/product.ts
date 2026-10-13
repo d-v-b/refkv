@@ -1,7 +1,7 @@
 // A SAFE product's objects, product metadata and tile metadata (spec/virtualize/safe.md §2
 // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#2-the-source>).
 
-import { compareKeys, parseXml, type XmlElement } from "../../../../../js/src/virtualize/store.ts";
+import { compareKeys, parseXml, type XmlElement } from "../legacy.ts";
 
 /**
  * The input is rejected by the SAFE profile (spec/virtualize.md §12.5

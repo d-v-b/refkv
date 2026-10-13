@@ -6,7 +6,7 @@ browser code, run under Node). Every level of the archive is read through the
 reference reader and zarr-python, and must equal, for every time point and
 channel, what h5py reads from `/DataSet/ResolutionLevel r/TimePoint t/Channel
 c/Data`, cropped to the channel's ImageSize (unallocated chunks read as 0 in
-both). `ims_reject_*` files must be rejected. The archive's vzip_source is the
+both). `ims_reject_*` files must be rejected. The archive's refkv_source is the
 IR mirror: it must rebuild the file byte for byte, the hierarchy outside it
 must be the frozen reference's (revision 25), and the frozen reference's
 source metadata node must rebuild every HDF5 object as h5py reads it.
@@ -253,8 +253,8 @@ class Checker:
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>)
     and compares it with h5py."""
 
-    def __init__(self, f, source) -> None:
-        self.f, self.source = f, source
+    def __init__(self, f, source, key: str = "refkv_virtualized") -> None:
+        self.f, self.source, self.key = f, source, key
         self.paths: dict[int, str] = {}  # object header address -> the path where the walk met it
         self.problems: list[str] = []
         self.pending: list = []  # checks of references and named datatypes, after the walk
@@ -280,7 +280,7 @@ class Checker:
     def load(self, node) -> dict:
         """A document's source metadata, with its spilled entries merged in (§5.6
         <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#56-documents>)."""
-        s = dict(dict(node.attrs).get("vzip_virtualized", {}).get("ims", {}))
+        s = dict(dict(node.attrs).get(self.key, {}).get("ims", {}))
         if "spilled" in s:
             for text in self.family(self.source[s.pop("spilled")]):
                 for k, v in json.loads(text).items():
@@ -697,18 +697,18 @@ class Checker:
         return self.problems
 
 
-def tree_problems(root, path: Path) -> list[str]:
+def tree_problems(root, path: Path, node: str = "refkv_source", key: str = "refkv_virtualized") -> list[str]:
     """Rebuilds every HDF5 object from the source metadata node (spec/virtualize/ims.md §5
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>)
-    and compares it with h5py."""
+    and compares it with h5py; `node` and `key` are the names the archive's writer used."""
     with h5py.File(path, "r") as f:
-        return Checker(f, root["vzip_source"]).tree()
+        return Checker(f, root[node], key).tree()
 
 
 def mirror_check(path: Path, url: str, out: Path) -> list[str]:
-    """An archive of the IR, whose vzip_source is its mirror: the frozen reference's
+    """An archive of the IR, whose refkv_source is its mirror: the frozen reference's
     archive of the same file (revision 25) must have the same hierarchy outside
-    vzip_source (its root read at the current revision, compare.py's `at_revision`),
+    refkv_source (its root read at the current revision, compare.py's `at_revision`),
     its source metadata node must rebuild every HDF5 object (`tree_problems`), and the
     IR's mirror must rebuild the source byte for byte."""
     sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
@@ -723,7 +723,8 @@ def mirror_check(path: Path, url: str, out: Path) -> list[str]:
                 differences(without_source(at_revision(from_vzip(ref))), without_source(from_vzip(out)))]
     problems += mirror_problems(out, path)
     root = zarr.open_group(refkv.zarr.open(str(ref), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
-    problems += [f"reference: {x}" for x in tree_problems(root, path)]
+    # the frozen reference writes its revision's names
+    problems += [f"reference: {x}" for x in tree_problems(root, path, "vzip_source", "vzip_virtualized")]
     return problems
 
 

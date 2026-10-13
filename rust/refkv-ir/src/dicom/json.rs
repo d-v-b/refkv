@@ -2,7 +2,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>): its File
 //! Meta Information and dataset in the DICOM JSON Model (PS3.18 §F.2), without the members
 //! that would make the root large, and the paths the root names. Revision 25 wrote the moved
-//! members and the arrays the paths name under `vzip_source`; the IR mirror holds all of it
+//! members and the arrays the paths name under `vzip_source` (now `refkv_source`); the IR mirror holds all of it
 //! now, and the root is unchanged.
 
 use super::elements::*;

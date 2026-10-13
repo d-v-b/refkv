@@ -2,7 +2,7 @@
 // (spec/virtualize.md, §5): the frames become Zarr chunks that reference the file.
 
 import { REVISION } from "../revision.ts";
-import { type ByteReader, declare, emitPlans, jsonText, MAX_PAYLOAD, payloadSize, Prefetched, stringifyJson } from "../../../../../js/src/virtualize/common.ts";
+import { type ByteReader, declare, emitPlans, jsonText, MAX_PAYLOAD, payloadSize, Prefetched, stringifyJson } from "../legacy.ts";
 import { sourceMetadata } from "./source.ts";
 import { decodeLV, type LV, type LVObject, type Scalar, TooLargeError } from "./lv.ts";
 import type { Range } from "../../../../../js/src/protobuf.ts";

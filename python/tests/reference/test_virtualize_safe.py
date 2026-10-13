@@ -19,7 +19,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
 
 from refkv.virtualize import Rejected
-from refkv.virtualize.common import text_json
+from refkv_reference.legacy import text_json
 from refkv_reference import virtualize
 from refkv_reference.safe import jp2, zipdir
 from refkv_reference.safe.metadata import BUDGET, MULTISCALES, PROJ, SPATIAL, choose_texts, json_size, typed, wkt2

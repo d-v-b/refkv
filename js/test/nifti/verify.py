@@ -8,7 +8,7 @@ nibabel's unscaled data (`img.dataobj.get_unscaled()`), with nibabel's
 a color type's samples as the channel axis. A nontrivial scaling must be
 recorded as nibabel reads it, and every header field as nibabel reads the
 header. The file must be rebuilt byte for byte from the archive's IR mirror
-(vzip_source, spec/virtualize/nifti.md §5.2
+(refkv_source, spec/virtualize/nifti.md §5.2
 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#52-the-ir-mirror>). The
 extension chain is parsed here, independently of nibabel (which fails on some
 chains) and of the virtualizers: the extender and each extension the view shows
@@ -178,7 +178,7 @@ def header_problems(nii: Path, meta: dict, out: Path) -> list[str]:
     problems += mirror_problems(out, nii)
 
     with zipfile.ZipFile(out) as z:
-        view = json.loads(z.read("vzip_source/tree/zarr.json"))["attributes"]["vzip_virtualized"]["nifti"]
+        view = json.loads(z.read("refkv_source/tree/zarr.json"))["attributes"]["refkv_virtualized"]["nifti"]
     extender, chain, _, _ = region(data, raw)
     if view.get("extender") != list(extender):
         problems.append(f"extender {view.get('extender')} != {list(extender)}")
@@ -250,7 +250,7 @@ def main(fixtures: Path) -> int:
                 problems.append(f"dtype {got.dtype} != {want.dtype}")
             if got.shape != want.shape or not np.array_equal(got, want, equal_nan=got.dtype.kind == "f"):
                 problems.append(f"voxels differ ({got.shape} vs {want.shape})")
-            meta = root.attrs["vzip_virtualized"]["nifti"]  # spec/virtualize/nifti.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>
+            meta = root.attrs["refkv_virtualized"]["nifti"]  # spec/virtualize/nifti.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>
             slope, inter = img.dataobj.slope, img.dataobj.inter  # the header's are reset on load
             recorded = meta.get("scaling")
             # nibabel keeps a color type's scl_slope but cannot apply it; NIfTI does not scale color.

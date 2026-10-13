@@ -12,7 +12,7 @@ from array import array
 import numpy as np
 
 from refkv_reference.revision import REVISION_25
-from refkv.virtualize.common import (
+from refkv_reference.legacy import (
     MAX_PAYLOAD, RAGGED_CHUNK, SOURCE_NODE, Output, Plan, Reader, Rejected, array_json, declare, emit_plans,
     grid_chunks, image_ome, json_base64, json_number, json_text, payload_size, root_json, row_chunks, text_json,
 )

@@ -10,7 +10,7 @@ test("a store output numbers its sources by first use", () => {
   const raw: RawOutput = {
     url: "https://h/b/s/",
     summary: {},
-    lazy: ["vzip_source/"],
+    lazy: ["refkv_source/"],
     data: [Uint8Array.of(0x61, 0x62), Uint8Array.of(0x63, 0x64, 0x65)],
     entries: [["zarr.json", Uint8Array.of(0x7b, 0x7d)]],
     refs: [

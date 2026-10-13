@@ -1574,3 +1574,43 @@ OME-NGFF 0.4. The shipped
 Python and TypeScript Zarr v2 and OME-Zarr profiles are removed; the OME-Zarr ones are
 frozen in `conformance/virtualize/reference/` on the frozen Zarr v2 ones, recording
 revision 25.
+
+## Revision 27: the project is refkv
+
+**What prompted it.** The project was renamed from vzip to refkv ("reference
+key value"). "vzip" now names only the ZIP binding of the reference value
+type ([spec/bindings/vzip.md](../../bindings/vzip.md)) and its `.vzip`
+archives, so the names a virtualizer writes into its output that said "vzip"
+for the project change with it. Revision 26 is kept as
+`VIRTUALIZE.r26.md`.
+
+**The changes.**
+- **Conventions [§2](../../conventions.md#2-attributes):** the convention's
+  property is `refkv_virtualized` (was `vzip_virtualized`). Each Convention
+  Metadata Object has it as its `name`, its `schema_url` and `spec_url` under
+  `d-v-b/refkv` (were `d-v-b/vzip`), and the description "The Zarr layout of
+  a … source virtualized by refkv, and the source's metadata".
+- **The source metadata node** is `refkv_source` (was `vzip_source`) in every
+  profile, and so is every key and path that names it, such as DICOM's
+  `BulkDataURI` values and the stores' `objects/` and `empty.json`. An input
+  store with a node named `refkv_source` is now the collision the store
+  profiles reject; one named `vzip_source` is an ordinary node.
+- **Conventions:** the root property records `"revision": 27`; the schemas
+  were regenerated, and are titled "refkv … convention".
+
+**Output.** Every output changes in those names, and in what follows from
+them alone: the documents' sizes, and the order of the keys, since
+`refkv_source/` sorts before keys that start with `s` to `v` (a store whose
+objects have such keys numbers its sources in the new order). The hierarchy,
+the references and the data are otherwise unchanged, and so is every other
+rejection.
+
+**Implementations.** Python, the browser and the Rust core write the new
+names (`SOURCE_NODE`, `CONVENTION_KEY` and `convention` in
+`python/src/refkv/virtualize/common.py`, `js/src/virtualize/common.ts` and
+`rust/refkv-ir/src/out.rs`). The frozen reference keeps the names of the
+revisions it records, from
+`refkv_reference/legacy.py` and `ts/legacy.ts`, so that its output is what
+those revisions wrote, byte for byte; `compare.py` reads those names as the
+current ones
+([conformance/virtualize/HARNESS.md](../../../conformance/virtualize/HARNESS.md)).

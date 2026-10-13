@@ -32,7 +32,7 @@ pub enum Part {
 }
 
 pub const MAX_PAYLOAD: usize = 65519;
-pub const SOURCE_NODE: &str = "vzip_source";
+pub const SOURCE_NODE: &str = "refkv_source";
 
 #[derive(Default)]
 pub struct Out {
@@ -213,9 +213,9 @@ pub fn payload_size(ranges: &[Part]) -> usize {
 // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>–§5
 // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>)
 
-pub const CONVENTION_KEY: &str = "vzip_virtualized";
+pub const CONVENTION_KEY: &str = "refkv_virtualized";
 /// The revision of spec/virtualize.md the projections follow (`common.REVISION` in Python).
-pub const REVISION: u64 = 26;
+pub const REVISION: u64 = 27;
 
 /// (uuid, version, title) of a profile's convention.
 pub fn profile(p: &str) -> (&'static str, u64, &'static str) {
@@ -247,10 +247,10 @@ pub fn convention(p: &str) -> J {
     };
     json!({
         "uuid": uuid,
-        "schema_url": format!("https://raw.githubusercontent.com/d-v-b/vzip/refs/{r}/spec/virtualize/{p}/schema.json"),
-        "spec_url": format!("https://github.com/d-v-b/vzip/blob/{blob}/spec/virtualize/{p}.md"),
+        "schema_url": format!("https://raw.githubusercontent.com/d-v-b/refkv/refs/{r}/spec/virtualize/{p}/schema.json"),
+        "spec_url": format!("https://github.com/d-v-b/refkv/blob/{blob}/spec/virtualize/{p}.md"),
         "name": CONVENTION_KEY,
-        "description": format!("The Zarr layout of a {title} source virtualized by vzip, and the source's metadata"),
+        "description": format!("The Zarr layout of a {title} source virtualized by refkv, and the source's metadata"),
     })
 }
 

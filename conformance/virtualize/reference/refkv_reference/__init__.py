@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from refkv.policy import Policy, crc32c
 from refkv.virtualize import is_store
-from refkv.virtualize.common import Output, Rejected, file_reader, http_reader
+from refkv_reference.legacy import Output, Rejected, file_reader, http_reader
 from refkv_reference.dicom import is_dicom, virtualize_dicom
 from refkv_reference import nifti
 from refkv_reference import ndpi

@@ -19,7 +19,7 @@ from functools import partial
 import pytest
 
 from refkv.virtualize import Rejected
-from refkv.virtualize.common import declare as declare_now
+from refkv_reference.legacy import declare as declare_now
 from refkv_reference import virtualize
 from refkv_reference.revision import STORES_REVISION
 
@@ -278,7 +278,7 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     ("n5_reject_no_root_attributes", "not an N5, Zarr v2 or SAFE store"),
     ("n5_reject_gzip_level", "gzip level 10"),
     ("n5_reject_zstd_level", "zstd level 2.5"),
-    ("n5_reject_objects_collision", "the node vzip_source is where"),
+    ("n5_reject_objects_collision", "the node refkv_source is where"),
 ])
 def test_rejects(name, message):
     with pytest.raises(Rejected, match=message):

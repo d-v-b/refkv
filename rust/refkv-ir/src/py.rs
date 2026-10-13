@@ -285,7 +285,7 @@ impl PyIr {
         Ok(d)
     }
 
-    /// The IR a mirror's table describes (`vzip_source/ir/...`, its entries given by
+    /// The IR a mirror's table describes (`refkv_source/ir/...`, its entries given by
     /// `get(key) -> bytes | None`), its column runs expanded; `read(offset, length)`
     /// gives bytes of the source, for the columns read from arrays in it. Raises
     /// Violation for a bad table.
@@ -743,7 +743,7 @@ fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str
 }
 
 /// The mirror of an IR (for the profile "nd2", "tiff", "czi", "dicom", "nifti", "ims" or "ndpi"): its entries and
-/// references under `vzip_source` (`out_py`'s form, the url empty), and what the
+/// references under `refkv_source` (`out_py`'s form, the url empty), and what the
 /// table folded (JSON).
 #[pyfunction]
 fn mirror<'py>(py: Python<'py>, ir: &PyIr, profile: &str) -> PyResult<(Bound<'py, PyAny>, String)> {

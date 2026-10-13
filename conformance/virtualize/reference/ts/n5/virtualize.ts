@@ -31,7 +31,7 @@ import {
   show,
   type StoreResult,
   without,
-} from "../../../../../js/src/virtualize/store.ts";
+} from "../legacy.ts";
 import { declareNodes } from "../zarr2/declare.ts"; // its root records revision 25
 
 export class N5Error extends Error {}

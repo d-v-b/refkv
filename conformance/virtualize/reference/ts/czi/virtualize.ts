@@ -1,7 +1,7 @@
 // Virtualizing a Zeiss CZI file by the CZI profile (spec/virtualize/czi.md, spec/virtualize.md §13).
 
 import { REVISION } from "../revision.ts";
-import { batched, type ByteReader, declare, emitPlans, SOURCE_NODE, stringifyJson } from "../../../../../js/src/virtualize/common.ts";
+import { batched, type ByteReader, declare, emitPlans, SOURCE_NODE, stringifyJson } from "../legacy.ts";
 import type { Range } from "../../../../../js/src/protobuf.ts";
 import type { ArchiveDesc, EntryDesc } from "../../../../../js/src/writer.ts";
 import { boundedHead, codecChain, codedSize, PIXEL_TYPES, sampleLetters, UNCOMPRESSED, ZSTD1 } from "./coding.ts";

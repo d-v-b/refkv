@@ -3,7 +3,7 @@
 // of every resolution level, time point and channel becomes a Zarr chunk that references the file.
 
 import type { Range } from "../../../../../js/src/protobuf.ts";
-import { type ByteReader, declare, stringifyJson } from "../../../../../js/src/virtualize/common.ts";
+import { type ByteReader, declare, stringifyJson } from "../legacy.ts";
 import { sourceTree } from "./source.ts";
 import { IMS_REVISION } from "../revision.ts";
 import type { ArchiveDesc, EntryDesc } from "../../../../../js/src/writer.ts";

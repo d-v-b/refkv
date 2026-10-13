@@ -8,7 +8,7 @@ import json
 import struct
 from typing import Callable, NamedTuple
 
-from refkv.virtualize.common import (
+from refkv_reference.legacy import (
     MAX_CHUNK, SOURCE_NODE, Output, Plan, Reader, blob_chunks, declare, emit_plans, family_plans, json_base64,
     json_number, metadata_group, row_chunks, text_json,
 )

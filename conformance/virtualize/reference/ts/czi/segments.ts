@@ -1,6 +1,6 @@
 // Reading a CZI file's segments (spec/virtualize/czi.md §2, spec/virtualize.md §13.2).
 
-import { batched, type ByteReader, Prefetched } from "../../../../../js/src/virtualize/common.ts";
+import { batched, type ByteReader, Prefetched } from "../legacy.ts";
 import { COMPRESSIONS, PIXEL_TYPES } from "./coding.ts";
 
 /** The input is not accepted by the CZI profile (spec/virtualize.md §1.2). */

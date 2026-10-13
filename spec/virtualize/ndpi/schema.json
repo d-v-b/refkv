@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/d-v-b/vzip/refs/heads/main/spec/virtualize/ndpi/schema.json",
-  "title": "vzip NDPI convention, version 0",
-  "description": "The zarr.json of a node that declares the vzip NDPI convention (https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md)",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/virtualize/ndpi/schema.json",
+  "title": "refkv NDPI convention, version 0",
+  "description": "The zarr.json of a node that declares the refkv NDPI convention (https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md)",
   "type": "object",
   "properties": {
     "zarr_format": {
@@ -31,7 +31,7 @@
           "minContains": 1,
           "maxContains": 1
         },
-        "vzip_virtualized": {
+        "refkv_virtualized": {
           "oneOf": [
             {
               "$ref": "#/$defs/rootProperty"
@@ -44,7 +44,7 @@
       },
       "required": [
         "zarr_conventions",
-        "vzip_virtualized"
+        "refkv_virtualized"
       ],
       "additionalProperties": false
     }
@@ -65,19 +65,19 @@
         },
         "schema_url": {
           "type": "string",
-          "const": "https://raw.githubusercontent.com/d-v-b/vzip/refs/heads/main/spec/virtualize/ndpi/schema.json"
+          "const": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/virtualize/ndpi/schema.json"
         },
         "spec_url": {
           "type": "string",
-          "const": "https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md"
+          "const": "https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md"
         },
         "name": {
           "type": "string",
-          "const": "vzip_virtualized"
+          "const": "refkv_virtualized"
         },
         "description": {
           "type": "string",
-          "const": "The Zarr layout of a NDPI source virtualized by vzip, and the source's metadata"
+          "const": "The Zarr layout of a NDPI source virtualized by refkv, and the source's metadata"
         }
       },
       "required": [
@@ -99,7 +99,7 @@
         },
         "revision": {
           "type": "integer",
-          "const": 26,
+          "const": 27,
           "description": "The spec/virtualize.md revision that produced the hierarchy (version 0 only)"
         },
         "source": {
@@ -138,7 +138,7 @@
       ]
     },
     "headerValue": {
-      "description": "A translated header value (spec/conventions.md §6 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>)",
+      "description": "A translated header value (spec/conventions.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)",
       "anyOf": [
         {
           "type": "number"
@@ -183,7 +183,7 @@
     },
     "mirror": {
       "type": "object",
-      "description": "vzip_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>)",
+      "description": "refkv_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>)",
       "properties": {
         "ir": {
           "type": "object",
@@ -199,7 +199,7 @@
             "objects": {
               "type": "integer",
               "minimum": 0,
-              "description": "A store IR's objects (spec/conventions.md §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>); a file IR has none"
+              "description": "A store IR's objects (spec/conventions.md §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>); a file IR has none"
             },
             "elements": {
               "type": "integer",
@@ -222,7 +222,7 @@
                   "const": ""
                 }
               ],
-              "description": "The interned names, sorted; the first, \"\", is the root's (conventions §8.1 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>)"
+              "description": "The interned names, sorted; the first, \"\", is the root's (conventions §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>)"
             },
             "types": {
               "type": "array",
@@ -235,14 +235,14 @@
                   "const": ""
                 }
               ],
-              "description": "The interned types (§8.6 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#86-types>)"
+              "description": "The interned types (§8.6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#86-types>)"
             },
             "forms": {
               "type": "array",
               "items": {
                 "type": "string"
               },
-              "description": "The interned forms, each a JSON text (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#85-forms-and-recipes>)"
+              "description": "The interned forms, each a JSON text (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"
             }
           },
           "required": [
@@ -264,7 +264,7 @@
     },
     "mirrorView": {
       "type": "object",
-      "description": "A view group's (vzip_source/tree/...): a struct's view document (spec/conventions.md §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>)",
+      "description": "A view group's (refkv_source/tree/...): a struct's view document (spec/conventions.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>)",
       "properties": {
         "$vz": {
           "const": "derived",
@@ -275,7 +275,7 @@
             "string",
             "null"
           ],
-          "description": "A derived element's form (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#85-forms-and-recipes>)"
+          "description": "A derived element's form (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"
         },
         "$partial": {
           "const": true,

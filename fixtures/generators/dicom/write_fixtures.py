@@ -413,7 +413,7 @@ def later() -> None:
 
 
 def reconstruction() -> None:
-    """Values the source metadata keeps as arrays, on vzip_source, and elements
+    """Values the source metadata keeps as arrays, on refkv_source, and elements
     after Pixel Data (spec/virtualize/dicom.md §5
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
     from pydicom.dataelem import DataElement
@@ -430,7 +430,7 @@ def reconstruction() -> None:
         pos.ImagePositionPatient = ["0", "0", str(z)]
         item.PlanePositionSequence = Sequence([pos])
         frames.append(item)
-    ds.PerFrameFunctionalGroupsSequence = frames  # on vzip_source
+    ds.PerFrameFunctionalGroupsSequence = frames  # on refkv_source
     icon = Dataset()
     icon.Rows, icon.Columns, icon.BitsAllocated, icon.BitsStored = 8, 8, 8, 8
     icon.add_new(0x7FE00010, "OB", bytes(64 + 8 * 8 - 64))  # 64 bytes: kept as InlineBinary
@@ -549,7 +549,7 @@ def review() -> None:
         d = Dataset()
         d.SeriesInstanceUID = f"1.2.826.0.1.3680043.8.498.{i}"
         series.append(d)
-    ds.ReferencedSeriesSequence = series  # over 16 KiB as JSON: on vzip_source
+    ds.ReferencedSeriesSequence = series  # over 16 KiB as JSON: on refkv_source
     odd = (element(0x00090010, "LO", b"VZIP")
            + element(0x00091001, "US", b"\x01\x02\x03")  # not whole values: as stored
            + element(0x00091002, "AT", b"\x28\x00\x10\x00\x28\x00")
@@ -671,7 +671,7 @@ def review2() -> None:
 
     # A root kept small: a File Meta Information duplicate of over 16 KiB, and
     # private text values of under 16 KiB each that make the dataset too large
-    # for the root, of which the largest move to vzip_source, the first by tag
+    # for the root, of which the largest move to refkv_source, the first by tag
     # of two of equal size.
     ds = image(SECONDARY_CAPTURE, 2, 2)
     duplicates = b"".join(element(0x00020013, "SH", b"VZIP%04d" % i + b"." * 992) for i in range(20))

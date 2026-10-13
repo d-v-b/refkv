@@ -42,14 +42,14 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
   sform with a negative x step, gives no translation.
 - **Intensity scaling:** the raw values are stored. A nontrivial
   `scl_slope`/`scl_inter` is recorded in the root's source metadata (the
-  `vzip_virtualized` convention) as
+  `refkv_virtualized` convention) as
   `"nifti": {..., "scaling": {"slope": s, "inter": i}}`; compute
   `s × raw + i`.
 - **Header:** every field of the NIfTI header and its affine, under
-  `vzip_virtualized.nifti`. The whole file (the header, its extensions, the
-  voxels and every byte between) is described on `vzip_source` by the Rust
+  `refkv_virtualized.nifti`. The whole file (the header, its extensions, the
+  voxels and every byte between) is described on `refkv_source` by the Rust
   core's IR mirror, from which it is rebuilt byte for byte; its view
-  `vzip_source/tree` shows the header, the extender and each extension of
+  `refkv_source/tree` shows the header, the extender and each extension of
   at most 1024 bytes (since revision 26).
 - **omero:** a display window from `cal_min`/`cal_max`, or R, G, B (A)
   channels for color voxels.
@@ -79,7 +79,7 @@ import vzip.zarr
 g = zarr.open_group(vzip.zarr.open("avg152T1.vzip"), mode="r")
 print(g.attrs["ome"]["multiscales"][0]["axes"])
 print(g.attrs["ome"]["multiscales"][0]["datasets"])
-print(g.attrs["vzip_virtualized"]["nifti"]["scaling"])
+print(g.attrs["refkv_virtualized"]["nifti"]["scaling"])
 a = g["0"]
 print(a.shape, a.dtype, a.chunks)
 print(a[45, 50, 40:48])

@@ -7,8 +7,8 @@ import math
 import re
 from dataclasses import dataclass, field
 
-from refkv.virtualize.common import Rejected
-from refkv.virtualize.store import (
+from refkv_reference.legacy import Rejected
+from refkv_reference.legacy import (
     GROUP_IMPLICIT,
     Store,
     as_int,

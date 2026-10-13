@@ -48,9 +48,9 @@ gives its own archive.
   grayscale images, the Window Center and Width, converted to stored values.
   `MONOCHROME1` is marked `inverted`.
 - **Metadata:** every element of the file, private ones included, in the
-  DICOM JSON Model under the root's `vzip_virtualized.dicom`; the members
+  DICOM JSON Model under the root's `refkv_virtualized.dicom`; the members
   that would make the root large, and values kept as arrays, are on
-  `vzip_source`.
+  `refkv_source`.
 
 ## Try it
 

@@ -4,7 +4,7 @@
 
 Each schema validates the zarr.json of one node of a virtualized hierarchy that
 declares the convention (spec/virtualize/<profile>.md): the convention's
-metadata object in `zarr_conventions`, the property `vzip_virtualized`, and no
+metadata object in `zarr_conventions`, the property `refkv_virtualized`, and no
 other attribute besides `ome`. The root carries the property's provenance
 members; any other node (store profiles only) carries only the profile's
 source-metadata member. SOURCE_METADATA holds each profile's member schema.
@@ -58,7 +58,7 @@ SOURCE_METADATA: dict[str, dict] = {
     ]},
     "dicom": {"anyOf": [{
         "type": "object",
-        "description": "The root's (spec/virtualize/dicom.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#51-the-root>); a path vzip_source/<p> names the IR's element at <p>",
+        "description": "The root's (spec/virtualize/dicom.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#51-the-root>); a path refkv_source/<p> names the IR's element at <p>",
         "properties": {
             "preamble": {"type": "string", "contentEncoding": "base64",
                          "description": "The 128-byte preamble, unless all zero"},
@@ -67,17 +67,17 @@ SOURCE_METADATA: dict[str, dict] = {
             "dataset": {"$ref": "#/$defs/dataset",
                         "description": "The dataset, without the per-frame groups and the large attributes (in the mirror only)"},
             "pixel_extra": {"type": "string",
-                            "description": "vzip_source/pixel_extra: the IR's element holding the native pixel data after the frames"},
+                            "description": "refkv_source/pixel_extra: the IR's element holding the native pixel data after the frames"},
             "pixel_unreferenced": {"type": "string",
-                                   "description": "vzip_source/pixel_unreferenced: the IR's struct holding the pixel data the Extended Offset Table skips"},
+                                   "description": "refkv_source/pixel_unreferenced: the IR's struct holding the pixel data the Extended Offset Table skips"},
             "pixel_unreferenced_headers": {"const": True,
                                            "description": "Whether pixel_unreferenced also holds the frames' item "
                                                           "headers"},
             "pixel_fragments": {"type": "string",
-                                "description": "vzip_source/pixel_fragments, when a frame has more than one fragment "
+                                "description": "refkv_source/pixel_fragments, when a frame has more than one fragment "
                                                "(the fragments are the IR's dataset/7FE00010/fragments/<j>)"},
             "pixel_offset_table": {"const": True, "description": "Whether the Basic Offset Table is not empty"},
-            "trailing": {"type": "string", "description": "vzip_source/trailing: the IR's element holding the bytes after the last element"},
+            "trailing": {"type": "string", "description": "refkv_source/trailing: the IR's element holding the bytes after the last element"},
         },
         "additionalProperties": False,
     },
@@ -149,7 +149,7 @@ SOURCE_METADATA: dict[str, dict] = {
             "minProperties": 1,
             "additionalProperties": False,
         },
-        # vzip_source's: a store IR's description, and the recorded ignored keys (§5.1
+        # refkv_source's: a store IR's description, and the recorded ignored keys (§5.1
         # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>)
         {"allOf": [{"$ref": "#/$defs/storeMirror"},
                    {"properties": {"ir": {"required": ["objects"]}, "empty_dirs": False}}]},
@@ -167,7 +167,7 @@ SOURCE_METADATA: dict[str, dict] = {
             "minProperties": 1,
             "additionalProperties": False,
         },
-        # vzip_source's: a store IR's description, and the recorded ignored keys (§5
+        # refkv_source's: a store IR's description, and the recorded ignored keys (§5
         # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>)
         {"allOf": [{"$ref": "#/$defs/storeMirror"},
                    {"properties": {"ir": {"required": ["objects"]}, "empty_dirs": False}}]},
@@ -189,7 +189,7 @@ SOURCE_METADATA: dict[str, dict] = {
             "minProperties": 1,
             "additionalProperties": False,
         },
-        # vzip_source's: the Zarr v2 store's IR, as zarr2's (spec/virtualize/ome-zarr.md §8.2
+        # refkv_source's: the Zarr v2 store's IR, as zarr2's (spec/virtualize/ome-zarr.md §8.2
         # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#82-the-store-ir>)
         {"allOf": [{"$ref": "#/$defs/storeMirror"},
                    {"properties": {"ir": {"required": ["objects"]}, "empty_dirs": False}}]},
@@ -225,7 +225,7 @@ DICOM_DEFS = {
             "Value": {"type": "array"},
             "InlineBinary": {"type": "string", "contentEncoding": "base64"},
             "BulkDataURI": {"type": "string",
-                            "description": "vzip_source/<path>: the IR's element at <path>, whose value it is"},
+                            "description": "refkv_source/<path>: the IR's element at <path>, whose value it is"},
             "Structures": {"type": "array", "items": {"$ref": "#/$defs/dataset"},
                            "description": "A gathered sequence's distinct item structures (its items are the IR's "
                                           "elements <its path>/<index>)"},
@@ -281,10 +281,10 @@ SOURCE_METADATA["safe"] = {"oneOf": [
         "required": ["IMAGE_FILE", "siz"],
         "additionalProperties": False,
     },
-    # vzip_source's: the IR mirror's description, the empty directories and the keys of the
+    # refkv_source's: the IR mirror's description, the empty directories and the keys of the
     # ignored objects (§6.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)
     {"$ref": "#/$defs/storeMirror"},
-    # a view document, without the members the branches above require (or `vzip_source`'s of
+    # a view document, without the members the branches above require (or `refkv_source`'s of
     # revision 25), which name no SAFE IR element (`siz` and `xml` do: they are not excluded), so
     # that a document of those branches with a wrong member is invalid (one without any of them,
     # such as band metadata without IMAGE_FILE, reads as a view document: member names alone
@@ -363,18 +363,18 @@ SOURCE_METADATA["czi"] = {"anyOf": [
 ]}
 # The IR mirror (spec/conventions.md §8
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2,
-# CZI, DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2, N5 and OME-Zarr conventions: vzip_source's
-# source metadata, and the view documents of the groups under vzip_source/tree.
+# CZI, DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2, N5 and OME-Zarr conventions: refkv_source's
+# source metadata, and the view documents of the groups under refkv_source/tree.
 IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ims", "ndpi", "safe", "zarr2", "n5",
                "ome-zarr")
-# The store conventions, whose vzip_source holds, beside the mirror's description, members of
+# The store conventions, whose refkv_source holds, beside the mirror's description, members of
 # their own (`storeMirror`; spec/conventions.md §8.9
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>).
 IR_STORES = ("safe", "zarr2", "n5", "ome-zarr")
 MIRROR_DEFS = {
     "mirror": {
         "type": "object",
-        "description": "vzip_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>)",
+        "description": "refkv_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>)",
         "properties": {"ir": {
             "type": "object",
             "properties": {
@@ -401,7 +401,7 @@ MIRROR_DEFS = {
     },
     "mirrorView": {
         "type": "object",
-        "description": "A view group's (vzip_source/tree/...): a struct's view document (spec/conventions.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>)",
+        "description": "A view group's (refkv_source/tree/...): a struct's view document (spec/conventions.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>)",
         "properties": {
             "$vz": {"const": "derived", "description": "A derived element's document"},
             "$form": {"type": ["string", "null"], "description": "A derived element's form (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"},
@@ -423,7 +423,7 @@ MIRROR_DEFS = {
 }
 
 
-# The store conventions' vzip_source (spec/conventions.md §8.9
+# The store conventions' refkv_source (spec/conventions.md §8.9
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): the mirror's description
 # (a store IR's, with its objects; a SAFE zip file's, a file IR's) and the members the convention
 # keeps beside it, outside the IR, each only when it is not empty: a SAFE product's empty
@@ -432,7 +432,7 @@ MIRROR_DEFS = {
 STORE_MIRROR_DEFS = {
     "storeMirror": {
         "type": "object",
-        "description": "vzip_source's, for a store convention: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>, §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), and the members the convention keeps beside it",
+        "description": "refkv_source's, for a store convention: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>, §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), and the members the convention keeps beside it",
         "properties": {
             "ir": {"$ref": "#/$defs/mirror/properties/ir"},
             "empty_dirs": {"type": "array", "items": {"type": "string"}, "minItems": 1,
@@ -521,8 +521,8 @@ def schema(profile: str) -> dict:
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": cmo["schema_url"],
-        "title": f"vzip {title} convention, version {PROFILES[profile][1]}",
-        "description": f"The zarr.json of a node that declares the vzip {title} convention ({cmo['spec_url']})",
+        "title": f"refkv {title} convention, version {PROFILES[profile][1]}",
+        "description": f"The zarr.json of a node that declares the refkv {title} convention ({cmo['spec_url']})",
         "type": "object",
         "properties": {
             "zarr_format": {"type": "integer", "const": 3},

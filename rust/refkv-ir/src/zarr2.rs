@@ -37,7 +37,7 @@ pub fn schema() -> &'static Rules {
 
 /// The group the mirror and the other objects go in (spec/virtualize/zarr2.md
 /// §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
-pub const SOURCE_GROUP: &str = "vzip_source";
+pub const SOURCE_GROUP: &str = "refkv_source";
 const MAX_SAFE: f64 = 9007199254740991.0;
 pub use crate::json::MAX_MEMBERS;
 
@@ -125,9 +125,9 @@ impl Zarr2 {
                 }
             }
         }
-        // the source metadata (the IR's mirror, the other objects) is the group vzip_source
+        // the source metadata (the IR's mirror, the other objects) is the group refkv_source
         for p in nodes.keys().chain(implicit.iter()) {
-            if p == SOURCE_GROUP || p.starts_with("vzip_source/") {
+            if p == SOURCE_GROUP || p.starts_with("refkv_source/") {
                 return Err(format!("the node {p} is where the store's source metadata goes ({SOURCE_GROUP}/)"));
             }
         }

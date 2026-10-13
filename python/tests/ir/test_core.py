@@ -116,11 +116,11 @@ def test_an_archive_whose_root_is_named_is_a_violation():
     path = FIXTURES / "tiff" / "edge_duplicate_tags.tif"
     data = path.read_bytes()
     _, out, _ = via_ir(str(path), "https://data.test/a.tif")
-    doc = json.loads(out.bytes_entries["vzip_source/zarr.json"])
-    ir = doc["attributes"]["vzip_virtualized"]["tiff"]["ir"]
+    doc = json.loads(out.bytes_entries["refkv_source/zarr.json"])
+    ir = doc["attributes"]["refkv_virtualized"]["tiff"]["ir"]
     assert ir["names"][0] == ""
     ir["names"][0] = "!"  # still sorted first
-    entries = dict(out.bytes_entries, **{"vzip_source/zarr.json": json.dumps(doc).encode()})
+    entries = dict(out.bytes_entries, **{"refkv_source/zarr.json": json.dumps(doc).encode()})
     loaded = _ir.Ir.from_archive(entries.get, lambda o, n: data[o:o + n])
     with pytest.raises(_ir.Violation, match=r'^the root \(element 0\) is named "!", not ""$'):
         loaded.check()

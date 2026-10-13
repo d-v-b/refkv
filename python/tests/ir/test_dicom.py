@@ -19,7 +19,7 @@ PROBES = ["dicom_big_private.dcm", "dicom_chain_bot.dcm", "dicom_chain_nobot.dcm
 
 
 def decides_as_today(path, tmp_path):
-    """The IR's output is the reference's outside vzip_source, or both reject; its mirror
+    """The IR's output is the reference's outside refkv_source, or both reject; its mirror
     rebuilds the file. The IR's output, or None when rejected."""
     data = path.read_bytes()
     url = f"https://data.test/{path.name}"

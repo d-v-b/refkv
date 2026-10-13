@@ -1063,7 +1063,7 @@ export const docKey = (path: string) => join(path, "zarr.json");
  */
 /** Declares the profile's convention (conventions §2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>). Each document's `attributes`
  * holds, until then, the attributes copied from the source; they move into the
- * property `vzip_virtualized` (as its member named after the profile), and the
+ * property `refkv_virtualized` (as its member named after the profile), and the
  * node's attributes are the member `ome` that `omes` gives for its path, if
  * any, and the convention's members. The root always declares the convention;
  * any other node only when it has copied attributes. */
@@ -1087,24 +1087,24 @@ export interface StoreResult {
   docs: Map<string, Json>;
   /** (key, size) of the chunk entries, sorted, sizes > 0. */
   chunks: [string, number][];
-  /** The source key of each entry whose key is not its object's (the objects under vzip_source/objects/). */
+  /** The source key of each entry whose key is not its object's (the objects under refkv_source/objects/). */
   origins?: Map<string, string>;
 }
 
-export const SOURCE_GROUP = "vzip_source";
-export const OBJECTS = "vzip_source/objects/";
+export const SOURCE_GROUP = "refkv_source";
+export const OBJECTS = "refkv_source/objects/";
 /**
  * The empty objects' keys under a root array (spec/virtualize/zarr2.md §5
  * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
  */
-export const EMPTY_KEY = "vzip_source/empty.json";
+export const EMPTY_KEY = "refkv_source/empty.json";
 // A last segment that a Zarr reader takes for a node's document, followed by any number of `~`.
 const NODE_NAME = /^(?:zarr\.json|\.zarray|\.zgroup)~*$/;
 
 /** The hierarchy's key of the other object `key` (spec/virtualize/zarr2.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
  * spec/virtualize/n5.md §6
  * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>):
- * `vzip_source/objects/<key>`, with `~` appended to a last
+ * `refkv_source/objects/<key>`, with `~` appended to a last
  * segment that is `zarr.json`, `.zarray` or `.zgroup` followed by any number of `~`, so
  * that no Zarr reader opens a node there, and the key maps back one to one. */
 export function objectKey(key: string): string {
@@ -1133,13 +1133,13 @@ export function sourceMetadata(
  * their own key, and those the convention leaves out), whole, at its `objectKey`, lists
  * the keys of the empty ones (empty chunk objects included) and the recorded `ignored`
  * keys (§1.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>), and
- * adds the group `vzip_source` when there is one
+ * adds the group `refkv_source` when there is one
  * (spec/virtualize/zarr2.md §5
  * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
  * spec/virtualize/n5.md §6
  * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>). Returns how
  * many objects
- * are kept. A hierarchy with a node at `vzip_source` or below it then rejects the input
+ * are kept. A hierarchy with a node at `refkv_source` or below it then rejects the input
  * (`nodes`: every node path). */
 export function keepObjects(
   result: StoreResult,
@@ -1163,7 +1163,7 @@ export function keepObjects(
         fail(`the node ${p} is where the store's other objects go (${OBJECTS}...)`);
       }
     }
-    // The keys of empty and ignored objects are the source metadata of vzip_source.
+    // The keys of empty and ignored objects are the source metadata of refkv_source.
     const profile = root.attributes[CONVENTION_KEY].profile as Profile;
     result.docs.set(docKey(SOURCE_GROUP), { zarr_format: 3, node_type: "group", attributes: declare({}, profile, undefined, own) as Json });
   } else if (own) {
@@ -1191,7 +1191,7 @@ export function storeArchive(url: string, { docs, chunks, origins }: StoreResult
     key, ranges: [{ source: i, offset: 0n, length: BigInt(size) }],
   }));
   for (const [key, doc] of docs) {
-    // vzip_source's documents (the empty objects' keys) are read only when asked for: compressed.
+    // refkv_source's documents (the empty objects' keys) are read only when asked for: compressed.
     const compress = key.startsWith(SOURCE_GROUP + "/");
     entries.push({ key, bytes: utf8.encode(stringifyJson(doc)), ...(compress ? { compress } : {}) });
   }

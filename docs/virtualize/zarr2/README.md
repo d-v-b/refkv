@@ -33,16 +33,16 @@ array.
 - **Chunk keys:** the `v2` encoding with the array's own separator (`.` or
   `/`), so the keys are unchanged.
 - **Attributes:** each node's `.zattrs`, whole and unchanged, under
-  `vzip_virtualized.zarr2.attributes` on the node, including OME-NGFF 0.4
+  `refkv_virtualized.zarr2.attributes` on the node, including OME-NGFF 0.4
   metadata of groups below the store's root and xarray's
   `_ARRAY_DIMENSIONS` (Zarr v2 has no dimension names). They are not mixed
   into the node's own attributes, so they cannot collide with Zarr v3
   conventions or be read as OME-NGFF 0.5. Members of `.zgroup` or `.zarray`
   that the `zarr.json` does not reproduce are under
-  `vzip_virtualized.zarr2.metadata`.
+  `refkv_virtualized.zarr2.metadata`.
 - **Other objects:** any object of the store that is neither a document nor
   a chunk (a README, `.zmetadata`) is kept whole, referenced in place, under
-  `vzip_source/objects/`.
+  `refkv_source/objects/`.
 
 A store whose **root** declares OME-NGFF 0.4 is migrated to OME-Zarr 0.5
 instead; see [ome-zarr](../ome-zarr/README.md).
@@ -64,7 +64,7 @@ uv run python -m vzip.virtualize https://janelia-cosem-datasets.s3.amazonaws.com
 
 This took about 1 s and wrote a 3.6 KB archive, at spec/virtualize.md revision 16
 ([overview](../README.md#formats)). (`otherObjects`, the objects kept under
-`vzip_source/objects/`, is new since then; it is 0 here, as the store's 25
+`refkv_source/objects/`, is new since then; it is 0 here, as the store's 25
 objects are its `.zarray` and 24 chunks.) The store's root is an
 array, so open it as one:
 
@@ -102,7 +102,7 @@ reads the `v2` chunk key encoding and the `transpose`, `bytes`, `zlib`,
 `int32`, `uint64` and `float32` data. It has no `bool`, `float16`, `int64`
 or `float64` data type, so arrays of those types cannot be shown there. The
 demo page needs an OME-Zarr image; groups with OME-NGFF 0.4 metadata below
-the root keep it only under `vzip_virtualized`, where an OME-NGFF reader does
+the root keep it only under `refkv_virtualized`, where an OME-NGFF reader does
 not look, so they are not shown as images. (A store whose root is OME-NGFF
 0.4 is migrated instead: see [ome-zarr](../ome-zarr/README.md).)
 
@@ -134,7 +134,7 @@ Notes:
   [N5 page](../n5/README.md#supported-and-not-supported) for the rule.
 - Consolidated metadata (`.zmetadata`) is never read: nodes come from the
   listing, so stale consolidated metadata cannot change the output. It is
-  kept, like any other object, under `vzip_source/objects/`.
+  kept, like any other object, under `refkv_source/objects/`.
 
 ## Performance
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
-import { ImageError } from "../../src/virtualize/common.ts";
+import { ImageError } from "../../../conformance/virtualize/reference/ts/legacy.ts";
 import { virtualizeImage } from "../../../conformance/virtualize/reference/ts/index.ts";
 import { NiftiError } from "../../../conformance/virtualize/reference/ts/nifti/virtualize.ts";
 

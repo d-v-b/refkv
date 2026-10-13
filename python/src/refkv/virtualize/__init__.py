@@ -4,7 +4,7 @@ TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and IMS files, Sentinel-2 SAFE prod
 (spec/virtualize/safe.md: a `.SAFE.zip` file, or a `.SAFE` directory, a store input), and
 Zarr v2, N5 and OME-Zarr stores go through the IR (`refkv.ir`): the Rust core's sans-IO parser
 of the format, driven by its read planner (a file) or by the store's reads (`refkv.ir.store`),
-projected to the convention's hierarchy and mirrored under `vzip_source` by the Rust core,
+projected to the convention's hierarchy and mirrored under `refkv_source` by the Rust core,
 whose TIFF parser finds NDPI itself (spec/virtualize/ndpi.md §4
 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), and whose
 Zarr v2 parser decides between Zarr v2 (spec/virtualize/zarr2.md) and OME-Zarr 0.4

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { directoryStore } from "../../conformance/directory_store.ts";
 import { virtualizeStore } from "../../../conformance/virtualize/reference/ts/index.ts";
 import { N5Error } from "../../../conformance/virtualize/reference/ts/n5/virtualize.ts";
-import { StoreError } from "../../src/virtualize/store.ts";
+import { StoreError } from "../../../conformance/virtualize/reference/ts/legacy.ts";
 
 const FIXTURES = fileURLToPath(new URL("../../../fixtures/n5/", import.meta.url));
 const URL_OF = (name: string) => `https://data.test/n5/${name}/`;
@@ -126,7 +126,7 @@ for (const [name, message] of [
   ["n5_reject_no_compression", /no compression/],
   ["n5_reject_gzip_level", /gzip level 10/],
   ["n5_reject_zstd_level", /zstd level 2.5/],
-  ["n5_reject_objects_collision", /the node vzip_source is where/],
+  ["n5_reject_objects_collision", /the node refkv_source is where/],
 ] as const) {
   test(`rejects ${name}`, async () => {
     await assert.rejects(virtualize(name), (e) => e instanceof N5Error && message.test(e.message));

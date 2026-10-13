@@ -13,8 +13,8 @@
 
 import fs from "node:fs";
 import { openHttpFile } from "../../../../js/src/http.ts";
-import { blockReader } from "../../../../js/src/virtualize/common.ts";
-import { openHttpStore } from "../../../../js/src/virtualize/store.ts";
+import { blockReader } from "./legacy.ts";
+import { openHttpStore } from "./legacy.ts";
 import { writeVzip } from "../../../../js/src/writer.ts";
 import { isStoreUrl, virtualizeImage, virtualizeStore } from "./index.ts";
 

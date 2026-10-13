@@ -135,14 +135,14 @@ def test_an_unknown_store_format_is_refused():
         _ir.StoreRun("no-such-format", [("attributes.json", 2)], 4)
 
 
-def test_the_ignored_keys_are_vzip_source_s_member_ignored():
+def test_the_ignored_keys_are_refkv_source_s_member_ignored():
     """The listed keys the store reader ignores and records (spec/virtualize.md §1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>) are the member
-    `ignored` of vzip_source's source metadata, beside `ir`, in the order of their UTF-8 bytes."""
+    `ignored` of refkv_source's source metadata, beside `ir`, in the order of their UTF-8 bytes."""
     root = FIXTURES / "zarr2" / "zarr2_hierarchy"
     s3 = FakeS3({**directory(root), "z//y": b"1", "./x": b"2", "é/../w": b"3"})
     out, _, _ = virtualize_store(URL, opener=s3, workers=2)
-    own = json.loads(out.entries["vzip_source/zarr.json"])["attributes"]["vzip_virtualized"]["zarr2"]
+    own = json.loads(out.entries["refkv_source/zarr.json"])["attributes"]["refkv_virtualized"]["zarr2"]
     assert set(own) == {"ir", "ignored"}
     assert own["ignored"] == sorted(["z//y", "./x", "é/../w"], key=str.encode)
 

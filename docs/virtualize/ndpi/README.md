@@ -19,7 +19,7 @@ pixels wide. vzip cuts each strip into chunks of about 1024 × 1024 pixels at
 the JPEG restart markers the scanner wrote, and makes every chunk a complete
 JPEG stream out of byte ranges of the file and the strip's shared header. The
 198 MB CMU-1.ndpi became a 5.5 MB archive in about 15 s (at spec/virtualize.md
-revision 16, before the archive kept every tag on `vzip_source`).
+revision 16, before the archive kept every tag on `refkv_source`).
 
 ## What you get
 
@@ -41,9 +41,9 @@ One OME-Zarr 0.5 image at the archive root, with one array per level.
 - **Scale:** from the TIFF resolution tags, in micrometers, when they give a
   pixel under 25.4 µm.
 - **Translation:** from the slide-center offsets the scanner records.
-- **Metadata:** the file's IR mirror on `vzip_source` (since revision 26):
+- **Metadata:** the file's IR mirror on `refkv_source` (since revision 26):
   every IFD, tag, high word and strip, from which the file is rebuilt byte
-  for byte, shown as JSON under `vzip_source/tree`; the root holds none.
+  for byte, shown as JSON under `refkv_source/tree`; the root holds none.
 
 ## Try it
 
@@ -160,7 +160,7 @@ requests.
 inputs to reject) with the browser code, reads every level back through `python/src/refkv`
 and zarr-python, compares the pixels with tifffile, and rebuilds each file
 from its mirror. `compare.py` checks that the Python and browser outputs are
-the same, and equivalent to the frozen reference's outside `vzip_source`, on
+the same, and equivalent to the frozen reference's outside `refkv_source`, on
 those files and on the 3 NDPI slides of
 [corpus_tiff.txt](../../../conformance/virtualize/corpus_tiff.txt), among
 them the 6.9 GB Hamamatsu-1.ndpi.

@@ -9,7 +9,7 @@ import struct
 import zlib
 from dataclasses import dataclass
 
-from refkv.virtualize.common import Reader, Rejected
+from refkv_reference.legacy import Reader, Rejected
 
 EOCD, ZIP64_LOCATOR, ZIP64_EOCD = b"PK\x05\x06", b"PK\x06\x07", b"PK\x06\x06"
 CENTRAL, LOCAL = b"PK\x01\x02", b"PK\x03\x04"

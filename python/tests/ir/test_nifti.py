@@ -137,7 +137,7 @@ def test_integers_past_2_53_are_text_in_the_root(tmp_path):
     path = tmp_path / "m.nii"
     path.write_bytes(bytes(h) + bytes(4) + bytes(8))
     _, out, _ = via_ir(str(path), "https://data.test/m.nii")
-    header = json.loads(out.bytes_entries["zarr.json"])["attributes"]["vzip_virtualized"]["nifti"]["header"]
+    header = json.loads(out.bytes_entries["zarr.json"])["attributes"]["refkv_virtualized"]["nifti"]["header"]
     assert header["dim"][4:] == [2**53 - 1, -(2**53 - 1), str(2**53), str(-(1 << 63))]
     assert (header["slice_start"], header["slice_end"]) == (str(-(2**53)), str(2**63 - 1))
     _, ref = virtualize(str(path), "https://data.test/m.nii")
@@ -172,7 +172,7 @@ def test_more_than_2_22_chunks_are_cut_as_the_reference_cuts_them(tmp_path, monk
     (spec/virtualize/nifti.md §4.1
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#41-the-array>). The IR
     cuts them all, as the frozen reference does: the archives are equivalent outside
-    vzip_source."""
+    refkv_source."""
     from pathlib import Path
 
     monkeypatch.syspath_prepend(str(Path(__file__).parents[3] / "conformance" / "virtualize"))

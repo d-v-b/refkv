@@ -2,7 +2,7 @@
 // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>): the ZIP
 // archive's end records, its central directory, its local headers, and its deflated XML documents.
 
-import type { ByteReader } from "../../../../../js/src/virtualize/common.ts";
+import type { ByteReader } from "../legacy.ts";
 import { crc32 } from "../../../../../js/src/deflate.ts";
 import { SafeError } from "./product.ts";
 

@@ -5,7 +5,7 @@ import {
   base64, blobChunks, type ByteReader, declare, emitPlans, familyPlans, jsonNumber, type Plan, planEntries, type Profile,
   rowChunks,
   SOURCE_NODE, textJson, stringifyJson,
-} from "../../../../../js/src/virtualize/common.ts";
+} from "../legacy.ts";
 
 // Bytes per value of each TIFF 6.0 and BigTIFF field type.
 export const SIZES: Record<number, number> = {

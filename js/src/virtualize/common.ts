@@ -183,7 +183,7 @@ export function toRange(p: Part): Range {
  * The key of the virtualization convention's property (conventions §2
  * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>).
  */
-export const CONVENTION_KEY = "vzip_virtualized";
+export const CONVENTION_KEY = "refkv_virtualized";
 
 export type Profile = "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "n5" | "zarr2" | "ome-zarr" | "safe" | "czi";
 
@@ -192,7 +192,7 @@ export type Profile = "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "n5"
  * convention is at version 0 and the root property records it (conventions §1
  * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>, §2
  * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>). */
-export const REVISION = 26;
+export const REVISION = 27;
 export const PROFILES: Record<Profile, [uuid: string, version: number, title: string]> = {
   tiff: ["48e9ac4e-1156-4a62-955e-20467d9c2700", 0, "TIFF"],
   ndpi: ["6cac71ef-dbb2-4acd-b60c-00389aa4238a", 0, "NDPI"],
@@ -217,10 +217,10 @@ export function convention(profile: Profile): { [k: string]: string } {
   const [ref, blob] = version === 0 ? ["heads/main", "main"] : [`tags/${tag}`, tag];
   return {
     uuid,
-    schema_url: `https://raw.githubusercontent.com/d-v-b/vzip/refs/${ref}/spec/virtualize/${profile}/schema.json`,
-    spec_url: `https://github.com/d-v-b/vzip/blob/${blob}/spec/virtualize/${profile}.md`,
+    schema_url: `https://raw.githubusercontent.com/d-v-b/refkv/refs/${ref}/spec/virtualize/${profile}/schema.json`,
+    spec_url: `https://github.com/d-v-b/refkv/blob/${blob}/spec/virtualize/${profile}.md`,
     name: CONVENTION_KEY,
-    description: `The Zarr layout of a ${title} source virtualized by vzip, and the source's metadata`,
+    description: `The Zarr layout of a ${title} source virtualized by refkv, and the source's metadata`,
   };
 }
 
@@ -236,7 +236,7 @@ export function rootProperty(profile: Profile, url: string, revision = REVISION)
  * define (such as `ome`), and the profile's convention when the node is the
  * root (`url`, the source URL, is given) or has source-specific metadata
  * (`own` is a nonempty object): its metadata object in `zarr_conventions`,
- * and the property `vzip_virtualized`, which holds `own` as its member named
+ * and the property `refkv_virtualized`, which holds `own` as its member named
  * after the profile. */
 export function declare(
   attributes: { [k: string]: unknown },
@@ -332,13 +332,13 @@ export function base64(b: Uint8Array): string {
 // ---- the source metadata node (spec/conventions.md §2
 // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>)
 
-export const SOURCE_NODE = "vzip_source";
+export const SOURCE_NODE = "refkv_source";
 export const MAX_PAYLOAD_BYTES = 65519;
 const MAX_CHUNK = 2 ** 24; // the largest chunk of a metadata array of bytes
 
 /** An array of the source metadata node. */
 export interface Plan {
-  path: string; // under vzip_source
+  path: string; // under refkv_source
   dataType: string;
   shape: number[];
   chunkShape: number[];

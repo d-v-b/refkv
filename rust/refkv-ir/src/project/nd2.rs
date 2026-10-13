@@ -12,7 +12,7 @@ use crate::types::{self, Ty, Val};
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-/// A decoded chunk with more JSON than this is on vzip_source.
+/// A decoded chunk with more JSON than this is on refkv_source.
 const MAX_ROOT_JSON: usize = 1 << 14;
 /// The most JSON of the root's chunks.
 const MAX_ROOT_TOTAL: usize = 1 << 16;
@@ -240,7 +240,7 @@ fn root_chunks(ir: &Ir, decoded: &[J]) -> Result<J, String> {
         let name: Vec<u8> = arr(&d[0]).iter().map(|c| n(c) as u8).collect();
         let (e, spent) = (n(&d[1]) as u32, n(&d[2]) as usize);
         if frame_scaled(&name) || spent > MAX_ROOT_JSON {
-            // bound for vzip_source: each LV record and array byte is at least a byte of JSON
+            // bound for refkv_source: each LV record and array byte is at least a byte of JSON
             values.push(J::Null);
             sizes.push(MAX_ROOT_JSON + 1);
         } else {

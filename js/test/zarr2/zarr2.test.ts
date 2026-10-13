@@ -3,8 +3,8 @@ import fs from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { directoryStore } from "../../conformance/directory_store.ts";
-import { declare } from "../../src/virtualize/common.ts";
-import { StoreError } from "../../src/virtualize/store.ts";
+import { declare } from "../../../conformance/virtualize/reference/ts/legacy.ts";
+import { StoreError } from "../../../conformance/virtualize/reference/ts/legacy.ts";
 // the frozen TypeScript twin (revision 25): the shipped code virtualizes Zarr v2 stores with the
 // Rust core (test/ir/zarr2.test.ts)
 import { virtualizeStore } from "../../../conformance/virtualize/reference/ts/index.ts";
@@ -135,7 +135,7 @@ for (const [name, message] of [
   ["zarr2_reject_gzip_level", /gzip level "1"/],
   ["zarr2_reject_zstd_level", /zstd level 23/],
   ["zarr2_reject_zstd_checksum", /zstd checksum 1/],
-  ["zarr2_reject_objects_collision", /the node vzip_source is where/],
+  ["zarr2_reject_objects_collision", /the node refkv_source is where/],
 ] as const) {
   test(`rejects ${name}`, async () => {
     await assert.rejects(virtualize(name), (e) => e instanceof Zarr2Error && message.test(e.message));

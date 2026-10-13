@@ -9,7 +9,7 @@
 // data sources, since every chunk shares it), a literal frame header for the
 // chunk's size, and a × b restart intervals.
 
-import { base64, type ByteReader, DataSources, declare, MAX_PAYLOAD, type Part, payloadSize, toRange, stringifyJson } from "../../../../../js/src/virtualize/common.ts";
+import { base64, type ByteReader, DataSources, declare, MAX_PAYLOAD, type Part, payloadSize, toRange, stringifyJson } from "../legacy.ts";
 import { TiffError } from "../tiff/ifd.ts";
 import { type Entry, type Found, LAYOUT, Translator } from "../tiff/tags.ts";
 import type { ArchiveDesc, EntryDesc } from "../../../../../js/src/writer.ts";

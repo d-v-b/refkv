@@ -102,7 +102,7 @@ async function main() {
   const t0 = performance.now();
   const root = await getJson(`${zarrUrl}zarr.json`);
   const attrs = root.attributes ?? {};
-  const decl = attrs.vzip_virtualized;
+  const decl = attrs.refkv_virtualized;
   if (decl?.profile !== "safe") throw new Error("not a virtualized Sentinel-2 SAFE product");
   const safe = decl.safe ?? {};
   $("name").textContent = safe.PRODUCT_URI ?? url;
@@ -120,7 +120,7 @@ async function main() {
   // each band at one resolution only, and no multiscales.
   const multiscale = Array.isArray(attrs.multiscales?.layout);
   const radiometry = async (band: string): Promise<Radiometry> => {
-    const s = (await getJson(`${zarrUrl}r10m/${band}/zarr.json`)).attributes?.vzip_virtualized?.safe ?? {};
+    const s = (await getJson(`${zarrUrl}r10m/${band}/zarr.json`)).attributes?.refkv_virtualized?.safe ?? {};
     // Offsets exist from processing baseline 04.00; they are not applied to
     // the arrays (§6.2
     // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#62-band-arrays>), so the

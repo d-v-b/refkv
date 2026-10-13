@@ -16,7 +16,7 @@ refkv.zarr and zarr-python (with refkv.zarr.codecs' imagecodecs_jpeg2k), and:
 - the product must be rebuilt from the hierarchy (spec/virtualize/safe.md
   §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#64-reconstruction>): a
   zip file byte for byte from its IR mirror; a directory's held XML documents
-  from its mirror alone, every other object from `vzip_source/objects/`, the
+  from its mirror alone, every other object from `refkv_source/objects/`, the
   empty objects from their keys, and every band file, described in place,
   from its own source up to its codestream; and, in both forms, every band
   file's codestream from its `siz` and its chunks, byte for byte, with
@@ -135,7 +135,7 @@ def check_bands(out: Path, docs: dict, read_band, only: list[str] | None = None)
         arrays = [a for a in arrays if a in only or a.split("/")[0] in only]
     for path in arrays:
         group = docs[path.split("/")[0] + "/zarr.json"]["attributes"]
-        s = docs[f"{path}/zarr.json"]["attributes"]["vzip_virtualized"]["safe"]
+        s = docs[f"{path}/zarr.json"]["attributes"]["refkv_virtualized"]["safe"]
         want, transform, crs, w, h = read_band(s["IMAGE_FILE"] + ".jp2")
         got = zarr.open_array(vz, path=path, mode="r", zarr_format=3)[...]
         if got.ndim == 2:
@@ -171,7 +171,7 @@ def band_codestreams(out: Path, docs: dict, bands_only: list[str] | None = None)
         path = k[: -len("/zarr.json")]
         if bands_only is not None and path not in bands_only and path.split("/")[0] not in bands_only:
             continue
-        band = d["attributes"]["vzip_virtualized"]["safe"]
+        band = d["attributes"]["refkv_virtualized"]["safe"]
         siz = base64.b64decode(band["siz"])
         chunk_keys = sorted((n for n in names if n.startswith(path + "/c/")),
                             key=lambda n: tuple(int(x) for x in n.split("/c/")[1].split("/")))
@@ -206,7 +206,7 @@ def rebuild_store(out: Path, docs: dict, read) -> dict[str, bytes]:
     """The directory form's objects, rebuilt from the hierarchy (spec/virtualize/safe.md §6.4
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#64-reconstruction>): the
     held ones from the mirror alone, the empty ones from their keys, the others from
-    `vzip_source/objects/`, and each band file, described in place, from its own source
+    `refkv_source/objects/`, and each band file, described in place, from its own source
     (`read(key, offset, length)`) up to its codestream, then its codestream from its chunks.
     The folder markers are not rebuilt."""
     from refkv import _ir
@@ -214,10 +214,10 @@ def rebuild_store(out: Path, docs: dict, read) -> dict[str, bytes]:
     vz = refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES)
     files: dict[str, bytes] = {}
     objects = _ir.rebuild_store(_get(out))
-    kept = [n for n in zipfile.ZipFile(out).namelist() if n.startswith("vzip_source/objects/")]
+    kept = [n for n in zipfile.ZipFile(out).namelist() if n.startswith("refkv_source/objects/")]
     whole = {}
     for n, data in zip(kept, get_all(vz, kept)):
-        key = n.removeprefix("vzip_source/objects/")
+        key = n.removeprefix("refkv_source/objects/")
         whole[key[:-1] if ESCAPED.match(key.rpartition("/")[2]) else key] = data
     bands = band_codestreams(out, docs)
     for key, size, data in objects:
@@ -285,7 +285,7 @@ def check_rebuild(item: Path, product: dict[str, bytes], out: Path, docs: dict, 
     problems += [f"{k}: not rebuilt" for k in sorted(set(want) - set(files))]
     problems += [f"{k}: rebuilt, but not in the product" for k in sorted(set(files) - set(want))]
     problems += [f"{k}: rebuilt with other bytes" for k in sorted(set(want) & set(files)) if want[k] != files[k]]
-    empty = docs["vzip_source/zarr.json"]["attributes"]["vzip_virtualized"]["safe"].get("empty_dirs", [])
+    empty = docs["refkv_source/zarr.json"]["attributes"]["refkv_virtualized"]["safe"].get("empty_dirs", [])
     kept = parents(files) | set(empty) | parents(empty)
     problems += [f"{d}/: a directory not rebuilt" for d in sorted(dirs - kept)]
     problems += [f"{d}/: rebuilt as an empty directory, but not one of the product" for d in empty
@@ -328,7 +328,7 @@ def sentinel2(url: str, docs: dict, out: Path, groups: list[str]) -> list[str]:
     """The bands of GDAL's SENTINEL2 driver at the groups' resolutions against the arrays, and
     its band metadata against the band arrays' source metadata."""
     problems = []
-    s = docs["zarr.json"]["attributes"]["vzip_virtualized"]["safe"]
+    s = docs["zarr.json"]["attributes"]["refkv_virtualized"]["safe"]
     level = "L2A" if s.get("PROCESSING_LEVEL", "").startswith("Level-2A") else "L1C"  # Level-2Ap: PSD 14.2
     code = docs["zarr.json"]["attributes"]["proj:code"].replace(":", "_")
     vz = refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES)
@@ -351,7 +351,7 @@ def sentinel2(url: str, docs: dict, out: Path, groups: list[str]) -> list[str]:
                 got = zarr.open_array(vz, path=array, mode="r", zarr_format=3)[...]
                 if got.shape != want.shape or not np.array_equal(got, want):
                     problems.append(f"SENTINEL2 {array}: differs ({got.shape} vs {want.shape})")
-                band = docs[f"{array}/zarr.json"]["attributes"]["vzip_virtualized"]["safe"]
+                band = docs[f"{array}/zarr.json"]["attributes"]["refkv_virtualized"]["safe"]
                 for tag, member in (("SOLAR_IRRADIANCE", "SOLAR_IRRADIANCE"), ("BOA_ADD_OFFSET", "BOA_ADD_OFFSET"),
                                     ("RADIO_ADD_OFFSET", "RADIO_ADD_OFFSET")):
                     if tag in tags and member in band:
@@ -406,7 +406,7 @@ def described_keys(out: Path, docs: dict, url: str) -> set[str]:
     covers whole (its leaves partition the file), read from its central directory."""
     from refkv import _ir
 
-    desc = docs["vzip_source/zarr.json"]["attributes"]["vzip_virtualized"]["safe"]["ir"]
+    desc = docs["refkv_source/zarr.json"]["attributes"]["refkv_virtualized"]["safe"]["ir"]
     if "objects" in desc:
         return {k for k, _, _ in _ir.rebuild_store(_get(out))}
     return set(zip_entries(url)[1])
@@ -425,7 +425,7 @@ def check_dirs(url: str, out: Path, docs: dict) -> list[str]:
 
         read, size = http_reader(url)
         dirs = {k[:-1] for k in zipdir.product_entries(zipdir.central_directory(read, size))[3]}
-    empty = docs["vzip_source/zarr.json"]["attributes"]["vzip_virtualized"]["safe"].get("empty_dirs", [])
+    empty = docs["refkv_source/zarr.json"]["attributes"]["refkv_virtualized"]["safe"].get("empty_dirs", [])
     kept = parents(described_keys(out, docs, url)) | set(empty) | parents(empty)
     return [f"{d}/: a directory not rebuilt" for d in sorted(dirs - kept)]
 

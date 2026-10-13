@@ -33,7 +33,7 @@ use std::fmt::Write;
 /// The bytes of the source's ranges a projection copies into the archive, by (offset, length).
 pub type Copied = std::collections::HashMap<(u64, u64), Vec<u8>>;
 
-/// The image projection of `format`: today's hierarchy, without `vzip_source`. `copied`
+/// The image projection of `format`: today's hierarchy, without `refkv_source`. `copied`
 /// holds the bytes of the ranges `reads` gives.
 pub fn project(format: Format, ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
     match format {

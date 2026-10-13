@@ -77,7 +77,7 @@ class Output:
     data: dict[bytes, int] = field(default_factory=dict)
     # The documents under these prefixes are read only when asked for, like chunks:
     # those of the source metadata node, and of nodes a profile has one of per tile.
-    lazy: tuple[str, ...] = ("vzip_source/",)
+    lazy: tuple[str, ...] = ("refkv_source/",)
     # Source 0's pins (§1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>),
     # and the CRC-32C of a url source's bytes, when the
     # ranges are to carry checksums (spec/refkv.md §4.2
@@ -188,14 +188,14 @@ def reference_store(refs, entries, sources: list[Source], *, checksum=None,
 
 
 MAX_PAYLOAD = 65519
-SOURCE_NODE = "vzip_source"  # the source metadata node (spec/conventions.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>)
+SOURCE_NODE = "refkv_source"  # the source metadata node (spec/conventions.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>)
 
 
 @dataclass
 class Plan:
     """An array of the source metadata node (spec/conventions.md §7
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>)."""
-    path: str  # under vzip_source
+    path: str  # under refkv_source
     data_type: str
     shape: list[int]
     chunk_shape: list[int]
@@ -537,12 +537,12 @@ def group_json(ome: dict) -> dict:
 # The virtualization conventions (conventions §2
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>): one per profile, each
 # with its fixed UUID, its current version and its name in the description.
-CONVENTION_KEY = "vzip_virtualized"
+CONVENTION_KEY = "refkv_virtualized"
 # The revision of spec/virtualize.md this implementation follows. Until the release, every
 # convention is at version 0 and the root property records it (conventions §1
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>, §2
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>).
-REVISION = 26
+REVISION = 27
 PROFILES = {
     "tiff": ("48e9ac4e-1156-4a62-955e-20467d9c2700", 0, "TIFF"),
     "ndpi": ("6cac71ef-dbb2-4acd-b60c-00389aa4238a", 0, "NDPI"),
@@ -568,10 +568,10 @@ def convention(profile: str) -> dict:
     ref, blob = ("heads/main", "main") if version == 0 else (f"tags/virtualize-{profile}-v{version}",) * 2
     return {
         "uuid": uuid,
-        "schema_url": f"https://raw.githubusercontent.com/d-v-b/vzip/refs/{ref}/spec/virtualize/{profile}/schema.json",
-        "spec_url": f"https://github.com/d-v-b/vzip/blob/{blob}/spec/virtualize/{profile}.md",
+        "schema_url": f"https://raw.githubusercontent.com/d-v-b/refkv/refs/{ref}/spec/virtualize/{profile}/schema.json",
+        "spec_url": f"https://github.com/d-v-b/refkv/blob/{blob}/spec/virtualize/{profile}.md",
         "name": CONVENTION_KEY,
-        "description": f"The Zarr layout of a {title} source virtualized by vzip, and the source's metadata",
+        "description": f"The Zarr layout of a {title} source virtualized by refkv, and the source's metadata",
     }
 
 
@@ -593,7 +593,7 @@ def declare(attributes: dict, profile: str, url: str | None, own: dict | None = 
     define (such as `ome`), and the profile's convention when the node is the
     root (`url`, the source URL, is given) or has source-specific metadata
     (`own` is a nonempty object): its metadata object in `zarr_conventions`,
-    and the property `vzip_virtualized`, which holds `own` as its member
+    and the property `refkv_virtualized`, which holds `own` as its member
     named after the profile."""
     value: dict = {}
     if url is not None:

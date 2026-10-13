@@ -8,7 +8,7 @@ import re
 from collections.abc import Callable
 
 from refkv_reference.revision import IMS_REVISION
-from refkv.virtualize.common import LENGTHS, UNITS, Output, Reader, Rejected, array_json, root_json, image_ome
+from refkv_reference.legacy import LENGTHS, UNITS, Output, Reader, Rejected, array_json, root_json, image_ome
 from refkv_reference.ims.source import source_tree
 from refkv_reference.ims.hdf5 import MAX_SAFE, Hdf5, attribute_value, le
 

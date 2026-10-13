@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from refkv_reference.revision import REVISION
-from refkv.virtualize.common import (
+from refkv_reference.legacy import (
     SOURCE_NODE, Output, Reader, Rejected, array_json, declare, emit_plans, group_json, image_ome, metadata_group,
     root_json, transpose_codec,
 )

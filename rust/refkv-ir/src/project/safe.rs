@@ -5,7 +5,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#128-the-source-table>) of
 //! either form: the GeoZarr root and resolution groups, one array per band file whose chunks
 //! are its tiles as standalone codestreams, and, in the directory form, the other objects at
-//! `vzip_source/objects/<k>`. The facts hold what the parser read; the projection checks only
+//! `refkv_source/objects/<k>`. The facts hold what the parser read; the projection checks only
 //! the archive's own limits (reference payloads, output keys).
 
 use super::{arr, n};

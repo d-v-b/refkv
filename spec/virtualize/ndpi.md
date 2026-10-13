@@ -1,7 +1,7 @@
 # NDPI
 
 The Zarr layout of a Hamamatsu NDPI slide, and its source model: the
-elements of its IR, which `vzip_source` holds as the IR mirror. NDPI is a variant of TIFF; this convention builds on the
+elements of its IR, which `refkv_source` holds as the IR mirror. NDPI is a variant of TIFF; this convention builds on the
 [TIFF convention](tiff.md). What all of vzip's conventions share is
 in [spec/conventions.md](../conventions.md), cited here as "conventions §n".
 How vzip produces this layout as a reference store is the NDPI profile,
@@ -26,20 +26,20 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "ndpi"`, `"version": 0`, `"revision": 26` ([conventions §1](../conventions.md#1-conventions)) and the file's URL as `source.url`;
+with `"profile": "ndpi"`, `"version": 0`, `"revision": 27` ([conventions §1](../conventions.md#1-conventions)) and the file's URL as `source.url`;
 it has no source metadata member ([§5](#5-source-metadata)). Its CMO is:
 
 ```json
 {
   "uuid": "6cac71ef-dbb2-4acd-b60c-00389aa4238a",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/vzip/refs/heads/main/spec/virtualize/ndpi/schema.json",
-  "spec_url": "https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md",
-  "name": "vzip_virtualized",
-  "description": "The Zarr layout of a NDPI source virtualized by vzip, and the source's metadata"
+  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/virtualize/ndpi/schema.json",
+  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md",
+  "name": "refkv_virtualized",
+  "description": "The Zarr layout of a NDPI source virtualized by refkv, and the source's metadata"
 }
 ```
 
-`vzip_source` declares it too, with the IR mirror's description ([§5](#5-source-metadata),
+`refkv_source` declares it too, with the IR mirror's description ([§5](#5-source-metadata),
 [conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
 the mirror's view that has a member; the mirror's arrays have no
 attributes.
@@ -125,9 +125,9 @@ own size, its intervals, and restart markers and an EOI of its own, so:
 ## 5. Source metadata
 
 The root has no source metadata member. Everything else the file holds is on
-`vzip_source`, which is the file's **IR mirror**
+`refkv_source`, which is the file's **IR mirror**
 ([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `vzip_source/tree`. This
+file is rebuilt byte for byte, and its view, `refkv_source/tree`. This
 section is the NDPI **source model**: the elements of an NDPI's IR. It is the
 [TIFF source model](tiff.md#5-source-metadata) read in NDPI's layout. Nothing is
 left out, layout and dead space included (they are elements too, the dead
@@ -194,7 +194,7 @@ rest. Every high word is shown.
 The elements are determined by the file, and the mirror by its elements
 ([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding; NDPI has no
 named array rule): hierarchies of one file are compared entry for entry,
-`vzip_source` included ([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
+`refkv_source` included ([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
 
 ## 6. Example
 
@@ -206,14 +206,14 @@ two have McuStarts. The root's property:
 {
   "profile": "ndpi",
   "version": 0,
-  "revision": 26,
+  "revision": 27,
   "source": {
     "url": "https://example.org/slide.ndpi"
   }
 }
 ```
 
-`vzip_source` is the IR mirror ([§5](#5-source-metadata)). Its property:
+`refkv_source` is the IR mirror ([§5](#5-source-metadata)). Its property:
 
 ```json
 {
@@ -234,7 +234,7 @@ two have McuStarts. The root's property:
 }
 ```
 
-(abridged: four forms, one per strip shape). The view, `vzip_source/tree`,
+(abridged: four forms, one per strip shape). The view, `refkv_source/tree`,
 is the root's document, and begins:
 
 ```json

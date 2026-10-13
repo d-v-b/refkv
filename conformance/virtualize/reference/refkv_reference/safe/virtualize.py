@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable
 
-from refkv.virtualize.common import (
+from refkv_reference.legacy import (
     CONVENTION_KEY, MAX_PAYLOAD, PROFILES, Reader, root_property, Rejected, SOURCE_NODE, blob_chunks, convention, declare,
     json_base64, payload_size, text_json,
 )
@@ -20,7 +20,7 @@ from refkv_reference.safe.metadata import (
     band_metadata, choose_texts, group_attributes, root_geozarr, root_metadata,
 )
 from refkv_reference.safe.product import band_name, folders, is_xml, read_product, resolution
-from refkv.virtualize.store import Store, object_key, object_url
+from refkv_reference.legacy import Store, object_key, object_url
 
 PROFILE = "safe"
 WORKERS = 16

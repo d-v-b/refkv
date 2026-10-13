@@ -12,7 +12,7 @@ and fill value. Zero-size chunk objects have no entry (spec/virtualize.md §1.4
 so the reference reads a copy of the store without them (zarr-python fails on
 them); their keys are listed with the empty objects (the IR's mirror lists them as objects of size
 0, and rebuilds every document it holds, which must be the store's). Each object under
-`vzip_source/objects/` must read as the store's object at its unescaped key,
+`refkv_source/objects/` must read as the store's object at its unescaped key,
 none may open as a Zarr node, and the keys listed as empty must be exactly
 the store's empty objects, and none listed as ignored (spec/virtualize/zarr2.md §5
 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
@@ -64,7 +64,7 @@ NUMCODECS = {"blosc": {"id", "cname", "clevel", "shuffle", "blocksize"}, "zlib":
 def arrays_of(out: Path) -> list[str]:
     z = zipfile.ZipFile(out)
     return sorted(name[: -len("zarr.json")].rstrip("/") for name in z.namelist()
-                  if name.endswith("zarr.json") and not name.startswith("vzip_source/")  # the mirror's arrays
+                  if name.endswith("zarr.json") and not name.startswith("refkv_source/")  # the mirror's arrays
                   and json.loads(z.read(name)).get("node_type") == "array")
 
 
@@ -91,20 +91,20 @@ def objects_problems(store_dir: Path, out: Path) -> list[str]:
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
     spec/virtualize/n5.md §6
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>): each entry
-    under vzip_source/objects/ is its object, whose key
+    under refkv_source/objects/ is its object, whose key
     is the entry's with one ~ taken off an escaped last segment; no Zarr node opens there; and
     every key listed as empty is an object of size 0."""
     problems = []
     names = zipfile.ZipFile(out).namelist()
     vz = refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES)
-    kept = [n for n in names if n.startswith("vzip_source/objects/")]
+    kept = [n for n in names if n.startswith("refkv_source/objects/")]
 
     async def read_all():
         from zarr.core.buffer import default_buffer_prototype
         return [(await vz.get(n, default_buffer_prototype())).to_bytes() for n in kept]
 
     for name, data in zip(kept, asyncio.run(read_all())):
-        key = name.removeprefix("vzip_source/objects/")
+        key = name.removeprefix("refkv_source/objects/")
         last = key.rpartition("/")[2]
         if NODE_NAME.match(last):
             problems.append(f"{name}: a node document's name, not escaped")
@@ -119,11 +119,11 @@ def objects_problems(store_dir: Path, out: Path) -> list[str]:
             except Exception:  # noqa: BLE001 - not a node, as it should be
                 pass
     own = {}
-    if "vzip_source/zarr.json" in names:
-        attrs = json.loads(zipfile.ZipFile(out).read("vzip_source/zarr.json"))["attributes"].get("vzip_virtualized", {})
+    if "refkv_source/zarr.json" in names:
+        attrs = json.loads(zipfile.ZipFile(out).read("refkv_source/zarr.json"))["attributes"].get("refkv_virtualized", {})
         own = next(iter(attrs.values()), {})
-    if "vzip_source/empty.json" in names:
-        own = json.loads(zipfile.ZipFile(out).read("vzip_source/empty.json"))
+    if "refkv_source/empty.json" in names:
+        own = json.loads(zipfile.ZipFile(out).read("refkv_source/empty.json"))
     if isinstance(own, dict) and "ir" in own:
         # a store IR's mirror (spec/virtualize/zarr2.md §4.1
         # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#41-elements>): it lists

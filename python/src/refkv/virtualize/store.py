@@ -999,9 +999,9 @@ def find_chunks(objects: dict[str, int], arrays: dict[str, Callable[[str], bool]
 
 
 GROUP_IMPLICIT = {"zarr_format": 3, "node_type": "group", "attributes": {}}
-SOURCE_GROUP = "vzip_source"
-OBJECTS = "vzip_source/objects/"
-EMPTY_KEY = "vzip_source/empty.json"  # the empty objects' keys under a root array (spec/virtualize/zarr2.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>)
+SOURCE_GROUP = "refkv_source"
+OBJECTS = "refkv_source/objects/"
+EMPTY_KEY = "refkv_source/empty.json"  # the empty objects' keys under a root array (spec/virtualize/zarr2.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>)
 # A last segment that a Zarr reader takes for a node's document, followed by any number of `~`.
 _NODE_NAME = re.compile(r"(?:zarr\.json|\.zarray|\.zgroup)~*\Z")
 
@@ -1011,7 +1011,7 @@ def object_key(key: str) -> str:
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
     spec/virtualize/n5.md §6
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>):
-    `vzip_source/objects/<key>`, with `~` appended to a last
+    `refkv_source/objects/<key>`, with `~` appended to a last
     segment that is `zarr.json`, `.zarray` or `.zgroup` followed by any number of `~`, so
     that no Zarr reader opens a node there, and the key maps back one to one."""
     return OBJECTS + key + ("~" if _NODE_NAME.match(key.rpartition("/")[2]) else "")
@@ -1049,7 +1049,7 @@ class StoreOutput:
     docs: dict[str, object] = field(default_factory=dict)
     chunks: list[tuple[str, int]] = field(default_factory=list)  # (key, size), sorted, size > 0
     summary: dict = field(default_factory=dict)
-    # The source key of each entry whose key is not its object's (the objects under vzip_source/objects/).
+    # The source key of each entry whose key is not its object's (the objects under refkv_source/objects/).
     origins: dict[str, str] = field(default_factory=dict)
     # The CRC-32C of a url source's bytes, when the references are to carry
     # checksums (spec/refkv.md §4.2
@@ -1061,7 +1061,7 @@ class StoreOutput:
         """Declares the profile's convention (conventions §2
         <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>). Each document's
         `attributes` holds, until then, the attributes copied from the source;
-        they move into the property `vzip_virtualized` (as its member named
+        they move into the property `refkv_virtualized` (as its member named
         after the profile), and the node's attributes are the member `ome` that
         `omes` gives for its path, if any, and the convention's members. The
         root always declares the convention; any other node only when it has
@@ -1088,12 +1088,12 @@ class StoreOutput:
         included) and the recorded `ignored` keys (§1.4
         <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>), and adds the
         group
-        `vzip_source` when there is one (spec/virtualize/zarr2.md §5
+        `refkv_source` when there is one (spec/virtualize/zarr2.md §5
         <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
         spec/virtualize/n5.md §6
         <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>). Returns
         how many objects are kept. A hierarchy with a
-        node at `vzip_source` or below it then rejects the input (`nodes`: every node path)."""
+        node at `refkv_source` or below it then rejects the input (`nodes`: every node path)."""
         empty = sorted(k for k, n in objects.items() if n == 0 and k not in used)
         kept = [(k, n) for k, n in objects.items() if n > 0 and k not in used]
         ignored = sorted(ignored)
@@ -1104,7 +1104,7 @@ class StoreOutput:
             for p in nodes:
                 if p == SOURCE_GROUP or p.startswith(SOURCE_GROUP + "/"):
                     raise Rejected(f"the node {p} is where the store's other objects go ({OBJECTS}...)")
-            # The keys of empty and ignored objects are the source metadata of vzip_source.
+            # The keys of empty and ignored objects are the source metadata of refkv_source.
             profile = self.docs[doc_key("")]["attributes"][CONVENTION_KEY]["profile"]
             self.docs[doc_key(SOURCE_GROUP)] = dict(GROUP_IMPLICIT, attributes=declare({}, profile, None, own))
         elif own:
@@ -1135,7 +1135,7 @@ class StoreOutput:
                 # The empty objects' keys are UTF-8, as JSON.stringify writes them (the documents
                 # may hold strings that are not, and are escaped).
                 data = json.dumps(self.docs[key], separators=(",", ":"), ensure_ascii=key != EMPTY_KEY).encode()
-                # The hierarchy's documents are read when the archive opens; those of vzip_source
+                # The hierarchy's documents are read when the archive opens; those of refkv_source
                 # (the empty objects' keys), like chunks, only when asked for.
                 source = key.startswith(SOURCE_GROUP + "/")
                 w.add_bytes(key, data, compress=source, late=not source)

@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import re
 
-from refkv.virtualize.common import json_number
+from refkv_reference.legacy import json_number
 from refkv_reference.safe.product import DECIMAL, Element, Geocoding, Product, attr, kids, path, text
 
 MAX_SAFE = 2**53 - 1

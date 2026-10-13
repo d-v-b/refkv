@@ -262,7 +262,7 @@ def blocks_and_regions() -> None:
     patched("nifti_region_chain_tail", b"\1\0\0\0" + ext(6, b"abcdefg") + b"XYZW")
     # A chain, then 16 zero bytes: padding.
     patched("nifti_region_chain_zero_pad", b"\1\0\0\0" + ext(6, b"abcdefg") + bytes(16))
-    # 400 small binary extensions: over the root's budget, so on vzip_source.
+    # 400 small binary extensions: over the root's budget, so on refkv_source.
     patched("nifti_region_extensions_moved",
             b"\1\0\0\0" + b"".join(ext(40, struct.pack("<4i", i, -i, 3 * i, 7)) for i in range(400)))
     # A comment of 70000 bytes, over the limit of a text value, and one of 64 KiB, at it.

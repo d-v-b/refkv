@@ -9,7 +9,7 @@ import json
 import struct
 import zlib
 
-from refkv.virtualize.common import (
+from refkv_reference.legacy import (
     MAX_CHUNK, RAGGED_CHUNK, SOURCE_NODE, Output, Plan, Reader, Rejected, declare, decode_text, family_plans, grid_chunks,
     json_base64, json_number, json_text, metadata_array, metadata_group, text_json,
 )

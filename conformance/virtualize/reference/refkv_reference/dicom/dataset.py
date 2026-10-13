@@ -7,7 +7,7 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass
 
-from refkv.virtualize.common import Reader, Rejected
+from refkv_reference.legacy import Reader, Rejected
 
 LONG_VRS = {"OB", "OD", "OF", "OL", "OV", "OW", "SQ", "SV", "UC", "UN", "UR", "UT", "UV"}
 VRS = LONG_VRS | {"AE", "AS", "AT", "CS", "DA", "DS", "DT", "FD", "FL", "IS", "LO", "LT", "PN", "SH", "SL",

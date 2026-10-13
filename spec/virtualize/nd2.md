@@ -25,20 +25,20 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "nd2"`, `"version": 0`, `"revision": 26` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`, and
+with `"profile": "nd2"`, `"version": 0`, `"revision": 27` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`, and
 the source metadata of [§5](#5-source-metadata) as the member `"nd2"`. Its CMO is:
 
 ```json
 {
   "uuid": "59612f14-e314-4207-ba00-8f422ba71490",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/vzip/refs/heads/main/spec/virtualize/nd2/schema.json",
-  "spec_url": "https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md",
-  "name": "vzip_virtualized",
-  "description": "The Zarr layout of a ND2 source virtualized by vzip, and the source's metadata"
+  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/virtualize/nd2/schema.json",
+  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md",
+  "name": "refkv_virtualized",
+  "description": "The Zarr layout of a ND2 source virtualized by refkv, and the source's metadata"
 }
 ```
 
-`vzip_source` declares it too, with the IR mirror's description ([§5.2](#52-the-ir-mirror),
+`refkv_source` declares it too, with the IR mirror's description ([§5.2](#52-the-ir-mirror),
 [conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
 the mirror's view that has a member.
 
@@ -325,7 +325,7 @@ Each array:
 The root's source metadata `S` is `{"signature": T, "chunks": {...}}`, `T`
 being the signature chunk's 64 bytes of data up to the first NUL, as a text
 value, and `chunks` the decoded chunks of [§5.1](#51-decoded-chunks) that the root keeps. Everything
-the file holds is on `vzip_source`, the file's **IR mirror** ([§5.2](#52-the-ir-mirror)), from
+the file holds is on `refkv_source`, the file's **IR mirror** ([§5.2](#52-the-ir-mirror)), from
 which it is rebuilt byte for byte.
 
 The chunks are taken in the order of each name's first record in the map
@@ -500,9 +500,9 @@ either a `value` attribute or child elements.
 
 ### 5.2 The IR mirror
 
-`vzip_source` is the file's **IR mirror**
+`refkv_source` is the file's **IR mirror**
 ([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `vzip_source/tree`. The IR's
+file is rebuilt byte for byte, and its view, `refkv_source/tree`. The IR's
 elements (the ND2 **source model**) are below; nothing is left out: every
 chunk, the chunk map, frames beyond the image, padding and dead space.
 
@@ -554,7 +554,7 @@ so the rule loses nothing.
 
 The elements are determined by the file, and the mirror by its elements
 ([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
-file are compared entry for entry, `vzip_source` included
+file are compared entry for entry, `refkv_source` included
 ([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
 
 ## 6. Example
@@ -564,10 +564,10 @@ a z loop of 4 (with a negative step, so its z index is flipped) and two
 channels:
 
 ```json
-"vzip_virtualized": {
+"refkv_virtualized": {
   "profile": "nd2",
   "version": 0,
-  "revision": 26,
+  "revision": 27,
   "source": {
     "url": "https://example.org/a.nd2"
   },
@@ -641,7 +641,7 @@ channels:
 }
 ```
 
-Its `vzip_source` is the IR mirror ([§5.2](#52-the-ir-mirror)), whose elements hold every chunk,
+Its `refkv_source` is the IR mirror ([§5.2](#52-the-ir-mirror)), whose elements hold every chunk,
 the frames' timestamps (`frames/<f>/timestamp`) among them.
 
 # Part 2. The profile

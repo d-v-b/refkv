@@ -7,7 +7,7 @@ import struct
 from array import array
 from dataclasses import dataclass, field
 
-from refkv.virtualize.common import MAX_SAFE, Reader, Rejected
+from refkv_reference.legacy import MAX_SAFE, Reader, Rejected
 from refkv_reference.czi.coding import COMPRESSIONS, PIXEL_TYPES
 
 MAX_ENTRIES = 1 << 21  # directory entries (spec/virtualize.md §13.3)

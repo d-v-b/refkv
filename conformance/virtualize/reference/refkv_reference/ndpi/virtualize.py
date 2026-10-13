@@ -16,7 +16,7 @@ import math
 import struct
 from typing import Callable, NamedTuple
 
-from refkv.virtualize.common import (
+from refkv_reference.legacy import (
     MAX_PAYLOAD, Output, Reader, Rejected, array_json, centred, image_ome, json_base64, payload_size, root_json,
     transpose_codec,
 )

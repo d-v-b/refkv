@@ -160,11 +160,11 @@ def tag_problems(path: Path, root, key: str) -> list[str]:
     tifffile's reading of that IFD; each pointer value leads to the IFD at its offset;
     and the strips or tiles of every IFD that is not an image are present."""
     problems = []
-    node = root["vzip_source"]
-    source = node.attrs["vzip_virtualized"][key]
+    node = root["refkv_source"]
+    source = node.attrs["refkv_virtualized"][key]
 
     def meta(p):
-        return node[p].attrs["vzip_virtualized"][key]
+        return node[p].attrs["refkv_virtualized"][key]
 
     def compare(where, ifd, page, path):
         theirs = {}
@@ -232,7 +232,7 @@ def tag_problems(path: Path, root, key: str) -> list[str]:
     records = {}  # record number -> path, for the pointer tags whose IFDs are an array
     for name, member in node.members(max_depth=None):
         if isinstance(member, zarr.Group):
-            r = member.attrs.get("vzip_virtualized", {}).get(key, {}).get("record")
+            r = member.attrs.get("refkv_virtualized", {}).get(key, {}).get("record")
             if r is not None:
                 records[r] = name
 

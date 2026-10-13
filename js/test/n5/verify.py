@@ -14,7 +14,7 @@ and zarr-python (with refkv.zarr.codecs' n5_default codec) and must equal:
 
 `n5_reject_*` stores must be rejected; reading `n5_edge_varlength_block`'s
 array must fail (its varlength block is refused by the codec). The archive's
-`vzip_source` is the store's IR mirror (spec/virtualize/n5.md §5.1
+`refkv_source` is the store's IR mirror (spec/virtualize/n5.md §5.1
 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>): rebuilt from
 the archive alone, its listing must be the store's (every object's key and size, the empty ones
 included) and every node's attributes.json must be the store's, byte for byte.
@@ -124,13 +124,13 @@ def zarr_n5_read(store_dir: Path, path: str) -> np.ndarray | None:
 
 
 def arrays_of(out: Path) -> list[str]:
-    """The arrays of the hierarchy (the mirror's, under vzip_source/, are not datasets)."""
+    """The arrays of the hierarchy (the mirror's, under refkv_source/, are not datasets)."""
     import zipfile
 
     z = zipfile.ZipFile(out)
     paths = []
     for name in z.namelist():
-        if name.startswith("vzip_source/"):
+        if name.startswith("refkv_source/"):
             continue
         if name.endswith("zarr.json") and json.loads(z.read(name)).get("node_type") == "array":
             paths.append(name[: -len("zarr.json")].rstrip("/"))

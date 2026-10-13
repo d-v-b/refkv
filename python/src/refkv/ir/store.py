@@ -121,7 +121,7 @@ class StoreIrOutput:
     entries: dict[str, bytes] = field(default_factory=dict)
     refs: dict[str, list] = field(default_factory=dict)
     data: list[bytes] = field(default_factory=list)
-    lazy: tuple[str, ...] = ("vzip_source/",)
+    lazy: tuple[str, ...] = ("refkv_source/",)
     summary: dict = field(default_factory=dict)
     sizes: dict[str, int] = field(default_factory=dict)
     # The CRC-32C of a url source's bytes, when the ranges are to carry checksums
@@ -265,7 +265,7 @@ def run_store(store: Store, fmt: str = "zarr2", mirror: bool = True):
     the keys its listing ignores given to the run (the recorded ignored keys, which the
     projection records, and the empty `d/` keys, a SAFE directory's directories), its objects
     read at most `store.workers` at a time, and the summary's `listingRequests` the store's
-    requests. With `mirror` false the output has no `vzip_source` mirror, and so no record of
+    requests. With `mirror` false the output has no `refkv_source` mirror, and so no record of
     the ignored keys either. A rejection names `fmt` (`Rejected.format`), or, for one of the
     output's checks, the profile the run decided (`ome-zarr` once the 0.4 test passed)."""
     from refkv import _ir

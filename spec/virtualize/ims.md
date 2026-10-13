@@ -25,21 +25,21 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "ims"`, `"version": 0`, `"revision": 26` ([conventions §1](../conventions.md#1-conventions)) and the file's URL as `source.url`.
+with `"profile": "ims"`, `"version": 0`, `"revision": 27` ([conventions §1](../conventions.md#1-conventions)) and the file's URL as `source.url`.
 The root has no source metadata of its own: the whole HDF5 file is described
-by `vzip_source`, its IR mirror ([§5](#5-source-metadata)). Its CMO is:
+by `refkv_source`, its IR mirror ([§5](#5-source-metadata)). Its CMO is:
 
 ```json
 {
   "uuid": "5067a535-8261-4b25-a93c-1985ed333bde",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/vzip/refs/heads/main/spec/virtualize/ims/schema.json",
-  "spec_url": "https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md",
-  "name": "vzip_virtualized",
-  "description": "The Zarr layout of a IMS source virtualized by vzip, and the source's metadata"
+  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/virtualize/ims/schema.json",
+  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md",
+  "name": "refkv_virtualized",
+  "description": "The Zarr layout of a IMS source virtualized by refkv, and the source's metadata"
 }
 ```
 
-These other nodes declare it, each with `{"ims": S}`: `vzip_source`, with
+These other nodes declare it, each with `{"ims": S}`: `refkv_source`, with
 the IR mirror's description ([§5.1](#51-the-ir-mirror)), and each group of the
 mirror's view that has a member.
 
@@ -286,9 +286,9 @@ whatever else a writer adds) is kept by the file's IR mirror.
 
 ### 5.1 The IR mirror
 
-`vzip_source` is the file's **IR mirror**
+`refkv_source` is the file's **IR mirror**
 ([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `vzip_source/tree`. The IR's
+file is rebuilt byte for byte, and its view, `refkv_source/tree`. The IR's
 elements (the IMS **source model**, below) describe the HDF5 structures the
 walk ([§5.3](#53-the-walk)) reads; every other byte of the file (free space,
 unused allocations, the padding of blocks and heaps, the data of datasets
@@ -394,7 +394,7 @@ superblock names one, is read as an object's.
 
 The elements are determined by the file, and the mirror by its elements
 ([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
-file are compared entry for entry, `vzip_source` included
+file are compared entry for entry, `refkv_source` included
 ([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
 
 ## 6. Example
@@ -402,18 +402,18 @@ file are compared entry for entry, `vzip_source` included
 The root of a file at `https://example.org/a.ims`:
 
 ```json
-"vzip_virtualized": {
+"refkv_virtualized": {
   "profile": "ims",
   "version": 0,
-  "revision": 26,
+  "revision": 27,
   "source": {
     "url": "https://example.org/a.ims"
   }
 }
 ```
 
-`vzip_source` is the file's IR mirror ([§5.1](#51-the-ir-mirror)). Its view's root document,
-`vzip_source/tree`, starts (the object header of the root group, version 2,
+`refkv_source` is the file's IR mirror ([§5.1](#51-the-ir-mirror)). Its view's root document,
+`refkv_source/tree`, starts (the object header of the root group, version 2,
 its messages in order; values larger than the document allows are given by
 their row in the table):
 

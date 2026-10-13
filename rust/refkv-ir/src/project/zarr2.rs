@@ -6,8 +6,8 @@
 //! a valid store IR and the facts of `zarr2.rs` into the hierarchy. A `zarr.json` per node (the
 //! convention declared on the root and on every node with source metadata), an entry per
 //! present chunk referencing its whole object, and every other object of a length referenced
-//! whole under `vzip_source/objects/`; the ignored keys the host recorded are the member
-//! `ignored` of `vzip_source`'s source metadata, beside the mirror's `ir` ([`super::store::record_ignored`]).
+//! whole under `refkv_source/objects/`; the ignored keys the host recorded are the member
+//! `ignored` of `refkv_source`'s source metadata, beside the mirror's `ir` ([`super::store::record_ignored`]).
 //! The IR's objects are the listing; the projection reads no object.
 
 use crate::ir::Ir;
@@ -90,7 +90,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         out.bytes(&key, doc.text().into_bytes());
     }
     // the objects, in id order: chunks at their keys, the other objects of a length under
-    // vzip_source/objects/
+    // refkv_source/objects/
     let (mut chunks, mut empty_chunks, mut others) = (0u64, 0u64, 0u64);
     for o in ir.sources().objects {
         let ou = o as usize;

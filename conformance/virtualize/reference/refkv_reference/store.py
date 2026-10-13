@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from refkv.policy import Policy, crc32c
 from refkv_reference.ome_zarr import declares_04, virtualize_ome_zarr
-from refkv.virtualize.store import WORKERS, StoreOutput, choose_profile, object_url, open_store
+from refkv_reference.legacy import WORKERS, StoreOutput, choose_profile, object_url, open_store
 from refkv_reference.n5 import virtualize_n5
 from refkv_reference.safe import SafeOutput, virtualize_safe_store
 from refkv_reference.zarr2 import virtualize_zarr2

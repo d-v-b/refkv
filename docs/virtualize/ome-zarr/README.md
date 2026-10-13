@@ -31,7 +31,7 @@ arrays, chunks and codecs, with the `v2` chunk key encoding), with:
   their `multiscales`, `omero`, `labels`, `image-label`, `plate`, `well`,
   `bioformats2raw.layout` and `series`, without the old per-object
   `version` members. Other attributes are kept under
-  `vzip_virtualized["ome-zarr"].attributes` on the same node, with the
+  `refkv_virtualized["ome-zarr"].attributes` on the same node, with the
   Zarr v2 profile's other source metadata
   ([zarr2](../zarr2/README.md#what-you-get)).
 - **`dimension_names`** on every image level, from the multiscale's axes, as
@@ -58,7 +58,7 @@ uv run python -m vzip.virtualize https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/i
 
 This took 4 s and wrote a 201 KB archive, at spec/virtualize.md revision 16
 ([overview](../README.md#formats)). (`otherObjects`, the objects kept under
-`vzip_source/objects/`, is new since then; it is 0 here, as every object is
+`refkv_source/objects/`, is new since then; it is 0 here, as every object is
 a document or a chunk.) The label image had 4 levels to
 its image's 3; one was dropped from its multiscale.
 
@@ -127,7 +127,7 @@ Rejected, because the output would not be valid OME-Zarr 0.5:
 Not checked: what 0.4 only recommends (units, names, axis types beyond the
 order rule), and the OME-XML. A 0.4 group below a root that is not 0.4 is
 not migrated: the Zarr v2 profile keeps its attributes, unchanged, under
-`vzip_virtualized.zarr2.attributes`.
+`refkv_virtualized.zarr2.attributes`.
 
 ## Performance
 

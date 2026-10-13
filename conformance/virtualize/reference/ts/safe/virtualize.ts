@@ -5,8 +5,8 @@
 import {
   base64, type ByteReader, blobChunks, CONVENTION_KEY, convention, declare, MAX_PAYLOAD, type Part, payloadSize,
   PROFILES, rootProperty, SOURCE_NODE, textJson, toRange, stringifyJson,
-} from "../../../../../js/src/virtualize/common.ts";
-import { compareKeys, objectKey, objectUrl, type Store } from "../../../../../js/src/virtualize/store.ts";
+} from "../legacy.ts";
+import { compareKeys, objectKey, objectUrl, type Store } from "../legacy.ts";
 import { STORES_REVISION } from "../revision.ts";
 import type { ArchiveDesc, EntryDesc } from "../../../../../js/src/writer.ts";
 import { chunkParts, type Codestream, grid, readBand, tailLength } from "./jp2.ts";

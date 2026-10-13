@@ -80,13 +80,13 @@ fn the_fixture_stores_have_their_hierarchies_and_mirrors() {
     let f = run("zarr2_fill_values").unwrap();
     let fills: Vec<_> = ["nan", "inf", "neg_inf", "null_int", "null_bool"].iter().map(|p| doc(&f, &format!("{p}/zarr.json"))["fill_value"].clone()).collect();
     assert_eq!(fills, serde_json::json!(["NaN", "Infinity", "-Infinity", 0, false]).as_array().unwrap().clone());
-    // chunks at their keys, other objects under vzip_source/objects/ (escaped), each one object whole
+    // chunks at their keys, other objects under refkv_source/objects/ (escaped), each one object whole
     let h = run("zarr2_hierarchy").unwrap();
     let refs: Vec<&str> = h.refs.iter().map(|r| r.0.as_str()).collect();
-    assert!(refs.contains(&"a/c/0/0") && refs.contains(&"vzip_source/objects/.zmetadata"), "{refs:?}");
+    assert!(refs.contains(&"a/c/0/0") && refs.contains(&"refkv_source/objects/.zmetadata"), "{refs:?}");
     for (k, parts) in &h.refs {
         let [Part::Obj(key, 0, _)] = parts.as_slice() else { panic!("{k}: {parts:?}") };
-        assert!(k == key || k.starts_with("vzip_source/objects/"), "{k} {key}");
+        assert!(k == key || k.starts_with("refkv_source/objects/"), "{k} {key}");
     }
     // every accepted store's mirror rebuilds its listing and the documents read
     let mut accepted = 0;
@@ -160,7 +160,7 @@ fn documents_are_read_as_json_by_the_store_rules() {
 fn other_objects_are_escaped_and_chunk_keys_follow_the_grid() {
     for (key, at) in [("a/README", "a/README"), ("zarr.json", "zarr.json~"), ("a/.zarray", "a/.zarray~"),
                       ("x/.zgroup~~", "x/.zgroup~~~"), ("x/zarr.jsonx", "x/zarr.jsonx"), ("~", "~")] {
-        assert_eq!(object_key(key), format!("vzip_source/objects/{at}"), "{key}");
+        assert_eq!(object_key(key), format!("refkv_source/objects/{at}"), "{key}");
     }
     for (rest, grid, sep, chunk) in [
         ("0", &[][..], ".", true), ("1", &[][..], ".", false), ("0.1", &[2, 2][..], ".", true),
@@ -173,7 +173,7 @@ fn other_objects_are_escaped_and_chunk_keys_follow_the_grid() {
 }
 
 #[test]
-fn the_ignored_keys_are_vzip_source_s_member_ignored_in_byte_order() {
+fn the_ignored_keys_are_refkv_source_s_member_ignored_in_byte_order() {
     let files = walk(&fixtures().join("zarr2_hierarchy"));
     for (root_array, ignored) in [(false, vec![]), (false, vec!["b//c".to_string(), "./x".into(), "\u{e9}/..".into()]),
                                   (true, vec!["./y".to_string()])] {
@@ -188,25 +188,25 @@ fn the_ignored_keys_are_vzip_source_s_member_ignored_in_byte_order() {
             }
         }
         let out = r.into_output("https://data.test/h/", true).unwrap();
-        let own = &doc(&out, "vzip_source/zarr.json")["attributes"]["vzip_virtualized"]["zarr2"];
+        let own = &doc(&out, "refkv_source/zarr.json")["attributes"]["refkv_virtualized"]["zarr2"];
         let mut sorted = ignored.clone();
         sorted.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
         let want = if ignored.is_empty() { serde_json::Value::Null } else { serde_json::json!(sorted) };
         assert_eq!(own["ignored"], want, "{ignored:?}");
         assert!(own["ir"].is_object());
-        assert!(!out.entries.iter().any(|e| e.0 == "vzip_source/ignored.json"));
+        assert!(!out.entries.iter().any(|e| e.0 == "refkv_source/ignored.json"));
         // the member is outside the table: the mirror is still canonical
         let get = |k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone());
         let mut never = |_: u64, _: u64| -> Result<Vec<u8>, String> { Err("no source".into()) };
         assert_eq!(refkv_ir::mirror::canonical_problem(&get, &mut never), None);
         // any other member beside `ir` is a difference
-        let mut d = doc(&out, "vzip_source/zarr.json");
-        d["attributes"]["vzip_virtualized"]["zarr2"]["junk"] = serde_json::json!(1);
+        let mut d = doc(&out, "refkv_source/zarr.json");
+        d["attributes"]["refkv_virtualized"]["zarr2"]["junk"] = serde_json::json!(1);
         let junk = serde_json::to_vec(&d).unwrap();
-        let get = |k: &str| if k == "vzip_source/zarr.json" { Some(junk.clone()) } else { out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone()) };
-        assert_eq!(refkv_ir::mirror::canonical_problem(&get, &mut never).as_deref(), Some("vzip_source/zarr.json differs from the canonical table's"));
+        let get = |k: &str| if k == "refkv_source/zarr.json" { Some(junk.clone()) } else { out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone()) };
+        assert_eq!(refkv_ir::mirror::canonical_problem(&get, &mut never).as_deref(), Some("refkv_source/zarr.json differs from the canonical table's"));
     }
-    // without a mirror (tools, tests), there is no vzip_source source metadata, ignored keys or not
+    // without a mirror (tools, tests), there is no refkv_source source metadata, ignored keys or not
     let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let mut r = StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
@@ -217,7 +217,7 @@ fn the_ignored_keys_are_vzip_source_s_member_ignored_in_byte_order() {
         }
     }
     let out = r.into_output("https://data.test/h/", false).unwrap();
-    assert!(!out.entries.iter().any(|e| e.0 == "vzip_source/zarr.json"));
+    assert!(!out.entries.iter().any(|e| e.0 == "refkv_source/zarr.json"));
 }
 
 #[test]
@@ -291,7 +291,7 @@ reject!(zarr2_reject_gzip_level, "zarr2_reject_gzip_level", "gzip level 1 is not
 reject!(zarr2_reject_json_duplicate_last_wins, "zarr2_reject_json_duplicate_last_wins", "order K is not C or F");
 reject!(zarr2_reject_json_nan_literal, "zarr2_reject_json_nan_literal", ".zarray: JSON literal NaN is not allowed");
 reject!(zarr2_reject_no_root_metadata, "zarr2_reject_no_root_metadata", "the root has no .zarray or .zgroup");
-reject!(zarr2_reject_objects_collision, "zarr2_reject_objects_collision", "the node vzip_source is where the store's source metadata goes");
+reject!(zarr2_reject_objects_collision, "zarr2_reject_objects_collision", "the node refkv_source is where the store's source metadata goes");
 reject!(zarr2_reject_order, "zarr2_reject_order", "order A is not C or F");
 reject!(zarr2_reject_order_missing, "zarr2_reject_order_missing", "order none is not C or F");
 reject!(zarr2_reject_separator, "zarr2_reject_separator", "dimension_separator - is not . or /");

@@ -1,7 +1,7 @@
 // CZI pixel types, compressions and codec headers (spec/virtualize/czi.md
 // §3.1–§3.2, spec/virtualize.md §13.4).
 
-import type { ByteReader } from "../../../../../js/src/virtualize/common.ts";
+import type { ByteReader } from "../legacy.ts";
 
 /** PixelType -> [name, data type, samples p, bytes per pixel q]. */
 export const PIXEL_TYPES: Record<number, [string, string, number, number]> = {

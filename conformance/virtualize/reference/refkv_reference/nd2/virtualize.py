@@ -8,7 +8,7 @@ import struct
 from collections.abc import Sequence
 
 from refkv_reference.revision import REVISION
-from refkv.virtualize.common import (
+from refkv_reference.legacy import (
     MAX_PAYLOAD, SOURCE_NODE, Output, Reader, Rejected, array_json, declare, group_json, image_ome, json_text,
     emit_plans, payload_size, root_json, transpose_codec,
 )

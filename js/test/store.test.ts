@@ -7,7 +7,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { declare, stringifyJson } from "../src/virtualize/common.ts";
+import { declare, stringifyJson } from "../../conformance/virtualize/reference/ts/legacy.ts";
 import { virtualizeN5 } from "../../conformance/virtualize/reference/ts/n5/virtualize.ts";
 import { virtualizeZarr2 } from "../../conformance/virtualize/reference/ts/zarr2/virtualize.ts";
 import {
@@ -27,7 +27,7 @@ import {
   StoreError,
   StoreLimitError,
   StoreReadError,
-} from "../src/virtualize/store.ts";
+} from "../../conformance/virtualize/reference/ts/legacy.ts";
 
 const utf8 = new TextEncoder();
 const XML = (s: string) =>

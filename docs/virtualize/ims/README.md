@@ -42,8 +42,8 @@ resolution level.
 - **Metadata:** the rest of the HDF5 file (every group's attributes, which
   hold the extents, units, channels, acquisition settings and time points;
   the histograms; the thumbnail; `DataSetTimes`; the `Scene` objects), kept
-  by `vzip_source`, the file's IR mirror: a table that rebuilds the file
-  byte for byte, and a JSON view under `vzip_source/tree` of every object
+  by `refkv_source`, the file's IR mirror: a table that rebuilds the file
+  byte for byte, and a JSON view under `refkv_source/tree` of every object
   header, message, attribute, link, heap and chunk index the walk reads
   ([spec/virtualize/ims.md §5](../../../spec/virtualize/ims.md#5-source-metadata)).
 
@@ -150,7 +150,7 @@ IMS files (including inputs to reject) with the browser code, reads them back th
 and zarr-python, and compares the pixels with h5py (cropped to the image
 size), and rebuilds each file byte for byte from its archive's mirror.
 `compare.py` checks that the Python and browser outputs are identical, and
-equivalent outside `vzip_source` to the frozen reference (the Python
+equivalent outside `refkv_source` to the frozen reference (the Python
 profile of revision 25), on those files and on the 21 public files of
 [corpus_ims.txt](../../../conformance/virtualize/corpus_ims.txt), two of
 which must be rejected (the LZ4 file and a scene file).

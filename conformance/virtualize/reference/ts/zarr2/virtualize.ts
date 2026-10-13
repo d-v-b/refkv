@@ -2,8 +2,8 @@
 // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>): a Zarr v2
 // hierarchy as a Zarr v3 one, each chunk a whole-object reference under its own key.
 
-import type { Profile } from "../../../../../js/src/virtualize/common.ts";
-import { bloscCodec } from "../../../../../js/src/virtualize/store.ts";
+import type { Profile } from "../legacy.ts";
+import { bloscCodec } from "../legacy.ts";
 import {
   asInt,
   byDepth,
@@ -31,7 +31,7 @@ import {
   show,
   type StoreResult,
   without,
-} from "../../../../../js/src/virtualize/store.ts";
+} from "../legacy.ts";
 import { declareNodes } from "./declare.ts";
 
 export class Zarr2Error extends Error {}

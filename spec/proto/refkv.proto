@@ -1,6 +1,6 @@
 // Generated from spec/refkv.md, Appendix A (format version 0). Edit the spec, not this file.
 syntax = "proto3";
-package vzip.v0;
+package refkv.v0;
 
 message Range {
   uint32 source = 1;

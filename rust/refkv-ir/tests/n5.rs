@@ -88,16 +88,16 @@ fn accepted_fixtures_mirror_their_documents_and_listing() {
         assert_eq!(canonical_problem(&entry(&out), &mut no_source), None, "{name}");
         let keys: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
         assert_eq!(view_problem(&keys, &entry(&out), &mut no_source), None, "{name}");
-        // vzip_source is the mirror; the root declares revision 26
+        // refkv_source is the mirror; the root declares revision 27
         let root = doc(&out, "zarr.json");
-        assert_eq!(root["attributes"]["vzip_virtualized"]["revision"], 26, "{name}");
-        let own = &doc(&out, "vzip_source/zarr.json")["attributes"]["vzip_virtualized"]["n5"];
+        assert_eq!(root["attributes"]["refkv_virtualized"]["revision"], 27, "{name}");
+        let own = &doc(&out, "refkv_source/zarr.json")["attributes"]["refkv_virtualized"]["n5"];
         assert!(own["ir"]["objects"].as_u64() == Some(files.len() as u64), "{name}");
-        // chunks at their keys, other objects under vzip_source/objects/, each whole
+        // chunks at their keys, other objects under refkv_source/objects/, each whole
         for (k, parts) in &out.refs {
             let [refkv_ir::out::Part::Obj(o, 0, n)] = parts.as_slice() else { panic!("{name}: {k}") };
             assert_eq!(*n, files[o].len() as u64);
-            assert!(k == o || k.starts_with("vzip_source/objects/"), "{name}: {k}");
+            assert!(k == o || k.starts_with("refkv_source/objects/"), "{name}: {k}");
         }
         accepted += 1;
     }
@@ -108,12 +108,12 @@ fn accepted_fixtures_mirror_their_documents_and_listing() {
 fn the_view_shows_each_member_and_ignored_keys_are_recorded() {
     let files = walk(&fixtures().join("n5_cosem"));
     let (out, _) = virtualize(&files, &["x/", "a//b"]).unwrap();
-    let own = &doc(&out, "vzip_source/zarr.json")["attributes"]["vzip_virtualized"]["n5"];
+    let own = &doc(&out, "refkv_source/zarr.json")["attributes"]["refkv_virtualized"]["n5"];
     assert_eq!(own["ignored"], serde_json::json!(["a//b", "x/"]));
     assert_eq!(canonical_problem(&entry(&out), &mut no_source), None);
     assert_eq!(rebuild_store(&entry(&out)).unwrap().len(), files.len());
-    let tree = doc(&out, "vzip_source/tree/zarr.json");
-    let view = &tree["attributes"]["vzip_virtualized"]["n5"];
+    let tree = doc(&out, "refkv_source/tree/zarr.json");
+    let view = &tree["attributes"]["refkv_virtualized"]["n5"];
     let s0 = &view["em"]["fibsem-uint8"]["s0"]["attributes.json"];
     assert_eq!(s0["dataType"], "\"uint8\"");
     assert!(s0["dimensions"].as_str().unwrap().starts_with('['));
@@ -166,7 +166,7 @@ reject!(n5_reject_json_too_deep, "JSON nests more than 256 deep");
 reject!(n5_reject_json_trailing_comma, "invalid JSON: expecting a property name");
 reject!(n5_reject_no_compression, "no compression");
 reject!(n5_reject_no_root_attributes, "the root has no attributes.json");
-reject!(n5_reject_objects_collision, "the node vzip_source is where the store's other objects go");
+reject!(n5_reject_objects_collision, "the node refkv_source is where the store's other objects go");
 reject!(n5_reject_reserved_key, "output key \"__vz__/zarr.json\" is in the reserved __vz__/ space");
 reject!(n5_reject_zstd_level, "zstd level 2.5 is not an integer from -131072 to 22");
 
@@ -191,7 +191,7 @@ fn a_candidate_inside_a_dataset_is_never_read() {
     let mut files = walk(&fixtures().join("n5_root_dataset"));
     files.insert("x/attributes.json".into(), b"not JSON".to_vec());
     let (out, _) = virtualize(&files, &[]).unwrap();
-    assert!(out.refs.iter().any(|r| r.0 == "vzip_source/objects/x/attributes.json"));
+    assert!(out.refs.iter().any(|r| r.0 == "refkv_source/objects/x/attributes.json"));
 }
 
 /// A root dataset whose compression is `c`.
@@ -224,27 +224,27 @@ fn a_blosc_blocksize_that_is_a_list_is_refused() {
 }
 
 #[test]
-fn a_node_at_vzip_source_is_refused_even_with_nothing_else_to_keep() {
-    // the mirror is always vzip_source (spec/virtualize/n5.md §6
+fn a_node_at_refkv_source_is_refused_even_with_nothing_else_to_keep() {
+    // the mirror is always refkv_source (spec/virtualize/n5.md §6
     // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>)
     let files = BTreeMap::from([
         ("attributes.json".to_string(), b"{}".to_vec()),
-        ("vzip_source/attributes.json".to_string(), b"{}".to_vec()),
+        ("refkv_source/attributes.json".to_string(), b"{}".to_vec()),
     ]);
     let e = virtualize(&files, &[]).err().unwrap();
-    assert!(e.contains("the node vzip_source is where"), "{e}");
+    assert!(e.contains("the node refkv_source is where"), "{e}");
 }
 
 #[test]
 fn ignored_keys_under_a_root_dataset_are_recorded_beside_its_mirror() {
     let files = walk(&fixtures().join("n5_root_dataset"));
     let (out, _) = virtualize(&files, &["b/", "a//c"]).unwrap();
-    let own = &doc(&out, "vzip_source/zarr.json")["attributes"]["vzip_virtualized"]["n5"];
+    let own = &doc(&out, "refkv_source/zarr.json")["attributes"]["refkv_virtualized"]["n5"];
     assert_eq!(own["ignored"], serde_json::json!(["a//c", "b/"]));
     assert!(own["ir"].is_object());
     assert_eq!(canonical_problem(&entry(&out), &mut no_source), None);
     assert_eq!(rebuild_store(&entry(&out)).unwrap().len(), files.len());
-    assert!(entry(&out)("vzip_source/empty.json").is_none());
+    assert!(entry(&out)("refkv_source/empty.json").is_none());
 }
 
 #[test]

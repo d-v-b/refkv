@@ -153,7 +153,7 @@ directory listed with S3 ListObjectsV2):
 - One group per resolution (`r10m`, `r20m`, `r60m`) and one array per band,
   one chunk per JPEG 2000 tile, with the zarr-conventions `proj` and
   `spatial` metadata; the radiometric offsets and quantification values on
-  each band, and every file of the product kept on `vzip_source`.
+  each band, and every file of the product kept on `refkv_source`.
 
 DICOM (Part 10 files):
 
@@ -175,7 +175,7 @@ NIfTI (NIfTI-1 and NIfTI-2 single files):
 - One chunk per z-slice, split into row blocks when a slice is over 128 KiB.
 - Pixel size and units as scale; an axis-aligned qform or sform as
   translation; the whole header, and its intensity scaling, recorded under
-  `vzip_virtualized`.
+  `refkv_virtualized`.
 
 Not supported, and refused with HTTP 422: gzipped files (`.nii.gz`),
 header-and-image pairs, complex types, and dimensions 6 and 7 (CIFTI).

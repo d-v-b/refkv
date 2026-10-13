@@ -314,7 +314,7 @@ async function seriesViews(zarrUrl: string): Promise<View[]> {
 }
 
 /**
- * The arrays of the hierarchy at `zarrUrl`, outside `vzip_source`, from the
+ * The arrays of the hierarchy at `zarrUrl`, outside `refkv_source`, from the
  * keys of its archive (which the worker holds in memory): a Zarr hierarchy
  * cannot otherwise be listed.
  */
@@ -325,7 +325,7 @@ async function listArrays(zarrUrl: string): Promise<{ path: string; meta: ArrayM
     throw new Error("not read");
   });
   const paths = archive.keys()
-    .filter((k) => (k === "zarr.json" || k.endsWith("/zarr.json")) && !k.startsWith("vzip_source/"))
+    .filter((k) => (k === "zarr.json" || k.endsWith("/zarr.json")) && !k.startsWith("refkv_source/"))
     .map((k) => k.slice(0, -"zarr.json".length).replace(/\/$/, ""));
   const nodes = await Promise.all(paths.map(async (path) => ({
     path, meta: await getJson(`${zarrUrl}${path === "" ? "" : `${path}/`}zarr.json`),
@@ -427,10 +427,10 @@ async function virtualize(url: string) {
   const picker = $<HTMLSelectElement>("view");
   map.hidden = true;
   $("view-row").hidden = true;
-  if (attrs.vzip_virtualized?.profile === "safe") {
+  if (attrs.refkv_virtualized?.profile === "safe") {
     // A Sentinel-2 product: GeoZarr groups of JPEG 2000 bands, for a map
     // viewer (map.html) rather than Neuroglancer.
-    const safe = attrs.vzip_virtualized.safe ?? {};
+    const safe = attrs.refkv_virtualized.safe ?? {};
     views = [];
     $("name").textContent = `${safe.PRODUCT_URI ?? url.split("/").pop()} (${safe.PROCESSING_LEVEL ?? "Sentinel-2"})`;
     $("zarr-url").textContent = zarrUrl;
@@ -444,7 +444,7 @@ async function virtualize(url: string) {
     if (root.node_type === "array") {
       views = [arrayView(zarrUrl, "", root)];
     } else if (ms0 !== undefined) {
-      views = [await omeView(zarrUrl, ms0, ms0.name ?? "image", attrs.vzip_virtualized?.profile === "ome-zarr")];
+      views = [await omeView(zarrUrl, ms0, ms0.name ?? "image", attrs.refkv_virtualized?.profile === "ome-zarr")];
     } else if (attrs.ome?.["bioformats2raw.layout"] !== undefined) {
       views = await seriesViews(zarrUrl);
     } else {

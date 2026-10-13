@@ -11,7 +11,7 @@ import struct
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from refkv.virtualize.common import (
+from refkv_reference.legacy import (
     MAX_CHUNK, MAX_PAYLOAD, SOURCE_NODE, Plan, Reader, Rejected, family_plans, grid_chunks, json_base64, json_number,
     payload_size, row_chunks, text_json,
 )

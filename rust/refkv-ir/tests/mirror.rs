@@ -355,10 +355,10 @@ fn view_edited(fixture: &str, group: &str, edit: impl Fn(&mut serde_json::Value)
     let (ir, _, _) = run_bytes(Format::Tiff, &data).unwrap();
     let mut out = Out::new("u");
     mirror(&ir, &mut out, "tiff").unwrap();
-    let key = format!("vzip_source/{group}/zarr.json");
+    let key = format!("refkv_source/{group}/zarr.json");
     let e = out.entries.iter_mut().find(|e| e.0 == key).unwrap();
     let mut doc: serde_json::Value = serde_json::from_slice(&e.1).unwrap();
-    edit(&mut doc["attributes"]["vzip_virtualized"]["tiff"]);
+    edit(&mut doc["attributes"]["refkv_virtualized"]["tiff"]);
     e.1 = serde_json::to_vec(&doc).unwrap();
     let keys: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
     let mut read = |o: u64, n: u64| Ok(data[o as usize..(o + n) as usize].to_vec());
@@ -395,10 +395,10 @@ fn flags_a_value_shown_above_the_size_limit() {
     ir.build_children();
     let mut out = Out::new("u");
     mirror(&ir, &mut out, "tiff").unwrap();
-    let e = out.entries.iter_mut().find(|e| e.0 == "vzip_source/tree/zarr.json").unwrap();
+    let e = out.entries.iter_mut().find(|e| e.0 == "refkv_source/tree/zarr.json").unwrap();
     let mut doc: serde_json::Value = serde_json::from_slice(&e.1).unwrap();
-    assert_eq!(doc["attributes"]["vzip_virtualized"]["tiff"]["big"], serde_json::json!({"$vz": "element", "id": 1}));
-    doc["attributes"]["vzip_virtualized"]["tiff"]["big"] = serde_json::json!(vec![7; 2000]);
+    assert_eq!(doc["attributes"]["refkv_virtualized"]["tiff"]["big"], serde_json::json!({"$vz": "element", "id": 1}));
+    doc["attributes"]["refkv_virtualized"]["tiff"]["big"] = serde_json::json!(vec![7; 2000]);
     e.1 = serde_json::to_vec(&doc).unwrap();
     let keys: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
     let mut read = |o: u64, n: u64| Ok(data[o as usize..(o + n) as usize].to_vec());
@@ -433,8 +433,8 @@ fn text_values_show_their_text_and_what_follows_its_nul() {
     ir.build_children();
     let mut out = Out::new("u");
     mirror(&ir, &mut out, "czi").unwrap();
-    let doc: serde_json::Value = serde_json::from_slice(&entry(&out)("vzip_source/tree/zarr.json").unwrap()).unwrap();
-    assert_eq!(doc["attributes"]["vzip_virtualized"]["czi"]["name"], json!({"text": "Label", "after": {"$vz": "bytes", "b64": "AGhpZGRlbg=="}}));
+    let doc: serde_json::Value = serde_json::from_slice(&entry(&out)("refkv_source/tree/zarr.json").unwrap()).unwrap();
+    assert_eq!(doc["attributes"]["refkv_virtualized"]["czi"]["name"], json!({"text": "Label", "after": {"$vz": "bytes", "b64": "AGhpZGRlbg=="}}));
     let keys: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
     let mut read = |o: u64, n: u64| Ok(data[o as usize..(o + n) as usize].to_vec());
     assert_eq!(view_problem(&keys, &entry(&out), &mut read), None);

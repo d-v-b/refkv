@@ -1,6 +1,6 @@
 """The OME-Zarr profile through the Rust core (refkv.ir.store; spec/virtualize/ome-zarr.md) on
 the synthetic stores: the same outcome as the frozen reference (revision 25) for every store,
-the same hierarchy outside `vzip_source`, and `vzip_source` the store's IR mirror, which
+the same hierarchy outside `refkv_source`, and `refkv_source` the store's IR mirror, which
 rebuilds every node document byte for byte (conventions §8.9
 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>). The reference's own
 tests are python/tests/reference/test_virtualize_ome_zarr.py; the full comparison, browser
@@ -18,6 +18,7 @@ from refkv.virtualize.common import CONVENTION_KEY, REVISION
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "virtualize" / "reference"))
 from refkv_reference import virtualize as reference  # noqa: E402
+from refkv_reference.legacy import SOURCE_NODE as LEGACY_NODE, current_names  # noqa: E402
 
 FIXTURES = Path(__file__).parents[2] / "fixtures" / "ome-zarr"
 URL = "https://data.test/ome-zarr/{}/"
@@ -32,15 +33,19 @@ def whole_object(parts) -> str:
 
 
 def hierarchy(out) -> dict:
-    """The IR path's documents outside vzip_source, and its references (entry key -> object key)."""
-    docs = {k: json.loads(v) for k, v in out.entries.items() if k.endswith("zarr.json") and not k.startswith("vzip_source/")}
+    """The IR path's documents outside refkv_source, and its references (entry key -> object key)."""
+    docs = {k: json.loads(v) for k, v in out.entries.items() if k.endswith("zarr.json") and not k.startswith("refkv_source/")}
     return {"docs": docs, "refs": {k: whole_object(v) for k, v in out.refs.items()}}
 
 
 def reference_hierarchy(out) -> dict:
-    docs = {k: json.loads(json.dumps(v)) for k, v in out.docs.items() if not k.startswith("vzip_source/")}
+    """The frozen reference's, with the current names (its revision's source metadata node
+    is vzip_source)."""
+    docs = current_names({k: json.loads(json.dumps(v)) for k, v in out.docs.items()
+                          if not k.startswith(LEGACY_NODE + "/")})
     docs["zarr.json"]["attributes"][CONVENTION_KEY]["revision"] = REVISION
-    return {"docs": docs, "refs": {k: out.origins.get(k, k) for k, _ in out.chunks}}
+    current = lambda k: "refkv_source" + k[len(LEGACY_NODE):] if k.startswith(LEGACY_NODE + "/") else k  # noqa: E731
+    return {"docs": docs, "refs": {current(k): out.origins.get(k, k) for k, _ in out.chunks}}
 
 
 @pytest.mark.parametrize("store", STORES, ids=[p.name for p in STORES])

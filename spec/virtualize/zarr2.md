@@ -33,14 +33,14 @@ array's chunks are its chunk objects, referenced whole, under the same keys
 Each node's attributes, and the members of its documents that the Zarr v3
 metadata does not reproduce, are its source metadata ([§4](#4-source-metadata)); the store's
 listing and every document read, byte for byte, are its IR mirror on
-`vzip_source` ([§4.1](#41-elements)). Every other object of the store, but
+`refkv_source` ([§4.1](#41-elements)). Every other object of the store, but
 consolidated metadata, is kept whole ([§5](#5-other-objects)).
 
 
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "zarr2"`, `"version": 0`, `"revision": 26` ([conventions §1](../conventions.md#1-conventions)), the store's URL (ending in `/`)
+with `"profile": "zarr2"`, `"version": 0`, `"revision": 27` ([conventions §1](../conventions.md#1-conventions)), the store's URL (ending in `/`)
 as `source.url`, and the root's source metadata ([§4](#4-source-metadata)), if it has any, as
 the member `"zarr2"`. Every other node that has source metadata declares it
 with `{"zarr2": S}`. Its CMO is:
@@ -48,10 +48,10 @@ with `{"zarr2": S}`. Its CMO is:
 ```json
 {
   "uuid": "8e792619-d671-4687-ab51-752885dd3ee6",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/vzip/refs/heads/main/spec/virtualize/zarr2/schema.json",
-  "spec_url": "https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md",
-  "name": "vzip_virtualized",
-  "description": "The Zarr layout of a Zarr v2 source virtualized by vzip, and the source's metadata"
+  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/virtualize/zarr2/schema.json",
+  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md",
+  "name": "refkv_virtualized",
+  "description": "The Zarr layout of a Zarr v2 source virtualized by refkv, and the source's metadata"
 }
 ```
 
@@ -262,7 +262,7 @@ has none.
   example, which the [OME-Zarr convention](ome-zarr.md) does not
   migrate). Every member is under the key, so none can collide with the
   conventions of the Zarr v3 hierarchy; a document that has its own
-  `vzip_virtualized` or `zarr_conventions` nests them there.
+  `refkv_virtualized` or `zarr_conventions` nests them there.
 - `M` holds the members of the node's `.zgroup` or `.zarray` that its
   `zarr.json` does not reproduce:
   - for an explicit group, every member of `.zgroup` but `zarr_format`;
@@ -308,11 +308,11 @@ binary64 value.
 ### 4.1 Elements
 
 Everything else the store holds that the hierarchy does not reference is on
-`vzip_source`, which is the store's **IR mirror**
+`refkv_source`, which is the store's **IR mirror**
 ([conventions §8](../conventions.md#8-the-ir-mirror), as a store's IR,
 [conventions §8.9](../conventions.md#89-stores)): its table, from which the
 listing and every document read are rebuilt byte for byte, and its view,
-`vzip_source/tree`. This section is the Zarr v2 **source model**: the
+`refkv_source/tree`. This section is the Zarr v2 **source model**: the
 elements of a Zarr v2 store's IR.
 
 Paths are relative to the IR's root, whose path is `""`; `<d>`, `<k>` are a
@@ -332,7 +332,7 @@ digits are its name index). Types are those of
 
 The view shows each member's text of at most 1024 bytes as a string
 ([conventions §8.7](../conventions.md#87-the-view)); a member past that is
-the spill form, its bytes in `vzip_source/ir/held`. The mirror lists every
+the spill form, its bytes in `refkv_source/ir/held`. The mirror lists every
 object of the store, documents nested under arrays, `.zmetadata` and empty
 objects included, with its size; the hierarchy references the chunk objects
 and the other objects ([§5](#5-other-objects)), and the mirror rebuilds the
@@ -341,7 +341,7 @@ rest.
 **Equivalence.** The elements are determined by the store's listing and
 documents, and the mirror by its elements
 ([conventions §8.8](../conventions.md#88-canonical-form)): hierarchies of one
-store are compared entry for entry, `vzip_source` included
+store are compared entry for entry, `refkv_source` included
 ([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
 
 ## 5. Other objects
@@ -359,20 +359,20 @@ OME-XML outside the place that [the OME-Zarr convention
 §7](ome-zarr.md#7-chunks-and-ome-xml) gives it, a `.zattrs` of a
 directory that is not a node, documents nested under an array (the
 `.zgroup` or `.zarray` of a candidate inside an array), and the objects
-under an array that are not chunk keys. Each is kept whole: the hierarchy has the key `vzip_source/objects/<k>`, where `k` is the
+under an array that are not chunk keys. Each is kept whole: the hierarchy has the key `refkv_source/objects/<k>`, where `k` is the
 object's key, escaped, and its bytes are the object's. (An empty object
 holds nothing, and has no key; the mirror lists it, below.)
 
 **Escaping.** A last segment that a Zarr reader would take for a node's
-document must not end a key under `vzip_source/objects/`: when the last
+document must not end a key under `refkv_source/objects/`: when the last
 segment of `k` is `zarr.json`, `.zarray` or `.zgroup` followed by any
 number (zero included) of `~`, one `~` is appended to it. So `zarr.json`
-is kept at `vzip_source/objects/zarr.json~`, `a/.zgroup` at
-`vzip_source/objects/a/.zgroup~`, and `zarr.json~` at
-`vzip_source/objects/zarr.json~~`. The escape is one to one: a key whose
+is kept at `refkv_source/objects/zarr.json~`, `a/.zgroup` at
+`refkv_source/objects/a/.zgroup~`, and `zarr.json~` at
+`refkv_source/objects/zarr.json~~`. The escape is one to one: a key whose
 last segment is one of these names followed by at least one `~` is the
 object's key with one `~` removed, and every other key is the object's.
-No Zarr v3 or Zarr v2 reader then opens a node under `vzip_source/objects/`.
+No Zarr v3 or Zarr v2 reader then opens a node under `refkv_source/objects/`.
 
 **Empty objects and ignored keys.** The **empty objects** are the store's
 objects of size 0, the empty chunk objects ([§3.2](#32-chunks)) among them: they have no
@@ -381,11 +381,11 @@ entry, and the mirror lists them, each an object of the IR of size 0
 listed objects that
 [spec/virtualize.md §1.4](../virtualize.md#14-store-inputs) ignores and
 records, which are not objects of the IR. When there is at least one,
-`vzip_source`'s source metadata has, beside the mirror's description `ir`,
+`refkv_source`'s source metadata has, beside the mirror's description `ir`,
 the member `"ignored": I`, `I` the ignored keys in ascending order of their
 UTF-8 bytes; otherwise it has no such member.
 
-**The group `vzip_source`.** The hierarchy has the group `vzip_source`, a
+**The group `refkv_source`.** The hierarchy has the group `refkv_source`, a
 child of the root (the source metadata node of
 [conventions §2](../conventions.md#2-attributes)), whose `zarr.json` declares
 the convention with the source metadata `{"ir": D, "ignored": I}` (`D` the
@@ -393,10 +393,10 @@ mirror's description, [conventions §8.2](../conventions.md#82-the-table);
 `ignored` as above), and the mirror's arrays
 and view groups below it. The directories between it and the other objects are
 not nodes and have no `zarr.json`. A hierarchy that has a node ([§2](#2-nodes)),
-an implicit group included, at the path `vzip_source`, or below it, is
+an implicit group included, at the path `refkv_source`, or below it, is
 rejected, since its keys would mix with these. When the root is an array,
-which can have no children, the mirror's keys (`vzip_source/zarr.json`
-among them) and the objects' keys under `vzip_source/objects/` are plain keys
+which can have no children, the mirror's keys (`refkv_source/zarr.json`
+among them) and the objects' keys under `refkv_source/objects/` are plain keys
 of the archive, which Zarr readers do not read as nodes.
 
 ## 6. Example
@@ -464,13 +464,13 @@ and whose `.zattrs` is `{"_ARRAY_DIMENSIONS": ["x"]}`:
     "zarr_conventions": [
       {
         "uuid": "8e792619-d671-4687-ab51-752885dd3ee6",
-        "schema_url": "https://raw.githubusercontent.com/d-v-b/vzip/refs/heads/main/spec/virtualize/zarr2/schema.json",
-        "spec_url": "https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md",
-        "name": "vzip_virtualized",
-        "description": "The Zarr layout of a Zarr v2 source virtualized by vzip, and the source's metadata"
+        "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/virtualize/zarr2/schema.json",
+        "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md",
+        "name": "refkv_virtualized",
+        "description": "The Zarr layout of a Zarr v2 source virtualized by refkv, and the source's metadata"
       }
     ],
-    "vzip_virtualized": {
+    "refkv_virtualized": {
       "zarr2": {
         "attributes": {
           "_ARRAY_DIMENSIONS": [
@@ -537,13 +537,13 @@ one of [the convention §5](#5-other-objects)'s empty objects, which the mirror 
 
 Every other object of [the convention §5](#5-other-objects)
 is referenced whole in the same way, by an entry under the key
-`vzip_source/objects/<k>` (with a `~` appended when [the convention §5](#5-other-objects)
+`refkv_source/objects/<k>` (with a `~` appended when [the convention §5](#5-other-objects)
 escapes `k`'s last segment) whose `url` source is the URL of the object `k`
 ([§1.4](../virtualize.md#14-store-inputs)). (This is the one place where an entry's key is not its object's
 key; [§1.4](../virtualize.md#14-store-inputs)'s rules otherwise apply: the sources are in ascending order of
 their entries' keys, each entry referencing its object's whole range.)
-The ignored keys are the member `ignored` of `vzip_source`'s source metadata
-([the convention §5](#5-other-objects)). The documents under `vzip_source/`
+The ignored keys are the member `ignored` of `refkv_source`'s source metadata
+([the convention §5](#5-other-objects)). The documents under `refkv_source/`
 (the mirror) are deflated and, like the chunks, not among the documents a
 reader fetches when it opens the archive
 ([conventions §2](../conventions.md#2-attributes)).
@@ -560,6 +560,6 @@ reject the input. No other object is read.
 This section is informative. Both implementations print a one-line JSON
 summary: `groups` (explicit and implicit), `arrays`, `chunks` (chunk
 entries), `emptyChunks` (chunk objects of size 0), `objects` (the store's
-objects), `otherObjects` (the entries under `vzip_source/objects/`) and
+objects), `otherObjects` (the entries under `refkv_source/objects/`) and
 `listingRequests`, and the Rust core's counts: `reads` (the object reads),
 `elements` (the IR's) and `folded` (what the mirror's table folded).

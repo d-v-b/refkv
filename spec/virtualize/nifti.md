@@ -20,20 +20,20 @@ of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "nifti"`, `"version": 0`, `"revision": 26` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
+with `"profile": "nifti"`, `"version": 0`, `"revision": 27` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
 and the root's source metadata of [§5.1](#51-the-root) as the member `"nifti"`. Its CMO is:
 
 ```json
 {
   "uuid": "06e5809d-4d54-4b72-afd0-6bf61a7b4c85",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/vzip/refs/heads/main/spec/virtualize/nifti/schema.json",
-  "spec_url": "https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md",
-  "name": "vzip_virtualized",
-  "description": "The Zarr layout of a NIfTI source virtualized by vzip, and the source's metadata"
+  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/virtualize/nifti/schema.json",
+  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md",
+  "name": "refkv_virtualized",
+  "description": "The Zarr layout of a NIfTI source virtualized by refkv, and the source's metadata"
 }
 ```
 
-`vzip_source` declares it too, with the IR mirror's description ([§5.2](#52-the-ir-mirror),
+`refkv_source` declares it too, with the IR mirror's description ([§5.2](#52-the-ir-mirror),
 [conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
 the mirror's view that has a member; the array and the mirror's arrays have no
 attributes.
@@ -168,7 +168,7 @@ fastest, then `y`, `z`, `t` and `k`, the index along dimension 5.
 The hierarchy is one image at the root ([conventions §4](../conventions.md#4-images)),
 without a name, with one array at path `"0"`: the root `zarr.json` is
 `{"zarr_format": 3, "node_type": "group", "attributes": A}`, where `A` has
-`ome` (`M`, below), `zarr_conventions` and `vzip_virtualized` ([§1](#1-declaration)).
+`ome` (`M`, below), `zarr_conventions` and `refkv_virtualized` ([§1](#1-declaration)).
 
 ### 4.1 The array
 
@@ -300,7 +300,7 @@ axes present). Otherwise it has none.
 The root's source metadata `S` ([conventions §2](../conventions.md#2-attributes))
 is an object with the members of [§5.1](#51-the-root), in that order,
 translated by [conventions §6](../conventions.md#6-source-metadata-as-json).
-Everything the file holds is on `vzip_source`, the file's **IR mirror**
+Everything the file holds is on `refkv_source`, the file's **IR mirror**
 ([§5.2](#52-the-ir-mirror)), from which the file is rebuilt byte for byte.
 
 ### 5.1 The root
@@ -336,9 +336,9 @@ need not repeat the rules of [§4.2](#42-value-scaling).
 
 ### 5.2 The IR mirror
 
-`vzip_source` is the file's **IR mirror**
+`refkv_source` is the file's **IR mirror**
 ([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `vzip_source/tree`. The IR's
+file is rebuilt byte for byte, and its view, `refkv_source/tree`. The IR's
 elements (the NIfTI **source model**) are below; nothing is left out: the
 header, the extender, the extensions, the voxel data, and every byte between
 and after them.
@@ -375,7 +375,7 @@ on when they are not all NUL.
 
 The elements are determined by the file, and the mirror by its elements
 ([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
-file are compared entry for entry, `vzip_source` included
+file are compared entry for entry, `refkv_source` included
 ([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
 
 ## 6. Example
@@ -391,15 +391,15 @@ root `zarr.json` has these attributes (`M` elided):
   "ome": M,
   "zarr_conventions": [{
     "uuid": "06e5809d-4d54-4b72-afd0-6bf61a7b4c85",
-    "schema_url": "https://raw.githubusercontent.com/d-v-b/vzip/refs/heads/main/spec/virtualize/nifti/schema.json",
-    "spec_url": "https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md",
-    "name": "vzip_virtualized",
-    "description": "The Zarr layout of a NIfTI source virtualized by vzip, and the source's metadata"
+    "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/virtualize/nifti/schema.json",
+    "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md",
+    "name": "refkv_virtualized",
+    "description": "The Zarr layout of a NIfTI source virtualized by refkv, and the source's metadata"
   }],
-  "vzip_virtualized": {
+  "refkv_virtualized": {
     "profile": "nifti",
     "version": 0,
-    "revision": 26,
+    "revision": 27,
     "source": {"url": "https://example.org/brain.nii"},
     "nifti": {
       "nifti_version": 1,
@@ -435,7 +435,7 @@ a single chunk.
 A NIfTI-1 file whose one extension is followed by 4 bytes before the voxel
 data, too few for another (the fixture `nifti_region_chain_tail.nii`), has
 the elements `header`, `extender`, `extensions/0`, `gaps/368` (the 4 bytes)
-and `voxels`, and its view `vzip_source/tree` shows, after `header`:
+and `voxels`, and its view `refkv_source/tree` shows, after `header`:
 
 ```json
 "extender": [1, 0, 0, 0],
@@ -524,7 +524,7 @@ fit in a payload ([§1.2](../virtualize.md#12-input)), the chunk is copied, with
 lie within the file (by the data size check). The output has no data
 sources: its source table is source 0 alone.
 
-`vzip_source` is the IR mirror ([the convention §5.2](#52-the-ir-mirror)). The
+`refkv_source` is the IR mirror ([the convention §5.2](#52-the-ir-mirror)). The
 archive has no other entries than the root's and the array's `zarr.json`, the
 array's chunks, and the mirror's.
 

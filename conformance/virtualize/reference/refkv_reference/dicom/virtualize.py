@@ -7,7 +7,7 @@ import math
 import re
 import struct
 
-from refkv.virtualize.common import (
+from refkv_reference.legacy import (
     MAX_PAYLOAD, Output, Reader, Rejected, array_json, declare, emit_plans, image_ome, payload_size, root_json,
     transpose_codec,
 )

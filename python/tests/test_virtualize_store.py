@@ -282,6 +282,7 @@ def test_records_ignored_keys_and_empty_chunks(monkeypatch):
     monkeypatch.syspath_prepend(REFERENCE)
     from refkv_reference.n5.virtualize import virtualize_n5  # the frozen N5 profile (revision 25)
     from refkv_reference.zarr2.virtualize import virtualize_zarr2  # the frozen profile: revision 25's rules
+    from refkv_reference.legacy import declare  # the frozen profiles' names: vzip_source
 
     zarray = b'{"zarr_format": 2, "shape": [4], "chunks": [2], "dtype": "|u1", "compressor": null, ' \
              b'"fill_value": 7, "order": "C", "filters": null}'

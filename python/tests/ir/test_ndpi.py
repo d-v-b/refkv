@@ -47,7 +47,7 @@ def test_header_pieces_are_data_sources():
     file = path.read_bytes()
     used = set()
     for key, ranges in out.refs.items():
-        if key.startswith("vzip_source/") or len(ranges) == 1:  # the mirror, or a whole strip
+        if key.startswith("refkv_source/") or len(ranges) == 1:  # the mirror, or a whole strip
             continue
         before, sof, after = ranges[:3]
         head, tail = data[before[0] - 1], data[after[0] - 1]

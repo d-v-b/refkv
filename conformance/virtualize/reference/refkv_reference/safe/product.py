@@ -7,8 +7,8 @@ import math
 import re
 from dataclasses import dataclass, field
 
-from refkv.virtualize.common import Rejected
-from refkv.virtualize.store import Element, parse_xml
+from refkv_reference.legacy import Rejected
+from refkv_reference.legacy import Element, parse_xml
 
 MAX_XML = 1 << 24
 MAX_U32 = 0xFFFFFFFF

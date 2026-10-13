@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { blockReader } from "../../src/virtualize/common.ts";
+import { blockReader } from "../../../conformance/virtualize/reference/ts/legacy.ts";
 import { virtualizeImage } from "../../../conformance/virtualize/reference/ts/index.ts";
 import { boundedHead, jpegFrame, jpegxrSize, zstd1Header, zstdContentSize } from "../../../conformance/virtualize/reference/ts/czi/coding.ts";
 import { layer, rowBand } from "../../../conformance/virtualize/reference/ts/czi/layout.ts";

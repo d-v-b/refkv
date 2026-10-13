@@ -70,7 +70,7 @@ fn mirrored(files: &BTreeMap<String, Vec<u8>>) -> (Out, Ir) {
 
 /// The mirror's table and description bytes (what the archive stores of it, uncompressed).
 fn table_bytes(out: &Out) -> usize {
-    out.entries.iter().filter(|(k, _)| k.starts_with("vzip_source/ir/") || k == "vzip_source/zarr.json").map(|(_, v)| v.len()).sum()
+    out.entries.iter().filter(|(k, _)| k.starts_with("refkv_source/ir/") || k == "refkv_source/zarr.json").map(|(_, v)| v.len()).sum()
 }
 
 #[test]

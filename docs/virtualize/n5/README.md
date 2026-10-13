@@ -32,19 +32,19 @@ A Zarr v3 hierarchy with a node at the path of every N5 group and dataset.
 - **Chunk keys:** the `v2` encoding with `/`, so chunk keys are the N5 block
   keys and every chunk entry is the block object at the same key.
 - **Attributes:** each group's and dataset's attributes are kept on its
-  node, as `vzip_virtualized.n5.attributes` (without the N5 structural
+  node, as `refkv_virtualized.n5.attributes` (without the N5 structural
   members, which the Zarr v3 metadata holds; any the Zarr v3 metadata does
   not reproduce, such as the container's `n5` version, are under
-  `vzip_virtualized.n5.metadata`). They are not mixed into the node's own
+  `refkv_virtualized.n5.metadata`). They are not mixed into the node's own
   attributes, so they cannot be mistaken for OME-NGFF metadata.
 - **Other objects:** any object of the store that is neither an
   `attributes.json` nor a block (a README, say) is kept whole, referenced in
-  place, under `vzip_source/objects/`.
-- **The store itself:** `vzip_source` is the store's IR mirror
+  place, under `refkv_source/objects/`.
+- **The store itself:** `refkv_source` is the store's IR mirror
   ([conventions §8.9](../../../spec/conventions.md#89-stores)): the listing (every
   object's key and size, empty ones included) and every node's
   `attributes.json`, byte for byte, with a view of each document's members
-  under `vzip_source/tree`. The Rust core ([rust/refkv-ir](../../../rust/refkv-ir/))
+  under `refkv_source/tree`. The Rust core ([rust/refkv-ir](../../../rust/refkv-ir/))
   reads and checks the documents and writes it, natively from Python and as
   WebAssembly in the browser.
 - **Multiscales:** a group with COSEM `multiscales` (as on OpenOrganelle) or
@@ -70,7 +70,7 @@ uv run python -m vzip.virtualize https://janelia-cosem-datasets.s3.amazonaws.com
 
 This took 5 s and wrote a 198 KB archive, at spec/virtualize.md revision 16
 ([overview](../README.md#formats)). (`otherObjects`, the objects kept under
-`vzip_source/objects/`, is new since then; it is 0 here, as the store's 1618
+`refkv_source/objects/`, is new since then; it is 0 here, as the store's 1618
 objects are its 6 documents and 1612 blocks. Since revision 26 the summary also
 has the store run's `reads`, the IR's `elements` and the mirror's `folded`.)
 
@@ -86,7 +86,7 @@ for d in ms["datasets"]:
     print(d["path"], a.shape, a.chunks, a.dtype, d["coordinateTransformations"][0]["scale"])
 a = g["s4"]
 print(a.metadata.codecs)
-print(a.metadata.dimension_names, a.attrs["vzip_virtualized"]["n5"]["attributes"]["transform"]["axes"])
+print(a.metadata.dimension_names, a.attrs["refkv_virtualized"]["n5"]["attributes"]["transform"]["axes"])
 print(a[200, 50, 180:190])
 ```
 
@@ -180,7 +180,7 @@ Notes:
 reject) with the browser code, and compares every array, read through
 `python/src/refkv` and zarr-python's `n5_default`, with an independent block reader
 in the script and with `zarr-n5`. `compare.py` checks that the Python and
-browser outputs, and the frozen reference's outside `vzip_source`, are equivalent on those stores and on the 7 OpenOrganelle
+browser outputs, and the frozen reference's outside `refkv_source`, are equivalent on those stores and on the 7 OpenOrganelle
 stores of [corpus_n5.txt](../../../conformance/virtualize/corpus_n5.txt)
 (the full-resolution level with the Python command only).
 

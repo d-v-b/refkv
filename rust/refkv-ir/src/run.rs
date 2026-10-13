@@ -315,7 +315,7 @@ pub fn unread_shown(ir: &Ir, profile: &str) -> Vec<(u32, u64, u64)> {
 }
 
 /// The output of a parse: the image projection of `format`, the mirror under
-/// `vzip_source` when `mirror`, and a summary with the planner's counts, the IR's
+/// `refkv_source` when `mirror`, and a summary with the planner's counts, the IR's
 /// element count and what the mirror's table folded. `copied` holds the bytes of the
 /// ranges the projection copies (`project::reads`).
 pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_json::Value, url: &str, mirror: bool,

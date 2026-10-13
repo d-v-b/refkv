@@ -3,7 +3,7 @@
 the path `refkv.virtualize`
 takes for TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE (a `.SAFE.zip` here; a `.SAFE` directory through `store.py`) files, and Zarr v2, N5 and OME-Zarr stores (`store.py`): the Rust core (rust/refkv-ir, the `refkv._ir` module)
 parses, checking each format's source model schema, plans the reads, projects the
-convention's hierarchy and mirrors the IR under `vzip_source`; this package is the
+convention's hierarchy and mirrors the IR under `refkv_source`; this package is the
 host: the I/O (`planner.py`), the archive writer (`output.py` into `Output`), and
 the rebuild from an archive (`cmirror.py`)."""
 
@@ -72,7 +72,7 @@ def parse(fmt: str, transport, conc: int | None = None):
 def virtualize(location: str, url: str | None = None, mirror: bool = True, policy=None, transport=None,
                connections: int | None = None, byte_cost: float | None = None):
     """(format, output, IR): the source read through the read planner, parsed by the
-    Rust parser of its format, projected and mirrored under vzip_source by the Rust
+    Rust parser of its format, projected and mirrored under refkv_source by the Rust
     core. The output pins source 0's size, and its ETag when every response gave the
     same strong one. `connections`: requests at a time to a remote source (default 8);
     `byte_cost`: seconds of wall time the planner charges a byte fetched (default 0.1 s

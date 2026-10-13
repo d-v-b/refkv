@@ -349,7 +349,7 @@ impl StoreRun {
     }
 
     /// Finishes and mirrors: the output (the format's projection, and the mirror under
-    /// `vzip_source` when `mirror`).
+    /// `refkv_source` when `mirror`).
     pub fn into_output(self, url: &str, mirror: bool) -> Res<crate::out::Out> {
         let format = self.format;
         let (ir, facts, stats) = self.finish()?;
@@ -357,7 +357,7 @@ impl StoreRun {
     }
 }
 
-/// The output of a store parse: the format's projection, the mirror under `vzip_source` when
+/// The output of a store parse: the format's projection, the mirror under `refkv_source` when
 /// `mirror`, and a summary: the projection's, with the run's counts, the IR's element count
 /// (and, but for SAFE, whose projection counts its objects itself, the format's name and the
 /// IR's object count) and what the mirror's table folded. Then the ignored keys (and a SAFE

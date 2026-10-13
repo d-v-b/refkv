@@ -525,8 +525,8 @@ def streams() -> None:
     f.chunk("ImageMetadataLV!", experiment(node(1, {"uiCount": t, "dPeriod": 1000.0, "dStart": 0.0, "dDuration": 0.0},
                                                 [node(4, {"uiCount": z, "dZStep": -1.0, "dZLow": 0.0, "dZHigh": 2.0})])))
     f.chunk("ImageMetadataSeqLV|0!", picture([("BF", 0xFFFFFF, 1)], 0.5))
-    f.chunk("ImageMetadataSeqLV|1!", picture([("BF", 0xFFFFFF, 1)], 0.5))  # per frame: on vzip_source
-    f.chunk("ImageEventsLV!", lv("RLxExperimentRecord", {"uiCount": 1}))  # events: on vzip_source
+    f.chunk("ImageMetadataSeqLV|1!", picture([("BF", 0xFFFFFF, 1)], 0.5))  # per frame: on refkv_source
+    f.chunk("ImageEventsLV!", lv("RLxExperimentRecord", {"uiCount": 1}))  # events: on refkv_source
     f.chunk("CustomDataVar|CustomDataV2_0!", variant(
         '<CustomTagDescription_v1.0 runtype="CLxListVariant"><Tag0 runtype="CLxListVariant">'
         '<ID runtype="CLxStringW" value="PFS_OFFSET"/><Type runtype="lx_int32" value="2"/>'
@@ -568,7 +568,7 @@ def revision7() -> None:
     # unpaired surrogates in a string and a name, the declarations read before
     # the stream they declare (whose bytes would decode as LV), a Type that is
     # an element, character references and integers too long to parse, and a
-    # chunk whose JSON is over 16 KiB (on vzip_source). Frames 1 and 2 have
+    # chunk whose JSON is over 16 KiB (on refkv_source). Frames 1 and 2 have
     # trailing bytes of different lengths.
     f = Nd2()
     f.chunk("ImageAttributesLV!", attributes(w, h, 1, 16, sequence=3))
@@ -633,7 +633,7 @@ def revision7() -> None:
     write("nd2_source_chunks", f, expected)
 
     # A chunk whose JSON is 16384 bytes long (at the root) and one of 16385 (on
-    # vzip_source), with numbers and strings that JSON writers format differently.
+    # refkv_source), with numbers and strings that JSON writers format differently.
     sized = sized_level
     f = Nd2()
     f.chunk("ImageAttributesLV!", attributes(w, h, 1, 16, sequence=1))
@@ -750,7 +750,7 @@ def revision8() -> None:
     f.chunk("CustomData|ZippedLossy!", compressed(record(1, "a", b"\x05")))
     f.chunk("ImageLossyLV!", record(1, "a", b"\x05"))  # named LV: decoded, as true
     f.chunk("ImageMetadataSeqLV|00!", picture([("A", 255, 1)], None))  # n = 0: at the root
-    f.chunk("ImageMetadataSeqLV|01!", picture([("A", 255, 1)], None))  # n = 1: on vzip_source
+    f.chunk("ImageMetadataSeqLV|01!", picture([("A", 255, 1)], None))  # n = 1: on refkv_source
     data, px = frame(0)
     f.chunk("ImageDataSeq|0!", data)
     write("nd2_source_tags", f, {"0/0/c/0/0": px})
@@ -776,7 +776,7 @@ def revision8() -> None:
     write("nd2_source_sparse", f, expected)
 
     # The root's budget: five chunks of 12000 to 15000 bytes of JSON (over
-    # 65536 in all); the largest moves to vzip_source, and of the two largest
+    # 65536 in all); the largest moves to refkv_source, and of the two largest
     # (equal), the first in map order.
     f = Nd2()
     f.chunk("ImageAttributesLV!", attributes(w, h, 1, 16, sequence=1))
@@ -788,7 +788,7 @@ def revision8() -> None:
 
 
 def revision9() -> None:
-    """Round-3 review: byte arrays as one value, vzip_source's budget, decodes
+    """Round-3 review: byte arrays as one value, refkv_source's budget, decodes
     charged whether or not they succeed, array-index names, -0, and the frame
     times in chunks of at most 64 KiB (spec/virtualize/nd2.md §5.1
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>-§5.3
@@ -800,14 +800,14 @@ def revision9() -> None:
         f.chunk("ImageDataSeq|0!", frame_bytes(px, w * 2, False))
         return {"0/0/c/0/0": px[:, :, 0]}
 
-    # The JSON-size boundary (16384 at the root, 16385 on vzip_source), with -0 a tag.
+    # The JSON-size boundary (16384 at the root, 16385 on refkv_source), with -0 a tag.
     f = Nd2()
     f.chunk("ImageAttributesLV!", attributes(w, h, 1, 16, sequence=1))
     f.chunk("AtLimitLV!", sized_level(16384, legacy=False))
     f.chunk("OverLimitLV!", sized_level(16385, legacy=False))
     write("nd2_source_json_size_tagged", f, frame0(f))
 
-    # vzip_source's budget: the picture metadata of frames 1-4, of 30008, 30008,
+    # refkv_source's budget: the picture metadata of frames 1-4, of 30008, 30008,
     # 10008 and 3008 bytes of JSON: 1, 2 and 4 fit in 64 KiB, 3 is bytes. Byte
     # arrays: one of 100 bytes (a JSON array), one of 70000 and one of 8 MiB
     # (compressed), whose JSON would not fit (bytes). Names that are array
@@ -862,7 +862,7 @@ def revision10() -> None:
     """Round-3 follow-up: the profile's chunks inflate to at most 64 MiB
     (spec/virtualize.md §5.1
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-chunks>), and other and empty
-    past vzip_source's budget
+    past refkv_source's budget
     (spec/virtualize/nd2.md §5.4
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#54-equivalence>)."""
     h, w = 3, 4
@@ -873,7 +873,7 @@ def revision10() -> None:
     write("nd2_reject_inflate_limit", f, {})
 
     # 4000 chunks without a valid path (other) and 6000 empty ones: both lists
-    # are over vzip_source's 64 KiB, so each is an array of its JSON text.
+    # are over refkv_source's 64 KiB, so each is an array of its JSON text.
     f = Nd2()
     f.chunk("ImageAttributesLV!", attributes(w, h, 1, 16, sequence=1))
     for i in range(4000):

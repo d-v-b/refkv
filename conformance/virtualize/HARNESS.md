@@ -155,32 +155,32 @@ with the first's:
 For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE files, and SAFE directories and Zarr v2, OME-Zarr and N5 stores, `py` and `web` are one implementation: the Rust core
 `rust/refkv-ir` (its parsers, schemas, read planner, projections and mirror),
 built natively for Python and as wasm32 for the browser, each with a thin host
-(the I/O, and the archive writer). Their `vzip_source` is the IR's mirror,
+(the I/O, and the archive writer). Their `refkv_source` is the IR's mirror,
 which the reference does not write. So, for those profiles:
 
-- `ref` against `py` and `web`, outside `vzip_source`: proves that the IR path
+- `ref` against `py` and `web`, outside `refkv_source`: proves that the IR path
   writes the hierarchy, references and data sources an independent
   implementation (the frozen one) writes, and rejects the same inputs. The
   sources compared are those the other entries use, in order of first use,
   and references name them by URL or bytes: a store's objects only
-  `vzip_source` referenced, and the order a profile gives its url sources,
+  `refkv_source` referenced, and the order a profile gives its url sources,
   do not count. It is
   the same check as before the switch-over, with one of its two sides now the
   core.
-- `py` against `web`, entirely (`vzip_source` included): proves that the two
+- `py` against `web`, entirely (`refkv_source` included): proves that the two
   hosts drive the core alike and write the same archive contents (the native
   and wasm32 builds agree, and so do the Python and browser drivers and
   writers). It no longer proves that two independent implementations of the
   convention agree: the parsers, checks and projections exist once. That
   independence now rests on the frozen reference, which stops at what it does
-  today: the mirror (`vzip_source`) has no second implementation, and its
+  today: the mirror (`refkv_source`) has no second implementation, and its
   checks are the byte-exact rebuild of the source from it and its canonical
   form (below).
 
 For every other profile, `py` and `web` are still two hand-written
 implementations, and `ref` runs the same code as `py`.
 
-Since revision 21, `vzip_source` of TIFF, ND2 and CZI is the IR mirror of
+Since revision 21, `refkv_source` of TIFF, ND2 and CZI is the IR mirror of
 [conventions §8](../../spec/conventions.md#8-the-ir-mirror), and since revision 26 those of DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2, OME-Zarr and N5 too; since revision 22 the mirror is canonical ([conventions §8.8](../../spec/conventions.md#88-canonical-form))
 and [spec/virtualize.md §1.1](../../spec/virtualize.md#11-output-and-equivalence) compares it entry for entry, as `py` against `web`
 does. `compare.py` also checks each archive's mirror on its own, in addition
@@ -238,6 +238,20 @@ reading the node documents it decides whether the root declares OME-NGFF 0.4, an
 OME layer gives OME-Zarr's hierarchy. `ref` runs the frozen OME-Zarr profiles
 (`refkv_reference/ome_zarr`, `reference/ts/ome-zarr`, on the frozen Zarr v2 ones), whose
 roots record revision 25 as the frozen Zarr v2 profiles' do.
+
+**The frozen reference keeps the names of its revisions.** Revision 27 renamed
+the source metadata node `vzip_source` to `refkv_source`, the convention's
+property `vzip_virtualized` to `refkv_virtualized`, and moved the convention
+metadata's URLs from d-v-b/vzip to d-v-b/refkv. The frozen profiles still write
+the old names, so that their output is what their revisions wrote, byte for
+byte: they take what they share with the shipped code from
+`conformance/virtualize/reference/refkv_reference/legacy.py` and
+`conformance/virtualize/reference/ts/legacy.ts`, which are the shipped `common`
+modules but for those names, and which translate them (`current_names`,
+`currentNames`). `compare.py` reads a reference output that has the old names
+with the current ones (`at_revision`), and leaves out its source metadata node
+under either name; the tests that compare the frozen profiles with the Rust core
+do the same (`python/tests/ir/conftest.py`, `js/test/ir/compare.ts`).
 
 **The frozen reference stays.** The frozen implementations
 (`conformance/virtualize/reference`, `conformance/virtualize/reference/ts`) are kept

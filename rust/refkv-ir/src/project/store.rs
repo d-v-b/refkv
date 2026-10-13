@@ -1,6 +1,6 @@
 //! What the store projections share (conventions §8.9
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): the key of an other
-//! object under `vzip_source/objects/`, a node's declaration, the canonical decimal of a chunk
+//! object under `refkv_source/objects/`, a node's declaration, the canonical decimal of a chunk
 //! index, the output keys the archive allows, and the ignored keys recorded beside the mirror.
 //! Zarr v2 (`zarr2.rs`) uses them, and so do the other store formats.
 
@@ -9,9 +9,9 @@ use crate::out::{convention, root_property, Out, CONVENTION_KEY};
 use serde_json::{json, Value as J};
 
 /// The prefix of the other objects' keys.
-pub const OBJECTS: &str = "vzip_source/objects/";
+pub const OBJECTS: &str = "refkv_source/objects/";
 
-/// The hierarchy's key of the other object `key`: under `vzip_source/objects/`, with `~`
+/// The hierarchy's key of the other object `key`: under `refkv_source/objects/`, with `~`
 /// appended to a last segment that is `zarr.json`, `.zarray` or `.zgroup` followed by any
 /// number of `~`, so that no Zarr reader opens a node there (spec/virtualize/zarr2.md
 /// §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
@@ -56,7 +56,7 @@ pub fn check_key(key: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The members of `vzip_source`'s source metadata that the store conventions keep beside the
+/// The members of `refkv_source`'s source metadata that the store conventions keep beside the
 /// mirror's `ir`, outside the IR (conventions §8.9
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), by profile: Zarr v2's
 /// ignored keys (spec/virtualize/zarr2.md §5
@@ -76,7 +76,7 @@ pub fn kept(profile: &str) -> &'static [&'static str] {
     }
 }
 
-/// After the mirror: the members [`kept`] beside the mirror's `ir` in `vzip_source`'s source
+/// After the mirror: the members [`kept`] beside the mirror's `ir` in `refkv_source`'s source
 /// metadata, from the facts, each only when it is not empty: a SAFE product's empty
 /// directories (`empty_dirs`, as its parser sorted them), then the recorded ignored keys
 /// (spec/virtualize.md §1.4
@@ -86,7 +86,7 @@ pub fn kept(profile: &str) -> &'static [&'static str] {
 /// spec/virtualize/safe.md §6.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
 /// Nothing when there are none. An output made without its mirror (`mirror` false, which no
-/// virtualizer does) has no `vzip_source` source metadata at all, and so does not record them
+/// virtualizer does) has no `refkv_source` source metadata at all, and so does not record them
 /// either: like the mirror, they are what such an output leaves out. Facts that carry a member
 /// the profile does not keep are refused, with or without the mirror: that is a format
 /// missing from [`kept`], whose keys would otherwise be lost.
@@ -114,7 +114,7 @@ pub fn record_ignored(out: &mut Out, facts: &J, profile: &str) -> Result<(), Str
     let key = format!("{}/zarr.json", crate::out::SOURCE_NODE);
     let Some(e) = out.entries.iter().find(|e| e.0 == key) else { return Ok(()) };
     let mut doc: J = serde_json::from_slice(&e.1).map_err(|e| format!("internal: {e}"))?;
-    let own = doc["attributes"][CONVENTION_KEY][profile].as_object_mut().ok_or("internal: vzip_source declares no mirror")?;
+    let own = doc["attributes"][CONVENTION_KEY][profile].as_object_mut().ok_or("internal: refkv_source declares no mirror")?;
     for (m, v) in members {
         own.insert(m.into(), json!(v));
     }

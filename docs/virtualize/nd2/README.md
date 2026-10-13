@@ -45,15 +45,15 @@ each stage position `p` is an image at `<p>/` with one array, `<p>/0`.
   stage matrix, when the image is calibrated.
 - **omero:** channel names, colors and a display window from the
   significant bits.
-- **Metadata:** the root's `vzip_virtualized.nd2` holds the file's signature
+- **Metadata:** the root's `refkv_virtualized.nd2` holds the file's signature
   and its decoded metadata chunks (image attributes, experiment, picture
   metadata, text info and the like) that fit the root's budget. Everything
-  else is on `vzip_source`, the file's IR mirror
+  else is on `refkv_source`, the file's IR mirror
   ([conventions §8](../../../spec/conventions.md#8-the-ir-mirror)): a
-  table under `vzip_source/ir/` that accounts for every byte of the file
+  table under `refkv_source/ir/` that accounts for every byte of the file
   (every chunk, the chunk map, the frames and their timestamps, padding), so
   that the file can be rebuilt from it and the file's bytes, and a JSON view
-  of it under `vzip_source/tree`.
+  of it under `refkv_source/tree`.
 
 ## Try it
 
@@ -164,8 +164,8 @@ with the `nd2` package. `compare.py` compares three virtualizers
 ([overview](../README.md#the-implementations-agree)) on the synthetic files
 and the 17 public files of
 [corpus_nd2.txt](../../../conformance/virtualize/corpus_nd2.txt): the Python
-and browser hosts of the core must write the same archive, `vzip_source`
-included, and both must match, outside `vzip_source`, the frozen reference:
+and browser hosts of the core must write the same archive, `refkv_source`
+included, and both must match, outside `refkv_source`, the frozen reference:
 the Python ND2 profile vzip shipped before the core.
 
 - Profile: [spec/virtualize/nd2.md](../../../spec/virtualize/nd2.md#part-2-the-profile); convention:

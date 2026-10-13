@@ -9,7 +9,7 @@
 import {
   base64, type ByteReader, declare, emitPlans, gridChunks, jsonNumber, MAX_PAYLOAD_BYTES, type Part, payloadSize,
   type Plan, rowChunks, SOURCE_NODE, textJson, toRange, stringifyJson,
-} from "../../../../../js/src/virtualize/common.ts";
+} from "../legacy.ts";
 import type { ArchiveDesc, EntryDesc } from "../../../../../js/src/writer.ts";
 import { REVISION_25 } from "../revision.ts";
 

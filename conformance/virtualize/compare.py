@@ -31,18 +31,20 @@ Others write HARNESS.md's JSON description; give them as `--impl name=command`.
 
 `py` and `web` virtualize TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE files, and
 SAFE directories and Zarr v2, N5 and OME-Zarr stores, through one Rust core (rust/refkv-ir,
-natively and as wasm32), and write its mirror under `vzip_source`, which the frozen reference
+natively and as wasm32), and write its mirror under `refkv_source`, which the frozen reference
 does not: for those profiles an implementation is compared with the reference outside
-`vzip_source`, and `py` and `web` with each other entirely, entry for entry (they must give the
-same archive contents, `vzip_source` included).
+`refkv_source`, and `py` and `web` with each other entirely, entry for entry (they must give the
+same archive contents, `refkv_source` included).
 The frozen reference records the revision it implements (20 for TIFF, ND2 and CZI, 25
 for DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2, N5 and OME-Zarr) in its root, where the shipped
-code records the current one: compared with it, the reference's root is read at the current
-revision, without the members of its source metadata that the mirror holds instead (NIfTI's
-extensions and raw bytes). Each mirror is also checked on its own (`mirror_problem`): it reads,
-it rebuilds a source of source 0's size (a store's: its listing, the sizes its sources pin, and
-every held object byte for byte, read from the store), it is canonical, and its view is the one
-its table and the source give.
+code records the current one, and writes the names those revisions used (`vzip_source`,
+`vzip_virtualized`, the convention's URLs under d-v-b/vzip), which revision 27 renamed:
+compared with it, the reference's output is read with the current names, at the current
+revision, and without the members of its source metadata that the mirror holds instead
+(NIfTI's extensions and raw bytes; `at_revision`). Each mirror is also checked on its own
+(`mirror_problem`): it reads, it rebuilds a source of source 0's size (a store's: its listing,
+the sizes its sources pin, and every held object byte for byte, read from the store), it is
+canonical, and its view is the one its table and the source give.
 
 Usage: uv run python conformance/virtualize/compare.py <out dir>
            [--impl name=command ...] [--no-builtin web] [--quick] [--only <substring>]
@@ -74,6 +76,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE / "reference"))
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 sys.path.insert(0, str(ROOT / "conformance" / "impls" / "python"))
 from corpus_hash import entries as corpus_entries  # noqa: E402
@@ -82,8 +85,10 @@ from validate import validate  # noqa: E402
 from vzip_impl import reader as strict_reader  # noqa: E402
 from vzip_impl.errors import VzError  # noqa: E402
 
+from refkv_reference import legacy  # noqa: E402
+
 from refkv.pb import Concat, Range, Source, decode_source_table  # noqa: E402
-from refkv.virtualize.common import REVISION, same  # noqa: E402
+from refkv.virtualize.common import CONVENTION_KEY, REVISION, SOURCE_NODE, same  # noqa: E402
 
 IDR = "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant/20210609-ftp-ome-tiffs/"
 BUILTIN = {
@@ -94,10 +99,14 @@ BUILTIN = {
     "py": ("vzip", ["uv", "run", "python", "-m", "refkv.virtualize", "--allow-private-hosts"]),
     "web": ("vzip", ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"]),
 }
-# The profiles whose shipped implementations write the IR's mirror under vzip_source.
+# The profiles whose shipped implementations write the IR's mirror under refkv_source.
 IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ims", "ndpi", "safe", "zarr2", "n5",
                "ome-zarr")
-SOURCE = "vzip_source/"
+SOURCE = SOURCE_NODE + "/"
+# The names the frozen reference writes, of the revisions it implements, and their translation.
+LEGACY_SOURCE = legacy.SOURCE_NODE + "/"
+LEGACY_KEY = legacy.CONVENTION_KEY
+current_names = legacy.current_names
 # The revision each frozen profile's reference roots record (HARNESS.md): the last before
 # the profile moved to the IR.
 REFERENCE_REVISIONS = {"tiff": 20, "nd2": 20, "czi": 20, "dicom": 25, "nifti": 25, "ims": 25, "ndpi": 25,
@@ -293,7 +302,7 @@ def run(impl: tuple[str, list[str]], url: str, out: Path) -> tuple[str, object]:
 
 
 def mirror_problem(path: Path, view: dict, read=None, fetch=None) -> str | None:
-    """For an archive whose vzip_source is an IR mirror (conventions §8
+    """For an archive whose refkv_source is an IR mirror (conventions §8
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>): None when its
     table reads, its invariants hold, it describes a source of source 0's size, it is
     canonical (§8.8 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>,
@@ -306,8 +315,8 @@ def mirror_problem(path: Path, view: dict, read=None, fetch=None) -> str | None:
     `fetch(url, size)` (by default over HTTP); `read` applies to a file's mirror only. These are
     checks in addition to comparing mirrors entry for entry (spec/virtualize.md §1.1
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>)."""
-    doc = view["entries"].get("vzip_source/zarr.json")
-    own = (doc[1].get("attributes", {}).get("vzip_virtualized", {}) if doc and doc[0] == "json" else {})
+    doc = view["entries"].get("refkv_source/zarr.json")
+    own = (doc[1].get("attributes", {}).get("refkv_virtualized", {}) if doc and doc[0] == "json" else {})
     if not any(isinstance(v, dict) and "ir" in v for v in own.values()):
         return None
     if any(isinstance(v, dict) and isinstance(v.get("ir"), dict) and "objects" in v["ir"] for v in own.values()):
@@ -343,7 +352,7 @@ SAFE_MARKER = "_$folder$"
 
 
 def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
-    """For an archive whose vzip_source is a store IR's mirror (conventions §8.9
+    """For an archive whose refkv_source is a store IR's mirror (conventions §8.9
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): None when its table
     reads and its invariants hold, it rebuilds the store's listing (every url source names an
     object of it and pins its size, and every object the archive references has a source) and
@@ -376,7 +385,7 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     except Exception as e:  # noqa: BLE001
         return f"{type(e).__name__}: {e}"
     root = view["entries"].get("zarr.json")
-    prop = root[1].get("attributes", {}).get("vzip_virtualized") if root and root[0] == "json" else None
+    prop = root[1].get("attributes", {}).get("refkv_virtualized") if root and root[0] == "json" else None
     url = prop.get("source", {}).get("url") if isinstance(prop, dict) else None
     if not isinstance(url, str):
         return "no store URL on the root"
@@ -466,30 +475,41 @@ def profile(output: dict) -> str | None:
     root = output["entries"].get("zarr.json")
     if not root or root[0] != "json":
         return None
-    return (root[1].get("attributes", {}).get("vzip_virtualized") or {}).get("profile")
+    attrs = root[1].get("attributes", {})
+    return (attrs.get(CONVENTION_KEY) or attrs.get(LEGACY_KEY) or {}).get("profile")
 
 
 def at_revision(output: dict) -> dict:
-    """The output with its root's `revision` the current one when it is the frozen
-    reference's (REFERENCE_REVISIONS), and without the members of its source metadata
-    that the IR's mirror holds instead (MIRRORED), for comparing the reference with
-    shipped code."""
+    """The frozen reference's output as the shipped code names it, for comparing the
+    two: when its root has the frozen reference's names (LEGACY_KEY), its source metadata
+    node's keys under `refkv_source/`, and every document outside it with the current
+    names (`current_names`); and when its root records the revision the reference
+    implements (REFERENCE_REVISIONS), that revision the current one, without the members
+    of its source metadata that the IR's mirror holds instead (MIRRORED). Any other
+    output is unchanged."""
     root = output["entries"].get("zarr.json")
-    prop = root[1].get("attributes", {}).get("vzip_virtualized") if root and root[0] == "json" else None
+    attrs = root[1].get("attributes", {}) if root and root[0] == "json" else {}
+    if LEGACY_KEY in attrs:
+        output = {**output, "entries": {
+            (SOURCE + k[len(LEGACY_SOURCE):] if k.startswith(LEGACY_SOURCE) else k):
+                (kind, current_names(v)) if kind == "json" and not k.startswith(LEGACY_SOURCE) else (kind, v)
+            for k, (kind, v) in output["entries"].items()}}
+        root = output["entries"]["zarr.json"]
+    prop = root[1].get("attributes", {}).get(CONVENTION_KEY) if root and root[0] == "json" else None
     p = prop.get("profile") if isinstance(prop, dict) else None
     if p not in REFERENCE_REVISIONS or prop.get("revision") != REFERENCE_REVISIONS[p]:
         return output
     prop = {**prop, "revision": REVISION}
     if isinstance(prop.get(p), dict) and p in MIRRORED:
         prop[p] = {k: v for k, v in prop[p].items() if k not in MIRRORED[p]}
-    attrs = {**root[1]["attributes"], "vzip_virtualized": prop}
+    attrs = {**root[1]["attributes"], CONVENTION_KEY: prop}
     return {**output, "entries": {**output["entries"], "zarr.json": (root[0], {**root[1], "attributes": attrs})}}
 
 
 def without_source(output: dict) -> dict:
-    """An output without the entries under vzip_source, its sources those the other entries
+    """An output without the entries under refkv_source, its sources those the other entries
     use, in order of first use (the entries in order of their keys' UTF-8 bytes, each one's
-    ranges in order), renumbered: so that sources only vzip_source used (a store's objects
+    ranges in order), renumbered: so that sources only refkv_source used (a store's objects
     the mirror holds, a profile's own source metadata arrays) and the order a profile gives
     its url sources do not count, and the hierarchy's references still compare by source."""
     sources = output["sources"]

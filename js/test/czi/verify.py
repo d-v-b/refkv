@@ -82,10 +82,12 @@ def run(impl: str, url: str, out: Path) -> subprocess.CompletedProcess:
 
 
 def mirror_check(path: Path, url: str, out: Path) -> list[str]:
-    """An archive of the IR, whose vzip_source is its mirror: the checks below run on the
-    frozen reference's archive of the same file, the IR's hierarchy must equal that one
-    outside vzip_source (the reference's root read at the current revision, compare.py's
-    `at_revision`), and the mirror must rebuild the source byte for byte."""
+    """An archive of the IR, whose refkv_source is its mirror: the checks below run on the
+    frozen reference's archive of the same file (which keeps its revision's names,
+    vzip_source and vzip_virtualized, as they read), the IR's hierarchy must equal that
+    one outside the source metadata node (the reference read with the current names, at
+    the current revision: compare.py's `at_revision`), and the mirror must rebuild the
+    source byte for byte."""
     sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
     from compare import at_revision, differences, from_vzip, without_source
 

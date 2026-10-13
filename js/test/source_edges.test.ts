@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { setMember } from "../src/virtualize/common.ts";
+import { setMember } from "../../conformance/virtualize/reference/ts/legacy.ts";
 import { decodeLV } from "../../conformance/virtualize/reference/ts/nd2/lv.ts";
 import { Translator } from "../../conformance/virtualize/reference/ts/tiff/tags.ts";
 

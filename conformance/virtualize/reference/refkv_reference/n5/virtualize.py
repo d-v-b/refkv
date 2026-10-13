@@ -6,8 +6,8 @@ frozen Zarr v2 profile's StoreOutput declares it)."""
 
 from __future__ import annotations
 
-from refkv.virtualize.common import UNITS, Rejected
-from refkv.virtualize.store import (
+from refkv_reference.legacy import UNITS, Rejected
+from refkv_reference.legacy import (
     GROUP_IMPLICIT,
     PathTrie,
     Store,

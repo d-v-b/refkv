@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import re
 
-from refkv.virtualize.common import Rejected
-from refkv.virtualize.store import Store, StoreOutput, as_int, canonical_index, is_number, join, num, parent_of
+from refkv_reference.legacy import Rejected
+from refkv_reference.legacy import Store, StoreOutput, as_int, canonical_index, is_number, join, num, parent_of
 from refkv_reference.zarr2.virtualize import hierarchy_output, prefetch, read_hierarchy
 
 OME_KEYS = ("multiscales", "omero", "labels", "image-label", "plate", "well", "bioformats2raw.layout")

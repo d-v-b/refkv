@@ -149,7 +149,7 @@ def frame_problems(root, loops: list[dict], frames: dict[int, bytes], attrs: dic
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#53-elements>)."""
     h, w, comp = attrs["uiHeight"], attrs["uiWidth"], attrs["uiComp"]
     row, width_bytes = w * comp * attrs["uiBpcInMemory"] // 8, attrs["uiWidthBytes"]
-    times = root["vzip_source/ImageDataSeq"] if frames else None
+    times = root["refkv_source/ImageDataSeq"] if frames else None
     problems = []
     for f, raw in sorted(frames.items()):
         coords, rest = {}, f
@@ -182,7 +182,7 @@ def mirror_chunk_problems(path: Path, root, out: Path) -> list[str]:
     import nd2 as nd2lib
 
     problems = mirror_problems(out, path)
-    decoded = root.attrs["vzip_virtualized"]["nd2"]["chunks"]
+    decoded = root.attrs["refkv_virtualized"]["nd2"]["chunks"]
     with nd2lib.ND2File(path) as f:
         r = f._rdr
         for k in r.chunkmap:
@@ -204,9 +204,9 @@ def chunk_problems(path: Path, root) -> list[str]:
     package's chunk map, loader and decoder."""
     import nd2 as nd2lib
 
-    meta = root.attrs["vzip_virtualized"]["nd2"]
-    src = root["vzip_source"] if "vzip_source" in root else None
-    s = src.attrs["vzip_virtualized"]["nd2"] if src is not None and "vzip_virtualized" in src.attrs else {}
+    meta = root.attrs["refkv_virtualized"]["nd2"]
+    src = root["refkv_source"] if "refkv_source" in root else None
+    s = src.attrs["refkv_virtualized"]["nd2"] if src is not None and "refkv_virtualized" in src.attrs else {}
     decoded = {**meta["chunks"], **s.get("chunks", {})}
 
     def names(key: str) -> list:

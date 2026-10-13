@@ -6,7 +6,7 @@
 import {
   base64, type ByteReader, familyPlans, gridChunks, jsonNumber, latin1, MAX_PAYLOAD, type Part, payloadSize, type Plan,
   rowChunks, SOURCE_NODE, textJson,
-} from "../../../../../js/src/virtualize/common.ts";
+} from "../legacy.ts";
 import {
   DicomError, type Element, type Encoding, EXPLICIT_LE, IMPLICIT_LE, ITEM, ITEM_END, MAX_DEPTH, PIXEL_DATA,
   SEQUENCE_END, UNDEFINED, Walker,
