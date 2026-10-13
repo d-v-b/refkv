@@ -41,9 +41,9 @@ One OME-Zarr 0.5 image at the archive root, with one array per level.
 - **Scale:** from the TIFF resolution tags, in micrometers, when they give a
   pixel under 25.4 µm.
 - **Translation:** from the slide-center offsets the scanner records.
-- **Metadata:** every tag of every IFD (the macro image's and slide map's
-  included), under `vzip_source/ifds/<i>`, with the strips of the images
-  that are not levels; the root holds none.
+- **Metadata:** the file's IR mirror on `vzip_source` (since revision 26):
+  every IFD, tag, high word and strip, from which the file is rebuilt byte
+  for byte, shown as JSON under `vzip_source/tree`; the root holds none.
 
 ## Try it
 
@@ -138,10 +138,13 @@ A chunk is about 128 pieces of the file, one per row of JPEG blocks
   or reading the bytes between rows can make those requests cheap.
 - **What helps.** Planning all of a view's chunk reads together (a batch
   window), choosing the gap to merge by a cost model of round-trip time and
-  bandwidth, and caching the fetched gaps (which the next pan uses). Over 56
-  modeled views of CMU-1 at 20 ms and 50 Mbit/s, that takes the total from
-  41 s to 14 s. These are prototypes behind flags on that branch, not yet
-  the default readers.
+  bandwidth, and caching the fetched gaps (which the next pan uses). Over 55
+  modeled views of CMU-1 at 20 ms and 50 Mbit/s, the study's prototype takes
+  the total from 41 s to 14 s, and the Rust core's read planner, used per
+  view, to 18 s (15 s with a cache of the fetched spans). Neither is the
+  default reader yet: the readers of archives still read chunk by chunk.
+  ([design/IR_NOTES.md](../../../design/IR_NOTES.md#ndpi-on-the-ir-virtualize-revision-26)
+  has the table.)
 - **The header is free.** Since spec/virtualize.md revision 14 the JPEG header
   is a `data` source in the archive, so a chunk read is one request (or one
   merged request) to the file instead of two. Reading all 130 chunks of
@@ -155,14 +158,17 @@ requests.
 
 `js/test/ndpi/verify.py` virtualizes the 9 synthetic NDPI files (including
 inputs to reject) with the browser code, reads every level back through `python/src/vzip`
-and zarr-python, and compares the pixels with tifffile. `compare.py` checks
-that the Python and browser outputs are equivalent on those files and on the
-3 NDPI slides of
+and zarr-python, compares the pixels with tifffile, and rebuilds each file
+from its mirror. `compare.py` checks that the Python and browser outputs are
+the same, and equivalent to the frozen reference's outside `vzip_source`, on
+those files and on the 3 NDPI slides of
 [corpus_tiff.txt](../../../conformance/virtualize/corpus_tiff.txt), among
 them the 6.9 GB Hamamatsu-1.ndpi.
 
 - Profile: [spec/virtualize/ndpi.md](../../../spec/virtualize/ndpi.md#part-2-the-profile), which builds on
   [spec/virtualize/tiff.md](../../../spec/virtualize/tiff.md#part-2-the-profile)
-- Python: [python/src/vzip/virtualize/ndpi/](../../../python/src/vzip/virtualize/ndpi/)
-- Browser: [js/src/virtualize/ndpi/](../../../js/src/virtualize/ndpi/)
+- Rust core (Python and the browser): [rust/vzip-ir/src/tiff.rs](../../../rust/vzip-ir/src/tiff.rs) (its NDPI
+  variant), [rust/vzip-ir/src/ndpi.rs](../../../rust/vzip-ir/src/ndpi.rs),
+  [rust/vzip-ir/src/project/ndpi.rs](../../../rust/vzip-ir/src/project/ndpi.rs)
+- Frozen reference (revision 25): [conformance/virtualize/reference/](../../../conformance/virtualize/reference/)
 - Fixtures: [fixtures/ndpi/](../../../fixtures/ndpi/)

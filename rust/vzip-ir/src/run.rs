@@ -18,6 +18,11 @@ pub enum Format {
     Czi,
     Dicom,
     Nifti,
+    /// A TIFF the TIFF parser found to be NDPI: a run of `Tiff` becomes one of `Ndpi`
+    /// when its parser does (spec/virtualize/ndpi.md §4
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), so
+    /// hosts never test for NDPI themselves.
+    Ndpi,
 }
 
 impl Format {
@@ -28,6 +33,7 @@ impl Format {
             2 => Some(Format::Czi),
             3 => Some(Format::Dicom),
             4 => Some(Format::Nifti),
+            7 => Some(Format::Ndpi),
             _ => None,
         }
     }
@@ -38,11 +44,12 @@ impl Format {
             Format::Czi => "czi",
             Format::Dicom => "dicom",
             Format::Nifti => "nifti",
+            Format::Ndpi => "ndpi",
         }
     }
-    /// The format of a name ("nd2", "tiff", "czi", "dicom", "nifti").
+    /// The format of a name ("nd2", "tiff", "czi", "dicom", "nifti", "ndpi").
     pub fn from_name(s: &str) -> Option<Format> {
-        [Format::Nd2, Format::Tiff, Format::Czi, Format::Dicom, Format::Nifti].into_iter().find(|f| f.name() == s)
+        [Format::Nd2, Format::Tiff, Format::Czi, Format::Dicom, Format::Nifti, Format::Ndpi].into_iter().find(|f| f.name() == s)
     }
     /// The format a file's first bytes give, if one of these.
     pub fn sniff(head: &[u8]) -> Option<Format> {
@@ -78,7 +85,7 @@ impl AnyParser {
     pub fn new(f: Format, size: u64) -> Self {
         match f {
             Format::Nd2 => AnyParser::Nd2(Nd2::new(size)),
-            Format::Tiff => AnyParser::Tiff(Tiff::new(size)),
+            Format::Tiff | Format::Ndpi => AnyParser::Tiff(Tiff::new(size)),
             Format::Czi => AnyParser::Czi(Czi::new(size)),
             Format::Dicom => AnyParser::Dicom(Dicom::new(size)),
             Format::Nifti => AnyParser::Nifti(Nifti::new(size)),
@@ -198,7 +205,11 @@ impl Run {
                     self.in_batch = true;
                 }
                 Step::Done => {
-                    let (ir, facts) = self.parser.take().unwrap().finish()?;
+                    let p = self.parser.take().unwrap();
+                    if let AnyParser::Tiff(t) = &p {
+                        self.format = if t.ndpi { Format::Ndpi } else { Format::Tiff };
+                    }
+                    let (ir, facts) = p.finish()?;
                     self.fill = unread_shown(&ir, self.format.name());
                     let ranges: Vec<(u64, u64)> = {
                         let mut r: Vec<(u64, u64)> = self.fill.iter().map(|&(_, o, n)| (o, n)).collect();
@@ -282,6 +293,7 @@ pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_j
               copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
     let mut out = crate::project::project(format, ir, facts, url, copied)?;
     if let Some(m) = out.summary.as_object_mut() {
+        m.insert("format".into(), format.name().into());
         m.insert("planner".into(), stats);
         m.insert("elements".into(), ir.len().into());
     }

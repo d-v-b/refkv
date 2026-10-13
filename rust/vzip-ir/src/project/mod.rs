@@ -15,6 +15,7 @@
 mod czi;
 mod dicom;
 mod nd2;
+mod ndpi;
 mod nifti;
 mod tiff;
 
@@ -36,6 +37,7 @@ pub fn project(format: Format, ir: &Ir, facts: &J, url: &str, copied: &Copied) -
         Format::Nd2 => nd2::project(ir, facts, url),
         Format::Dicom => dicom::project(ir, facts, url),
         Format::Nifti => nifti::project(ir, facts, url, copied),
+        Format::Ndpi => ndpi::project(ir, facts, url),
     }
 }
 

@@ -67,7 +67,7 @@ uv run python -m vzip.virtualize <url or path> out.vzip
 just virtualize <url or path> out.vzip
 ```
 
-TIFF (and SVS), ND2 and CZI are virtualized by vzip's Rust core,
+TIFF (and SVS and NDPI), ND2, CZI, DICOM and NIfTI are virtualized by vzip's Rust core,
 [rust/vzip-ir](../../rust/vzip-ir/), which `just ir-build` builds into the
 project's environment as the Python module `vzip_ir` (it needs a Rust
 toolchain). The core parses the file into an intermediate representation (IR),
@@ -181,11 +181,13 @@ each format's metadata is:
   little: a TIFF's byte order and BigTIFF flag, an ND2 file's decoded
   metadata chunks (attributes, experiment, picture metadata, text info) that
   fit its budget, and a CZI file's header.
-- **NDPI:** every tag of every IFD, under `vzip_source/ifds/<i>`.
+- **NDPI:** the IR mirror on `vzip_source`, as for TIFF: every IFD, tag,
+  high word and strip.
 - **DICOM:** the file's attributes, in the DICOM JSON Model, on the root;
   the ones that would make the root large are on `vzip_source`.
-- **NIfTI:** the header, field by field, its extensions and the affine, on
-  the root (large extensions as arrays on `vzip_source`).
+- **NIfTI:** the IR mirror on `vzip_source`: the header, the extender, each
+  extension and the voxel data. The root keeps the header, field by field,
+  the scaling and the affine.
 - **IMS:** the whole HDF5 file, mirrored as a Zarr hierarchy under
   `vzip_source/hdf5` (groups, datasets, attributes, links).
 - **N5, Zarr v2 and OME-Zarr:** each node's own attributes and the layout

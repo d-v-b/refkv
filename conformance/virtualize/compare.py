@@ -25,17 +25,17 @@ corpus_hash.py records and checks.
 Implementations are `name=command`, where the command is run as
 `command <url> <out>`. The built-in ones write vzip archives: `ref` (the
 reference, the frozen Python profiles of conformance/virtualize/reference/ for
-TIFF, ND2, CZI, DICOM and NIfTI and the shipped ones for the others), `py` (`python -m
+TIFF, ND2, CZI, DICOM, NIfTI and NDPI and the shipped ones for the others), `py` (`python -m
 vzip.virtualize`) and `web` (the browser code under Node). Others write
 HARNESS.md's JSON description; give them as `--impl name=command`.
 
-`py` and `web` virtualize TIFF, ND2, CZI, DICOM and NIfTI through one Rust core (rust/vzip-ir,
+`py` and `web` virtualize TIFF (NDPI included), ND2, CZI, DICOM and NIfTI through one Rust core (rust/vzip-ir,
 natively and as wasm32), and write its mirror under `vzip_source`, which the
 frozen reference does not: for those profiles an implementation is compared with
 the reference outside `vzip_source`, and `py` and `web` with each other entirely,
 entry for entry (they must give the same archive contents, `vzip_source` included).
 The frozen reference records the revision it implements (20 for TIFF, ND2 and CZI, 25
-for DICOM and NIfTI) in its root, where the shipped code records the current one: compared
+for DICOM, NIfTI and NDPI) in its root, where the shipped code records the current one: compared
 with it, the reference's root is read at the current revision, without the members of its
 source metadata that the mirror holds instead (NIfTI's extensions and raw bytes). Each
 mirror is also checked on its own (`mirror_problem`):
@@ -93,11 +93,11 @@ BUILTIN = {
     "web": ("vzip", ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"]),
 }
 # The profiles whose shipped implementations write the IR's mirror under vzip_source.
-IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti")
+IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ndpi")
 SOURCE = "vzip_source/"
 # The revision each frozen profile's reference roots record (HARNESS.md): the last before
 # the profile moved to the IR.
-REFERENCE_REVISIONS = {"tiff": 20, "nd2": 20, "czi": 20, "dicom": 25, "nifti": 25}
+REFERENCE_REVISIONS = {"tiff": 20, "nd2": 20, "czi": 20, "dicom": 25, "nifti": 25, "ndpi": 25}
 # The members of a frozen reference root's source metadata that the IR's mirror holds
 # instead (they named arrays of the reference's vzip_source, or held raw bytes).
 MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_truncated", "unparsed", "trailing")}

@@ -1,4 +1,4 @@
-//! The TIFF, CZI, DICOM and NIfTI parsers: every fixture they accept is a valid IR that rebuilds
+//! The TIFF (NDPI included), CZI, DICOM and NIfTI parsers: every fixture they accept is a valid IR that rebuilds
 //! its source; one test per rejected fixture (each the role the schema names); and
 //! the round-3 probes built here (IFD loops, huge counts, too many IFDs).
 
@@ -40,8 +40,21 @@ fn accepted<P: vzip_ir::Parser>(dir: &str) -> usize {
 fn accepted_fixtures_are_valid_irs_that_rebuild() {
     assert_eq!(accepted::<Tiff>("tiff"), 33);
     assert_eq!(accepted::<Czi>("czi"), 32);
+    assert_eq!(accepted::<Tiff>("ndpi"), 3);
     assert_eq!(accepted::<Dicom>("dicom"), 43);
     assert_eq!(accepted::<Nifti>("nifti"), 66);
+}
+
+/// The TIFF parser reads an NDPI as NDPI (spec/virtualize/ndpi.md §4
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>): each
+/// accepted NDPI fixture's facts name the profile, and a TIFF's do not.
+#[test]
+fn the_tiff_parser_finds_ndpi() {
+    for (file, ndpi) in [("ndpi/ndpi_levels.ndpi", true), ("ndpi/ndpi_pointers.ndpi", true), ("tiff/jpeg_gray.tif", false)] {
+        let data = std::fs::read(fixtures().join(file)).unwrap();
+        let (_, facts) = parse_bytes::<Tiff>(&data).unwrap();
+        assert_eq!(facts["profile"] == "ndpi", ndpi, "{file}");
+    }
 }
 
 macro_rules! reject {
@@ -144,6 +157,12 @@ reject!(nifti_reject_vox_offset_fraction, Nifti, "nifti/nifti_reject_vox_offset_
 reject!(nifti_reject_vox_offset_in_extender, Nifti, "nifti/nifti_reject_vox_offset_in_extender.nii", "vox_offset 348 is not from 352 to 2^53 - 1");
 reject!(nifti_reject_vox_offset_nan, Nifti, "nifti/nifti_reject_vox_offset_nan.nii", "vox_offset nan is not an integer");
 reject!(nifti_reject_vox_offset_zero, Nifti, "nifti/nifti_reject_vox_offset_zero.nii", "vox_offset 0 is not from 352 to 2^53 - 1");
+reject!(ndpi_edge_reject_focal_planes, Tiff, "ndpi/edge_reject_ndpi_focal_planes.ndpi", "NDPI focal planes (two levels with one magnification) are not supported");
+reject!(ndpi_edge_reject_growing, Tiff, "ndpi/edge_reject_ndpi_growing.ndpi", "NDPI levels do not decrease in size");
+reject!(ndpi_edge_reject_mcustarts, Tiff, "ndpi/edge_reject_ndpi_mcustarts.ndpi", "McuStarts does not match the strip's intervals");
+reject!(ndpi_edge_reject_no_restart_interval, Tiff, "ndpi/edge_reject_ndpi_no_restart_interval.ndpi", "an NDPI strip has no SOF0 or no restart interval");
+reject!(ndpi_edge_reject_short_strip, Tiff, "ndpi/edge_reject_ndpi_short_strip.ndpi", "an NDPI strip of 3 bytes is shorter than 4");
+reject!(ndpi_edge_reject_wide_interval, Tiff, "ndpi/edge_reject_ndpi_wide_interval.ndpi", "an NDPI chunk would be 65536 pixels wide, more than 65535");
 reject!(czi_reject_attachment_file_part, Czi, "czi/czi_reject_attachment_file_part.czi", "attachment entry 0 is in FilePart 1");
 reject!(czi_reject_attachment_id, Czi, "czi/czi_reject_attachment_id.czi", "attachment 0 at 1440 is not a ZISRAWATTACH segme");
 reject!(czi_reject_attachment_outside_file, Czi, "czi/czi_reject_attachment_outside_file.czi", "attachment 0's data is outside the file");
