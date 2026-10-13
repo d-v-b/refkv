@@ -6,6 +6,9 @@
 # spec/bindings/vzip.md's strict reading of every archive), the reproducibility of the fixture
 # generators, and the section references, each a link to a heading that exists. TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2, OME-Zarr and N5 stores, go through the Rust core (rust/refkv-ir), built natively
 # for Python (`uv sync`, which builds it into refkv as the module refkv._ir) and for wasm32 for the browser code (`just js::wasm`).
+# The Python tests, the install without extras, the IR core's tests and the Node tests run
+# on Linux, macOS and Windows; the fixture comparison, the fixtures' reproducibility and the
+# section references, which do not depend on the system, on Linux only.
 name: ci
 
 on:
@@ -23,10 +26,23 @@ concurrency:
 env:
   NODE_VERSION: "24"
 
+# bash on every runner (Git Bash on Windows), as the justfiles' recipes are
+defaults:
+  run:
+    shell: bash
+
 jobs:
   pytest:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: pytest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    # the tests read the repository's text files (UTF-8) without naming an encoding
+    env:
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -45,25 +61,32 @@ jobs:
         with:
           workspaces: rust/refkv-ir
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
-      - run: sudo apt-get install -y --no-install-recommends binaryen
+      - if: runner.os == 'Linux'
+        run: sudo apt-get install -y --no-install-recommends binaryen
       - run: uv sync --all-groups --locked
       - run: npm ci
         working-directory: js
       - run: just js::wasm
-      # builds the Rust core first, and runs python/tests/ir with the rest
+      # builds the Rust core first, and runs python/tests/ir with the rest (the Python half
+      # of `just ir-test`; the ir job runs its Rust half)
       - run: just test
 
   # The JS library and its tests run on the oldest Node that js/package.json's engines
   # allows (the LTS most users have) and on the newest (what the project develops on);
   # Node's behavior differs between them, e.g. how fetch goes through a proxy.
+  # On Linux, both; on macOS and Windows, the oldest.
   node:
-    name: node (${{ matrix.node }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    name: node (${{ matrix.os }}, ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        node: ["24", "26"]
+        include:
+          - { os: ubuntu-latest, node: "24" }
+          - { os: ubuntu-latest, node: "26" }
+          - { os: macos-latest, node: "24" }
+          - { os: windows-latest, node: "24" }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -83,14 +106,20 @@ jobs:
             rust/refkv-ir -> target
             rust/refkv-ir -> target/test-hooks
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
-      - run: sudo apt-get install -y --no-install-recommends binaryen
+      - if: runner.os == 'Linux'
+        run: sudo apt-get install -y --no-install-recommends binaryen
       - run: npm ci
         working-directory: js
       - run: just js::test
 
   ir:
-    runs-on: ubuntu-latest
+    name: ir (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -106,10 +135,12 @@ jobs:
         with:
           workspaces: rust/refkv-ir
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
-      - run: sudo apt-get install -y --no-install-recommends binaryen
+      - if: runner.os == 'Linux'
+        run: sudo apt-get install -y --no-install-recommends binaryen
       - uses: extractions/setup-just@v2
       - run: uv sync --all-groups --locked
-      # the Python host's tests (python/tests/ir) run in the pytest job, with the rest
+      # the Python host's tests (python/tests/ir), the other half of `just ir-test`, run in
+      # the pytest job, with the rest
       - run: just ir-rust-test
       - run: just ir-wasm
 
@@ -152,8 +183,13 @@ jobs:
   # archives without zarr, and each optional part's ImportError names the extra that
   # installs it; then with only the zarr extra, which reads them through zarr
   base-install:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    name: base-install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -164,15 +200,20 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust/refkv-ir
+      # the two venvs, and their Pythons: bin/python, or Scripts/python.exe on Windows (with
+      # RUNNER_TEMP's `\` written as `/`, for Git Bash)
+      - run: |
+          tmp="${RUNNER_TEMP//\\//}"
+          bin=bin/python; [ "$RUNNER_OS" = Windows ] && bin=Scripts/python.exe
+          { echo "PIP_VENV=$tmp/pip"; echo "PIP_PYTHON=$tmp/pip/$bin"
+            echo "ZARR_VENV=$tmp/zarr"; echo "ZARR_PYTHON=$tmp/zarr/$bin"; } >> "$GITHUB_ENV"
       # pip, as docs/README.md#installing says (it builds the Rust core into the wheel)
-      - run: uv venv --seed "$RUNNER_TEMP/pip"
-      - run: '"$RUNNER_TEMP/pip/bin/python" -m pip install .'
-      - run: just base-install-check "$RUNNER_TEMP/pip/bin/python" base
-        shell: bash
-      - run: uv venv "$RUNNER_TEMP/zarr"
-      - run: uv pip install --python "$RUNNER_TEMP/zarr" ".[zarr]"
-      - run: just base-install-check "$RUNNER_TEMP/zarr/bin/python" zarr
-        shell: bash
+      - run: uv venv --seed "$PIP_VENV"
+      - run: '"$PIP_PYTHON" -m pip install .'
+      - run: just base-install-check "$PIP_PYTHON" base
+      - run: uv venv "$ZARR_VENV"
+      - run: uv pip install --python "$ZARR_VENV" ".[zarr]"
+      - run: just base-install-check "$ZARR_PYTHON" zarr
 
   sections:
     runs-on: ubuntu-latest

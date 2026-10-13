@@ -1,5 +1,5 @@
 # Build refkv's wheels (the Python package with its Rust core, abi3 for Python >= 3.12, for
-# Linux and macOS) and its sdist, and check each installs and runs. A tag v<version>
+# Linux, macOS and Windows) and its sdist, and check each installs and runs. A tag v<version>
 # also publishes them to PyPI through trusted publishing (no token: PyPI trusts this
 # workflow in the environment `pypi`). Every push to main builds them, so a break on
 # another platform shows before a tag; so does a pull request that changes the build.
@@ -24,6 +24,11 @@ on:
 permissions:
   contents: read
 
+# bash on every runner (Git Bash on Windows), so `dist/*.whl` is expanded on Windows too
+defaults:
+  run:
+    shell: bash
+
 # a newer push to main or a PR supersedes a build in progress; a tag's run is never cancelled
 concurrency:
   group: release-${{ github.ref }}
@@ -42,7 +47,7 @@ jobs:
           - { os: ubuntu-24.04-arm, target: aarch64, manylinux: auto }
           - { os: macos-15-intel, target: x86_64 }
           - { os: macos-15, target: aarch64 }
-          # no Windows wheel yet: refkv's file: URIs assume POSIX paths (refkv.uri)
+          - { os: windows-latest, target: x64 }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
