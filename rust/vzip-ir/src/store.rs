@@ -23,7 +23,7 @@
 //! **Budget.** Requests at most `2^20 + 4 × objects`, bytes at most `2^24 + 2 × Z` (Z the
 //! listed sizes' sum); a range outside its object is refused.
 
-use crate::ir::{Ir, Res, OBJECT};
+use crate::ir::{Ir, Res};
 use serde_json::{json, Value as J};
 use std::collections::HashMap;
 
@@ -39,6 +39,11 @@ pub enum StoreStep {
 pub trait StoreParser: Send + Sync {
     fn step(&mut self) -> Res<StoreStep>;
     fn feed(&mut self, object: usize, offset: u64, data: &[u8]);
+    /// The keys the listing ignores (spec/virtualize.md §1.4
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), which are not
+    /// objects: the empty objects whose keys end in `/` (`folders`, each with its `/`), and the
+    /// recorded ignored keys (`recorded`). A format that keeps them is told before its first step.
+    fn ignored(&mut self, _folders: Vec<String>, _recorded: Vec<String>) {}
     /// The IR (finished: `check::finish`) and the facts its projection reads.
     fn finish(self: Box<Self>) -> Res<(Ir, J)>;
 }
@@ -50,29 +55,35 @@ pub enum StoreFormat {
     /// A Zarr v2 store's listing and documents, every document held whole as one value
     /// (`proto_zarr2.rs`): the prototype of the store IR. No production path uses it.
     Zarr2Proto,
+    /// A Sentinel-2 SAFE product's directory (`safe/`, spec/virtualize/safe.md).
+    Safe,
 }
 
 impl StoreFormat {
     pub fn from_name(s: &str) -> Option<StoreFormat> {
         match s {
             "zarr2-proto" => Some(StoreFormat::Zarr2Proto),
+            "safe" => Some(StoreFormat::Safe),
             _ => None,
         }
     }
     pub fn name(self) -> &'static str {
         match self {
             StoreFormat::Zarr2Proto => "zarr2-proto",
+            StoreFormat::Safe => "safe",
         }
     }
     /// The convention the mirror declares.
     pub fn profile(self) -> &'static str {
         match self {
             StoreFormat::Zarr2Proto => "zarr2",
+            StoreFormat::Safe => "safe",
         }
     }
     fn parser(self, ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Box<dyn StoreParser>> {
         match self {
             StoreFormat::Zarr2Proto => Ok(Box::new(crate::proto_zarr2::Zarr2Proto::new(ir, objects, keys))),
+            StoreFormat::Safe => Ok(Box::new(crate::safe::Safe::new_store(ir, objects, keys))),
         }
     }
 }
@@ -148,6 +159,13 @@ impl StoreRun {
             stats: StoreStats::default(),
             done: false,
         })
+    }
+
+    /// The keys the listing ignores (`StoreParser::ignored`), before the first poll.
+    pub fn set_ignored(&mut self, folders: Vec<String>, recorded: Vec<String>) -> Res<()> {
+        let p = self.parser.as_mut().ok_or("internal: no parser")?;
+        p.ignored(folders, recorded);
+        Ok(())
     }
 
     /// The requests to make now, concurrently; None when the parser is done.
@@ -269,7 +287,7 @@ impl StoreRun {
         let mut want = Vec::new();
         for (k, &o) in self.objects.iter().enumerate() {
             let ou = o as usize;
-            if ir.kind[ou] != OBJECT || !kids[ou] || ir.len[ou] == 0 || ir.value_bytes(o).is_some() {
+            if !ir.held(&kids, ou) || ir.value_bytes(o).is_some() {
                 continue;
             }
             want.push((k, o));
@@ -304,7 +322,18 @@ impl StoreRun {
 /// The output of a store parse: the format's projection, the mirror under `vzip_source` when
 /// `mirror`, and a summary with the run's counts, the IR's element and object counts and what
 /// the mirror's table folded.
-pub fn store_output(format: StoreFormat, ir: &Ir, _facts: &J, stats: J, url: &str, mirror: bool) -> Res<crate::out::Out> {
+pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str, mirror: bool) -> Res<crate::out::Out> {
+    if format == StoreFormat::Safe {
+        let mut out = crate::project::safe::project(ir, facts, url)?;
+        out.summary["reads"] = stats;
+        out.summary["elements"] = json!(ir.len());
+        if mirror {
+            let folded = crate::mirror::mirror(ir, &mut out, format.profile())?;
+            out.summary["folded"] = folded.json();
+            crate::project::safe::source_members(&mut out, facts);
+        }
+        return Ok(out);
+    }
     let mut out = crate::out::Out::new(url);
     if format == StoreFormat::Zarr2Proto {
         // the prototype's projection: each referenced object at its own key, whole
