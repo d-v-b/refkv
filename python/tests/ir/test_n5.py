@@ -17,6 +17,7 @@ import vzip_ir
 from vzip.ir.store import StoreIrOutput, virtualize_store
 from vzip.virtualize import Rejected, virtualize
 from vzip.virtualize.common import REVISION, same
+from vzip_reference.revision import STORES_REVISION
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "n5"
 STORES = sorted(p for p in FIXTURES.iterdir() if p.is_dir())
@@ -40,10 +41,10 @@ def test_accepted_stores_have_the_reference_hierarchy_and_a_store_mirror():
         assert fmt == "n5" and isinstance(out, StoreIrOutput), root.name
         docs = {k: json.loads(v) for k, v in out.entries.items() if not k.startswith("vzip_source/")}
         want = {k: v for k, v in ref.docs.items() if not k.startswith("vzip_source/")}
-        assert want["zarr.json"]["attributes"]["vzip_virtualized"]["revision"] == 25
+        assert want["zarr.json"]["attributes"]["vzip_virtualized"]["revision"] == STORES_REVISION
         want["zarr.json"]["attributes"]["vzip_virtualized"]["revision"] = REVISION
         assert same(docs, want), root.name
-        assert out.refs == {k: (ref.origins.get(k, k), n) for k, n in ref.chunks}, root.name
+        assert out.refs == {k: [("object", ref.origins.get(k, k), 0, n)] for k, n in ref.chunks}, root.name
         assert out.sources == ref.sources, root.name
         # vzip_source: the mirror, which rebuilds the listing and each node's document
         own = json.loads(out.entries["vzip_source/zarr.json"])["attributes"]["vzip_virtualized"]["n5"]
@@ -92,7 +93,7 @@ def test_ignored_keys_are_recorded_beside_the_mirror():
     own = json.loads(out.entries["vzip_source/zarr.json"])["attributes"]["vzip_virtualized"]["n5"]
     assert own["ignored"] == ["a//0", "é/./x"]
     assert "vzip_source/empty.json" not in out.entries
-    assert out.refs == {"0": ("0", 1)}
+    assert out.refs == {"0": [("object", "0", 0, 1)]}
 
 
 @pytest.mark.parametrize("root", [p for p in STORES if p.name.startswith("n5_reject_")], ids=lambda p: p.name)
@@ -146,7 +147,7 @@ def test_hostile_stores_are_refused_or_virtualized_as_the_reference_does(n5_prob
         want = {k: v for k, v in ref.docs.items() if not k.startswith("vzip_source/")}
         want["zarr.json"]["attributes"]["vzip_virtualized"]["revision"] = REVISION
         assert same(docs, want), root.name
-        assert out.refs == {k: (ref.origins.get(k, k), n) for k, n in ref.chunks}, root.name
+        assert out.refs == {k: [("object", ref.origins.get(k, k), 0, n)] for k, n in ref.chunks}, root.name
         stored = files(root)
         for key, size, data in vzip_ir.rebuild_store(out.entries.get):
             assert size == len(stored[key]) and data in (None, stored[key]), (root.name, key)
@@ -166,4 +167,5 @@ def test_under_a_root_dataset_the_mirror_and_the_other_objects_are_keys_of_vzip_
         listing = {k: n for k, n, _ in vzip_ir.rebuild_store(out.entries.get)}
         assert listing == {k: len(v) for k, v in files(FIXTURES / name).items()}, name
     _, out = virtualize(str(FIXTURES / "n5_root_dataset_objects"), url=URL.format("x"))
-    assert out.refs["vzip_source/objects/README"] == ("README", (FIXTURES / "n5_root_dataset_objects" / "README").stat().st_size)
+    size = (FIXTURES / "n5_root_dataset_objects" / "README").stat().st_size
+    assert out.refs["vzip_source/objects/README"] == [("object", "README", 0, size)]

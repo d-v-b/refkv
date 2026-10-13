@@ -21,9 +21,10 @@ import pytest
 from vzip.virtualize import Rejected
 from vzip.virtualize.common import declare as declare_now
 from vzip_reference import virtualize
+from vzip_reference.revision import STORES_REVISION
 
 # the frozen profile's root records revision 25
-declare = partial(declare_now, revision=25)
+declare = partial(declare_now, revision=STORES_REVISION)
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "n5"
 URL = "https://data.test/n5/{}/"
 

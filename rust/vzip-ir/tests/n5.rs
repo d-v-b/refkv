@@ -38,7 +38,7 @@ fn virtualize(files: &BTreeMap<String, Vec<u8>>, ignored: &[&str]) -> Result<(Ou
     let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let mut r = vzip_ir::store::StoreRun::new(StoreFormat::N5, keys, 4)?;
-    r.ignore(ignored.iter().map(|s| s.to_string()).collect());
+    r.ignore(ignored.iter().map(|s| s.to_string()).collect(), Vec::new())?;
     while let Some(reqs) = r.poll()? {
         for (k, q) in reqs.iter().enumerate() {
             let b = bytes[q.object];
