@@ -1190,6 +1190,49 @@ canonical and their views the rebuilt ones, and the native and wasm outputs are
 identical; 10^5 chunk objects fold into one column run (nested keys) or one per
 grid row (flat keys).
 
+### DICOM: the IR mirror is the source metadata
+
+**What prompted it.** The user's decision to put every format vzip virtualizes on
+the Rust IR core, as TIFF, ND2 and CZI already are (revisions 21 to 24).
+
+**The changes.**
+- **DICOM §5:** `vzip_source` is the file's IR mirror
+  ([conventions §8](../../conventions.md#8-the-ir-mirror)). Its elements
+  ([DICOM §5.4](../../virtualize/dicom.md#54-elements)) are the file's data
+  elements: an element of defined length that is not a sequence is one value, a
+  record of its header and `v`, its value typed by its VR (the data dictionary's
+  when the file states none); a sequence, its items and Pixel Data are structs
+  with their headers and delimiters; the frames (native) and fragments
+  (encapsulated) of the top-level Pixel Data are data elements. Elements are
+  named by their tags, a later element of a tag under `duplicates/<k>`, so that
+  an element's IR path is its revision 25 path. Nothing is left out: layout,
+  padding, Data Set Trailing Padding and the bytes between the frames are
+  elements too.
+- **The root's source metadata is unchanged** ([DICOM §5.1](../../virtualize/dicom.md#51-the-root)):
+  its paths `vzip_source/<p>` (BulkDataURIs, `pixel_extra`,
+  `pixel_unreferenced`, `trailing`) now name the IR's element at `<p>`; the
+  members the root leaves out (large ones, the Per-frame Functional Groups) are
+  in the mirror only; `Gathered` values are the IR's elements `s/<i>/<p>`.
+  Revision 25's arrays (BulkDataURI arrays, gathered columns, item structures,
+  `pixel_fragments`) and `vzip_source`'s `meta` and `dataset` are gone.
+- **The profile** (DICOM Part 2) is unchanged: the same inputs are rejected,
+  with the same messages; its checks are the schema
+  `rust/vzip-ir/schema/dicom.json`, its data dictionary
+  `rust/vzip-ir/schema/dicom_dictionary.json` (unchanged).
+- **Conventions:** §8 names DICOM among the IR's formats; DICOM has no named
+  array rule. The root property records `"revision": 26`; the schemas were
+  regenerated.
+
+**Output.** Outside `vzip_source`, every DICOM output and rejection is
+revision 25's (the 68 fixtures and the corpus, compared with the frozen
+reference); `vzip_source` is the mirror.
+
+**Implementations.** Python (`vzip.virtualize`) and the browser
+(`js/src/virtualize`) virtualize DICOM through the Rust core (`rust/vzip-ir/src/dicom`,
+`project/dicom.rs`; wasm32 in the browser). The Python and TypeScript DICOM
+profiles moved, unchanged but for their imports, to the frozen reference
+(`conformance/virtualize/reference`), which records revision 25.
+
 ### NDPI
 
 **What prompted it.** NDPI was the last TIFF variant with a translator of
@@ -1202,14 +1245,14 @@ else NDPI needs.
 
 **The changes.**
 - **NDPI §5** ([spec/virtualize/ndpi.md](../../virtualize/ndpi.md#5-source-metadata)):
-  `vzip_source` is the IR mirror; §5.1 lists the elements: a 12-byte
+  `vzip_source` is the IR mirror; [§5.1](../../virtualize/ndpi.md#51-elements) lists the elements: a 12-byte
   `header` with a `<u8` `first_ifd`, each IFD with its `<u8` `next_ifd` and
   each entry's high word as `tags/<tag>/high`, and each strip as a `data`
   element, a level's strip being one JPEG stream (its SOF0, restart markers
   and EOI included, so the mirror rebuilds it byte for byte). The `sof0`
   member and the source metadata of `vzip_source` (`ifd_count`) and of the
   IFD groups are gone; the root still has no source metadata member.
-- **NDPI §1, §4:** the declaration names the mirror; the chunks' restart
+- **NDPI [§1](../../virtualize/ndpi.md#1-declaration), [§4](../../virtualize/ndpi.md#4-the-image):** the declaration names the mirror; the chunks' restart
   markers and EOI are the standard ones, as before, and the strip's own are
   kept by the mirror rather than assumed.
 - **Conventions:** the root property records `"revision": 26`; the NDPI

@@ -1,8 +1,9 @@
 """The round-3 probes (design/IR_NOTES.md §21
 <https://github.com/d-v-b/vzip/blob/main/design/IR_NOTES.md#21-round-1s-findings-closed>): round 1's
 CZI review findings,
-rebuilt, and round 1's TIFF amplification probes, plus IFD loops and huge counts; and NDPI's
-(revision 26): many intervals, loops, huge counts and offsets, overlapping extents.
+rebuilt, and round 1's TIFF amplification probes, plus IFD loops and huge counts; the
+DICOM probes of revision 26; and NDPI's (revision 26): many intervals, loops, huge counts and
+offsets, overlapping extents.
 Usage: uv run python python/tests/ir/gen_probes.py <out dir> [--small]
 (--small writes the tests' sizes: no file over 1 MB.)"""
 import os
@@ -168,6 +169,87 @@ write("czi_attname.czi", Czi(subblocks=[plane(0, 0, 0, 0, 4, 4)],
 # 9. Per-element cost: many empty segments after the directory
 n = 10000 if small else 2000000
 write("czi_walk0.czi", Czi(subblocks=[plane(0, 0, 0, 0, 4, 4)], late=[segment("DELETED", b"", allocated=0, used=0) * n]).build())
+
+# ---- DICOM (revision 26): repeated items, depth, fragment chains, offset tables, skipped
+# values and per-element cost, at the sizes of a large file
+
+LONG = {b"OB", b"OD", b"OF", b"OL", b"OV", b"OW", b"SQ", b"SV", b"UC", b"UN", b"UR", b"UT", b"UV"}
+
+
+def el(g: int, e: int, vr: bytes, value: bytes, undefined: bool = False) -> bytes:
+    """An element in explicit VR little endian (`value` padded to an even length)."""
+    if len(value) % 2:
+        value += b"\0" if vr in (b"UI", b"OB", b"UN") else b" "
+    n = 0xFFFFFFFF if undefined else len(value)
+    if vr in LONG:
+        return struct.pack("<HH2s2xI", g, e, vr, n) + value
+    return struct.pack("<HH2sH", g, e, vr, n) + value
+
+
+def us(g: int, e: int, v: int) -> bytes:
+    return el(g, e, b"US", struct.pack("<H", v))
+
+
+def item(body: bytes) -> bytes:
+    return struct.pack("<HHI", 0xFFFE, 0xE000, len(body)) + body
+
+
+def dcm(dataset: bytes, syntax: bytes = b"1.2.840.10008.1.2.1") -> bytes:
+    meta = el(2, 0x10, b"UI", syntax)
+    return bytes(128) + b"DICM" + el(2, 0, b"UL", struct.pack("<I", len(meta))) + meta + dataset
+
+
+def image(rows: int, columns: int, frames: int = 1) -> bytes:
+    return (us(0x28, 2, 1) + el(0x28, 4, b"CS", b"MONOCHROME2") + (el(0x28, 8, b"IS", str(frames).encode()) if frames > 1 else b"")
+            + us(0x28, 0x10, rows) + us(0x28, 0x11, columns) + us(0x28, 0x100, 8) + us(0x28, 0x101, 8) + us(0x28, 0x103, 0))
+
+
+def encapsulated(fragments: list[bytes], bot: list[int] | None = None) -> bytes:
+    body = item(struct.pack(f"<{len(bot)}I", *bot) if bot else b"") + b"".join(item(f) for f in fragments)
+    return el(0x7FE0, 0x10, b"OB", body + struct.pack("<HHI", 0xFFFE, 0xE0DD, 0), undefined=True)[:12] + body + \
+        struct.pack("<HHI", 0xFFFE, 0xE0DD, 0)
+
+
+J2K = b"1.2.840.10008.1.2.4.90"
+# 1. n identical items of a sequence nothing reads: one run in the IR
+n = 2000 if small else 200000
+items = b"".join(item(el(0x0008, 0x0100, b"SH", b"CODE")) for _ in range(n))
+write("dicom_items_same.dcm", dcm(el(0x0040, 0x0275, b"SQ", items) + image(1, 1) + el(0x7FE0, 0x10, b"OB", b"\0\0")))
+# 2. n items of distinct values: no run, the mirror's column runs
+items = b"".join(item(el(0x0008, 0x0018, b"UI", f"1.2.3.{k}".encode())) for k in range(n))
+write("dicom_items_distinct.dcm", dcm(el(0x0040, 0x0275, b"SQ", items) + image(1, 1) + el(0x7FE0, 0x10, b"OB", b"\0\0")))
+# 3. sequences of defined length nested 200 deep: past 64, the innermost walked one keeps its bytes
+body = el(0x0008, 0x0100, b"SH", b"X")
+for _ in range(200):
+    body = el(0x0040, 0xA730, b"SQ", item(body))
+write("dicom_deep_defined.dcm", dcm(body + image(1, 1) + el(0x7FE0, 0x10, b"OB", b"\0\0")))
+# 4. a fragment chain without an offset table: n frames of 70,000 bytes (each fragment's header is
+#    past the last one's window); and the same with a Basic Offset Table, which predicts them
+n = 20 if small else 200
+frame = b"\xff\x4f" + bytes(69998)
+write("dicom_chain_nobot.dcm", dcm(image(1, 1, n) + encapsulated([frame] * n), J2K))
+write("dicom_chain_bot.dcm", dcm(image(1, 1, n) + encapsulated([frame] * n, [k * 70008 for k in range(n)]), J2K))
+# 5. one frame of many fragments: past the reference payload (65519 bytes), rejected
+n = 1000 if small else 20000
+write("dicom_fragments_many.dcm", dcm(image(1, 1) + encapsulated([b"\xff\x4f\0\0"] * n), J2K))
+# 6. an Extended Offset Table of n frames of 4 bytes
+n = 500 if small else 100000
+offsets = [k * 12 for k in range(n)]
+write("dicom_eot_many.dcm", dcm(image(1, 1, n) + el(0x7FE0, 1, b"OV", struct.pack(f"<{n}Q", *offsets))
+                                + el(0x7FE0, 2, b"OV", struct.pack(f"<{n}Q", *[4] * n))
+                                + encapsulated([b"\xff\x4f\0\0"] * n), J2K))
+# 7. a large private value before Pixel Data: not read
+n = (2 << 20) if small else (64 << 20)
+write("dicom_big_private.dcm", dcm(el(0x0009, 0x0010, b"LO", b"VZIP") + el(0x0009, 0x1000, b"OB", bytes(n))
+                                   + image(1, 1) + el(0x7FE0, 0x10, b"OB", b"\0\0")))
+# 8. n frames of one byte: one run of data elements
+n = 5000 if small else 1000000
+write("dicom_frames_many.dcm", dcm(image(1, 1, n) + el(0x7FE0, 0x10, b"OB", bytes(n))))
+# 9. n short private elements
+n = 10000 if small else 500000
+body = b"".join(el(0x0009 + 2 * (k >> 15), 0x1000 + (k & 0x7FFF), b"SH", b"ab") for k in range(n))
+write("dicom_many_elements.dcm", dcm(el(0x0009, 0x0010, b"LO", b"VZIP") + body + image(1, 1) + el(0x7FE0, 0x10, b"OB", b"\0\0")))
+
 # ---- NDPI (spec/virtualize/ndpi.md <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md>)
 
 def jpeg_head(w: int, h: int, r: int = 1) -> bytes:
@@ -258,5 +340,4 @@ write("ndpi_high_bytes_wrap.ndpi", ndpi([[*e2, (65432, 16, e2[10][2], ho)]],
                                         blobs2 + struct.pack(f"<{e2[10][2]}Q", *[1 << 32] * e2[10][2])))
 # many IFDs: past 100000, rejected (the full size only; with --small, 1001 IFDs, accepted)
 write("ndpi_many_ifds.ndpi", ndpi([e] + [macro] * (1000 if small else 100001), blobs))
-
 print(sorted(p.name for p in out.iterdir()))

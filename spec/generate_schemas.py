@@ -56,30 +56,34 @@ SOURCE_METADATA: dict[str, dict] = {
         {"$ref": "#/$defs/mirror"},
         {"$ref": "#/$defs/mirrorView"},
     ]},
-    "dicom": {
+    "dicom": {"anyOf": [{
         "type": "object",
+        "description": "The root's (spec/virtualize/dicom.md §5.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#51-the-root>); a path vzip_source/<p> names the IR's element at <p>",
         "properties": {
             "preamble": {"type": "string", "contentEncoding": "base64",
                          "description": "The 128-byte preamble, unless all zero"},
             "meta": {"$ref": "#/$defs/dataset",
-                     "description": "The File Meta Information (on vzip_source: its large attributes)"},
+                     "description": "The File Meta Information, without its large attributes (in the mirror only)"},
             "dataset": {"$ref": "#/$defs/dataset",
-                        "description": "The dataset (on vzip_source: the per-frame groups and the large attributes)"},
+                        "description": "The dataset, without the per-frame groups and the large attributes (in the mirror only)"},
             "pixel_extra": {"type": "string",
-                            "description": "The array holding the native pixel data after the frames"},
+                            "description": "vzip_source/pixel_extra: the IR's element holding the native pixel data after the frames"},
             "pixel_unreferenced": {"type": "string",
-                                   "description": "The family holding the pixel data the Extended Offset Table skips"},
+                                   "description": "vzip_source/pixel_unreferenced: the IR's struct holding the pixel data the Extended Offset Table skips"},
             "pixel_unreferenced_headers": {"const": True,
                                            "description": "Whether pixel_unreferenced also holds the frames' item "
                                                           "headers"},
             "pixel_fragments": {"type": "string",
-                                "description": "The array holding each fragment's frame and data length, when a "
-                                               "frame has more than one"},
+                                "description": "vzip_source/pixel_fragments, when a frame has more than one fragment "
+                                               "(the fragments are the IR's dataset/7FE00010/fragments/<j>)"},
             "pixel_offset_table": {"const": True, "description": "Whether the Basic Offset Table is not empty"},
-            "trailing": {"type": "string", "description": "The array holding the bytes after the last element"},
+            "trailing": {"type": "string", "description": "vzip_source/trailing: the IR's element holding the bytes after the last element"},
         },
         "additionalProperties": False,
     },
+        {"$ref": "#/$defs/mirror"},
+        {"$ref": "#/$defs/mirrorView"},
+    ]},
     "nifti": {
         "type": "object",
         "description": "The root's source metadata",
@@ -323,14 +327,13 @@ DICOM_DEFS = {
             "Value": {"type": "array"},
             "InlineBinary": {"type": "string", "contentEncoding": "base64"},
             "BulkDataURI": {"type": "string",
-                            "description": "The array (or family) of vzip_source that holds the value"},
+                            "description": "vzip_source/<path>: the IR's element at <path>, whose value it is"},
             "Structures": {"type": "array", "items": {"$ref": "#/$defs/dataset"},
-                           "description": "A gathered sequence's distinct item structures; "
-                                          "vzip_source/<its path>/items/structure gives each item's"},
+                           "description": "A gathered sequence's distinct item structures (its items are the IR's "
+                                          "elements <its path>/<index>)"},
             "Gathered": {"const": True,
-                         "description": "A value in an item of a gathered sequence, at vzip_source/<the "
-                                        "sequence's path>/items/<path within the item>/value, row or member "
-                                        "<item index>"},
+                         "description": "A value in an item of a gathered sequence: the IR's element <the "
+                                        "sequence's path>/<item index>/<path within the item>"},
             "LittleEndian": {"const": True,
                              "description": "An explicit UN value in explicit VR big endian, whose bytes are in "
                                             "little endian"},
@@ -556,9 +559,9 @@ SOURCE_METADATA["czi"] = {"anyOf": [
 ]}
 # The IR mirror (spec/conventions.md §8
 # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2,
-# CZI and NDPI conventions: vzip_source's
+# CZI, DICOM and NDPI conventions: vzip_source's
 # source metadata, and the view documents of the groups under vzip_source/tree.
-IR_PROFILES = ("tiff", "nd2", "czi", "ndpi")
+IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "ndpi")
 MIRROR_DEFS = {
     "mirror": {
         "type": "object",

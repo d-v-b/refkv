@@ -10,8 +10,8 @@ import { ImageError } from "../common.ts";
 import type { RangeSource, Span } from "./source.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
-export type IrFormat = "nd2" | "tiff" | "czi" | "ndpi";
-const CODES: Record<IrFormat, number> = { nd2: 0, tiff: 1, czi: 2, ndpi: 3 };
+export type IrFormat = "nd2" | "tiff" | "czi" | "dicom" | "ndpi";
+const CODES: Record<IrFormat, number> = { nd2: 0, tiff: 1, czi: 2, dicom: 3, ndpi: 7 };
 
 export interface IrOutput extends ArchiveDesc {
   format: IrFormat;
