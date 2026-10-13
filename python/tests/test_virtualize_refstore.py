@@ -34,6 +34,7 @@ INPUTS = [
     ("nifti/nifti_block_x_split.nii", False, False, "nifti"),
     ("ims/ims_latest_uint8.ims", False, False, "ims"),
     ("ims/ims_latest_uint8.ims", False, True, "ims"),
+    ("zarr2/zarr2_hierarchy", True, False, "zarr2"),
     ("zarr2/zarr2_hierarchy", True, True, "zarr2"),
     ("safe/safe_l2a_pb0207", True, False, "safe"),
     ("safe/safe_l2a_pb0207.SAFE.zip", False, False, "safe"),

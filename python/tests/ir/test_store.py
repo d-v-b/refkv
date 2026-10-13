@@ -1,11 +1,13 @@
 """The host of a store run (vzip.ir.store; conventions §8.9
 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): the listing and object
-reads of the store readers, under the reader policy, driving the Rust core's prototype store
-format (`zarr2-proto`). One test of the runs over the Zarr v2 and OME-Zarr fixture stores (each
-document read once and concurrently, chunk objects never read, every document rebuilt byte for
-byte from the archive's mirror, the listing too), and one per failure."""
+reads of the store readers, under the reader policy, driving the Rust core's Zarr v2 store format
+(`zarr2`). One test of the runs over the Zarr v2 and OME-Zarr fixture stores (each node
+document read once and concurrently, chunk objects never read, every document read rebuilt byte
+for byte from the archive's mirror, the listing too; a store the format rejects reads documents
+only), and one per failure."""
 
 import io
+import json
 import threading
 import time
 import urllib.error
@@ -17,6 +19,7 @@ import pytest
 
 import vzip_ir
 from vzip.ir.store import virtualize_store
+from vzip.virtualize.common import Rejected
 from vzip.virtualize.store import object_url
 
 FIXTURES = Path(__file__).parents[3] / "fixtures"
@@ -79,16 +82,23 @@ def is_doc(key: str, data: bytes) -> bool:
 def test_a_store_run_reads_each_document_once_and_its_mirror_rebuilds_them(root, tmp_path):
     objects = directory(root)
     s3 = FakeS3(objects)
+    if root.name.startswith("zarr2_reject_"):
+        # the Zarr v2 rejection fixtures (and only they) are rejected: from the listing, or after
+        # reading documents only (an OME-Zarr store is a Zarr v2 store to the core's format)
+        with pytest.raises(Rejected):
+            virtualize_store(URL, opener=s3, workers=4)
+        assert all(is_doc(k, objects[k]) and n == 1 for k, n in s3.reads.items()), s3.reads
+        return
     out, ir, stats = virtualize_store(URL, opener=s3, workers=4)
-    docs = {k for k, v in objects.items() if is_doc(k, v)}
     # each document read once, in one batch, at most 4 at a time; no chunk object read
-    assert s3.reads == {k: 1 for k in docs}
+    docs = set(s3.reads)
+    assert s3.reads == {k: 1 for k in docs} and all(is_doc(k, objects[k]) for k in docs)
     assert s3.most <= 4
-    assert stats["batches"] == (1 if docs else 0) and stats["objects"] == len(docs)
-    # the referenced objects: one url source each, its key's, in order of the entries' keys
-    referenced = sorted((k for k, v in objects.items() if v and k not in docs), key=str.encode)
-    assert out.sources == [object_url(URL, k) for k in referenced]
-    # the archive's mirror alone rebuilds the listing and every document
+    assert stats["batches"] == 1 and stats["objects"] == len(docs)
+    # the referenced objects: one url source each, in order of the entries' keys
+    assert sorted(set(out.sources)) == sorted(object_url(URL, k) for k, v in objects.items() if v and k not in docs)
+    assert len(out.sources) == len(set(out.sources))
+    # the archive's mirror alone rebuilds the listing and every document read
     path = tmp_path / "s.vzip"
     out.write(str(path))
     z = zipfile.ZipFile(path)
@@ -122,6 +132,25 @@ def test_a_document_shorter_than_listed_fails_the_run():
 def test_an_unknown_store_format_is_refused():
     with pytest.raises(ValueError, match="no store format"):
         vzip_ir.StoreRun("n5", [("attributes.json", 2)], 4)
+
+
+def test_the_ignored_keys_are_vzip_source_s_member_ignored():
+    """The listed keys the store reader ignores and records (spec/virtualize.md §1.4
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>) are the member
+    `ignored` of vzip_source's source metadata, beside `ir`, in the order of their UTF-8 bytes."""
+    root = FIXTURES / "zarr2" / "zarr2_hierarchy"
+    s3 = FakeS3({**directory(root), "z//y": b"1", "./x": b"2", "é/../w": b"3"})
+    out, _, _ = virtualize_store(URL, opener=s3, workers=2)
+    own = json.loads(out.entries["vzip_source/zarr.json"])["attributes"]["vzip_virtualized"]["zarr2"]
+    assert set(own) == {"ir", "ignored"}
+    assert own["ignored"] == sorted(["z//y", "./x", "é/../w"], key=str.encode)
+
+
+def test_a_rejection_names_the_store_format():
+    s3 = FakeS3({".zgroup": b'{"zarr_format": 2}', "a/.zarray": b'{"zarr_format": 3}'})
+    with pytest.raises(Rejected, match="zarr_format is not 2") as e:
+        virtualize_store(URL, opener=s3, workers=2)
+    assert e.value.format == "zarr2"
 
 
 def test_a_store_output_numbers_its_sources_by_first_use():

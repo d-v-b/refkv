@@ -127,13 +127,18 @@ test("ignores paths outside the routes", async () => {
 test("serves virtualized stores, and reports rejected ones", async () => {
   // A store whose listing (spec/virtualize.md §1.5
   // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>) and objects
-  // come from the N5 fixtures, in the bucket "b".
-  const root = new URL("../../fixtures/n5/", import.meta.url);
-  const file = (url: string) => new URL(decodeURIComponent(new URL(url).pathname.slice("/b/".length)), root);
+  // come from the N5, Zarr v2 and SAFE fixtures, in the bucket "b".
+  const roots = ["n5", "zarr2", "safe"].map((f) => new URL(`../../fixtures/${f}/`, import.meta.url));
+  const rootOf = (rel: string) => roots.find((r) => fs.existsSync(new URL(rel.split("/")[0] + "/", r))) ?? roots[0];
+  const root = roots[0];
+  const file = (url: string) => {
+    const rel = decodeURIComponent(new URL(url).pathname.slice("/b/".length));
+    return new URL(rel, rootOf(rel));
+  };
   const fetchStore = async (url: string) => {
     const u = new URL(url);
     const prefix = u.searchParams.get("prefix")!;
-    const dir = new URL(prefix, root);
+    const dir = new URL(prefix, rootOf(prefix));
     if (!fs.existsSync(dir)) return new Response("no such bucket", { status: 404 });
     const keys: string[] = [];
     const walk = (d: URL, rel: string) => {
@@ -167,6 +172,15 @@ test("serves virtualized stores, and reports rejected ones", async () => {
   const rejected = await get(h, `image/${encodeId("https://data.test/b/n5_reject_compression_lz4/")}/zarr.json`);
   assert.equal(rejected.status, 422);
   assert.match(await rejected.text(), /^N5: .*lz4/);
+  // the Rust core's Zarr v2 store format names itself in its rejections
+  const z = await get(h, `image/${encodeId("https://data.test/b/zarr2_reject_order/")}/zarr.json`);
+  assert.equal(z.status, 422);
+  assert.match(await z.text(), /^Zarr v2: .*order A is not C or F/);
+  // a SAFE directory's rejection is bare, as a SAFE zip file's is
+  const s = await get(h, `image/${encodeId("https://data.test/b/safe_reject_bad_cs_code/")}/zarr.json`);
+  assert.equal(s.status, 422);
+  const st = await s.text();
+  assert.ok(st.length > 0 && !/^(SAFE|store): /.test(st), st);
   const missing = await get(h, `image/${encodeId("https://data.test/b/no_such_store/")}/zarr.json`);
   assert.equal(missing.status, 422);
   assert.match(await missing.text(), /^store: the store has no listing/);

@@ -509,31 +509,7 @@
           "additionalProperties": false
         },
         {
-          "type": "object",
-          "description": "vzip_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>), the empty directories and the keys of the ignored objects (§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)",
-          "properties": {
-            "ir": {
-              "$ref": "#/$defs/mirror/properties/ir"
-            },
-            "empty_dirs": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "minItems": 1
-            },
-            "ignored": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "minItems": 1
-            }
-          },
-          "required": [
-            "ir"
-          ],
-          "additionalProperties": false
+          "$ref": "#/$defs/storeMirror"
         },
         {
           "allOf": [
@@ -642,7 +618,7 @@
             "size": {
               "type": "integer",
               "minimum": 0,
-              "description": "The source's size in bytes"
+              "description": "The source's size in bytes (a store IR's: its objects' sizes, summed)"
             },
             "objects": {
               "type": "integer",
@@ -771,6 +747,35 @@
           "type": "object"
         }
       ]
+    },
+    "storeMirror": {
+      "type": "object",
+      "description": "vzip_source's, for a store convention: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>, §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), and the members the convention keeps beside it",
+      "properties": {
+        "ir": {
+          "$ref": "#/$defs/mirror/properties/ir"
+        },
+        "empty_dirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "A SAFE product's empty directories (spec/virtualize/safe.md §6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)"
+        },
+        "ignored": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "The recorded keys of the listed objects that spec/virtualize.md §1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"
+        }
+      },
+      "required": [
+        "ir"
+      ],
+      "additionalProperties": false
     },
     "nodeProperty": {
       "type": "object",

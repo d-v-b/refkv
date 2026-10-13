@@ -1,10 +1,10 @@
 """Virtualizing image files and N5 / Zarr v2 stores in vzip archives (spec/virtualize.md).
 
-TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and IMS files, and Sentinel-2 SAFE products
-(spec/virtualize/safe.md: a `.SAFE.zip` file, or a `.SAFE` directory, a store input), go
-through the IR (`vzip.ir`): the Rust core's sans-IO parser of the format, driven by its
-read planner (a file) or by the store's reads (`vzip.ir.store`), projected to the
-convention's hierarchy and mirrored under `vzip_source` by the Rust core, whose TIFF
+TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and IMS files, Sentinel-2 SAFE products
+(spec/virtualize/safe.md: a `.SAFE.zip` file, or a `.SAFE` directory, a store input) and
+Zarr v2 stores go through the IR (`vzip.ir`): the Rust core's sans-IO parser of the format,
+driven by its read planner (a file) or by the store's reads (`vzip.ir.store`), projected to
+the convention's hierarchy and mirrored under `vzip_source` by the Rust core, whose TIFF
 parser finds NDPI itself (spec/virtualize/ndpi.md §4
 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>).
 Every other profile is a subpackage: n5, zarr2, ome_zarr
@@ -55,7 +55,6 @@ from vzip.virtualize.common import Output, Rejected, file_reader, http_reader
 from vzip.virtualize.n5 import virtualize_n5
 from vzip.virtualize.ome_zarr import declares_04, virtualize_ome_zarr
 from vzip.virtualize.store import WORKERS, StoreOutput, choose_profile, object_url, open_store
-from vzip.virtualize.zarr2 import virtualize_zarr2
 from vzip.ir.store import StoreIrOutput
 
 # The HDF5 signature, which starts Imaris IMS files (§1.2
@@ -92,16 +91,15 @@ def _virtualize_store(location: str, url: str | None = None, *, max_objects: int
     store = open_store(location, url, max_objects=max_objects, workers=workers, policy=policy)
     try:
         fmt = choose_profile(store)
-        if fmt == "safe":
-            from vzip.ir.store import virtualize_listed
-
-            fmt, out = fmt, virtualize_listed(store, "safe")[0]
-        elif fmt == "n5":
+        if fmt == "n5":
             fmt, out = fmt, virtualize_n5(store)
         elif declares_04(store):
             fmt, out = "ome-zarr", virtualize_ome_zarr(store)
         else:
-            fmt, out = fmt, virtualize_zarr2(store)
+            from vzip.ir.store import run_store
+
+            # the core's store formats: a SAFE directory, a Zarr v2 store
+            fmt, out = fmt, run_store(store, "safe" if fmt == "safe" else "zarr2")[0]
     finally:
         store.close()
     if checksums:

@@ -103,12 +103,11 @@ pub struct Safe {
     store: bool,
     size: u64,
     phase: Phase,
-    // the directory form: the listing's IR and its objects' elements, the listing's empty `d/`
-    // keys and its recorded ignored keys
+    // the directory form: the listing's IR and its objects' elements, and the listing's empty
+    // `d/` keys (its recorded ignored keys reach the projection through the store run's facts)
     ir: Option<Ir>,
     elems: Vec<u32>,
     listed_dirs: Vec<String>,
-    listed_ignored: Vec<String>,
     // the zip form
     end: zip::End,
     entries: Vec<zip::Entry>,
@@ -145,7 +144,7 @@ impl Safe {
     fn blank(store: bool, size: u64) -> Safe {
         Safe {
             rules: rules::safe(), store, size, phase: if store { Phase::Start } else { Phase::ZipTail }, ir: None, elems: Vec::new(),
-            listed_dirs: Vec::new(), listed_ignored: Vec::new(), end: zip::End::default(), entries: Vec::new(), zprod: None,
+            listed_dirs: Vec::new(), end: zip::End::default(), entries: Vec::new(), zprod: None,
             deflated: Vec::new(), raw: HashMap::new(), objs: Vec::new(), by_key: HashMap::new(), markers: HashSet::new(),
             empty_dirs: Vec::new(), asked: Vec::new(), got: HashMap::new(), level: 0, product_obj: 0, tile_obj: 0, metadata: None,
             tile: None, images: Vec::new(), geo: None, readers: Vec::new(), reader_of: HashMap::new(), held: Vec::new(),
@@ -607,8 +606,10 @@ impl Safe {
                 referenced.push(json!([obj.key, obj.size]));
             }
         }
+        // the zip form's recorded keys; the directory form's are the store run's
+        // (`StoreRun::ignore`), which it adds to these facts
         let ignored: Vec<String> = {
-            let mut v = if self.store { self.listed_ignored.clone() } else { self.zprod.as_ref().map(|p| p.ignored.clone()).unwrap_or_default() };
+            let mut v = if self.store { Vec::new() } else { self.zprod.as_ref().map(|p| p.ignored.clone()).unwrap_or_default() };
             v.sort();
             v
         };
@@ -688,9 +689,8 @@ impl StoreParser for Safe {
         self.feed_obj(object, offset, data);
     }
 
-    fn ignored(&mut self, folders: Vec<String>, recorded: Vec<String>) {
-        self.listed_dirs = folders;
-        self.listed_ignored = recorded;
+    fn folders(&mut self, folders: &[String]) {
+        self.listed_dirs = folders.to_vec();
     }
 
     fn finish(self: Box<Self>) -> Result<(Ir, J), String> {

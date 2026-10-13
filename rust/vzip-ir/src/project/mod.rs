@@ -17,9 +17,11 @@ mod dicom;
 mod ims;
 mod nd2;
 mod ndpi;
+pub mod store;
 mod nifti;
 pub mod safe;
 mod tiff;
+pub mod zarr2;
 
 use crate::ir::Ir;
 use crate::out::Out;

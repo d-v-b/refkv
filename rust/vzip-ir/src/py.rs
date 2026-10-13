@@ -627,7 +627,8 @@ impl PyRun {
 /// A store run (src/store.rs): `StoreRun(format, listing, concurrency)` over the listing
 /// [(key, size)]; the host loops `poll()` (the requests to make now, concurrently: (object
 /// index, key, spans [(start, end)])) and `complete(k, parts)` (each span's bytes) until
-/// `poll()` gives None; then `output(url, mirror)` or `finish()`.
+/// `poll()` gives None; then `output(url, mirror)` or `finish()`. `ignore(keys, folders)`,
+/// before the first poll, gives the keys the listing ignores.
 #[pyclass(name = "StoreRun", module = "vzip_ir")]
 pub struct PyStoreRun {
     r: Option<crate::store::StoreRun>,
@@ -656,14 +657,17 @@ impl PyStoreRun {
     fn complete(&mut self, k: usize, parts: Vec<Vec<u8>>) -> PyResult<()> {
         self.get()?.complete(k, parts).map_err(Rejected::new_err)
     }
-    /// The keys the listing ignores, before the first poll: its empty `d/` keys (`folders`)
-    /// and its recorded ignored keys (`recorded`).
-    fn set_ignored(&mut self, folders: Vec<String>, recorded: Vec<String>) -> PyResult<()> {
-        self.get()?.set_ignored(folders, recorded).map_err(Rejected::new_err)
-    }
     /// The run's counts (JSON).
     fn stats(&mut self) -> PyResult<String> {
         Ok(self.get()?.stats_json().to_string())
+    }
+    /// The keys the listing ignores, before the first poll (`StoreRun::ignore`): `keys`, the
+    /// relative keys the store reader ignored and recorded (`Store.ignored`), which the
+    /// projection records as its convention says, and `folders`, its empty `d/` keys
+    /// (`Store.folders`), which a SAFE directory's parser reads as directories.
+    #[pyo3(signature = (keys, folders=Vec::new()))]
+    fn ignore(&mut self, keys: Vec<String>, folders: Vec<String>) -> PyResult<()> {
+        self.get()?.ignore(keys, folders).map_err(Rejected::new_err)
     }
     #[pyo3(signature = (url, mirror=true))]
     fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool) -> PyResult<(Bound<'py, PyAny>, PyIr)> {

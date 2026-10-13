@@ -16,6 +16,17 @@ import { directoryStore } from "./directory_store.ts";
 const REJECTIONS = /^(TiffError|Nd2Error|LVError|DicomError|NiftiError|ImsError|ImageError|StoreError|N5Error|Zarr2Error|OmeZarrError|SafeError|CziError)$/;
 const inputs: [string, string][] = JSON.parse(fs.readFileSync(0, "utf8"));
 const decoder = new TextDecoder();
+// JSON.rawJSON (Node 21+; not yet in TypeScript's lib).
+const RawJSON = JSON as unknown as { rawJSON(text: string): object };
+/** Integers exact (`keepIntegers`), and a number written with a fraction or an exponent kept as
+ * written, so that a binary64 value of 2^53 or more (which JSON.stringify writes as an integer
+ * literal) reads as that binary64 value, not as an integer. */
+function exact(key: string, value: unknown, context?: { source?: string }): unknown {
+  const kept = keepIntegers(key, value, context);
+  return typeof kept === "number" && Number.isFinite(kept) && Math.abs(kept) > Number.MAX_SAFE_INTEGER
+    ? RawJSON.rawJSON(context!.source!)
+    : kept;
+}
 const results: unknown[] = [];
 for (const [path, url] of inputs) {
   try {
@@ -28,7 +39,7 @@ for (const [path, url] of inputs) {
     }
     const docs: { [k: string]: unknown } = {};
     for (const e of virtual.entries) {
-      if (e.key.endsWith("zarr.json") && "bytes" in e) docs[e.key] = JSON.parse(decoder.decode(e.bytes), keepIntegers as never); // integers exact
+      if (e.key.endsWith("zarr.json") && "bytes" in e) docs[e.key] = JSON.parse(decoder.decode(e.bytes), exact as never); // numbers exact
     }
     results.push({ format: virtual.format, docs });
   } catch (e) {

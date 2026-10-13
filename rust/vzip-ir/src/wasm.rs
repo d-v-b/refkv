@@ -342,7 +342,7 @@ pub unsafe extern "C" fn vz_run_free(p: *mut Run) {
 
 use crate::store::{StoreFormat, StoreRun};
 
-/// A store run of the store format named `format` (UTF-8, e.g. `zarr2-proto`) over the
+/// A store run of the store format named `format` (UTF-8, e.g. `zarr2`) over the
 /// listing `listing` (the JSON `[[key, size], ...]`; both from `vz_alloc`, consumed), the
 /// host reading at most `concurrency` objects at a time: the run (a pointer, positive), or
 /// minus the length of a rejection's message at `vz_out()`.
@@ -360,24 +360,6 @@ pub unsafe extern "C" fn vz_store_new(format: *mut u8, nf: usize, listing: *mut 
     })();
     match made {
         Ok(r) => Box::into_raw(Box::new(r)) as usize as i64,
-        Err(e) => err_out(e),
-    }
-}
-
-/// The keys the listing ignores (`StoreRun::set_ignored`), before the first poll: `json`
-/// (from `vz_alloc`, consumed) is `[[folder keys...], [recorded keys...]]`. 0, or minus the
-/// length of a rejection's message.
-///
-/// # Safety
-/// `p` from `vz_store_new`; `json`, `n` from `vz_alloc(n)`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn vz_store_ignored(p: *mut StoreRun, json: *mut u8, n: usize) -> i64 {
-    let r = unsafe { &mut *p };
-    let b = unsafe { Vec::from_raw_parts(json, n, n) };
-    let got = serde_json::from_slice::<(Vec<String>, Vec<String>)>(&b).map_err(|e| format!("the ignored keys: {e}"))
-        .and_then(|(f, i)| r.set_ignored(f, i));
-    match got {
-        Ok(()) => 0,
         Err(e) => err_out(e),
     }
 }
@@ -452,6 +434,25 @@ pub unsafe extern "C" fn vz_store_output(p: *mut StoreRun, url: *mut u8, n: usiz
     let url = String::from_utf8(unsafe { Vec::from_raw_parts(url, n, n) }).unwrap_or_default();
     match r.into_output(&url, mirror != 0) {
         Ok(o) => set_out(o.encode()) as i64,
+        Err(e) => err_out(e),
+    }
+}
+
+/// The keys the listing ignores, before the first poll (`StoreRun::ignore`): `json` (from
+/// `vz_alloc`, consumed) is `[[key, ...], [folder, ...]]`, the relative keys the store reader
+/// ignored and recorded, which the projection records, and the empty `d/` keys, which a SAFE
+/// directory's parser reads as directories. 0, or minus the length of a rejection's message.
+///
+/// # Safety
+/// `p` from `vz_store_new`; `json`, `n` from `vz_alloc(n)`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_store_ignore(p: *mut StoreRun, json: *mut u8, n: usize) -> i64 {
+    let r = unsafe { &mut *p };
+    let b = unsafe { Vec::from_raw_parts(json, n, n) };
+    let got = serde_json::from_slice::<(Vec<String>, Vec<String>)>(&b).map_err(|e| format!("the ignored keys: {e}"))
+        .and_then(|(keys, folders)| r.ignore(keys, folders));
+    match got {
+        Ok(()) => 0,
         Err(e) => err_out(e),
     }
 }

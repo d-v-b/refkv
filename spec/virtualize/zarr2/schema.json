@@ -129,36 +129,46 @@
       "additionalProperties": false
     },
     "sourceMetadata": {
-      "type": "object",
-      "properties": {
-        "attributes": {
+      "anyOf": [
+        {
           "type": "object",
-          "minProperties": 1,
-          "description": "The node's .zattrs, as copied"
-        },
-        "empty": {
-          "type": "array",
-          "items": {
-            "type": "string"
+          "description": "A node's (spec/virtualize/zarr2.md §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>)",
+          "properties": {
+            "attributes": {
+              "type": "object",
+              "minProperties": 1,
+              "description": "The node's .zattrs, as copied"
+            },
+            "metadata": {
+              "type": "object",
+              "minProperties": 1,
+              "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"
+            }
           },
-          "minItems": 1,
-          "description": "vzip_source only: the keys of the store's empty objects, empty chunk objects included"
-        },
-        "ignored": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "minItems": 1,
-          "description": "vzip_source only: the recorded keys of the listed objects that spec/virtualize.md §1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"
-        },
-        "metadata": {
-          "type": "object",
           "minProperties": 1,
-          "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"
+          "additionalProperties": false
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/storeMirror"
+            },
+            {
+              "properties": {
+                "ir": {
+                  "required": [
+                    "objects"
+                  ]
+                },
+                "empty_dirs": false
+              }
+            }
+          ]
+        },
+        {
+          "$ref": "#/$defs/mirrorView"
         }
-      },
-      "additionalProperties": false
+      ]
     },
     "headerValue": {
       "description": "A translated header value (spec/conventions.md §6 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>)",
@@ -203,6 +213,178 @@
           "additionalProperties": false
         }
       ]
+    },
+    "mirror": {
+      "type": "object",
+      "description": "vzip_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>)",
+      "properties": {
+        "ir": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "const": 2
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The source's size in bytes (a store IR's: its objects' sizes, summed)"
+            },
+            "objects": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "A store IR's objects (spec/conventions.md §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>); a file IR has none"
+            },
+            "elements": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The elements, column runs expanded"
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The rows the table stores"
+            },
+            "names": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "const": ""
+                }
+              ],
+              "description": "The interned names, sorted; the first, \"\", is the root's (conventions §8.1 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>)"
+            },
+            "types": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "const": ""
+                }
+              ],
+              "description": "The interned types (§8.6 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#86-types>)"
+            },
+            "forms": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The interned forms, each a JSON text (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#85-forms-and-recipes>)"
+            }
+          },
+          "required": [
+            "version",
+            "size",
+            "elements",
+            "rows",
+            "names",
+            "types",
+            "forms"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ir"
+      ],
+      "additionalProperties": false
+    },
+    "mirrorView": {
+      "type": "object",
+      "description": "A view group's (vzip_source/tree/...): a struct's view document (spec/conventions.md §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>)",
+      "properties": {
+        "$vz": {
+          "const": "derived",
+          "description": "A derived element's document"
+        },
+        "$form": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A derived element's form (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#85-forms-and-recipes>)"
+        },
+        "$partial": {
+          "const": true,
+          "description": "The document stops short of the struct's children"
+        }
+      },
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/viewValue"
+      }
+    },
+    "viewValue": {
+      "description": "A child's view: a JSON value, a nested document, or a $vz form",
+      "anyOf": [
+        {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null",
+            "array"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$vz": {
+              "enum": [
+                "alias",
+                "group",
+                "element",
+                "derived",
+                "int",
+                "float",
+                "bytes",
+                "utf16"
+              ]
+            }
+          },
+          "required": [
+            "$vz"
+          ]
+        },
+        {
+          "type": "object"
+        }
+      ]
+    },
+    "storeMirror": {
+      "type": "object",
+      "description": "vzip_source's, for a store convention: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>, §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), and the members the convention keeps beside it",
+      "properties": {
+        "ir": {
+          "$ref": "#/$defs/mirror/properties/ir"
+        },
+        "empty_dirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "A SAFE product's empty directories (spec/virtualize/safe.md §6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)"
+        },
+        "ignored": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "The recorded keys of the listed objects that spec/virtualize.md §1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"
+        }
+      },
+      "required": [
+        "ir"
+      ],
+      "additionalProperties": false
     },
     "nodeProperty": {
       "type": "object",

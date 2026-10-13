@@ -155,13 +155,14 @@ def test_a_short_read_is_the_same_failure(monkeypatch):
     assert failed[:2] == ("failed", "OSError") and "the listing says" in failed[2]
 
 
-def test_a_failed_read_the_profile_never_makes_is_not_a_failure(monkeypatch):
-    # a/.zarray rejects the input before the profile reads b/.zarray, which the
-    # concurrent reads have read (and failed to).
+def test_a_failed_read_of_a_document_fails_the_run_whatever_the_others_say(monkeypatch):
+    # The Rust core reads every node's documents in one batch before it checks any (conventions
+    # §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): b/.zarray's
+    # failed read fails the run, at any concurrency, though a/.zarray would reject it.
     objects = {".zgroup": b'{"zarr_format": 2}', "a/.zarray": b'{"zarr_format": 3}', "b/.zarray": 404}
-    rejected = outcome(monkeypatch, FakeS3(objects), 8)
-    assert rejected == outcome(monkeypatch, FakeS3(objects), 1)
-    assert rejected == ("rejected", "a/.zarray: zarr_format is not 2")
+    failed = outcome(monkeypatch, FakeS3(objects), 8)
+    assert failed == outcome(monkeypatch, FakeS3(objects), 1)
+    assert failed == ("failed", "HTTPError", "HTTP Error 404: refused")
 
 
 @pytest.fixture

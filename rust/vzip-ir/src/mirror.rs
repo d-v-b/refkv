@@ -1587,17 +1587,26 @@ pub fn canonical_problem(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn F
     // entry for entry: the description and the arrays' documents and chunks
     let mut out = Out::new("");
     write(&c, &mut out, &profile, false);
-    for (k, v) in &out.entries {
-        let mut stored = get(k);
-        if k == &format!("{SOURCE_NODE}/zarr.json") && !matches!(profile.as_str(), "tiff" | "nd2" | "czi") {
-            // a store's convention (and SAFE's, in both forms) keeps members of its own beside
-            // `ir` (the listing's ignored keys, §8.9
-            // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): the
-            // description is compared by `ir`; the file profiles' by all of it
-            stored = stored.map(|b| only_ir(&b, &profile));
+    // vzip_source's source metadata may hold, beside `ir`, the members the store conventions keep
+    // outside the IR (`project::store::kept`: the ignored keys, a SAFE product's empty
+    // directories; conventions §8.9
+    // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): they are not the
+    // table's, so they are set aside; any other member, and these in another profile, is a
+    // difference
+    let description = format!("{SOURCE_NODE}/zarr.json");
+    let kept = crate::project::store::kept(&profile);
+    let table_part = |k: &str, mut d: J| -> J {
+        let own = if k == description { d.pointer_mut(&format!("/attributes/{CONVENTION_KEY}/{profile}")) } else { None };
+        if let Some(own) = own.and_then(J::as_object_mut) {
+            own.retain(|m, _| !kept.contains(&m.as_str()));
         }
+        d
+    };
+    for (k, v) in &out.entries {
+        let stored = get(k);
         let same = match (k.ends_with("zarr.json"), &stored) {
-            (true, Some(s)) => serde_json::from_slice::<J>(s).ok() == serde_json::from_slice::<J>(v).ok(),
+            (true, Some(s)) => serde_json::from_slice::<J>(s).ok().map(|d| table_part(k, d))
+                == serde_json::from_slice::<J>(v).ok(),
             (false, Some(s)) => s == v,
             _ => false,
         };
@@ -1606,15 +1615,6 @@ pub fn canonical_problem(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn F
         }
     }
     None
-}
-
-/// `vzip_source`'s document with its source metadata reduced to its member `ir`.
-fn only_ir(b: &[u8], profile: &str) -> Vec<u8> {
-    let Ok(mut doc) = serde_json::from_slice::<J>(b) else { return b.to_vec() };
-    if let Some(m) = doc.pointer_mut(&format!("/attributes/{CONVENTION_KEY}/{profile}")).and_then(|v| v.as_object_mut()) {
-        m.retain(|k, _| k == "ir");
-    }
-    serde_json::to_vec(&doc).unwrap_or_else(|_| b.to_vec())
 }
 
 /// The bytes of a derived element's space, from the source (conventions §8.5

@@ -152,21 +152,24 @@ SOURCE_METADATA: dict[str, dict] = {
         },
         "additionalProperties": False,
     },
-    "zarr2": {
-        "type": "object",
-        "properties": {
-            "attributes": {"type": "object", "minProperties": 1, "description": "The node's .zattrs, as copied"},
-            "empty": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                      "description": "vzip_source only: the keys of the store's empty objects, empty chunk objects "
-                                     "included"},
-            "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                        "description": "vzip_source only: the recorded keys of the listed objects that spec/virtualize.md "
-                                       "§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"},
-            "metadata": {"type": "object", "minProperties": 1,
-                         "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"},
+    "zarr2": {"anyOf": [
+        {
+            "type": "object",
+            "description": "A node's (spec/virtualize/zarr2.md §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>)",
+            "properties": {
+                "attributes": {"type": "object", "minProperties": 1, "description": "The node's .zattrs, as copied"},
+                "metadata": {"type": "object", "minProperties": 1,
+                             "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"},
+            },
+            "minProperties": 1,
+            "additionalProperties": False,
         },
-        "additionalProperties": False,
-    },
+        # vzip_source's: a store IR's description, and the recorded ignored keys (§5
+        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>)
+        {"allOf": [{"$ref": "#/$defs/storeMirror"},
+                   {"properties": {"ir": {"required": ["objects"]}, "empty_dirs": False}}]},
+        {"$ref": "#/$defs/mirrorView"},
+    ]},
     "ome-zarr": {
         "type": "object",
         "properties": {
@@ -272,18 +275,9 @@ SOURCE_METADATA["safe"] = {"oneOf": [
         "required": ["IMAGE_FILE", "siz"],
         "additionalProperties": False,
     },
-    {
-        "type": "object",
-        "description": "vzip_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>), "
-                       "the empty directories and the keys of the ignored objects (§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)",
-        "properties": {
-            "ir": {"$ref": "#/$defs/mirror/properties/ir"},
-            "empty_dirs": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-            "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-        },
-        "required": ["ir"],
-        "additionalProperties": False,
-    },
+    # vzip_source's: the IR mirror's description, the empty directories and the keys of the
+    # ignored objects (§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)
+    {"$ref": "#/$defs/storeMirror"},
     # a view document, without the members the branches above require (or `vzip_source`'s of
     # revision 25), which name no SAFE IR element (`siz` and `xml` do: they are not excluded), so
     # that a document of those branches with a wrong member is invalid (one without any of them,
@@ -363,9 +357,13 @@ SOURCE_METADATA["czi"] = {"anyOf": [
 ]}
 # The IR mirror (spec/conventions.md §8
 # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2,
-# CZI, DICOM, NIfTI, IMS, NDPI and SAFE conventions: vzip_source's
+# CZI, DICOM, NIfTI, IMS, NDPI, SAFE and Zarr v2 conventions: vzip_source's
 # source metadata, and the view documents of the groups under vzip_source/tree.
-IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ims", "ndpi", "safe")
+IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ims", "ndpi", "safe", "zarr2")
+# The store conventions, whose vzip_source holds, beside the mirror's description, members of
+# their own (`storeMirror`; spec/conventions.md §8.9
+# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>).
+IR_STORES = ("safe", "zarr2")
 MIRROR_DEFS = {
     "mirror": {
         "type": "object",
@@ -374,7 +372,8 @@ MIRROR_DEFS = {
             "type": "object",
             "properties": {
                 "version": {"const": 2},
-                "size": {"type": "integer", "minimum": 0, "description": "The source's size in bytes"},
+                "size": {"type": "integer", "minimum": 0,
+                         "description": "The source's size in bytes (a store IR's: its objects' sizes, summed)"},
                 "objects": {"type": "integer", "minimum": 0,
                             "description": "A store IR's objects (spec/conventions.md §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>); a file IR has none"},
                 "elements": {"type": "integer", "minimum": 1, "description": "The elements, column runs expanded"},
@@ -413,6 +412,30 @@ MIRROR_DEFS = {
              "required": ["$vz"]},
             {"type": "object"},
         ],
+    },
+}
+
+
+# The store conventions' vzip_source (spec/conventions.md §8.9
+# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): the mirror's description
+# (a store IR's, with its objects; a SAFE zip file's, a file IR's) and the members the convention
+# keeps beside it, outside the IR, each only when it is not empty: a SAFE product's empty
+# directories and the recorded ignored keys. A convention narrows it (Zarr v2's: a store IR's, no
+# empty directories).
+STORE_MIRROR_DEFS = {
+    "storeMirror": {
+        "type": "object",
+        "description": "vzip_source's, for a store convention: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>, §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), and the members the convention keeps beside it",
+        "properties": {
+            "ir": {"$ref": "#/$defs/mirror/properties/ir"},
+            "empty_dirs": {"type": "array", "items": {"type": "string"}, "minItems": 1,
+                           "description": "A SAFE product's empty directories (spec/virtualize/safe.md §6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)"},
+            "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1,
+                        "description": "The recorded keys of the listed objects that spec/virtualize.md "
+                                       "§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"},
+        },
+        "required": ["ir"],
+        "additionalProperties": False,
     },
 }
 
@@ -483,6 +506,8 @@ def schema(profile: str) -> dict:
     }
     if profile in IR_PROFILES:
         defs.update(MIRROR_DEFS)
+    if profile in IR_STORES:
+        defs.update(STORE_MIRROR_DEFS)
     if profile == "dicom":
         defs.update(DICOM_DEFS)
     defs["nodeProperty"] = node

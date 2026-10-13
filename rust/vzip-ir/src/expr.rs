@@ -1,7 +1,7 @@
 //! The schema's expressions: arithmetic, comparisons, `&&`, `||`, `!`, `?:`, `??`
 //! (the first operand that is present), dotted paths (a path through a list maps
 //! over it), list literals `[a, b]`, string literals `'text'`, and a few functions
-//! (abs, finite, sum, same, len; in, distinct, first, at, min, max, present).
+//! (abs, finite, sum, same, len; in, distinct, first, at, min, max, present, int, kind).
 //! Numbers are binary64; a comparison with an absent operand is false, arithmetic
 //! with one is absent; `==` and `!=` compare strings and lists as values.
 
@@ -451,6 +451,27 @@ pub fn eval<S: Scope>(e: &E, env: &S) -> V {
                     }
                 }
                 "present" => V::Bool(a.first().is_some_and(|x| *x != V::Absent)),
+                // a number that is an integer within ±(2^53 − 1) and from lo to hi (by
+                // default unbounded); a list: every item one
+                "int" => {
+                    let lo = a.get(1).and_then(|x| x.num()).unwrap_or(f64::NEG_INFINITY);
+                    let hi = a.get(2).and_then(|x| x.num()).unwrap_or(f64::INFINITY);
+                    let one = |v: &V| matches!(v, V::Num(x) if x.fract() == 0.0 && x.abs() <= 9007199254740991.0 && lo <= *x && *x <= hi);
+                    V::Bool(match a.first() {
+                        Some(V::List(items)) => items.iter().all(one),
+                        Some(v) => one(v),
+                        None => false,
+                    })
+                }
+                // the JSON kind of a value: 'absent', 'bool', 'number', 'string', 'list' or 'object'
+                "kind" => V::Str(match a.first().unwrap_or(&V::Absent) {
+                    V::Absent => "absent",
+                    V::Bool(_) => "bool",
+                    V::Num(_) => "number",
+                    V::Str(_) => "string",
+                    V::List(_) => "list",
+                    V::Obj(_) => "object",
+                }.into()),
                 _ => V::Absent,
             }
         }

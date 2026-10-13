@@ -332,7 +332,8 @@ pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_j
             m.insert("folded".into(), folded.json());
         }
         if format == Format::Safe {
-            crate::project::safe::source_members(&mut out, facts);
+            // its empty directories and ignored keys beside the mirror, as a SAFE directory's
+            crate::project::store::record_ignored(&mut out, facts, format.name())?;
         }
     }
     Ok(out)
