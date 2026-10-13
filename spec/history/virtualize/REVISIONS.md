@@ -1513,7 +1513,10 @@ byte from the archive alone.
 store: after its batch of node documents it decides OME-NGFF 0.4, and its OME layer
 (`rust/vzip-ir/src/ome_zarr.rs`, whose checks are the roles of `schema/ome-zarr.json`)
 gives OME-Zarr's groups, levels and OME-XML to the Zarr v2 projection, which writes
-them under the OME-Zarr convention. The hosts no longer test OME-NGFF 0.4. The shipped
+them under the OME-Zarr convention. `src/project/store.rs` keeps OME-Zarr's `ignored`
+beside the mirror's `ir` as it keeps Zarr v2's, and a rejection by the output's checks
+names the profile the run decided (`StoreRun::profile`). The hosts no longer test
+OME-NGFF 0.4. The shipped
 Python and TypeScript Zarr v2 and OME-Zarr profiles are removed; the OME-Zarr ones are
 frozen in `conformance/virtualize/reference/` on the frozen Zarr v2 ones, recording
 revision 25.
