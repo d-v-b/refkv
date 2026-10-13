@@ -1,12 +1,14 @@
-# Build vzip's wheels (the Python package with its Rust core, abi3 for Python >= 3.12; Linux
-# and macOS) and
-# sdist, and publish them to PyPI when a tag v<version> is pushed, through PyPI's trusted
-# publishing (no token: PyPI trusts this workflow in the environment `pypi`). A pull request
-# that changes the build, and a manual run, build every wheel without publishing.
+# Build vzip's wheels (the Python package with its Rust core, abi3 for Python >= 3.12, for
+# Linux and macOS) and its sdist, and check each installs and runs. A tag v<version>
+# also publishes them to PyPI through trusted publishing (no token: PyPI trusts this
+# workflow in the environment `pypi`). Every push to main builds them, so a break on
+# another platform shows before a tag; so does a pull request that changes the build.
+
 name: release
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   pull_request:
     paths:
