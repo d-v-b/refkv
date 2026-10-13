@@ -9,15 +9,14 @@
 
 import fs from "node:fs";
 import { blockReader, ImageError } from "../../../../js/src/virtualize/common.ts";
-import { DicomError } from "../../../../js/src/virtualize/dicom/virtualize.ts";
+import { DicomError } from "./dicom/virtualize.ts";
 import { N5Error } from "../../../../js/src/virtualize/n5/virtualize.ts";
 import { StoreError } from "../../../../js/src/virtualize/store.ts";
 import { Zarr2Error } from "./zarr2/virtualize.ts";
 import { OmeZarrError } from "./ome-zarr/virtualize.ts";
-import { NiftiError } from "../../../../js/src/virtualize/nifti/virtualize.ts";
-import { ImsError } from "../../../../js/src/virtualize/ims/virtualize.ts";
-import { SafeError } from "../../../../js/src/virtualize/safe/virtualize.ts";
-import { TiffError as NdpiError } from "../../../../js/src/virtualize/tiff/ifd.ts";
+import { NiftiError } from "./nifti/virtualize.ts";
+import { ImsError } from "./ims/virtualize.ts";
+import { SafeError } from "./safe/virtualize.ts";
 import { writeVzip } from "../../../../js/src/writer.ts";
 import { directoryStore } from "../../../../js/conformance/directory_store.ts";
 import { CziError } from "./czi/virtualize.ts";
@@ -40,7 +39,7 @@ try {
   fs.writeFileSync(outPath, await writeVzip(virtual));
   console.log(JSON.stringify(virtual.summary));
 } catch (e) {
-  if (!(e instanceof TiffError || e instanceof NdpiError || e instanceof Nd2Error || e instanceof LVError || e instanceof DicomError ||
+  if (!(e instanceof TiffError || e instanceof Nd2Error || e instanceof LVError || e instanceof DicomError ||
     e instanceof NiftiError || e instanceof ImsError || e instanceof ImageError || e instanceof StoreError || e instanceof N5Error || e instanceof Zarr2Error || e instanceof OmeZarrError || e instanceof SafeError || e instanceof CziError)) {
     console.error(e);
     process.exit(2); // a crash, not a refusal

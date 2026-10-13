@@ -40,7 +40,10 @@ and the source metadata of [§5](#5-source-metadata) as the member `"dicom"`. It
 }
 ```
 
-No other node declares it: the array has no source metadata.
+`vzip_source` declares it too, with the IR mirror's description ([§5](#5-source-metadata),
+[conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
+the mirror's view that has a member; the mirror's arrays and the image's array
+have no attributes.
 
 ## 2. The source
 
@@ -256,22 +259,23 @@ array `"0"`.
 
 ## 5. Source metadata
 
-Every element of the file is in the hierarchy, and so are the bytes that are
-not elements, except what is **not kept**:
-- Pixel Data's frames, which are the image;
-- the layout: the group lengths (`gggg,0000`) that are their group's
-  length, and the Extended Offset Table `(7FE0,0001)` and its lengths
-  `(7FE0,0002)` that the profile reads the frames from (**Layout**, below);
-  the item headers and delimiters of sequences and fragments, which
-  `pixel_fragments` and `pixel_offset_table` (below) let a reader rebuild;
-  one 00 byte that pads native pixel data to an even length; and the
-  trailing `20` and `00` bytes (and, by VR, leading `20` bytes) that pad
-  text values;
-- Data Set Trailing Padding `(FFFC,FFFC)`, anywhere, which is dead space:
-  neither the element nor its bytes are kept.
+The root's source metadata `S` is the File Meta Information and the dataset in
+the DICOM JSON Model, without the members that would make the root large
+([§5.1](#51-the-root), [§5.2](#52-the-datasets-as-json)). Everything the file
+holds is on `vzip_source`, which is the file's **IR mirror**
+([§5.3](#53-the-ir-mirror), [conventions §8](../conventions.md#8-the-ir-mirror)):
+its table, from which the file is rebuilt byte for byte, and its view,
+`vzip_source/tree`. The IR's elements ([§5.4](#54-elements)) are the file's data
+elements themselves; nothing is left out, layout, padding and dead space
+included.
 
-The root's source metadata `S` ([conventions §2](../conventions.md#2-attributes))
-has these members:
+### 5.1 The root
+
+The root's `S` ([conventions §2](../conventions.md#2-attributes)) has these
+members (unchanged from revision 25, whose `vzip_source` held the members
+the root leaves out, and arrays at the paths it names; since revision 26 each
+such path, `vzip_source/<p>`, names the IR's element at path `<p>`, [§5.4](#54-elements),
+except where this section says otherwise):
 - `preamble`: present when the 128 bytes before `DICM` are not all zero:
   their base64 encoding;
 - `meta`: the File Meta Information, without the members that are
@@ -280,25 +284,28 @@ has these members:
   the elements after Pixel Data, without the members that are
   `vzip_source`'s (below);
 - `pixel_extra`: present when native Pixel Data has extra bytes (below):
-  the path of the array that holds them;
+  `vzip_source/pixel_extra`, the IR's element that holds them;
 - `pixel_unreferenced`: present when an Extended Offset Table skips bytes
-  (below): the path of the family that holds them;
+  (below): `vzip_source/pixel_unreferenced`, the IR's struct whose elements
+  hold them;
 - `pixel_unreferenced_headers`: `true`, present when that family also holds
   the frames' item headers (below);
 - `pixel_fragments`: present when a frame of encapsulated pixel data has
-  more than one fragment (below): the path of the array that holds the
-  fragments' lengths;
+  more than one fragment (below): `vzip_source/pixel_fragments`, which names
+  no element: the fragments are the IR's elements
+  `dataset/7FE00010/fragments/<j>`;
 - `pixel_offset_table`: `true`, present when the Basic Offset Table of
   encapsulated pixel data is not empty (below);
 - `trailing`: present when the bytes after the last element that parses
-  (below) are not empty: the path of the array that holds them.
+  (below) are not empty: `vzip_source/trailing`, the IR's element that holds
+  them.
 
-`vzip_source`'s `S` has the members `meta` and `dataset`, each present only
-when not empty, which hold the members of the File Meta Information and of
-the top-level dataset that would make the root large. A member's **size**
-is the length in UTF-8 of what ECMAScript's `JSON.stringify` writes for its
-value (no whitespace), and an object's size that of the object. They are
-moved, in this order:
+The members of the File Meta Information and of the top-level dataset that
+would make the root large are left out of the root's `meta` and `dataset`;
+they are in the mirror only (their elements, [§5.4](#54-elements)). A member's
+**size** is the length in UTF-8 of what ECMAScript's `JSON.stringify` writes
+for its value (no whitespace), and an object's size that of the object. They
+are left out, in this order:
 1. the top-level dataset's Per-frame Functional Groups Sequence
    `(5200,9230)`, gathered (**Gathered sequences**, below);
 2. every other member of `meta` or `dataset` (an attribute, or
@@ -308,10 +315,10 @@ moved, in this order:
    equal size, the first by name (in code-unit order, so `duplicates` after
    the tags), and `meta`'s before `dataset`'s.
 
-The root records nothing of the moved members: the File Meta Information is
-the union of the root's `meta` and `vzip_source`'s, and the dataset that of
-the two `dataset`s, which have no member in common. `S` is present only
+The root records nothing of the members it leaves out. `S` is present only
 when one of its members is.
+
+### 5.2 The datasets as JSON
 
 The datasets are in the DICOM JSON Model (PS3.18 §F.2), with one addition,
 `duplicates`. A dataset is a JSON object with one member per attribute,
@@ -407,9 +414,10 @@ a gathered sequence, `"Gathered"`; and, for a gathered sequence,
   items are then in implicit VR little endian).
 - **Pixel Data.** The top-level Pixel Data is `{"vr": VR}` (`"OW"` in
   implicit VR), without a value: its value is the image. Pixel Data of
-  undefined length nested in an item (an encapsulated icon image) is a
-  family of bytes ([conventions §7](../conventions.md#7-source-values-as-arrays)), one member per item of its fragment
-  sequence (the offset table first), named in its `BulkDataURI`.
+  undefined length nested in an item (an encapsulated icon image) has, when
+  its fragment sequence has an item, a `BulkDataURI` naming its element,
+  whose `offset_table` and `fragments/<j>` hold its items' data
+  ([§5.4](#54-elements)).
 
 **Character sets.** A dataset's **character set** is given by its first
 element `(0008,0005)` (Specific Character Set) of defined length, for the
@@ -428,27 +436,19 @@ the character set. Other values are translated as above: the other split
 VRs hold only ASCII, and `LT ST UT` are not split, so that their bytes are
 kept by [conventions §6](../conventions.md#6-source-metadata-as-json).
 
-**Large values.** A value that is too large for JSON is an array of
-`vzip_source` ([conventions §7](../conventions.md#7-source-values-as-arrays)), and the attribute is `{"vr": VR,
-"BulkDataURI": U}`, where `U` is the array's path from the root of the
-hierarchy (`vzip_source/<path>`); in the items of a gathered sequence,
-every value is gathered instead (below):
-- a binary VR (`OB OD OF OL OV OW UN`) whose value is more than 64 bytes,
-  as `uint8`, `float64`, `float32`, `uint32`, `uint64` or `uint16`, in the
-  dataset's byte order (`uint8` if the length is not a multiple of the
-  value size);
+**Large values.** A value that is too large for JSON is the attribute
+`{"vr": VR, "BulkDataURI": U}`, where `U` is `vzip_source/<p>`, `<p>` the
+attribute's path (**Paths**, below), which is the path of its element in the
+IR ([§5.4](#54-elements)): the value is that element's `v`. In the items of a
+gathered sequence, every value is gathered instead (below). The large values:
+- a binary VR (`OB OD OF OL OV OW UN`) whose value is more than 64 bytes;
 - an `AT` or numeric value that is not whole values and is more than 64
-  bytes, as `uint8`;
-- a numeric VR (`FL FD SL SS UL US SV UV`) with more than 64 values, of its
-  data type (`float32`, `float64`, `int32`, `int16`, `uint32`, `uint16`,
-  `int64`, `uint64`), in the dataset's byte order;
-- a `DS` or `IS` value with more than 64 values (more than 63 bytes `5C`),
-  as `uint8`: its text, as stored;
-- a text VR whose value is more than 2^16 bytes, as `uint8`.
+  bytes;
+- a numeric VR (`FL FD SL SS UL US SV UV`) with more than 64 values;
+- a `DS` or `IS` value with more than 64 values (more than 63 bytes `5C`);
+- a text VR whose value is more than 2^16 bytes.
 
-A `uint8` array's dimension is `byte`, and any other's is `value`. A binary
-value of at most 64 bytes is `"InlineBinary"`, in base64. The array is
-referenced where the file holds the value.
+A binary value of at most 64 bytes is `"InlineBinary"`, in base64.
 
 **Layout.** These elements are omitted, and every other element but Data Set
 Trailing Padding is kept:
@@ -486,88 +486,51 @@ number of items.
 
 Every value in its items, at any depth (every attribute of defined length
 that has a value and is not a sequence, and the bytes of a sequence that
-breaks a rule, below; not encapsulated pixel data, which is a family as
-above), is gathered with the values of the other items, column-wise, so
-that the items' JSON keeps only their structure and the values are arrays.
-Each such attribute is `{"vr": VR, "Gathered": true}`. Its value is row (or
-member) `i` of the array of `vzip_source` at `s/items/<p>/value`, where `i`
-is its item's index and `p` its path within the item (its path, below,
-without `s/<i>/`). An attribute without a value is `{"vr": VR}`, and a
-sequence is `{"vr": "SQ", "Value": [...]}`, its items written so in turn.
-The group `items`, which no path of an item has (an item's path ends in its
-index), keeps the arrays apart from the items' paths; the leaf `value`,
-which no path of an attribute has (a path's names are tags, indexes and
-`duplicates`), keeps the gathered arrays from nesting: one item's `p` can
-be a proper prefix of another's, as when an element is a value in one item
-and a sequence that holds a value in another, and `<p>/value` is then a
-sibling of the group that holds the other's array.
+breaks a rule, below; not encapsulated pixel data, which is as above), is
+gathered with the values of the other items, column-wise, so that the
+items' JSON keeps only their structure. Each such attribute is
+`{"vr": VR, "Gathered": true}`. Its value is that of the IR's element at
+`s/<i>/<p>` ([§5.4](#54-elements)), where `i` is its item's index and `p` its
+path within the item (its path, below, without `s/<i>/`); its **column** is
+the values of every item at one `p`. An attribute without a value is
+`{"vr": VR}`, and a sequence is `{"vr": "SQ", "Value": [...]}`, its items
+written so in turn.
 
 **Structures.** Written so, an item is its **structure**: its attributes'
 VRs, its sequences' items, its `duplicates`, and the markers, without its
 values; items that differ only in their values have equal structures (as
 JSON values). When the sequence has at least one item, its attribute is
 `{"vr": "SQ", "Structures": [...]}`, the distinct structures in order of
-their first item, and the `int32` array of `vzip_source` at
-`s/items/structure`, of shape `[F]`, dimension `index`, holds at index `i`
-the index in `Structures` of item `i`'s structure; it holds these values
-itself, cut as contiguous values ([conventions §7](../conventions.md#7-source-values-as-arrays)), every chunk copied.
-(`structure` is no tag and not `duplicates`, so it is no gathered path.)
-The JSON thus grows with the distinct structures, not with the items. A
-reader rebuilds item `i` as `Structures[structure[i]]`, in which each
-attribute `{"vr": VR, "Gathered": true}` at path `p` within the item takes
-as its value row (or member) `i` of `s/items/<p>/value`, read as below. A
-gathered sequence without items is `{"vr": "SQ", "Value": []}`.
+their first item. The JSON thus grows with the distinct structures, not
+with the items. A reader rebuilds item `i` from the IR, whose `s/<i>` is the
+item: its structure is one of `Structures`, and each attribute
+`{"vr": VR, "Gathered": true}` at path `p` takes as its value the IR's
+element `s/<i>/<p>`, read as above (in little endian when the attribute
+has `"LittleEndian"`). A gathered sequence without items is
+`{"vr": "SQ", "Value": []}`.
 
+The bounds below weigh each column as revision 25 stored it, as an array.
 Each value has **typed values**, of a data type: those of a numeric VR
-(`FL FD SL SS UL US SV UV`, its data type above) or a binary VR (`OB OD OF
-OL OV OW UN`, its data type above), in the byte order in which it is
-stored; for a `DS` value of at most 2^16 bytes whose every value (split
-and trimmed as above) is a number by the rule above, those numbers as
-`float64`; for an `IS` value of at most 2^16 bytes whose every value is of
-the form `[+-]?[0-9]+` and from −2^63 to 2^63 − 1, those integers as
-`int64` (both in little endian). A value of another VR (text, `AT`, the
-bytes of a sequence), or whose length is not a multiple of its value size,
-has as typed values its bytes as stored, as `uint8`. The array of a path is
-the first of these that applies:
-- when the values' typed values all have the same data type, length and
-  byte order, of at most 2^24 bytes: a 2-D array of that data type, of
-  shape `[F, m]` (`m` values each), whose row `i` is item `i`'s typed
-  values (zero bytes for an item without the value), with dimensions
-  `index`, then `byte` (for `uint8`) or `value`;
-- otherwise, when the values' bytes as stored all have the same length, of
-  at most 2^24 bytes: such a 2-D `uint8` array of those bytes;
-- otherwise, a family of bytes ([conventions §7](../conventions.md#7-source-values-as-arrays)) of `F` members, each the
-  value's bytes as stored, in its offsets-and-data form (whatever their
-  lengths).
-
-So a `uint8` row or a member of a family holds the bytes as stored, which a
-reader translates by the item's VR as above (in little endian when the
-attribute has `"LittleEndian"`); any other data type holds the values: for
-`DS` and `IS`, their numbers.
-
-The chunks of a 2-D array of rows of `b` bytes, `n` of whose `F` rows have
-a value: when every item has the value and the file holds the rows one
-after another in index order, the array is contiguous values (conventions
-[§7](../conventions.md#7-source-values-as-arrays)), cut and referenced so. Otherwise, when at least half the items have
-the value (`2n ≥ F`), with `R = max(1, floor(65519 / max(16, b + 8)))` (a
-row takes at most `max(16, b + 8)` bytes of a reference payload, as a range
-of the file or as bytes of a literal, so that a chunk's reference fits in a
-payload, [spec/virtualize.md §1.2](../virtualize.md#12-input)), the array has
-`k = ceil(F / R)` chunks of `c = ceil(F / k)` rows; when fewer do
-(`2n < F`, **sparse**), `c = 1`, a chunk per row. The chunk shape is
-`[c, m]`, and the grid has `ceil(F / c)` chunks. Chunk `q` holds rows
-`q × c` to `q × c + c − 1`: each row's range of the file (or, for a `DS` or
-`IS` value converted to numbers, its bytes, a literal), the rows of items
-without the value, and those past `F`, as zero bytes; ranges adjacent in
-the file are one range, and adjacent literals one literal. A chunk none of
-whose rows has a value is absent (it reads as zeros), so a sparse array's
-rows without a value cost nothing; a chunk whose reference would still be
-more than 65519 bytes is copied.
+(`FL FD SL SS UL US SV UV`: `float32`, `float64`, `int32`, `int16`,
+`uint32`, `uint16`, `int64`, `uint64`) or a binary VR (`OB OD OF OL OV OW
+UN`: `uint8`, `float64`, `float32`, `uint32`, `uint64`, `uint16`, `uint8`),
+in the byte order in which it is stored; for a `DS` value of at most 2^16
+bytes whose every value (split and trimmed as above) is a number by the rule
+above, those numbers as `float64`; for an `IS` value of at most 2^16 bytes
+whose every value is of the form `[+-]?[0-9]+` and from −2^63 to 2^63 − 1,
+those integers as `int64` (both in little endian). A value of another VR
+(text, `AT`, the bytes of a sequence), or whose length is not a multiple of
+its value size, has as typed values its bytes as stored, as `uint8`. A
+column's **rows** are of `b` bytes when the values' typed values all have
+the same data type, length (`b`) and byte order, of at most 2^24 bytes, or
+else when the values' bytes as stored all have the same length (`b`), of at
+most 2^24 bytes; otherwise it is a **family**. Of its `F` items, `n` have
+the value; a column of rows is **sparse** when `2n < F`.
 
 **Bounds.** Let `L` be the sequence's length: its value's length, or, for
 a sequence of undefined length, the bytes from its value's start to its
 sequence delimiter. A path's **cost** is, for a family, `8 × (F + 1)` plus
-its members' lengths; for a 2-D array of rows of `b` bytes, `n × b` when it
+its members' lengths; for a column of rows of `b` bytes, `n × b` when it
 is sparse, else `F × b`. A sequence that would be gathered is not, and is
 instead its bytes, as a sequence that breaks a rule is (below: `SQ`, or
 `UN` for an implicit or `UN` element, by the binary rule; for undefined
@@ -577,11 +540,11 @@ length, the `L` bytes above), when:
 - or the size of its `Structures` is more than 65536 bytes;
 - or the sum of its paths' costs is more than `16 × L`.
 
-The arrays planned in its items are then dropped. So the gathered JSON
-and the number of arrays stay bounded, and the arrays' bytes stay within a
-multiple of the sequence's.
+So the gathered JSON stays bounded. (The IR has the sequence's items either
+way: these bounds decide its JSON only.)
 
-**Paths.** An attribute's path is that of its dataset, then its tag:
+**Paths.** An attribute's path is that of its dataset, then its tag (the
+path of its element in the IR, [§5.4](#54-elements)):
 - the File Meta Information is `meta`, the dataset `dataset`;
 - item `i` of a sequence at path `p` is `p/i`;
 - the attribute `(0028,3006)` of the dataset is at `dataset/00283006`;
@@ -602,10 +565,10 @@ When one of them breaks a rule (an element runs past its container, an
 unknown VR, items nested more than 64 deep, a tag other than an item where
 one is expected), it is `SQ` with its bytes by the binary rule above:
 `{"vr": "SQ", "InlineBinary": B}` when they are at most 64 bytes, else
-`{"vr": "SQ", "BulkDataURI": U}`, a `uint8` array (gathered, in the item
-of a gathered sequence). A sequence that only the dictionary types (an implicit or `UN`
-element) is `UN` instead, by the same rule. Arrays planned inside a
-sequence that breaks a rule are dropped with it.
+`{"vr": "SQ", "BulkDataURI": U}` (gathered, in the item of a gathered
+sequence). A sequence that only the dictionary types (an implicit or `UN`
+element) is `UN` instead, by the same rule. In the IR, such a sequence is one
+value, its bytes ([§5.4](#54-elements)).
 
 **After Pixel Data.** The elements after the top-level Pixel Data are
 read, in the dataset's encoding, as long as each one's header lies within
@@ -633,8 +596,8 @@ Pixel Data ends:
 - **Native.** With `B`, `F` and `N` as in
   [spec/virtualize.md §6.5](#65-frames), the bytes of
   Pixel Data's value after its `N × F` bytes of frames, unless they are
-  none or one byte `00`, are a `uint8` array of `vzip_source` at
-  `pixel_extra`.
+  none or one byte `00`, are the IR's element `pixel_extra` (one byte `00`
+  is `dataset/7FE00010/padding`).
 - **Extended Offset Table.** The profile does not check the frames' item
   headers. When, for every frame `f`, the 8 bytes at `q + EOT[f]` are an
   item header for the frame's data: the tag `(FFFE,E000)` and the length
@@ -647,28 +610,91 @@ Pixel Data ends:
   to `N − 1`, is the bytes from the end of the items before the `k`-th (the
   largest end so far, or `q` for `k = 0`) to the start of the `k`-th, and
   is empty if that start is not after that end. When one member is not
-  empty (always, with `pixel_unreferenced_headers`), they are a family of
-  bytes ([conventions §7](../conventions.md#7-source-values-as-arrays)) of `N` members at `pixel_unreferenced`. A reader
-  rebuilds the fragments as member 0, the first item, member 1, and so on,
-  where an item is an item header for the frame's length, then its data,
-  or, with `pixel_unreferenced_headers`, its data alone.
+  empty (always, with `pixel_unreferenced_headers`), the members that are
+  not empty are the IR's elements `pixel_unreferenced/<k>`.
 
 **Fragments.** Without an Extended Offset Table, a frame of encapsulated
 pixel data is the data of its fragments without their item headers, and of
 its empty fragments nothing ([spec/virtualize.md §6.5](#65-frames)). When a frame has more
-than one fragment (empty ones included), `pixel_fragments` is an `int64`
-array of `vzip_source` of shape `[K, 2]`, dimensions `index` and `value`,
-where `K` is the number of fragments after the Basic Offset Table: row `j`
-is fragment `j`'s frame and the length of its data, in file order. It holds
-these values itself, cut as contiguous values ([conventions §7](../conventions.md#7-source-values-as-arrays)), every chunk
-copied. `pixel_offset_table` is `true` when the Basic Offset Table is not
-empty; its offsets are then the positions of the frames' first fragments
-(the profile requires it), which the lengths give. A reader rebuilds the
-fragment sequence as the Basic Offset Table's item, then, for each frame in
-turn, its stream (for `jpeg` with 3 samples, its first two bytes `FF D8`,
-then the stream after the 18 bytes of `P`, [spec/virtualize.md §6.5](#65-frames)) cut into
-items of the frame's fragments' lengths, in order (one item of the whole
-stream without `pixel_fragments`), then the sequence delimiter.
+than one fragment (empty ones included), the root has `pixel_fragments`.
+`pixel_offset_table` is `true` when the Basic Offset Table is not empty.
+The fragments, their item headers and the offset table are the IR's
+elements under `dataset/7FE00010` ([§5.4](#54-elements)).
+
+### 5.3 The IR mirror
+
+`vzip_source` is the file's **IR mirror**
+([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
+file is rebuilt byte for byte, and its view, `vzip_source/tree`. The IR's
+elements (the DICOM **source model**) are below; nothing is left out: the
+preamble, the File Meta Information, every data element at every depth
+(group lengths, offset tables, duplicates, private and padding elements
+included), the items and delimiters of sequences and fragments, the pixel
+data, the elements after it, the trailing bytes and any other bytes, as
+gaps.
+
+### 5.4 Elements
+
+Paths are relative to the IR's root, whose path is `""`
+([conventions §8.1](../conventions.md#81-elements)); `<i>`, `<j>`, `<k>`, `<f>`
+are decimal name indexes; `<tag>` is a tag as 8 uppercase hexadecimal digits
+(`00280010`); `E` is the byte order of the dataset (`<` little, `>` big),
+and of the items of a fragment sequence. Each dataset's elements are walked
+as [spec/virtualize.md §6.3](#63-datasets-and-sequences) and **Sequences that the profile does not walk**
+([§5.2](#52-the-datasets-as-json)) say, every sequence that parses a struct.
+
+| path | kind | type | what |
+|---|---|---|---|
+| `""` | struct | | the root: the whole file, extent `(0, size)` |
+| `preamble` | value | `bytes[128]` | the preamble |
+| `magic` | value | `ascii[4]` | `DICM` |
+| `meta` | struct | | the File Meta Information, as a dataset |
+| `dataset` | struct | | the top-level dataset: its elements to Pixel Data, Pixel Data, and the elements after it that parse ([§5.2](#52-the-datasets-as-json), **After Pixel Data**) |
+| `<d>/<tag>` | value | `{H,v:T}` | an element of a dataset `<d>` of defined length that is not a sequence (or a sequence that breaks a rule, `T` then `bytes[n]`): its header fields `H` and its value `v` |
+| `<d>/<tag>` | struct | | a sequence: `header` (a value `{H}`), its items, and `end` (`{group:Eu2,element:Eu2,length:Eu4}`, the sequence delimiter) when its length is undefined |
+| `<d>/duplicates/<k>/<tag>` | | | the `k`-th element of `<d>`, in file order, whose tag an earlier element of `<d>` has (an omitted offset table counting as the earlier one); `duplicates/<k>` is a struct holding it |
+| `<d>/FFFCFFFC~<k>` | value | | the `k`-th later Data Set Trailing Padding of `<d>` (padding is never a duplicate) |
+| `<s>/<i>` | struct | | item `i` of a sequence `<s>`: `header` (`{group:Eu2,element:Eu2,length:Eu4}`), its dataset's elements, and `end` (the item delimiter) when its length is undefined |
+| `dataset/7FE00010` | struct | | the top-level Pixel Data: `header` (`{H}`), then its value (below) |
+| `dataset/7FE00010/frames/<f>` | data | | native pixel data: frame `f`, its `F` bytes ([spec/virtualize.md §6.5](#65-frames)) |
+| `dataset/7FE00010/padding` | value | `bytes[1]` | native pixel data's one byte `00` past the frames |
+| `…/offset_table` | struct | | encapsulated pixel data's first item: `header` and `offsets` (`Eu4[k]`, or `bytes[n]` when its length is not a multiple of 4) |
+| `…/fragment_headers/<j>` | value | `{group:Eu2,element:Eu2,length:Eu4}` | the item header of fragment `j` (after the offset table), or, with an Extended Offset Table, of frame `j` when the frames' headers are item headers |
+| `dataset/7FE00010/fragments/<j>` | data | | fragment `j`'s data, when not empty (with an Extended Offset Table, frame `j`'s); its form's geometry is `{"rows", "columns", "samples", "bits_allocated", "pixel_representation", "photometric"}`, its codec `{"name": "bytes", "endian"}`, `{"name": "jpeg"}` or `{"name": "jpeg2k"}`, its recipe the whole range |
+| `<d>/7FE00010/fragments/<j>` | value | `bytes[n]` | the fragments of Pixel Data nested in an item (an icon image) |
+| `…/end` | value | `{group:Eu2,element:Eu2,length:Eu4}` | the fragment sequence's delimiter |
+| `pixel_extra` | value | `bytes[n]` | native pixel data past the frames, when not one byte `00` |
+| `pixel_unreferenced/<k>` | value | `bytes[n]` | with an Extended Offset Table, the bytes before the `k`-th frame's item in order of offset, when not empty ([§5.2](#52-the-datasets-as-json)) |
+| `trailing` | value | `bytes[n]` | the bytes from where the elements after Pixel Data stop to the end of the file |
+| `gaps/<offset>` | gap | | any other bytes no element claims |
+
+The header fields `H` are `group:Eu2,element:Eu2,vr:ascii[2],length:Eu2` in
+explicit VR, `group:Eu2,element:Eu2,vr:ascii[2],reserved:Eu2,length:Eu4`
+for the VRs with a 4-byte length, and `group:Eu2,element:Eu2,length:Eu4` in
+implicit VR. A value's type `T` is by its VR (the element's, or for one in
+implicit VR or of VR `UN` the data dictionary's, [§5.2](#52-the-datasets-as-json),
+else `UN`), for its `n` bytes: `cstr[n]` for a text VR (`AE AS CS DA DS DT
+IS LO LT PN SH ST TM UC UI UR UT`: its text to its padding NUL, and any byte
+after it kept); `Eu2[n/4,2]` for `AT`; `Ef4`, `Ef8`, `Ei4`, `Ei2`, `Eu4`,
+`Eu2`, `Ei8`, `Eu8` (`FL FD SL SS UL US SV UV`) of `n` over the value size
+values; else, and when the length is not a multiple of the value size,
+`bytes[n]`. A value of explicit VR `UN` is in little endian (`E` is `<` for
+its `v`), as [§5.2](#52-the-datasets-as-json) reads it. The view shows such a
+record by its `v` ([conventions §8.7](../conventions.md#87-the-view)); the
+header, its VR among it, is in the table.
+
+Items of one sequence that are identical, byte for byte, at one stride, and
+native frames, fold into runs. The VR of an element, its encoding and its
+value are all in the table (types and extents) and the source: a reader
+rebuilds the DICOM JSON of [§5.2](#52-the-datasets-as-json) from them, the members
+the root leaves out included.
+
+### 5.5 Equivalence
+
+The elements are determined by the file, and the mirror by its elements
+([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
+file are compared entry for entry, `vzip_source` included
+([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
 
 ## 6. Example
 

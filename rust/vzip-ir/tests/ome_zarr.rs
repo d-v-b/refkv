@@ -297,7 +297,7 @@ fn ignored_keys_are_vzip_source_metadata() {
     let objects = image("", &["0"]);
     let keys: Vec<(String, u64)> = objects.iter().map(|(k, b)| (k.clone(), b.len() as u64)).collect();
     let mut r = vzip_ir::store::StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
-    r.ignore(vec!["z/./a".into(), "donn\u{e9}es/./x".into()]);
+    r.ignore(vec!["z/./a".into(), "donn\u{e9}es/./x".into()], Vec::new()).unwrap();
     while let Some(reqs) = r.poll().unwrap() {
         for (k, q) in reqs.iter().enumerate() {
             let b = &objects[q.object].1;

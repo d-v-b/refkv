@@ -23,7 +23,7 @@
 //! **Budget.** Requests at most `2^20 + 4 × objects`, bytes at most `2^24 + 2 × Z` (Z the
 //! listed sizes' sum); a range outside its object is refused.
 
-use crate::ir::{Ir, Res, OBJECT};
+use crate::ir::{Ir, Res};
 use serde_json::{json, Value as J};
 use std::collections::HashMap;
 
@@ -39,6 +39,12 @@ pub enum StoreStep {
 pub trait StoreParser: Send + Sync {
     fn step(&mut self) -> Res<StoreStep>;
     fn feed(&mut self, object: usize, offset: u64, data: &[u8]);
+    /// The empty objects whose keys end in `/` (each with its `/`), which the listing ignores
+    /// and does not record (spec/virtualize.md §1.4
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), told before
+    /// the first step ([`StoreRun::ignore`]): a SAFE directory's are its directories. The
+    /// recorded ignored keys reach the projection in the facts instead.
+    fn folders(&mut self, _folders: &[String]) {}
     /// The IR (finished: `check::finish`) and the facts its projection reads.
     fn finish(self: Box<Self>) -> Res<(Ir, J)>;
     /// The profile the store is decided to be, once the parser has decided (a Zarr v2 store
@@ -54,29 +60,36 @@ pub enum StoreFormat {
     /// A Zarr v2 store (`zarr2.rs`; spec/virtualize/zarr2.md
     /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md>).
     Zarr2,
+    /// A Sentinel-2 SAFE product's directory (`safe/`; spec/virtualize/safe.md
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md>).
+    Safe,
 }
 
 impl StoreFormat {
     pub fn from_name(s: &str) -> Option<StoreFormat> {
         match s {
             "zarr2" => Some(StoreFormat::Zarr2),
+            "safe" => Some(StoreFormat::Safe),
             _ => None,
         }
     }
     pub fn name(self) -> &'static str {
         match self {
             StoreFormat::Zarr2 => "zarr2",
+            StoreFormat::Safe => "safe",
         }
     }
     /// The convention the mirror declares.
     pub fn profile(self) -> &'static str {
         match self {
             StoreFormat::Zarr2 => "zarr2",
+            StoreFormat::Safe => "safe",
         }
     }
     fn parser(self, ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Box<dyn StoreParser>> {
         match self {
             StoreFormat::Zarr2 => Ok(Box::new(crate::zarr2::Zarr2::new(ir, objects, keys)?)),
+            StoreFormat::Safe => Ok(Box::new(crate::safe::Safe::new_store(ir, objects, keys))),
         }
     }
 }
@@ -156,14 +169,24 @@ impl StoreRun {
         })
     }
 
-    /// The relative keys of the listed objects the store reader ignored and recorded
-    /// (spec/virtualize.md §1.4
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): not objects
-    /// of the IR; the facts carry them (`ignored`, in the order of their UTF-8 bytes) to the
-    /// projection, which records them as its convention says.
-    pub fn ignore(&mut self, keys: Vec<String>) {
+    /// The keys the listing ignores (spec/virtualize.md §1.4
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), which are
+    /// not objects of the IR, given before the first poll: `keys`, the relative keys of the
+    /// ignored objects the store reader recorded, and `folders`, those of the empty objects
+    /// whose keys end in `/` (each with its `/`), which are not recorded. The parser is told
+    /// the folders before its first step ([`StoreParser::folders`]: a SAFE directory's empty
+    /// `d/` objects are its directories); the facts carry the recorded keys (`ignored`, in the
+    /// order of their UTF-8 bytes) to the projection, which records them as its convention
+    /// says ([`crate::project::store::record_ignored`]).
+    pub fn ignore(&mut self, keys: Vec<String>, folders: Vec<String>) -> Res<()> {
+        if self.stats.batches > 0 || self.done {
+            return Err("internal: the ignored keys given after the first poll".into());
+        }
+        let p = self.parser.as_mut().ok_or("internal: no parser")?;
+        p.folders(&folders);
         self.ignored = keys;
         self.ignored.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+        Ok(())
     }
 
     /// The profile the run's store is decided to be so far (the format's own until its parser
@@ -295,7 +318,7 @@ impl StoreRun {
         let mut want = Vec::new();
         for (k, &o) in self.objects.iter().enumerate() {
             let ou = o as usize;
-            if ir.kind[ou] != OBJECT || !kids[ou] || ir.len[ou] == 0 || ir.value_bytes(o).is_some() {
+            if !ir.held(&kids, ou) || ir.value_bytes(o).is_some() {
                 continue;
             }
             want.push((k, o));
@@ -328,19 +351,26 @@ impl StoreRun {
 }
 
 /// The output of a store parse: the format's projection, the mirror under `vzip_source` when
-/// `mirror`, and a summary: the projection's, with the run's counts, the IR's element and
-/// object counts and what the mirror's table folded.
+/// `mirror`, and a summary: the projection's, with the run's counts, the IR's element count
+/// (and, but for SAFE, whose projection counts its objects itself, the format's name and the
+/// IR's object count) and what the mirror's table folded. Then the ignored keys (and a SAFE
+/// directory's empty directories) beside the mirror (`record_ignored`).
 pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str, mirror: bool) -> Res<crate::out::Out> {
     let mut out = match format {
         StoreFormat::Zarr2 => crate::project::zarr2::project(ir, facts, url)?,
+        StoreFormat::Safe => crate::project::safe::project(ir, facts, url)?,
     };
     let mut summary = std::mem::take(&mut out.summary);
     if let Some(m) = summary.as_object_mut() {
-        // the profile: a Zarr v2 store whose root declares OME-NGFF 0.4 is OME-Zarr's
-        m.insert("format".into(), json!(facts["profile"].as_str().unwrap_or(format.name())));
+        if format != StoreFormat::Safe {
+            // the profile: a Zarr v2 store whose root declares OME-NGFF 0.4 is OME-Zarr's
+            m.insert("format".into(), json!(facts["profile"].as_str().unwrap_or(format.name())));
+        }
         m.insert("reads".into(), stats);
         m.insert("elements".into(), json!(ir.len()));
-        m.insert("objects".into(), json!(ir.objects));
+        if format != StoreFormat::Safe {
+            m.insert("objects".into(), json!(ir.objects));
+        }
     }
     out.summary = summary;
     let profile = facts["profile"].as_str().unwrap_or(format.profile());
@@ -348,9 +378,7 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         let folded = crate::mirror::mirror(ir, &mut out, profile)?;
         out.summary["folded"] = folded.json();
     }
-    match format {
-        StoreFormat::Zarr2 => crate::project::store::record_ignored(&mut out, facts, profile)?,
-    }
+    crate::project::store::record_ignored(&mut out, facts, profile)?;
     Ok(out)
 }
 

@@ -2,11 +2,14 @@
 //! step/feed/finish over linear memory. The host reads the ranges each step asks
 //! for, writes their bytes into buffers it allocates here, and feeds them.
 //!
-//! `vz_new(format, size)` makes a parser (0 ND2, 1 TIFF, 2 CZI); `vz_step`,
+//! `vz_new(format, size)` makes a parser (0 ND2, 1 TIFF, 2 CZI, 3 DICOM, 4 NIfTI, 5 IMS); `vz_step`,
 //! `vz_feed` and `vz_finish` drive it. The `nd2_*` names are round 2's, kept.
 
 use crate::czi::Czi;
+use crate::dicom::Dicom;
+use crate::ims::Ims;
 use crate::nd2::{Nd2, Step};
+use crate::nifti::Nifti;
 use crate::tiff::Tiff;
 use crate::Parser;
 use std::cell::RefCell;
@@ -45,6 +48,9 @@ pub enum Any {
     Nd2(Nd2),
     Tiff(Tiff),
     Czi(Czi),
+    Dicom(Dicom),
+    Nifti(Nifti),
+    Ims(Ims),
 }
 
 fn step_out(r: Result<Step, String>) -> i64 {
@@ -76,6 +82,9 @@ pub extern "C" fn vz_new(format: u32, size: u64) -> *mut Any {
     Box::into_raw(Box::new(match format {
         0 => Any::Nd2(Nd2::new(size)),
         1 => Any::Tiff(Tiff::new(size)),
+        3 => Any::Dicom(Dicom::new(size)),
+        4 => Any::Nifti(Nifti::new(size)),
+        5 => Any::Ims(Ims::new(size)),
         _ => Any::Czi(Czi::new(size)),
     }))
 }
@@ -91,6 +100,9 @@ pub unsafe extern "C" fn vz_step(p: *mut Any) -> i64 {
         Any::Nd2(x) => x.step(),
         Any::Tiff(x) => x.step(),
         Any::Czi(x) => x.step(),
+        Any::Dicom(x) => x.step(),
+        Any::Nifti(x) => x.step(),
+        Any::Ims(x) => x.step(),
     })
 }
 
@@ -103,6 +115,9 @@ pub unsafe extern "C" fn vz_feed(p: *mut Any, offset: u64, data: *mut u8, n: usi
         Any::Nd2(x) => x.feed(offset, v),
         Any::Tiff(x) => x.feed(offset, v),
         Any::Czi(x) => x.feed(offset, v),
+        Any::Dicom(x) => x.feed(offset, v),
+        Any::Nifti(x) => x.feed(offset, v),
+        Any::Ims(x) => x.feed(offset, v),
     }
 }
 
@@ -118,6 +133,9 @@ pub unsafe extern "C" fn vz_finish(p: *mut Any) -> i64 {
         Any::Nd2(x) => Parser::finish(x),
         Any::Tiff(x) => Parser::finish(x),
         Any::Czi(x) => Parser::finish(x),
+        Any::Dicom(x) => Parser::finish(x),
+        Any::Nifti(x) => Parser::finish(x),
+        Any::Ims(x) => Parser::finish(x),
     })
 }
 
@@ -167,7 +185,8 @@ fn err_out(e: String) -> i64 {
     -(set_out(e.into_bytes()) as i64)
 }
 
-/// A run of `format` (0 ND2, 1 TIFF, 2 CZI) over a source of `size` bytes, remote
+/// A run of `format` (0 ND2, 1 TIFF, 2 CZI, 3 DICOM, 4 NIfTI, 5 IMS, 6 a SAFE zip, 7 NDPI; a TIFF run becomes an NDPI one when its
+/// parser finds the file is NDPI: the output's summary names the format) over a source of `size` bytes, remote
 /// or not, read by the host at most `concurrency` requests at a time.
 #[unsafe(no_mangle)]
 pub extern "C" fn vz_run_new(format: u32, size: u64, remote: u32, concurrency: u32) -> *mut Run {
@@ -419,21 +438,22 @@ pub unsafe extern "C" fn vz_store_output(p: *mut StoreRun, url: *mut u8, n: usiz
     }
 }
 
-/// The relative keys the store reader ignored and recorded (`json`: the JSON `[key, ...]`,
-/// from `vz_alloc`, consumed), which the projection records: 0, or minus the length of the
-/// error's message.
+/// The keys the listing ignores, before the first poll (`StoreRun::ignore`): `json` (from
+/// `vz_alloc`, consumed) is `[[key, ...], [folder, ...]]`, the relative keys the store reader
+/// ignored and recorded, which the projection records, and the empty `d/` keys, which a SAFE
+/// directory's parser reads as directories. 0, or minus the length of a rejection's message.
 ///
 /// # Safety
 /// `p` from `vz_store_new`; `json`, `n` from `vz_alloc(n)`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vz_store_ignore(p: *mut StoreRun, json: *mut u8, n: usize) -> i64 {
+    let r = unsafe { &mut *p };
     let b = unsafe { Vec::from_raw_parts(json, n, n) };
-    match serde_json::from_slice::<Vec<String>>(&b) {
-        Ok(keys) => {
-            unsafe { &mut *p }.ignore(keys);
-            0
-        }
-        Err(e) => err_out(format!("the ignored keys: {e}")),
+    let got = serde_json::from_slice::<(Vec<String>, Vec<String>)>(&b).map_err(|e| format!("the ignored keys: {e}"))
+        .and_then(|(keys, folders)| r.ignore(keys, folders));
+    match got {
+        Ok(()) => 0,
+        Err(e) => err_out(e),
     }
 }
 
@@ -462,7 +482,7 @@ pub unsafe extern "C" fn vz_store_free(p: *mut StoreRun) {
 /// The mirror of a crafted IR, for the browser's tests of the mirror's rejections:
 /// `json` (from `vz_alloc`, consumed) is `{"size", "kind", "parent", "name", "nidx",
 /// "start", "len", "runs": [[root, count, stride]]}` (a parent of -1: none; a name
-/// index of -1: none), `profile` 0 ND2, 1 TIFF, 2 CZI. The output's length, or minus
+/// index of -1: none), `profile` 0 ND2, 1 TIFF, 2 CZI, 3 DICOM. The output's length, or minus
 /// the rejection's.
 ///
 /// # Safety

@@ -127,8 +127,8 @@ test("ignores paths outside the routes", async () => {
 test("serves virtualized stores, and reports rejected ones", async () => {
   // A store whose listing (spec/virtualize.md §1.5
   // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>) and objects
-  // come from the N5 and Zarr v2 fixtures, in the bucket "b".
-  const roots = ["n5", "zarr2"].map((f) => new URL(`../../fixtures/${f}/`, import.meta.url));
+  // come from the N5, Zarr v2 and SAFE fixtures, in the bucket "b".
+  const roots = ["n5", "zarr2", "safe"].map((f) => new URL(`../../fixtures/${f}/`, import.meta.url));
   const rootOf = (rel: string) => roots.find((r) => fs.existsSync(new URL(rel.split("/")[0] + "/", r))) ?? roots[0];
   const root = roots[0];
   const file = (url: string) => {
@@ -176,6 +176,11 @@ test("serves virtualized stores, and reports rejected ones", async () => {
   const z = await get(h, `image/${encodeId("https://data.test/b/zarr2_reject_order/")}/zarr.json`);
   assert.equal(z.status, 422);
   assert.match(await z.text(), /^Zarr v2: .*order A is not C or F/);
+  // a SAFE directory's rejection is bare, as a SAFE zip file's is
+  const s = await get(h, `image/${encodeId("https://data.test/b/safe_reject_bad_cs_code/")}/zarr.json`);
+  assert.equal(s.status, 422);
+  const st = await s.text();
+  assert.ok(st.length > 0 && !/^(SAFE|store): /.test(st), st);
   const missing = await get(h, `image/${encodeId("https://data.test/b/no_such_store/")}/zarr.json`);
   assert.equal(missing.status, 422);
   assert.match(await missing.text(), /^store: the store has no listing/);

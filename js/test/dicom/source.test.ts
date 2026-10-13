@@ -1,11 +1,11 @@
-// The DICOM JSON Model translation of the browser virtualizer
+// The DICOM JSON Model translation of the frozen TypeScript virtualizer, the reference
 // (spec/virtualize/dicom.md §5
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>);
-// python/tests/test_virtualize_dicom.py has the same cases.
+// python/tests/reference/test_virtualize_dicom.py has the same cases.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { valueJson } from "../../src/virtualize/dicom/source.ts";
+import { valueJson } from "../../../conformance/virtualize/reference/ts/dicom/source.ts";
 
 const bytes = (s: string) => Uint8Array.from(s, (c) => c.charCodeAt(0));
 const le = (fmt: "H" | "d" | "Q", ...v: (number | bigint)[]) => {
@@ -56,7 +56,7 @@ test("each VR's translation", () => {
 });
 
 test("the dictionary's VR for an element whose file does not state it", async () => {
-  const { dictionaryVr } = await import("../../src/virtualize/dicom/source.ts");
+  const { dictionaryVr } = await import("../../../conformance/virtualize/reference/ts/dicom/source.ts");
   const cases: [number, string | undefined][] = [
     [0x00280010, "US"], [0x00081140, "SQ"], [0x60000010, "US"], [0x60020010, "US"], [0x00290010, "LO"],
     [0x00291010, undefined], [0x00280106, undefined], [0x7fe00010, undefined], [0x0ff00100, undefined],

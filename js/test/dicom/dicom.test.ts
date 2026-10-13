@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
-import { DicomError } from "../../src/virtualize/dicom/virtualize.ts";
-import { virtualizeImage } from "../../src/virtualize/index.ts";
+import { DicomError } from "../../../conformance/virtualize/reference/ts/dicom/virtualize.ts";
+import { virtualizeImage } from "../../../conformance/virtualize/reference/ts/index.ts";
 
 const FIXTURES = new URL("../../../fixtures/dicom/", import.meta.url);
 

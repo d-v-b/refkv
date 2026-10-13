@@ -1,18 +1,18 @@
-// The source metadata node of the browser IMS virtualizer on the files of the
+// The source metadata node of the frozen TypeScript IMS virtualizer (revision 25) on the files of the
 // review (spec/virtualize/ims.md §5
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata>);
-// python/tests/test_virtualize_ims.py has the same cases.
+// python/tests/reference/test_virtualize_ims.py has the same cases.
 
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
-import { virtualizeImage } from "../../src/virtualize/index.ts";
+import { virtualizeImage } from "../../../conformance/virtualize/reference/ts/index.ts";
 
 const FIXTURES = new URL("../../../fixtures/ims/", import.meta.url);
 
 /**
  * The paths of the object table (spec/virtualize/ims.md §5.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#57-the-object-table>).
+ * <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#57-the-object-table>).
  */
 function objects(docs: Map<string, Uint8Array>): string[] {
   const parents = new Int32Array(docs.get("vzip_source/objects/parent/c/0")!.slice().buffer);
@@ -203,7 +203,7 @@ test("reads every chunk index", async () => {
 test("walks a time-lapse whole", async () => {
   // 57 objects of the image's tree and 8 others: within 100,000 + 5 per Data dataset
   // (spec/virtualize/ims.md §5.1
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#51-the-tree>).
+  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#51-the-tree>).
   const docs = await documents("ims_latest_timelapse.ims");
   for (const [k, v] of docs) {
     if (!k.startsWith("vzip_source/hdf5") || !k.endsWith("zarr.json")) continue;

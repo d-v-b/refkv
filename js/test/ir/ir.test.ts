@@ -15,7 +15,7 @@ import { blockReader, ImageError } from "../../src/virtualize/common.ts";
 import { irFormat, virtualizeImage, virtualizeSource } from "../../src/virtualize/index.ts";
 import { virtualizeIr } from "../../src/virtualize/ir/run.ts";
 import { bytesSource, openHttpSource } from "../../src/virtualize/ir/source.ts";
-import { REVISION as FROZEN_REVISION } from "../../../conformance/virtualize/reference/ts/revision.ts";
+import { IMS_REVISION, REVISION as FROZEN_REVISION } from "../../../conformance/virtualize/reference/ts/revision.ts";
 import { hierarchy } from "./compare.ts";
 
 const FIXTURES = new URL("../../../fixtures/", import.meta.url);
@@ -86,8 +86,9 @@ after(() => {
   server.close();
 });
 
-const IR_FIXTURES = ["tiff", "nd2", "czi"].flatMap((dir) =>
-  fs.readdirSync(new URL(dir, FIXTURES)).filter((n) => !n.endsWith(".npz")).sort().map((n) => `${dir}/${n}`));
+const IR_FIXTURES = ["tiff", "nd2", "czi", "nifti", "ims"].flatMap((dir) =>
+  fs.readdirSync(new URL(dir, FIXTURES), { withFileTypes: true }).filter((e) => e.isFile() && !e.name.endsWith(".npz"))
+    .map((e) => e.name).sort().map((n) => `${dir}/${n}`));
 
 test("the Rust core gives the frozen virtualizers' hierarchy, and rejects the same files", async () => {
   const problems: string[] = [];
@@ -99,13 +100,13 @@ test("the Rust core gives the frozen virtualizers' hierarchy, and rejects the sa
       referenceImage(url, blockReader(read, bytes.length), bytes.length),
       virtualizeImage(url, read, bytes.length),
     ]);
-    if (got.status === "fulfilled") assert.equal(got.value.format, irFormat(bytes.subarray(0, 16)), path);
+    if (got.status === "fulfilled") assert.equal(got.value.format, irFormat(bytes.subarray(0, 552)), path);
     if (ref.status === "rejected" || got.status === "rejected") {
       if (got.status === "rejected" && !(got.reason instanceof ImageError)) problems.push(`${path}: ${got.reason}`);
       if (ref.status !== got.status) problems.push(`${path}: the reference ${ref.status === "rejected" ? "rejects" : "accepts"} it, the core does not`);
       continue;
     }
-    const [a, b] = [hierarchy(ref.value, FROZEN_REVISION), hierarchy(got.value)];
+    const [a, b] = [hierarchy(ref.value, path.startsWith("ims/") ? IMS_REVISION : FROZEN_REVISION), hierarchy(got.value)];
     for (const key of new Set([...a.keys(), ...b.keys()])) {
       if (!isDeepStrictEqual(a.get(key), b.get(key))) problems.push(`${path}: ${key} differs`);
     }

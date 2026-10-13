@@ -214,7 +214,12 @@
             "size": {
               "type": "integer",
               "minimum": 0,
-              "description": "The source's size in bytes"
+              "description": "The source's size in bytes (a store IR's: its objects' sizes, summed)"
+            },
+            "objects": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "A store IR's objects (spec/conventions.md §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>); a file IR has none"
             },
             "elements": {
               "type": "integer",

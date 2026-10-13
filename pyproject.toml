@@ -2,14 +2,25 @@
 name = "vzip"
 version = "0.1.0"
 description = "vzip: ZIP plus a reference value type, for virtual stores (reference implementation and experiments)"
+# the PyPI page (README.md, the repository's, links to its files by relative path)
+readme = "python/README.md"
 authors = [
     { name = "Davis Vann Bennett", email = "davis.v.bennett@gmail.com" }
 ]
 requires-python = ">=3.12"
 license = "MIT OR Apache-2.0"
 license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+]
 # The base install reads and writes vzip archives, holds a ReferenceStore and
-# virtualizes image files and stores, without Zarr (numpy: the NIfTI virtualizer); the
+# virtualizes image files and stores, without Zarr (numpy: vzip.shards), through
+# the Rust core this package builds and ships as the module vzip_ir (below); the
 # extras add the rest (python/src/vzip/_extras.py), and the dependency groups hold
 # what only this repository's tests, fixture generators and benchmarks use.
 dependencies = [
@@ -17,6 +28,10 @@ dependencies = [
     "numpy>=2.5.3",
     "obstore>=0.11.1",
 ]
+
+[project.urls]
+Repository = "https://github.com/d-v-b/vzip"
+Documentation = "https://github.com/d-v-b/vzip/tree/main/docs"
 
 [project.optional-dependencies]
 # vzip.zarr: a vzip store as a read-only zarr store, for zarr and xarray, and the codecs
@@ -37,14 +52,21 @@ virtualizarr = [
     "virtualizarr>=2.7.3",
 ]
 
+# One distribution, two modules: the Python package python/src/vzip, and the Rust core
+# rust/vzip-ir as vzip_ir (its compiled module vzip_ir.vzip_ir, re-exported by
+# python/src/vzip_ir), so vzip always runs the core of its own commit. Building it needs a
+# Rust toolchain. This file stays at the root, where the conformance harnesses and the
+# fixture generators share its environment.
 [build-system]
-requires = ["uv_build>=0.12.13,<0.13.0"]
-build-backend = "uv_build"
+requires = ["maturin>=1.15,<2"]
+build-backend = "maturin"
 
-[tool.uv.build-backend]
-# the package is python/src/vzip; this file stays at the root, where the conformance
-# harnesses, the fixture generators and the Rust core's `maturin develop` share its environment
-module-root = "python/src"
+[tool.maturin]
+manifest-path = "rust/vzip-ir/Cargo.toml"
+features = ["python"]
+module-name = "vzip_ir.vzip_ir"
+python-source = "python/src"
+python-packages = ["vzip"]
 
 [dependency-groups]
 # the tests, and the fixture generators and verifiers (fixtures/generators, js/test/*/verify.py),
@@ -80,5 +102,13 @@ bench = [
 ]
 
 [tool.uv]
+# rebuild the core when its Rust sources or source models change (`uv sync`, `uv run`)
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "rust/vzip-ir/Cargo.toml" },
+    { file = "rust/vzip-ir/Cargo.lock" },
+    { file = "rust/vzip-ir/src/**/*.rs" },
+    { file = "rust/vzip-ir/schema/*.json" },
+]
 # `uv sync` and `uv run` install every group, as CI's `uv sync --all-groups` does
 default-groups = "all"

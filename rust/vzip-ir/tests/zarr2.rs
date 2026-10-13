@@ -181,7 +181,7 @@ fn the_ignored_keys_are_vzip_source_s_member_ignored_in_byte_order() {
         let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
         let bytes: Vec<&Vec<u8>> = files.values().collect();
         let mut r = StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
-        r.ignore(ignored.clone());
+        r.ignore(ignored.clone(), Vec::new()).unwrap();
         while let Some(reqs) = r.poll().unwrap() {
             for (k, q) in reqs.iter().enumerate() {
                 r.complete(k, q.spans.iter().map(|&(a, e)| bytes[q.object][a as usize..e as usize].to_vec()).collect()).unwrap();
@@ -210,7 +210,7 @@ fn the_ignored_keys_are_vzip_source_s_member_ignored_in_byte_order() {
     let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let mut r = StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
-    r.ignore(vec!["b//c".into(), "./x".into()]);
+    r.ignore(vec!["b//c".into(), "./x".into()], Vec::new()).unwrap();
     while let Some(reqs) = r.poll().unwrap() {
         for (k, q) in reqs.iter().enumerate() {
             r.complete(k, q.spans.iter().map(|&(a, e)| bytes[q.object][a as usize..e as usize].to_vec()).collect()).unwrap();

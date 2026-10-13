@@ -24,10 +24,17 @@ URL = "https://data.test/ome-zarr/{}/"
 STORES = sorted(p for p in FIXTURES.iterdir() if p.is_dir())
 
 
+def whole_object(parts) -> str:
+    """The key of the one listed object a reference's parts are, from its first byte."""
+    (kind, key, offset, _), = parts
+    assert kind == "object" and offset == 0
+    return key
+
+
 def hierarchy(out) -> dict:
     """The IR path's documents outside vzip_source, and its references (entry key -> object key)."""
     docs = {k: json.loads(v) for k, v in out.entries.items() if k.endswith("zarr.json") and not k.startswith("vzip_source/")}
-    return {"docs": docs, "refs": {k: v[0] for k, v in out.refs.items()}}
+    return {"docs": docs, "refs": {k: whole_object(v) for k, v in out.refs.items()}}
 
 
 def reference_hierarchy(out) -> dict:

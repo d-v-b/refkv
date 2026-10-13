@@ -262,6 +262,13 @@ impl PyIr {
     fn shared<'py>(&self, py: Python<'py>) -> Vec<Bound<'py, PyBytes>> {
         self.ir.shared.iter().map(|b| PyBytes::new(py, b)).collect()
     }
+    /// A store IR's objects in id order: (key, virtual offset of its byte 0, size) (conventions
+    /// §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), for reading
+    /// an object described in place at virtual offsets; empty for a file IR.
+    fn object_bases(&self) -> Vec<(String, u64, u64)> {
+        let src = self.ir.sources();
+        src.objects.iter().map(|&o| (self.ir.key(o), src.base[o as usize], self.ir.len[o as usize])).collect()
+    }
     /// A digest of every row (for comparing builds).
     fn digest(&self) -> u64 {
         self.ir.digest()
@@ -548,12 +555,7 @@ impl PyRun {
     #[pyo3(signature = (format, size, remote, concurrency, amplification=None, byte_cost=None, whole_below=None))]
     fn new(format: &str, size: u64, remote: bool, concurrency: usize, amplification: Option<f64>, byte_cost: Option<f64>,
            whole_below: Option<u64>) -> PyResult<Self> {
-        let f = match format {
-            "nd2" => crate::run::Format::Nd2,
-            "tiff" => crate::run::Format::Tiff,
-            "czi" => crate::run::Format::Czi,
-            _ => return Err(PyValueError::new_err(format!("no format {format:?}"))),
-        };
+        let f = crate::run::Format::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no format {format:?}")))?;
         let mut r = crate::run::Run::new(f, size, remote, concurrency);
         r.planner.cap_override = amplification;
         if let Some(c) = byte_cost {
@@ -592,6 +594,11 @@ impl PyRun {
         self.get()?.planner.multirange = v;
         Ok(())
     }
+    /// The run's format: "tiff" becomes "ndpi" once its parser finds the file is NDPI.
+    #[getter]
+    fn format(&mut self) -> PyResult<&'static str> {
+        Ok(self.get()?.format.name())
+    }
     /// The planner's counts and model (JSON).
     fn stats(&mut self) -> PyResult<String> {
         Ok(self.get()?.planner.stats_json().to_string())
@@ -604,8 +611,8 @@ impl PyRun {
         let format = r.format;
         let (o, ir) = py
             .detach(|| -> Result<_, String> {
-                let (ir, facts, stats) = r.finish()?;
-                Ok((crate::run::output(format, &ir, &facts, stats, url, mirror)?, ir))
+                let (ir, facts, stats, copied) = r.finish_copied()?;
+                Ok((crate::run::output(format, &ir, &facts, stats, url, mirror, &copied)?, ir))
             })
             .map_err(Rejected::new_err)?;
         Ok((out_py(py, &o)?, PyIr::new(ir)))
@@ -620,8 +627,8 @@ impl PyRun {
 /// A store run (src/store.rs): `StoreRun(format, listing, concurrency)` over the listing
 /// [(key, size)]; the host loops `poll()` (the requests to make now, concurrently: (object
 /// index, key, spans [(start, end)])) and `complete(k, parts)` (each span's bytes) until
-/// `poll()` gives None; then `output(url, mirror)` or `finish()`. `ignore(keys)` gives the
-/// ignored keys the projection records.
+/// `poll()` gives None; then `output(url, mirror)` or `finish()`. `ignore(keys, folders)`,
+/// before the first poll, gives the keys the listing ignores.
 #[pyclass(name = "StoreRun", module = "vzip_ir")]
 pub struct PyStoreRun {
     r: Option<crate::store::StoreRun>,
@@ -654,11 +661,13 @@ impl PyStoreRun {
     fn stats(&mut self) -> PyResult<String> {
         Ok(self.get()?.stats_json().to_string())
     }
-    /// The relative keys the store reader ignored and recorded (`Store.ignored`), which the
-    /// projection records as its convention says.
-    fn ignore(&mut self, keys: Vec<String>) -> PyResult<()> {
-        self.get()?.ignore(keys);
-        Ok(())
+    /// The keys the listing ignores, before the first poll (`StoreRun::ignore`): `keys`, the
+    /// relative keys the store reader ignored and recorded (`Store.ignored`), which the
+    /// projection records as its convention says, and `folders`, its empty `d/` keys
+    /// (`Store.folders`), which a SAFE directory's parser reads as directories.
+    #[pyo3(signature = (keys, folders=Vec::new()))]
+    fn ignore(&mut self, keys: Vec<String>, folders: Vec<String>) -> PyResult<()> {
+        self.get()?.ignore(keys, folders).map_err(Rejected::new_err)
     }
     /// The profile the run's store is decided to be so far (`StoreRun::profile`).
     fn profile(&mut self) -> PyResult<String> {
@@ -723,22 +732,17 @@ fn out_py<'py>(py: Python<'py>, o: &crate::out::Out) -> PyResult<Bound<'py, PyAn
     Ok(t.into_pyobject(py)?.into_any())
 }
 
-/// The image projection of an IR (format "nd2", "tiff" or "czi"; facts as JSON) as
+/// The image projection of an IR (format "nd2", "tiff", "czi", "dicom", "nifti", "ims" or "ndpi"; facts as JSON) as
 /// Python objects (`out_py`), or Rejected.
 #[pyfunction]
 fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str) -> PyResult<Bound<'py, PyAny>> {
-    let f = match format {
-        "nd2" => crate::run::Format::Nd2,
-        "tiff" => crate::run::Format::Tiff,
-        "czi" => crate::run::Format::Czi,
-        _ => return Err(PyValueError::new_err(format!("no format {format:?}"))),
-    };
+    let f = crate::run::Format::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no format {format:?}")))?;
     let facts: serde_json::Value = serde_json::from_str(facts).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let o = py.detach(|| crate::project::project(f, &ir.ir, &facts, url)).map_err(Rejected::new_err)?;
+    let o = py.detach(|| crate::project::project(f, &ir.ir, &facts, url, &Default::default())).map_err(Rejected::new_err)?;
     out_py(py, &o)
 }
 
-/// The mirror of an IR (for the profile "nd2", "tiff" or "czi"): its entries and
+/// The mirror of an IR (for the profile "nd2", "tiff", "czi", "dicom", "nifti", "ims" or "ndpi"): its entries and
 /// references under `vzip_source` (`out_py`'s form, the url empty), and what the
 /// table folded (JSON).
 #[pyfunction]
@@ -783,6 +787,15 @@ fn plan_spans(ranges: Vec<(u64, u64)>, threshold: u64, cap: f64, concurrency: us
     crate::plan::plan_spans(&ranges, threshold, cap, concurrency)
 }
 
+/// For tests: the reference payload past which a NIfTI edge chunk is copied (None: the
+/// payload limit), so that small files reach the copy (spec/virtualize/nifti.md §7.2
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#72-chunks>).
+#[pyfunction]
+#[pyo3(signature = (n=None))]
+fn _set_nifti_copy_threshold(n: Option<usize>) {
+    crate::nifti::set_copy_threshold(n);
+}
+
 #[pymodule]
 fn vzip_ir(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyIr>()?;
@@ -793,6 +806,7 @@ fn vzip_ir(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyStoreRun>()?;
     m.add_function(wrap_pyfunction!(rebuild_store, m)?)?;
     m.add_function(wrap_pyfunction!(plan_spans, m)?)?;
+    m.add_function(wrap_pyfunction!(_set_nifti_copy_threshold, m)?)?;
     m.add_function(wrap_pyfunction!(project, m)?)?;
     m.add_function(wrap_pyfunction!(mirror, m)?)?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;

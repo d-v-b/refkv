@@ -82,12 +82,14 @@ def is_doc(key: str, data: bytes) -> bool:
 def test_a_store_run_reads_each_document_once_and_its_mirror_rebuilds_them(root, tmp_path):
     objects = directory(root)
     s3 = FakeS3(objects)
-    try:
-        out, ir, stats = virtualize_store(URL, opener=s3, workers=4)
-    except Rejected:
-        # rejected from the listing, or after reading documents only
+    if root.name.startswith("zarr2_reject_"):
+        # the Zarr v2 rejection fixtures (and only they) are rejected: from the listing, or after
+        # reading documents only (an OME-Zarr store is a Zarr v2 store to the core's format)
+        with pytest.raises(Rejected):
+            virtualize_store(URL, opener=s3, workers=4)
         assert all(is_doc(k, objects[k]) and n == 1 for k, n in s3.reads.items()), s3.reads
         return
+    out, ir, stats = virtualize_store(URL, opener=s3, workers=4)
     # each document read once, in one batch, at most 4 at a time; no chunk object read
     docs = set(s3.reads)
     assert s3.reads == {k: 1 for k in docs} and all(is_doc(k, objects[k]) for k in docs)
@@ -149,3 +151,40 @@ def test_a_rejection_names_the_store_format():
     with pytest.raises(Rejected, match="zarr_format is not 2") as e:
         virtualize_store(URL, opener=s3, workers=2)
     assert e.value.format == "zarr2"
+
+
+def test_a_store_output_numbers_its_sources_by_first_use():
+    """One url source per object a reference uses, in order of first use (references by
+    key, ranges in order), each pinning its listed size; then the data sources, by first
+    use too; literals stay."""
+    from vzip.ir.store import StoreIrOutput
+
+    out = StoreIrOutput(URL, refs={
+        "b/c/0": [b"\x01", ("object", "x.jp2", 10, 4), (2, 0, 3)],
+        "a/c/0": [("object", "y.jp2", 0, 8), (2, 0, 3), (1, 0, 2)],
+        "z": [("object", "x.jp2", 0, 1)],
+    }, data=[b"ab", b"cde"], sizes={"x.jp2": 20, "y.jp2": 9})
+    urls, data, refs = out.table()
+    assert urls == [object_url(URL, "y.jp2"), object_url(URL, "x.jp2")]
+    assert data == [b"cde", b"ab"]
+    assert refs == {"a/c/0": [(0, 0, 8), (2, 0, 3), (3, 0, 2)], "b/c/0": [b"\x01", (1, 10, 4), (2, 0, 3)],
+                    "z": [(1, 0, 1)]}
+
+
+def test_a_store_output_pins_its_objects_listed_sizes(tmp_path):
+    """Each url source pins its object's listed size, and an object the listing lacks pins none."""
+    from vzip.ir.store import StoreIrOutput
+    from vzip.pb import decode_source_table
+
+    out = StoreIrOutput(URL, refs={"a": [("object", "x.jp2", 0, 4)], "b": [("object", "y.jp2", 0, 2)]},
+                        sizes={"x.jp2": 20})
+    out.write(str(tmp_path / "o.vzip"))
+    sources = decode_source_table(zipfile.ZipFile(tmp_path / "o.vzip").read("__vz__/sources"))
+    assert [(s.url, s.size) for s in sources] == [(object_url(URL, "x.jp2"), 20), (object_url(URL, "y.jp2"), None)]
+
+
+def test_a_store_output_refuses_a_reference_to_source_0():
+    from vzip.ir.store import StoreIrOutput
+
+    with pytest.raises(AssertionError, match="source 0"):
+        StoreIrOutput(URL, refs={"a": [(0, 4)]}).table()

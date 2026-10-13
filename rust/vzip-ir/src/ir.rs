@@ -35,6 +35,11 @@ pub const KINDS: [&str; 7] = ["struct", "value", "data", "derived", "alias", "ga
 /// The most objects a store IR describes (conventions §8.9
 /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>).
 pub const MAX_OBJECTS: u64 = 1 << 24;
+/// The form of an object **described in place** (conventions §8.9
+/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): its leaves partition
+/// it as a held object's do, but the table does not hold its bytes; they are its own source's,
+/// which a reader reads as it reads a file IR's source 0 (a SAFE band file, read in ranges).
+pub const IN_PLACE: &str = r#"{"bytes":"source"}"#;
 pub const NONE: u32 = u32::MAX;
 pub const NO_INDEX: u64 = u64::MAX;
 
@@ -419,8 +424,34 @@ impl Ir {
         Sources { of, base, objects }
     }
 
+    /// Object `o` (an element of kind object) is described in place: its form is [`IN_PLACE`].
+    pub fn describe_in_place(&mut self, o: u32) -> Res<()> {
+        if self.kind.get(o as usize) != Some(&OBJECT) {
+            return Err(format!("internal: element {o} described in place is not an object"));
+        }
+        let f = self.forms.id(IN_PLACE);
+        match self.form_of.binary_search_by_key(&o, |e| e.0) {
+            Ok(k) => self.form_of[k].1 = f,
+            Err(k) => self.form_of.insert(k, (o, f)),
+        }
+        Ok(())
+    }
+
+    /// Whether element `i` is an object described in place ([`IN_PLACE`]).
+    pub fn in_place(&self, i: u32) -> bool {
+        self.kind.get(i as usize) == Some(&OBJECT) && self.form(i) == Some(IN_PLACE)
+    }
+
+    /// Whether element `i` is a held object (conventions §8.9
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): an object with
+    /// children (`kids`, [`Ir::has_children`]) and a length, not described in place.
+    pub fn held(&self, kids: &[bool], i: usize) -> bool {
+        self.kind[i] == OBJECT && kids[i] && self.len[i] > 0 && !self.in_place(i as u32)
+    }
+
     /// Whether object `i` (of kind object) has children: a held object, whose bytes the
-    /// mirror holds; one without, of a length, is referenced (a leaf, its whole source).
+    /// mirror holds (or one described in place); one without, of a length, is referenced (a
+    /// leaf, its whole source).
     pub fn has_children(&self) -> Vec<bool> {
         let mut v = vec![false; self.len()];
         for i in 1..self.len() {

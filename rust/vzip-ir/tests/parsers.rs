@@ -1,10 +1,13 @@
-//! The TIFF and CZI parsers: every fixture they accept is a valid IR that rebuilds
+//! The TIFF (NDPI included), CZI, DICOM, NIfTI and IMS parsers: every fixture they accept is a valid IR that rebuilds
 //! its source; one test per rejected fixture (each the role the schema names); and
 //! the round-3 probes built here (IFD loops, huge counts, too many IFDs).
 
 use std::path::Path;
 use vzip_ir::check;
 use vzip_ir::czi::Czi;
+use vzip_ir::dicom::Dicom;
+use vzip_ir::nifti::Nifti;
+use vzip_ir::ims::Ims;
 use vzip_ir::parse_bytes;
 use vzip_ir::tiff::Tiff;
 
@@ -24,6 +27,9 @@ fn accepted<P: vzip_ir::Parser>(dir: &str) -> usize {
     let mut n = 0;
     for e in std::fs::read_dir(fixtures().join(dir)).unwrap() {
         let path = e.unwrap().path();
+        if path.is_dir() {
+            continue;
+        }
         let data = std::fs::read(&path).unwrap();
         if let Ok((ir, _)) = parse_bytes::<P>(&data) {
             check::check(&ir).unwrap_or_else(|m| panic!("{path:?}: {m}"));
@@ -38,6 +44,23 @@ fn accepted<P: vzip_ir::Parser>(dir: &str) -> usize {
 fn accepted_fixtures_are_valid_irs_that_rebuild() {
     assert_eq!(accepted::<Tiff>("tiff"), 33);
     assert_eq!(accepted::<Czi>("czi"), 32);
+    assert_eq!(accepted::<Tiff>("ndpi"), 3);
+    assert_eq!(accepted::<Dicom>("dicom"), 43);
+    assert_eq!(accepted::<Nifti>("nifti"), 66);
+    assert_eq!(accepted::<Ims>("ims"), 26);
+    assert_eq!(accepted::<Ims>("ims/exact"), 1);
+}
+
+/// The TIFF parser reads an NDPI as NDPI (spec/virtualize/ndpi.md §4
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>): each
+/// accepted NDPI fixture's facts name the profile, and a TIFF's do not.
+#[test]
+fn the_tiff_parser_finds_ndpi() {
+    for (file, ndpi) in [("ndpi/ndpi_levels.ndpi", true), ("ndpi/ndpi_pointers.ndpi", true), ("tiff/jpeg_gray.tif", false)] {
+        let data = std::fs::read(fixtures().join(file)).unwrap();
+        let (_, facts) = parse_bytes::<Tiff>(&data).unwrap();
+        assert_eq!(facts["profile"] == "ndpi", ndpi, "{file}");
+    }
 }
 
 macro_rules! reject {
@@ -93,6 +116,59 @@ reject!(tiff_edge_reject_zero_tile, Tiff, "tiff/edge_reject_zero_tile.tif", "the
 reject!(tiff_unsupported_lzw, Tiff, "tiff/unsupported_lzw.tif", "unsupported compression 5");
 reject!(tiff_unsupported_predictor, Tiff, "tiff/unsupported_predictor.tif", "unsupported predictor 2");
 reject!(tiff_unsupported_strips, Tiff, "tiff/unsupported_strips.tif", "only tiled TIFFs are supported; the image at 8 i");
+reject!(dicom_reject_bigendian_ow8, Dicom, "dicom/dicom_reject_bigendian_ow8.dcm", "8-bit Pixel Data of VR OW in big endian");
+reject!(dicom_reject_bits_allocated, Dicom, "dicom/dicom_reject_bits_allocated.dcm", "unsupported Bits Allocated 12");
+reject!(dicom_reject_bot_offset, Dicom, "dicom/dicom_reject_bot_offset.dcm", "a Basic Offset Table offset is not a fragment's");
+reject!(dicom_reject_depth, Dicom, "dicom/dicom_reject_depth.dcm", "items nested more than 64 deep");
+reject!(dicom_reject_eot_overlap, Dicom, "dicom/dicom_reject_eot_overlap.dcm", "the Extended Offset Table's frames overlap");
+reject!(dicom_reject_eot_with_bot, Dicom, "dicom/dicom_reject_eot_with_bot.dcm", "an Extended Offset Table with a Basic Offset Table");
+reject!(dicom_reject_focal_planes, Dicom, "dicom/dicom_reject_focal_planes.dcm", "2 focal planes");
+reject!(dicom_reject_fragments_without_offsets, Dicom, "dicom/dicom_reject_fragments_without_offsets.dcm", "4 fragments for 2 frames without an offset table");
+reject!(dicom_reject_high_bit, Dicom, "dicom/dicom_reject_high_bit.dcm", "High Bit 3 is not Bits Stored - 1");
+reject!(dicom_reject_increment_length, Dicom, "dicom/dicom_reject_increment_length.dcm", "(0028,0009) has a length that is not a multiple of 4");
+reject!(dicom_reject_jpeg_soi, Dicom, "dicom/dicom_reject_jpeg_soi.dcm", "frame 0's first fragment does not start with a JPEG SOI marker (FF D8)");
+reject!(dicom_reject_jpegls, Dicom, "dicom/dicom_reject_jpegls.dcm", "unsupported transfer syntax 1.2.840.10008.1.2.4.80");
+reject!(dicom_reject_misplaced_delimiter, Dicom, "dicom/dicom_reject_misplaced_delimiter.dcm", "expected an item at 498, found (FFFE,E00D)");
+reject!(dicom_reject_native_ybr, Dicom, "dicom/dicom_reject_native_ybr.dcm", "unsupported Photometric Interpretation 'YBR_FULL' with 3 samples per pixel");
+reject!(dicom_reject_no_pixel_data, Dicom, "dicom/dicom_reject_no_pixel_data.dcm", "no Pixel Data element");
+reject!(dicom_reject_palette, Dicom, "dicom/dicom_reject_palette.dcm", "unsupported Photometric Interpretation 'PALETTE COLOR' with 1 samples per pixel");
+reject!(dicom_reject_pixel_past_eof, Dicom, "dicom/dicom_reject_pixel_past_eof.dcm", "Pixel Data's 104 bytes run past the end of the 514-byte file");
+reject!(dicom_reject_rle, Dicom, "dicom/dicom_reject_rle.dcm", "unsupported transfer syntax 1.2.840.10008.1.2.5");
+reject!(dicom_reject_rows_vr, Dicom, "dicom/dicom_reject_rows_vr.dcm", "(0028,0010) has VR SS, not US");
+reject!(dicom_reject_short_pixel_data, Dicom, "dicom/dicom_reject_short_pixel_data.dcm", "Pixel Data has 32 bytes, less than 3 frames of 16");
+reject!(dicom_reject_tiled_sparse, Dicom, "dicom/dicom_reject_tiled_sparse.dcm", "a whole-slide image whose Dimension Organization Type is not TILED_FULL");
+reject!(dicom_reject_truncated_sequence, Dicom, "dicom/dicom_reject_truncated_sequence.dcm", "(0008,1150) at 526 runs past its container");
+reject!(dicom_reject_unknown_vr, Dicom, "dicom/dicom_reject_unknown_vr.dcm", "unknown VR 'ZZ' at 496");
+reject!(dicom_reject_wsi_frames, Dicom, "dicom/dicom_reject_wsi_frames.dcm", "3 frames for 2 by 2 tiles");
+reject!(dicom_reject_zero_frames, Dicom, "dicom/dicom_reject_zero_frames.dcm", "Number of Frames 0 is not from 1 to 2^53 - 1");
+reject!(nifti_reject_binary, Nifti, "nifti/nifti_reject_binary.nii", "unsupported NIfTI datatype 1 (BINARY)");
+reject!(nifti_reject_bitpix, Nifti, "nifti/nifti_reject_bitpix.nii", "bitpix 8 does not match datatype 4");
+reject!(nifti_reject_complex64, Nifti, "nifti/nifti_reject_complex64.nii", "unsupported NIfTI datatype 32 (COMPLEX64)");
+reject!(nifti_reject_datatype_unknown, Nifti, "nifti/nifti_reject_datatype_unknown.nii", "unknown NIfTI datatype 3");
+reject!(nifti_reject_dim0, Nifti, "nifti/nifti_reject_dim0.nii", "dim[0] = 0 is not from 1 to 7");
+reject!(nifti_reject_dim0_8, Nifti, "nifti/nifti_reject_dim0_8.nii", "dim[0] = 8 is not from 1 to 7");
+reject!(nifti_reject_dim6, Nifti, "nifti/nifti_reject_dim6.nii", "dimensions 6 and 7 must have size 1");
+reject!(nifti_reject_dim7, Nifti, "nifti/nifti_reject_dim7.nii", "dimensions 6 and 7 must have size 1");
+reject!(nifti_reject_dim_negative, Nifti, "nifti/nifti_reject_dim_negative.nii", "dim[2] = -2 is not from 1 to 2^53 - 1");
+reject!(nifti_reject_dim_zero, Nifti, "nifti/nifti_reject_dim_zero.nii", "dim[2] = 0 is not from 1 to 2^53 - 1");
+reject!(nifti_reject_float128, Nifti, "nifti/nifti_reject_float128.nii", "unsupported NIfTI datatype 1536 (FLOAT128)");
+reject!(nifti_reject_n2_dim_huge, Nifti, "nifti/nifti_reject_n2_dim_huge.nii", "dim[1] = 9007199254740992 is not from 1 to 2^53 - 1");
+reject!(nifti_reject_n2_short_header, Nifti, "nifti/nifti_reject_n2_short_header.nii", "file too short for a 540-byte NIfTI-2 header");
+reject!(nifti_reject_n2_size_overflow, Nifti, "nifti/nifti_reject_n2_size_overflow.nii", "the 1237940039285380274899124224-byte voxel data at 544 is outside the 556-byte file");
+reject!(nifti_reject_n2_vox_offset_low, Nifti, "nifti/nifti_reject_n2_vox_offset_low.nii", "vox_offset 540 is not from 544 to 2^53 - 1");
+reject!(nifti_reject_pair_magic, Nifti, "nifti/nifti_reject_pair_magic.nii", "not a NIfTI-1 or NIfTI-2 single file");
+reject!(nifti_reject_rgb_5d, Nifti, "nifti/nifti_reject_rgb_5d.nii", "color data with a fifth dimension");
+reject!(nifti_reject_truncated, Nifti, "nifti/nifti_reject_truncated.nii", "the 24-byte voxel data at 352 is outside the 375-byte file");
+reject!(nifti_reject_vox_offset_fraction, Nifti, "nifti/nifti_reject_vox_offset_fraction.nii", "vox_offset 352.5 is not an integer");
+reject!(nifti_reject_vox_offset_in_extender, Nifti, "nifti/nifti_reject_vox_offset_in_extender.nii", "vox_offset 348 is not from 352 to 2^53 - 1");
+reject!(nifti_reject_vox_offset_nan, Nifti, "nifti/nifti_reject_vox_offset_nan.nii", "vox_offset nan is not an integer");
+reject!(nifti_reject_vox_offset_zero, Nifti, "nifti/nifti_reject_vox_offset_zero.nii", "vox_offset 0 is not from 352 to 2^53 - 1");
+reject!(ndpi_edge_reject_focal_planes, Tiff, "ndpi/edge_reject_ndpi_focal_planes.ndpi", "NDPI focal planes (two levels with one magnification) are not supported");
+reject!(ndpi_edge_reject_growing, Tiff, "ndpi/edge_reject_ndpi_growing.ndpi", "NDPI levels do not decrease in size");
+reject!(ndpi_edge_reject_mcustarts, Tiff, "ndpi/edge_reject_ndpi_mcustarts.ndpi", "McuStarts does not match the strip's intervals");
+reject!(ndpi_edge_reject_no_restart_interval, Tiff, "ndpi/edge_reject_ndpi_no_restart_interval.ndpi", "an NDPI strip has no SOF0 or no restart interval");
+reject!(ndpi_edge_reject_short_strip, Tiff, "ndpi/edge_reject_ndpi_short_strip.ndpi", "an NDPI strip of 3 bytes is shorter than 4");
+reject!(ndpi_edge_reject_wide_interval, Tiff, "ndpi/edge_reject_ndpi_wide_interval.ndpi", "an NDPI chunk would be 65536 pixels wide, more than 65535");
 reject!(czi_reject_attachment_file_part, Czi, "czi/czi_reject_attachment_file_part.czi", "attachment entry 0 is in FilePart 1");
 reject!(czi_reject_attachment_id, Czi, "czi/czi_reject_attachment_id.czi", "attachment 0 at 1440 is not a ZISRAWATTACH segme");
 reject!(czi_reject_attachment_outside_file, Czi, "czi/czi_reject_attachment_outside_file.czi", "attachment 0's data is outside the file");
@@ -132,6 +208,24 @@ reject!(czi_reject_subblock_id, Czi, "czi/czi_reject_subblock_id.czi", "subblock
 reject!(czi_reject_subblock_outside_file, Czi, "czi/czi_reject_subblock_outside_file.czi", "subblock 0's parts is outside the file");
 reject!(czi_reject_unknown_schema, Czi, "czi/czi_reject_unknown_schema.czi", "directory entry 0 has schema XX, not DV");
 reject!(czi_reject_zero_size, Czi, "czi/czi_reject_zero_size.czi", "directory entry 0's X Size and StoredSize must b");
+reject!(ims_reject_chunk_mismatch, Ims, "ims/ims_reject_chunk_mismatch.ims", "the datasets of level 0 differ in size, chunk shape or filters");
+reject!(ims_reject_contiguous, Ims, "ims/ims_reject_contiguous.ims", "dataset layout class 1 is not chunked");
+reject!(ims_reject_dtype_mismatch, Ims, "ims/ims_reject_dtype_mismatch.ims", "the datasets have different data types");
+reject!(ims_reject_fill_value, Ims, "ims/ims_reject_fill_value.ims", "the fill value is not zero");
+reject!(ims_reject_fletcher32, Ims, "ims/ims_reject_fletcher32.ims", "unsupported HDF5 filters [3]");
+reject!(ims_reject_float64, Ims, "ims/ims_reject_float64.ims", "unsupported HDF5 datatype (class 1, 8 bytes)");
+reject!(ims_reject_image_larger, Ims, "ims/ims_reject_image_larger.ims", "the image of level 0 is larger than its dataset");
+reject!(ims_reject_imagesize_text, Ims, "ims/ims_reject_imagesize_text.ims", "ImageSizeX of level 0 is not a positive integer");
+reject!(ims_reject_imagesize_vlen, Ims, "ims/ims_reject_imagesize_vlen.ims", "attribute ImageSizeX is not a string");
+reject!(ims_reject_missing_channel, Ims, "ims/ims_reject_missing_channel.ims", "no Channel 1");
+reject!(ims_reject_not_imaris, Ims, "ims/ims_reject_not_imaris.ims", "not an Imaris file (no DataSet group)");
+reject!(ims_reject_offset_size, Ims, "ims/ims_reject_offset_size.ims", "HDF5 offsets and lengths of 4 and 8 bytes are not supported");
+reject!(ims_reject_rank, Ims, "ims/ims_reject_rank.ims", "a dataset of level 0 is not 3-dimensional");
+reject!(ims_reject_raw_edges_image, Ims, "ims/ims_reject_raw_edges_image.ims", "a chunk's filter mask is not 0");
+reject!(ims_reject_relative_soft_link, Ims, "ims/ims_reject_relative_soft_link.ims", "soft link \"Data\" to a relative path");
+reject!(ims_reject_shuffle, Ims, "ims/ims_reject_shuffle.ims", "unsupported HDF5 filters [2, 1]");
+reject!(ims_reject_size_mismatch, Ims, "ims/ims_reject_size_mismatch.ims", "the datasets of level 0 differ in size, chunk shape or filters");
+reject!(ims_reject_z_levels, Ims, "ims/ims_reject_z_levels.ims", "a level has more than one z plane, and level 0 has one");
 
 // ---- the round-3 TIFF probes, built here
 
@@ -266,4 +360,170 @@ fn a_segment_id_with_bytes_after_its_nul_is_not_the_id() {
         Err(m) => assert!(m.contains("is not a ZISRAWSUBBLOCK segment"), "{m}"),
         Ok(_) => panic!("accepted"),
     }
+}
+
+/// Runs the IMS parser over bytes in memory, the walk's room in elements set to `room`.
+fn ims_with_room(data: &[u8], room: Option<u64>) -> (vzip_ir::ir::Ir, serde_json::Value) {
+    let mut p = Ims::new(data.len() as u64);
+    p.room = room;
+    loop {
+        match p.step().unwrap() {
+            vzip_ir::nd2::Step::Read(r) => {
+                for (o, n) in r {
+                    p.feed(o, data[o as usize..(o + n) as usize].to_vec());
+                }
+            }
+            vzip_ir::nd2::Step::Done => break,
+        }
+    }
+    p.finish().unwrap()
+}
+
+#[test]
+fn past_the_walks_room_the_image_is_described_and_the_rest_is_gaps() {
+    let project = |ir: &vzip_ir::ir::Ir, facts: &serde_json::Value| {
+        let out = vzip_ir::project::project(vzip_ir::run::Format::Ims, ir, facts, "u", &Default::default()).unwrap();
+        out.refs.iter().map(|(k, p)| format!("{k}{p:?}")).collect::<Vec<_>>()
+    };
+    // dense links and attributes (fractal heaps, version 2 B-trees), huge attributes, and
+    // variable-length attributes (global heap collections)
+    for name in ["ims_latest_many_channels", "ims_latest_dense_links", "ims_latest_huge_attribute", "ims_latest_review2",
+                 "ims_earliest_review2"] {
+        let data = std::fs::read(fixtures().join(format!("ims/{name}.ims"))).unwrap();
+        let (all, facts) = ims_with_room(&data, None);
+        let n = all.len() as u64;
+        for room in [0, n / 8, n / 4, n / 2, 3 * n / 4] {
+            let (ir, f) = ims_with_room(&data, Some(room));
+            check::check(&ir).unwrap();
+            assert!(rebuilt(&ir, &data) == data);
+            assert!(ir.len() < all.len(), "{name} room {room}");
+            assert_eq!(project(&ir, &f), project(&all, &facts), "{name} room {room}");
+            // the elements outside the image's datasets and the objects' structs: at most the
+            // room, and a few more (each loop stops at the room, within one structure)
+            let paths: Vec<String> = (0..ir.len() as u32).filter(|&i| ir.kind[i as usize] != vzip_ir::ir::GAP).map(|i| ir.path(i)).collect();
+            let images: std::collections::HashSet<String> =
+                paths.iter().filter_map(|p| p.strip_suffix("/chunks")).map(|p| p.to_string()).collect();
+            let outside = |p: &String| {
+                let parts: Vec<&str> = p.splitn(3, '/').collect();
+                !(parts[0] == "objects" && parts.len() >= 2 && (parts.len() == 2 || images.contains(&format!("objects/{}", parts[1]))))
+            };
+            let rest: Vec<&String> = paths.iter().filter(|p| outside(p)).collect();
+            assert!(rest.len() <= room as usize + 30, "{name} room {room}: {} elements outside the image", rest.len());
+            if room == 0 {
+                // nothing of a non-image object but its struct
+                assert!(rest.iter().all(|p| !p.starts_with("objects/")), "{name}: {rest:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn the_walk_stops_inside_heaps_b_trees_and_global_heaps() {
+    // (fixture, a structure whose children the room cuts: its path's start, and a child's)
+    for (name, under) in [
+        ("ims_latest_review2", "global_heaps/0/objects/"),
+        ("ims_latest_dense_links", "/links/heap/blocks/"),
+        ("ims_latest_dense_links", "/links/index/nodes/"),
+        ("ims_latest_review2", "/attributes/heap/blocks/"),
+    ] {
+        let data = std::fs::read(fixtures().join(format!("ims/{name}.ims"))).unwrap();
+        let (all, _) = ims_with_room(&data, None);
+        let paths = |ir: &vzip_ir::ir::Ir| (0..ir.len() as u32).map(|i| ir.path(i)).collect::<Vec<_>>();
+        let full = paths(&all);
+        // the room is spent right after the structure's first child: the walk is in it
+        let first = full.iter().position(|p| p.contains(under)).unwrap_or_else(|| panic!("{name}: no {under}"));
+        let parent = &full[first][..full[first].find(under).unwrap() + under.len()];
+        let total = full.iter().filter(|p| p.starts_with(parent)).count();
+        assert!(total > 1, "{name}: {parent} has one child");
+        let (ir, _) = ims_with_room(&data, Some(first as u64 + 1));
+        check::check(&ir).unwrap();
+        assert!(rebuilt(&ir, &data) == data);
+        let kept = paths(&ir).iter().filter(|p| p.starts_with(parent)).count();
+        assert!(kept >= 1 && kept < total, "{name}: {kept} of {total} under {parent}");
+    }
+    // the room spent right after the first collection: no later collection is described
+    let data = std::fs::read(fixtures().join("ims/ims_latest_global_heaps.ims")).unwrap();
+    let (all, _) = ims_with_room(&data, None);
+    let full: Vec<String> = (0..all.len() as u32).map(|i| all.path(i)).collect();
+    assert!(full.iter().any(|p| p.starts_with("global_heaps/2")), "fewer than three collections");
+    let last = full.iter().rposition(|p| p.starts_with("global_heaps/0")).unwrap();
+    let (ir, _) = ims_with_room(&data, Some(last as u64 + 1));
+    check::check(&ir).unwrap();
+    assert!(rebuilt(&ir, &data) == data);
+    let paths: Vec<String> = (0..ir.len() as u32).map(|i| ir.path(i)).collect();
+    for p in full.iter().filter(|p| p.starts_with("global_heaps/0")) {
+        assert!(paths.contains(p), "{p} of collection 0 is not described");
+    }
+    assert!(!paths.iter().any(|p| p.starts_with("global_heaps/1")), "a later collection is described");
+}
+
+/// A DICOM file in explicit VR little endian: `body` after the File Meta Information.
+fn dicom(syntax: &str, body: &[u8]) -> Vec<u8> {
+    let mut uid = syntax.as_bytes().to_vec();
+    if uid.len() % 2 == 1 {
+        uid.push(0);
+    }
+    let mut out = vec![0u8; 128];
+    out.extend_from_slice(b"DICM");
+    out.extend(short(2, 0x10, b"UI", &uid));
+    out.extend_from_slice(body);
+    out
+}
+
+/// One element of a short VR in explicit VR little endian.
+fn short(g: u16, e: u16, vr: &[u8; 2], v: &[u8]) -> Vec<u8> {
+    let mut b = Vec::new();
+    for x in [g, e] {
+        b.extend_from_slice(&x.to_le_bytes());
+    }
+    b.extend_from_slice(vr);
+    b.extend_from_slice(&(v.len() as u16).to_le_bytes());
+    b.extend_from_slice(v);
+    b
+}
+
+#[test]
+fn a_long_fragment_chain_is_walked_to_its_end() {
+    // 600 frames of 70,000 bytes, without an offset table: each fragment's item header is
+    // past the window that read the one before, so a round each
+    let n = 600u32;
+    let mut body = Vec::new();
+    for (e, v) in [(2u16, 1u16), (0x10, 1), (0x11, 1), (0x100, 8), (0x101, 8), (0x103, 0)] {
+        body.extend(short(0x28, e, b"US", &v.to_le_bytes()));
+    }
+    body.extend(short(0x28, 4, b"CS", b"MONOCHROME2 "));
+    body.extend(short(0x28, 8, b"IS", n.to_string().as_bytes()));
+    body.extend_from_slice(&[0xE0, 0x7F, 0x10, 0x00, b'O', b'B', 0, 0, 0xFF, 0xFF, 0xFF, 0xFF]);
+    body.extend_from_slice(&[0xFE, 0xFF, 0x00, 0xE0, 0, 0, 0, 0]);
+    for _ in 0..n {
+        body.extend_from_slice(&[0xFE, 0xFF, 0x00, 0xE0]);
+        body.extend_from_slice(&70_000u32.to_le_bytes());
+        body.extend(std::iter::repeat_n(0u8, 70_000));
+    }
+    body.extend_from_slice(&[0xFE, 0xFF, 0xDD, 0xE0, 0, 0, 0, 0]);
+    let data = dicom("1.2.840.10008.1.2.4.90", &body);
+    let (ir, facts, _) = vzip_ir::run::run_bytes(vzip_ir::run::Format::Dicom, &data).unwrap();
+    check::check(&ir).unwrap();
+    assert!(rebuilt(&ir, &data) == data);
+    assert!(facts["rounds"].as_u64().unwrap() > n as u64);
+}
+
+#[test]
+fn rejects_a_dicom_range_asked_for_and_not_fed() {
+    use vzip_ir::nd2::Step;
+    let err = |r: Result<Step, String>| match r {
+        Err(m) => m,
+        Ok(_) => panic!("stepped on"),
+    };
+    let data = std::fs::read(fixtures().join("dicom/dicom_implicit_mono16.dcm")).unwrap();
+    // fed short: one byte less than asked
+    let mut p = Dicom::new(data.len() as u64);
+    let Step::Read(r) = p.step().unwrap() else { panic!("no batch") };
+    let (o, n) = r[0];
+    p.feed(o, data[o as usize..(o + n - 1) as usize].to_vec());
+    assert_eq!(err(p.step()), format!("internal: the range ({o}, {n}) was asked for and not fed"));
+    // not fed at all
+    let mut p = Dicom::new(data.len() as u64);
+    assert!(p.step().is_ok());
+    assert!(err(p.step()).ends_with("was asked for and not fed"));
 }

@@ -1148,6 +1148,8 @@ still records 20.
 
 ## Revision 26: every format on the IR
 
+Each format's subsection below says what changed for it.
+
 ### The IR mirror of stores: many sources
 
 **What prompted it.** The store profiles (N5, Zarr v2, OME-Zarr, SAFE
@@ -1172,7 +1174,7 @@ the rebuild gave back that one file. A store is many objects and a listing.
   canonical order puts each directory's children in the order of their names.
 - **Conventions §8, [§8.1](../../conventions.md#81-elements) and
   [§8.4](../../conventions.md#84-reading-the-source-back)** point to §8.9; for
-  a file's IR (TIFF, ND2, CZI) nothing changes.
+  a file's IR (TIFF, ND2, CZI, DICOM, IMS) nothing changes.
 
 **Output.** None yet: no store profile writes the store IR's mirror until its
 own change of this revision moves it. TIFF, ND2 and CZI outputs are byte for
@@ -1189,6 +1191,227 @@ document and the listing rebuild from the archive alone, the mirrors are
 canonical and their views the rebuilt ones, and the native and wasm outputs are
 identical; 10^5 chunk objects fold into one column run (nested keys) or one per
 grid row (flat keys).
+
+### DICOM: the IR mirror is the source metadata
+
+**What prompted it.** The user's decision to put every format vzip virtualizes on
+the Rust IR core, as TIFF, ND2 and CZI already are (revisions 21 to 24).
+
+**The changes.**
+- **DICOM [§5](../../virtualize/dicom.md#5-source-metadata):** `vzip_source` is the file's IR mirror
+  ([conventions §8](../../conventions.md#8-the-ir-mirror)). Its elements
+  ([DICOM §5.4](../../virtualize/dicom.md#54-elements)) are the file's data
+  elements: an element of defined length that is not a sequence is one value, a
+  record of its header and `v`, its value typed by its VR (the data dictionary's
+  when the file states none); a sequence, its items and Pixel Data are structs
+  with their headers and delimiters; the frames (native) and fragments
+  (encapsulated) of the top-level Pixel Data are data elements. Elements are
+  named by their tags, a later element of a tag under `duplicates/<k>`, so that
+  an element's IR path is its revision 25 path. Nothing is left out: layout,
+  padding, Data Set Trailing Padding and the bytes between the frames are
+  elements too.
+- **The root's source metadata is unchanged** ([DICOM §5.1](../../virtualize/dicom.md#51-the-root)):
+  its paths `vzip_source/<p>` (BulkDataURIs, `pixel_extra`,
+  `pixel_unreferenced`, `trailing`) now name the IR's element at `<p>`; the
+  members the root leaves out (large ones, the Per-frame Functional Groups) are
+  in the mirror only; `Gathered` values are the IR's elements `s/<i>/<p>`.
+  Revision 25's arrays (BulkDataURI arrays, gathered columns, item structures,
+  `pixel_fragments`) and `vzip_source`'s `meta` and `dataset` are gone.
+- **The profile** (DICOM Part 2) is unchanged: the same inputs are rejected,
+  with the same messages; its checks are the schema
+  `rust/vzip-ir/schema/dicom.json`, its data dictionary
+  `rust/vzip-ir/schema/dicom_dictionary.json` (unchanged).
+- **Conventions:** §8 names DICOM among the IR's formats; DICOM has no named
+  array rule. The root property records `"revision": 26`; the schemas were
+  regenerated.
+
+**Output.** Outside `vzip_source`, every DICOM output and rejection is
+revision 25's (the 68 fixtures and the corpus, compared with the frozen
+reference); `vzip_source` is the mirror.
+
+**Implementations.** Python (`vzip.virtualize`) and the browser
+(`js/src/virtualize`) virtualize DICOM through the Rust core (`rust/vzip-ir/src/dicom`,
+`project/dicom.rs`; wasm32 in the browser). The Python and TypeScript DICOM
+profiles moved, unchanged but for their imports, to the frozen reference
+(`conformance/virtualize/reference`), which records revision 25.
+
+### NDPI
+
+**What prompted it.** NDPI was the last TIFF variant with a translator of
+its own: its `vzip_source` was the TIFF convention's IFD groups read in
+NDPI's layout, with each McuStarts level's SOF0 segment as `sof0`, and it
+left out what it could not place (the high words of in-line values other
+than LONGs of count 1, and the strips' restart markers and EOI, taken to be
+the standard ones). The Rust core's TIFF parser already read everything
+else NDPI needs.
+
+**The changes.**
+- **NDPI §5** ([spec/virtualize/ndpi.md](../../virtualize/ndpi.md#5-source-metadata)):
+  `vzip_source` is the IR mirror; [§5.1](../../virtualize/ndpi.md#51-elements) lists the elements: a 12-byte
+  `header` with a `<u8` `first_ifd`, each IFD with its `<u8` `next_ifd` and
+  each entry's high word as `tags/<tag>/high`, and each strip as a `data`
+  element, a level's strip being one JPEG stream (its SOF0, restart markers
+  and EOI included, so the mirror rebuilds it byte for byte). The `sof0`
+  member and the source metadata of `vzip_source` (`ifd_count`) and of the
+  IFD groups are gone; the root still has no source metadata member.
+- **NDPI [§1](../../virtualize/ndpi.md#1-declaration), [§4](../../virtualize/ndpi.md#4-the-image):** the declaration names the mirror; the chunks' restart
+  markers and EOI are the standard ones, as before, and the strip's own are
+  kept by the mirror rather than assumed.
+- **Conventions:** the root property records `"revision": 26`; the NDPI
+  schema's source metadata is the mirror's, and the schemas were
+  regenerated.
+
+**Output.** Everything outside `vzip_source` is unchanged on every NDPI
+fixture and corpus slide; `vzip_source` is the mirror. Every rejection is
+unchanged.
+
+**Implementations.** Python and the browser run NDPI through the Rust core:
+the TIFF parser tests each little-endian TIFF for NDPI after its header
+(`rust/vzip-ir/src/tiff.rs`, its NDPI variant, against
+`rust/vzip-ir/schema/ndpi.json`), `ndpi.rs` reads the strips' headers and
+intervals, and `project/ndpi.rs` writes the hierarchy; a TIFF run becomes
+an NDPI run. The NDPI profiles of revision 25 are frozen under
+`conformance/virtualize/reference/` (Python and TypeScript), recording 25.
+
+### NIfTI on the IR
+
+**What prompted it.** The user moved every format vzip virtualizes onto the
+Rust IR core, as TIFF, ND2 and CZI are. NIfTI's source metadata was its own
+translation of the bytes between the header and the voxels (the extender,
+the extension chain with its JSON budget and arrays, the unparsed and
+trailing bytes), which the IR mirror replaces.
+
+**The changes.**
+- **[NIfTI §5](../../virtualize/nifti.md#5-source-metadata):** the root's source metadata keeps `nifti_version`,
+  `byte_order`, `header` (translated as before), `scaling` and `affine`,
+  unchanged. `header_rest`, `extender`, `extensions`, `extensions_truncated`,
+  `unparsed` and `trailing` are gone, with the arrays of `vzip_source` they
+  named: `vzip_source` is the file's IR mirror
+  ([conventions §8](../../conventions.md#8-the-ir-mirror)), and [NIfTI §5.3](../../virtualize/nifti.md#53-elements) lists the
+  elements (the header as one record, the extender, each extension as one
+  record value, the voxel data, gaps). Its view shows the header, the
+  extender and each extension of at most 1024 bytes.
+- **Conventions:** the root property records `"revision": 26`; the schemas
+  were regenerated (NIfTI's describes the mirror).
+
+**Output.** Everything outside `vzip_source` is unchanged on every NIfTI
+fixture, but the root's source metadata, which loses the six members above;
+every rejection is unchanged.
+
+**Implementations.** `python -m vzip.virtualize` and the browser code
+virtualize NIfTI through the Rust core (`rust/vzip-ir/src/nifti.rs`,
+`schema/nifti.json`, `src/project/nifti.rs`). The Python and TypeScript NIfTI
+profiles are frozen in `conformance/virtualize/reference` at revision 25;
+`compare.py` compares them with the IR path outside `vzip_source`, without
+those six members.
+
+### SAFE on the IR
+
+**What prompted it.** The user's decision to put every format on the IR. SAFE
+is both a store (a `.SAFE` directory) and a file (a `.SAFE.zip`), and its
+band files are read in ranges, so its `vzip_source` (XML documents as text
+or arrays chosen by a JSON budget, the JP2 headers as arrays, the other
+objects whole) described neither form fully: a zip file's own structures
+were not kept, and a band file's structure was in no element.
+
+**The changes.**
+- **SAFE [§6.3](../../virtualize/safe.md#63-the-source-metadata-node)
+  and [§6.4](../../virtualize/safe.md#64-reconstruction):** `vzip_source` is
+  the product's IR mirror. The directory form is a store IR: every listed
+  object is an object of it; the XML documents read whole (the product and
+  tile metadata, and every other XML document of at most 65536 bytes) are
+  held, each one value `xml`; the band files are described in place, with
+  their boxes, SIZ, main header marker segments, tile-parts (SOT and body)
+  and EOC as elements; every other object is referenced whole at
+  `vzip_source/objects/<k>`. The zip form is a file IR of the zip file: its
+  end records, central directory, local headers and entries, a band file's
+  elements in its entry's data, a deflated XML document a derived element of
+  the new transform `deflate`. `vzip_source`'s source metadata is
+  `{"ir": I, "empty_dirs", "ignored"}`; `xml`, `xml_arrays`, `empty`, the
+  arrays `vzip_source/xml/<i>` and `vzip_source/jp2/<group>/<band>`, and the
+  JSON budget are gone.
+- **SAFE [§12.2](../../virtualize/safe.md#122-objects-and-reading),
+  [§12.4](../../virtualize/safe.md#124-the-zip-form),
+  [§12.7](../../virtualize/safe.md#127-other-objects)–[§12.9](../../virtualize/safe.md#129-summary):**
+  the reads are those of the IR's held objects (no budget), every deflated
+  XML document is inflated once and checked and no longer copied, and the
+  directory form's url sources are numbered by first use.
+- **Conventions [§8.9](../../conventions.md#89-stores):** an object with
+  children whose form is `{"bytes":"source"}` is **described in place**: its
+  leaves partition it, the table does not hold its bytes, and the view's
+  values in it are read from its source. **[§8.5](../../conventions.md#85-forms-and-recipes)
+  and [§8.8](../../conventions.md#88-canonical-form):** the form of such an
+  object, and the transform `deflate`, whose space holds nothing.
+- **Conventions:** the root property records `"revision": 26`; the schemas
+  were regenerated.
+
+**Output.** Outside `vzip_source`, every SAFE output is that of revision 25
+on every fixture (14 accepted, 59 rejected by both), but for the revision and
+the order of a directory's url sources (now by first use). Under
+`vzip_source`, everything changed.
+
+**Implementations.** The Rust core parses both forms (`src/safe/`, checked by
+`schema/safe.json`) and projects them (`project/safe.rs`): the directory form
+as the store format `safe` (`vzip_ir.StoreRun`, `vz_store_*`), the zip form as
+the file format `safe` (`vzip_ir.Run`, `vz_run_new` code 6). Python's
+`vzip.ir.store` and the browser's new `ir/store.ts` write store outputs with
+ranges of objects and data sources; the store runs are told the listing's
+ignored keys and its empty `d/` keys (`ignore`, `vz_store_ignore`). The Python and TypeScript
+SAFE profiles are frozen under `conformance/virtualize/reference/`, recording
+25.
+
+### IMS
+
+**What prompted it.** IMS kept its own source metadata: a translation of the
+HDF5 file into a Zarr hierarchy under `vzip_source/hdf5` (groups, datasets,
+attributes as JSON, budgets, spilled documents, an object table), stated in
+nine subsections of IMS §5 and implemented twice (Python and TypeScript,
+about 2,700 lines each with the HDF5 reader). It was lossless only for the
+objects it could map: an unsupported object kept its record, not its bytes.
+
+**The changes.**
+- **IMS §5:** `vzip_source` is the file's IR mirror
+  ([conventions §8](../../conventions.md#8-the-ir-mirror)), as for TIFF, ND2 and
+  CZI. Its elements are the HDF5 structures the **walk** reads: the
+  superblock (and its extension's object header), each object's header
+  (prefix, messages, continuation blocks and checksums; attribute and link
+  messages split into their parts), the structures that hold a group's links
+  (local heap, version 1 B-tree nodes and symbol table nodes; or fractal heap
+  and version 2 B-tree), dense attributes (fractal heap, its huge objects'
+  B-tree, the name index), a dataset's chunk index (version 1 or 2 B-tree
+  nodes, fixed and extensible array blocks and pages) and its allocated
+  chunks and contiguous data as data elements, and the global heap
+  collections attributes name. Every other byte is a gap, so the mirror
+  rebuilds the whole file, objects the profile cannot read included.
+- **The walk** (IMS §5.3): the root group and the objects the layout opens,
+  then the objects their hard links reach, level by level, at most
+  `100,000 + 5 × N` objects to level 64; objects are numbered depth first
+  by link name. It never rejects.
+- **IMS §8.7, §8.9:** the source metadata no longer reads external data
+  files, object and region references' targets, selections or virtual
+  dataset mappings (their bytes are kept, as gaps or values).
+- **Unchanged:** IMS §1–§4 and §8.1–§8.8 outside the source metadata: the
+  layout, every rejection, the chunk references. The root has no source
+  metadata, as before.
+- **Conventions:** the root property records `"revision": 26`; the IMS
+  schema's source metadata is the mirror's (`{"ir": ...}`) and its view
+  documents.
+
+**Output.** Outside `vzip_source`, every IMS output is the revision-25 one
+(the revision number aside), and every rejection is the same: on the 45 IMS
+fixtures (the new `ims_latest_global_heaps.ims` has variable-length
+attributes in three global heap collections), 27 accepted and 18 rejected by
+both the frozen reference and the IR. `vzip_source` is the IR mirror in place of `vzip_source/hdf5`,
+`vzip_source/objects`, `attributes/<i>`, `json/<i>` and `spilled/<j>`.
+
+**Implementations.** The Rust core parses IMS (`rust/vzip-ir/src/hdf5.rs`,
+a format-free sans-IO HDF5 reader; `ims.rs`, the layout against
+`schema/ims.json` and the walk) and projects it (`project/ims.rs`), natively
+for Python and as wasm32 in the browser. The Python and TypeScript IMS
+profiles are frozen in `conformance/virtualize/reference/` and record 25
+(`IMS_REVISION`); `compare.py` reads their roots at the current revision. IMS
+§5 of revision 25 is kept as `spec/history/virtualize/ims.r25.md`, which
+the frozen code cites.
 
 ### Zarr v2 on the IR
 
@@ -1240,7 +1463,15 @@ above; under `vzip_source`, the mirror replaces the empty objects' keys.
 (`rust/vzip-ir/src/zarr2.rs`, its schema `schema/zarr2.json`, its
 projection `src/project/zarr2.rs`, JSON documents read by `src/json.rs`) is
 the only implementation; Python (`vzip.ir.store.run_store`) and the browser
-(`js/src/virtualize/ir/store.ts`) list the store and perform the reads. The
+(`js/src/virtualize/ir/store.ts`) list the store and perform the reads, with
+the one store host SAFE's directory form uses. The store core has one
+mechanism for the keys a listing ignores, for both formats: the host gives the
+run the recorded ignored keys and the empty `d/` keys (`StoreRun.ignore`,
+`vz_store_ignore`; the parser is told the latter, SAFE's directories), the
+facts carry the former to the projection, and `src/project/store.rs`
+(`record_ignored`) writes the members a store convention keeps beside the
+mirror's `ir` (Zarr v2's `ignored`; SAFE's `empty_dirs` and `ignored`, in both
+its forms), which the mirror's canonical check sets aside, and only those. The
 test-only prototype `proto_zarr2.rs` is removed. Today's Python and
 TypeScript profiles are frozen in `conformance/virtualize/reference`
 (recording revision 25), and `compare.py` compares them with the core

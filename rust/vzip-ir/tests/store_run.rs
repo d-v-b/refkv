@@ -13,6 +13,7 @@ struct Asks {
     batches: Vec<Vec<(usize, u64, u64)>>,
     hold: Vec<usize>,
     fed: Vec<(usize, u64, Vec<u8>)>,
+    folders: Vec<String>,
 }
 
 impl StoreParser for Asks {
@@ -22,6 +23,9 @@ impl StoreParser for Asks {
     fn feed(&mut self, object: usize, offset: u64, data: &[u8]) {
         self.fed.push((object, offset, data.to_vec()));
     }
+    fn folders(&mut self, folders: &[String]) {
+        self.folders = folders.to_vec();
+    }
     fn finish(self: Box<Self>) -> Res<(Ir, J)> {
         let mut ir = self.ir.unwrap();
         for &k in &self.hold {
@@ -30,7 +34,7 @@ impl StoreParser for Asks {
             ir.value(o, "v", NO_INDEX, &format!("bytes[{n}]"), 0, (0, n), None)?;
         }
         vzip_ir::check::finish(&mut ir)?;
-        Ok((ir, json!({"fed": self.fed.iter().map(|f| json!([f.0, f.1, f.2])).collect::<Vec<_>>()})))
+        Ok((ir, json!({"fed": self.fed.iter().map(|f| json!([f.0, f.1, f.2])).collect::<Vec<_>>(), "folders": self.folders})))
     }
 }
 
@@ -44,7 +48,7 @@ fn bytes(k: usize) -> Vec<u8> {
 
 fn run(batches: Vec<Vec<(usize, u64, u64)>>, hold: Vec<usize>) -> Res<StoreRun> {
     StoreRun::with(StoreFormat::Zarr2, keys(), 4, &|ir, objects, _| {
-        Ok(Box::new(Asks { ir: Some(ir), objects, batches: batches.clone(), hold: hold.clone(), fed: Vec::new() }))
+        Ok(Box::new(Asks { ir: Some(ir), objects, batches: batches.clone(), hold: hold.clone(), fed: Vec::new(), folders: Vec::new() }))
     })
 }
 
@@ -114,6 +118,25 @@ fn bytes_other_than_the_spans_asked_are_refused() {
     let mut r = run(vec![vec![(0, 0, 10)]], vec![]).unwrap();
     r.poll().unwrap();
     assert_eq!(r.complete(0, vec![vec![0; 9]]).unwrap_err(), "a/.zarray: the bytes given are not those of the spans asked");
+}
+
+#[test]
+fn the_ignored_keys_reach_the_parser_and_the_facts() {
+    // the folders, before the parser's first step; the recorded keys, in the order of their
+    // UTF-8 bytes, in the facts the projection records them from
+    let mut r = run(vec![vec![(2, 0, 3)]], vec![]).unwrap();
+    r.ignore(vec!["z//".into(), "\u{e9}/.".into(), "a/../b".into()], vec!["d/".into()]).unwrap();
+    drive(&mut r).unwrap();
+    let (_, facts, _) = r.finish().unwrap();
+    assert_eq!(facts["folders"], json!(["d/"]));
+    assert_eq!(facts["ignored"], json!(["a/../b", "z//", "\u{e9}/."]));
+}
+
+#[test]
+fn ignored_keys_after_the_first_poll_are_refused() {
+    let mut r = run(vec![vec![(2, 0, 3)]], vec![]).unwrap();
+    r.poll().unwrap();
+    assert!(r.ignore(vec!["a//b".into()], vec![]).unwrap_err().contains("after the first poll"));
 }
 
 #[test]

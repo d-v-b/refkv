@@ -19,7 +19,7 @@ import pytest
 from vzip.virtualize import Rejected
 from vzip.virtualize.common import declare
 from vzip_reference import virtualize
-from vzip_reference.zarr2.output import REVISION as STORE_REVISION
+from vzip_reference.revision import STORES_REVISION as STORE_REVISION
 from vzip.virtualize.store import DirStore
 from vzip_reference.zarr2 import virtualize_zarr2
 

@@ -10,13 +10,18 @@ pub mod check;
 pub mod coding;
 pub mod cxml;
 pub mod czi;
+pub mod dicom;
 pub mod expr;
 pub mod fed;
+pub mod hdf5;
+pub mod ims;
 pub mod ir;
 pub mod json;
 pub mod lv;
 pub mod mirror;
 pub mod nd2;
+pub mod nifti;
+pub mod ndpi;
 pub mod ome_zarr;
 pub mod out;
 pub mod plan;
@@ -24,6 +29,7 @@ pub mod project;
 pub mod refs;
 pub mod rules;
 pub mod run;
+pub mod safe;
 pub mod schema;
 pub mod store;
 pub mod tiff;
@@ -68,6 +74,10 @@ macro_rules! parser {
 parser!(nd2::Nd2);
 parser!(tiff::Tiff);
 parser!(czi::Czi);
+parser!(dicom::Dicom);
+parser!(nifti::Nifti);
+parser!(ims::Ims);
+parser!(safe::Safe);
 
 /// Runs a parser over bytes in memory (tests, tools).
 pub fn parse_bytes<P: Parser>(data: &[u8]) -> Result<(ir::Ir, serde_json::Value), String> {

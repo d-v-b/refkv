@@ -7,8 +7,8 @@ Node, through js/conformance/documents.ts). In each accepted output, every
 node that declares the profile's convention validates against its JSON Schema
 (spec/virtualize/<profile>/schema.json): the root always declares it, with the
 provenance members, and another node only when it has source metadata, with
-only that member. No node has any other attribute besides `ome`. (For TIFF, ND2
-and CZI, `vzip_source` and the groups of its view are the IR mirror of
+only that member. No node has any other attribute besides `ome`. (For TIFF (NDPI included), ND2,
+CZI, DICOM, NIfTI, IMS and SAFE, `vzip_source` and the groups of its view are the IR mirror of
 conventions §8 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>,
 validated by the same schemas.) """
 
@@ -61,7 +61,8 @@ def python_docs(path: Path, url: str):
         return None
     if hasattr(out, "docs"):  # the zarr.json documents (not vzip_source/empty.json, which is not a node's)
         return fmt, {k: v for k, v in out.docs.items() if k.endswith("zarr.json")}
-    return fmt, {k: json.loads(v) for k, v in out.bytes_entries.items() if k.endswith("zarr.json")}
+    entries = out.bytes_entries if hasattr(out, "bytes_entries") else out.entries  # a file's, or a store IR's
+    return fmt, {k: json.loads(v) for k, v in entries.items() if k.endswith("zarr.json")}
 
 
 def declares(doc: dict) -> bool:
@@ -163,3 +164,20 @@ def test_schemas_reject_an_unknown_version():
         for bad in ({**root, "version": 1}, {k: v for k, v in root.items() if k != "revision"}):
             doc["attributes"][CONVENTION_KEY] = bad
             assert list(validator.iter_errors(doc)), (profile, bad)
+
+
+def test_the_safe_schema_tells_view_documents_from_source_metadata():
+    """A view document whose members name IR elements (a codestream's `siz`, an XML document's
+    `xml`) is valid; a band array's or vzip_source's source metadata with a wrong member is not."""
+    validator = schema("safe")
+
+    def node(s):
+        return {"zarr_format": 3, "node_type": "group",
+                "attributes": {"zarr_conventions": [convention("safe")], CONVENTION_KEY: {"safe": s}}}
+
+    view = {"soc": 65359, "siz": {"marker": 65361, "lsiz": 41}, "tiles/0": {"sot": {"psot": 14}}, "xml": "<a/>"}
+    assert not list(validator.iter_errors(node(view)))
+    for bad in ({"IMAGE_FILE": "f", "siz": "AA==", "nope": 1},
+                {"ir": {"version": 2}, "xml": {}},
+                {"empty_dirs": ["a"]}):
+        assert list(validator.iter_errors(node(bad))), bad
