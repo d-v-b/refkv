@@ -29,6 +29,9 @@ def main(argv: list[str]) -> int:
     except Rejected as e:
         print(f"rejected: {e}", file=sys.stderr)
         return 3
+    except ResolutionError as e:  # the reader policy refused the source
+        print(f"error: {e}", file=sys.stderr)
+        return 1
     try:  # the archive's sources are checked against the policy the input was read under
         out.to_store(policy=policy).save(args[1], policy=policy)
     except ResolutionError as e:  # a source a reader under that policy could not read

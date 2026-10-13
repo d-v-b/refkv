@@ -83,3 +83,11 @@ def test_cli_refuses_to_save_sources_its_policy_refuses(tmp_path, module):
     p = subprocess.run([sys.executable, "-m", module, str(FIXTURES / "nifti/nifti_block_x_split.nii"),
                         str(out), "--url", "http://127.0.0.1/x.nii"], capture_output=True, text=True)
     assert p.returncode == 1 and "error: not saving" in p.stderr and not out.exists(), p.stderr
+
+
+@pytest.mark.parametrize("module", ["vzip.virtualize", "vzip.ir"])
+def test_cli_refuses_to_read_an_input_its_policy_refuses(tmp_path, module):
+    out = tmp_path / "out.vzip"
+    p = subprocess.run([sys.executable, "-m", module, "http://127.0.0.1:9/x.nii", str(out)],
+                       capture_output=True, text=True)
+    assert p.returncode == 1 and p.stderr.startswith("error: ") and not out.exists(), p.stderr
