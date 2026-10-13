@@ -123,6 +123,31 @@ import vzip.zarr
 g = zarr.open_group(vzip.zarr.open("out.vzip"), mode="r")
 ```
 
+**From Python.** The command is a thin wrapper over
+`vzip.virtualize.virtualize`, which returns the result as a
+`vzip.ReferenceStore` instead of writing a file. The store reads right away,
+in memory; `store.save(path)` writes the archive, the same bytes the command
+writes; and `store.info` holds the format and the summary the command prints:
+
+```python
+import zarr
+import vzip.zarr
+from vzip.virtualize import virtualize
+
+store = virtualize("https://openslide.cs.cmu.edu/download/openslide-testdata/Aperio/CMU-1-Small-Region.svs")
+store.info["format"]                                   # "tiff"
+g = zarr.open_group(vzip.zarr.store(store), mode="r")  # no archive yet
+store.save("CMU-1-Small-Region.vzip")
+```
+
+`virtualize` takes the command's options as keyword arguments (`url`,
+`checksums`, `policy`, `connections`, `byte_cost` in seconds per byte, and
+`workers`), and raises `vzip.virtualize.Rejected` when no profile accepts the
+input. The store reads its sources under the `policy` it was given. `save`
+checks the sources against the policy the archive's readers will use,
+`Policy()` unless it is given one, so for sources on a private host pass that
+one too: `store.save(path, policy=policy)`.
+
 **The browser.** The same virtualizers run in a service worker
 ([js/](../../js/README.md)): the Rust core, built for WebAssembly, for
 TIFF, ND2, CZI, DICOM and NIfTI, and TypeScript implementations of the other formats. The
