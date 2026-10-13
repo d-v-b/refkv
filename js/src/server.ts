@@ -22,16 +22,12 @@ import { openHttpSource, type RangeSource, readerSource } from "./virtualize/ir/
 import { openHttpStore, StoreError, StoreLimitError, StoreReadError } from "./virtualize/store.ts";
 import { Zarr2Error } from "./virtualize/zarr2/virtualize.ts";
 import { OmeZarrError } from "./virtualize/ome-zarr/virtualize.ts";
-import { SafeError } from "./virtualize/safe/virtualize.ts";
-import { DicomError } from "./virtualize/dicom/virtualize.ts";
-import { ImsError } from "./virtualize/ims/virtualize.ts";
-import { NiftiError } from "./virtualize/nifti/virtualize.ts";
-import { TiffError } from "./virtualize/tiff/ifd.ts";
 import type { StoreFormat } from "./virtualize/ir/store.ts";
 import { writeVzip } from "./writer.ts";
 
-/** The titles rejections of the Rust core's store formats carry, as the profiles' own errors did. */
-const STORE_FORMATS: Record<StoreFormat, string> = { zarr2: "Zarr v2", n5: "N5" };
+/** The titles rejections of the Rust core's store formats carry, as the profiles' own errors did;
+ * none for a SAFE directory, whose rejections read as a SAFE zip file's (an ImageError's, bare). */
+const STORE_FORMATS: Record<StoreFormat, string | undefined> = { zarr2: "Zarr v2", n5: "N5", safe: undefined };
 
 export const ARCHIVE_KEY = "__vz__/archive.vzip";
 
@@ -225,15 +221,15 @@ export function makeHandler(options: HandlerOptions) {
         const status = e.errorClass === "request" ? 416 : e.errorClass === "resolution" ? 502 : 500;
         return response(status, message);
       }
-      if (e instanceof TiffError) return response(422, `TIFF: ${message}`);
-      if (e instanceof DicomError) return response(422, `DICOM: ${message}`);
-      if (e instanceof NiftiError) return response(422, `NIfTI: ${message}`);
-      if (e instanceof ImsError) return response(422, `IMS: ${message}`);
       if (e instanceof Zarr2Error) return response(422, `Zarr v2: ${message}`);
       if (e instanceof OmeZarrError) return response(422, `OME-Zarr: ${message}`);
-      if (e instanceof SafeError) return response(422, `SAFE: ${message}`);
-      // a store format the core refused names itself; a rejection before one was chosen is the store's
-      if (e instanceof StoreError) return response(422, `${e.format !== undefined ? STORE_FORMATS[e.format] : "store"}: ${message}`);
+      // a store format the core refused names itself (SAFE's does not, as its zip form does not);
+      // a rejection before one was chosen is the store's
+      if (e instanceof StoreError && e.format !== undefined) {
+        const title = STORE_FORMATS[e.format];
+        return response(422, title === undefined ? message : `${title}: ${message}`);
+      }
+      if (e instanceof StoreError) return response(422, `store: ${message}`);
       if (e instanceof ImageError) return response(422, message);
       if (e instanceof StoreLimitError) return response(507, message);
       if (e instanceof StoreReadError) return response(502, message);

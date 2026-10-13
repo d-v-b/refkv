@@ -37,6 +37,10 @@ pub type Res<T> = Result<T, String>;
 
 pub static TIFF_SCHEMA: &str = include_str!("../schema/tiff.json");
 pub static CZI_SCHEMA: &str = include_str!("../schema/czi.json");
+pub static NIFTI_SCHEMA: &str = include_str!("../schema/nifti.json");
+pub static IMS_SCHEMA: &str = include_str!("../schema/ims.json");
+pub static SAFE_SCHEMA: &str = include_str!("../schema/safe.json");
+pub static NDPI_SCHEMA: &str = include_str!("../schema/ndpi.json");
 
 struct Role {
     derive: Vec<(String, E)>,
@@ -54,9 +58,29 @@ pub fn tiff() -> &'static Rules {
     S.get_or_init(|| Rules::new(TIFF_SCHEMA).expect("the TIFF schema is valid"))
 }
 
+pub fn ims() -> &'static Rules {
+    static S: OnceLock<Rules> = OnceLock::new();
+    S.get_or_init(|| Rules::new(IMS_SCHEMA).expect("the IMS schema is valid"))
+}
+
+pub fn ndpi() -> &'static Rules {
+    static S: OnceLock<Rules> = OnceLock::new();
+    S.get_or_init(|| Rules::new(NDPI_SCHEMA).expect("the NDPI schema is valid"))
+}
+
 pub fn czi() -> &'static Rules {
     static S: OnceLock<Rules> = OnceLock::new();
     S.get_or_init(|| Rules::new(CZI_SCHEMA).expect("the CZI schema is valid"))
+}
+
+pub fn nifti() -> &'static Rules {
+    static S: OnceLock<Rules> = OnceLock::new();
+    S.get_or_init(|| Rules::new(NIFTI_SCHEMA).expect("the NIfTI schema is valid"))
+}
+
+pub fn safe() -> &'static Rules {
+    static S: OnceLock<Rules> = OnceLock::new();
+    S.get_or_init(|| Rules::new(SAFE_SCHEMA).expect("the SAFE schema is valid"))
 }
 
 /// A value as a message shows it: integers without a fraction, text as is.

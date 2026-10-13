@@ -1,11 +1,11 @@
 """The frozen Zarr v2 profile's output: `vzip.virtualize.store.StoreOutput`, its root declaring
-the revision the profile is frozen at (25, the last before Zarr v2 stores moved onto the Rust
-IR in revision 26), as `vzip_reference.revision` pins the TIFF, ND2 and CZI twins."""
+the revision the profile is frozen at (`vzip_reference.revision.STORES_REVISION`, 25, the last
+before Zarr v2 stores moved onto the Rust IR in revision 26), as that module pins the other
+twins."""
 
 from vzip.virtualize.common import declare
 from vzip.virtualize.store import StoreOutput as _StoreOutput
-
-REVISION = 25
+from vzip_reference.revision import STORES_REVISION
 
 
 class StoreOutput(_StoreOutput):
@@ -15,4 +15,4 @@ class StoreOutput(_StoreOutput):
             path = key[: -len("zarr.json")].rstrip("/")
             target = {"ome": omes[path]} if path in omes else {}
             url = self.url if path == "" else None
-            self.docs[key] = {**doc, "attributes": declare(target, profile, url, doc["attributes"], REVISION)}
+            self.docs[key] = {**doc, "attributes": declare(target, profile, url, doc["attributes"], STORES_REVISION)}

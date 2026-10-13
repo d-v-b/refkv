@@ -3,21 +3,16 @@
 // TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or a SAFE zip, or a
 // store by the profile its root keys select (§1.4
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): N5, Zarr v2,
-// OME-Zarr 0.4 or a
-// SAFE directory. TIFF (but not NDPI), ND2 and CZI files, and Zarr v2 and N5 stores, are
-// virtualized by the Rust core (ir/, rust/vzip-ir); each other profile is in its own
-// directory; store.ts holds the store machinery.
+// OME-Zarr 0.4 or a SAFE directory. TIFF (NDPI included: the core's TIFF parser finds it), ND2,
+// CZI, DICOM, NIfTI, IMS and SAFE files, and SAFE directories and Zarr v2 and N5 stores, are
+// virtualized by the Rust core (ir/, rust/vzip-ir); each other profile is in its own directory;
+// store.ts holds the store machinery.
 
 import { blockReader, type ByteReader, ImageError } from "./common.ts";
-import { isDicom, virtualizeDicom } from "./dicom/virtualize.ts";
-import { virtualizeIms } from "./ims/virtualize.ts";
 import { type IrFormat, virtualizeIr } from "./ir/run.ts";
 import { type RangeSource, readerSource } from "./ir/source.ts";
 import { virtualizeStoreIr } from "./ir/store.ts";
-import { detectNdpi, virtualizeNdpi } from "./ndpi/virtualize.ts";
-import { detectNifti, virtualizeNifti } from "./nifti/virtualize.ts";
 import { declares04, virtualizeOmeZarr } from "./ome-zarr/virtualize.ts";
-import { isZip, virtualizeSafeStore, virtualizeSafeZip } from "./safe/virtualize.ts";
 import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store, storeArchive } from "./store.ts";
 import type { Policy } from "../archive.ts";
 import { crc32c } from "../deflate.ts";
@@ -70,13 +65,19 @@ function isTiffMagic(head: Uint8Array): boolean {
 
 // The HDF5 signature, which starts Imaris IMS files (§1.2
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>).
+/** The DICOM row of §1.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>:
+ * `DICM` after the 128-byte preamble. */
+export function isDicom(head: Uint8Array): boolean {
+  return head.length >= 132 && String.fromCharCode(...head.subarray(128, 132)) === "DICM";
+}
+
 const HDF5 = [0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a];
 
 type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe"; summary: object };
 
 /** `exact`, when given, reads exactly the ranges asked for, past `read`'s block cache: the
  * SAFE profile's tile-part headers, scattered through a zip file, are read with it, and the
- * Rust core's requests (TIFF, ND2, CZI), which it plans itself.
+ * Rust core's requests (TIFF and NDPI, ND2, CZI, DICOM, NIfTI, IMS), which it plans itself.
  * Source 0 pins the file's size, and its ETag when `pins.etag` gives one (§1.2
  * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>); with
  * `pins.checksums`, the ranges of source 0 carry the CRC-32C of their bytes. */
@@ -118,29 +119,44 @@ async function virtualizeWith(url: string, input: Input, pins: PinOptions): Prom
 }
 
 /**
+ * The NIfTI version a file's first bytes (at least 348 of them, when the file has them)
+ * select (§1.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>), if one.
+ */
+export function niftiVersion(head: Uint8Array): 1 | 2 | undefined {
+  if (head.length < 12) return undefined;
+  const v = new DataView(head.buffer, head.byteOffset, head.byteLength);
+  const sizes = [v.getInt32(0, true), v.getInt32(0, false)];
+  const ascii = (a: number, b: number) => String.fromCharCode(...head.subarray(a, b));
+  if (sizes.includes(348) && head.length >= 348 && ascii(344, 348) === "n+1\0") return 1;
+  if (sizes.includes(540) && ascii(4, 12) === "n+2\0\r\n\x1a\n") return 2;
+  return undefined;
+}
+
+/**
  * The profile of the Rust core a file's first bytes select, if one (§1.2
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>; NDPI, a TIFF, is not).
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>; an NDPI is a TIFF
+ * here, and the core's run reports it as NDPI).
  */
 export function irFormat(head: Uint8Array): IrFormat | undefined {
+  // DICOM first: a dual-personality file's preamble may hold a TIFF header
+  if (isDicom(head)) return "dicom";
   if (isTiffMagic(head)) return "tiff";
   if (head.length >= 4 && head[0] === 0xda && head[1] === 0xce && head[2] === 0xbe && head[3] === 0x0a) return "nd2";
   if (head.length >= 16 && String.fromCharCode(...head.subarray(0, 16)) === "ZISRAWFILE\0\0\0\0\0\0") return "czi";
+  // a ZIP local file header: a SAFE product's zip form (spec/virtualize/safe.md §12.1
+  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#121-choosing-the-profile>)
+  if (head.length >= 4 && head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04) return "safe";
+  if (niftiVersion(head) !== undefined) return "nifti";
+  if (HDF5.every((b, i) => head[i] === b)) return "ims";
   return undefined;
 }
 
 async function virtualizeFile(url: string, { read, size: fileSize, exact, source }: Input): Promise<ImageDesc> {
   const head = await read(0, Math.min(552, fileSize));
-  if (isDicom(head)) return { format: "dicom", ...(await virtualizeDicom(url, read, fileSize)) };
-  if (isTiffMagic(head)) {
-    const first = await detectNdpi(read, fileSize);
-    if (first !== undefined) return { format: "ndpi", ...(await virtualizeNdpi(url, read, fileSize, first)) };
-  }
+  if (isDicom(head)) return virtualizeIr("dicom", url, source);
   const ir = irFormat(head);
   if (ir === "tiff" || ir === "nd2") return virtualizeIr(ir, url, source);
-  if (HDF5.every((b, i) => head[i] === b)) return { format: "ims", ...(await virtualizeIms(url, read, fileSize)) };
-  if (detectNifti(head) !== undefined) return { format: "nifti", ...(await virtualizeNifti(url, read, fileSize)) };
-  if (ir === "czi") return virtualizeIr(ir, url, source);
-  if (isZip(head)) return { format: "safe", ...(await virtualizeSafeZip(url, read, fileSize, exact ?? read)) };
+  if (ir === "nifti" || ir === "ims" || ir === "czi" || ir === "safe") return virtualizeIr(ir, url, source);
   throw new ImageError(NOT_SUPPORTED);
 }
 
@@ -188,7 +204,7 @@ async function virtualizeStoreProfile(
 ): Promise<ArchiveDesc & { format: "n5" | "zarr2" | "ome-zarr" | "safe"; summary: object }> {
   try {
     const chosen = chooseProfile(store);
-    if (chosen === "safe") return { format: "safe", ...(await virtualizeSafeStore(store)) };
+    if (chosen === "safe") return { format: "safe", ...(await virtualizeStoreIr("safe", store)) };
     if (chosen === "n5") return { format: "n5", ...(await virtualizeStoreIr("n5", store)) };
     let format: "zarr2" | "ome-zarr" = chosen;
     if (format === "zarr2" && (await declares04(store))) format = "ome-zarr";

@@ -33,7 +33,7 @@ SOURCE_METADATA: dict[str, dict] = {
         {"$ref": "#/$defs/mirror"},
         {"$ref": "#/$defs/mirrorView"},
     ]},
-    "ndpi": {"oneOf": [{"$ref": "#/$defs/sourceNode"}, {"$ref": "#/$defs/ifd"}]},
+    "ndpi": {"anyOf": [{"$ref": "#/$defs/mirror"}, {"$ref": "#/$defs/mirrorView"}]},
     "nd2": {"anyOf": [
         {
             "type": "object",
@@ -56,33 +56,37 @@ SOURCE_METADATA: dict[str, dict] = {
         {"$ref": "#/$defs/mirror"},
         {"$ref": "#/$defs/mirrorView"},
     ]},
-    "dicom": {
+    "dicom": {"anyOf": [{
         "type": "object",
+        "description": "The root's (spec/virtualize/dicom.md §5.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#51-the-root>); a path vzip_source/<p> names the IR's element at <p>",
         "properties": {
             "preamble": {"type": "string", "contentEncoding": "base64",
                          "description": "The 128-byte preamble, unless all zero"},
             "meta": {"$ref": "#/$defs/dataset",
-                     "description": "The File Meta Information (on vzip_source: its large attributes)"},
+                     "description": "The File Meta Information, without its large attributes (in the mirror only)"},
             "dataset": {"$ref": "#/$defs/dataset",
-                        "description": "The dataset (on vzip_source: the per-frame groups and the large attributes)"},
+                        "description": "The dataset, without the per-frame groups and the large attributes (in the mirror only)"},
             "pixel_extra": {"type": "string",
-                            "description": "The array holding the native pixel data after the frames"},
+                            "description": "vzip_source/pixel_extra: the IR's element holding the native pixel data after the frames"},
             "pixel_unreferenced": {"type": "string",
-                                   "description": "The family holding the pixel data the Extended Offset Table skips"},
+                                   "description": "vzip_source/pixel_unreferenced: the IR's struct holding the pixel data the Extended Offset Table skips"},
             "pixel_unreferenced_headers": {"const": True,
                                            "description": "Whether pixel_unreferenced also holds the frames' item "
                                                           "headers"},
             "pixel_fragments": {"type": "string",
-                                "description": "The array holding each fragment's frame and data length, when a "
-                                               "frame has more than one"},
+                                "description": "vzip_source/pixel_fragments, when a frame has more than one fragment "
+                                               "(the fragments are the IR's dataset/7FE00010/fragments/<j>)"},
             "pixel_offset_table": {"const": True, "description": "Whether the Basic Offset Table is not empty"},
-            "trailing": {"type": "string", "description": "The array holding the bytes after the last element"},
+            "trailing": {"type": "string", "description": "vzip_source/trailing: the IR's element holding the bytes after the last element"},
         },
         "additionalProperties": False,
     },
-    "nifti": {
+        {"$ref": "#/$defs/mirror"},
+        {"$ref": "#/$defs/mirrorView"},
+    ]},
+    "nifti": {"anyOf": [{
         "type": "object",
-        "description": "The root's source metadata",
+        "description": "The root's: the version, the byte order, the header, and what the layout derives from it (spec/virtualize/nifti.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>)",
         "properties": {
             "nifti_version": {"enum": [1, 2]},
             "byte_order": {"enum": ["little", "big"]},
@@ -102,51 +106,6 @@ SOURCE_METADATA: dict[str, dict] = {
                                                                          "other than the canonical one"}]}},
                 ]},
             },
-            "header_rest": {
-                "type": "object",
-                "description": "The bytes after the first NUL of a character field, where not all NUL",
-                "additionalProperties": {"type": "string", "contentEncoding": "base64"},
-            },
-            "extender": {"type": "string", "contentEncoding": "base64",
-                         "description": "The 4 extender bytes, unless 00 00 00 00 or 01 00 00 00"},
-            "extensions": {"oneOf": [
-                {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "ecode": {"type": "integer"},
-                            "text": {"$ref": "#/$defs/text"},
-                            "esize": {"type": "integer", "minimum": 8,
-                                      "description": "A text extension's esize, when not the fewest NULs'"},
-                            "edata": {"type": "string", "contentEncoding": "base64"},
-                            "data": {"type": "string",
-                                     "description": "The array of vzip_source that holds the data"},
-                        },
-                        "required": ["ecode"],
-                        "maxProperties": 3,
-                        "additionalProperties": False,
-                    },
-                },
-                {
-                    "type": "object",
-                    "description": "Over the root's budget: the ecodes and esizes, the text extensions that fit, "
-                                   "and the others' data as a family of byte values",
-                    "properties": {
-                        "ecode": {"const": "vzip_source/extensions/ecode"},
-                        "esize": {"const": "vzip_source/extensions/esize"},
-                        "data": {"const": "vzip_source/extensions/data"},
-                        "text": {"type": "object", "description": "The text values, by the extension's index",
-                                 "propertyNames": {"pattern": "^(0|[1-9][0-9]*)$"},
-                                 "additionalProperties": {"$ref": "#/$defs/text"}, "minProperties": 1},
-                    },
-                    "required": ["ecode", "esize", "data"],
-                    "additionalProperties": False,
-                },
-            ]},
-            "extensions_truncated": {"const": True},
-            "unparsed": {"type": "string"},
-            "trailing": {"type": "string"},
             "affine": {
                 "type": "object",
                 "properties": {"form": {"enum": ["sform", "qform"]}, "applied": {"type": "boolean"}},
@@ -163,79 +122,13 @@ SOURCE_METADATA: dict[str, dict] = {
         "required": ["nifti_version", "byte_order", "header"],
         "additionalProperties": False,
     },
-    "ims": {
-        "type": "object",
-        "description": "An HDF5 group's or dataset's description, on its node under vzip_source/hdf5",
-        "properties": {
-            "attributes": {"$ref": "#/$defs/attributes"},
-            "attribute_collisions": {"$ref": "#/$defs/attributeCollisions"},
-            "names": {"type": "object", "description": "The members' names that are not UTF-8, by key",
-                      "additionalProperties": {"$ref": "#/$defs/text"}},
-            "collisions": {"type": "array", "items": {"$ref": "#/$defs/text"},
-                           "description": "The names of members that read like an earlier member's"},
-            "links": {
-                "type": "object",
-                "description": "The members that are links other than a hard link to an object met first",
-                "additionalProperties": {"oneOf": [
-                    {"type": "object", "properties": {"soft": {"$ref": "#/$defs/text"}}, "required": ["soft"],
-                     "additionalProperties": False},
-                    {"type": "object", "properties": {"hard": {"type": "integer", "minimum": 0,
-                                                               "description": "The object's index in the object table"}},
-                     "required": ["hard"], "additionalProperties": False},
-                    {"type": "object", "properties": {"external": {
-                        "type": "object", "properties": {"file": {"$ref": "#/$defs/text"}, "path": {"$ref": "#/$defs/text"}},
-                        "required": ["file", "path"], "additionalProperties": False}},
-                     "required": ["external"], "additionalProperties": False},
-                    {"type": "object", "properties": {"user": {
-                        "type": "object", "properties": {"type": {"type": "integer", "minimum": 2, "maximum": 255},
-                                                         "value": {"type": ["string", "null"], "contentEncoding": "base64"}},
-                        "required": ["type", "value"], "additionalProperties": False}},
-                     "required": ["user"], "additionalProperties": False},
-                ]},
-            },
-            "images": {
-                "type": "object",
-                "description": "The members that are the image's Data datasets",
-                "additionalProperties": {
-                    "type": "object",
-                    "properties": {"level": {"type": "integer", "minimum": 0}, "t": {"type": "integer", "minimum": 0},
-                                   "c": {"type": "integer", "minimum": 0},
-                                   "shape": {"type": "array", "items": {"type": "integer", "minimum": 0},
-                                             "minItems": 3, "maxItems": 3,
-                                             "description": "The dataset's dimensions, padding included"},
-                                   "attributes": {"$ref": "#/$defs/attributes"},
-                                   "attribute_collisions": {"$ref": "#/$defs/attributeCollisions"}},
-                    "required": ["level", "t", "c", "shape"],
-                    "additionalProperties": False,
-                },
-            },
-            "datatypes": {
-                "type": "object",
-                "description": "The members that are named datatypes",
-                "additionalProperties": {
-                    "type": "object",
-                    "properties": {"datatype": {"$ref": "#/$defs/datatype"}, "attributes": {"$ref": "#/$defs/attributes"},
-                                   "attribute_collisions": {"$ref": "#/$defs/attributeCollisions"}},
-                    "required": ["datatype"],
-                    "additionalProperties": False,
-                },
-            },
-            "unsupported": {"type": "object", "description": "The members not mapped: why, and what can be read",
-                            "additionalProperties": {"$ref": "#/$defs/unsupported"}},
-            "overflow": {"type": "integer", "minimum": 1,
-                         "description": "The number of members beyond the walk's 100,000 objects plus 5 per Data dataset of the image, the root included"},
-            "datatype": {"$ref": "#/$defs/datatype"},
-            "named": {"$ref": "#/$defs/named"},
-            "shape": {"type": ["array", "null"], "items": {"type": "integer", "minimum": 0},
-                      "description": "A family's or a null dataset's dimensions (null for a null dataspace)"},
-            "fill": {"type": "string", "contentEncoding": "base64",
-                     "description": "The fill value's bytes, when the Zarr fill value is not it"},
-            "spilled": {"type": "string", "pattern": "^spilled/[0-9]+$",
-                        "description": "The family of vzip_source that holds the entries over the document's budget, "
-                                       "each a JSON text (spec/virtualize/ims.md §5.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#56-documents>)"},
-        },
-        "additionalProperties": False,
-    },
+        {"$ref": "#/$defs/mirror"},
+        {"$ref": "#/$defs/mirrorView"},
+    ]},
+    "ims": {"anyOf": [
+        {"$ref": "#/$defs/mirror"},
+        {"$ref": "#/$defs/mirrorView"},
+    ]},
     "n5": {"anyOf": [
         {
             "type": "object",
@@ -256,7 +149,10 @@ SOURCE_METADATA: dict[str, dict] = {
             "minProperties": 1,
             "additionalProperties": False,
         },
-        {"$ref": "#/$defs/storeMirror"},
+        # vzip_source's: a store IR's description, and the recorded ignored keys (§5.1
+        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>)
+        {"allOf": [{"$ref": "#/$defs/storeMirror"},
+                   {"properties": {"ir": {"required": ["objects"]}, "empty_dirs": False}}]},
         {"$ref": "#/$defs/mirrorView"},
     ]},
     "zarr2": {"anyOf": [
@@ -271,7 +167,10 @@ SOURCE_METADATA: dict[str, dict] = {
             "minProperties": 1,
             "additionalProperties": False,
         },
-        {"$ref": "#/$defs/storeMirror"},
+        # vzip_source's: a store IR's description, and the recorded ignored keys (§5
+        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>)
+        {"allOf": [{"$ref": "#/$defs/storeMirror"},
+                   {"properties": {"ir": {"required": ["objects"]}, "empty_dirs": False}}]},
         {"$ref": "#/$defs/mirrorView"},
     ]},
     "ome-zarr": {
@@ -291,85 +190,6 @@ SOURCE_METADATA: dict[str, dict] = {
             "metadata": {"type": "object", "minProperties": 1,
                          "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"},
         },
-        "additionalProperties": False,
-    },
-}
-
-# An IFD and its tags (spec/virtualize/tiff.md §5
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>).
-TAG_MEMBERS = {
-    "type": {"type": "integer", "minimum": 0, "maximum": 65535},
-    "count": {"anyOf": [{"type": "integer", "minimum": 0}, {"type": "string", "pattern": "^[0-9]+$"}]},
-    "value": {"anyOf": [
-        {"$ref": "#/$defs/text"},
-        {"type": "array", "items": {"anyOf": [
-            {"type": "number"}, {"type": "string"},
-            {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2}]}},
-    ]},
-    "field": {"type": "string", "contentEncoding": "base64",
-              "description": "The value field of an entry whose field type TIFF does not define"},
-}
-TIFF_DEFS = {
-    "sourceNode": {
-        "type": "object",
-        "description": "vzip_source's: the number of IFDs in the main chain, each a group at ifds/<i>",
-        "properties": {"ifd_count": {"type": "integer", "minimum": 1}},
-        "required": ["ifd_count"],
-        "additionalProperties": False,
-    },
-    "ifd": {
-        "type": "object",
-        "description": "An IFD's group",
-        "properties": {
-            "tags": {
-                "type": "object",
-                "description": "Each tag but the layout and pointer tags, by its number in decimal",
-                "propertyNames": {"pattern": "^(0|[1-9][0-9]*)$"},
-                "additionalProperties": {"$ref": "#/$defs/tag"},
-            },
-            "pointers": {
-                "type": "object",
-                "description": "Each pointer tag, by its number in decimal",
-                "propertyNames": {"pattern": "^(0|[1-9][0-9]*)$"},
-                "additionalProperties": {"$ref": "#/$defs/pointer"},
-            },
-            "duplicates": {"type": "array", "items": {"$ref": "#/$defs/duplicate"},
-                           "description": "The entries after the first of their tag"},
-            "record": {"type": "integer", "minimum": 0,
-                       "description": "The IFD's record number, when a pointer tag's array refers to it"},
-            "same_as": {
-                "type": "object",
-                "description": "Each array or family of bytes the IFD shares with one kept earlier, by its name: "
-                               "the earlier one's path under vzip_source",
-                "propertyNames": {"pattern": "^(data|strips|jpeg_q_tables|jpeg_dc_tables|jpeg_ac_tables|0|[1-9][0-9]*)$"},
-                "additionalProperties": {"type": "string"},
-            },
-        },
-        "required": ["tags"],
-        "additionalProperties": False,
-    },
-    "tag": {
-        "type": "object",
-        "properties": TAG_MEMBERS,
-        "required": ["type", "count"],
-        "additionalProperties": False,
-    },
-    "duplicate": {
-        "type": "object",
-        "properties": {"tag": {"type": "integer", "minimum": 0, "maximum": 65535}, **TAG_MEMBERS},
-        "required": ["tag", "type", "count"],
-        "additionalProperties": False,
-    },
-    "pointer": {
-        "type": "object",
-        "properties": {
-            "type": TAG_MEMBERS["type"],
-            "count": TAG_MEMBERS["count"],
-            "ifds": {"type": "array", "items": {"type": ["string", "null"]}, "maxItems": 64,
-                     "description": "For each value (at most 64; with more, they are the array <path>/<tag> of "
-                                    "record numbers), the path under vzip_source of the IFD it leads to, or null"},
-        },
-        "required": ["type", "count"],
         "additionalProperties": False,
     },
 }
@@ -402,14 +222,13 @@ DICOM_DEFS = {
             "Value": {"type": "array"},
             "InlineBinary": {"type": "string", "contentEncoding": "base64"},
             "BulkDataURI": {"type": "string",
-                            "description": "The array (or family) of vzip_source that holds the value"},
+                            "description": "vzip_source/<path>: the IR's element at <path>, whose value it is"},
             "Structures": {"type": "array", "items": {"$ref": "#/$defs/dataset"},
-                           "description": "A gathered sequence's distinct item structures; "
-                                          "vzip_source/<its path>/items/structure gives each item's"},
+                           "description": "A gathered sequence's distinct item structures (its items are the IR's "
+                                          "elements <its path>/<index>)"},
             "Gathered": {"const": True,
-                         "description": "A value in an item of a gathered sequence, at vzip_source/<the "
-                                        "sequence's path>/items/<path within the item>/value, row or member "
-                                        "<item index>"},
+                         "description": "A value in an item of a gathered sequence: the IR's element <the "
+                                        "sequence's path>/<item index>/<path within the item>"},
             "LittleEndian": {"const": True,
                              "description": "An explicit UN value in explicit VR big endian, whose bytes are in "
                                             "little endian"},
@@ -419,97 +238,6 @@ DICOM_DEFS = {
         "additionalProperties": False,
     },
 }
-
-# An HDF5 object's attributes and datatypes (spec/virtualize/ims.md §5
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata>).
-IMS_DEFS = {
-    "attributes": {
-        "type": ["object", "null"],
-        "description": "An object's attributes by key, or null if they could not be read",
-        "additionalProperties": {"$ref": "#/$defs/attributeValue"},
-    },
-    "attributeValue": {
-        "description": "An attribute's value (spec/virtualize/ims.md §5.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>): Imaris's form, a text value, "
-                       "or its datatype with its value, data, array or the reason it is not kept",
-        "anyOf": [
-            {"$ref": "#/$defs/text"},
-            {
-                "type": "object",
-                "properties": {
-                    "datatype": {"$ref": "#/$defs/datatype"},
-                    "named": {"$ref": "#/$defs/named"},
-                    "name": {"$ref": "#/$defs/text"},
-                    "shape": {"type": ["array", "null"], "items": {"type": "integer", "minimum": 0}},
-                    "value": {},
-                    "data": {"type": "string", "contentEncoding": "base64"},
-                    "array": {"type": "string", "description": "The array of vzip_source that holds the value"},
-                    "json": {"type": "string",
-                             "description": "The array of vzip_source that holds the value's JSON text"},
-                    "reason": {"type": "string"},
-                },
-                "anyOf": [{"required": ["datatype"]}, {"required": ["named"]}, {"required": ["reason"]}],
-                "additionalProperties": False,
-            },
-        ],
-    },
-    "attributeCollisions": {
-        "type": "array",
-        "description": "Attributes whose names read like an earlier attribute's, with their names",
-        "items": {"allOf": [{"$ref": "#/$defs/attributeValue"}, {"type": "object", "required": ["name"]}]},
-    },
-    "named": {"anyOf": [{"type": "integer", "minimum": 0}, {"type": "null"}],
-              "description": "The committed datatype's index in the object table (its entry of datatypes "
-                             "describes it), or null if the walk did not meet it"},
-    "selection": {
-        "type": "object",
-        "description": "A dataspace selection (spec/virtualize/ims.md §5.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-attributes>)",
-        "properties": {
-            "select": {"enum": ["all", "none", "points", "hyperslab"]},
-            "rank": {"type": "integer", "minimum": 0},
-            "points": {"type": "array"},
-            "blocks": {"type": "array"},
-            "start": {"type": "array"}, "stride": {"type": "array"}, "count": {"type": "array"}, "block": {"type": "array"},
-        },
-        "required": ["select"],
-        "additionalProperties": False,
-    },
-    "unsupported": {
-        "type": "object",
-        "description": "An object that is not mapped (spec/virtualize/ims.md §5.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#55-unsupported-objects>)",
-        "properties": {
-            "reason": {"type": "string"},
-            "datatype": {"$ref": "#/$defs/datatype"},
-            "named": {"$ref": "#/$defs/named"},
-            "shape": {"type": ["array", "null"], "items": {"type": "integer", "minimum": 0}},
-            "fill": {"type": "string", "contentEncoding": "base64"},
-            "external": {"type": "array", "items": {
-                "type": "object",
-                "properties": {"file": {"$ref": "#/$defs/text"}, "offset": {"type": ["integer", "string"]},
-                               "size": {"type": ["integer", "string"]}},
-                "required": ["file", "offset", "size"], "additionalProperties": False}},
-            "virtual": {"type": "array", "items": {
-                "type": "object",
-                "properties": {"file": {"$ref": "#/$defs/text"}, "dataset": {"$ref": "#/$defs/text"},
-                               "source": {"$ref": "#/$defs/selection"}, "selection": {"$ref": "#/$defs/selection"}},
-                "required": ["file", "dataset", "source", "selection"], "additionalProperties": False}},
-            "attributes": {"$ref": "#/$defs/attributes"},
-            "attribute_collisions": {"$ref": "#/$defs/attributeCollisions"},
-        },
-        "required": ["reason"],
-        "additionalProperties": False,
-    },
-    "datatype": {
-        "type": "object",
-        "description": "An HDF5 datatype (spec/virtualize/ims.md §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#52-datatypes>)",
-        "properties": {
-            "class": {"enum": ["integer", "float", "time", "string", "bitfield", "opaque", "compound", "reference",
-                               "enum", "variable-length", "array"]},
-            "size": {"type": "integer", "minimum": 0},
-        },
-        "required": ["class", "size"],
-    },
-}
-
 
 _MEASURE = {"anyOf": [{"type": ["number", "string"]}, {
     "type": "object", "properties": {"value": {"type": ["number", "string"]}, "unit": {"type": "string"}},
@@ -550,20 +278,17 @@ SOURCE_METADATA["safe"] = {"oneOf": [
         "required": ["IMAGE_FILE", "siz"],
         "additionalProperties": False,
     },
-    {
-        "type": "object",
-        "description": "vzip_source's: the XML documents kept as text, the keys of those kept as arrays, of the empty "
-                       "objects, the empty directories, and the keys of the ignored objects (§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)",
-        "properties": {
-            "xml": {"type": "object", "additionalProperties": {"$ref": "#/$defs/text"}, "minProperties": 1},
-            "xml_arrays": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-            "empty": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-            "empty_dirs": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-            "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-        },
-        "anyOf": [{"required": ["xml"]}, {"required": ["xml_arrays"]}],
-        "additionalProperties": False,
-    },
+    # vzip_source's: the IR mirror's description, the empty directories and the keys of the
+    # ignored objects (§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)
+    {"$ref": "#/$defs/storeMirror"},
+    # a view document, without the members the branches above require (or `vzip_source`'s of
+    # revision 25), which name no SAFE IR element (`siz` and `xml` do: they are not excluded), so
+    # that a document of those branches with a wrong member is invalid (one without any of them,
+    # such as band metadata without IMAGE_FILE, reads as a view document: member names alone
+    # cannot tell those apart)
+    {"allOf": [{"$ref": "#/$defs/mirrorView"}, {"not": {"anyOf": [
+        {"required": [m]} for m in ("ir", "IMAGE_FILE", "HORIZONTAL_CS_CODE", "empty_dirs", "ignored",
+                                     "xml_arrays", "empty")]}}]},
 ]}
 _GUID = {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}
 _DIMENSIONS = {"type": "object", "description": "The Start of each of S, B, H, I, R, V the series key has",
@@ -634,13 +359,14 @@ SOURCE_METADATA["czi"] = {"anyOf": [
     {"$ref": "#/$defs/mirrorView"},
 ]}
 # The IR mirror (spec/conventions.md §8
-# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2
-# and CZI conventions: vzip_source's
+# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2,
+# CZI, DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2 and N5 conventions: vzip_source's
 # source metadata, and the view documents of the groups under vzip_source/tree.
-IR_PROFILES = ("tiff", "nd2", "czi")
-# The store profiles whose vzip_source is a store IR's mirror (spec/conventions.md §8.9
+IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ims", "ndpi", "safe", "zarr2", "n5")
+# The store conventions, whose vzip_source holds, beside the mirror's description, members of
+# their own (`storeMirror`; spec/conventions.md §8.9
 # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>).
-IR_STORES = ("zarr2", "n5")
+IR_STORES = ("safe", "zarr2", "n5")
 MIRROR_DEFS = {
     "mirror": {
         "type": "object",
@@ -649,7 +375,10 @@ MIRROR_DEFS = {
             "type": "object",
             "properties": {
                 "version": {"const": 2},
-                "size": {"type": "integer", "minimum": 0, "description": "The source's size in bytes"},
+                "size": {"type": "integer", "minimum": 0,
+                         "description": "The source's size in bytes (a store IR's: its objects' sizes, summed)"},
+                "objects": {"type": "integer", "minimum": 0,
+                            "description": "A store IR's objects (spec/conventions.md §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>); a file IR has none"},
                 "elements": {"type": "integer", "minimum": 1, "description": "The elements, column runs expanded"},
                 "rows": {"type": "integer", "minimum": 1, "description": "The rows the table stores"},
                 "names": {"type": "array", "items": {"type": "string"}, "minItems": 1,
@@ -690,22 +419,20 @@ MIRROR_DEFS = {
 }
 
 
-# The store IR's mirror (spec/conventions.md §8.9
-# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): vzip_source's source
-# metadata for the store profiles of IR_STORES, the file IR's description with the member objects,
-# and the recorded ignored keys.
-_STORE_IR = json.loads(json.dumps(MIRROR_DEFS["mirror"]["properties"]["ir"]))
-_STORE_IR["properties"]["size"] = {"type": "integer", "minimum": 0, "description": "The objects' sizes, summed"}
-_STORE_IR["properties"] = {**{k: v for k, v in _STORE_IR["properties"].items() if k in ("version", "size")},
-                           "objects": {"type": "integer", "minimum": 0, "description": "The store's objects"},
-                           **{k: v for k, v in _STORE_IR["properties"].items() if k not in ("version", "size")}}
-_STORE_IR["required"] = ["version", "size", "objects", "elements", "rows", "names", "types", "forms"]
+# The store conventions' vzip_source (spec/conventions.md §8.9
+# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): the mirror's description
+# (a store IR's, with its objects; a SAFE zip file's, a file IR's) and the members the convention
+# keeps beside it, outside the IR, each only when it is not empty: a SAFE product's empty
+# directories and the recorded ignored keys. A convention narrows it (Zarr v2's: a store IR's, no
+# empty directories).
 STORE_MIRROR_DEFS = {
     "storeMirror": {
         "type": "object",
-        "description": "vzip_source's, for a store: the store IR's mirror's description (spec/conventions.md §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), and the recorded ignored keys",
+        "description": "vzip_source's, for a store convention: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>, §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), and the members the convention keeps beside it",
         "properties": {
-            "ir": _STORE_IR,
+            "ir": {"$ref": "#/$defs/mirror/properties/ir"},
+            "empty_dirs": {"type": "array", "items": {"type": "string"}, "minItems": 1,
+                           "description": "A SAFE product's empty directories (spec/virtualize/safe.md §6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)"},
             "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1,
                         "description": "The recorded keys of the listed objects that spec/virtualize.md "
                                        "§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"},
@@ -713,8 +440,6 @@ STORE_MIRROR_DEFS = {
         "required": ["ir"],
         "additionalProperties": False,
     },
-    "mirrorView": MIRROR_DEFS["mirrorView"],
-    "viewValue": MIRROR_DEFS["viewValue"],
 }
 
 # The GeoZarr members a SAFE node may hold besides the convention's (spec/virtualize/safe.md §5
@@ -782,21 +507,12 @@ def schema(profile: str) -> dict:
                                            "required": ["latin1"], "additionalProperties": False}],
         },
     }
-    if profile == "ndpi":
-        defs.update(TIFF_DEFS)
     if profile in IR_PROFILES:
         defs.update(MIRROR_DEFS)
     if profile in IR_STORES:
         defs.update(STORE_MIRROR_DEFS)
-    if profile == "ndpi":  # a level's strip's SOF0 segment (spec/virtualize/ndpi.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#5-source-metadata>)
-        ifd = json.loads(json.dumps(TIFF_DEFS["ifd"]))
-        ifd["properties"]["sof0"] = {"type": "string", "contentEncoding": "base64",
-                                     "description": "A McuStarts level's strip's SOF0 segment, which its chunks replace"}
-        defs["ifd"] = ifd
     if profile == "dicom":
         defs.update(DICOM_DEFS)
-    if profile == "ims":
-        defs.update(IMS_DEFS)
     defs["nodeProperty"] = node
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

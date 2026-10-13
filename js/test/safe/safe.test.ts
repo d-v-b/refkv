@@ -4,11 +4,11 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { directoryStore } from "../../conformance/directory_store.ts";
 import { blockReader } from "../../src/virtualize/common.ts";
-import { virtualizeImage, virtualizeStore } from "../../src/virtualize/index.ts";
-import { chunkParts, emptyPackets, grid, readBand } from "../../src/virtualize/safe/jp2.ts";
-import { jsonSize, MULTISCALES, typed, wkt2 } from "../../src/virtualize/safe/metadata.ts";
-import { folders } from "../../src/virtualize/safe/product.ts";
-import { SafeError } from "../../src/virtualize/safe/virtualize.ts";
+import { virtualizeImage, virtualizeStore } from "../../../conformance/virtualize/reference/ts/index.ts";
+import { chunkParts, emptyPackets, grid, readBand } from "../../../conformance/virtualize/reference/ts/safe/jp2.ts";
+import { jsonSize, MULTISCALES, typed, wkt2 } from "../../../conformance/virtualize/reference/ts/safe/metadata.ts";
+import { folders } from "../../../conformance/virtualize/reference/ts/safe/product.ts";
+import { SafeError } from "../../../conformance/virtualize/reference/ts/safe/virtualize.ts";
 import { StoreError } from "../../src/virtualize/store.ts";
 
 const FIXTURES = fileURLToPath(new URL("../../../fixtures/safe/", import.meta.url));

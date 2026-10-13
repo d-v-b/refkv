@@ -1,13 +1,15 @@
-"""The frozen reference oracle of the TIFF, ND2 and CZI profiles, and of the Zarr v2
-and N5 store profiles: the Python implementations `vzip.virtualize` shipped before it moved these
-formats to the Rust IR (rust/vzip-ir), kept unchanged (but for their import paths, and the
-revision their roots record) so that `compare.py` can compare the IR path against an
-independent implementation. Nothing shipped imports this package. Every other format, and what
-the profiles share (`vzip.virtualize.common`, `vzip.virtualize.store`), is the shipped code.
+"""The frozen reference oracle of the TIFF, ND2, CZI, DICOM, NIfTI, IMS, NDPI and SAFE profiles,
+and of the Zarr v2 and N5 store profiles: the Python implementations `vzip.virtualize` shipped
+before it moved these formats to the Rust IR (rust/vzip-ir), kept unchanged (but for their
+import paths, and the revision their roots record) so that `compare.py` can compare the IR path
+against an independent implementation. Nothing shipped imports this package. Every other
+format, and what the profiles share (`vzip.virtualize.common`, `vzip.virtualize.store`), is
+the shipped code.
 
 `virtualize(location, url, checksums=...)` is `vzip.virtualize.virtualize` as it
-was: the same dispatch by first bytes, the same readers, with TIFF, ND2 and CZI
-going to the frozen modules. A file or store at an http(s) URL is read by the
+was: the same dispatch by first bytes, the same readers, with TIFF, ND2, CZI, DICOM, NIfTI, IMS,
+NDPI and SAFE files, and SAFE directories and Zarr v2 stores (`vzip_reference.store`), going to
+the frozen modules. A file or store at an http(s) URL is read by the
 shipped readers under `policy` (default: `Policy()`, private hosts refused)."""
 
 from __future__ import annotations
@@ -15,11 +17,12 @@ from __future__ import annotations
 from vzip.policy import Policy, crc32c
 from vzip.virtualize import is_store
 from vzip.virtualize.common import Output, Rejected, file_reader, http_reader
-from vzip.virtualize.dicom import is_dicom, virtualize_dicom
-from vzip.virtualize.ims import virtualize_ims
-from vzip.virtualize import ndpi, nifti
-from vzip.virtualize.safe import SafeOutput, is_zip, virtualize_safe_zip
+from vzip_reference.dicom import is_dicom, virtualize_dicom
+from vzip_reference import nifti
+from vzip_reference import ndpi
+from vzip_reference.safe import SafeOutput, is_zip, virtualize_safe_zip
 from vzip_reference.czi import is_czi, virtualize_czi
+from vzip_reference.ims import virtualize_ims
 from vzip_reference.nd2 import is_nd2, virtualize_nd2
 from vzip_reference.store import virtualize_store
 from vzip_reference.tiff import virtualize_tiff

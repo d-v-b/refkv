@@ -5,3 +5,18 @@
 20 as recording the current revision (HARNESS.md)."""
 
 REVISION = 20
+
+# The revision the frozen NIfTI profile records: 25, the last before the IR mirror became
+# NIfTI's `vzip_source` (revision 26).
+REVISION_25 = 25
+
+# The revision the frozen DICOM profile records: 25, the last before the IR mirror became
+# DICOM's `vzip_source` (revision 26).
+DICOM_REVISION = 25
+
+# The revision the frozen IMS profile records: 25, the last before the IR mirror became
+# IMS's `vzip_source` (revision 26).
+IMS_REVISION = 25
+# The revision the frozen SAFE and Zarr v2 profiles implement (and the other store profiles
+# that move onto the IR in revision 26): 25, the last before the IR mirror became their `vzip_source`.
+STORES_REVISION = 25

@@ -17,7 +17,7 @@ import pytest
 from vzip.virtualize import Rejected
 from vzip.virtualize.common import declare as _declare
 from vzip_reference import virtualize
-from vzip_reference.zarr2.output import REVISION
+from vzip_reference.revision import STORES_REVISION as REVISION
 
 # the reference's roots record the revision it is frozen at
 declare = partial(_declare, revision=REVISION)

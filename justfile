@@ -12,21 +12,23 @@ idr_tiff := "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant
 default:
     @just --list --list-submodules
 
-# Test the Python package (python/src/vzip; it virtualizes TIFF, ND2 and CZI with the Rust core, built first)
+# Test the Python package (python/src/vzip; it virtualizes TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE and Zarr v2 with the Rust core, built first)
 test *args: ir-build
     uv run pytest -q python/tests {{args}}
 
 # Build the IR core (rust/vzip-ir: the parsers, the read planner, the projections and the
-# mirror) into the project's environment as the Python module vzip_ir, which vzip.virtualize uses
+# mirror) into the project's environment as the Python module vzip_ir, part of the vzip
+# distribution: `uv sync` (and `uv run`) build it with maturin, in release, and again whenever
+# its Rust sources or source models change (pyproject.toml's cache-keys)
 ir-build:
-    uv run --with maturin env VIRTUAL_ENV="$PWD/.venv" maturin develop --release -m rust/vzip-ir/Cargo.toml
+    uv sync -q --locked
 
 # Build the IR core for the browser (wasm32, without the Python bindings) and run its ND2,
-# TIFF and CZI parsers, and its Zarr v2 and N5 store formats, from Node on fixtures
+# TIFF, CZI, DICOM, NIfTI and IMS parsers, and its Zarr v2 and N5 store formats, from Node on fixtures
 ir-wasm:
     rust/vzip-ir/wasm/build.sh
     node rust/vzip-ir/wasm/nd2.mjs fixtures/nd2/nd2_tz_uint16.nd2
-    node rust/vzip-ir/wasm/run.mjs fixtures/tiff/jpeg_gray.tif fixtures/czi/czi_zstd.czi
+    node rust/vzip-ir/wasm/run.mjs fixtures/tiff/jpeg_gray.tif fixtures/czi/czi_zstd.czi fixtures/dicom/dicom_jpeg_mono_bot.dcm fixtures/nifti/nifti_dims_2d.nii fixtures/ims/ims_latest_dense_links.ims
     node rust/vzip-ir/wasm/store.mjs fixtures/zarr2/zarr2_hierarchy > /dev/null
     node rust/vzip-ir/wasm/store.mjs --format n5 fixtures/n5/n5_cosem > /dev/null
 

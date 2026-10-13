@@ -1,11 +1,10 @@
 // The frozen Zarr v2 profile's declaration: `declareNodes` of js/src/virtualize/store.ts, its root
-// recording the revision the profile is frozen at (25, the last before Zarr v2 stores moved onto
-// the Rust IR in revision 26), as revision.ts pins the TIFF, ND2 and CZI twins.
+// recording the revision the profile is frozen at (`STORES_REVISION` of revision.ts, 25, the last
+// before Zarr v2 stores moved onto the Rust IR in revision 26), as revision.ts pins the other twins.
 
 import { declare, type Profile } from "../../../../../js/src/virtualize/common.ts";
 import type { Json } from "../../../../../js/src/virtualize/store.ts";
-
-export const REVISION = 25;
+import { STORES_REVISION } from "../revision.ts";
 
 export function declareNodes(
   docs: Map<string, Json>,
@@ -18,7 +17,7 @@ export function declareNodes(
     const node = doc as { [k: string]: Json };
     const target: { [k: string]: Json } = omes.has(path) ? { ome: omes.get(path)! } : {};
     const attributes = declare(target, profile, path === "" ? url : undefined,
-      node.attributes as { [k: string]: Json }, REVISION) as { [k: string]: Json };
+      node.attributes as { [k: string]: Json }, STORES_REVISION) as { [k: string]: Json };
     docs.set(key, { ...node, attributes });
   }
 }

@@ -7,12 +7,14 @@ nibabel's unscaled data (`img.dataobj.get_unscaled()`), with nibabel's
 (x, y, z, t, dimension 5) axes put in the output's order (t, c, z, y, x), and
 a color type's samples as the channel axis. A nontrivial scaling must be
 recorded as nibabel reads it, and every header field as nibabel reads the
-header. The bytes from the header to the voxels are parsed here, independently
-of nibabel (which fails on some extension chains) and of the virtualizers: the
-extender, each extension, and the bytes the chain does not hold must be
-recorded (spec/virtualize/nifti.md §5
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>), and the
-extensions also match nibabel's where nibabel reads them. `nifti_reject_*` files must be rejected.
+header. The file must be rebuilt byte for byte from the archive's IR mirror
+(vzip_source, spec/virtualize/nifti.md §5.2
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#52-the-ir-mirror>). The
+extension chain is parsed here, independently of nibabel (which fails on some
+chains) and of the virtualizers: the extender and each extension the view shows
+must be the file's (§5.3
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#53-elements>), and the
+chain also matches nibabel's where nibabel reads it. `nifti_reject_*` files must be rejected.
 
 Usage: uv run python js/test/nifti/verify.py [<dir of .nii files>]
 """
@@ -21,11 +23,13 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import math
 import struct
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 import nibabel as nib
@@ -39,6 +43,9 @@ from http_server import Server  # noqa: E402
 
 from vzip.policy import Policy  # noqa: E402
 import vzip.zarr  # noqa: E402  (a vzip archive as a zarr store)
+
+sys.path.insert(0, str(HERE.parent))
+from ir_mirror import mirror_problems  # noqa: E402
 
 # The sources are served on 127.0.0.1, which spec §6.7
 # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
@@ -148,9 +155,10 @@ def as_json(v):
     return v if abs(v) <= 2**53 - 1 else str(v)
 
 
-def header_problems(nii: Path, meta: dict, root) -> list[str]:
-    """Every recorded header field against nibabel's reading of the raw header, and
-    everything between the header and the voxels, and after the voxels, against the file."""
+def header_problems(nii: Path, meta: dict, out: Path) -> list[str]:
+    """Every recorded header field against nibabel's reading of the raw header; the file
+    rebuilt from the mirror; and the extender and extensions the view shows against the
+    file's chain, and nibabel's."""
     data = nii.read_bytes()
     two = data[4:7] == b"n+2"
     raw = raw_header(data)
@@ -165,78 +173,52 @@ def header_problems(nii: Path, meta: dict, root) -> list[str]:
     for name, value in want.items():
         if meta["header"].get(name) != value:
             problems.append(f"header {name} {meta['header'].get(name)!r} != nibabel's {value!r}")
-    # The bytes after the first NUL of each character field (numpy keeps the inner NULs).
-    rest = {}
-    for name in raw.structarr.dtype.names:
-        if raw.structarr.dtype[name].kind == "S" and name not in ("magic", "eol_check"):
-            tail = bytes(raw.structarr[name][()]).partition(b"\0")[2]
-            if tail.strip(b"\0"):
-                rest[name] = tail
-    got_rest = {k: base64.b64decode(r).rstrip(b"\0") for k, r in meta.get("header_rest", {}).items()}
-    if got_rest != rest:
-        problems.append(f"header_rest {got_rest} != {rest}")
     if meta["nifti_version"] != (2 if two else 1) or meta["byte_order"] != ("little" if raw.endianness == "<" else "big"):
         problems.append(f"version or byte order {meta['nifti_version']}, {meta['byte_order']}")
+    problems += mirror_problems(out, nii)
 
-    extender, chain, end, v = region(data, raw)
-    if extender in (bytes(4), b"\1\0\0\0"):
-        if "extender" in meta:
-            problems.append("extender recorded")
-    elif base64.b64decode(meta.get("extender", "")) != extender:
-        problems.append(f"extender {meta.get('extender')} != {extender!r}")
+    with zipfile.ZipFile(out) as z:
+        view = json.loads(z.read("vzip_source/tree/zarr.json"))["attributes"]["vzip_virtualized"]["nifti"]
+    extender, chain, _, _ = region(data, raw)
+    if view.get("extender") != list(extender):
+        problems.append(f"extender {view.get('extender')} != {list(extender)}")
+    shown = {k: v for k, v in view.items() if k.startswith("extensions/")}
+    expected = {}
     if extender[0]:
-        def edata(e) -> bytes:  # an extension's data, from JSON or from its array
-            if "edata" in e:
-                return base64.b64decode(e["edata"])
-            if "text" in e:  # padded with NULs to its esize, or to a multiple of 16 with the fewest
-                t = e["text"]
-                d = t["latin1"].encode("latin-1") if isinstance(t, dict) else t.encode("utf-8")
-                return d.ljust(e.get("esize", -(-(len(d) + 8) // 16) * 16) - 8, b"\0")
-            return root[e["data"]][...].tobytes()
-
-        def same(got, wanted) -> bool:  # every extension's bytes, the padding included
-            return got == wanted
-
-        recorded = meta.get("extensions")
-        if isinstance(recorded, dict):  # over the root's budget: the ecodes and esizes, the inline texts, a family
-            codes = root[recorded["ecode"]][...].tolist()
-            sizes = root[recorded["esize"]][...].tolist()
-            if sizes != [len(r) + 8 for _, r in chain]:
-                problems.append("the esizes of vzip_source/extensions/esize are not the chain's")
-            offsets = root[recorded["data"] + "/offsets"][...].tolist()
-            blob = root[recorded["data"] + "/data"][...].tobytes() if offsets[-1] else b""
-            texts = recorded.get("text", {})
-            recorded = [{"ecode": c, "text": texts[str(i)], "esize": sizes[i]} if str(i) in texts else
-                        {"ecode": c, "edata": base64.b64encode(blob[offsets[i]:offsets[i + 1]]).decode()}
-                        for i, c in enumerate(codes)]
-        got = [(e["ecode"], edata(e)) for e in recorded or []]
-        if not same(got, chain):
-            problems.append(f"extensions {[(c, len(d)) for c, d in got]} != {[(c, len(r)) for c, r in chain]}")
+        for i, (code, d) in enumerate(chain):
+            expected[f"extensions/{i}"] = (code, len(d) + 8, d)
+    # the view's budget may stop the document ($partial) or spill a value ({"$vz": "element"})
+    if not set(shown) <= set(expected) or (set(shown) != set(expected) and not view.get("$partial")):
+        problems.append(f"extensions shown {sorted(shown)[:5]} != the chain's {sorted(expected)[:5]}")
+    for k, (code, esize, d) in expected.items():
+        v = shown.get(k)
+        if v is None or v.get("$vz") == "element":
+            continue  # over the view's budget, a value it does not show (over 1024 bytes), or a spilled one
+        got = shown_bytes(v.get("data")) if d else b""  # text without the NULs that pad it
+        if (v.get("ecode"), v.get("esize")) != (code, esize) or d[:len(got)] != got or d[len(got):].strip(b"\0"):
+            problems.append(f"{k}: {v} is not ({code}, {esize}, {d[:16]!r})")
+    if extender[0]:
         try:  # nibabel's reading, where it reads the chain
             full = type(raw).from_fileobj(io.BytesIO(data), check=False)
-            nib_exts = [(e.get_code(), e._raw) for e in full.extensions]
-            # nibabel drops an extension's trailing NULs.
-            if [(c, d.rstrip(b"\0")) for c, d in got] != [(c, r.rstrip(b"\0")) for c, r in nib_exts]:
-                problems.append(f"extensions {[(c, len(d)) for c, d in got]} != nibabel's "
-                                f"{[(c, len(r)) for c, r in nib_exts]}")
+            nib_exts = [(e.get_code(), e._raw.rstrip(b"\0")) for e in full.extensions]
+            if [(c, d.rstrip(b"\0")) for c, d in chain] != nib_exts:  # nibabel drops trailing NULs
+                problems.append(f"the chain {[(c, len(d)) for c, d in chain]} != nibabel's {[(c, len(r)) for c, r in nib_exts]}")
         except (ValueError, nib.spatialimages.HeaderDataError):
             pass  # nibabel cannot read the chain
-    elif "extensions" in meta:
-        problems.append("extensions recorded, the extender says none")
-    rest_bytes = data[end:v]
-    if rest_bytes.strip(b"\0"):
-        if "unparsed" not in meta or root[meta["unparsed"]][...].tobytes() != rest_bytes:
-            problems.append(f"the {len(rest_bytes)} bytes from {end} to the voxels are not kept")
-        if meta.get("extensions_truncated", False) != bool(extender[0]):
-            problems.append("extensions_truncated")
-    elif "unparsed" in meta or "extensions_truncated" in meta:
-        problems.append("padding recorded")
-    dim = [int(x) for x in raw.structarr["dim"]]
-    total = math.prod(dim[1:dim[0] + 1]) * int(raw.structarr["bitpix"]) // 8
-    after = data[v + total:]
-    if after and ("trailing" not in meta or root[meta["trailing"]][...].tobytes() != after):
-        problems.append(f"the {len(after)} bytes after the voxels are not kept")
     return problems
+
+
+def shown_bytes(v) -> bytes:
+    """The bytes of a value the view shows ({"$vz": "bytes"}, text, or {text, after})."""
+    if isinstance(v, str):
+        return v.encode("utf-8")
+    if isinstance(v, dict) and v.get("$vz") == "bytes":
+        return base64.b64decode(v["b64"])
+    if isinstance(v, dict) and "latin1" in v:
+        return v["latin1"].encode("latin-1")
+    if isinstance(v, dict) and "text" in v:
+        return shown_bytes(v["text"]) + shown_bytes(v["after"])
+    raise ValueError(f"not a shown value: {v!r}")
 
 
 def main(fixtures: Path) -> int:
@@ -277,7 +259,7 @@ def main(fixtures: Path) -> int:
                     problems.append(f"scaling {recorded} != nibabel's {(slope, inter)}")
             elif recorded is not None:
                 problems.append(f"scaling {recorded} recorded, nibabel has none")
-            problems += header_problems(nii, meta, root)
+            problems += header_problems(nii, meta, out)
             failures += bool(problems)
             print(f"{nii.name:44s} {'ok' if not problems else problems} ({arr.nchunks} chunks, axes {axes})")
     print(f"\n{failures} failures")
