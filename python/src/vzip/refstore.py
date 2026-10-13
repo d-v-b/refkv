@@ -91,7 +91,10 @@ def bulk():
     """Pauses the cyclic garbage collector, for the whole process, while
     millions of acyclic objects (a store's ranges and sources, a writer's
     records) are built: each collection would scan them all again, which made
-    saving a million references take 2.5 times as long."""
+    saving a million references take 2.5 times as long. The collector's state
+    is the process's, so this is not thread-safe: a thread that leaves it while
+    another is still inside turns the collector back on for both, and on exit it
+    restores the state it found, over any change another thread made since."""
     enabled = gc.isenabled()
     gc.disable()
     try:
@@ -216,6 +219,9 @@ class ReferenceStore(ReferenceReader):
         self._values = values
         self._sources = list(sources)
         self._keys = sorted(k for k in values if not k.startswith(RESERVED_PREFIX))
+        for name, keys in (("read_at_open", read_at_open), ("compressed", compressed)):
+            if isinstance(keys, (str, bytes)):
+                raise TypeError(f"{name} is an iterable of keys, not a single {type(keys).__name__}")
         self._read_at_open = frozenset(
             k for k in values if k.endswith("zarr.json")) if read_at_open is None else frozenset(
             read_at_open)

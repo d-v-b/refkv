@@ -452,6 +452,12 @@ def test_constructor_rejects_compressed_naming_no_bytes_value():
                             compressed=["r"])
 
 
+@pytest.mark.parametrize("name", ["read_at_open", "compressed"])
+def test_constructor_rejects_a_single_key_for_a_key_set(name):
+    with pytest.raises(TypeError, match=f"{name} is an iterable of keys, not a single str"):
+        vzip.ReferenceStore({"zarr.json": b"{}"}, **{name: "zarr.json"})
+
+
 @pytest.mark.parametrize("page_size", [0, -1, True])
 def test_a_page_size_that_is_not_positive_is_rejected(tmp_path, page_size):
     with pytest.raises(ValueError, match=f"page_size is a positive number of bytes or None, not {page_size}"):
