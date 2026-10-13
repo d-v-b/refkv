@@ -19,7 +19,7 @@ import {
   type Store,
   type StoreResult,
   without,
-} from "../store.ts";
+} from "../../../../../js/src/virtualize/store.ts";
 import { hierarchyOutput, prefetch, readHierarchy } from "../zarr2/virtualize.ts";
 
 export class OmeZarrError extends Error {}

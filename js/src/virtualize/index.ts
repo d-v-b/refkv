@@ -4,16 +4,15 @@
 // store by the profile its root keys select (§1.4
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): N5, Zarr v2,
 // OME-Zarr 0.4 or a SAFE directory. TIFF (NDPI included: the core's TIFF parser finds it), ND2,
-// CZI, DICOM, NIfTI, IMS and SAFE files, and SAFE directories and Zarr v2 and N5 stores, are
-// virtualized by the Rust core (ir/, rust/vzip-ir); each other profile is in its own directory;
-// store.ts holds the store machinery.
+// CZI, DICOM, NIfTI, IMS and SAFE files, and SAFE directories and Zarr v2, N5 and OME-Zarr
+// stores, are virtualized by the Rust core (ir/, rust/vzip-ir); each other profile is in its
+// own directory; store.ts holds the store machinery.
 
 import { blockReader, type ByteReader, ImageError } from "./common.ts";
 import { type IrFormat, virtualizeIr } from "./ir/run.ts";
 import { type RangeSource, readerSource } from "./ir/source.ts";
 import { virtualizeStoreIr } from "./ir/store.ts";
-import { declares04, virtualizeOmeZarr } from "./ome-zarr/virtualize.ts";
-import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store, storeArchive } from "./store.ts";
+import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store } from "./store.ts";
 import type { Policy } from "../archive.ts";
 import { crc32c } from "../deflate.ts";
 import type { ArchiveDesc } from "../writer.ts";
@@ -206,11 +205,9 @@ async function virtualizeStoreProfile(
     const chosen = chooseProfile(store);
     if (chosen === "safe") return { format: "safe", ...(await virtualizeStoreIr("safe", store)) };
     if (chosen === "n5") return { format: "n5", ...(await virtualizeStoreIr("n5", store)) };
-    let format: "zarr2" | "ome-zarr" = chosen;
-    if (format === "zarr2" && (await declares04(store))) format = "ome-zarr";
-    if (format === "zarr2") return { format, ...(await virtualizeStoreIr("zarr2", store)) };
-    const result = await virtualizeOmeZarr(store);
-    return { format, ...storeArchive(store.url, result), summary: result.summary };
+    // the core decides between Zarr v2 and OME-Zarr 0.4 (its summary's `format`)
+    const desc = await virtualizeStoreIr("zarr2", store);
+    return { format: desc.summary.format === "ome-zarr" ? "ome-zarr" : "zarr2", ...desc };
   } finally {
     closeStore(store);
   }

@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { directoryStore } from "../../conformance/directory_store.ts";
 import { virtualizeStore } from "../../src/virtualize/index.ts";
-import { OmeZarrError } from "../../src/virtualize/ome-zarr/virtualize.ts";
+import { StoreError } from "../../src/virtualize/store.ts";
 
 const FIXTURES = fileURLToPath(new URL("../../../fixtures/ome-zarr/", import.meta.url));
 
@@ -88,9 +88,10 @@ test("virtualizes the synthetic OME-Zarr 0.4 stores as 0.5", async () => {
   }
   const i = await virtualize("ome_zarr_image_2d");
   assert.deepEqual(i.entries.filter((e) => "ranges" in e).map((e) => e.key), ["0/0.0", "1/0.0", "vzip_source/objects/notes.txt"]);
-  // The empty chunk's key is listed with the empty objects (the Zarr v2 convention §5
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
-  assert.deepEqual(doc(i, "vzip_source/zarr.json").attributes.vzip_virtualized, { "ome-zarr": { empty: ["0/1.0"] } });
+  // vzip_source is the store's IR mirror (conventions §8.9
+  // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), whose listing holds
+  // the empty chunk object: its key is not listed again.
+  assert.deepEqual(Object.keys(doc(i, "vzip_source/zarr.json").attributes.vzip_virtualized["ome-zarr"]), ["ir"]);
   const l = await virtualize("ome_zarr_labels");
   // Every OME member is given back by the inverse of §5
   // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>: no
@@ -108,14 +109,14 @@ test("virtualizes the synthetic OME-Zarr 0.4 stores as 0.5", async () => {
   assert.deepEqual(doc(s, "1/0/zarr.json").attributes.vzip_virtualized, { "ome-zarr": { metadata: { fill_value: null } } });
   const zero = s.entries.find((e) => e.key === "0/zarr.json") as { bytes: Uint8Array };
   assert.ok(new TextDecoder().decode(zero.bytes).includes('"note":{"big":18446744073709551615}'));
-  assert.deepEqual(s.entries.filter((e) => e.key.startsWith("vzip_source/")).map((e) => e.key).sort(),
-    ["vzip_source/objects/OME/METADATA.ome.xml", "vzip_source/objects/README.md", "vzip_source/zarr.json"]);
-  // An empty OME-XML object is an empty object: its key is vzip_source's
+  assert.deepEqual(s.entries.filter((e) => e.key.startsWith("vzip_source/objects/")).map((e) => e.key).sort(),
+    ["vzip_source/objects/OME/METADATA.ome.xml", "vzip_source/objects/README.md"]);
+  // An empty OME-XML object is an empty object: no entry, an object of the mirror's listing
   // (spec/virtualize/ome-zarr.md §7
   // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#7-chunks-and-ome-xml>).
   const e = await virtualize("ome_zarr_empty_xml");
   assert.equal((e.summary as { omeXml: number }).omeXml, 0);
-  assert.deepEqual(doc(e, "vzip_source/zarr.json").attributes.vzip_virtualized, { "ome-zarr": { empty: ["OME/METADATA.ome.xml"] } });
+  assert.ok(!e.entries.some((x) => x.key.endsWith("METADATA.ome.xml")));
   // Wells and images without a version name their members rather than copy them.
   const p = await virtualize("ome_zarr_plate_unversioned");
   assert.deepEqual(doc(p, "A/1/zarr.json").attributes.vzip_virtualized, { "ome-zarr": { unversioned: ["well"] } });
@@ -124,17 +125,17 @@ test("virtualizes the synthetic OME-Zarr 0.4 stores as 0.5", async () => {
 
 const REJECTIONS: [string, RegExp][] = [
   ["has_ome", /already has an `ome` attribute/],
-  ["version", /old: multiscales\[0\]: version "0.3" is not 0.4/],
+  ["version", /old: multiscales\[0\]: version 0.3 is not 0.4/],
   ["multiscales_empty", /g: multiscales is not a nonempty array/],
   ["axes_count", /axes is not 2 to 5 axis objects/],
   ["axes_name", /an axis name is not a string/],
   ["axes_duplicate", /are not distinct/],
   ["axes_type", /axis type 3 is not a string/],
-  ["axes_order", /axis types \["space","channel","space"\]/],
-  ["axes_two_others", /axis types \["channel","phase","space","space"\]/],
-  ["axes_four_space", /axis types \["space","space","space","space"\]/],
+  ["axes_order", /axis types \[space, channel, space\]/],
+  ["axes_two_others", /axis types \[channel, phase, space, space\]/],
+  ["axes_four_space", /axis types \[space, space, space, space\]/],
   ["datasets_empty", /datasets is not a nonempty array/],
-  ["datasets_path", /path "..\/1" is not a relative path/],
+  ["datasets_path", /path ..\/1 is not a relative path/],
   ["datasets_missing", /9 is not an array/],
   ["datasets_rank", /r has 3 dimensions, not 2/],
   ["transforms_missing", /coordinateTransformations is not one or two/],
@@ -147,26 +148,26 @@ const REJECTIONS: [string, RegExp][] = [
   ["scale_order", /is smaller than the previous level's/],
   ["level_axes_conflict", /p\/q\/lvl is a level of images with axes/],
   ["omero_channels", /omero: channels is not an array/],
-  ["omero_color", /color "red" is not 6 hexadecimal digits/],
+  ["omero_color", /color red is not 6 hexadecimal digits/],
   ["omero_window", /window does not have numbers/],
-  ["labels_not_image", /label "missing" is not the path of an image/],
+  ["labels_not_image", /label missing is not the path of an image/],
   ["image_label_no_multiscales", /image-label: the group has no multiscales/],
   ["image_label_levels", /the label image has 1 levels, fewer than its image \/'s 2/],
   ["image_label_dtype", /label data type float32 is not an integer type/],
   ["image_label_color_duplicate", /label-values are not unique/],
   ["image_label_rgba", /rgba \[1,2,3,300\]/],
   ["image_label_value", /properties is not an array of objects with an integer label-value/],
-  ["image_label_source", /source image "..\/..\/elsewhere" is not an image/],
-  ["image_label_version", /image-label: version "0.3" is not 0.4/],
+  ["image_label_source", /source image ..\/..\/elsewhere is not an image/],
+  ["image_label_version", /image-label: version 0.3 is not 0.4/],
   ["plate_column_name", /a column name is not alphanumeric/],
   ["plate_row_duplicate", /row names are not unique/],
-  ["plate_well_path", /well path "B\/2" is not row A\/column 2/],
+  ["plate_well_path", /well path B\/2 is not row A\/column 2/],
   ["plate_well_index", /rowIndex or columnIndex is not an index/],
   ["plate_well_missing", /A\/2 is not a well/],
   ["plate_acquisition_id", /acquisition id -1/],
   ["plate_field_count", /field_count 0 is not a positive integer/],
-  ["plate_version", /plate: version "0.3" is not 0.4/],
-  ["well_image_path", /image path "f-0" is not alphanumeric/],
+  ["plate_version", /plate: version 0.3 is not 0.4/],
+  ["well_image_path", /image path f-0 is not alphanumeric/],
   ["well_image_missing", /A\/1\/7 is not an image/],
   ["well_image_duplicate", /image paths are not unique/],
   ["well_acquisition", /acquisition 5 is not one of the plate's/],
@@ -178,7 +179,7 @@ const REJECTIONS: [string, RegExp][] = [
 
 for (const [name, message] of REJECTIONS) {
   test(`rejects ome_zarr_reject_${name}`, async () => {
-    await assert.rejects(virtualize(`ome_zarr_reject_${name}`), (e) => e instanceof OmeZarrError && message.test(e.message));
+    await assert.rejects(virtualize(`ome_zarr_reject_${name}`), (e) => e instanceof StoreError && e.format === "ome-zarr" && message.test(e.message));
   });
 }
 

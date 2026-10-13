@@ -132,4 +132,4 @@ print(len([n for n in sys.modules if n.startswith("vzip.")]), loaded)
 """
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     count, loaded = out.stdout.split(" ", 1)
-    assert int(count) > 20 and loaded.strip() == "[]", out.stdout
+    assert int(count) > 15 and loaded.strip() == "[]", out.stdout

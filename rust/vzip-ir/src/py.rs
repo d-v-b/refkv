@@ -669,6 +669,10 @@ impl PyStoreRun {
     fn ignore(&mut self, keys: Vec<String>, folders: Vec<String>) -> PyResult<()> {
         self.get()?.ignore(keys, folders).map_err(Rejected::new_err)
     }
+    /// The profile the run's store is decided to be so far (`StoreRun::profile`).
+    fn profile(&mut self) -> PyResult<String> {
+        Ok(self.get()?.profile().to_string())
+    }
     #[pyo3(signature = (url, mirror=true))]
     fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool) -> PyResult<(Bound<'py, PyAny>, PyIr)> {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;

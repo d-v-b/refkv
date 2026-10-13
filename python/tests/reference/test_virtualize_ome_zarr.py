@@ -1,21 +1,29 @@
-"""The Python OME-Zarr virtualizer (spec/virtualize/ome-zarr.md) on the synthetic stores.
+"""The frozen Python OME-Zarr virtualizer (spec/virtualize/ome-zarr.md, revision 25) on the
+synthetic stores.
 
 Equivalence with the browser virtualizer is checked by
 conformance/virtualize/compare.py, and the outputs against ome-zarr-models and
 zarr-python by js/test/ome-zarr/verify.py.
 """
 
-import json
+import sys
 from pathlib import Path
+
+# the frozen reference twins (conformance/virtualize/reference/vzip_reference)
+sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
+
+import json
 
 import pytest
 
-from vzip.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
+from vzip.virtualize import Rejected
 from vzip.virtualize.common import declare
+from vzip_reference import virtualize
+from vzip_reference.revision import STORES_REVISION as STORE_REVISION
 from vzip.virtualize.store import DirStore
-from vzip.virtualize.zarr2 import virtualize_zarr2
+from vzip_reference.zarr2 import virtualize_zarr2
 
-FIXTURES = Path(__file__).parents[2] / "fixtures" / "ome-zarr"
+FIXTURES = Path(__file__).parents[3] / "fixtures" / "ome-zarr"
 URL = "https://data.test/ome-zarr/{}/"
 OME_MEMBERS = {"multiscales", "omero", "labels", "image-label", "plate", "well", "bioformats2raw.layout", "series"}
 IMAGE = {"multiscales"}
@@ -192,7 +200,7 @@ def test_virtualizes_the_synthetic_stores():
     assert m["coordinateTransformations"][1] == {"type": "translation", "translation": [0.0, 100.0, 0.0]}
     _, out = virtualize(str(FIXTURES / "ome_zarr_bioformats2raw"), url=URL.format("b"))
     assert out.docs["zarr.json"]["attributes"] == declare({"ome": {"version": "0.5", "bioformats2raw.layout": 3}},
-                                                          "ome-zarr", URL.format("b"), {})
+                                                          "ome-zarr", URL.format("b"), {}, STORE_REVISION)
     assert out.docs["OME/zarr.json"]["attributes"]["ome"] == {"version": "0.5", "series": ["0", "1"]}
     assert out.sources[-1] == "https://data.test/ome-zarr/b/OME/METADATA.ome.xml"
     # The Zarr v2 metadata M, the attributes with integers kept exact, and the other objects:

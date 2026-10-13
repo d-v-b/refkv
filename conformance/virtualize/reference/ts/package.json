@@ -2,6 +2,6 @@
   "name": "vzip-reference-ts",
   "private": true,
   "type": "module",
-  "description": "The frozen TypeScript virtualizers of TIFF, ND2, CZI and Zarr v2 (an ES module tree; type-checked and tested from js/)",
+  "description": "The frozen TypeScript virtualizers of TIFF, ND2, CZI, DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2 and OME-Zarr (an ES module tree; type-checked and tested from js/)",
   "license": "MIT OR Apache-2.0"
 }

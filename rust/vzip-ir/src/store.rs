@@ -47,6 +47,11 @@ pub trait StoreParser: Send + Sync {
     fn folders(&mut self, _folders: &[String]) {}
     /// The IR (finished: `check::finish`) and the facts its projection reads.
     fn finish(self: Box<Self>) -> Res<(Ir, J)>;
+    /// The profile the store is decided to be, once the parser has decided (a Zarr v2 store
+    /// is OME-Zarr's when its root declares OME-NGFF 0.4); None before that.
+    fn profile(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 /// The store formats the core reads (the store profiles move onto the IR one by one).
@@ -189,6 +194,13 @@ impl StoreRun {
         self.ignored = keys;
         self.ignored.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
         Ok(())
+    }
+
+    /// The profile the run's store is decided to be so far (the format's own until its parser
+    /// decides otherwise), which a rejection names: a host asks it after the last poll, before
+    /// the output, whose checks are that profile's.
+    pub fn profile(&self) -> &'static str {
+        self.parser.as_ref().and_then(|p| p.profile()).unwrap_or(self.format.profile())
     }
 
     /// The requests to make now, concurrently; None when the parser is done.
@@ -352,14 +364,15 @@ impl StoreRun {
 /// directory's empty directories) beside the mirror (`record_ignored`).
 pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str, mirror: bool) -> Res<crate::out::Out> {
     let mut out = match format {
-        StoreFormat::Zarr2 => crate::project::zarr2::project(ir, facts, url, format.profile())?,
+        StoreFormat::Zarr2 => crate::project::zarr2::project(ir, facts, url)?,
         StoreFormat::Safe => crate::project::safe::project(ir, facts, url)?,
         StoreFormat::N5 => crate::project::n5::project(ir, facts, url)?,
     };
     let mut summary = std::mem::take(&mut out.summary);
     if let Some(m) = summary.as_object_mut() {
         if format != StoreFormat::Safe {
-            m.insert("format".into(), json!(format.name()));
+            // the profile: a Zarr v2 store whose root declares OME-NGFF 0.4 is OME-Zarr's
+            m.insert("format".into(), json!(facts["profile"].as_str().unwrap_or(format.name())));
         }
         m.insert("reads".into(), stats);
         m.insert("elements".into(), json!(ir.len()));
@@ -368,11 +381,12 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         }
     }
     out.summary = summary;
+    let profile = facts["profile"].as_str().unwrap_or(format.profile());
     if mirror {
-        let folded = crate::mirror::mirror(ir, &mut out, format.profile())?;
+        let folded = crate::mirror::mirror(ir, &mut out, profile)?;
         out.summary["folded"] = folded.json();
     }
-    crate::project::store::record_ignored(&mut out, facts, format.profile())?;
+    crate::project::store::record_ignored(&mut out, facts, profile)?;
     Ok(out)
 }
 

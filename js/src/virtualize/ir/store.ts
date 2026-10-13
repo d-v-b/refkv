@@ -17,11 +17,14 @@ import { ir, type IrExports, out, put } from "./wasm.ts";
 
 /** The core's store formats: a Zarr v2 store, a SAFE product's directory, an N5 container. */
 export type StoreFormat = "zarr2" | "safe" | "n5";
+/** The profiles a store format's run decides between (its rejections name them): a Zarr v2
+ * store is OME-Zarr's when its root declares OME-NGFF 0.4. */
+export type StoreProfile = StoreFormat | "ome-zarr";
 
 const utf8 = new TextEncoder();
 const text = (b: Uint8Array) => new TextDecoder().decode(b);
 
-function rejection(w: IrExports, r: number, format: StoreFormat): StoreError {
+function rejection(w: IrExports, r: number, format: StoreProfile): StoreError {
   return new StoreError(text(out(w, -r)), format);
 }
 
@@ -29,7 +32,9 @@ function rejection(w: IrExports, r: number, format: StoreFormat): StoreError {
  * ignores given to the run (the recorded ignored keys, which the projection records, and the
  * empty `d/` keys, a SAFE directory's directories), its objects read at most
  * `options.concurrency` (default `store.concurrency`) at a time. A store the core refuses is a
- * StoreError naming the format; an object that cannot be read, its own error.
+ * StoreError naming the format (or, for one of the output's checks, the profile the run
+ * decided: OME-Zarr's for a Zarr v2 store whose root declares OME-NGFF 0.4); an object that
+ * cannot be read, its own error.
  * @param options.mirror false leaves `vzip_source`'s mirror out, and with it the source
  * metadata that records the listing's ignored keys: such an output keeps neither. */
 export async function virtualizeStoreIr(
@@ -59,10 +64,14 @@ export async function virtualizeStoreIr(
       if (n === 0) break;
       await perform(w, p, store, listing, decodeRequests(out(w, n - 1)), concurrency, format);
     }
+    // the output's checks are the decided profile's (OME-Zarr's for a Zarr v2 store whose root
+    // declares OME-NGFF 0.4), which its rejection names
+    const said = text(out(w, Number(w.vz_store_profile(p))));
+    const decided: StoreProfile = said === "ome-zarr" || said === format ? said : format;
     live = false; // vz_store_output consumes the run
     const u = utf8.encode(store.url);
     const n = Number(w.vz_store_output(p, put(w, u), u.length, options.mirror === false ? 0 : 1));
-    if (n < 0) throw rejection(w, n, format);
+    if (n < 0) throw rejection(w, n, decided);
     const raw = decodeRaw(out(w, n));
     return { ...storeDesc(raw, new Map(listing)), summary: { ...raw.summary, listingRequests: store.requests } };
   } finally {

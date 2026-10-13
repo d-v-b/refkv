@@ -21,7 +21,8 @@ directory), and drives the run:
   <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>).
 
 The core's store formats: `zarr2` (rust/vzip-ir/src/zarr2.rs, spec/virtualize/zarr2.md), which
-`vzip.virtualize` sends Zarr v2 stores to, and `safe` (rust/vzip-ir/src/safe/,
+`vzip.virtualize` sends Zarr v2 stores to (deciding which are OME-Zarr 0.4's,
+spec/virtualize/ome-zarr.md), and `safe` (rust/vzip-ir/src/safe/,
 spec/virtualize/safe.md), a SAFE product's directory form.
 """
 
@@ -265,7 +266,8 @@ def run_store(store: Store, fmt: str = "zarr2", mirror: bool = True):
     projection records, and the empty `d/` keys, a SAFE directory's directories), its objects
     read at most `store.workers` at a time, and the summary's `listingRequests` the store's
     requests. With `mirror` false the output has no `vzip_source` mirror, and so no record of
-    the ignored keys either. A rejection names `fmt` (`Rejected.format`)."""
+    the ignored keys either. A rejection names `fmt` (`Rejected.format`), or, for one of the
+    output's checks, the profile the run decided (`ome-zarr` once the 0.4 test passed)."""
     import vzip_ir
 
     if store._prefetch is not None:
@@ -279,10 +281,11 @@ def run_store(store: Store, fmt: str = "zarr2", mirror: bool = True):
         raise Rejected(str(e), format=fmt) from None
     drive_store(run, store, fmt=fmt)
     stats = json.loads(run.stats())
+    profile = run.profile()  # the output's checks are the decided profile's (OME-Zarr's, say)
     try:
         t, ir = run.output(store.url, mirror)
     except vzip_ir.Rejected as e:
-        raise Rejected(str(e), format=fmt) from None
+        raise Rejected(str(e), format=profile) from None
     out = from_rust(t, store.objects)
     out.summary["listingRequests"] = getattr(store, "requests", 0)
     return out, ir, stats

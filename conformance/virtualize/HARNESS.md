@@ -144,7 +144,7 @@ with the first's:
 - `ref`, the reference: `conformance/virtualize/reference/cli.py
   --allow-private-hosts` (the harness serves its inputs from 127.0.0.1, which
   the reader policy refuses by default). For TIFF, ND2, CZI, DICOM, NIfTI, IMS, NDPI and SAFE
-  files, and SAFE directories and Zarr v2 and N5 stores, it runs the frozen Python profiles in
+  files, and SAFE directories and Zarr v2, OME-Zarr and N5 stores, it runs the frozen Python profiles in
   `conformance/virtualize/reference/vzip_reference/` (what `vzip.virtualize`
   shipped before these formats moved to the IR, unchanged but for their import
   paths); for every other profile, the shipped code.
@@ -152,7 +152,7 @@ with the first's:
 - `web`: the browser code under Node, `js/conformance/virtualize.ts
   --allow-private-hosts`.
 
-For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE files, and SAFE directories and Zarr v2 and N5 stores, `py` and `web` are one implementation: the Rust core
+For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE files, and SAFE directories and Zarr v2, OME-Zarr and N5 stores, `py` and `web` are one implementation: the Rust core
 `rust/vzip-ir` (its parsers, schemas, read planner, projections and mirror),
 built natively for Python and as wasm32 for the browser, each with a thin host
 (the I/O, and the archive writer). Their `vzip_source` is the IR's mirror,
@@ -181,7 +181,7 @@ For every other profile, `py` and `web` are still two hand-written
 implementations, and `ref` runs the same code as `py`.
 
 Since revision 21, `vzip_source` of TIFF, ND2 and CZI is the IR mirror of
-[conventions §8](../../spec/conventions.md#8-the-ir-mirror), and since revision 26 those of DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2 and N5 too; since revision 22 the mirror is canonical ([conventions §8.8](../../spec/conventions.md#88-canonical-form))
+[conventions §8](../../spec/conventions.md#8-the-ir-mirror), and since revision 26 those of DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2, OME-Zarr and N5 too; since revision 22 the mirror is canonical ([conventions §8.8](../../spec/conventions.md#88-canonical-form))
 and [spec/virtualize.md §1.1](../../spec/virtualize.md#11-output-and-equivalence) compares it entry for entry, as `py` against `web`
 does. `compare.py` also checks each archive's mirror on its own, in addition
 to that comparison: it loads the table, checks its invariants (conventions
@@ -233,6 +233,11 @@ store at their virtual offsets), with no source 0 read.
 compared and checked as Zarr v2 stores are: `ref` runs the frozen N5 profiles
 (`vzip_reference/n5`, `reference/ts/n5`), whose roots record revision 25
 (`STORES_REVISION`).
+**OME-Zarr stores, since revision 26,** go through the same store format: after
+reading the node documents it decides whether the root declares OME-NGFF 0.4, and its
+OME layer gives OME-Zarr's hierarchy. `ref` runs the frozen OME-Zarr profiles
+(`vzip_reference/ome_zarr`, `reference/ts/ome-zarr`, on the frozen Zarr v2 ones), whose
+roots record revision 25 as the frozen Zarr v2 profiles' do.
 
 **The frozen reference stays.** The frozen implementations
 (`conformance/virtualize/reference`, `conformance/virtualize/reference/ts`) are kept

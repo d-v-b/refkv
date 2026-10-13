@@ -1475,9 +1475,9 @@ its forms), which the mirror's canonical check sets aside, and only those. The
 test-only prototype `proto_zarr2.rs` is removed. Today's Python and
 TypeScript profiles are frozen in `conformance/virtualize/reference`
 (recording revision 25), and `compare.py` compares them with the core
-outside `vzip_source`; the shipped `vzip.virtualize.zarr2` and
-`js/src/virtualize/zarr2` stay for the OME-Zarr profile, which builds on
-them.
+outside `vzip_source`. The shipped `vzip.virtualize.zarr2` and
+`js/src/virtualize/zarr2` are removed with OME-Zarr's move below, which
+was their last user.
 
 ### N5 on the IR
 
@@ -1532,3 +1532,45 @@ N5's `ignored`, and the mirror's canonical check sets it aside. A member named `
 are frozen in `conformance/virtualize/reference`, recording revision 25
 (`STORES_REVISION`), and `compare.py` compares them with the core outside
 `vzip_source`.
+
+### OME-Zarr on the IR
+
+**What prompted it.** After the Zarr v2 profile moved onto the IR, the OME-Zarr
+profile, which builds on it, still ran its own Zarr v2 reader in Python and
+TypeScript, kept revision 25's `vzip_source` (`{"empty", "ignored"}`, the
+group only when there were other objects), and chose itself by a test of
+OME-NGFF 0.4 in each host.
+
+**The changes.**
+- **OME-Zarr [§8.2](../../virtualize/ome-zarr.md#82-the-store-ir)** (new):
+  `vzip_source` is the store's IR mirror, the Zarr v2 convention's
+  ([its §4.1](../../virtualize/zarr2.md#41-elements)), declaring the OME-Zarr convention; the
+  OME layer adds no element. Each node's source metadata
+  ([§8.1](../../virtualize/ome-zarr.md#81-nodes)) and the rest of the hierarchy are unchanged.
+- **OME-Zarr [§2](../../virtualize/ome-zarr.md#2-hierarchy)**: empty objects, ignored keys and
+  the group `vzip_source` are [the Zarr v2 convention §5](../../virtualize/zarr2.md#5-other-objects)'s
+  (the mirror lists the empty objects, and a node at `vzip_source` always rejects), in
+  place of the revision-25 rules §2 and §11.2 restated. The ignored keys stay
+  `vzip_source`'s source metadata, now `{"ir": D, "ignored": I}`.
+- **OME-Zarr [§11](../../virtualize/ome-zarr.md#11-ome-zarr-profile)**: the node documents are read in
+  one round, then each document the test of OME-NGFF 0.4 names that the round did
+  not read; the choice between the OME-Zarr and Zarr v2 profiles reads the same
+  rounds.
+- **Conventions:** the OME-Zarr schema describes the mirror; its title is
+  "OME-Zarr" in every implementation.
+
+**Output.** Outside `vzip_source` the outputs are revision 25's (but for the
+revision); `vzip_source` is the mirror, which rebuilds every node document byte for
+byte from the archive alone.
+
+**Implementations.** One store format, the core's `zarr2`, reads every Zarr v2
+store: after its batch of node documents it decides OME-NGFF 0.4, and its OME layer
+(`rust/vzip-ir/src/ome_zarr.rs`, whose checks are the roles of `schema/ome-zarr.json`)
+gives OME-Zarr's groups, levels and OME-XML to the Zarr v2 projection, which writes
+them under the OME-Zarr convention. `src/project/store.rs` keeps OME-Zarr's `ignored`
+beside the mirror's `ir` as it keeps Zarr v2's, and a rejection by the output's checks
+names the profile the run decided (`StoreRun::profile`). The hosts no longer test
+OME-NGFF 0.4. The shipped
+Python and TypeScript Zarr v2 and OME-Zarr profiles are removed; the OME-Zarr ones are
+frozen in `conformance/virtualize/reference/` on the frozen Zarr v2 ones, recording
+revision 25.

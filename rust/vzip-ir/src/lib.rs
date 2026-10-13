@@ -23,6 +23,7 @@ pub mod n5;
 pub mod nd2;
 pub mod nifti;
 pub mod ndpi;
+pub mod ome_zarr;
 pub mod out;
 pub mod plan;
 pub mod project;

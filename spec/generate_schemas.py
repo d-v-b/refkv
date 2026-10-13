@@ -173,25 +173,28 @@ SOURCE_METADATA: dict[str, dict] = {
                    {"properties": {"ir": {"required": ["objects"]}, "empty_dirs": False}}]},
         {"$ref": "#/$defs/mirrorView"},
     ]},
-    "ome-zarr": {
-        "type": "object",
-        "properties": {
-            "attributes": {"type": "object", "minProperties": 1,
-                           "description": "The node's .zattrs, without the OME members the ome object gives back"},
-            "unversioned": {"type": "array", "minItems": 1, "uniqueItems": True,
-                            "items": {"enum": ["multiscales", "omero", "image-label", "plate", "well"]},
-                            "description": "The OME members that had no version, which ome gives back as they are"},
-            "empty": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                      "description": "vzip_source only: the keys of the store's empty objects, empty chunk objects "
-                                     "included"},
-            "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                        "description": "vzip_source only: the recorded keys of the listed objects that spec/virtualize.md "
-                                       "§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"},
-            "metadata": {"type": "object", "minProperties": 1,
-                         "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"},
+    "ome-zarr": {"anyOf": [
+        {
+            "type": "object",
+            "description": "A node's (spec/virtualize/ome-zarr.md §8 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>)",
+            "properties": {
+                "attributes": {"type": "object", "minProperties": 1,
+                               "description": "The node's .zattrs, without the OME members the ome object gives back"},
+                "unversioned": {"type": "array", "minItems": 1, "uniqueItems": True,
+                                "items": {"enum": ["multiscales", "omero", "image-label", "plate", "well"]},
+                                "description": "The OME members that had no version, which ome gives back as they are"},
+                "metadata": {"type": "object", "minProperties": 1,
+                             "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"},
+            },
+            "minProperties": 1,
+            "additionalProperties": False,
         },
-        "additionalProperties": False,
-    },
+        # vzip_source's: the Zarr v2 store's IR, as zarr2's (spec/virtualize/ome-zarr.md §8.2
+        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#82-the-store-ir>)
+        {"allOf": [{"$ref": "#/$defs/storeMirror"},
+                   {"properties": {"ir": {"required": ["objects"]}, "empty_dirs": False}}]},
+        {"$ref": "#/$defs/mirrorView"},
+    ]},
 }
 
 # A dataset in the DICOM JSON Model (PS3.18 §F.2), as spec/virtualize/dicom.md §5
@@ -360,13 +363,14 @@ SOURCE_METADATA["czi"] = {"anyOf": [
 ]}
 # The IR mirror (spec/conventions.md §8
 # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2,
-# CZI, DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2 and N5 conventions: vzip_source's
+# CZI, DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2, N5 and OME-Zarr conventions: vzip_source's
 # source metadata, and the view documents of the groups under vzip_source/tree.
-IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ims", "ndpi", "safe", "zarr2", "n5")
+IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ims", "ndpi", "safe", "zarr2", "n5",
+               "ome-zarr")
 # The store conventions, whose vzip_source holds, beside the mirror's description, members of
 # their own (`storeMirror`; spec/conventions.md §8.9
 # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>).
-IR_STORES = ("safe", "zarr2", "n5")
+IR_STORES = ("safe", "zarr2", "n5", "ome-zarr")
 MIRROR_DEFS = {
     "mirror": {
         "type": "object",

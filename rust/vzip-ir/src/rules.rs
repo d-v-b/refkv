@@ -133,8 +133,18 @@ impl Rules {
                 let mut derive = Vec::new();
                 if let Some(J::Object(d)) = r.get("derive") {
                     for (k, v) in d {
+                        if consts.contains_key(k) {
+                            return Err(format!("{name}: the derived {k} shadows a limit or table"));
+                        }
                         let s = v.as_str().ok_or(format!("{name}: derive {k} is not text"))?;
                         derive.push((k.clone(), expr::parse(s).map_err(|e| format!("{name}.{k}: {e}"))?));
+                    }
+                }
+                // a given or derived name absent from an env reads the limit or table of its name
+                // (`Layered`), so neither may share a name with one
+                if let Some(J::Object(g)) = r.get("given") {
+                    if let Some(k) = g.keys().find(|k| consts.contains_key(*k)) {
+                        return Err(format!("{name}: the given {k} shadows a limit or table"));
                     }
                 }
                 let mut constraints = Vec::new();

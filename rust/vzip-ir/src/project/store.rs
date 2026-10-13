@@ -60,7 +60,9 @@ pub fn check_key(key: &str) -> Result<(), String> {
 /// mirror's `ir`, outside the IR (conventions §8.9
 /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), by profile: Zarr v2's
 /// ignored keys (spec/virtualize/zarr2.md §5
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>), N5's
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>), and so
+/// OME-Zarr's (spec/virtualize/ome-zarr.md §8.2
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#82-the-store-ir>), N5's
 /// (spec/virtualize/n5.md §5.1
 /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>), and SAFE's
 /// empty directories and ignored keys, in both its forms (spec/virtualize/safe.md §6.3
@@ -68,7 +70,7 @@ pub fn check_key(key: &str) -> Result<(), String> {
 /// The mirror check sets these aside, and only these.
 pub fn kept(profile: &str) -> &'static [&'static str] {
     match profile {
-        "zarr2" | "n5" => &["ignored"],
+        "zarr2" | "ome-zarr" | "n5" => &["ignored"],
         "safe" => &["empty_dirs", "ignored"],
         _ => &[],
     }
@@ -85,9 +87,17 @@ pub fn kept(profile: &str) -> &'static [&'static str] {
 /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
 /// Nothing when there are none. An output made without its mirror (`mirror` false, which no
 /// virtualizer does) has no `vzip_source` source metadata at all, and so does not record them
-/// either: like the mirror, they are what such an output leaves out.
+/// either: like the mirror, they are what such an output leaves out. Facts that carry a member
+/// the profile does not keep are refused, with or without the mirror: that is a format
+/// missing from [`kept`], whose keys would otherwise be lost.
 pub fn record_ignored(out: &mut Out, facts: &J, profile: &str) -> Result<(), String> {
     let strings = |m: &str| -> Vec<&str> { facts[m].as_array().into_iter().flatten().filter_map(J::as_str).collect() };
+    // a member the facts carry that the profile does not keep would be lost: refuse it
+    for m in ["empty_dirs", "ignored"] {
+        if !kept(profile).contains(&m) && !strings(m).is_empty() {
+            return Err(format!("internal: the {profile} convention keeps no {m}"));
+        }
+    }
     let mut members: Vec<(&str, Vec<&str>)> = Vec::new();
     for &m in kept(profile) {
         let mut v = strings(m);

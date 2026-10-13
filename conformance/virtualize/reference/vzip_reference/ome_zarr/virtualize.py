@@ -10,7 +10,7 @@ import re
 
 from vzip.virtualize.common import Rejected
 from vzip.virtualize.store import Store, StoreOutput, as_int, canonical_index, is_number, join, num, parent_of
-from vzip.virtualize.zarr2.virtualize import hierarchy_output, prefetch, read_hierarchy
+from vzip_reference.zarr2.virtualize import hierarchy_output, prefetch, read_hierarchy
 
 OME_KEYS = ("multiscales", "omero", "labels", "image-label", "plate", "well", "bioformats2raw.layout")
 VERSIONED = ("omero", "image-label", "plate", "well")  # whose own `version` is dropped (spec/virtualize/ome-zarr.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>)

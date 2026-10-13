@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { declare, stringifyJson } from "../src/virtualize/common.ts";
 import { virtualizeN5 } from "../../conformance/virtualize/reference/ts/n5/virtualize.ts";
-import { virtualizeZarr2 } from "../src/virtualize/zarr2/virtualize.ts";
+import { virtualizeZarr2 } from "../../conformance/virtualize/reference/ts/zarr2/virtualize.ts";
 import {
   asInt,
   compareKeys,
