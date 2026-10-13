@@ -53,7 +53,7 @@ from vzip.errors import ResolutionError
 from vzip.pb import Concat, Range, Reference, Source, parts
 from vzip.policy import Policy
 from vzip.store import DEFAULT_CONCURRENCY, Kind, ReferenceReader, Request, Stats, _abs_range
-from vzip.uri import file_uri
+from vzip.uri import file_uri, is_uri_reference
 from vzip.uri import resolve as resolve_reference
 
 
@@ -372,23 +372,29 @@ class ReferenceStore(ReferenceReader):
                        for s in sources]
         check = policy or Policy()
         refused = []
-        # Without a prefix list, the policy decides by an absolute URL's scheme and host
-        # alone: one check per origin, not per source (a store has a source per object).
+        # Without a prefix list, the policy decides a valid absolute URL by its scheme and
+        # host alone: one check per origin, not per source (a store has a source per
+        # object). Each URL is still checked to be a URI reference, as resolving it does.
         by_origin: dict[str, str | None] = {}
         for s in sources:
             if s.url is None:
                 continue
             origin = _ORIGIN.match(s.url) if check.prefixes is None else None
-            if origin is None or origin[0] not in by_origin:
-                try:
-                    check.check(base, resolve_reference(base, s.url))
-                    error = None
-                except (ResolutionError, ValueError) as e:
-                    error = str(e)
-                if origin is not None:
-                    by_origin[origin[0]] = error
-            else:
+            if origin is not None and origin[0] in by_origin and is_uri_reference(s.url):
                 error = by_origin[origin[0]]
+            else:
+                try:
+                    resolved = resolve_reference(base, s.url)
+                except ValueError as e:  # not a URI reference: its own error, not its origin's
+                    error = str(e)
+                else:
+                    try:
+                        check.check(base, resolved)
+                        error = None
+                    except (ResolutionError, ValueError) as e:
+                        error = str(e)
+                    if origin is not None:
+                        by_origin[origin[0]] = error
             if error is not None:
                 refused.append(error)
         if refused:

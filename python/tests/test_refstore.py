@@ -203,6 +203,12 @@ def test_save_counts_each_refused_source_of_a_shared_origin(tmp_path):
         store.save(tmp_path / "x.vzip")
     with pytest.raises(ValueError, match=r"refuses 4 of its 5 sources.*127\.0\.0\.1/b"):
         store.save(tmp_path / "x.vzip", policy=vzip.Policy(prefixes=("https://data.test/a",)))
+    # an invalid URL is refused on its own, whatever its origin's other sources
+    store = vzip.ReferenceStore({f"k{i}": Range(source=i, offset=0, length=1) for i in range(3)},
+                                [Source(url=u) for u in ("https://data.test/a", "https://data.test/a b",
+                                                         "https://data.test/c")])
+    with pytest.raises(ValueError, match=r"refuses 1 of its 3 sources.*not a valid URI reference"):
+        store.save(tmp_path / "x.vzip")
     assert not (tmp_path / "x.vzip").exists()
 
 
