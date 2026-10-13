@@ -3,7 +3,7 @@
 The Zarr layout of a TIFF or BigTIFF file, including OME-TIFF and JPEG-tiled
 slides such as Aperio SVS, and the translation of its tags into JSON. What
 all of vzip's conventions share is in [spec/conventions.md](../conventions.md),
-cited here as "conventions §n". How vzip produces this layout as a virtual
+cited here as "conventions §n". How vzip produces this layout as a reference
 store is the TIFF profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `48e9ac4e-1156-4a62-955e-20467d9c2700` ·

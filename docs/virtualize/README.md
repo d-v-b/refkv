@@ -158,7 +158,7 @@ holding at most 64 MiB of documents ahead of the virtualizer.
 
 ## The source's metadata, and where it came from: `vzip_virtualized`
 
-A virtual hierarchy looks like any other Zarr, so it says what it is. Each
+A virtualized hierarchy looks like any other Zarr, so it says what it is. Each
 format has a [Zarr convention](https://github.com/zarr-conventions/zarr-conventions-spec)
 of its own, specified in [spec/conventions.md](../../spec/conventions.md): the
 hierarchy's whole Zarr layout, and the translation of the source's header
@@ -183,8 +183,11 @@ each format's metadata is:
   fit its budget, and a CZI file's header.
 - **NDPI:** the IR mirror on `vzip_source`, as for TIFF: every IFD, tag,
   high word and strip.
-- **DICOM:** the file's attributes, in the DICOM JSON Model, on the root;
-  the ones that would make the root large are on `vzip_source`.
+- **DICOM:** the IR mirror on `vzip_source`, as for TIFF: the file's data
+  elements themselves, layout, padding and dead space included. The root
+  keeps the File Meta Information and the dataset in the DICOM JSON Model,
+  without the members that would make it large
+  ([dicom §5](../../spec/virtualize/dicom.md#5-source-metadata)).
 - **NIfTI:** the IR mirror on `vzip_source`: the header, the extender, each
   extension and the voxel data. The root keeps the header, field by field,
   the scaling and the affine.

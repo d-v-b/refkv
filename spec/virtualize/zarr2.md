@@ -2,7 +2,7 @@
 
 The Zarr v3 layout of a Zarr v2 hierarchy, and its attributes. What all of
 vzip's conventions share is in [spec/conventions.md](../conventions.md), cited
-here as "conventions §n". How vzip produces this layout as a virtual store
+here as "conventions §n". How vzip produces this layout as a reference store
 from a listed store is the Zarr v2 profile,
 [Part 2](#part-2-the-profile) below. The
 [OME-Zarr convention](ome-zarr.md) builds on this one.

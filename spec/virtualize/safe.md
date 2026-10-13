@@ -4,7 +4,7 @@ The Zarr v3 layout of a Sentinel-2 Level-1C or Level-2A product in the SAFE
 format (a `.SAFE` directory, or the `.SAFE.zip` archive of one), and the
 translation of its metadata into JSON. What all of vzip's conventions share
 is in [spec/conventions.md](../conventions.md), cited here as "conventions §n".
-How vzip produces this layout as a virtual store is the SAFE profile,
+How vzip produces this layout as a reference store is the SAFE profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `ef81346c-19e8-42ad-93b0-a279ccaf44c1` ·

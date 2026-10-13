@@ -5,7 +5,7 @@ JPEG 2000 encapsulated pixel data, including whole-slide images, and the
 translation of its File Meta Information and dataset into the DICOM JSON
 Model. What all of vzip's conventions share is in
 [spec/conventions.md](../conventions.md), cited here as "conventions §n". How
-vzip produces this layout as a virtual store is the DICOM profile,
+vzip produces this layout as a reference store is the DICOM profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `acf17198-e5a5-48d3-8187-22ec4bb40ea5` ·
