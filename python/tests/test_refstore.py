@@ -433,6 +433,11 @@ def test_constructor_rejects_compressed_naming_no_bytes_value():
                             compressed=["r"])
 
 
+def test_constructor_rejects_a_page_size_that_is_not_positive():
+    with pytest.raises(ValueError, match="page_size is a positive number of bytes or None, not 0"):
+        vzip.ReferenceStore({}, page_size=0)
+
+
 def test_constructor_rejects_a_source_of_another_type():
     with pytest.raises(TypeError, match="Source"):
         vzip.ReferenceStore({}, ["https://a/b"])

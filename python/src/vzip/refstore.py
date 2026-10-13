@@ -217,8 +217,10 @@ class ReferenceStore(ReferenceReader):
         for key in self._compressed:
             if not isinstance(values.get(key), bytes):
                 raise ValueError(f"compressed names {key!r}, which is not a key of a bytes value")
+        if page_size is not None and (not isinstance(page_size, int) or page_size <= 0):
+            raise ValueError(f"page_size is a positive number of bytes or None, not {page_size!r}")
         self._page_size = page_size
-        self._info = types.MappingProxyType(copy.deepcopy(dict(info or {})))
+        self._info = copy.deepcopy(dict(info or {}))
 
     # ------------------------------------------------------------ constructors
 
@@ -295,12 +297,13 @@ class ReferenceStore(ReferenceReader):
         return self._page_size
 
     @property
-    def info(self) -> Mapping:
-        """What the store's builder says about it (read-only). For a store from
+    def info(self) -> dict:
+        """What the store's builder says about it, as a copy: changing it leaves the
+        store's own unchanged. For a store from
         `vzip.virtualize.virtualize`: `format`, the profile that virtualized the
         input (such as "tiff" or "zarr2"), and the profile's summary of what it
         found, as `python -m vzip.virtualize` prints it. Empty otherwise."""
-        return self._info
+        return copy.deepcopy(self._info)
 
     def __eq__(self, other: object) -> bool:
         return self is other

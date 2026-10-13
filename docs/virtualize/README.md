@@ -77,7 +77,8 @@ The other formats are implemented in Python and do not need it.
 
 The command prints a one-line JSON summary. It exits with status 3 if the
 profile rejects the input, and with status 1 if the reader policy refuses the
-source (below). The format is chosen by the file's first bytes, or for a
+source, or a source the archive would name, such as a `--url` on a private
+host (below); it then writes no archive. The format is chosen by the file's first bytes, or for a
 store by the objects at its root. Options:
 
 - `--url <url>`: the URL to record as the source, for a local file or

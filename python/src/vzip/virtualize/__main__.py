@@ -63,7 +63,7 @@ def main(argv: list[str]) -> int:
     except ValueError as e:  # a source a reader under that policy could not read
         print(f"error: {e}", file=sys.stderr)
         return 1
-    print(json.dumps(dict(store.info)))
+    print(json.dumps(store.info))
     return 0
 
 

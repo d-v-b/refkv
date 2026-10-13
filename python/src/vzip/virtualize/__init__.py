@@ -15,7 +15,10 @@ machinery (§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-
     python -m vzip.virtualize <url or path> <out.vzip> [--url <source url>] [--checksums]
         [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB]
 
-Exits with status 3 if the input is rejected.
+Exits with status 3 if the input is rejected, and with status 1 if the reader policy
+refuses the input, or a source the archive would name (such as a `--url` on a private
+host without `--allow-private-hosts`): the archive is checked against the policy the
+input is read under, and is not written.
 
 In Python, `virtualize(location)` (or `virtualize_store`, for a store) returns the
 result as a `vzip.ReferenceStore`: readable in memory, and written as a vzip archive
