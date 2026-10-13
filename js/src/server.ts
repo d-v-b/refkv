@@ -24,7 +24,6 @@ import { openHttpStore, StoreError, StoreLimitError, StoreReadError } from "./vi
 import { Zarr2Error } from "./virtualize/zarr2/virtualize.ts";
 import { OmeZarrError } from "./virtualize/ome-zarr/virtualize.ts";
 import { SafeError } from "./virtualize/safe/virtualize.ts";
-import { DicomError } from "./virtualize/dicom/virtualize.ts";
 import { ImsError } from "./virtualize/ims/virtualize.ts";
 import { NiftiError } from "./virtualize/nifti/virtualize.ts";
 import { TiffError } from "./virtualize/tiff/ifd.ts";
@@ -227,7 +226,6 @@ export function makeHandler(options: HandlerOptions) {
         return response(status, message);
       }
       if (e instanceof TiffError) return response(422, `TIFF: ${message}`);
-      if (e instanceof DicomError) return response(422, `DICOM: ${message}`);
       if (e instanceof NiftiError) return response(422, `NIfTI: ${message}`);
       if (e instanceof ImsError) return response(422, `IMS: ${message}`);
       if (e instanceof N5Error) return response(422, `N5: ${message}`);

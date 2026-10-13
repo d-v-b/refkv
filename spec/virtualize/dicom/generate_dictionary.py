@@ -1,4 +1,4 @@
-"""Writes python/src/vzip/virtualize/dicom/dictionary.json, the data dictionary that
+"""Writes rust/vzip-ir/schema/dicom_dictionary.json, the data dictionary that
 the DICOM convention applies to elements whose VR the file does not state
 (spec/virtualize/dicom.md §5
 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>).
@@ -23,7 +23,7 @@ from pydicom._dicom_dict import DicomDictionary, RepeatersDictionary
 
 VRS = {"AE", "AS", "AT", "CS", "DA", "DS", "DT", "FD", "FL", "IS", "LO", "LT", "OB", "OD", "OF", "OL", "OV",
        "OW", "PN", "SH", "SL", "SQ", "SS", "ST", "SV", "TM", "UC", "UI", "UL", "UN", "UR", "US", "UT", "UV"}
-OUT = Path(__file__).parents[3] / "python" / "src" / "vzip" / "virtualize" / "dicom" / "dictionary.json"
+OUT = Path(__file__).parents[3] / "rust" / "vzip-ir" / "schema" / "dicom_dictionary.json"
 
 
 def main() -> None:

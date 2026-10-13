@@ -5,3 +5,7 @@
 20 as recording the current revision (HARNESS.md)."""
 
 REVISION = 20
+
+# The revision the frozen DICOM profile records: 25, the last before the IR mirror became
+# DICOM's `vzip_source` (revision 26).
+DICOM_REVISION = 25

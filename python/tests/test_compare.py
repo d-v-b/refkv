@@ -164,9 +164,9 @@ def test_mirror_problem_finds_a_table_that_is_not_canonical(tmp_path):
 
 
 def test_at_revision():
-    """A frozen twin's root (TIFF, ND2 and CZI at revision 20, Zarr v2 at 25) reads at the current
-    revision; any other root (another revision, another profile's frozen one, no revision, a
-    profile with no twin), or an output without one, is unchanged."""
+    """A frozen twin's root (TIFF, ND2 and CZI at revision 20, DICOM and Zarr v2 at 25) reads at
+    the current revision; any other root (another revision, another profile's frozen one, no
+    revision, a profile with no twin), or an output without one, is unchanged."""
     def root(revision, profile="tiff"):
         prop = {"profile": profile, "version": 0, "revision": revision, "source": {"url": "u"}}
         if revision is None:
@@ -176,8 +176,8 @@ def test_at_revision():
 
     for profile, revision in compare.REFERENCE_REVISIONS.items():
         assert compare.at_revision(root(revision, profile)) == root(compare.REVISION, profile), profile
-    for other in (root(compare.REVISION), root(19), root(25), root(20, "zarr2"), root(None), root(None, "n5"),
-                  root(20, "n5"), {"sources": [], "entries": {}}):
+    for other in (root(compare.REVISION), root(19), root(25), root(20, "zarr2"), root(20, "dicom"),
+                  root(25, "nifti"), root(None), root(None, "n5"), root(20, "n5"), {"sources": [], "entries": {}}):
         assert compare.at_revision(other) == other
 
 

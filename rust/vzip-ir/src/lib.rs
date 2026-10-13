@@ -10,6 +10,7 @@ pub mod check;
 pub mod coding;
 pub mod cxml;
 pub mod czi;
+pub mod dicom;
 pub mod expr;
 pub mod fed;
 pub mod ir;
@@ -67,6 +68,7 @@ macro_rules! parser {
 parser!(nd2::Nd2);
 parser!(tiff::Tiff);
 parser!(czi::Czi);
+parser!(dicom::Dicom);
 
 /// Runs a parser over bytes in memory (tests, tools).
 pub fn parse_bytes<P: Parser>(data: &[u8]) -> Result<(ir::Ir, serde_json::Value), String> {
