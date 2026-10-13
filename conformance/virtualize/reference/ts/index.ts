@@ -1,18 +1,18 @@
-// The frozen TypeScript virtualizers of TIFF, ND2 and CZI, and of Zarr v2 stores (the twins in
-// this directory, as they were before the browser adopted the Rust core for them), dispatched as
+// The frozen TypeScript virtualizers of TIFF, ND2, CZI and NDPI, and of Zarr v2 stores (the
+// twins in this directory, as they were before the browser adopted the Rust core for them), dispatched as
 // js/src/virtualize/index.ts dispatched them; the other profiles are the shipped
 // code's. For comparing the Rust core's output with the TypeScript one's.
 
 import { type ByteReader, ImageError } from "../../../../js/src/virtualize/common.ts";
 import { isDicom, virtualizeDicom } from "./dicom/virtualize.ts";
 import { virtualizeIms } from "../../../../js/src/virtualize/ims/virtualize.ts";
-import { detectNdpi, virtualizeNdpi } from "../../../../js/src/virtualize/ndpi/virtualize.ts";
 import { detectNifti, virtualizeNifti } from "../../../../js/src/virtualize/nifti/virtualize.ts";
 import { isZip, virtualizeSafeZip } from "../../../../js/src/virtualize/safe/virtualize.ts";
 import { addChecksums, type PinOptions } from "../../../../js/src/virtualize/index.ts";
 import type { ArchiveDesc } from "../../../../js/src/writer.ts";
 import { isCzi, virtualizeCzi } from "./czi/virtualize.ts";
 import { isNd2, virtualizeNd2 } from "./nd2/virtualize.ts";
+import { detectNdpi, virtualizeNdpi } from "./ndpi/virtualize.ts";
 import { virtualizeTiff } from "./tiff/virtualize.ts";
 
 export { isStoreUrl } from "../../../../js/src/virtualize/index.ts";
@@ -29,7 +29,7 @@ const HDF5 = [0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a];
 
 type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe"; summary: object };
 
-/** `virtualizeImage` of js/src/virtualize/index.ts, with the frozen TIFF, ND2 and CZI virtualizers. */
+/** `virtualizeImage` of js/src/virtualize/index.ts, with the frozen TIFF, ND2, CZI and NDPI virtualizers. */
 export async function virtualizeImage(
   url: string,
   read: ByteReader,

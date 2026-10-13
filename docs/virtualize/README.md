@@ -49,7 +49,7 @@ Their public test inputs are listed in [corpus_safe.txt](../../conformance/virtu
 
 **Numbers in these pages.** The outputs, timings, request counts and archive
 sizes quoted in the format pages were measured at spec/virtualize.md revision 16.
-The current revision is 25. Since revision 16, the archives also keep the
+The current revision is 26. Since revision 16, the archives also keep the
 source's whole metadata (below), so they are larger than the sizes quoted.
 TIFF and ND2 are now read through a read planner, so their request counts
 differ too. Where a summary line or an attribute path has changed since
@@ -181,7 +181,8 @@ each format's metadata is:
   little: a TIFF's byte order and BigTIFF flag, an ND2 file's decoded
   metadata chunks (attributes, experiment, picture metadata, text info) that
   fit its budget, and a CZI file's header.
-- **NDPI:** every tag of every IFD, under `vzip_source/ifds/<i>`.
+- **NDPI:** the IR mirror on `vzip_source`, as for TIFF: every IFD, tag,
+  high word and strip.
 - **DICOM:** the file's attributes, in the DICOM JSON Model, on the root;
   the ones that would make the root large are on `vzip_source`.
 - **NIfTI:** the header, field by field, its extensions and the affine, on

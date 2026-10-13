@@ -18,6 +18,7 @@ pub mod json;
 pub mod lv;
 pub mod mirror;
 pub mod nd2;
+pub mod ndpi;
 pub mod out;
 pub mod plan;
 pub mod project;

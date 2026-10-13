@@ -25,17 +25,17 @@ corpus_hash.py records and checks.
 Implementations are `name=command`, where the command is run as
 `command <url> <out>`. The built-in ones write vzip archives: `ref` (the
 reference, the frozen Python profiles of conformance/virtualize/reference/ for
-TIFF, ND2, CZI, DICOM and Zarr v2 and the shipped ones for the others), `py` (`python -m
+TIFF, ND2, CZI, DICOM, NDPI and Zarr v2 and the shipped ones for the others), `py` (`python -m
 vzip.virtualize`) and `web` (the browser code under Node). Others write
 HARNESS.md's JSON description; give them as `--impl name=command`.
 
-`py` and `web` virtualize TIFF, ND2, CZI and DICOM files, and Zarr v2 stores, through one
-Rust core (rust/vzip-ir, natively and as wasm32), and write its mirror under `vzip_source`,
-which the frozen reference does not: for those profiles an implementation is compared with
-the reference outside `vzip_source`, and `py` and `web` with each other entirely,
+`py` and `web` virtualize TIFF (NDPI included), ND2, CZI and DICOM files, and Zarr v2 stores,
+through one Rust core (rust/vzip-ir, natively and as wasm32), and write its mirror under
+`vzip_source`, which the frozen reference does not: for those profiles an implementation is
+compared with the reference outside `vzip_source`, and `py` and `web` with each other entirely,
 entry for entry (they must give the same archive contents, `vzip_source` included).
-The frozen reference records the revision it implements (20; 25 for DICOM and Zarr v2) in its
-root, where the shipped code records the current one: compared with it, the reference's root
+The frozen reference records the revision it implements (20; 25 for DICOM, NDPI and Zarr v2) in
+its root, where the shipped code records the current one: compared with it, the reference's root
 is read at the current revision. Each mirror is also checked on its own (`mirror_problem`):
 it reads, it rebuilds a source of source 0's size (a store's: its listing, the sizes its
 sources pin, and every held object byte for byte, read from the store), it is canonical, and
@@ -92,10 +92,10 @@ BUILTIN = {
     "web": ("vzip", ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"]),
 }
 # The profiles whose shipped implementations write the IR's mirror under vzip_source.
-IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "zarr2")
+IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "ndpi", "zarr2")
 SOURCE = "vzip_source/"
-# The revision each frozen reference twin's root records, by profile (HARNESS.md).
-REFERENCE_REVISIONS = {"tiff": 20, "nd2": 20, "czi": 20, "dicom": 25, "zarr2": 25}
+# The revision each of the frozen reference's profiles records in its roots (HARNESS.md).
+REFERENCE_REVISIONS = {"tiff": 20, "nd2": 20, "czi": 20, "dicom": 25, "ndpi": 25, "zarr2": 25}
 
 
 class Unreadable(Exception):

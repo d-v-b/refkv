@@ -20,7 +20,7 @@ from vzip.virtualize.common import (
     MAX_PAYLOAD, Output, Reader, Rejected, array_json, centred, image_ome, json_base64, payload_size, root_json,
     transpose_codec,
 )
-from vzip.virtualize.tiff.tags import LAYOUT, Entry, Translator
+from vzip_reference.tiff.tags import LAYOUT, Entry, Translator
 
 MAX_IFDS = 100000
 MAX_SAFE = 2**53 - 1
@@ -44,6 +44,9 @@ MAX_SIDE = 65535  # the largest height or width a JPEG frame header holds
 # markers (spec/virtualize/ndpi.md §5
 # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#5-source-metadata>).
 NDPI_LAYOUT = LAYOUT | {65426, 65432}
+# The revision the frozen NDPI reference implements and its root records: 25, the last
+# before NDPI's vzip_source became the IR mirror (revision 26).
+REVISION = 25
 
 
 def detect(read: Reader, size: int) -> int | None:
@@ -324,7 +327,7 @@ def virtualize_ndpi(url: str, read: Reader, size: int, first: int) -> Output:
         corner = centred(offset_x[0] / 1000, offset_y[0] / 1000, base["w"], base["h"], px, py)
         translation = [0, corner["y"], corner["x"]]
     out.json("zarr.json", root_json(image_ome(axes, units, scales, None,
-                                               [translation] * len(levels) if translation else None), "ndpi", url))
+                                               [translation] * len(levels) if translation else None), "ndpi", url, None, REVISION))
     # The source metadata (spec/virtualize/ndpi.md §5
     # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#5-source-metadata>): every
     # IFD's tags, and the strips of the IFDs that are not levels (the macro image, the map).

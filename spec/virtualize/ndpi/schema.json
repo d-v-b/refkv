@@ -128,12 +128,12 @@
       "additionalProperties": false
     },
     "sourceMetadata": {
-      "oneOf": [
+      "anyOf": [
         {
-          "$ref": "#/$defs/sourceNode"
+          "$ref": "#/$defs/mirror"
         },
         {
-          "$ref": "#/$defs/ifd"
+          "$ref": "#/$defs/mirrorView"
         }
       ]
     },
@@ -181,240 +181,143 @@
         }
       ]
     },
-    "sourceNode": {
+    "mirror": {
       "type": "object",
-      "description": "vzip_source's: the number of IFDs in the main chain, each a group at ifds/<i>",
+      "description": "vzip_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>)",
       "properties": {
-        "ifd_count": {
-          "type": "integer",
-          "minimum": 1
-        }
-      },
-      "required": [
-        "ifd_count"
-      ],
-      "additionalProperties": false
-    },
-    "ifd": {
-      "type": "object",
-      "description": "An IFD's group",
-      "properties": {
-        "tags": {
+        "ir": {
           "type": "object",
-          "description": "Each tag but the layout and pointer tags, by its number in decimal",
-          "propertyNames": {
-            "pattern": "^(0|[1-9][0-9]*)$"
-          },
-          "additionalProperties": {
-            "$ref": "#/$defs/tag"
-          }
-        },
-        "pointers": {
-          "type": "object",
-          "description": "Each pointer tag, by its number in decimal",
-          "propertyNames": {
-            "pattern": "^(0|[1-9][0-9]*)$"
-          },
-          "additionalProperties": {
-            "$ref": "#/$defs/pointer"
-          }
-        },
-        "duplicates": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/duplicate"
-          },
-          "description": "The entries after the first of their tag"
-        },
-        "record": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "The IFD's record number, when a pointer tag's array refers to it"
-        },
-        "same_as": {
-          "type": "object",
-          "description": "Each array or family of bytes the IFD shares with one kept earlier, by its name: the earlier one's path under vzip_source",
-          "propertyNames": {
-            "pattern": "^(data|strips|jpeg_q_tables|jpeg_dc_tables|jpeg_ac_tables|0|[1-9][0-9]*)$"
-          },
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
-        "sof0": {
-          "type": "string",
-          "contentEncoding": "base64",
-          "description": "A McuStarts level's strip's SOF0 segment, which its chunks replace"
-        }
-      },
-      "required": [
-        "tags"
-      ],
-      "additionalProperties": false
-    },
-    "tag": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 65535
-        },
-        "count": {
-          "anyOf": [
-            {
+          "properties": {
+            "version": {
+              "const": 2
+            },
+            "size": {
               "type": "integer",
-              "minimum": 0
+              "minimum": 0,
+              "description": "The source's size in bytes"
             },
-            {
-              "type": "string",
-              "pattern": "^[0-9]+$"
-            }
-          ]
-        },
-        "value": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/text"
+            "elements": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The elements, column runs expanded"
             },
-            {
+            "rows": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The rows the table stores"
+            },
+            "names": {
               "type": "array",
               "items": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "type": "integer"
-                    },
-                    "minItems": 2,
-                    "maxItems": 2
-                  }
-                ]
-              }
-            }
-          ]
-        },
-        "field": {
-          "type": "string",
-          "contentEncoding": "base64",
-          "description": "The value field of an entry whose field type TIFF does not define"
-        }
-      },
-      "required": [
-        "type",
-        "count"
-      ],
-      "additionalProperties": false
-    },
-    "duplicate": {
-      "type": "object",
-      "properties": {
-        "tag": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 65535
-        },
-        "type": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 65535
-        },
-        "count": {
-          "anyOf": [
-            {
-              "type": "integer",
-              "minimum": 0
+                "type": "string"
+              },
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "const": ""
+                }
+              ],
+              "description": "The interned names, sorted; the first, \"\", is the root's (conventions §8.1 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>)"
             },
-            {
-              "type": "string",
-              "pattern": "^[0-9]+$"
-            }
-          ]
-        },
-        "value": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/text"
-            },
-            {
+            "types": {
               "type": "array",
               "items": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "type": "integer"
-                    },
-                    "minItems": 2,
-                    "maxItems": 2
-                  }
-                ]
-              }
+                "type": "string"
+              },
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "const": ""
+                }
+              ],
+              "description": "The interned types (§8.6 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#86-types>)"
+            },
+            "forms": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The interned forms, each a JSON text (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#85-forms-and-recipes>)"
             }
-          ]
-        },
-        "field": {
-          "type": "string",
-          "contentEncoding": "base64",
-          "description": "The value field of an entry whose field type TIFF does not define"
+          },
+          "required": [
+            "version",
+            "size",
+            "elements",
+            "rows",
+            "names",
+            "types",
+            "forms"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
-        "tag",
-        "type",
-        "count"
+        "ir"
       ],
       "additionalProperties": false
     },
-    "pointer": {
+    "mirrorView": {
       "type": "object",
+      "description": "A view group's (vzip_source/tree/...): a struct's view document (spec/conventions.md §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>)",
       "properties": {
-        "type": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 65535
+        "$vz": {
+          "const": "derived",
+          "description": "A derived element's document"
         },
-        "count": {
-          "anyOf": [
-            {
-              "type": "integer",
-              "minimum": 0
-            },
-            {
-              "type": "string",
-              "pattern": "^[0-9]+$"
-            }
-          ]
+        "$form": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A derived element's form (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#85-forms-and-recipes>)"
         },
-        "ifds": {
-          "type": "array",
-          "items": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "maxItems": 64,
-          "description": "For each value (at most 64; with more, they are the array <path>/<tag> of record numbers), the path under vzip_source of the IFD it leads to, or null"
+        "$partial": {
+          "const": true,
+          "description": "The document stops short of the struct's children"
         }
       },
-      "required": [
-        "type",
-        "count"
-      ],
-      "additionalProperties": false
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/viewValue"
+      }
+    },
+    "viewValue": {
+      "description": "A child's view: a JSON value, a nested document, or a $vz form",
+      "anyOf": [
+        {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null",
+            "array"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$vz": {
+              "enum": [
+                "alias",
+                "group",
+                "element",
+                "derived",
+                "int",
+                "float",
+                "bytes",
+                "utf16"
+              ]
+            }
+          },
+          "required": [
+            "$vz"
+          ]
+        },
+        {
+          "type": "object"
+        }
+      ]
     },
     "nodeProperty": {
       "type": "object",
