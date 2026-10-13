@@ -2,8 +2,8 @@
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#124-the-zip-form>): the ZIP
 // archive's end records, its central directory, its local headers, and its deflated XML documents.
 
-import type { ByteReader } from "../common.ts";
-import { crc32 } from "../../deflate.ts";
+import type { ByteReader } from "../../../../../js/src/virtualize/common.ts";
+import { crc32 } from "../../../../../js/src/deflate.ts";
 import { SafeError } from "./product.ts";
 
 const MAX_TAIL = 65557; // an EOCD record (22 bytes) and the longest comment

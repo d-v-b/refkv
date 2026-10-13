@@ -9,7 +9,7 @@ import json
 import re
 
 from vzip.virtualize.common import json_number
-from vzip.virtualize.safe.product import DECIMAL, Element, Geocoding, Product, attr, kids, path, text
+from vzip_reference.safe.product import DECIMAL, Element, Geocoding, Product, attr, kids, path, text
 
 MAX_SAFE = 2**53 - 1
 

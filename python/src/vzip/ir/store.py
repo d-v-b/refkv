@@ -13,13 +13,15 @@ directory), and drives the run:
 - `drive_store(run, store)`: the loop. Each `poll()` is a batch: one request per object (its
   spans, a whole object being one span), made at most `store.workers` at a time (the
   concurrency of #37's prefetch of documents), then `complete()`.
-- `virtualize_store(location, url, fmt)`: the store listed under the policy, run, and the
-  output (`StoreIrOutput`), whose references to objects become one url source per object
-  referenced, its size pinned, in order of the entries' keys (spec/virtualize.md §1.4
+- `virtualize_store(location, url, fmt)` (or `virtualize_listed(store, fmt)` for a store
+  listed already): the store listed under the policy, run, and the output
+  (`StoreIrOutput`), whose references to objects become one url source per object
+  referenced, its size pinned, in order of first use, and whose data sources follow
+  (spec/virtualize.md §1.4
   <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>).
 
-No production profile uses it yet: `zarr2-proto` (rust/vzip-ir/src/proto_zarr2.rs) is the
-only store format of the core, a prototype.
+The SAFE profile's directory form (`safe`) uses it; `zarr2-proto`
+(rust/vzip-ir/src/proto_zarr2.rs) is a prototype no production path uses.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from typing import Callable
 
 from vzip.virtualize.common import Rejected
 from vzip.virtualize.store import Store, object_url, open_store
@@ -90,27 +93,79 @@ def drive_store(run, store: Store, workers: int | None = None) -> None:
 
 @dataclass
 class StoreIrOutput:
-    """The output of a store run (`vzip_ir.StoreRun.output`): bytes entries, references to
-    whole objects (`refs`: entry key -> (object key, size)), the lazy prefixes and the summary."""
+    """The output of a store run (`vzip_ir.StoreRun.output`): bytes entries, references
+    (`refs`: entry key -> its parts, each ("object", key, offset, length) of a store's
+    object, (source, offset, length) of data source `source` (from 1, the core's numbering),
+    or literal bytes), the data sources, the lazy prefixes and the summary. `sizes` are the
+    listed objects' sizes, which the url sources pin."""
 
     url: str
     entries: dict[str, bytes] = field(default_factory=dict)
-    refs: dict[str, tuple[str, int]] = field(default_factory=dict)
+    refs: dict[str, list] = field(default_factory=dict)
+    data: list[bytes] = field(default_factory=list)
     lazy: tuple[str, ...] = ("vzip_source/",)
     summary: dict = field(default_factory=dict)
+    sizes: dict[str, int] = field(default_factory=dict)
+    # The CRC-32C of a url source's bytes, when the ranges are to carry checksums
+    # (spec/archive.md §4.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>).
+    checksum: Callable[[str, int, int], int] | None = None
+
+    def table(self) -> tuple[list[str], list[bytes], dict[str, list]]:
+        """The source table and the references numbered by it: one url source per object
+        some reference uses, in order of first use (the references in order of their keys,
+        each one's ranges in order), then the data sources, also in order of first use
+        (spec/virtualize.md §1.4
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>; a Zarr v2
+        or N5 store's objects are each one reference's, so this is one source per reference,
+        in order of the entries' keys; spec/virtualize/safe.md §12.8
+        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#128-the-source-table>).
+        A reference's parts become (source, offset, length) or bytes."""
+        keys = sorted(self.refs, key=lambda k: k.encode())
+        objects: dict[str, int] = {}
+        for k in keys:
+            for p in self.refs[k]:
+                if isinstance(p, tuple) and p[0] == "object":
+                    objects.setdefault(p[1], len(objects))
+        data: dict[int, int] = {}
+        out = {}
+        for k in keys:
+            ranges = []
+            for p in self.refs[k]:
+                if isinstance(p, (bytes, bytearray)):
+                    ranges.append(bytes(p))
+                elif p[0] == "object":
+                    ranges.append((objects[p[1]], p[2], p[3]))
+                elif len(p) == 3:
+                    i = data.setdefault(p[0], len(objects) + len(data))
+                    ranges.append((i, p[1], p[2]))
+                else:
+                    raise AssertionError(f"{k}: a reference to source 0 in a store's output")
+            out[k] = ranges
+        urls = [object_url(self.url, k) for k in objects]
+        return urls, [self.data[i - 1] for i in data], out
 
     @property
     def sources(self) -> list[str]:
-        """The source table: one url source per reference, in order of the entries' keys."""
-        return [object_url(self.url, self.refs[k][0]) for k in sorted(self.refs, key=lambda k: k.encode())]
+        """The url sources (`table`)."""
+        return self.table()[0]
 
     def write(self, out_path: str) -> None:
         from vzip.archive import VZipWriter
+        from vzip.pb import Range, Source
 
+        urls, data, refs = self.table()
+        by_url = {object_url(self.url, k): n for k, n in self.sizes.items()}
         with open(out_path, "wb") as fh:
-            w = VZipWriter(fh, page_size=1 << 16)
-            keys = sorted(self.refs, key=lambda k: k.encode())
-            w.add_url_refs(((k, object_url(self.url, self.refs[k][0]), self.refs[k][1]) for k in keys), pin_size=True)
+            w = VZipWriter(fh, page_size=1 << 16, checksum=self.checksum)
+            for i, u in enumerate(urls):
+                if w.source(Source(url=u, size=by_url.get(u))) != i:
+                    raise AssertionError("url sources out of order")
+            for i, value in enumerate(data):
+                if w.blob(value) != len(urls) + i:
+                    raise AssertionError("data sources out of order")
+            for key, ranges in refs.items():
+                w.add_ranges(key, [Range(data=r) if isinstance(r, bytes) else
+                                   Range(source=r[0], offset=r[1], length=r[2]) for r in ranges])
             for key in sorted(self.entries):
                 late = key.endswith("zarr.json") and not key.startswith(self.lazy)
                 w.add_bytes(key, self.entries[key], compress=not late, late=late)
@@ -122,40 +177,36 @@ class StoreIrOutput:
         from vzip.pb import Range, Source
         from vzip.virtualize.common import reference_store
 
-        keys = sorted(self.refs, key=lambda k: k.encode())
-        sources = [Source(url=object_url(self.url, self.refs[k][0]), size=self.refs[k][1]) for k in keys]
-        refs = [(k, [Range(source=i, offset=0, length=self.refs[k][1])]) for i, k in enumerate(keys)]
+        urls, data, table = self.table()
+        by_url = {object_url(self.url, k): n for k, n in self.sizes.items()}
+        sources = [Source(url=u, size=by_url.get(u)) for u in urls] + [Source(data=v) for v in data]
+        refs = [(key, [Range(data=r) if isinstance(r, bytes) else Range(source=r[0], offset=r[1], length=r[2])
+                       for r in ranges]) for key, ranges in table.items()]
         entries = [(key, self.entries[key], key.endswith("zarr.json") and not key.startswith(self.lazy))
                    for key in sorted(self.entries)]
-        return reference_store(refs, entries, sources, policy=policy, info=info)
+        return reference_store(refs, entries, sources, checksum=self.checksum, policy=policy, info=info)
 
 
-def from_rust(t) -> StoreIrOutput:
+def from_rust(t, sizes: dict[str, int] | None = None) -> StoreIrOutput:
     """(url, entries, refs, data sources, lazy prefixes, summary JSON) of a store run as a
-    StoreIrOutput: every reference is one whole object (a store output has no data sources)."""
+    StoreIrOutput; `sizes`, the listing's."""
     url, entries, refs, data, lazy, summary = t
-    if data:
-        raise AssertionError("a store output with data sources")
-    out = StoreIrOutput(url, dict(entries), lazy=tuple(lazy), summary=json.loads(summary))
+    out = StoreIrOutput(url, dict(entries), lazy=tuple(lazy), summary=json.loads(summary), data=list(data),
+                        sizes=dict(sizes or {}))
     for k, parts in refs:
-        if len(parts) != 1 or parts[0][0] != "object" or parts[0][2] != 0:
-            raise AssertionError(f"{k}: a reference other than one whole object")
-        _, key, _, n = parts[0]
-        out.refs[k] = (key, n)
+        out.refs[k] = list(parts)
     return out
 
 
-def virtualize_store(location: str, url: str | None = None, fmt: str = "zarr2-proto", mirror: bool = True,
-                     policy=None, workers: int | None = None, opener=None):
-    """(output, IR, run counts) of the store at `location` (an http(s) store URL, listed and
-    read under `policy`, or a local directory served at `url`), parsed by the core's store
-    format `fmt`."""
+def virtualize_listed(store: Store, fmt: str, mirror: bool = True):
+    """(output, IR, run counts) of a listed store, parsed by the core's store format `fmt`:
+    the listing's objects, and the keys it ignores (its empty `d/` keys and its recorded
+    ignored keys), which a format may keep."""
     import vzip_ir
 
-    kw = {} if workers is None else {"workers": workers}
-    store = open_store(location, url, policy=policy, opener=opener, **kw)
     try:
         run = vzip_ir.StoreRun(fmt, listing(store), max(1, store.workers))
+        run.set_ignored(list(getattr(store, "folders", [])), list(getattr(store, "ignored", [])))
     except vzip_ir.Rejected as e:
         raise Rejected(str(e)) from None
     drive_store(run, store)
@@ -164,4 +215,16 @@ def virtualize_store(location: str, url: str | None = None, fmt: str = "zarr2-pr
         t, ir = run.output(store.url, mirror)
     except vzip_ir.Rejected as e:
         raise Rejected(str(e)) from None
-    return from_rust(t), ir, stats
+    out = from_rust(t, store.objects)
+    out.summary["listingRequests"] = getattr(store, "requests", 0)
+    return out, ir, stats
+
+
+def virtualize_store(location: str, url: str | None = None, fmt: str = "zarr2-proto", mirror: bool = True,
+                     policy=None, workers: int | None = None, opener=None):
+    """(output, IR, run counts) of the store at `location` (an http(s) store URL, listed and
+    read under `policy`, or a local directory served at `url`), parsed by the core's store
+    format `fmt`."""
+    kw = {} if workers is None else {"workers": workers}
+    store = open_store(location, url, policy=policy, opener=opener, **kw)
+    return virtualize_listed(store, fmt, mirror)

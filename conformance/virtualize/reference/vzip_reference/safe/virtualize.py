@@ -14,11 +14,12 @@ from vzip.virtualize.common import (
     CONVENTION_KEY, MAX_PAYLOAD, PROFILES, Reader, root_property, Rejected, SOURCE_NODE, blob_chunks, convention, declare,
     json_base64, payload_size, text_json,
 )
-from vzip.virtualize.safe import jp2, zipdir
-from vzip.virtualize.safe.metadata import (
+from vzip_reference.revision import STORES_REVISION
+from vzip_reference.safe import jp2, zipdir
+from vzip_reference.safe.metadata import (
     band_metadata, choose_texts, group_attributes, root_geozarr, root_metadata,
 )
-from vzip.virtualize.safe.product import band_name, folders, is_xml, read_product, resolution
+from vzip_reference.safe.product import band_name, folders, is_xml, read_product, resolution
 from vzip.virtualize.store import Store, object_key, object_url
 
 PROFILE = "safe"
@@ -349,7 +350,7 @@ def virtualize_product(url: str, objects: Objects) -> SafeOutput:
     cmos, geo_members = root_geozarr(product, resolutions)
     out.docs["zarr.json"] = _group({
         "zarr_conventions": [convention(PROFILE), *cmos],
-        CONVENTION_KEY: {**root_property(PROFILE, url), PROFILE: root_metadata(product)},
+        CONVENTION_KEY: {**root_property(PROFILE, url, STORES_REVISION), PROFILE: root_metadata(product)},
         **geo_members})
     for r in resolutions:
         out.docs[f"r{r}m/zarr.json"] = _group(group_attributes(product.geocoding, r))
