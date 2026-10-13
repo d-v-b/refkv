@@ -1769,7 +1769,134 @@ store readers (S3 or a directory, the reader policy, the store's workers),
 `vz_store_*` and `wasm/store.mjs` in wasm. Native and wasm agree on the 117
 fixture stores.
 
-## 49. Revision 26: IMS on the IR
+## 49. Revision 26: NDPI on the IR
+
+NDPI is read by the TIFF parser in an **NDPI variant** (`tiff.rs`): after the
+header, the parser tests a little-endian magic-42 TIFF for NDPI (the IFD at the
+u64 at bytes 4–11 has tag 65420; usually no extra round, since that IFD is the
+one the chain reads first), and a `Tiff` run becomes an `Ndpi` run, whose format
+the hosts take from the run (Python `Run.format`, the browser the output's
+summary). Hosts no longer test for NDPI. The extension points, each a method that
+asks `self.ndpi`: the IFD layout (`ifd_len`, `next_of`, `ifd`: 12-byte entries,
+a u64 next offset, then a u32 high word per entry, `tags/<tag>/high`), the 64-bit
+values (`Ent::high`; `ints` reads an in-line LONG or IFD of count 1 with its high
+word), the tags (`table`, `layout_tag`, `is_pointer`, against `schema/ndpi.json`;
+SubIFDs are a pointer tag, the tree is the main chain), the chain's check
+(`check_ndpi_offset`) and the layout (`derive_ndpi`). `ndpi.rs` holds what NDPI
+adds to TIFF: the strip's JPEG header (`header`, the `jpeg_segment` and
+`jpeg_header` roles) and the chunk grid (`Grid`: intervals, `a`, the largest `b`
+within the payload limit, each chunk's parts), which the parser checks and the
+projection (`project/ndpi.rs`) writes, from the same code. A level's strip is one
+`data` element (a whole JPEG stream); the projection reads its McuStarts from the
+IR's value elements, so nothing large crosses in the facts.
+
+Every rejection is a role of `schema/ndpi.json` (13 roles, 30 constraints), with
+today's messages; one Rust test per rejected fixture, one per JPEG header error.
+
+**Validation.**
+
+| check | result |
+|---|---|
+| fixtures (9), compare.py (`ref`, `py`, `web`) | 3 equivalent, 6 rejected by all, 0 divergent; `py` and `web` identical, mirror checks (canonical, view) pass |
+| mutants (`mutate.py`, 10 per fixture) | 90: 22 equivalent, 68 rejected by all, 0 divergent |
+| targeted NDPI mutants (60 per fixture: IFDs, high words, McuStarts, strip headers) | 540: 106 equivalent, 434 rejected by all, 0 divergent |
+| NDPI corpus (CMU-1, Hamamatsu-1, Hamamatsu-2), caching proxy, ≤ 6 upstream connections | 3 of 3 equivalent, mirror checks pass (Hamamatsu-1 found McuStartsHighBytes read as a scalar: fixed, dd803df) |
+| byte-exact rebuild from the mirror | the 3 accepted fixtures (Rust and Python tests), the 4 accepted probes, `just verify-ndpi` |
+| hostile probes (`gen_probes.py`, 11) | 4 equivalent and rebuilt, 7 rejected by both; 1 M intervals: today 28.8 s, the IR 15.1 s, same archive |
+| `just verify-ndpi` | 0 failures |
+
+**Virtualization** (metadata reads) over the range server serving sparse copies
+of the corpus (from the proxy's blocks); "today" is the frozen reference; wall
+time of one process on a machine at load average about 30, most of it the
+archive writer both share (the core parses, projects and mirrors Hamamatsu-1 in
+0.5 s; writing its 44 MB archive takes about 25 s):
+
+| slide | server | today | IR, 6 connections | IR, 8 |
+|---|---|---|---|---|
+| CMU-1 (198 MB) | 0 ms | 16.1 s, 9 req, 0.90 MB | 14.7 s, 16 req, 0.71 MB | 8.8 s, 16 req, 0.71 MB |
+| | 20 ms, 6.25 MB/s | 12.4 s | 9.8 s | 13.7 s |
+| | 500 ms, 0.66 MB/s (openslide) | 10.8 s | 8.8 s | 11.7 s |
+| Hamamatsu-2 (203 MB) | 0 ms | 14.3 s, 12 req, 0.82 MB | 8.9 s, 27 req, 0.41 MB | 7.7 s, 27 req, 0.41 MB |
+| | 500 ms, 0.66 MB/s | 11.2 s | 11.7 s, 26 req, 0.42 MB | 10.0 s |
+| Hamamatsu-1 (6.9 GB) | 0 ms | 115 s, 17 req, 7.95 MB | 70 s, 29 req, 7.47 MB | 83 s |
+| | 20 ms, 6.25 MB/s | 119 s | 30 s | 43 s |
+| | 500 ms, 0.66 MB/s | 68 s | 47 s | 46 s |
+
+Archives: CMU-1 5,519,423 B today, 5,519,734 B on the IR; Hamamatsu-2 2,710,866
+and 2,686,739; Hamamatsu-1 43,905,335 and 43,900,729. The mirror costs about what
+the translated tags did; the archives are the chunk references.
+
+**Viewing** (chunk reads through the store): the research branch's benchmark
+(`research/ndpi-access`, `experiments/ndpi_access`: Neuroglancer-like traces at
+1920 × 1080, its network model), with the interval tables taken from the IR's
+facts and McuStarts elements, and the IR's read planner as a reader: the policy
+of `plan.rs` (calibrated, remote: gap and cap from latency, rate, connections and
+the byte cost of 0.1 s per MB; packs on a multi-range server) and its merge
+(`vzip_ir.plan_spans`), for each chunk alone or for all of a view's chunks. The
+IR changes no chunk reference (the hierarchy outside `vzip_source` is today's),
+so today's readers read an IR archive exactly as they read today's: the planner
+rows are what a store reader that adopted it would do. The model reproduces the
+baselines exactly (CMU-1 level 1, all 130 chunks: 130 requests, 166.1 MB read,
+12.8 MB of intervals; the central 4 × 4 chunks of level 0: 16, 89.2 MB, 1.4 MB).
+
+| case | reader | 20 ms, 50 Mbit/s | 80 ms, 500 Mbit/s | openslide |
+|---|---|---|---|---|
+| CMU-1 level 1, 130 chunks | today | 130 req, 166.1 MB, 26.6 s | 3.79 s | 252 s |
+| | IR planner, per view | 7 req, 12.9 MB, 2.10 s | 0.37 s | 20.4 s |
+| CMU-1 level 0, 4 × 4 chunks | today | 16 req, 89.2 MB, 14.3 s | 1.63 s | 135 s |
+| | IR planner, per view | 512 req, 1.4 MB, 1.79 s | 19 req, 21.6 MB, 0.51 s | 33.1 s |
+
+Traces, total s · requests · read ÷ the visible intervals' bytes (CMU-1 55 views,
+Hamamatsu-1 56):
+
+| slide | reader | 20 ms, 50 Mbit/s | 80 ms, 500 Mbit/s | HTTP/2, 20 ms, 50 Mbit/s | openslide | 20 ms + multi-range | 80 ms + multi-range |
+|---|---|---|---|---|---|---|---|
+| CMU-1 | today | 41.4 s · 104 · 13.9× | 6.9 s · 104 · 13.9× | 41.4 s · 104 · 13.9× | 401 s · 104 · 13.9× | 41.4 s | 6.9 s |
+| | IR planner, per chunk | 29.7 s · 6923 · 3.6× | 32.7 s · 2216 · 11.7× | 6.7 s · 10792 · 1.7× | 465 s · 2219 · 11.7× | 5.7 s · 624 · 1.4× | 8.7 s |
+| | IR planner, per view | 17.7 s · 3810 · 2.5× | 16.0 s · 995 · 7.1× | 5.7 s · 6042 · 1.5× | 268 s · 995 · 7.1× | 4.8 s · 191 · 1.4× | 3.1 s |
+| | IR planner, per view, span cache | 14.9 s · 3302 · 1.8× | 4.5 s · 177 · 4.2× | 5.5 s · 5820 · 1.4× | 136 s · 177 · 4.2× | 4.8 s | 3.1 s |
+| | bound: one exact request per view | 4.8 s · 33 | 3.1 s | 4.8 s | 55 s | 4.8 s | 3.1 s |
+| Hamamatsu-1 | today | 68.2 s · 11956 · 3.9× | 163 s · 11956 · 3.9× | 35.9 s | 1258 s | 68.2 s | 163 s |
+| | IR planner, per chunk | 62.9 s · 17304 · 1.5× | 160 s · 11761 · 5.2× | 15.2 s | 1281 s | 13.9 s · 870 · 1.4× | 12.6 s |
+| | IR planner, per view | 34.0 s · 7571 · 1.5× | 93.4 s · 6809 · 2.2× | 14.1 s | 694 s · 7187 · 1.7× | 13.3 s · 214 · 1.4× | 4.1 s |
+| | IR planner, per view, span cache | 34.0 s · 7571 · 1.5× | 93.4 s | 14.1 s | 694 s | 13.3 s | 4.1 s |
+| | bound | 13.2 s · 36 | 4.1 s | 13.2 s | 136 s | 13.2 s | 4.1 s |
+
+- **Per view, the planner beats today almost everywhere**: CMU-1 at 20 ms
+  41 → 18 s, Hamamatsu-1 68 → 34 s and 163 → 93 s, openslide 401 → 268 s and
+  1258 → 694 s; with multi-range requests it is at the bound (4.8 s, 3.1 s;
+  13.3 s, 4.1 s). Batching across chunks is most of the gain: per chunk, the
+  planner gains at 20 ms (with or without multi-range) and with HTTP/2; at 80 ms
+  it is level for Hamamatsu-1 and loses for CMU-1, even with multi-range; on
+  openslide it loses for both, since a chunk alone is 128 small ranges a row apart.
+- **Where it does not: CMU-1 at 80 ms and 500 Mbit/s** (16.0 s against today's
+  6.9 s, the same with no byte cost). There, reading whole strip rows (13.9× the
+  bytes) is cheaper than requests, and today's 64 KiB gap reads them; the
+  planner's **amplification ceiling of 16** ([§29](#29-the-read-cap-per-server): a batch never
+  fetches more than 16 times what it asks, so header reads cannot fetch whole
+  files) stops at about one in two of those merges, since one view's share of a
+  CMU-1 row at level 0 is 1 or 2 of its 25 intervals. A span cache recovers it
+  (4.5 s): the over-read rows are the next pans' bytes. A planner for chunk
+  reads would want a higher ceiling (or none, with a cache) than the one for
+  parsing.
+- **The byte cost** (0.1 s per MB) changes nothing for CMU-1, and is most of
+  the cost of Hamamatsu-1 at 80 ms: with 0, per view goes 93 → 55 s, and with
+  the span cache 93 → 25 s (the span cache adds nothing there at 0.1 s per MB);
+  `bench_ir.py --byte-cost 0` gives these.
+
+Not done: the store readers (`vzip.store`, `js/src/archive.ts`) still read chunk
+by chunk with a 64 KiB gap; adopting the planner there (a batch per view, a
+span cache, a ceiling of its own) is the open step this benchmark argues for.
+
+**Code size** (lines): shipped NDPI code removed 2,024 (Python 800:
+`virtualize/ndpi` 404 and the tag translator `virtualize/tiff` 396 only NDPI
+used; TypeScript 1,224: `ndpi/virtualize.ts` 451, `tiff/ifd.ts` 303,
+`tiff/tags.ts` 470); added Rust 1,000 (`tiff.rs` +436 net, `ndpi.rs` 424 of
+which 190 tests, `project/ndpi.rs` 61, bindings and registration 30) and the
+schema 214; the hosts −10. Frozen reference: 862 (it reuses the frozen TIFF tag
+translator).
+
+## 50. Revision 26: IMS on the IR
 
 IMS moves to the Rust core: `hdf5.rs`, a format-free sans-IO HDF5 metadata
 reader (rounds replayed over structures memoized by address, misses

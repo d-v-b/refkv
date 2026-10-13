@@ -80,7 +80,7 @@ sources with identical bytes), the same set of keys, and for every key:
   `18446744073709552000`, an integer literal of another value;
 - **other bytes entries:** identical bytes.
 
-**IR mirrors.** For the TIFF, ND2, CZI, DICOM and IMS profiles, `vzip_source` is the
+**IR mirrors.** For the TIFF, NDPI, ND2, CZI, DICOM and IMS profiles, `vzip_source` is the
 source's IR mirror ([conventions §8](conventions.md#8-the-ir-mirror)).
 Its table and view are canonical: a function of the source's IR, folded and
 encoded one way only ([conventions §8.8](conventions.md#88-canonical-form)).

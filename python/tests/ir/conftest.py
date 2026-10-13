@@ -14,8 +14,8 @@ sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
 def same_hierarchy(a, b) -> None:
     """The frozen reference's output `a` and the IR's `b` hold the same hierarchy but
     vzip_source: documents, references and data sources. The reference's root records
-    the revision it implements (vzip_reference.revision: 20, or 25 for IMS), read as the
-    current one."""
+    the revision it implements (vzip_reference.revision: 20, or 25 for DICOM, IMS and NDPI),
+    read as the current one."""
     from vzip.virtualize.common import REVISION
     from vzip_reference.revision import DICOM_REVISION, IMS_REVISION
     from vzip_reference.revision import REVISION as FROZEN
@@ -23,7 +23,7 @@ def same_hierarchy(a, b) -> None:
     def docs(o):
         d = {k: json.loads(v) for k, v in o.bytes_entries.items() if not k.startswith("vzip_source")}
         prop = d.get("zarr.json", {}).get("attributes", {}).get("vzip_virtualized", {})
-        if o is a and prop.get("revision") == {"dicom": DICOM_REVISION, "ims": IMS_REVISION}.get(prop.get("profile"), FROZEN):
+        if o is a and prop.get("revision") == {"dicom": DICOM_REVISION, "ims": IMS_REVISION, "ndpi": 25}.get(prop.get("profile"), FROZEN):
             prop["revision"] = REVISION
         return d
 

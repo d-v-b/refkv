@@ -1,15 +1,16 @@
 """Virtualizing image files and N5 / Zarr v2 stores in vzip archives (spec/virtualize.md).
 
-TIFF, ND2, CZI, DICOM and IMS files go through the IR (`vzip.ir`): the Rust core's sans-IO
-parser of the format, driven by its read planner over this package's I/O, projected
-to the convention's hierarchy and mirrored under `vzip_source` by the Rust core.
-Every other profile is a subpackage: ndpi, nifti (file inputs), n5,
+TIFF (NDPI included), ND2, CZI, DICOM and IMS files go through the IR (`vzip.ir`): the Rust
+core's sans-IO parser of the format, driven by its read planner over this package's
+I/O, projected to the convention's hierarchy and mirrored under `vzip_source` by the
+Rust core, whose TIFF parser finds NDPI itself (spec/virtualize/ndpi.md §4
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>).
+Every other profile is a subpackage: nifti (file inputs), n5,
 zarr2, ome_zarr (store inputs, spec/virtualize/n5.md, spec/virtualize/zarr2.md and
 spec/virtualize/ome-zarr.md), and safe (Sentinel-2 SAFE products, spec/virtualize/safe.md: a
 store input, or a zip file); common holds what they share, and store the store
 machinery (§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>–§1.6
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>). (`tiff/` keeps the
-IFD reader and tag translator NDPI uses.)
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>).
 
     python -m vzip.virtualize <url or path> <out.vzip> [--url <source url>] [--checksums]
         [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB]
@@ -41,7 +42,7 @@ in `/`, or a local directory, is a store input.
 from __future__ import annotations
 
 from vzip.policy import Policy, crc32c
-from vzip.virtualize import ndpi, nifti
+from vzip.virtualize import nifti
 from vzip.virtualize.common import Output, Rejected, file_reader, http_reader
 from vzip.virtualize.n5 import virtualize_n5
 from vzip.virtualize.ome_zarr import declares_04, virtualize_ome_zarr
@@ -118,7 +119,7 @@ def virtualize(location: str, url: str | None = None, *, checksums: bool = False
     which reads them. `policy` is the reader policy a file
     or store at an http(s) URL is read under (default: `Policy()`, private hosts
     refused).
-    For TIFF, ND2, CZI, DICOM and IMS, `connections` is how many requests run at a time to a
+    For TIFF (NDPI included), ND2, CZI, DICOM and IMS, `connections` is how many requests run at a time to a
     remote source (default 8), and `byte_cost` the seconds of wall time the read
     planner charges a byte fetched beyond those asked (default 0.1 s per MB).
     A store's documents are read by up to `workers` requests at a time."""
@@ -142,8 +143,7 @@ def virtualize(location: str, url: str | None = None, *, checksums: bool = False
     ir_format = "dicom" if is_dicom(head) else None
     if ir_format is None:
         if head[:4] in TIFF_MAGIC:
-            ndpi_first = ndpi.detect(first, size)
-            ir_format = "tiff" if ndpi_first is None else None
+            ir_format = "tiff"  # or NDPI, which the core finds
         elif head[:4] == ND2_MAGIC:
             ir_format = "nd2"
         elif head[:16] == CZI_MAGIC:
@@ -174,10 +174,6 @@ def virtualize(location: str, url: str | None = None, *, checksums: bool = False
 def _virtualize_file(url: str, read, size: int) -> tuple[str, Output | SafeOutput]:
     """The profiles that are not the IR's, by the file's first bytes."""
     head = read(0, min(552, size))
-    if head[:4] in TIFF_MAGIC:
-        first = ndpi.detect(read, size)
-        if first is not None:
-            return "ndpi", ndpi.virtualize_ndpi(url, read, size, first)
     if nifti.detect(head) is not None:
         return "nifti", nifti.virtualize_nifti(url, read, size)
     if is_zip(head):

@@ -225,6 +225,7 @@ pub fn profile(p: &str) -> (&'static str, u64, &'static str) {
         "czi" => ("7a0733c7-d4be-4482-a64f-6904d9354ea5", 0, "CZI"),
         "dicom" => ("acf17198-e5a5-48d3-8187-22ec4bb40ea5", 0, "DICOM"),
         "ims" => ("5067a535-8261-4b25-a93c-1985ed333bde", 0, "IMS"),
+        "ndpi" => ("6cac71ef-dbb2-4acd-b60c-00389aa4238a", 0, "NDPI"),
         // the store conventions, whose sources a store IR describes (conventions §8.9
         // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)
         "n5" => ("ad5d4c39-c69e-48f7-a3ef-4cc8c607d416", 0, "N5"),

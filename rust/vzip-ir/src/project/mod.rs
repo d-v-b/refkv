@@ -16,6 +16,7 @@ mod czi;
 mod dicom;
 mod ims;
 mod nd2;
+mod ndpi;
 mod tiff;
 
 use crate::ir::Ir;
@@ -32,6 +33,7 @@ pub fn project(format: Format, ir: &Ir, facts: &J, url: &str) -> Result<Out, Str
         Format::Nd2 => nd2::project(ir, facts, url),
         Format::Dicom => dicom::project(ir, facts, url),
         Format::Ims => ims::project(ir, facts, url),
+        Format::Ndpi => ndpi::project(ir, facts, url),
     }
 }
 

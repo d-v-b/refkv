@@ -1,4 +1,4 @@
-// Virtualizing an ND2, TIFF, CZI or IMS file with the Rust core (rust/vzip-ir): its
+// Virtualizing an ND2, TIFF (NDPI included), CZI, DICOM or IMS file with the Rust core (rust/vzip-ir): its
 // parser, read planner, image projection and source mirror run in WebAssembly;
 // this host performs the requests a run asks for (`RangeSource`) and turns its
 // output (`Out::encode`) into the writer's archive description. The twin of
@@ -10,8 +10,8 @@ import { ImageError } from "../common.ts";
 import type { RangeSource, Span } from "./source.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
-export type IrFormat = "nd2" | "tiff" | "czi" | "dicom" | "ims";
-const CODES: Record<IrFormat, number> = { nd2: 0, tiff: 1, czi: 2, dicom: 3, ims: 5 };
+export type IrFormat = "nd2" | "tiff" | "czi" | "dicom" | "ims" | "ndpi";
+const CODES: Record<IrFormat, number> = { nd2: 0, tiff: 1, czi: 2, dicom: 3, ims: 5, ndpi: 7 };
 
 export interface IrOutput extends ArchiveDesc {
   format: IrFormat;
@@ -27,7 +27,8 @@ export function rejection(w: IrExports, r: number): ImageError {
   return new ImageError(text(out(w, -r)));
 }
 
-/** Virtualizes `source` (the file at `url`) as `format`. A file the core refuses is an
+/** Virtualizes `source` (the file at `url`) as `format`; the output's format is the run's
+ * (a TIFF the core finds to be NDPI is "ndpi"). A file the core refuses is an
  * ImageError; a source that cannot be read, its own error. */
 export async function virtualizeIr(
   format: IrFormat,
@@ -58,7 +59,8 @@ export async function virtualizeIr(
     const u = utf8.encode(url);
     const n = Number(w.vz_run_output(p, put(w, u), u.length, options.mirror === false ? 0 : 1));
     if (n < 0) throw rejection(w, n);
-    return { format, ...decodeOutput(out(w, n)) };
+    const o = decodeOutput(out(w, n));
+    return { format: (o.summary.format as IrFormat | undefined) ?? format, ...o };
   } finally {
     if (live) w.vz_run_free(p);
   }

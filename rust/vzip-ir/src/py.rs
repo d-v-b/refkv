@@ -554,6 +554,7 @@ impl PyRun {
             "czi" => crate::run::Format::Czi,
             "dicom" => crate::run::Format::Dicom,
             "ims" => crate::run::Format::Ims,
+            "ndpi" => crate::run::Format::Ndpi,
             _ => return Err(PyValueError::new_err(format!("no format {format:?}"))),
         };
         let mut r = crate::run::Run::new(f, size, remote, concurrency);
@@ -593,6 +594,11 @@ impl PyRun {
     fn set_multirange(&mut self, v: Option<bool>) -> PyResult<()> {
         self.get()?.planner.multirange = v;
         Ok(())
+    }
+    /// The run's format: "tiff" becomes "ndpi" once its parser finds the file is NDPI.
+    #[getter]
+    fn format(&mut self) -> PyResult<&'static str> {
+        Ok(self.get()?.format.name())
     }
     /// The planner's counts and model (JSON).
     fn stats(&mut self) -> PyResult<String> {
@@ -714,7 +720,7 @@ fn out_py<'py>(py: Python<'py>, o: &crate::out::Out) -> PyResult<Bound<'py, PyAn
     Ok(t.into_pyobject(py)?.into_any())
 }
 
-/// The image projection of an IR (format "nd2", "tiff", "czi" or "ims"; facts as JSON) as
+/// The image projection of an IR (format "nd2", "tiff", "ndpi", "czi" or "ims"; facts as JSON) as
 /// Python objects (`out_py`), or Rejected.
 #[pyfunction]
 fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str) -> PyResult<Bound<'py, PyAny>> {
@@ -724,6 +730,7 @@ fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str
         "czi" => crate::run::Format::Czi,
         "dicom" => crate::run::Format::Dicom,
         "ims" => crate::run::Format::Ims,
+        "ndpi" => crate::run::Format::Ndpi,
         _ => return Err(PyValueError::new_err(format!("no format {format:?}"))),
     };
     let facts: serde_json::Value = serde_json::from_str(facts).map_err(|e| PyValueError::new_err(e.to_string()))?;
@@ -731,7 +738,7 @@ fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str
     out_py(py, &o)
 }
 
-/// The mirror of an IR (for the profile "nd2", "tiff", "czi" or "ims"): its entries and
+/// The mirror of an IR (for the profile "nd2", "tiff", "ndpi", "czi" or "ims"): its entries and
 /// references under `vzip_source` (`out_py`'s form, the url empty), and what the
 /// table folded (JSON).
 #[pyfunction]

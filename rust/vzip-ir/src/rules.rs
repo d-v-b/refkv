@@ -38,6 +38,7 @@ pub type Res<T> = Result<T, String>;
 pub static TIFF_SCHEMA: &str = include_str!("../schema/tiff.json");
 pub static CZI_SCHEMA: &str = include_str!("../schema/czi.json");
 pub static IMS_SCHEMA: &str = include_str!("../schema/ims.json");
+pub static NDPI_SCHEMA: &str = include_str!("../schema/ndpi.json");
 
 struct Role {
     derive: Vec<(String, E)>,
@@ -58,6 +59,11 @@ pub fn tiff() -> &'static Rules {
 pub fn ims() -> &'static Rules {
     static S: OnceLock<Rules> = OnceLock::new();
     S.get_or_init(|| Rules::new(IMS_SCHEMA).expect("the IMS schema is valid"))
+}
+
+pub fn ndpi() -> &'static Rules {
+    static S: OnceLock<Rules> = OnceLock::new();
+    S.get_or_init(|| Rules::new(NDPI_SCHEMA).expect("the NDPI schema is valid"))
 }
 
 pub fn czi() -> &'static Rules {

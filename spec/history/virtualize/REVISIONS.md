@@ -1235,6 +1235,44 @@ reference); `vzip_source` is the mirror.
 profiles moved, unchanged but for their imports, to the frozen reference
 (`conformance/virtualize/reference`), which records revision 25.
 
+### NDPI
+
+**What prompted it.** NDPI was the last TIFF variant with a translator of
+its own: its `vzip_source` was the TIFF convention's IFD groups read in
+NDPI's layout, with each McuStarts level's SOF0 segment as `sof0`, and it
+left out what it could not place (the high words of in-line values other
+than LONGs of count 1, and the strips' restart markers and EOI, taken to be
+the standard ones). The Rust core's TIFF parser already read everything
+else NDPI needs.
+
+**The changes.**
+- **NDPI §5** ([spec/virtualize/ndpi.md](../../virtualize/ndpi.md#5-source-metadata)):
+  `vzip_source` is the IR mirror; [§5.1](../../virtualize/ndpi.md#51-elements) lists the elements: a 12-byte
+  `header` with a `<u8` `first_ifd`, each IFD with its `<u8` `next_ifd` and
+  each entry's high word as `tags/<tag>/high`, and each strip as a `data`
+  element, a level's strip being one JPEG stream (its SOF0, restart markers
+  and EOI included, so the mirror rebuilds it byte for byte). The `sof0`
+  member and the source metadata of `vzip_source` (`ifd_count`) and of the
+  IFD groups are gone; the root still has no source metadata member.
+- **NDPI [§1](../../virtualize/ndpi.md#1-declaration), [§4](../../virtualize/ndpi.md#4-the-image):** the declaration names the mirror; the chunks' restart
+  markers and EOI are the standard ones, as before, and the strip's own are
+  kept by the mirror rather than assumed.
+- **Conventions:** the root property records `"revision": 26`; the NDPI
+  schema's source metadata is the mirror's, and the schemas were
+  regenerated.
+
+**Output.** Everything outside `vzip_source` is unchanged on every NDPI
+fixture and corpus slide; `vzip_source` is the mirror. Every rejection is
+unchanged.
+
+**Implementations.** Python and the browser run NDPI through the Rust core:
+the TIFF parser tests each little-endian TIFF for NDPI after its header
+(`rust/vzip-ir/src/tiff.rs`, its NDPI variant, against
+`rust/vzip-ir/schema/ndpi.json`), `ndpi.rs` reads the strips' headers and
+intervals, and `project/ndpi.rs` writes the hierarchy; a TIFF run becomes
+an NDPI run. The NDPI profiles of revision 25 are frozen under
+`conformance/virtualize/reference/` (Python and TypeScript), recording 25.
+
 ### IMS
 
 **What prompted it.** IMS kept its own source metadata: a translation of the

@@ -1,5 +1,5 @@
-"""The Python NDPI virtualizer (spec/virtualize/ndpi.md): its JPEG header parser and
-the data sources that hold the header.
+"""The frozen Python NDPI virtualizer (spec/virtualize/ndpi.md at revision 25): its JPEG
+header parser and the data sources that hold the header.
 
 Whole files are checked by conformance/virtualize/compare.py and
 js/test/ndpi/verify.py.
@@ -8,11 +8,16 @@ js/test/ndpi/verify.py.
 import base64
 import json
 import struct
+import sys
 from pathlib import Path
+
+# the frozen reference twins (conformance/virtualize/reference/vzip_reference)
+sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
 
 import pytest
 
-from vzip.virtualize import Rejected, ndpi, virtualize
+from vzip.virtualize import Rejected
+from vzip_reference import ndpi, virtualize
 
 
 def _jpeg_header(factors: list[int]) -> bytes:
@@ -44,7 +49,7 @@ def test_ndpi_header_pieces_are_data_sources():
     # header up to SOF0 and after it are ranges of data sources, one
     # per distinct byte string in order of first use, shared by every chunk
     # and level; the bytes are the strip's own.
-    path = Path(__file__).parents[2] / "fixtures" / "ndpi" / "ndpi_levels.ndpi"
+    path = Path(__file__).parents[3] / "fixtures" / "ndpi" / "ndpi_levels.ndpi"
     _, out = virtualize(str(path), url="https://data.test/x.ndpi")
     data = list(out.data)
     assert [out.data[d] for d in data] == list(range(1, len(data) + 1))
@@ -77,7 +82,7 @@ def test_ndpi_header_pieces_are_data_sources():
     ("edge_reject_ndpi_short_strip.ndpi", "3 bytes is shorter than 4"),
 ])
 def test_ndpi_rejects(name, message):
-    path = Path(__file__).parents[2] / "fixtures" / "ndpi" / name
+    path = Path(__file__).parents[3] / "fixtures" / "ndpi" / name
     with pytest.raises(Rejected, match=message):
         virtualize(str(path), url="https://data.test/x.ndpi")
 
@@ -90,7 +95,7 @@ def test_ndpi_records_every_ifd_in_its_own_group():
     (its value field and high word), and the macro image's contiguous strips as one range."""
     import json
 
-    path = Path(__file__).parents[2] / "fixtures" / "ndpi" / "ndpi_pointers.ndpi"
+    path = Path(__file__).parents[3] / "fixtures" / "ndpi" / "ndpi_pointers.ndpi"
     _, out = virtualize(str(path), url="https://data.test/x.ndpi")
 
     def source(p: str) -> dict:
@@ -114,7 +119,7 @@ def test_ndpi_reads_only_the_values_it_uses():
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: the values of
     an IFD that is not a level are not read, so the
     macro image's McuStarts (LONG8, above 2^53 - 1) does not reject; its strip is kept."""
-    path = Path(__file__).parents[2] / "fixtures" / "ndpi" / "ndpi_unused_values.ndpi"
+    path = Path(__file__).parents[3] / "fixtures" / "ndpi" / "ndpi_unused_values.ndpi"
     _, out = virtualize(str(path), url="https://data.test/x.ndpi")
     assert out.summary["levels"] == [[3, 48, 64]]
     assert "vzip_source/ifds/1/data/zarr.json" in out.bytes_entries

@@ -146,7 +146,7 @@ it opens the node (vzip writes them with the chunks, not with the documents
 read when an archive is opened). The node exists only when it has
 source metadata or arrays, or, for the store conventions, other objects of
 the store, which it holds whole under `vzip_source/objects/`, or the keys of
-the store's empty objects. For the TIFF, ND2, CZI, DICOM and IMS conventions,
+the store's empty objects. For the TIFF, NDPI, ND2, CZI, DICOM and IMS conventions,
 `vzip_source` is the source's IR mirror ([§8](#8-the-ir-mirror)), from which the source is
 rebuilt byte for byte.
 
@@ -402,7 +402,7 @@ another, such as a TIFF's contiguous strips, are referenced, not copied.
 
 ## 8. The IR mirror
 
-The TIFF, ND2, CZI, DICOM and IMS conventions keep the source's metadata as one
+The TIFF, NDPI, ND2, CZI, DICOM and IMS conventions keep the source's metadata as one
 format-free structure on `vzip_source`: the source's **IR** (intermediate
 representation), a tree of **elements** whose leaves partition the source's
 bytes, stored as a table (the **mirror**) and shown as JSON (the **view**).
@@ -460,7 +460,7 @@ key, an XML tag), which may be empty, repeat, or hold `/`, names those
 elements so that this holds; [ND2 §5.3](virtualize/nd2.md#53-elements) gives one
 rule for that, which any format may adopt.
 
-These rules are those of every single-file profile's IR: TIFF, ND2, CZI,
+These rules are those of every single-file profile's IR: TIFF, NDPI, ND2, CZI,
 DICOM and IMS today, and any format whose source model a later revision moves onto
 the IR (such as NIfTI), without restating them. A format's convention
 lists its elements by their paths below the root.
@@ -819,7 +819,7 @@ compares mirrors entry for entry. In order:
    |---|---|---|---|---|
    | TIFF | layout tables | the start or length of a column run of at least 16 members of one data row each, with a name index, in a struct `tiles` (or `strips`) with no index | the first child `value` (no index) of the first struct child `tags/` with index 324 for starts and 325 for lengths (273 and 279 for `strips`) of that struct's parent: TileOffsets and TileByteCounts (StripOffsets, StripByteCounts) | member 0's name index |
 
-   ND2, CZI, DICOM and IMS have none. A format adds a rule by a revision of this
+   NDPI, ND2, CZI, DICOM and IMS have none. A format adds a rule by a revision of this
    section and its convention: a new row in this table, whose conditions
    depend only on the canonical IR (so that every producer finds the same
    columns), and whose array a reader can read from source 0.

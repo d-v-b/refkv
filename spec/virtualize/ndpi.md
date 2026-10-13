@@ -1,7 +1,7 @@
 # NDPI
 
-The Zarr layout of a Hamamatsu NDPI slide, and the translation of its tags
-into JSON. NDPI is a variant of TIFF; this convention builds on the
+The Zarr layout of a Hamamatsu NDPI slide, and its source model: the
+elements of its IR, which `vzip_source` holds as the IR mirror. NDPI is a variant of TIFF; this convention builds on the
 [TIFF convention](tiff.md). What all of vzip's conventions share is
 in [spec/conventions.md](../conventions.md), cited here as "conventions §n".
 How vzip produces this layout as a virtual store is the NDPI profile,
@@ -26,8 +26,8 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "ndpi"`, `"version": 0`, `"revision": 26` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
-and the source metadata of [§5](#5-source-metadata) as the member `"ndpi"`. Its CMO is:
+with `"profile": "ndpi"`, `"version": 0`, `"revision": 26` ([conventions §1](../conventions.md#1-conventions)) and the file's URL as `source.url`;
+it has no source metadata member ([§5](#5-source-metadata)). Its CMO is:
 
 ```json
 {
@@ -39,9 +39,10 @@ and the source metadata of [§5](#5-source-metadata) as the member `"ndpi"`. Its
 }
 ```
 
-`vzip_source` and the group of each IFD under it declare it too, with their
-source metadata ([§5](#5-source-metadata)); the arrays and the other groups under `vzip_source`
-have none.
+`vzip_source` declares it too, with the IR mirror's description ([§5](#5-source-metadata),
+[conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
+the mirror's view that has a member; the mirror's arrays have no
+attributes.
 
 ## 2. The source
 
@@ -114,173 +115,151 @@ A chunk's stream holds the strip's header with a frame header (SOF0) of its
 own size, its intervals, and restart markers and an EOI of its own, so:
 - the chunk's width `a × R × mw` and height `b × mh` MUST each be at most
   65535, the largest a frame header holds, else the input is rejected;
-- the strip's SOF0 segment is kept in the source metadata ([§5](#5-source-metadata));
-- the strip's own restart markers and final EOI are not kept ([§5](#5-source-metadata)): the
-  hierarchy takes them to be the standard sequence that every valid JPEG
-  stream has.
+- the strip's SOF0 segment, which every chunk replaces, is kept where it
+  is: the strip is an element of the source model ([§5](#5-source-metadata)), so the mirror
+  rebuilds it byte for byte;
+- the strip's own restart markers and final EOI are referenced by no chunk:
+  each chunk puts the standard sequence that every valid JPEG stream has.
+  The mirror keeps the strip's own, whatever they are.
 
 ## 5. Source metadata
 
-The root has no source metadata member. `vzip_source`'s is
-`{"ifd_count": n}`, the number of IFDs in the main chain, and each IFD
-recorded is a group under it, `ifds/<i>` for main-chain IFD `i`, with the
-IFD object as its source metadata, and the strips of the IFDs that are not
-levels (the macro image, the slide map), as the
-[TIFF convention §5](tiff.md#5-source-metadata) says, with
-these differences:
-- the main-chain IFDs are the only IFDs of [the TIFF convention
-  §2](tiff.md#2-the-source): an NDPI's SubIFDs tag (330) is
-  followed like the other pointer tags, and the IFDs that all pointer tags
-  lead to are read in NDPI's layout, as the profile reads the main chain:
-  an IFD is read when its offset is at least 16 and its entry count,
-  entries, 8-byte next-IFD offset and high words (one per entry) lie within
-  the file;
-- the pointer tags that are not SubIFDs or the three known ones are those
-  of type IFD or IFD8 that are not in the table of [§2](#2-the-source);
-- an inline value of count 1 and type LONG (4) or IFD (13) is
-  `low + h × 2^32`, its 4 bytes plus the entry's high word `h`, and an
-  out-of-line value is at offset `low + h × 2^32`, as the profile reads
-  them. Each IFD's strip uses the 64-bit StripOffsets the same way, and so
-  do the pointer tags' values;
-- the `field` of a tag whose field type TIFF does not define is 8 bytes:
-  the entry's value field, then its high word;
-- McuStarts (65426) and McuStartsHighBytes (65432), which locate the
-  strips' restart markers, are layout tags too;
-- the extent of an IFD (for the pointer tags' IFDs) is its entry count,
-  entries, next-IFD offset and high words: `2 + 16 n` bytes for `n`
-  entries, plus 8;
-- the IFD object of a level with McuStarts has the member `sof0`: the
-  base64 ([conventions §6](../conventions.md#6-source-metadata-as-json)) of its strip's SOF0 segment, from its `FF C0`
-  marker to its end, which the chunks replace with their own.
+The root has no source metadata member. Everything else the file holds is on
+`vzip_source`, which is the file's **IR mirror**
+([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
+file is rebuilt byte for byte, and its view, `vzip_source/tree`. This
+section is the NDPI **source model**: the elements of an NDPI's IR. It is the
+[TIFF source model](tiff.md#5-source-metadata) read in NDPI's layout. Nothing is
+left out, layout and dead space included (they are elements too, the dead
+space as gaps): a level's strip, its JPEG header, restart markers and EOI
+included, is one element, which the chunks of [§4](#4-the-image) cut along McuStarts.
 
-Besides what the TIFF convention leaves out, these are not kept:
-- the high word of an inline value other than a LONG or IFD of count 1
-  (it is not used);
-- the restart markers and final EOI of a McuStarts level's strip: the 2
-  bytes before interval `i` (for `i ≥ 1`), taken to be the restart marker
-  `FF D0 + ((i − 1) mod 8)`, and the strip's last 2 bytes, taken to be
-  `FF D9`, as in every valid JPEG stream. They are not read, so a strip
-  whose markers differ is rebuilt in this standard form.
+### 5.1 Elements
+
+Paths are relative to the IR's root, whose path is `""`; `<i>`, `<j>`,
+`<tag>` are decimal name indexes ([conventions §8.1](../conventions.md#81-elements)). Types are those of [conventions §8.6](../conventions.md#86-types);
+an NDPI is little-endian.
+
+| path | kind | type | extent: what |
+|---|---|---|---|
+| `""` | struct | | the root: the whole file, `(0, size)` |
+| `header` | struct | | the header, bytes 0 to 12 |
+| `header/byte_order` | value | `ascii[2]` | `II` |
+| `header/magic` | value | `<u2` | 42 |
+| `header/first_ifd` | value | `<u8` | the first IFD's offset `V` ([§4](#4-ndpi-profile)) |
+| `ifds/<i>` | struct | | main-chain IFD `i` ([§2](#2-the-source)): its entry count, entries, next-IFD offset and high words, `2 + 16 n + 8` bytes for `n` entries |
+| `…/entry_count` | value | `<u2` | the entry count `n` |
+| `…/tags/<tag>` | struct | | the first entry of tag `<tag>` (12 bytes); a later one of the same tag is `…/tags/<tag>~<k>`, `k` = 1, 2, … |
+| `…/tags/<tag>/entry` | value | record | the entry's tag, field type and count (`{tag:<u2,type:<u2,count:<u4}`), with `offset:<u4` (the low 32 bits of the value's offset) when the value is out of line, or `field:bytes[4]` when the field type is unknown |
+| `…/tags/<tag>/value` | value | by field type | the value: in the entry's field (the bytes it uses; the rest of the field is a gap), or at its offset `low + high × 2^32` when it lies within the file; its type as in the [TIFF source model](tiff.md#51-elements) (`<u4[n]`, `<u4[n,2]`, `<f4[n]`, …) |
+| `…/tags/<tag>/high` | value | `<u4` | the entry's **high word**, after the next-IFD offset: the high 32 bits of an out-of-line value's offset, and of an in-line LONG or IFD of count 1 |
+| `…/next_ifd` | value | `<u8` | the next-IFD offset |
+| `…/strips` | struct | | an IFD's strips (by StripOffsets, with high words, and StripByteCounts), when it has both tables |
+| `…/strips/<j>` | data | | strip `j`, when its byte count is not 0 and it lies within the file; its form's geometry is `{"shape": [rows, columns], "samples": s, "bits": b}`, its codec `{"compression": c}`, and its recipe its bytes: a level's strip is a whole JPEG stream |
+| `…/subifds/<j>`, `…/exif`, `…/gps`, `…/interoperability`, `…/ifd_<tag>` | struct | | the IFD a pointer tag ([§5.2](#52-which-ifds)) leads to (`…/<name>/<j>` when the tag has several values), as an IFD |
+| `gaps/<offset>` | gap | | bytes no other element claims (padding, unused space, bytes 12 to 16 when no element claims them) |
+
+An IFD whose strip tables are at the offsets of an earlier IFD's, with the
+same counts and codec, names that IFD's `strips` by an alias. An element
+whose bytes an earlier element claims (an IFD read twice through a pointer,
+a strip at another's offset) is an alias of that element.
+
+### 5.2 Which IFDs
+
+The IFDs of [§2](#2-the-source), the main chain, at depth 0 (`ifds/<i>`); then the IFDs that
+pointer tags lead to, as the [TIFF source model §5.2](tiff.md#52-which-ifds)
+says, with these differences:
+- the main-chain IFDs are the only IFDs of the tree: an NDPI's SubIFDs tag
+  (330) is followed like the other pointer tags;
+- the other pointer tags of type IFD or IFD8 are those that are neither in
+  the table of [§2](#2-the-source) nor layout tags, McuStarts (65426) and McuStartsHighBytes
+  (65432) among the latter;
+- every IFD is read in NDPI's layout ([§4](#4-ndpi-profile)): one a pointer leads to is read
+  when its offset is at least 16 and its entry count, entries, next-IFD
+  offset and high words lie within the file, has at least one entry, and
+  overlaps no IFD already read; an in-line LONG or IFD of count 1 leads to
+  `low + high × 2^32`, and an out-of-line value is at its 64-bit offset.
+
+### 5.3 Values
+
+An entry's value is an element when it lies within the file. Its bytes are
+in the source; the view shows it when it is a number, a record or text
+(ASCII) of at most 1024 bytes ([conventions §8.7](../conventions.md#87-the-view)), and a producer reads
+every such value. A value element holds the bytes of its extent: an in-line
+LONG or IFD of count 1 shows its low 32 bits, and its `high` sibling the
+rest. Every high word is shown.
+
+### 5.4 Equivalence
+
+The elements are determined by the file, and the mirror by its elements
+([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding; NDPI has no
+named array rule): hierarchies of one file are compared entry for entry,
+`vzip_source` included ([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
 
 ## 6. Example
 
-The first IFD (level 0) of a slide at `https://example.org/slide.ndpi`, the
-group `vzip_source/ifds/0`:
+A slide at `https://example.org/slide.ndpi`, the 207,434-byte
+`ndpi_levels.ndpi` of vzip's test fixtures: three levels, of which the first
+two have McuStarts. The root's property:
+
+```json
+{
+  "profile": "ndpi",
+  "version": 0,
+  "revision": 26,
+  "source": {
+    "url": "https://example.org/slide.ndpi"
+  }
+}
+```
+
+`vzip_source` is the IR mirror ([§5](#5-source-metadata)). Its property:
 
 ```json
 {
  "ndpi": {
-  "tags": {
-   "256": {
-    "type": 4,
-    "count": 1,
-    "value": [
-     1280
-    ]
-   },
-   "257": {
-    "type": 4,
-    "count": 1,
-    "value": [
-     1200
-    ]
-   },
-   "258": {
-    "type": 3,
-    "count": 3,
-    "value": [
-     8,
-     8,
-     8
-    ]
-   },
-   "259": {
-    "type": 3,
-    "count": 1,
-    "value": [
-     7
-    ]
-   },
-   "262": {
-    "type": 3,
-    "count": 1,
-    "value": [
-     6
-    ]
-   },
-   "277": {
-    "type": 3,
-    "count": 1,
-    "value": [
-     3
-    ]
-   },
-   "282": {
-    "type": 5,
-    "count": 1,
-    "value": [
-     [
-      5477,
-      1
-     ]
-    ]
-   },
-   "283": {
-    "type": 5,
-    "count": 1,
-    "value": [
-     [
-      5477,
-      1
-     ]
-    ]
-   },
-   "296": {
-    "type": 3,
-    "count": 1,
-    "value": [
-     3
-    ]
-   },
-   "65420": {
-    "type": 4,
-    "count": 1,
-    "value": [
-     1
-    ]
-   },
-   "65421": {
-    "type": 11,
-    "count": 1,
-    "value": [
-     20.0
-    ]
-   },
-   "65422": {
-    "type": 9,
-    "count": 1,
-    "value": [
-     4876667
-    ]
-   },
-   "65423": {
-    "type": 9,
-    "count": 1,
-    "value": [
-     -2340000
-    ]
-   }
-  },
-  "sof0": "/8AAEQgEsAUAAwARAAERAQIRAQ=="
+  "ir": {
+   "version": 2,
+   "size": 207434,
+   "elements": 292,
+   "rows": 146,
+   "names": ["", "byte_order", "entry", "entry_count", "first_ifd", "gaps/", "header", "high", "ifds/", "magic",
+             "next_ifd", "strips", "tags/", "value"],
+   "types": ["", "<f4[1]", "<i4[1]", "<u2", "<u2[1]", "<u2[3]", "<u4", "<u4[1,2]", "<u4[1500]", "<u4[1]",
+             "<u4[60]", "<u8", "ascii[2]", "{tag:<u2,type:<u2,count:<u4,offset:<u4}", "{tag:<u2,type:<u2,count:<u4}"],
+   "forms": ["{\"geometry\":{\"shape\":[1200,1280],\"samples\":3,\"bits\":8},\"codec\":{\"compression\":7},\"recipe\":[[\"src\",0,null]]}",
+             "…"]
+  }
  }
 }
 ```
 
-Its `sof0` is the strip's frame header: 1200 rows of 1280 pixels, three
-components, each sampled 1 × 1.
+(abridged: four forms, one per strip shape). The view, `vzip_source/tree`,
+is the root's document, and begins:
 
-`vzip_source`'s is `{"ndpi": {"ifd_count": 4}}`. Its fourth IFD, the macro
-image, is not a level: its strip is the array `vzip_source/ifds/3/data`.
+```json
+{
+ "ndpi": {
+  "header": {"byte_order": "II", "magic": 42, "first_ifd": 198686},
+  "ifds/0": {
+   "strips": {},
+   "entry_count": 16,
+   "tags/256": {"entry": {"tag": 256, "type": 4, "count": 1}, "value": [1280], "high": 0},
+   "tags/273": {"entry": {"tag": 273, "type": 4, "count": 1}, "value": [12], "high": 0},
+   "tags/282": {"value": [[5477, 1]], "entry": {"tag": 282, "type": 5, "count": 1, "offset": 192670}, "high": 0},
+   "tags/65421": {"entry": {"tag": 65421, "type": 11, "count": 1}, "value": [20.0], "high": 0},
+   "tags/65426": {"value": {"$vz": "element", "id": 89},
+                  "entry": {"tag": 65426, "type": 4, "count": 1500, "offset": 192686}, "high": 0},
+   "next_ifd": 202450
+  }
+ }
+}
+```
+
+(abridged: the other tags are like these). Level 0's strip, `ifds/0/strips/0`,
+starts at byte 12, before its IFD, so `strips` comes first; its 1,500
+McuStarts values (6,000 bytes) are more than the view shows, so the view
+names the element by its row, and a reader reads them from the source.
 
 # Part 2. The profile
 
@@ -315,7 +294,7 @@ bytes plus its high word `h`: an out-of-line value is at offset
 `low + h × 2^32`, and an inline value of count 1 and type LONG (4) or IFD
 (13) is `low + h × 2^32`. Other inline values ignore `h`. Only the main
 chain is read for the layout: an NDPI's SubIFDs, like the IFDs of its other
-pointer tags, are read in this layout for the source metadata only, and
+pointer tags, are read in this layout for the IR only, and
 never reject the input ([the convention
 §5](#5-source-metadata)). The limits and checks
 of [§3.1](tiff.md#31-reading) apply, with these values read ([§3.1](tiff.md#31-reading), **Values read**): the
@@ -357,10 +336,9 @@ markers of the shortest JPEG stream.
 `min(q, max(1, floor(1024 / (R × mw))))` intervals across and `b` intervals
 down, so the chunk shape is `[3, b × mh, a × R × mw]`. `a × R × mw` MUST be
 at most 65535. The 2 bytes of `S` before `M[i]` (for `i ≥ 1`) and its last
-2 bytes, its restart markers and EOI, are not read: the chunks put their
-own, and the source metadata takes the strip's to be the standard sequence
-`FF D0 + ((i − 1) mod 8)` and `FF D9`
-([the convention §5](#5-source-metadata)).
+2 bytes, its restart markers and EOI, are not referenced: the chunks put
+their own, the standard sequence `FF D0 + (t mod 8)` and `FF D9`, and the
+mirror keeps the strip's ([the convention §5](#5-source-metadata)).
 `b` is the largest
 number from 1 to `min(r, floor(1024 / mh))` (at least 1) for which every
 chunk's payload is at most 65519 bytes ([§1.2](../virtualize.md#12-input)); `b × mh` MUST be at most
