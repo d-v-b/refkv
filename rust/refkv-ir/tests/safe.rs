@@ -27,7 +27,9 @@ fn walk(root: &Path) -> BTreeMap<String, Vec<u8>> {
             if e.file_type().unwrap().is_dir() {
                 stack.push(e.path());
             } else {
-                let k = e.path().strip_prefix(root).unwrap().to_str().unwrap().to_string();
+                // a key is `/`-separated on every system
+                let rel = e.path().strip_prefix(root).unwrap().to_path_buf();
+                let k = rel.iter().map(|c| c.to_str().unwrap()).collect::<Vec<_>>().join("/");
                 out.insert(k, std::fs::read(e.path()).unwrap());
             }
         }

@@ -91,7 +91,7 @@ def _check_query(q) -> None:
 
 
 def read(archive: str, queries_path: str, policy: Policy | None = None) -> dict:
-    with open(queries_path) as f:
+    with open(queries_path, encoding="utf-8") as f:
         queries = json.load(f, object_pairs_hook=_no_duplicates)
     if not isinstance(queries, list):
         raise ValueError("the queries file must hold a JSON array")
@@ -163,7 +163,7 @@ def _reject_nulls(desc: dict) -> None:
 
 
 def write(desc_path: str, out: str) -> None:
-    with open(desc_path) as f:
+    with open(desc_path, encoding="utf-8") as f:
         desc = json.load(f, object_pairs_hook=_no_duplicates)
     _reject_nulls(desc)
     page_size = desc.get("page_size")

@@ -62,8 +62,10 @@ def open_file(name: str, libver: str = "earliest", small_k: bool = False, sizes:
         # chunk B-tree node: deep version 1 B-trees. h5py does not wrap these
         # setters, so call the HDF5 library it bundles.
         here = Path(h5py.__file__).parent
-        lib = ctypes.CDLL(str(next(p for p in [*here.glob(".dylibs/libhdf5.*"), *here.parent.glob("h5py.libs/libhdf5-*")]
-                                   if "_hl" not in p.name)))
+        # (macOS: .dylibs/libhdf5.*; Linux: h5py.libs/libhdf5-*; Windows: hdf5.dll beside h5py)
+        libs = [*here.glob(".dylibs/libhdf5.*"), *here.parent.glob("h5py.libs/libhdf5-*"),
+                *here.glob("hdf5*.dll"), *here.parent.glob("h5py.libs/hdf5*.dll")]
+        lib = ctypes.CDLL(str(next(p for p in libs if "_hl" not in p.name)))
         if lib.H5Pset_sym_k(ctypes.c_int64(fcpl.id), 1, 1) < 0 or lib.H5Pset_istore_k(ctypes.c_int64(fcpl.id), 2) < 0:
             raise RuntimeError("H5Pset_sym_k or H5Pset_istore_k failed")
     if sizes is not None:

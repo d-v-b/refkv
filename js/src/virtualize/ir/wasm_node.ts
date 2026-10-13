@@ -16,7 +16,10 @@ export function setIrWasmUrl(u: string | URL): void {
 
 /** Compiles the module. */
 export async function compileIr(): Promise<WebAssembly.Module> {
-  const path = url ?? (process.env.REFKV_IR_WASM || WASM_URL);
+  const given = url ?? (process.env.REFKV_IR_WASM || WASM_URL);
+  // a file: URL given as a string is a URL, not a path (fs.readFile reads a URL object
+  // as one, on Windows too)
+  const path = typeof given === "string" && /^file:/i.test(given) ? new URL(given) : given;
   let bytes: Uint8Array;
   try {
     bytes = await fs.readFile(path);

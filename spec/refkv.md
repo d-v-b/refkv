@@ -1,6 +1,6 @@
 # refkv: a reference value type for key-value stores
 
-Format version: 0 (**provisional**) · Specification revision: 11
+Format version: 0 (**provisional**) · Specification revision: 11.1
 
 ## 1. Introduction
 
@@ -535,7 +535,8 @@ The **source value** of each kind:
     - the scheme and the host `localhost` are case-insensitive;
     - its authority MUST be absent (`file:/x`), empty (`file:///x`) or
       exactly `localhost` (in any case): no userinfo, no port, and no
-      percent-encoding;
+      percent-encoding. The one exception is a UNC path on Windows, below,
+      which the application must allow;
     - its path MUST be absolute (start with `/`);
     - it MUST have no query component, not even an empty one (`?`);
     - any fragment is ignored;
@@ -547,7 +548,34 @@ The **source value** of each kind:
       such as `%2E%2E`, which would otherwise escape the directory after
       decoding.
 
-    This mapping is for POSIX paths; other systems follow RFC 8089.
+    This mapping is for POSIX paths. On Windows, where a path has a drive
+    letter or a UNC server and share and `\` separates its segments, the
+    base URI and the mapping follow
+    [RFC 8089 Appendix E](https://www.rfc-editor.org/rfc/rfc8089#appendix-E):
+    - Building the base URI, the absolute path is normalized as above, and
+      each `\` is written as `/`. A drive-letter path gets a leading `/`,
+      so `C:\data\my file.vzip` becomes `file:///C:/data/my%20file.vzip`.
+      A UNC path's server is the authority, so `\\server\share\x.vzip`
+      becomes `file://server/share/x.vzip`. A path is UTF-8 here, and the
+      same bytes are percent-encoded as on POSIX.
+    - Mapping a `file:` URI, the rules above apply, and also: the decoded
+      path MUST be UTF-8, MUST NOT contain `\` (as from `%5C`), and its first
+      segment MUST be a drive letter followed by `:` (or `|`, as
+      RFC 8089 allows), so `file:///C:/data/x` maps to `C:\data\x`. A path
+      without a drive letter, such as `file:///data/x`, is a resolution
+      error: it would name a file on whichever drive is current.
+    - An authority other than `localhost` names a UNC server:
+      `file://server/share/x` maps to `\\server\share\x`, provided the
+      authority is a host name alone (no userinfo, port or
+      percent-encoding) and the path names a share. Reading it connects to
+      that server over the network, which may send it the user's
+      credentials, so a reader MUST refuse it, as a resolution error,
+      unless the application allows **file hosts**: a setting of the
+      policy ([§6.7](#67-reader-policy)) whose name says that it is unsafe,
+      separate from the one that lets a remote store read `file:` URLs.
+      A store opened from a UNC path reads itself without it, since the
+      application named that path; the sources it names need it. On other
+      systems such a URI has no mapping and is always a resolution error.
 
   Readers MUST support `file:`, SHOULD support `http:` and `https:` (byte
   ranges via HTTP Range requests), and MAY support other schemes. It is a
@@ -891,7 +919,10 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
    allows other schemes do it: it is a separate setting, whose name says
    that it is unsafe. So by default a remote store cannot name
    `file:///etc/passwd`, and no store can name an `s3:` bucket the reader
-   has credentials for.
+   has credentials for. A `file:` URL with a host, a UNC path on Windows,
+   is refused for every store, whatever the scheme setting or a prefix
+   list allows, unless the application allows file hosts
+   ([§5](#5-source-table)).
 2. **Prefixes.** An application MAY give a list of URL **prefixes**. When it
    does, the list replaces rule 1: a URL is allowed if and only if it
    matches one of the prefixes. A URL `u` matches a prefix `p` if `u` starts
@@ -993,6 +1024,7 @@ defaults:
 |---|---|
 | schemes (rule 1) | `http` and `https` for every store, `file` for a local one; no other scheme |
 | `file` for a remote store | refused |
+| a `file:` URL's host (a UNC path on Windows, [§5](#5-source-table)) | refused |
 | prefixes | none (rule 1 applies) |
 | hosts (rule 3) | public addresses only, for every store |
 | proxies while rule 3 applies | refused |
@@ -1002,7 +1034,8 @@ defaults:
 | unverifiable pins | fail |
 
 They name the unsafe settings `allow_files_from_remote_archives`,
-`allow_private_hosts` and `allow_unchecked_proxy` (Python), and
+`allow_file_hosts`, `allow_private_hosts` and `allow_unchecked_proxy`
+(Python), and
 `allowFilesFromRemoteArchives`, `allowPrivateHosts` and
 `allowUncheckedProxy` (TypeScript). The reference command-line tool takes
 `--allow-private-hosts`, which the conformance harness passes, since its

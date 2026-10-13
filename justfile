@@ -48,21 +48,22 @@ check: js::typecheck
 
 # Check the package without its extras, and with only the zarr extra: pass the Python of
 # an environment where only `pip install .` (or `pip install '.[zarr]'`, with mode=zarr)
-# was run (default: a fresh one of each in a temporary directory)
+# was run (default: a fresh one of each in a temporary directory). A plain recipe, not a
+# shebang one, so it runs under Windows' Git Bash too, where a venv's Python is
+# Scripts/python.exe
 base-install-check python="" mode="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ -n "{{python}}" ]; then
-        "{{python}}" python/tests/check_base_install.py {{mode}}
-        exit
+    if [ -n {{quote(python)}} ]; then \
+        {{quote(python)}} python/tests/check_base_install.py {{mode}}; \
+    else \
+        for mode in base zarr; do \
+            venv="$(mktemp -d)/$mode"; \
+            uv venv -q "$venv"; \
+            if [ "$mode" = base ]; then spec=.; else spec=".[zarr]"; fi; \
+            uv pip install -q --python "$venv" "$spec"; \
+            py="$venv/bin/python"; [ -x "$py" ] || py="$venv/Scripts/python.exe"; \
+            "$py" python/tests/check_base_install.py "$mode"; \
+        done; \
     fi
-    for mode in base zarr; do
-        venv="$(mktemp -d)/$mode"
-        uv venv -q "$venv"
-        if [ "$mode" = base ]; then spec=.; else spec=".[zarr]"; fi
-        uv pip install -q --python "$venv" "$spec"
-        "$venv/bin/python" python/tests/check_base_install.py "$mode"
-    done
 
 # Run the example of docs/virtual-datasets.md on NOAA's data (network: 1 to 1.5 minutes,
 # 50 MB), in a temporary directory

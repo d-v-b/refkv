@@ -5,6 +5,7 @@
 recorded revision (§1.3 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#13-versioning>), in
 the reference reader and writer."""
 
+import sys
 import threading
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -102,6 +103,11 @@ def test_policy_allows_these_urls():
         (Policy(prefixes=("https://data.example/a",)), local, "https://data.example/a/x.bin"),
         (Policy(prefixes=("https://data.example/a",)), local, "https://data.example/a?x=1"),
         (Policy(prefixes=("file:///d/", "https://g/")), remote, "file:///d/x"),
+        (Policy(), local, "file://localhost/d/blob.bin"),
+        (Policy(), local, "file://LOCALHOST/d/blob.bin"),
+        # the unsafe opt-in for a file: URL's host, a UNC path on Windows
+        (Policy(allow_file_hosts=True), "file://server/share/a.vzip", "file://server/share/b.bin"),
+        (Policy(allow_file_hosts=True), local, "file://other/share/b.bin"),
         # public literals, and names (checked when they are resolved)
         (Policy(), remote, "http://93.184.215.14/x"),
         (Policy(), remote, "http://[2606:4700::1111]/x"),
@@ -214,6 +220,21 @@ def test_refuses_a_file_source_of_a_remote_archive():
     for policy in [Policy(), Policy(schemes=frozenset({"s3"}))]:
         with pytest.raises(ResolutionError, match="may not read local files"):
             policy.check("https://h.example/a.vzip", "file:///etc/passwd")
+
+
+def test_refuses_a_file_url_with_a_host():
+    """A file: URL's host (a UNC path on Windows) reads over the network: refused for
+    every archive, the one on that host included, and whatever the prefixes allow."""
+    cases = [
+        (Policy(), "file:///d/a.vzip", "file://server/share/b.bin"),
+        (Policy(), "file://server/share/a.vzip", "file://server/share/b.bin"),
+        (Policy(prefixes=("file://server/",)), "file:///d/a.vzip", "file://server/share/b.bin"),
+        (Policy(allow_files_from_remote_archives=True), "https://h.example/a.vzip",
+         "file://server/share/b.bin"),
+    ]
+    for policy, base, url in cases:
+        with pytest.raises(ResolutionError, match="allow_file_hosts"):
+            policy.check(base, url)
 
 
 def test_refuses_an_unlisted_scheme():
@@ -471,9 +492,12 @@ def test_refuses_a_name_that_resolves_to_a_refused_address(tmp_path, server, res
 
 
 def test_refuses_an_address_written_in_another_form(server):
-    """A decimal, hexadecimal or octal IPv4 host is the address it denotes."""
+    """A decimal, hexadecimal or octal IPv4 host is the address it denotes. Windows'
+    resolver reads none of these forms, so there the name does not resolve, and the
+    read fails before any request."""
+    want = "getaddrinfo failed" if sys.platform == "win32" else "169.254.169.254.*is a link-local address"
     for url in ["http://2852039166/x", "http://0xa9.0xfe.0xa9.0xfe/x", "http://0251.0376.0251.0376/x"]:
-        with pytest.raises(ResolutionError, match="169.254.169.254.*is a link-local address"):
+        with pytest.raises(ResolutionError, match=want):
             _range(Policy(), "file:///d/a.vzip", url)
 
 

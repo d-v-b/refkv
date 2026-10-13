@@ -144,6 +144,14 @@ class Policy:
       them (rule 2), whatever its scheme. Rule 3 still applies.
     - `allow_files_from_remote_archives`: UNSAFE. Lets an archive opened from
       a URL name `file:` sources, that is, read the reader's local files.
+    - `allow_file_hosts`: UNSAFE. Lets a `file:` URL name a host
+      (`file://server/share/x`), which on Windows is the UNC path
+      `\\\\server\\share\\x`: reading it connects to that server over the
+      network, and may send it the user's credentials (spec §5
+      <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>). Off by
+      default, for every archive; on other systems such a URL has no local
+      path, and is refused anyway. An archive opened from a UNC path reads
+      itself without it; the sources it names need it.
     - `allow_private_hosts`: UNSAFE. Lets the archive send requests to
       loopback, private, link-local (cloud metadata) and other special
       addresses (rule 3), which every archive, local or remote, is otherwise
@@ -175,6 +183,7 @@ class Policy:
     schemes: frozenset[str] = frozenset()
     prefixes: tuple[str, ...] | None = None
     allow_files_from_remote_archives: bool = False
+    allow_file_hosts: bool = False
     allow_private_hosts: bool = False
     allow_unchecked_proxy: bool = False
     max_sources: int = MAX_SOURCES
@@ -194,7 +203,8 @@ class Policy:
         `registered`: the application registered a store for a prefix of `url`
         (`registry=`), which allows it under rule 1 whatever its scheme, except
         a `file:` URL for a remote archive. A prefix list (rule 2) still decides
-        alone, and rule 3 still applies."""
+        alone, and rule 3, and the refusal of a `file:` URL's host without
+        `allow_file_hosts`, still apply."""
         if self.prefixes is not None:
             if not any(matches_prefix(url, p) for p in self.prefixes):
                 raise ResolutionError(f"{url}: not under an allowed URL prefix (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
@@ -208,6 +218,16 @@ class Policy:
             elif s != "http" and not registered and s not in {_scheme(x + ":") for x in self.schemes}:
                 raise ResolutionError(f"{url}: the scheme {s!r} is not allowed (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>). "
                                       + scheme_remedy(url))
+        if _scheme(url) == "file" and not self.allow_file_hosts:
+            try:
+                host = urlsplit(url).netloc
+            except ValueError:
+                host = ""
+            if host.lower() not in ("", "localhost"):
+                raise ResolutionError(
+                    f"{url}: a file: URL with the host {host!r} (a UNC path) reads over the "
+                    f"network, which the reader does not do without allow_file_hosts=True "
+                    f"(spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)")
         if _scheme(url) == "http":
             try:
                 host = urlsplit(url).hostname

@@ -31,8 +31,7 @@ pip install "refkv[images]"        # and the JPEG, JPEG 2000 and JPEG XR codecs
 pip install "refkv[virtualizarr]"  # virtual datasets from VirtualiZarr
 ```
 
-Wheels are built for Linux and macOS (Python 3.12 and later); Windows is not
-supported yet.
+Wheels are built for Linux, macOS and Windows (Python 3.12 and later).
 
 Status: experimental, anything can change. Source, spec and issues:
 <https://github.com/d-v-b/refkv>.

@@ -81,6 +81,7 @@ def virtualize(location: str, url: str | None = None, mirror: bool = True, polic
 
     from refkv.ir.output import from_rust
     from refkv.ir.planner import drive, new_run, open_transport
+    from refkv.uri import path_reference
 
     transport = transport or open_transport(location, policy)
     want = min(552, transport.size)
@@ -93,7 +94,8 @@ def virtualize(location: str, url: str | None = None, mirror: bool = True, polic
     drive(run, transport, connections)
     fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"
     try:
-        t, ir = run.output(url or location, mirror)
+        t, ir = run.output(url or (location if transport.remote else path_reference(location)),
+                           mirror)
     except _ir.Rejected as e:
         raise Rejected(str(e)) from None
     out = from_rust(t)

@@ -19,6 +19,7 @@ import refkv.zarr
 from refkv.convert import write_vzip
 from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Source
+from refkv.uri import file_uri
 
 from helpers import virtualize
 
@@ -55,7 +56,7 @@ def test_store_reads_what_its_saved_archive_reads(netcdf_files, tmp_path):
         assert store.stats.archive_requests == 0 and store.stats.external_requests > 0
         for page_size in [None, 256]:
             for mirror_refs in [True, False]:
-                for relative_to in [None, f"file://{tmp_path}/"]:
+                for relative_to in [None, file_uri(tmp_path) + "/"]:
                     out = tmp_path / f"{i}-{page_size}-{mirror_refs}-{relative_to is None}.vzip"
                     summary = store.save(out, page_size=page_size, mirror_refs=mirror_refs,
                                          relative_to=relative_to)
@@ -95,7 +96,7 @@ def test_from_virtualizarr_rewrites_urls(netcdf_files, tmp_path):
     moved.mkdir()
     for p in paths:
         (moved / p.name).write_bytes(p.read_bytes())
-    old, new = f"file://{tmp_path}/", f"file://{moved}/"
+    old, new = file_uri(tmp_path) + "/", file_uri(moved) + "/"
     cases = [
         {old: new},
         {"file:///": "file:///nowhere/", old: new},
@@ -133,7 +134,7 @@ def test_store_from_a_mapping(tmp_path):
                      Range(source=1, offset=1, length=2))),
         "__vz__/shared": b"xyz",
     }
-    store = refkv.ReferenceStore(mapping, [Source(url=f"file://{src}"), Source(key="__vz__/shared")])
+    store = refkv.ReferenceStore(mapping, [Source(url=file_uri(src)), Source(key="__vz__/shared")])
     want = {"a": b"plain", "b": bytes([8, 9, 10, 11]), "c": b"<" + bytes([60, 61, 62, 63]) + b"yz"}
     assert _values(store) == want
     store.save(tmp_path / "m.vzip")
@@ -264,7 +265,7 @@ def test_registry_reads_registered_sources(netcdf_files, tmp_path):
                  "Resolver": Resolver({prefix: bucket})}
         for form, registry in forms.items():
             store = refkv.ReferenceStore.from_virtualizarr(
-                vds, rewrite_urls={f"file://{tmp_path}/": "s3://bucket/data/"},
+                vds, rewrite_urls={file_uri(tmp_path) + "/": "s3://bucket/data/"},
                 registry=registry)
             xr.testing.assert_identical(xr.open_zarr(refkv.zarr.store(store)).load(),
                                         expected.load())
@@ -316,7 +317,7 @@ def test_registry_does_not_let_a_remote_store_read_files(tmp_path):
     zarr.create_array(mem, name="x", shape=(4,), chunks=(4,), dtype="u1", compressors=None)
     mapping = {k: v.to_bytes() for k, v in mem._store_dict.items()}
     mapping["x/c/0"] = Range(source=0, offset=0, length=4)
-    store = refkv.ReferenceStore(mapping, [Source(url=f"file://{tmp_path}/obj.bin")],
+    store = refkv.ReferenceStore(mapping, [Source(url=file_uri(tmp_path / "obj.bin"))],
                                 url="https://data.example/", registry={"file://": LocalStore()})
     with pytest.raises(ResolutionError, match="may not read local files"):
         zarr.open_array(refkv.zarr.store(store), path="x", mode="r")[:]

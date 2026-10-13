@@ -17,6 +17,7 @@ classifiers = [
     "Topic :: Scientific/Engineering",
     "Operating System :: POSIX :: Linux",
     "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
 ]
 # The base install reads and writes vzip archives, holds a ReferenceStore and
 # virtualizes image files and stores, without Zarr (numpy: refkv.shards), through

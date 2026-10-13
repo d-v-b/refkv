@@ -138,7 +138,8 @@ def test_parses_listings():
     b"<Error><Code>NoSuchBucket</Code></Error>",
     listing("", extra="<x>" * 256 + "</x>" * 256),  # 257 deep
     listing("", extra="<x>" * 50000 + "</x>" * 50000),  # far deeper than the call stack
-])
+# short ids: a whole body would overflow Windows' 32767-character limit on PYTEST_CURRENT_TEST
+], ids=lambda b: (b if isinstance(b, str) else b.decode("latin-1"))[:60])
 def test_rejects_listings(body):
     with pytest.raises(Rejected):
         parse_listing(body, "p/")

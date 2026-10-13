@@ -1,6 +1,6 @@
 # vzip: the ZIP binding of refkv
 
-Format version: 0 (**provisional**) · Specification revision: 11
+Format version: 0 (**provisional**) · Specification revision: 11.1
 
 This document is Part 2 of the refkv specification: the **ZIP binding**, which
 keeps a store in a single ZIP file, a **vzip archive**. [Part 1](../refkv.md),

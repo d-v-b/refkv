@@ -13,6 +13,7 @@ from refkv import OffsetRequest, RangeRequest, SuffixRequest
 from refkv._sync import run
 from refkv.errors import RequestError, ResolutionError
 from refkv.pb import Concat, Range, Source
+from refkv.uri import file_uri
 
 SRC = bytes(range(64))
 HIDDEN = b"xyz"
@@ -33,7 +34,7 @@ def _mapping():
 def _stores(tmp_path):
     """The store in memory, and the archives it saves, with and without a page index."""
     (tmp_path / "src.bin").write_bytes(SRC)
-    sources = [Source(url=f"file://{tmp_path}/src.bin"), Source(key="__vz__/shared")]
+    sources = [Source(url=file_uri(tmp_path / "src.bin")), Source(key="__vz__/shared")]
     store = refkv.ReferenceStore(_mapping(), sources)
     out = {"memory": store}
     for page_size in [None, 64]:
@@ -93,7 +94,7 @@ def test_operations(tmp_path):
             "a": [], "x": [],
         }, name
         assert {k: store.raw(k) for k in want_raw} == want_raw, name
-        assert store.sources == (Source(url=f"file://{tmp_path}/src.bin"),
+        assert store.sources == (Source(url=file_uri(tmp_path / "src.bin")),
                                  Source(key="__vz__/shared")), name
 
         async def listed():

@@ -23,6 +23,7 @@ from pathlib import Path
 
 import refkv
 from refkv.pb import Concat, Range, Source
+from refkv.uri import file_uri
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 mode = sys.argv[1] if len(sys.argv) > 1 else "base"
@@ -54,7 +55,7 @@ with tempfile.TemporaryDirectory() as d:
                            "codecs": [{"name": "bytes"}]}).encode()
     mapping = {"x/zarr.json": metadata, "x/c/0": Range(source=0, offset=4, length=4),
                "y": Concat((Range(data=b"<"), Range(source=0, offset=0, length=2)))}
-    store = refkv.ReferenceStore(mapping, [Source(url="file://" + os.path.abspath("src.bin"))])
+    store = refkv.ReferenceStore(mapping, [Source(url=file_uri("src.bin"))])
     print(store.save("m.vzip"))
     reopened = refkv.open("m.vzip")
     for s in (store, reopened):
