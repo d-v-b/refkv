@@ -1,4 +1,5 @@
-# Build vzip's wheels (the Python package with its Rust core, abi3 for Python >= 3.12) and
+# Build vzip's wheels (the Python package with its Rust core, abi3 for Python >= 3.12; Linux
+# and macOS) and
 # sdist, and publish them to PyPI when a tag v<version> is pushed, through PyPI's trusted
 # publishing (no token: PyPI trusts this workflow in the environment `pypi`). A pull request
 # that changes the build, and a manual run, build every wheel without publishing.
@@ -10,8 +11,9 @@ on:
   pull_request:
     paths:
       - pyproject.toml
-      - rust/vzip-ir/Cargo.toml
-      - rust/vzip-ir/Cargo.lock
+      - rust/vzip-ir/**
+      - python/src/vzip_ir/**
+      - python/tests/check_base_install.py
       - .github/workflows/release.yml
   workflow_dispatch:
 
@@ -31,22 +33,21 @@ jobs:
           - { os: ubuntu-24.04-arm, target: aarch64, manylinux: auto }
           - { os: macos-15-intel, target: x86_64 }
           - { os: macos-15, target: aarch64 }
-          - { os: windows-latest, target: x64 }
+          # no Windows wheel yet: vzip's file: URIs assume POSIX paths (vzip.uri)
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
           args: --release --out dist
-      # the wheel installs and runs: read and write an archive, virtualize through the core
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install --find-links dist --no-index vzip --no-deps
-      - run: python -m pip install google-crc32c numpy obstore
+      # the wheel installs, with its dependencies, and runs: read and write an archive,
+      # virtualize through the core
+      - run: python -m pip install dist/*.whl
       - run: python python/tests/check_base_install.py base
-        shell: bash
       - uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.os }}-${{ matrix.target }}
@@ -54,13 +55,19 @@ jobs:
 
   sdist:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: PyO3/maturin-action@v1
         with:
           command: sdist
           args: --out dist
+      # the sdist builds (the Rust core sits outside the project root) and runs
+      - run: python -m pip install dist/*.tar.gz
+      - run: python python/tests/check_base_install.py base
       - uses: actions/upload-artifact@v4
         with:
           name: sdist

@@ -3,6 +3,5 @@ is vzip_ir.vzip_ir, and this package re-exports it, as maturin's own wrapper doe
 
 from .vzip_ir import *  # noqa: F403
 
-__doc__ = vzip_ir.__doc__  # noqa: F405
 if hasattr(vzip_ir, "__all__"):  # noqa: F405
     __all__ = vzip_ir.__all__  # noqa: F405
