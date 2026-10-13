@@ -59,7 +59,7 @@ be measured again.
 ## Two ways to run it
 
 **The Python command line.** From a clone of this repository, after
-`uv sync` and `just ir-build`:
+`uv sync`:
 
 ```bash
 uv run python -m vzip.virtualize <url or path> out.vzip
@@ -68,9 +68,9 @@ just virtualize <url or path> out.vzip
 ```
 
 TIFF (and SVS and NDPI), ND2, CZI, DICOM and IMS are virtualized by vzip's Rust core,
-[rust/vzip-ir](../../rust/vzip-ir/), which `just ir-build` builds into the
-project's environment as the Python module `vzip_ir` (it needs a Rust
-toolchain). The core parses the file into an intermediate representation (IR),
+[rust/vzip-ir](../../rust/vzip-ir/), part of the vzip
+distribution: installing vzip (`pip install`, or `uv sync` in a clone) builds
+it as the Python module `vzip_ir`, which needs a Rust toolchain. The core parses the file into an intermediate representation (IR),
 plans the range requests, projects the IR onto the format's convention, and
 writes the source's IR mirror ([below](#the-sources-metadata-and-where-it-came-from-vzip_virtualized)).
 The other formats are implemented in Python and do not need it.
