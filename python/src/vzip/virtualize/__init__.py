@@ -82,7 +82,7 @@ def virtualize_store(location: str, url: str | None = None, *, max_objects: int 
     store = open_store(location, url, max_objects=max_objects, workers=workers, policy=policy)
     try:
         fmt = choose_profile(store)
-        if fmt != "n5" and declares_04(store):
+        if fmt == "zarr2" and declares_04(store):
             fmt, out = "ome-zarr", virtualize_ome_zarr(store)
         else:
             from vzip.ir.store import run_store
