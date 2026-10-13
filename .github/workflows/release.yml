@@ -11,6 +11,8 @@ on:
   pull_request:
     paths:
       - pyproject.toml
+      - python/README.md
+      - LICENSE-*
       - rust/vzip-ir/**
       - python/src/vzip_ir/**
       - python/tests/check_base_install.py

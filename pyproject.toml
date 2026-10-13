@@ -2,7 +2,8 @@
 name = "vzip"
 version = "0.1.0"
 description = "vzip: ZIP plus a reference value type, for virtual stores (reference implementation and experiments)"
-readme = "README.md"
+# the PyPI page (README.md, the repository's, links to its files by relative path)
+readme = "python/README.md"
 authors = [
     { name = "Davis Vann Bennett", email = "davis.v.bennett@gmail.com" }
 ]
@@ -14,6 +15,8 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Rust",
     "Topic :: Scientific/Engineering",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
 ]
 # The base install reads and writes vzip archives, holds a ReferenceStore and
 # virtualizes image files and stores, without Zarr (numpy: the NIfTI virtualizer), through
