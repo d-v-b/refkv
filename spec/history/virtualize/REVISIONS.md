@@ -1481,8 +1481,8 @@ them.
 
 ### N5 on the IR
 
-**What prompted it.** N5 is the first store profile to move onto the IR: its
-`vzip_source` held only what a node's `zarr.json` does not reproduce, the keys
+**What prompted it.** N5 moves onto the IR after Zarr v2 and SAFE's directory
+form: its `vzip_source` held only what a node's `zarr.json` does not reproduce, the keys
 of the empty objects and the ignored keys, so a container's documents could not
 be rebuilt from an archive, and the profile existed twice (Python and
 TypeScript).
@@ -1513,10 +1513,8 @@ TypeScript).
 - **Conventions [§2](../../conventions.md#2-attributes)** and
   **spec/virtualize.md [§1.1](../../virtualize.md#11-output-and-equivalence)** name N5's
   mirror; N5's `schema.json` describes it with the store mirror definition the store
-  formats share (`storeMirror`: the description with `objects`, and `ignored`).
-- **Zarr v2 [§4.1](../../virtualize/zarr2.md#41-elements):** a member named `gaps` or
-  `json` is escaped like a repeated one, as N5's are (both formats hold documents with one
-  function, `json::hold`); before, a `.zattrs` member named `gaps` broke the IR's name rule.
+  formats share (`storeMirror`), narrowed as Zarr v2's is (`objects` required, no
+  `empty_dirs`).
 
 **Output.** Outside `vzip_source`, every N5 output is unchanged (the 17 accepted
 fixture stores compared with the frozen reference, references and sources
@@ -1527,6 +1525,10 @@ and nothing else to keep there, is now rejected.
 **Implementations.** The Rust core reads N5 as a store format (`n5.rs`: the
 documents by spec/virtualize.md §1.6 in `json.rs`, which Zarr v2 shares, checked by `schema/n5.json`;
 `project/n5.rs`: the hierarchy and the references), from Python (`vzip.ir.store`)
-and the browser (`js/src/virtualize/ir/store.ts`, wasm32). The Python and
-TypeScript N5 profiles are frozen in `conformance/virtualize/reference`, recording
-revision 25, and `compare.py` compares them with the core outside `vzip_source`.
+and the browser (`js/src/virtualize/ir/store.ts`, wasm32), through the store host and
+the one mechanism for ignored keys that Zarr v2 and SAFE use: `record_ignored` writes
+N5's `ignored`, and the mirror's canonical check sets it aside. A member named `gaps` or
+`json` is escaped as Zarr v2's are (`json::hold`). The Python and TypeScript N5 profiles
+are frozen in `conformance/virtualize/reference`, recording revision 25
+(`STORES_REVISION`), and `compare.py` compares them with the core outside
+`vzip_source`.

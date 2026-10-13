@@ -8,7 +8,7 @@ the shipped code.
 
 `virtualize(location, url, checksums=...)` is `vzip.virtualize.virtualize` as it
 was: the same dispatch by first bytes, the same readers, with TIFF, ND2, CZI, DICOM, NIfTI, IMS,
-NDPI and SAFE files, and SAFE directories and Zarr v2 stores (`vzip_reference.store`), going to
+NDPI and SAFE files, and SAFE directories and Zarr v2 and N5 stores (`vzip_reference.store`), going to
 the frozen modules. A file or store at an http(s) URL is read by the
 shipped readers under `policy` (default: `Policy()`, private hosts refused)."""
 

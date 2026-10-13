@@ -406,7 +406,7 @@ another, such as a TIFF's contiguous strips, are referenced, not copied.
 
 ## 8. The IR mirror
 
-The TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE and Zarr v2 conventions keep the source's metadata as one
+The TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2 and N5 conventions keep the source's metadata as one
 format-free structure on `vzip_source`: the source's **IR** (intermediate
 representation), a tree of **elements** whose leaves partition the source's
 bytes, stored as a table (the **mirror**) and shown as JSON (the **view**).
@@ -588,7 +588,7 @@ canonical mirror (8.8: runs expanded, derived spaces left out) would have more
 than `N = 2^22 + floor(Z / 4)` rows, with the message
 `budget: the mirror would have more than N rows` (N in decimal), and may do so
 before expanding when the elements outside derived spaces, every run expanded,
-are already more than `N`. (No source the TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS, SAFE and Zarr v2 parsers accept
+are already more than `N`. (No source the TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2 and N5 parsers accept
 comes near it today: they describe fewer than one element per four bytes of
 the source; the limit bounds what a reader must expand.) So is one whose columns' lengths
 differ, whose column refers to values past `column_values` or entries past
@@ -825,7 +825,7 @@ compares mirrors entry for entry. In order:
    |---|---|---|---|---|
    | TIFF | layout tables | the start or length of a column run of at least 16 members of one data row each, with a name index, in a struct `tiles` (or `strips`) with no index | the first child `value` (no index) of the first struct child `tags/` with index 324 for starts and 325 for lengths (273 and 279 for `strips`) of that struct's parent: TileOffsets and TileByteCounts (StripOffsets, StripByteCounts) | member 0's name index |
 
-   NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE and Zarr v2 have none. A format adds a rule by a revision of this
+   NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2 and N5 have none. A format adds a rule by a revision of this
    section and its convention: a new row in this table, whose conditions
    depend only on the canonical IR (so that every producer finds the same
    columns), and whose array a reader can read from source 0.
