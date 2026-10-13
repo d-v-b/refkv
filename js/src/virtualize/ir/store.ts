@@ -130,7 +130,8 @@ export async function virtualizeStoreIr(
     }
     // the output's checks are the decided profile's (OME-Zarr's for a Zarr v2 store whose root
     // declares OME-NGFF 0.4), which its rejection names
-    const decided = text(out(w, Number(w.vz_store_profile(p)))) as StoreProfile;
+    const said = text(out(w, Number(w.vz_store_profile(p))));
+    const decided: StoreProfile = said === "ome-zarr" || said === "zarr2" ? said : format;
     live = false; // vz_store_output consumes the run
     const u = utf8.encode(store.url);
     const n = Number(w.vz_store_output(p, put(w, u), u.length, options.mirror === false ? 0 : 1));

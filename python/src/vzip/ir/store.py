@@ -174,7 +174,8 @@ def run_store(store: Store, fmt: str = "zarr2", mirror: bool = True):
     its ignored keys recorded, its objects read at most `store.workers` at a time, and the
     summary's `listingRequests` the store's requests. With `mirror` false the output has no
     `vzip_source` mirror, and so no record of the ignored keys either. A rejection names `fmt`
-    (`Rejected.format`)."""
+    (`Rejected.format`), or, for one of the output's checks, the profile the run decided
+    (`ome-zarr` once the 0.4 test passed)."""
     import vzip_ir
 
     if store._prefetch is not None:

@@ -68,11 +68,22 @@ def test_the_mirror_rebuilds_each_node_document():
         assert {k for k, _, _ in rebuilt} == {p.relative_to(store).as_posix() for p in store.rglob("*") if p.is_file()}
 
 
-def test_a_rejection_names_the_profile_the_store_was_decided_to_be():
-    # a store whose root declares OME-NGFF 0.4 is refused by OME-Zarr's checks; a Zarr v2 rule
-    # that fails before the test decides is the zarr2 format's
+def test_a_rejection_names_the_profile_the_store_was_decided_to_be(tmp_path):
+    # the output's checks are the decided profile's: in a store whose root declares OME-NGFF 0.4,
+    # OME-Zarr's own and the Zarr v2 rules it applies (spec/virtualize/ome-zarr.md §2
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#2-hierarchy>); in any
+    # other Zarr v2 store, the zarr2 format's
     with pytest.raises(Rejected) as e:
         virtualize(str(FIXTURES / "ome_zarr_reject_axes_count"), URL.format("a"))
+    assert e.value.format == "ome-zarr"
+    import shutil
+
+    store = tmp_path / "s"
+    shutil.copytree(FIXTURES / "ome_zarr_image_2d", store)
+    z = json.loads((store / "0" / ".zarray").read_text())
+    (store / "0" / ".zarray").write_text(json.dumps({**z, "dtype": "<c8"}))
+    with pytest.raises(Rejected, match="dtype") as e:
+        virtualize(str(store), URL.format("c"))
     assert e.value.format == "ome-zarr"
     with pytest.raises(Rejected) as e:
         virtualize(str(FIXTURES.parent / "zarr2" / "zarr2_reject_dtype_complex"), "https://data.test/z/")

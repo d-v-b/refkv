@@ -27,7 +27,9 @@ from vzip.policy import Policy
 class Rejected(Exception):
     """The input is not accepted by the profile (spec/virtualize.md §1.2
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>). `format`: the Rust
-    core's store format that refused it, once a store run was started; else None."""
+    core's store format that refused it once a store run was started, or the profile that run
+    decided (`ome-zarr` once the 0.4 test passed) for a rejection of the output's checks; else
+    None."""
 
     def __init__(self, *args, format: str | None = None) -> None:
         super().__init__(*args)
