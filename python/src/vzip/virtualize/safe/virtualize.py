@@ -244,6 +244,26 @@ class SafeOutput:
                 w.add_bytes(key, body, compress=not late, late=late)
             w.close()
 
+    def to_store(self, *, policy=None, info: dict | None = None):
+        """The output as a `vzip.ReferenceStore`, which `save` writes as the archive
+        `write` writes, byte for byte (`vzip.virtualize.common.reference_store`)."""
+        from vzip.pb import Range, Source
+        from vzip.virtualize.common import reference_store
+
+        urls, data, refs = self.table()
+        if self.form == "zip":
+            pins = [{"size": self.size, "etag": self.etag}]
+        else:
+            by_url = {object_url(self.url, k): n for k, n in self.object_sizes.items()}
+            pins = [{"size": by_url.get(u)} for u in urls]
+        sources = [Source(url=u, **pins[i]) for i, u in enumerate(urls)] + [Source(data=v) for v in data]
+        ranges = [(key, [Range(data=r) if isinstance(r, bytes) else Range(source=r[0], offset=r[1], length=r[2])
+                         for r in parts]) for key, parts in refs.items()]
+        entries = [(key, self.bytes_entries[key], False) for key in sorted(self.bytes_entries)]
+        entries += [(key, json.dumps(self.docs[key], separators=(",", ":"), ensure_ascii=False).encode(),
+                     not key.startswith(SOURCE_NODE + "/")) for key in sorted(self.docs)]
+        return reference_store(ranges, entries, sources, checksum=self.checksum, policy=policy, info=info)
+
 
 def _group(attributes: dict | None = None) -> dict:
     return {"zarr_format": 3, "node_type": "group", "attributes": attributes or {}}

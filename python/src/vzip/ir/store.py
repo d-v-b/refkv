@@ -116,6 +116,19 @@ class StoreIrOutput:
                 w.add_bytes(key, self.entries[key], compress=not late, late=late)
             w.close()
 
+    def to_store(self, *, policy=None, info: dict | None = None):
+        """The output as a `vzip.ReferenceStore`, which `save` writes as the archive
+        `write` writes, byte for byte (`vzip.virtualize.common.reference_store`)."""
+        from vzip.pb import Range, Source
+        from vzip.virtualize.common import reference_store
+
+        keys = sorted(self.refs, key=lambda k: k.encode())
+        sources = [Source(url=object_url(self.url, self.refs[k][0]), size=self.refs[k][1]) for k in keys]
+        refs = [(k, [Range(source=i, offset=0, length=self.refs[k][1])]) for i, k in enumerate(keys)]
+        entries = [(key, self.entries[key], key.endswith("zarr.json") and not key.startswith(self.lazy))
+                   for key in sorted(self.entries)]
+        return reference_store(refs, entries, sources, policy=policy, info=info)
+
 
 def from_rust(t) -> StoreIrOutput:
     """(url, entries, refs, data sources, lazy prefixes, summary JSON) of a store run as a
