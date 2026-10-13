@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from vzip.virtualize import Rejected, virtualize
+from vzip.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
 from vzip.virtualize.common import CONVENTION_KEY, REVISION
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "virtualize" / "reference"))

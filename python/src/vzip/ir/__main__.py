@@ -9,6 +9,7 @@ or private host needs
 import json
 import sys
 
+from vzip.errors import ResolutionError
 from vzip.ir import virtualize
 from vzip.policy import Policy
 from vzip.virtualize.common import Rejected
@@ -28,7 +29,14 @@ def main(argv: list[str]) -> int:
     except Rejected as e:
         print(f"rejected: {e}", file=sys.stderr)
         return 3
-    out.write(args[1])
+    except ResolutionError as e:  # the reader policy refused the source
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    try:  # the archive's sources are checked against the policy the input was read under
+        out.to_store(policy=policy).save(args[1], policy=policy)
+    except ResolutionError as e:  # a source a reader under that policy could not read
+        print(f"error: {e}", file=sys.stderr)
+        return 1
     print(json.dumps({"format": fmt, "elements": len(ir), **out.summary}))
     return 0
 

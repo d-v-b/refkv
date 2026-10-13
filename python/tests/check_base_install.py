@@ -80,17 +80,19 @@ with tempfile.TemporaryDirectory() as d:
 
     from vzip.virtualize import virtualize, virtualize_store
 
-    fmt, o = virtualize(str(FIXTURES / "nifti" / "nifti_block_x_split.nii"))
-    o.write("n.vzip")
-    fmt2, o2 = virtualize_store(str(FIXTURES / "zarr2" / "zarr2_hierarchy"),
-                                "https://example.test/z/")
-    o2.write("z.vzip")
-    assert (fmt, fmt2) == ("nifti", "zarr2") and vzip.open("n.vzip").get("zarr.json")
+    n = virtualize(str(FIXTURES / "nifti" / "nifti_block_x_split.nii"))
+    n.save("n.vzip")
+    z = virtualize_store(str(FIXTURES / "zarr2" / "zarr2_hierarchy"), "https://example.test/z/")
+    z.save("z.vzip")
+    assert (n.info["format"], z.info["format"]) == ("nifti", "zarr2")
+    saved = vzip.open("n.vzip")
+    for key in ("zarr.json", "0/c/0/0"):  # in memory as saved
+        assert n.get(key) is not None and n.get(key) == saved.get(key)
     import vzip_ir  # noqa: F401  (a dependency: installing vzip built it)
 
-    fmt3, o3 = virtualize(str(FIXTURES / "tiff" / "jpeg_gray.tif"))
-    o3.write("t.vzip")
-    assert fmt3 == "tiff" and vzip.open("t.vzip").get("zarr.json")
+    t = virtualize(str(FIXTURES / "tiff" / "jpeg_gray.tif"))
+    t.save("t.vzip")
+    assert t.info["format"] == "tiff" and vzip.open("t.vzip").get("zarr.json") == t.get("zarr.json")
 
     if mode == "zarr":
         import zarr

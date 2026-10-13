@@ -6,7 +6,8 @@ IR path against an independent implementation. Nothing shipped imports this pack
 other format, and what the profiles share (`vzip.virtualize.common`, `vzip.virtualize.store`),
 is the shipped code.
 
-`virtualize(location, url, checksums=...)` is `vzip.virtualize.virtualize` as it
+`virtualize(location, url, checksums=...)` is `vzip.virtualize._virtualize` (the
+(format, output) under the public `virtualize`, which returns a ReferenceStore) as it
 was: the same dispatch by first bytes, the same readers, with TIFF, ND2, CZI, DICOM, NIfTI, IMS,
 NDPI and SAFE files, and SAFE directories and Zarr v2 and OME-Zarr stores (`vzip_reference.store`), going to
 the frozen modules. A file or store at an http(s) URL is read by the

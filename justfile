@@ -32,9 +32,12 @@ ir-wasm:
     node rust/vzip-ir/wasm/store.mjs fixtures/zarr2/zarr2_hierarchy > /dev/null
 
 # Test the IR core (Rust) and its Python host (after ir-build)
-ir-test *args: ir-build
-    cargo test --release --manifest-path rust/vzip-ir/Cargo.toml
+ir-test *args: ir-rust-test ir-build
     uv run pytest -q python/tests/ir {{args}}
+
+# Test the IR core's Rust crate alone
+ir-rust-test:
+    cargo test --release --manifest-path rust/vzip-ir/Cargo.toml
 
 # Run every offline test: the Python reference, the browser code and the independent implementations
 test-all: test js::test impls::test

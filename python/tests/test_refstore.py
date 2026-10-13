@@ -20,7 +20,7 @@ from vzip.convert import write_vzip
 from vzip.errors import ResolutionError
 from vzip.pb import Concat, Range, Source
 
-from conftest import virtualize
+from helpers import virtualize
 
 PROTO = default_buffer_prototype()
 
@@ -140,6 +140,31 @@ def test_store_from_a_mapping(tmp_path):
     assert _values(vzip.open(tmp_path / "m.vzip")) == want
 
 
+def test_save_follows_the_store_layout(tmp_path):
+    """`save` writes the values in the mapping's order, `read_at_open` last, deflates
+    those of `compressed`, and writes the store's page index unless given another;
+    `info` is the builder's, kept out of the archive."""
+    import zipfile
+
+    mapping = {"z": b"z" * 64, "r": Range(source=0, offset=0, length=4), "a/zarr.json": b"{}", "m": b"m" * 64}
+    store = vzip.ReferenceStore(mapping, [Source(url="https://data.test/x")], read_at_open=["a/zarr.json"],
+                                compressed=["m"], page_size=1 << 16, info={"format": "x", "n": [1]})
+    assert store.info == {"format": "x", "n": [1]} and store.compressed == {"m"} and store.page_size == 1 << 16
+    store.info["n"].append(2)  # a copy
+    assert store.info == {"format": "x", "n": [1]}
+    for page_size, index in ((..., True), (None, False)):
+        path = tmp_path / f"{index}.vzip"
+        store.save(path, page_size=page_size)
+        entries = sorted(zipfile.ZipFile(path).infolist(), key=lambda e: e.header_offset)
+        names = [e.filename for e in entries if not e.filename.startswith("__vz__/")]
+        assert names == ["z", "r", "m", "a/zarr.json"]
+        assert [e.filename for e in entries if e.compress_type == zipfile.ZIP_DEFLATED
+                and not e.filename.startswith("__vz__/")] == ["m"]
+        assert any(e.filename == "__vz__/index" for e in entries) == index
+        saved = vzip.open(path)
+        assert {k: saved.get(k) for k in ("z", "a/zarr.json", "m")} == {k: mapping[k] for k in ("z", "a/zarr.json", "m")}
+
+
 # ------------------------------------------------------------ the reader policy
 
 
@@ -161,16 +186,47 @@ def test_reading_a_refused_scheme_says_how_to_fix_it():
 
 
 def test_save_refuses_sources_the_reader_policy_refuses(tmp_path):
-    with pytest.raises(ValueError, match=r"not saving .*default reader policy refuses 1 of its 1 "
-                                         r"sources.*vzip\.public_s3_url"):
+    with pytest.raises(ResolutionError, match=r"not saving .*default reader policy refuses 1 of its 1 "
+                                              r"sources.*vzip\.public_s3_url"):
         _s3_store().save(tmp_path / "x.vzip")
+    assert not (tmp_path / "x.vzip").exists()
+
+
+def test_save_counts_each_refused_source_of_a_shared_origin(tmp_path):
+    """The policy decides once per origin without a prefix list, but counts every source;
+    a prefix list decides each source by its whole URL."""
+    urls = ["https://data.test/a", "http://127.0.0.1/b", "https://data.test/c", "http://127.0.0.1/d",
+            "http://127.0.0.1/e"]
+    store = vzip.ReferenceStore({f"k{i}": Range(source=i, offset=0, length=1) for i in range(5)},
+                                [Source(url=u) for u in urls])
+    with pytest.raises(ResolutionError, match=r"refuses 3 of its 5 sources.*127\.0\.0\.1/b"):
+        store.save(tmp_path / "x.vzip")
+    with pytest.raises(ResolutionError, match=r"refuses 4 of its 5 sources.*127\.0\.0\.1/b"):
+        store.save(tmp_path / "x.vzip", policy=vzip.Policy(prefixes=("https://data.test/a",)))
+    # a policy with its own check decides each source
+
+    class ByPath(vzip.Policy):
+        def check(self, base, url, **kwargs):
+            if url.endswith("/c"):
+                raise ResolutionError(f"{url}: refused by path")
+            super().check(base, url, **kwargs)
+
+    with pytest.raises(ResolutionError, match=r"refuses 1 of its 5 sources.*data\.test/c: refused by path"):
+        store.save(tmp_path / "x.vzip", policy=ByPath(allow_private_hosts=True))
+    # an invalid URL is refused on its own, after or before its origin's other sources
+    for urls in (["https://data.test/a", "https://data.test/a b", "https://data.test/c"],
+                 ["https://data.test/a b", "https://data.test/a", "https://data.test/c"]):
+        store = vzip.ReferenceStore({f"k{i}": Range(source=i, offset=0, length=1) for i in range(3)},
+                                    [Source(url=u) for u in urls])
+        with pytest.raises(ResolutionError, match=r"refuses 1 of its 3 sources.*not a valid URI reference"):
+            store.save(tmp_path / "x.vzip")
     assert not (tmp_path / "x.vzip").exists()
 
 
 def test_save_checks_against_the_policy_given(tmp_path):
     store = _s3_store()
     store.save(tmp_path / "ok.vzip", policy=vzip.Policy(schemes={"s3"}))
-    with pytest.raises(ValueError, match="reader policy given refuses"):
+    with pytest.raises(ResolutionError, match="reader policy given refuses"):
         store.save(tmp_path / "x.vzip", policy=vzip.Policy(prefixes=("https://data.example/",)))
 
 
@@ -388,6 +444,29 @@ def test_constructor_rejects_a_format_entry_key():
 def test_constructor_rejects_an_empty_key():
     with pytest.raises(ValueError, match="non-empty"):
         vzip.ReferenceStore({"": b""})
+
+
+def test_constructor_rejects_compressed_naming_no_bytes_value():
+    with pytest.raises(ValueError, match="compressed names 'r', which is not a key of a bytes value"):
+        vzip.ReferenceStore({"r": Range(source=0, offset=0, length=1)}, [Source(url="https://a/b")],
+                            compressed=["r"])
+
+
+@pytest.mark.parametrize("name", ["read_at_open", "compressed"])
+@pytest.mark.parametrize("key", ["zarr.json", b"zarr.json", bytearray(b"zarr.json"), memoryview(b"zarr.json")],
+                         ids=["str", "bytes", "bytearray", "memoryview"])
+def test_constructor_rejects_a_single_key_for_a_key_set(name, key):
+    with pytest.raises(TypeError, match=f"{name} is an iterable of keys, not a single {type(key).__name__}"):
+        vzip.ReferenceStore({"zarr.json": b"{}"}, **{name: key})
+
+
+@pytest.mark.parametrize("page_size", [0, -1, True])
+def test_a_page_size_that_is_not_positive_is_rejected(tmp_path, page_size):
+    with pytest.raises(ValueError, match=f"page_size is a positive number of bytes or None, not {page_size}"):
+        vzip.ReferenceStore({}, page_size=page_size)
+    with pytest.raises(ValueError, match=f"page_size is a positive number of bytes or None, not {page_size}"):
+        vzip.ReferenceStore({}).save(tmp_path / "x.vzip", page_size=page_size)
+    assert not (tmp_path / "x.vzip").exists()
 
 
 def test_constructor_rejects_a_source_of_another_type():

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 import vzip_ir
 
-from vzip.virtualize import Rejected, virtualize
+from vzip.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
 from vzip.virtualize.common import declare
 from vzip.virtualize.store import object_url
 

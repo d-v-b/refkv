@@ -296,7 +296,9 @@ class VZipWriter:
                 raise ValueError(f"literal range of {key!r} with a crc32c (spec §7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#7-writing>)")
         if self._checksum is not None:
             ranges = [self._with_checksum(r) for r in ranges]
-        self._range_checks.extend((key, r) for r in ranges if r.data is None)
+        # url sources are not bounds-checked (spec §7
+        # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#7-writing>): only the others are kept
+        self._range_checks.extend((key, r) for r in ranges if r.data is None and self._url_of(r.source) is None)
         if len(ranges) == 1:
             hid, payload = RANGE_EXTRA_ID, ranges[0].encode()
         else:

@@ -2,7 +2,7 @@
 
     uv run python spec/generate_schemas.py
 
-Each schema validates the zarr.json of one node of a virtual hierarchy that
+Each schema validates the zarr.json of one node of a virtualized hierarchy that
 declares the convention (spec/virtualize/<profile>.md): the convention's
 metadata object in `zarr_conventions`, the property `vzip_virtualized`, and no
 other attribute besides `ome`. The root carries the property's provenance

@@ -1054,7 +1054,7 @@ class StoreOutput:
     # The CRC-32C of a url source's bytes, when the references are to carry
     # checksums (spec/archive.md §4.2
     # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>); set by
-    # vzip.virtualize.virtualize_store.
+    # vzip.virtualize._virtualize_store.
     checksum: Callable[[str, int, int], int] | None = None
 
     def declare(self, profile: str, omes: dict[str, dict] | None = None) -> None:
@@ -1140,3 +1140,15 @@ class StoreOutput:
                 source = key.startswith(SOURCE_GROUP + "/")
                 w.add_bytes(key, data, compress=source, late=not source)
             w.close()
+
+    def to_store(self, *, policy: Policy | None = None, info: dict | None = None):
+        """The output as a `vzip.ReferenceStore`, which `save` writes as the archive
+        `write` writes, byte for byte (`vzip.virtualize.common.reference_store`)."""
+        from vzip.pb import Range, Source
+        from vzip.virtualize.common import reference_store
+
+        sources = [Source(url=object_url(self.url, self.origins.get(k, k)), size=n) for k, n in self.chunks]
+        refs = [(k, [Range(source=i, offset=0, length=n)]) for i, (k, n) in enumerate(self.chunks)]
+        entries = [(key, json.dumps(self.docs[key], separators=(",", ":"), ensure_ascii=key != EMPTY_KEY).encode(),
+                    not key.startswith(SOURCE_GROUP + "/")) for key in sorted(self.docs)]
+        return reference_store(refs, entries, sources, checksum=self.checksum, policy=policy, info=info)

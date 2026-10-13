@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from conftest import FIXTURES, same_hierarchy
+from ir_helpers import FIXTURES, same_hierarchy
 from vzip.ir import virtualize as via_ir
 from vzip.ir.cmirror import rebuild_from_archive
 from vzip.errors import ResolutionError
@@ -15,7 +15,7 @@ from vzip.ir import parse
 from vzip.ir.planner import FileTransport, HttpTransport
 from vzip.policy import Policy
 from vzip.virtualize import Rejected
-from vzip_reference import virtualize  # the frozen reference (conftest)
+from vzip_reference import virtualize  # the frozen reference (ir_helpers)
 
 LOOPBACK = Policy(allow_private_hosts=True)  # the test servers are on 127.0.0.1
 ND2S = sorted((FIXTURES / "nd2").glob("*.nd2"))
