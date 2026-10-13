@@ -140,13 +140,14 @@ g = zarr.open_group(vzip.zarr.store(store), mode="r")  # no archive yet
 store.save("CMU-1-Small-Region.vzip")
 ```
 
-`virtualize` takes the command's options as keyword arguments (`url`,
-`checksums`, `policy`, `connections`, `byte_cost` in seconds per byte, and
-`workers`), and raises `vzip.virtualize.Rejected` when no profile accepts the
-input. The store reads its sources under the `policy` it was given. `save`
-checks the sources against the policy the archive's readers will use,
-`Policy()` unless it is given one, so for sources on a private host pass that
-one too: `store.save(path, policy=policy)`.
+`virtualize` takes the input's local path or URL, and the command's options as
+keyword arguments: `url` (the URL the archive names the source by),
+`checksums`, `policy`, `connections`, `byte_cost` (in seconds per byte, not
+per MB) and `workers`. It raises `vzip.virtualize.Rejected` when no profile
+accepts the input. The store reads its sources under the `policy` it was
+given. `save` checks the sources against the policy the archive's readers will
+use, `Policy()` unless it is given one, so for sources on a private host pass
+that one too: `store.save(path, policy=policy)`.
 
 **The browser.** The same virtualizers run in a service worker
 ([js/](../../js/README.md)): the Rust core, built for WebAssembly, for
