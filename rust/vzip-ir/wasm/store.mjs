@@ -3,7 +3,8 @@
 // each batch of object reads (one request per object, its spans) served from the files.
 // Prints one JSON line per store: the output's entries (key and SHA-256 of the bytes) and
 // references, or the rejection, and the batches, requests and bytes read.
-// Usage: node rust/vzip-ir/wasm/store.mjs [--wasm <vzip_ir.wasm>] [--format zarr2] <dir>...
+// Exits 1 when a store is rejected (each rejection still printed).
+// Usage: node rust/vzip-ir/wasm/store.mjs [--wasm <vzip_ir.wasm>] [--format zarr2|n5] <dir>...
 import { readFileSync, readdirSync, statSync, openSync, readSync, closeSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -68,7 +69,7 @@ for (const dir of args) {
   const [lp, ln] = put(enc.encode(JSON.stringify(listing)));
   const t0 = performance.now();
   const r = Number(w.vz_store_new(fp, fn, lp, ln, 6));
-  if (r < 0) { console.log(JSON.stringify({ dir, rejected: text(-r) })); continue; }
+  if (r < 0) { console.log(JSON.stringify({ dir, rejected: text(-r) })); process.exitCode = 1; continue; }
   let batches = 0, requests = 0, bytes = 0, out = null;
   for (;;) {
     const n = Number(w.vz_store_poll(r));
@@ -104,5 +105,6 @@ for (const dir of args) {
     const n = Number(w.vz_store_output(r, up, un, 1));
     out = n < 0 ? { rejected: text(-n) } : decode(new Uint8Array(w.memory.buffer, w.vz_out(), n).slice());
   }
+  if (out.rejected !== undefined) process.exitCode = 1;
   console.log(JSON.stringify({ dir, ...out, batches, requests, bytes, ms: Math.round(performance.now() - t0) }));
 }

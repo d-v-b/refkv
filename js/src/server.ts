@@ -19,14 +19,18 @@ import { ImageError } from "./virtualize/common.ts";
 import { isStoreUrl, virtualizeSource, virtualizeStore } from "./virtualize/index.ts";
 import { virtualizeIr } from "./virtualize/ir/run.ts";
 import { openHttpSource, type RangeSource, readerSource } from "./virtualize/ir/source.ts";
-import { N5Error } from "./virtualize/n5/virtualize.ts";
 import { openHttpStore, StoreError, StoreLimitError, StoreReadError } from "./virtualize/store.ts";
 import type { StoreProfile } from "./virtualize/ir/store.ts";
 import { writeVzip } from "./writer.ts";
 
 /** The titles rejections of the Rust core's store profiles carry, as the profiles' own errors did;
  * none for a SAFE directory, whose rejections read as a SAFE zip file's (an ImageError's, bare). */
-const STORE_FORMATS: Record<StoreProfile, string | undefined> = { zarr2: "Zarr v2", "ome-zarr": "OME-Zarr", safe: undefined };
+const STORE_FORMATS: Record<StoreProfile, string | undefined> = {
+  zarr2: "Zarr v2",
+  n5: "N5",
+  "ome-zarr": "OME-Zarr",
+  safe: undefined,
+};
 
 export const ARCHIVE_KEY = "__vz__/archive.vzip";
 
@@ -220,8 +224,6 @@ export function makeHandler(options: HandlerOptions) {
         const status = e.errorClass === "request" ? 416 : e.errorClass === "resolution" ? 502 : 500;
         return response(status, message);
       }
-
-      if (e instanceof N5Error) return response(422, `N5: ${message}`);
       // a store profile the core refused names itself (SAFE's does not, as its zip form does not);
       // a rejection before one was chosen is the store's
       if (e instanceof StoreError && e.format !== undefined) {

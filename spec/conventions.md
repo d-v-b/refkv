@@ -145,12 +145,13 @@ Producers SHOULD store its documents so that a reader fetches them only when
 it opens the node (vzip writes them with the chunks, not with the documents
 read when an archive is opened). The node exists only when it has
 source metadata or arrays, or, for the store conventions, other objects of
-the store, which it holds whole under `vzip_source/objects/`, or the keys of
-the store's empty objects. For the TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE conventions,
+the store, which it holds whole under `vzip_source/objects/`, or the
+recorded ignored keys. For the
+TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE conventions,
 `vzip_source` is the source's IR mirror ([§8](#8-the-ir-mirror)), from which the source is
-rebuilt byte for byte; for the Zarr v2 and OME-Zarr conventions, the store's ([§8.9](#89-stores)), from which the listing and the
-documents read are rebuilt: always present (under a root array, as plain keys
-of the archive).
+rebuilt byte for byte; for the Zarr v2, N5 and OME-Zarr conventions, the store's
+([§8.9](#89-stores)), from which the listing and the documents read are rebuilt: always
+present (under a root array, as plain keys of the archive).
 
 **Nothing else.** Outside `vzip_virtualized`, a node's attributes hold only
 members that the hierarchy's target formats define, where the format's
@@ -404,7 +405,7 @@ another, such as a TIFF's contiguous strips, are referenced, not copied.
 
 ## 8. The IR mirror
 
-The TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2 and OME-Zarr conventions keep the source's metadata as one
+The TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr conventions keep the source's metadata as one
 format-free structure on `vzip_source`: the source's **IR** (intermediate
 representation), a tree of **elements** whose leaves partition the source's
 bytes, stored as a table (the **mirror**) and shown as JSON (the **view**).
@@ -586,7 +587,7 @@ canonical mirror (8.8: runs expanded, derived spaces left out) would have more
 than `N = 2^22 + floor(Z / 4)` rows, with the message
 `budget: the mirror would have more than N rows` (N in decimal), and may do so
 before expanding when the elements outside derived spaces, every run expanded,
-are already more than `N`. (No source the TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS, SAFE and Zarr v2 parsers accept
+are already more than `N`. (No source the TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2 and N5 parsers accept
 comes near it today: they describe fewer than one element per four bytes of
 the source; the limit bounds what a reader must expand.) So is one whose columns' lengths
 differ, whose column refers to values past `column_values` or entries past
@@ -823,7 +824,7 @@ compares mirrors entry for entry. In order:
    |---|---|---|---|---|
    | TIFF | layout tables | the start or length of a column run of at least 16 members of one data row each, with a name index, in a struct `tiles` (or `strips`) with no index | the first child `value` (no index) of the first struct child `tags/` with index 324 for starts and 325 for lengths (273 and 279 for `strips`) of that struct's parent: TileOffsets and TileByteCounts (StripOffsets, StripByteCounts) | member 0's name index |
 
-   NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2 and OME-Zarr have none. A format adds a rule by a revision of this
+   NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr have none. A format adds a rule by a revision of this
    section and its convention: a new row in this table, whose conditions
    depend only on the canonical IR (so that every producer finds the same
    columns), and whose array a reader can read from source 0.

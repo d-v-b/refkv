@@ -1,15 +1,15 @@
 """The frozen reference oracle of the TIFF, ND2, CZI, DICOM, NIfTI, IMS, NDPI and SAFE profiles,
-and of the Zarr v2 and OME-Zarr store profiles: the Python implementations `vzip.virtualize`
-shipped before it moved these formats to the Rust IR (rust/vzip-ir), kept unchanged (but for
-their import paths, and the revision their roots record) so that `compare.py` can compare the
-IR path against an independent implementation. Nothing shipped imports this package. Every
-other format, and what the profiles share (`vzip.virtualize.common`, `vzip.virtualize.store`),
-is the shipped code.
+and of the Zarr v2, N5 and OME-Zarr store profiles: the Python implementations
+`vzip.virtualize` shipped before it moved these formats to the Rust IR (rust/vzip-ir), kept
+unchanged (but for their import paths, and the revision their roots record) so that
+`compare.py` can compare the IR path against an independent implementation. Nothing shipped
+imports this package. Every other format, and what the profiles share
+(`vzip.virtualize.common`, `vzip.virtualize.store`), is the shipped code.
 
 `virtualize(location, url, checksums=...)` is `vzip.virtualize._virtualize` (the
 (format, output) under the public `virtualize`, which returns a ReferenceStore) as it
 was: the same dispatch by first bytes, the same readers, with TIFF, ND2, CZI, DICOM, NIfTI, IMS,
-NDPI and SAFE files, and SAFE directories and Zarr v2 and OME-Zarr stores (`vzip_reference.store`), going to
+NDPI and SAFE files, and SAFE directories and Zarr v2, N5 and OME-Zarr stores (`vzip_reference.store`), going to
 the frozen modules. A file or store at an http(s) URL is read by the
 shipped readers under `policy` (default: `Policy()`, private hosts refused)."""
 

@@ -161,8 +161,10 @@ fn a_listing_the_ir_cannot_hold_is_refused() {
 
 #[test]
 fn a_member_of_the_facts_the_profile_does_not_keep_is_refused() {
-    // dropping it would lose the keys: N5 keeps neither member, Zarr v2 no empty directories
-    for (profile, member) in [("n5", "ignored"), ("zarr2", "empty_dirs")] {
+    // dropping it would lose the keys: Zarr v2, N5 and OME-Zarr keep no empty directories, and
+    // a file format's convention no ignored keys
+    for (profile, member) in [("zarr2", "empty_dirs"), ("n5", "empty_dirs"), ("ome-zarr", "empty_dirs"),
+                              ("tiff", "ignored")] {
         let mut out = vzip_ir::out::Out::default();
         let facts = json!({ member: ["a/"] });
         let e = vzip_ir::project::store::record_ignored(&mut out, &facts, profile).unwrap_err();

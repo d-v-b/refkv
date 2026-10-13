@@ -1,5 +1,8 @@
 """The N5 profile (spec/virtualize.md, §9
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#9-n5-profile>)."""
+<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#9-n5-profile>).
+
+Frozen at revision 25 (the last before N5 moved onto the IR), which its root records (the
+frozen Zarr v2 profile's StoreOutput declares it)."""
 
 from __future__ import annotations
 
@@ -8,7 +11,6 @@ from vzip.virtualize.store import (
     GROUP_IMPLICIT,
     PathTrie,
     Store,
-    StoreOutput,
     as_int,
     canonical_index,
     classify,
@@ -22,6 +24,7 @@ from vzip.virtualize.store import (
     parent_of,
     source_metadata,
 )
+from vzip_reference.zarr2.output import StoreOutput  # its root records revision 25
 
 DATA_TYPES = {"uint8": 1, "int8": 1, "uint16": 2, "int16": 2, "uint32": 4, "int32": 4, "float32": 4,
               "uint64": 8, "int64": 8, "float64": 8}

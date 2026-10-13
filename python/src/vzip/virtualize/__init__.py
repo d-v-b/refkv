@@ -1,16 +1,15 @@
 """Virtualizing image files and N5 / Zarr v2 stores in vzip archives (spec/virtualize.md).
 
 TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and IMS files, Sentinel-2 SAFE products
-(spec/virtualize/safe.md: a `.SAFE.zip` file, or a `.SAFE` directory, a store input) and
-Zarr v2 and OME-Zarr stores go through the IR (`vzip.ir`): the Rust core's sans-IO parser of the
-format, driven by its read planner (a file) or by the store's reads (`vzip.ir.store`),
+(spec/virtualize/safe.md: a `.SAFE.zip` file, or a `.SAFE` directory, a store input), and
+Zarr v2, N5 and OME-Zarr stores go through the IR (`vzip.ir`): the Rust core's sans-IO parser
+of the format, driven by its read planner (a file) or by the store's reads (`vzip.ir.store`),
 projected to the convention's hierarchy and mirrored under `vzip_source` by the Rust core,
 whose TIFF parser finds NDPI itself (spec/virtualize/ndpi.md §4
 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), and whose
 Zarr v2 parser decides between Zarr v2 (spec/virtualize/zarr2.md) and OME-Zarr 0.4
 (spec/virtualize/ome-zarr.md).
-The only other profile is a subpackage: n5 (a store input, spec/virtualize/n5.md); common holds
-what the profiles share, and store the store
+common holds what the profiles share, and store the store
 machinery (§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>–§1.6
 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>).
 
@@ -53,8 +52,7 @@ from __future__ import annotations
 from vzip.policy import Policy, crc32c
 from vzip.refstore import ReferenceStore
 from vzip.virtualize.common import Output, Rejected, file_reader, http_reader
-from vzip.virtualize.n5 import virtualize_n5
-from vzip.virtualize.store import WORKERS, StoreOutput, choose_profile, object_url, open_store
+from vzip.virtualize.store import WORKERS, choose_profile, object_url, open_store
 from vzip.ir.store import StoreIrOutput
 
 # The HDF5 signature, which starts Imaris IMS files (§1.2
@@ -81,7 +79,7 @@ def is_dicom(head: bytes) -> bool:
 
 def _virtualize_store(location: str, url: str | None = None, *, max_objects: int | None = None,
                      checksums: bool = False, workers: int = WORKERS,
-                     policy: Policy | None = None) -> tuple[str, StoreOutput | StoreIrOutput]:
+                     policy: Policy | None = None) -> tuple[str, StoreIrOutput]:
     """(format, output) for the store at `location` (§1.4
     <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), its documents
     read by up to `workers` requests at a time; with `checksums`, the output's ranges
@@ -91,11 +89,12 @@ def _virtualize_store(location: str, url: str | None = None, *, max_objects: int
     store = open_store(location, url, max_objects=max_objects, workers=workers, policy=policy)
     try:
         fmt = choose_profile(store)
-        if fmt == "n5":
-            fmt, out = fmt, virtualize_n5(store)
-        else:
-            from vzip.ir.store import run_store
+        from vzip.ir.store import run_store
 
+        if fmt == "n5":
+            # the core's N5 store format
+            out = run_store(store, "n5")[0]
+        else:
             # the core's store formats: a SAFE directory, a Zarr v2 store, which the core decides
             # is OME-Zarr 0.4's or not (its summary's `format`)
             out = run_store(store, "safe" if fmt == "safe" else "zarr2")[0]
@@ -119,7 +118,7 @@ def is_store(location: str) -> bool:
 
 def _virtualize(location: str, url: str | None = None, *, checksums: bool = False,
                policy: Policy | None = None, connections: int | None = None,
-               byte_cost: float | None = None, workers: int = WORKERS) -> tuple[str, Output | StoreOutput | StoreIrOutput]:
+               byte_cost: float | None = None, workers: int = WORKERS) -> tuple[str, Output | StoreIrOutput]:
     """(format, output) for the file at `location`, by its first bytes, or for
     the store at `location` (a URL ending in `/`, or a directory).
 

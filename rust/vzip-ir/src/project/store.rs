@@ -62,13 +62,15 @@ pub fn check_key(key: &str) -> Result<(), String> {
 /// ignored keys (spec/virtualize/zarr2.md §5
 /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>), and so
 /// OME-Zarr's (spec/virtualize/ome-zarr.md §8.2
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#82-the-store-ir>), and SAFE's
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#82-the-store-ir>), N5's
+/// (spec/virtualize/n5.md §5.1
+/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>), and SAFE's
 /// empty directories and ignored keys, in both its forms (spec/virtualize/safe.md §6.3
 /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
 /// The mirror check sets these aside, and only these.
 pub fn kept(profile: &str) -> &'static [&'static str] {
     match profile {
-        "zarr2" | "ome-zarr" => &["ignored"],
+        "zarr2" | "ome-zarr" | "n5" => &["ignored"],
         "safe" => &["empty_dirs", "ignored"],
         _ => &[],
     }

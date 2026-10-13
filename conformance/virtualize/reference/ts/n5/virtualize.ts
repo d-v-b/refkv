@@ -1,13 +1,14 @@
 // The N5 profile (spec/virtualize.md, §9
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#9-n5-profile>): an N5 container as
 // a Zarr v3 hierarchy, each block a whole-object chunk read by the n5_default codec.
+// Frozen at revision 25 (the last before N5 moved onto the IR), which its root records (the
+// frozen Zarr v2 profile's declareNodes declares it).
 
 import {
   asInt,
   byDepth,
   canonicalIndex,
   compareKeys,
-  declareNodes,
   docKey,
   findChunks,
   GROUP_IMPLICIT,
@@ -30,9 +31,11 @@ import {
   show,
   type StoreResult,
   without,
-} from "../store.ts";
+} from "../../../../../js/src/virtualize/store.ts";
+import { declareNodes } from "../zarr2/declare.ts"; // its root records revision 25
 
 export class N5Error extends Error {}
+
 
 const reject = (message: string): never => {
   throw new N5Error(message);

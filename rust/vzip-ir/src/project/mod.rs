@@ -15,6 +15,7 @@
 mod czi;
 mod dicom;
 mod ims;
+pub mod n5;
 mod nd2;
 mod ndpi;
 pub mod store;

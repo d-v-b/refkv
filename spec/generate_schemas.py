@@ -129,29 +129,32 @@ SOURCE_METADATA: dict[str, dict] = {
         {"$ref": "#/$defs/mirror"},
         {"$ref": "#/$defs/mirrorView"},
     ]},
-    "n5": {
-        "type": "object",
-        "properties": {
-            "attributes": {"type": "object", "minProperties": 1,
-                           "description": "The node's attributes.json without the layout members"},
-            "empty": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                      "description": "vzip_source only: the keys of the store's empty objects, empty chunk objects "
-                                     "included"},
-            "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                        "description": "vzip_source only: the recorded keys of the listed objects that spec/virtualize.md "
-                                       "§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"},
-            "metadata": {
-                "type": "object", "minProperties": 1,
-                "description": "The layout members the Zarr metadata does not reproduce",
-                "properties": {"n5": {"description": "The member n5 (the container's version)"},
-                               "compression": {"type": "object", "minProperties": 1,
-                                               "description": "The compression's members the codec does not carry"},
-                               "compressionType": {"description": "compressionType, when compression is present"}},
-                "additionalProperties": False,
+    "n5": {"anyOf": [
+        {
+            "type": "object",
+            "description": "A node's (spec/virtualize/n5.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#5-source-metadata>)",
+            "properties": {
+                "attributes": {"type": "object", "minProperties": 1,
+                               "description": "The node's attributes.json without the layout members"},
+                "metadata": {
+                    "type": "object", "minProperties": 1,
+                    "description": "The layout members the Zarr metadata does not reproduce",
+                    "properties": {"n5": {"description": "The member n5 (the container's version)"},
+                                   "compression": {"type": "object", "minProperties": 1,
+                                                   "description": "The compression's members the codec does not carry"},
+                                   "compressionType": {"description": "compressionType, when compression is present"}},
+                    "additionalProperties": False,
+                },
             },
+            "minProperties": 1,
+            "additionalProperties": False,
         },
-        "additionalProperties": False,
-    },
+        # vzip_source's: a store IR's description, and the recorded ignored keys (§5.1
+        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>)
+        {"allOf": [{"$ref": "#/$defs/storeMirror"},
+                   {"properties": {"ir": {"required": ["objects"]}, "empty_dirs": False}}]},
+        {"$ref": "#/$defs/mirrorView"},
+    ]},
     "zarr2": {"anyOf": [
         {
             "type": "object",
@@ -360,13 +363,14 @@ SOURCE_METADATA["czi"] = {"anyOf": [
 ]}
 # The IR mirror (spec/conventions.md §8
 # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2,
-# CZI, DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2 and OME-Zarr conventions: vzip_source's
+# CZI, DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2, N5 and OME-Zarr conventions: vzip_source's
 # source metadata, and the view documents of the groups under vzip_source/tree.
-IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ims", "ndpi", "safe", "zarr2", "ome-zarr")
+IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ims", "ndpi", "safe", "zarr2", "n5",
+               "ome-zarr")
 # The store conventions, whose vzip_source holds, beside the mirror's description, members of
 # their own (`storeMirror`; spec/conventions.md §8.9
 # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>).
-IR_STORES = ("safe", "zarr2", "ome-zarr")
+IR_STORES = ("safe", "zarr2", "n5", "ome-zarr")
 MIRROR_DEFS = {
     "mirror": {
         "type": "object",
