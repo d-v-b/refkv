@@ -37,6 +37,15 @@ DEFAULT_LIMIT = 1 << 30
 ETAG_RE = re.compile(rb'"[\x21\x23-\x7e]*"')
 
 
+def _pread_at(fd, n, off):
+    """os.pread, which Windows lacks: there, a seek and a read (this reader is not
+    shared between threads)."""
+    if hasattr(os, "pread"):
+        return os.pread(fd, n, off)
+    os.lseek(fd, off, os.SEEK_SET)
+    return os.read(fd, n)
+
+
 def _arch(msg):
     return VzError("archive", msg)
 
@@ -259,7 +268,7 @@ class Archive:
         self.limit = limit
         self._fd = None
         try:
-            self._fd = os.open(path, os.O_RDONLY)
+            self._fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
             st = os.fstat(self._fd)
             if stat.S_ISDIR(st.st_mode):
                 raise _arch("archive path is a directory")
@@ -295,7 +304,7 @@ class Archive:
     def _pread(self, off, n):
         out = bytearray()
         while len(out) < n:
-            chunk = os.pread(self._fd, n - len(out), off + len(out))
+            chunk = _pread_at(self._fd, n - len(out), off + len(out))
             if not chunk:
                 raise OSError("unexpected end of file")
             out += chunk
@@ -646,7 +655,7 @@ class Archive:
         if src.etag is not None:
             raise _res("source %d: etag pin cannot be checked for a file: URL" % idx)
         try:
-            fd = os.open(path, os.O_RDONLY)
+            fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
         except OSError as e:
             raise _res("source %d: cannot open %r: %s" % (idx, path, e))
         try:
@@ -661,7 +670,7 @@ class Archive:
                 raise _res("source %d: file has %d bytes, range needs %d" % (idx, st.st_size, end))
             out = bytearray()
             while len(out) < end - start:
-                chunk = os.pread(fd, end - start - len(out), start + len(out))
+                chunk = _pread_at(fd, end - start - len(out), start + len(out))
                 if not chunk:
                     raise _res("source %d: file is shorter than the range" % idx)
                 out += chunk

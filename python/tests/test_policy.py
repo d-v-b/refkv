@@ -5,6 +5,7 @@
 recorded revision (§1.3 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#13-versioning>), in
 the reference reader and writer."""
 
+import sys
 import threading
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -491,9 +492,12 @@ def test_refuses_a_name_that_resolves_to_a_refused_address(tmp_path, server, res
 
 
 def test_refuses_an_address_written_in_another_form(server):
-    """A decimal, hexadecimal or octal IPv4 host is the address it denotes."""
+    """A decimal, hexadecimal or octal IPv4 host is the address it denotes. Windows'
+    resolver reads none of these forms, so there the name does not resolve, and the
+    read fails before any request."""
+    want = "getaddrinfo failed" if sys.platform == "win32" else "169.254.169.254.*is a link-local address"
     for url in ["http://2852039166/x", "http://0xa9.0xfe.0xa9.0xfe/x", "http://0251.0376.0251.0376/x"]:
-        with pytest.raises(ResolutionError, match="169.254.169.254.*is a link-local address"):
+        with pytest.raises(ResolutionError, match=want):
             _range(Policy(), "file:///d/a.vzip", url)
 
 

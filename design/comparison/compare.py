@@ -234,18 +234,20 @@ def virtualize(paths: list[Path], url_prefix: str, concat_dim: str, src_root: Pa
     from virtualizarr import open_virtual_dataset
     from virtualizarr.parsers import HDFParser
 
+    from refkv.uri import file_uri
+
     registry = ObjectStoreRegistry({"file://": LocalStore()})
     vdss = []
     for p in paths:
         with xr.open_dataset(p, engine="h5netcdf") as ds:
             loadable = [c for c in ds.coords if c in ds.dims or ds[c].ndim <= 1]
-        vds = open_virtual_dataset(url=f"file://{p.resolve()}", registry=registry,
+        vds = open_virtual_dataset(url=file_uri(p.resolve()), registry=registry,
                                    parser=HDFParser(), loadable_variables=loadable)
         vdss.append(vds)
     vds = vdss[0] if len(vdss) == 1 else xr.concat(
         vdss, dim=concat_dim, coords="minimal", compat="override", combine_attrs="override")
     # point the references at the HTTP server instead of the local files
-    local = f"file://{src_root.resolve()}/"
+    local = file_uri(src_root.resolve()) + "/"
     return vds.vz.rename_paths(lambda u: url_prefix + u.removeprefix(local))
 
 
