@@ -1,10 +1,9 @@
-# vzip: virtual zip
+# refkv: reference-aware key-value storage
 
-vzip is ZIP plus a reference value type: a key-value store in which every
-value is either bytes or a reference to byte ranges of other objects, such
-as the chunks inside HDF5, netCDF or TIFF files. Because the reference type
-does not depend on ZIP, any storage backend that can tell a bytes value from
-a reference value can hold such a reference store.
+refkv defines reference semantics for key-value storage. This allows an object in one key-value 
+store to refer to a byte range, or sequence of byte ranges, in other storage backends.
+
+refkv is used to define vzip, a single-file reference-aware storage solution.
 
 The [spec](spec/archive.md) has two parts:
 [the reference value type](spec/archive.md#part-1-reference-values), which
@@ -13,13 +12,11 @@ needs no particular backend, and
 store in one ordinary ZIP file, a vzip archive. ZIP is the one binding
 specified today. Read the [pitch](design/PITCH.md) for why.
 [docs/](docs/README.md) is for users: the live demos, and how to virtualize
-image files and stores (`vzip.virtualize.virtualize(location)` returns a
-`vzip.ReferenceStore`, and `store.save("image.vzip")` writes it). For netCDF,
-HDF5 and the other files [VirtualiZarr](https://virtualizarr.readthedocs.io/)
-reads, the Python package turns a virtual dataset into a store that xarray
-opens, and saves it as a vzip archive:
-`vzip.ReferenceStore.from_virtualizarr(vds)`, then `store.save("data.vzip")`,
-then `xr.open_zarr(vzip.zarr.open("data.vzip"))`
+image files and stores. For netCDF, HDF5 and the other files
+[VirtualiZarr](https://virtualizarr.readthedocs.io/) reads, the Python package
+turns a virtual dataset into a store that xarray opens, and saves it as a vzip
+archive: `vzip.ReferenceStore.from_virtualizarr(vds)`, then
+`store.save("data.vzip")`, then `xr.open_zarr(vzip.zarr.open("data.vzip"))`
 ([docs/virtual-datasets.md](docs/virtual-datasets.md) has a runnable example).
 The package needs no Zarr to read and write stores; `vzip.zarr`, with the
 `zarr` extra, opens one for zarr-python and xarray.
