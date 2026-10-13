@@ -28,7 +28,11 @@ def main(argv: list[str]) -> int:
     except Rejected as e:
         print(f"rejected: {e}", file=sys.stderr)
         return 3
-    out.to_store(policy=policy).save(args[1], policy=policy)
+    try:  # the archive's sources are checked against the policy the input was read under
+        out.to_store(policy=policy).save(args[1], policy=policy)
+    except ValueError as e:  # a source a reader under that policy could not read
+        print(f"error: {e}", file=sys.stderr)
+        return 1
     print(json.dumps({"format": fmt, "elements": len(ir), **out.summary}))
     return 0
 

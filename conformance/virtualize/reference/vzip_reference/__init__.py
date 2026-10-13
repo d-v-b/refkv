@@ -5,7 +5,8 @@ the Rust IR (rust/vzip-ir), kept unchanged (but for their import paths) so that
 Nothing shipped imports this package. Every other format, and what the profiles
 share (`vzip.virtualize.common`), is the shipped code.
 
-`virtualize(location, url, checksums=...)` is `vzip.virtualize.virtualize` as it
+`virtualize(location, url, checksums=...)` is `vzip.virtualize._virtualize` (the
+(format, output) under the public `virtualize`, which returns a ReferenceStore) as it
 was: the same dispatch by first bytes, the same readers, with TIFF, ND2, CZI, DICOM, NIfTI and NDPI
 going to the frozen modules. A file or store at an http(s) URL is read by the
 shipped readers under `policy` (default: `Policy()`, private hosts refused)."""

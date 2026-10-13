@@ -58,10 +58,11 @@ def test_virtualize_returns_the_store_it_saves(proxy, tmp_path, name, is_store, 
         assert store.get(k) == saved.get(k), k
 
 
-def test_reference_store_rejects_a_duplicate_key():
+@pytest.mark.parametrize("entries", [[("a", b"x", False)], []], ids=["entry", "reference"])
+def test_reference_store_rejects_a_duplicate_key(entries):
+    ref = ("a", [Range(source=0, offset=0, length=1)])
     with pytest.raises(ValueError, match="duplicate key 'a'"):
-        reference_store([("a", [Range(source=0, offset=0, length=1)])], [("a", b"x", False)],
-                        [Source(url="https://data.test/a")])
+        reference_store([ref] + ([] if entries else [ref]), entries, [Source(url="https://data.test/a")])
 
 
 def test_cli_refuses_to_save_sources_its_policy_refuses(tmp_path):

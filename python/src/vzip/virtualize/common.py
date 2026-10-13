@@ -154,7 +154,7 @@ def reference_store(refs, entries, sources: list[Source], *, checksum=None,
     <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>). The store
     reads its sources under `policy`."""
     from vzip.pb import Concat
-    from vzip.refstore import ReferenceStore
+    from vzip.refstore import ReferenceStore, bulk
 
     def checked(r: Range) -> Range:
         if checksum is None or r.data is not None or r.crc32c is not None:
@@ -165,16 +165,19 @@ def reference_store(refs, entries, sources: list[Source], *, checksum=None,
     mapping: dict = {}
     late: list[str] = []
     compressed: list[str] = []
-    for key, ranges in refs:
-        ranges = [checked(r) for r in ranges]
-        mapping[key] = ranges[0] if len(ranges) == 1 else Concat(tuple(ranges))
-    for key, data, is_late in entries:
-        if key in mapping:
-            raise ValueError(f"duplicate key {key!r}")
-        mapping[key] = data
-        (late if is_late else compressed).append(key)
-    return ReferenceStore(mapping, sources, read_at_open=late, compressed=compressed, page_size=PAGE_SIZE,
-                          policy=policy, info=info)
+    with bulk():
+        for key, ranges in refs:
+            if key in mapping:
+                raise ValueError(f"duplicate key {key!r}")
+            ranges = [checked(r) for r in ranges]
+            mapping[key] = ranges[0] if len(ranges) == 1 else Concat(tuple(ranges))
+        for key, data, is_late in entries:
+            if key in mapping:
+                raise ValueError(f"duplicate key {key!r}")
+            mapping[key] = data
+            (late if is_late else compressed).append(key)
+        return ReferenceStore(mapping, sources, read_at_open=late, compressed=compressed, page_size=PAGE_SIZE,
+                              policy=policy, info=info)
 
 
 MAX_PAYLOAD = 65519
