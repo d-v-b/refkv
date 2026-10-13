@@ -15,7 +15,7 @@ import pytest
 
 import vzip_ir
 from vzip.ir.store import StoreIrOutput, virtualize_store
-from vzip.virtualize import Rejected, virtualize
+from vzip.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
 from vzip.virtualize.common import REVISION, same
 from vzip_reference.revision import STORES_REVISION
 

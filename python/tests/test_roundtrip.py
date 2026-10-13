@@ -8,7 +8,7 @@ import vzip.zarr
 from vzip.convert import split_virtual_dataset, write_vzip
 from vzip.store import VZipStore
 
-from conftest import virtualize
+from helpers import virtualize
 
 
 def test_roundtrip_single_and_combined(netcdf_files, tmp_path):

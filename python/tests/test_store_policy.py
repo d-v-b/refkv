@@ -20,7 +20,7 @@ import pytest
 import vzip.store
 from vzip.errors import ResolutionError
 from vzip.policy import Policy
-from vzip.virtualize import virtualize_store
+from vzip.virtualize import _virtualize_store as virtualize_store  # the profile output, not the store
 
 ROOT = Path(__file__).parents[2]
 STORE = ROOT / "fixtures" / "zarr2" / "zarr2_hierarchy"

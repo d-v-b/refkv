@@ -16,7 +16,7 @@ import pytest
 import vzip.store
 from vzip.errors import ResolutionError
 from vzip.policy import Policy
-from vzip.virtualize import virtualize
+from vzip.virtualize import _virtualize as virtualize  # the profile output, not the store
 from vzip.virtualize.common import http_reader
 
 ROOT = Path(__file__).parents[2]

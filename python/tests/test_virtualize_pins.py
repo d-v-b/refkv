@@ -99,8 +99,7 @@ def test_pins_and_checksums(tmp_path, server):
     ]
     for location, url, checksums, pins in cases:
         out = tmp_path / "out.vzip"
-        _, o = virtualize(location, url, checksums=checksums, policy=LOOPBACK)
-        o.write(str(out))
+        virtualize(location, url, checksums=checksums, policy=LOOPBACK).save(out, policy=LOOPBACK)
         sources, refs = _table(out)
         assert sources[0] == Source(url=url or location, **pins), (location, url)
         body = (TIFF if TIFF.name in location else JPEG).read_bytes()
@@ -117,8 +116,7 @@ def test_pins_and_checksums(tmp_path, server):
     # a store input: every source pins its object's size (N5 through the IR's store run)
     for store in (STORE, N5_STORE):
         for checksums in (False, True):
-            _, o = virtualize(str(store), "https://example.test/s/", checksums=checksums)
-            o.write(str(tmp_path / "s.vzip"))
+            virtualize(str(store), "https://example.test/s/", checksums=checksums).save(tmp_path / "s.vzip")
             sources, refs = _table(tmp_path / "s.vzip")
             sizes = {f"https://example.test/s/{p.relative_to(store).as_posix()}": p.stat().st_size
                      for p in store.rglob("*") if p.is_file()}
@@ -131,8 +129,7 @@ def test_pins_and_checksums(tmp_path, server):
 def test_no_etag_pin_when_the_responses_disagree(tmp_path, server):
     base, state = server
     state["etag"] = lambda path, n: '"fixed"' if n % 2 else None  # some responses have none
-    _, o = virtualize(f"{base}/tiff/{TIFF.name}", policy=LOOPBACK)
-    o.write(str(tmp_path / "out.vzip"))
+    virtualize(f"{base}/tiff/{TIFF.name}", policy=LOOPBACK).save(tmp_path / "out.vzip", policy=LOOPBACK)
     assert _table(tmp_path / "out.vzip")[0][0].etag is None
 
 

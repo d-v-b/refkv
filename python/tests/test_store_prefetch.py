@@ -17,7 +17,7 @@ import pytest
 
 import vzip.virtualize
 from vzip.policy import Policy
-from vzip.virtualize import Rejected, virtualize_store
+from vzip.virtualize import Rejected, _virtualize_store as virtualize_store  # the profile output, not the store
 from vzip.virtualize.store import _Prefetch, object_url, open_store
 
 FIXTURES = Path(__file__).parents[2] / "fixtures"

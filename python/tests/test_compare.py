@@ -106,7 +106,7 @@ def _jpeg_gray(o: int, n: int) -> bytes:
 
 
 def _mirror_archive(tmp_path, edit=None) -> Path:
-    from vzip.virtualize import virtualize
+    from vzip.virtualize import _virtualize as virtualize  # the profile output, not the store
 
     _, out = virtualize(str(ROOT / "fixtures/tiff/jpeg_gray.tif"), "https://data.test/jpeg_gray.tif")
     if edit:
@@ -222,7 +222,7 @@ def test_mirror_problem_finds_a_view_that_is_not_the_tables(tmp_path):
 def _store_archive(tmp_path, name="zarr2_hierarchy", edit=None, kind="zarr2") -> tuple[Path, callable]:
     """A fixture store's archive (a Zarr v2 store's or a SAFE directory's: its mirror a store
     IR's), and a fetch of ranges of its objects by URL."""
-    from vzip.virtualize import virtualize
+    from vzip.virtualize import _virtualize as virtualize  # the profile output, not the store
 
     url = f"https://data.test/{name}/"
     _, out = virtualize(str(ROOT / "fixtures" / kind / name), url)

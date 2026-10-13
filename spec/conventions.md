@@ -28,7 +28,7 @@ attributes under the convention's key, including the translation of the
 source's header into JSON. It says what each chunk holds in terms of the
 source (for example, "the chunk at `0/c/t/0/z/0/0` is frame `f`"), but not
 how a store produces those bytes. vzip produces these hierarchies as
-virtual stores whose chunks are byte ranges of the source; that is
+reference stores whose chunks are byte ranges of the source; that is
 specified separately, in [spec/virtualize.md](virtualize.md) and its
 profiles, which refer to these conventions for the layout.
 
@@ -73,7 +73,7 @@ document's header.
   layout, and the revision is what tells two layouts apart.
 - **At the release**, every convention becomes version 1, tagged
   `virtualize-<p>-v1` in the vzip repository. From then on a convention's
-  version increases by 1 whenever the layout it specifies, or the virtual
+  version increases by 1 whenever the layout it specifies, or the reference
   store that vzip's profile for that format specifies, changes for some
   source, including whether the source is accepted (a **breaking change**);
   an editorial change, or a change to another format, leaves it as it is.

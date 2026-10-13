@@ -1,10 +1,9 @@
-# vzip: virtual zip
+# refkv: reference-aware key-value storage
 
-vzip is ZIP plus a reference value type: a key-value store in which every
-value is either bytes or a reference to byte ranges of other objects, such
-as the chunks inside HDF5, netCDF or TIFF files. Because the reference type
-does not depend on ZIP, any storage backend that can tell a bytes value from
-a reference value can hold such a virtual store.
+refkv defines reference semantics for key-value storage. This allows an object in one key-value 
+store to refer to a byte range, or sequence of byte ranges, in other storage backends.
+
+refkv is used to define vzip, a single-file reference-aware storage solution.
 
 The [spec](spec/archive.md) has two parts:
 [the reference value type](spec/archive.md#part-1-reference-values), which

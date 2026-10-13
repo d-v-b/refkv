@@ -50,8 +50,8 @@ jobs:
       - run: npm ci
         working-directory: js
       - run: just js::wasm
-      # builds the Rust core first; the ir job runs python/tests/ir
-      - run: just test --ignore=python/tests/ir
+      # builds the Rust core first, and runs python/tests/ir with the rest
+      - run: just test
 
   # The JS library and its tests run on the oldest Node that js/package.json's engines
   # allows (the LTS most users have) and on the newest (what the project develops on);
@@ -109,7 +109,8 @@ jobs:
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - uses: extractions/setup-just@v2
       - run: uv sync --all-groups --locked
-      - run: just ir-test
+      # the Python host's tests (python/tests/ir) run in the pytest job, with the rest
+      - run: just ir-rust-test
       - run: just ir-wasm
 
   fixture-compare:
