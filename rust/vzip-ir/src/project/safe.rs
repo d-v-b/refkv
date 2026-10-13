@@ -10,7 +10,7 @@
 
 use super::{arr, n};
 use crate::ir::Ir;
-use crate::out::{array_json, convention, declare, group_doc, payload_size, root_property, Out, Part, CONVENTION_KEY, MAX_PAYLOAD, SOURCE_NODE};
+use crate::out::{array_json, convention, declare, group_doc, payload_size, root_property, Out, Part, CONVENTION_KEY, MAX_PAYLOAD};
 use crate::safe::jp2::{self, Codestream};
 use crate::safe::product::{multiscales_cmo, proj_cmo, spatial_cmo, wkt2};
 use serde_json::{json, Map, Value as J};
@@ -49,16 +49,6 @@ fn crs(facts: &J, m: &mut Map<String, J>) {
     if let Some(w) = wkt2(code) {
         m.insert("proj:wkt2".into(), json!(w));
     }
-}
-
-/// The hierarchy's key of the other object `key` (spec/virtualize/zarr2.md §5
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>):
-/// `vzip_source/objects/<key>`, with `~` appended to a last segment that is `zarr.json`,
-/// `.zarray` or `.zgroup` followed by any number of `~`.
-pub fn object_key(key: &str) -> String {
-    let last = key.rsplit('/').next().unwrap_or(key).trim_end_matches('~');
-    let node = matches!(last, "zarr.json" | ".zarray" | ".zgroup");
-    format!("{SOURCE_NODE}/objects/{key}{}", if node { "~" } else { "" })
 }
 
 pub fn project(_ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
@@ -139,7 +129,7 @@ pub fn project(_ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     // the other objects, whole (§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)
     for o in arr(&facts["objects"]) {
         let (k, size) = (o[0].as_str().unwrap_or("").to_string(), n(&o[1]));
-        refs.push((object_key(&k), vec![Pre::Part(Part::Obj(k, 0, size))]));
+        refs.push((super::store::object_key(&k), vec![Pre::Part(Part::Obj(k, 0, size))]));
     }
     // the data sources, numbered by first use in the order of the entries' keys (§12.8
     // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#128-the-source-table>)

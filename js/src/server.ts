@@ -27,8 +27,9 @@ import { ImsError } from "./virtualize/ims/virtualize.ts";
 import type { StoreFormat } from "./virtualize/ir/store.ts";
 import { writeVzip } from "./writer.ts";
 
-/** The titles rejections of the Rust core's store formats carry, as the profiles' own errors did. */
-const STORE_FORMATS: Record<StoreFormat, string> = { zarr2: "Zarr v2", safe: "SAFE" };
+/** The titles rejections of the Rust core's store formats carry, as the profiles' own errors did;
+ * none for a SAFE directory, whose rejections read as a SAFE zip file's (an ImageError's, bare). */
+const STORE_FORMATS: Record<StoreFormat, string | undefined> = { zarr2: "Zarr v2", safe: undefined };
 
 export const ARCHIVE_KEY = "__vz__/archive.vzip";
 
@@ -226,8 +227,13 @@ export function makeHandler(options: HandlerOptions) {
       if (e instanceof N5Error) return response(422, `N5: ${message}`);
       if (e instanceof Zarr2Error) return response(422, `Zarr v2: ${message}`);
       if (e instanceof OmeZarrError) return response(422, `OME-Zarr: ${message}`);
-      // a store format the core refused names itself; a rejection before one was chosen is the store's
-      if (e instanceof StoreError) return response(422, `${e.format !== undefined ? STORE_FORMATS[e.format] : "store"}: ${message}`);
+      // a store format the core refused names itself (SAFE's does not, as its zip form does not);
+      // a rejection before one was chosen is the store's
+      if (e instanceof StoreError && e.format !== undefined) {
+        const title = STORE_FORMATS[e.format];
+        return response(422, title === undefined ? message : `${title}: ${message}`);
+      }
+      if (e instanceof StoreError) return response(422, `store: ${message}`);
       if (e instanceof ImageError) return response(422, message);
       if (e instanceof StoreLimitError) return response(507, message);
       if (e instanceof StoreReadError) return response(502, message);
