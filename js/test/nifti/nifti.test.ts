@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
 import { ImageError } from "../../src/virtualize/common.ts";
-import { virtualizeImage } from "../../src/virtualize/index.ts";
-import { NiftiError } from "../../src/virtualize/nifti/virtualize.ts";
+import { virtualizeImage } from "../../../conformance/virtualize/reference/ts/index.ts";
+import { NiftiError } from "../../../conformance/virtualize/reference/ts/nifti/virtualize.ts";
 
 const FIXTURES = new URL("../../../fixtures/nifti/", import.meta.url);
 

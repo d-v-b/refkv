@@ -13,12 +13,13 @@ const w = instance.exports;
 const text = (n) => new TextDecoder().decode(new Uint8Array(w.memory.buffer, w.vz_out(), n));
 
 function format(fd) {
-  const head = new Uint8Array(132);
-  readSync(fd, head, 0, 132, 0);
+  const head = new Uint8Array(348);
+  readSync(fd, head, 0, 348, 0);
   const s = String.fromCharCode(...head.subarray(0, 16));
   if (String.fromCharCode(...head.subarray(128, 132)) === "DICM") return 3;
   if (head[0] === 0xda && head[1] === 0xce && head[2] === 0xbe && head[3] === 0x0a) return 0;
   if (s.startsWith("II*\0") || s.startsWith("MM\0*") || s.startsWith("II+\0") || s.startsWith("MM\0+")) return 1;
+  if (String.fromCharCode(...head.subarray(344, 348)) === "n+1\0" || s.slice(4, 12) === "n+2\0\r\n\x1a\n") return 4;
   return 2;
 }
 

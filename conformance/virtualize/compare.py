@@ -25,21 +25,23 @@ corpus_hash.py records and checks.
 Implementations are `name=command`, where the command is run as
 `command <url> <out>`. The built-in ones write vzip archives: `ref` (the
 reference, the frozen Python profiles of conformance/virtualize/reference/ for
-TIFF, ND2, CZI, DICOM, NDPI and Zarr v2 and the shipped ones for the others), `py` (`python -m
+TIFF, ND2, CZI, DICOM, NIfTI, NDPI and Zarr v2 and the shipped ones for the others), `py` (`python -m
 vzip.virtualize`) and `web` (the browser code under Node). Others write
 HARNESS.md's JSON description; give them as `--impl name=command`.
 
-`py` and `web` virtualize TIFF (NDPI included), ND2, CZI and DICOM files, and Zarr v2 stores,
-through one Rust core (rust/vzip-ir, natively and as wasm32), and write its mirror under
+`py` and `web` virtualize TIFF (NDPI included), ND2, CZI, DICOM and NIfTI files, and Zarr v2
+stores, through one Rust core (rust/vzip-ir, natively and as wasm32), and write its mirror under
 `vzip_source`, which the frozen reference does not: for those profiles an implementation is
 compared with the reference outside `vzip_source`, and `py` and `web` with each other entirely,
 entry for entry (they must give the same archive contents, `vzip_source` included).
-The frozen reference records the revision it implements (20; 25 for DICOM, NDPI and Zarr v2) in
-its root, where the shipped code records the current one: compared with it, the reference's root
-is read at the current revision. Each mirror is also checked on its own (`mirror_problem`):
-it reads, it rebuilds a source of source 0's size (a store's: its listing, the sizes its
-sources pin, and every held object byte for byte, read from the store), it is canonical, and
-its view is the one its table and the source give.
+The frozen reference records the revision it implements (20 for TIFF, ND2 and CZI, 25
+for DICOM, NIfTI, NDPI and Zarr v2) in its root, where the shipped code records the current one:
+compared with it, the reference's root is read at the current revision, without the members of
+its source metadata that the mirror holds instead (NIfTI's extensions and raw bytes). Each
+mirror is also checked on its own (`mirror_problem`): it reads, it rebuilds a source of source
+0's size (a store's: its listing, the sizes its sources pin, and every held object byte for
+byte, read from the store), it is canonical, and its view is the one its table and the source
+give.
 
 Usage: uv run python conformance/virtualize/compare.py <out dir>
            [--impl name=command ...] [--no-builtin web] [--quick] [--only <substring>]
@@ -92,10 +94,14 @@ BUILTIN = {
     "web": ("vzip", ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"]),
 }
 # The profiles whose shipped implementations write the IR's mirror under vzip_source.
-IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "ndpi", "zarr2")
+IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ndpi", "zarr2")
 SOURCE = "vzip_source/"
-# The revision each of the frozen reference's profiles records in its roots (HARNESS.md).
-REFERENCE_REVISIONS = {"tiff": 20, "nd2": 20, "czi": 20, "dicom": 25, "ndpi": 25, "zarr2": 25}
+# The revision each frozen profile's reference roots record (HARNESS.md): the last before
+# the profile moved to the IR.
+REFERENCE_REVISIONS = {"tiff": 20, "nd2": 20, "czi": 20, "dicom": 25, "nifti": 25, "ndpi": 25, "zarr2": 25}
+# The members of a frozen reference root's source metadata that the IR's mirror holds
+# instead (they named arrays of the reference's vzip_source, or held raw bytes).
+MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_truncated", "unparsed", "trailing")}
 
 
 class Unreadable(Exception):
@@ -425,15 +431,19 @@ def profile(output: dict) -> str | None:
 
 
 def at_revision(output: dict) -> dict:
-    """The output with its root's `revision` the current one when it is the one the frozen
-    reference of its profile records (REFERENCE_REVISIONS), for comparing the reference with
+    """The output with its root's `revision` the current one when it is the frozen
+    reference's (REFERENCE_REVISIONS), and without the members of its source metadata
+    that the IR's mirror holds instead (MIRRORED), for comparing the reference with
     shipped code."""
     root = output["entries"].get("zarr.json")
     prop = root[1].get("attributes", {}).get("vzip_virtualized") if root and root[0] == "json" else None
-    want = REFERENCE_REVISIONS.get(prop.get("profile")) if isinstance(prop, dict) else None
-    if want is None or prop.get("revision") != want:
+    p = prop.get("profile") if isinstance(prop, dict) else None
+    if p not in REFERENCE_REVISIONS or prop.get("revision") != REFERENCE_REVISIONS[p]:
         return output
-    attrs = {**root[1]["attributes"], "vzip_virtualized": {**prop, "revision": REVISION}}
+    prop = {**prop, "revision": REVISION}
+    if isinstance(prop.get(p), dict) and p in MIRRORED:
+        prop[p] = {k: v for k, v in prop[p].items() if k not in MIRRORED[p]}
+    attrs = {**root[1]["attributes"], "vzip_virtualized": prop}
     return {**output, "entries": {**output["entries"], "zarr.json": (root[0], {**root[1], "attributes": attrs})}}
 
 

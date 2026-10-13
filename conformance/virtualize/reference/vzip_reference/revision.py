@@ -6,6 +6,10 @@
 
 REVISION = 20
 
+# The revision the frozen NIfTI profile records: 25, the last before the IR mirror became
+# NIfTI's `vzip_source` (revision 26).
+REVISION_25 = 25
+
 # The revision the frozen DICOM profile records: 25, the last before the IR mirror became
 # DICOM's `vzip_source` (revision 26).
 DICOM_REVISION = 25

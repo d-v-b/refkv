@@ -7,6 +7,7 @@ use crate::dicom::Dicom;
 use crate::ir::Ir;
 use crate::nd2::{Nd2, Step};
 use crate::plan::{Planner, Request};
+use crate::nifti::Nifti;
 use crate::tiff::Tiff;
 use crate::Parser;
 
@@ -16,6 +17,7 @@ pub enum Format {
     Tiff,
     Czi,
     Dicom,
+    Nifti,
     /// A TIFF the TIFF parser found to be NDPI: a run of `Tiff` becomes one of `Ndpi`
     /// when its parser does (spec/virtualize/ndpi.md §4
     /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), so
@@ -30,6 +32,7 @@ impl Format {
             1 => Some(Format::Tiff),
             2 => Some(Format::Czi),
             3 => Some(Format::Dicom),
+            4 => Some(Format::Nifti),
             7 => Some(Format::Ndpi),
             _ => None,
         }
@@ -40,8 +43,13 @@ impl Format {
             Format::Tiff => "tiff",
             Format::Czi => "czi",
             Format::Dicom => "dicom",
+            Format::Nifti => "nifti",
             Format::Ndpi => "ndpi",
         }
+    }
+    /// The format of a name ("nd2", "tiff", "czi", "dicom", "nifti", "ndpi").
+    pub fn from_name(s: &str) -> Option<Format> {
+        [Format::Nd2, Format::Tiff, Format::Czi, Format::Dicom, Format::Nifti, Format::Ndpi].into_iter().find(|f| f.name() == s)
     }
     /// The format a file's first bytes give, if one of these.
     pub fn sniff(head: &[u8]) -> Option<Format> {
@@ -58,6 +66,9 @@ impl Format {
         if head.len() >= 16 && &head[..16] == b"ZISRAWFILE\0\0\0\0\0\0" {
             return Some(Format::Czi);
         }
+        if crate::nifti::detect(head).is_some() {
+            return Some(Format::Nifti);
+        }
         None
     }
 }
@@ -67,6 +78,7 @@ pub enum AnyParser {
     Tiff(Tiff),
     Czi(Czi),
     Dicom(Dicom),
+    Nifti(Nifti),
 }
 
 impl AnyParser {
@@ -76,6 +88,7 @@ impl AnyParser {
             Format::Tiff | Format::Ndpi => AnyParser::Tiff(Tiff::new(size)),
             Format::Czi => AnyParser::Czi(Czi::new(size)),
             Format::Dicom => AnyParser::Dicom(Dicom::new(size)),
+            Format::Nifti => AnyParser::Nifti(Nifti::new(size)),
         }
     }
     pub fn step(&mut self) -> Result<Step, String> {
@@ -84,6 +97,7 @@ impl AnyParser {
             AnyParser::Tiff(x) => x.step(),
             AnyParser::Czi(x) => x.step(),
             AnyParser::Dicom(x) => x.step(),
+            AnyParser::Nifti(x) => x.step(),
         }
     }
     pub fn feed(&mut self, o: u64, b: Vec<u8>) {
@@ -92,6 +106,7 @@ impl AnyParser {
             AnyParser::Tiff(x) => x.feed(o, b),
             AnyParser::Czi(x) => x.feed(o, b),
             AnyParser::Dicom(x) => x.feed(o, b),
+            AnyParser::Nifti(x) => x.feed(o, b),
         }
     }
     pub fn finish(self) -> Result<(Ir, serde_json::Value), String> {
@@ -100,6 +115,7 @@ impl AnyParser {
             AnyParser::Tiff(x) => Parser::finish(x),
             AnyParser::Czi(x) => Parser::finish(x),
             AnyParser::Dicom(x) => Parser::finish(x),
+            AnyParser::Nifti(x) => Parser::finish(x),
         }
     }
 }
@@ -113,6 +129,10 @@ pub struct Run {
     fill: Vec<(u32, u64, u64)>,
     /// the fill batch's ranges, and the planner's (requests, bytes) before and after it
     fill_counts: (u64, (u64, u64), (u64, u64)),
+    /// the source's ranges the projection copies (`project::reads`), read after the fill,
+    /// and their bytes
+    copies: Vec<(u64, u64)>,
+    copied: crate::project::Copied,
     pub planner: Planner,
     /// TIFF and CZI take whole responses (they find each range in them); ND2 exact ranges.
     whole: bool,
@@ -128,6 +148,8 @@ impl Run {
             parsed: None,
             fill: Vec::new(),
             fill_counts: (0, (0, 0), (0, 0)),
+            copies: Vec::new(),
+            copied: Default::default(),
             planner: Planner::new(size, remote, concurrency),
             whole: format != Format::Nd2,
             in_batch: false,
@@ -148,6 +170,17 @@ impl Run {
                 }
                 let got = self.planner.take()?;
                 self.in_batch = false;
+                if !self.copies.is_empty() {
+                    // the ranges the projection copies, read last
+                    let at: std::collections::HashMap<(u64, u64), Vec<u8>> =
+                        got.into_iter().map(|(o, b)| ((o, b.len() as u64), b)).collect();
+                    for r in std::mem::take(&mut self.copies) {
+                        let b = at.get(&r).ok_or("internal: a range the projection copies was not read")?;
+                        self.copied.insert(r, b.clone());
+                    }
+                    self.done = true;
+                    return Ok(None);
+                }
                 if let Some((ir, _)) = self.parsed.as_mut() {
                     // the values the view shows, read after the parser
                     let at: std::collections::HashMap<(u64, u64), &Vec<u8>> =
@@ -158,8 +191,7 @@ impl Run {
                     }
                     ir.sort_values();
                     self.fill_counts.2 = (self.planner.stats.requests, self.planner.stats.bytes);
-                    self.done = true;
-                    return Ok(None);
+                    return self.read_copies();
                 }
                 let p = self.parser.as_mut().ok_or("internal: no parser")?;
                 for (o, b) in got {
@@ -187,8 +219,7 @@ impl Run {
                     };
                     self.parsed = Some((ir, facts));
                     if ranges.is_empty() {
-                        self.done = true;
-                        return Ok(None);
+                        return self.read_copies();
                     }
                     self.fill_counts = (ranges.len() as u64, (self.planner.stats.requests, self.planner.stats.bytes), (0, 0));
                     self.planner.begin(ranges, false);
@@ -198,6 +229,22 @@ impl Run {
         }
     }
 
+    /// After the fill: the batch of the ranges the projection copies, if any; else done.
+    fn read_copies(&mut self) -> Result<Option<Vec<Request>>, String> {
+        let (ir, facts) = self.parsed.as_ref().ok_or("internal: no IR")?;
+        let mut ranges = crate::project::reads(self.format, ir, facts)?;
+        ranges.sort_unstable();
+        ranges.dedup();
+        if ranges.is_empty() {
+            self.done = true;
+            return Ok(None);
+        }
+        self.planner.begin(ranges.clone(), false);
+        self.copies = ranges;
+        self.in_batch = true;
+        self.poll()
+    }
+
     /// Request `k` of the last poll: each span's bytes (None: a multi-range request
     /// the server did not answer with its ranges), and the seconds it took.
     pub fn complete(&mut self, k: usize, data: Option<Vec<Vec<u8>>>, seconds: f64) -> Result<(), String> {
@@ -205,6 +252,11 @@ impl Run {
     }
 
     pub fn finish(self) -> Result<(Ir, serde_json::Value, serde_json::Value), String> {
+        self.finish_copied().map(|(ir, facts, stats, _)| (ir, facts, stats))
+    }
+
+    /// `finish`, and the bytes of the ranges the projection copies.
+    pub fn finish_copied(self) -> Result<(Ir, serde_json::Value, serde_json::Value, crate::project::Copied), String> {
         if !self.done {
             return Err("the run is not done".into());
         }
@@ -214,7 +266,7 @@ impl Run {
         let (requests, bytes) = if n == 0 { (0, 0) } else { (b.0 - a.0, b.1 - a.1) };
         stats["fill"] = serde_json::json!({"ranges": n, "requests": requests, "bytes": bytes});
         let (ir, facts) = self.parsed.ok_or("internal: no IR")?;
-        Ok((ir, facts, stats))
+        Ok((ir, facts, stats, self.copied))
     }
 }
 
@@ -235,10 +287,11 @@ pub fn unread_shown(ir: &Ir, profile: &str) -> Vec<(u32, u64, u64)> {
 
 /// The output of a parse: the image projection of `format`, the mirror under
 /// `vzip_source` when `mirror`, and a summary with the planner's counts, the IR's
-/// element count and what the mirror's table folded.
-pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_json::Value, url: &str, mirror: bool)
-              -> Result<crate::out::Out, String> {
-    let mut out = crate::project::project(format, ir, facts, url)?;
+/// element count and what the mirror's table folded. `copied` holds the bytes of the
+/// ranges the projection copies (`project::reads`).
+pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_json::Value, url: &str, mirror: bool,
+              copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+    let mut out = crate::project::project(format, ir, facts, url, copied)?;
     if let Some(m) = out.summary.as_object_mut() {
         m.insert("format".into(), format.name().into());
         m.insert("planner".into(), stats);
@@ -257,8 +310,8 @@ impl Run {
     /// Finishes, projects and mirrors: the output (`output`).
     pub fn into_output(self, url: &str, mirror: bool) -> Result<crate::out::Out, String> {
         let format = self.format;
-        let (ir, facts, stats) = self.finish()?;
-        output(format, &ir, &facts, stats, url, mirror)
+        let (ir, facts, stats, copied) = self.finish_copied()?;
+        output(format, &ir, &facts, stats, url, mirror, &copied)
     }
 }
 

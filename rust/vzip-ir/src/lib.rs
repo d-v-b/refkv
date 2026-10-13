@@ -18,6 +18,7 @@ pub mod json;
 pub mod lv;
 pub mod mirror;
 pub mod nd2;
+pub mod nifti;
 pub mod ndpi;
 pub mod out;
 pub mod plan;
@@ -70,6 +71,7 @@ parser!(nd2::Nd2);
 parser!(tiff::Tiff);
 parser!(czi::Czi);
 parser!(dicom::Dicom);
+parser!(nifti::Nifti);
 
 /// Runs a parser over bytes in memory (tests, tools).
 pub fn parse_bytes<P: Parser>(data: &[u8]) -> Result<(ir::Ir, serde_json::Value), String> {

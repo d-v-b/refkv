@@ -19,7 +19,7 @@ classifiers = [
     "Operating System :: MacOS",
 ]
 # The base install reads and writes vzip archives, holds a ReferenceStore and
-# virtualizes image files and stores, without Zarr (numpy: the NIfTI virtualizer), through
+# virtualizes image files and stores, without Zarr (numpy: vzip.shards), through
 # the Rust core this package builds and ships as the module vzip_ir (below); the
 # extras add the rest (python/src/vzip/_extras.py), and the dependency groups hold
 # what only this repository's tests, fixture generators and benchmarks use.
