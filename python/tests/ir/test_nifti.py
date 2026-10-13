@@ -46,12 +46,12 @@ def test_edge_chunks_past_the_payload_are_copied_as_the_reference_copies_them(tm
     NIfTI's chunk limit no file reaches it in practice, so both sides take a payload limit
     of 8 bytes here: every padded edge chunk is copied, by the run's last batch, and the
     hierarchy is the frozen reference's."""
-    from refkv import _ir
+    from refkv import _core
 
     from refkv.virtualize import common
 
     monkeypatch.setattr(common, "MAX_PAYLOAD", 8)
-    _ir._set_nifti_copy_threshold(8)
+    _core._set_nifti_copy_threshold(8)
     copied = 0
     try:
         for path in NIIS:
@@ -69,7 +69,7 @@ def test_edge_chunks_past_the_payload_are_copied_as_the_reference_copies_them(tm
             rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
             assert buf.getvalue() == data
     finally:
-        _ir._set_nifti_copy_threshold(None)
+        _core._set_nifti_copy_threshold(None)
     assert copied >= 1  # nifti_chunk_edge_literal.nii's edge chunk
 
 

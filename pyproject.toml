@@ -21,7 +21,7 @@ classifiers = [
 ]
 # The base install reads and writes vzip archives, holds a ReferenceStore and
 # virtualizes image files and stores, without Zarr (numpy: refkv.shards), through
-# the Rust core this package builds and ships as the module refkv._ir (below); the
+# the Rust core this package builds and ships as the module refkv._core (below); the
 # extras add the rest (python/src/refkv/_extras.py), and the dependency groups hold
 # what only this repository's tests, fixture generators and benchmarks use.
 dependencies = [
@@ -53,8 +53,8 @@ virtualizarr = [
     "virtualizarr>=2.7.3",
 ]
 
-# One distribution: the Python package python/src/refkv, with the Rust core rust/refkv-ir
-# compiled into it as the module refkv._ir, so refkv always runs the core of its own
+# One distribution: the Python package python/src/refkv, with its bindings to the Rust core
+# (python/src/lib.rs, over rust/refkv-ir) compiled into it as the module refkv._core, so refkv always runs the core of its own
 # commit. Building it needs a Rust toolchain. This file stays at the root, where the
 # conformance harnesses and the fixture generators share its environment.
 [build-system]
@@ -62,9 +62,8 @@ requires = ["maturin>=1.15,<2"]
 build-backend = "maturin"
 
 [tool.maturin]
-manifest-path = "rust/refkv-ir/Cargo.toml"
-features = ["python"]
-module-name = "refkv._ir"
+manifest-path = "python/Cargo.toml"
+module-name = "refkv._core"
 python-source = "python/src"
 
 [dependency-groups]
@@ -104,6 +103,10 @@ bench = [
 # rebuild the core when its Rust sources or source models change (`uv sync`, `uv run`)
 cache-keys = [
     { file = "pyproject.toml" },
+    { file = "python/Cargo.toml" },
+    { file = "python/Cargo.lock" },
+    { file = "python/build.rs" },
+    { file = "python/src/**/*.rs" },
     { file = "rust/refkv-ir/Cargo.toml" },
     { file = "rust/refkv-ir/Cargo.lock" },
     { file = "rust/refkv-ir/src/**/*.rs" },

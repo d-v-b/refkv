@@ -1,20 +1,21 @@
-//! Python bindings (the `python` feature): the parsers as step/feed/finish
-//! objects, and the IR's columns, tables and per-element reads.
+//! refkv's Python bindings to the Rust core (rust/refkv-ir), compiled into the package
+//! as the module `refkv._core`: the parsers as step/feed/finish objects, and the IR's
+//! columns, tables and per-element reads.
 
-use crate::check;
-use crate::czi::Czi;
-use crate::ir::*;
-use crate::nd2::{Nd2, Step};
-use crate::tiff::Tiff;
-use crate::types::{self, Val};
+use refkv_ir::check;
+use refkv_ir::czi::Czi;
+use refkv_ir::ir::*;
+use refkv_ir::nd2::{Nd2, Step};
+use refkv_ir::tiff::Tiff;
+use refkv_ir::types::{self, Val};
 use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-pyo3::create_exception!(refkv._ir, Rejected, PyException);
-pyo3::create_exception!(refkv._ir, Violation, PyException);
+pyo3::create_exception!(refkv._core, Rejected, PyException);
+pyo3::create_exception!(refkv._core, Violation, PyException);
 
 fn bytes_of<T: Copy, const N: usize>(v: &[T], f: impl Fn(T) -> [u8; N]) -> Vec<u8> {
     let mut out = Vec::with_capacity(v.len() * N);
@@ -53,7 +54,7 @@ fn to_py<'py>(py: Python<'py>, v: &Val) -> PyResult<Bound<'py, PyAny>> {
     })
 }
 
-#[pyclass(name = "Ir", module = "refkv._ir")]
+#[pyclass(name = "Ir", module = "refkv._core")]
 pub struct PyIr {
     pub ir: Ir,
     types: Mutex<HashMap<u32, Option<types::Ty>>>,
@@ -292,11 +293,11 @@ impl PyIr {
     #[staticmethod]
     fn from_archive(get: Bound<'_, PyAny>, read: Bound<'_, PyAny>) -> PyResult<PyIr> {
         let g = |k: &str| -> Option<Vec<u8>> { get.call1((k,)).ok()?.extract::<Option<Vec<u8>>>().ok()? };
-        let t = crate::mirror::table_from(&g).map_err(Violation::new_err)?;
+        let t = refkv_ir::mirror::table_from(&g).map_err(Violation::new_err)?;
         let mut rd = |o: u64, n: u64| -> Result<Vec<u8>, String> {
             read.call1((o, n)).map_err(|e| e.to_string())?.extract::<Vec<u8>>().map_err(|e| e.to_string())
         };
-        let ir = crate::mirror::load(&t, &mut rd).map_err(Violation::new_err)?;
+        let ir = refkv_ir::mirror::load(&t, &mut rd).map_err(Violation::new_err)?;
         Ok(PyIr::new(ir))
     }
 
@@ -374,7 +375,7 @@ fn step_py(r: Result<Step, String>) -> PyResult<Option<Vec<(u64, u64)>>> {
 
 /// The ND2 parser: `step()` gives the next batch of ranges (None when done),
 /// `feed(offset, bytes)` gives one range's bytes, `finish()` the IR and the facts (JSON).
-#[pyclass(name = "Nd2Parser", module = "refkv._ir")]
+#[pyclass(name = "Nd2Parser", module = "refkv._core")]
 pub struct PyNd2 {
     p: Option<Nd2>,
 }
@@ -415,7 +416,7 @@ impl PyNd2 {
 }
 
 /// The TIFF parser: as `Nd2Parser` (`finish()` gives the IR and the facts as JSON).
-#[pyclass(name = "TiffParser", module = "refkv._ir")]
+#[pyclass(name = "TiffParser", module = "refkv._core")]
 pub struct PyTiff {
     p: Option<Tiff>,
 }
@@ -441,7 +442,7 @@ impl PyTiff {
     }
 }
 
-#[pyclass(name = "CziParser", module = "refkv._ir")]
+#[pyclass(name = "CziParser", module = "refkv._core")]
 pub struct PyCzi {
     p: Option<Czi>,
 }
@@ -515,20 +516,20 @@ fn synthetic(n: u64, fold: bool, distinct: bool) -> PyResult<(usize, usize)> {
 
 #[pyfunction]
 fn schema_text() -> &'static str {
-    crate::schema::ND2_SCHEMA
+    refkv_ir::schema::ND2_SCHEMA
 }
 
 /// The values the CZI layout reads from a metadata XML (JSON), as the parser streams them.
 #[pyfunction]
 fn czi_xml_values(data: &[u8]) -> String {
-    crate::cxml::values(data, 1 << 26).to_json().to_string()
+    refkv_ir::cxml::values(data, 1 << 26).to_json().to_string()
 }
 
 /// The y chunk lengths (JSON) and bands (rows a band holds, bands a tile row) of a
 /// CZI level of r tile rows of height h (the last h2), w pixels of q bytes wide.
 #[pyfunction]
 fn czi_bands(h: u64, h2: u64, r: u64, w: u64, q: u64, uncompressed: bool) -> (String, u64, u64) {
-    let (y, rows, per) = crate::czi::bands(h, h2, r, w, q, uncompressed, 1 << 24, 1 << 20);
+    let (y, rows, per) = refkv_ir::czi::bands(h, h2, r, w, q, uncompressed, 1 << 24, 1 << 20);
     (y.to_string(), rows, per)
 }
 
@@ -538,13 +539,13 @@ fn czi_bands(h: u64, h2: u64, r: u64, w: u64, q: u64, uncompressed: bool) -> (St
 /// parts, seconds)` (each span's bytes, or None for a multi-range request the
 /// server did not answer with its ranges), until `poll()` gives None; then
 /// `finish()` gives the IR, the facts (JSON) and the planner's counts (JSON).
-#[pyclass(name = "Run", module = "refkv._ir")]
+#[pyclass(name = "Run", module = "refkv._core")]
 pub struct PyRun {
-    r: Option<crate::run::Run>,
+    r: Option<refkv_ir::run::Run>,
 }
 
 impl PyRun {
-    fn get(&mut self) -> PyResult<&mut crate::run::Run> {
+    fn get(&mut self) -> PyResult<&mut refkv_ir::run::Run> {
         self.r.as_mut().ok_or_else(|| PyValueError::new_err("finished"))
     }
 }
@@ -555,8 +556,8 @@ impl PyRun {
     #[pyo3(signature = (format, size, remote, concurrency, amplification=None, byte_cost=None, whole_below=None))]
     fn new(format: &str, size: u64, remote: bool, concurrency: usize, amplification: Option<f64>, byte_cost: Option<f64>,
            whole_below: Option<u64>) -> PyResult<Self> {
-        let f = crate::run::Format::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no format {format:?}")))?;
-        let mut r = crate::run::Run::new(f, size, remote, concurrency);
+        let f = refkv_ir::run::Format::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no format {format:?}")))?;
+        let mut r = refkv_ir::run::Run::new(f, size, remote, concurrency);
         r.planner.cap_override = amplification;
         if let Some(c) = byte_cost {
             r.planner.byte_cost = c;
@@ -612,7 +613,7 @@ impl PyRun {
         let (o, ir) = py
             .detach(|| -> Result<_, String> {
                 let (ir, facts, stats, copied) = r.finish_copied()?;
-                Ok((crate::run::output(format, &ir, &facts, stats, url, mirror, &copied)?, ir))
+                Ok((refkv_ir::run::output(format, &ir, &facts, stats, url, mirror, &copied)?, ir))
             })
             .map_err(Rejected::new_err)?;
         Ok((out_py(py, &o)?, PyIr::new(ir)))
@@ -629,13 +630,13 @@ impl PyRun {
 /// index, key, spans [(start, end)])) and `complete(k, parts)` (each span's bytes) until
 /// `poll()` gives None; then `output(url, mirror)` or `finish()`. `ignore(keys, folders)`,
 /// before the first poll, gives the keys the listing ignores.
-#[pyclass(name = "StoreRun", module = "refkv._ir")]
+#[pyclass(name = "StoreRun", module = "refkv._core")]
 pub struct PyStoreRun {
-    r: Option<crate::store::StoreRun>,
+    r: Option<refkv_ir::store::StoreRun>,
 }
 
 impl PyStoreRun {
-    fn get(&mut self) -> PyResult<&mut crate::store::StoreRun> {
+    fn get(&mut self) -> PyResult<&mut refkv_ir::store::StoreRun> {
         self.r.as_mut().ok_or_else(|| PyValueError::new_err("finished"))
     }
 }
@@ -644,8 +645,8 @@ impl PyStoreRun {
 impl PyStoreRun {
     #[new]
     fn new(format: &str, listing: Vec<(String, u64)>, concurrency: usize) -> PyResult<Self> {
-        let f = crate::store::StoreFormat::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no store format {format:?}")))?;
-        let r = crate::store::StoreRun::new(f, listing, concurrency).map_err(Rejected::new_err)?;
+        let f = refkv_ir::store::StoreFormat::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no store format {format:?}")))?;
+        let r = refkv_ir::store::StoreRun::new(f, listing, concurrency).map_err(Rejected::new_err)?;
         Ok(PyStoreRun { r: Some(r) })
     }
     #[allow(clippy::type_complexity)]
@@ -680,7 +681,7 @@ impl PyStoreRun {
         let (o, ir) = py
             .detach(|| -> Result<_, String> {
                 let (ir, facts, stats) = r.finish()?;
-                Ok((crate::store::store_output(format, &ir, &facts, stats, url, mirror)?, ir))
+                Ok((refkv_ir::store::store_output(format, &ir, &facts, stats, url, mirror)?, ir))
             })
             .map_err(Rejected::new_err)?;
         Ok((out_py(py, &o)?, PyIr::new(ir)))
@@ -700,7 +701,7 @@ impl PyStoreRun {
 #[allow(clippy::type_complexity)]
 fn rebuild_store<'py>(py: Python<'py>, get: Bound<'py, PyAny>) -> PyResult<Vec<(String, u64, Option<Bound<'py, PyBytes>>)>> {
     let g = |k: &str| -> Option<Vec<u8>> { get.call1((k,)).ok()?.extract::<Option<Vec<u8>>>().ok()? };
-    let v = crate::mirror::rebuild_store(&g).map_err(Rejected::new_err)?;
+    let v = refkv_ir::mirror::rebuild_store(&g).map_err(Rejected::new_err)?;
     Ok(v.into_iter().map(|(k, n, b)| (k, n, b.map(|b| PyBytes::new(py, &b)))).collect())
 }
 
@@ -708,8 +709,8 @@ fn rebuild_store<'py>(py: Python<'py>, get: Bound<'py, PyAny>) -> PyResult<Vec<(
 /// data sources [bytes], lazy prefixes [str], summary JSON); a part is (offset,
 /// length) of source 0, (source, offset, length), bytes, or ("object", key, offset, length) of a
 /// store's object.
-fn out_py<'py>(py: Python<'py>, o: &crate::out::Out) -> PyResult<Bound<'py, PyAny>> {
-    use crate::out::Part;
+fn out_py<'py>(py: Python<'py>, o: &refkv_ir::out::Out) -> PyResult<Bound<'py, PyAny>> {
+    use refkv_ir::out::Part;
     let entries = PyList::empty(py);
     for (k, v) in &o.entries {
         entries.append((k.as_str(), PyBytes::new(py, v)))?;
@@ -728,7 +729,7 @@ fn out_py<'py>(py: Python<'py>, o: &crate::out::Out) -> PyResult<Bound<'py, PyAn
         refs.append((k.as_str(), ps))?;
     }
     let data: Vec<Bound<'py, PyBytes>> = o.data.iter().map(|d| PyBytes::new(py, d)).collect();
-    let t = (o.url.as_str(), entries, refs, data, o.lazy.clone(), crate::out::to_text(&o.summary));
+    let t = (o.url.as_str(), entries, refs, data, o.lazy.clone(), refkv_ir::out::to_text(&o.summary));
     Ok(t.into_pyobject(py)?.into_any())
 }
 
@@ -736,9 +737,9 @@ fn out_py<'py>(py: Python<'py>, o: &crate::out::Out) -> PyResult<Bound<'py, PyAn
 /// Python objects (`out_py`), or Rejected.
 #[pyfunction]
 fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str) -> PyResult<Bound<'py, PyAny>> {
-    let f = crate::run::Format::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no format {format:?}")))?;
+    let f = refkv_ir::run::Format::from_name(format).ok_or_else(|| PyValueError::new_err(format!("no format {format:?}")))?;
     let facts: serde_json::Value = serde_json::from_str(facts).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let o = py.detach(|| crate::project::project(f, &ir.ir, &facts, url, &Default::default())).map_err(Rejected::new_err)?;
+    let o = py.detach(|| refkv_ir::project::project(f, &ir.ir, &facts, url, &Default::default())).map_err(Rejected::new_err)?;
     out_py(py, &o)
 }
 
@@ -748,8 +749,8 @@ fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str
 #[pyfunction]
 fn mirror<'py>(py: Python<'py>, ir: &PyIr, profile: &str) -> PyResult<(Bound<'py, PyAny>, String)> {
     let (o, folded) = py.detach(|| {
-        let mut o = crate::out::Out::new("");
-        crate::mirror::mirror(&ir.ir, &mut o, profile).map(|f| (o, f))
+        let mut o = refkv_ir::out::Out::new("");
+        refkv_ir::mirror::mirror(&ir.ir, &mut o, profile).map(|f| (o, f))
     }).map_err(Rejected::new_err)?;
     Ok((out_py(py, &o)?, folded.json().to_string()))
 }
@@ -764,7 +765,7 @@ fn canonical_problem(get: Bound<'_, PyAny>, read: Bound<'_, PyAny>) -> Option<St
     let mut rd = |o: u64, n: u64| -> Result<Vec<u8>, String> {
         read.call1((o, n)).map_err(|e| e.to_string())?.extract::<Vec<u8>>().map_err(|e| e.to_string())
     };
-    crate::mirror::canonical_problem(&g, &mut rd)
+    refkv_ir::mirror::canonical_problem(&g, &mut rd)
 }
 
 /// Where a stored mirror's view differs from the one its table and the source give
@@ -777,14 +778,14 @@ fn view_problem(keys: Vec<String>, get: Bound<'_, PyAny>, read: Bound<'_, PyAny>
     let mut rd = |o: u64, n: u64| -> Result<Vec<u8>, String> {
         read.call1((o, n)).map_err(|e| e.to_string())?.extract::<Vec<u8>>().map_err(|e| e.to_string())
     };
-    crate::mirror::view_problem(&keys, &g, &mut rd)
+    refkv_ir::mirror::view_problem(&keys, &g, &mut rd)
 }
 
 /// The planner's merge of ranges (offset, length) into requests (start, end), for a
 /// gap threshold, an amplification cap and a concurrency (the policy's core, for tests).
 #[pyfunction]
 fn plan_spans(ranges: Vec<(u64, u64)>, threshold: u64, cap: f64, concurrency: usize) -> Vec<(u64, u64)> {
-    crate::plan::plan_spans(&ranges, threshold, cap, concurrency)
+    refkv_ir::plan::plan_spans(&ranges, threshold, cap, concurrency)
 }
 
 /// For tests: the reference payload past which a NIfTI edge chunk is copied (None: the
@@ -793,12 +794,12 @@ fn plan_spans(ranges: Vec<(u64, u64)>, threshold: u64, cap: f64, concurrency: us
 #[pyfunction]
 #[pyo3(signature = (n=None))]
 fn _set_nifti_copy_threshold(n: Option<usize>) {
-    crate::nifti::set_copy_threshold(n);
+    refkv_ir::nifti::set_copy_threshold(n);
 }
 
 #[pymodule]
-#[pyo3(name = "_ir")]
-fn refkv_ir(m: &Bound<'_, PyModule>) -> PyResult<()> {
+#[pyo3(name = "_core")]
+fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyIr>()?;
     m.add_class::<PyNd2>()?;
     m.add_class::<PyCzi>()?;
@@ -812,7 +813,7 @@ fn refkv_ir(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(mirror, m)?)?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;
     m.add_function(wrap_pyfunction!(view_problem, m)?)?;
-    m.add("REVISION", crate::out::REVISION)?;
+    m.add("REVISION", refkv_ir::out::REVISION)?;
     m.add_function(wrap_pyfunction!(synthetic, m)?)?;
     m.add_function(wrap_pyfunction!(schema_text, m)?)?;
     m.add_function(wrap_pyfunction!(czi_xml_values, m)?)?;

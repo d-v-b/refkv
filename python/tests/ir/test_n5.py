@@ -13,7 +13,7 @@ from xml.sax.saxutils import escape
 
 import pytest
 
-from refkv import _ir
+from refkv import _core
 from refkv.ir.store import StoreIrOutput, virtualize_store
 from refkv.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
 from refkv.virtualize.common import REVISION, same
@@ -53,7 +53,7 @@ def test_accepted_stores_have_the_reference_hierarchy_and_a_store_mirror():
         stored = files(root)
         assert own["ir"]["objects"] == len(stored) and "empty" not in own, root.name
         held = 0
-        for key, size, data in _ir.rebuild_store(out.entries.get):
+        for key, size, data in _core.rebuild_store(out.entries.get):
             assert size == len(stored[key]), (root.name, key)
             if data is not None:
                 assert key.endswith("attributes.json") and data == stored[key], (root.name, key)
@@ -151,7 +151,7 @@ def test_hostile_stores_are_refused_or_virtualized_as_the_reference_does(n5_prob
         assert same(docs, want), root.name
         assert out.refs == {as_current(k): [("object", ref.origins.get(k, k), 0, n)] for k, n in ref.chunks}, root.name
         stored = files(root)
-        for key, size, data in _ir.rebuild_store(out.entries.get):
+        for key, size, data in _core.rebuild_store(out.entries.get):
             assert size == len(stored[key]) and data in (None, stored[key]), (root.name, key)
     assert seen == 13
 
@@ -166,7 +166,7 @@ def test_under_a_root_dataset_the_mirror_and_the_other_objects_are_keys_of_refkv
         assert json.loads(out.entries["zarr.json"])["node_type"] == "array", name
         assert [k for k in out.entries if k.endswith("zarr.json") and not k.startswith("refkv_source/")] == ["zarr.json"]
         assert "refkv_source/zarr.json" in out.entries and "refkv_source/empty.json" not in out.entries, name
-        listing = {k: n for k, n, _ in _ir.rebuild_store(out.entries.get)}
+        listing = {k: n for k, n, _ in _core.rebuild_store(out.entries.get)}
         assert listing == {k: len(v) for k, v in files(FIXTURES / name).items()}, name
     _, out = virtualize(str(FIXTURES / "n5_root_dataset_objects"), url=URL.format("x"))
     size = (FIXTURES / "n5_root_dataset_objects" / "README").stat().st_size

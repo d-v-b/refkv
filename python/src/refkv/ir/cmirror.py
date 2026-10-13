@@ -53,27 +53,27 @@ class Archive:
 
 def load(archive: Archive):
     """The IR the mirror's table describes, as a Rust IR (for check and leaves)."""
-    from refkv import _ir
+    from refkv import _core
 
-    return _ir.Ir.from_archive(archive.get, archive.read_source)
+    return _core.Ir.from_archive(archive.get, archive.read_source)
 
 
 def canonical_problem(archive: Archive) -> str | None:
     """What makes the archive's mirror non-canonical (conventions §8.8
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>), or None: the
     validator's check, which rebuilds the table from what it loads and the source."""
-    from refkv import _ir
+    from refkv import _core
 
-    return _ir.canonical_problem(archive.get, archive.read_source)
+    return _core.canonical_problem(archive.get, archive.read_source)
 
 
 def view_problem(archive: Archive) -> str | None:
     """Where the archive's view differs from the one its table and source give
     (conventions §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>), or
     None: the validator's check of the view."""
-    from refkv import _ir
+    from refkv import _core
 
-    return _ir.view_problem(archive.z.namelist(), archive.get, archive.read_source)
+    return _core.view_problem(archive.z.namelist(), archive.get, archive.read_source)
 
 
 def rebuild_from_archive(path: str, read_source, write) -> int:

@@ -1,0 +1,32 @@
+# refkv's Python bindings: the extension module refkv._core, which maturin compiles into the
+# refkv wheel (python/pyproject.toml), over the Rust core rust/refkv-ir. A crate of its own,
+# not a member of a Cargo workspace: the core keeps its own lock and profiles (its wasm32
+# profile only applies at its own root), and this one has no tests of its own.
+[package]
+name = "refkv-python"
+# A placeholder: `just python::version` writes the version git describes (python/tools/version.py),
+# in release builds; refkv's version is this one (pyproject.toml's `dynamic = ["version"]`).
+version = "0.0.0"
+edition = "2024"
+description = "refkv's Python bindings (the module refkv._core)"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+name = "_core"
+crate-type = ["cdylib"]
+# no Rust tests: `cargo test` only builds the module; the Python tests (python/tests) test it
+test = false
+doctest = false
+
+[dependencies]
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py312"] }
+refkv-ir = { path = "../rust/refkv-ir" }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+
+[build-dependencies]
+pyo3-build-config = "0.29"
+
+[profile.release]
+opt-level = 3
+debug = false

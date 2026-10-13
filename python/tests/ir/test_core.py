@@ -13,22 +13,22 @@ def test_a_mirror_past_the_row_budget_is_rejected():
     the mirror is rejected (conventions §8.3
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#83-column-runs>), as Rejected,
     before the run is expanded."""
-    from refkv import _ir
+    from refkv import _core
 
-    ir = _ir.Ir.from_table(4, [0, 0, 5], [-1, 0, 0], [0, 0, 0], [0, 0, 4], [0, 0, 0], [(1, 4_200_000, 0)], [])
-    with pytest.raises(_ir.Rejected, match=r"^budget: the mirror would have more than 4194305 rows$"):
-        _ir.mirror(ir, "tiff")
+    ir = _core.Ir.from_table(4, [0, 0, 5], [-1, 0, 0], [0, 0, 0], [0, 0, 4], [0, 0, 0], [(1, 4_200_000, 0)], [])
+    with pytest.raises(_core.Rejected, match=r"^budget: the mirror would have more than 4194305 rows$"):
+        _core.mirror(ir, "tiff")
 
 
 def table(**edit):
     """A 30-byte source as a stored table (the Rust IR): the root, `a` (a value of 10
     bytes) and `gaps/10` (a gap of 20); `edit` replaces columns."""
-    from refkv import _ir
+    from refkv import _core
 
     cols = dict(size=30, kind=[0, 1, 5], parent=[-1, 0, 0], start=[0, 0, 10], len=[30, 10, 20],
                 space=[0, 0, 0], runs=[], targets=[], name=["", "a", "gaps/"], nidx=[None, None, 10])
     cols.update(edit)
-    return _ir.Ir.from_table(**cols)
+    return _core.Ir.from_table(**cols)
 
 
 def test_the_root_spans_the_source_and_every_path_is_its_own():
@@ -55,53 +55,53 @@ def test_the_root_spans_the_source_and_every_path_is_its_own():
 
 
 def test_a_named_root_is_a_violation():
-    from refkv import _ir
+    from refkv import _core
 
-    with pytest.raises(_ir.Violation, match=r'^the root \(element 0\) is named "r", not ""$'):
+    with pytest.raises(_core.Violation, match=r'^the root \(element 0\) is named "r", not ""$'):
         table(name=["r", "a", "gaps/"]).check()
 
 
 def test_a_root_with_an_index_is_a_violation():
-    from refkv import _ir
+    from refkv import _core
 
-    with pytest.raises(_ir.Violation, match=r"^the root \(element 0\) has the name index 0$"):
+    with pytest.raises(_core.Violation, match=r"^the root \(element 0\) has the name index 0$"):
         table(nidx=[0, None, 10]).check()
 
 
 def test_a_root_that_does_not_span_the_source_is_a_violation():
-    from refkv import _ir
+    from refkv import _core
 
-    with pytest.raises(_ir.Violation, match=r"^the root's extent is \(0, 0\), not \(0, 30\)"):
+    with pytest.raises(_core.Violation, match=r"^the root's extent is \(0, 0\), not \(0, 30\)"):
         table(len=[0, 10, 20]).check()
 
 
 def test_an_empty_full_name_is_a_violation():
-    from refkv import _ir
+    from refkv import _core
 
-    with pytest.raises(_ir.Violation, match=r'^element 1 \(value ""\) has an empty full name$'):
+    with pytest.raises(_core.Violation, match=r'^element 1 \(value ""\) has an empty full name$'):
         table(name=["", "", "gaps/"]).check()
 
 
 def test_siblings_of_one_path_are_a_violation():
-    from refkv import _ir
+    from refkv import _core
 
-    with pytest.raises(_ir.Violation, match=r'have one path, "a"$'):
+    with pytest.raises(_core.Violation, match=r'have one path, "a"$'):
         table(name=["", "a", "a"], nidx=[None, None, None]).check()
 
 
 def test_a_full_name_that_continues_a_siblings_with_a_slash_is_a_violation():
-    from refkv import _ir
+    from refkv import _core
 
-    with pytest.raises(_ir.Violation, match=r'^the full name "a/0" of element 2'):
+    with pytest.raises(_core.Violation, match=r'^the full name "a/0" of element 2'):
         table(name=["", "a", "a/"], nidx=[None, None, 0]).check()
 
 
 def test_the_mirror_of_an_ir_whose_names_break_the_rules_is_rejected():
     """The producer writes no invalid table: Rejected, as any rejection."""
-    from refkv import _ir
+    from refkv import _core
 
-    with pytest.raises(_ir.Rejected, match=r'have one path, "a"$'):
-        _ir.mirror(table(name=["", "a", "a"], nidx=[None, None, None]), "tiff")
+    with pytest.raises(_core.Rejected, match=r'have one path, "a"$'):
+        _core.mirror(table(name=["", "a", "a"], nidx=[None, None, None]), "tiff")
 
 
 def test_an_archive_whose_root_is_named_is_a_violation():
@@ -109,7 +109,7 @@ def test_an_archive_whose_root_is_named_is_a_violation():
     the validator calls the table invalid."""
     import json
 
-    from refkv import _ir
+    from refkv import _core
 
     from refkv.ir import virtualize as via_ir
 
@@ -121,10 +121,10 @@ def test_an_archive_whose_root_is_named_is_a_violation():
     assert ir["names"][0] == ""
     ir["names"][0] = "!"  # still sorted first
     entries = dict(out.bytes_entries, **{"refkv_source/zarr.json": json.dumps(doc).encode()})
-    loaded = _ir.Ir.from_archive(entries.get, lambda o, n: data[o:o + n])
-    with pytest.raises(_ir.Violation, match=r'^the root \(element 0\) is named "!", not ""$'):
+    loaded = _core.Ir.from_archive(entries.get, lambda o, n: data[o:o + n])
+    with pytest.raises(_core.Violation, match=r'^the root \(element 0\) is named "!", not ""$'):
         loaded.check()
-    problem = _ir.canonical_problem(entries.get, lambda o, n: data[o:o + n])
+    problem = _core.canonical_problem(entries.get, lambda o, n: data[o:o + n])
     assert problem == 'invalid: the root (element 0) is named "!", not ""'
 
 

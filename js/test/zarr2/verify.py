@@ -128,11 +128,11 @@ def objects_problems(store_dir: Path, out: Path) -> list[str]:
         # a store IR's mirror (spec/virtualize/zarr2.md §4.1
         # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#41-elements>): it lists
         # every object with its size, the empty ones included, and rebuilds each document it holds
-        from refkv import _ir
+        from refkv import _core
 
         z = zipfile.ZipFile(out)
         try:
-            rebuilt = _ir.rebuild_store(lambda k: z.read(k) if k in names else None)
+            rebuilt = _core.rebuild_store(lambda k: z.read(k) if k in names else None)
         except Exception as e:  # noqa: BLE001 - a broken mirror is a problem to report
             return problems + [f"the mirror does not rebuild: {e}"]
         files = {f.relative_to(store_dir).as_posix(): f for f in store_dir.rglob("*") if f.is_file()}

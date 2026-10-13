@@ -1,12 +1,13 @@
 """Check refkv's installs without the test environment: run with the Python of an
-environment where only `pip install .` was run (CI's base-install job), or, with
-the argument `zarr`, only `pip install '.[zarr]'`.
+environment where only `pip install python/` was run (CI's base-install job), or
+only a wheel or the sdist was installed (the release workflow's), or, with the
+argument `zarr`, only `pip install 'python/[zarr]'`.
 
 The base install: `import refkv` imports neither xarray nor zarr, which are not
 installed, and the operations work without them: build a ReferenceStore from a
 mapping, read a bytes value and a reference, save it, reopen the archive with
 refkv.open and read it again, run the conformance CLI on it, and virtualize a
-NIfTI file and a TIFF, both through the Rust core (refkv._ir), which the install
+NIfTI file and a TIFF, both through the Rust core (refkv._core), which the install
 must have built, and a Zarr v2 store. Each optional part names the extra it needs.
 
 With `zarr`: refkv.zarr reads the same archive through zarr, and the image
@@ -90,7 +91,12 @@ with tempfile.TemporaryDirectory() as d:
     saved = refkv.open("n.vzip")
     for key in ("zarr.json", "0/c/0/0"):  # in memory as saved
         assert n.get(key) is not None and n.get(key) == saved.get(key)
-    from refkv import _ir  # noqa: F401  (a dependency: installing refkv built it)
+    from refkv import _core  # noqa: F401  (a dependency: installing refkv built it)
+
+    # the install holds the bindings as refkv._core (refkv/_core.abi3.so, or .pyd), and no
+    # module of the earlier name, refkv._ir
+    package = Path(refkv.__file__).parent
+    assert list(package.glob("_core.*")) and not list(package.glob("_ir*")), sorted(p.name for p in package.iterdir())
 
     t = virtualize(str(FIXTURES / "tiff" / "jpeg_gray.tif"))
     t.save("t.vzip")

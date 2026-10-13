@@ -66,13 +66,13 @@ def test_the_ir_gives_the_reference_hierarchy(store):
 
 
 def test_the_mirror_rebuilds_each_node_document():
-    from refkv import _ir
+    from refkv import _core
 
     for store in STORES:
         if "_reject_" in store.name:
             continue
         _, out = virtualize(str(store), URL.format(store.name))
-        rebuilt = _ir.rebuild_store(out.entries.get)
+        rebuilt = _core.rebuild_store(out.entries.get)
         held = {k: b for k, _, b in rebuilt if b is not None}
         assert held and all(Path(k).name in (".zgroup", ".zarray", ".zattrs") for k in held), store.name
         for k, b in held.items():

@@ -7,19 +7,17 @@ license = "MIT OR Apache-2.0"
 
 [lib]
 name = "refkv_ir"
+# cdylib: the wasm32 module (wasm/build.sh); rlib: the Python bindings (python/Cargo.toml) and the tests
 crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
-# The Python bindings (built by maturin); the core builds without them, for wasm32.
-python = ["dep:pyo3"]
 # Test-only C-ABI hooks of the wasm32 module (`wasm/build.sh test`); never in the shipped module.
 test-hooks = []
 
 [dependencies]
 miniz_oxide = "0.8"
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
-pyo3 = { version = "0.29", features = ["extension-module", "abi3-py312"], optional = true }
 
 [profile.release]
 opt-level = 3
