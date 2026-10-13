@@ -4,8 +4,8 @@
 # comparison of the virtualizers against the frozen reference (spec/virtualize.md §1.1
 # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>, with
 # spec/archive.md's strict reading of every archive), the reproducibility of the fixture
-# generators, and the section references, each a link to a heading that exists. TIFF, ND2 and CZI go through the Rust core (rust/vzip-ir), built natively
-# for Python (`just ir-build`) and for wasm32 for the browser code (`just js::wasm`).
+# generators, and the section references, each a link to a heading that exists. TIFF, NDPI, ND2, CZI, DICOM and NIfTI go through the Rust core (rust/vzip-ir), built natively
+# for Python (`uv sync`, which builds it into vzip as the module vzip_ir) and for wasm32 for the browser code (`just js::wasm`).
 name: ci
 
 on:
@@ -137,7 +137,6 @@ jobs:
       # binaryen's wasm-opt shrinks the wasm32 module (rust/vzip-ir/wasm/build.sh; optional)
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - run: uv sync --all-groups --locked
-      - run: just ir-build
       - run: just js::wasm
       - run: >-
           uv run python conformance/virtualize/compare.py conformance/results/fixtures
@@ -153,16 +152,21 @@ jobs:
   # installs it; then with only the zarr extra, which reads them through zarr
   base-install:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
       - uses: extractions/setup-just@v2
-      - run: uv venv "$RUNNER_TEMP/base"
-      - run: uv pip install --python "$RUNNER_TEMP/base" .
-      - run: just base-install-check "$RUNNER_TEMP/base/bin/python" base
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/vzip-ir
+      # pip, as docs/README.md#installing says (it builds the Rust core into the wheel)
+      - run: uv venv --seed "$RUNNER_TEMP/pip"
+      - run: '"$RUNNER_TEMP/pip/bin/python" -m pip install .'
+      - run: just base-install-check "$RUNNER_TEMP/pip/bin/python" base
         shell: bash
       - run: uv venv "$RUNNER_TEMP/zarr"
       - run: uv pip install --python "$RUNNER_TEMP/zarr" ".[zarr]"
@@ -172,13 +176,16 @@ jobs:
   sections:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # spec/tools imports neither vzip nor its Rust core: install the tools, not the project
+    env:
+      UV_NO_SYNC: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
       - uses: extractions/setup-just@v2
-      - run: uv sync --all-groups --locked
+      - run: uv sync --all-groups --locked --no-install-project
       # every "§n" is a link to its heading, and every such link resolves (spec/tools/sections.py)
       - run: just sections
 
@@ -191,5 +198,9 @@ jobs:
         with:
           enable-cache: true
       - uses: extractions/setup-just@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/vzip-ir
       - run: uv sync --all-groups --locked
       - run: just fixtures-check

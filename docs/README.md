@@ -18,7 +18,9 @@ vzip can present TIFF, NDPI, ND2, CZI, DICOM, NIfTI and Imaris files, and N5, Za
 ## Installing
 
 `pip install "vzip @ git+https://github.com/d-v-b/vzip"` installs the Python
-package's base: it reads and writes vzip archives. Two extras add the rest:
+package's base: it reads and writes vzip archives, and virtualizes files and
+stores through vzip's Rust core, which the install compiles into the same
+package (this needs a Rust toolchain, such as [rustup](https://rustup.rs)'s). Two extras add the rest:
 `vzip[virtualizarr]` for virtual datasets from VirtualiZarr (below; vzip
 itself does not import xarray), and `vzip[images]` for the JPEG, JPEG 2000 and JPEG XR codecs that
 archives of image files use. In a clone, `uv sync` installs both, and the
