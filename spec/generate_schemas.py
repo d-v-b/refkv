@@ -186,7 +186,10 @@ SOURCE_METADATA: dict[str, dict] = {
             "minProperties": 1,
             "additionalProperties": False,
         },
-        {"$ref": "#/$defs/storeMirror"},
+        # vzip_source's: the Zarr v2 store's IR, as zarr2's (spec/virtualize/ome-zarr.md §8.2
+        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#82-the-store-ir>)
+        {"allOf": [{"$ref": "#/$defs/storeMirror"},
+                   {"properties": {"ir": {"required": ["objects"]}, "empty_dirs": False}}]},
         {"$ref": "#/$defs/mirrorView"},
     ]},
 }
@@ -357,9 +360,9 @@ SOURCE_METADATA["czi"] = {"anyOf": [
 ]}
 # The IR mirror (spec/conventions.md §8
 # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2,
-# CZI, DICOM, NIfTI, IMS, NDPI, SAFE and Zarr v2 conventions: vzip_source's
+# CZI, DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2 and OME-Zarr conventions: vzip_source's
 # source metadata, and the view documents of the groups under vzip_source/tree.
-IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ims", "ndpi", "safe", "zarr2")
+IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ims", "ndpi", "safe", "zarr2", "ome-zarr")
 # The store conventions, whose vzip_source holds, beside the mirror's description, members of
 # their own (`storeMirror`; spec/conventions.md §8.9
 # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>).
