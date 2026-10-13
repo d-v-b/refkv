@@ -1,8 +1,9 @@
-# refkv. Run `just` to list recipes; `just js::test`, `just impls::rust::build`
-# and so on reach the packages' own justfiles.
+# refkv. Run `just` to list recipes; `just python::build`, `just js::test`,
+# `just impls::rust::build` and so on reach the packages' own justfiles.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
+mod python
 mod js
 mod impls "conformance/impls"
 
@@ -16,10 +17,11 @@ default:
 test *args: ir-build
     uv run pytest -q python/tests {{args}}
 
-# Build the IR core (rust/refkv-ir: the parsers, the read planner, the projections and the
-# mirror) into the project's environment as the Python module refkv._ir, part of the refkv
-# distribution: `uv sync` (and `uv run`) build it with maturin, in release, and again whenever
-# its Rust sources or source models change (pyproject.toml's cache-keys)
+# Build refkv (python/: the package, with its bindings to the IR core rust/refkv-ir, the
+# parsers, the read planner, the projections and the mirror, as the module refkv._core) into
+# the workspace's environment: `uv sync` (and `uv run`) build it with maturin, in release, and
+# again whenever the bindings, the core's Rust sources or its source models change
+# (python/pyproject.toml's cache-keys)
 ir-build:
     uv sync -q --locked
 
@@ -36,9 +38,10 @@ ir-wasm:
 ir-test *args: ir-rust-test ir-build
     uv run pytest -q python/tests/ir {{args}}
 
-# Test the IR core's Rust crate alone
+# Test the IR core's Rust crate, and build its Python bindings' crate (python/Cargo.toml) alone
 ir-rust-test:
     cargo test --release --manifest-path rust/refkv-ir/Cargo.toml
+    just python::cargo-test
 
 # Run every offline test: the Python reference, the browser code and the independent implementations
 test-all: test js::test impls::test
@@ -46,24 +49,11 @@ test-all: test js::test impls::test
 # Type-check the browser code
 check: js::typecheck
 
-# Check the package without its extras, and with only the zarr extra: pass the Python of
-# an environment where only `pip install .` (or `pip install '.[zarr]'`, with mode=zarr)
-# was run (default: a fresh one of each in a temporary directory). A plain recipe, not a
-# shebang one, so it runs under Windows' Git Bash too, where a venv's Python is
-# Scripts/python.exe
+# Check the package without its extras, and with only the zarr extra (`just python::check`):
+# pass the Python of an environment where only `pip install python/` (or
+# `pip install 'python/[zarr]'`, with mode=zarr) was run (default: a fresh one of each)
 base-install-check python="" mode="":
-    if [ -n {{quote(python)}} ]; then \
-        {{quote(python)}} python/tests/check_base_install.py {{mode}}; \
-    else \
-        for mode in base zarr; do \
-            venv="$(mktemp -d)/$mode"; \
-            uv venv -q "$venv"; \
-            if [ "$mode" = base ]; then spec=.; else spec=".[zarr]"; fi; \
-            uv pip install -q --python "$venv" "$spec"; \
-            py="$venv/bin/python"; [ -x "$py" ] || py="$venv/Scripts/python.exe"; \
-            "$py" python/tests/check_base_install.py "$mode"; \
-        done; \
-    fi
+    just python::check {{quote(python)}} {{quote(mode)}}
 
 # Run the example of docs/virtual-datasets.md on NOAA's data (network: 1 to 1.5 minutes,
 # 50 MB), in a temporary directory
