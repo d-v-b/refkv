@@ -9,7 +9,6 @@
 // holds the store machinery.
 
 import { blockReader, type ByteReader, ImageError } from "./common.ts";
-import { isDicom, virtualizeDicom } from "./dicom/virtualize.ts";
 import { virtualizeIms } from "./ims/virtualize.ts";
 import { type IrFormat, virtualizeIr } from "./ir/run.ts";
 import { type RangeSource, readerSource } from "./ir/source.ts";
@@ -71,13 +70,19 @@ function isTiffMagic(head: Uint8Array): boolean {
 
 // The HDF5 signature, which starts Imaris IMS files (§1.2
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>).
+/** The DICOM row of §1.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>:
+ * `DICM` after the 128-byte preamble. */
+export function isDicom(head: Uint8Array): boolean {
+  return head.length >= 132 && String.fromCharCode(...head.subarray(128, 132)) === "DICM";
+}
+
 const HDF5 = [0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a];
 
 type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe"; summary: object };
 
 /** `exact`, when given, reads exactly the ranges asked for, past `read`'s block cache: the
  * SAFE profile's tile-part headers, scattered through a zip file, are read with it, and the
- * Rust core's requests (TIFF, ND2, CZI), which it plans itself.
+ * Rust core's requests (TIFF, ND2, CZI, DICOM), which it plans itself.
  * Source 0 pins the file's size, and its ETag when `pins.etag` gives one (§1.2
  * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>); with
  * `pins.checksums`, the ranges of source 0 carry the CRC-32C of their bytes. */
@@ -123,6 +128,8 @@ async function virtualizeWith(url: string, input: Input, pins: PinOptions): Prom
  * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>; NDPI, a TIFF, is not).
  */
 export function irFormat(head: Uint8Array): IrFormat | undefined {
+  // DICOM first: a dual-personality file's preamble may hold a TIFF header
+  if (isDicom(head)) return "dicom";
   if (isTiffMagic(head)) return "tiff";
   if (head.length >= 4 && head[0] === 0xda && head[1] === 0xce && head[2] === 0xbe && head[3] === 0x0a) return "nd2";
   if (head.length >= 16 && String.fromCharCode(...head.subarray(0, 16)) === "ZISRAWFILE\0\0\0\0\0\0") return "czi";
@@ -134,7 +141,7 @@ export function irFormat(head: Uint8Array): IrFormat | undefined {
 
 async function virtualizeFile(url: string, { read, size: fileSize, exact, source }: Input): Promise<ImageDesc> {
   const head = await read(0, Math.min(552, fileSize));
-  if (isDicom(head)) return { format: "dicom", ...(await virtualizeDicom(url, read, fileSize)) };
+  if (isDicom(head)) return virtualizeIr("dicom", url, source);
   if (isTiffMagic(head)) {
     const first = await detectNdpi(read, fileSize);
     if (first !== undefined) return { format: "ndpi", ...(await virtualizeNdpi(url, read, fileSize, first)) };

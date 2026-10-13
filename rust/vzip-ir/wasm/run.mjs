@@ -13,9 +13,10 @@ const w = instance.exports;
 const text = (n) => new TextDecoder().decode(new Uint8Array(w.memory.buffer, w.vz_out(), n));
 
 function format(fd) {
-  const head = new Uint8Array(16);
-  readSync(fd, head, 0, 16, 0);
-  const s = String.fromCharCode(...head);
+  const head = new Uint8Array(132);
+  readSync(fd, head, 0, 132, 0);
+  const s = String.fromCharCode(...head.subarray(0, 16));
+  if (String.fromCharCode(...head.subarray(128, 132)) === "DICM") return 3;
   if (head[0] === 0xda && head[1] === 0xce && head[2] === 0xbe && head[3] === 0x0a) return 0;
   if (s.startsWith("II*\0") || s.startsWith("MM\0*") || s.startsWith("II+\0") || s.startsWith("MM\0+")) return 1;
   return 2;

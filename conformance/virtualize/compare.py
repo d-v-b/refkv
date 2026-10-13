@@ -25,16 +25,16 @@ corpus_hash.py records and checks.
 Implementations are `name=command`, where the command is run as
 `command <url> <out>`. The built-in ones write vzip archives: `ref` (the
 reference, the frozen Python profiles of conformance/virtualize/reference/ for
-TIFF, ND2 and CZI and the shipped ones for the others), `py` (`python -m
+TIFF, ND2, CZI and DICOM and the shipped ones for the others), `py` (`python -m
 vzip.virtualize`) and `web` (the browser code under Node). Others write
 HARNESS.md's JSON description; give them as `--impl name=command`.
 
-`py` and `web` virtualize TIFF, ND2 and CZI through one Rust core (rust/vzip-ir,
+`py` and `web` virtualize TIFF, ND2, CZI and DICOM through one Rust core (rust/vzip-ir,
 natively and as wasm32), and write its mirror under `vzip_source`, which the
 frozen reference does not: for those profiles an implementation is compared with
 the reference outside `vzip_source`, and `py` and `web` with each other entirely,
 entry for entry (they must give the same archive contents, `vzip_source` included).
-The frozen reference records the revision it implements (20) in its root, where the
+The frozen reference records the revision it implements (20; 25 for DICOM) in its root, where the
 shipped code records the current one: compared with it, the reference's root is read
 at the current revision. Each mirror is also checked on its own (`mirror_problem`):
 it reads, it rebuilds a source of source 0's size, it is canonical, and its view is the
@@ -91,11 +91,10 @@ BUILTIN = {
     "web": ("vzip", ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"]),
 }
 # The profiles whose shipped implementations write the IR's mirror under vzip_source.
-IR_PROFILES = ("tiff", "nd2", "czi", "safe")
+IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "safe")
 SOURCE = "vzip_source/"
-# The revisions the frozen reference's roots record (HARNESS.md): TIFF, ND2 and CZI 20, and
-# the profiles that moved onto the IR in revision 26 (SAFE) 25.
-REFERENCE_REVISIONS = (20, 25)
+# The revision each of the frozen reference's profiles records in its roots (HARNESS.md).
+REFERENCE_REVISIONS = {"tiff": 20, "nd2": 20, "czi": 20, "dicom": 25, "safe": 25}
 
 
 class Unreadable(Exception):
@@ -435,10 +434,10 @@ def profile(output: dict) -> str | None:
 
 def at_revision(output: dict) -> dict:
     """The output with its root's `revision` the current one when it is the frozen
-    reference's (REFERENCE_REVISION), for comparing the reference with shipped code."""
+    reference's (REFERENCE_REVISIONS), for comparing the reference with shipped code."""
     root = output["entries"].get("zarr.json")
     prop = root[1].get("attributes", {}).get("vzip_virtualized") if root and root[0] == "json" else None
-    if not isinstance(prop, dict) or prop.get("revision") not in REFERENCE_REVISIONS:
+    if not isinstance(prop, dict) or prop.get("revision") != REFERENCE_REVISIONS.get(prop.get("profile")):
         return output
     attrs = {**root[1]["attributes"], "vzip_virtualized": {**prop, "revision": REVISION}}
     return {**output, "entries": {**output["entries"], "zarr.json": (root[0], {**root[1], "attributes": attrs})}}

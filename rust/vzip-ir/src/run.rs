@@ -3,6 +3,7 @@
 //! one's bytes and time), until `poll()` gives None; then `finish()`.
 
 use crate::czi::Czi;
+use crate::dicom::Dicom;
 use crate::ir::Ir;
 use crate::nd2::{Nd2, Step};
 use crate::plan::{Planner, Request};
@@ -15,6 +16,7 @@ pub enum Format {
     Nd2,
     Tiff,
     Czi,
+    Dicom,
     /// a Sentinel-2 SAFE product's zip form (`.SAFE.zip`)
     Safe,
 }
@@ -25,7 +27,8 @@ impl Format {
             0 => Some(Format::Nd2),
             1 => Some(Format::Tiff),
             2 => Some(Format::Czi),
-            3 => Some(Format::Safe),
+            3 => Some(Format::Dicom),
+            6 => Some(Format::Safe),
             _ => None,
         }
     }
@@ -34,6 +37,7 @@ impl Format {
             Format::Nd2 => "nd2",
             Format::Tiff => "tiff",
             Format::Czi => "czi",
+            Format::Dicom => "dicom",
             Format::Safe => "safe",
         }
     }
@@ -42,6 +46,10 @@ impl Format {
     /// that is not, spec/virtualize/safe.md §12.1
     /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#121-choosing-the-profile>).
     pub fn sniff(head: &[u8]) -> Option<Format> {
+        // DICOM first: a dual-personality file's preamble may hold a TIFF header
+        if head.len() >= 132 && &head[128..132] == b"DICM" {
+            return Some(Format::Dicom);
+        }
         if head.len() >= 4 && head[..4] == [0xda, 0xce, 0xbe, 0x0a] {
             return Some(Format::Nd2);
         }
@@ -62,6 +70,7 @@ pub enum AnyParser {
     Nd2(Nd2),
     Tiff(Tiff),
     Czi(Czi),
+    Dicom(Dicom),
     Safe(Box<Safe>),
 }
 
@@ -71,6 +80,7 @@ impl AnyParser {
             Format::Nd2 => AnyParser::Nd2(Nd2::new(size)),
             Format::Tiff => AnyParser::Tiff(Tiff::new(size)),
             Format::Czi => AnyParser::Czi(Czi::new(size)),
+            Format::Dicom => AnyParser::Dicom(Dicom::new(size)),
             Format::Safe => AnyParser::Safe(Box::new(Safe::new(size))),
         }
     }
@@ -79,6 +89,7 @@ impl AnyParser {
             AnyParser::Nd2(x) => x.step(),
             AnyParser::Tiff(x) => x.step(),
             AnyParser::Czi(x) => x.step(),
+            AnyParser::Dicom(x) => x.step(),
             AnyParser::Safe(x) => x.step(),
         }
     }
@@ -87,6 +98,7 @@ impl AnyParser {
             AnyParser::Nd2(x) => x.feed(o, b),
             AnyParser::Tiff(x) => x.feed(o, b),
             AnyParser::Czi(x) => x.feed(o, b),
+            AnyParser::Dicom(x) => x.feed(o, b),
             AnyParser::Safe(x) => x.feed(o, b),
         }
     }
@@ -95,6 +107,7 @@ impl AnyParser {
             AnyParser::Nd2(x) => Parser::finish(x),
             AnyParser::Tiff(x) => Parser::finish(x),
             AnyParser::Czi(x) => Parser::finish(x),
+            AnyParser::Dicom(x) => Parser::finish(x),
             AnyParser::Safe(x) => Parser::finish(*x),
         }
     }

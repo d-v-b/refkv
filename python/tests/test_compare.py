@@ -163,16 +163,17 @@ def test_mirror_problem_finds_a_table_that_is_not_canonical(tmp_path):
 
 
 def test_at_revision():
-    """The frozen reference's roots (revisions 20 and 25) read at the current revision; any
-    other root, or an output without one, is unchanged."""
-    def root(revision):
-        prop = {"profile": "tiff", "version": 0, "revision": revision, "source": {"url": "u"}}
+    """The frozen reference's root (revision 20; 25 for DICOM) reads at the current
+    revision; any other root, or an output without one, is unchanged."""
+    def root(revision, profile="tiff"):
+        prop = {"profile": profile, "version": 0, "revision": revision, "source": {"url": "u"}}
         return {"sources": [], "entries": {"zarr.json": ("json", {"attributes": {"vzip_virtualized": prop}}),
                                            "a": ("bytes", b"x")}}
 
-    for frozen in compare.REFERENCE_REVISIONS:
-        assert compare.at_revision(root(frozen)) == root(compare.REVISION)
-    for other in (root(compare.REVISION), root(19), {"sources": [], "entries": {}}):
+    for profile, frozen in compare.REFERENCE_REVISIONS.items():
+        assert compare.at_revision(root(frozen, profile)) == root(compare.REVISION, profile)
+    for other in (root(compare.REVISION), root(19), root(25), root(20, "dicom"), root(25, "nifti"),
+                  {"sources": [], "entries": {}}):
         assert compare.at_revision(other) == other
 
 

@@ -17,7 +17,7 @@ from vzip.policy import Policy, crc32c
 from vzip.virtualize import is_store
 from vzip.virtualize import virtualize_store as shipped_store
 from vzip.virtualize.common import Output, Rejected, file_reader, http_reader
-from vzip.virtualize.dicom import is_dicom, virtualize_dicom
+from vzip_reference.dicom import is_dicom, virtualize_dicom
 from vzip.virtualize.ims import virtualize_ims
 from vzip.virtualize import ndpi, nifti
 from vzip.virtualize.store import open_store, choose_profile, object_url
