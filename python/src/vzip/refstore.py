@@ -36,9 +36,12 @@ VirtualiZarr and concatenated with xarray:
 from __future__ import annotations
 
 import bisect
+import contextlib
 import copy
 import dataclasses
+import gc
 import os
+import re
 import types
 from collections import Counter
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
@@ -75,6 +78,25 @@ class Summary:
     def __str__(self) -> str:
         return (f"{self.path}: {self.keys:,} keys, {self.references:,} of them references "
                 f"to {self.sources:,} sources; {self.bytes:,} bytes")
+
+
+@contextlib.contextmanager
+def bulk():
+    """Pauses the cyclic garbage collector while millions of acyclic objects (a
+    store's ranges and sources, a writer's records) are built: each collection
+    would scan them all again, which made saving a million references take 2.5
+    times as long."""
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if enabled:
+            gc.enable()
+
+
+# An absolute URL's scheme and authority (RFC 3986 §3)
+_ORIGIN = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*")
 
 
 def _rewrite(rewrite_urls: Mapping[str, str] | Callable[[str], str | None] | None):
@@ -343,12 +365,25 @@ class ReferenceStore(ReferenceReader):
                        for s in sources]
         check = policy or Policy()
         refused = []
+        # Without a prefix list, the policy decides by an absolute URL's scheme and host
+        # alone: one check per origin, not per source (a store has a source per object).
+        by_origin: dict[str, str | None] = {}
         for s in sources:
-            if s.url is not None:
+            if s.url is None:
+                continue
+            origin = _ORIGIN.match(s.url) if check.prefixes is None else None
+            if origin is None or origin[0] not in by_origin:
                 try:
                     check.check(base, resolve_reference(base, s.url))
+                    error = None
                 except (ResolutionError, ValueError) as e:
-                    refused.append(str(e))
+                    error = str(e)
+                if origin is not None:
+                    by_origin[origin[0]] = error
+            else:
+                error = by_origin[origin[0]]
+            if error is not None:
+                refused.append(error)
         if refused:
             whose = "the default reader policy" if policy is None else "the reader policy given"
             raise ValueError(f"not saving {path}: {whose} refuses {len(refused)} of its "
@@ -357,8 +392,8 @@ class ReferenceStore(ReferenceReader):
         if page_size is ...:
             page_size = self._page_size
         refs = 0
-        with open(path, "wb") as f, VZipWriter(f, mirror_refs=mirror_refs,
-                                               page_size=page_size) as w:
+        with bulk(), open(path, "wb") as f, VZipWriter(f, mirror_refs=mirror_refs,
+                                                       page_size=page_size) as w:
             index = [w.source(s) for s in sources]  # equal sources share an index
             for k, v in self._values.items():
                 if isinstance(v, bytes):
@@ -368,7 +403,7 @@ class ReferenceStore(ReferenceReader):
                     else:
                         w.add_bytes(k, v, compress=compress, late=late)
                 else:
-                    w.add_ranges(k, [r if r.data is not None else
+                    w.add_ranges(k, [r if r.data is not None or index[r.source] == r.source else
                                      dataclasses.replace(r, source=index[r.source])
                                      for r in parts(v)])
                     refs += 1
