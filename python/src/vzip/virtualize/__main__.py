@@ -60,7 +60,7 @@ def main(argv: list[str]) -> int:
         return 1
     try:  # the archive's sources are checked against the policy the input was read under
         store.save(args[1], policy=policy)
-    except ValueError as e:  # a source a reader under that policy could not read
+    except ResolutionError as e:  # a source a reader under that policy could not read
         print(f"error: {e}", file=sys.stderr)
         return 1
     print(json.dumps(store.info))

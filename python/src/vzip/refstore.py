@@ -88,7 +88,7 @@ def _page_size(page_size):
 
 @contextlib.contextmanager
 def bulk():
-    """Pauses the cyclic garbage collector while millions of acyclic objects (a
+    """Pauses the cyclic garbage collector (for the whole process) while millions of acyclic objects (a
     store's ranges and sources, a writer's records) are built: each collection
     would scan them all again, which made saving a million references take 2.5
     times as long."""
@@ -357,7 +357,8 @@ class ReferenceStore(ReferenceReader):
           to the archive, so the archive and its sources can move together.
         - `policy`: the reader policy the sources are checked against before
           anything is written (default `Policy()`, the default reader's). A
-          source it refuses raises ValueError, which says how to fix it: write
+          source it refuses raises ResolutionError (a ValueError), which says how to fix it, and
+          nothing is written: write
           `s3://` URLs of a public bucket as HTTPS
           (`ReferenceStore.from_virtualizarr(vds, rewrite_urls=vzip.public_s3_url)`),
           or pass the policy the archive's readers will use, such as
@@ -376,10 +377,11 @@ class ReferenceStore(ReferenceReader):
         # host alone: one check per origin, not per source (a store has a source per
         # object). Each URL is still checked to be a URI reference, as resolving it does.
         by_origin: dict[str, str | None] = {}
+        cache = check.prefixes is None and type(check).check is Policy.check  # not a subclass's own check
         for s in sources:
             if s.url is None:
                 continue
-            origin = _ORIGIN.match(s.url) if check.prefixes is None else None
+            origin = _ORIGIN.match(s.url) if cache else None
             if origin is not None and origin[0] in by_origin and is_uri_reference(s.url):
                 error = by_origin[origin[0]]
             else:
@@ -399,7 +401,7 @@ class ReferenceStore(ReferenceReader):
                 refused.append(error)
         if refused:
             whose = "the default reader policy" if policy is None else "the reader policy given"
-            raise ValueError(f"not saving {path}: {whose} refuses {len(refused)} of its "
+            raise ResolutionError(f"not saving {path}: {whose} refuses {len(refused)} of its "
                              f"{len(sources)} sources, so a reader could not read them. "
                              f"The first: {refused[0]}")
         page_size = self._page_size if page_size is ... else _page_size(page_size)
