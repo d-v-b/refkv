@@ -26,8 +26,8 @@ TIFF files are virtualized by vzip's Rust core,
 [rust/vzip-ir](../../../rust/vzip-ir/), the same code in Python and (built
 for WebAssembly) in the browser: it parses the file into an intermediate
 representation (IR), plans the range requests, and projects the IR onto the
-TIFF convention. The Python command needs it built first, with
-`just ir-build` ([overview](../README.md#two-ways-to-run-it)).
+TIFF convention. Installing vzip builds it, which needs a Rust toolchain
+([overview](../README.md#two-ways-to-run-it)).
 
 ## What you get
 
