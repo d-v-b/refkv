@@ -187,7 +187,7 @@ def test_reading_a_refused_scheme_says_how_to_fix_it():
 
 def test_save_refuses_sources_the_reader_policy_refuses(tmp_path):
     with pytest.raises(ResolutionError, match=r"not saving .*default reader policy refuses 1 of its 1 "
-                                         r"sources.*vzip\.public_s3_url"):
+                                              r"sources.*vzip\.public_s3_url"):
         _s3_store().save(tmp_path / "x.vzip")
     assert not (tmp_path / "x.vzip").exists()
 
@@ -226,7 +226,7 @@ def test_save_counts_each_refused_source_of_a_shared_origin(tmp_path):
 def test_save_checks_against_the_policy_given(tmp_path):
     store = _s3_store()
     store.save(tmp_path / "ok.vzip", policy=vzip.Policy(schemes={"s3"}))
-    with pytest.raises(ValueError, match="reader policy given refuses"):
+    with pytest.raises(ResolutionError, match="reader policy given refuses"):
         store.save(tmp_path / "x.vzip", policy=vzip.Policy(prefixes=("https://data.example/",)))
 
 

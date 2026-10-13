@@ -402,8 +402,8 @@ class ReferenceStore(ReferenceReader):
         if refused:
             whose = "the default reader policy" if policy is None else "the reader policy given"
             raise ResolutionError(f"not saving {path}: {whose} refuses {len(refused)} of its "
-                             f"{len(sources)} sources, so a reader could not read them. "
-                             f"The first: {refused[0]}")
+                                  f"{len(sources)} sources, so a reader could not read them. "
+                                  f"The first: {refused[0]}")
         page_size = self._page_size if page_size is ... else _page_size(page_size)
         refs = 0
         with bulk(), open(path, "wb") as f, VZipWriter(f, mirror_refs=mirror_refs,
