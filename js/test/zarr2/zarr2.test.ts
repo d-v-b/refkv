@@ -4,9 +4,11 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { directoryStore } from "../../conformance/directory_store.ts";
 import { declare } from "../../src/virtualize/common.ts";
-import { virtualizeStore } from "../../src/virtualize/index.ts";
 import { StoreError } from "../../src/virtualize/store.ts";
-import { Zarr2Error } from "../../src/virtualize/zarr2/virtualize.ts";
+// the frozen TypeScript twin (revision 25): the shipped code virtualizes Zarr v2 stores with the
+// Rust core (test/ir/zarr2.test.ts)
+import { virtualizeStore } from "../../../conformance/virtualize/reference/ts/index.ts";
+import { Zarr2Error } from "../../../conformance/virtualize/reference/ts/zarr2/virtualize.ts";
 
 const FIXTURES = fileURLToPath(new URL("../../../fixtures/zarr2/", import.meta.url));
 

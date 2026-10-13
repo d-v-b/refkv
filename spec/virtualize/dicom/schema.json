@@ -238,7 +238,7 @@
             "size": {
               "type": "integer",
               "minimum": 0,
-              "description": "The source's size in bytes"
+              "description": "The source's size in bytes (a store IR's: its objects' sizes, summed)"
             },
             "objects": {
               "type": "integer",

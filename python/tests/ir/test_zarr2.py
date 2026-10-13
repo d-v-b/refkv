@@ -1,8 +1,10 @@
-"""The Python Zarr v2 virtualizer (spec/virtualize/zarr2.md) on the synthetic stores.
+"""Zarr v2 stores through the Rust IR (rust/vzip-ir/src/zarr2.rs; spec/virtualize/zarr2.md) on
+the synthetic stores: the hierarchy outside `vzip_source` as the convention gives it, and the
+IR's mirror under `vzip_source`, which rebuilds the listing and every document read.
 
-Equivalence with the browser virtualizer is checked by
-conformance/virtualize/compare.py, and pixel correctness against zarr-python's
-Zarr v2 reader by js/test/zarr2/verify.py.
+Equivalence with the frozen reference (python/tests/reference/test_virtualize_zarr2.py) and the
+browser virtualizer is checked by conformance/virtualize/compare.py, and pixel correctness against
+zarr-python's Zarr v2 reader by js/test/zarr2/verify.py.
 """
 
 import json
@@ -10,11 +12,13 @@ import zipfile
 from pathlib import Path
 
 import pytest
+import vzip_ir
 
 from vzip.virtualize import Rejected, virtualize
 from vzip.virtualize.common import declare
+from vzip.virtualize.store import object_url
 
-FIXTURES = Path(__file__).parents[2] / "fixtures" / "zarr2"
+FIXTURES = Path(__file__).parents[3] / "fixtures" / "zarr2"
 URL = "https://data.test/zarr2/{}/"
 
 LE = {"name": "bytes", "configuration": {"endian": "little"}}
@@ -84,6 +88,15 @@ def key(path: str) -> str:
     return f"{path}/zarr.json" if path else "zarr.json"
 
 
+def listing(out, tmp_path: Path) -> dict[str, tuple[int, bytes | None]]:
+    """The store's listing the archive's mirror rebuilds: key -> (size, the bytes of a held object)."""
+    archive = tmp_path / "listing.vzip"
+    out.write(str(archive))
+    with zipfile.ZipFile(archive) as z:
+        names = set(z.namelist())
+        return {k: (n, b) for k, n, b in vzip_ir.rebuild_store(lambda k: z.read(k) if k in names else None)}
+
+
 def test_virtualizes_the_synthetic_stores(tmp_path):
     for name, (arrays, summary) in CASES.items():
         fmt, out = virtualize(str(FIXTURES / name), url=URL.format(name))
@@ -95,7 +108,7 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
                 (dtype, codecs, {"name": "v2", "configuration": {"separator": sep}}, fill), (name, path)
         keys = [k for k, _ in out.chunks]
         assert keys == sorted(keys) and all(n > 0 for _, n in out.chunks), name
-        assert out.refs() == {k: [(i, 0, n)] for i, (k, n) in enumerate(out.chunks)}
+        assert out.sources == [object_url(URL.format(name), out.origins.get(k, k)) for k in keys], name
     # Chunk keys follow each array's separator and grid (two chunks, with a partial edge chunk,
     # along the first axis in C order and along the second in F order).
     _, out = virtualize(str(FIXTURES / "zarr2_compressors"), url=URL.format("c"))
@@ -104,10 +117,9 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     # A missing chunk and an empty one have no entry.
     _, out = virtualize(str(FIXTURES / "zarr2_fill_values"), url=URL.format("f"))
     assert [k for k, _ in out.chunks if k.startswith(("nan/", "inf/"))] == ["inf/1.0", "nan/1.0"]
-    # The empty one's key is listed with the empty objects (§3.2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#32-chunks>, §5
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
-    assert out.docs["vzip_source/zarr.json"]["attributes"] == declare({}, "zarr2", None, {"empty": ["nan/0.0"]})
+    # The empty one is an object of the mirror's listing, of size 0 (§4.1
+    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#41-elements>).
+    assert listing(out, tmp_path)["nan/0.0"] == (0, None)
     # Stray objects and nodes inside arrays are kept whole under vzip_source/objects/
     # (spec/virtualize/zarr2.md §5
     # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>);
@@ -133,7 +145,7 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
         zattrs = json.loads((FIXTURES / "zarr2_ome_attrs" / path / ".zattrs").read_text())
         expected = declare({}, "zarr2", URL.format("o") if path == "" else None, {"attributes": zattrs})
         assert out.docs[key(path)]["attributes"] == expected, path
-    assert not any("dimension_names" in d for d in out.docs.values())
+    assert not any("dimension_names" in d for k, d in out.docs.items() if not k.startswith("vzip_source/"))
     # Other conventions, a vzip declaration and a malformed zarr_conventions are all copied as they are.
     _, out = virtualize(str(FIXTURES / "zarr2_conventions"), url=URL.format("c"))
     for path in ("", "x", "v", "bad"):
@@ -166,14 +178,15 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
         assert b'"fill_value":"0x80000000"' in z.read("neg_zero_f4/zarr.json")
     # Every other object is referenced whole, from its own URL, under vzip_source/objects/ (a
     # node document's name escaped with ~); the node documents and the chunks are not; empty
-    # objects are listed in vzip_source's source metadata.
+    # objects are the mirror's, of size 0, and vzip_source's source metadata is the mirror.
     url = URL.format("zarr2_objects")
     _, out = virtualize(str(FIXTURES / "zarr2_objects"), url=url)
     others = [".zmetadata", "OME/METADATA.ome.xml", "README.md", "a/inner/.zgroup~", "a/notes.txt", "sub/.zattrs"]
     assert out.chunks == sorted([("a/0", 4), ("a/1", 4), ("sub/b/0", 2)] + [
         ("vzip_source/objects/" + k, (FIXTURES / "zarr2_objects" / k.rstrip("~")).stat().st_size) for k in others])
     assert out.sources == [url + out.origins.get(k, k) for k, _ in out.chunks]
-    assert out.docs["vzip_source/zarr.json"]["attributes"] == declare({}, "zarr2", None, {"empty": ["empty.txt"]})
+    assert set(out.docs["vzip_source/zarr.json"]["attributes"]["vzip_virtualized"]["zarr2"]) == {"ir"}
+    assert listing(out, tmp_path)["empty.txt"] == (0, None)
     assert "zarr2" not in out.docs["zarr.json"]["attributes"]["vzip_virtualized"]
     assert "sub/zarr.json" in out.docs and out.docs["sub/zarr.json"]["attributes"] == {}
     # Escaping is one to one: one ~ more on each last segment that is a node document's name and ~s.
@@ -183,7 +196,8 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
         "vzip_source/objects/g/zarr.json~": "g/zarr.json", "vzip_source/objects/a/zarr.json~": "a/zarr.json",
         "vzip_source/objects/a/inner/.zgroup~": "a/inner/.zgroup", "vzip_source/objects/x/.zarray~~~": "x/.zarray~~",
         "vzip_source/objects/x/zarr.jsonx": "x/zarr.jsonx"}
-    assert out.docs["vzip_source/zarr.json"]["attributes"] == declare({}, "zarr2", None, {"empty": ["e", "g/e2"]})
+    sizes = listing(out, tmp_path)
+    assert (sizes["e"], sizes["g/e2"]) == ((0, None), (0, None))
     # A float fill written as an integer beyond 2^53 - 1 keeps its digits in M; F is its binary64 value.
     _, out = virtualize(str(FIXTURES / "zarr2_fill_float_int"), url=URL.format("i"))
     m = {p: out.docs[key(p)]["attributes"].get("vzip_virtualized", {}).get("zarr2") for p in ("h", "k", "s")}
@@ -198,21 +212,21 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
 
 @pytest.mark.parametrize("name,message", [
     ("zarr2_reject_filters", "filters"),
-    ("zarr2_reject_compressor_lz4", "compressor 'lz4'"),
-    ("zarr2_reject_compressor_bz2", "compressor 'bz2'"),
+    ("zarr2_reject_compressor_lz4", "compressor lz4"),
+    ("zarr2_reject_compressor_bz2", "compressor bz2"),
     ("zarr2_reject_compressor_no_id", "string id"),
-    ("zarr2_reject_blosc_cname", "cname 'snappy2'"),
+    ("zarr2_reject_blosc_cname", "cname snappy2"),
     ("zarr2_reject_blosc_shuffle", "shuffle 3"),
-    ("zarr2_reject_blosc_clevel", "clevel None"),
+    ("zarr2_reject_blosc_clevel", "clevel none"),
     ("zarr2_reject_dtype_unicode", "dtype <U4"),
     ("zarr2_reject_dtype_bytes", "dtype \\|S8"),
     ("zarr2_reject_dtype_object", "dtype \\|O"),
     ("zarr2_reject_dtype_complex", "dtype <c8"),
     ("zarr2_reject_dtype_datetime", "dtype <M8"),
-    ("zarr2_reject_dtype_structured", "dtype \\[\\[.a"),
-    ("zarr2_reject_dtype_no_byteorder", "no byte order"),
-    ("zarr2_reject_order", "order 'A'"),
-    ("zarr2_reject_order_missing", "order 'None'"),
+    ("zarr2_reject_dtype_structured", "dtype \\[\\[a"),
+    ("zarr2_reject_dtype_no_byteorder", "dtype \\|u2 is not supported"),
+    ("zarr2_reject_order", "order A"),
+    ("zarr2_reject_order_missing", "order none"),
     ("zarr2_reject_fill_out_of_range", "fill_value 300"),
     ("zarr2_reject_fill_bool_int", "fill_value 1 is not a bool"),
     ("zarr2_reject_fill_fraction_int", "fill_value 0.5"),
@@ -220,13 +234,13 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     ("zarr2_reject_fill_uint64_max", "is not a uint64"),
     ("zarr2_reject_fill_f4_overflow", "is not a float32"),
     ("zarr2_reject_fill_base64", "is not a float64"),
-    ("zarr2_reject_separator", "dimension_separator '-'"),
+    ("zarr2_reject_separator", "dimension_separator -"),
     ("zarr2_reject_zarr_format_3", "zarr_format is not 2"),
     ("zarr2_reject_shape_chunks_mismatch", "chunks \\[2\\]"),
     ("zarr2_reject_chunks_zero", "chunks \\[2, 0\\]"),
     ("zarr2_reject_shape_negative", "shape \\[4, -4\\]"),
     ("zarr2_reject_json_nan_literal", "literal NaN"),
-    ("zarr2_reject_json_duplicate_last_wins", "order 'K'"),
+    ("zarr2_reject_json_duplicate_last_wins", "order K"),
     ("zarr2_reject_zarray_and_zgroup", "both .zarray and .zgroup"),
     ("zarr2_reject_zattrs_not_object", "x/.zattrs is not a JSON object"),
     ("zarr2_reject_zgroup_format", ".zgroup: zarr_format is not 2"),
@@ -243,31 +257,20 @@ def test_rejects(name, message):
 
 
 def test_root_array_keeps_other_objects_without_a_group(tmp_path):
-    """An array has no children: under a root array, other objects are plain keys, with no
-    vzip_source group (spec/virtualize/zarr2.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>;
-    spec/virtualize/n5.md §6
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>)."""
-    for name in ("zarr2/zarr2_root_array_objects", "n5/n5_root_dataset_objects"):
-        _, out = virtualize(str(FIXTURES.parent / name), url=f"https://data.test/{name}/")
-        assert out.docs["zarr.json"]["node_type"] == "array", name
-        assert "vzip_source/zarr.json" not in out.docs, name
-        kept = {k for k, _ in out.chunks if k.startswith("vzip_source/")}
-        assert kept & {"vzip_source/objects/README.md", "vzip_source/objects/README"}, name
-    # The keys of empty objects are the plain key vzip_source/empty.json, in UTF-8.
+    """An array has no children: under a root array, the other objects and the mirror are plain
+    keys under vzip_source/ (spec/virtualize/zarr2.md §5
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>)."""
+    name = "zarr2/zarr2_root_array_objects"
+    _, out = virtualize(str(FIXTURES.parent / name), url=f"https://data.test/{name}/")
+    assert out.docs["zarr.json"]["node_type"] == "array"
+    assert "vzip_source/objects/README.md" in {k for k, _ in out.chunks}
+    # Empty objects, an empty chunk object among them, are the mirror's objects of size 0.
     name = "zarr2/zarr2_root_array_empty"
     _, out = virtualize(str(FIXTURES.parent / name), url=f"https://data.test/{name}/")
-    assert "vzip_source/zarr.json" not in out.docs
-    assert out.docs["vzip_source/empty.json"] == {"empty": ["empty", "\u00e9mpty"]}
-    archive = tmp_path / "e.vzip"
-    out.write(str(archive))
-    with zipfile.ZipFile(archive) as z:
-        assert z.read("vzip_source/empty.json") == '{"empty":["empty","\u00e9mpty"]}'.encode()
-    # An empty chunk object of a root array is listed there too (spec/virtualize/zarr2.md §3.2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#32-chunks>,
-    # spec/virtualize/n5.md §3.1
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#31-chunks>).
-    for name in ("zarr2/zarr2_root_array_empty_chunk", "n5/n5_root_dataset_empty_block"):
-        _, out = virtualize(str(FIXTURES.parent / name), url=f"https://data.test/{name}/")
-        assert [k for k, _ in out.chunks] == ["0"], name
-        assert out.docs["vzip_source/empty.json"] == {"empty": ["1"]}, name
+    sizes = listing(out, tmp_path)
+    assert (sizes["empty"], sizes["\u00e9mpty"]) == ((0, None), (0, None))
+    assert "vzip_source/empty.json" not in out.docs
+    name = "zarr2/zarr2_root_array_empty_chunk"
+    _, out = virtualize(str(FIXTURES.parent / name), url=f"https://data.test/{name}/")
+    assert [k for k, _ in out.chunks] == ["0"]
+    assert listing(out, tmp_path)["1"] == (0, None)

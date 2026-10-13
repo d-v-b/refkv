@@ -1356,7 +1356,7 @@ as the store format `safe` (`vzip_ir.StoreRun`, `vz_store_*`), the zip form as
 the file format `safe` (`vzip_ir.Run`, `vz_run_new` code 6). Python's
 `vzip.ir.store` and the browser's new `ir/store.ts` write store outputs with
 ranges of objects and data sources; the store runs are told the listing's
-ignored keys (`set_ignored`, `vz_store_ignored`). The Python and TypeScript
+ignored keys and its empty `d/` keys (`ignore`, `vz_store_ignore`). The Python and TypeScript
 SAFE profiles are frozen under `conformance/virtualize/reference/`, recording
 25.
 
@@ -1412,3 +1412,69 @@ profiles are frozen in `conformance/virtualize/reference/` and record 25
 (`IMS_REVISION`); `compare.py` reads their roots at the current revision. IMS
 §5 of revision 25 is kept as `spec/history/virtualize/ims.r25.md`, which
 the frozen code cites.
+
+### Zarr v2 on the IR
+
+**What prompted it.** The Zarr v2 profile was two implementations (Python
+and TypeScript) that kept a node's attributes and the members of its
+documents the Zarr v3 metadata does not reproduce, and listed the keys of
+empty objects; the documents themselves, and the listing, were not kept.
+Moving it onto the store IR keeps both, byte for byte.
+
+**The changes.**
+- **Zarr v2 [§4.1](../../virtualize/zarr2.md#41-elements)** (new): the
+  store's source model. `vzip_source` is the store IR's mirror: the root and
+  the directories, an object per listed key, and in each document a node
+  reads (held) a value per top-level member, the text of its value
+  (`ascii[n]`), named by its key (a key `gaps` or `json` is escaped and
+  indexed, as a repeated one is, so that no member takes the gaps' name or the
+  whole document's), the rest gaps (a document of more than 4096 members is
+  one value, `json`); every other object is
+  referenced or empty. Each node's source metadata `{attributes, metadata}`
+  is unchanged.
+- **Zarr v2 [§5](../../virtualize/zarr2.md#5-other-objects):** the empty
+  objects are no longer listed in `vzip_source`'s source metadata (or in
+  `vzip_source/empty.json` under a root array): the mirror lists them, as
+  objects of size 0. The ignored keys are the member `ignored` of
+  `vzip_source`'s source metadata, beside the mirror's `ir` (as the other
+  store conventions on the IR keep them), under a root group and a root array
+  alike, and absent when there are none. The group `vzip_source` is always present (the mirror),
+  so a node at `vzip_source` or below it now always rejects the input, where
+  it rejected only when there was an other object, an empty object or an
+  ignored key.
+- **Zarr v2 [§10.2](../../virtualize/zarr2.md#102-chunks-and-other-objects):**
+  every node document is read in one round before any is checked, so a
+  document that cannot be read fails the run even when another would reject
+  the input (the profile used to read and check them one at a time, in path
+  order).
+- **[spec/virtualize.md §1.1](../../virtualize.md#11-output-and-equivalence):**
+  the Zarr v2 profile's `vzip_source` is a store IR's mirror, compared entry
+  for entry.
+- **Conventions:** the root property records `"revision": 26`; the schemas
+  were regenerated (the Zarr v2 schema takes the mirror's description and the
+  view's documents, as TIFF's does; the mirror's description may have
+  `objects`).
+
+**Output.** Outside `vzip_source`, every Zarr v2 fixture's output is the
+same as revision 25's, and every rejection is the same but for the one
+above; under `vzip_source`, the mirror replaces the empty objects' keys.
+
+**Implementations.** The Rust core's `zarr2` store format
+(`rust/vzip-ir/src/zarr2.rs`, its schema `schema/zarr2.json`, its
+projection `src/project/zarr2.rs`, JSON documents read by `src/json.rs`) is
+the only implementation; Python (`vzip.ir.store.run_store`) and the browser
+(`js/src/virtualize/ir/store.ts`) list the store and perform the reads, with
+the one store host SAFE's directory form uses. The store core has one
+mechanism for the keys a listing ignores, for both formats: the host gives the
+run the recorded ignored keys and the empty `d/` keys (`StoreRun.ignore`,
+`vz_store_ignore`; the parser is told the latter, SAFE's directories), the
+facts carry the former to the projection, and `src/project/store.rs`
+(`record_ignored`) writes the members a store convention keeps beside the
+mirror's `ir` (Zarr v2's `ignored`; SAFE's `empty_dirs` and `ignored`, in both
+its forms), which the mirror's canonical check sets aside, and only those. The
+test-only prototype `proto_zarr2.rs` is removed. Today's Python and
+TypeScript profiles are frozen in `conformance/virtualize/reference`
+(recording revision 25), and `compare.py` compares them with the core
+outside `vzip_source`; the shipped `vzip.virtualize.zarr2` and
+`js/src/virtualize/zarr2` stay for the OME-Zarr profile, which builds on
+them.

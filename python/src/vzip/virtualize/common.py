@@ -26,7 +26,12 @@ from vzip.policy import Policy
 
 class Rejected(Exception):
     """The input is not accepted by the profile (spec/virtualize.md §1.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>)."""
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>). `format`: the Rust
+    core's store format that refused it, once a store run was started; else None."""
+
+    def __init__(self, *args, format: str | None = None) -> None:
+        super().__init__(*args)
+        self.format = format
 
 
 def same(a, b) -> bool:

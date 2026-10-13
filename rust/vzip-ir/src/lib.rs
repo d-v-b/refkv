@@ -16,6 +16,7 @@ pub mod fed;
 pub mod hdf5;
 pub mod ims;
 pub mod ir;
+pub mod json;
 pub mod lv;
 pub mod mirror;
 pub mod nd2;
@@ -24,7 +25,6 @@ pub mod ndpi;
 pub mod out;
 pub mod plan;
 pub mod project;
-pub mod proto_zarr2;
 pub mod refs;
 pub mod rules;
 pub mod run;
@@ -34,6 +34,7 @@ pub mod store;
 pub mod tiff;
 pub mod types;
 pub mod xml;
+pub mod zarr2;
 
 #[cfg(feature = "python")]
 mod py;

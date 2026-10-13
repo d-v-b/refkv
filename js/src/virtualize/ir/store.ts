@@ -1,52 +1,68 @@
-// Virtualizing a store with the Rust core (rust/vzip-ir, `src/store.rs`; conventions §8.9
-// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): the core parses the
-// listing and the objects it reads, projects the convention's hierarchy and mirrors the store
-// IR; this host gives it the listing (store.ts's), performs its batches of object reads (one
-// request per object, its spans, at most the store's concurrency at a time), and turns its
-// output into the writer's archive description. The twin of `virtualize_listed` and
-// `StoreIrOutput` in python/src/vzip/ir/store.py.
+// Virtualizing a store with the Rust core's store formats (rust/vzip-ir/src/store.rs;
+// conventions §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): the
+// core parses the listing and the objects it reads, projects the convention's hierarchy and
+// mirrors the store IR; this host lists the store (store.ts), gives the core the keys the
+// listing ignores, performs its batches of object reads (one request per object, its spans, at
+// most the store's concurrency at a time), and turns its output (`Out::encode`) into the
+// writer's archive description: one url source per object some reference uses, its listed
+// size pinned, in order of first use, then the data sources (spec/virtualize.md §1.4
+// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>). The twin of
+// `run_store` and `StoreIrOutput` in python/src/vzip/ir/store.py.
 
 import type { Range, Source } from "../../protobuf.ts";
 import type { ArchiveDesc, EntryDesc } from "../../writer.ts";
-import { compareKeys, objectUrl, type Store } from "../store.ts";
-import { bytesEntry, decodeRaw, rejection, type RawOutput } from "./run.ts";
+import { compareKeys, objectUrl, type Store, StoreError } from "../store.ts";
+import { bytesEntry, decodeRaw, type RawOutput } from "./run.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
+/** The core's store formats: a Zarr v2 store, a SAFE product's directory. */
+export type StoreFormat = "zarr2" | "safe";
+
 const utf8 = new TextEncoder();
+const text = (b: Uint8Array) => new TextDecoder().decode(b);
 
-/** The store formats of the core a host runs. */
-export type IrStoreFormat = "safe";
+function rejection(w: IrExports, r: number, format: StoreFormat): StoreError {
+  return new StoreError(text(out(w, -r)), format);
+}
 
-/** Virtualizes the listed `store` as `format`. A store the core refuses is an ImageError;
- * an object that cannot be read, its own error. */
-export async function virtualizeIrStore(
-  format: IrStoreFormat,
+/** Virtualizes the listed `store` with the core's store format `format`: the keys its listing
+ * ignores given to the run (the recorded ignored keys, which the projection records, and the
+ * empty `d/` keys, a SAFE directory's directories), its objects read at most
+ * `options.concurrency` (default `store.concurrency`) at a time. A store the core refuses is a
+ * StoreError naming the format; an object that cannot be read, its own error.
+ * @param options.mirror false leaves `vzip_source`'s mirror out, and with it the source
+ * metadata that records the listing's ignored keys: such an output keeps neither. */
+export async function virtualizeStoreIr(
+  format: StoreFormat,
   store: Store,
   options: { mirror?: boolean; concurrency?: number } = {},
 ): Promise<ArchiveDesc & { summary: Record<string, unknown> }> {
   const w = await ir();
+  // documents read ahead (choosing the profile does): the run takes those read, and reads the
+  // rest itself, so that at most `concurrency` reads are in flight
+  await store.prefetch?.drain();
   const listing = [...store.objects].sort((a, b) => compareKeys(a[0], b[0]));
-  const concurrency = Math.max(1, options.concurrency ?? Math.min(store.concurrency ?? 6, 6));
   const f = utf8.encode(format);
   const l = utf8.encode(JSON.stringify(listing));
+  const concurrency = Math.max(1, options.concurrency ?? store.concurrency ?? 1);
   const made = Number(w.vz_store_new(put(w, f), f.length, put(w, l), l.length, concurrency));
-  if (made < 0) throw rejection(w, made);
+  if (made < 0) throw rejection(w, made, format);
   const p = made;
   let live = true;
   try {
-    const ig = utf8.encode(JSON.stringify([store.folders ?? [], store.ignored ?? []]));
-    const r = Number(w.vz_store_ignored(p, put(w, ig), ig.length));
-    if (r < 0) throw rejection(w, r);
+    const ig = utf8.encode(JSON.stringify([store.ignored ?? [], store.folders ?? []]));
+    const g = Number(w.vz_store_ignore(p, put(w, ig), ig.length));
+    if (g < 0) throw rejection(w, g, format);
     for (;;) {
       const n = Number(w.vz_store_poll(p));
-      if (n < 0) throw rejection(w, n);
+      if (n < 0) throw rejection(w, n, format);
       if (n === 0) break;
-      await perform(w, p, store, listing, decodeRequests(out(w, n - 1)), concurrency);
+      await perform(w, p, store, listing, decodeRequests(out(w, n - 1)), concurrency, format);
     }
     live = false; // vz_store_output consumes the run
     const u = utf8.encode(store.url);
     const n = Number(w.vz_store_output(p, put(w, u), u.length, options.mirror === false ? 0 : 1));
-    if (n < 0) throw rejection(w, n);
+    if (n < 0) throw rejection(w, n, format);
     const raw = decodeRaw(out(w, n));
     return { ...storeDesc(raw, new Map(listing)), summary: { ...raw.summary, listingRequests: store.requests } };
   } finally {
@@ -54,7 +70,7 @@ export async function virtualizeIrStore(
   }
 }
 
-/** The requests of a poll: each one's object (an index into the listing) and spans. */
+/** The requests of a poll: each one's object (an index into the listing) and spans [start, end). */
 function decodeRequests(b: Uint8Array): [number, [number, number][]][] {
   const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
   let at = 0;
@@ -73,7 +89,7 @@ function decodeRequests(b: Uint8Array): [number, [number, number][]][] {
 /** Performs a poll's requests, at most `concurrency` at a time; every request has settled
  * when this returns or throws. */
 async function perform(w: IrExports, p: number, store: Store, listing: [string, number][],
-                       reqs: [number, [number, number][]][], concurrency: number): Promise<void> {
+                       reqs: [number, [number, number][]][], concurrency: number, format: StoreFormat): Promise<void> {
   let next = 0;
   let failure: { error: unknown } | undefined;
   const worker = async () => {
@@ -83,7 +99,7 @@ async function perform(w: IrExports, p: number, store: Store, listing: [string, 
         const [object, spans] = reqs[k];
         const [key, size] = listing[object];
         const parts = spans.length === 1 && spans[0][0] === 0 && spans[0][1] === size
-          ? [await store.read(key)]
+          ? [await whole(store, key)]
           : await Promise.all(spans.map(([a, b]) => readRange(store, key, a, b - a)));
         if (failure !== undefined) return;
         const n = parts.reduce((s, x) => s + x.length, 0);
@@ -95,7 +111,7 @@ async function perform(w: IrExports, p: number, store: Store, listing: [string, 
           at += x.length;
         }
         const r = Number(w.vz_store_complete(p, k, ptr, n));
-        if (r < 0) throw rejection(w, r);
+        if (r < 0) throw rejection(w, r, format);
       } catch (e) {
         failure ??= { error: e };
       }
@@ -103,6 +119,18 @@ async function perform(w: IrExports, p: number, store: Store, listing: [string, 
   };
   await Promise.allSettled(Array.from({ length: Math.max(1, Math.min(concurrency, reqs.length)) }, worker));
   if (failure !== undefined) throw failure.error;
+}
+
+/** The whole object `key`, from what the store read already when it has it (a document kept,
+ * or read ahead, as choosing the profile does), else read now: no document is read twice. */
+async function whole(store: Store, key: string): Promise<Uint8Array> {
+  const kept = store.kept?.get(key);
+  store.kept?.delete(key);
+  const r = kept ?? store.prefetch?.take(key);
+  if (r === undefined) return store.read(key);
+  const s = await r;
+  if (!s.ok) throw s.error;
+  return s.value;
 }
 
 async function readRange(store: Store, key: string, offset: number, length: number): Promise<Uint8Array> {
@@ -115,7 +143,9 @@ async function readRange(store: Store, key: string, offset: number, length: numb
  * reference uses, in order of first use (the references in order of their keys, each
  * one's ranges in order), its listed size pinned, then the data sources, also in order of
  * first use (spec/virtualize.md §1.4
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>). */
+ * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>; a Zarr v2
+ * store's objects are each one reference's, so this is one source per reference, in order of
+ * the entries' keys). */
 export function storeDesc(raw: RawOutput, sizes: Map<string, number>): ArchiveDesc {
   const refs = [...raw.refs].sort((a, b) => compareKeys(a[0], b[0]));
   const objects = new Map<string, number>();

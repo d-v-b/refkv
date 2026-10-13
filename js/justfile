@@ -1,7 +1,7 @@
 # The browser implementation: a service worker serving vzip archives and
 # virtualized image files (TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS) and N5,
 # Zarr v2 and OME-Zarr 0.4 stores, and Sentinel-2 SAFE products, as plain HTTP Zarr.
-# TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE are virtualized by the Rust core (rust/vzip-ir) built for
+# TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2 stores, are virtualized by the Rust core (rust/vzip-ir) built for
 # wasm32, which `wasm` builds (not committed).
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
