@@ -552,6 +552,7 @@ impl PyRun {
             "nd2" => crate::run::Format::Nd2,
             "tiff" => crate::run::Format::Tiff,
             "czi" => crate::run::Format::Czi,
+            "dicom" => crate::run::Format::Dicom,
             "ims" => crate::run::Format::Ims,
             _ => return Err(PyValueError::new_err(format!("no format {format:?}"))),
         };
@@ -721,6 +722,7 @@ fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str
         "nd2" => crate::run::Format::Nd2,
         "tiff" => crate::run::Format::Tiff,
         "czi" => crate::run::Format::Czi,
+        "dicom" => crate::run::Format::Dicom,
         "ims" => crate::run::Format::Ims,
         _ => return Err(PyValueError::new_err(format!("no format {format:?}"))),
     };

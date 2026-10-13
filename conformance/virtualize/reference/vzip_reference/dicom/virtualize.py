@@ -11,8 +11,9 @@ from vzip.virtualize.common import (
     MAX_PAYLOAD, Output, Reader, Rejected, array_json, declare, emit_plans, image_ome, payload_size, root_json,
     transpose_codec,
 )
-from vzip.virtualize.dicom.source import source_metadata
-from vzip.virtualize.dicom.dataset import (
+from vzip_reference.dicom.source import source_metadata
+from vzip_reference.revision import DICOM_REVISION
+from vzip_reference.dicom.dataset import (
     EXPLICIT_LE, IMPLICIT_LE, ITEM, PIXEL_DATA, UNDEFINED, Dataset, Element, Encoding, Walker, tag_name,
 )
 
@@ -411,7 +412,7 @@ def virtualize_dicom(url: str, read: Reader, size: int) -> Output:
     root_meta, node_meta, plans = source_metadata(read, size, dataset_start, encoding, pixel_end, pixel_extra,
                                                   unreferenced, codec is not None and eot is not None,
                                                   fragment_lengths, offset_table)
-    out.json("zarr.json", root_json(ome, "dicom", url, root_meta))
+    out.json("zarr.json", root_json(ome, "dicom", url, root_meta, DICOM_REVISION))
     if node_meta or plans:
         emit_plans(out, plans, declare({}, "dicom", None, node_meta or None))
     out.json("0/zarr.json", array_json([shape[a] for a in axes], data_type, [chunk_shape[a] for a in axes],

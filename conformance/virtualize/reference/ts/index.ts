@@ -1,10 +1,10 @@
-// The frozen TypeScript virtualizers of TIFF, ND2 and CZI (the twins in this
+// The frozen TypeScript virtualizers of TIFF, ND2, CZI, DICOM and IMS (the twins in this
 // directory, as they were before the browser adopted the Rust core), dispatched as
 // js/src/virtualize/index.ts dispatched them; the other profiles are the shipped
 // code's. For comparing the Rust core's output with the TypeScript one's.
 
 import { type ByteReader, ImageError } from "../../../../js/src/virtualize/common.ts";
-import { isDicom, virtualizeDicom } from "../../../../js/src/virtualize/dicom/virtualize.ts";
+import { isDicom, virtualizeDicom } from "./dicom/virtualize.ts";
 import { detectNdpi, virtualizeNdpi } from "../../../../js/src/virtualize/ndpi/virtualize.ts";
 import { detectNifti, virtualizeNifti } from "../../../../js/src/virtualize/nifti/virtualize.ts";
 import { isZip, virtualizeSafeZip } from "../../../../js/src/virtualize/safe/virtualize.ts";

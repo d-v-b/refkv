@@ -1,0 +1,191 @@
+{
+  "source_model": "dicom",
+  "version": 1,
+  "about": "The source model of a DICOM Part 10 file (spec/virtualize/dicom.md): the elements a parser emits, the transfer syntaxes and photometric interpretations the convention admits, and the roles the file, an attribute, the image, its pixel data and each frame play, each with the constraints a file must meet to have the DICOM convention's layout. A parser checks this schema while it parses, at the point the profile meets each role; the projection reads a valid IR and checks nothing. The structure of the data elements (spec/virtualize/dicom.md §6.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#61-elements>–§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#63-datasets-and-sequences>: headers, VRs, lengths, items, delimiters, depth) is the binary layer, which the parser's code checks.",
+  "limits": {
+    "max_safe": 9007199254740991,
+    "max_depth": 64,
+    "max_payload": 65519
+  },
+  "tables": {
+    "syntaxes": {
+      "about": "Transfer Syntax UID: the dataset's encoding and the codec of encapsulated frames (none: native)",
+      "1.2.840.10008.1.2": {"explicit": false, "little": true, "codec": "native"},
+      "1.2.840.10008.1.2.1": {"explicit": true, "little": true, "codec": "native"},
+      "1.2.840.10008.1.2.2": {"explicit": true, "little": false, "codec": "native"},
+      "1.2.840.10008.1.2.4.50": {"explicit": true, "little": true, "codec": "jpeg"},
+      "1.2.840.10008.1.2.4.90": {"explicit": true, "little": true, "codec": "jpeg2k"},
+      "1.2.840.10008.1.2.4.91": {"explicit": true, "little": true, "codec": "jpeg2k"}
+    },
+    "bits_by_codec": {"native": [8, 16, 32], "jpeg": [8], "jpeg2k": [8, 16]},
+    "photometrics": {
+      "about": "by codec and Samples per Pixel",
+      "native/1": ["MONOCHROME1", "MONOCHROME2"],
+      "native/3": ["RGB"],
+      "jpeg/1": ["MONOCHROME1", "MONOCHROME2"],
+      "jpeg/3": ["RGB", "YBR_FULL", "YBR_FULL_422"],
+      "jpeg2k/1": ["MONOCHROME1", "MONOCHROME2"],
+      "jpeg2k/3": ["RGB", "YBR_ICT", "YBR_RCT"]
+    },
+    "whole_slide": "1.2.840.10008.5.1.4.1.1.77.1.6"
+  },
+  "elements": {
+    "about": "The IR of a DICOM file (spec/virtualize/dicom.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>). <tag> is a tag as 8 uppercase hexadecimal digits; E the dataset's byte order. An element of defined length that is not a sequence is one value, a record of its header and `v`, its value typed by its VR. `run` marks where a parser folds consecutive identically shaped siblings into one run.",
+    "preamble": {"kind": "value", "type": "bytes[128]"},
+    "magic": {"kind": "value", "type": "ascii[4]"},
+    "meta": {"kind": "struct", "about": "the File Meta Information: its elements, as a dataset's"},
+    "dataset": {"kind": "struct", "about": "the top-level dataset: its elements to Pixel Data, Pixel Data, and the elements after it"},
+    "<dataset>/<tag>": {
+      "kind": "value, or struct",
+      "about": "the first element of a tag in its dataset. A value of type {group:Eu2,element:Eu2,vr:ascii[2],length:Eu2,v:T} (explicit VR), {group:Eu2,element:Eu2,vr:ascii[2],reserved:Eu2,length:Eu4,v:T} (explicit VR with a 4-byte length) or {group:Eu2,element:Eu2,length:Eu4,v:T} (implicit VR); T by the VR (the dictionary's when the file states none): cstr[n] for text, Eu2[k,2] for AT, Ef4[k], Ef8[k], Ei4[k], Ei2[k], Eu4[k], Eu2[k], Ei8[k], Eu8[k] for numbers, else bytes[n]. A sequence (and a sequence of defined length that parses) is a struct: `header`, its items, `end` (undefined length)."
+    },
+    "<dataset>/duplicates/<k>/<tag>": {"kind": "struct", "about": "the k-th later element of a tag already in its dataset, in file order"},
+    "<sequence>/<i>": {"kind": "struct", "run": true, "about": "item i: `header`, its elements, `end` (undefined length)"},
+    "dataset/7FE00010": {
+      "kind": "struct",
+      "about": "the top-level Pixel Data: `header`; native: `frames/<f>` (data, a run when the frames are contiguous), `padding` (one 00 byte); encapsulated: `offset_table` (`header`, `offsets` Eu4[k]), `fragment_headers/<j>` and `fragments/<j>` (data), `end`"
+    },
+    "pixel_extra": {"kind": "value", "type": "bytes: native pixel data past the frames"},
+    "pixel_unreferenced/<k>": {"kind": "value", "type": "bytes: before the k-th frame's item, in order of offset (Extended Offset Table)"},
+    "trailing": {"kind": "value", "type": "bytes: from where the elements after Pixel Data stop to the end"},
+    "gaps/<offset>": {"kind": "gap"}
+  },
+  "roles": {
+    "file": {
+      "given": {"size": "", "magic": "bytes 128-131 are DICM"},
+      "constraints": [{"require": "size >= 132 && magic", "message": "not a DICOM file"}]
+    },
+    "transfer_syntax": {
+      "given": {"syntax": "the first string value of (0002,0010), or absent"},
+      "derive": {"spec": "at(syntaxes, syntax)"},
+      "constraints": [
+        {"require": "present(syntax)", "message": "missing Transfer Syntax UID"},
+        {"require": "present(spec)", "message": "unsupported transfer syntax {syntax}"}
+      ]
+    },
+    "attribute": {
+      "about": "an attribute of spec/virtualize/dicom.md §2.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#22-attributes> present where it is read (length not 0)",
+      "given": {"tag": "", "vr": "its VR, absent in implicit VR", "expected": "", "undefined": ""},
+      "constraints": [
+        {"require": "!present(vr) || vr == expected", "message": "{tag} has VR {vr}, not {expected}"},
+        {"require": "!undefined", "message": "{tag} has an undefined length"}
+      ]
+    },
+    "whole_values": {
+      "given": {"tag": "", "whole": "its length is a multiple of n", "n": ""},
+      "constraints": [{"require": "whole", "message": "{tag} has a length that is not a multiple of {n}"}]
+    },
+    "integers64": {
+      "given": {"tag": "", "largest": ""},
+      "constraints": [{"require": "largest <= max_safe", "message": "{tag} has a value above 2^53 - 1"}]
+    },
+    "integer_string": {
+      "given": {"tag": "", "value": "", "integer": "it matches [+-]?[0-9]+"},
+      "constraints": [{"require": "integer", "message": "{tag} is not an integer string: {value}"}]
+    },
+    "pixel_vr": {
+      "given": {"vr": ""},
+      "constraints": [{"require": "!present(vr) || in(vr, ['OB', 'OW'])", "message": "Pixel Data has VR {vr}"}]
+    },
+    "image": {
+      "about": "spec/virtualize/dicom.md §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#3-the-image>",
+      "given": {
+        "spp": "", "photometric": "", "rows": "", "columns": "", "bits_allocated": "", "bits_stored": "",
+        "representation": "", "planar": "", "n": "Number of Frames, or 1", "high_bit": "", "codec": "", "key": "codec/spp, as the table photometrics names it"
+      },
+      "derive": {"admitted": "at(photometrics, key)"},
+      "constraints": [
+        {"require": "present(spp)", "message": "missing Samples per Pixel"},
+        {"require": "present(photometric)", "message": "missing Photometric Interpretation"},
+        {"require": "present(rows)", "message": "missing Rows"},
+        {"require": "present(columns)", "message": "missing Columns"},
+        {"require": "present(bits_allocated)", "message": "missing Bits Allocated"},
+        {"require": "present(bits_stored)", "message": "missing Bits Stored"},
+        {"require": "present(representation)", "message": "missing Pixel Representation"},
+        {"require": "rows >= 1 && columns >= 1", "message": "Rows and Columns must be at least 1"},
+        {"require": "in(spp, [1, 3])", "message": "unsupported Samples per Pixel {spp}"},
+        {"require": "spp != 3 || in(planar, [0, 1])", "message": "Planar Configuration {planar} with 3 samples per pixel"},
+        {"require": "n >= 1 && n <= max_safe", "message": "Number of Frames {n} is not from 1 to 2^53 - 1"},
+        {"require": "bits_stored >= 1 && bits_stored <= bits_allocated", "message": "Bits Stored {bits_stored} is not from 1 to Bits Allocated {bits_allocated}"},
+        {"require": "!present(high_bit) || high_bit == bits_stored - 1", "message": "High Bit {high_bit} is not Bits Stored - 1"},
+        {"require": "in(representation, [0, 1])", "message": "unsupported Pixel Representation {representation}"},
+        {"require": "in(bits_allocated, at(bits_by_codec, codec))", "message": "unsupported Bits Allocated {bits_allocated}"},
+        {"require": "codec != 'jpeg' || (bits_stored == 8 && representation == 0)", "message": "JPEG Baseline needs 8 unsigned bits stored"},
+        {"require": "in(photometric, admitted)", "message": "unsupported Photometric Interpretation '{photometric}' with {spp} samples per pixel"}
+      ]
+    },
+    "whole_slide": {
+      "about": "a VL Whole Slide Microscopy Image",
+      "given": {"organization": "", "width": "", "height": "", "optical_paths": "", "focal_planes": "", "n": "", "across": "", "down": "", "tiles": "n is across times down, exactly"},
+      "constraints": [
+        {"require": "organization == 'TILED_FULL'", "message": "a whole-slide image whose Dimension Organization Type is not TILED_FULL"},
+        {"require": "present(width)", "message": "missing Total Pixel Matrix Columns"},
+        {"require": "present(height)", "message": "missing Total Pixel Matrix Rows"},
+        {"require": "width >= 1 && height >= 1", "message": "the total pixel matrix must be at least 1 by 1"},
+        {"require": "(optical_paths ?? 1) == 1", "message": "{optical_paths} optical paths"},
+        {"require": "(focal_planes ?? 1) == 1", "message": "{focal_planes} focal planes"},
+        {"require": "tiles", "message": "{n} frames for {down} by {across} tiles"}
+      ]
+    },
+    "native": {
+      "given": {"undefined": "", "within": "the value lies within the file", "length": "", "size": "", "n": "", "frame_size": "", "enough": "length >= n × frame_size", "ow8_big": "OW, 8 bits allocated, big endian"},
+      "constraints": [
+        {"require": "!undefined", "message": "native Pixel Data with an undefined length"},
+        {"require": "within", "message": "Pixel Data's {length} bytes run past the end of the {size}-byte file"},
+        {"require": "enough", "message": "Pixel Data has {length} bytes, less than {n} frames of {frame_size}"},
+        {"require": "!ow8_big", "message": "8-bit Pixel Data of VR OW in big endian"}
+      ]
+    },
+    "encapsulated": {
+      "given": {"defined": "", "within": "the Basic Offset Table's item header lies within the file", "item": "it is an item of defined length, a multiple of 4"},
+      "constraints": [
+        {"require": "!defined", "message": "encapsulated Pixel Data with a defined length"},
+        {"require": "within", "message": "no Basic Offset Table"},
+        {"require": "item", "message": "the Basic Offset Table is not an item of a multiple of 4 bytes"}
+      ]
+    },
+    "extended_offset_table": {
+      "given": {"both": "", "counts": "each has one value per frame", "bot_length": ""},
+      "constraints": [
+        {"require": "both", "message": "an Extended Offset Table without its lengths, or lengths without the table"},
+        {"require": "counts", "message": "the Extended Offset Table does not have one value per frame"},
+        {"require": "bot_length == 0", "message": "an Extended Offset Table with a Basic Offset Table"}
+      ]
+    },
+    "extended_frames": {
+      "given": {"disjoint": "the frames' items, in order of offset, do not overlap"},
+      "constraints": [{"require": "disjoint", "message": "the Extended Offset Table's frames overlap"}]
+    },
+    "fragments": {
+      "given": {"count": "fragments after the Basic Offset Table", "offsets": "the Basic Offset Table's", "n": "", "increasing": "they start at 0 and increase", "positions": "each is a fragment's position"},
+      "constraints": [
+        {"require": "count >= 1", "message": "encapsulated Pixel Data without fragments"},
+        {"require": "offsets == 0 || offsets == n", "message": "the Basic Offset Table has {offsets} offsets for {n} frames"},
+        {"require": "offsets == 0 || increasing", "message": "the Basic Offset Table does not start at 0 and increase"},
+        {"require": "offsets == 0 || positions", "message": "a Basic Offset Table offset is not a fragment's"},
+        {"require": "offsets > 0 || count == n || n == 1", "message": "{count} fragments for {n} frames without an offset table"}
+      ]
+    },
+    "frame": {
+      "given": {"f": "", "ranges": "its fragments with data", "adobe": "JPEG with 3 samples", "first": "the length of its first range", "soi": "its first 2 bytes are FF D8"},
+      "constraints": [
+        {"require": "ranges >= 1", "message": "frame {f} has no data"},
+        {"require": "!adobe || first > 2", "message": "frame {f}'s first fragment is too short for a JPEG stream"},
+        {"require": "!adobe || soi", "message": "frame {f}'s first fragment does not start with a JPEG SOI marker (FF D8)"}
+      ]
+    },
+    "range": {
+      "given": {"start": "", "end": "", "size": ""},
+      "constraints": [{"require": "end <= size", "message": "range [{start}, {end}) outside the {size}-byte file"}]
+    },
+    "payload": {
+      "given": {"f": "", "payload": "the size of the chunk's reference"},
+      "constraints": [{"require": "payload <= max_payload", "message": "frame {f}'s reference payload exceeds {max_payload} bytes"}]
+    },
+    "window": {
+      "given": {"finite": ""},
+      "constraints": [{"require": "finite", "message": "the VOI window is not finite"}]
+    }
+  },
+  "about_builtins": "What the parser's code computes and the roles above check: the walk of the data elements (spec/virtualize/dicom.md §6.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#61-elements>–§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#63-datasets-and-sequences>), which rejects the structures it walks that break a rule; attribute values by kind (spec/virtualize/dicom.md §2.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#22-attributes>: strings split at 5C and trimmed, decimals, integer strings); the frames of native and encapsulated pixel data (spec/virtualize/dicom.md §6.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#65-frames>: the fragments by the Extended or Basic Offset Table); the VOI window; and the root's source metadata (spec/virtualize/dicom.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>), which never rejects."
+}

@@ -3,6 +3,7 @@
 //! one's bytes and time), until `poll()` gives None; then `finish()`.
 
 use crate::czi::Czi;
+use crate::dicom::Dicom;
 use crate::ims::Ims;
 use crate::ir::Ir;
 use crate::nd2::{Nd2, Step};
@@ -15,6 +16,7 @@ pub enum Format {
     Nd2,
     Tiff,
     Czi,
+    Dicom,
     Ims,
 }
 
@@ -24,7 +26,8 @@ impl Format {
             0 => Some(Format::Nd2),
             1 => Some(Format::Tiff),
             2 => Some(Format::Czi),
-            3 => Some(Format::Ims),
+            3 => Some(Format::Dicom),
+            5 => Some(Format::Ims),
             _ => None,
         }
     }
@@ -33,11 +36,16 @@ impl Format {
             Format::Nd2 => "nd2",
             Format::Tiff => "tiff",
             Format::Czi => "czi",
+            Format::Dicom => "dicom",
             Format::Ims => "ims",
         }
     }
     /// The format a file's first bytes give, if one of these.
     pub fn sniff(head: &[u8]) -> Option<Format> {
+        // DICOM first: a dual-personality file's preamble may hold a TIFF header
+        if head.len() >= 132 && &head[128..132] == b"DICM" {
+            return Some(Format::Dicom);
+        }
         if head.len() >= 4 && head[..4] == [0xda, 0xce, 0xbe, 0x0a] {
             return Some(Format::Nd2);
         }
@@ -58,6 +66,7 @@ pub enum AnyParser {
     Nd2(Nd2),
     Tiff(Tiff),
     Czi(Czi),
+    Dicom(Dicom),
     Ims(Ims),
 }
 
@@ -67,6 +76,7 @@ impl AnyParser {
             Format::Nd2 => AnyParser::Nd2(Nd2::new(size)),
             Format::Tiff => AnyParser::Tiff(Tiff::new(size)),
             Format::Czi => AnyParser::Czi(Czi::new(size)),
+            Format::Dicom => AnyParser::Dicom(Dicom::new(size)),
             Format::Ims => AnyParser::Ims(Ims::new(size)),
         }
     }
@@ -75,6 +85,7 @@ impl AnyParser {
             AnyParser::Nd2(x) => x.step(),
             AnyParser::Tiff(x) => x.step(),
             AnyParser::Czi(x) => x.step(),
+            AnyParser::Dicom(x) => x.step(),
             AnyParser::Ims(x) => x.step(),
         }
     }
@@ -83,6 +94,7 @@ impl AnyParser {
             AnyParser::Nd2(x) => x.feed(o, b),
             AnyParser::Tiff(x) => x.feed(o, b),
             AnyParser::Czi(x) => x.feed(o, b),
+            AnyParser::Dicom(x) => x.feed(o, b),
             AnyParser::Ims(x) => x.feed(o, b),
         }
     }
@@ -91,6 +103,7 @@ impl AnyParser {
             AnyParser::Nd2(x) => Parser::finish(x),
             AnyParser::Tiff(x) => Parser::finish(x),
             AnyParser::Czi(x) => Parser::finish(x),
+            AnyParser::Dicom(x) => Parser::finish(x),
             AnyParser::Ims(x) => Parser::finish(x),
         }
     }

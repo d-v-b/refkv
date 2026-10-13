@@ -6,6 +6,10 @@
 
 export const REVISION = 20;
 
+// The revision the frozen DICOM twin records: 25, the last before the IR mirror
+// became DICOM's `vzip_source` (revision 26).
+export const DICOM_REVISION = 25;
+
 // The revision the frozen IMS virtualizer records: 25, the last before the IR mirror
 // became IMS's `vzip_source` (revision 26).
 export const IMS_REVISION = 25;

@@ -10,6 +10,7 @@ pub mod check;
 pub mod coding;
 pub mod cxml;
 pub mod czi;
+pub mod dicom;
 pub mod expr;
 pub mod fed;
 pub mod hdf5;
@@ -68,6 +69,7 @@ macro_rules! parser {
 parser!(nd2::Nd2);
 parser!(tiff::Tiff);
 parser!(czi::Czi);
+parser!(dicom::Dicom);
 parser!(ims::Ims);
 
 /// Runs a parser over bytes in memory (tests, tools).

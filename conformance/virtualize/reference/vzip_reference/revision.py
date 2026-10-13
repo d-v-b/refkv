@@ -6,6 +6,10 @@
 
 REVISION = 20
 
+# The revision the frozen DICOM profile records: 25, the last before the IR mirror became
+# DICOM's `vzip_source` (revision 26).
+DICOM_REVISION = 25
+
 # The revision the frozen IMS profile records: 25, the last before the IR mirror became
 # IMS's `vzip_source` (revision 26).
 IMS_REVISION = 25

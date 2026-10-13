@@ -7,8 +7,8 @@ Node, through js/conformance/documents.ts). In each accepted output, every
 node that declares the profile's convention validates against its JSON Schema
 (spec/virtualize/<profile>/schema.json): the root always declares it, with the
 provenance members, and another node only when it has source metadata, with
-only that member. No node has any other attribute besides `ome`. (For TIFF, ND2
-and CZI, `vzip_source` and the groups of its view are the IR mirror of
+only that member. No node has any other attribute besides `ome`. (For TIFF, ND2,
+CZI, DICOM and IMS, `vzip_source` and the groups of its view are the IR mirror of
 conventions §8 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>,
 validated by the same schemas.) """
 
