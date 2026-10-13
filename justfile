@@ -12,7 +12,7 @@ idr_tiff := "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant
 default:
     @just --list --list-submodules
 
-# Test the Python package (python/src/vzip; it virtualizes TIFF, NDPI, ND2, CZI, DICOM, NIfTI and SAFE with the Rust core, built first)
+# Test the Python package (python/src/vzip; it virtualizes TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE with the Rust core, built first)
 test *args: ir-build
     uv run pytest -q python/tests {{args}}
 
@@ -24,11 +24,11 @@ ir-build:
     uv sync -q --locked
 
 # Build the IR core for the browser (wasm32, without the Python bindings) and run its ND2,
-# TIFF and CZI parsers, and its prototype store format, from Node on fixtures
+# TIFF, CZI, DICOM, NIfTI and IMS parsers, and its prototype store format, from Node on fixtures
 ir-wasm:
     rust/vzip-ir/wasm/build.sh
     node rust/vzip-ir/wasm/nd2.mjs fixtures/nd2/nd2_tz_uint16.nd2
-    node rust/vzip-ir/wasm/run.mjs fixtures/tiff/jpeg_gray.tif fixtures/czi/czi_zstd.czi fixtures/dicom/dicom_jpeg_mono_bot.dcm fixtures/nifti/nifti_dims_2d.nii
+    node rust/vzip-ir/wasm/run.mjs fixtures/tiff/jpeg_gray.tif fixtures/czi/czi_zstd.czi fixtures/dicom/dicom_jpeg_mono_bot.dcm fixtures/nifti/nifti_dims_2d.nii fixtures/ims/ims_latest_dense_links.ims
     node rust/vzip-ir/wasm/store.mjs fixtures/zarr2/zarr2_hierarchy > /dev/null
 
 # Test the IR core (Rust) and its Python host (after ir-build)

@@ -13,6 +13,8 @@ pub mod czi;
 pub mod dicom;
 pub mod expr;
 pub mod fed;
+pub mod hdf5;
+pub mod ims;
 pub mod ir;
 pub mod lv;
 pub mod mirror;
@@ -72,6 +74,7 @@ parser!(tiff::Tiff);
 parser!(czi::Czi);
 parser!(dicom::Dicom);
 parser!(nifti::Nifti);
+parser!(ims::Ims);
 parser!(safe::Safe);
 
 /// Runs a parser over bytes in memory (tests, tools).

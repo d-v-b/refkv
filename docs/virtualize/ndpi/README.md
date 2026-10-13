@@ -143,7 +143,7 @@ A chunk is about 128 pieces of the file, one per row of JPEG blocks
   the total from 41 s to 14 s, and the Rust core's read planner, used per
   view, to 18 s (15 s with a cache of the fetched spans). Neither is the
   default reader yet: the readers of archives still read chunk by chunk.
-  ([design/IR_NOTES.md](../../../design/IR_NOTES.md#ndpi-on-the-ir-virtualize-revision-26)
+  ([design/IR_NOTES.md](../../../design/IR_NOTES.md#49-revision-26-ndpi-on-the-ir)
   has the table.)
 - **The header is free.** Since spec/virtualize.md revision 14 the JPEG header
   is a `data` source in the archive, so a chunk read is one request (or one

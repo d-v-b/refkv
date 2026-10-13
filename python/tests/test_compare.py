@@ -163,8 +163,8 @@ def test_mirror_problem_finds_a_table_that_is_not_canonical(tmp_path):
 
 
 def test_at_revision():
-    """A frozen reference's root (revision 20 for TIFF, ND2 and CZI, 25 for DICOM, NIfTI, NDPI and SAFE)
-    reads at the current revision, without the members of its source metadata the mirror
+    """A frozen reference's root (revision 20 for TIFF, ND2 and CZI, 25 for DICOM, NIfTI, IMS,
+    NDPI and SAFE) reads at the current revision, without the members of its source metadata the mirror
     holds instead; any other root, or an output without one, is unchanged."""
     def root(revision, profile="tiff", own=None):
         prop = {"profile": profile, "version": 0, "revision": revision, "source": {"url": "u"}}
@@ -178,7 +178,8 @@ def test_at_revision():
     kept = {"nifti_version": 1, "header": {}, "scaling": {"slope": 2, "inter": 0}}
     frozen = {**kept, "extender": "AQAAAA==", "extensions": [], "unparsed": "vzip_source/unparsed"}
     assert compare.at_revision(root(25, "nifti", frozen)) == root(compare.REVISION, "nifti", kept)
-    for other in (root(compare.REVISION), root(19), root(25), root(20, "dicom"), root(20, "nifti", frozen),
+    for other in (root(compare.REVISION), root(19), root(25), root(20, "dicom"), root(20, "ims"),
+                  root(20, "nifti", frozen),
                   {"sources": [], "entries": {}}):
         assert compare.at_revision(other) == other
 

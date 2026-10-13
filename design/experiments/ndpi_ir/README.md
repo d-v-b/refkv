@@ -1,6 +1,6 @@
 # NDPI on the IR: measurements
 
-The scripts behind [design/IR_NOTES.md](../../IR_NOTES.md#ndpi-on-the-ir-virtualize-revision-26).
+The scripts behind [design/IR_NOTES.md](../../IR_NOTES.md#49-revision-26-ndpi-on-the-ir).
 Run from the repository root.
 
 - `cmp_corpus.py <out> --only ndpi-`: compare.py on the NDPI corpus, the caching

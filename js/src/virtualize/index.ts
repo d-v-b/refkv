@@ -5,11 +5,10 @@
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): N5, Zarr v2,
 // OME-Zarr 0.4 or a
 // SAFE directory. TIFF (NDPI included: the core's TIFF parser finds it), ND2, CZI, DICOM,
-// NIfTI and SAFE (both forms) are virtualized by the Rust core (ir/, rust/vzip-ir); each other
-// profile is in its own directory; store.ts holds the store machinery.
+// NIfTI, IMS and SAFE (both forms) are virtualized by the Rust core (ir/, rust/vzip-ir); each
+// other profile is in its own directory; store.ts holds the store machinery.
 
 import { blockReader, type ByteReader, ImageError } from "./common.ts";
-import { virtualizeIms } from "./ims/virtualize.ts";
 import { type IrFormat, virtualizeIr } from "./ir/run.ts";
 import { type RangeSource, readerSource } from "./ir/source.ts";
 import { virtualizeN5 } from "./n5/virtualize.ts";
@@ -80,7 +79,7 @@ type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "ni
 
 /** `exact`, when given, reads exactly the ranges asked for, past `read`'s block cache: the
  * SAFE profile's tile-part headers, scattered through a zip file, are read with it, and the
- * Rust core's requests (TIFF and NDPI, ND2, CZI, DICOM, NIfTI), which it plans itself.
+ * Rust core's requests (TIFF and NDPI, ND2, CZI, DICOM, NIfTI, IMS), which it plans itself.
  * Source 0 pins the file's size, and its ETag when `pins.etag` gives one (§1.2
  * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>); with
  * `pins.checksums`, the ranges of source 0 carry the CRC-32C of their bytes. */
@@ -150,6 +149,7 @@ export function irFormat(head: Uint8Array): IrFormat | undefined {
   // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#121-choosing-the-profile>)
   if (head.length >= 4 && head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04) return "safe";
   if (niftiVersion(head) !== undefined) return "nifti";
+  if (HDF5.every((b, i) => head[i] === b)) return "ims";
   return undefined;
 }
 
@@ -158,8 +158,7 @@ async function virtualizeFile(url: string, { read, size: fileSize, exact, source
   if (isDicom(head)) return virtualizeIr("dicom", url, source);
   const ir = irFormat(head);
   if (ir === "tiff" || ir === "nd2") return virtualizeIr(ir, url, source);
-  if (HDF5.every((b, i) => head[i] === b)) return { format: "ims", ...(await virtualizeIms(url, read, fileSize)) };
-  if (ir === "nifti" || ir === "czi" || ir === "safe") return virtualizeIr(ir, url, source);
+  if (ir === "nifti" || ir === "ims" || ir === "czi" || ir === "safe") return virtualizeIr(ir, url, source);
   throw new ImageError(NOT_SUPPORTED);
 }
 

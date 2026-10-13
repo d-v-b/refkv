@@ -23,7 +23,6 @@ import { N5Error } from "./virtualize/n5/virtualize.ts";
 import { openHttpStore, StoreError, StoreLimitError, StoreReadError } from "./virtualize/store.ts";
 import { Zarr2Error } from "./virtualize/zarr2/virtualize.ts";
 import { OmeZarrError } from "./virtualize/ome-zarr/virtualize.ts";
-import { ImsError } from "./virtualize/ims/virtualize.ts";
 import { writeVzip } from "./writer.ts";
 
 export const ARCHIVE_KEY = "__vz__/archive.vzip";
@@ -218,7 +217,7 @@ export function makeHandler(options: HandlerOptions) {
         const status = e.errorClass === "request" ? 416 : e.errorClass === "resolution" ? 502 : 500;
         return response(status, message);
       }
-      if (e instanceof ImsError) return response(422, `IMS: ${message}`);
+
       if (e instanceof N5Error) return response(422, `N5: ${message}`);
       if (e instanceof Zarr2Error) return response(422, `Zarr v2: ${message}`);
       if (e instanceof OmeZarrError) return response(422, `OME-Zarr: ${message}`);

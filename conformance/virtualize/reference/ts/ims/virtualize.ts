@@ -2,10 +2,11 @@
 // §8 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#8-ims-profile>): every chunk
 // of every resolution level, time point and channel becomes a Zarr chunk that references the file.
 
-import type { Range } from "../../protobuf.ts";
-import { type ByteReader, declare, stringifyJson } from "../common.ts";
+import type { Range } from "../../../../../js/src/protobuf.ts";
+import { type ByteReader, declare, stringifyJson } from "../../../../../js/src/virtualize/common.ts";
 import { sourceTree } from "./source.ts";
-import type { ArchiveDesc, EntryDesc } from "../../writer.ts";
+import { IMS_REVISION } from "../revision.ts";
+import type { ArchiveDesc, EntryDesc } from "../../../../../js/src/writer.ts";
 import { attributeValue, type Datatype, Hdf5, ImsError, latin1, type Links, u, untilNul } from "./hdf5.ts";
 
 export { ImsError } from "./hdf5.ts";
@@ -389,7 +390,7 @@ export async function virtualizeIms(
           }],
           ...(channels <= MAX_CHANNELS ? { omero: { channels: omeroChannels } } : {}),
         },
-      }, "ims", url),
+      }, "ims", url, undefined, IMS_REVISION),
     }),
   }];
   for (const [r, l] of levelInfo.entries()) {

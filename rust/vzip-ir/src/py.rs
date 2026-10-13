@@ -724,7 +724,7 @@ fn out_py<'py>(py: Python<'py>, o: &crate::out::Out) -> PyResult<Bound<'py, PyAn
     Ok(t.into_pyobject(py)?.into_any())
 }
 
-/// The image projection of an IR (format "nd2", "tiff", "czi", "dicom", "nifti" or "ndpi"; facts as JSON) as
+/// The image projection of an IR (format "nd2", "tiff", "czi", "dicom", "nifti", "ims" or "ndpi"; facts as JSON) as
 /// Python objects (`out_py`), or Rejected.
 #[pyfunction]
 fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str) -> PyResult<Bound<'py, PyAny>> {
@@ -734,7 +734,7 @@ fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str
     out_py(py, &o)
 }
 
-/// The mirror of an IR (for the profile "nd2", "tiff", "czi", "dicom", "nifti" or "ndpi"): its entries and
+/// The mirror of an IR (for the profile "nd2", "tiff", "czi", "dicom", "nifti", "ims" or "ndpi"): its entries and
 /// references under `vzip_source` (`out_py`'s form, the url empty), and what the
 /// table folded (JSON).
 #[pyfunction]

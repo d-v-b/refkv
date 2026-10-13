@@ -1769,10 +1769,7 @@ store readers (S3 or a directory, the reader policy, the store's workers),
 `vz_store_*` and `wasm/store.mjs` in wasm. Native and wasm agree on the 117
 fixture stores.
 
-## NDPI on the IR (VIRTUALIZE revision 26)
-
-(Unnumbered: the other formats of revision 26 add their sections beside this one, in
-parallel changes; numbering them is left to the merge.)
+## 49. Revision 26: NDPI on the IR
 
 NDPI is read by the TIFF parser in an **NDPI variant** (`tiff.rs`): after the
 header, the parser tests a little-endian magic-42 TIFF for NDPI (the IFD at the
@@ -1898,3 +1895,53 @@ used; TypeScript 1,224: `ndpi/virtualize.ts` 451, `tiff/ifd.ts` 303,
 which 190 tests, `project/ndpi.rs` 61, bindings and registration 30) and the
 schema 214; the hosts −10. Frozen reference: 862 (it reuses the frozen TIFF tag
 translator).
+
+## 50. Revision 26: IMS on the IR
+
+IMS moves to the Rust core: `hdf5.rs`, a format-free sans-IO HDF5 metadata
+reader (rounds replayed over structures memoized by address, misses
+collected across independent structures so that a round asks for all of
+them), and `ims.rs`, the layout of [IMS §2–§4](../spec/virtualize/ims.md#2-the-source)
+against `schema/ims.json` and the walk of
+[IMS §5.3](../spec/virtualize/ims.md#53-the-walk), whose elements are every HDF5
+structure it reads. The revision-25 Python and TypeScript profiles are frozen
+in `conformance/virtualize/reference/` (`IMS_REVISION`).
+
+**Read-ahead.** A version 1 B-tree node (a chunk index's or a group's) or a
+symbol table node that a round misses is asked for at its allocated size
+(`24 + 2K × (key + 8) + key`, K from the superblock), at most 64 KiB, so that
+its header and its entries come in one request and one round; a node's
+children are asked for in the round that parses it, all of them. The IR is
+unchanged: the same digest on 487 inputs (the fixtures, probes, amplification
+files and mutants before `ims_latest_global_heaps.ims` was added), and on the
+18 sparse corpus copies.
+
+| file | server | before: requests, time | after: requests, time | reference (32) |
+|---|---|---|---|---|
+| `amp_ims_4.ims` (15 MB, 49,152 chunks) | no latency | 1,757, 3.6 s | 884, 3.5 s | 236, 4.2 s |
+| | 65 ms a request | 74, 11.6 s | 35, 5.4 s | 236, 52.4 s |
+| S-BIAD1759 `2430F12_pos1_CL1_1.ims` (163 MB) | 65 ms | 293, 12.5 s | 262, 11.8 s | 118, 24.6 s |
+| `Convallaria_3C_3T_35Z_confocal_deconvolved.ims` (992 MB) | 65 ms | 176, 7.4 s | 129, 6.4 s | 95, 19.9 s |
+| 18 corpus files and `amp_ims_4` | 65 ms | 1,249, 103.8 s | 1,102, 93.0 s | 756, 173.8 s |
+
+(Local single-range server over sparse copies of the proxy's blocks, one
+process each, Python at 8 connections; the IR reads 20.8 MB where the
+reference reads 47.9 MB, and its archives are 26.2 MB against 26.8 MB.)
+
+**Corpus** (`corpus_ims.txt` and the demo's S-BIAD1759 file, through the
+caching proxy, at most 6 upstream connections in all; `ref`, `py` and `web`
+with the mirror checks):
+
+| inputs | equivalent | rejected by all | divergent | not compared |
+|---|---|---|---|---|
+| OME sample images (8) | 7 | 1 (LZ4) | 0 | 0 |
+| Zenodo (13) | 8 | 1 (scene only) | 0 | 4: `sqh_imaris10`, `imaris_subresolution`, `filopodia_deconv`, `ibex_mouse_spleen` (Zenodo answered 429 twice, 13 minutes apart; fetching stopped) |
+| S-BIAD1759 (EBI) | 1 | 0 | 0 | 0 |
+
+| check | result |
+|---|---|
+| IMS fixtures (45) | 27 equivalent, 18 rejected by all |
+| fixtures, 4 shards of `compare.py` | 0 divergent |
+| IMS mutants (440: 10 for each of the 44 fixtures under 256 KiB; `ims_latest_review3.ims` is larger) | 195 equivalent, 245 rejected by all, 0 divergent |
+| native and wasm32 parity | 497 of 497 (the fixtures, probes and amplification files, and the 440 mutants) |
+| `just verify-ims` | 0 failures (pixels against h5py, the mirror rebuilt byte for byte) |
