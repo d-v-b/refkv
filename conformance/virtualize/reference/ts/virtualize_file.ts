@@ -16,7 +16,7 @@ import { Zarr2Error } from "../../../../js/src/virtualize/zarr2/virtualize.ts";
 import { OmeZarrError } from "../../../../js/src/virtualize/ome-zarr/virtualize.ts";
 import { NiftiError } from "./nifti/virtualize.ts";
 import { ImsError } from "./ims/virtualize.ts";
-import { SafeError } from "../../../../js/src/virtualize/safe/virtualize.ts";
+import { SafeError } from "./safe/virtualize.ts";
 import { writeVzip } from "../../../../js/src/writer.ts";
 import { directoryStore } from "../../../../js/conformance/directory_store.ts";
 import { CziError } from "./czi/virtualize.ts";

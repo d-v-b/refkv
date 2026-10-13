@@ -9,6 +9,7 @@ use crate::ir::Ir;
 use crate::nd2::{Nd2, Step};
 use crate::plan::{Planner, Request};
 use crate::nifti::Nifti;
+use crate::safe::Safe;
 use crate::tiff::Tiff;
 use crate::Parser;
 
@@ -20,6 +21,8 @@ pub enum Format {
     Dicom,
     Nifti,
     Ims,
+    /// a Sentinel-2 SAFE product's zip form (`.SAFE.zip`)
+    Safe,
     /// A TIFF the TIFF parser found to be NDPI: a run of `Tiff` becomes one of `Ndpi`
     /// when its parser does (spec/virtualize/ndpi.md §4
     /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), so
@@ -36,6 +39,7 @@ impl Format {
             3 => Some(Format::Dicom),
             4 => Some(Format::Nifti),
             5 => Some(Format::Ims),
+            6 => Some(Format::Safe),
             7 => Some(Format::Ndpi),
             _ => None,
         }
@@ -48,14 +52,18 @@ impl Format {
             Format::Dicom => "dicom",
             Format::Nifti => "nifti",
             Format::Ims => "ims",
+            Format::Safe => "safe",
             Format::Ndpi => "ndpi",
         }
     }
-    /// The format of a name ("nd2", "tiff", "czi", "dicom", "nifti", "ims", "ndpi").
+    /// The format of a name ("nd2", "tiff", "czi", "dicom", "nifti", "ims", "safe", "ndpi").
     pub fn from_name(s: &str) -> Option<Format> {
-        [Format::Nd2, Format::Tiff, Format::Czi, Format::Dicom, Format::Nifti, Format::Ims, Format::Ndpi].into_iter().find(|f| f.name() == s)
+        [Format::Nd2, Format::Tiff, Format::Czi, Format::Dicom, Format::Nifti, Format::Ims, Format::Safe, Format::Ndpi].into_iter().find(|f| f.name() == s)
     }
-    /// The format a file's first bytes give, if one of these.
+    /// The format a file's first bytes give, if one of these: a hint, the format of its
+    /// signature (any zip file is taken for a SAFE product's zip form, which then rejects one
+    /// that is not, spec/virtualize/safe.md §12.1
+    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#121-choosing-the-profile>).
     pub fn sniff(head: &[u8]) -> Option<Format> {
         // DICOM first: a dual-personality file's preamble may hold a TIFF header
         if head.len() >= 132 && &head[128..132] == b"DICM" {
@@ -76,6 +84,9 @@ impl Format {
         if head.len() >= 8 && &head[..8] == crate::hdf5::SIGNATURE {
             return Some(Format::Ims);
         }
+        if head.len() >= 4 && &head[..4] == b"PK\x03\x04" {
+            return Some(Format::Safe);
+        }
         None
     }
 }
@@ -87,6 +98,7 @@ pub enum AnyParser {
     Dicom(Dicom),
     Nifti(Nifti),
     Ims(Ims),
+    Safe(Box<Safe>),
 }
 
 impl AnyParser {
@@ -98,6 +110,7 @@ impl AnyParser {
             Format::Dicom => AnyParser::Dicom(Dicom::new(size)),
             Format::Nifti => AnyParser::Nifti(Nifti::new(size)),
             Format::Ims => AnyParser::Ims(Ims::new(size)),
+            Format::Safe => AnyParser::Safe(Box::new(Safe::new(size))),
         }
     }
     pub fn step(&mut self) -> Result<Step, String> {
@@ -108,6 +121,7 @@ impl AnyParser {
             AnyParser::Dicom(x) => x.step(),
             AnyParser::Nifti(x) => x.step(),
             AnyParser::Ims(x) => x.step(),
+            AnyParser::Safe(x) => x.step(),
         }
     }
     pub fn feed(&mut self, o: u64, b: Vec<u8>) {
@@ -118,6 +132,7 @@ impl AnyParser {
             AnyParser::Dicom(x) => x.feed(o, b),
             AnyParser::Nifti(x) => x.feed(o, b),
             AnyParser::Ims(x) => x.feed(o, b),
+            AnyParser::Safe(x) => x.feed(o, b),
         }
     }
     pub fn finish(self) -> Result<(Ir, serde_json::Value), String> {
@@ -128,6 +143,7 @@ impl AnyParser {
             AnyParser::Dicom(x) => Parser::finish(x),
             AnyParser::Nifti(x) => Parser::finish(x),
             AnyParser::Ims(x) => Parser::finish(x),
+            AnyParser::Safe(x) => Parser::finish(*x),
         }
     }
 }
@@ -163,7 +179,8 @@ impl Run {
             copies: Vec::new(),
             copied: Default::default(),
             planner: Planner::new(size, remote, concurrency),
-            whole: format != Format::Nd2,
+            // TIFF and CZI find their ranges in whole responses; ND2 and SAFE take exact ranges
+            whole: !matches!(format, Format::Nd2 | Format::Safe),
             in_batch: false,
             done: false,
         }
@@ -313,6 +330,9 @@ pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_j
         let folded = crate::mirror::mirror(ir, &mut out, format.name())?;
         if let Some(m) = out.summary.as_object_mut() {
             m.insert("folded".into(), folded.json());
+        }
+        if format == Format::Safe {
+            crate::project::safe::source_members(&mut out, facts);
         }
     }
     Ok(out)

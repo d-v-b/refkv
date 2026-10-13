@@ -143,7 +143,7 @@ with the first's:
 
 - `ref`, the reference: `conformance/virtualize/reference/cli.py
   --allow-private-hosts` (the harness serves its inputs from 127.0.0.1, which
-  the reader policy refuses by default). For TIFF, ND2, CZI, DICOM, NIfTI, IMS and NDPI it runs the
+  the reader policy refuses by default). For TIFF, ND2, CZI, DICOM, NIfTI, IMS, NDPI and SAFE it runs the
   frozen Python profiles in
   `conformance/virtualize/reference/vzip_reference/` (what `vzip.virtualize`
   shipped before these formats moved to the IR, unchanged but for their import
@@ -152,7 +152,7 @@ with the first's:
 - `web`: the browser code under Node, `js/conformance/virtualize.ts
   --allow-private-hosts`.
 
-For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and IMS, `py` and `web` are one implementation: the Rust core
+For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE, `py` and `web` are one implementation: the Rust core
 `rust/vzip-ir` (its parsers, schemas, read planner, projections and mirror),
 built natively for Python and as wasm32 for the browser, each with a thin host
 (the I/O, and the archive writer). Their `vzip_source` is the IR's mirror,
@@ -160,7 +160,11 @@ which the reference does not write. So, for those profiles:
 
 - `ref` against `py` and `web`, outside `vzip_source`: proves that the IR path
   writes the hierarchy, references and data sources an independent
-  implementation (the frozen one) writes, and rejects the same inputs. It is
+  implementation (the frozen one) writes, and rejects the same inputs. The
+  sources compared are those the other entries use, in order of first use,
+  and references name them by URL or bytes: a store's objects only
+  `vzip_source` referenced, and the order a profile gives its url sources,
+  do not count. It is
   the same check as before the switch-over, with one of its two sides now the
   core.
 - `py` against `web`, entirely (`vzip_source` included): proves that the two
@@ -177,25 +181,30 @@ For every other profile, `py` and `web` are still two hand-written
 implementations, and `ref` runs the same code as `py`.
 
 Since revision 21, `vzip_source` of TIFF, ND2 and CZI is the IR mirror of
-[conventions §8](../../spec/conventions.md#8-the-ir-mirror), and since revision 26 those of DICOM, NIfTI, IMS and NDPI too; since revision 22 the mirror is canonical ([conventions §8.8](../../spec/conventions.md#88-canonical-form))
+[conventions §8](../../spec/conventions.md#8-the-ir-mirror), and since revision 26 those of DICOM, NIfTI, IMS, NDPI and SAFE too; since revision 22 the mirror is canonical ([conventions §8.8](../../spec/conventions.md#88-canonical-form))
 and [spec/virtualize.md §1.1](../../spec/virtualize.md#11-output-and-equivalence) compares it entry for entry, as `py` against `web`
 does. `compare.py` also checks each archive's mirror on its own, in addition
 to that comparison: it loads the table, checks its invariants (conventions
 [§8.4](../../spec/conventions.md#84-reading-the-source-back)), checks that it describes a source of the size source 0 pins, and
 checks that it is canonical (folded again from what it loads, it is the same
 table, entry for entry); a mirror that fails is a crash of the
-implementation that wrote it.
+implementation that wrote it. A store's mirror (SAFE's directory form,
+[conventions §8.9](../../spec/conventions.md#89-stores)) is checked likewise, with
+the store in place of source 0: every held object it rebuilds is the store's
+object byte for byte, every url source pins its object's listed size, it is
+canonical, and its view is the one it rebuilds, the values of an object
+described in place read from that object, each its own range.
 
 **The frozen reference records the revision it implements.** The frozen
 profiles have their own revision constants
 (`conformance/virtualize/reference/vzip_reference/revision.py`,
 `conformance/virtualize/reference/ts/revision.ts`): 20 for TIFF, ND2 and CZI,
 the last revision before the mirror, and 25 for DICOM (`DICOM_REVISION`), NIfTI
-(`REVISION_25`), IMS (`IMS_REVISION`) and NDPI (`REVISION` in each `ndpi/virtualize`),
-the last before they moved to the IR (revision 26), which their roots record with
-their old `vzip_source`; nothing else in them changed (an edit made so that a
-reference archive does not claim a revision it does not implement), but for the
-frozen IMS code's citations of the subsections of revision 25's
+(`REVISION_25`), IMS (`IMS_REVISION`), NDPI (`REVISION` in each `ndpi/virtualize`)
+and SAFE (`STORES_REVISION`), the last before they moved to the IR (revision 26),
+which their roots record with their old `vzip_source`; nothing else in them changed
+(an edit made so that a reference archive does not claim a revision it does not
+implement), but for the frozen IMS code's citations of the subsections of revision 25's
 [IMS §5](../../spec/history/virtualize/ims.r25.md#5-source-metadata), which point
 at that snapshot, since [IMS §5](../../spec/virtualize/ims.md#5-source-metadata) no longer has
 them. `compare.py` compares a reference root that records its profile's frozen

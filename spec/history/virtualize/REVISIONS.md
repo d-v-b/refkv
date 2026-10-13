@@ -1198,7 +1198,7 @@ grid row (flat keys).
 the Rust IR core, as TIFF, ND2 and CZI already are (revisions 21 to 24).
 
 **The changes.**
-- **DICOM §5:** `vzip_source` is the file's IR mirror
+- **DICOM [§5](../../virtualize/dicom.md#5-source-metadata):** `vzip_source` is the file's IR mirror
   ([conventions §8](../../conventions.md#8-the-ir-mirror)). Its elements
   ([DICOM §5.4](../../virtualize/dicom.md#54-elements)) are the file's data
   elements: an element of defined length that is not a sequence is one value, a
@@ -1304,6 +1304,61 @@ virtualize NIfTI through the Rust core (`rust/vzip-ir/src/nifti.rs`,
 profiles are frozen in `conformance/virtualize/reference` at revision 25;
 `compare.py` compares them with the IR path outside `vzip_source`, without
 those six members.
+
+### SAFE on the IR
+
+**What prompted it.** The user's decision to put every format on the IR. SAFE
+is both a store (a `.SAFE` directory) and a file (a `.SAFE.zip`), and its
+band files are read in ranges, so its `vzip_source` (XML documents as text
+or arrays chosen by a JSON budget, the JP2 headers as arrays, the other
+objects whole) described neither form fully: a zip file's own structures
+were not kept, and a band file's structure was in no element.
+
+**The changes.**
+- **SAFE [§6.3](../../virtualize/safe.md#63-the-source-metadata-node)
+  and [§6.4](../../virtualize/safe.md#64-reconstruction):** `vzip_source` is
+  the product's IR mirror. The directory form is a store IR: every listed
+  object is an object of it; the XML documents read whole (the product and
+  tile metadata, and every other XML document of at most 65536 bytes) are
+  held, each one value `xml`; the band files are described in place, with
+  their boxes, SIZ, main header marker segments, tile-parts (SOT and body)
+  and EOC as elements; every other object is referenced whole at
+  `vzip_source/objects/<k>`. The zip form is a file IR of the zip file: its
+  end records, central directory, local headers and entries, a band file's
+  elements in its entry's data, a deflated XML document a derived element of
+  the new transform `deflate`. `vzip_source`'s source metadata is
+  `{"ir": I, "empty_dirs", "ignored"}`; `xml`, `xml_arrays`, `empty`, the
+  arrays `vzip_source/xml/<i>` and `vzip_source/jp2/<group>/<band>`, and the
+  JSON budget are gone.
+- **SAFE [§12.2](../../virtualize/safe.md#122-objects-and-reading),
+  [§12.4](../../virtualize/safe.md#124-the-zip-form),
+  [§12.7](../../virtualize/safe.md#127-other-objects)–[§12.9](../../virtualize/safe.md#129-summary):**
+  the reads are those of the IR's held objects (no budget), every deflated
+  XML document is inflated once and checked and no longer copied, and the
+  directory form's url sources are numbered by first use.
+- **Conventions [§8.9](../../conventions.md#89-stores):** an object with
+  children whose form is `{"bytes":"source"}` is **described in place**: its
+  leaves partition it, the table does not hold its bytes, and the view's
+  values in it are read from its source. **[§8.5](../../conventions.md#85-forms-and-recipes)
+  and [§8.8](../../conventions.md#88-canonical-form):** the form of such an
+  object, and the transform `deflate`, whose space holds nothing.
+- **Conventions:** the root property records `"revision": 26`; the schemas
+  were regenerated.
+
+**Output.** Outside `vzip_source`, every SAFE output is that of revision 25
+on every fixture (14 accepted, 59 rejected by both), but for the revision and
+the order of a directory's url sources (now by first use). Under
+`vzip_source`, everything changed.
+
+**Implementations.** The Rust core parses both forms (`src/safe/`, checked by
+`schema/safe.json`) and projects them (`project/safe.rs`): the directory form
+as the store format `safe` (`vzip_ir.StoreRun`, `vz_store_*`), the zip form as
+the file format `safe` (`vzip_ir.Run`, `vz_run_new` code 6). Python's
+`vzip.ir.store` and the browser's new `ir/store.ts` write store outputs with
+ranges of objects and data sources; the store runs are told the listing's
+ignored keys (`set_ignored`, `vz_store_ignored`). The Python and TypeScript
+SAFE profiles are frozen under `conformance/virtualize/reference/`, recording
+25.
 
 ### IMS
 

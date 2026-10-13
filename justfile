@@ -12,7 +12,7 @@ idr_tiff := "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant
 default:
     @just --list --list-submodules
 
-# Test the Python package (python/src/vzip; it virtualizes TIFF, NDPI, ND2, CZI, DICOM, NIfTI and IMS with the Rust core, built first)
+# Test the Python package (python/src/vzip; it virtualizes TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE with the Rust core, built first)
 test *args: ir-build
     uv run pytest -q python/tests {{args}}
 

@@ -18,6 +18,7 @@ mod ims;
 mod nd2;
 mod ndpi;
 mod nifti;
+pub mod safe;
 mod tiff;
 
 use crate::ir::Ir;
@@ -39,6 +40,7 @@ pub fn project(format: Format, ir: &Ir, facts: &J, url: &str, copied: &Copied) -
         Format::Dicom => dicom::project(ir, facts, url),
         Format::Nifti => nifti::project(ir, facts, url, copied),
         Format::Ims => ims::project(ir, facts, url),
+        Format::Safe => safe::project(ir, facts, url),
         Format::Ndpi => ndpi::project(ir, facts, url),
     }
 }
