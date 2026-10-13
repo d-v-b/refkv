@@ -107,7 +107,7 @@ def test_headings(repo):
         ("spec/virtualize.md", "decimal (TIFF §3)\n", "ok", "spec/virtualize/tiff.md#3-ome-xml"),
         ("python/src/refkv/virtualize/tiff/x.py", "# the profile §3\n", "ok", "spec/virtualize/tiff.md#3-tiff-profile"),
         # a bare reference takes the file's document; a format's code, its format's
-        ("python/src/refkv/store.py", "# §2 here\n", "ambiguous", ""),
+        ("python/src/refkv/reader.py", "# §2 here\n", "ambiguous", ""),
         ("python/src/refkv/virtualize/tiff/x.py", "# §4\n", "ok", "spec/virtualize/tiff.md#4-the-image"),
         ("python/src/refkv/virtualize/tiff/x.py", "# §3\n", "ambiguous", ""),
         ("python/src/refkv/virtualize/tiff/x.py", "# §1.2\n", "review", "spec/virtualize.md#12-input"),

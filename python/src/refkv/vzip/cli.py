@@ -1,7 +1,7 @@
 """Conformance-harness CLI (conformance/vzip/HARNESS.md) for the reference implementation.
 
-    python -m refkv.cli [--allow-private-hosts] read <archive> <queries.json>
-    python -m refkv.cli write <description.json> <out>
+    python -m refkv.vzip.cli [--allow-private-hosts] read <archive> <queries.json>
+    python -m refkv.vzip.cli write <description.json> <out>
 
 `read` uses the reader's default policy (spec §6.7
 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>). --allow-private-hosts
@@ -17,10 +17,11 @@ import os
 import sys
 
 from refkv._sync import run
-from refkv.archive import RESERVED_PREFIX, VZipWriter
+from refkv.vzip.archive import RESERVED_PREFIX, VZipWriter
 from refkv.pb import Range, Source
 from refkv.policy import Policy
-from refkv.store import OffsetRequest, RangeRequest, Request, SuffixRequest, VZipStore
+from refkv.reader import OffsetRequest, RangeRequest, Request, SuffixRequest
+from refkv.vzip.store import VZipStore
 
 
 def _request(r: dict | None) -> Request | None:

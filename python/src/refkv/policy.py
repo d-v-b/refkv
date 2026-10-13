@@ -121,10 +121,10 @@ def scheme_remedy(url: str) -> str:
         return ("If the bucket is public, write its HTTPS URLs instead "
                 "(ReferenceStore.from_virtualizarr(vds, rewrite_urls=refkv.public_s3_url)); "
                 f"or read it with registry={{{root!r}: S3Store(...)}}, a store for the "
-                "bucket (help(refkv.store.Resolver)), and save it with "
+                "bucket (help(refkv.reader.Resolver)), and save it with "
                 "policy=Policy(schemes={'s3'}).")
     return (f"Write http(s) URLs instead, or read it with registry={{{root!r}: store}}, a "
-            f"store that serves those URLs (help(refkv.store.Resolver)), and save it with "
+            f"store that serves those URLs (help(refkv.reader.Resolver)), and save it with "
             f"policy=Policy(schemes={{{s!r}}}).")
 
 
@@ -160,7 +160,7 @@ class Policy:
 
     For example, to read only sources under one prefix, or to save an
     archive whose references name an S3 bucket, which its readers will read
-    with a store registered for the bucket (`help(refkv.store.Resolver)`):
+    with a store registered for the bucket (`help(refkv.reader.Resolver)`):
 
         policy = refkv.Policy(prefixes=("https://data.example/archive/",))
         store = refkv.open("data.vzip", policy=policy)

@@ -26,7 +26,7 @@ from run import grade, run_read  # noqa: E402
 from validate import validate  # noqa: E402
 
 CLI = ["node", str(ROOT / "js" / "conformance" / "cli.ts")]
-REF = ["uv", "run", "python", "-m", "refkv.cli"]
+REF = ["uv", "run", "python", "-m", "refkv.vzip.cli"]
 
 
 def main(out: Path) -> int:

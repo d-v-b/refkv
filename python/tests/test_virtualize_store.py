@@ -17,7 +17,7 @@ import pytest
 # the frozen reference twins (conformance/virtualize/reference), for one test
 REFERENCE = str(Path(__file__).parents[2] / "conformance" / "virtualize" / "reference")
 
-from refkv.archive import VZipWriter
+from refkv.vzip.archive import VZipWriter
 from refkv.pb import Range, decode_source_table
 from refkv.virtualize import Rejected
 from refkv.virtualize.common import declare

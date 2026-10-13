@@ -79,7 +79,7 @@ Shared changes:
   `imagecodecs_jpeg2k`. `numcodecs.shuffle` and `zstd` are zarr-python's.
   Readers with rectilinear levels need
   `zarr.config.set({"array.rectilinear_chunks": True})` (zarr-python 3.4);
-  the verifier and `refkv.store` helpers set it.
+  the verifier and `refkv.reader` helpers set it.
 - `spec/virtualize.md`: the detection row (profile §13.1), the profile table
   row, §13 = CZI and §14 = Conformance (update the `#13-conformance`
   anchors), revision 18 in `REVISIONS.md`.

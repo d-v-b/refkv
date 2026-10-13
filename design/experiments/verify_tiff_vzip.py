@@ -14,8 +14,8 @@ import tifffile
 import zarr
 
 import refkv.zarr  # registers imagecodecs_jpeg2k
-from refkv.archive import VZipWriter  # noqa: F401
-from refkv.store import VZipStore
+from refkv.vzip.archive import VZipWriter  # noqa: F401
+from refkv.vzip.store import VZipStore
 
 
 def main(archive: str, url: str) -> None:

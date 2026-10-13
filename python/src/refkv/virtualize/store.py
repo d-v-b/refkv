@@ -721,13 +721,13 @@ class HttpStore(Store):
         if self._opener is not None:  # it follows redirects, and raises HTTPError, as urlopen does
             with self._opener(urllib.request.Request(url, headers=headers)) as r:
                 return r.status, getattr(r, "headers", None), r.read()
-        from refkv import store
+        from refkv import reader
 
         check = None
         if not self.policy.allow_private_hosts:
             check = lambda ip: self.policy.check_address(url, ip)  # noqa: E731
         try:
-            return store._send(url, headers, check, self.policy.allow_unchecked_proxy, self._conns)
+            return reader._send(url, headers, check, self.policy.allow_unchecked_proxy, self._conns)
         except (OSError, http.client.HTTPException) as e:
             if isinstance(e, urllib.error.URLError):
                 raise
@@ -1123,7 +1123,7 @@ class StoreOutput:
         return {k: [(i, 0, n)] for i, (k, n) in enumerate(self.chunks)}
 
     def write(self, out_path: str) -> None:
-        from refkv.archive import VZipWriter
+        from refkv.vzip.archive import VZipWriter
 
         with open(out_path, "wb") as fh:
             w = VZipWriter(fh, page_size=1 << 16, checksum=self.checksum)

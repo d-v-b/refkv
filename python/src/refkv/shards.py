@@ -37,7 +37,7 @@ except ImportError as e:
 from zarr.codecs import BytesCodec, ShardingCodec  # noqa: E402
 from zarr.storage import MemoryStore  # noqa: E402
 
-from refkv.archive import VZipWriter
+from refkv.vzip.archive import VZipWriter
 from refkv.convert import consolidate, read_at_open, _write_loadable
 from refkv.pb import Range
 

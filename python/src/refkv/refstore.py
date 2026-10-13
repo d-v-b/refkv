@@ -5,7 +5,7 @@ concatenation of byte ranges of other objects, named through the store's one
 source table (spec/archive.md, Part 1
 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#part-1-reference-values>). A
 `ReferenceStore` holds that mapping in memory, and reads like any reference store
-(`refkv.store.ReferenceReader`); `refkv.zarr.store(store)` opens it for zarr and
+(`refkv.reader.ReferenceReader`); `refkv.zarr.store(store)` opens it for zarr and
 xarray, as `refkv.zarr.open` does a saved archive. `save` writes it as a vzip
 archive, one ZIP file (Part 2
 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#part-2-the-zip-binding>), which
@@ -48,13 +48,13 @@ from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from refkv.archive import INDEX_KEY, RESERVED_PREFIX, SOURCES_KEY, VZipWriter
 from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Reference, Source, parts
 from refkv.policy import Policy
-from refkv.store import DEFAULT_CONCURRENCY, Kind, ReferenceReader, Request, Stats, _abs_range
+from refkv.reader import DEFAULT_CONCURRENCY, Kind, ReferenceReader, Request, Stats, _abs_range
 from refkv.uri import file_uri, is_uri_reference
 from refkv.uri import resolve as resolve_reference
+from refkv.vzip.names import INDEX_KEY, RESERVED_PREFIX, SOURCES_KEY
 
 
 @dataclass(frozen=True)
@@ -170,7 +170,7 @@ class ReferenceStore(ReferenceReader):
     `read_at_open`, which it writes last, in that order too: with `read_at_open`,
     `compressed` and `page_size`, a builder decides the whole archive, byte for byte.
     - `registry`, `stats`, `policy`, `max_concurrency`: how references are
-      resolved, as for every reference store (`refkv.store.ReferenceReader`). The
+      resolved, as for every reference store (`refkv.reader.ReferenceReader`). The
       default policy, `Policy()`, reads `http(s)` sources on public hosts and,
       here, local files; it refuses other schemes, such as `s3`, except under
       a prefix the `registry` has a store for, such as the
@@ -411,6 +411,8 @@ class ReferenceStore(ReferenceReader):
                                   f"{len(sources)} sources, so a reader could not read them. "
                                   f"The first: {refused[0]}")
         page_size = self._page_size if page_size is ... else _page_size(page_size)
+        from refkv.vzip.archive import VZipWriter
+
         refs = 0
         with bulk(), open(path, "wb") as f, VZipWriter(f, mirror_refs=mirror_refs,
                                                        page_size=page_size) as w:

@@ -6,7 +6,7 @@ import zarr
 
 import refkv.zarr
 from refkv.convert import split_virtual_dataset, write_vzip
-from refkv.store import VZipStore
+from refkv.vzip.store import VZipStore
 
 from helpers import virtualize
 

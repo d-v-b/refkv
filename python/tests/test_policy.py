@@ -11,12 +11,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from refkv.archive import SPEC_REVISION, VZipWriter
+from refkv.vzip.archive import SPEC_REVISION, VZipWriter
 from refkv.errors import ArchiveError, RequestError, ResolutionError
 from refkv.pb import Range, Source, decode_table
 from refkv.policy import Policy, address_class, crc32c, matches_prefix
 from refkv._sync import run
-from refkv.store import RangeRequest, VZipStore
+from refkv.reader import RangeRequest
+from refkv.vzip.store import VZipStore
 
 BLOB = bytes(range(256)) * 64  # 16 KiB
 # The test server is on 127.0.0.1, which spec §6.7
@@ -374,7 +375,7 @@ def resolver(monkeypatch):
     """Maps host names to addresses for the reader (`names`), passing others on."""
     import socket
 
-    import refkv.store
+    import refkv.reader
 
     names: dict[str, str] = {}
     looked_up: list[str] = []
@@ -386,13 +387,13 @@ def resolver(monkeypatch):
             return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (names[host], port))]
         return real(host, port, *args, **kwargs)
 
-    monkeypatch.setattr(refkv.store, "_getaddrinfo", fake)
+    monkeypatch.setattr(refkv.reader, "_getaddrinfo", fake)
     return names, looked_up
 
 
 def _range(policy, base, url):
     """Bytes 0-4 of `url`, read for an archive at `base` under `policy`, as the store does."""
-    from refkv.store import http_range
+    from refkv.reader import http_range
 
     address = None if policy.allow_private_hosts else policy.check_address
     return http_range(url, 0, 4, Source(url=url), lambda u: policy.check(base, u), address,
@@ -407,7 +408,7 @@ def _loopback_only(url, ip):
 
 def _read(url, seen=None):
     """Bytes 0-4 of `url` through http_range with `_loopback_only`, recording checked addresses."""
-    from refkv.store import http_range
+    from refkv.reader import http_range
 
     def address(u, ip):
         if seen is not None:

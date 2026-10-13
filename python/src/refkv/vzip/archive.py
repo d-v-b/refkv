@@ -48,6 +48,7 @@ from refkv.pb import (
     encode_cd_index,
     encode_source_table,
 )
+from refkv.vzip.names import INDEX_KEY, RESERVED_PREFIX, SOURCES_KEY  # noqa: F401 (re-exported)
 
 MAX_PAYLOAD = 65519
 RANGE_EXTRA_ID = 0x7A76  # "vz": payload is a Range
@@ -59,9 +60,6 @@ FORMAT_VERSION = 0
 # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#5-source-table>)
 SPEC_REVISION = 11
 MAGIC_COMMENT = b"vzip/%d" % FORMAT_VERSION
-SOURCES_KEY = "__vz__/sources"
-INDEX_KEY = "__vz__/index"
-RESERVED_PREFIX = "__vz__/"
 
 _LFH = struct.Struct("<IHHHHHIIIHH")  # 30 bytes
 _CDH = struct.Struct("<IHHHHHHIIIHHHHHII")  # 46 bytes

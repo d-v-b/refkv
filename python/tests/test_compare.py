@@ -15,7 +15,7 @@ ROOT = Path(__file__).parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
 import compare  # noqa: E402
 
-from refkv.archive import VZipWriter  # noqa: E402
+from refkv.vzip.archive import VZipWriter  # noqa: E402
 from refkv.pb import Range, Source  # noqa: E402
 
 URL = "https://data.test/image.tif"

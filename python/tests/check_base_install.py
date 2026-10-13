@@ -31,6 +31,7 @@ absent = ["xarray", "virtualizarr", "imagecodecs", "pytest"] + (["zarr"] if mode
 for name in absent:
     assert importlib.util.find_spec(name) is None, f"{name} is installed: not a {mode} install"
 assert "xarray" not in sys.modules and "zarr" not in sys.modules, "importing refkv imported zarr"
+assert not {"refkv.vzip.archive", "refkv.vzip.store"} & set(sys.modules), "importing refkv imported the ZIP code"
 
 
 def expect_import_error(extra: str, attempt) -> None:
@@ -67,7 +68,7 @@ with tempfile.TemporaryDirectory() as d:
         assert s.raw("x/c/0") == Range(source=0, offset=4, length=4).encode()
     assert reopened.max_concurrency == 8
 
-    from refkv import cli
+    from refkv.vzip import cli
 
     with open("q.json", "w") as f:
         json.dump([{"op": "get", "key": "x/c/0", "range": {"suffix": 2}},

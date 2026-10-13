@@ -24,7 +24,7 @@ from virtualizarr.manifests.utils import create_v3_array_metadata
 from refkv.convert import write_vzip
 from refkv.shards import write_vzip_sharded
 import refkv.zarr
-from refkv.store import VZipStore
+from refkv.vzip.store import VZipStore
 
 warnings.filterwarnings("ignore")
 ROOT = Path(__file__).parent / "_bench"

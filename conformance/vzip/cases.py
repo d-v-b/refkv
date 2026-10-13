@@ -346,7 +346,7 @@ def invalid_descriptions(root: Path) -> dict[str, dict]:
 
 
 def _writer(path: Path, sources=None, **kw):
-    from refkv.archive import VZipWriter
+    from refkv.vzip.archive import VZipWriter
     from refkv.pb import Source
 
     f = open(path, "wb")

@@ -258,8 +258,8 @@ Where vzip is clearly worse:
 ```
 spec/proto/refkv.proto          wire schema
 python/src/refkv/pb.py            protobuf codec (no protoc)
-python/src/refkv/archive.py       zip writer + CD/EOCD parsing, paged CD index
-python/src/refkv/store.py         zarr Store: overlay resolver (obstore IO, request stats)
+python/src/refkv/vzip/archive.py       zip writer + CD/EOCD parsing, paged CD index
+python/src/refkv/reader.py         zarr Store: overlay resolver (obstore IO, request stats)
 python/src/refkv/convert.py       virtualizarr Dataset -> vzip (per-chunk refs)
 python/src/refkv/shards.py        virtualizarr Dataset -> vzip (virtual shards)
 design/experiments/naive_view.py what naive tools see

@@ -199,7 +199,7 @@ class StoreIrOutput:
         return self.table()[0]
 
     def write(self, out_path: str) -> None:
-        from refkv.archive import VZipWriter
+        from refkv.vzip.archive import VZipWriter
         from refkv.pb import Range, Source
 
         with open(out_path, "wb") as fh:

@@ -11,10 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from refkv.archive import Entry, parse_central_directory, parse_tail
+from refkv.vzip.archive import Entry, parse_central_directory, parse_tail
 from refkv.pb import Concat, Range, Source, decode_table
 from refkv.policy import Policy, crc32c
-from refkv.store import VZipStore
+from refkv.vzip.store import VZipStore
 from refkv.virtualize import virtualize
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"

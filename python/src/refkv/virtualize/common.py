@@ -18,7 +18,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Callable
 
-from refkv.archive import VZipWriter
+from refkv.vzip.archive import VZipWriter
 from refkv.errors import ResolutionError
 from refkv.pb import Range, Source
 from refkv.policy import Policy
@@ -656,7 +656,7 @@ def _retry(f):
 
 class _ThreadConnections:
     """Kept-alive connections, one per thread and origin, with the interface of
-    `refkv.store._Pool`: each thread that reads closes its own (`release`) as it
+    `refkv.reader._Pool`: each thread that reads closes its own (`release`) as it
     ends. A new TLS connection per range costs a round trip or more, which
     dominates many small reads, such as a SAFE product's band files'."""
 
@@ -670,7 +670,7 @@ class _ThreadConnections:
         return conns
 
     def get(self, scheme: str, host: str, port: int | None):
-        from refkv.store import new_connection
+        from refkv.reader import new_connection
 
         conn = self._conns().pop((scheme, host, port), None)
         if conn is not None:
@@ -696,7 +696,7 @@ def follow(base: str, url: str, send: Callable, policy: Policy):
     """(url, status, headers, body) of the request `send(url)` makes, following at
     most 5 redirects: the policy checks `url`, and each redirect's target before it
     is requested, for the input at `base`. `send` does not follow redirects."""
-    from refkv.store import _check_http_url
+    from refkv.reader import _check_http_url
     from refkv.uri import is_uri_reference
 
     for hop in range(6):
@@ -729,7 +729,7 @@ def http_reader(url: str, block: int = 1 << 16, policy: Policy | None = None) ->
     address each request is sent to is checked, on a new connection and on a
     kept-alive one; and a request that would go through a proxy is refused unless
     the policy has `allow_unchecked_proxy`."""
-    from refkv import store
+    from refkv import reader
 
     policy = policy or Policy()
     etags = EtagLog()
@@ -745,7 +745,7 @@ def http_reader(url: str, block: int = 1 << 16, policy: Policy | None = None) ->
         def send(u: str):
             check = None if policy.allow_private_hosts else (lambda ip: policy.check_address(u, ip))
             try:
-                return store._send(u, headers, check, policy.allow_unchecked_proxy, conns, method)
+                return reader._send(u, headers, check, policy.allow_unchecked_proxy, conns, method)
             except (OSError, http.client.HTTPException) as e:
                 if isinstance(e, urllib.error.URLError):
                     raise

@@ -216,7 +216,7 @@ class SafeOutput:
         return urls, list(data), out
 
     def write(self, out_path: str) -> None:
-        from refkv.archive import VZipWriter
+        from refkv.vzip.archive import VZipWriter
         from refkv.pb import Range, Source
 
         urls, data, refs = self.table()

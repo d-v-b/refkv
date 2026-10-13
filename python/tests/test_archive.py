@@ -4,11 +4,12 @@ import zipfile
 
 import pytest
 
-from refkv.archive import VZipWriter, parse_central_directory, parse_tail
+from refkv.vzip.archive import VZipWriter, parse_central_directory, parse_tail
 from refkv.errors import ArchiveError, EntryError
 from refkv.pb import Pinned, Range
 from refkv._sync import run
-from refkv.store import OffsetRequest, RangeRequest, SuffixRequest, VZipStore, _check_index
+from refkv.reader import OffsetRequest, RangeRequest, SuffixRequest
+from refkv.vzip.store import VZipStore, _check_index
 
 U32 = 0xFFFFFFFF
 

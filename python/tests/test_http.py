@@ -4,7 +4,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from refkv.pb import Source
-from refkv.store import http_range
+from refkv.reader import http_range
 
 BODY = bytes(range(256))
 

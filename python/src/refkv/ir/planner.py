@@ -9,7 +9,7 @@ performs the requests a run asks for and reports each one's bytes and time:
 - `FileTransport`: a local file, mapped; its requests are served in the calling
   thread.
 - `HttpTransport`: an http(s) object read through the archive reader's HTTP
-  layer (`refkv.store`), under the reader policy of spec/archive.md §6.7
+  layer (`refkv.reader`), under the reader policy of spec/archive.md §6.7
   <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>: the host is
   resolved here, every address is checked against rule 3 (loopback, private,
   link-local and special addresses are refused unless the policy has
@@ -74,7 +74,7 @@ class HttpTransport:
     remote = True
 
     def __init__(self, url: str, policy: Policy | None = None, attempts: int = 6, base_delay: float = 0.5) -> None:
-        from refkv.store import _check_http_url
+        from refkv.reader import _check_http_url
 
         self.url, self.attempts, self.base_delay = url, attempts, base_delay
         self.policy = policy or Policy()
@@ -108,7 +108,7 @@ class HttpTransport:
         """One GET of the object (redirects followed and checked): (status, headers, body).
         With `multipart`, a body that is not multipart/byteranges (a 200 is the whole
         object) is not read: the body is b"" and the connection closed."""
-        from refkv.store import _check_http_url
+        from refkv.reader import _check_http_url
 
         url = self.url
         headers = {**headers, "User-Agent": UA, "Accept-Encoding": "identity"}
@@ -206,23 +206,23 @@ class HttpTransport:
 
 
 def _send(url: str, headers: dict[str, str], check, unchecked_proxy: bool, multipart: bool):
-    """`refkv.store._send` (one GET, not following redirects, its connection's address
+    """`refkv.reader._send` (one GET, not following redirects, its connection's address
     checked by `check`), except that a response other than a 206 (or, with
     `multipart`, other than multipart/byteranges) is closed before its body is
     read: a 200 is the whole object."""
-    from refkv import store
+    from refkv import reader
 
-    if store._proxy(url) is not None:
-        return store._send(url, headers, check, unchecked_proxy)
+    if reader._proxy(url) is not None:
+        return reader._send(url, headers, check, unchecked_proxy)
     pu = urlparse(url)
     rest = url.split("://", 1)[1]
     target = rest[re.match(r"[^/?#]*", rest).end():].split("#", 1)[0]
     target = target if target.startswith("/") else "/" + target
     for attempt in (0, 1):
-        conn, reused = store._POOL.get(pu.scheme, pu.hostname, pu.port)
+        conn, reused = reader._POOL.get(pu.scheme, pu.hostname, pu.port)
         try:
             if conn.sock is None:
-                store._connect(conn, check)
+                reader._connect(conn, check)
             if check is not None:
                 check(conn.sock.getpeername()[0])
             conn.request("GET", target, headers=headers)
@@ -242,7 +242,7 @@ def _send(url: str, headers: dict[str, str], check, unchecked_proxy: bool, multi
         if r.will_close:
             conn.close()
         else:
-            store._POOL.put(pu.scheme, pu.hostname, pu.port, conn)
+            reader._POOL.put(pu.scheme, pu.hostname, pu.port, conn)
         return r.status, r.msg, body
     raise AssertionError("unreachable")
 

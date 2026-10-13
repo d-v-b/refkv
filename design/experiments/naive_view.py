@@ -12,7 +12,7 @@ from conftest import make_netcdf, virtualize  # noqa: E402
 from refkv.convert import write_vzip
 from refkv.pb import Range
 import refkv.zarr
-from refkv.store import VZipStore
+from refkv.vzip.store import VZipStore
 
 d = Path(tempfile.mkdtemp())
 make_netcdf(d / "a.nc", 0)

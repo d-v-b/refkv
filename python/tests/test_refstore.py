@@ -243,7 +243,7 @@ def test_registry_reads_registered_sources(netcdf_files, tmp_path):
     from obspec_utils.registry import ObjectStoreRegistry
     from obstore.store import MemoryStore
 
-    from refkv.store import Resolver
+    from refkv.reader import Resolver
 
     paths, expected = netcdf_files
     vds = xr.concat([virtualize(p) for p in paths], dim="time", coords="minimal",
@@ -565,10 +565,15 @@ def test_mapping_cannot_be_changed():
 def test_public_api():
     assert set(refkv.__all__) == {
         "Concat", "OffsetRequest", "Policy", "Range", "RangeRequest", "ReferenceStore",
-        "Source", "Stats", "SuffixRequest", "Summary", "VZipStore", "VZipWriter", "open",
-        "public_s3_url"}
+        "Source", "Stats", "SuffixRequest", "Summary", "open", "public_s3_url"}
     assert all(hasattr(refkv, name) for name in refkv.__all__)
-    assert isinstance(refkv.open("x.vzip"), refkv.VZipStore)
+    assert set(refkv.vzip.__all__) == {"VZipStore", "VZipWriter", "open"}
+    assert all(hasattr(refkv.vzip, name) for name in refkv.vzip.__all__)
+    # refkv.open reads any name with the ZIP binding, the default
+    for url in ("x.vzip", "data", "https://example.test/get?id=42&sig=abc", "file:///tmp/x.zip"):
+        assert isinstance(refkv.open(url), refkv.vzip.VZipStore), url
+        assert isinstance(refkv.open(url, binding="vzip"), refkv.vzip.VZipStore), url
+    assert isinstance(refkv.vzip.open("x.zip"), refkv.vzip.VZipStore)
     assert set(refkv.zarr.__all__) == {"ZarrStore", "open", "store"}
     assert isinstance(refkv.zarr.open("x.vzip"), refkv.zarr.ZarrStore)
     assert refkv.zarr.open("x.vzip").reader == refkv.open("x.vzip")
@@ -576,3 +581,8 @@ def test_public_api():
     assert refkv.zarr.store(store).reader is store
     from refkv.convert import write_vzip  # the older name still imports
     assert callable(write_vzip)
+
+
+def test_open_refuses_an_unknown_binding():
+    with pytest.raises(ValueError, match="no binding 'kv'"):
+        refkv.open("x.vzip", binding="kv")

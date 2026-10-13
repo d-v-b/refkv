@@ -1322,7 +1322,7 @@ ready in 51 ms, the module's fetch and compilation included.
 | native and wasm32 parity | parsers: 1,971 of 1,971 inputs (fixtures, probes, mutants) give the same IR digest; whole outputs: `py` and `web` identical on the 667 fixtures and 5,290 mutants |
 | `just test --ignore=python/tests/ir`, `just ir-test`, `just js::test` | green |
 | verify scripts (`just verify`, CZI, SAFE; private hosts opted in) | 0 failures (TIFF/ND2/CZI archives of the IR check their mirror's rebuild) |
-| `conformance/vzip/run.py --impl ref="python -m refkv.cli --allow-private-hosts"` | 5,125/5,125 reads, 11/11 writes, 45/45 rejects, 4,973/4,973 cross-reads, 1,582/1,582 http |
+| `conformance/vzip/run.py --impl ref="python -m refkv.vzip.cli --allow-private-hosts"` | 5,125/5,125 reads, 11/11 writes, 45/45 rejects, 4,973/4,973 cross-reads, 1,582/1,582 http |
 | `node build.mjs`, the service worker in Chromium | builds; virtualizes a TIFF, an ND2 and a CZI |
 | `just fixtures-check` (last, alone) | passes: two runs agree, and with the committed fixtures |
 
@@ -1884,7 +1884,7 @@ Hamamatsu-1 56):
   the span cache 93 → 25 s (the span cache adds nothing there at 0.1 s per MB);
   `bench_ir.py --byte-cost 0` gives these.
 
-Not done: the store readers (`refkv.store`, `js/src/archive.ts`) still read chunk
+Not done: the store readers (`refkv.reader`, `js/src/archive.ts`) still read chunk
 by chunk with a 64 KiB gap; adopting the planner there (a batch per view, a
 span cache, a ceiling of its own) is the open step this benchmark argues for.
 

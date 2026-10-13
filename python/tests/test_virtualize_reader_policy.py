@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-import refkv.store
+import refkv.reader
 from refkv.errors import ResolutionError
 from refkv.policy import Policy
 from refkv.virtualize import _virtualize as virtualize  # the profile output, not the store
@@ -92,7 +92,7 @@ def names(monkeypatch):
             return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (table[host], port))]
 
-    monkeypatch.setattr(refkv.store, "_getaddrinfo", fake)
+    monkeypatch.setattr(refkv.reader, "_getaddrinfo", fake)
     return table
 
 

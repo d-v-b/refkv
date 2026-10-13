@@ -4,7 +4,10 @@
   and xarray is a dependency only of the documentation's examples and the tests.
 - Only the zarr adapter (`refkv.zarr`) and the VirtualiZarr conversion
   (`refkv.convert`, `refkv.shards`) import zarr, which the base install does not
-  have: the other modules neither import it nor import the adapter."""
+  have: the other modules neither import it nor import the adapter.
+- `import refkv` imports none of the ZIP binding's code but the names it reserves
+  (`refkv.vzip.names`): its reader and writer are imported when a store is opened or
+  saved."""
 
 import ast
 import shutil
@@ -107,13 +110,13 @@ def test_the_zarr_guard_finds_a_planted_import(tmp_path):
     pkg = tmp_path / "refkv"
     shutil.copytree(SRC, pkg, ignore=shutil.ignore_patterns("__pycache__"))
     assert zarr_importers(pkg) == {}
-    store = pkg / "store.py"
-    n = store.read_text().count("\n")
-    store.write_text(store.read_text() + "\n\ndef planted():\n    from zarr.abc.store import Store\n")
+    reader = pkg / "reader.py"
+    n = reader.read_text().count("\n")
+    reader.write_text(reader.read_text() + "\n\ndef planted():\n    from zarr.abc.store import Store\n")
     (pkg / "virtualize" / "planted.py").write_text("import zarr.storage\n")
-    cli = pkg / "cli.py"
+    cli = pkg / "vzip" / "cli.py"
     cli.write_text("import refkv.zarr\n" + cli.read_text())
-    assert zarr_importers(pkg) == {"cli.py": [1], "store.py": [n + 4], "virtualize/planted.py": [1]}
+    assert zarr_importers(pkg) == {"vzip/cli.py": [1], "reader.py": [n + 4], "virtualize/planted.py": [1]}
 
 
 def test_importing_the_core_imports_no_zarr():
@@ -133,3 +136,11 @@ print(len([n for n in sys.modules if n.startswith("refkv.")]), loaded)
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     count, loaded = out.stdout.split(" ", 1)
     assert int(count) > 15 and loaded.strip() == "[]", out.stdout
+
+
+def test_importing_refkv_imports_no_zip_code():
+    """`import refkv` leaves the ZIP binding's reader and writer unimported: a
+    ReferenceStore needs only the names the binding reserves (refkv.vzip.names)."""
+    code = "import sys, refkv\nprint(sorted(n for n in sys.modules if n.startswith('refkv.vzip')))"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "['refkv.vzip', 'refkv.vzip.names']", out.stdout

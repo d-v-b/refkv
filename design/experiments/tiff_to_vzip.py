@@ -34,7 +34,7 @@ import tifffile
 import zarr
 from zarr.storage import MemoryStore
 
-from refkv.archive import VZipWriter
+from refkv.vzip.archive import VZipWriter
 from refkv.zarr.codecs import Jpeg2kCodec
 from refkv.pb import Range, Source
 

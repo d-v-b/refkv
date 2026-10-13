@@ -1,6 +1,6 @@
 """Reference stores as read-only zarr stores, for zarr-python and xarray (the `zarr` extra).
 
-A reference store (`refkv.ReferenceStore` in memory, `refkv.VZipStore` for an archive)
+A reference store (`refkv.ReferenceStore` in memory, `refkv.vzip.VZipStore` for an archive)
 needs no Zarr: its keys are strings, and its values bytes or references. This
 module wraps one as a `zarr.abc.store.Store`:
 
@@ -35,13 +35,12 @@ except ImportError as e:
     raise missing("zarr", "refkv.zarr", e) from e
 
 import refkv.zarr.codecs  # noqa: E402,F401  registers the codecs vzip archives use
-from refkv.store import (  # noqa: E402
+from refkv.reader import (  # noqa: E402
     OffsetRequest,
     RangeRequest,
     ReferenceReader,
     Request,
     SuffixRequest,
-    VZipStore,
 )
 
 
@@ -60,7 +59,7 @@ def _request(byte_range: ByteRequest | None) -> Request | None:
 
 class ZarrStore(Store):
     """A reference store, read through zarr: a read-only `zarr.abc.store.Store` whose
-    values are those of `reader` (a `refkv.ReferenceStore` or a `refkv.VZipStore`).
+    values are those of `reader` (a `refkv.ReferenceStore` or a `refkv.vzip.VZipStore`).
 
     `store(reader)` and `open(url)` make one. Reads go to the reference store, under
     its policy, request cap and `Stats`; the reference store stays reachable as
@@ -77,7 +76,7 @@ class ZarrStore(Store):
     def __init__(self, reader: ReferenceReader) -> None:
         if not isinstance(reader, ReferenceReader):
             raise TypeError(f"refkv.zarr wraps a reference store (refkv.ReferenceStore or "
-                            f"refkv.VZipStore), not {type(reader).__name__}")
+                            f"refkv.vzip.VZipStore), not {type(reader).__name__}")
         super().__init__(read_only=True)
         self.reader = reader
 
@@ -159,19 +158,21 @@ class ZarrStore(Store):
 
 
 def store(reader: ReferenceReader) -> ZarrStore:
-    """`reader`, a reference store (`refkv.ReferenceStore`, or a `refkv.VZipStore`), as a
+    """`reader`, a reference store (`refkv.ReferenceStore`, or a `refkv.vzip.VZipStore`), as a
     read-only zarr store: `xr.open_zarr(refkv.zarr.store(store))`."""
     return ZarrStore(reader)
 
 
 def open(url: str, **kwargs) -> ZarrStore:  # noqa: A001 - like refkv.open, zarr.open
-    """The vzip archive at `url` (a local path or an `http(s)` URL) as a read-only
-    zarr store: `xr.open_zarr(refkv.zarr.open("data.vzip"))`.
+    """The store saved at `url` (a local path or an `http(s)` URL), opened by `refkv.open`
+    (by default with the ZIP binding), as a read-only zarr store:
+    `xr.open_zarr(refkv.zarr.open("data.vzip"))`.
 
-    Keyword arguments go to `refkv.VZipStore`, as for `refkv.open`: `policy`,
-    `registry`, `stats`, `max_concurrency` (8 by default; None for no cap) and
-    `resolve`."""
-    return ZarrStore(VZipStore(str(url), **kwargs))
+    Keyword arguments go to `refkv.open`: `binding`, `policy`, `registry`, `stats`,
+    `max_concurrency` (8 by default; None for no cap) and `resolve`."""
+    import refkv
+
+    return ZarrStore(refkv.open(url, **kwargs))
 
 
 __all__ = ["ZarrStore", "open", "store"]
