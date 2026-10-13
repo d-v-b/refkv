@@ -1244,9 +1244,9 @@ the only implementation; Python (`vzip.ir.store.run_store`) and the browser
 test-only prototype `proto_zarr2.rs` is removed. Today's Python and
 TypeScript profiles are frozen in `conformance/virtualize/reference`
 (recording revision 25), and `compare.py` compares them with the core
-outside `vzip_source`; the shipped `vzip.virtualize.zarr2` and
-`js/src/virtualize/zarr2` stay for the OME-Zarr profile, which builds on
-them.
+outside `vzip_source`. The shipped `vzip.virtualize.zarr2` and
+`js/src/virtualize/zarr2` are removed with OME-Zarr's move below, which
+was their last user.
 
 ### OME-Zarr on the IR
 
