@@ -45,10 +45,12 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
   `vzip_virtualized` convention) as
   `"nifti": {..., "scaling": {"slope": s, "inter": i}}`; compute
   `s × raw + i`.
-- **Header:** every field of the NIfTI header, its extensions and its
-  affine, under `vzip_virtualized.nifti` (large extensions as arrays on
-  `vzip_source`). With them, every byte of the file but the voxels and
-  padding is in the hierarchy.
+- **Header:** every field of the NIfTI header and its affine, under
+  `vzip_virtualized.nifti`. The whole file (the header, its extensions, the
+  voxels and every byte between) is described on `vzip_source` by the Rust
+  core's IR mirror, from which it is rebuilt byte for byte; its view
+  `vzip_source/tree` shows the header, the extender and each extension of
+  at most 1024 bytes (since revision 26).
 - **omero:** a display window from `cal_min`/`cal_max`, or R, G, B (A)
   channels for color voxels.
 

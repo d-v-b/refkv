@@ -1,7 +1,7 @@
 """vzip's intermediate representation (design/ARCHITECTURE.md §3
 <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
 the path `vzip.virtualize`
-takes for TIFF (NDPI included), ND2, CZI and DICOM: the Rust core (rust/vzip-ir, the `vzip_ir` module)
+takes for TIFF (NDPI included), ND2, CZI, DICOM and NIfTI: the Rust core (rust/vzip-ir, the `vzip_ir` module)
 parses, checking each format's source model schema, plans the reads, projects the
 convention's hierarchy and mirrors the IR under `vzip_source`; this package is the
 host: the I/O (`planner.py`), the archive writer (`output.py` into `Output`), and
@@ -18,9 +18,23 @@ CZI_MAGIC = b"ZISRAWFILE" + bytes(6)
 ND2_MAGIC = bytes.fromhex("DACEBE0A")
 
 
+def nifti_version(head: bytes) -> int | None:
+    """The NIfTI version a file's first bytes (at least 348 of them, when the file has
+    them) select (spec/virtualize.md §1.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>), or None."""
+    if len(head) < 12:
+        return None
+    sizes = (int.from_bytes(head[:4], "little", signed=True), int.from_bytes(head[:4], "big", signed=True))
+    if 348 in sizes and len(head) >= 348 and head[344:348] == b"n+1\0":
+        return 1
+    if 540 in sizes and head[4:12] == b"n+2\0\r\n\x1a\n":
+        return 2
+    return None
+
+
 def sniff(head: bytes) -> str | None:
-    """The IR format a file's first 132 bytes give, if any (DICOM first: a dual-personality
-    file's preamble may hold a TIFF header)."""
+    """The IR format a file's first bytes give, if any (132 of them for DICOM, 348 for
+    NIfTI-1; DICOM first: a dual-personality file's preamble may hold a TIFF header)."""
     if head[128:132] == b"DICM":
         return "dicom"
     if head[:4] == ND2_MAGIC:
@@ -29,6 +43,8 @@ def sniff(head: bytes) -> str | None:
         return "tiff"
     if head[:16] == CZI_MAGIC:
         return "czi"
+    if nifti_version(head) is not None:
+        return "nifti"
     return None
 
 
@@ -61,12 +77,12 @@ def virtualize(location: str, url: str | None = None, mirror: bool = True, polic
     from vzip.ir.planner import drive, new_run, open_transport
 
     transport = transport or open_transport(location, policy)
-    head = transport.head[1][:132] if transport.head[1] else transport.get(0, min(132, transport.size))
-    if len(head) < min(132, transport.size):
-        head = transport.get(0, min(132, transport.size))
+    want = min(552, transport.size)
+    held = transport.head[1] or b""
+    head = held[:want] if len(held) >= want else transport.get(0, want)
     fmt = sniff(head)
     if fmt is None:
-        raise Rejected("not a TIFF, CZI, ND2 or DICOM file")
+        raise Rejected("not a TIFF, CZI, ND2, DICOM or NIfTI file")
     run = new_run(fmt, transport, connections, byte_cost)
     drive(run, transport, connections)
     fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"

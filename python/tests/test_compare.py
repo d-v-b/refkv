@@ -163,16 +163,22 @@ def test_mirror_problem_finds_a_table_that_is_not_canonical(tmp_path):
 
 
 def test_at_revision():
-    """The frozen reference's root (revision 20; 25 for DICOM) reads at the current
-    revision; any other root, or an output without one, is unchanged."""
-    def root(revision, profile="tiff"):
+    """A frozen reference's root (revision 20 for TIFF, ND2 and CZI, 25 for DICOM, NIfTI and NDPI)
+    reads at the current revision, without the members of its source metadata the mirror
+    holds instead; any other root, or an output without one, is unchanged."""
+    def root(revision, profile="tiff", own=None):
         prop = {"profile": profile, "version": 0, "revision": revision, "source": {"url": "u"}}
+        if own is not None:
+            prop[profile] = own
         return {"sources": [], "entries": {"zarr.json": ("json", {"attributes": {"vzip_virtualized": prop}}),
                                            "a": ("bytes", b"x")}}
 
     for profile, frozen in compare.REFERENCE_REVISIONS.items():
         assert compare.at_revision(root(frozen, profile)) == root(compare.REVISION, profile)
-    for other in (root(compare.REVISION), root(19), root(25), root(20, "dicom"), root(25, "nifti"),
+    kept = {"nifti_version": 1, "header": {}, "scaling": {"slope": 2, "inter": 0}}
+    frozen = {**kept, "extender": "AQAAAA==", "extensions": [], "unparsed": "vzip_source/unparsed"}
+    assert compare.at_revision(root(25, "nifti", frozen)) == root(compare.REVISION, "nifti", kept)
+    for other in (root(compare.REVISION), root(19), root(25), root(20, "dicom"), root(20, "nifti", frozen),
                   {"sources": [], "entries": {}}):
         assert compare.at_revision(other) == other
 

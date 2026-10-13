@@ -86,7 +86,7 @@ after(() => {
   server.close();
 });
 
-const IR_FIXTURES = ["tiff", "nd2", "czi"].flatMap((dir) =>
+const IR_FIXTURES = ["tiff", "nd2", "czi", "nifti"].flatMap((dir) =>
   fs.readdirSync(new URL(dir, FIXTURES)).filter((n) => !n.endsWith(".npz")).sort().map((n) => `${dir}/${n}`));
 
 test("the Rust core gives the frozen virtualizers' hierarchy, and rejects the same files", async () => {
@@ -99,7 +99,7 @@ test("the Rust core gives the frozen virtualizers' hierarchy, and rejects the sa
       referenceImage(url, blockReader(read, bytes.length), bytes.length),
       virtualizeImage(url, read, bytes.length),
     ]);
-    if (got.status === "fulfilled") assert.equal(got.value.format, irFormat(bytes.subarray(0, 16)), path);
+    if (got.status === "fulfilled") assert.equal(got.value.format, irFormat(bytes.subarray(0, 552)), path);
     if (ref.status === "rejected" || got.status === "rejected") {
       if (got.status === "rejected" && !(got.reason instanceof ImageError)) problems.push(`${path}: ${got.reason}`);
       if (ref.status !== got.status) problems.push(`${path}: the reference ${ref.status === "rejected" ? "rejects" : "accepts"} it, the core does not`);

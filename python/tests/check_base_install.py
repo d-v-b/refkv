@@ -6,8 +6,8 @@ The base install: `import vzip` imports neither xarray nor zarr, which are not
 installed, and the operations work without them: build a ReferenceStore from a
 mapping, read a bytes value and a reference, save it, reopen the archive with
 vzip.open and read it again, run the conformance CLI on it, and virtualize a
-NIfTI file, a TIFF and a Zarr v2 store; the TIFF goes through the Rust core
-(vzip_ir), which the install must have built. Each optional part names the extra it needs.
+NIfTI file and a TIFF, both through the Rust core (vzip_ir), which the install
+must have built, and a Zarr v2 store. Each optional part names the extra it needs.
 
 With `zarr`: vzip.zarr reads the same archive through zarr, and the image
 codecs and the VirtualiZarr conversion name their extras."""

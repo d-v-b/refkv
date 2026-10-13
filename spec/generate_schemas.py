@@ -84,9 +84,9 @@ SOURCE_METADATA: dict[str, dict] = {
         {"$ref": "#/$defs/mirror"},
         {"$ref": "#/$defs/mirrorView"},
     ]},
-    "nifti": {
+    "nifti": {"anyOf": [{
         "type": "object",
-        "description": "The root's source metadata",
+        "description": "The root's: the version, the byte order, the header, and what the layout derives from it (spec/virtualize/nifti.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>)",
         "properties": {
             "nifti_version": {"enum": [1, 2]},
             "byte_order": {"enum": ["little", "big"]},
@@ -106,51 +106,6 @@ SOURCE_METADATA: dict[str, dict] = {
                                                                          "other than the canonical one"}]}},
                 ]},
             },
-            "header_rest": {
-                "type": "object",
-                "description": "The bytes after the first NUL of a character field, where not all NUL",
-                "additionalProperties": {"type": "string", "contentEncoding": "base64"},
-            },
-            "extender": {"type": "string", "contentEncoding": "base64",
-                         "description": "The 4 extender bytes, unless 00 00 00 00 or 01 00 00 00"},
-            "extensions": {"oneOf": [
-                {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "ecode": {"type": "integer"},
-                            "text": {"$ref": "#/$defs/text"},
-                            "esize": {"type": "integer", "minimum": 8,
-                                      "description": "A text extension's esize, when not the fewest NULs'"},
-                            "edata": {"type": "string", "contentEncoding": "base64"},
-                            "data": {"type": "string",
-                                     "description": "The array of vzip_source that holds the data"},
-                        },
-                        "required": ["ecode"],
-                        "maxProperties": 3,
-                        "additionalProperties": False,
-                    },
-                },
-                {
-                    "type": "object",
-                    "description": "Over the root's budget: the ecodes and esizes, the text extensions that fit, "
-                                   "and the others' data as a family of byte values",
-                    "properties": {
-                        "ecode": {"const": "vzip_source/extensions/ecode"},
-                        "esize": {"const": "vzip_source/extensions/esize"},
-                        "data": {"const": "vzip_source/extensions/data"},
-                        "text": {"type": "object", "description": "The text values, by the extension's index",
-                                 "propertyNames": {"pattern": "^(0|[1-9][0-9]*)$"},
-                                 "additionalProperties": {"$ref": "#/$defs/text"}, "minProperties": 1},
-                    },
-                    "required": ["ecode", "esize", "data"],
-                    "additionalProperties": False,
-                },
-            ]},
-            "extensions_truncated": {"const": True},
-            "unparsed": {"type": "string"},
-            "trailing": {"type": "string"},
             "affine": {
                 "type": "object",
                 "properties": {"form": {"enum": ["sform", "qform"]}, "applied": {"type": "boolean"}},
@@ -167,6 +122,9 @@ SOURCE_METADATA: dict[str, dict] = {
         "required": ["nifti_version", "byte_order", "header"],
         "additionalProperties": False,
     },
+        {"$ref": "#/$defs/mirror"},
+        {"$ref": "#/$defs/mirrorView"},
+    ]},
     "ims": {
         "type": "object",
         "description": "An HDF5 group's or dataset's description, on its node under vzip_source/hdf5",
@@ -559,9 +517,9 @@ SOURCE_METADATA["czi"] = {"anyOf": [
 ]}
 # The IR mirror (spec/conventions.md §8
 # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2,
-# CZI, DICOM and NDPI conventions: vzip_source's
+# CZI, DICOM, NIfTI and NDPI conventions: vzip_source's
 # source metadata, and the view documents of the groups under vzip_source/tree.
-IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "ndpi")
+IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ndpi")
 MIRROR_DEFS = {
     "mirror": {
         "type": "object",
