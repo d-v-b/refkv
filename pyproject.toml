@@ -2,12 +2,19 @@
 name = "vzip"
 version = "0.1.0"
 description = "vzip: ZIP plus a reference value type, for virtual stores (reference implementation and experiments)"
+readme = "README.md"
 authors = [
     { name = "Davis Vann Bennett", email = "davis.v.bennett@gmail.com" }
 ]
 requires-python = ">=3.12"
 license = "MIT OR Apache-2.0"
 license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering",
+]
 # The base install reads and writes vzip archives, holds a ReferenceStore and
 # virtualizes image files and stores, without Zarr (numpy: the NIfTI virtualizer), through
 # the Rust core this package builds and ships as the module vzip_ir (below); the
@@ -18,6 +25,10 @@ dependencies = [
     "numpy>=2.5.3",
     "obstore>=0.11.1",
 ]
+
+[project.urls]
+Repository = "https://github.com/d-v-b/vzip"
+Documentation = "https://github.com/d-v-b/vzip/tree/main/docs"
 
 [project.optional-dependencies]
 # vzip.zarr: a vzip store as a read-only zarr store, for zarr and xarray, and the codecs

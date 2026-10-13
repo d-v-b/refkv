@@ -168,10 +168,6 @@ jobs:
       - run: '"$RUNNER_TEMP/pip/bin/python" -m pip install .'
       - run: just base-install-check "$RUNNER_TEMP/pip/bin/python" base
         shell: bash
-      - run: uv venv "$RUNNER_TEMP/base"
-      - run: uv pip install --python "$RUNNER_TEMP/base" .
-      - run: just base-install-check "$RUNNER_TEMP/base/bin/python" base
-        shell: bash
       - run: uv venv "$RUNNER_TEMP/zarr"
       - run: uv pip install --python "$RUNNER_TEMP/zarr" ".[zarr]"
       - run: just base-install-check "$RUNNER_TEMP/zarr/bin/python" zarr
@@ -179,18 +175,17 @@ jobs:
 
   sections:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
+    # spec/tools imports neither vzip nor its Rust core: install the tools, not the project
+    env:
+      UV_NO_SYNC: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
       - uses: extractions/setup-just@v2
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust/vzip-ir
-      - run: uv sync --all-groups --locked
+      - run: uv sync --all-groups --locked --no-install-project
       # every "§n" is a link to its heading, and every such link resolves (spec/tools/sections.py)
       - run: just sections
 

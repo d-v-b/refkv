@@ -1,0 +1,87 @@
+# Build vzip's wheels (the Python package with its Rust core, abi3 for Python >= 3.12) and
+# sdist, and publish them to PyPI when a tag v<version> is pushed, through PyPI's trusted
+# publishing (no token: PyPI trusts this workflow in the environment `pypi`). A pull request
+# that changes the build, and a manual run, build every wheel without publishing.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - pyproject.toml
+      - rust/vzip-ir/Cargo.toml
+      - rust/vzip-ir/Cargo.lock
+      - .github/workflows/release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wheels:
+    name: wheel ${{ matrix.os }} ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64, manylinux: auto }
+          - { os: ubuntu-24.04-arm, target: aarch64, manylinux: auto }
+          - { os: macos-15-intel, target: x86_64 }
+          - { os: macos-15, target: aarch64 }
+          - { os: windows-latest, target: x64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: --release --out dist
+      # the wheel installs and runs: read and write an archive, virtualize through the core
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --find-links dist --no-index vzip --no-deps
+      - run: python -m pip install google-crc32c numpy obstore
+      - run: python python/tests/check_base_install.py base
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}-${{ matrix.target }}
+          path: dist
+
+  sdist:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      # the tag names the version the distributions carry
+      - run: |
+          v="${GITHUB_REF_NAME#v}"
+          ls dist
+          for f in dist/*; do case "$(basename "$f")" in vzip-"$v"[-.]*) ;; *) echo "::error::$f is not version $v"; exit 1;; esac; done
+      - uses: pypa/gh-action-pypi-publish@release/v1
