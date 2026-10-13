@@ -10,11 +10,11 @@ import time
 
 import pytest
 
-from conftest import FIXTURES, same_hierarchy
+from ir_helpers import FIXTURES, same_hierarchy
 from vzip.ir import virtualize as via_ir
 from vzip.ir.cmirror import rebuild_from_archive
 from vzip.virtualize import Rejected
-from vzip_reference import virtualize  # the frozen reference (conftest)
+from vzip_reference import virtualize  # the frozen reference (ir_helpers)
 
 NIIS = sorted((FIXTURES / "nifti").glob("*.nii"))
 

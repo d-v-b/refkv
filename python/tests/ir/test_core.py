@@ -3,7 +3,7 @@ names' invariants, and the fill batch."""
 
 import pytest
 
-from conftest import FIXTURES
+from ir_helpers import FIXTURES
 
 from vzip.virtualize.common import Rejected
 

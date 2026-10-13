@@ -20,7 +20,7 @@ from vzip.convert import write_vzip
 from vzip.errors import ResolutionError
 from vzip.pb import Concat, Range, Source
 
-from conftest import virtualize
+from helpers import virtualize
 
 PROTO = default_buffer_prototype()
 
