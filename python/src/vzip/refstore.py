@@ -80,6 +80,12 @@ class Summary:
                 f"to {self.sources:,} sources; {self.bytes:,} bytes")
 
 
+def _page_size(page_size):
+    if page_size is not None and (type(page_size) is not int or page_size <= 0):
+        raise ValueError(f"page_size is a positive number of bytes or None, not {page_size!r}")
+    return page_size
+
+
 @contextlib.contextmanager
 def bulk():
     """Pauses the cyclic garbage collector while millions of acyclic objects (a
@@ -217,9 +223,7 @@ class ReferenceStore(ReferenceReader):
         for key in self._compressed:
             if not isinstance(values.get(key), bytes):
                 raise ValueError(f"compressed names {key!r}, which is not a key of a bytes value")
-        if page_size is not None and (not isinstance(page_size, int) or page_size <= 0):
-            raise ValueError(f"page_size is a positive number of bytes or None, not {page_size!r}")
-        self._page_size = page_size
+        self._page_size = _page_size(page_size)
         self._info = copy.deepcopy(dict(info or {}))
 
     # ------------------------------------------------------------ constructors
@@ -392,8 +396,7 @@ class ReferenceStore(ReferenceReader):
             raise ValueError(f"not saving {path}: {whose} refuses {len(refused)} of its "
                              f"{len(sources)} sources, so a reader could not read them. "
                              f"The first: {refused[0]}")
-        if page_size is ...:
-            page_size = self._page_size
+        page_size = self._page_size if page_size is ... else _page_size(page_size)
         refs = 0
         with bulk(), open(path, "wb") as f, VZipWriter(f, mirror_refs=mirror_refs,
                                                        page_size=page_size) as w:

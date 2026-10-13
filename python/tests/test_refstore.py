@@ -150,6 +150,8 @@ def test_save_follows_the_store_layout(tmp_path):
     store = vzip.ReferenceStore(mapping, [Source(url="https://data.test/x")], read_at_open=["a/zarr.json"],
                                 compressed=["m"], page_size=1 << 16, info={"format": "x", "n": [1]})
     assert store.info == {"format": "x", "n": [1]} and store.compressed == {"m"} and store.page_size == 1 << 16
+    store.info["n"].append(2)  # a copy
+    assert store.info == {"format": "x", "n": [1]}
     for page_size, index in ((..., True), (None, False)):
         path = tmp_path / f"{index}.vzip"
         store.save(path, page_size=page_size)
@@ -433,9 +435,13 @@ def test_constructor_rejects_compressed_naming_no_bytes_value():
                             compressed=["r"])
 
 
-def test_constructor_rejects_a_page_size_that_is_not_positive():
-    with pytest.raises(ValueError, match="page_size is a positive number of bytes or None, not 0"):
-        vzip.ReferenceStore({}, page_size=0)
+@pytest.mark.parametrize("page_size", [0, -1, True])
+def test_a_page_size_that_is_not_positive_is_rejected(tmp_path, page_size):
+    with pytest.raises(ValueError, match=f"page_size is a positive number of bytes or None, not {page_size}"):
+        vzip.ReferenceStore({}, page_size=page_size)
+    with pytest.raises(ValueError, match=f"page_size is a positive number of bytes or None, not {page_size}"):
+        vzip.ReferenceStore({}).save(tmp_path / "x.vzip", page_size=page_size)
+    assert not (tmp_path / "x.vzip").exists()
 
 
 def test_constructor_rejects_a_source_of_another_type():
