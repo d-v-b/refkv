@@ -1,4 +1,4 @@
-# Build vzip's wheels (the Python package with its Rust core, abi3 for Python >= 3.12, for
+# Build refkv's wheels (the Python package with its Rust core, abi3 for Python >= 3.12, for
 # Linux and macOS) and its sdist, and check each installs and runs. A tag v<version>
 # also publishes them to PyPI through trusted publishing (no token: PyPI trusts this
 # workflow in the environment `pypi`). Every push to main builds them, so a break on
@@ -15,8 +15,8 @@ on:
       - pyproject.toml
       - python/README.md
       - LICENSE-*
-      - rust/vzip-ir/**
-      - python/src/vzip_ir/**
+      - rust/refkv-ir/**
+      - python/src/refkv/**
       - python/tests/check_base_install.py
       - .github/workflows/release.yml
   workflow_dispatch:
@@ -42,7 +42,7 @@ jobs:
           - { os: ubuntu-24.04-arm, target: aarch64, manylinux: auto }
           - { os: macos-15-intel, target: x86_64 }
           - { os: macos-15, target: aarch64 }
-          # no Windows wheel yet: vzip's file: URIs assume POSIX paths (vzip.uri)
+          # no Windows wheel yet: refkv's file: URIs assume POSIX paths (refkv.uri)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -99,5 +99,5 @@ jobs:
       - run: |
           v="${GITHUB_REF_NAME#v}"
           ls dist
-          for f in dist/*; do case "$(basename "$f")" in vzip-"$v"[-.]*) ;; *) echo "::error::$f is not version $v"; exit 1;; esac; done
+          for f in dist/*; do case "$(basename "$f")" in refkv-"$v"[-.]*) ;; *) echo "::error::$f is not version $v"; exit 1;; esac; done
       - uses: pypa/gh-action-pypi-publish@release/v1

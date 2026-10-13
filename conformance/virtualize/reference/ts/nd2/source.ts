@@ -4,7 +4,7 @@
 import {
   blobChunks, type ByteReader, declare, decodeText, familyPlans, gridChunks, latin1, type Part, type Plan, setMember,
   textJson, stringifyJson,
-} from "../../../../../js/src/virtualize/common.ts";
+} from "../legacy.ts";
 import { DECIMAL, scan } from "../tiff/virtualize.ts";
 import { decodeLV, type LV, LVError, RECORDS } from "./lv.ts";
 

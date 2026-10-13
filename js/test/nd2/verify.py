@@ -31,14 +31,14 @@ from zarr.registry import register_codec
 
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
-sys.path.insert(0, str(ROOT / "conformance" / "archive"))
+sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 from http_server import Server  # noqa: E402
 
-from vzip.policy import Policy  # noqa: E402
-import vzip.zarr  # noqa: E402  (a vzip archive as a zarr store)
+from refkv.policy import Policy  # noqa: E402
+import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
 
 # The sources are served on 127.0.0.1, which spec §6.7
-# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
+# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3 refuses by
 # default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
 sys.path.insert(0, str(HERE.parent))
@@ -74,7 +74,7 @@ register_codec("zlib", ZlibCodec)
 
 def lv_norm(v):
     """The nd2 package's decoding of an LV value, as spec/virtualize/nd2.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#5-source-metadata> writes it."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-source-metadata> writes it."""
     if isinstance(v, dict):
         if v and all(re.fullmatch(r"i[0-9]{10}", k) for k in v):
             return [lv_norm(x) for x in v.values()]
@@ -93,7 +93,7 @@ TAGS = ("utf16", "int", "float")
 
 def ours_norm(v):
     """Our JSON (spec/virtualize/nd2.md §5.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>) as the nd2
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>) as the nd2
     package reads it: pairs
     as an object (first position, last value), or as a list when their names are empty;
     an int tag as its integer and a float tag as lv_norm writes the value (-0 as -0.0)."""
@@ -116,7 +116,7 @@ def ours_norm(v):
 
 def text_bytes(t) -> bytes:
     """A text value's bytes (spec/conventions.md §6
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)."""
     return t["latin1"].encode("latin-1") if isinstance(t, dict) else t.encode("utf-8")
 
 
@@ -133,7 +133,7 @@ def node_path(name: str) -> str:
 
 def family_member(node, i: int) -> bytes | None:
     """Member `i` of a family of byte values (spec/conventions.md §7
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>)."""
     if hasattr(node, "dtype"):
         return bytes(node[i]) if i < node.shape[0] else None
     offsets = node["offsets"][...]
@@ -145,11 +145,11 @@ def family_member(node, i: int) -> bytes | None:
 def frame_problems(root, loops: list[dict], frames: dict[int, bytes], attrs: dict) -> list[str]:
     """Each placed frame's pixels in the image, and its timestamp in ImageDataSeq,
     against its chunk's data (spec/virtualize/nd2.md §4.3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#43-output>, §5.3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#53-elements>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#43-output>, §5.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#53-elements>)."""
     h, w, comp = attrs["uiHeight"], attrs["uiWidth"], attrs["uiComp"]
     row, width_bytes = w * comp * attrs["uiBpcInMemory"] // 8, attrs["uiWidthBytes"]
-    times = root["vzip_source/ImageDataSeq"] if frames else None
+    times = root["refkv_source/ImageDataSeq"] if frames else None
     problems = []
     for f, raw in sorted(frames.items()):
         coords, rest = {}, f
@@ -176,13 +176,13 @@ def frame_problems(root, loops: list[dict], frames: dict[int, bytes], attrs: dic
 
 def mirror_chunk_problems(path: Path, root, out: Path) -> list[str]:
     """An archive of the IR: the root's decoded chunks (spec/virtualize/nd2.md §5.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>)
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>)
     against the nd2 package's decoder, and the source rebuilt from the mirror byte for
     byte (the frames' pixels are checked against the expected arrays)."""
     import nd2 as nd2lib
 
     problems = mirror_problems(out, path)
-    decoded = root.attrs["vzip_virtualized"]["nd2"]["chunks"]
+    decoded = root.attrs["refkv_virtualized"]["nd2"]["chunks"]
     with nd2lib.ND2File(path) as f:
         r = f._rdr
         for k in r.chunkmap:
@@ -199,14 +199,14 @@ def mirror_chunk_problems(path: Path, root, out: Path) -> list[str]:
 
 def chunk_problems(path: Path, root) -> list[str]:
     """Reconstruction (spec/virtualize/nd2.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#5-source-metadata>): every chunk
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-source-metadata>): every chunk
     of the map but the placed frames' pixels can be recovered from the hierarchy, against the nd2
     package's chunk map, loader and decoder."""
     import nd2 as nd2lib
 
-    meta = root.attrs["vzip_virtualized"]["nd2"]
-    src = root["vzip_source"] if "vzip_source" in root else None
-    s = src.attrs["vzip_virtualized"]["nd2"] if src is not None and "vzip_virtualized" in src.attrs else {}
+    meta = root.attrs["refkv_virtualized"]["nd2"]
+    src = root["refkv_source"] if "refkv_source" in root else None
+    s = src.attrs["refkv_virtualized"]["nd2"] if src is not None and "refkv_virtualized" in src.attrs else {}
     decoded = {**meta["chunks"], **s.get("chunks", {})}
 
     def names(key: str) -> list:
@@ -281,8 +281,8 @@ def chunk_problems(path: Path, root) -> list[str]:
         exp = r._load_chunk(b"ImageMetadataLV!") if b"ImageMetadataLV!" in r.chunkmap else None
     # the frozen reference twin of the ND2 profile (conformance/virtualize/reference)
     sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
-    from vzip_reference.nd2.lv import decode_lv
-    from vzip_reference.nd2.virtualize import flatten_experiment
+    from refkv_reference.nd2.lv import decode_lv
+    from refkv_reference.nd2.virtualize import flatten_experiment
 
     loops = flatten_experiment(decode_lv(exp).get("SLxExperiment") if exp is not None else None)
     return problems + frame_problems(root, loops, placed_frames, attrs)
@@ -306,13 +306,13 @@ def main() -> int:
                 failures += 1
                 print(f"{nd2.name:34s} FAILED: {p.stderr.strip()[-1500:]}")
                 continue
-            root = zarr.open_group(vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
+            root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
             meta = mirror_chunk_problems(nd2, root, out) if is_mirror(out) else chunk_problems(nd2, root)
             if meta:
                 failures += 1
                 print(f"{nd2.name:34s} CHUNKS: {meta[:3]}")
             expected = {k.replace("|", "/"): v for k, v in np.load(nd2.with_suffix(".npz")).items()}
-            root = zarr.open_group(vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
+            root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
             problems, chunks = [], 0
             for series in root["OME"].attrs["ome"]["series"]:
                 arr = root[f"{series}/0"]

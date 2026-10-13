@@ -143,7 +143,7 @@ test("a short read is the same failure", async () => {
 
 test("a failed read of a document fails the run, whatever the others say", async () => {
   // The Rust core reads every node's documents in one batch before it checks any (conventions
-  // §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): b/.zarray's
+  // §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): b/.zarray's
   // failed read fails the run, at any concurrency, though a/.zarray would reject it.
   const objects = new Map<string, Uint8Array | number>([[".zgroup", ZGROUP], ["a/.zarray", utf8.encode('{"zarr_format": 3}')],
     ["b/.zarray", 404]]);

@@ -3,7 +3,7 @@
 // (spec/virtualize.md, §3).
 
 import { REVISION } from "../revision.ts";
-import { type ByteReader, DataSources, declare, MAX_PAYLOAD, type Part, payloadSize, toRange, stringifyJson } from "../../../../../js/src/virtualize/common.ts";
+import { type ByteReader, DataSources, declare, MAX_PAYLOAD, type Part, payloadSize, toRange, stringifyJson } from "../legacy.ts";
 import { entriesReader, extent, type Ifd, num, nums, readTiff, Tag, TiffError, WANTED } from "./ifd.ts";
 import { LAYOUT, Translator } from "./tags.ts";
 import type { ArchiveDesc, EntryDesc } from "../../../../../js/src/writer.ts";

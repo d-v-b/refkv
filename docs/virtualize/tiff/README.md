@@ -1,6 +1,6 @@
 # TIFF, OME-TIFF and Aperio SVS
 
-vzip turns an image file into an OME-Zarr dataset by writing a small archive
+refkv turns an image file into an OME-Zarr dataset by writing a small archive
 of references to the file's bytes, without copying the pixels
 ([overview](../README.md)). This page is about tiled TIFF files.
 
@@ -15,18 +15,18 @@ OpenSlide's test-data server. The people who use them want to open a slide in
 an OME-Zarr viewer, or slice it with zarr-python or dask, without running a
 conversion that duplicates hundreds of gigabytes.
 
-vzip reads the TIFF's image file directories and, for OME-TIFF, its OME-XML,
+refkv reads the TIFF's image file directories and, for OME-TIFF, its OME-XML,
 and writes an archive in which every Zarr chunk is one tile of the file. A
 487 MB, 9-level OME-TIFF from the IDR became a 624 KB archive in a few
 seconds (at spec/virtualize.md revision 16, before the archive held the file's IR
 mirror); the tiles are read from the IDR's server only when a reader asks
 for them.
 
-TIFF files are virtualized by vzip's Rust core,
-[rust/vzip-ir](../../../rust/vzip-ir/), the same code in Python and (built
+TIFF files are virtualized by refkv's Rust core,
+[rust/refkv-ir](../../../rust/refkv-ir/), the same code in Python and (built
 for WebAssembly) in the browser: it parses the file into an intermediate
 representation (IR), plans the range requests, and projects the IR onto the
-TIFF convention. Installing vzip builds it, which needs a Rust toolchain
+TIFF convention. Installing refkv builds it, which needs a Rust toolchain
 ([overview](../README.md#two-ways-to-run-it)).
 
 ## What you get
@@ -51,13 +51,13 @@ level, `0` the full resolution.
 - **Translation:** the stage position of the first plane (OME-XML), or the
   slide position of an Aperio scan (`Left`, `Top`).
 - **Name:** the OME `Image` name.
-- **Metadata:** the root's `vzip_virtualized.tiff` holds the byte order and
-  whether the file is BigTIFF. Everything else is on `vzip_source`, the
+- **Metadata:** the root's `refkv_virtualized.tiff` holds the byte order and
+  whether the file is BigTIFF. Everything else is on `refkv_source`, the
   file's IR mirror ([conventions §8](../../../spec/conventions.md#8-the-ir-mirror)):
-  a table under `vzip_source/ir/` that accounts for every byte of the file
+  a table under `refkv_source/ir/` that accounts for every byte of the file
   (every tag of every IFD, SubIFDs and EXIF IFDs included, every tile, and
   the gaps between them), so that the file can be rebuilt from it and the
-  file's bytes, and a JSON view of it under `vzip_source/tree`, where the
+  file's bytes, and a JSON view of it under `refkv_source/tree`, where the
   tags are at `ifds/<i>/tags/<tag>`. A value of more than 1024 bytes, such
   as most OME-XML documents or a long Aperio description (tag 270), is not
   copied into the view: the view points to it in the file.
@@ -65,7 +65,7 @@ level, `0` the full resolution.
 ### JPEG-tiled slides (Aperio SVS)
 
 SVS tiles are JPEG streams with their tables missing: the tables are in the
-TIFF's `JPEGTables` tag, and the color transform in a separate tag. vzip
+TIFF's `JPEGTables` tag, and the color transform in a separate tag. refkv
 makes each chunk a complete JPEG stream by inserting, through the chunk's
 reference, an Adobe color marker and the tables after the tile's
 start-of-image marker.
@@ -88,7 +88,7 @@ An OME-TIFF from IDR study idr0096 (487 MB, 9 levels, JPEG 2000 tiles; CC BY
 idr0096 set:
 
 ```bash
-uv run python -m vzip.virtualize "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant/20210609-ftp-ome-tiffs/4000_d11_m5_LT_2%20(20x_01).ome.tiff" idr0096.vzip
+uv run python -m refkv.virtualize "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant/20210609-ftp-ome-tiffs/4000_d11_m5_LT_2%20(20x_01).ome.tiff" idr0096.vzip
 ```
 
 ```
@@ -99,9 +99,9 @@ This took 5 s and wrote a 624 KB archive (at revision 16). Read it with zarr-pyt
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-g = zarr.open_group(vzip.zarr.open("idr0096.vzip"), mode="r")
+g = zarr.open_group(refkv.zarr.open("idr0096.vzip"), mode="r")
 ms = g.attrs["ome"]["multiscales"][0]
 print(ms["name"], [a["name"] for a in ms["axes"]])
 print(ms["datasets"][0]["coordinateTransformations"])
@@ -123,7 +123,7 @@ An Aperio SVS slide with JPEG tiles, OpenSlide's `CMU-1-Small-Region.svs`
 (1.9 MB, CC0):
 
 ```bash
-uv run python -m vzip.virtualize https://openslide.cs.cmu.edu/download/openslide-testdata/Aperio/CMU-1-Small-Region.svs CMU-1-Small-Region.vzip
+uv run python -m refkv.virtualize https://openslide.cs.cmu.edu/download/openslide-testdata/Aperio/CMU-1-Small-Region.svs CMU-1-Small-Region.vzip
 ```
 
 ```
@@ -132,9 +132,9 @@ uv run python -m vzip.virtualize https://openslide.cs.cmu.edu/download/openslide
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-g = zarr.open_group(vzip.zarr.open("CMU-1-Small-Region.vzip"), mode="r")
+g = zarr.open_group(refkv.zarr.open("CMU-1-Small-Region.vzip"), mode="r")
 print(g.attrs["ome"]["multiscales"][0]["datasets"][0]["coordinateTransformations"])
 a = g["0"]
 print(a.shape, a.dtype, a.chunks, a.metadata.codecs)
@@ -158,7 +158,7 @@ together (or pass `--url <url>` with the URL the file will be served from).
 For a plain 2048 × 1536 `uint16` TIFF with 512 × 512 DEFLATE tiles:
 
 ```bash
-uv run python -m vzip.virtualize plain.tif plain.vzip
+uv run python -m refkv.virtualize plain.tif plain.vzip
 ```
 
 ```
@@ -209,7 +209,7 @@ Rejected:
   that is not JPEG or JPEG 2000 (the codecs decode samples at full
   resolution).
 
-A file that is none of the formats vzip reads is rejected with
+A file that is none of the formats refkv reads is rejected with
 `not a TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file` (exit status
 3).
 
@@ -233,23 +233,23 @@ A file that is none of the formats vzip reads is rejected with
 
 `js/test/tiff/verify.py` virtualizes each synthetic file with the browser
 code (the Rust core as WebAssembly), reads every level back through
-`python/src/vzip` and zarr-python, and compares it with tifffile; it also rebuilds
+`python/src/refkv` and zarr-python, and compares it with tifffile; it also rebuilds
 each file from its archive's IR mirror and checks that it is the file, byte
 for byte. `compare.py` compares three virtualizers
 ([overview](../README.md#the-implementations-agree)) on the 73 synthetic
 files (including inputs to reject), the 205 OME-TIFFs of idr0096 and the 4
 SVS slides of [corpus_tiff.txt](../../../conformance/virtualize/corpus_tiff.txt):
 the Python and browser hosts of the core must write the same archive,
-`vzip_source` included, and both must match, outside `vzip_source`, the
-frozen reference: the Python TIFF profile vzip shipped before the core.
+`refkv_source` included, and both must match, outside `refkv_source`, the
+frozen reference: the Python TIFF profile refkv shipped before the core.
 
 - Profile: [spec/virtualize/tiff.md](../../../spec/virtualize/tiff.md#part-2-the-profile); convention:
   [spec/virtualize/tiff.md](../../../spec/virtualize/tiff.md)
-- Rust core: [rust/vzip-ir/src/tiff.rs](../../../rust/vzip-ir/src/tiff.rs)
-  (the parser) and [rust/vzip-ir/src/project/tiff.rs](../../../rust/vzip-ir/src/project/tiff.rs)
+- Rust core: [rust/refkv-ir/src/tiff.rs](../../../rust/refkv-ir/src/tiff.rs)
+  (the parser) and [rust/refkv-ir/src/project/tiff.rs](../../../rust/refkv-ir/src/project/tiff.rs)
   (the projection)
-- Python host: [python/src/vzip/ir/](../../../python/src/vzip/ir/); browser host:
+- Python host: [python/src/refkv/ir/](../../../python/src/refkv/ir/); browser host:
   [js/src/virtualize/ir/](../../../js/src/virtualize/ir/)
-- Frozen reference: [conformance/virtualize/reference/vzip_reference/tiff/](../../../conformance/virtualize/reference/vzip_reference/tiff/)
+- Frozen reference: [conformance/virtualize/reference/refkv_reference/tiff/](../../../conformance/virtualize/reference/refkv_reference/tiff/)
   and [conformance/virtualize/reference/ts/tiff/](../../../conformance/virtualize/reference/ts/tiff/)
 - Fixtures: [fixtures/tiff/](../../../fixtures/tiff/)

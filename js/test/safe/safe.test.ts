@@ -3,13 +3,13 @@ import fs from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { directoryStore } from "../../conformance/directory_store.ts";
-import { blockReader } from "../../src/virtualize/common.ts";
+import { blockReader } from "../../../conformance/virtualize/reference/ts/legacy.ts";
 import { virtualizeImage, virtualizeStore } from "../../../conformance/virtualize/reference/ts/index.ts";
 import { chunkParts, emptyPackets, grid, readBand } from "../../../conformance/virtualize/reference/ts/safe/jp2.ts";
 import { jsonSize, MULTISCALES, typed, wkt2 } from "../../../conformance/virtualize/reference/ts/safe/metadata.ts";
 import { folders } from "../../../conformance/virtualize/reference/ts/safe/product.ts";
 import { SafeError } from "../../../conformance/virtualize/reference/ts/safe/virtualize.ts";
-import { StoreError } from "../../src/virtualize/store.ts";
+import { StoreError } from "../../../conformance/virtualize/reference/ts/legacy.ts";
 
 const FIXTURES = fileURLToPath(new URL("../../../fixtures/safe/", import.meta.url));
 const utf8 = new TextDecoder();
@@ -104,9 +104,9 @@ test("the two forms give the same documents", async () => {
     const a = await virtualize(d), b = await virtualize(z);
     assert.deepEqual(docs(a), docs(b));
     // the zip file pins its size (spec/virtualize.md §1.2
-    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>), each object its
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>), each object its
     // listed size (§1.4
-    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>)
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>)
     assert.deepEqual(b.sources[0], { url: `https://data.test/safe/${z}`, size: BigInt(fs.statSync(new URL(`../../../fixtures/safe/${z}`, import.meta.url)).size) });
     assert.ok(a.sources.every((x) => x.url === undefined || x.size !== undefined));
     assert.deepEqual(a.sources.slice(-n), b.sources.slice(-n)); // the same data sources

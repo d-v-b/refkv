@@ -1,9 +1,9 @@
-# vzip in the browser
+# refkv in the browser
 
-vzip is ZIP plus a reference value type: a store whose values are either
-bytes or references to byte ranges of other objects
-([spec/archive.md](../spec/archive.md)). This package reads and writes vzip
-archives, the ZIP binding of that store, in the browser and in Node.
+refkv defines reference semantics for key-value storage: a value is either bytes or a reference to
+byte ranges of other objects ([spec/refkv.md](../spec/refkv.md)), and vzip is
+its single-file binding. This package reads and writes vzip archives
+([spec/bindings/vzip.md](../spec/bindings/vzip.md)) in the browser and in Node.
 
 A service worker that turns a remote image file (TIFF, NDPI, ND2, CZI,
 DICOM, NIfTI or IMS), a Sentinel-2 SAFE product (a `.SAFE.zip` file, or a
@@ -24,7 +24,7 @@ without copying pixel data:
 3. It answers every request under that URL from the archive. Metadata comes
    from the archive; a chunk request becomes one range request to the file.
 
-Any Zarr reader on the same origin can then use the URL; it needs no vzip
+Any Zarr reader on the same origin can then use the URL; it needs no refkv
 support. The archive itself can be downloaded from
 `<zarr url>__vz__/archive.vzip`. Existing archives are served the same way
 from `<scope>vz/archive/<id>/`.
@@ -50,7 +50,7 @@ missing):
 ```bash
 (cd js && npm install)
 just js::build
-node js/demo/serve.mjs 8080
+node demo/serve.mjs 8080
 ```
 
 The demo opens images in Neuroglancer, and Sentinel-2 SAFE products on a map
@@ -61,9 +61,9 @@ metadata has no usable contrast window gets one sampled from a chunk of its
 coarsest level (`demo/contrast.ts`), decoded in the page, JPEG 2000 and
 JPEG XR chunks with the fork's wasm modules.
 
-Live demo: https://d-v-b.github.io/vzip-demo/image-to-zarr/ (formerly `tiff-to-zarr/`, which now redirects). `js/demo/pages.sh`
+Live demo: https://d-v-b.github.io/vzip-demo/image-to-zarr/ (formerly `tiff-to-zarr/`, which now redirects). `demo/pages.sh`
 publishes it, with the Neuroglancer build, to its own directory of the demo
-site (the `gh-pages` branch of `d-v-b/vzip-demo`, which hosts each vzip demo
+site (the `gh-pages` branch of `d-v-b/vzip-demo`, which hosts each refkv demo
 in a directory and lists them at https://d-v-b.github.io/vzip-demo/).
 
 ## What is supported
@@ -75,21 +75,21 @@ The rules are [spec/virtualize.md](../spec/virtualize.md)'s profiles:
 [N5](../spec/virtualize/n5.md#part-2-the-profile), [Zarr v2](../spec/virtualize/zarr2.md#part-2-the-profile),
 [OME-Zarr](../spec/virtualize/ome-zarr.md#part-2-the-profile), [SAFE](../spec/virtualize/safe.md#part-2-the-profile) and
 [CZI](../spec/virtualize/czi.md#part-2-the-profile). TIFF, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr are virtualized by the
-Rust core (`rust/vzip-ir`) built for wasm32: `src/virtualize/ir/` performs the
+Rust core (`rust/refkv-ir`) built for wasm32: `src/virtualize/ir/` performs the
 requests its read planner asks for (several at once, multi-range ones under
 Node), under the reader policy, and writes its output. `just js::wasm` builds
-the module, which `just js::build` copies to `dist/vzip_ir.wasm` (beside the
+the module, which `just js::build` copies to `dist/refkv_ir.wasm` (beside the
 service worker, which fetches it) and which the Node tests and CLIs read from
-cargo's target directory (or `$VZIP_IR_WASM`). The other profiles are each
+cargo's target directory (or `$REFKV_IR_WASM`). The other profiles are each
 implemented in their own directory of `src/virtualize/` (`store.ts` holds what
 the store profiles share). The TypeScript TIFF, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr virtualizers the
-core replaced are kept, frozen, in `conformance/reference/` (with CLIs
-`conformance/reference/virtualize.ts` and `virtualize_file.ts`), for
-comparisons. The Python implementation (`python -m vzip.virtualize`)
+core replaced are kept, frozen, in `conformance/virtualize/reference/ts/` (with CLIs
+`conformance/virtualize/reference/ts/virtualize.ts` and `virtualize_file.ts`), for
+comparisons. The Python implementation (`python -m refkv.virtualize`)
 produces equivalent archives; `conformance/virtualize/compare.py` checks that.
 
-A file or a store at an http(s) URL is read under the reader policy (spec/archive.md
-[§6.7](../spec/archive.md#67-reader-policy)), a store's listing, object reads and redirects included: loopback,
+A file or a store at an http(s) URL is read under the reader policy (spec/refkv.md
+[§6.7](../spec/refkv.md#67-reader-policy)), a store's listing, object reads and redirects included: loopback,
 private, link-local and other special hosts are refused unless the caller
 opts in (`allowPrivateHosts`, given to `openHttpSource`, `openHttpStore` or
 `virtualizeStore`; `--allow-private-hosts` in the Node CLIs). Each source pins its size, and the input file's its ETag when every
@@ -153,7 +153,7 @@ directory listed with S3 ListObjectsV2):
 - One group per resolution (`r10m`, `r20m`, `r60m`) and one array per band,
   one chunk per JPEG 2000 tile, with the zarr-conventions `proj` and
   `spatial` metadata; the radiometric offsets and quantification values on
-  each band, and every file of the product kept on `vzip_source`.
+  each band, and every file of the product kept on `refkv_source`.
 
 DICOM (Part 10 files):
 
@@ -175,7 +175,7 @@ NIfTI (NIfTI-1 and NIfTI-2 single files):
 - One chunk per z-slice, split into row blocks when a slice is over 128 KiB.
 - Pixel size and units as scale; an axis-aligned qform or sform as
   translation; the whole header, and its intensity scaling, recorded under
-  `vzip_virtualized`.
+  `refkv_virtualized`.
 
 Not supported, and refused with HTTP 422: gzipped files (`.nii.gz`),
 header-and-image pairs, complex types, and dimensions 6 and 7 (CIFTI).
@@ -243,15 +243,15 @@ uv run python js/test/ims/verify.py                         # IMS fixtures vs h5
 uv run python js/test/czi/verify.py                         # CZI fixtures vs czifile (and libCZI)
 uv run python js/test/safe/verify.py                        # SAFE fixtures vs GDAL
 uv run python conformance/virtualize/compare.py /tmp/vcmp    # reference vs Python vs browser virtualizer
-node js/demo/e2e.mjs <image file url> <out dir>             # demo + Neuroglancer in Chromium
-node js/demo/e2e_examples.mjs <out dir> [example id …]      # every demo example, with its viewer
+node demo/e2e.mjs <image file url> <out dir>             # demo + Neuroglancer in Chromium
+node demo/e2e_examples.mjs <out dir> [example id …]      # every demo example, with its viewer
 ```
 
-- `run_write.py` checks every unpaged write case with `conformance/archive/validate.py`
+- `run_write.py` checks every unpaged write case with `conformance/vzip/validate.py`
   and the reference reader, plus an unpaged archive of 70,000 entries and every
   invalid description.
 - `tiff/verify.py` virtualizes each fixture with the browser code. It then
-  reads every level through the reference implementation (`python/src/vzip`) and
+  reads every level through the reference implementation (`python/src/refkv`) and
   zarr-python and compares it with tifffile, and rebuilds the file from the
   archive's IR mirror, byte for byte. `ndpi/verify.py` does the same for the
   NDPI files (which have no IR mirror).

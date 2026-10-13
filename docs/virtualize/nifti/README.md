@@ -1,6 +1,6 @@
 # NIfTI
 
-vzip turns an image file into an OME-Zarr dataset by writing a small archive
+refkv turns an image file into an OME-Zarr dataset by writing a small archive
 of references to the file's bytes, without copying the pixels
 ([overview](../README.md)). This page is about NIfTI volumes.
 
@@ -13,7 +13,7 @@ repositories of tools and test data, and lab servers. Someone who wants to
 look at a volume in an OME-Zarr viewer next to microscopy data, or read one
 slice of a large 4-D series lazily, has to convert it today.
 
-A NIfTI file is a header followed by one block of voxels, so vzip reads the
+A NIfTI file is a header followed by one block of voxels, so refkv reads the
 header (348 or 540 bytes) and writes an archive in which every Zarr chunk is
 a run of at most 128 KiB of that block: several z-slices, one slice, or
 some rows of a large slice. The SPM `avg152T1.nii` template became a 12 KB
@@ -42,14 +42,14 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
   sform with a negative x step, gives no translation.
 - **Intensity scaling:** the raw values are stored. A nontrivial
   `scl_slope`/`scl_inter` is recorded in the root's source metadata (the
-  `vzip_virtualized` convention) as
+  `refkv_virtualized` convention) as
   `"nifti": {..., "scaling": {"slope": s, "inter": i}}`; compute
   `s × raw + i`.
 - **Header:** every field of the NIfTI header and its affine, under
-  `vzip_virtualized.nifti`. The whole file (the header, its extensions, the
-  voxels and every byte between) is described on `vzip_source` by the Rust
+  `refkv_virtualized.nifti`. The whole file (the header, its extensions, the
+  voxels and every byte between) is described on `refkv_source` by the Rust
   core's IR mirror, from which it is rebuilt byte for byte; its view
-  `vzip_source/tree` shows the header, the extender and each extension of
+  `refkv_source/tree` shows the header, the extender and each extension of
   at most 1024 bytes (since revision 26).
 - **omero:** a display window from `cal_min`/`cal_max`, or R, G, B (A)
   channels for color voxels.
@@ -60,7 +60,7 @@ SPM's `avg152T1.nii` template (903 KB, GPL-2.0), from
 [corpus_nifti.txt](../../../conformance/virtualize/corpus_nifti.txt):
 
 ```bash
-uv run python -m vzip.virtualize https://raw.githubusercontent.com/spm/spm/main/canonical/avg152T1.nii avg152T1.vzip
+uv run python -m refkv.virtualize https://raw.githubusercontent.com/spm/spm/main/canonical/avg152T1.nii avg152T1.vzip
 ```
 
 ```
@@ -74,12 +74,12 @@ no translation. Read it:
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-g = zarr.open_group(vzip.zarr.open("avg152T1.vzip"), mode="r")
+g = zarr.open_group(refkv.zarr.open("avg152T1.vzip"), mode="r")
 print(g.attrs["ome"]["multiscales"][0]["axes"])
 print(g.attrs["ome"]["multiscales"][0]["datasets"])
-print(g.attrs["vzip_virtualized"]["nifti"]["scaling"])
+print(g.attrs["refkv_virtualized"]["nifti"]["scaling"])
 a = g["0"]
 print(a.shape, a.dtype, a.chunks)
 print(a[45, 50, 40:48])
@@ -141,7 +141,7 @@ Rejected:
 ## How it's verified
 
 `js/test/nifti/verify.py` virtualizes 88 synthetic NIfTI files (including
-inputs to reject) with the browser code, reads them back through `python/src/vzip`
+inputs to reject) with the browser code, reads them back through `python/src/refkv`
 and zarr-python, and compares the values with nibabel's unscaled data.
 `compare.py` checks that the Python and browser outputs are equivalent on
 those files and on the 12 public files of
@@ -150,6 +150,6 @@ those files and on the 12 public files of
 data).
 
 - Profile: [spec/virtualize/nifti.md](../../../spec/virtualize/nifti.md#part-2-the-profile)
-- Python: [python/src/vzip/virtualize/nifti/](../../../python/src/vzip/virtualize/nifti/)
+- Python: [python/src/refkv/virtualize/nifti/](../../../python/src/refkv/virtualize/nifti/)
 - Browser: [js/src/virtualize/nifti/](../../../js/src/virtualize/nifti/)
 - Fixtures: [fixtures/nifti/](../../../fixtures/nifti/)

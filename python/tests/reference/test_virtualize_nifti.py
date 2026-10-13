@@ -12,11 +12,11 @@ from pathlib import Path
 
 import pytest
 
-# the frozen reference twins (conformance/virtualize/reference/vzip_reference)
+# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
 
-from vzip.virtualize import Rejected  # noqa: E402
-from vzip_reference import virtualize  # noqa: E402
+from refkv.virtualize import Rejected  # noqa: E402
+from refkv_reference import virtualize  # noqa: E402
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "nifti"
 
@@ -80,7 +80,7 @@ CASES = {
     "nifti_edge_qform_2d": ({}, [("y", MM), ("x", MM)], [1, 1], [2, 1], None, None, None),
     "nifti_edge_vox_offset_padded": ({}, None, None, None, None, None, ("0/c/0/0/0", [(480, 24)])),
     # Chunks of at most 2^17 bytes, cut as conventions §7
-    # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
+    # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
     # contiguous values.
     "nifti_rowblock_split": ({"chunkShape": [1, 350, 200], "chunks": 2}, None, None, None, None, None,
                              ("0/c/0/1/0", [(352 + 70000, 70000)])),
@@ -120,14 +120,14 @@ def test_virtualizes_the_synthetic_files():
             assert transforms[0]["scale"][-len(scale):] == scale, name
         assert (transforms[1]["translation"] if len(transforms) > 1 else None) == translation, name
         assert set(attributes) == {"ome", "zarr_conventions", "vzip_virtualized"}, name
-        meta = attributes["vzip_virtualized"]["nifti"]  # spec/virtualize/nifti.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>
+        meta = attributes["vzip_virtualized"]["nifti"]  # spec/virtualize/nifti.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>
         assert meta.get("scaling") == scaling, name
         assert meta["header"]["magic"] == f"n+{meta['nifti_version']}", name
         omero = attributes["ome"].get("omero")
         assert (omero["channels"][0]["window"] if omero else None) == window, name
         if chunk is not None:
             assert out.refs[chunk[0]] == chunk[1], name
-        assert out.data == {}, name  # no data sources (spec/virtualize.md §7.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#72-chunks>)
+        assert out.data == {}, name  # no data sources (spec/virtualize.md §7.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>)
     # The transpose codec puts the axes in the file's order: dimension 5 first, color samples last.
     for name, order in {"nifti_n2_be_float64_5d": [1, 0, 2, 3, 4], "nifti_n1_be_rgb24_4d": [0, 2, 3, 4, 1],
                         "nifti_n1_le_int16_3d_sform": None}.items():
@@ -168,7 +168,7 @@ def test_rejects(name, message):
 
 def test_extensions_and_trailing_bytes_are_kept():
     """spec/virtualize/nifti.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>: text
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>: text
     extensions as text, binary ones as arrays,
     the bytes the chain does not hold and the bytes after the voxels as bytes."""
     _, out = virtualize(str(FIXTURES / "nifti_reconstruction.nii"), url="https://data.test/r.nii")
@@ -184,7 +184,7 @@ def test_extensions_and_trailing_bytes_are_kept():
 
 def test_the_bytes_between_the_header_and_the_voxels():
     """spec/virtualize/nifti.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>:
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>:
     header_rest, extender, extensions (as a list, or over the
     root's budget as ecodes, texts and a family), extensions_truncated and unparsed, for each kind
     of region."""
@@ -278,7 +278,7 @@ def test_the_bytes_between_the_header_and_the_voxels():
 
 def test_float_header_fields_keep_their_bits():
     """spec/virtualize/nifti.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>: a negative
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>: a negative
     zero, or a NaN other than the canonical one,
     is {"bits": hex}; the canonical NaN is "NaN", in either byte order and width."""
     cases = {

@@ -1,6 +1,6 @@
 """Byte-range reads over HTTP(S), spec §6.1
-<https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#61-pins> and §6.2
-<https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#62-reading-over-http>."""
+<https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#61-pins> and §6.2
+<https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#62-reading-over-http>."""
 
 import calendar
 import datetime

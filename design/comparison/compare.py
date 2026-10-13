@@ -332,7 +332,7 @@ def _icechunk_access(ctx):
 
 
 def write_vzip(vds, out, ctx, cfg) -> None:
-    from vzip import Policy, ReferenceStore
+    from refkv import Policy, ReferenceStore
 
     # the sources are served on 127.0.0.1, which the default policy refuses (see open_vzip)
     ReferenceStore.from_virtualizarr(vds).save(
@@ -341,14 +341,14 @@ def write_vzip(vds, out, ctx, cfg) -> None:
 
 
 def open_vzip(url, ctx, cfg):
-    import vzip.zarr
-    from vzip.policy import Policy
+    import refkv.zarr
+    from refkv.policy import Policy
 
     # the benchmark serves the archive and its sources on 127.0.0.1, which the default
-    # policy refuses (spec/archive.md §6.7
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3)
+    # policy refuses (spec/refkv.md §6.7
+    # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3)
     # no request cap, as when design/COMPARISON.md was measured (the default is 8)
-    return vzip.zarr.open(url, policy=Policy(allow_private_hosts=True), max_concurrency=None), 3
+    return refkv.zarr.open(url, policy=Policy(allow_private_hosts=True), max_concurrency=None), 3
 
 
 @dataclass
@@ -480,7 +480,7 @@ def main() -> int:
     import icechunk
     import virtualizarr  # noqa: F401
 
-    import vzip.zarr  # noqa: F401
+    import refkv.zarr  # noqa: F401
 
     icechunk.set_logs_filter("error")
 
@@ -544,7 +544,7 @@ def main() -> int:
     meta = {"sources": len(paths), "source_bytes": sum(p.stat().st_size for p in paths),
             "n_refs": n_refs, "variable": var, "latency": args.latency,
             "bandwidth_mb_s": args.bandwidth, "repeats": args.repeats, "full_read": full,
-            "versions": {m: version(m) for m in ("vzip", "virtualizarr", "kerchunk", "fsspec",
+            "versions": {m: version(m) for m in ("refkv", "virtualizarr", "kerchunk", "fsspec",
                                                  "icechunk", "zarr", "xarray")},
             "input": args.input or (f"generated: {args.files} files x {args.days} days, "
                                     f"{args.variables} variables, grid {args.grid[0]}x{args.grid[1]} "

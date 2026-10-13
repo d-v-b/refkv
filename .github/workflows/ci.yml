@@ -2,10 +2,10 @@
 # install without extras, the browser code's type check and Node tests, the IR core's
 # tests, the fixture
 # comparison of the virtualizers against the frozen reference (spec/virtualize.md §1.1
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>, with
-# spec/archive.md's strict reading of every archive), the reproducibility of the fixture
-# generators, and the section references, each a link to a heading that exists. TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2, OME-Zarr and N5 stores, go through the Rust core (rust/vzip-ir), built natively
-# for Python (`uv sync`, which builds it into vzip as the module vzip_ir) and for wasm32 for the browser code (`just js::wasm`).
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>, with
+# spec/bindings/vzip.md's strict reading of every archive), the reproducibility of the fixture
+# generators, and the section references, each a link to a heading that exists. TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2, OME-Zarr and N5 stores, go through the Rust core (rust/refkv-ir), built natively
+# for Python (`uv sync`, which builds it into refkv as the module refkv._ir) and for wasm32 for the browser code (`just js::wasm`).
 name: ci
 
 on:
@@ -43,8 +43,8 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust/vzip-ir
-      # binaryen's wasm-opt shrinks the wasm32 module (rust/vzip-ir/wasm/build.sh; optional)
+          workspaces: rust/refkv-ir
+      # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - run: uv sync --all-groups --locked
       - run: npm ci
@@ -76,13 +76,13 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       # js::test also builds the test module (test-only hooks) in its own target directory,
-      # rust/vzip-ir/target/test-hooks; cache it beside the shipped module's
+      # rust/refkv-ir/target/test-hooks; cache it beside the shipped module's
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            rust/vzip-ir -> target
-            rust/vzip-ir -> target/test-hooks
-      # binaryen's wasm-opt shrinks the wasm32 module (rust/vzip-ir/wasm/build.sh; optional)
+            rust/refkv-ir -> target
+            rust/refkv-ir -> target/test-hooks
+      # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - run: npm ci
         working-directory: js
@@ -104,8 +104,8 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust/vzip-ir
-      # binaryen's wasm-opt shrinks the wasm32 module (rust/vzip-ir/wasm/build.sh; optional)
+          workspaces: rust/refkv-ir
+      # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - uses: extractions/setup-just@v2
       - run: uv sync --all-groups --locked
@@ -134,8 +134,8 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust/vzip-ir
-      # binaryen's wasm-opt shrinks the wasm32 module (rust/vzip-ir/wasm/build.sh; optional)
+          workspaces: rust/refkv-ir
+      # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - run: uv sync --all-groups --locked
       - run: just js::wasm
@@ -163,7 +163,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust/vzip-ir
+          workspaces: rust/refkv-ir
       # pip, as docs/README.md#installing says (it builds the Rust core into the wheel)
       - run: uv venv --seed "$RUNNER_TEMP/pip"
       - run: '"$RUNNER_TEMP/pip/bin/python" -m pip install .'
@@ -177,7 +177,7 @@ jobs:
   sections:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # spec/tools imports neither vzip nor its Rust core: install the tools, not the project
+    # spec/tools imports neither refkv nor its Rust core: install the tools, not the project
     env:
       UV_NO_SYNC: "1"
     steps:
@@ -202,6 +202,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust/vzip-ir
+          workspaces: rust/refkv-ir
       - run: uv sync --all-groups --locked
       - run: just fixtures-check

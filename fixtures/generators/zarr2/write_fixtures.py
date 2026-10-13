@@ -1,6 +1,6 @@
 """Writes synthetic Zarr v2 hierarchies to fixtures/zarr2/<name>/,
 covering the rules of the Zarr v2 profile (spec/virtualize.md §10
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>): C and F
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>): C and F
 order, both dimension separators, every supported data type and byte order,
 each compressor (none, zlib, gzip, zstd, blosc with each shuffle), fill
 values (numbers, "NaN", "Infinity", "-Infinity", null), 0-d arrays, missing
@@ -214,9 +214,9 @@ def main() -> None:
 
     # OME-NGFF 0.4 attributes below a root that does not declare OME-NGFF 0.4
     # (spec/virtualize.md §1.4
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): the store is
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>): the store is
     # read by §10
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>, and
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>, and
     # every attribute is
     # copied unchanged (OME-Zarr 0.4 stores are read by spec/virtualize/ome-zarr.md).
     d = store("zarr2_ome_attrs")
@@ -306,20 +306,20 @@ def main() -> None:
     array(d, "x", arr((2, 2), "|u1"), [2, 2], write_chunks=False)
 
     # The virtualization convention (spec/virtualize.md conventions §2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>): every copied
-    # attribute, another convention's included, goes under vzip_virtualized.zarr2 on its node.
-    # `v` was itself virtualized (it carries a vzip declaration and the key), and
+    # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>): every copied
+    # attribute, another convention's included, goes under refkv_virtualized.zarr2 on its node.
+    # `v` was itself virtualized (it carries a refkv declaration and the key), and
     # `bad` a zarr_conventions that is not an array: both are copied as they are.
     proj = {"uuid": "f17cb550-5864-4468-aeb7-f3180cfb622f", "name": "proj:"}
     d = store("zarr2_conventions")
     group(d, "", {"zarr_conventions": [proj], "proj:code": "EPSG:4326"})
     array(d, "x", arr((2, 2), "|u1"), [2, 2], attrs={"zarr_conventions": [proj], "proj:code": "EPSG:4326"})
     group(d, "v", {"zarr_conventions": [{"uuid": "48e9ac4e-1156-4a62-955e-20467d9c2700"}],
-                   "vzip_virtualized": {"profile": "tiff", "version": 1}})
+                   "refkv_virtualized": {"profile": "tiff", "version": 1}})
     group(d, "bad", {"zarr_conventions": proj})
 
     # Source metadata (spec/virtualize/zarr2.md §4
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>): the
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>): the
     # members of .zarray and .zgroup that
     # the Zarr v3 metadata does not reproduce (an unread member, a null fill value, a compressor's
     # members its codec does not carry), the compressors' levels, which the codecs carry,
@@ -342,8 +342,8 @@ def main() -> None:
           attrs={"_ARRAY_DIMENSIONS": ["x"]})
 
     # Objects that are neither documents of a node nor chunks (spec/virtualize/zarr2.md §5
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>):
-    # each is kept whole under vzip_source/objects/, except .zmetadata and empty objects.
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>):
+    # each is kept whole under refkv_source/objects/, except .zmetadata and empty objects.
     d = store("zarr2_objects")
     group(d, "")
     array(d, "a", arr((4,), "<u2"), [2])
@@ -361,7 +361,7 @@ def main() -> None:
         reject(name, compressor=comp)
     d = store("zarr2_reject_objects_collision")  # a node where the other objects go
     group(d, "")
-    group(d, "vzip_source")
+    group(d, "refkv_source")
     put(d / "README.md", b"x")
 
     total = sum(f.stat().st_size for f in OUT.rglob("*") if f.is_file())
@@ -370,11 +370,11 @@ def main() -> None:
 
 def exact_objects() -> None:
     """Objects whose last segment a Zarr reader takes for a node's document, escaped with
-    `~` under vzip_source/objects/; empty objects, whose keys are vzip_source's source
-    metadata, or vzip_source/empty.json under a root array (spec/virtualize/zarr2.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>);
+    `~` under refkv_source/objects/; empty objects, whose keys are refkv_source's source
+    metadata, or refkv_source/empty.json under a root array (spec/virtualize/zarr2.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>);
     and float fill values written as integers beyond 2^53 - 1 (§4
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>). Fixed
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>). Fixed
     data, no RNG."""
     d = store("zarr2_node_names")
     group(d, "")
@@ -404,9 +404,9 @@ def exact_objects() -> None:
 
 def empty_chunks() -> None:
     """A root array with an empty chunk object, whose key is listed in
-    vzip_source/empty.json (spec/virtualize/zarr2.md §3.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#32-chunks>, §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>). Fixed data,
+    refkv_source/empty.json (spec/virtualize/zarr2.md §3.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#32-chunks>, §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>). Fixed data,
     no RNG."""
     d = store("zarr2_root_array_empty_chunk")
     array(d, "", np.array([1, 2, 3, 4], dtype="|u1"), [2], fill=7)
@@ -415,8 +415,8 @@ def empty_chunks() -> None:
 
 def root_objects() -> None:
     """A root array with other objects beside its chunk (a README, and `7`, outside the
-    chunk grid), which the root keeps without a vzip_source group (spec/virtualize/zarr2.md
-    §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>). Written
+    chunk grid), which the root keeps without a refkv_source group (spec/virtualize/zarr2.md
+    §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>). Written
     byte for byte as the first, hand-made copy was: compact JSON with a newline, no RNG."""
     d = store("zarr2_root_array_objects")
     put(d / ".zarray", b'{"zarr_format":2,"shape":[4],"chunks":[4],"dtype":"<u2","order":"C",'

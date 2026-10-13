@@ -1,4 +1,5 @@
-# The Rust spec/archive.md implementation (./vzip runs the release build).
+# The Rust implementation of the archive spec of revision 7 (spec/history/archive/SPEC.r7.md)
+# (./vzip runs the release build).
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 

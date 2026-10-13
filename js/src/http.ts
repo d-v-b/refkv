@@ -1,7 +1,7 @@
 /**
  * @file Reading a byte range of an http(s) `url` source (spec §5.2
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>), with
- * its pins (§5.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-pins>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>), with
+ * its pins (§5.1 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#51-pins>).
  *
  * Browser limitations, which a JavaScript reader cannot work around:
  *
@@ -9,20 +9,20 @@
  *   `Accept-Encoding: identity` on their own for requests with a `Range`
  *   header, and the response's `Content-Encoding` is still checked here.
  * - `fetch` follows redirects itself (up to 20), re-sending the request
- *   headers, so the 5-redirect limit of §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http> cannot be enforced. A redirect
+ *   headers, so the 5-redirect limit of §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http> cannot be enforced. A redirect
  *   to a non-http(s) URL is refused by the browser.
  * - Cross-origin, `ETag`, `Last-Modified` and `Content-Range` are visible
  *   only if the server lists them in `Access-Control-Expose-Headers`, and
  *   `If-Match` / `If-Unmodified-Since` need a CORS preflight. Without them,
  *   pins cannot be checked, which is a resolution error (pins fail closed).
  *   A cross-origin 206 without a visible `Content-Range` is accepted if its
- *   body has exactly the requested length (a deviation from §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>). An
- *   application may allow the reader to skip such pins (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 7,
- *   `unverifiablePins`); range checksums (§4.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>) still apply.
+ *   body has exactly the requested length (a deviation from §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>). An
+ *   application may allow the reader to skip such pins (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 7,
+ *   `unverifiablePins`); range checksums (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>) still apply.
  * - A redirect cannot be seen before `fetch` follows it, so the reader's
- *   policy (§6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>) is checked on the final URL (`allow`).
+ *   policy (§6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) is checked on the final URL (`allow`).
  * - `fetch` does not expose the address it connects to, so rule 3 of §6.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>
  *   (private and special hosts) is checked on hosts as written: IP literals
  *   and `localhost`. A browser's Private Network Access protections cover
  *   names that resolve to such addresses, and redirect hops in between.
@@ -40,7 +40,7 @@ export class HttpResolutionError extends Error {}
 
 /**
  * A `fetch` that applies rule 3 of spec §6.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> to the addresses it
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> to the addresses it
  * connects to (`#net` under Node), following redirects itself and calling `allow` on each
  * target before requesting it.
  */
@@ -52,7 +52,7 @@ export type CheckedFetch = (
 
 /**
  * What the reader's policy (spec §6.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>) asks of one range
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) asks of one range
  * read.
  */
 export interface ReadOptions {
@@ -62,7 +62,7 @@ export interface ReadOptions {
   allow?: (url: string) => void;
   /**
    * Skip pins whose headers the response hides (spec §6.7
-   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 7).
+   * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 7).
    */
   unverifiablePins?: boolean;
 }
@@ -71,7 +71,7 @@ function single(headers: Headers, name: string): string | null {
   // `Headers` joins repeated fields with ", ". Values that cannot contain a
   // comma (`Content-Range`, an `ETag`, an IMF-fixdate's day/month part) are
   // checked for that, so repeated fields are detected (spec §5.2
-  // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>).
+  // <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>).
   return headers.get(name);
 }
 
@@ -122,7 +122,7 @@ export async function readHttpRange(
   };
   if (response.redirected) {
     // The final URL must still satisfy the URL rules, and the policy (§6.7
-    // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>).
+    // <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>).
     try {
       checkHttpUrl(response.url);
       options.allow?.(response.url);
@@ -152,7 +152,7 @@ export async function readHttpRange(
   }
   // Pins are checked against the response itself: servers may ignore the
   // conditional headers (spec §5.2
-  // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>). A cross-origin
+  // <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>). A cross-origin
   // response hides headers the
   // server does not expose; the application may allow skipping those pins.
   const skip = (header: string | null) =>
@@ -182,12 +182,12 @@ export async function readHttpRange(
   const contentRange = single(response.headers, "Content-Range");
   if (contentRange === null && response.type === "cors") {
     // Deviation from spec §5.2
-    // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>: a
+    // <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>: a
     // cross-origin response hides
     // `Content-Range` unless the server exposes it, and many servers that
     // allow range requests do not. Only the body length can be checked, and
     // the object's size is unknown, so a `size` pin fails (spec §5.1
-    // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-pins>).
+    // <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#51-pins>).
     if (body.length !== end - start) {
       fail(`206 of ${body.length} bytes for [${start}, ${end})`);
     }
@@ -284,7 +284,7 @@ const STRONG_ETAG = /^"[\x21\x23-\x7e]*"$/;
 
 /**
  * The ETag of every response for one object, for its `etag` pin (spec/virtualize.md §1.2
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>).
  */
 export class EtagLog {
   private seen = new Set<string | null>();

@@ -1,6 +1,6 @@
 // HTTP source resolution (spec §6.1
-// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#61-pins>, §6.2
-// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#62-reading-over-http>)
+// <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#61-pins>, §6.2
+// <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#62-reading-over-http>)
 // against a local test server.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";

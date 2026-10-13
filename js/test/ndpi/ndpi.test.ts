@@ -1,7 +1,7 @@
 // NDPI in the browser virtualizer, through the Rust core (spec/virtualize/ndpi.md §4
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>): the
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>): the
 // data sources that hold the strips' headers, and rejections. The JPEG header parser is
-// tested in Rust (rust/vzip-ir/src/ndpi.rs); whole files are checked against tifffile
+// tested in Rust (rust/refkv-ir/src/ndpi.rs); whole files are checked against tifffile
 // by ndpi/verify.py.
 
 import assert from "node:assert/strict";
@@ -22,7 +22,7 @@ test("an NDPI is virtualized as NDPI, the header around SOF0 in data sources num
   assert.ok(data.length >= 2 && data[0][0] === 0xff && data[0][1] === 0xd8);
   let next = 1;
   for (const e of out.entries) {
-    if (!("ranges" in e) || e.ranges.length === 1 || e.key.startsWith("vzip_source/")) continue;
+    if (!("ranges" in e) || e.ranges.length === 1 || e.key.startsWith("refkv_source/")) continue;
     const [before, sof, after] = e.ranges;
     assert.ok("data" in sof && sof.data[1] === 0xc0, e.key);
     for (const r of [before, after]) {

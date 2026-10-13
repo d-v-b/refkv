@@ -1,8 +1,8 @@
 // Virtualizing a DICOM Part 10 file by the DICOM profile (spec/virtualize/dicom.md,
-// §6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#6-dicom-profile>): its
+// §6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#6-dicom-profile>): its
 // frames, native or JPEG/JPEG 2000 encapsulated, become Zarr chunks that reference the file.
 
-import { type ByteReader, declare, emitPlans, MAX_PAYLOAD, payloadSize, stringifyJson } from "../../../../../js/src/virtualize/common.ts";
+import { type ByteReader, declare, emitPlans, MAX_PAYLOAD, payloadSize, stringifyJson } from "../legacy.ts";
 import {
   type Dataset,
   DicomError,
@@ -27,7 +27,7 @@ export { DicomError };
 type Codec = "jpeg" | "jpeg2k" | null;
 
 // Transfer syntaxes (spec/virtualize/dicom.md §2.1
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#21-transfer-syntax>): the
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#21-transfer-syntax>): the
 // dataset's encoding, and the codec of encapsulated frames (null for native pixel data).
 const SYNTAXES = new Map<string, [Encoding, Codec]>([
   ["1.2.840.10008.1.2", [IMPLICIT_LE, null]],
@@ -39,7 +39,7 @@ const SYNTAXES = new Map<string, [Encoding, Codec]>([
 ]);
 const WHOLE_SLIDE = "1.2.840.10008.5.1.4.1.1.77.1.6";
 // Photometric interpretations by pixel data and samples per pixel (spec/virtualize/dicom.md §3
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#3-the-image>).
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#3-the-image>).
 const MONOCHROME = ["MONOCHROME1", "MONOCHROME2"];
 const PHOTOMETRIC: Record<string, string[]> = {
   "null 1": MONOCHROME, "null 3": ["RGB"],
@@ -47,7 +47,7 @@ const PHOTOMETRIC: Record<string, string[]> = {
   "jpeg2k 1": MONOCHROME, "jpeg2k 3": ["RGB", "YBR_ICT", "YBR_RCT"],
 };
 // SOI and the Adobe APP14 marker, without its last byte, the color transform (spec/virtualize.md
-// §6.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#65-frames>).
+// §6.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#65-frames>).
 const ADOBE = [0xff, 0xd8, 0xff, 0xee, 0x00, 0x0e, 0x41, 0x64, 0x6f, 0x62, 0x65, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00];
 const DECIMAL = /^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?$/;
 const INTEGER = /^([+-]?)([0-9]+)$/;
@@ -61,18 +61,18 @@ const dv = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength)
 
 /**
  * The DICOM row of spec/virtualize.md §1.2
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>.
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>.
  */
 export function isDicom(head: Uint8Array): boolean {
   return head.length >= 132 && latin1(head.subarray(128, 132)) === "DICM";
 }
 
 // ---- attribute values (spec/virtualize/dicom.md §2.2
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#22-attributes>)
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#22-attributes>)
 
 /**
  * Reads the attributes of a dataset by their kind (spec/virtualize/dicom.md §2.2
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#22-attributes>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#22-attributes>).
  */
 class Values {
   read: ByteReader;
@@ -187,7 +187,7 @@ export async function virtualizeDicom(
   read: ByteReader,
   fileSize: number,
 ): Promise<ArchiveDesc & { summary: DicomSummary }> {
-  // §6.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#62-file>
+  // §6.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#62-file>
   if (fileSize < 132 || latin1(await read(128, 4)) !== "DICM") reject("not a DICOM file");
   const walker = new Walker(read, fileSize);
   const [meta, start] = await walker.meta();
@@ -197,12 +197,12 @@ export async function virtualizeDicom(
   const [encoding, codec] = known;
 
   // §6.3
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#63-datasets-and-sequences>
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#63-datasets-and-sequences>
   const [top] = await walker.dataset(start, fileSize, false, encoding, 0, true);
   const pixel = top.get(PIXEL_DATA)!;
 
   // spec/virtualize/dicom.md §2.2
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#22-attributes>: the Pixel
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#22-attributes>: the Pixel
   // Measures item of the Shared Functional Groups, if any.
   let measures: Dataset | undefined;
   const shared = top.get(0x52009229);
@@ -246,7 +246,7 @@ export async function virtualizeDicom(
   }
 
   // spec/virtualize/dicom.md §3
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#3-the-image>
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#3-the-image>
   const spp = need(sppValue, "Samples per Pixel");
   const photometric = need(photometricValue, "Photometric Interpretation");
   const rows = need(rowsValue, "Rows");
@@ -294,7 +294,7 @@ export async function virtualizeDicom(
   }
 
   // spec/virtualize.md §6.5
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#65-frames>: each frame's
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#65-frames>: each frame's
   // ranges.
   const planarNative = codec === null && spp === 3 && planar === 1;
   const frameSize = rows * columns * spp * (bitsAllocated / 8);
@@ -306,7 +306,7 @@ export async function virtualizeDicom(
   let unreferenced: [[number, number, number][], number, boolean] | undefined;
   // Each fragment's [frame, data length], when a frame has more than one, and whether
   // the Basic Offset Table is not empty (spec/virtualize/dicom.md §5
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>).
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>).
   let fragmentLengths: [number, number][] | undefined;
   let offsetTable = false;
   if (codec === null) {
@@ -424,8 +424,8 @@ export async function virtualizeDicom(
   }
 
   // spec/virtualize/dicom.md §4
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#4-output>; spec/virtualize.md
-  // §6.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#66-chunk-references>:
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#4-output>; spec/virtualize.md
+  // §6.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#66-chunk-references>:
   // the chunk references
   // The frames are along t when the Frame Increment Pointer is Frame Time or Frame Time Vector.
   const fa = increment === 0x00181063 || increment === 0x00181065 ? "t" : "z";
@@ -492,7 +492,7 @@ export async function virtualizeDicom(
   const utf8 = new TextEncoder();
   const json = (value: unknown) => utf8.encode(stringifyJson(value));
   // The source metadata (spec/virtualize/dicom.md §5
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>).
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>).
   const [rootMeta, nodeMeta, plans] = await sourceMetadata(
     read, fileSize, start, encoding, pixelEnd, pixelExtra, unreferenced, codec !== null && eot !== undefined,
     fragmentLengths, offsetTable,

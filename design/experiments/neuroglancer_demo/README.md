@@ -55,7 +55,7 @@ Notes:
   from `just archives-idr`) still works outside the browser.
 - **Hidden `Content-Range`.** For the same reason, the driver accepts a
   cross-origin `206` whose `Content-Range` is hidden, as long as the body has
-  exactly the requested length. This deviates from [spec §5.2](../../../spec/archive.md#52-reading-over-http).
+  exactly the requested length. This deviates from [spec §5.2](../../../spec/refkv.md#52-reading-over-http).
 - **One layer per channel.** Each chunk holds one channel (`[1, 1024, 1024]`).
   Neuroglancer needs a channel dimension to sit within a single chunk, so the
   state shows the three channels as red, green and blue layers with additive

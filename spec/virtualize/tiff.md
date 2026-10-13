@@ -2,8 +2,8 @@
 
 The Zarr layout of a TIFF or BigTIFF file, including OME-TIFF and JPEG-tiled
 slides such as Aperio SVS, and the translation of its tags into JSON. What
-all of vzip's conventions share is in [spec/conventions.md](../conventions.md),
-cited here as "conventions §n". How vzip produces this layout as a reference
+all of refkv's conventions share is in [spec/conventions.md](../conventions.md),
+cited here as "conventions §n". How refkv produces this layout as a reference
 store is the TIFF profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `48e9ac4e-1156-4a62-955e-20467d9c2700` ·
@@ -11,7 +11,7 @@ Schema: [schema.json](tiff/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the TIFF
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the TIFF profile: how vzip reads the source, which inputs it rejects, and how
+is the TIFF profile: how refkv reads the source, which inputs it rejects, and how
 each chunk references the source. The profile keeps its numbering as a section
 of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
 
@@ -25,20 +25,20 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "tiff"`, `"version": 0`, `"revision": 26` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
+with `"profile": "tiff"`, `"version": 0`, `"revision": 27` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
 and the source metadata of [§5](#5-source-metadata) as the member `"tiff"`. Its CMO is:
 
 ```json
 {
   "uuid": "48e9ac4e-1156-4a62-955e-20467d9c2700",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/vzip/refs/heads/main/spec/virtualize/tiff/schema.json",
-  "spec_url": "https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md",
-  "name": "vzip_virtualized",
-  "description": "The Zarr layout of a TIFF source virtualized by vzip, and the source's metadata"
+  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/virtualize/tiff/schema.json",
+  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md",
+  "name": "refkv_virtualized",
+  "description": "The Zarr layout of a TIFF source virtualized by refkv, and the source's metadata"
 }
 ```
 
-`vzip_source` declares it too, with the IR mirror's description ([§5](#5-source-metadata),
+`refkv_source` declares it too, with the IR mirror's description ([§5](#5-source-metadata),
 [conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
 the mirror's view that has a member; the mirror's arrays have no
 attributes.
@@ -365,9 +365,9 @@ path `"<level>"`.
 
 The root's source metadata `S` is `{"byte_order": "little" | "big",
 "bigtiff": true | false}`. Everything else the file holds is on
-`vzip_source`, which is the file's **IR mirror**
+`refkv_source`, which is the file's **IR mirror**
 ([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `vzip_source/tree`. This
+file is rebuilt byte for byte, and its view, `refkv_source/tree`. This
 section is the TIFF **source model**: the elements of a TIFF's IR. Nothing is
 left out, layout and dead space included (they are elements too, the dead
 space as gaps).
@@ -430,7 +430,7 @@ every such value.
 
 The elements are determined by the file, and the mirror by its elements
 ([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
-file are compared entry for entry, `vzip_source` included
+file are compared entry for entry, `refkv_source` included
 ([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
 
 ## 6. Example
@@ -443,7 +443,7 @@ property:
 {
   "profile": "tiff",
   "version": 0,
-  "revision": 26,
+  "revision": 27,
   "source": {
     "url": "https://example.org/image.ome.tif"
   },
@@ -454,8 +454,8 @@ property:
 }
 ```
 
-`vzip_source` is the IR mirror ([§5](#5-source-metadata)). For the 5,319-byte JPEG-tiled file
-`jpeg_gray.tif` of vzip's test fixtures, its property is:
+`refkv_source` is the IR mirror ([§5](#5-source-metadata)). For the 5,319-byte JPEG-tiled file
+`jpeg_gray.tif` of refkv's test fixtures, its property is:
 
 ```json
 {
@@ -481,7 +481,7 @@ Its 73 elements are 14 rows: IFD 0's 15 tags fold into one column run, its
 TileByteCounts, needs 16 tiles or more), and the 7 gaps into a third, whose
 name indexes are their starts (encoding 3). The names and types are sorted,
 so `names[0]` is `""`, the root's name; the root is row 0, with the extent
-`(0, 5319)`. The view, `vzip_source/tree`, is the root's document, and
+`(0, 5319)`. The view, `refkv_source/tree`, is the root's document, and
 begins:
 
 ```json
@@ -601,7 +601,7 @@ single range `(0, TileOffsets[k], n)` (for JPEG, see below). The references
 are listed (for [§1.2](../virtualize.md#12-input)'s order of first use) level by level, within a level
 by `t`, then `c`, then `z`, and within a plane by `k`. Besides these and the
 root's and the arrays' `zarr.json`, the archive's entries are those of the
-source metadata node `vzip_source`, the file's IR mirror
+source metadata node `refkv_source`, the file's IR mirror
 ([the convention §5](#5-source-metadata),
 [conventions §8](../conventions.md#8-the-ir-mirror)): its table's
 arrays, whose chunks hold copied bytes, and its view's groups.

@@ -1,8 +1,8 @@
-// Reading a vzip archive held in memory (spec/archive.md §10
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#10-zip-container>, §11
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#11-entries>, §6
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#6-reading>, §13
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#13-reading-a-vzip-archive>).
+// Reading a vzip archive held in memory (spec/bindings/vzip.md §10
+// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#10-zip-container>, §11
+// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#11-entries>, §6
+// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#6-reading>, §13
+// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#13-reading-a-vzip-archive>).
 
 import { crc32c, inflateRaw, InflateLimitError } from "./deflate.ts";
 import { checkedFetch } from "#net";
@@ -26,10 +26,10 @@ export type ErrorClass =
   | "resolution"
   | "request";
 
-export class VzipError extends Error {
+export class RefkvError extends Error {
   errorClass: ErrorClass;
   constructor(errorClass: ErrorClass, message: string) {
-    super(`vzip ${errorClass} error: ${message}`);
+    super(`refkv ${errorClass} error: ${message}`);
     this.errorClass = errorClass;
   }
 }
@@ -43,8 +43,8 @@ export interface Entry {
   reference?: { headerId: number; payload: Uint8Array };
   /**
    * Set if the record has an entry error (spec §11.1
-   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#111-classification>, §10.2
-   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>).
+   * <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#111-classification>, §10.2
+   * <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#102-zip64>).
    */
   error?: string;
 }
@@ -64,7 +64,7 @@ export type RangeFetcher = (
 
 /**
  * What the reader may resolve, and its limits (spec §6.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>). Every member is
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>). Every member is
  * optional; `DEFAULT_POLICY` gives the defaults.
  *
  * - `schemes`: schemes allowed besides those rule 1 allows by default
@@ -114,7 +114,7 @@ export const DEFAULT_POLICY: Required<Omit<Policy, "prefixes">> & Pick<Policy, "
 
 /**
  * The scheme of an absolute URL, lowercase, with https counted as http (§6.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 1).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 1).
  */
 function schemeOf(url: string): string {
   const i = url.indexOf(":");
@@ -124,7 +124,7 @@ function schemeOf(url: string): string {
 
 /**
  * Does `url` match `prefix` (spec §6.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 2)?
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 2)?
  */
 export function matchesPrefix(url: string, prefix: string): boolean {
   if (!url.startsWith(prefix)) return false;
@@ -136,7 +136,7 @@ export function matchesPrefix(url: string, prefix: string): boolean {
 
 /**
  * The class of an IP address (spec §6.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3).
  */
 export type AddressClass = "loopback" | "private" | "link-local" | "special" | "public";
 
@@ -216,7 +216,7 @@ function classOf(a: bigint, version: 4 | 6): AddressClass {
 
 /**
  * The class of an IP address in text form (spec §6.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3), or undefined
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3), or undefined
  * if it is not one.
  */
 export function addressClass(address: string): AddressClass | undefined {
@@ -228,7 +228,7 @@ export function addressClass(address: string): AddressClass | undefined {
 
 /**
  * The class of a URL's host as written (spec §6.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3): an IP
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3): an IP
  * literal's class (the URL parser normalizes decimal, octal and hexadecimal IPv4
  * forms), loopback for `localhost` and names under `.localhost`, and
  * undefined for any other name.
@@ -247,7 +247,7 @@ function hostClass(url: string): AddressClass | undefined {
 
 /**
  * Throws unless `policy` is well formed: `schemes` may not name `file` (§6.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 1).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 1).
  */
 export function validatePolicy(policy: Policy): void {
   if ((policy.schemes ?? []).some((s) => s.toLowerCase() === "file")) {
@@ -260,7 +260,7 @@ export function validatePolicy(policy: Policy): void {
 
 /**
  * Throws a resolution error unless `policy` allows `url` for an archive at `base` (§6.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>).
  */
 export function checkPolicy(policy: Policy, base: string, url: string): void {
   validatePolicy(policy);
@@ -268,14 +268,14 @@ export function checkPolicy(policy: Policy, base: string, url: string): void {
   const scheme = schemeOf(url);
   if (policy.prefixes !== undefined) {
     if (!policy.prefixes.some((p) => matchesPrefix(url, p))) {
-      throw new VzipError("resolution", `${url}: not under an allowed URL prefix (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)`);
+      throw new RefkvError("resolution", `${url}: not under an allowed URL prefix (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)`);
     }
   } else if (scheme === "file") {
     if (!local && !policy.allowFilesFromRemoteArchives) {
-      throw new VzipError("resolution", `${url}: an archive opened from a URL may not read local files (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)`);
+      throw new RefkvError("resolution", `${url}: an archive opened from a URL may not read local files (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)`);
     }
   } else if (scheme !== "http" && !(policy.schemes ?? []).some((s) => schemeOf(`${s}:`) === scheme)) {
-    throw new VzipError("resolution", `${url}: the scheme '${scheme}' is not allowed (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)`);
+    throw new RefkvError("resolution", `${url}: the scheme '${scheme}' is not allowed (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)`);
   }
   if (scheme !== "http") return;
   // Rule 3, on the host as written; checkAddress applies it to resolved addresses.
@@ -286,26 +286,26 @@ export function checkPolicy(policy: Policy, base: string, url: string): void {
 function checkClass(policy: Policy, url: string, c: AddressClass, address?: string): void {
   if (c === "public" || policy.allowPrivateHosts) return;
   const at = address === undefined ? "" : ` (at ${address})`;
-  throw new VzipError(
+  throw new RefkvError(
     "resolution",
-    `${url}: the host${at} is a ${c} address, which the reader does not reach without allowPrivateHosts: true (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)`,
+    `${url}: the host${at} is a ${c} address, which the reader does not reach without allowPrivateHosts: true (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)`,
   );
 }
 
 /**
  * Throws a resolution error unless rule 3 of §6.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> lets the reader
+ * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> lets the reader
  * connect to `address` for `url`.
  */
 export function checkAddress(policy: Policy, url: string, address: string): void {
   const c = addressClass(address);
-  if (c === undefined) throw new VzipError("resolution", `${url}: ${address} is not an IP address`);
+  if (c === undefined) throw new RefkvError("resolution", `${url}: ${address} is not an IP address`);
   checkClass(policy, url, c, address);
 }
 
 /**
  * Reads of the same url source at most this far apart are combined into one
- * request (spec §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>
+ * request (spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>
  * allows it). A Concat of many short ranges, such as one
  * per image row, would otherwise cost one request per range.
  */
@@ -316,7 +316,7 @@ const strictUtf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 function safe(v: bigint, what: string): number {
   if (v > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new VzipError("archive", `${what} is too large`);
+    throw new RefkvError("archive", `${what} is too large`);
   }
   return Number(v);
 }
@@ -342,7 +342,7 @@ export class Archive {
   entries: Map<string, Entry>;
   /**
    * The spec revision the writer followed, if the archive records one (spec §1.3
-   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#13-versioning>).
+   * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#13-versioning>).
    */
   revision: number | undefined;
   policy: typeof DEFAULT_POLICY;
@@ -373,9 +373,9 @@ export class Archive {
 
   /**
    * Opens an archive (spec §6.1
-   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#61-opening>); `baseUrl` resolves
+   * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#61-opening>); `baseUrl` resolves
    * relative `url` sources.
-   * `policy` (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)
+   * `policy` (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)
    * defaults to `DEFAULT_POLICY`, which allows http(s)
    * sources on public hosts, and for a local archive also `file` sources and
    * loopback and private hosts.
@@ -403,21 +403,21 @@ export class Archive {
         break;
       }
     }
-    if (eocd < 0) throw new VzipError("archive", "not a vzip archive");
+    if (eocd < 0) throw new RefkvError("archive", "not a vzip archive");
     const comment = bytes.subarray(eocd + 22);
     const magic = new TextDecoder().decode(comment.subarray(0, 6));
     if (!magic.startsWith("vzip/")) {
-      throw new VzipError("archive", "not a vzip archive");
+      throw new RefkvError("archive", "not a vzip archive");
     }
     if (magic !== "vzip/0") {
-      throw new VzipError("archive", `unsupported version ${magic}`);
+      throw new RefkvError("archive", `unsupported version ${magic}`);
     }
-    // spec §10.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>: the directory's size and offset always come
+    // spec §10.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#102-zip64>: the directory's size and offset always come
     // from the zip64 record; the end record's counts, size and offset, and the zip64
     // record's counts, are ignored
     const loc = eocd - 20;
     if (loc < 0 || view.getUint32(loc, true) !== 0x07064b50) {
-      throw new VzipError("archive", "no zip64 locator before the end of central directory record");
+      throw new RefkvError("archive", "no zip64 locator before the end of central directory record");
     }
     const at64 = safe(view.getBigUint64(loc + 8, true), "zip64 record offset");
     if (
@@ -425,19 +425,19 @@ export class Archive {
       view.getUint32(at64, true) !== 0x06064b50 ||
       view.getBigUint64(at64 + 4, true) !== 44n
     ) {
-      throw new VzipError("archive", "invalid zip64 end of central directory");
+      throw new RefkvError("archive", "invalid zip64 end of central directory");
     }
     const cdSize = view.getBigUint64(at64 + 40, true);
     const cdOffset = view.getBigUint64(at64 + 48, true);
     const cdStart = safe(cdOffset, "central directory offset");
     const cdEnd = cdStart + safe(cdSize, "central directory size");
-    if (cdEnd > n) throw new VzipError("archive", "central directory outside the file");
+    if (cdEnd > n) throw new RefkvError("archive", "central directory outside the file");
 
     const entries = new Map<string, Entry>();
     let at = cdStart;
     while (at < cdEnd) {
       if (at + 46 > cdEnd || view.getUint32(at, true) !== 0x02014b50) {
-        throw new VzipError("archive", `bad central directory record at ${at}`);
+        throw new RefkvError("archive", `bad central directory record at ${at}`);
       }
       const flags = view.getUint16(at + 8, true);
       const method = view.getUint16(at + 10, true);
@@ -448,7 +448,7 @@ export class Archive {
       const commentLen = view.getUint16(at + 32, true);
       let offset: number | bigint = view.getUint32(at + 42, true);
       const end = at + 46 + nameLen + extraLen + commentLen;
-      if (end > cdEnd) throw new VzipError("archive", "truncated central directory");
+      if (end > cdEnd) throw new RefkvError("archive", "truncated central directory");
       const nameBytes = bytes.subarray(at + 46, at + 46 + nameLen);
       const extraStart = at + 46 + nameLen;
       const extra = bytes.subarray(extraStart, extraStart + extraLen);
@@ -457,16 +457,16 @@ export class Archive {
       try {
         key = strictUtf8.decode(nameBytes);
       } catch {
-        continue; // names no key (spec §10.3 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#103-file-names>)
+        continue; // names no key (spec §10.3 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#103-file-names>)
       }
       if (key === "") continue;
-      if (entries.has(key)) throw new VzipError("archive", `duplicate key ${key}`);
+      if (entries.has(key)) throw new RefkvError("archive", `duplicate key ${key}`);
       const entry: Entry = { key, method, csize, size, bodyOffset: 0 };
       entries.set(key, entry);
       const blocks = parseExtra(extra, view, extraStart);
       const refs = blocks?.filter((b) => b.id === RANGE_ID || b.id === CONCAT_ID) ?? [];
       const zip64 = blocks?.filter((b) => b.id === 0x0001) ?? [];
-      // spec §10.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>: a large entry's sizes, then an
+      // spec §10.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#102-zip64>: a large entry's sizes, then an
       // offset that does not fit its field, come from the one ZIP64 block, in that order
       const large = size === U32_ALL && csize === U32_ALL;
       const need = (large ? 16 : 0) + (offset === U32_ALL ? 8 : 0);
@@ -492,7 +492,7 @@ export class Archive {
       } else if (entry.error === undefined && flags & 1) {
         entry.error = "encrypted";
       } else if (entry.error === undefined && large && method !== 0) {
-        // spec §10.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#101-structure> rule 7
+        // spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#101-structure> rule 7
         entry.error = "large entry is not STORED";
       }
       if (entry.error === undefined && refs.length === 1) {
@@ -509,7 +509,7 @@ export class Archive {
     const cview = new DataView(comment.buffer, comment.byteOffset, comment.byteLength);
     const sOffset = safe(cview.getBigUint64(6, true), "sources offset");
     const sSize = safe(cview.getBigUint64(14, true), "sources size");
-    if (sOffset + sSize > n) throw new VzipError("archive", "source table outside the file");
+    if (sOffset + sSize > n) throw new RefkvError("archive", "source table outside the file");
     let table: { sources: Source[]; revision?: number };
     try {
       table = decodeTable(
@@ -517,12 +517,12 @@ export class Archive {
       );
     } catch (e) {
       const why = e instanceof InflateLimitError
-        ? `${e.message}; this reader allows ${rules.maxFormatEntry} (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)`
+        ? `${e.message}; this reader allows ${rules.maxFormatEntry} (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)`
         : (e as Error).message;
-      throw new VzipError("archive", `source table: ${why}`);
+      throw new RefkvError("archive", `source table: ${why}`);
     }
     if (table.sources.length > rules.maxSources) {
-      throw new VzipError(
+      throw new RefkvError(
         "archive",
         `the source table has ${table.sources.length} sources; this reader allows ${rules.maxSources}`,
       );
@@ -532,13 +532,13 @@ export class Archive {
 
   /**
    * The visible entry for `key`, or undefined (spec §6.2
-   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-operations>).
+   * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#62-operations>).
    */
   lookup(key: string): Entry | undefined {
     if (key.startsWith("__vz__/")) return undefined;
     const entry = this.entries.get(key);
     if (entry?.error !== undefined) {
-      throw new VzipError("entry", `${JSON.stringify(key)}: ${entry.error}`);
+      throw new RefkvError("entry", `${JSON.stringify(key)}: ${entry.error}`);
     }
     return entry;
   }
@@ -559,7 +559,7 @@ export class Archive {
       );
     } catch (e) {
       if (!(e instanceof MalformedError)) throw e;
-      throw new VzipError("payload", `${JSON.stringify(entry.key)}: ${e.message}`);
+      throw new RefkvError("payload", `${JSON.stringify(entry.key)}: ${e.message}`);
     }
   }
 
@@ -568,7 +568,7 @@ export class Archive {
     if (entry.reference === undefined) return entry.size;
     const total = this.ranges(entry).reduce((n, r) => n + rangeSize(r), 0n);
     if (total > BigInt(Number.MAX_SAFE_INTEGER)) {
-      throw new VzipError("request", "value is too large for this reader");
+      throw new RefkvError("request", "value is too large for this reader");
     }
     return Number(total);
   }
@@ -576,21 +576,21 @@ export class Archive {
   private async body(entry: Entry): Promise<Uint8Array> {
     const end = entry.bodyOffset + entry.csize;
     if (end > this.bytes.length) {
-      throw new VzipError("body", `${entry.key}: body outside the file`);
+      throw new RefkvError("body", `${entry.key}: body outside the file`);
     }
     const stored = this.bytes.subarray(entry.bodyOffset, end);
     let body = stored;
     if (entry.method === 8) {
       try {
-        body = await inflateRaw(stored, entry.size); // spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 6
+        body = await inflateRaw(stored, entry.size); // spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 6
       } catch (e) {
-        throw new VzipError("body", `${entry.key}: ${(e as Error).message}`);
+        throw new RefkvError("body", `${entry.key}: ${(e as Error).message}`);
       }
     } else if (entry.csize !== entry.size) {
-      throw new VzipError("body", `${entry.key}: STORED sizes differ`);
+      throw new RefkvError("body", `${entry.key}: STORED sizes differ`);
     }
     if (body.length !== entry.size) {
-      throw new VzipError("body", `${entry.key}: inflates to ${body.length} bytes`);
+      throw new RefkvError("body", `${entry.key}: inflates to ${body.length} bytes`);
     }
     return body;
   }
@@ -600,7 +600,7 @@ export class Archive {
     const start = r.offset;
     const end = r.offset + r.length;
     const fail = (m: string): never => {
-      throw new VzipError("resolution", `source ${r.source}: ${m}`);
+      throw new RefkvError("resolution", `source ${r.source}: ${m}`);
     };
     if (s.data !== undefined) {
       if (end > BigInt(s.data.length)) fail("range past the end of the data");
@@ -621,7 +621,7 @@ export class Archive {
     } catch (e) {
       return fail((e as Error).message);
     }
-    checkPolicy(this.policy, this.baseUrl, url); // spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>
+    checkPolicy(this.policy, this.baseUrl, url); // spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>
     const scheme = getScheme(url);
     if (scheme !== "http" && scheme !== "https") fail(`unsupported scheme in ${url}`);
     try {
@@ -659,7 +659,7 @@ export class Archive {
     const size = this.size(entry);
     end ??= size;
     if (start < 0 || end < start || end > size) {
-      throw new VzipError("request", `range [${start}, ${end}) of a ${size}-byte value`);
+      throw new RefkvError("request", `range [${start}, ${end}) of a ${size}-byte value`);
     }
     if (entry.reference === undefined) {
       return (await this.body(entry)).subarray(start, end);
@@ -667,7 +667,7 @@ export class Archive {
     type Read = { source: number; offset: bigint; length: bigint };
     // Each part is the bytes of a range that overlaps the request. A range with
     // a crc32c is read whole and checked (spec §6.3
-    // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#63-resolving-a-reference>); `cuts`
+    // <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>); `cuts`
     // says which part of each part's bytes the request takes, and which checksum they must have.
     const parts: (Promise<Uint8Array> | Read)[] = [];
     const cuts: { lo: number; hi: number; crc?: number }[] = [];
@@ -713,12 +713,12 @@ export class Archive {
       runOf.set(read, runs[runs.length - 1]);
     }
     if (runs.length > this.policy.maxReads) {
-      // spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule
+      // spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule
       // 5: before any read. The other parts read no url source.
       for (const p of parts) if (p instanceof Promise) p.catch(() => {});
-      throw new VzipError(
+      throw new RefkvError(
         "request",
-        `the value needs ${runs.length} reads; this reader allows ${this.policy.maxReads} (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)`,
+        `the value needs ${runs.length} reads; this reader allows ${this.policy.maxReads} (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)`,
       );
     }
     for (const run of runs) {
@@ -735,7 +735,7 @@ export class Archive {
     const chunks = whole.map((data, i) => {
       const { lo, hi, crc } = cuts[i];
       if (crc !== undefined && crc32c(data) !== crc) {
-        throw new VzipError(
+        throw new RefkvError(
           "resolution",
           `the bytes read do not match the range's crc32c ${crc} (got ${crc32c(data)}): the ` +
             "source changed since the archive was written",

@@ -198,7 +198,7 @@ def axis_json(name, unit):
 
 # --------------------------------------------------------------------------
 # TIFF profile (§3
-# <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#3-tiff-profile>)
+# <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#3-tiff-profile>)
 
 TYPE_SIZE = {1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8, 13: 4, 16: 8, 17: 8, 18: 8}
 INT_FMT = {1: "B", 3: "H", 4: "I", 13: "I", 16: "Q", 18: "Q", 6: "b", 8: "h", 9: "i", 17: "q"}
@@ -277,7 +277,7 @@ class Tiff:
         ifd = IFD(off)
         if main:
             # A SubIFD's next-IFD offset is ignored (§3.1
-            # <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#31-reading>),
+            # <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#31-reading>),
             # so it is not read.
             nxt = self.src.read(base + count * esz, inl)
             ifd.next = struct.unpack(bo + ("Q" if self.big else "I"), nxt)[0]
@@ -320,7 +320,7 @@ class Tiff:
         return ifd
 
     # ---- §3.1
-    # <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#31-reading>
+    # <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#31-reading>
     # derived values
 
     def fmt(self, ifd: IFD):
@@ -384,7 +384,7 @@ class Tiff:
                 D = None
 
         # §3.3
-        # <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#33-planes>
+        # <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#33-planes>
         # planes
         if ome is None:
             SZ, SC, ST = 1, spp, 1
@@ -446,7 +446,7 @@ class Tiff:
             positions = sorted(plane_ifd)
 
         # §3.4
-        # <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#34-pyramid-levels>
+        # <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#34-pyramid-levels>
         # levels: list of {pos: IFD}
         levels: list[dict] = [{p: self.main[plane_ifd[p]] for p in positions}]
         if ifd0.array(330):
@@ -481,7 +481,7 @@ class Tiff:
             geo.append(g)
 
         # §3.5
-        # <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#35-data-types-and-codecs>
+        # <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#35-data-types-and-codecs>
         # data type and codecs
         need(sf in (1, 2, 3), f"SampleFormat {sf}")
         need(bits in ((32, 64) if sf == 3 else (8, 16, 32, 64)), f"BitsPerSample {bits}")
@@ -503,7 +503,7 @@ class Tiff:
             a2b = bytes_codec(bits // 8, endian)
 
         # §3.6
-        # <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#36-output>
+        # <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#36-output>
         # output
         nchan = SC
         dims = []
@@ -595,7 +595,7 @@ UNITS = {
 }
 
 # ---- §3.2
-# <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#32-ome-xml> tag
+# <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#32-ome-xml> tag
 # scan
 
 _NAME = r"[A-Za-z0-9_.\-]+"
@@ -758,7 +758,7 @@ def uuid_text(X, a, b, skips):
 
 # --------------------------------------------------------------------------
 # ND2 profile (§4
-# <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#4-nd2-profile>)
+# <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#4-nd2-profile>)
 
 CHUNK_MAGIC = 0x0ABECEDA
 SIG_NAME = b"ND2 FILE SIGNATURE CHUNK NAME01!"
@@ -1120,7 +1120,7 @@ class ND2:
         self.cmap = cmap
 
         # §4.3
-        # <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#43-metadata>
+        # <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#43-metadata>
         # attributes
         need(b"ImageAttributesLV!" in cmap, "no ImageAttributesLV! chunk")
         attrs_top = parse_lv_chunk(self.chunk_data(cmap[b"ImageAttributesLV!"]))
@@ -1186,7 +1186,7 @@ class ND2:
                     aspect = 1.0
 
         # §4.4
-        # <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#44-frames>
+        # <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#44-frames>
         # frames
         counts = [l[2] for l in loops]
         N = 1
@@ -1245,7 +1245,7 @@ class ND2:
                 franges[f] = [[(0, o + 16 + nn + 8, dd - 8)]]
 
         # §4.5
-        # <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#45-channels>
+        # <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#45-channels>
         # channels
         channels = None
         if planes is not None and planes[0] >= 1:
@@ -1265,7 +1265,7 @@ class ND2:
             channels = [(f"C{k}", "FFFFFF") for k in range(comp)]
 
         # §4.6
-        # <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#46-output>
+        # <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#46-output>
         # output
         kinds = [l[0] for l in loops]
         loop_of = {l[0]: l for l in loops}

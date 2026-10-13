@@ -1,6 +1,6 @@
 // The datatype descriptions of the frozen TypeScript IMS virtualizer (revision 25)
 // (spec/virtualize/ims.md §5.2
-// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#52-datatypes>);
+// <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#52-datatypes>);
 // python/tests/reference/test_virtualize_ims.py has the same cases.
 
 import assert from "node:assert/strict";

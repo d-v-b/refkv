@@ -13,7 +13,7 @@
 // `id` is the base64url encoding of the URL. Used by the service worker
 // (sw.ts); kept free of service worker APIs so it can run under Node.
 
-import { Archive, type Policy, type RangeFetcher, VzipError } from "./archive.ts";
+import { Archive, type Policy, type RangeFetcher, RefkvError } from "./archive.ts";
 import { HttpResolutionError, openHttpFile, readHttpRange } from "./http.ts";
 import { ImageError } from "./virtualize/common.ts";
 import { isStoreUrl, virtualizeSource, virtualizeStore } from "./virtualize/index.ts";
@@ -60,7 +60,7 @@ export interface HandlerOptions {
   openFile?: typeof openHttpFile;
   /**
    * Lists and reads store inputs (spec/virtualize.md §1.5
-   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>); defaults to
+   * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store>); defaults to
    * `storeFetch` under `policy`. A fetch given here is still checked by the policy on each URL
    * as written and on each response's final URL.
    */
@@ -69,7 +69,7 @@ export interface HandlerOptions {
   fetchArchive?: (url: string) => Promise<Uint8Array>;
   /**
    * The reader policy (spec §6.7
-   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>) for `.vzip`
+   * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) for `.vzip`
    * archives named by URL, and for
    * the image files and stores the handler virtualizes; the default allows http(s)
    * sources on public hosts. Archives
@@ -154,7 +154,7 @@ export function makeHandler(options: HandlerOptions) {
             virtual = await virtualizeIr("tiff", url, source);
             const etag = source.etag?.();
             // spec/virtualize.md §1.2
-            // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>
+            // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>
             virtual.sources[0] = { ...virtual.sources[0], size: BigInt(source.size), ...(etag !== undefined ? { etag } : {}) };
           } else {
             virtual = await virtualizeSource(url, source);
@@ -220,7 +220,7 @@ export function makeHandler(options: HandlerOptions) {
       });
     } catch (e) {
       const message = (e as Error).message;
-      if (e instanceof VzipError) {
+      if (e instanceof RefkvError) {
         const status = e.errorClass === "request" ? 416 : e.errorClass === "resolution" ? 502 : 500;
         return response(status, message);
       }

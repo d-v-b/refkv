@@ -1,5 +1,5 @@
 """The round-2 ND2 probes (design/IR_NOTES.md §10
-<https://github.com/d-v-b/vzip/blob/main/design/IR_NOTES.md#10-results-2026-10-08>): byte-array and
+<https://github.com/d-v-b/refkv/blob/main/design/IR_NOTES.md#10-results-2026-10-08>): byte-array and
 record bombs, failed decodes,
 repeated names, sparse families, positions without frames, sparse frame times.
 Usage: uv run python design/experiments/ir_round2/gen_nd2_probes.py <out dir>"""

@@ -7,10 +7,10 @@ import io
 import pytest
 
 from ir_helpers import FIXTURES, same_hierarchy
-from vzip.ir import virtualize as via_ir
-from vzip.ir.cmirror import rebuild_from_archive
-from vzip.virtualize import Rejected
-from vzip_reference import virtualize  # the frozen reference (ir_helpers)
+from refkv.ir import virtualize as via_ir
+from refkv.ir.cmirror import rebuild_from_archive
+from refkv.virtualize import Rejected
+from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
 DICOMS = sorted((FIXTURES / "dicom").glob("*.dcm"))
 PROBES = ["dicom_big_private.dcm", "dicom_chain_bot.dcm", "dicom_chain_nobot.dcm", "dicom_deep_defined.dcm",
@@ -19,7 +19,7 @@ PROBES = ["dicom_big_private.dcm", "dicom_chain_bot.dcm", "dicom_chain_nobot.dcm
 
 
 def decides_as_today(path, tmp_path):
-    """The IR's output is the reference's outside vzip_source, or both reject; its mirror
+    """The IR's output is the reference's outside refkv_source, or both reject; its mirror
     rebuilds the file. The IR's output, or None when rejected."""
     data = path.read_bytes()
     url = f"https://data.test/{path.name}"

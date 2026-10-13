@@ -8,14 +8,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from ir_helpers import FIXTURES, same_hierarchy
-from vzip.ir import virtualize as via_ir
-from vzip.ir.cmirror import rebuild_from_archive
-from vzip.errors import ResolutionError
-from vzip.ir import parse
-from vzip.ir.planner import FileTransport, HttpTransport
-from vzip.policy import Policy
-from vzip.virtualize import Rejected
-from vzip_reference import virtualize  # the frozen reference (ir_helpers)
+from refkv.ir import virtualize as via_ir
+from refkv.ir.cmirror import rebuild_from_archive
+from refkv.errors import ResolutionError
+from refkv.ir import parse
+from refkv.ir.planner import FileTransport, HttpTransport
+from refkv.policy import Policy
+from refkv.virtualize import Rejected
+from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
 LOOPBACK = Policy(allow_private_hosts=True)  # the test servers are on 127.0.0.1
 ND2S = sorted((FIXTURES / "nd2").glob("*.nd2"))

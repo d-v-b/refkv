@@ -1,7 +1,7 @@
 # Virtual datasets with xarray
 
 Many netCDF or HDF5 files become one virtual dataset, which
-[VirtualiZarr](https://virtualizarr.readthedocs.io/) builds and vzip saves as
+[VirtualiZarr](https://virtualizarr.readthedocs.io/) builds and refkv saves as
 one small archive that records where each chunk lives in the original files.
 xarray opens the archive as an ordinary lazy dataset, and reads each chunk
 from the file it came from: no data is copied.
@@ -10,18 +10,18 @@ from the file it came from: no data is copied.
 
 <!-- This installs main, which has these extras once this page is merged; do not pin a branch. -->
 ```bash
-pip install "vzip[virtualizarr] @ git+https://github.com/d-v-b/vzip" xarray h5py h5netcdf fsspec aiohttp
+pip install "refkv[virtualizarr] @ git+https://github.com/d-v-b/refkv" xarray h5py h5netcdf fsspec aiohttp
 ```
 
 The `virtualizarr` extra installs VirtualiZarr, which
-`vzip.ReferenceStore.from_virtualizarr` needs, and with it xarray, obstore and
-obspec_utils; and the `zarr` extra, zarr-python, with which `vzip.zarr` opens
-a store for `xr.open_zarr`. vzip itself does not import xarray. The rest are
+`refkv.ReferenceStore.from_virtualizarr` needs, and with it xarray, obstore and
+obspec_utils; and the `zarr` extra, zarr-python, with which `refkv.zarr` opens
+a store for `xr.open_zarr`. refkv itself does not import xarray. The rest are
 for the example: h5py for VirtualiZarr's HDF5 parser, and h5netcdf, fsspec
 and aiohttp for xarray to read a netCDF file over HTTPS and check the
-archive's values; xarray brings pandas. Without the extras, vzip reads and
+archive's values; xarray brings pandas. Without the extras, refkv reads and
 writes archives, and holds a `ReferenceStore` built from a mapping, without
-Zarr; `vzip[zarr]` alone adds `vzip.zarr`. (In a clone of this repository,
+Zarr; `refkv[zarr]` alone adds `refkv.zarr`. (In a clone of this repository,
 `uv sync` installs all of these.)
 
 ## An example: five years of sea surface temperature
@@ -57,7 +57,7 @@ from obspec_utils.registry import ObjectStoreRegistry
 from obstore.store import S3Store
 from virtualizarr.parsers import HDFParser
 
-import vzip
+import refkv
 
 bucket = "noaa-cdr-sea-surface-temp-optimum-interpolation-pds"
 days = pd.date_range("2015-01-01", "2019-12-31", freq="MS")  # freq="D" for every day
@@ -77,19 +77,19 @@ vds = vz.open_virtual_mfdataset(
 )
 
 # 2. Save it as a vzip archive, naming the files by their public HTTPS URLs.
-store = vzip.ReferenceStore.from_virtualizarr(vds, rewrite_urls=vzip.public_s3_url)
+store = refkv.ReferenceStore.from_virtualizarr(vds, rewrite_urls=refkv.public_s3_url)
 print(store.save("oisst.vzip"))
 
 # 3. Reopen it with xarray: the yearly mean SST over the Nino 3.4 region, weighted by area.
-stats = vzip.Stats()
-ds = xr.open_zarr(vzip.zarr.open("oisst.vzip", stats=stats))
+stats = refkv.Stats()
+ds = xr.open_zarr(refkv.zarr.open("oisst.vzip", stats=stats))
 nino34 = ds.sst.sel(lat=slice(-5, 5), lon=slice(190, 240)).load()  # read each chunk once
 mean = nino34.weighted(np.cos(np.deg2rad(nino34.lat))).mean(["lat", "lon", "zlev"])
 print(mean.groupby("time.year").mean().to_series().round(2))
 print(f"read {stats.external_bytes / 1e6:.0f} MB in {stats.external_requests} requests to the netCDF files")
 
 # 4. Check the last day against the netCDF file itself (float32: see troubleshooting).
-with fsspec.open(vzip.public_s3_url(urls[-1])) as f:
+with fsspec.open(refkv.public_s3_url(urls[-1])) as f:
     direct = xr.open_dataset(f, engine="h5netcdf").sst.sel(lat=slice(-5, 5), lon=slice(190, 240))
     np.testing.assert_array_equal(nino34.sel(time=direct.time).astype("float32"), direct)
 print("the archive's values equal the netCDF file's on", days[-1].date())
@@ -122,9 +122,9 @@ What each step does:
    `date_modified`, `time_coverage_*`), rather than keeping the first file's.
 2. **Save.** `from_virtualizarr` turns the virtual dataset into a store:
    Zarr metadata, the coordinates as bytes, and each chunk as a reference.
-   `rewrite_urls=vzip.public_s3_url` names each file by its public HTTPS URL
+   `rewrite_urls=refkv.public_s3_url` names each file by its public HTTPS URL
    ([publishing](#publishing)). `save` writes the archive and summarizes it.
-3. **Compute.** `vzip.zarr.open` opens the archive as a read-only Zarr store
+3. **Compute.** `refkv.zarr.open` opens the archive as a read-only Zarr store
    for `xr.open_zarr`, which reads chunks from the netCDF files, at most 8
    requests at a time. The files' chunking stays: a chunk of `sst` is a whole day's global
    field, 720×1440, about 0.65 MB, so even one grid cell costs that per day
@@ -142,7 +142,7 @@ What each step does:
   instantiates it with no arguments, hence the `EightThreads` subclass,
   which keeps the host to 8 connections.
 - **Reuse the archive.** That is the point of saving it: steps 3 and 4 rerun
-  from `vzip.zarr.open("oisst.vzip")` without virtualizing again, so guard steps
+  from `refkv.zarr.open("oisst.vzip")` without virtualizing again, so guard steps
   1 and 2 with `if not Path("oisst.vzip").exists():` while you iterate.
 - **The page index.** Without one, a reader loads the whole central
   directory at open, about 125 bytes per key. A year of daily OISST is
@@ -151,22 +151,22 @@ What each step does:
   115 kB ([design/COMPARISON.md](../design/COMPARISON.md#opening)). Once the
   directory passes a few MB, tens of thousands of keys, save with
   `store.save("oisst.vzip", page_size=65536)`
-  ([spec §12, Page index](../spec/archive.md#12-page-index-optional)).
-- **Requests.** `vzip.zarr.open(..., max_concurrency=16)` allows more requests in
+  ([spec §12, Page index](../spec/bindings/vzip.md#12-page-index-optional)).
+- **Requests.** `refkv.zarr.open(..., max_concurrency=16)` allows more requests in
   flight, and `max_concurrency=None` removes the cap. Respect the host's
   limits.
 
 ## Publishing
 
-`rewrite_urls=vzip.public_s3_url` gives HTTPS URLs that any reader can read
-without credentials: vzip in Python, the [JavaScript reader](../js/README.md),
+`rewrite_urls=refkv.public_s3_url` gives HTTPS URLs that any reader can read
+without credentials: refkv in Python, the [JavaScript reader](../js/README.md),
 and a browser (if the bucket allows cross-origin requests). Serve the archive
 over HTTPS, and anyone can open it with
-`xr.open_zarr(vzip.zarr.open("https://example.org/oisst.vzip"))`.
+`xr.open_zarr(refkv.zarr.open("https://example.org/oisst.vzip"))`.
 `save(..., relative_to="https://example.org/data/")` writes URLs under that
 prefix relative to the archive, so the two can move together.
 
-For private data, every vzip store takes `registry=`: the
+For private data, every reference store takes `registry=`: the
 `ObjectStoreRegistry` you gave VirtualiZarr, or a mapping of URL prefixes to
 stores. Readers need the same stores, so tell `save` their policy:
 
@@ -174,16 +174,16 @@ stores. Readers need the same stores, so tell `save` their policy:
 from obstore.store import S3Store
 
 registry = {"s3://my-bucket": S3Store("my-bucket", region="us-west-2")}
-store = vzip.ReferenceStore.from_virtualizarr(vds, registry=registry)
-store.save("private.vzip", policy=vzip.Policy(schemes={"s3"}))
-ds = xr.open_zarr(vzip.zarr.open("private.vzip", registry=registry))
+store = refkv.ReferenceStore.from_virtualizarr(vds, registry=registry)
+store.save("private.vzip", policy=refkv.Policy(schemes={"s3"}))
+ds = xr.open_zarr(refkv.zarr.open("private.vzip", registry=registry))
 ```
 
-By default, vzip reads `http(s)` URLs (and local files, from a local
+By default, refkv reads `http(s)` URLs (and local files, from a local
 archive), and never builds an `s3://`, `gs://` or `az://` store itself, so it
 cannot pick up your cloud credentials by accident. For a private bucket,
 register its store, as above; that allows its URLs. The rules are in
-[spec §6.7, Reader policy](../spec/archive.md#67-reader-policy).
+[spec §6.7, Reader policy](../spec/refkv.md#67-reader-policy).
 
 ## Troubleshooting
 
@@ -206,17 +206,17 @@ register its store, as above; that allows its URLs. The rules are in
 - **`the scheme 's3' is not allowed`** (reading) or **`not saving ...: the
   default reader policy refuses ...`** (saving). The references name
   `s3://` URLs, which the default policy refuses. For a public
-  bucket, pass `rewrite_urls=vzip.public_s3_url` to `from_virtualizarr`. For
+  bucket, pass `rewrite_urls=refkv.public_s3_url` to `from_virtualizarr`. For
   a private one, pass `registry=` to read, and
-  `policy=vzip.Policy(schemes={"s3"})` to `save` ([publishing](#publishing)).
+  `policy=refkv.Policy(schemes={"s3"})` to `save` ([publishing](#publishing)).
 - **`no store is registered for s3://...`.** The policy allows the scheme,
   but no store serves the URL; pass `registry={"s3://bucket": S3Store(...)}`.
-- **`the request would go through the proxy ...`.** vzip checks the
+- **`the request would go through the proxy ...`.** refkv checks the
   address each request goes to, and cannot check one a proxy connects to.
   Exempt the host with `no_proxy`, or pass
-  `policy=vzip.Policy(allow_unchecked_proxy=True)`.
+  `policy=refkv.Policy(allow_unchecked_proxy=True)`.
 
-The docstrings say more: `help(vzip.ReferenceStore)`, `help(vzip.zarr.open)`
-and `help(vzip.VZipStore)` (its `registry=` and `max_concurrency=`), and
-`help(vzip.Policy)`. Without zarr, a store answers `get`, `classify`, `raw`
-and `list` itself: `vzip.open("oisst.vzip").get("zarr.json")`.
+The docstrings say more: `help(refkv.ReferenceStore)`, `help(refkv.zarr.open)`
+and `help(refkv.vzip.VZipStore)` (its `registry=` and `max_concurrency=`), and
+`help(refkv.Policy)`. Without zarr, a store answers `get`, `classify`, `raw`
+and `list` itself: `refkv.open("oisst.vzip").get("zarr.json")`.

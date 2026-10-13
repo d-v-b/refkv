@@ -321,7 +321,7 @@ impl std::fmt::Display for Uri {
 }
 
 /// Normalises an absolute or relative local path lexically (§6
-/// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#6-source-table> base
+/// <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#6-source-table> base
 /// URI).
 pub fn normalize_path(p: &std::path::Path) -> std::io::Result<Vec<u8>> {
     use std::os::unix::ffi::OsStrExt;
@@ -371,7 +371,7 @@ pub fn file_base_uri(p: &std::path::Path) -> std::io::Result<Uri> {
 }
 
 /// Maps a resolved `file:` URI to a local path (§6
-/// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#6-source-table>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#6-source-table>).
 pub fn file_uri_to_path(u: &Uri) -> Result<std::path::PathBuf, String> {
     use std::os::unix::ffi::OsStringExt;
     if let Some(a) = &u.authority {

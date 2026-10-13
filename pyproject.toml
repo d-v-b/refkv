@@ -1,7 +1,7 @@
 [project]
-name = "vzip"
+name = "refkv"
 version = "0.1.0"
-description = "vzip: ZIP plus a reference value type, for reference stores (reference implementation and experiments)"
+description = "refkv: a reference value type for key-value stores, its ZIP binding (vzip archives), and virtualization of image files and stores"
 # the PyPI page (README.md, the repository's, links to its files by relative path)
 readme = "python/README.md"
 authors = [
@@ -19,9 +19,9 @@ classifiers = [
     "Operating System :: MacOS",
 ]
 # The base install reads and writes vzip archives, holds a ReferenceStore and
-# virtualizes image files and stores, without Zarr (numpy: vzip.shards), through
-# the Rust core this package builds and ships as the module vzip_ir (below); the
-# extras add the rest (python/src/vzip/_extras.py), and the dependency groups hold
+# virtualizes image files and stores, without Zarr (numpy: refkv.shards), through
+# the Rust core this package builds and ships as the module refkv._ir (below); the
+# extras add the rest (python/src/refkv/_extras.py), and the dependency groups hold
 # what only this repository's tests, fixture generators and benchmarks use.
 dependencies = [
     "google-crc32c>=1.9.0",
@@ -30,50 +30,48 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/d-v-b/vzip"
-Documentation = "https://github.com/d-v-b/vzip/tree/main/docs"
+Repository = "https://github.com/d-v-b/refkv"
+Documentation = "https://github.com/d-v-b/refkv/tree/main/docs"
 
 [project.optional-dependencies]
-# vzip.zarr: a vzip store as a read-only zarr store, for zarr and xarray, and the codecs
+# refkv.zarr: a reference store as a read-only zarr store, for zarr and xarray, and the codecs
 # of archives of virtualized image files and stores
 zarr = [
     "zarr>=3.4.0",
 ]
-# the JPEG, JPEG 2000 and JPEG XR decoders of vzip.zarr's image codecs
+# the JPEG, JPEG 2000 and JPEG XR decoders of refkv.zarr's image codecs
 images = [
-    "vzip[zarr]",
+    "refkv[zarr]",
     "imagecodecs>=2026.8.16",
 ]
-# ReferenceStore.from_virtualizarr, vzip.convert and vzip.shards, which build Zarr
-# metadata. vzip does not import xarray: it calls the methods of the datasets
+# ReferenceStore.from_virtualizarr, refkv.convert and refkv.shards, which build Zarr
+# metadata. refkv does not import xarray: it calls the methods of the datasets
 # VirtualiZarr builds
 virtualizarr = [
-    "vzip[zarr]",
+    "refkv[zarr]",
     "virtualizarr>=2.7.3",
 ]
 
-# One distribution, two modules: the Python package python/src/vzip, and the Rust core
-# rust/vzip-ir as vzip_ir (its compiled module vzip_ir.vzip_ir, re-exported by
-# python/src/vzip_ir), so vzip always runs the core of its own commit. Building it needs a
-# Rust toolchain. This file stays at the root, where the conformance harnesses and the
-# fixture generators share its environment.
+# One distribution: the Python package python/src/refkv, with the Rust core rust/refkv-ir
+# compiled into it as the module refkv._ir, so refkv always runs the core of its own
+# commit. Building it needs a Rust toolchain. This file stays at the root, where the
+# conformance harnesses and the fixture generators share its environment.
 [build-system]
 requires = ["maturin>=1.15,<2"]
 build-backend = "maturin"
 
 [tool.maturin]
-manifest-path = "rust/vzip-ir/Cargo.toml"
+manifest-path = "rust/refkv-ir/Cargo.toml"
 features = ["python"]
-module-name = "vzip_ir.vzip_ir"
+module-name = "refkv._ir"
 python-source = "python/src"
-python-packages = ["vzip"]
 
 [dependency-groups]
 # the tests, and the fixture generators and verifiers (fixtures/generators, js/test/*/verify.py),
-# and what the example of docs/virtual-datasets.md imports besides vzip: xarray, VirtualiZarr's
+# and what the example of docs/virtual-datasets.md imports besides refkv: xarray, VirtualiZarr's
 # HDF5 parser (h5py), and xarray reading netCDF files over HTTPS (h5netcdf, fsspec, aiohttp)
 dev = [
-    "vzip[zarr,images,virtualizarr]",
+    "refkv[zarr,images,virtualizarr]",
     "aiohttp>=3.14.3",
     "czifile>=2026.8.16",
     "fsspec>=2026.9.0",
@@ -105,10 +103,10 @@ bench = [
 # rebuild the core when its Rust sources or source models change (`uv sync`, `uv run`)
 cache-keys = [
     { file = "pyproject.toml" },
-    { file = "rust/vzip-ir/Cargo.toml" },
-    { file = "rust/vzip-ir/Cargo.lock" },
-    { file = "rust/vzip-ir/src/**/*.rs" },
-    { file = "rust/vzip-ir/schema/*.json" },
+    { file = "rust/refkv-ir/Cargo.toml" },
+    { file = "rust/refkv-ir/Cargo.lock" },
+    { file = "rust/refkv-ir/src/**/*.rs" },
+    { file = "rust/refkv-ir/schema/*.json" },
 ]
 # `uv sync` and `uv run` install every group, as CI's `uv sync --all-groups` does
 default-groups = "all"

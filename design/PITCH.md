@@ -40,7 +40,7 @@ specification in an afternoon, in any language, with tools you already have.
 ## Status
 
 Format version 0 (`vzip/0`) is **provisional**, as of
-[spec revision 8](../spec/archive.md). The format is believed complete and
+[spec revision 8](../spec/refkv.md). The format is believed complete and
 implementers may rely on it, but it can still change in response to
 feedback. Any incompatible change will be announced in the
 [changelog](../spec/history/archive/REVISIONS.md). Feedback is welcome.
@@ -57,10 +57,10 @@ a table and referred to by number.
 Nothing about that needs ZIP. Any storage backend that can tell a bytes
 value from a reference value can hold such a store: an object store by an
 object's metadata, a file system by an extended attribute, a database by a
-column. The [spec](../spec/archive.md) defines the reference value type on
-its own ([Part 1](../spec/archive.md#part-1-reference-values)), and one
+column. The [spec](../spec/refkv.md) defines the reference value type on
+its own ([Part 1](../spec/refkv.md#part-1-reference-values)), and one
 backend for it, **one ordinary ZIP file**
-([Part 2](../spec/archive.md#part-2-the-zip-binding)):
+([Part 2](../spec/bindings/vzip.md#part-2-the-zip-binding)):
 
 - Bytes keys (metadata, small arrays) are normal ZIP entries.
 - Reference keys are ZIP entries whose directory record carries a small
@@ -108,7 +108,7 @@ Very little in its data model is new.
   - **Chunk manifests:** VirtualiZarr's chunk manifests (a path, offset and
     length for every chunk of an array) are what vzip's references record.
   - **The code:** vzip's Python converters
-    ([convert.py](../python/src/vzip/convert.py), [shards.py](../python/src/vzip/shards.py)) take
+    ([convert.py](../python/src/refkv/convert.py), [shards.py](../python/src/refkv/shards.py)) take
     VirtualiZarr's `ManifestArray` datasets as input and reuse helpers from
     its Icechunk writer. The benchmarks build their datasets with its
     `ChunkManifest`.
@@ -148,7 +148,7 @@ spec binds it to, because:
   the first.
 - **Nobody owns it.** ZIP is documented by PKWARE's APPNOTE, and protobuf's
   wire format by a public spec. The vzip rules on top are [one
-  document](../spec/archive.md). Every archive records its format version (`vzip/0`
+  document](../spec/bindings/vzip.md). Every archive records its format version (`vzip/0`
   today), so a reader knows whether it can read an archive before it tries.
 
 ## What it costs, measured
@@ -175,7 +175,7 @@ Zarr shard index. Zarr's own sharding codec then does the per-chunk lookup.
 ## Simple enough to implement from the spec
 
 To check the "afternoon" claim, agents implemented vzip from
-[spec/archive.md](../spec/archive.md) alone, in Rust, TypeScript and Python, with no access to
+[spec/refkv.md](../spec/refkv.md) alone, in Rust, TypeScript and Python, with no access to
 any existing code. This was done in seven rounds, with fresh agents each time.
 After each round, their notes and every disagreement between them went back
 into the spec ([spec/history/archive/REVISIONS.md](../spec/history/archive/REVISIONS.md)).
@@ -219,7 +219,7 @@ round-7 implementations are in [conformance/impls/](../conformance/impls/).
   netCDF files whose layout didn't change. Icechunk guards against this by
   pinning each reference to the object's ETag or last-modified time, and
   checking with a conditional request. vzip took the same idea as source pins
-  ([spec/archive.md §5.1](../spec/archive.md#51-pins), since revision 3), per source rather than per
+  ([spec/refkv.md §5.1](../spec/refkv.md#51-pins), since revision 3), per source rather than per
   chunk. What remains open is that browsers often cannot check pins: servers
   must expose the headers to cross-origin pages
   ([open feedback](../spec/history/archive/REVISIONS.md)).

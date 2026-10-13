@@ -4,9 +4,9 @@ import numpy as np
 import xarray as xr
 import zarr
 
-import vzip.zarr
-from vzip.convert import split_virtual_dataset, write_vzip
-from vzip.store import VZipStore
+import refkv.zarr
+from refkv.convert import split_virtual_dataset, write_vzip
+from refkv.vzip.store import VZipStore
 
 from helpers import virtualize
 
@@ -24,7 +24,7 @@ def test_roundtrip_single_and_combined(netcdf_files, tmp_path):
     ):
         out = tmp_path / f"{page_size}{name}"
         write_vzip(vds, out, page_size=page_size)
-        store = vzip.zarr.open(out)
+        store = refkv.zarr.open(out)
         if consolidated:
             # the root zarr.json lists every array, so opening never lists the archive
             store.list_dir = store.list_prefix = store.list = _no_listing
@@ -39,7 +39,7 @@ def _no_listing(*args):
 def test_naive_view_is_a_plain_zip(netcdf_files, tmp_path):
     import zipfile
 
-    from vzip.pb import Range
+    from refkv.pb import Range
 
     paths, _ = netcdf_files
     out = tmp_path / "one.vzip"
@@ -47,12 +47,12 @@ def test_naive_view_is_a_plain_zip(netcdf_files, tmp_path):
     with zipfile.ZipFile(out) as zf:
         assert zf.testzip() is None
         ref = Range.decode(zf.read("temp/c/0/0/0"))
-    zarr.open_group(vzip.zarr.open(out, resolve=False), mode="r")  # metadata is plain bytes
+    zarr.open_group(refkv.zarr.open(out, resolve=False), mode="r")  # metadata is plain bytes
     assert ref.length > 0
 
 
 def test_what_xarray_reads_at_open_is_written_late(netcdf_files, tmp_path):
-    from vzip.convert import read_at_open
+    from refkv.convert import read_at_open
 
     paths, _ = netcdf_files
     vds = xr.concat([virtualize(p) for p in paths], dim="time", coords="minimal",
@@ -73,7 +73,7 @@ def test_what_xarray_reads_at_open_is_written_late(netcdf_files, tmp_path):
 
 
 def test_loadable_variables_are_written_as_a_dataset_of_their_own(netcdf_files):
-    """vzip writes the loadable variables through the class of the dataset it is
+    """refkv writes the loadable variables through the class of the dataset it is
     given, without importing xarray, and the bytes are those of
     `xr.Dataset(loadable).to_zarr(...)`: the variables alone, without the coordinate
     roles and attributes of the virtual dataset (a non-index coordinate here, and

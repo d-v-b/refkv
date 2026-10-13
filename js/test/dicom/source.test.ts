@@ -1,6 +1,6 @@
 // The DICOM JSON Model translation of the frozen TypeScript virtualizer, the reference
 // (spec/virtualize/dicom.md §5
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>);
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>);
 // python/tests/reference/test_virtualize_dicom.py has the same cases.
 
 import assert from "node:assert/strict";

@@ -1,12 +1,12 @@
-// Rule 3 of spec/archive.md §6.7
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> on the network, under
+// Rule 3 of spec/refkv.md §6.7
+// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> on the network, under
 // Node (`#net`): the twin of the network tests in python/tests/test_policy.py.
 
 import assert from "node:assert/strict";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
-import { Archive, checkAddress, VzipError } from "../src/archive.ts";
+import { Archive, checkAddress, RefkvError } from "../src/archive.ts";
 import { readHttpRange } from "../src/http.ts";
 import { checkedFetch, envProxy, resolver } from "../src/net_node.ts";
 import { writeVzip } from "../src/writer.ts";
@@ -64,7 +64,7 @@ async function archiveOf(url: string, policy = {}) {
   return Archive.open(bytes, "file:///d/a.vzip", undefined, policy);
 }
 
-const resolution = (re: RegExp) => (e: unknown) => e instanceof VzipError && e.errorClass === "resolution" && re.test(e.message);
+const resolution = (re: RegExp) => (e: unknown) => e instanceof RefkvError && e.errorClass === "resolution" && re.test(e.message);
 
 test("reads the hosts rule 3 allows", async () => {
   const { restore } = mockResolver({ "data.test": "127.0.0.1" });

@@ -1,5 +1,5 @@
 //! Hand-written protobuf encoding/decoding of the vzip messages (§5
-//! <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#5-messages>, Appendix
+//! <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#5-messages>, Appendix
 //! A).
 
 pub type PResult<T> = Result<T, String>;

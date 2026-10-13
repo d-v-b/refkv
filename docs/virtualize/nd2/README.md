@@ -1,6 +1,6 @@
 # Nikon ND2
 
-vzip turns an image file into an OME-Zarr dataset by writing a small archive
+refkv turns an image file into an OME-Zarr dataset by writing a small archive
 of references to the file's bytes, without copying the pixels
 ([overview](../README.md)). This page is about Nikon ND2 files.
 
@@ -14,16 +14,16 @@ Archive and on Zenodo. The people who have them want to look at a deposited
 dataset, or analyze it with zarr-python, without downloading 20 GB and
 converting it with Bio-Formats.
 
-vzip reads the file's chunk map, metadata and frame headers (a few batches
+refkv reads the file's chunk map, metadata and frame headers (a few batches
 of range requests, even for a 4.6 GB time-lapse) and writes an archive in
 which every Zarr chunk is one frame of the file, or a block of its rows.
 Stage positions become separate images placed where the stage was.
 
-ND2 files are virtualized by vzip's Rust core,
-[rust/vzip-ir](../../../rust/vzip-ir/), the same code in Python and (built
+ND2 files are virtualized by refkv's Rust core,
+[rust/refkv-ir](../../../rust/refkv-ir/), the same code in Python and (built
 for WebAssembly) in the browser: it parses the file into an intermediate
 representation (IR), plans the range requests, and projects the IR onto the
-ND2 convention. Installing vzip builds it, which needs a Rust toolchain
+ND2 convention. Installing refkv builds it, which needs a Rust toolchain
 ([overview](../README.md#two-ways-to-run-it)).
 
 ## What you get
@@ -45,15 +45,15 @@ each stage position `p` is an image at `<p>/` with one array, `<p>/0`.
   stage matrix, when the image is calibrated.
 - **omero:** channel names, colors and a display window from the
   significant bits.
-- **Metadata:** the root's `vzip_virtualized.nd2` holds the file's signature
+- **Metadata:** the root's `refkv_virtualized.nd2` holds the file's signature
   and its decoded metadata chunks (image attributes, experiment, picture
   metadata, text info and the like) that fit the root's budget. Everything
-  else is on `vzip_source`, the file's IR mirror
+  else is on `refkv_source`, the file's IR mirror
   ([conventions §8](../../../spec/conventions.md#8-the-ir-mirror)): a
-  table under `vzip_source/ir/` that accounts for every byte of the file
+  table under `refkv_source/ir/` that accounts for every byte of the file
   (every chunk, the chunk map, the frames and their timestamps, padding), so
   that the file can be rebuilt from it and the file's bytes, and a JSON view
-  of it under `vzip_source/tree`.
+  of it under `refkv_source/tree`.
 
 ## Try it
 
@@ -68,7 +68,7 @@ A five-channel z-stack from BioImage Archive S-BIAD2077 (263 MB), from
 [corpus_nd2.txt](../../../conformance/virtualize/corpus_nd2.txt):
 
 ```bash
-uv run python -m vzip.virtualize https://ftp.ebi.ac.uk/biostudies/fire/S-BIAD/077/S-BIAD2077/Files/373_230614_A1_Blk_Reg2_40x.nd2 373_A1.vzip
+uv run python -m refkv.virtualize https://ftp.ebi.ac.uk/biostudies/fire/S-BIAD/077/S-BIAD2077/Files/373_230614_A1_Blk_Reg2_40x.nd2 373_A1.vzip
 ```
 
 ```
@@ -80,9 +80,9 @@ holds the file's IR mirror, so it is larger.
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-root = zarr.open_group(vzip.zarr.open("373_A1.vzip"), mode="r")
+root = zarr.open_group(refkv.zarr.open("373_A1.vzip"), mode="r")
 print(root["OME"].attrs["ome"]["series"])
 img = root["0"]
 ms = img.attrs["ome"]["multiscales"][0]
@@ -148,7 +148,7 @@ Rejected:
   file took 9 requests, and a 4.6 GB, 525-frame time-lapse 12.)
 - A chunk is one contiguous range of the file, so a frame read is one
   request. Padded frames are the exception: one range per row, which the
-  vzip readers merge into one request when the padding between rows is
+  refkv readers merge into one request when the padding between rows is
   under their 64 KiB merge gap.
 
 ## How it's verified
@@ -164,17 +164,17 @@ with the `nd2` package. `compare.py` compares three virtualizers
 ([overview](../README.md#the-implementations-agree)) on the synthetic files
 and the 17 public files of
 [corpus_nd2.txt](../../../conformance/virtualize/corpus_nd2.txt): the Python
-and browser hosts of the core must write the same archive, `vzip_source`
-included, and both must match, outside `vzip_source`, the frozen reference:
-the Python ND2 profile vzip shipped before the core.
+and browser hosts of the core must write the same archive, `refkv_source`
+included, and both must match, outside `refkv_source`, the frozen reference:
+the Python ND2 profile refkv shipped before the core.
 
 - Profile: [spec/virtualize/nd2.md](../../../spec/virtualize/nd2.md#part-2-the-profile); convention:
   [spec/virtualize/nd2.md](../../../spec/virtualize/nd2.md)
-- Rust core: [rust/vzip-ir/src/nd2.rs](../../../rust/vzip-ir/src/nd2.rs)
-  (the parser) and [rust/vzip-ir/src/project/nd2.rs](../../../rust/vzip-ir/src/project/nd2.rs)
+- Rust core: [rust/refkv-ir/src/nd2.rs](../../../rust/refkv-ir/src/nd2.rs)
+  (the parser) and [rust/refkv-ir/src/project/nd2.rs](../../../rust/refkv-ir/src/project/nd2.rs)
   (the projection)
-- Python host: [python/src/vzip/ir/](../../../python/src/vzip/ir/); browser host:
+- Python host: [python/src/refkv/ir/](../../../python/src/refkv/ir/); browser host:
   [js/src/virtualize/ir/](../../../js/src/virtualize/ir/)
-- Frozen reference: [conformance/virtualize/reference/vzip_reference/nd2/](../../../conformance/virtualize/reference/vzip_reference/nd2/)
+- Frozen reference: [conformance/virtualize/reference/refkv_reference/nd2/](../../../conformance/virtualize/reference/refkv_reference/nd2/)
   and [conformance/virtualize/reference/ts/nd2/](../../../conformance/virtualize/reference/ts/nd2/)
 - Fixtures: [fixtures/nd2/](../../../fixtures/nd2/)

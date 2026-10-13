@@ -59,9 +59,9 @@ Every value read, in every run and access pattern, matched the source files.
 | how a reader finds a reference | loads the whole file | loads the Parquet file holding it | loads the manifest holding it | reads the whole central directory at open, or with a page index, the 64 KiB page holding it |
 | Zarr version presented | 2 (as written by VirtualiZarr) | 2 | 3 | 3 |
 | changing it | rewrite | rewrite | commits, with history, branches and tags | rewrite |
-| checks that referenced files haven't changed | none | none | optional: refuses chunks modified after a given time | optional: size, ETag or modification time per source ([spec/archive.md §5.1](../spec/archive.md#51-pins)) |
+| checks that referenced files haven't changed | none | none | optional: refuses chunks modified after a given time | optional: size, ETag or modification time per source ([spec/refkv.md §5.1](../spec/refkv.md#51-pins)) |
 | readers | fsspec's reference filesystem (Python) | fsspec's reference filesystem (Python) | the Icechunk library (Rust, with Python bindings) | this repository's Python store; independent Rust, TypeScript and Python readers; a browser reader; any ZIP tool for entries stored as bytes |
-| written here with | `vds.vz.to_kerchunk(format="json")` | `vds.vz.to_kerchunk(format="parquet")` | `vds.vz.to_icechunk(session.store)` | `vzip.convert.write_vzip(vds, path)` |
+| written here with | `vds.vz.to_kerchunk(format="json")` | `vds.vz.to_kerchunk(format="parquet")` | `vds.vz.to_icechunk(session.store)` | `refkv.convert.write_vzip(vds, path)` |
 
 The kerchunk files are written by VirtualiZarr's kerchunk writer, not by
 kerchunk's own `SingleHdf5ToZarr` and `MultiZarrToZarr`. With chunks
@@ -116,7 +116,7 @@ of 1.2–38 kB, those tools would inline nothing at their default threshold
 Openers: kerchunk through fsspec's reference filesystem, created
 asynchronously and passed to `zarr.storage.FsspecStore`; Icechunk through
 `Repository.open(icechunk.http_storage(url))`; vzip through
-`vzip.zarr.open(url)`.
+`refkv.zarr.open(url)`.
 
 `chunks=None` matters for kerchunk. With xarray's default dask chunking,
 xarray tokenizes the store by pickling it, and fsspec's reference filesystem
@@ -312,7 +312,7 @@ Values: every value read matched the source files.
 - **vzip** stores one ZIP entry per chunk: a 30-byte local header, a 46-byte
   central directory record, the key twice, and the reference payload twice.
   - The second copy of the payload is the entry's body, so that ZIP tools
-    show it ([spec/archive.md §11.3](../spec/archive.md#113-reference-entries)); writers can leave it out.
+    show it ([spec/bindings/vzip.md §11.3](../spec/bindings/vzip.md#113-reference-entries)); writers can leave it out.
   - vzip has no compression of the references, and no setting changes its
     size much.
 
@@ -438,7 +438,7 @@ measured here.
   readers in other languages, were not measured.
 - **One tuned setting per format.** Others exist, and could change results:
   Icechunk's manifest preloading, Parquet's categorical threshold, and vzip's
-  virtual shards (`vzip.shards`), for example.
+  virtual shards (`refkv.shards`), for example.
 - **Not measured at all:**
   - updates and appends;
   - concurrent writers;

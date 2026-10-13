@@ -1,6 +1,6 @@
 # Imaris IMS
 
-vzip turns an image file into an OME-Zarr dataset by writing a small archive
+refkv turns an image file into an OME-Zarr dataset by writing a small archive
 of references to the file's bytes, without copying the pixels
 ([overview](../README.md)). This page is about Imaris `.ims` files.
 
@@ -14,7 +14,7 @@ and the OME sample-image server. A `.ims` file is HDF5, which most
 web-based viewers and Zarr tools cannot read without the HDF5 library and a
 local copy.
 
-vzip reads the file's HDF5 structure itself (superblock, groups, attributes
+refkv reads the file's HDF5 structure itself (superblock, groups, attributes
 and chunk B-trees, never the pixels) and writes an archive in which every
 Zarr chunk is one HDF5 chunk of the file. Imaris's own resolution pyramid
 becomes the OME-Zarr levels.
@@ -42,8 +42,8 @@ resolution level.
 - **Metadata:** the rest of the HDF5 file (every group's attributes, which
   hold the extents, units, channels, acquisition settings and time points;
   the histograms; the thumbnail; `DataSetTimes`; the `Scene` objects), kept
-  by `vzip_source`, the file's IR mirror: a table that rebuilds the file
-  byte for byte, and a JSON view under `vzip_source/tree` of every object
+  by `refkv_source`, the file's IR mirror: a table that rebuilds the file
+  byte for byte, and a JSON view under `refkv_source/tree` of every object
   header, message, attribute, link, heap and chunk index the walk reads
   ([spec/virtualize/ims.md §5](../../../spec/virtualize/ims.md#5-source-metadata)).
 
@@ -54,7 +54,7 @@ deflate; CC BY 4.0), from
 [corpus_ims.txt](../../../conformance/virtualize/corpus_ims.txt):
 
 ```bash
-uv run python -m vzip.virtualize https://downloads.openmicroscopy.org/images/Imaris-IMS/eliana/retina_large.ims retina.vzip
+uv run python -m refkv.virtualize https://downloads.openmicroscopy.org/images/Imaris-IMS/eliana/retina_large.ims retina.vzip
 ```
 
 ```
@@ -67,9 +67,9 @@ file's other objects, so it is larger.
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-g = zarr.open_group(vzip.zarr.open("retina.vzip"), mode="r")
+g = zarr.open_group(refkv.zarr.open("retina.vzip"), mode="r")
 ms = g.attrs["ome"]["multiscales"][0]
 print([(a["name"], a.get("unit")) for a in ms["axes"]])
 for d in ms["datasets"]:
@@ -144,20 +144,20 @@ Rejected, with the message the command prints:
 
 ## How it's verified
 
-IMS is virtualized by vzip's Rust core, natively in Python and as
+IMS is virtualized by refkv's Rust core, natively in Python and as
 WebAssembly in the browser. `js/test/ims/verify.py` virtualizes the synthetic
-IMS files (including inputs to reject) with the browser code, reads them back through `python/src/vzip`
+IMS files (including inputs to reject) with the browser code, reads them back through `python/src/refkv`
 and zarr-python, and compares the pixels with h5py (cropped to the image
 size), and rebuilds each file byte for byte from its archive's mirror.
 `compare.py` checks that the Python and browser outputs are identical, and
-equivalent outside `vzip_source` to the frozen reference (the Python
+equivalent outside `refkv_source` to the frozen reference (the Python
 profile of revision 25), on those files and on the 21 public files of
 [corpus_ims.txt](../../../conformance/virtualize/corpus_ims.txt), two of
 which must be rejected (the LZ4 file and a scene file).
 
 - Profile: [spec/virtualize/ims.md](../../../spec/virtualize/ims.md#part-2-the-profile)
-- Rust core: [rust/vzip-ir/src/ims.rs](../../../rust/vzip-ir/src/ims.rs) (the layout and the walk),
-  [rust/vzip-ir/src/hdf5.rs](../../../rust/vzip-ir/src/hdf5.rs) (the HDF5 reader),
-  [rust/vzip-ir/schema/ims.json](../../../rust/vzip-ir/schema/ims.json) (the source model)
-- Frozen reference (revision 25): [conformance/virtualize/reference/vzip_reference/ims/](../../../conformance/virtualize/reference/vzip_reference/ims/)
+- Rust core: [rust/refkv-ir/src/ims.rs](../../../rust/refkv-ir/src/ims.rs) (the layout and the walk),
+  [rust/refkv-ir/src/hdf5.rs](../../../rust/refkv-ir/src/hdf5.rs) (the HDF5 reader),
+  [rust/refkv-ir/schema/ims.json](../../../rust/refkv-ir/schema/ims.json) (the source model)
+- Frozen reference (revision 25): [conformance/virtualize/reference/refkv_reference/ims/](../../../conformance/virtualize/reference/refkv_reference/ims/)
 - Fixtures: [fixtures/ims/](../../../fixtures/ims/)

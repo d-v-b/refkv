@@ -1,10 +1,10 @@
 """The cutting of contiguous values into chunks (spec/conventions.md §7
-<https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>, "Contiguous
+<https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>, "Contiguous
 values"); js/test/chunks.test.ts has the same cases."""
 
 import pytest
 
-from vzip.virtualize.common import MAX_CHUNK, grid_chunks, row_chunks
+from refkv.virtualize.common import MAX_CHUNK, grid_chunks, row_chunks
 
 
 def read(o: int, n: int) -> bytes:

@@ -1,6 +1,6 @@
 // `#net` under Node (package.json "imports"): requests whose connections are
 // checked by rule 3 of spec §6.7
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>, as the Python reader
+// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>, as the Python reader
 // does. Each host name is
 // resolved here, every address is checked, and the socket connects only to an
 // address that passed, so a name whose resolution changes between check and
@@ -8,7 +8,7 @@
 // TLS server name stay the URL's host. A kept-alive connection's peer is
 // checked again before each request on it. Redirects are followed here, each
 // target checked by the policy before it is requested, at most 5 (§5.2
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>). A
+// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>). A
 // response's body streams: a caller that cancels it unread (such as a 200 that is
 // the whole object) closes the connection without reading it.
 
@@ -138,7 +138,7 @@ export function checkedFetch(
         if (!policy.allowUncheckedProxy) {
           throw new Error(
             `${current.href}: the request would go through the proxy ${proxy}, and the reader cannot check ` +
-              "the address the proxy connects to (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>); set allowUncheckedProxy: true to send it anyway, " +
+              "the address the proxy connects to (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>); set allowUncheckedProxy: true to send it anyway, " +
               "or exempt the host with NO_PROXY",
           );
         }
@@ -168,7 +168,7 @@ export function checkedFetch(
       if (next.protocol !== "http:" && next.protocol !== "https:") {
         throw new Error(`redirect to a non-http URL: ${next.href}`);
       }
-      allow?.(next.href); // before the request to it (§5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>)
+      allow?.(next.href); // before the request to it (§5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>)
       if (redirects === 5) throw new Error(`${url}: more than 5 redirects`);
       current = next;
     }

@@ -1,4 +1,5 @@
-# The TypeScript spec/archive.md implementation (Node >= 23, no dependencies).
+# The TypeScript implementation of the archive spec of revision 7 (spec/history/archive/SPEC.r7.md)
+# (Node >= 23, no dependencies).
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 

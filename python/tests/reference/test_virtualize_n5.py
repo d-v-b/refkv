@@ -1,5 +1,5 @@
 """The frozen Python N5 virtualizer (spec/virtualize/n5.md at revision 25,
-conformance/virtualize/reference/vzip_reference/n5) on the synthetic stores.
+conformance/virtualize/reference/refkv_reference/n5) on the synthetic stores.
 
 Equivalence with the IR path is checked by conformance/virtualize/compare.py, and
 pixel correctness against an independent block reader and zarr-n5 by
@@ -9,7 +9,7 @@ js/test/n5/verify.py.
 import sys
 from pathlib import Path
 
-# the frozen reference twins (conformance/virtualize/reference/vzip_reference)
+# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
 
 import json
@@ -18,10 +18,10 @@ from functools import partial
 
 import pytest
 
-from vzip.virtualize import Rejected
-from vzip.virtualize.common import declare as declare_now
-from vzip_reference import virtualize
-from vzip_reference.revision import STORES_REVISION
+from refkv.virtualize import Rejected
+from refkv_reference.legacy import declare as declare_now
+from refkv_reference import virtualize
+from refkv_reference.revision import STORES_REVISION
 
 # the frozen profile's root records revision 25
 declare = partial(declare_now, revision=STORES_REVISION)
@@ -176,9 +176,9 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
             got = flat(d["coordinateTransformations"][1]["translation"] for d in datasets)
             assert got == pytest.approx(flat(translations)), name
     # Every node's attributes.json is its source metadata (spec/virtualize/n5.md §5
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#5-source-metadata>): the
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#5-source-metadata>): the
     # attributes, and the version n5; nodes inside datasets and stray objects are other objects (§6
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>).
     _, out = virtualize(str(FIXTURES / "n5_hierarchy"), url=URL.format("n5_hierarchy"))
     assert out.docs["zarr.json"]["attributes"] == declare(
         {}, "n5", URL.format("n5_hierarchy"), {"attributes": {"description": "groups"}, "metadata": {"n5": "4.0.0"}})
@@ -192,8 +192,8 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     # The missing block (1/0) and the empty one (2/0) have no entry.
     assert [k for k, _ in out.chunks if k.startswith("a/b/sparse/")] == ["a/b/sparse/0/0"]
     # The empty block's key is listed with the empty objects (§3.1
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#31-chunks>, §6
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#31-chunks>, §6
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>).
     assert out.docs["vzip_source/zarr.json"]["attributes"]["vzip_virtualized"]["n5"] == {"empty": ["a/b/sparse/2/0"]}
     # Block keys follow the grid in N5 dimension order (two blocks along the second, two along the first).
     _, out = virtualize(str(FIXTURES / "n5_compressions"), url=URL.format("n5_compressions"))
@@ -229,7 +229,7 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
         "metadata": {"compression": {"nthreads": 1}}}
     # A dataset nested in a dataset, a stray object and a README are kept whole
     # (spec/virtualize/n5.md §6
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>).
     url = URL.format("n5_objects")
     _, out = virtualize(str(FIXTURES / "n5_objects"), url=url)
     assert [k for k, _ in out.chunks] == ["a/0", "vzip_source/objects/README", "vzip_source/objects/a/labels/0",
@@ -278,7 +278,7 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     ("n5_reject_no_root_attributes", "not an N5, Zarr v2 or SAFE store"),
     ("n5_reject_gzip_level", "gzip level 10"),
     ("n5_reject_zstd_level", "zstd level 2.5"),
-    ("n5_reject_objects_collision", "the node vzip_source is where"),
+    ("n5_reject_objects_collision", "the node refkv_source is where"),
 ])
 def test_rejects(name, message):
     with pytest.raises(Rejected, match=message):

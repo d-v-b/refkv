@@ -235,7 +235,7 @@ def plane(pixel_type: int, compression: int, x: int, y: int, w: int, h: int, *, 
 def xml(*, px=None, py=None, pz=None, increment=None, bits=None, channels=(), display=(), scenes=(), bom=False,
         raw_text: str | None = None) -> bytes:
     """A metadata XML with the values spec/virtualize/czi.md §2.7
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#27-the-metadata-xml> reads."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#27-the-metadata-xml> reads."""
     if raw_text is not None:
         return raw_text.encode("utf-8")
     items = "".join(f'<Distance Id="{a}"><Value>{v}</Value><DefaultUnitFormat>µm</DefaultUnitFormat></Distance>'
@@ -515,7 +515,7 @@ def too_many_series() -> Czi:
 
 def big() -> Czi:
     """Row bands (spec/virtualize/czi.md §4.3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#43-image-arrays>): a level of
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#43-image-arrays>): a level of
     4100 x 2048 Gray16 tiles
     (over 16 MiB each), its last row 1024 high, and a tile of 4100 x 2050."""
     rows = [plane(1, 0, 0, 0, 4100, 2048, S=0), plane(1, 0, 0, 2048, 4100, 1024, S=0)]

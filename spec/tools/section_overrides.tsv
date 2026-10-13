@@ -17,20 +17,20 @@ js/src/virtualize/ndpi/virtualize.ts	210	§4	0	spec/virtualize/ndpi.md#4-ndpi-pr
 js/src/virtualize/ndpi/virtualize.ts	264	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
 js/src/virtualize/ndpi/virtualize.ts	372	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
 js/src/virtualize/ndpi/virtualize.ts	394	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
-python/src/vzip/virtualize/ndpi/virtualize.py	29	§4	0	spec/virtualize/ndpi.md#2-the-source	
-python/src/vzip/virtualize/ndpi/virtualize.py	46	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
-python/src/vzip/virtualize/ndpi/virtualize.py	62	§4	0	spec/virtualize/ndpi.md#2-the-source	
-python/src/vzip/virtualize/ndpi/virtualize.py	72	§4	0	spec/virtualize/ndpi.md#2-the-source	
-python/src/vzip/virtualize/ndpi/virtualize.py	118	§4	0	spec/virtualize/ndpi.md#2-the-source	
-python/src/vzip/virtualize/ndpi/virtualize.py	119	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
-python/src/vzip/virtualize/ndpi/virtualize.py	144	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
-python/src/vzip/virtualize/ndpi/virtualize.py	157	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
-python/src/vzip/virtualize/ndpi/virtualize.py	200	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
-python/src/vzip/virtualize/ndpi/virtualize.py	248	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
-python/src/vzip/virtualize/ndpi/virtualize.py	325	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
-python/src/vzip/virtualize/ndpi/virtualize.py	347	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+python/src/refkv/virtualize/ndpi/virtualize.py	29	§4	0	spec/virtualize/ndpi.md#2-the-source	
+python/src/refkv/virtualize/ndpi/virtualize.py	46	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+python/src/refkv/virtualize/ndpi/virtualize.py	62	§4	0	spec/virtualize/ndpi.md#2-the-source	
+python/src/refkv/virtualize/ndpi/virtualize.py	72	§4	0	spec/virtualize/ndpi.md#2-the-source	
+python/src/refkv/virtualize/ndpi/virtualize.py	118	§4	0	spec/virtualize/ndpi.md#2-the-source	
+python/src/refkv/virtualize/ndpi/virtualize.py	119	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+python/src/refkv/virtualize/ndpi/virtualize.py	144	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+python/src/refkv/virtualize/ndpi/virtualize.py	157	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+python/src/refkv/virtualize/ndpi/virtualize.py	200	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+python/src/refkv/virtualize/ndpi/virtualize.py	248	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+python/src/refkv/virtualize/ndpi/virtualize.py	325	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
+python/src/refkv/virtualize/ndpi/virtualize.py	347	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
 python/tests/test_virtualize_ndpi.py	43	§4	0	spec/virtualize/ndpi.md#4-ndpi-profile	
-rust/vzip-ir/src/project/nd2.rs	2	§5.1	0	spec/virtualize/nd2.md#51-decoded-chunks	
+rust/refkv-ir/src/project/nd2.rs	2	§5.1	0	spec/virtualize/nd2.md#51-decoded-chunks	
 spec/virtualize/czi.md	795	§3.1	0	spec/virtualize/czi.md#31-pixel-types-and-codecs	
 spec/virtualize/czi.md	795	§3.2	0	spec/virtualize/czi.md#32-conforming-and-unplaced-subblocks	
 spec/virtualize/dicom.md	997	§2	0	spec/virtualize/dicom.md#2-the-source	
@@ -56,7 +56,7 @@ spec/generate_schemas.py	653	§8.5	0	spec/conventions.md#85-forms-and-recipes
 spec/generate_schemas.py	666	§8.5	0	spec/conventions.md#85-forms-and-recipes	
 conformance/virtualize/compare.py	275	§8.8	0	spec/conventions.md#88-canonical-form	
 conformance/virtualize/compare.py	276	§8.7	0	spec/conventions.md#87-the-view	
-rust/vzip-ir/src/lv.rs	515	§5.1	0	spec/virtualize/nd2.md#51-decoded-chunks	
-rust/vzip-ir/src/project/mod.rs	3	§5.1	0	spec/virtualize/nd2.md#51-decoded-chunks	
-rust/vzip-ir/src/xml.rs	510	§5.2	0	spec/virtualize/nd2.md#51-decoded-chunks	§5.1
-rust/vzip-ir/src/xml.rs	526	§5.2	0	spec/virtualize/nd2.md#51-decoded-chunks	§5.1
+rust/refkv-ir/src/lv.rs	515	§5.1	0	spec/virtualize/nd2.md#51-decoded-chunks	
+rust/refkv-ir/src/project/mod.rs	3	§5.1	0	spec/virtualize/nd2.md#51-decoded-chunks	
+rust/refkv-ir/src/xml.rs	510	§5.2	0	spec/virtualize/nd2.md#51-decoded-chunks	§5.1
+rust/refkv-ir/src/xml.rs	526	§5.2	0	spec/virtualize/nd2.md#51-decoded-chunks	§5.1

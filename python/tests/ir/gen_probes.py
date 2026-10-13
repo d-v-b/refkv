@@ -1,5 +1,5 @@
 """The round-3 probes (design/IR_NOTES.md §21
-<https://github.com/d-v-b/vzip/blob/main/design/IR_NOTES.md#21-round-1s-findings-closed>): round 1's
+<https://github.com/d-v-b/refkv/blob/main/design/IR_NOTES.md#21-round-1s-findings-closed>): round 1's
 CZI review findings,
 rebuilt, and round 1's TIFF amplification probes, plus IFD loops and huge counts; the
 DICOM probes of revision 26; and NDPI's (revision 26): many intervals, loops, huge counts and
@@ -250,7 +250,7 @@ n = 10000 if small else 500000
 body = b"".join(el(0x0009 + 2 * (k >> 15), 0x1000 + (k & 0x7FFF), b"SH", b"ab") for k in range(n))
 write("dicom_many_elements.dcm", dcm(el(0x0009, 0x0010, b"LO", b"VZIP") + body + image(1, 1) + el(0x7FE0, 0x10, b"OB", b"\0\0")))
 
-# ---- NDPI (spec/virtualize/ndpi.md <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md>)
+# ---- NDPI (spec/virtualize/ndpi.md <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md>)
 
 def jpeg_head(w: int, h: int, r: int = 1) -> bytes:
     """SOI, SOF0 (3 components sampled 1 × 1: MCUs of 8 × 8), DRI `r`, SOS."""

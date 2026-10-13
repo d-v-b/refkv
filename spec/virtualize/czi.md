@@ -2,8 +2,8 @@
 
 The Zarr layout of a Zeiss CZI file (the ZISRAW container, file version 1),
 and the translation of its segments into Zarr arrays and JSON. What all of
-vzip's conventions share is in [spec/conventions.md](../conventions.md), cited
-here as "conventions §n". How vzip produces this layout as a reference store
+refkv's conventions share is in [spec/conventions.md](../conventions.md), cited
+here as "conventions §n". How refkv produces this layout as a reference store
 is the CZI profile, [Part 2](#part-2-the-profile) below, cited as
 "the profile §n".
 
@@ -12,7 +12,7 @@ Schema: [schema.json](czi/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the CZI
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the CZI profile: how vzip reads the source, which inputs it rejects, and how
+is the CZI profile: how refkv reads the source, which inputs it rejects, and how
 each chunk references the source. The profile keeps its numbering as a section
 of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
 
@@ -36,22 +36,22 @@ file is in an array, referenced where the file holds it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "czi"`, `"version": 0`, `"revision": 26` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`, and
+with `"profile": "czi"`, `"version": 0`, `"revision": 27` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`, and
 the source metadata of [§5.1](#51-the-root) as the member `"czi"`. Its CMO is:
 
 ```json
 {
   "uuid": "7a0733c7-d4be-4482-a64f-6904d9354ea5",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/vzip/refs/heads/main/spec/virtualize/czi/schema.json",
-  "spec_url": "https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md",
-  "name": "vzip_virtualized",
-  "description": "The Zarr layout of a CZI source virtualized by vzip, and the source's metadata"
+  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/virtualize/czi/schema.json",
+  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md",
+  "name": "refkv_virtualized",
+  "description": "The Zarr layout of a CZI source virtualized by refkv, and the source's metadata"
 }
 ```
 
 These other nodes declare it, each with `{"czi": S}`: every image group
 whose series key has a dimension ([§4.2](#42-images)), every tile array ([§4.4](#44-tiles)),
-`vzip_source`, with the IR mirror's description ([§5.2](#52-the-ir-mirror)), and each group of the
+`refkv_source`, with the IR mirror's description ([§5.2](#52-the-ir-mirror)), and each group of the
 mirror's view that has a member.
 
 ## 2. The source
@@ -279,8 +279,8 @@ Each codec's JSON form, exactly:
   `[y, x, c]` with the samples in the order jxrlib gives them (R, G, B, and
   A for `Bgra32`), after which `transpose` applies. Its encoded form is
   jxrlib's, so it needs nothing beyond the chunk's shape and data type. It
-  is not in the zarr-extensions registry; vzip's Python reader registers it
-  (`vzip.zarr.codecs`), and its registration and a Neuroglancer decoder are a
+  is not in the zarr-extensions registry; refkv's Python reader registers it
+  (`refkv.zarr.codecs`), and its registration and a Neuroglancer decoder are a
   follow-up ([design/plans/czi.md §7](../../design/plans/czi.md#7-decisions-on-the-open-questions)).
 - `numcodecs.shuffle` is
   `{"name": "numcodecs.shuffle", "configuration": {"elementsize": 2}}`, a
@@ -431,7 +431,7 @@ around an irregular scan region, gives tiles.)
   images numbered from 0 in series order.
 - `tiles/zarr.json`, when there is a tile: a group with empty attributes,
   holding the tile arrays `tiles/<n>`, numbered from 0 ([§4.4](#44-tiles)).
-- `vzip_source`: the source metadata ([§5](#5-source-metadata)).
+- `refkv_source`: the source metadata ([§5](#5-source-metadata)).
 
 ### 4.2 Images
 
@@ -597,13 +597,13 @@ scan has 1000 tile arrays, not 200000.)
 The root's `S` is the file header:
 `{"version": [Major, Minor], "primary_file_guid": G, "file_guid": G,
 "file_part": 0, "update_pending": UpdatePending}`, GUIDs as [§2.2](#22-the-file-header) writes
-them. Everything else is on `vzip_source`.
+them. Everything else is on `refkv_source`.
 
 ### 5.2 The IR mirror
 
-`vzip_source` is the file's **IR mirror**
+`refkv_source` is the file's **IR mirror**
 ([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `vzip_source/tree`. The IR's
+file is rebuilt byte for byte, and its view, `refkv_source/tree`. The IR's
 elements (the CZI **source model**) are below; nothing is left out, deleted
 and unreferenced segments, spare bytes and dead space included.
 
@@ -651,7 +651,7 @@ file), and holds `header`, a value of type
 
 The elements are determined by the file, and the mirror by its elements
 ([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
-file are compared entry for entry, `vzip_source` included
+file are compared entry for entry, `refkv_source` included
 ([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
 
 ## 6. Example
@@ -667,10 +667,10 @@ JPEG XR, overlapping layer-0 tiles and five pyramid levels; this is
   "attributes": {
     "ome": {"version": "0.5", "bioformats2raw.layout": 3},
     "zarr_conventions": ["(the CMO of §1)"],
-    "vzip_virtualized": {
+    "refkv_virtualized": {
       "profile": "czi",
       "version": 0,
-      "revision": 26,
+      "revision": 27,
       "source": {"url": "https://example.org/a.czi"},
       "czi": {
         "version": [1, 0],
@@ -714,7 +714,7 @@ Its level `0` (16 columns, 10 rows of 1024 × 1024 tiles, the last column
 [1024, [[1024, 15], 959]]}}` and codecs
 `[{"name": "imagecodecs_jpegxr"}]`. Each of the 264 overlapping layer-0 tiles
 is a position of its own, the array `tiles/<n>` of shape `[2048, 1504]`;
-`vzip_source` is the IR mirror ([§5.2](#52-the-ir-mirror)): its elements include the metadata
+`refkv_source` is the IR mirror ([§5.2](#52-the-ir-mirror)): its elements include the metadata
 XML (`metadata/xml`), the directory's entries and dimensions, each subblock's
 segment, `attachments/0` to `attachments/5` (EventList, TimeStamps, the
 embedded Label and SlidePreview CZIs as bytes, the gzip Profile as a derived
@@ -814,7 +814,7 @@ lists are decoded only up to 2^20 events and 2^26 bytes; past those the
 convention keeps the bytes as they are, without rejecting. Every document
 is then bounded: the root's and each image's by the limits above (`omero`
 has at most 64 channels), each tile array's by its fixed members (the
-convention [§4.4](#44-tiles)), whatever its number of planes, and `vzip_source`'s by
+convention [§4.4](#44-tiles)), whatever its number of planes, and `refkv_source`'s by
 the mirror's budgets ([conventions §8.7](../conventions.md#87-the-view)). The tile arrays number at most `N`.
 
 ### 13.4 Codec headers
@@ -882,7 +882,7 @@ Let `P = o + 32 + L + m` be subblock `i`'s data offset ([the convention §2.4](#
 - **Bytes** (`metadata/xml`, `metadata/attachment`, an attachment's data,
   `tail`) and **contiguous values** (TimeStamps, FocusPositions): referenced
   in place, cut as [conventions §7](../conventions.md#7-source-values-as-arrays) says.
-- **Documents** of `tiles/<n>` are stored, like those of `vzip_source`, so
+- **Documents** of `tiles/<n>` are stored, like those of `refkv_source`, so
   that a reader fetches them only when it opens the node ([conventions §2](../conventions.md#2-attributes)):
   there is one per tile position and copy.
 
@@ -905,12 +905,12 @@ The layout uses two things that are not in every Zarr reader:
   no rectilinear support, a clipped level can still be read chunk by chunk:
   the chunk at `y` index `j` and `x` index `i` holds the tile of that row
   and column, of the stored size `(W, H)`, or `W'` wide in the last column
-  and `H'` high in the last row (vzip's verifier,
+  and `H'` high in the last row (refkv's verifier,
   `js/test/czi/verify.py`, checks both ways).
 - **Codecs.** `imagecodecs_jpegxr` (JPEG XR subblocks) and
   `numcodecs.shuffle` (Zstd1 with hi-lo packing) are not in the
-  zarr-extensions registry, nor in the Neuroglancer fork vzip's viewer uses.
-  zarr-python 3 has `numcodecs.shuffle`; `vzip.zarr.codecs` registers
+  zarr-extensions registry, nor in the Neuroglancer fork refkv's viewer uses.
+  zarr-python 3 has `numcodecs.shuffle`; `refkv.zarr.codecs` registers
   `imagecodecs_jpegxr`. Files with these codecs are accepted, not
   rejected: their chunks are the subblocks' bytes, so the archive is
   complete whatever a reader supports. Their registration, and decoders in

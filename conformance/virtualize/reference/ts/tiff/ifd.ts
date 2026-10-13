@@ -2,7 +2,7 @@
 // range reads: its image file directories (IFDs) and their SubIFDs, nested.
 // Pixel data is never read.
 
-import type { ByteReader } from "../../../../../js/src/virtualize/common.ts";
+import type { ByteReader } from "../legacy.ts";
 import type { Entry, Found } from "./tags.ts";
 
 export class TiffError extends Error {}

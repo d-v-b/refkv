@@ -23,7 +23,7 @@ import h5py
 import numpy as np
 import xarray as xr
 
-from vzip.archive import VZipWriter
+from refkv.vzip.archive import VZipWriter
 
 
 def mandelbrot(n: int = 1024, iterations: int = 96) -> np.ndarray:

@@ -1,6 +1,6 @@
-"""File inputs of the profiles that are not the IR's under the reader policy (spec/archive.md
-§6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>): the http reader
-(vzip.virtualize.common.http_reader) makes every request (the
+"""File inputs of the profiles that are not the IR's under the reader policy (spec/refkv.md
+§6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>): the http reader
+(refkv.virtualize.common.http_reader) makes every request (the
 size's, each range's, prefetch's) and follows every redirect under `Policy`, as a
 store's reads do (tests/test_store_policy.py).
 """
@@ -13,11 +13,11 @@ from pathlib import Path
 
 import pytest
 
-import vzip.store
-from vzip.errors import ResolutionError
-from vzip.policy import Policy
-from vzip.virtualize import _virtualize as virtualize  # the profile output, not the store
-from vzip.virtualize.common import http_reader
+import refkv.reader
+from refkv.errors import ResolutionError
+from refkv.policy import Policy
+from refkv.virtualize import _virtualize as virtualize  # the profile output, not the store
+from refkv.virtualize.common import http_reader
 
 ROOT = Path(__file__).parents[2]
 BODY = (ROOT / "fixtures" / "nifti" / "nifti_n1_le_qform_identity.nii").read_bytes()
@@ -92,7 +92,7 @@ def names(monkeypatch):
             return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (table[host], port))]
 
-    monkeypatch.setattr(vzip.store, "_getaddrinfo", fake)
+    monkeypatch.setattr(refkv.reader, "_getaddrinfo", fake)
     return table
 
 

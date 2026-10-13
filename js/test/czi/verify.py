@@ -50,16 +50,16 @@ from zarr.core.buffer import default_buffer_prototype
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 FIXTURES = ROOT / "fixtures" / "czi"
-sys.path.insert(0, str(ROOT / "conformance" / "archive"))
+sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
 from http_server import Server  # noqa: E402
 
-from vzip.pb import Concat, Range  # noqa: E402
-from vzip.policy import Policy  # noqa: E402
-import vzip.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg, imagecodecs_jpegxr)
+from refkv.pb import Concat, Range  # noqa: E402
+from refkv.policy import Policy  # noqa: E402
+import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg, imagecodecs_jpegxr)
 
 # The sources are served on 127.0.0.1, which spec §6.7
-# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
+# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3 refuses by
 # default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
 sys.path.insert(0, str(HERE.parent))
@@ -75,17 +75,19 @@ LIBCZI_TYPES = {0, 1, 2, 3, 4}  # pixel types libCZI composites
 
 def run(impl: str, url: str, out: Path) -> subprocess.CompletedProcess:
     """`impl`: py, web, or ref (the frozen TypeScript twin, conformance/virtualize/reference/ts)."""
-    cmd = {"py": ["uv", "run", "python", "-m", "vzip.virtualize", "--allow-private-hosts"],
+    cmd = {"py": ["uv", "run", "python", "-m", "refkv.virtualize", "--allow-private-hosts"],
            "web": ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"],
            "ref": ["node", str(ROOT / "conformance" / "virtualize" / "reference" / "ts" / "virtualize.ts")]}[impl]
     return subprocess.run(cmd + [url, str(out)], capture_output=True, text=True, cwd=ROOT)
 
 
 def mirror_check(path: Path, url: str, out: Path) -> list[str]:
-    """An archive of the IR, whose vzip_source is its mirror: the checks below run on the
-    frozen reference's archive of the same file, the IR's hierarchy must equal that one
-    outside vzip_source (the reference's root read at the current revision, compare.py's
-    `at_revision`), and the mirror must rebuild the source byte for byte."""
+    """An archive of the IR, whose refkv_source is its mirror: the checks below run on the
+    frozen reference's archive of the same file (which keeps its revision's names,
+    vzip_source and vzip_virtualized, as they read), the IR's hierarchy must equal that
+    one outside the source metadata node (the reference read with the current names, at
+    the current revision: compare.py's `at_revision`), and the mirror must rebuild the
+    source byte for byte."""
     sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
     from compare import at_revision, differences, from_vzip, without_source
 
@@ -118,7 +120,7 @@ class Archive:
                 elif hid == 0x7A77:
                     self.refs[info.filename] = list(Concat.decode(ex[p + 4 : p + 4 + n]).parts)
                 p += 4 + n
-        self.store = vzip.zarr.open(str(path), policy=LOOPBACK_SOURCES)
+        self.store = refkv.zarr.open(str(path), policy=LOOPBACK_SOURCES)
         self.root = zarr.open_group(self.store, mode="r", zarr_format=3)
         self.lo: dict[str, dict] = {}  # image -> the T, C and Z Start of its index 0
 
@@ -143,13 +145,13 @@ class Archive:
 
     def array_bytes(self, path: str) -> bytes:
         """A 1-D uint8 array's bytes (conventions §7
-        <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>)."""
         a = zarr.open_array(self.store, path=path, mode="r", zarr_format=3)
         return bytes(a[...])
 
     def family(self, path: str, i: int) -> bytes | None:
         """Member i of a family of byte values, or None (conventions §7
-        <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>)."""
         full = f"vzip_source/{path}"
         if self.docs.get(f"{full}/zarr.json", {}).get("node_type") == "array":
             a = zarr.open_array(self.store, path=full, mode="r", zarr_format=3)
@@ -243,7 +245,7 @@ def czi_pixels(sb_data: np.ndarray, pixel_type: int) -> np.ndarray:
 
 def walk(data: bytes) -> tuple[list[tuple[int, bytes, int, int]], int]:
     """The segments in file order (spec/virtualize.md §13.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#132-structures-and-the-walk>
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#132-structures-and-the-walk>
     step 6), as the verifier reads them."""
     out, o = [], 0
     while o < len(data) and len(out) < 1 << 23:

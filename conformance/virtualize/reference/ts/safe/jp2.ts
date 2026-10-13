@@ -1,6 +1,6 @@
 // JPEG 2000 band files (spec/virtualize.md §12.3
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#123-band-files>) and their
-// chunks (§12.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#126-chunks>).
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>) and their
+// chunks (§12.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#126-chunks>).
 //
 // A band file is a JP2 file whose codestream has one tile-part per tile, in
 // raster order. Each tile becomes a standalone codestream: the file's main
@@ -12,19 +12,19 @@ import { SafeError } from "./product.ts";
 const MAX_BOXES = 1024;
 /**
  * The most bytes of a main header after its SIZ segment (spec/virtualize.md §12.3
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#123-band-files>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>).
  */
 export const MAX_REST = 1 << 16;
 /**
  * The most bytes of a chunk's empty tiles and EOC (§12.6
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#126-chunks>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#126-chunks>).
  */
 export const MAX_TAIL = 1 << 12;
 const BLOCK = 1 << 16;
 const SMALL_TILE = 1 << 14; // after a tile-part this small, the next tile-part headers are read in a block
 const SOC = 0xff4f, SIZ = 0xff51, SOT = 0xff90, EOC = 0xffd9, COD = 0xff52, COC = 0xff53, QCD = 0xff5c;
 // The markers a main header may have after SIZ (§12.3
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#123-band-files>).
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>).
 const ALLOWED = new Set([COD, COC, QCD, 0xff5d, 0xff5e, 0xff5f, 0xff63, 0xff64]);
 const NAMES: Record<number, string> = { 0xff55: "TLM", 0xff57: "PLM", 0xff60: "PPM", 0xff50: "CAP", 0xff59: "CPF" };
 
@@ -69,7 +69,7 @@ export class Reader {
 
 /**
  * A band file's structure (§12.3
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#123-band-files>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>).
  */
 export interface Codestream {
   n: number;
@@ -94,7 +94,7 @@ export function grid(cs: Codestream): [number, number] {
 
 /** c0, the start of the codestream: the contents of the first jp2c box, which must end at
  * the end of the file (§12.3
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#123-band-files>). */
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>). */
 async function boxes(r: Reader): Promise<number> {
   const n = r.n;
   let o = 0;
@@ -146,7 +146,7 @@ function coding(seg: Uint8Array, at: number, scod: number, what: string): [numbe
 
 /**
  * The SIZ segment and the main header rest of the codestream at c0 (§12.3
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#123-band-files>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>).
  */
 async function mainHeader(r: Reader, c0: number): Promise<Codestream> {
   const c1 = r.n;
@@ -221,7 +221,7 @@ async function mainHeader(r: Reader, c0: number): Promise<Codestream> {
 
 /**
  * The tile-parts (§12.3
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#123-band-files>): one per tile,
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>): one per tile,
  * in raster order, then EOC at the end.
  */
 async function walk(r: Reader, cs: Codestream): Promise<void> {
@@ -264,7 +264,7 @@ function nprec(z0: number, z1: number, d: number, e: number): number {
 
 /**
  * e_k: the packets of a tile of area [x0, x1) × [y0, y1) (§12.6
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#126-chunks>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#126-chunks>).
  */
 export function emptyPackets(cs: Codestream, x0: number, x1: number, y0: number, y1: number): number {
   let n = 0;
@@ -278,7 +278,7 @@ export function emptyPackets(cs: Codestream, x0: number, x1: number, y0: number,
 
 /**
  * [x0, y0, w, h, a, b] of the chunk of tile t (§12.6
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#126-chunks>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#126-chunks>).
  */
 function area(cs: Codestream, t: number): [number, number, number, number, number, number] {
   const [nx] = grid(cs);
@@ -290,7 +290,7 @@ function area(cs: Codestream, t: number): [number, number, number, number, numbe
 }
 
 /** [e_1, …, e_{a×b−1}], the empty packets of the empty tiles of the chunk of tile t, once their
- * tail (§12.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#126-chunks>), of 2 +
+ * tail (§12.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#126-chunks>), of 2 +
  * Σ (14 + e_k) bytes, is known to be at most MAX_TAIL: it is measured
  * before anything is made, and rejected past MAX_TAIL. */
 export function tailPackets(cs: Codestream, t: number): number[] {
@@ -312,13 +312,13 @@ export function tailPackets(cs: Codestream, t: number): number[] {
 
 /**
  * The length of the chunk of tile t's empty tiles and EOC (§12.6
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#126-chunks>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#126-chunks>).
  */
 export function tailLength(cs: Codestream, t: number): number {
   return tailPackets(cs, t).reduce((m, e) => m + 14 + e, 2);
 }
 
-/** The chunk of tile t (§12.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#126-chunks>): [SOC + SIZ', SOT, [offset, length] of the body in the band
+/** The chunk of tile t (§12.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#126-chunks>): [SOC + SIZ', SOT, [offset, length] of the body in the band
  * file, the empty tiles and EOC, whether it has empty tiles]. */
 export function chunkParts(cs: Codestream, t: number): [Uint8Array, Uint8Array, [number, number], Uint8Array, boolean] {
   const [x0, y0, w, h, a, b] = area(cs, t);

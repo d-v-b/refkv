@@ -1,4 +1,4 @@
-// Page-side helpers for the vzip service worker.
+// Page-side helpers for the refkv service worker.
 
 import { ARCHIVE_KEY, encodeId } from "./server.ts";
 
@@ -30,7 +30,7 @@ export async function registerVzipWorker(
         if (ours()) finish();
       };
       const timer = setTimeout(
-        () => finish(new Error("the vzip service worker did not take control of this page; reload it and try again")),
+        () => finish(new Error("the refkv service worker did not take control of this page; reload it and try again")),
         timeoutMs,
       );
       container.addEventListener("controllerchange", check);

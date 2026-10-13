@@ -4,7 +4,7 @@
 // js/src/virtualize/index.ts dispatched them; the other profiles are the shipped
 // code's. For comparing the Rust core's output with the TypeScript one's.
 
-import { type ByteReader, ImageError } from "../../../../js/src/virtualize/common.ts";
+import { type ByteReader, ImageError } from "./legacy.ts";
 import { isDicom, virtualizeDicom } from "./dicom/virtualize.ts";
 import { isZip, virtualizeSafeZip } from "./safe/virtualize.ts";
 import { addChecksums, type PinOptions } from "../../../../js/src/virtualize/index.ts";

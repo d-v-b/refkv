@@ -48,7 +48,7 @@ Findings that shaped the design:
 
 ## 2. Modules
 
-Python, `python/src/vzip/virtualize/czi/`, and its TypeScript twin,
+Python, `python/src/refkv/virtualize/czi/`, and its TypeScript twin,
 `js/src/virtualize/czi/`, with the same module names and functions, as
 for ND2:
 
@@ -74,12 +74,12 @@ Shared changes:
   complex fill value; add a `rectilinear(shape, edges)` helper.
 - `Output.write`: treat `tiles/*/zarr.json` like `vzip_source/` documents
   (lazy), so opening an archive does not read one document per tile array.
-- `python/src/vzip/codecs.py`: register `imagecodecs_jpegxr` (decode with
+- `python/src/refkv/codecs.py`: register `imagecodecs_jpegxr` (decode with
   `imagecodecs.jpegxr_decode`, reshape to the chunk) like
   `imagecodecs_jpeg2k`. `numcodecs.shuffle` and `zstd` are zarr-python's.
   Readers with rectilinear levels need
   `zarr.config.set({"array.rectilinear_chunks": True})` (zarr-python 3.4);
-  the verifier and `vzip.store` helpers set it.
+  the verifier and `refkv.reader` helpers set it.
 - `spec/virtualize.md`: the detection row (profile §13.1), the profile table
   row, §13 = CZI and §14 = Conformance (update the `#13-conformance`
   anchors), revision 18 in `REVISIONS.md`.
@@ -181,7 +181,7 @@ Rejected: one fixture per rejection test of §3, named `czi_reject_<case>`.
 
 `js/test/czi/verify.py` serves the fixtures over local HTTP, runs the
 browser virtualizer under Node, opens every archive with `VZipStore` and
-zarr-python (with `vzip.codecs` and rectilinear enabled), and checks:
+zarr-python (with `refkv.codecs` and rectilinear enabled), and checks:
 
 1. **Pixels, per subblock**, against **czifile** (independent, pure Python,
    BSD-3): for every subblock, `CziSubBlockSegmentData.data()` (stored

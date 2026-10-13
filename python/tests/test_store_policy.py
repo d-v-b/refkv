@@ -1,5 +1,5 @@
-"""Store inputs under the reader policy (spec/archive.md §6.7
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>): the listing, every
+"""Store inputs under the reader policy (spec/refkv.md §6.7
+<https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>): the listing, every
 object read (the prefetch threads' too) and every redirect go through `Policy`, as a file
 input's requests do. The browser implementation has the same tests in
 js/test/store_policy.test.ts.
@@ -17,10 +17,10 @@ from xml.sax.saxutils import escape
 
 import pytest
 
-import vzip.store
-from vzip.errors import ResolutionError
-from vzip.policy import Policy
-from vzip.virtualize import _virtualize_store as virtualize_store  # the profile output, not the store
+import refkv.reader
+from refkv.errors import ResolutionError
+from refkv.policy import Policy
+from refkv.virtualize import _virtualize_store as virtualize_store  # the profile output, not the store
 
 ROOT = Path(__file__).parents[2]
 STORE = ROOT / "fixtures" / "zarr2" / "zarr2_hierarchy"
@@ -87,7 +87,7 @@ def names(monkeypatch):
             return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (table[host], port))]
 
-    monkeypatch.setattr(vzip.store, "_getaddrinfo", fake)
+    monkeypatch.setattr(refkv.reader, "_getaddrinfo", fake)
     return table
 
 
@@ -193,7 +193,7 @@ def test_the_cli_passes_allow_private_hosts_to_a_store(server, tmp_path, env):
     url = f"http://127.0.0.1:{port}/b/s/"
 
     def run(*flags):
-        return subprocess.run([sys.executable, "-m", "vzip.virtualize", *flags, url, str(tmp_path / "o.vzip")],
+        return subprocess.run([sys.executable, "-m", "refkv.virtualize", *flags, url, str(tmp_path / "o.vzip")],
                               capture_output=True, text=True, cwd=ROOT)
 
     refused = run()

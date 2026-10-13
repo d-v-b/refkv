@@ -1,6 +1,6 @@
 # Mapping image formats to Zarr: techniques
 
-vzip maps eleven source formats to Zarr v3 without copying their data:
+refkv maps eleven source formats to Zarr v3 without copying their data:
 - seven file formats: TIFF, NDPI, ND2, DICOM, NIfTI, IMS and CZI;
 - three store formats: N5, Zarr v2 and OME-Zarr 0.4;
 - Sentinel-2 SAFE products, a directory or a zip file of JPEG 2000 bands
@@ -186,7 +186,7 @@ From [§1](#1-three-kinds-of-information), [§4](#4-numeric-metadata-as-arrays) 
 | ND2 | the file-level lite-variant chunks: attributes, experiment, text info, calibration, picture metadata of frame 0 | events, the per-frame `ImageMetadataSeqLV\|n!` | the known `CustomData` streams (frame times, X/Y/Z, PFS, exposure), reshaped to the frame grid; frame timestamps inline when `AcqTimesCache` is absent; other binary chunks omitted |
 | DICOM | the dataset without Per-frame Functional Groups and without binary-VR values | Per-frame Functional Groups | `OF`/`OD`/`OL`/`OV` values; optionally derived per-frame position and time arrays |
 | NIfTI | the header; text extensions (comment, AFNI and CIFTI XML, JSON) as text; a derived orientation (which affine, whether it is applied) | none | none |
-| IMS | none | the whole HDF5 tree, mirrored under `vzip_source/hdf5`: each group's attributes, links and named datatypes on its own group | every dataset but the image's (histograms, thumbnail, `DataSetTimes`, `Scene8` tables), by reference, typed when its elements are numbers; large attributes, copied |
+| IMS | none | the whole HDF5 tree, mirrored under `refkv_source/hdf5`: each group's attributes, links and named datatypes on its own group | every dataset but the image's (histograms, thumbnail, `DataSetTimes`, `Scene8` tables), by reference, typed when its elements are numbers; large attributes, copied |
 | N5 | each node's `attributes.json` without its layout members (`dimensions`, `blockSize`, `dataType`, `compression`, `n5`) | none | none |
 | Zarr v2, OME-Zarr | each node's `.zattrs` | none | none |
 | CZI | the file header (version, GUIDs) | the attachment directory's entries (name, type, GUID, the form of their data), within a 64 KiB budget | the directory as copied typed columns, one per field and dimension; subblock metadata, attachments and unplaced data as families; the metadata XML, attachments (time stamps and focus positions typed, event lists as columns), unreferenced segments and the tail by reference |
@@ -195,7 +195,7 @@ From [§1](#1-three-kinds-of-information), [§4](#4-numeric-metadata-as-arrays) 
 ## 8. Open questions
 
 1. **The metadata node's name and place.**
-   - Proposal: a child group `vzip_source` of the root.
+   - Proposal: a child group `refkv_source` of the root.
    - It declares the convention, with the collections as its `S`, and
      holds the arrays.
    - OME-NGFF readers ignore children they don't know.

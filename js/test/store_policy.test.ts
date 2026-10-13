@@ -1,5 +1,5 @@
-// Store inputs under the reader policy (spec/archive.md §6.7
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>), under Node: the
+// Store inputs under the reader policy (spec/refkv.md §6.7
+// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>), under Node: the
 // listing, every object read (the concurrent document reads' too) and every redirect go through the
 // policy, as an image file's requests do. The twin of python/tests/test_store_policy.py.
 
@@ -11,7 +11,7 @@ import type { AddressInfo, Socket } from "node:net";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { after, before, test } from "node:test";
-import { checkAddress, type Policy, VzipError } from "../src/archive.ts";
+import { checkAddress, type Policy, RefkvError } from "../src/archive.ts";
 import { resolver } from "../src/net_node.ts";
 import { virtualizeStore } from "../src/virtualize/index.ts";
 import { openHttpStore, storeFetch } from "../src/virtualize/store.ts";
@@ -109,7 +109,7 @@ function inChild(url: string, policy: Policy, env: Record<string, string>, addre
   });
 }
 
-const resolution = (re: RegExp) => (e: unknown) => e instanceof VzipError && e.errorClass === "resolution" && re.test(e.message);
+const resolution = (re: RegExp) => (e: unknown) => e instanceof RefkvError && e.errorClass === "resolution" && re.test(e.message);
 
 test("reads a store the policy allows", async () => {
   // Each way a policy admits a store's requests, read one document at a time and

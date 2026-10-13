@@ -1,8 +1,8 @@
-"""The OME-Zarr profile through the Rust core (vzip.ir.store; spec/virtualize/ome-zarr.md) on
+"""The OME-Zarr profile through the Rust core (refkv.ir.store; spec/virtualize/ome-zarr.md) on
 the synthetic stores: the same outcome as the frozen reference (revision 25) for every store,
-the same hierarchy outside `vzip_source`, and `vzip_source` the store's IR mirror, which
+the same hierarchy outside `refkv_source`, and `refkv_source` the store's IR mirror, which
 rebuilds every node document byte for byte (conventions §8.9
-<https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>). The reference's own
+<https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>). The reference's own
 tests are python/tests/reference/test_virtualize_ome_zarr.py; the full comparison, browser
 included, is conformance/virtualize/compare.py's.
 """
@@ -13,11 +13,12 @@ from pathlib import Path
 
 import pytest
 
-from vzip.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
-from vzip.virtualize.common import CONVENTION_KEY, REVISION
+from refkv.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
+from refkv.virtualize.common import CONVENTION_KEY, REVISION
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "virtualize" / "reference"))
-from vzip_reference import virtualize as reference  # noqa: E402
+from refkv_reference import virtualize as reference  # noqa: E402
+from refkv_reference.legacy import SOURCE_NODE as LEGACY_NODE, current_names  # noqa: E402
 
 FIXTURES = Path(__file__).parents[2] / "fixtures" / "ome-zarr"
 URL = "https://data.test/ome-zarr/{}/"
@@ -32,15 +33,19 @@ def whole_object(parts) -> str:
 
 
 def hierarchy(out) -> dict:
-    """The IR path's documents outside vzip_source, and its references (entry key -> object key)."""
-    docs = {k: json.loads(v) for k, v in out.entries.items() if k.endswith("zarr.json") and not k.startswith("vzip_source/")}
+    """The IR path's documents outside refkv_source, and its references (entry key -> object key)."""
+    docs = {k: json.loads(v) for k, v in out.entries.items() if k.endswith("zarr.json") and not k.startswith("refkv_source/")}
     return {"docs": docs, "refs": {k: whole_object(v) for k, v in out.refs.items()}}
 
 
 def reference_hierarchy(out) -> dict:
-    docs = {k: json.loads(json.dumps(v)) for k, v in out.docs.items() if not k.startswith("vzip_source/")}
+    """The frozen reference's, with the current names (its revision's source metadata node
+    is vzip_source)."""
+    docs = current_names({k: json.loads(json.dumps(v)) for k, v in out.docs.items()
+                          if not k.startswith(LEGACY_NODE + "/")})
     docs["zarr.json"]["attributes"][CONVENTION_KEY]["revision"] = REVISION
-    return {"docs": docs, "refs": {k: out.origins.get(k, k) for k, _ in out.chunks}}
+    current = lambda k: "refkv_source" + k[len(LEGACY_NODE):] if k.startswith(LEGACY_NODE + "/") else k  # noqa: E731
+    return {"docs": docs, "refs": {current(k): out.origins.get(k, k) for k, _ in out.chunks}}
 
 
 @pytest.mark.parametrize("store", STORES, ids=[p.name for p in STORES])
@@ -61,13 +66,13 @@ def test_the_ir_gives_the_reference_hierarchy(store):
 
 
 def test_the_mirror_rebuilds_each_node_document():
-    import vzip_ir
+    from refkv import _ir
 
     for store in STORES:
         if "_reject_" in store.name:
             continue
         _, out = virtualize(str(store), URL.format(store.name))
-        rebuilt = vzip_ir.rebuild_store(out.entries.get)
+        rebuilt = _ir.rebuild_store(out.entries.get)
         held = {k: b for k, _, b in rebuilt if b is not None}
         assert held and all(Path(k).name in (".zgroup", ".zarray", ".zattrs") for k in held), store.name
         for k, b in held.items():
@@ -78,7 +83,7 @@ def test_the_mirror_rebuilds_each_node_document():
 def test_a_rejection_names_the_profile_the_store_was_decided_to_be(tmp_path):
     # the output's checks are the decided profile's: in a store whose root declares OME-NGFF 0.4,
     # OME-Zarr's own and the Zarr v2 rules it applies (spec/virtualize/ome-zarr.md §2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#2-hierarchy>); in any
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#2-hierarchy>); in any
     # other Zarr v2 store, the zarr2 format's
     with pytest.raises(Rejected) as e:
         virtualize(str(FIXTURES / "ome_zarr_reject_axes_count"), URL.format("a"))

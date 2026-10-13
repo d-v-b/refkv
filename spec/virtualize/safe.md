@@ -2,9 +2,9 @@
 
 The Zarr v3 layout of a Sentinel-2 Level-1C or Level-2A product in the SAFE
 format (a `.SAFE` directory, or the `.SAFE.zip` archive of one), and the
-translation of its metadata into JSON. What all of vzip's conventions share
+translation of its metadata into JSON. What all of refkv's conventions share
 is in [spec/conventions.md](../conventions.md), cited here as "conventions §n".
-How vzip produces this layout as a reference store is the SAFE profile,
+How refkv produces this layout as a reference store is the SAFE profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `ef81346c-19e8-42ad-93b0-a279ccaf44c1` ·
@@ -12,7 +12,7 @@ Schema: [schema.json](safe/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the SAFE
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the SAFE profile: how vzip reads the source, which inputs it rejects, and how
+is the SAFE profile: how refkv reads the source, which inputs it rejects, and how
 each chunk references the source. The profile keeps its numbering as a section
 of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
 
@@ -35,7 +35,7 @@ by the band's chunks. The groups declare their coordinate reference system
 and affine transform with the zarr-conventions `proj` and `spatial`
 conventions ([§5](#5-georeferencing-geozarr)). The source's values are recorded but never applied: the
 radiometric offsets and the quantification values are metadata of each band
-([§6.2](#62-band-arrays)). Every file of the product is kept: `vzip_source` is the product's IR
+([§6.2](#62-band-arrays)). Every file of the product is kept: `refkv_source` is the product's IR
 mirror, which lists every object, holds the XML documents it reads, describes
 each band file's boxes, codestream and tile-parts, and references every other
 object whole ([§6.3](#63-the-source-metadata-node)).
@@ -44,26 +44,26 @@ Unlike the other conventions, the hierarchy has no OME-NGFF metadata. It is
 geospatial data, and its target formats are Zarr v3 and the GeoZarr
 conventions of [§5](#5-georeferencing-geozarr). This section extends [conventions §2](../conventions.md#2-attributes) ("Nothing else"): the
 attributes of this convention's nodes may hold, besides `zarr_conventions`
-and `vzip_virtualized`, the members that [§5](#5-georeferencing-geozarr) gives them (`proj:code`,
+and `refkv_virtualized`, the members that [§5](#5-georeferencing-geozarr) gives them (`proj:code`,
 `proj:wkt2`, `spatial:*` and `multiscales`), and only on the groups that [§5](#5-georeferencing-geozarr)
 names.
 
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "safe"`, `"version": 0`, `"revision": 26` ([conventions §1](../conventions.md#1-conventions)), the input's URL as `source.url`
+with `"profile": "safe"`, `"version": 0`, `"revision": 27` ([conventions §1](../conventions.md#1-conventions)), the input's URL as `source.url`
 (the store URL, ending in `/`, of a directory, or the URL of a zip file),
 and the root's source metadata ([§6.1](#61-values)) as the member `"safe"`. Each band
-array and `vzip_source` declare it with their own source metadata ([§6.2](#62-band-arrays),
-[§6.3](#63-the-source-metadata-node)). The arrays under `vzip_source` have none. Its CMO is:
+array and `refkv_source` declare it with their own source metadata ([§6.2](#62-band-arrays),
+[§6.3](#63-the-source-metadata-node)). The arrays under `refkv_source` have none. Its CMO is:
 
 ```json
 {
   "uuid": "ef81346c-19e8-42ad-93b0-a279ccaf44c1",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/vzip/refs/heads/main/spec/virtualize/safe/schema.json",
-  "spec_url": "https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md",
-  "name": "vzip_virtualized",
-  "description": "The Zarr layout of a Sentinel-2 SAFE source virtualized by vzip, and the source's metadata"
+  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/virtualize/safe/schema.json",
+  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md",
+  "name": "refkv_virtualized",
+  "description": "The Zarr layout of a Sentinel-2 SAFE source virtualized by refkv, and the source's metadata"
 }
 ```
 
@@ -229,7 +229,7 @@ The hierarchy is:
 - for each resolution `r` of a band file, in ascending order, the group
   `r<r>m` (for example `r10m`), a child of the root ([§5.2](#52-resolution-groups)), and in it one
   array per band file of that resolution, named by its band name ([§4](#4-arrays));
-- the group `vzip_source`, a child of the root, holding the source's other
+- the group `refkv_source`, a child of the root, holding the source's other
   metadata ([§6.3](#63-the-source-metadata-node)).
 
 A product whose bands have the resolutions 10, 20 and 60 m, as every
@@ -600,11 +600,11 @@ with the members, in this order, each present only when its value is:
 - `HORIZONTAL_CS_NAME` and `HORIZONTAL_CS_CODE`: the texts of those
   children of `Tile_Geocoding`, as strings.
 
-**`vzip_source`.** The group `vzip_source` (the source metadata node of
+**`refkv_source`.** The group `refkv_source` (the source metadata node of
 [conventions §2](../conventions.md#2-attributes)) is always present. It is the
 product's **IR mirror** ([conventions §8](../conventions.md#8-the-ir-mirror)): its
 table, from which the product is rebuilt ([§6.4](#64-reconstruction)), and its view,
-`vzip_source/tree`. Its source metadata `S` is the object
+`refkv_source/tree`. Its source metadata `S` is the object
 
 ```json
 {"ir": I, "empty_dirs": [...], "ignored": [...]}
@@ -640,9 +640,9 @@ The IR is the product's in each form:
   - every **other object** (the other XML documents, such as the datastrip
     metadata, 15–25 MB, and the other objects of [§2.1](#21-objects)) is **referenced**:
     it has no children, and the hierarchy references it whole at the
-    archive's key `vzip_source/objects/<k>`, with `k` the object's key escaped
+    archive's key `refkv_source/objects/<k>`, with `k` the object's key escaped
     as [Zarr v2 convention §5](zarr2.md#5-other-objects) says (the directories
-    between `vzip_source` and the objects are not nodes);
+    between `refkv_source` and the objects are not nodes);
   - a **folder marker** has no children and is not referenced: its bytes
     are the mirror's layout ([§2.1](#21-objects)), and its key is in the listing;
   - an **empty object** has no children; its key is in the listing.
@@ -710,7 +710,7 @@ for a band file, from the band file itself.
 **Equivalence.** The elements are determined by the product, and the mirror
 by its elements ([conventions §8.8](../conventions.md#88-canonical-form): one order, one
 folding, one encoding): hierarchies of one product in one form are compared
-entry for entry, `vzip_source` included
+entry for entry, `refkv_source` included
 ([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
 
 ### 6.4 Reconstruction
@@ -725,7 +725,7 @@ The product can be rebuilt from the hierarchy:
   ([conventions §8.9](../conventions.md#89-stores)); each band file, described in
   place, from its own source (the url source its chunks reference, whose
   size the archive pins), its structure from its elements; each other
-  object from `vzip_source/objects/<k>`; each empty directory from
+  object from `refkv_source/objects/<k>`; each empty directory from
   `empty_dirs` (every other directory is one of an object's).
 
 What is not kept is the directory form's layout: the order of the listing,
@@ -774,8 +774,8 @@ pixels):
   "codecs": [{"name": "imagecodecs_jpeg2k"}],
   "dimension_names": ["y", "x"],
   "attributes": {
-    "zarr_conventions": [{"uuid": "ef81346c-19e8-42ad-93b0-a279ccaf44c1", "schema_url": "https://raw.githubusercontent.com/d-v-b/vzip/refs/heads/main/spec/virtualize/safe/schema.json", "spec_url": "https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md", "name": "vzip_virtualized", "description": "The Zarr layout of a Sentinel-2 SAFE source virtualized by vzip, and the source's metadata"}],
-    "vzip_virtualized": {"safe": {
+    "zarr_conventions": [{"uuid": "ef81346c-19e8-42ad-93b0-a279ccaf44c1", "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/virtualize/safe/schema.json", "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md", "name": "refkv_virtualized", "description": "The Zarr layout of a Sentinel-2 SAFE source virtualized by refkv, and the source's metadata"}],
+    "refkv_virtualized": {"safe": {
       "IMAGE_FILE": "GRANULE/L2A_T32TNS_A035655_20240103T101328/IMG_DATA/R20m/T32TNS_20240103T101329_B05_20m",
       "bandId": 4, "physicalBand": "B5", "RESOLUTION": 20,
       "Wavelength": {"MIN": {"value": 694, "unit": "nm"}, "MAX": {"value": 714, "unit": "nm"}, "CENTRAL": {"value": 703.8, "unit": "nm"}},
@@ -817,7 +817,7 @@ of two forms:
   file, and its entries are the product's objects ([§12.4](#124-the-zip-form)).
 
 The two forms give the same hierarchy for the same product, but for
-`source.url`, the source table and `vzip_source` (the IR mirror of a store
+`source.url`, the source table and `refkv_source` (the IR mirror of a store
 or of a file, [the convention §6.3](#63-the-source-metadata-node)): every other document is the same,
 and every chunk holds the same bytes.
 
@@ -1127,12 +1127,12 @@ empty tile-parts, not pixel data ([§1.2](../virtualize.md#12-input), **Structur
 In the directory form, each object that the IR references
 ([the convention §6.3](#63-the-source-metadata-node): an XML document
 not read whole, and every other object but the band files, the folder
-markers and the empty objects) is the entry `vzip_source/objects/<k>`, which
+markers and the empty objects) is the entry `refkv_source/objects/<k>`, which
 references the whole object, the range `(i, 0, size)` of its own source.
 In the zip form there is no such entry: the mirror rebuilds the zip file,
 every entry included.
 
-The documents under `vzip_source/` are deflated and, like the chunks, not
+The documents under `refkv_source/` are deflated and, like the chunks, not
 among the documents a reader fetches when it opens the archive
 ([conventions §2](../conventions.md#2-attributes)).
 

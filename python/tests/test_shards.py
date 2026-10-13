@@ -3,8 +3,8 @@ import itertools
 import pytest
 import xarray as xr
 
-import vzip.zarr
-from vzip.shards import write_vzip_sharded
+import refkv.zarr
+from refkv.shards import write_vzip_sharded
 
 from helpers import virtualize
 
@@ -19,7 +19,7 @@ def test_virtual_shards_roundtrip(netcdf_files, tmp_path):
         # temp: one shard per file (4 time steps x the full 2x2 spatial chunk grid)
         write_vzip_sharded(vds, out, {"temp": (4, 2, 2), "mask": (4, 3, 4)},
                            inline_index=inline, page_size=page_size, index_location=loc)
-        zs = vzip.zarr.open(out)
+        zs = refkv.zarr.open(out)
         ds = xr.open_zarr(zs, consolidated=True, zarr_format=3)
         xr.testing.assert_identical(ds.load(), expected.load())
         s = zs.reader

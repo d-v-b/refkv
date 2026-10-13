@@ -5,7 +5,7 @@ stores: the reference twin conformance/virtualize/compare.py compares the Rust I
 import sys
 from pathlib import Path
 
-# the frozen reference twins (conformance/virtualize/reference/vzip_reference)
+# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
 
 import json
@@ -14,10 +14,10 @@ from functools import partial
 
 import pytest
 
-from vzip.virtualize import Rejected
-from vzip.virtualize.common import declare as _declare
-from vzip_reference import virtualize
-from vzip_reference.revision import STORES_REVISION as REVISION
+from refkv.virtualize import Rejected
+from refkv_reference.legacy import declare as _declare
+from refkv_reference import virtualize
+from refkv_reference.revision import STORES_REVISION as REVISION
 
 # the reference's roots record the revision it is frozen at
 declare = partial(_declare, revision=REVISION)
@@ -113,12 +113,12 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     _, out = virtualize(str(FIXTURES / "zarr2_fill_values"), url=URL.format("f"))
     assert [k for k, _ in out.chunks if k.startswith(("nan/", "inf/"))] == ["inf/1.0", "nan/1.0"]
     # The empty one's key is listed with the empty objects (§3.2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#32-chunks>, §5
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#32-chunks>, §5
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
     assert out.docs["vzip_source/zarr.json"]["attributes"] == declare({}, "zarr2", None, {"empty": ["nan/0.0"]})
     # Stray objects and nodes inside arrays are kept whole under vzip_source/objects/
     # (spec/virtualize/zarr2.md §5
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>);
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>);
     # .zmetadata is not.
     _, out = virtualize(str(FIXTURES / "zarr2_hierarchy"), url=URL.format("h"))
     assert [k for k, _ in out.chunks] == [
@@ -132,9 +132,9 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
                                                               {"attributes": {"_ARRAY_DIMENSIONS": ["y", "x"]}})
     assert not {"a/c/inside/zarr.json", "orphan/zarr.json", "ghost/zarr.json", "notes/zarr.json"} & set(out.docs)
     # Attributes are copied unchanged under the convention (spec/virtualize.md conventions §2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>), OME-NGFF 0.4
+    # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), OME-NGFF 0.4
     # ones included: the root does not declare OME-NGFF 0.4 (§1.4
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), so the store is
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>), so the store is
     # not read by the OME-Zarr profile.
     _, out = virtualize(str(FIXTURES / "zarr2_ome_attrs"), url=URL.format("o"))
     for path in ("", "0", "0/labels", "0/labels/cells", "v03", "has_ome", "mixed", "dup_axes"):
@@ -149,7 +149,7 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
         assert out.docs[key(path)]["attributes"] == declare({}, "zarr2", URL.format("c") if path == "" else None,
                                                             {"attributes": zattrs}), path
     # Source metadata (spec/virtualize/zarr2.md §4
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>): the
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>): the
     # attributes, with integers beyond 2^53
     # kept exact, and the members of .zarray and .zgroup the Zarr v3 metadata does not reproduce.
     url = URL.format("zarr2_source_metadata")
@@ -163,7 +163,7 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     for path in ("neg_zero_f4", "zlib_9", "zstd_checksum"):
         assert out.docs[key(path)]["attributes"] == {}, path
     # A float fill written as an integer beyond 2^53 - 1 is kept as written (§4
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>).
     assert out.docs[key("big_fill_f8")]["attributes"] == declare(
         {}, "zarr2", None, {"metadata": {"fill_value": 18446744073709551616}})
     # The archive holds the integers' every digit, and the hex fill.
@@ -243,7 +243,7 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     ("zarr2_reject_gzip_level", "gzip level 1 is not an integer"),
     ("zarr2_reject_zstd_level", "zstd level 23"),
     ("zarr2_reject_zstd_checksum", "zstd checksum 1"),
-    ("zarr2_reject_objects_collision", "the node vzip_source is where"),
+    ("zarr2_reject_objects_collision", "the node refkv_source is where"),
 ])
 def test_rejects(name, message):
     with pytest.raises(Rejected, match=message):
@@ -253,9 +253,9 @@ def test_rejects(name, message):
 def test_root_array_keeps_other_objects_without_a_group(tmp_path):
     """An array has no children: under a root array, other objects are plain keys, with no
     vzip_source group (spec/virtualize/zarr2.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>;
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>;
     spec/virtualize/n5.md §6
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>)."""
     for name in ("zarr2/zarr2_root_array_objects", "n5/n5_root_dataset_objects"):
         _, out = virtualize(str(FIXTURES.parent / name), url=f"https://data.test/{name}/")
         assert out.docs["zarr.json"]["node_type"] == "array", name
@@ -272,9 +272,9 @@ def test_root_array_keeps_other_objects_without_a_group(tmp_path):
     with zipfile.ZipFile(archive) as z:
         assert z.read("vzip_source/empty.json") == '{"empty":["empty","\u00e9mpty"]}'.encode()
     # An empty chunk object of a root array is listed there too (spec/virtualize/zarr2.md §3.2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#32-chunks>,
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#32-chunks>,
     # spec/virtualize/n5.md §3.1
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#31-chunks>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#31-chunks>).
     for name in ("zarr2/zarr2_root_array_empty_chunk", "n5/n5_root_dataset_empty_block"):
         _, out = virtualize(str(FIXTURES.parent / name), url=f"https://data.test/{name}/")
         assert [k for k, _ in out.chunks] == ["0"], name

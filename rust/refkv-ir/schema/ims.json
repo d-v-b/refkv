@@ -1,0 +1,116 @@
+{
+  "source_model": "ims",
+  "version": 1,
+  "about": "The source model of an Imaris IMS file (HDF5; spec/virtualize/ims.md, spec/virtualize.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#8-ims-profile>): the elements a parser emits, and the roles the Imaris layout's groups, attributes and datasets play, each with the constraints a file must meet to have the IMS convention's layout. The rules of the HDF5 subset (§8.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#81-hdf5-structures>–§8.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#86-attributes>: signatures, versions, sizes, addresses within the file, a chunked layout with a zero fill value, filter masks of 0, loops and duplicates) are the binary layer, checked by the HDF5 reader (`hdf5.rs`) where the profile reads each structure; a parser checks this schema while it parses, and projections read a valid IR and check nothing.",
+  "limits": {
+    "max_safe": 9007199254740991,
+    "max_levels": 64,
+    "max_datasets": 100000,
+    "max_channels": 64,
+    "max_name": 256,
+    "max_color_table": 262144,
+    "walk_objects": 100000,
+    "walk_per_image": 5,
+    "walk_depth": 64,
+    "walk_elements": 2097152,
+    "walk_bytes_per_element": 8,
+    "walk_collections": 4096,
+    "max_rounds": 4096
+  },
+  "tables": {
+    "image_filters": {"about": "the filters an image dataset may have: none, or deflate (1)", "none": [], "deflate": [1]}
+  },
+  "elements": {
+    "about": "The IR of an HDF5 file. Names in angle brackets are decimal indexes. Objects are numbered depth first from the root group, a group's hard links in ascending byte order of their names; a structure two objects name (the same bytes) is described once, the other an alias. Bytes no element claims (free space, unused allocations, structures outside the reader's subset) are gaps.",
+    "superblock": {"kind": "value", "type": "{signature,version,...} (48 bytes for versions 2 and 3, 96 or 100 for 0 and 1)"},
+    "superblock_extension": {"kind": "struct", "about": "the superblock extension's object header, as an object's"},
+    "objects/<i>": {
+      "kind": "struct",
+      "about": "object i (a group, dataset or named datatype): its header and the structures it names",
+      "children": {
+        "prefix": "the header's prefix (version 1: 16 bytes; version 2: OHDR to the first block's size)",
+        "checksum": "<u4 after a version 2 header's first block",
+        "messages/<k>": "struct: header {type,size,flags[,order]}, data (bytes; an attribute message a struct of prelude, name, datatype, dataspace, value; a link message a struct of fields, name, target)",
+        "blocks/<j>": "a version 2 continuation block's signature (OCHK) and checksum",
+        "symbol_table": "struct: heap (header, data), nodes/<k> (header, entries), snods/<k> (header, entries)",
+        "links": "dense links: heap (header, blocks/<k>), index (B-tree v2: header, nodes/<k>), items/<j> (the link messages)",
+        "attributes": "dense attributes: heap (header, blocks/<k>, huge index), index, items/<j> (the attribute messages)",
+        "index": "the chunk index's structures (headers/<k>, nodes/<k>, data_blocks/<k>, index_blocks/<k>, super_blocks/<k>, pages/<k>)",
+        "chunks/<n>": "data: the chunk at row-major grid index n; form geometry {chunk, size}, codec {filters, mask}, recipe the whole chunk",
+        "data": "data: a contiguous dataset's data"
+      }
+    },
+    "global_heaps/<k>": {"kind": "struct", "about": "a global heap collection attributes name: header, objects/<p> (header, data), free (header)"},
+    "gaps/<offset>": {"kind": "gap"}
+  },
+  "roles": {
+    "imaris": {
+      "about": "the root group and DataSet (spec/virtualize/ims.md §2.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>)",
+      "given": {"dataset": "the root group has a link DataSet", "level0": "DataSet has a link ResolutionLevel 0 (absent before DataSet is read)"},
+      "constraints": [
+        {"require": "dataset", "message": "not an Imaris file (no DataSet group)"},
+        {"require": "!present(level0) || level0", "message": "not an Imaris file (no ResolutionLevel 0)"}
+      ]
+    },
+    "levels": {
+      "given": {"levels": "consecutive links ResolutionLevel 0, 1, ..., counted to max_levels + 1"},
+      "constraints": [{"require": "levels <= max_levels", "message": "more than {max_levels} resolution levels"}]
+    },
+    "times": {
+      "given": {"times": "consecutive links TimePoint 0, 1, ... of ResolutionLevel 0"},
+      "constraints": [{"require": "times >= 1", "message": "no TimePoint 0"}]
+    },
+    "channels": {
+      "given": {"channels": "consecutive links Channel 0, 1, ... of TimePoint 0"},
+      "constraints": [{"require": "channels >= 1", "message": "no Channel 0"}]
+    },
+    "datasets": {
+      "given": {"levels": "", "times": "", "channels": ""},
+      "derive": {"datasets": "levels * times * channels"},
+      "constraints": [{"require": "datasets <= max_datasets", "message": "more than {max_datasets} datasets"}]
+    },
+    "link": {
+      "about": "a link the layout requires",
+      "given": {"name": "", "present": ""},
+      "constraints": [{"require": "present", "message": "no {name}"}]
+    },
+    "string": {
+      "about": "an attribute read as text (§2.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#21-attributes-as-text>)",
+      "given": {"name": "", "class": "its datatype's class"},
+      "constraints": [{"require": "class == 3", "message": "attribute {name} is not a string"}]
+    },
+    "image_size": {
+      "given": {"axis": "Z, Y or X", "level": "", "integer": "the text is an integer", "in_range": "from 1 to 2^53 - 1"},
+      "constraints": [{"require": "integer && in_range", "message": "ImageSize{axis} of level {level} is not a positive integer"}]
+    },
+    "datatype": {
+      "about": "a Data dataset's datatype (§2.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>)",
+      "given": {"class": "", "size": "", "plain": "bit offset 0 and precision 8 × size", "ieee32": "bit fields and properties of IEEE binary32"},
+      "constraints": [
+        {"require": "class != 0 || !in(size, [1, 2, 4]) || plain", "message": "fixed-point data with padding bits"},
+        {"require": "class != 1 || size != 4 || ieee32", "message": "floating-point data that is not IEEE binary32"},
+        {"require": "(class == 0 && in(size, [1, 2, 4])) || (class == 1 && size == 4)", "message": "unsupported HDF5 datatype (class {class}, {size} bytes)"}
+      ]
+    },
+    "image": {
+      "about": "a Data dataset of level r, as the datasets before it",
+      "given": {"level": "", "rank": "", "larger": "an ImageSize is larger than the dataset's size", "filters": "its filter identifiers", "same_type": "its data type is the first dataset's", "same_level": "its sizes, chunk shape and filters are its level's first dataset's"},
+      "constraints": [
+        {"require": "rank == 3", "message": "a dataset of level {level} is not 3-dimensional"},
+        {"require": "!larger", "message": "the image of level {level} is larger than its dataset"},
+        {"require": "len(filters) == 0 || (len(filters) == 1 && first(filters) == 1)", "message": "unsupported HDF5 filters {filters}"},
+        {"require": "same_type", "message": "the datasets have different data types"},
+        {"require": "same_level", "message": "the datasets of level {level} differ in size, chunk shape or filters"}
+      ]
+    },
+    "z_levels": {
+      "given": {"z0": "level 0's Z", "most": "the largest Z of any level"},
+      "constraints": [{"require": "z0 != 1 || most == 1", "message": "a level has more than one z plane, and level 0 has one"}]
+    },
+    "extent": {
+      "given": {"i": "", "finite": "ExtMax<i> − ExtMin<i> is finite"},
+      "constraints": [{"require": "finite", "message": "ExtMax{i} - ExtMin{i} is not finite"}]
+    }
+  },
+  "about_builtins": "Which groups are opened and in what order, the text of an attribute (UTF-8, else Latin-1, up to the first NUL), decimals, timestamps, the color and the walk of the IR (objects by level from the root group, the objects the layout reads first, at most walk_objects + walk_per_image × the Data datasets, to walk_depth) are code: spec/virtualize/ims.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#2-the-source>–§5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata> state them."
+}

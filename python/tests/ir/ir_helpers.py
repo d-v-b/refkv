@@ -7,7 +7,7 @@ from pathlib import Path
 
 FIXTURES = Path(__file__).parents[3] / "fixtures"
 ROOT = Path(__file__).parents[3]
-# the frozen reference twins the IR is compared against (vzip_reference)
+# the frozen reference twins the IR is compared against (refkv_reference)
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
 
 
@@ -18,17 +18,26 @@ MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_trunc
 
 def same_hierarchy(a, b) -> None:
     """The frozen reference's output `a` and the IR's `b` hold the same hierarchy but
-    vzip_source: documents, references and data sources. The reference's root records
-    the revision it implements (vzip_reference.revision: 20, or 25 for DICOM, NIfTI, IMS and NDPI),
-    read as the current one."""
-    from vzip.virtualize.common import REVISION
-    from vzip_reference.revision import DICOM_REVISION, IMS_REVISION, REVISION_25
-    from vzip_reference.revision import REVISION as FROZEN
+    the source metadata node: documents, references and data sources. The reference
+    writes the names of the revision it implements (refkv_reference.legacy), read as the
+    current ones, and its root records that revision (refkv_reference.revision: 20, or 25
+    for DICOM, NIfTI, IMS and NDPI), read as the current one."""
+    from refkv_reference.legacy import SOURCE_NODE as LEGACY_NODE
+    from refkv_reference.legacy import current_names
+    from refkv.virtualize.common import REVISION
+    from refkv_reference.revision import DICOM_REVISION, IMS_REVISION, REVISION_25
+    from refkv_reference.revision import REVISION as FROZEN
+
+    def node(o):
+        # the source metadata node; under its old name only in the frozen reference's output
+        return ("refkv_source", LEGACY_NODE) if o is a else ("refkv_source",)
 
     def docs(o):
         d = {k: json.loads(v) if k.endswith(".json") else v for k, v in o.bytes_entries.items()
-             if not k.startswith("vzip_source")}
-        prop = d.get("zarr.json", {}).get("attributes", {}).get("vzip_virtualized", {})
+             if not k.startswith(node(o))}
+        if o is a:
+            d = current_names(d)
+        prop = d.get("zarr.json", {}).get("attributes", {}).get("refkv_virtualized", {})
         moved = MIRRORED.get(prop.get("profile"))
         frozen = REVISION_25 if moved else {"dicom": DICOM_REVISION, "ims": IMS_REVISION, "ndpi": 25}.get(prop.get("profile"), FROZEN)
         if o is a and prop.get("revision") == frozen:
@@ -38,8 +47,24 @@ def same_hierarchy(a, b) -> None:
         return d
 
     def refs(o):
-        return {k: v for k, v in o.refs.items() if not k.startswith("vzip_source")}
+        return {k: v for k, v in o.refs.items() if not k.startswith(node(o))}
 
     assert docs(a) == docs(b)
     assert refs(a) == refs(b)
     assert list(a.data) == list(b.data)
+
+
+# The frozen twins' source metadata node, of their revision, and a key of theirs as the
+# shipped code names it.
+LEGACY_SOURCE = "vzip_source/"
+
+
+def as_current(key: str) -> str:
+    return "refkv_source/" + key[len(LEGACY_SOURCE):] if key.startswith(LEGACY_SOURCE) else key
+
+
+def current_names(value):
+    """A frozen twin's documents with the current names (refkv_reference.legacy)."""
+    from refkv_reference.legacy import current_names
+
+    return current_names(value)

@@ -114,7 +114,7 @@ test("reports a tile that cannot be fetched", async () => {
   try {
     const r = await get(handler(), `${tiff("gone.tif")}0/c/0/0`);
     assert.equal(r.status, 502);
-    assert.match(await r.text(), /vzip resolution error/);
+    assert.match(await r.text(), /refkv resolution error/);
   } finally {
     fs.rmSync(new URL("gone.tif", FIXTURES));
   }
@@ -126,7 +126,7 @@ test("ignores paths outside the routes", async () => {
 
 test("serves virtualized stores, and reports rejected ones", async () => {
   // A store whose listing (spec/virtualize.md §1.5
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>) and objects
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store>) and objects
   // come from the N5, Zarr v2 and SAFE fixtures, in the bucket "b".
   const roots = ["n5", "zarr2", "safe"].map((f) => new URL(`../../fixtures/${f}/`, import.meta.url));
   const rootOf = (rel: string) => roots.find((r) => fs.existsSync(new URL(rel.split("/")[0] + "/", r))) ?? roots[0];

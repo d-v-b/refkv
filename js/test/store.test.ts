@@ -1,13 +1,13 @@
 // Store inputs (spec/virtualize.md §1.4
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>–§1.6
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>), as
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>–§1.6
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-json-documents>), as
 // python/tests/test_virtualize_store.py
 // checks them for the Python reference: the listing endpoint, the listing
 // body parser, the strict JSON reader, and listing over HTTP.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { declare, stringifyJson } from "../src/virtualize/common.ts";
+import { declare, stringifyJson } from "../../conformance/virtualize/reference/ts/legacy.ts";
 import { virtualizeN5 } from "../../conformance/virtualize/reference/ts/n5/virtualize.ts";
 import { virtualizeZarr2 } from "../../conformance/virtualize/reference/ts/zarr2/virtualize.ts";
 import {
@@ -27,7 +27,7 @@ import {
   StoreError,
   StoreLimitError,
   StoreReadError,
-} from "../src/virtualize/store.ts";
+} from "../../conformance/virtualize/reference/ts/legacy.ts";
 
 const utf8 = new TextEncoder();
 const XML = (s: string) =>
@@ -191,7 +191,7 @@ test("lists a store over HTTP", async () => {
   });
   assert.deepEqual([...store.objects], [["attributes.json", 10], ["x/0", 1], ["x/1", 0]]);
   // Ignored objects are recorded, but for empty folder markers (spec/virtualize.md §1.4
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>).
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>).
   assert.deepEqual(store.ignored, ["", "a//b", "./c", "d/", "f/../g"]);
   assert.deepEqual([store.requests, store.listed], [2, 9]);
 });
@@ -207,7 +207,7 @@ const listingErrors: [string, Record<string, Uint8Array | number>, Function][] =
     [`${BASE}&continuation-token=t`]: listing(obj("s/a")),
   }, StoreError],
   // A truncated page that gives a continuation token again (§1.5
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>).
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store>).
   ["a repeated continuation token", {
     [BASE]: listing(obj("s/a"), "true", "<NextContinuationToken>t</NextContinuationToken>"),
     [`${BASE}&continuation-token=t`]: listing(obj("s/b"), "true", "<NextContinuationToken>t</NextContinuationToken>"),
@@ -230,11 +230,11 @@ test("fails past the resource limit", async () => {
 
 test("records ignored keys and empty chunks", async () => {
   // The recorded ignored keys (spec/virtualize.md §1.4
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>) and the empty
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>) and the empty
   // chunk objects' keys are
   // vzip_source's source metadata under a root group, and vzip_source/empty.json under a root
   // array (spec/virtualize/zarr2.md §5
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>); in UTF-8
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>); in UTF-8
   // byte order, each member only when not empty.
   const zarray = '{"zarr_format": 2, "shape": [4], "chunks": [2], "dtype": "|u1", "compressor": null, ' +
     '"fill_value": 7, "order": "C", "filters": null}';
@@ -281,9 +281,9 @@ test("records ignored keys and empty chunks", async () => {
 
 test("finds nearest arrays and nodes", () => {
   // findChunks and the classification by nearest ancestor (§1.4
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>;
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>;
   // spec/virtualize/zarr2.md §2
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>),
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#2-nodes>),
   // at any depth, the root array included.
   const isChunk = (rest: string) => rest === "0" || rest === "0/0";
   const deep = Array(500).fill("p").join("/");
@@ -311,7 +311,7 @@ test("finds nearest arrays and nodes", () => {
   assert.ok(implicit.size === 500 && implicit.has("") && !implicit.has(q));
 });
 
-test("stringifyJson writes a binary64 integer beyond 2^53 - 1 with its exact digits (spec/virtualize.md §1.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>)", () => {
+test("stringifyJson writes a binary64 integer beyond 2^53 - 1 with its exact digits (spec/virtualize.md §1.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>)", () => {
   const cases: [unknown, string][] = [
     [-(2 ** 64), "-18446744073709551616"], // JSON.stringify: -18446744073709552000
     [2 ** 53, "9007199254740992"],

@@ -11,13 +11,13 @@ import struct
 import sys
 from pathlib import Path
 
-# the frozen reference twins (conformance/virtualize/reference/vzip_reference)
+# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
 
 import pytest
 
-from vzip.virtualize import Rejected
-from vzip_reference import ndpi, virtualize
+from refkv.virtualize import Rejected
+from refkv_reference import ndpi, virtualize
 
 
 def _jpeg_header(factors: list[int]) -> bytes:
@@ -45,7 +45,7 @@ def test_ndpi_jpeg_header_rejects_progressive():
 
 
 def test_ndpi_header_pieces_are_data_sources():
-    # §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: the
+    # §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: the
     # header up to SOF0 and after it are ranges of data sources, one
     # per distinct byte string in order of first use, shared by every chunk
     # and level; the bytes are the strip's own.
@@ -89,7 +89,7 @@ def test_ndpi_rejects(name, message):
 
 def test_ndpi_records_every_ifd_in_its_own_group():
     """spec/virtualize/ndpi.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#5-source-metadata>: each IFD on
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#5-source-metadata>: each IFD on
     its own group of vzip_source, the
     pointer tags' IFDs read in NDPI's layout, a duplicate tag, an unknown field type
     (its value field and high word), and the macro image's contiguous strips as one range."""
@@ -116,7 +116,7 @@ def test_ndpi_records_every_ifd_in_its_own_group():
 
 def test_ndpi_reads_only_the_values_it_uses():
     """spec/virtualize.md §4
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: the values of
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: the values of
     an IFD that is not a level are not read, so the
     macro image's McuStarts (LONG8, above 2^53 - 1) does not reject; its strip is kept."""
     path = Path(__file__).parents[3] / "fixtures" / "ndpi" / "ndpi_unused_values.ndpi"

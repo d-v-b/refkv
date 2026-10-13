@@ -2,7 +2,7 @@
 # IDR's OME-NGFF samples (https://idr.github.io/ome-ngff-samples/, CC BY 4.0) on EMBL-EBI's Embassy
 # S3, listed anonymously with path-style ListObjectsV2 (bucket "idr"). Each is migrated to OME-Zarr
 # 0.5 by the OME-Zarr profile (spec/virtualize.md, §11
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#11-ome-zarr-profile>).
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#11-ome-zarr-profile>).
 #
 # Images (3-D to 5-D), an image with two label images, an HCS plate (72 wells, 1440 fields) and a
 # bioformats2raw plate with OME-XML.
@@ -14,7 +14,7 @@ https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0072B/9512.zarr/|idr0072_9512_p
 https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0128E/9701.zarr/|idr0128_9701_bioformats2raw_plate|listing-sha256=501b7eae450e72ad7324d51e12193b60a05921142465ceb1478a20761cf41a0a
 # Images whose label images have one level more than the image (as omero-zarr writes them): the
 # extra level is dropped from the label's 0.5 multiscales (spec/virtualize/ome-zarr.md §4
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#4-validation>, L7). Some have
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#4-validation>, L7). Some have
 # translations.
 https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0062A/6001240.zarr/|idr0062_6001240_labels|listing-sha256=d5fd8a6b8c866901470c5f9bf6dc1208df977bb86f1567d853bb716a940a18d1
 https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0062A/6001247.zarr/|idr0062_6001247_labels|listing-sha256=5683859a2a2544898ab74f31e60f6aa35c67c2b46d90ca4db8d7f543c6e202f5
@@ -25,6 +25,6 @@ https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0047A/4496763.zarr/|idr0047_449
 https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0052A/5514375.zarr/|idr0052_5514375_two_labels|listing-sha256=8a809a5eb2a70d1b700ef0cc4a35a54466ba2321928669079e6b426abe25e4d2
 https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0079A/idr0079_images.zarr/|idr0079_bioformats2raw_labels|listing-sha256=6368fb34779858234eaec96d29fab2be3d0a370776728037e5311a682ec3f444
 # A plate of 96 wells with labels, 102114 objects: past the browser limit (spec/virtualize.md §14
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-conformance>), so
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-conformance>), so
 # only the Python reference runs it, with --large.
 https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0001A/2551.zarr/|idr0001_2551_plate_labels|py-only

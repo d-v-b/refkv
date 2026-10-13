@@ -1,4 +1,4 @@
-"""Check a vzip made from an ND2 file (python -m vzip.virtualize) against the nd2 package reading the ND2.
+"""Check a vzip made from an ND2 file (python -m refkv.virtualize) against the nd2 package reading the ND2.
 
 Reads a sample of frames (first, last, and random ones) through the archive
 (vzip reference reader + zarr-python) and with `nd2` from the remote file, and
@@ -21,7 +21,7 @@ import zarr
 from zarr.abc.codec import BytesBytesCodec
 from zarr.registry import register_codec
 
-import vzip.zarr
+import refkv.zarr
 
 
 @dataclass(frozen=True)
@@ -52,7 +52,7 @@ register_codec("zlib", ZlibCodec)
 
 
 def main(archive: str, url: str, n: int = 6) -> None:
-    root = zarr.open_group(vzip.zarr.open(archive), mode="r", zarr_format=3)
+    root = zarr.open_group(refkv.zarr.open(archive), mode="r", zarr_format=3)
     series = root["OME"].attrs["ome"]["series"]
     fs = fsspec.filesystem("http")
     with fs.open(url, block_size=1 << 20, cache_type="none") as f, nd2.ND2File(f) as nf:

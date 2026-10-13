@@ -1,7 +1,7 @@
 """Runs the conformance kit's write cases against the browser writer.
 
-For each valid description (conformance/archive/cases.py): write it with
-`js/conformance/cli.ts`, check the archive with conformance/archive/validate.py, and
+For each valid description (conformance/vzip/cases.py): write it with
+`js/conformance/cli.ts`, check the archive with conformance/vzip/validate.py, and
 read it back with the reference reader. Descriptions with a page index are
 skipped, since this writer does not write one. Each invalid description must
 be rejected with no file left behind.
@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "conformance" / "archive"))
+sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
 import cases  # noqa: E402
 from model import Model  # noqa: E402
@@ -26,7 +26,7 @@ from run import grade, run_read  # noqa: E402
 from validate import validate  # noqa: E402
 
 CLI = ["node", str(ROOT / "js" / "conformance" / "cli.ts")]
-REF = ["uv", "run", "python", "-m", "vzip.cli"]
+REF = ["uv", "run", "python", "-m", "refkv.vzip.cli"]
 
 
 def main(out: Path) -> int:
@@ -55,8 +55,8 @@ def main(out: Path) -> int:
         print(f"write  {name:40s} {'valid' if not problems else problems[:3]}; "
               f"ref read {len(qs) - len(fails)}/{len(qs)}")
     # The kit's only case of 65,535 entries or more is paged; this one is not. Its
-    # count fits only the zip64 record (every archive has one; spec/archive.md §10.2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>).
+    # count fits only the zip64 record (every archive has one; spec/bindings/vzip.md §10.2
+    # <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#102-zip64>).
     many = {"sources": [{"url": "blob.bin"}],
             "entries": [{"key": f"c/{i}", "ranges": [{"source": 0, "offset": i % 7, "length": 1}]}
                         for i in range(70000)]}

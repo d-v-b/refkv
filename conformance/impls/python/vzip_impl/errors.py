@@ -8,5 +8,5 @@ class VzError(Exception):
 
 class InvalidInput(Exception):
     """Writer input rejected (spec §9.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#91-requirements> /
+    <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#91-requirements> /
     harness rules)."""

@@ -1,9 +1,9 @@
 """For the verify scripts: TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE archives the IR wrote hold its mirror
-under `vzip_source` (rust/vzip-ir/src/mirror.rs), not the source metadata of
+under `refkv_source` (rust/refkv-ir/src/mirror.rs), not the source metadata of
 conventions §6
-<https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>. Their
+<https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>. Their
 source checks are then the mirror's: the source rebuilt from
-the archive alone, byte for byte (`vzip.ir.cmirror.rebuild_from_archive`)."""
+the archive alone, byte for byte (`refkv.ir.cmirror.rebuild_from_archive`)."""
 
 from __future__ import annotations
 
@@ -14,19 +14,19 @@ from pathlib import Path
 
 
 def is_mirror(archive: Path) -> bool:
-    """Whether the archive's vzip_source is the IR's mirror."""
+    """Whether the archive's refkv_source is the IR's mirror."""
     with zipfile.ZipFile(archive) as z:
         try:
-            doc = json.loads(z.read("vzip_source/zarr.json"))
+            doc = json.loads(z.read("refkv_source/zarr.json"))
         except KeyError:
             return False
-    own = doc.get("attributes", {}).get("vzip_virtualized", {})
+    own = doc.get("attributes", {}).get("refkv_virtualized", {})
     return any(isinstance(v, dict) and "ir" in v for v in own.values())
 
 
 def mirror_problems(archive: Path, source: Path) -> list[str]:
     """[] when the mirror rebuilds `source` byte for byte, else what went wrong."""
-    from vzip.ir.cmirror import rebuild_from_archive
+    from refkv.ir.cmirror import rebuild_from_archive
 
     h = hashlib.sha256()
     with open(source, "rb") as f:

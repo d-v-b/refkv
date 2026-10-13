@@ -7,14 +7,15 @@
 // these readers do not apply the reader policy.)
 // Source 0 (or each store object's source) pins its size, and a file's its ETag
 // when every response gave the same strong one; --checksums also records the
-// CRC-32C of every range of a url source (spec/archive.md §5.2), reading its bytes.
+// CRC-32C of every range of a url source (spec/refkv.md §4.2
+// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>), reading its bytes.
 // Prints a JSON summary; exits 3 (writing nothing) if the input is rejected.
 // A store over the browser limit (§14) is a failure (exit 1), not a rejection.
 
 import fs from "node:fs";
 import { openHttpFile } from "../../../../js/src/http.ts";
-import { blockReader } from "../../../../js/src/virtualize/common.ts";
-import { openHttpStore } from "../../../../js/src/virtualize/store.ts";
+import { blockReader } from "./legacy.ts";
+import { openHttpStore } from "./legacy.ts";
 import { writeVzip } from "../../../../js/src/writer.ts";
 import { isStoreUrl, virtualizeImage, virtualizeStore } from "./index.ts";
 
@@ -26,7 +27,7 @@ const [url, out] = args.filter((a) => !a.startsWith("--"));
 const nodeFetch = globalThis.fetch;
 globalThis.fetch = (input, init) => {
   const headers = new Headers(init?.headers);
-  if (!headers.has("User-Agent")) headers.set("User-Agent", "vzip-virtualize (https://github.com/d-v-b/vzip)");
+  if (!headers.has("User-Agent")) headers.set("User-Agent", "refkv-virtualize (https://github.com/d-v-b/refkv)");
   return nodeFetch(input, { ...init, headers });
 };
 

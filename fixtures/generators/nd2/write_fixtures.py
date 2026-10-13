@@ -1,7 +1,7 @@
 """Writes synthetic ND2 files (format version 3) to fixtures/nd2/, with
 the pixels each one should decode to, covering the rules of the ND2 profile
 (spec/virtualize.md §5
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#5-nd2-profile>) that the public
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-nd2-profile>) that the public
 corpus does not: compressed frames, padded
 rows, multi-period time loops, disabled positions, sibling and spectral
 experiment nodes, missing frames, float data, and the inputs it rejects.
@@ -25,7 +25,7 @@ NAME_PAD = 4072  # NIS-Elements pads chunk names so that headers are 4 KiB
 
 
 # ---- lite variant (spec/virtualize/nd2.md §2.2
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#22-lite-variant>)
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#22-lite-variant>)
 
 def _name(name: str) -> bytes:
     return bytes([len(name) + 1]) + (name + "\0").encode("utf-16le")
@@ -60,7 +60,7 @@ def compressed(structure: bytes) -> bytes:
     return bytes([76, 0]) + b"\0" * 10 + zlib.compress(structure)
 
 
-# ---- file layout (§5.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-chunks>)
+# ---- file layout (§5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-chunks>)
 
 class Nd2:
     def __init__(self, version: bytes = b"Ver3.0") -> None:
@@ -152,7 +152,7 @@ def tz_uint16() -> None:
         px = rng.integers(0, 4096, (h, w, c), dtype=np.uint16)
         f.chunk(f"ImageDataSeq|{i}!", frame_bytes(px, w * c * 2, False))
         # dZStep is negative, so the z index is flipped (spec/virtualize/nd2.md §4.3
-        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#43-output>).
+        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#43-output>).
         expected[f"0/0/c/{i // z}/0/{z - 1 - i % z}/0/0"] = np.moveaxis(px, -1, 0)
     write("nd2_tz_uint16", f, expected)
 
@@ -236,7 +236,7 @@ def record(typ: int, name: str, payload: bytes) -> bytes:
 
 def edges() -> None:
     """The edges of §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#5-nd2-profile> that the files
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-nd2-profile> that the files
     above do not reach."""
     h, w = 3, 4
 
@@ -362,8 +362,8 @@ def edges() -> None:
 
 def revision3() -> None:
     """The typed-member and loop-kind rules of revision 3 (spec/virtualize/nd2.md §2.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#22-lite-variant>, §3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#3-metadata>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#22-lite-variant>, §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#3-metadata>)."""
     h, w = 3, 4
 
     def frames(f: Nd2, n: int) -> dict:
@@ -427,8 +427,8 @@ def revision3() -> None:
 
 def revision4() -> None:
     """Whole-tree checks, validity lists everywhere, and nesting (spec/virtualize/nd2.md §2.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#22-lite-variant>, §3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#3-metadata>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#22-lite-variant>, §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#3-metadata>)."""
     h, w = 3, 4
 
     def write_case(name: str, exp: bytes | None = None, attrs: bytes | None = None, accept: bool = False) -> None:
@@ -465,7 +465,7 @@ def revision4() -> None:
     write_case("nd2_reject_z_step_overflow", experiment(node(1, {"uiCount": 0}, [
         node(4, {"uiCount": 2, "dZStep": 0.0, "dZLow": -1e308, "dZHigh": 1e308})])))
     # A single image's stage position, from the picture metadata (spec/virtualize/nd2.md §4.3
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#43-output>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#43-output>).
     f = Nd2()
     f.chunk("ImageAttributesLV!", attributes(w, h, 1, 16, sequence=1))
     f.chunk("ImageMetadataSeqLV|0!", level("SLxPictureMetadata", [
@@ -481,7 +481,7 @@ def revision4() -> None:
 
 def revision6() -> None:
     """Stage positions become translations (spec/virtualize/nd2.md §4.3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#43-output>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#43-output>)."""
     h, w = 3, 4
 
     def case(name: str, points: list[dict], camera: tuple | None, valid: bytes | None = None) -> None:
@@ -517,7 +517,7 @@ def variant(members: str) -> bytes:
 
 def streams() -> None:
     """Numeric streams, XML variants, events and a negative z step (spec/virtualize/nd2.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#5-source-metadata>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-source-metadata>)."""
     t, z, h, w = 2, 3, 4, 5
     n = t * z
     f = Nd2()
@@ -525,8 +525,8 @@ def streams() -> None:
     f.chunk("ImageMetadataLV!", experiment(node(1, {"uiCount": t, "dPeriod": 1000.0, "dStart": 0.0, "dDuration": 0.0},
                                                 [node(4, {"uiCount": z, "dZStep": -1.0, "dZLow": 0.0, "dZHigh": 2.0})])))
     f.chunk("ImageMetadataSeqLV|0!", picture([("BF", 0xFFFFFF, 1)], 0.5))
-    f.chunk("ImageMetadataSeqLV|1!", picture([("BF", 0xFFFFFF, 1)], 0.5))  # per frame: on vzip_source
-    f.chunk("ImageEventsLV!", lv("RLxExperimentRecord", {"uiCount": 1}))  # events: on vzip_source
+    f.chunk("ImageMetadataSeqLV|1!", picture([("BF", 0xFFFFFF, 1)], 0.5))  # per frame: on refkv_source
+    f.chunk("ImageEventsLV!", lv("RLxExperimentRecord", {"uiCount": 1}))  # events: on refkv_source
     f.chunk("CustomDataVar|CustomDataV2_0!", variant(
         '<CustomTagDescription_v1.0 runtype="CLxListVariant"><Tag0 runtype="CLxListVariant">'
         '<ID runtype="CLxStringW" value="PFS_OFFSET"/><Type runtype="lx_int32" value="2"/>'
@@ -553,7 +553,7 @@ def streams() -> None:
 
 def revision7() -> None:
     """Source metadata that keeps every chunk (spec/virtualize/nd2.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#5-source-metadata>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-source-metadata>)."""
     h, w = 3, 4
 
     def placed(f: Nd2, n: int, trailing: dict[int, bytes]) -> dict:
@@ -568,7 +568,7 @@ def revision7() -> None:
     # unpaired surrogates in a string and a name, the declarations read before
     # the stream they declare (whose bytes would decode as LV), a Type that is
     # an element, character references and integers too long to parse, and a
-    # chunk whose JSON is over 16 KiB (on vzip_source). Frames 1 and 2 have
+    # chunk whose JSON is over 16 KiB (on refkv_source). Frames 1 and 2 have
     # trailing bytes of different lengths.
     f = Nd2()
     f.chunk("ImageAttributesLV!", attributes(w, h, 1, 16, sequence=3))
@@ -633,7 +633,7 @@ def revision7() -> None:
     write("nd2_source_chunks", f, expected)
 
     # A chunk whose JSON is 16384 bytes long (at the root) and one of 16385 (on
-    # vzip_source), with numbers and strings that JSON writers format differently.
+    # refkv_source), with numbers and strings that JSON writers format differently.
     sized = sized_level
     f = Nd2()
     f.chunk("ImageAttributesLV!", attributes(w, h, 1, 16, sequence=1))
@@ -650,8 +650,8 @@ def sized_level(target: int, legacy: bool = True) -> bytes:
 
     # the frozen reference twin of the ND2 profile (conformance/virtualize/reference)
     sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
-    from vzip_reference.nd2.lv import decode_lv
-    from vzip_reference.nd2.source import json_size, lv_json
+    from refkv_reference.nd2.lv import decode_lv
+    from refkv_reference.nd2.source import json_size, lv_json
 
     members = [lv(f"f{i}", x) for i, x in enumerate(
         [0.1, 1e-7, 1e21, 123456789.125, 5e-324, -2.5e-300, 2.0, 1e16, 1.5e-6, 1e-6, 123e20, -0.0])]
@@ -665,9 +665,9 @@ def sized_level(target: int, legacy: bool = True) -> bytes:
 def revision8() -> None:
     """Round-2 review: every placed frame's header, tags, lossless CustomData,
     sparse families and frame grids, and the root's budget (spec/virtualize.md §5.3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#53-frames>,
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#53-frames>,
     spec/virtualize/nd2.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#5-source-metadata>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-source-metadata>)."""
     h, w = 3, 4
 
     def frame(i: int, trailing: bytes = b"") -> tuple[bytes, np.ndarray]:
@@ -750,7 +750,7 @@ def revision8() -> None:
     f.chunk("CustomData|ZippedLossy!", compressed(record(1, "a", b"\x05")))
     f.chunk("ImageLossyLV!", record(1, "a", b"\x05"))  # named LV: decoded, as true
     f.chunk("ImageMetadataSeqLV|00!", picture([("A", 255, 1)], None))  # n = 0: at the root
-    f.chunk("ImageMetadataSeqLV|01!", picture([("A", 255, 1)], None))  # n = 1: on vzip_source
+    f.chunk("ImageMetadataSeqLV|01!", picture([("A", 255, 1)], None))  # n = 1: on refkv_source
     data, px = frame(0)
     f.chunk("ImageDataSeq|0!", data)
     write("nd2_source_tags", f, {"0/0/c/0/0": px})
@@ -776,7 +776,7 @@ def revision8() -> None:
     write("nd2_source_sparse", f, expected)
 
     # The root's budget: five chunks of 12000 to 15000 bytes of JSON (over
-    # 65536 in all); the largest moves to vzip_source, and of the two largest
+    # 65536 in all); the largest moves to refkv_source, and of the two largest
     # (equal), the first in map order.
     f = Nd2()
     f.chunk("ImageAttributesLV!", attributes(w, h, 1, 16, sequence=1))
@@ -788,11 +788,11 @@ def revision8() -> None:
 
 
 def revision9() -> None:
-    """Round-3 review: byte arrays as one value, vzip_source's budget, decodes
+    """Round-3 review: byte arrays as one value, refkv_source's budget, decodes
     charged whether or not they succeed, array-index names, -0, and the frame
     times in chunks of at most 64 KiB (spec/virtualize/nd2.md §5.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>-§5.3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#53-elements>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>-§5.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#53-elements>)."""
     h, w = 3, 4
 
     def frame0(f: Nd2) -> dict:
@@ -800,14 +800,14 @@ def revision9() -> None:
         f.chunk("ImageDataSeq|0!", frame_bytes(px, w * 2, False))
         return {"0/0/c/0/0": px[:, :, 0]}
 
-    # The JSON-size boundary (16384 at the root, 16385 on vzip_source), with -0 a tag.
+    # The JSON-size boundary (16384 at the root, 16385 on refkv_source), with -0 a tag.
     f = Nd2()
     f.chunk("ImageAttributesLV!", attributes(w, h, 1, 16, sequence=1))
     f.chunk("AtLimitLV!", sized_level(16384, legacy=False))
     f.chunk("OverLimitLV!", sized_level(16385, legacy=False))
     write("nd2_source_json_size_tagged", f, frame0(f))
 
-    # vzip_source's budget: the picture metadata of frames 1-4, of 30008, 30008,
+    # refkv_source's budget: the picture metadata of frames 1-4, of 30008, 30008,
     # 10008 and 3008 bytes of JSON: 1, 2 and 4 fit in 64 KiB, 3 is bytes. Byte
     # arrays: one of 100 bytes (a JSON array), one of 70000 and one of 8 MiB
     # (compressed), whose JSON would not fit (bytes). Names that are array
@@ -861,10 +861,10 @@ def revision9() -> None:
 def revision10() -> None:
     """Round-3 follow-up: the profile's chunks inflate to at most 64 MiB
     (spec/virtualize.md §5.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-chunks>), and other and empty
-    past vzip_source's budget
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-chunks>), and other and empty
+    past refkv_source's budget
     (spec/virtualize/nd2.md §5.4
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#54-equivalence>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#54-equivalence>)."""
     h, w = 3, 4
 
     # ImageAttributesLV! compressed, inflating to more than 2^26 bytes.
@@ -873,7 +873,7 @@ def revision10() -> None:
     write("nd2_reject_inflate_limit", f, {})
 
     # 4000 chunks without a valid path (other) and 6000 empty ones: both lists
-    # are over vzip_source's 64 KiB, so each is an array of its JSON text.
+    # are over refkv_source's 64 KiB, so each is an array of its JSON text.
     f = Nd2()
     f.chunk("ImageAttributesLV!", attributes(w, h, 1, 16, sequence=1))
     for i in range(4000):
@@ -888,12 +888,12 @@ def revision10() -> None:
 def revision11() -> None:
     """Round-4 review: positions and the profile's LV records are bounded
     (spec/virtualize.md §5.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-chunks>, §5.3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#53-frames>), sparse frame times
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-chunks>, §5.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#53-frames>), sparse frame times
     take smaller chunks, a large declared tag is its index, and path segments that a store cannot
     hold go to other (spec/virtualize/nd2.md §5.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#52-the-ir-mirror>-§5.4
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#54-equivalence>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#52-the-ir-mirror>-§5.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#54-equivalence>)."""
     h, w = 3, 4
 
     def frame0(f: Nd2) -> dict:

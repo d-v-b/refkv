@@ -1,5 +1,5 @@
 // §3
-// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#3-tiff-profile>
+// <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#3-tiff-profile>
 // TIFF profile.
 
 use crate::common::*;
@@ -468,7 +468,7 @@ pub fn virtualize(r: &mut Reader) -> R<Output> {
     let mut t = Tiff { r, le, big, seen: HashSet::new(), nread: 0 };
 
     // §3.1
-    // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#31-reading>
+    // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#31-reading>
     // IFDs
     if first == 0 {
         rej!("no IFDs");
@@ -499,7 +499,7 @@ pub fn virtualize(r: &mut Reader) -> R<Output> {
     let spp = fmt0.spp;
 
     // §3.2
-    // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#32-ome-xml>
+    // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#32-ome-xml>
     // OME-XML
     let mut d_bytes: Option<Vec<u8>> = None;
     let mut ome: Option<Ome> = None;
@@ -520,7 +520,7 @@ pub fn virtualize(r: &mut Reader) -> R<Output> {
     }
 
     // §3.3
-    // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#33-planes>
+    // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#33-planes>
     // planes
     let (size_z, size_c, size_t, cp, planes): (u64, u64, u64, u64, Vec<u64>);
     let (mut px, mut py, mut pz) = (None, None, None);
@@ -688,7 +688,7 @@ pub fn virtualize(r: &mut Reader) -> R<Output> {
     }
 
     // §3.4
-    // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#34-pyramid-levels>
+    // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#34-pyramid-levels>
     // levels: each level is a list of IFDs, one per plane.
     let mut levels: Vec<Vec<&Ifd>> = vec![planes.iter().map(|&i| &main[i as usize]).collect()];
     let s = ifd0.array(330).map(|v| v.len()).unwrap_or(0);
@@ -738,7 +738,7 @@ pub fn virtualize(r: &mut Reader) -> R<Output> {
     }
 
     // §3.5
-    // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#35-data-types-and-codecs>
+    // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#35-data-types-and-codecs>
     // data type and codecs
     let kind = match fmt0.sf {
         1 => "uint",
@@ -756,7 +756,7 @@ pub fn virtualize(r: &mut Reader) -> R<Output> {
     let item = fmt0.bps / 8;
 
     // §3.6
-    // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#36-output>
+    // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#36-output>
     // axes
     let chan = size_c;
     let mut dims: Vec<&'static str> = Vec::new();

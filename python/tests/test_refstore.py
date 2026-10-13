@@ -1,6 +1,6 @@
-"""The in-memory store (vzip.ReferenceStore), its persistence through the ZIP binding
-(`save`), the read path it shares with a saved archive (`vzip.open`), and both read
-through zarr and xarray (`vzip.zarr`)."""
+"""The in-memory store (refkv.ReferenceStore), its persistence through the ZIP binding
+(`save`), the read path it shares with a saved archive (`refkv.open`), and both read
+through zarr and xarray (`refkv.zarr`)."""
 
 import dataclasses
 import threading
@@ -14,11 +14,11 @@ import zarr
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
-import vzip
-import vzip.zarr
-from vzip.convert import write_vzip
-from vzip.errors import ResolutionError
-from vzip.pb import Concat, Range, Source
+import refkv
+import refkv.zarr
+from refkv.convert import write_vzip
+from refkv.errors import ResolutionError
+from refkv.pb import Concat, Range, Source
 
 from helpers import virtualize
 
@@ -26,7 +26,7 @@ PROTO = default_buffer_prototype()
 
 
 def _values(store) -> dict:
-    """Every listed key of `store` (a vzip store) and its value."""
+    """Every listed key of `store` (a reference store) and its value."""
     return {k: store.get(k) for k in store.list()}
 
 
@@ -49,9 +49,9 @@ def test_store_reads_what_its_saved_archive_reads(netcdf_files, tmp_path):
     combined = xr.concat(vdss, dim="time", coords="minimal", compat="override")
     cases = [(vdss[0], xr.open_dataset(paths[0], engine="h5netcdf"), 1), (combined, expected, 3)]
     for i, (vds, exp, n_sources) in enumerate(cases):
-        store = vzip.ReferenceStore.from_virtualizarr(vds)
+        store = refkv.ReferenceStore.from_virtualizarr(vds)
         in_memory = _values(store)
-        xr.testing.assert_identical(xr.open_zarr(vzip.zarr.store(store)).load(), exp.load())
+        xr.testing.assert_identical(xr.open_zarr(refkv.zarr.store(store)).load(), exp.load())
         assert store.stats.archive_requests == 0 and store.stats.external_requests > 0
         for page_size in [None, 256]:
             for mirror_refs in [True, False]:
@@ -60,13 +60,13 @@ def test_store_reads_what_its_saved_archive_reads(netcdf_files, tmp_path):
                     summary = store.save(out, page_size=page_size, mirror_refs=mirror_refs,
                                          relative_to=relative_to)
                     refs = sum(not isinstance(v, bytes) for v in store.mapping.values())
-                    assert summary == vzip.Summary(str(out), len(in_memory), refs, n_sources,
+                    assert summary == refkv.Summary(str(out), len(in_memory), refs, n_sources,
                                                    out.stat().st_size)
-                    reopened = vzip.open(out)
+                    reopened = refkv.open(out)
                     assert _values(reopened) == in_memory
                     if relative_to is not None:
                         assert all(not s.url.startswith("file:") for s in reopened.sources)
-                    xr.testing.assert_identical(xr.open_zarr(vzip.zarr.store(reopened)).load(),
+                    xr.testing.assert_identical(xr.open_zarr(refkv.zarr.store(reopened)).load(),
                                                 exp.load())
 
 
@@ -76,12 +76,12 @@ def test_write_vzip_is_the_store_in_one_step(netcdf_files, tmp_path, capsys):
                     compat="override")
     summary = write_vzip(vds, tmp_path / "a.vzip", page_size=256)
     assert capsys.readouterr().out == ""
-    other = vzip.ReferenceStore.from_virtualizarr(vds).save(tmp_path / "b.vzip", page_size=256)
+    other = refkv.ReferenceStore.from_virtualizarr(vds).save(tmp_path / "b.vzip", page_size=256)
     assert summary == dataclasses.replace(other, path=str(tmp_path / "a.vzip"))
     assert (tmp_path / "a.vzip").read_bytes() == (tmp_path / "b.vzip").read_bytes()
-    stats = vzip.Stats()
+    stats = refkv.Stats()
     xr.testing.assert_identical(
-        xr.open_zarr(vzip.zarr.open(tmp_path / "a.vzip", stats=stats)).load(), expected.load())
+        xr.open_zarr(refkv.zarr.open(tmp_path / "a.vzip", stats=stats)).load(), expected.load())
     assert stats.archive_requests > 0 and stats.external_requests > 0
 
 
@@ -102,13 +102,13 @@ def test_from_virtualizarr_rewrites_urls(netcdf_files, tmp_path):
         lambda u: u.replace(old, new) if u.startswith(old) else None,
     ]
     for rewrite in cases:
-        store = vzip.ReferenceStore.from_virtualizarr(vds, rewrite_urls=rewrite)
+        store = refkv.ReferenceStore.from_virtualizarr(vds, rewrite_urls=rewrite)
         assert sorted(s.url for s in store.sources) == sorted(f"{new}{p.name}" for p in paths)
-        xr.testing.assert_identical(xr.open_zarr(vzip.zarr.store(store)).load(), expected.load())
+        xr.testing.assert_identical(xr.open_zarr(refkv.zarr.store(store)).load(), expected.load())
 
 
 def test_public_s3_url():
-    assert {u: vzip.public_s3_url(u) for u in [
+    assert {u: refkv.public_s3_url(u) for u in [
         "s3://noaa-pds/data/v2.1/a.nc", "S3://bucket-1/k%20ey", "s3://bucket", "s3://my.bucket/k",
         "https://bucket.s3.amazonaws.com/k", "gs://bucket/k",
     ]} == {
@@ -133,11 +133,11 @@ def test_store_from_a_mapping(tmp_path):
                      Range(source=1, offset=1, length=2))),
         "__vz__/shared": b"xyz",
     }
-    store = vzip.ReferenceStore(mapping, [Source(url=f"file://{src}"), Source(key="__vz__/shared")])
+    store = refkv.ReferenceStore(mapping, [Source(url=f"file://{src}"), Source(key="__vz__/shared")])
     want = {"a": b"plain", "b": bytes([8, 9, 10, 11]), "c": b"<" + bytes([60, 61, 62, 63]) + b"yz"}
     assert _values(store) == want
     store.save(tmp_path / "m.vzip")
-    assert _values(vzip.open(tmp_path / "m.vzip")) == want
+    assert _values(refkv.open(tmp_path / "m.vzip")) == want
 
 
 def test_save_follows_the_store_layout(tmp_path):
@@ -147,7 +147,7 @@ def test_save_follows_the_store_layout(tmp_path):
     import zipfile
 
     mapping = {"z": b"z" * 64, "r": Range(source=0, offset=0, length=4), "a/zarr.json": b"{}", "m": b"m" * 64}
-    store = vzip.ReferenceStore(mapping, [Source(url="https://data.test/x")], read_at_open=["a/zarr.json"],
+    store = refkv.ReferenceStore(mapping, [Source(url="https://data.test/x")], read_at_open=["a/zarr.json"],
                                 compressed=["m"], page_size=1 << 16, info={"format": "x", "n": [1]})
     assert store.info == {"format": "x", "n": [1]} and store.compressed == {"m"} and store.page_size == 1 << 16
     store.info["n"].append(2)  # a copy
@@ -161,7 +161,7 @@ def test_save_follows_the_store_layout(tmp_path):
         assert [e.filename for e in entries if e.compress_type == zipfile.ZIP_DEFLATED
                 and not e.filename.startswith("__vz__/")] == ["m"]
         assert any(e.filename == "__vz__/index" for e in entries) == index
-        saved = vzip.open(path)
+        saved = refkv.open(path)
         assert {k: saved.get(k) for k in ("z", "a/zarr.json", "m")} == {k: mapping[k] for k in ("z", "a/zarr.json", "m")}
 
 
@@ -175,19 +175,19 @@ def _s3_store(**kwargs):
                       compressors=None)
     mapping = {k: v.to_bytes() for k, v in mem._store_dict.items()}
     mapping["x/c/0"] = Range(source=0, offset=0, length=4)
-    return vzip.ReferenceStore(mapping, [Source(url="s3://some-bucket/obj.nc")], **kwargs)
+    return refkv.ReferenceStore(mapping, [Source(url="s3://some-bucket/obj.nc")], **kwargs)
 
 
 def test_reading_a_refused_scheme_says_how_to_fix_it():
     store = _s3_store()
-    with pytest.raises(ResolutionError, match=r"'s3' is not allowed .*vzip\.public_s3_url.*"
+    with pytest.raises(ResolutionError, match=r"'s3' is not allowed .*refkv\.public_s3_url.*"
                                               r"registry=\{'s3://some-bucket': S3Store"):
-        xr.open_zarr(vzip.zarr.store(store), consolidated=False).x.values
+        xr.open_zarr(refkv.zarr.store(store), consolidated=False).x.values
 
 
 def test_save_refuses_sources_the_reader_policy_refuses(tmp_path):
     with pytest.raises(ResolutionError, match=r"not saving .*default reader policy refuses 1 of its 1 "
-                                              r"sources.*vzip\.public_s3_url"):
+                                              r"sources.*refkv\.public_s3_url"):
         _s3_store().save(tmp_path / "x.vzip")
     assert not (tmp_path / "x.vzip").exists()
 
@@ -197,15 +197,15 @@ def test_save_counts_each_refused_source_of_a_shared_origin(tmp_path):
     a prefix list decides each source by its whole URL."""
     urls = ["https://data.test/a", "http://127.0.0.1/b", "https://data.test/c", "http://127.0.0.1/d",
             "http://127.0.0.1/e"]
-    store = vzip.ReferenceStore({f"k{i}": Range(source=i, offset=0, length=1) for i in range(5)},
+    store = refkv.ReferenceStore({f"k{i}": Range(source=i, offset=0, length=1) for i in range(5)},
                                 [Source(url=u) for u in urls])
     with pytest.raises(ResolutionError, match=r"refuses 3 of its 5 sources.*127\.0\.0\.1/b"):
         store.save(tmp_path / "x.vzip")
     with pytest.raises(ResolutionError, match=r"refuses 4 of its 5 sources.*127\.0\.0\.1/b"):
-        store.save(tmp_path / "x.vzip", policy=vzip.Policy(prefixes=("https://data.test/a",)))
+        store.save(tmp_path / "x.vzip", policy=refkv.Policy(prefixes=("https://data.test/a",)))
     # a policy with its own check decides each source
 
-    class ByPath(vzip.Policy):
+    class ByPath(refkv.Policy):
         def check(self, base, url, **kwargs):
             if url.endswith("/c"):
                 raise ResolutionError(f"{url}: refused by path")
@@ -216,7 +216,7 @@ def test_save_counts_each_refused_source_of_a_shared_origin(tmp_path):
     # an invalid URL is refused on its own, after or before its origin's other sources
     for urls in (["https://data.test/a", "https://data.test/a b", "https://data.test/c"],
                  ["https://data.test/a b", "https://data.test/a", "https://data.test/c"]):
-        store = vzip.ReferenceStore({f"k{i}": Range(source=i, offset=0, length=1) for i in range(3)},
+        store = refkv.ReferenceStore({f"k{i}": Range(source=i, offset=0, length=1) for i in range(3)},
                                     [Source(url=u) for u in urls])
         with pytest.raises(ResolutionError, match=r"refuses 1 of its 3 sources.*not a valid URI reference"):
             store.save(tmp_path / "x.vzip")
@@ -225,9 +225,9 @@ def test_save_counts_each_refused_source_of_a_shared_origin(tmp_path):
 
 def test_save_checks_against_the_policy_given(tmp_path):
     store = _s3_store()
-    store.save(tmp_path / "ok.vzip", policy=vzip.Policy(schemes={"s3"}))
+    store.save(tmp_path / "ok.vzip", policy=refkv.Policy(schemes={"s3"}))
     with pytest.raises(ResolutionError, match="reader policy given refuses"):
-        store.save(tmp_path / "x.vzip", policy=vzip.Policy(prefixes=("https://data.example/",)))
+        store.save(tmp_path / "x.vzip", policy=refkv.Policy(prefixes=("https://data.example/",)))
 
 
 # ------------------------------------------------------------ the application's stores
@@ -243,7 +243,7 @@ def test_registry_reads_registered_sources(netcdf_files, tmp_path):
     from obspec_utils.registry import ObjectStoreRegistry
     from obstore.store import MemoryStore
 
-    from vzip.store import Resolver
+    from refkv.reader import Resolver
 
     paths, expected = netcdf_files
     vds = xr.concat([virtualize(p) for p in paths], dim="time", coords="minimal",
@@ -257,44 +257,44 @@ def test_registry_reads_registered_sources(netcdf_files, tmp_path):
                "b": Concat((Range(source=1, offset=0, length=2), Range(data=b"!")))}
     sources = [Source(url="s3://bucket/raw/blob.bin"),
                Source(url="s3://bucket/raw/blob.bin", size=len(blob))]
-    s3 = vzip.Policy(schemes={"s3"})  # for save: what the archive's readers allow
+    s3 = refkv.Policy(schemes={"s3"})  # for save: what the archive's readers allow
     for prefix in ["s3://bucket", "s3://bucket/", "s3://bucket/data"]:
         forms = {"mapping": {prefix: bucket, "s3://other": MemoryStore()},
                  "ObjectStoreRegistry": ObjectStoreRegistry({prefix: bucket}),
                  "Resolver": Resolver({prefix: bucket})}
         for form, registry in forms.items():
-            store = vzip.ReferenceStore.from_virtualizarr(
+            store = refkv.ReferenceStore.from_virtualizarr(
                 vds, rewrite_urls={f"file://{tmp_path}/": "s3://bucket/data/"},
                 registry=registry)
-            xr.testing.assert_identical(xr.open_zarr(vzip.zarr.store(store)).load(),
+            xr.testing.assert_identical(xr.open_zarr(refkv.zarr.store(store)).load(),
                                         expected.load())
             store.save(tmp_path / "v.vzip", policy=s3)
-            reopened = vzip.zarr.open(tmp_path / "v.vzip", registry=registry)
+            reopened = refkv.zarr.open(tmp_path / "v.vzip", registry=registry)
             xr.testing.assert_identical(xr.open_zarr(reopened).load(), expected.load())
             if prefix == "s3://bucket/data":
                 continue  # the raw/ sources are outside it
-            store = vzip.ReferenceStore(mapping, sources, registry=registry)
+            store = refkv.ReferenceStore(mapping, sources, registry=registry)
             want = {"a": blob[8:12], "b": blob[:2] + b"!"}
             assert _values(store) == want, form
             store.save(tmp_path / "m.vzip", policy=s3)
-            assert _values(vzip.open(tmp_path / "m.vzip", registry=registry)) == want, form
+            assert _values(refkv.open(tmp_path / "m.vzip", registry=registry)) == want, form
 
 
 def test_unregistered_s3_source_is_refused_without_credential_lookup(monkeypatch):
-    """A scheme the policy allows, but no store registered for its URL: vzip makes no
+    """A scheme the policy allows, but no store registered for its URL: refkv makes no
     store itself (obstore's from_url would query credential sources, the cloud
     metadata address among them), and says to register one."""
     import obstore.store
 
     def no_lookup(*a, **k):
-        raise AssertionError("vzip built a store from a URL")
+        raise AssertionError("refkv built a store from a URL")
 
     for name in ["from_url", "S3Store", "GCSStore", "AzureStore"]:
         monkeypatch.setattr(obstore.store, name, no_lookup)
-    store = _s3_store(policy=vzip.Policy(schemes={"s3"}))
+    store = _s3_store(policy=refkv.Policy(schemes={"s3"}))
     with pytest.raises(ResolutionError, match=r"no store is registered for s3://some-bucket\. "
                                               r".*registry=\{'s3://some-bucket': store\}"):
-        xr.open_zarr(vzip.zarr.store(store), consolidated=False).x.values
+        xr.open_zarr(refkv.zarr.store(store), consolidated=False).x.values
 
 
 def test_registry_does_not_lift_a_prefix_list():
@@ -302,9 +302,9 @@ def test_registry_does_not_lift_a_prefix_list():
     from obstore.store import MemoryStore
 
     store = _s3_store(registry={"s3://some-bucket": MemoryStore()},
-                      policy=vzip.Policy(prefixes=("https://data.example/",)))
+                      policy=refkv.Policy(prefixes=("https://data.example/",)))
     with pytest.raises(ResolutionError, match="not under an allowed URL prefix"):
-        xr.open_zarr(vzip.zarr.store(store), consolidated=False).x.values
+        xr.open_zarr(refkv.zarr.store(store), consolidated=False).x.values
 
 
 def test_registry_does_not_let_a_remote_store_read_files(tmp_path):
@@ -316,20 +316,20 @@ def test_registry_does_not_let_a_remote_store_read_files(tmp_path):
     zarr.create_array(mem, name="x", shape=(4,), chunks=(4,), dtype="u1", compressors=None)
     mapping = {k: v.to_bytes() for k, v in mem._store_dict.items()}
     mapping["x/c/0"] = Range(source=0, offset=0, length=4)
-    store = vzip.ReferenceStore(mapping, [Source(url=f"file://{tmp_path}/obj.bin")],
+    store = refkv.ReferenceStore(mapping, [Source(url=f"file://{tmp_path}/obj.bin")],
                                 url="https://data.example/", registry={"file://": LocalStore()})
     with pytest.raises(ResolutionError, match="may not read local files"):
-        zarr.open_array(vzip.zarr.store(store), path="x", mode="r")[:]
+        zarr.open_array(refkv.zarr.store(store), path="x", mode="r")[:]
 
 
 def test_registry_of_another_type_is_refused():
     with pytest.raises(TypeError, match="ObjectStoreRegistry, a mapping"):
-        vzip.ReferenceStore({}, registry=["s3://bucket"])
+        refkv.ReferenceStore({}, registry=["s3://bucket"])
 
 
 def test_registry_prefix_without_a_scheme_is_refused():
     with pytest.raises(ValueError, match="a registry prefix is a URL with a scheme"):
-        vzip.ReferenceStore({}, registry={"bucket": object()})
+        refkv.ReferenceStore({}, registry={"bucket": object()})
 
 
 # ------------------------------------------------------------ the request cap
@@ -391,12 +391,12 @@ def test_max_concurrency_caps_requests_in_flight(counting_server, tmp_path, no_p
     mapping = {k: v.to_bytes() for k, v in mem._store_dict.items()}
     mapping.update({f"x/c/{i}": Range(source=0, offset=1024 * i + i, length=1) for i in range(n)})
     sources = [Source(url=f"{base}/src.bin")]
-    policy = vzip.Policy(allow_private_hosts=True)
-    vzip.ReferenceStore(mapping, sources).save(tmp_path / "a.vzip", page_size=64, policy=policy)
+    policy = refkv.Policy(allow_private_hosts=True)
+    refkv.ReferenceStore(mapping, sources).save(tmp_path / "a.vzip", page_size=64, policy=policy)
     state["files"]["/a.vzip"] = (tmp_path / "a.vzip").read_bytes()
     stores = {
-        "memory": lambda **cap: vzip.ReferenceStore(mapping, sources, policy=policy, **cap),
-        "archive": lambda **cap: vzip.open(f"{base}/a.vzip", policy=policy, **cap),
+        "memory": lambda **cap: refkv.ReferenceStore(mapping, sources, policy=policy, **cap),
+        "archive": lambda **cap: refkv.open(f"{base}/a.vzip", policy=policy, **cap),
     }
     caps = [({"max_concurrency": None}, None), ({"max_concurrency": 1}, 1),
             ({"max_concurrency": 3}, 3), ({}, 8)]
@@ -406,7 +406,7 @@ def test_max_concurrency_caps_requests_in_flight(counting_server, tmp_path, no_p
                 state["max"] = 0
                 store = make(**kwargs)
                 assert store.max_concurrency == cap
-                values = zarr.open_array(vzip.zarr.store(store), path="x", mode="r")[:]
+                values = zarr.open_array(refkv.zarr.store(store), path="x", mode="r")[:]
                 assert np.array_equal(values, np.arange(n)), kind
                 assert store.stats.external_requests == n
                 if cap is None:
@@ -418,9 +418,9 @@ def test_max_concurrency_caps_requests_in_flight(counting_server, tmp_path, no_p
 @pytest.mark.parametrize("cap", [0, -1, 1.5, True, "8"])
 def test_max_concurrency_must_be_a_positive_integer(cap, tmp_path):
     with pytest.raises(ValueError, match="max_concurrency"):
-        vzip.ReferenceStore({}, max_concurrency=cap)
+        refkv.ReferenceStore({}, max_concurrency=cap)
     with pytest.raises(ValueError, match="max_concurrency"):
-        vzip.open(tmp_path / "a.vzip", max_concurrency=cap)
+        refkv.open(tmp_path / "a.vzip", max_concurrency=cap)
 
 
 # ------------------------------------------------------------ constructor errors
@@ -428,27 +428,27 @@ def test_max_concurrency_must_be_a_positive_integer(cap, tmp_path):
 
 def test_constructor_rejects_a_value_of_another_type():
     with pytest.raises(TypeError, match="bytes, a Range or a Concat"):
-        vzip.ReferenceStore({"k": "text"})
+        refkv.ReferenceStore({"k": "text"})
 
 
 def test_constructor_rejects_a_range_outside_the_source_table():
     with pytest.raises(ValueError, match="uses source 1; the table has 1"):
-        vzip.ReferenceStore({"k": Range(source=1, offset=0, length=1)}, [Source(url="https://a/b")])
+        refkv.ReferenceStore({"k": Range(source=1, offset=0, length=1)}, [Source(url="https://a/b")])
 
 
 def test_constructor_rejects_a_format_entry_key():
     with pytest.raises(ValueError, match="format entry"):
-        vzip.ReferenceStore({"__vz__/sources": b""})
+        refkv.ReferenceStore({"__vz__/sources": b""})
 
 
 def test_constructor_rejects_an_empty_key():
     with pytest.raises(ValueError, match="non-empty"):
-        vzip.ReferenceStore({"": b""})
+        refkv.ReferenceStore({"": b""})
 
 
 def test_constructor_rejects_compressed_naming_no_bytes_value():
     with pytest.raises(ValueError, match="compressed names 'r', which is not a key of a bytes value"):
-        vzip.ReferenceStore({"r": Range(source=0, offset=0, length=1)}, [Source(url="https://a/b")],
+        refkv.ReferenceStore({"r": Range(source=0, offset=0, length=1)}, [Source(url="https://a/b")],
                             compressed=["r"])
 
 
@@ -457,21 +457,21 @@ def test_constructor_rejects_compressed_naming_no_bytes_value():
                          ids=["str", "bytes", "bytearray", "memoryview"])
 def test_constructor_rejects_a_single_key_for_a_key_set(name, key):
     with pytest.raises(TypeError, match=f"{name} is an iterable of keys, not a single {type(key).__name__}"):
-        vzip.ReferenceStore({"zarr.json": b"{}"}, **{name: key})
+        refkv.ReferenceStore({"zarr.json": b"{}"}, **{name: key})
 
 
 @pytest.mark.parametrize("page_size", [0, -1, True])
 def test_a_page_size_that_is_not_positive_is_rejected(tmp_path, page_size):
     with pytest.raises(ValueError, match=f"page_size is a positive number of bytes or None, not {page_size}"):
-        vzip.ReferenceStore({}, page_size=page_size)
+        refkv.ReferenceStore({}, page_size=page_size)
     with pytest.raises(ValueError, match=f"page_size is a positive number of bytes or None, not {page_size}"):
-        vzip.ReferenceStore({}).save(tmp_path / "x.vzip", page_size=page_size)
+        refkv.ReferenceStore({}).save(tmp_path / "x.vzip", page_size=page_size)
     assert not (tmp_path / "x.vzip").exists()
 
 
 def test_constructor_rejects_a_source_of_another_type():
     with pytest.raises(TypeError, match="Source"):
-        vzip.ReferenceStore({}, ["https://a/b"])
+        refkv.ReferenceStore({}, ["https://a/b"])
 
 
 # ------------------------------------------------------------ no mutations
@@ -482,11 +482,11 @@ def store(request, tmp_path):
     """A store of each kind, holding one small array, read through zarr."""
     mem = zarr.storage.MemoryStore()
     zarr.create_array(mem, name="x", shape=(2,), chunks=(2,), dtype="u1")
-    s = vzip.ReferenceStore({k: v.to_bytes() for k, v in mem._store_dict.items()})
+    s = refkv.ReferenceStore({k: v.to_bytes() for k, v in mem._store_dict.items()})
     if request.param == "memory":
-        return vzip.zarr.store(s)
+        return refkv.zarr.store(s)
     s.save(tmp_path / "a.vzip")
-    return vzip.zarr.open(tmp_path / "a.vzip")
+    return refkv.zarr.open(tmp_path / "a.vzip")
 
 
 READ_ONLY = "is read-only"
@@ -549,7 +549,7 @@ def test_sources_cannot_be_changed(store):
 
 
 def test_mapping_cannot_be_changed():
-    s = vzip.ReferenceStore({"k": b"v"})
+    s = refkv.ReferenceStore({"k": b"v"})
     with pytest.raises(TypeError):
         s.mapping["k"] = b"w"
     with pytest.raises(TypeError):
@@ -563,16 +563,26 @@ def test_mapping_cannot_be_changed():
 
 
 def test_public_api():
-    assert set(vzip.__all__) == {
+    assert set(refkv.__all__) == {
         "Concat", "OffsetRequest", "Policy", "Range", "RangeRequest", "ReferenceStore",
-        "Source", "Stats", "SuffixRequest", "Summary", "VZipStore", "VZipWriter", "open",
-        "public_s3_url"}
-    assert all(hasattr(vzip, name) for name in vzip.__all__)
-    assert isinstance(vzip.open("x.vzip"), vzip.VZipStore)
-    assert set(vzip.zarr.__all__) == {"ZarrStore", "open", "store"}
-    assert isinstance(vzip.zarr.open("x.vzip"), vzip.zarr.ZarrStore)
-    assert vzip.zarr.open("x.vzip").reader == vzip.open("x.vzip")
-    store = vzip.ReferenceStore({})
-    assert vzip.zarr.store(store).reader is store
-    from vzip.convert import write_vzip  # the older name still imports
+        "Source", "Stats", "SuffixRequest", "Summary", "open", "public_s3_url"}
+    assert all(hasattr(refkv, name) for name in refkv.__all__)
+    assert set(refkv.vzip.__all__) == {"VZipStore", "VZipWriter", "open"}
+    assert all(hasattr(refkv.vzip, name) for name in refkv.vzip.__all__)
+    # refkv.open reads any name with the ZIP binding, the default
+    for url in ("x.vzip", "data", "https://example.test/get?id=42&sig=abc", "file:///tmp/x.zip"):
+        assert isinstance(refkv.open(url), refkv.vzip.VZipStore), url
+        assert isinstance(refkv.open(url, binding="vzip"), refkv.vzip.VZipStore), url
+    assert isinstance(refkv.vzip.open("x.zip"), refkv.vzip.VZipStore)
+    assert set(refkv.zarr.__all__) == {"ZarrStore", "open", "store"}
+    assert isinstance(refkv.zarr.open("x.vzip"), refkv.zarr.ZarrStore)
+    assert refkv.zarr.open("x.vzip").reader == refkv.open("x.vzip")
+    store = refkv.ReferenceStore({})
+    assert refkv.zarr.store(store).reader is store
+    from refkv.convert import write_vzip  # the older name still imports
     assert callable(write_vzip)
+
+
+def test_open_refuses_an_unknown_binding():
+    with pytest.raises(ValueError, match="no binding 'kv'"):
+        refkv.open("x.vzip", binding="kv")

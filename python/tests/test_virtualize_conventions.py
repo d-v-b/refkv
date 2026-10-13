@@ -1,5 +1,5 @@
 """The virtualization conventions (spec/virtualize.md conventions §2
-<https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>) on every synthetic file
+<https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>) on every synthetic file
 and store.
 
 Every fixture is virtualized by both implementations (the browser one under
@@ -8,8 +8,8 @@ node that declares the profile's convention validates against its JSON Schema
 (spec/virtualize/<profile>/schema.json): the root always declares it, with the
 provenance members, and another node only when it has source metadata, with
 only that member. No node has any other attribute besides `ome`. (For TIFF (NDPI included), ND2,
-CZI, DICOM, NIfTI, IMS and SAFE, `vzip_source` and the groups of its view are the IR mirror of
-conventions §8 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>,
+CZI, DICOM, NIfTI, IMS and SAFE, `refkv_source` and the groups of its view are the IR mirror of
+conventions §8 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>,
 validated by the same schemas.) """
 
 import json
@@ -20,8 +20,8 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
-from vzip.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
-from vzip.virtualize.common import CONVENTION_KEY, PROFILES, REVISION, UUIDS, convention, declare, same
+from refkv.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
+from refkv.virtualize.common import CONVENTION_KEY, PROFILES, REVISION, UUIDS, convention, declare, same
 
 ROOT = Path(__file__).parents[2]
 FIXTURES = ROOT / "fixtures"
@@ -29,7 +29,7 @@ FILES = {"tiff": "*.tif", "ndpi": "*.ndpi", "nd2": "*.nd2", "dicom": "*.dcm", "n
          "safe": "*.zip", "czi": "*.czi"}
 STORES = ("n5", "zarr2", "ome-zarr", "safe")
 # The GeoZarr members a SAFE node may hold (spec/virtualize/safe.md §5
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>), each
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>), each
 # validated by its own convention's schema (spec/virtualize/safe/geozarr/).
 GEOZARR = {"proj:": "proj", "spatial:": "spatial", "multiscales": "multiscales"}
 
@@ -59,7 +59,7 @@ def python_docs(path: Path, url: str):
         fmt, out = virtualize(str(path), url=url)
     except Rejected:
         return None
-    if hasattr(out, "docs"):  # the zarr.json documents (not vzip_source/empty.json, which is not a node's)
+    if hasattr(out, "docs"):  # the zarr.json documents (not refkv_source/empty.json, which is not a node's)
         return fmt, {k: v for k, v in out.docs.items() if k.endswith("zarr.json")}
     entries = out.bytes_entries if hasattr(out, "bytes_entries") else out.entries  # a file's, or a store IR's
     return fmt, {k: json.loads(v) for k, v in entries.items() if k.endswith("zarr.json")}
@@ -151,7 +151,7 @@ def test_same():
 
 def test_schemas_reject_an_unknown_version():
     """spec/conventions.md §1
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#1-conventions>: a reader that
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>: a reader that
     relies on a convention rejects a version it
     does not know; the schemas do, and require the revision at version 0."""
     for profile in PROFILES:
@@ -160,7 +160,7 @@ def test_schemas_reject_an_unknown_version():
         root = doc["attributes"][CONVENTION_KEY]
         assert not list(validator.iter_errors(doc)), profile
         assert convention(profile)["schema_url"].startswith(
-            "https://raw.githubusercontent.com/d-v-b/vzip/refs/heads/main/"), profile
+            "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/"), profile
         for bad in ({**root, "version": 1}, {k: v for k, v in root.items() if k != "revision"}):
             doc["attributes"][CONVENTION_KEY] = bad
             assert list(validator.iter_errors(doc)), (profile, bad)
@@ -168,7 +168,7 @@ def test_schemas_reject_an_unknown_version():
 
 def test_the_safe_schema_tells_view_documents_from_source_metadata():
     """A view document whose members name IR elements (a codestream's `siz`, an XML document's
-    `xml`) is valid; a band array's or vzip_source's source metadata with a wrong member is not."""
+    `xml`) is valid; a band array's or refkv_source's source metadata with a wrong member is not."""
     validator = schema("safe")
 
     def node(s):

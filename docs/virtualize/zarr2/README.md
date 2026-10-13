@@ -1,6 +1,6 @@
 # Zarr v2
 
-vzip presents a chunked array store as a Zarr v3 hierarchy by writing a
+refkv presents a chunked array store as a Zarr v3 hierarchy by writing a
 small archive whose chunk entries point at the store's own objects, without
 copying them ([overview](../README.md)). This page is about Zarr v2
 hierarchies.
@@ -13,7 +13,7 @@ the `janelia-cosem-datasets` S3 bucket. Tools built for Zarr v3, and readers
 that expect Zarr v3 metadata, cannot use it directly, and rewriting the
 metadata in place is not possible on a bucket you do not own.
 
-vzip lists the store, reads its `.zgroup`, `.zarray` and `.zattrs`
+refkv lists the store, reads its `.zgroup`, `.zarray` and `.zattrs`
 documents, and writes an archive with a Zarr v3 `zarr.json` for every group
 and array. Each chunk entry references the existing chunk object under the
 same key, through Zarr v3's `v2` chunk key encoding, so nothing is copied or
@@ -33,16 +33,16 @@ array.
 - **Chunk keys:** the `v2` encoding with the array's own separator (`.` or
   `/`), so the keys are unchanged.
 - **Attributes:** each node's `.zattrs`, whole and unchanged, under
-  `vzip_virtualized.zarr2.attributes` on the node, including OME-NGFF 0.4
+  `refkv_virtualized.zarr2.attributes` on the node, including OME-NGFF 0.4
   metadata of groups below the store's root and xarray's
   `_ARRAY_DIMENSIONS` (Zarr v2 has no dimension names). They are not mixed
   into the node's own attributes, so they cannot collide with Zarr v3
   conventions or be read as OME-NGFF 0.5. Members of `.zgroup` or `.zarray`
   that the `zarr.json` does not reproduce are under
-  `vzip_virtualized.zarr2.metadata`.
+  `refkv_virtualized.zarr2.metadata`.
 - **Other objects:** any object of the store that is neither a document nor
   a chunk (a README, `.zmetadata`) is kept whole, referenced in place, under
-  `vzip_source/objects/`.
+  `refkv_source/objects/`.
 
 A store whose **root** declares OME-NGFF 0.4 is migrated to OME-Zarr 0.5
 instead; see [ome-zarr](../ome-zarr/README.md).
@@ -55,7 +55,7 @@ blosc chunks (CC BY 4.0), from
 the trailing `/`:
 
 ```bash
-uv run python -m vzip.virtualize https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-2/jrc_hela-2.zarr/recon-1/em/fibsem-uint8/s5/ s5.vzip
+uv run python -m refkv.virtualize https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-2/jrc_hela-2.zarr/recon-1/em/fibsem-uint8/s5/ s5.vzip
 ```
 
 ```
@@ -64,15 +64,15 @@ uv run python -m vzip.virtualize https://janelia-cosem-datasets.s3.amazonaws.com
 
 This took about 1 s and wrote a 3.6 KB archive, at spec/virtualize.md revision 16
 ([overview](../README.md#formats)). (`otherObjects`, the objects kept under
-`vzip_source/objects/`, is new since then; it is 0 here, as the store's 25
+`refkv_source/objects/`, is new since then; it is 0 here, as the store's 25
 objects are its `.zarray` and 24 chunks.) The store's root is an
 array, so open it as one:
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-a = zarr.open_array(vzip.zarr.open("s5.vzip"), mode="r")
+a = zarr.open_array(refkv.zarr.open("s5.vzip"), mode="r")
 print(a.shape, a.dtype, a.chunks)
 print(a.metadata.chunk_key_encoding, a.metadata.codecs)
 print(a[100, 25, 180:188])
@@ -102,7 +102,7 @@ reads the `v2` chunk key encoding and the `transpose`, `bytes`, `zlib`,
 `int32`, `uint64` and `float32` data. It has no `bool`, `float16`, `int64`
 or `float64` data type, so arrays of those types cannot be shown there. The
 demo page needs an OME-Zarr image; groups with OME-NGFF 0.4 metadata below
-the root keep it only under `vzip_virtualized`, where an OME-NGFF reader does
+the root keep it only under `refkv_virtualized`, where an OME-NGFF reader does
 not look, so they are not shown as images. (A store whose root is OME-NGFF
 0.4 is migrated instead: see [ome-zarr](../ome-zarr/README.md).)
 
@@ -134,7 +134,7 @@ Notes:
   [N5 page](../n5/README.md#supported-and-not-supported) for the rule.
 - Consolidated metadata (`.zmetadata`) is never read: nodes come from the
   listing, so stale consolidated metadata cannot change the output. It is
-  kept, like any other object, under `vzip_source/objects/`.
+  kept, like any other object, under `refkv_source/objects/`.
 
 ## Performance
 
@@ -160,16 +160,16 @@ Notes:
 `js/test/zarr2/verify.py` virtualizes the synthetic Zarr v2 stores in
 [fixtures/zarr2/](../../../fixtures/zarr2/) (including
 stores to reject) with the browser code and compares every array, read
-through `python/src/vzip` and zarr-python, with zarr-python's own Zarr v2 reader.
+through `python/src/refkv` and zarr-python, with zarr-python's own Zarr v2 reader.
 `compare.py` checks that the Python and browser outputs are equivalent on
 those stores and on the 6 OpenOrganelle stores of
 [corpus_zarr2.txt](../../../conformance/virtualize/corpus_zarr2.txt).
 
 - Profile: [spec/virtualize/zarr2.md](../../../spec/virtualize/zarr2.md#part-2-the-profile)
-- Rust core: [rust/vzip-ir/src/zarr2.rs](../../../rust/vzip-ir/src/zarr2.rs) (the parser) and
-  [rust/vzip-ir/src/project/zarr2.rs](../../../rust/vzip-ir/src/project/zarr2.rs) (the projection)
-- Python host: [python/src/vzip/ir/store.py](../../../python/src/vzip/ir/store.py); browser host:
+- Rust core: [rust/refkv-ir/src/zarr2.rs](../../../rust/refkv-ir/src/zarr2.rs) (the parser) and
+  [rust/refkv-ir/src/project/zarr2.rs](../../../rust/refkv-ir/src/project/zarr2.rs) (the projection)
+- Python host: [python/src/refkv/ir/store.py](../../../python/src/refkv/ir/store.py); browser host:
   [js/src/virtualize/ir/store.ts](../../../js/src/virtualize/ir/store.ts)
-- Frozen reference: [conformance/virtualize/reference/vzip_reference/zarr2/](../../../conformance/virtualize/reference/vzip_reference/zarr2/)
+- Frozen reference: [conformance/virtualize/reference/refkv_reference/zarr2/](../../../conformance/virtualize/reference/refkv_reference/zarr2/)
   and [conformance/virtualize/reference/ts/zarr2/](../../../conformance/virtualize/reference/ts/zarr2/)
 - Fixtures: [fixtures/zarr2/](../../../fixtures/zarr2/)

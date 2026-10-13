@@ -1,5 +1,5 @@
 // The NDPI profile (spec/virtualize.md, §4
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), a variant of
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), a variant of
 // the TIFF profile.
 //
 // Hamamatsu NDPI is a little-endian classic TIFF with 64-bit offsets (an
@@ -9,7 +9,7 @@
 // data sources, since every chunk shares it), a literal frame header for the
 // chunk's size, and a × b restart intervals.
 
-import { base64, type ByteReader, DataSources, declare, MAX_PAYLOAD, type Part, payloadSize, toRange, stringifyJson } from "../../../../../js/src/virtualize/common.ts";
+import { base64, type ByteReader, DataSources, declare, MAX_PAYLOAD, type Part, payloadSize, toRange, stringifyJson } from "../legacy.ts";
 import { TiffError } from "../tiff/ifd.ts";
 import { type Entry, type Found, LAYOUT, Translator } from "../tiff/tags.ts";
 import type { ArchiveDesc, EntryDesc } from "../../../../../js/src/writer.ts";
@@ -21,7 +21,7 @@ const REVISION = 25;
 const MAX_IFDS = 100000;
 // Besides TIFF's, McuStarts and McuStartsHighBytes locate the strips' restart
 // markers (spec/virtualize/ndpi.md §5
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#5-source-metadata>).
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#5-source-metadata>).
 const NDPI_LAYOUT = new Set([...LAYOUT, 65426, 65432]);
 const CHUNK = 1024; // target chunk size in pixels
 const MAX_SIDE = 65535; // the largest height or width a JPEG frame header holds
@@ -30,7 +30,7 @@ const SIZES: Record<number, number> = {
 };
 const INTEGER = new Set([1, 3, 4, 13, 16, 18]);
 const OFFSET = new Set([3, 4, 8, 9]); // X/YOffsetFromSlideCenter may be signed
-// The tags of §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#2-the-source>:
+// The tags of §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#2-the-source>:
 // allowed field types, and whether each is a scalar.
 const TAGS: Record<number, [Set<number>, boolean]> = {
   256: [INTEGER, true], 257: [INTEGER, true], 258: [INTEGER, false], 259: [INTEGER, true],
@@ -51,7 +51,7 @@ const u64 = (v: DataView, at: number) => {
 
 /**
  * The first IFD's offset if the file is NDPI (§4
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), else
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), else
  * undefined.
  */
 export async function detectNdpi(read: ByteReader, size: number): Promise<number | undefined> {
@@ -69,7 +69,7 @@ export async function detectNdpi(read: ByteReader, size: number): Promise<number
 
 type Values = number[] | [number, number][];
 
-/** A checked entry of a tag of §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#2-the-source>'s table: its value is in `inline` (the value field's
+/** A checked entry of a tag of §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#2-the-source>'s table: its value is in `inline` (the value field's
  * 4 bytes, with the high word `high`), or at `offset`, within the file. */
 interface Field {
   type: number;
@@ -79,7 +79,7 @@ interface Field {
   offset?: number;
 }
 
-/** The main chain's IFDs, as their checked tags of §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#2-the-source> (tag → Field), every entry of
+/** The main chain's IFDs, as their checked tags of §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#2-the-source> (tag → Field), every entry of
  * each, and their offsets. No value is read (values). */
 async function readIfds(
   read: ByteReader,
@@ -126,11 +126,11 @@ async function readIfds(
   return { ifds, entries, offsets: [...seen] };
 }
 
-/** A function that reads the values of an IFD's tags (all of §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#2-the-source>'s table, or `only`): the
+/** A function that reads the values of an IFD's tags (all of §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#2-the-source>'s table, or `only`): the
  * first of a scalar, every value of an array (§4
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>, and
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>, and
  * spec/virtualize.md §3.1
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#31-reading>). */
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#31-reading>). */
 function values(read: ByteReader) {
   const memo = new Map<string, Values>(); // (type, count, offset) -> values, for shared tables
   const one = async (tag: number, f: Field): Promise<Values> => {
@@ -157,7 +157,7 @@ function values(read: ByteReader) {
   };
 }
 
-/** Entry `i` of an IFD of `n` entries whose bytes after the count are `body` (§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>):
+/** Entry `i` of an IFD of `n` entries whose bytes after the count are `body` (§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>):
  * its value field is its 4 bytes plus the high word after the next-IFD offset. */
 function entry(body: Uint8Array, n: number, i: number): Entry {
   const b = view(body);
@@ -181,7 +181,7 @@ function entry(body: Uint8Array, n: number, i: number): Entry {
 
 /** The bytes an NDPI IFD of `n` entries occupies: its entry count, entries,
  * next-IFD offset and high words (§4
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>). */
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>). */
 const extent = (n: number) => 2 + 16 * n + 8;
 
 /** A function that finds the NDPI IFD at an offset for a pointer tag (it never rejects):
@@ -225,7 +225,7 @@ function one(tags: Map<number, Values>, tag: number, what: string, fallback?: nu
 
 /**
  * [SOF0 start, SOF0 end, MCU width, MCU height, restart interval] of a strip's header (§4
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>).
  */
 export function jpegHeader(header: Uint8Array): [number, number, number, number, number] {
   if (header[0] !== 0xff || header[1] !== 0xd8) reject("an NDPI strip does not start with a JPEG SOI marker");
@@ -280,7 +280,7 @@ export async function virtualizeNdpi(
   for (const [k, fields] of ifds.entries()) {
     const mag = one(await load(fields, new Set([65421])), 65421, "Magnification");
     if (!(mag > 0)) continue;
-    const tags = await load(fields); // a level: every tag's values (§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>)
+    const tags = await load(fields); // a level: every tag's values (§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>)
     const w = one(tags, 256, "ImageWidth");
     const h = one(tags, 257, "ImageLength");
     const bits = tags.get(258) as number[] | undefined;
@@ -298,7 +298,7 @@ export async function virtualizeNdpi(
   if (levels.length === 0) reject("no NDPI levels");
 
   // Scale (spec/virtualize/ndpi.md §4
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-the-image>).
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>).
   const base = levels[0];
   const perUnit = ({ 3: 10000, 2: 25400 } as Record<number, number>)[one(base.tags, 296, "ResolutionUnit", 0)]; // explicit only
   const physical = (tag: number) => {
@@ -349,7 +349,7 @@ export async function virtualizeNdpi(
   }
   const unit = (p: number | undefined) => (p === undefined ? {} : { unit: "micrometer" });
   // Position (spec/virtualize/ndpi.md §4
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-the-image>): the image's
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>): the image's
   // centre, from the slide's centre in nm.
   const offsetX = (base.tags.get(65422) as number[] | undefined)?.[0];
   const offsetY = (base.tags.get(65423) as number[] | undefined)?.[0];
@@ -374,7 +374,7 @@ export async function virtualizeNdpi(
   });
   const summary = { axes, levels: levels.map((l) => [3, l.h, l.w]), references: entries.length - levels.length - 1, codec: "imagecodecs_jpeg" };
   // The source metadata (spec/virtualize/ndpi.md §5
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#5-source-metadata>): every
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#5-source-metadata>): every
   // IFD's tags, and the strips of the IFDs that are not levels (the macro image, the map).
   const translate = new Translator(read, size, true, NDPI_LAYOUT, new Set(Object.keys(TAGS).map(Number)),
     entriesReader(read, size), offsets.map((o, k) => [o, o + extent(ifdEntries[k].length), `ifds/${k}`]));
@@ -392,7 +392,7 @@ export async function virtualizeNdpi(
   };
 }
 
-/** Adds a McuStarts level's chunk references (§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>); returns its chunk shape and the strip's
+/** Adds a McuStarts level's chunk references (§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>); returns its chunk shape and the strip's
  * SOF0 segment. */
 async function intervals(
   refs: [string, Part[]][], data: DataSources, li: number, read: ByteReader, tags: Map<number, Values>,
@@ -415,7 +415,7 @@ async function intervals(
   if (a * interval * mw > MAX_SIDE) reject(`an NDPI chunk would be ${a * interval * mw} pixels wide, more than ${MAX_SIDE}`);
   const sof = header.slice(sofStart, sofEnd);
   // The header around SOF0 is the same in every chunk: data sources (§4
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>).
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>).
   const before = data.range(header.subarray(0, sofStart));
   const after = data.range(header.subarray(sofEnd));
 

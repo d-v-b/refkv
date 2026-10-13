@@ -1,4 +1,4 @@
-// `write` command of the conformance harness (conformance/archive/HARNESS.md) for the
+// `write` command of the conformance harness (conformance/vzip/HARNESS.md) for the
 // browser writer, run under Node:
 //   node js/conformance/cli.ts write <description.json> <out.vzip>
 // Descriptions with a page index are refused: this writer does not write one.

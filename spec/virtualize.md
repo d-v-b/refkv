@@ -1,6 +1,6 @@
-# Virtualizing image files and stores as OME-Zarr in vzip
+# Virtualizing image files and stores as OME-Zarr in refkv
 
-Profiles version: 0 (**draft**) · Revision: 26
+Profiles version: 0 (**draft**) · Revision: 27
 
 ## 1. Introduction
 
@@ -8,7 +8,7 @@ A **virtualizer** reads the structure of an image file (TIFF, Hamamatsu NDPI,
 Nikon ND2, DICOM, NIfTI, Imaris IMS or Zeiss CZI), of a chunked array store (N5 or
 Zarr v2, including OME-Zarr 0.4), or of a Sentinel-2 SAFE product (a
 directory or a zip file of JPEG 2000 bands and XML metadata), and writes a
-vzip archive ([spec/archive.md](archive.md)) that presents the pixels as an OME-Zarr
+vzip archive ([spec/bindings/vzip.md](bindings/vzip.md)) that presents the pixels as an OME-Zarr
 dataset, or for a store as a Zarr v3 hierarchy (for an OME-Zarr 0.4 store,
 an OME-Zarr 0.5 one; for a SAFE product, a GeoZarr one). The
 pixels stay where they are: each Zarr chunk is a reference to byte ranges of
@@ -46,10 +46,10 @@ interpreted as described in RFC 2119.
 
 A virtualizer's **output** is an archive description:
 
-- a **source table**: a list of `url` sources and `data` sources (spec/archive.md
-  [§5](archive.md#5-source-table)), and
+- a **source table**: a list of `url` sources and `data` sources (spec/refkv.md
+  [§5](refkv.md#5-source-table)), and
 - a set of **entries**: keys, each with either bytes or a list of ranges
-  ([spec/archive.md §2](archive.md#2-data-model), [§4](archive.md#4-messages)).
+  ([spec/refkv.md §2](refkv.md#2-data-model), [§4](refkv.md#4-messages)).
 
 Two outputs are **equivalent** when they have the same source table (the
 same sources in the same order: `url` sources with the same URLs, `data`
@@ -57,7 +57,7 @@ sources with identical bytes), the same set of keys, and for every key:
 
 - **reference entries:** the same list of ranges, in order. A range is a
   source range `(i, offset, length)` of source `i`, or a **literal** range
-  of given bytes ([spec/archive.md §4.2](archive.md#42-range)), and two ranges are the same only if both are
+  of given bytes ([spec/refkv.md §4.2](refkv.md#42-range)), and two ranges are the same only if both are
   source ranges with equal sources, offsets and lengths, or both are literal
   ranges with identical bytes;
 - **JSON documents** (keys ending in `zarr.json`): equal JSON values.
@@ -80,7 +80,7 @@ sources with identical bytes), the same set of keys, and for every key:
   `18446744073709552000`, an integer literal of another value;
 - **other bytes entries:** identical bytes.
 
-**IR mirrors.** For the TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE profiles, `vzip_source` is the
+**IR mirrors.** For the TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE profiles, `refkv_source` is the
 source's IR mirror ([conventions §8](conventions.md#8-the-ir-mirror)); for
 a SAFE directory and the Zarr v2, N5 and OME-Zarr profiles, the store's ([conventions §8.9](conventions.md#89-stores),
 whose limits replace those below).
@@ -111,7 +111,7 @@ the URL it will be served from: a directory is a store input, listed as
 
 For a file input, the output's source table is source 0, a `url` source
 whose value is `U` as given, followed by the output's **data sources**, if
-its profile defines any. Source 0 carries pins ([spec/archive.md §5.1](archive.md#51-pins)):
+its profile defines any. Source 0 carries pins ([spec/refkv.md §5.1](refkv.md#51-pins)):
 
 - a `size` pin, the file's size;
 - an `etag` pin when every response the virtualizer received for the file
@@ -123,12 +123,12 @@ its profile defines any. Source 0 carries pins ([spec/archive.md §5.1](archive.
   no `etag`.
 
 **Checksums.** A virtualizer MAY, when asked to, record on every range of
-a `url` source the CRC-32C of its bytes ([spec/archive.md §4.2](archive.md#42-range)). That reads every
+a `url` source the CRC-32C of its bytes ([spec/refkv.md §4.2](refkv.md#42-range)). That reads every
 byte the output references, pixel data included, so it is off by default;
 it is the one exception to "Structure only" below, and changes nothing else
 in the output. An output whose payload exceeds 65519 bytes only because of
 its checksums is a failure, not a rejection. A data source is a `data` source
-([spec/archive.md §5](archive.md#5-source-table)) holding a byte string that a profile names as **shared**: one
+([spec/refkv.md §5](refkv.md#5-source-table)) holding a byte string that a profile names as **shared**: one
 that many references would otherwise each read from the file, or each carry
 as a literal, such as a JPEG header. The data sources are the distinct
 shared byte strings of the output, numbered from 1 **in order of first
@@ -172,11 +172,11 @@ resource limit that it states ([§14](#14-conformance)); a failure is not an out
 not affect equivalence.
 
 **Reader policy.** A virtualizer reads a remote input under a reader policy
-([spec/archive.md §6.7](archive.md#67-reader-policy)) that the application chooses,
+([spec/refkv.md §6.7](refkv.md#67-reader-policy)) that the application chooses,
 applied to every request it makes for the input: a file's, and a store's
 listing and object reads ([§1.4](#14-store-inputs), [§1.5](#15-listing-a-store)), each redirect target checked before it
 is requested. A request the policy refuses is a failure, not a rejection. The
-implementations in this repository default to the defaults of [spec/archive.md §6.7](archive.md#67-reader-policy), so they refuse
+implementations in this repository default to the defaults of [spec/refkv.md §6.7](refkv.md#67-reader-policy), so they refuse
 loopback, private, link-local and special hosts, and requests through a
 proxy, unless the application allows private hosts or unchecked proxies (the
 same settings, and `--allow-private-hosts` on their command lines).
@@ -201,7 +201,7 @@ in the output.
 the file (`offset + length ≤` the file's size; a range of a data source is
 the whole source), and every reference entry's
 payload MUST be at most 65519 bytes; otherwise the input is rejected. The
-payload ([spec/archive.md §4.4](archive.md#44-reference-payloads), [§4](archive.md#4-messages)) of a single range is its `Range` message: for a
+payload ([spec/refkv.md §4.4](refkv.md#44-reference-payloads), [§4](refkv.md#4-messages)) of a single range is its `Range` message: for a
 source range `(i, o, n)`, `0x08 varint(i)` if `i > 0`, then `0x18 varint(o)`
 if `o > 0`, then `0x20 varint(n)` if `n > 0` (fields 1, 3 and 4); for a
 literal range of bytes `d`, `0x2A varint(len(d)) d`. The payload of several
@@ -314,7 +314,7 @@ requested length is a failure ([§12.2](virtualize/safe.md#122-objects-and-readi
 `k`'s UTF-8 bytes with every byte that is not an unreserved character
 (`A`–`Z`, `a`–`z`, `0`–`9`, `-`, `.`, `_`, `~`), a sub-delim
 (`!$&'()*+,;=`), `:`, `@` or `/` written as `%` and two uppercase hex
-digits (the encoding of [spec/archive.md §5](archive.md#5-source-table) for local paths). For example, the key
+digits (the encoding of [spec/refkv.md §5](refkv.md#5-source-table) for local paths). For example, the key
 `a b/0.0` of the store `https://h/x/` has the URL `https://h/x/a%20b/0.0`.
 
 **Source table and chunk references.** A profile names the **chunk
@@ -328,7 +328,7 @@ as an object of size 0 of the store's IR mirror,
 [the N5 convention §5.2](virtualize/n5.md#52-elements)). Every other chunk object `k` gives
 one entry, whose key is `k` itself, referencing the whole object. Every
 other object of the store that the hierarchy doesn't represent (the store
-conventions' "Other objects") gives one entry `vzip_source/objects/<k>` (with
+conventions' "Other objects") gives one entry `refkv_source/objects/<k>` (with
 the last segment escaped as those conventions say, so that no entry reads as
 a Zarr document), referencing it whole in the same way. The
 source table is one `url` source per such entry, with a `size` pin, the
@@ -492,7 +492,7 @@ A virtualizer's output presents its input as a Zarr hierarchy whose layout
 is specified by the input format's **convention**, in
 [conventions.md](conventions.md): the groups and arrays and their
 metadata, the OME-NGFF metadata, and the attributes under the key
-`vzip_virtualized`, including the translation of the input's header. The
+`refkv_virtualized`, including the translation of the input's header. The
 profiles ([§3](#313-profiles)–[§13](#313-profiles)) specify how to read and check the input, and how each
 chunk of that layout becomes a reference to the input's bytes; for the
 layout itself they refer to the convention, which builds on what all
@@ -531,8 +531,8 @@ is the format's Zarr convention:
 ## 14. Conformance
 
 This section is informative. There are two maintained implementations:
-- the Python reference, `python -m vzip.virtualize <url> <out.vzip>`
-  (`python/src/vzip/virtualize/`);
+- the Python reference, `python -m refkv.virtualize <url> <out.vzip>`
+  (`python/src/refkv/virtualize/`);
 - the browser one, `js/src/virtualize/`, run under Node by
   `js/conformance/virtualize.ts`.
 

@@ -1,4 +1,4 @@
-"""Section references (§n) in vzip: links to the headings they mean, and a check.
+"""Section references (§n) in refkv: links to the headings they mean, and a check.
 
     uv run python spec/tools/sections.py check [paths...]
     uv run python spec/tools/sections.py migrate [--write] [--report refs.tsv]
@@ -7,10 +7,10 @@ A reference to a section of a document of this repository is a link to that
 section's heading, never a bare "§n":
 
 - in Markdown, a relative link to the heading's anchor, its text keeping the
-  "§n": `[§6.7](#67-reader-policy)`, `[spec/archive.md §6.7](archive.md#67-reader-policy)`;
+  "§n": `[§6.7](#67-reader-policy)`, `[spec/refkv.md §6.7](refkv.md#67-reader-policy)`;
 - in code (comments and docstrings, and the descriptions in the JSON schemas and
   source models), the "§n" followed by the heading's URL in angle brackets:
-  `spec/archive.md §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>`.
+  `spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>`.
 
 `check` fails on a bare reference outside the records of past states (EXCLUDED)
 and the user-facing strings listed in bare_refs_allowed.txt, and on a link
@@ -19,7 +19,7 @@ not exist. A reference to another standard ("RFC 9110 §5.6.7", "PS3.5 §6.2.2")
 is not one to this repository, and stays as it is.
 
 `migrate` was the one-time conversion: it resolves each bare reference to the
-heading it means, by the words before it ("spec/archive.md", "conventions", "the
+heading it means, by the words before it ("spec/refkv.md", "conventions", "the
 profile", or an old name such as "SPEC.md"), else by where it is (a format's code
 cites that format's document), and rewrites it as a link. section_overrides.tsv
 settles what that cannot. The report lists every reference and its heading.
@@ -41,7 +41,7 @@ from functools import cache
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[2]
-URL = "https://github.com/d-v-b/vzip/blob/main/"
+URL = "https://github.com/d-v-b/refkv/blob/main/"
 HERE = Path(__file__).resolve().parent
 
 # Records of past states: their references cite the documents as they were then, so
@@ -76,7 +76,8 @@ PROFILE_NUMBERS = {f: n for n, f in enumerate(FORMATS, start=3)}
 
 # Old names of the documents, from before the repository was reorganized.
 OLD_NAMES = {
-    "SPEC.md": "spec/archive.md",
+    "SPEC.md": "spec",
+    "spec/archive.md": "spec",
     "VIRTUALIZE.md": "spec/virtualize.md",
     "conventions/README.md": "spec/conventions.md",
     "TECHNIQUES.md": "spec/TECHNIQUES.md",
@@ -474,47 +475,51 @@ def fmt_of_path(path: str) -> str | None:
 # The default document of a bare reference, by the file it is in: (glob, rule). A
 # rule is "self" (the file's own headings), "fmt" (the document of the file's format,
 # by fmt_of_path, then spec/virtualize.md), "history:<archive|virtualize>" (the
-# snapshot of the round, by the file's rN directory), or a document.
+# snapshot of the round, by the file's rN directory), "spec" (the specification's two
+# documents, spec/refkv.md and spec/bindings/vzip.md, numbered as one), or a document.
 CONTEXTS: list[tuple[str, str]] = [
+    ("spec/refkv.md", "spec"),
+    ("spec/bindings/vzip.md", "spec"),
     ("spec/*.md", "self"),
+    ("spec/bindings/*.md", "self"),
     ("spec/virtualize/*.md", "self"),
     ("design/ARCHITECTURE.md", "self"),
     ("design/conformance/archive/**", "history:archive"),
     ("design/conformance/virtualize/**", "history:virtualize"),
     ("conformance/impls/virtualize/**", "spec/history/virtualize/VIRTUALIZE.r4.md"),
     ("conformance/impls/**", "spec/history/archive/SPEC.r7.md"),
-    ("conformance/archive/**", "spec/archive.md"),
+    ("conformance/vzip/**", "spec"),
     ("conformance/virtualize/**", "spec/virtualize.md"),
-    ("design/comparison/**", "spec/archive.md"),
-    ("design/experiments/**", "spec/archive.md"),
-    ("design/*.md", "spec/archive.md"),
-    ("python/src/vzip/virtualize/*/**", "fmt"),
-    ("python/src/vzip/virtualize/**", "spec/virtualize.md"),
-    ("python/src/vzip/ir/**", "spec/conventions.md"),
-    ("python/src/vzip/**", "spec/archive.md"),
+    ("design/comparison/**", "spec"),
+    ("design/experiments/**", "spec"),
+    ("design/*.md", "spec"),
+    ("python/src/refkv/virtualize/*/**", "fmt"),
+    ("python/src/refkv/virtualize/**", "spec/virtualize.md"),
+    ("python/src/refkv/ir/**", "spec/conventions.md"),
+    ("python/src/refkv/**", "spec"),
     ("js/src/virtualize/ir/**", "spec/conventions.md"),
     ("js/src/virtualize/*/**", "fmt"),
     ("js/src/virtualize/**", "spec/virtualize.md"),
-    ("js/src/**", "spec/archive.md"),
-    ("js/demo/map/**", "spec/virtualize/safe.md"),
+    ("js/src/**", "spec"),
+    ("demo/map/**", "spec/virtualize/safe.md"),
     ("js/conformance/**", "spec/virtualize.md"),
     ("js/test/*/**", "fmt"),
     ("js/test/ir_mirror.py", "spec/conventions.md"),
     ("js/test/store.test.ts", "spec/virtualize.md"),
     ("js/test/chunks.test.ts", "spec/virtualize.md"),
-    ("js/test/**", "spec/archive.md"),
+    ("js/test/**", "spec"),
     ("python/tests/ir/**", "spec/conventions.md"),
     ("python/tests/reference/**", "fmt"),
     ("python/tests/test_virtualize_*.py", "fmt"),
     ("python/tests/test_compare.py", "spec/virtualize.md"),
-    ("python/tests/**", "spec/archive.md"),
+    ("python/tests/**", "spec"),
     ("fixtures/**", "fmt"),
-    ("rust/vzip-ir/**", "fmt:spec/conventions.md"),
+    ("rust/refkv-ir/**", "fmt:spec/conventions.md"),
     ("spec/generate_schemas.py", "spec/virtualize.md"),
     ("docs/**", "spec/virtualize.md"),
     (".github/**", "spec/virtualize.md"),
     ("justfile", "spec/virtualize.md"),
-    ("js/README.md", "spec/archive.md"),
+    ("js/README.md", "spec"),
 ]
 
 
@@ -563,6 +568,8 @@ def snapshots(path: str) -> dict[str, str] | None:
     out = {}
     if (ROOT / f"spec/history/{which}/{spec}.md").is_file():
         out[f"spec/{which}.md"] = f"spec/history/{which}/{spec}.md"
+        if which == "archive":
+            out["spec"] = out["spec/archive.md"]
     if harness and (ROOT / f"spec/history/{which}/{harness}.md").is_file():
         out["HARNESS.md"] = out[f"conformance/{which}/HARNESS.md"] = f"spec/history/{which}/{harness}.md"
     return out
@@ -659,7 +666,7 @@ def qualify(path: str, text: str, ref: Ref) -> tuple[str | None, str | None, int
         return doc, m.group(2), offset(m), None
     m = Q_OLD.search(pre)
     if m:
-        return ("spec/archive.md" if m.group(1) == "SPEC" else "spec/virtualize.md"), m.group(1), offset(m), None
+        return ("spec" if m.group(1) == "SPEC" else "spec/virtualize.md"), m.group(1), offset(m), None
     m = Q_CONVENTIONS.search(pre)
     if m:
         return "spec/conventions.md", m.group(1), offset(m), None
@@ -673,7 +680,7 @@ def qualify(path: str, text: str, ref: Ref) -> tuple[str | None, str | None, int
         return f"spec/virtualize/{FORMAT_WORDS[m.group(1).lower()]}.md", m.group(1), offset(m), 1
     m = Q_SPEC.search(pre)
     if m:
-        return "spec/archive.md", m.group(1), offset(m), None
+        return "spec", m.group(1), offset(m), None
     return None, None, None, None
 
 
@@ -684,6 +691,10 @@ def part_at(path: str, line: int) -> int | None:
             break
         part = h.part
     return part
+
+
+# The specification: its two documents, whose section numbers are distinct.
+SPEC: list[tuple[str, int | None]] = [("spec/refkv.md", None), ("spec/bindings/vzip.md", None)]
 
 
 def tiers(path: str, ref: Ref) -> list[list[tuple[str, int | None]]]:
@@ -698,6 +709,8 @@ def tiers(path: str, ref: Ref) -> list[list[tuple[str, int | None]]]:
                 return [[(path, 2)], [("spec/virtualize.md", None)], [(path, 1)]]
             return [[(path, 1)], [(path, 2)], [("spec/virtualize.md", None)]]
         return [[(path, None)]]
+    if rule == "spec":
+        return [SPEC]
     if rule.startswith("history:"):
         doc = history_doc(path, rule.split(":", 1)[1])
         return [[(doc, None)]] if doc else []
@@ -749,7 +762,9 @@ def resolve(path: str, text: str, ref: Ref, prev: Ref | None) -> None:
         ref.qualifier, ref.qstart = words, offset
     ref.doc, ref.part = doc, part
     if doc is not None:
-        if format_of_doc(doc) and part is None:
+        if doc == "spec":
+            order = [SPEC]
+        elif format_of_doc(doc) and part is None:
             # a format's document by its path: Part 1 (its profile is cited as spec/virtualize.md §n)
             order: list[list[tuple[str, int | None]]] = [[(doc, 1)], [(doc, 2)]]
         else:

@@ -1,4 +1,4 @@
-"""The virtualizers' http range reader (vzip.virtualize.common.http_reader): its block
+"""The virtualizers' http range reader (refkv.virtualize.common.http_reader): its block
 cache, multi-block reads in one request, prefetched ranges, and use from many threads."""
 
 import random
@@ -8,9 +8,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from vzip.policy import Policy
-from vzip.virtualize import common
-from vzip.virtualize.common import Rejected, http_reader
+from refkv.policy import Policy
+from refkv.virtualize import common
+from refkv.virtualize.common import Rejected, http_reader
 
 BODY = bytes(random.Random(0).randrange(256) for _ in range(1000))
 BLOCK = 16

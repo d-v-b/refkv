@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { virtualizeImage } from "../../../conformance/virtualize/reference/ts/index.ts";
 import { Nd2Error } from "../../../conformance/virtualize/reference/ts/nd2/virtualize.ts";
 import { gridCut } from "../../../conformance/virtualize/reference/ts/nd2/source.ts";
-import { blockReader, planGrid } from "../../src/virtualize/common.ts";
+import { blockReader, planGrid } from "../../../conformance/virtualize/reference/ts/legacy.ts";
 import { decodeLV, LVError, TooLargeError } from "../../../conformance/virtualize/reference/ts/nd2/lv.ts";
 import { deflateSync } from "node:zlib";
 

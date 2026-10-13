@@ -2,9 +2,9 @@
 
 The OME-Zarr 0.5 layout of an OME-Zarr 0.4 hierarchy on Zarr v2 storage,
 and its attributes. It builds on the [Zarr v2 convention](zarr2.md).
-What all of vzip's conventions share is in
+What all of refkv's conventions share is in
 [spec/conventions.md](../conventions.md), cited here as "conventions §n". How
-vzip produces this layout as a reference store from a listed store is the
+refkv produces this layout as a reference store from a listed store is the
 OME-Zarr profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` ·
@@ -12,7 +12,7 @@ Schema: [schema.json](ome-zarr/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the OME-Zarr
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the OME-Zarr profile: how vzip reads the source, which inputs it rejects, and how
+is the OME-Zarr profile: how refkv reads the source, which inputs it rejects, and how
 each chunk references the source. The profile keeps its numbering as a section
 of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
 
@@ -24,7 +24,7 @@ something MUST hold, a hierarchy that fails has no layout under this
 convention, and the profile rejects it.
 
 The other conventions describe data that is not Zarr. This one is a
-different use of vzip: **format migration without copying data**. Its input
+different use of refkv: **format migration without copying data**. Its input
 is already Zarr: an OME-Zarr 0.4 hierarchy
 ([OME-NGFF 0.4](https://ngff.openmicroscopy.org/0.4/)) on Zarr v2 storage.
 Its output is the same data as OME-Zarr 0.5
@@ -52,7 +52,7 @@ whose keys are exactly Zarr v2's for either separator, and its `transpose`,
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "ome-zarr"`, `"version": 0`, `"revision": 26` ([conventions §1](../conventions.md#1-conventions)), the store's URL (ending in
+with `"profile": "ome-zarr"`, `"version": 0`, `"revision": 27` ([conventions §1](../conventions.md#1-conventions)), the store's URL (ending in
 `/`) as `source.url`, and the root's source metadata ([§8](#8-source-metadata)), if it has any,
 as the member `"ome-zarr"`. Every other node that has source metadata
 declares it with `{"ome-zarr": S}`. Its CMO is:
@@ -60,14 +60,14 @@ declares it with `{"ome-zarr": S}`. Its CMO is:
 ```json
 {
   "uuid": "b74ea302-65bb-49ae-b81f-f9bb52cd4eed",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/vzip/refs/heads/main/spec/virtualize/ome-zarr/schema.json",
-  "spec_url": "https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md",
-  "name": "vzip_virtualized",
-  "description": "The Zarr layout of a OME-Zarr source virtualized by vzip, and the source's metadata"
+  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/virtualize/ome-zarr/schema.json",
+  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md",
+  "name": "refkv_virtualized",
+  "description": "The Zarr layout of a OME-Zarr source virtualized by refkv, and the source's metadata"
 }
 ```
 
-`vzip_source` declares it too, with the store's IR mirror's description
+`refkv_source` declares it too, with the store's IR mirror's description
 ([§8.2](#82-the-store-ir), [conventions §8.9](../conventions.md#89-stores)), and so does each group of
 the mirror's view that has a member; the mirror's arrays have no
 attributes.
@@ -94,15 +94,15 @@ implicit groups, explicit groups without OME members (such as the row
 groups of a plate, or a group of tables next to an image), and arrays that
 are not image levels, with their source metadata ([§8](#8-source-metadata)). The objects that are
 not part of [the Zarr v2 convention](zarr2.md)'s nodes or chunks
-are its other objects, kept whole under `vzip_source/objects/`
+are its other objects, kept whole under `refkv_source/objects/`
 ([the Zarr v2 convention §5](zarr2.md#5-other-objects)), except
 [§7](#7-chunks-and-ome-xml)'s.
 
-**Empty objects, ignored keys and `vzip_source`.** They are
+**Empty objects, ignored keys and `refkv_source`.** They are
 [the Zarr v2 convention §5](zarr2.md#5-other-objects)'s: the empty objects have no entry and
-the mirror lists them, and the group `vzip_source` holds the store's IR mirror
-([§8.2](#82-the-store-ir)), so a node at `vzip_source`, or below it, rejects the input. The
-ignored keys are `vzip_source`'s source metadata ([§8.2](#82-the-store-ir)).
+the mirror lists them, and the group `refkv_source` holds the store's IR mirror
+([§8.2](#82-the-store-ir)), so a node at `refkv_source`, or below it, rejects the input. The
+ignored keys are `refkv_source`'s source metadata ([§8.2](#82-the-store-ir)).
 
 ## 3. OME groups
 
@@ -371,7 +371,7 @@ group `OME` itself is a node only if it has a `.zgroup`; the object is kept
 either way.) Every other object that is not a node's document or a chunk,
 OME-XML elsewhere included, is one of the
 [Zarr v2 convention](zarr2.md#5-other-objects)'s other objects,
-kept whole under `vzip_source/objects/`.
+kept whole under `refkv_source/objects/`.
 
 ## 8. Source metadata
 
@@ -398,16 +398,16 @@ none, and does not declare the convention unless it is the root.
 
 ### 8.2 The store IR
 
-`vzip_source` is the store's IR mirror, as for the Zarr v2 convention: the store's IR is
+`refkv_source` is the store's IR mirror, as for the Zarr v2 convention: the store's IR is
 [its §4.1](zarr2.md#41-elements)'s, element for element (the listing, each node document held
 as a value per top-level member, every other object referenced or empty), and its view
-`vzip_source/tree`. `vzip_source` declares this convention with the source metadata
+`refkv_source/tree`. `refkv_source` declares this convention with the source metadata
 `{"ir": D, "ignored": I}` (that is, `{"ome-zarr": {"ir": D, "ignored": I}}`): `D` the mirror's description
 ([conventions §8.9](../conventions.md#89-stores)), `I` the ignored keys of
 [the Zarr v2 convention §5](zarr2.md#5-other-objects) in ascending order of their UTF-8 bytes,
 present only when not empty. The OME layer adds no element: what
 it reads is in the node documents the mirror holds. Hierarchies of one store are compared
-entry for entry, `vzip_source` included
+entry for entry, `refkv_source` included
 ([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
 
 ## 9. Not checked
@@ -477,16 +477,16 @@ metadata:
     "zarr_conventions": [
       {
         "uuid": "b74ea302-65bb-49ae-b81f-f9bb52cd4eed",
-        "schema_url": "https://raw.githubusercontent.com/d-v-b/vzip/refs/heads/main/spec/virtualize/ome-zarr/schema.json",
-        "spec_url": "https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md",
-        "name": "vzip_virtualized",
-        "description": "The Zarr layout of a OME-Zarr source virtualized by vzip, and the source's metadata"
+        "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/virtualize/ome-zarr/schema.json",
+        "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md",
+        "name": "refkv_virtualized",
+        "description": "The Zarr layout of a OME-Zarr source virtualized by refkv, and the source's metadata"
       }
     ],
-    "vzip_virtualized": {
+    "refkv_virtualized": {
       "profile": "ome-zarr",
       "version": 0,
-      "revision": 26,
+      "revision": 27,
       "source": {
         "url": "https://example.org/i.zarr/"
       }
@@ -543,13 +543,13 @@ and the source metadata names it rather than copying it:
     "zarr_conventions": [
       {
         "uuid": "b74ea302-65bb-49ae-b81f-f9bb52cd4eed",
-        "schema_url": "https://raw.githubusercontent.com/d-v-b/vzip/refs/heads/main/spec/virtualize/ome-zarr/schema.json",
-        "spec_url": "https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md",
-        "name": "vzip_virtualized",
-        "description": "The Zarr layout of a OME-Zarr source virtualized by vzip, and the source's metadata"
+        "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/virtualize/ome-zarr/schema.json",
+        "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md",
+        "name": "refkv_virtualized",
+        "description": "The Zarr layout of a OME-Zarr source virtualized by refkv, and the source's metadata"
       }
     ],
-    "vzip_virtualized": {
+    "refkv_virtualized": {
       "ome-zarr": {
         "unversioned": [
           "multiscales"
@@ -598,7 +598,7 @@ is referenced whole in the same way: an entry under its key, with its own
 source, in the order of [§1.4](../virtualize.md#14-store-inputs) among the chunk entries (an object of size 0
 has no entry; it is an empty object, which the mirror lists, as an empty chunk object is).
 Every other object is as [§10.2](zarr2.md#102-chunks-and-other-objects) says; the ignored keys are
-`vzip_source`'s source metadata ([the convention §8.2](#82-the-store-ir)).
+`refkv_source`'s source metadata ([the convention §8.2](#82-the-store-ir)).
 
 ### 11.3 Summary
 
@@ -608,6 +608,6 @@ entries), `emptyChunks` (chunk objects of size 0), `objects` (the store's
 objects), `images`, `labels` (label images), `droppedLabelLevels` (the
 datasets L7 drops, over all label images), `plates`, `wells`, `fields`
 (the images wells list), `omeXml` (OME-XML entries), `otherObjects` (the
-entries under `vzip_source/objects/`) and `listingRequests`, and the Rust core's counts
+entries under `refkv_source/objects/`) and `listingRequests`, and the Rust core's counts
 ([§10.3](zarr2.md#103-summary)).
 

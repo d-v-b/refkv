@@ -2,8 +2,8 @@
 // recording the revision the profile is frozen at (`STORES_REVISION` of revision.ts, 25, the last
 // before Zarr v2 stores moved onto the Rust IR in revision 26), as revision.ts pins the other twins.
 
-import { declare, type Profile } from "../../../../../js/src/virtualize/common.ts";
-import type { Json } from "../../../../../js/src/virtualize/store.ts";
+import { declare, type Profile } from "../legacy.ts";
+import type { Json } from "../legacy.ts";
 import { STORES_REVISION } from "../revision.ts";
 
 export function declareNodes(

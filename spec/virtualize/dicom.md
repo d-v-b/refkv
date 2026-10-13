@@ -3,9 +3,9 @@
 The Zarr layout of a DICOM Part 10 file (PS3.10) with native or JPEG or
 JPEG 2000 encapsulated pixel data, including whole-slide images, and the
 translation of its File Meta Information and dataset into the DICOM JSON
-Model. What all of vzip's conventions share is in
+Model. What all of refkv's conventions share is in
 [spec/conventions.md](../conventions.md), cited here as "conventions §n". How
-vzip produces this layout as a reference store is the DICOM profile,
+refkv produces this layout as a reference store is the DICOM profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `acf17198-e5a5-48d3-8187-22ec4bb40ea5` ·
@@ -13,7 +13,7 @@ Schema: [schema.json](dicom/schema.json)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the DICOM
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the DICOM profile: how vzip reads the source, which inputs it rejects, and how
+is the DICOM profile: how refkv reads the source, which inputs it rejects, and how
 each chunk references the source. The profile keeps its numbering as a section
 of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
 
@@ -27,20 +27,20 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "dicom"`, `"version": 0`, `"revision": 26` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
+with `"profile": "dicom"`, `"version": 0`, `"revision": 27` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
 and the source metadata of [§5](#5-source-metadata) as the member `"dicom"`. Its CMO is:
 
 ```json
 {
   "uuid": "acf17198-e5a5-48d3-8187-22ec4bb40ea5",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/vzip/refs/heads/main/spec/virtualize/dicom/schema.json",
-  "spec_url": "https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md",
-  "name": "vzip_virtualized",
-  "description": "The Zarr layout of a DICOM source virtualized by vzip, and the source's metadata"
+  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/virtualize/dicom/schema.json",
+  "spec_url": "https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md",
+  "name": "refkv_virtualized",
+  "description": "The Zarr layout of a DICOM source virtualized by refkv, and the source's metadata"
 }
 ```
 
-`vzip_source` declares it too, with the IR mirror's description ([§5](#5-source-metadata),
+`refkv_source` declares it too, with the IR mirror's description ([§5](#5-source-metadata),
 [conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
 the mirror's view that has a member; the mirror's arrays and the image's array
 have no attributes.
@@ -262,10 +262,10 @@ array `"0"`.
 The root's source metadata `S` is the File Meta Information and the dataset in
 the DICOM JSON Model, without the members that would make the root large
 ([§5.1](#51-the-root), [§5.2](#52-the-datasets-as-json)). Everything the file
-holds is on `vzip_source`, which is the file's **IR mirror**
+holds is on `refkv_source`, which is the file's **IR mirror**
 ([§5.3](#53-the-ir-mirror), [conventions §8](../conventions.md#8-the-ir-mirror)):
 its table, from which the file is rebuilt byte for byte, and its view,
-`vzip_source/tree`. The IR's elements ([§5.4](#54-elements)) are the file's data
+`refkv_source/tree`. The IR's elements ([§5.4](#54-elements)) are the file's data
 elements themselves; nothing is left out, layout, padding and dead space
 included.
 
@@ -274,30 +274,30 @@ included.
 The root's `S` ([conventions §2](../conventions.md#2-attributes)) has these
 members (unchanged from revision 25, whose `vzip_source` held the members
 the root leaves out, and arrays at the paths it names; since revision 26 each
-such path, `vzip_source/<p>`, names the IR's element at path `<p>`, [§5.4](#54-elements),
+such path, `refkv_source/<p>`, names the IR's element at path `<p>`, [§5.4](#54-elements),
 except where this section says otherwise):
 - `preamble`: present when the 128 bytes before `DICM` are not all zero:
   their base64 encoding;
 - `meta`: the File Meta Information, without the members that are
-  `vzip_source`'s (below);
+  `refkv_source`'s (below);
 - `dataset`: the dataset, at every depth, including private attributes and
   the elements after Pixel Data, without the members that are
-  `vzip_source`'s (below);
+  `refkv_source`'s (below);
 - `pixel_extra`: present when native Pixel Data has extra bytes (below):
-  `vzip_source/pixel_extra`, the IR's element that holds them;
+  `refkv_source/pixel_extra`, the IR's element that holds them;
 - `pixel_unreferenced`: present when an Extended Offset Table skips bytes
-  (below): `vzip_source/pixel_unreferenced`, the IR's struct whose elements
+  (below): `refkv_source/pixel_unreferenced`, the IR's struct whose elements
   hold them;
 - `pixel_unreferenced_headers`: `true`, present when that family also holds
   the frames' item headers (below);
 - `pixel_fragments`: present when a frame of encapsulated pixel data has
-  more than one fragment (below): `vzip_source/pixel_fragments`, which names
+  more than one fragment (below): `refkv_source/pixel_fragments`, which names
   no element: the fragments are the IR's elements
   `dataset/7FE00010/fragments/<j>`;
 - `pixel_offset_table`: `true`, present when the Basic Offset Table of
   encapsulated pixel data is not empty (below);
 - `trailing`: present when the bytes after the last element that parses
-  (below) are not empty: `vzip_source/trailing`, the IR's element that holds
+  (below) are not empty: `refkv_source/trailing`, the IR's element that holds
   them.
 
 The members of the File Meta Information and of the top-level dataset that
@@ -382,7 +382,7 @@ a gathered sequence, `"Gathered"`; and, for a gathered sequence,
   in little endian in every transfer syntax (PS3.5 §6.2.2): in explicit VR
   big endian too, its values (and an array of them) are read in little
   endian, as its items are read in implicit VR little endian (below). The dictionary is
-  [python/src/vzip/virtualize/dicom/dictionary.json](../../python/src/vzip/virtualize/dicom/dictionary.json)
+  [rust/refkv-ir/schema/dicom_dictionary.json](../../rust/refkv-ir/schema/dicom_dictionary.json)
   (PS3.6 as pydicom 3.0.2 ships it, written by
   [generate_dictionary.py](dicom/generate_dictionary.py)); it is normative, and a
   new edition of it is a new version of this convention. A tag's VR is,
@@ -437,7 +437,7 @@ VRs hold only ASCII, and `LT ST UT` are not split, so that their bytes are
 kept by [conventions §6](../conventions.md#6-source-metadata-as-json).
 
 **Large values.** A value that is too large for JSON is the attribute
-`{"vr": VR, "BulkDataURI": U}`, where `U` is `vzip_source/<p>`, `<p>` the
+`{"vr": VR, "BulkDataURI": U}`, where `U` is `refkv_source/<p>`, `<p>` the
 attribute's path (**Paths**, below), which is the path of its element in the
 IR ([§5.4](#54-elements)): the value is that element's `v`. In the items of a
 gathered sequence, every value is gathered instead (below). The large values:
@@ -623,9 +623,9 @@ elements under `dataset/7FE00010` ([§5.4](#54-elements)).
 
 ### 5.3 The IR mirror
 
-`vzip_source` is the file's **IR mirror**
+`refkv_source` is the file's **IR mirror**
 ([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `vzip_source/tree`. The IR's
+file is rebuilt byte for byte, and its view, `refkv_source/tree`. The IR's
 elements (the DICOM **source model**) are below; nothing is left out: the
 preamble, the File Meta Information, every data element at every depth
 (group lengths, offset tables, duplicates, private and padding elements
@@ -693,7 +693,7 @@ the root leaves out included.
 
 The elements are determined by the file, and the mirror by its elements
 ([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
-file are compared entry for entry, `vzip_source` included
+file are compared entry for entry, `refkv_source` included
 ([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
 
 ## 6. Example
@@ -703,10 +703,10 @@ referenced image sequence and shared functional groups
 (`https://example.org/a.dcm`):
 
 ```json
-"vzip_virtualized": {
+"refkv_virtualized": {
   "profile": "dicom",
   "version": 0,
-  "revision": 26,
+  "revision": 27,
   "source": {
     "url": "https://example.org/a.dcm"
   },

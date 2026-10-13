@@ -8,16 +8,16 @@ import json
 import pytest
 
 from ir_helpers import FIXTURES, same_hierarchy
-from vzip.ir import virtualize as via_ir
-from vzip.ir.cmirror import rebuild_from_archive
-from vzip.virtualize import Rejected
-from vzip_reference import virtualize  # the frozen reference (ir_helpers)
+from refkv.ir import virtualize as via_ir
+from refkv.ir.cmirror import rebuild_from_archive
+from refkv.virtualize import Rejected
+from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
 IMS = sorted((FIXTURES / "ims").rglob("*.ims"))
 
 
 def same_as_reference(path, tmp_path) -> bool:
-    """The IR's output equals the reference's but vzip_source, and its archive rebuilds the
+    """The IR's output equals the reference's but refkv_source, and its archive rebuilds the
     file; or both reject it. True when accepted."""
     data = path.read_bytes()
     url = f"https://data.test/{path.name}"
@@ -61,12 +61,13 @@ def test_probes_decide_as_the_reference(ims_probes, tmp_path, name, accepted):
 
 def objects(ir) -> list[str]:
     """The paths of the IR's objects (spec/virtualize/ims.md §5.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#52-elements>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#52-elements>)."""
     return [p for p in (ir.path(i) for i in range(len(ir))) if p.count("/") == 1 and p.startswith("objects/")]
 
 
 def reference_objects(path) -> int:
-    """The number of objects the frozen reference's object table lists."""
+    """The number of objects the frozen reference's object table lists (under its revision's
+    source metadata node, vzip_source)."""
     _, out = virtualize(str(path), "https://data.test/x")
     return json.loads(out.bytes_entries["vzip_source/objects/parent/zarr.json"])["shape"][0]
 

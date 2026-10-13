@@ -1,6 +1,6 @@
 # N5
 
-vzip presents a chunked array store as a Zarr v3 hierarchy by writing a
+refkv presents a chunked array store as a Zarr v3 hierarchy by writing a
 small archive whose chunk entries point at the store's own objects, without
 copying them ([overview](../README.md)). This page is about N5 containers.
 
@@ -13,7 +13,7 @@ publishes its FIB-SEM volumes and segmentations as N5 in the public S3 bucket
 v3 tools and OME-Zarr viewers, which do not read N5, without rewriting
 terabytes of blocks.
 
-vzip lists the store, reads its `attributes.json` documents, and writes an
+refkv lists the store, reads its `attributes.json` documents, and writes an
 archive in which every N5 dataset is a Zarr v3 array and every block is one
 chunk entry referencing the block object as it is. COSEM and n5-viewer
 multiscale metadata become OME-NGFF 0.5 multiscales.
@@ -32,19 +32,19 @@ A Zarr v3 hierarchy with a node at the path of every N5 group and dataset.
 - **Chunk keys:** the `v2` encoding with `/`, so chunk keys are the N5 block
   keys and every chunk entry is the block object at the same key.
 - **Attributes:** each group's and dataset's attributes are kept on its
-  node, as `vzip_virtualized.n5.attributes` (without the N5 structural
+  node, as `refkv_virtualized.n5.attributes` (without the N5 structural
   members, which the Zarr v3 metadata holds; any the Zarr v3 metadata does
   not reproduce, such as the container's `n5` version, are under
-  `vzip_virtualized.n5.metadata`). They are not mixed into the node's own
+  `refkv_virtualized.n5.metadata`). They are not mixed into the node's own
   attributes, so they cannot be mistaken for OME-NGFF metadata.
 - **Other objects:** any object of the store that is neither an
   `attributes.json` nor a block (a README, say) is kept whole, referenced in
-  place, under `vzip_source/objects/`.
-- **The store itself:** `vzip_source` is the store's IR mirror
+  place, under `refkv_source/objects/`.
+- **The store itself:** `refkv_source` is the store's IR mirror
   ([conventions §8.9](../../../spec/conventions.md#89-stores)): the listing (every
   object's key and size, empty ones included) and every node's
   `attributes.json`, byte for byte, with a view of each document's members
-  under `vzip_source/tree`. The Rust core ([rust/vzip-ir](../../../rust/vzip-ir/))
+  under `refkv_source/tree`. The Rust core ([rust/refkv-ir](../../../rust/refkv-ir/))
   reads and checks the documents and writes it, natively from Python and as
   WebAssembly in the browser.
 - **Multiscales:** a group with COSEM `multiscales` (as on OpenOrganelle) or
@@ -61,7 +61,7 @@ of 5 levels and 1612 blocks (CC BY 4.0), from
 trailing `/`, which makes the URL a store:
 
 ```bash
-uv run python -m vzip.virtualize https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-2/jrc_hela-2.n5/labels/mito_seg/ mito_seg.vzip
+uv run python -m refkv.virtualize https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-2/jrc_hela-2.n5/labels/mito_seg/ mito_seg.vzip
 ```
 
 ```
@@ -70,15 +70,15 @@ uv run python -m vzip.virtualize https://janelia-cosem-datasets.s3.amazonaws.com
 
 This took 5 s and wrote a 198 KB archive, at spec/virtualize.md revision 16
 ([overview](../README.md#formats)). (`otherObjects`, the objects kept under
-`vzip_source/objects/`, is new since then; it is 0 here, as the store's 1618
+`refkv_source/objects/`, is new since then; it is 0 here, as the store's 1618
 objects are its 6 documents and 1612 blocks. Since revision 26 the summary also
 has the store run's `reads`, the IR's `elements` and the mirror's `folded`.)
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-g = zarr.open_group(vzip.zarr.open("mito_seg.vzip"), mode="r")
+g = zarr.open_group(refkv.zarr.open("mito_seg.vzip"), mode="r")
 ms = g.attrs["ome"]["multiscales"][0]
 print([(a["name"], a.get("unit")) for a in ms["axes"]])
 for d in ms["datasets"]:
@@ -86,7 +86,7 @@ for d in ms["datasets"]:
     print(d["path"], a.shape, a.chunks, a.dtype, d["coordinateTransformations"][0]["scale"])
 a = g["s4"]
 print(a.metadata.codecs)
-print(a.metadata.dimension_names, a.attrs["vzip_virtualized"]["n5"]["attributes"]["transform"]["axes"])
+print(a.metadata.dimension_names, a.attrs["refkv_virtualized"]["n5"]["attributes"]["transform"]["axes"])
 print(a[200, 50, 180:190])
 ```
 
@@ -117,7 +117,7 @@ Neuroglancer view stays empty (next section). A store that lists more than
 
 The Neuroglancer fork (<https://github.com/d-v-b/neuroglancer>, branch `vzip`)
 cannot display N5 archives yet: it has no `n5_default` codec, so the layer
-loads no data. zarr-python, with `vzip` imported (which registers `n5_default`), reads them.
+loads no data. zarr-python, with `refkv.zarr` imported (which registers `n5_default`), reads them.
 Neuroglancer's own N5 data source (`<url>|n5:`), which the fork keeps,
 reads the original store directly, and is the way to view N5 data today.
 
@@ -178,18 +178,18 @@ Notes:
 `js/test/n5/verify.py` virtualizes the synthetic N5 stores in
 [fixtures/n5/](../../../fixtures/n5/) (including stores to
 reject) with the browser code, and compares every array, read through
-`python/src/vzip` and zarr-python's `n5_default`, with an independent block reader
+`python/src/refkv` and zarr-python's `n5_default`, with an independent block reader
 in the script and with `zarr-n5`. `compare.py` checks that the Python and
-browser outputs, and the frozen reference's outside `vzip_source`, are equivalent on those stores and on the 7 OpenOrganelle
+browser outputs, and the frozen reference's outside `refkv_source`, are equivalent on those stores and on the 7 OpenOrganelle
 stores of [corpus_n5.txt](../../../conformance/virtualize/corpus_n5.txt)
 (the full-resolution level with the Python command only).
 
 - Profile: [spec/virtualize/n5.md](../../../spec/virtualize/n5.md#part-2-the-profile)
-- Rust core: [rust/vzip-ir/src/n5.rs](../../../rust/vzip-ir/src/n5.rs)
-  (the parser) and [rust/vzip-ir/src/project/n5.rs](../../../rust/vzip-ir/src/project/n5.rs)
+- Rust core: [rust/refkv-ir/src/n5.rs](../../../rust/refkv-ir/src/n5.rs)
+  (the parser) and [rust/refkv-ir/src/project/n5.rs](../../../rust/refkv-ir/src/project/n5.rs)
   (the projection)
-- Python host: [python/src/vzip/ir/store.py](../../../python/src/vzip/ir/store.py); browser host:
+- Python host: [python/src/refkv/ir/store.py](../../../python/src/refkv/ir/store.py); browser host:
   [js/src/virtualize/ir/store.ts](../../../js/src/virtualize/ir/store.ts)
-- Frozen reference: [conformance/virtualize/reference/vzip_reference/n5/](../../../conformance/virtualize/reference/vzip_reference/n5/)
+- Frozen reference: [conformance/virtualize/reference/refkv_reference/n5/](../../../conformance/virtualize/reference/refkv_reference/n5/)
   and [conformance/virtualize/reference/ts/n5/](../../../conformance/virtualize/reference/ts/n5/)
 - Fixtures: [fixtures/n5/](../../../fixtures/n5/)

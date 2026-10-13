@@ -1,6 +1,6 @@
 # Independent implementations written by agents from the specifications
-# alone (see README.md): spec/archive.md readers and writers in rust/, typescript/
-# and python/, and spec/virtualize.md virtualizers in virtualize/.
+# alone (see README.md): readers and writers of the archive spec of revision 7
+# (spec/history/archive/SPEC.r7.md) in rust/, typescript/ and python/, and spec/virtualize.md virtualizers in virtualize/.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 

@@ -29,9 +29,9 @@ from fsspec.implementations.asyn_wrapper import AsyncFileSystemWrapper  # noqa: 
 sys.path.insert(0, str(Path(__file__).parent))
 from bench import PER_FILE, ROOT, dir_size, layout, make_targets, synthetic  # noqa: E402
 
-from vzip.convert import write_vzip
-from vzip.shards import write_vzip_sharded
-import vzip.zarr
+from refkv.convert import write_vzip
+from refkv.shards import write_vzip_sharded
+import refkv.zarr
 
 warnings.filterwarnings("ignore")
 LATENCY = float(os.environ.get("LATENCY", "0.02"))
@@ -101,7 +101,7 @@ def serve():
 
 
 def r_vzip(url, idx):
-    return zarr.open_array(vzip.zarr.open(url, max_concurrency=None), path="v", mode="r")[idx]  # no cap, as measured
+    return zarr.open_array(refkv.zarr.open(url, max_concurrency=None), path="v", mode="r")[idx]  # no cap, as measured
 
 
 def r_kerchunk(url, idx):

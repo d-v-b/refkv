@@ -1,6 +1,6 @@
 # Hamamatsu NDPI
 
-vzip turns an image file into an OME-Zarr dataset by writing a small archive
+refkv turns an image file into an OME-Zarr dataset by writing a small archive
 of references to the file's bytes, without copying the pixels
 ([overview](../README.md)). This page is about Hamamatsu NDPI slides.
 
@@ -15,11 +15,11 @@ analysis in Python, without converting every slide first.
 
 NDPI is a TIFF variant that most Zarr tooling cannot read as tiles: each
 pyramid level is a single JPEG strip, which can be tens of thousands of
-pixels wide. vzip cuts each strip into chunks of about 1024 × 1024 pixels at
+pixels wide. refkv cuts each strip into chunks of about 1024 × 1024 pixels at
 the JPEG restart markers the scanner wrote, and makes every chunk a complete
 JPEG stream out of byte ranges of the file and the strip's shared header. The
 198 MB CMU-1.ndpi became a 5.5 MB archive in about 15 s (at spec/virtualize.md
-revision 16, before the archive kept every tag on `vzip_source`).
+revision 16, before the archive kept every tag on `refkv_source`).
 
 ## What you get
 
@@ -41,9 +41,9 @@ One OME-Zarr 0.5 image at the archive root, with one array per level.
 - **Scale:** from the TIFF resolution tags, in micrometers, when they give a
   pixel under 25.4 µm.
 - **Translation:** from the slide-center offsets the scanner records.
-- **Metadata:** the file's IR mirror on `vzip_source` (since revision 26):
+- **Metadata:** the file's IR mirror on `refkv_source` (since revision 26):
   every IFD, tag, high word and strip, from which the file is rebuilt byte
-  for byte, shown as JSON under `vzip_source/tree`; the root holds none.
+  for byte, shown as JSON under `refkv_source/tree`; the root holds none.
 
 ## Try it
 
@@ -51,7 +51,7 @@ OpenSlide's CMU-1.ndpi (198 MB, CC0), from
 [corpus_tiff.txt](../../../conformance/virtualize/corpus_tiff.txt):
 
 ```bash
-uv run python -m vzip.virtualize https://openslide.cs.cmu.edu/download/openslide-testdata/Hamamatsu/CMU-1.ndpi CMU-1.vzip
+uv run python -m refkv.virtualize https://openslide.cs.cmu.edu/download/openslide-testdata/Hamamatsu/CMU-1.ndpi CMU-1.vzip
 ```
 
 ```
@@ -65,9 +65,9 @@ tags, so it is larger.
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-g = zarr.open_group(vzip.zarr.open("CMU-1.vzip"), mode="r")
+g = zarr.open_group(refkv.zarr.open("CMU-1.vzip"), mode="r")
 ms = g.attrs["ome"]["multiscales"][0]
 for d in ms["datasets"]:
     a = g[d["path"]]
@@ -123,7 +123,7 @@ Rejected:
 The layout makes reading costly, and nothing in the archive can fix that.
 A chunk is about 128 pieces of the file, one per row of JPEG blocks
 (MCUs), and consecutive pieces are a whole strip row apart. The
-[NDPI access study](https://github.com/d-v-b/vzip/blob/research/ndpi-access/experiments/ndpi_access/README.md)
+[NDPI access study](https://github.com/d-v-b/refkv/blob/research/ndpi-access/experiments/ndpi_access/README.md)
 (branch `research/ndpi-access`) measured what that costs:
 
 - **Over-read or many requests.** Today's readers merge the ranges of a
@@ -157,18 +157,18 @@ requests.
 ## How it's verified
 
 `js/test/ndpi/verify.py` virtualizes the 9 synthetic NDPI files (including
-inputs to reject) with the browser code, reads every level back through `python/src/vzip`
+inputs to reject) with the browser code, reads every level back through `python/src/refkv`
 and zarr-python, compares the pixels with tifffile, and rebuilds each file
 from its mirror. `compare.py` checks that the Python and browser outputs are
-the same, and equivalent to the frozen reference's outside `vzip_source`, on
+the same, and equivalent to the frozen reference's outside `refkv_source`, on
 those files and on the 3 NDPI slides of
 [corpus_tiff.txt](../../../conformance/virtualize/corpus_tiff.txt), among
 them the 6.9 GB Hamamatsu-1.ndpi.
 
 - Profile: [spec/virtualize/ndpi.md](../../../spec/virtualize/ndpi.md#part-2-the-profile), which builds on
   [spec/virtualize/tiff.md](../../../spec/virtualize/tiff.md#part-2-the-profile)
-- Rust core (Python and the browser): [rust/vzip-ir/src/tiff.rs](../../../rust/vzip-ir/src/tiff.rs) (its NDPI
-  variant), [rust/vzip-ir/src/ndpi.rs](../../../rust/vzip-ir/src/ndpi.rs),
-  [rust/vzip-ir/src/project/ndpi.rs](../../../rust/vzip-ir/src/project/ndpi.rs)
+- Rust core (Python and the browser): [rust/refkv-ir/src/tiff.rs](../../../rust/refkv-ir/src/tiff.rs) (its NDPI
+  variant), [rust/refkv-ir/src/ndpi.rs](../../../rust/refkv-ir/src/ndpi.rs),
+  [rust/refkv-ir/src/project/ndpi.rs](../../../rust/refkv-ir/src/project/ndpi.rs)
 - Frozen reference (revision 25): [conformance/virtualize/reference/](../../../conformance/virtualize/reference/)
 - Fixtures: [fixtures/ndpi/](../../../fixtures/ndpi/)

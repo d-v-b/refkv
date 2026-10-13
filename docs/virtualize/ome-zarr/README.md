@@ -1,6 +1,6 @@
 # OME-Zarr 0.4 to 0.5, in place
 
-vzip presents a chunked array store as a Zarr v3 hierarchy by writing a
+refkv presents a chunked array store as a Zarr v3 hierarchy by writing a
 small archive whose chunk entries point at the store's own objects, without
 copying them ([overview](../README.md)). This page is about migrating
 OME-Zarr 0.4 data to OME-Zarr 0.5.
@@ -15,7 +15,7 @@ every chunk's metadata path and, in practice, copying the data; for a public
 dataset you do not own, it means a second copy.
 
 Here the input is already Zarr, so this is format migration rather than
-virtualization. vzip lists the 0.4 store, checks it against the parts of
+virtualization. refkv lists the 0.4 store, checks it against the parts of
 OME-NGFF 0.4 that 0.5 also requires, and writes an archive that is the same
 data as OME-Zarr 0.5: new `zarr.json` documents with the metadata rewritten
 under `ome`, and every chunk referenced in place, unchanged. The archive is
@@ -31,7 +31,7 @@ arrays, chunks and codecs, with the `v2` chunk key encoding), with:
   their `multiscales`, `omero`, `labels`, `image-label`, `plate`, `well`,
   `bioformats2raw.layout` and `series`, without the old per-object
   `version` members. Other attributes are kept under
-  `vzip_virtualized["ome-zarr"].attributes` on the same node, with the
+  `refkv_virtualized["ome-zarr"].attributes` on the same node, with the
   Zarr v2 profile's other source metadata
   ([zarr2](../zarr2/README.md#what-you-get)).
 - **`dimension_names`** on every image level, from the multiscale's axes, as
@@ -49,7 +49,7 @@ An IDR image with a label image (idr0062, 1475 objects; CC BY 4.0), from
 Note the trailing `/`:
 
 ```bash
-uv run python -m vzip.virtualize https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0062A/6001240.zarr/ 6001240.vzip
+uv run python -m refkv.virtualize https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0062A/6001240.zarr/ 6001240.vzip
 ```
 
 ```
@@ -58,15 +58,15 @@ uv run python -m vzip.virtualize https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/i
 
 This took 4 s and wrote a 201 KB archive, at spec/virtualize.md revision 16
 ([overview](../README.md#formats)). (`otherObjects`, the objects kept under
-`vzip_source/objects/`, is new since then; it is 0 here, as every object is
+`refkv_source/objects/`, is new since then; it is 0 here, as every object is
 a document or a chunk.) The label image had 4 levels to
 its image's 3; one was dropped from its multiscale.
 
 ```python
 import zarr
-import vzip.zarr
+import refkv.zarr
 
-g = zarr.open_group(vzip.zarr.open("6001240.vzip"), mode="r")
+g = zarr.open_group(refkv.zarr.open("6001240.vzip"), mode="r")
 ome = g.attrs["ome"]
 print(ome["version"], [a["name"] for a in ome["multiscales"][0]["axes"]], g["labels"].attrs["ome"]["labels"])
 a = g["0"]
@@ -127,7 +127,7 @@ Rejected, because the output would not be valid OME-Zarr 0.5:
 Not checked: what 0.4 only recommends (units, names, axis types beyond the
 order rule), and the OME-XML. A 0.4 group below a root that is not 0.4 is
 not migrated: the Zarr v2 profile keeps its attributes, unchanged, under
-`vzip_virtualized.zarr2.attributes`.
+`refkv_virtualized.zarr2.attributes`.
 
 ## Performance
 
@@ -159,12 +159,12 @@ with the Python command only).
 
 - Profile: [spec/virtualize/ome-zarr.md](../../../spec/virtualize/ome-zarr.md#part-2-the-profile), which
   builds on [spec/virtualize/zarr2.md](../../../spec/virtualize/zarr2.md#part-2-the-profile)
-- Rust core: the Zarr v2 store format ([rust/vzip-ir/src/zarr2.rs](../../../rust/vzip-ir/src/zarr2.rs),
-  [project/zarr2.rs](../../../rust/vzip-ir/src/project/zarr2.rs)) and its OME layer,
-  [rust/vzip-ir/src/ome_zarr.rs](../../../rust/vzip-ir/src/ome_zarr.rs), whose checks are the roles of
-  [rust/vzip-ir/schema/ome-zarr.json](../../../rust/vzip-ir/schema/ome-zarr.json)
-- Python host: [python/src/vzip/ir/store.py](../../../python/src/vzip/ir/store.py); browser host:
+- Rust core: the Zarr v2 store format ([rust/refkv-ir/src/zarr2.rs](../../../rust/refkv-ir/src/zarr2.rs),
+  [project/zarr2.rs](../../../rust/refkv-ir/src/project/zarr2.rs)) and its OME layer,
+  [rust/refkv-ir/src/ome_zarr.rs](../../../rust/refkv-ir/src/ome_zarr.rs), whose checks are the roles of
+  [rust/refkv-ir/schema/ome-zarr.json](../../../rust/refkv-ir/schema/ome-zarr.json)
+- Python host: [python/src/refkv/ir/store.py](../../../python/src/refkv/ir/store.py); browser host:
   [js/src/virtualize/ir/store.ts](../../../js/src/virtualize/ir/store.ts)
-- Frozen reference: [conformance/virtualize/reference/vzip_reference/ome_zarr/](../../../conformance/virtualize/reference/vzip_reference/ome_zarr/)
+- Frozen reference: [conformance/virtualize/reference/refkv_reference/ome_zarr/](../../../conformance/virtualize/reference/refkv_reference/ome_zarr/)
   and [conformance/virtualize/reference/ts/ome-zarr/](../../../conformance/virtualize/reference/ts/ome-zarr/)
 - Fixtures: [fixtures/ome-zarr/](../../../fixtures/ome-zarr/)

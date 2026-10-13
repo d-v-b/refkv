@@ -1,5 +1,5 @@
-"""The host of a store run (vzip.ir.store; conventions §8.9
-<https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): the listing and object
+"""The host of a store run (refkv.ir.store; conventions §8.9
+<https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): the listing and object
 reads of the store readers, under the reader policy, driving the Rust core's Zarr v2 store format
 (`zarr2`). One test of the runs over the Zarr v2 and OME-Zarr fixture stores (each node
 document read once and concurrently, chunk objects never read, every document read rebuilt byte
@@ -17,10 +17,10 @@ from xml.sax.saxutils import escape
 
 import pytest
 
-import vzip_ir
-from vzip.ir.store import virtualize_store
-from vzip.virtualize.common import Rejected
-from vzip.virtualize.store import object_url
+from refkv import _ir
+from refkv.ir.store import virtualize_store
+from refkv.virtualize.common import Rejected
+from refkv.virtualize.store import object_url
 
 FIXTURES = Path(__file__).parents[3] / "fixtures"
 STORES = sorted(p for f in ("zarr2", "ome-zarr") for p in (FIXTURES / f).iterdir() if p.is_dir())
@@ -110,7 +110,7 @@ def test_a_store_run_reads_each_document_once_and_its_mirror_rebuilds_them(root,
         except KeyError:
             return None
 
-    rebuilt = vzip_ir.rebuild_store(get)
+    rebuilt = _ir.rebuild_store(get)
     assert sorted((k, n) for k, n, _ in rebuilt) == sorted((k, len(v)) for k, v in objects.items())
     assert {k: b for k, _, b in rebuilt if b is not None} == {k: objects[k] for k in docs}
     # a local directory gives the same output
@@ -132,17 +132,17 @@ def test_a_document_shorter_than_listed_fails_the_run():
 
 def test_an_unknown_store_format_is_refused():
     with pytest.raises(ValueError, match="no store format"):
-        vzip_ir.StoreRun("no-such-format", [("attributes.json", 2)], 4)
+        _ir.StoreRun("no-such-format", [("attributes.json", 2)], 4)
 
 
-def test_the_ignored_keys_are_vzip_source_s_member_ignored():
+def test_the_ignored_keys_are_refkv_source_s_member_ignored():
     """The listed keys the store reader ignores and records (spec/virtualize.md §1.4
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>) are the member
-    `ignored` of vzip_source's source metadata, beside `ir`, in the order of their UTF-8 bytes."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>) are the member
+    `ignored` of refkv_source's source metadata, beside `ir`, in the order of their UTF-8 bytes."""
     root = FIXTURES / "zarr2" / "zarr2_hierarchy"
     s3 = FakeS3({**directory(root), "z//y": b"1", "./x": b"2", "é/../w": b"3"})
     out, _, _ = virtualize_store(URL, opener=s3, workers=2)
-    own = json.loads(out.entries["vzip_source/zarr.json"])["attributes"]["vzip_virtualized"]["zarr2"]
+    own = json.loads(out.entries["refkv_source/zarr.json"])["attributes"]["refkv_virtualized"]["zarr2"]
     assert set(own) == {"ir", "ignored"}
     assert own["ignored"] == sorted(["z//y", "./x", "é/../w"], key=str.encode)
 
@@ -158,7 +158,7 @@ def test_a_store_output_numbers_its_sources_by_first_use():
     """One url source per object a reference uses, in order of first use (references by
     key, ranges in order), each pinning its listed size; then the data sources, by first
     use too; literals stay."""
-    from vzip.ir.store import StoreIrOutput
+    from refkv.ir.store import StoreIrOutput
 
     out = StoreIrOutput(URL, refs={
         "b/c/0": [b"\x01", ("object", "x.jp2", 10, 4), (2, 0, 3)],
@@ -174,8 +174,8 @@ def test_a_store_output_numbers_its_sources_by_first_use():
 
 def test_a_store_output_pins_its_objects_listed_sizes(tmp_path):
     """Each url source pins its object's listed size, and an object the listing lacks pins none."""
-    from vzip.ir.store import StoreIrOutput
-    from vzip.pb import decode_source_table
+    from refkv.ir.store import StoreIrOutput
+    from refkv.pb import decode_source_table
 
     out = StoreIrOutput(URL, refs={"a": [("object", "x.jp2", 0, 4)], "b": [("object", "y.jp2", 0, 2)]},
                         sizes={"x.jp2": 20})
@@ -185,7 +185,7 @@ def test_a_store_output_pins_its_objects_listed_sizes(tmp_path):
 
 
 def test_a_store_output_refuses_a_reference_to_source_0():
-    from vzip.ir.store import StoreIrOutput
+    from refkv.ir.store import StoreIrOutput
 
     with pytest.raises(AssertionError, match="source 0"):
         StoreIrOutput(URL, refs={"a": [(0, 4)]}).table()

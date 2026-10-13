@@ -9,10 +9,10 @@ import zarr
 sys.path.insert(0, str(Path(__file__).parents[2] / "python" / "tests"))
 from conftest import make_netcdf, virtualize  # noqa: E402
 
-from vzip.convert import write_vzip
-from vzip.pb import Range
-import vzip.zarr
-from vzip.store import VZipStore
+from refkv.convert import write_vzip
+from refkv.pb import Range
+import refkv.zarr
+from refkv.vzip.store import VZipStore
 
 d = Path(tempfile.mkdtemp())
 make_netcdf(d / "a.nc", 0)
@@ -36,7 +36,7 @@ except Exception as e:
 
 print("\nVZipStore(resolve=True):")
 s = VZipStore(str(d / "a.vzip"))
-ds = xr.open_zarr(vzip.zarr.store(s), consolidated=False, zarr_format=3)
+ds = xr.open_zarr(refkv.zarr.store(s), consolidated=False, zarr_format=3)
 ref = xr.open_dataset(d / "a.nc", engine="h5netcdf")
 print("  identical:", ds.load().identical(ref.load()))
 print("  stats:", s.stats.archive_requests, "archive reqs,", s.stats.external_requests, "external reqs")

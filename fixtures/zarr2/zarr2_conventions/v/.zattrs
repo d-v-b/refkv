@@ -4,7 +4,7 @@
       "uuid": "48e9ac4e-1156-4a62-955e-20467d9c2700"
     }
   ],
-  "vzip_virtualized": {
+  "refkv_virtualized": {
     "profile": "tiff",
     "version": 1
   }

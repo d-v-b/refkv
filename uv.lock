@@ -2094,7 +2094,7 @@ wheels = [
 ]
 
 [[package]]
-name = "vzip"
+name = "refkv"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
@@ -2140,7 +2140,7 @@ dev = [
     { name = "pytest" },
     { name = "rasterio" },
     { name = "tifffile" },
-    { name = "vzip", extra = ["images", "virtualizarr", "zarr"] },
+    { name = "refkv", extra = ["images", "virtualizarr", "zarr"] },
     { name = "xarray" },
     { name = "zarr-n5" },
 ]
@@ -2152,8 +2152,8 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.5.3" },
     { name = "obstore", specifier = ">=0.11.1" },
     { name = "virtualizarr", marker = "extra == 'virtualizarr'", specifier = ">=2.7.3" },
-    { name = "vzip", extras = ["zarr"], marker = "extra == 'images'" },
-    { name = "vzip", extras = ["zarr"], marker = "extra == 'virtualizarr'" },
+    { name = "refkv", extras = ["zarr"], marker = "extra == 'images'" },
+    { name = "refkv", extras = ["zarr"], marker = "extra == 'virtualizarr'" },
     { name = "zarr", marker = "extra == 'zarr'", specifier = ">=3.4.0" },
 ]
 provides-extras = ["zarr", "images", "virtualizarr"]
@@ -2182,7 +2182,7 @@ dev = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "rasterio", specifier = ">=1.5.2" },
     { name = "tifffile", specifier = ">=2026.9.20" },
-    { name = "vzip", extras = ["zarr", "images", "virtualizarr"] },
+    { name = "refkv", extras = ["zarr", "images", "virtualizarr"] },
     { name = "xarray", specifier = ">=2026.9.0" },
     { name = "zarr-n5", specifier = ">=0.3.1" },
 ]

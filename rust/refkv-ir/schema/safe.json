@@ -1,0 +1,515 @@
+{
+  "source_model": "safe",
+  "version": 1,
+  "about": "The source model of a Sentinel-2 Level-1C or Level-2A product in the SAFE format (spec/virtualize/safe.md, spec/virtualize.md §12 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#12-safe-profile>), in its directory form (a store IR: one object per listed key) or its zip form (a file IR of the .SAFE.zip): the elements a parser emits, and the roles the product metadata, the tile geocoding, a band file's codestream, its tile-parts and a zip entry play, each with the constraints a product must meet to have the SAFE convention's layout. A parser checks this schema while it parses, at the point the profile meets each role; projections read a valid IR and check nothing but the archive's own limits (reference payloads, output keys).",
+  "limits": {
+    "max_xml": 16777216,
+    "max_rest": 65536,
+    "max_tiles": 65535,
+    "max_levels": 32,
+    "max_precision": 16,
+    "max_deflated": 67108864,
+    "max_inflated": 134217728,
+    "max_held_xml": 65536
+  },
+  "tables": {},
+  "elements": {
+    "about": "The IR of a SAFE product. Names in angle brackets are variables. A band file's elements are the same in both forms: in the directory form under its object (described in place: its bytes are its own source's), in the zip form under `entries/<i>/data` of its zip entry.",
+    "<band file>": {
+      "kind": "object (directory form) or struct (zip form)",
+      "children": {
+        "boxes/<i>": "struct: box i, in file order, up to the jp2c box",
+        "boxes/<i>/header": "{lbox:>u4,tbox:ascii[4]} or {lbox:>u4,tbox:ascii[4],xlbox:>u8}",
+        "boxes/<i>/contents": "bytes[n]: a box's contents (not the jp2c box's)",
+        "boxes/<i>/codestream": "struct: the jp2c box's contents",
+        "boxes/<i>/codestream/soc": ">u2",
+        "boxes/<i>/codestream/siz": "{marker:>u2,lsiz:>u2,rsiz:>u2,xsiz:>u4,ysiz:>u4,xosiz:>u4,yosiz:>u4,xtsiz:>u4,ytsiz:>u4,xtosiz:>u4,ytosiz:>u4,csiz:>u2,components:{ssiz:u1,xrsiz:u1,yrsiz:u1}[C]}",
+        "boxes/<i>/codestream/markers/<m>": "struct: marker segment m of the main header after SIZ, with header {marker:>u2,length:>u2} and body bytes[L-2]",
+        "boxes/<i>/codestream/tiles/<k>": "struct: tile-part k, with sot {marker:>u2,lsot:>u2,isot:>u2,psot:>u4,tpsot:u1,tnsot:u1} and body (data, form {\"codec\":\"jpeg2000-tile-part\",\"recipe\":[[\"src\",0,null]]})",
+        "boxes/<i>/codestream/eoc": ">u2"
+      }
+    },
+    "<XML document>": {
+      "kind": "object (directory form, held when read) or value data (zip form)",
+      "children": {
+        "xml": "ascii[n] (held: the whole document)"
+      }
+    },
+    "zip form": {
+      "entries/<i>": "struct: the local header and data of central directory entry i, for each object that is not empty",
+      "entries/<i>/local_header": "{signature:<u4,version:<u2,flags:<u2,method:<u2,time:<u2,date:<u2,crc32:<u4,compressed_size:<u4,size:<u4,name_length:<u2,extra_length:<u2}",
+      "entries/<i>/name": "ascii[n]",
+      "entries/<i>/extra": "bytes[n]",
+      "entries/<i>/data": "a band file (struct), an XML document (ascii[n] when stored, derived {\"transform\":\"deflate\"} when deflated), or another object (bytes[n])",
+      "central_directory": "struct: the central directory",
+      "central_directory/entries/<i>": "struct: header {signature:<u4,version_made:<u2,version_needed:<u2,flags:<u2,method:<u2,time:<u2,date:<u2,crc32:<u4,compressed_size:<u4,size:<u4,name_length:<u2,extra_length:<u2,comment_length:<u2,disk:<u2,internal:<u2,external:<u4,local_header_offset:<u4}, name ascii[n], extra bytes[n], comment ascii[n]",
+      "zip64_end": "{signature:<u4,size:<u8,version_made:<u2,version_needed:<u2,disk:<u4,cd_disk:<u4,entries_here:<u8,entries:<u8,cd_size:<u8,cd_offset:<u8}",
+      "zip64_locator": "{signature:<u4,cd_disk:<u4,record_offset:<u8,disks:<u4}",
+      "end": "{signature:<u4,disk:<u2,cd_disk:<u2,entries_here:<u2,entries:<u2,cd_size:<u4,cd_offset:<u4,comment_length:<u2}",
+      "end_comment": "ascii[n]",
+      "gaps/<offset>": "gap: bytes no element claims (local headers not read, an empty entry's)"
+    }
+  },
+  "roles": {
+    "product": {
+      "about": "the product's root objects (spec/virtualize/safe.md §2.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#22-the-product-metadata>)",
+      "given": {
+        "metadata": "how many of MTD_MSIL1C.xml and MTD_MSIL2A.xml it has",
+        "manifest": "it has manifest.safe"
+      },
+      "constraints": [
+        {
+          "require": "metadata <= 1",
+          "message": "not a SAFE product of the compact format: the root has both MTD_MSIL1C.xml and MTD_MSIL2A.xml"
+        },
+        {
+          "require": "metadata >= 1",
+          "message": "not a SAFE product of the compact format: the root has no MTD_MSIL1C.xml or MTD_MSIL2A.xml (products before December 2016 are not supported)"
+        },
+        {
+          "require": "manifest",
+          "message": "a SAFE product has no manifest.safe"
+        }
+      ]
+    },
+    "xml_size": {
+      "given": {
+        "what": "",
+        "size": ""
+      },
+      "constraints": [
+        {
+          "require": "size <= max_xml",
+          "message": "{what} is larger than 2^24 bytes"
+        }
+      ]
+    },
+    "root_element": {
+      "given": {
+        "what": "",
+        "found": "the root element's local name",
+        "expected": ""
+      },
+      "constraints": [
+        {
+          "require": "found == expected",
+          "message": "{what}'s root element is not {expected}"
+        }
+      ]
+    },
+    "image_file": {
+      "about": "an IMAGE_FILE of a granule (spec/virtualize/safe.md §2.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#23-image-files>)",
+      "given": {
+        "what": "",
+        "file": "its text",
+        "form": "it is GRANULE/<g>/<d>/<rest>",
+        "other_granule": "an earlier one names another <g>",
+        "twice": "an earlier one is the same",
+        "band": "<d> is IMG_DATA",
+        "present": "<file>.jp2 is an object"
+      },
+      "constraints": [
+        {
+          "require": "form",
+          "message": "{what}: IMAGE_FILE '{file}' is not GRANULE/<g>/<directory>/<file>"
+        },
+        {
+          "require": "!other_granule",
+          "message": "{what}: the image files are in two granule directories"
+        },
+        {
+          "require": "!twice",
+          "message": "{what}: IMAGE_FILE '{file}' is listed twice"
+        },
+        {
+          "require": "!band || present",
+          "message": "the band file {file}.jp2 is not in the product"
+        }
+      ]
+    },
+    "bands": {
+      "given": {
+        "what": "",
+        "bands": "image files in IMG_DATA"
+      },
+      "constraints": [
+        {
+          "require": "bands >= 1",
+          "message": "{what}: no image file is in IMG_DATA"
+        }
+      ]
+    },
+    "tile_metadata": {
+      "given": {
+        "key": "",
+        "present": ""
+      },
+      "constraints": [
+        {
+          "require": "present",
+          "message": "the tile metadata {key} is not in the product"
+        }
+      ]
+    },
+    "u32_text": {
+      "given": {
+        "what": "",
+        "t": "",
+        "ok": "digits without a leading zero, at most 2^32 - 1"
+      },
+      "constraints": [
+        {
+          "require": "ok",
+          "message": "{what} {t} is not a positive integer below 2^32"
+        }
+      ]
+    },
+    "cs_code": {
+      "given": {
+        "code": "",
+        "epsg": "EPSG: and one or more digits"
+      },
+      "constraints": [
+        {
+          "require": "epsg",
+          "message": "HORIZONTAL_CS_CODE {code} is not EPSG: and digits"
+        }
+      ]
+    },
+    "geoposition": {
+      "given": {
+        "name": "",
+        "t": "",
+        "finite": "a decimal number, finite as binary64"
+      },
+      "constraints": [
+        {
+          "require": "finite",
+          "message": "Geoposition {name} {t} is not a finite decimal number"
+        }
+      ]
+    },
+    "dims": {
+      "given": {
+        "xdim": "",
+        "ydim": ""
+      },
+      "constraints": [
+        {
+          "require": "xdim != 0 && ydim != 0",
+          "message": "a Geoposition's XDIM or YDIM is 0"
+        }
+      ]
+    },
+    "siz": {
+      "about": "a band file's SIZ segment (spec/virtualize/safe.md §12.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>)",
+      "given": {
+        "lsiz": "",
+        "csiz": "",
+        "rsiz": "",
+        "part2": "bit 14 or 15 of Rsiz",
+        "origin": "a nonzero image or tile origin",
+        "empty": "a zero image or tile size",
+        "same": "every Ssiz the same",
+        "signed": "",
+        "precision": "(Ssiz & 0x7F) + 1",
+        "subsampled": ""
+      },
+      "constraints": [
+        {
+          "require": "lsiz == 38 + 3 * csiz",
+          "message": "a band file's Lsiz {lsiz} is not 38 + 3 × Csiz"
+        },
+        {
+          "require": "!part2",
+          "message": "a band file uses JPEG 2000 Part 2 or High Throughput (Rsiz)"
+        },
+        {
+          "require": "!origin",
+          "message": "a band file's image or tile origin is not 0"
+        },
+        {
+          "require": "!empty",
+          "message": "a band file's image or tile size is 0"
+        },
+        {
+          "require": "in(csiz, [1, 3])",
+          "message": "a band file has {csiz} components, not 1 or 3"
+        },
+        {
+          "require": "same",
+          "message": "a band file's components differ in precision or sign"
+        },
+        {
+          "require": "!signed",
+          "message": "a band file's components are signed"
+        },
+        {
+          "require": "precision <= max_precision",
+          "message": "a band file's components have {precision} bits, more than 16"
+        },
+        {
+          "require": "!subsampled",
+          "message": "a band file's components are subsampled"
+        }
+      ]
+    },
+    "marker": {
+      "given": {
+        "allowed": "COD, COC, QCD, QCC, RGN, POC, CRG or COM",
+        "name": ""
+      },
+      "constraints": [
+        {
+          "require": "allowed",
+          "message": "a band file's main header has a {name} marker"
+        }
+      ]
+    },
+    "cod": {
+      "given": {
+        "twice": "",
+        "length": "",
+        "scod": "",
+        "layers": "",
+        "levels": ""
+      },
+      "constraints": [
+        {
+          "require": "!twice",
+          "message": "a band file's main header has two COD markers"
+        },
+        {
+          "require": "length >= 12",
+          "message": "a band file's COD segment is truncated"
+        },
+        {
+          "require": "scod <= 1",
+          "message": "a band file's COD uses SOP or EPH markers, or precinct anchors (Scod)"
+        },
+        {
+          "require": "layers >= 1",
+          "message": "a band file's COD has no layers"
+        },
+        {
+          "require": "length == (scod == 1 ? 13 + levels : 12)",
+          "message": "a band file's COD segment has the wrong length"
+        }
+      ]
+    },
+    "coc": {
+      "given": {
+        "length": "",
+        "named": "Ccoc names a component without a COC yet",
+        "scoc": "",
+        "levels": ""
+      },
+      "constraints": [
+        {
+          "require": "length >= 9",
+          "message": "a band file's COC segment is truncated"
+        },
+        {
+          "require": "named",
+          "message": "a band file's COC names no component, or one already named"
+        },
+        {
+          "require": "scoc <= 1",
+          "message": "a band file's COC has a bad Scoc"
+        },
+        {
+          "require": "length == (scoc == 1 ? 10 + levels : 9)",
+          "message": "a band file's COC segment has the wrong length"
+        }
+      ]
+    },
+    "levels": {
+      "given": {
+        "what": "",
+        "levels": ""
+      },
+      "constraints": [
+        {
+          "require": "levels <= max_levels",
+          "message": "{what} has {levels} decomposition levels, more than 32"
+        }
+      ]
+    },
+    "main_header": {
+      "given": {
+        "cod": "",
+        "qcd": "",
+        "rest": "the main header's bytes after SIZ",
+        "tiles": "nx × ny"
+      },
+      "constraints": [
+        {
+          "require": "cod && qcd == 1",
+          "message": "a band file's main header does not have exactly one COD and one QCD"
+        },
+        {
+          "require": "rest <= max_rest",
+          "message": "a band file's main header is more than 65536 bytes"
+        },
+        {
+          "require": "tiles <= max_tiles",
+          "message": "a band file has {tiles} tiles, more than 65535"
+        }
+      ]
+    },
+    "tile_part": {
+      "given": {
+        "k": "",
+        "sot": "an SOT marker with Lsot 10",
+        "isot": "",
+        "psot": "",
+        "one": "TPsot 0 and TNsot 1",
+        "within": "it ends 2 bytes before the codestream's end, or earlier"
+      },
+      "constraints": [
+        {
+          "require": "sot",
+          "message": "a band file has no SOT marker segment for tile {k}"
+        },
+        {
+          "require": "isot == k",
+          "message": "a band file's tile-parts are not in raster order (tile {isot} where {k} is)"
+        },
+        {
+          "require": "psot >= 14",
+          "message": "a band file's tile-part {k} has Psot {psot}"
+        },
+        {
+          "require": "one",
+          "message": "a band file's tile {k} has more than one tile-part"
+        },
+        {
+          "require": "within",
+          "message": "a band file's tile-part {k} reaches beyond the codestream"
+        }
+      ]
+    },
+    "band": {
+      "about": "a band file's resolution and band name (spec/virtualize/safe.md §2.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#25-band-files>)",
+      "given": {
+        "key": "",
+        "w": "",
+        "h": "",
+        "matches": "the Sizes of its image size",
+        "name": "",
+        "basename": "",
+        "ascii": "the name is ASCII letters and digits",
+        "twice": "an earlier band file of its resolution has its name",
+        "r": "",
+        "plain": "the name, as it is"
+      },
+      "constraints": [
+        {
+          "require": "matches >= 1",
+          "message": "the band file {key} ({w} × {h}) matches no resolution of the tile geocoding"
+        },
+        {
+          "require": "matches <= 1",
+          "message": "the band file {key} ({w} × {h}) matches several resolution of the tile geocoding"
+        },
+        {
+          "require": "ascii",
+          "message": "the band name {name} of {basename} is not ASCII letters and digits"
+        },
+        {
+          "require": "!twice",
+          "message": "two band files at {r} m have the band name {plain}"
+        }
+      ]
+    },
+    "tails": {
+      "given": {
+        "key": "",
+        "total": "the empty tiles of all its chunks",
+        "n": "the band file's size"
+      },
+      "constraints": [
+        {
+          "require": "total <= n",
+          "message": "the empty tiles of {key}'s chunks would take {total} bytes, more than the band file's {n}"
+        }
+      ]
+    },
+    "zip_end": {
+      "given": {
+        "disks": "its disk numbers are 0",
+        "counts": "its two entry counts are equal"
+      },
+      "constraints": [
+        {
+          "require": "disks",
+          "message": "a zip file that spans several disks"
+        },
+        {
+          "require": "counts",
+          "message": "a zip file's entry counts differ"
+        }
+      ]
+    },
+    "zip_entry": {
+      "given": {
+        "disk": "",
+        "encrypted": "flag bit 0 or 6",
+        "utf8": "its name is UTF-8"
+      },
+      "constraints": [
+        {
+          "require": "disk == 0",
+          "message": "a zip entry on another disk"
+        },
+        {
+          "require": "!encrypted",
+          "message": "a zip entry is encrypted"
+        },
+        {
+          "require": "utf8",
+          "message": "a zip entry's name is not UTF-8"
+        }
+      ]
+    },
+    "zip_method": {
+      "about": "a nonempty object's method (spec/virtualize/safe.md §12.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>)",
+      "given": {
+        "key": "",
+        "method": "",
+        "same_size": "cs = us",
+        "xml": "an XML document",
+        "size": "us"
+      },
+      "constraints": [
+        {
+          "require": "method != 0 || same_size",
+          "message": "the stored zip entry {key} has a compressed size other than its size"
+        },
+        {
+          "require": "method != 8 || xml",
+          "message": "the zip entry {key} is compressed: only XML documents may be"
+        },
+        {
+          "require": "method != 8 || size <= max_deflated",
+          "message": "the deflated XML document {key} is larger than 2^26 bytes"
+        },
+        {
+          "require": "method == 0 || method == 8",
+          "message": "the zip entry {key} has the compression method {method}"
+        }
+      ]
+    },
+    "zip_inflated": {
+      "given": {
+        "total": "the deflated XML documents' sizes"
+      },
+      "constraints": [
+        {
+          "require": "total <= max_inflated",
+          "message": "the deflated XML documents are larger than 2^27 bytes together"
+        }
+      ]
+    }
+  }
+}

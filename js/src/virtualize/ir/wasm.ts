@@ -1,4 +1,4 @@
-// The Rust core (rust/vzip-ir) as a WebAssembly instance: compiled and
+// The Rust core (rust/refkv-ir) as a WebAssembly instance: compiled and
 // instantiated once, lazily, and shared by every run. Runs are pointers into its
 // memory, so several can be in progress at once; JavaScript calls into it one at
 // a time, and each call's result (at `vz_out()`) is read before the next call.
@@ -6,7 +6,7 @@
 
 import { compileIr } from "#irwasm";
 
-/** The C-ABI of rust/vzip-ir/src/wasm.rs that the runs use. */
+/** The C-ABI of rust/refkv-ir/src/wasm.rs that the runs use. */
 export interface IrExports {
   memory: WebAssembly.Memory;
   vz_alloc(n: number): number;

@@ -2,7 +2,7 @@
 (the rest are members of column runs), the column runs and their columns by
 encoding, over local files. Usage: folds.py <file>..."""
 import json, sys
-from vzip.ir import virtualize
+from refkv.ir import virtualize
 
 tot = {}
 for f in sys.argv[1:]:

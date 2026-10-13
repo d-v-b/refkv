@@ -1,10 +1,10 @@
 // Edge cases of the source metadata that once differed from the Python
 // implementation (spec/conventions.md §6
-// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>).
+// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>).
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { setMember } from "../src/virtualize/common.ts";
+import { setMember } from "../../conformance/virtualize/reference/ts/legacy.ts";
 import { decodeLV } from "../../conformance/virtualize/reference/ts/nd2/lv.ts";
 import { Translator } from "../../conformance/virtualize/reference/ts/tiff/tags.ts";
 
