@@ -85,7 +85,9 @@ pub fn kept(profile: &str) -> &'static [&'static str] {
 /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
 /// Nothing when there are none. An output made without its mirror (`mirror` false, which no
 /// virtualizer does) has no `vzip_source` source metadata at all, and so does not record them
-/// either: like the mirror, they are what such an output leaves out.
+/// either: like the mirror, they are what such an output leaves out. Facts that carry a member
+/// the profile does not keep are refused, with or without the mirror: that is a format
+/// missing from [`kept`], whose keys would otherwise be lost.
 pub fn record_ignored(out: &mut Out, facts: &J, profile: &str) -> Result<(), String> {
     let strings = |m: &str| -> Vec<&str> { facts[m].as_array().into_iter().flatten().filter_map(J::as_str).collect() };
     // a member the facts carry that the profile does not keep would be lost: refuse it
