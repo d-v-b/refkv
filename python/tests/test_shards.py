@@ -6,7 +6,7 @@ import xarray as xr
 import vzip.zarr
 from vzip.shards import write_vzip_sharded
 
-from conftest import virtualize
+from helpers import virtualize
 
 
 def test_virtual_shards_roundtrip(netcdf_files, tmp_path):
