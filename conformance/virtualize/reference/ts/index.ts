@@ -4,7 +4,7 @@
 // code's. For comparing the Rust core's output with the TypeScript one's.
 
 import { type ByteReader, ImageError } from "../../../../js/src/virtualize/common.ts";
-import { isDicom, virtualizeDicom } from "../../../../js/src/virtualize/dicom/virtualize.ts";
+import { isDicom, virtualizeDicom } from "./dicom/virtualize.ts";
 import { virtualizeIms } from "../../../../js/src/virtualize/ims/virtualize.ts";
 import { detectNdpi, virtualizeNdpi } from "../../../../js/src/virtualize/ndpi/virtualize.ts";
 import { isZip, virtualizeSafeZip } from "../../../../js/src/virtualize/safe/virtualize.ts";

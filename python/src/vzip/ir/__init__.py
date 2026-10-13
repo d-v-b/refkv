@@ -1,7 +1,7 @@
 """vzip's intermediate representation (design/ARCHITECTURE.md §3
 <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
 the path `vzip.virtualize`
-takes for TIFF, ND2, CZI and NIfTI: the Rust core (rust/vzip-ir, the `vzip_ir` module)
+takes for TIFF, ND2, CZI, DICOM and NIfTI: the Rust core (rust/vzip-ir, the `vzip_ir` module)
 parses, checking each format's source model schema, plans the reads, projects the
 convention's hierarchy and mirrors the IR under `vzip_source`; this package is the
 host: the I/O (`planner.py`), the archive writer (`output.py` into `Output`), and
@@ -33,7 +33,10 @@ def nifti_version(head: bytes) -> int | None:
 
 
 def sniff(head: bytes) -> str | None:
-    """The IR format a file's first bytes (348 of them, for NIfTI-1) give, if any."""
+    """The IR format a file's first bytes give, if any (132 of them for DICOM, 348 for
+    NIfTI-1; DICOM first: a dual-personality file's preamble may hold a TIFF header)."""
+    if head[128:132] == b"DICM":
+        return "dicom"
     if head[:4] == ND2_MAGIC:
         return "nd2"
     if head[:4] in TIFF_MAGIC:
@@ -79,7 +82,7 @@ def virtualize(location: str, url: str | None = None, mirror: bool = True, polic
     head = held[:want] if len(held) >= want else transport.get(0, want)
     fmt = sniff(head)
     if fmt is None:
-        raise Rejected("not a TIFF, CZI, ND2 or NIfTI file")
+        raise Rejected("not a TIFF, CZI, ND2, DICOM or NIfTI file")
     run = new_run(fmt, transport, connections, byte_cost)
     drive(run, transport, connections)
     try:

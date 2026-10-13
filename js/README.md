@@ -14,7 +14,7 @@ without copying pixel data:
 1. A page asks for `<scope>vz/image/<id>/zarr.json`, where `<id>` is the
    base64url encoding of the file's or store's URL.
 2. The service worker reads the file's structure with a few range requests
-   (for TIFF, ND2, CZI and NIfTI, batched by the Rust core's read planner) and
+   (for TIFF, ND2, CZI, DICOM and NIfTI, batched by the Rust core's read planner) and
    writes a vzip archive in memory by [spec/virtualize.md](../spec/virtualize.md): an
    OME-NGFF 0.5 dataset (or, for a store, its Zarr v3 hierarchy; for SAFE,
    a GeoZarr hierarchy) whose chunks are references to the source's tiles,
@@ -74,7 +74,7 @@ The rules are [spec/virtualize.md](../spec/virtualize.md)'s profiles:
 [NIfTI](../spec/virtualize/nifti.md#part-2-the-profile), [IMS](../spec/virtualize/ims.md#part-2-the-profile),
 [N5](../spec/virtualize/n5.md#part-2-the-profile), [Zarr v2](../spec/virtualize/zarr2.md#part-2-the-profile),
 [OME-Zarr](../spec/virtualize/ome-zarr.md#part-2-the-profile), [SAFE](../spec/virtualize/safe.md#part-2-the-profile) and
-[CZI](../spec/virtualize/czi.md#part-2-the-profile). TIFF, ND2, CZI and NIfTI are virtualized by the
+[CZI](../spec/virtualize/czi.md#part-2-the-profile). TIFF, ND2, CZI, DICOM and NIfTI are virtualized by the
 Rust core (`rust/vzip-ir`) built for wasm32: `src/virtualize/ir/` performs the
 requests its read planner asks for (several at once, multi-range ones under
 Node), under the reader policy, and writes its output. `just js::wasm` builds
@@ -82,7 +82,7 @@ the module, which `just js::build` copies to `dist/vzip_ir.wasm` (beside the
 service worker, which fetches it) and which the Node tests and CLIs read from
 cargo's target directory (or `$VZIP_IR_WASM`). The other profiles are each
 implemented in their own directory of `src/virtualize/` (`store.ts` holds what
-the store profiles share). The TypeScript TIFF, ND2, CZI and NIfTI virtualizers the
+the store profiles share). The TypeScript TIFF, ND2, CZI, DICOM and NIfTI virtualizers the
 core replaced are kept, frozen, in `conformance/reference/` (with CLIs
 `conformance/reference/virtualize.ts` and `virtualize_file.ts`), for
 comparisons. The Python implementation (`python -m vzip.virtualize`)
@@ -264,7 +264,7 @@ node js/demo/e2e_examples.mjs <out dir> [example id …]      # every demo examp
   their synthetic files, against pydicom, nibabel (unscaled data) and h5py
   (cropped to the image size).
 - `compare.py` runs three virtualizers (`ref`, the frozen reference for
-  TIFF, ND2, CZI and NIfTI and the shipped Python code for the rest; `py`, the
+  TIFF, ND2, CZI, DICOM and NIfTI and the shipped Python code for the rest; `py`, the
   Python command; `web`, this code under Node) on the synthetic files, every
   OME-TIFF of IDR idr0096 and the public files of every format
   (`conformance/virtualize/corpus_*.txt`), and compares their outputs

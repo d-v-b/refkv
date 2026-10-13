@@ -13,6 +13,7 @@
 //! and reads nothing (the IR holds what it needs).
 
 mod czi;
+mod dicom;
 mod nd2;
 mod nifti;
 mod tiff;
@@ -33,6 +34,7 @@ pub fn project(format: Format, ir: &Ir, facts: &J, url: &str, copied: &Copied) -
         Format::Tiff => tiff::project(ir, facts, url),
         Format::Czi => czi::project(ir, facts, url),
         Format::Nd2 => nd2::project(ir, facts, url),
+        Format::Dicom => dicom::project(ir, facts, url),
         Format::Nifti => nifti::project(ir, facts, url, copied),
     }
 }

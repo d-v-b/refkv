@@ -1,9 +1,9 @@
 """Virtualizing image files and N5 / Zarr v2 stores in vzip archives (spec/virtualize.md).
 
-TIFF, ND2, CZI and NIfTI files go through the IR (`vzip.ir`): the Rust core's sans-IO
+TIFF, ND2, CZI, DICOM and NIfTI files go through the IR (`vzip.ir`): the Rust core's sans-IO
 parser of the format, driven by its read planner over this package's I/O, projected
 to the convention's hierarchy and mirrored under `vzip_source` by the Rust core.
-Every other profile is a subpackage: ndpi, dicom, ims (file inputs), n5,
+Every other profile is a subpackage: ndpi, ims (file inputs), n5,
 zarr2, ome_zarr (store inputs, spec/virtualize/n5.md, spec/virtualize/zarr2.md and
 spec/virtualize/ome-zarr.md), and safe (Sentinel-2 SAFE products, spec/virtualize/safe.md: a
 store input, or a zip file); common holds what they share, and store the store
@@ -43,7 +43,6 @@ from __future__ import annotations
 from vzip.policy import Policy, crc32c
 from vzip.virtualize import ndpi
 from vzip.virtualize.common import Output, Rejected, file_reader, http_reader
-from vzip.virtualize.dicom import is_dicom, virtualize_dicom
 from vzip.virtualize.ims import virtualize_ims
 from vzip.virtualize.n5 import virtualize_n5
 from vzip.virtualize.ome_zarr import declares_04, virtualize_ome_zarr
@@ -61,7 +60,13 @@ ND2_MAGIC = bytes.fromhex("DACEBE0A")
 CZI_MAGIC = b"ZISRAWFILE" + bytes(6)
 NOT_SUPPORTED = "not a TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file"
 
-__all__ = ["Output", "Rejected", "StoreOutput", "virtualize", "virtualize_store", "virtualize_dicom", "virtualize_ims"]
+__all__ = ["Output", "Rejected", "StoreOutput", "virtualize", "virtualize_store", "virtualize_ims"]
+
+
+def is_dicom(head: bytes) -> bool:
+    """The DICOM row of spec/virtualize.md §1.2
+    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>."""
+    return head[128:132] == b"DICM"
 
 
 def virtualize_store(location: str, url: str | None = None, *, max_objects: int | None = None,
@@ -114,7 +119,7 @@ def virtualize(location: str, url: str | None = None, *, checksums: bool = False
     which reads them. `policy` is the reader policy a file
     or store at an http(s) URL is read under (default: `Policy()`, private hosts
     refused).
-    For TIFF, ND2, CZI and NIfTI, `connections` is how many requests run at a time to a
+    For TIFF, ND2, CZI, DICOM and NIfTI, `connections` is how many requests run at a time to a
     remote source (default 8), and `byte_cost` the seconds of wall time the read
     planner charges a byte fetched beyond those asked (default 0.1 s per MB).
     A store's documents are read by up to `workers` requests at a time."""
@@ -136,8 +141,8 @@ def virtualize(location: str, url: str | None = None, *, checksums: bool = False
         return transport.get(offset, offset + length)
 
     head = first(0, min(552, size))
-    ir_format = None
-    if not is_dicom(head):
+    ir_format = "dicom" if is_dicom(head) else None
+    if ir_format is None:
         if head[:4] in TIFF_MAGIC:
             ndpi_first = ndpi.detect(first, size)
             ir_format = "tiff" if ndpi_first is None else None
@@ -171,8 +176,6 @@ def virtualize(location: str, url: str | None = None, *, checksums: bool = False
 def _virtualize_file(url: str, read, size: int) -> tuple[str, Output | SafeOutput]:
     """The profiles that are not the IR's, by the file's first bytes."""
     head = read(0, min(552, size))
-    if is_dicom(head):
-        return "dicom", virtualize_dicom(url, read, size)
     if head[:4] in TIFF_MAGIC:
         first = ndpi.detect(read, size)
         if first is not None:

@@ -2,7 +2,7 @@
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#61-elements>–§6.3
 // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#63-datasets-and-sequences>).
 
-import type { ByteReader } from "../common.ts";
+import type { ByteReader } from "../../../../../js/src/virtualize/common.ts";
 
 export class DicomError extends Error {}
 
