@@ -80,7 +80,7 @@ class Output:
     # and the CRC-32C of a url source's bytes, when the
     # ranges are to carry checksums (spec/archive.md §4.2
     # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>); set by
-    # vzip.virtualize.virtualize.
+    # vzip.virtualize._virtualize.
     size: int | None = None
     etag: str | None = None
     checksum: Callable[[str, int, int], int] | None = None

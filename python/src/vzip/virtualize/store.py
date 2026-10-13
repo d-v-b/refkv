@@ -1054,7 +1054,7 @@ class StoreOutput:
     # The CRC-32C of a url source's bytes, when the references are to carry
     # checksums (spec/archive.md §4.2
     # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>); set by
-    # vzip.virtualize.virtualize_store.
+    # vzip.virtualize._virtualize_store.
     checksum: Callable[[str, int, int], int] | None = None
 
     def declare(self, profile: str, omes: dict[str, dict] | None = None) -> None:

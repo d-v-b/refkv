@@ -27,14 +27,21 @@ def proxy(tmp_path_factory):
 
 
 # (fixture, a store, checksums, format): a TIFF through the Rust core, NIfTI, Imaris IMS,
-# a Zarr v2 store, and a SAFE product as a store (whose ranges start past byte 0, beside data
-# sources) and as a zip file
+# N5 stores (one with objects it ignores, one with an empty block) and an OME-Zarr 0.4 store
+# (the Python store profile's output), a Zarr v2 store (the core's), and a SAFE product as a
+# store (whose ranges start past byte 0, beside data sources) and as a zip file
 INPUTS = [
     ("tiff/jpeg_gray.tif", False, False, "tiff"),
     ("tiff/jpeg_gray.tif", False, True, "tiff"),
     ("nifti/nifti_block_x_split.nii", False, False, "nifti"),
     ("ims/ims_latest_uint8.ims", False, False, "ims"),
     ("ims/ims_latest_uint8.ims", False, True, "ims"),
+    ("n5/n5_hierarchy", True, False, "n5"),
+    ("n5/n5_hierarchy", True, True, "n5"),
+    ("n5/n5_objects", True, False, "n5"),
+    ("n5/n5_root_dataset_empty_block", True, False, "n5"),
+    ("ome-zarr/ome_zarr_image_2d", True, False, "ome-zarr"),
+    ("ome-zarr/ome_zarr_image_2d", True, True, "ome-zarr"),
     ("zarr2/zarr2_hierarchy", True, False, "zarr2"),
     ("zarr2/zarr2_hierarchy", True, True, "zarr2"),
     ("safe/safe_l2a_pb0207", True, False, "safe"),

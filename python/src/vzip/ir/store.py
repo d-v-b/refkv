@@ -125,7 +125,7 @@ class StoreIrOutput:
     sizes: dict[str, int] = field(default_factory=dict)
     # The CRC-32C of a url source's bytes, when the ranges are to carry checksums
     # (spec/archive.md §4.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>);
-    # set by vzip.virtualize.virtualize_store.
+    # set by vzip.virtualize._virtualize_store.
     checksum: Callable[[str, int, int], int] | None = None
 
     @property
