@@ -13,6 +13,12 @@ resolution-markers = [
     "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
+[manifest]
+members = [
+    "refkv",
+    "refkv-workspace",
+]
+
 [[package]]
 name = "affine"
 version = "3.0.1"
@@ -1791,6 +1797,106 @@ wheels = [
 ]
 
 [[package]]
+name = "refkv"
+source = { editable = "python" }
+dependencies = [
+    { name = "google-crc32c" },
+    { name = "numpy" },
+    { name = "obstore" },
+]
+
+[package.optional-dependencies]
+images = [
+    { name = "imagecodecs" },
+    { name = "zarr" },
+]
+virtualizarr = [
+    { name = "virtualizarr" },
+    { name = "zarr" },
+]
+zarr = [
+    { name = "zarr" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "google-crc32c", specifier = ">=1.9.0" },
+    { name = "imagecodecs", marker = "extra == 'images'", specifier = ">=2026.8.16" },
+    { name = "numpy", specifier = ">=2.5.3" },
+    { name = "obstore", specifier = ">=0.11.1" },
+    { name = "refkv", extras = ["zarr"], marker = "extra == 'images'", editable = "python" },
+    { name = "refkv", extras = ["zarr"], marker = "extra == 'virtualizarr'", editable = "python" },
+    { name = "virtualizarr", marker = "extra == 'virtualizarr'", specifier = ">=2.7.3" },
+    { name = "zarr", marker = "extra == 'zarr'", specifier = ">=3.4.0" },
+]
+provides-extras = ["images", "virtualizarr", "zarr"]
+
+[[package]]
+name = "refkv-workspace"
+version = "0"
+source = { virtual = "." }
+
+[package.dev-dependencies]
+bench = [
+    { name = "fastparquet" },
+    { name = "icechunk" },
+    { name = "kerchunk" },
+    { name = "pyarrow" },
+]
+dev = [
+    { name = "aiohttp" },
+    { name = "czifile" },
+    { name = "fsspec" },
+    { name = "h5netcdf" },
+    { name = "h5py" },
+    { name = "jsonschema" },
+    { name = "nd2" },
+    { name = "nibabel" },
+    { name = "ome-zarr-models" },
+    { name = "protobuf" },
+    { name = "pydicom" },
+    { name = "pylibczirw" },
+    { name = "pyproj" },
+    { name = "pytest" },
+    { name = "rasterio" },
+    { name = "refkv", extra = ["images", "virtualizarr", "zarr"] },
+    { name = "tifffile" },
+    { name = "xarray" },
+    { name = "zarr-n5" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+bench = [
+    { name = "fastparquet", specifier = ">=2026.9.0" },
+    { name = "icechunk", specifier = ">=2.2.2" },
+    { name = "kerchunk", specifier = ">=0.2.10" },
+    { name = "pyarrow", specifier = ">=25.0.1" },
+]
+dev = [
+    { name = "aiohttp", specifier = ">=3.14.3" },
+    { name = "czifile", specifier = ">=2026.8.16" },
+    { name = "fsspec", specifier = ">=2026.9.0" },
+    { name = "h5netcdf", specifier = ">=1.8.1" },
+    { name = "h5py", specifier = ">=3.16.0" },
+    { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "nd2", specifier = ">=0.12.0" },
+    { name = "nibabel", specifier = ">=5.4.2" },
+    { name = "ome-zarr-models", specifier = ">=1.8.1" },
+    { name = "protobuf", specifier = ">=7.36.2" },
+    { name = "pydicom", specifier = ">=3.0.2" },
+    { name = "pylibczirw", specifier = ">=6.1.0" },
+    { name = "pyproj", specifier = ">=3.8.0" },
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "rasterio", specifier = ">=1.5.2" },
+    { name = "refkv", extras = ["zarr", "images", "virtualizarr"], editable = "python" },
+    { name = "tifffile", specifier = ">=2026.9.20" },
+    { name = "xarray", specifier = ">=2026.9.0" },
+    { name = "zarr-n5", specifier = ">=0.3.1" },
+]
+
+[[package]]
 name = "resource-backed-dask-array"
 version = "0.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2091,100 +2197,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/36/2a/cb2d364594631236083d86142ac72103a63241717ec2de01920340d08293/virtualizarr-2.7.3.tar.gz", hash = "sha256:3708ecedaf9c8580e78f8435b3882b95cf02a32c94a052da7afc024da2833ba4", size = 851130, upload-time = "2026-08-07T15:04:10.495Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/f3/6c9aa0140d89b831e59429efb3bfb5b4f9cf314158e65391fdb9dd52a6ad/virtualizarr-2.7.3-py3-none-any.whl", hash = "sha256:1f935f54b07bf867516b36b559bfeefcaa78f2b47537c99d8ca4d770ec7bce8c", size = 756396, upload-time = "2026-08-07T15:04:08.623Z" },
-]
-
-[[package]]
-name = "refkv"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "google-crc32c" },
-    { name = "numpy" },
-    { name = "obstore" },
-]
-
-[package.optional-dependencies]
-images = [
-    { name = "imagecodecs" },
-    { name = "zarr" },
-]
-virtualizarr = [
-    { name = "virtualizarr" },
-    { name = "zarr" },
-]
-zarr = [
-    { name = "zarr" },
-]
-
-[package.dev-dependencies]
-bench = [
-    { name = "fastparquet" },
-    { name = "icechunk" },
-    { name = "kerchunk" },
-    { name = "pyarrow" },
-]
-dev = [
-    { name = "aiohttp" },
-    { name = "czifile" },
-    { name = "fsspec" },
-    { name = "h5netcdf" },
-    { name = "h5py" },
-    { name = "jsonschema" },
-    { name = "nd2" },
-    { name = "nibabel" },
-    { name = "ome-zarr-models" },
-    { name = "protobuf" },
-    { name = "pydicom" },
-    { name = "pylibczirw" },
-    { name = "pyproj" },
-    { name = "pytest" },
-    { name = "rasterio" },
-    { name = "tifffile" },
-    { name = "refkv", extra = ["images", "virtualizarr", "zarr"] },
-    { name = "xarray" },
-    { name = "zarr-n5" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "google-crc32c", specifier = ">=1.9.0" },
-    { name = "imagecodecs", marker = "extra == 'images'", specifier = ">=2026.8.16" },
-    { name = "numpy", specifier = ">=2.5.3" },
-    { name = "obstore", specifier = ">=0.11.1" },
-    { name = "virtualizarr", marker = "extra == 'virtualizarr'", specifier = ">=2.7.3" },
-    { name = "refkv", extras = ["zarr"], marker = "extra == 'images'" },
-    { name = "refkv", extras = ["zarr"], marker = "extra == 'virtualizarr'" },
-    { name = "zarr", marker = "extra == 'zarr'", specifier = ">=3.4.0" },
-]
-provides-extras = ["zarr", "images", "virtualizarr"]
-
-[package.metadata.requires-dev]
-bench = [
-    { name = "fastparquet", specifier = ">=2026.9.0" },
-    { name = "icechunk", specifier = ">=2.2.2" },
-    { name = "kerchunk", specifier = ">=0.2.10" },
-    { name = "pyarrow", specifier = ">=25.0.1" },
-]
-dev = [
-    { name = "aiohttp", specifier = ">=3.14.3" },
-    { name = "czifile", specifier = ">=2026.8.16" },
-    { name = "fsspec", specifier = ">=2026.9.0" },
-    { name = "h5netcdf", specifier = ">=1.8.1" },
-    { name = "h5py", specifier = ">=3.16.0" },
-    { name = "jsonschema", specifier = ">=4.26.0" },
-    { name = "nd2", specifier = ">=0.12.0" },
-    { name = "nibabel", specifier = ">=5.4.2" },
-    { name = "ome-zarr-models", specifier = ">=1.8.1" },
-    { name = "protobuf", specifier = ">=7.36.2" },
-    { name = "pydicom", specifier = ">=3.0.2" },
-    { name = "pylibczirw", specifier = ">=6.1.0" },
-    { name = "pyproj", specifier = ">=3.8.0" },
-    { name = "pytest", specifier = ">=9.1.1" },
-    { name = "rasterio", specifier = ">=1.5.2" },
-    { name = "tifffile", specifier = ">=2026.9.20" },
-    { name = "refkv", extras = ["zarr", "images", "virtualizarr"] },
-    { name = "xarray", specifier = ">=2026.9.0" },
-    { name = "zarr-n5", specifier = ">=0.3.1" },
 ]
 
 [[package]]

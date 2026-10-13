@@ -21,7 +21,7 @@ def missing(extra: str, feature: str, error: ImportError) -> ImportError:
     """The ImportError for `feature` when an optional package of `extra` is missing."""
     name = error.name or str(error)
     e = ImportError(f"{feature} needs {name!r}, which refkv's {extra!r} extra installs: "
-                    f"pip install 'refkv[{extra}] @ git+https://github.com/d-v-b/refkv', or "
-                    f"from a clone, pip install '.[{extra}]'", name=error.name)
+                    f"pip install 'refkv[{extra}] @ git+https://github.com/d-v-b/refkv#subdirectory=python', "
+                    f"or from a clone, pip install './python[{extra}]'", name=error.name)
     e.__cause__ = error
     return e
