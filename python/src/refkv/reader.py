@@ -194,8 +194,13 @@ class Resolver:
         p = urlparse(url)
         scheme = p.scheme.lower()
         if scheme == "file":
-            return (self._made.setdefault("file://", LocalFiles()),
-                    file_path(url, allow_host=allow_file_host))
+            try:
+                path = file_path(url, allow_host=allow_file_host)
+            # a file: URL that breaks the rules of spec §5
+            # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>
+            except ValueError as e:
+                raise ResolutionError(f"{url}: {e}") from None
+            return self._made.setdefault("file://", LocalFiles()), path
         if scheme not in self._OWN:
             root = f"{scheme}://{p.netloc}"
             raise ResolutionError(
@@ -877,7 +882,10 @@ class ReferenceReader:
         if not src.pinned:
             return await self._read(url, start, end, external=True)
         if urlparse(url).scheme.lower() == "file":
-            path = file_path(url, allow_host=self.policy.allow_file_hosts)
+            try:
+                path = file_path(url, allow_host=self.policy.allow_file_hosts)
+            except ValueError as e:
+                raise ResolutionError(f"{url}: {e}") from None
             st = os.stat(path)
             if src.etag is not None:
                 raise ResolutionError("an etag pin cannot be checked for a file: URL")
