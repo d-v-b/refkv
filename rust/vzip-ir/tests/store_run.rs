@@ -158,3 +158,14 @@ fn a_listing_the_ir_cannot_hold_is_refused() {
     let e = StoreRun::new(StoreFormat::Zarr2, vec![("a/./b".into(), 1)], 4).err().unwrap();
     assert_eq!(e, "key \"a/./b\" has an empty, . or .. segment");
 }
+
+#[test]
+fn a_member_of_the_facts_the_profile_does_not_keep_is_refused() {
+    // dropping it would lose the keys: N5 keeps neither member, Zarr v2 no empty directories
+    for (profile, member) in [("n5", "ignored"), ("zarr2", "empty_dirs")] {
+        let mut out = vzip_ir::out::Out::default();
+        let facts = json!({ member: ["a/"] });
+        let e = vzip_ir::project::store::record_ignored(&mut out, &facts, profile).unwrap_err();
+        assert!(e.contains(member), "{e}");
+    }
+}

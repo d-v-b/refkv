@@ -88,6 +88,12 @@ pub fn kept(profile: &str) -> &'static [&'static str] {
 /// either: like the mirror, they are what such an output leaves out.
 pub fn record_ignored(out: &mut Out, facts: &J, profile: &str) -> Result<(), String> {
     let strings = |m: &str| -> Vec<&str> { facts[m].as_array().into_iter().flatten().filter_map(J::as_str).collect() };
+    // a member the facts carry that the profile does not keep would be lost: refuse it
+    for m in ["empty_dirs", "ignored"] {
+        if !kept(profile).contains(&m) && !strings(m).is_empty() {
+            return Err(format!("internal: the {profile} convention keeps no {m}"));
+        }
+    }
     let mut members: Vec<(&str, Vec<&str>)> = Vec::new();
     for &m in kept(profile) {
         let mut v = strings(m);
