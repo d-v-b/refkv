@@ -18,7 +18,7 @@ refkv can present TIFF, NDPI, ND2, CZI, DICOM, NIfTI and Imaris files, and N5, Z
 
 ## Installing
 
-`pip install "refkv @ git+https://github.com/d-v-b/refkv"` installs the Python
+`pip install "refkv @ git+https://github.com/d-v-b/refkv#subdirectory=python"` installs the Python
 package's base: it reads and writes vzip archives, and virtualizes files and
 stores through refkv's Rust core, which the install compiles into the same
 package (this needs a Rust toolchain, such as [rustup](https://rustup.rs)'s). Two extras add the rest:

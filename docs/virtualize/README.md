@@ -70,7 +70,7 @@ just virtualize <url or path> out.vzip
 TIFF (and SVS and NDPI), ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2, N5 and OME-Zarr stores, are virtualized by refkv's Rust core,
 [rust/refkv-ir](../../rust/refkv-ir/), part of the refkv
 distribution: installing refkv (`pip install`, or `uv sync` in a clone) builds
-it as the Python module `refkv._ir`, which needs a Rust toolchain. The core parses the file into an intermediate representation (IR),
+it into the Python module `refkv._core`, which needs a Rust toolchain. The core parses the file into an intermediate representation (IR),
 plans the range requests, projects the IR onto the format's convention, and
 writes the source's IR mirror ([below](#the-sources-metadata-and-where-it-came-from-refkv_virtualized)).
 The other formats are implemented in Python and do not need it.
