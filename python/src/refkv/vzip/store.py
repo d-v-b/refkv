@@ -159,7 +159,7 @@ class VZipStore(ReferenceReader):
         await super()._open()
 
     async def _open_archive(self) -> None:
-        store, path = self.resolver.resolve(self.url)
+        store, path = self.resolver.resolve(self.url, allow_file_host=True)
         async with self._limit():
             res = await store.get_async(path, options={"range": {"suffix": TAIL_GUESS}})
             tail = bytes(await res.buffer_async())

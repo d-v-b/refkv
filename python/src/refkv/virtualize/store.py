@@ -806,7 +806,9 @@ class DirStore(Store):
         self.folders = []
         listed = []
         for dirpath, dirnames, filenames in os.walk(path):
-            dirnames[:] = [d for d in dirnames if not os.path.islink(os.path.join(dirpath, d))]
+            # symbolic links, and on Windows junctions, are not followed
+            dirnames[:] = [d for d in dirnames if not (os.path.islink(p := os.path.join(dirpath, d))
+                                                       or os.path.isjunction(p))]
             rel_dir = os.path.relpath(dirpath, path)
             for name in filenames:
                 full = os.path.join(dirpath, name)
@@ -814,7 +816,7 @@ class DirStore(Store):
                 if not stat.S_ISREG(st.st_mode):
                     continue
                 rel = name if rel_dir == "." else f"{rel_dir}/{name}"
-                rel = rel.replace(os.sep, "/")
+                rel = rel.replace(os.sep, "/")  # a key is `/`-separated on every system
                 try:
                     rel.encode("utf-8")
                 except UnicodeEncodeError:  # a name that is not UTF-8 (surrogate-escaped)

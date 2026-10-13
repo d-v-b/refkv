@@ -33,13 +33,13 @@ from email.message import Message
 from typing import Literal
 from urllib.parse import unquote, urljoin, urlparse, urlsplit
 
-from obstore.store import HTTPStore, LocalStore
+from obstore.store import HTTPStore
 
 from refkv._sync import run
 from refkv.errors import PayloadError, RequestError, ResolutionError
 from refkv.pb import Reference, Source, parts
 from refkv.policy import Policy, crc32c, public_s3_url
-from refkv.uri import file_path, file_uri
+from refkv.uri import file_path, file_uri, is_url
 from refkv.uri import resolve as resolve_reference
 
 
@@ -117,8 +117,8 @@ class Resolver:
       every address it connects to.
 
     Without a registered store, refkv reads `http(s)` sources with its own HTTP
-    client, the archive itself (local, or over `http(s)`) with obstore, and
-    local `file:` sources from the file system. It makes no store for any
+    client, an archive at an `http(s)` URL with obstore, and a local archive and
+    `file:` sources from the file system. It makes no store for any
     other scheme: obstore's `from_url` would look for credentials (environment
     variables, configuration files, the cloud metadata service at
     169.254.169.254), out of the reader policy's reach. Reading such a URL
@@ -184,15 +184,18 @@ class Resolver:
             path = path[len(root):].lstrip("/")
         return store, path
 
-    def resolve(self, url: str) -> tuple[object, str]:
-        """The store that reads `url`, and the object's path in it."""
+    def resolve(self, url: str, *, allow_file_host: bool = False) -> tuple[object, str]:
+        """The store that reads `url`, and the object's path in it. `allow_file_host`:
+        a `file:` URL may name a host, a UNC path on Windows (spec §5
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)."""
         found = self.registered(url)
         if found is not None:
             return found
         p = urlparse(url)
         scheme = p.scheme.lower()
         if scheme == "file":
-            return self._made.setdefault("file://", LocalStore()), file_path(url)
+            return (self._made.setdefault("file://", LocalFiles()),
+                    file_path(url, allow_host=allow_file_host))
         if scheme not in self._OWN:
             root = f"{scheme}://{p.netloc}"
             raise ResolutionError(
@@ -209,6 +212,48 @@ class Resolver:
                 root, client_options={"allow_http": scheme == "http"})
         # object_store paths are decoded; it percent-encodes them itself when building URLs
         return self._made[root], unquote(p.path).lstrip("/")
+
+
+class _Got:
+    """What `LocalFiles.get_async` returns: the bytes read, and the file's size."""
+
+    def __init__(self, data: bytes, size: int) -> None:
+        self._data, self.meta = data, {"size": size}
+
+    async def buffer_async(self) -> bytes:
+        return self._data
+
+
+class LocalFiles:
+    """Local files, by OS path, with the methods of an obstore store that the reader
+    calls. obstore's LocalStore takes `/`-separated paths under one root, which
+    cannot name a Windows drive letter or a UNC path; this takes the path that
+    `refkv.uri.file_path` maps a `file:` URL to, on every system."""
+
+    @staticmethod
+    def _range(path: str, start: int, end: int) -> bytes:
+        with open(path, "rb") as fh:
+            size = os.fstat(fh.fileno()).st_size
+            if start > size:
+                raise ValueError(f"the range starts at {start}, past the end of the "
+                                 f"{size}-byte file")
+            fh.seek(start)
+            return fh.read(end - start)
+
+    @staticmethod
+    def _suffix(path: str, n: int) -> _Got:
+        with open(path, "rb") as fh:
+            size = os.fstat(fh.fileno()).st_size
+            fh.seek(max(0, size - n))
+            return _Got(fh.read(), size)
+
+    async def get_range_async(self, path: str, *, start: int, end: int) -> bytes:
+        return await asyncio.to_thread(self._range, path, start, end)
+
+    async def get_async(self, path: str, *, options: dict) -> _Got:
+        if set(options) != {"range"} or set(options["range"]) != {"suffix"}:
+            raise NotImplementedError(f"LocalFiles.get_async reads a suffix, not {options!r}")
+        return await asyncio.to_thread(self._suffix, path, options["range"]["suffix"])
 
 
 def _segments(path: str) -> tuple[str, ...]:
@@ -691,7 +736,7 @@ class ReferenceReader:
         self.policy = policy or Policy()
         # spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>:
         # absolute, lexically normalised, symlinks not resolved
-        self.url = url if urlparse(url).scheme else file_uri(url)
+        self.url = url if is_url(url) else file_uri(url)
         self.resolver = _resolver(registry)
         self.stats = stats or Stats()
         self.max_concurrency = max_concurrency
@@ -795,7 +840,10 @@ class ReferenceReader:
         """Bytes [start, end) of `url`; with exact=False a short read is allowed."""
         if end <= start:
             return b""
-        store, path = self.resolver.resolve(url)
+        # the archive's own URL is the application's choice; a source's file: host
+        # needs the policy's allow_file_hosts
+        store, path = self.resolver.resolve(
+            url, allow_file_host=url == self.url or self.policy.allow_file_hosts)
         try:
             async with self._limit():
                 data = bytes(await store.get_range_async(path, start=start, end=end))
@@ -829,7 +877,7 @@ class ReferenceReader:
         if not src.pinned:
             return await self._read(url, start, end, external=True)
         if urlparse(url).scheme.lower() == "file":
-            path = file_path(url)
+            path = file_path(url, allow_host=self.policy.allow_file_hosts)
             st = os.stat(path)
             if src.etag is not None:
                 raise ResolutionError("an etag pin cannot be checked for a file: URL")

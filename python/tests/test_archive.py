@@ -10,6 +10,7 @@ from refkv.pb import Pinned, Range
 from refkv._sync import run
 from refkv.reader import OffsetRequest, RangeRequest, SuffixRequest
 from refkv.vzip.store import VZipStore, _check_index
+from refkv.uri import file_uri
 
 U32 = 0xFFFFFFFF
 
@@ -25,9 +26,9 @@ def test_overlay_semantics(tmp_path):
     arc = tmp_path / "x.vzip"
     with open(arc, "wb") as f, VZipWriter(f) as w:
         w.add_bytes("a/zarr.json", b"{}")
-        w.add_ref("a/c/0", f"file://{target}", 10, 100)
+        w.add_ref("a/c/0", file_uri(target), 10, 100)
         w.add_ref("a/c/1", "blob.bin", 500, 20)  # relative to the archive
-        ext = w.url(f"file://{target}")
+        ext = w.url(file_uri(target))
         w.add_ranges("a/c/2", [Range(data=b"HEAD"), Range(source=ext, offset=0, length=4)])
         # internal references: a deflated hidden entry, and a forward reference to a
         # zarr key written later (checked when the archive is closed)

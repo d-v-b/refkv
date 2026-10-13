@@ -1113,6 +1113,44 @@ revision 11 instead of 10, also deflates one byte shorter in most of the
 kit's archives. The 70,000-entry archive, which had the records already,
 does not change size.
 
+## Revision 11.1: `file:` URIs on Windows
+
+Format version 0, specification revision 11.1. **Status: provisional.** No
+result changes on POSIX, so the revision 11 conformance suite applies
+unchanged; stores still record revision 11.
+
+**What prompted it.** [§5](../../refkv.md#5-source-table) built a store's
+base URI from a POSIX path and mapped `file:` URIs back to POSIX paths, and
+said only that "other systems follow RFC 8089". On Windows the reference
+implementation wrote `file://C:%5C...` for `C:\...`, and then read `C:` as an
+authority and refused it, so it could not read an archive it had written.
+
+**The change.**
+- **[§5](../../refkv.md#5-source-table):** the Windows mapping, from
+  [RFC 8089 Appendix E](https://www.rfc-editor.org/rfc/rfc8089#appendix-E).
+  `C:\data\x.vzip` is `file:///C:/data/x.vzip`; a UNC path
+  `\\server\share\x` is `file://server/share/x`. Mapping back, the path
+  must be UTF-8, hold no `\` (as from `%5C`, which would be a separator), and
+  start with a drive letter; `file:///data/x`, which would depend on the
+  current drive, is a resolution error.
+- **UNC paths are refused by default.** A host in a `file:` URL is a UNC
+  server, which a reader reaches over the network, and to which Windows may
+  send the user's credentials. A reader refuses it unless the application
+  allows **file hosts**, an unsafe setting of its own; an archive opened
+  from a UNC path still reads itself. This keeps the rule of revision 2 that
+  a `file:` URI's authority is empty or `localhost` for every reader that
+  does not opt in.
+- **[§6.7](../../refkv.md#67-reader-policy) rule 1:** a `file:` URL with a host
+  is refused whatever the scheme setting or a prefix list allows, unless
+  file hosts are allowed.
+
+**Implementations.** The reference implementation
+(`python/src/refkv/uri.py`) follows it, with the path flavor (posixpath or
+ntpath) as a parameter, so its tests check the Windows mapping on every
+system; `Policy(allow_file_hosts=True)` is the setting. Its URIs for POSIX
+paths are unchanged, byte for byte. The browser reader reads only `http(s)`
+sources, and is unchanged.
+
 ## Open feedback: browser readers (from the Neuroglancer driver)
 
 The Neuroglancer driver

@@ -8,6 +8,8 @@ from obstore.store import LocalStore
 from virtualizarr import open_virtual_dataset
 from virtualizarr.parsers import HDFParser
 
+from refkv.uri import file_uri
+
 
 def make_netcdf(path, t0: int, nt: int = 4) -> xr.Dataset:
     rng = np.random.default_rng(t0)
@@ -35,7 +37,7 @@ def make_netcdf(path, t0: int, nt: int = 4) -> xr.Dataset:
 def virtualize(path, loadable_variables=("time", "lat", "lon")) -> xr.Dataset:
     registry = ObjectStoreRegistry({"file://": LocalStore()})
     return open_virtual_dataset(
-        url=f"file://{path}",
+        url=file_uri(path),
         registry=registry,
         parser=HDFParser(),
         loadable_variables=list(loadable_variables),
