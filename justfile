@@ -1,4 +1,4 @@
-# vzip. Run `just` to list recipes; `just js::test`, `just impls::rust::build`
+# refkv. Run `just` to list recipes; `just js::test`, `just impls::rust::build`
 # and so on reach the packages' own justfiles.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
@@ -17,7 +17,7 @@ test *args: ir-build
     uv run pytest -q python/tests {{args}}
 
 # Build the IR core (rust/refkv-ir: the parsers, the read planner, the projections and the
-# mirror) into the project's environment as the Python module vzip_ir, part of the vzip
+# mirror) into the project's environment as the Python module refkv._ir, part of the refkv
 # distribution: `uv sync` (and `uv run`) build it with maturin, in release, and again whenever
 # its Rust sources or source models change (pyproject.toml's cache-keys)
 ir-build:
@@ -205,7 +205,7 @@ compare-mutants count="10" seed="0" *args:
 
 # On main after a merge: tag each convention's version as virtualize-<profile>-v<N> at HEAD
 # (spec/conventions.md §1
-# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#1-conventions>); version 0, before
+# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>); version 0, before
 # the release, has no tags
 tag-conventions:
     #!/usr/bin/env bash
@@ -215,7 +215,7 @@ tag-conventions:
         echo "tag-conventions: HEAD is on '$branch'; the convention tags are made on main" >&2
         exit 1
     fi
-    tags="$(uv run python -c 'from vzip.virtualize.common import PROFILES
+    tags="$(uv run python -c 'from refkv.virtualize.common import PROFILES
     for p, (_, v, _) in PROFILES.items(): print(f"virtualize-{p}-v{v}")')"
     for tag in $tags; do
         if [ "${tag##*-v}" = "0" ]; then
@@ -234,7 +234,7 @@ tag-conventions:
 # Virtualize an image file (TIFF, NDPI, ND2, DICOM, NIfTI or IMS; a URL or a path), or an N5,
 # Zarr v2 or OME-Zarr 0.4 store (a URL ending in "/"), into a vzip archive
 virtualize src out:
-    uv run python -m vzip.virtualize {{quote(src)}} {{quote(out)}}
+    uv run python -m refkv.virtualize {{quote(src)}} {{quote(out)}}
 
 # Regenerate the (untracked) example archives in design/experiments/out (network)
 archives: archives-nd2 archives-idr
@@ -242,7 +242,7 @@ archives: archives-nd2 archives-idr
 # Virtualize the public ND2 files of the corpus into design/experiments/out/nd2
 archives-nd2:
     grep -v '^#' conformance/virtualize/corpus_nd2.txt | grep . | while IFS='|' read -r url name _; do \
-        uv run python -m vzip.virtualize "$url" "design/experiments/out/nd2/$name.vzip"; \
+        uv run python -m refkv.virtualize "$url" "design/experiments/out/nd2/$name.vzip"; \
     done
 
 # Virtualize the IDR idr0096 OME-TIFF (pinned, and unpinned for browsers) into design/experiments/out

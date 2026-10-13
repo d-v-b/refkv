@@ -1,5 +1,5 @@
 //! The mirror of a store IR (conventions §8.9
-//! <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), on the Zarr v2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), on the Zarr v2
 //! store format (src/zarr2.rs) over the Zarr v2 and OME-Zarr fixture stores it accepts and
 //! large synthetic stores: the table loads back to the canonical IR, keeps the invariants,
 //! rebuilds every held object byte for byte and the listing, is canonical and a fixed point,
@@ -9,11 +9,11 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Instant;
-use vzip_ir::check::check;
-use vzip_ir::ir::*;
-use vzip_ir::mirror::{canonical_problem, load, mirror, ordered, rebuild_store, table_from_out, view_problem, write, Table};
-use vzip_ir::out::Out;
-use vzip_ir::store::{run_store, StoreFormat};
+use refkv_ir::check::check;
+use refkv_ir::ir::*;
+use refkv_ir::mirror::{canonical_problem, load, mirror, ordered, rebuild_store, table_from_out, view_problem, write, Table};
+use refkv_ir::out::Out;
+use refkv_ir::store::{run_store, StoreFormat};
 
 /// A directory's regular files as a listing (key, size) and their bytes, keys in byte order.
 fn walk(root: &Path) -> BTreeMap<String, Vec<u8>> {

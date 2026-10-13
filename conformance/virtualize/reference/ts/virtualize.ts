@@ -26,7 +26,7 @@ const [url, out] = args.filter((a) => !a.startsWith("--"));
 const nodeFetch = globalThis.fetch;
 globalThis.fetch = (input, init) => {
   const headers = new Headers(init?.headers);
-  if (!headers.has("User-Agent")) headers.set("User-Agent", "vzip-virtualize (https://github.com/d-v-b/vzip)");
+  if (!headers.has("User-Agent")) headers.set("User-Agent", "refkv-virtualize (https://github.com/d-v-b/refkv)");
   return nodeFetch(input, { ...init, headers });
 };
 

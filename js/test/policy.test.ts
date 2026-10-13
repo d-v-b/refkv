@@ -1,9 +1,9 @@
 // The reader policy (spec/archive.md §6.7
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>), range checksums
-// (§4.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>), pins (§5.1
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-pins>) and
+// <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>), range checksums
+// (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>), pins (§5.1
+// <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#51-pins>) and
 // the recorded revision (§1.3
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#13-versioning>) in the browser reader
+// <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#13-versioning>) in the browser reader
 // and writer: the twin of python/tests/test_policy.py.
 
 import assert from "node:assert/strict";
@@ -15,7 +15,7 @@ import {
   matchesPrefix,
   type Policy,
   type RangeFetcher,
-  VzipError,
+  RefkvError,
 } from "../src/archive.ts";
 import { crc32c, inflateRaw } from "../src/deflate.ts";
 import { readHttpRange } from "../src/http.ts";
@@ -27,7 +27,7 @@ const BASE = "https://data.test/dir/archive.vzip";
 const BLOB_URL = "https://data.test/dir/blob.bin";
 
 const isError = (cls: string, re: RegExp) => (e: unknown) =>
-  e instanceof VzipError && e.errorClass === cls && re.test(e.message);
+  e instanceof RefkvError && e.errorClass === cls && re.test(e.message);
 
 /** An archive at BASE whose url sources read `body`, counting requests and bytes. */
 async function open(desc: ArchiveDesc, policy: Policy = {}, body = BLOB, extra: Partial<Awaited<ReturnType<RangeFetcher>>> = {}) {
@@ -268,8 +268,8 @@ test("refuses a private host written in the URL", async () => {
 
 test("refuses a redirect to a private host", async () => {
   // fetch follows the redirect itself: the final URL is checked (spec §5.2
-  // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>, §6.7
-  // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)
+  // <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#52-reading-over-http>, §6.7
+  // <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>)
   const allow = (u: string) => checkPolicy({}, BASE, u);
   for (const url of ["http://169.254.169.254/latest/meta-data", "http://[::ffff:a00:1]/x"]) {
     await withFetch(

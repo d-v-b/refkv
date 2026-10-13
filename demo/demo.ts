@@ -24,7 +24,7 @@ async function getJson(url: string) {
   const r = await fetch(url);
   if (r.headers.get(WORKER_HEADER) === null) {
     throw new Error(
-      `the vzip service worker did not answer this request (HTTP ${r.status} from the network); reload the page and try again`,
+      `the refkv service worker did not answer this request (HTTP ${r.status} from the network); reload the page and try again`,
     );
   }
   if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);

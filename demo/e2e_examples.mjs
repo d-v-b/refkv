@@ -98,7 +98,7 @@ try {
         result.viewerStatus = await viewer.textContent("#status");
         await viewer.waitForTimeout(waitMs);
         result.value = await viewer.evaluate(() => {
-          const { map, getLayer } = window.vzipMap;
+          const { map, getLayer } = window.refkvMap;
           const [w, h] = map.getSize();
           const data = getLayer().getData([w / 2, h / 2]);
           return { coordinate: map.getCoordinateFromPixel([w / 2, h / 2]), resolution: map.getView().getResolution(),

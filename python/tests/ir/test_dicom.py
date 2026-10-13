@@ -7,9 +7,9 @@ import io
 import pytest
 
 from ir_helpers import FIXTURES, same_hierarchy
-from vzip.ir import virtualize as via_ir
-from vzip.ir.cmirror import rebuild_from_archive
-from vzip.virtualize import Rejected
+from refkv.ir import virtualize as via_ir
+from refkv.ir.cmirror import rebuild_from_archive
+from refkv.virtualize import Rejected
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
 DICOMS = sorted((FIXTURES / "dicom").glob("*.dcm"))

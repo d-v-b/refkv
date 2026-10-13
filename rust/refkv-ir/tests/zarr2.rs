@@ -5,12 +5,12 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use vzip_ir::json;
-use vzip_ir::mirror::rebuild_store;
-use vzip_ir::out::{Out, Part};
-use vzip_ir::project::store::object_key;
-use vzip_ir::project::zarr2::is_chunk;
-use vzip_ir::store::{run_store, store_output, StoreFormat, StoreRun};
+use refkv_ir::json;
+use refkv_ir::mirror::rebuild_store;
+use refkv_ir::out::{Out, Part};
+use refkv_ir::project::store::object_key;
+use refkv_ir::project::zarr2::is_chunk;
+use refkv_ir::store::{run_store, store_output, StoreFormat, StoreRun};
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/zarr2")
@@ -140,8 +140,8 @@ fn documents_are_read_as_json_by_the_store_rules() {
         let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
         let bytes: Vec<&Vec<u8>> = files.values().collect();
         let (ir, _, _) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone()).unwrap();
-        let o = (0..ir.len() as u32).find(|&i| ir.kind[i as usize] == vzip_ir::ir::OBJECT && ir.key(i) == ".zattrs").unwrap();
-        let kids: Vec<u32> = ir.children(o).iter().copied().filter(|&c| ir.kind[c as usize] == vzip_ir::ir::VALUE).collect();
+        let o = (0..ir.len() as u32).find(|&i| ir.kind[i as usize] == refkv_ir::ir::OBJECT && ir.key(i) == ".zattrs").unwrap();
+        let kids: Vec<u32> = ir.children(o).iter().copied().filter(|&c| ir.kind[c as usize] == refkv_ir::ir::VALUE).collect();
         assert_eq!(kids.len(), values, "{n}");
         if values == 1 {
             let c = kids[0] as usize;
@@ -198,13 +198,13 @@ fn the_ignored_keys_are_vzip_source_s_member_ignored_in_byte_order() {
         // the member is outside the table: the mirror is still canonical
         let get = |k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone());
         let mut never = |_: u64, _: u64| -> Result<Vec<u8>, String> { Err("no source".into()) };
-        assert_eq!(vzip_ir::mirror::canonical_problem(&get, &mut never), None);
+        assert_eq!(refkv_ir::mirror::canonical_problem(&get, &mut never), None);
         // any other member beside `ir` is a difference
         let mut d = doc(&out, "vzip_source/zarr.json");
         d["attributes"]["vzip_virtualized"]["zarr2"]["junk"] = serde_json::json!(1);
         let junk = serde_json::to_vec(&d).unwrap();
         let get = |k: &str| if k == "vzip_source/zarr.json" { Some(junk.clone()) } else { out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone()) };
-        assert_eq!(vzip_ir::mirror::canonical_problem(&get, &mut never).as_deref(), Some("vzip_source/zarr.json differs from the canonical table's"));
+        assert_eq!(refkv_ir::mirror::canonical_problem(&get, &mut never).as_deref(), Some("vzip_source/zarr.json differs from the canonical table's"));
     }
     // without a mirror (tools, tests), there is no vzip_source source metadata, ignored keys or not
     let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
@@ -222,7 +222,7 @@ fn the_ignored_keys_are_vzip_source_s_member_ignored_in_byte_order() {
 
 #[test]
 fn members_named_gaps_or_json_keep_the_ir_valid_and_rebuild() {
-    use vzip_ir::mirror::{canonical_problem, mirror, view_problem};
+    use refkv_ir::mirror::{canonical_problem, mirror, view_problem};
     let mut never = |_: u64, _: u64| -> Result<Vec<u8>, String> { Err("no source".into()) };
     for n in [3usize, 4097] {
         let mut files = walk(&fixtures().join("zarr2_hierarchy"));
@@ -233,13 +233,13 @@ fn members_named_gaps_or_json_keep_the_ir_valid_and_rebuild() {
         let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
         let bytes: Vec<&Vec<u8>> = files.values().collect();
         let (ir, _, _) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone()).unwrap_or_else(|e| panic!("{n}: {e}"));
-        vzip_ir::check::check(&ir).unwrap_or_else(|e| panic!("{n}: {e}"));
+        refkv_ir::check::check(&ir).unwrap_or_else(|e| panic!("{n}: {e}"));
         // the members `gaps` and `json` are escaped and indexed, as repeated keys are
-        let o = (0..ir.len() as u32).find(|&i| ir.kind[i as usize] == vzip_ir::ir::OBJECT && ir.key(i) == ".zattrs").unwrap();
-        let names: Vec<(String, u64)> = ir.children(o).iter().filter(|&&c| ir.kind[c as usize] == vzip_ir::ir::VALUE)
+        let o = (0..ir.len() as u32).find(|&i| ir.kind[i as usize] == refkv_ir::ir::OBJECT && ir.key(i) == ".zattrs").unwrap();
+        let names: Vec<(String, u64)> = ir.children(o).iter().filter(|&&c| ir.kind[c as usize] == refkv_ir::ir::VALUE)
             .map(|&c| (ir.names.get(ir.name[c as usize]).to_string(), ir.nidx[c as usize])).collect();
         let want: Vec<(String, u64)> = if n > 4096 {
-            vec![("json".into(), vzip_ir::ir::NO_INDEX)]
+            vec![("json".into(), refkv_ir::ir::NO_INDEX)]
         } else {
             vec![("gaps~".into(), 0), ("json~".into(), 0), ("gaps%2F~".into(), 0)]
         };

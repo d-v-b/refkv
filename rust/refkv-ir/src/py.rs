@@ -13,8 +13,8 @@ use pyo3::types::{PyBytes, PyDict, PyList};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-pyo3::create_exception!(vzip_ir, Rejected, PyException);
-pyo3::create_exception!(vzip_ir, Violation, PyException);
+pyo3::create_exception!(refkv._ir, Rejected, PyException);
+pyo3::create_exception!(refkv._ir, Violation, PyException);
 
 fn bytes_of<T: Copy, const N: usize>(v: &[T], f: impl Fn(T) -> [u8; N]) -> Vec<u8> {
     let mut out = Vec::with_capacity(v.len() * N);
@@ -53,7 +53,7 @@ fn to_py<'py>(py: Python<'py>, v: &Val) -> PyResult<Bound<'py, PyAny>> {
     })
 }
 
-#[pyclass(name = "Ir", module = "vzip_ir")]
+#[pyclass(name = "Ir", module = "refkv._ir")]
 pub struct PyIr {
     pub ir: Ir,
     types: Mutex<HashMap<u32, Option<types::Ty>>>,
@@ -235,7 +235,7 @@ impl PyIr {
     }
     /// Coverage, injectivity, the root and the names, and the other invariants
     /// (conventions §8.1
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>); raises
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>); raises
     /// Violation.
     fn check(&self) -> PyResult<()> {
         check::check(&self.ir).map_err(Violation::new_err)
@@ -263,7 +263,7 @@ impl PyIr {
         self.ir.shared.iter().map(|b| PyBytes::new(py, b)).collect()
     }
     /// A store IR's objects in id order: (key, virtual offset of its byte 0, size) (conventions
-    /// §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), for reading
+    /// §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), for reading
     /// an object described in place at virtual offsets; empty for a file IR.
     fn object_bases(&self) -> Vec<(String, u64, u64)> {
         let src = self.ir.sources();
@@ -374,7 +374,7 @@ fn step_py(r: Result<Step, String>) -> PyResult<Option<Vec<(u64, u64)>>> {
 
 /// The ND2 parser: `step()` gives the next batch of ranges (None when done),
 /// `feed(offset, bytes)` gives one range's bytes, `finish()` the IR and the facts (JSON).
-#[pyclass(name = "Nd2Parser", module = "vzip_ir")]
+#[pyclass(name = "Nd2Parser", module = "refkv._ir")]
 pub struct PyNd2 {
     p: Option<Nd2>,
 }
@@ -415,7 +415,7 @@ impl PyNd2 {
 }
 
 /// The TIFF parser: as `Nd2Parser` (`finish()` gives the IR and the facts as JSON).
-#[pyclass(name = "TiffParser", module = "vzip_ir")]
+#[pyclass(name = "TiffParser", module = "refkv._ir")]
 pub struct PyTiff {
     p: Option<Tiff>,
 }
@@ -441,7 +441,7 @@ impl PyTiff {
     }
 }
 
-#[pyclass(name = "CziParser", module = "vzip_ir")]
+#[pyclass(name = "CziParser", module = "refkv._ir")]
 pub struct PyCzi {
     p: Option<Czi>,
 }
@@ -538,7 +538,7 @@ fn czi_bands(h: u64, h2: u64, r: u64, w: u64, q: u64, uncompressed: bool) -> (St
 /// parts, seconds)` (each span's bytes, or None for a multi-range request the
 /// server did not answer with its ranges), until `poll()` gives None; then
 /// `finish()` gives the IR, the facts (JSON) and the planner's counts (JSON).
-#[pyclass(name = "Run", module = "vzip_ir")]
+#[pyclass(name = "Run", module = "refkv._ir")]
 pub struct PyRun {
     r: Option<crate::run::Run>,
 }
@@ -629,7 +629,7 @@ impl PyRun {
 /// index, key, spans [(start, end)])) and `complete(k, parts)` (each span's bytes) until
 /// `poll()` gives None; then `output(url, mirror)` or `finish()`. `ignore(keys, folders)`,
 /// before the first poll, gives the keys the listing ignores.
-#[pyclass(name = "StoreRun", module = "vzip_ir")]
+#[pyclass(name = "StoreRun", module = "refkv._ir")]
 pub struct PyStoreRun {
     r: Option<crate::store::StoreRun>,
 }
@@ -693,7 +693,7 @@ impl PyStoreRun {
 }
 
 /// The rebuild of a store's mirror (conventions §8.9
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>) from an archive's
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>) from an archive's
 /// entries (`get(key)`: bytes or None): every object as (key, size, bytes), the bytes of a held
 /// object rebuilt from its leaves, None for a referenced or empty one; or Rejected.
 #[pyfunction]
@@ -755,7 +755,7 @@ fn mirror<'py>(py: Python<'py>, ir: &PyIr, profile: &str) -> PyResult<(Bound<'py
 }
 
 /// What makes a stored mirror non-canonical (conventions §8.8
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>), or None:
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>), or None:
 /// `get(key)` gives the archive's entries (bytes or None), `read(offset, length)` the source's
 /// bytes.
 #[pyfunction]
@@ -768,7 +768,7 @@ fn canonical_problem(get: Bound<'_, PyAny>, read: Bound<'_, PyAny>) -> Option<St
 }
 
 /// Where a stored mirror's view differs from the one its table and the source give
-/// (conventions §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>, the
+/// (conventions §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>, the
 /// validator's check), or None: `keys` are the archive's entry
 /// names, `get(key)` its entries, `read(offset, length)` the source's bytes.
 #[pyfunction]
@@ -789,7 +789,7 @@ fn plan_spans(ranges: Vec<(u64, u64)>, threshold: u64, cap: f64, concurrency: us
 
 /// For tests: the reference payload past which a NIfTI edge chunk is copied (None: the
 /// payload limit), so that small files reach the copy (spec/virtualize/nifti.md §7.2
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#72-chunks>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>).
 #[pyfunction]
 #[pyo3(signature = (n=None))]
 fn _set_nifti_copy_threshold(n: Option<usize>) {
@@ -797,7 +797,8 @@ fn _set_nifti_copy_threshold(n: Option<usize>) {
 }
 
 #[pymodule]
-fn vzip_ir(m: &Bound<'_, PyModule>) -> PyResult<()> {
+#[pyo3(name = "_ir")]
+fn refkv_ir(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyIr>()?;
     m.add_class::<PyNd2>()?;
     m.add_class::<PyCzi>()?;

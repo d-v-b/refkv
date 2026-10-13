@@ -1,5 +1,5 @@
 // ND2 profile, spec/virtualize.md §4
-// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#4-nd2-profile>.
+// <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#4-nd2-profile>.
 
 import {
   AXIS_TYPE,
@@ -199,7 +199,7 @@ function hex6(c: number): string {
 
 export async function virtualizeNd2(src: Source, out: Output): Promise<void> {
   // §4.1
-  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#41-chunks>
+  // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#41-chunks>
   // signature
   const sig = await readChunk(src, 0, "signature chunk");
   if (sig.h.n !== 32 || sig.h.d !== 64 || latin1(sig.name) !== SIG_NAME) reject("bad signature chunk");
@@ -239,7 +239,7 @@ export async function virtualizeNd2(src: Source, out: Output): Promise<void> {
   };
 
   // §4.3
-  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#43-metadata>
+  // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#43-metadata>
   // attributes
   const attrChunk = await metaChunk("ImageAttributesLV!");
   if (attrChunk === undefined) reject("no ImageAttributesLV! chunk");
@@ -323,7 +323,7 @@ export async function virtualizeNd2(src: Source, out: Output): Promise<void> {
   }
 
   // §4.4
-  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#44-frames>
+  // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#44-frames>
   // frames
   let N = 1n;
   for (const l of loops) N *= BigInt(l.count);
@@ -409,7 +409,7 @@ export async function virtualizeNd2(src: Source, out: Output): Promise<void> {
   }
 
   // §4.5
-  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#45-channels>
+  // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#45-channels>
   // channels
   const channels: { label: string; color: string }[] = [];
   let labeled = false;
@@ -441,7 +441,7 @@ export async function virtualizeNd2(src: Source, out: Output): Promise<void> {
   if (!labeled) for (let k = 0; k < comp; k++) channels.push({ label: `C${k}`, color: "FFFFFF" });
 
   // §4.6
-  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#46-output>
+  // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#46-output>
   // output
   const tLoop = loops.find((l) => l.kind === "time");
   const zLoop = loops.find((l) => l.kind === "z");

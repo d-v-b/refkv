@@ -1,8 +1,8 @@
 //! XML variant chunks (spec/virtualize/nd2.md §5.1
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>): the tag
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>): the tag
 //! scan of the TIFF
 //! convention's OME-XML reading (spec/virtualize/tiff.md §3
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#3-ome-xml>), and the `variant`
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-ome-xml>), and the `variant`
 //! document as a tree with the positions of its elements and value attributes.
 
 pub struct Tag {
@@ -104,7 +104,7 @@ impl<'a> TagRef<'a> {
 }
 
 /// The scan of spec/virtualize/tiff.md §3
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#3-ome-xml> as an iterator: it
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-ome-xml> as an iterator: it
 /// holds nothing but its position.
 pub struct Scan<'a> {
     x: &'a str,
@@ -403,7 +403,7 @@ pub fn variant(data: &[u8]) -> Option<El> {
 }
 
 // ---- values (spec/virtualize/nd2.md §5.1
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>)
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>)
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Scalar {
@@ -514,7 +514,7 @@ pub fn scalar(runtype: Option<&str>, value: &str) -> Scalar {
 }
 
 /// An element read as an object (spec/virtualize/nd2.md §5.1
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>): its
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>): its
 /// children by name, first position, last value; None for an element with a value.
 pub fn as_object(e: &El) -> Option<Vec<(String, &El)>> {
     if e.value.is_some() {
@@ -531,7 +531,7 @@ pub fn as_object(e: &El) -> Option<Vec<(String, &El)>> {
 }
 
 /// The streams `CustomDataV2_0` declares (spec/virtualize/nd2.md §5.1
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>): (ID, data
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>): (ID, data
 /// type, member index).
 pub fn declared_streams(doc: &El) -> Vec<(String, &'static str, usize)> {
     let mut out: Vec<(String, &'static str, usize)> = Vec::new();
@@ -570,7 +570,7 @@ pub fn declared_streams(doc: &El) -> Vec<(String, &'static str, usize)> {
 }
 
 /// A decimal value (spec/virtualize/tiff.md §3
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#3-ome-xml>), finite (and above
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-ome-xml>), finite (and above
 /// 0 when `positive`), or None.
 pub fn decimal_value(v: &str, positive: bool) -> Option<f64> {
     if !decimal(v) {

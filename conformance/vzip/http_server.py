@@ -1,5 +1,5 @@
 """A local HTTP server for the conformance suite (spec §5.2
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>).
+<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#52-reading-over-http>).
 
 Serves files under `root` with:
 

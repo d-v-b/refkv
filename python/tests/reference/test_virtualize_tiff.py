@@ -20,7 +20,7 @@ import tifffile
 
 from refkv_reference.tiff.tags import LAYOUT, json_size
 
-from vzip.virtualize import Rejected
+from refkv.virtualize import Rejected
 from refkv_reference import virtualize
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "tiff"

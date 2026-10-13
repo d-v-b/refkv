@@ -1,11 +1,11 @@
-"""An output the Rust core built (`vzip_ir.project`, `vzip_ir.Run.output`) as a Python
+"""An output the Rust core built (`refkv._ir.project`, `refkv._ir.Run.output`) as a Python
 `Output`, which writes the archive."""
 
 from __future__ import annotations
 
 import json
 
-from vzip.virtualize.common import Output
+from refkv.virtualize.common import Output
 
 
 def from_rust(t) -> Output:

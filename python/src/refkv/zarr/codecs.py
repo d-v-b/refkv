@@ -5,15 +5,15 @@ zarr-python does not provide.
 compression 33003/33005/34712 with planar-separate tiles).
 `imagecodecs_jpeg`: each chunk is one complete JPEG stream (as virtualized
 JPEG-in-TIFF tiles are, spec/virtualize.md §3.3
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#33-chunks>).
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#33-chunks>).
 `imagecodecs_jpegxr`: each chunk is one JPEG XR file (ITU-T T.832, with its
 container), as CZI JpgXr subblocks are (spec/virtualize/czi.md §3.1
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#31-pixel-types-and-codecs>).
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#31-pixel-types-and-codecs>).
 `zlib`: a zlib stream (RFC 1950), as Neuroglancer names it (conventions §3
-<https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#3-arrays>,
-spec/virtualize/n5.md §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#3-datasets>,
+<https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#3-arrays>,
+spec/virtualize/n5.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#3-datasets>,
 spec/virtualize/zarr2.md §3.1
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#31-compressors>).
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#31-compressors>).
 `n5_default`: an N5 default-mode block, header included (zarr-extensions
 `codecs/n5_default`; spec/virtualize/n5.md).
 
@@ -36,7 +36,7 @@ from zarr.core.array_spec import ArraySpec
 from zarr.core.buffer import Buffer, NDBuffer
 from zarr.registry import get_pipeline_class, register_codec
 
-from vzip._extras import missing
+from refkv._extras import missing
 
 
 def _imagecodecs():
@@ -256,4 +256,4 @@ register_codec("n5_default", N5DefaultCodec)
 # one arbitrarily unless the config names it. Name this one, unless the caller
 # already chose.
 if zarr.config.get("codecs.n5_default", None) is None:
-    zarr.config.set({"codecs.n5_default": "vzip.zarr.codecs.N5DefaultCodec"})
+    zarr.config.set({"codecs.n5_default": "refkv.zarr.codecs.N5DefaultCodec"})

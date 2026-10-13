@@ -3,19 +3,19 @@
 //! the round-3 probes built here (IFD loops, huge counts, too many IFDs).
 
 use std::path::Path;
-use vzip_ir::check;
-use vzip_ir::czi::Czi;
-use vzip_ir::dicom::Dicom;
-use vzip_ir::nifti::Nifti;
-use vzip_ir::ims::Ims;
-use vzip_ir::parse_bytes;
-use vzip_ir::tiff::Tiff;
+use refkv_ir::check;
+use refkv_ir::czi::Czi;
+use refkv_ir::dicom::Dicom;
+use refkv_ir::nifti::Nifti;
+use refkv_ir::ims::Ims;
+use refkv_ir::parse_bytes;
+use refkv_ir::tiff::Tiff;
 
 fn fixtures() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures")
 }
 
-fn rebuilt(ir: &vzip_ir::ir::Ir, data: &[u8]) -> Vec<u8> {
+fn rebuilt(ir: &refkv_ir::ir::Ir, data: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     for (o, n) in check::leaves(ir).unwrap() {
         out.extend_from_slice(&data[o as usize..(o + n) as usize]);
@@ -23,7 +23,7 @@ fn rebuilt(ir: &vzip_ir::ir::Ir, data: &[u8]) -> Vec<u8> {
     out
 }
 
-fn accepted<P: vzip_ir::Parser>(dir: &str) -> usize {
+fn accepted<P: refkv_ir::Parser>(dir: &str) -> usize {
     let mut n = 0;
     for e in std::fs::read_dir(fixtures().join(dir)).unwrap() {
         let path = e.unwrap().path();
@@ -52,7 +52,7 @@ fn accepted_fixtures_are_valid_irs_that_rebuild() {
 }
 
 /// The TIFF parser reads an NDPI as NDPI (spec/virtualize/ndpi.md §4
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>): each
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>): each
 /// accepted NDPI fixture's facts name the profile, and a TIFF's do not.
 #[test]
 fn the_tiff_parser_finds_ndpi() {
@@ -351,7 +351,7 @@ fn more_than_100000_ifds_are_rejected() {
 #[test]
 fn a_segment_id_with_bytes_after_its_nul_is_not_the_id() {
     // spec/virtualize/czi.md §2.1
-    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#21-segments>: the 16 bytes of
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#21-segments>: the 16 bytes of
     // the id, NUL-padded; a byte after the NUL makes another id
     let mut data = std::fs::read(fixtures().join("czi/czi_gray8_single.czi")).unwrap();
     let at = (0..data.len() - 16).find(|&k| data[k..k + 15] == *b"ZISRAWSUBBLOCK\0").unwrap();
@@ -363,17 +363,17 @@ fn a_segment_id_with_bytes_after_its_nul_is_not_the_id() {
 }
 
 /// Runs the IMS parser over bytes in memory, the walk's room in elements set to `room`.
-fn ims_with_room(data: &[u8], room: Option<u64>) -> (vzip_ir::ir::Ir, serde_json::Value) {
+fn ims_with_room(data: &[u8], room: Option<u64>) -> (refkv_ir::ir::Ir, serde_json::Value) {
     let mut p = Ims::new(data.len() as u64);
     p.room = room;
     loop {
         match p.step().unwrap() {
-            vzip_ir::nd2::Step::Read(r) => {
+            refkv_ir::nd2::Step::Read(r) => {
                 for (o, n) in r {
                     p.feed(o, data[o as usize..(o + n) as usize].to_vec());
                 }
             }
-            vzip_ir::nd2::Step::Done => break,
+            refkv_ir::nd2::Step::Done => break,
         }
     }
     p.finish().unwrap()
@@ -381,8 +381,8 @@ fn ims_with_room(data: &[u8], room: Option<u64>) -> (vzip_ir::ir::Ir, serde_json
 
 #[test]
 fn past_the_walks_room_the_image_is_described_and_the_rest_is_gaps() {
-    let project = |ir: &vzip_ir::ir::Ir, facts: &serde_json::Value| {
-        let out = vzip_ir::project::project(vzip_ir::run::Format::Ims, ir, facts, "u", &Default::default()).unwrap();
+    let project = |ir: &refkv_ir::ir::Ir, facts: &serde_json::Value| {
+        let out = refkv_ir::project::project(refkv_ir::run::Format::Ims, ir, facts, "u", &Default::default()).unwrap();
         out.refs.iter().map(|(k, p)| format!("{k}{p:?}")).collect::<Vec<_>>()
     };
     // dense links and attributes (fractal heaps, version 2 B-trees), huge attributes, and
@@ -400,7 +400,7 @@ fn past_the_walks_room_the_image_is_described_and_the_rest_is_gaps() {
             assert_eq!(project(&ir, &f), project(&all, &facts), "{name} room {room}");
             // the elements outside the image's datasets and the objects' structs: at most the
             // room, and a few more (each loop stops at the room, within one structure)
-            let paths: Vec<String> = (0..ir.len() as u32).filter(|&i| ir.kind[i as usize] != vzip_ir::ir::GAP).map(|i| ir.path(i)).collect();
+            let paths: Vec<String> = (0..ir.len() as u32).filter(|&i| ir.kind[i as usize] != refkv_ir::ir::GAP).map(|i| ir.path(i)).collect();
             let images: std::collections::HashSet<String> =
                 paths.iter().filter_map(|p| p.strip_suffix("/chunks")).map(|p| p.to_string()).collect();
             let outside = |p: &String| {
@@ -428,7 +428,7 @@ fn the_walk_stops_inside_heaps_b_trees_and_global_heaps() {
     ] {
         let data = std::fs::read(fixtures().join(format!("ims/{name}.ims"))).unwrap();
         let (all, _) = ims_with_room(&data, None);
-        let paths = |ir: &vzip_ir::ir::Ir| (0..ir.len() as u32).map(|i| ir.path(i)).collect::<Vec<_>>();
+        let paths = |ir: &refkv_ir::ir::Ir| (0..ir.len() as u32).map(|i| ir.path(i)).collect::<Vec<_>>();
         let full = paths(&all);
         // the room is spent right after the structure's first child: the walk is in it
         let first = full.iter().position(|p| p.contains(under)).unwrap_or_else(|| panic!("{name}: no {under}"));
@@ -502,7 +502,7 @@ fn a_long_fragment_chain_is_walked_to_its_end() {
     }
     body.extend_from_slice(&[0xFE, 0xFF, 0xDD, 0xE0, 0, 0, 0, 0]);
     let data = dicom("1.2.840.10008.1.2.4.90", &body);
-    let (ir, facts, _) = vzip_ir::run::run_bytes(vzip_ir::run::Format::Dicom, &data).unwrap();
+    let (ir, facts, _) = refkv_ir::run::run_bytes(refkv_ir::run::Format::Dicom, &data).unwrap();
     check::check(&ir).unwrap();
     assert!(rebuilt(&ir, &data) == data);
     assert!(facts["rounds"].as_u64().unwrap() > n as u64);
@@ -510,7 +510,7 @@ fn a_long_fragment_chain_is_walked_to_its_end() {
 
 #[test]
 fn rejects_a_dicom_range_asked_for_and_not_fed() {
-    use vzip_ir::nd2::Step;
+    use refkv_ir::nd2::Step;
     let err = |r: Result<Step, String>| match r {
         Err(m) => m,
         Ok(_) => panic!("stepped on"),

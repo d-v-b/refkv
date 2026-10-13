@@ -1,6 +1,6 @@
 // Edge cases of the source metadata that once differed from the Python
 // implementation (spec/conventions.md §6
-// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>).
+// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>).
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

@@ -1,11 +1,11 @@
 //! Store IRs (conventions §8.9
-//! <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): many sources, the
+//! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): many sources, the
 //! objects of a listing. One test for the IRs that keep the invariants (per object coverage
 //! and injectivity, referenced objects as one leaf, the keys' names), and one per way to break
 //! them.
 
-use vzip_ir::check::{check, finish, held_leaves};
-use vzip_ir::ir::*;
+use refkv_ir::check::{check, finish, held_leaves};
+use refkv_ir::ir::*;
 
 /// A store of `.zgroup` (held: one text value), `a/.zarray` (held: two values), the chunk
 /// objects `a/0.0` .. `a/0.3` (referenced), an empty object `a/empty`, and `b/c~d` (referenced).

@@ -1,5 +1,5 @@
 //! The intermediate representation (design/ARCHITECTURE.md §3
-//! <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
+//! <https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
 //! held as columns.
 //!
 //! An element is one row of dense columns (kind, parent, name, name index, type,
@@ -28,15 +28,15 @@ pub const DERIVED: u8 = 3;
 pub const ALIAS: u8 = 4;
 pub const GAP: u8 = 5;
 /// An object of a store (conventions §8.9
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): a source of its own,
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): a source of its own,
 /// whose extent `(0, size)` its descendants' extents index.
 pub const OBJECT: u8 = 6;
 pub const KINDS: [&str; 7] = ["struct", "value", "data", "derived", "alias", "gap", "object"];
 /// The most objects a store IR describes (conventions §8.9
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>).
 pub const MAX_OBJECTS: u64 = 1 << 24;
 /// The form of an object **described in place** (conventions §8.9
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): its leaves partition
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): its leaves partition
 /// it as a held object's do, but the table does not hold its bytes; they are its own source's,
 /// which a reader reads as it reads a file IR's source 0 (a SAFE band file, read in ranges).
 pub const IN_PLACE: &str = r#"{"bytes":"source"}"#;
@@ -63,7 +63,7 @@ fn escape_name(t: &str) -> String {
 
 /// The (name, name index) of siblings named by texts the source gives (an ND2
 /// chunk's, LV record's or XML element's name; spec/virtualize/nd2.md §5.3
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#53-elements>), in order:
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#53-elements>), in order:
 /// a text that is not empty, holds no `/` or `~`, is none of the parent's `fixed`
 /// names and is the first of its siblings' with that text is the name itself, with
 /// no index; any other is the text with `%`, `/` and `~` percent-encoded, then `~`,
@@ -114,7 +114,7 @@ pub fn source_text(name: &str, nidx: u64) -> String {
 }
 
 /// The (name, name index) of a store key's segment (conventions §8.9
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), so that its full
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), so that its full
 /// name is the segment and chunk keys fold: a segment without `~` whose last characters are
 /// digits is the text before them (with their leading zeros, but for the last digit) and
 /// their value as the index (`0` is `("", 0)`, `a.12` is `("a.", 12)`, `007` is `("00",
@@ -205,7 +205,7 @@ impl Interner {
 }
 
 /// The resource limits of one run (design/ARCHITECTURE.md §3.5
-/// <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#35-resources-and-io>): exceeding
+/// <https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#35-resources-and-io>): exceeding
 /// one rejects.
 #[derive(Clone, Debug)]
 pub struct Budget {
@@ -266,7 +266,7 @@ pub struct Ir {
     pub shared_index: HashMap<Vec<u8>, u32>,
     pub finished: bool,
     /// A store IR (conventions §8.9
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): many sources, its
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): many sources, its
     /// objects; `size` is the sum of their sizes. Otherwise a file IR: one source, source 0.
     pub store: bool,
     /// the objects of a store IR
@@ -295,7 +295,7 @@ impl Ir {
         };
         ir.types.id(""); // type 0: none
         // the root (conventions §8.1
-        // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>): a struct
+        // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>): a struct
         // named "", no index, spanning the source
         ir.add(STRUCT, NONE, "", NO_INDEX, "", 0, Some((0, size)))
             .unwrap();
@@ -303,7 +303,7 @@ impl Ir {
     }
 
     /// A store IR (conventions §8.9
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): the root, a struct
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): the root, a struct
     /// named `""` with no extent, the store's root directory. [`Ir::listing`] adds the
     /// directories and objects; the profile adds each held object's elements under it.
     pub fn new_store() -> Self {
@@ -398,7 +398,7 @@ impl Ir {
     }
 
     /// Each element's source (conventions §8.9
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), as [`Sources`].
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), as [`Sources`].
     pub fn sources(&self) -> Sources {
         let n = self.len();
         if !self.store {
@@ -443,7 +443,7 @@ impl Ir {
     }
 
     /// Whether element `i` is a held object (conventions §8.9
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): an object with
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): an object with
     /// children (`kids`, [`Ir::has_children`]) and a length, not described in place.
     pub fn held(&self, kids: &[bool], i: usize) -> bool {
         self.kind[i] == OBJECT && kids[i] && self.len[i] > 0 && !self.in_place(i as u32)
@@ -613,7 +613,7 @@ impl Ir {
     }
 
     /// The bytes of held objects of a store IR (conventions §8.9
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), which the mirror
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), which the mirror
     /// holds: for each (object, bytes), as many as its size; an object that has bytes already
     /// keeps them; bytes other than those an object holds or is given elsewhere in `held` are
     /// refused (two reads of one object that disagree). The value table is sorted
@@ -917,7 +917,7 @@ impl Ir {
     // ---- reading
 
     /// The element's full name (conventions §8.1
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>): its name
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>): its name
     /// followed by its name index in decimal, if it has one.
     pub fn name_of(&self, i: u32) -> String {
         let s = self.names.get(self.name[i as usize]);
@@ -928,7 +928,7 @@ impl Ir {
     }
 
     /// The element's path (conventions §8.1
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>): the full names
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>): the full names
     /// of its ancestors below
     /// the root and its own, joined by `/`; the root's is `""`. (At most one part per
     /// element, so that parents that loop, in a table not yet checked, still give one.)

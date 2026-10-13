@@ -1,20 +1,20 @@
 """The GeoZarr attributes and the source metadata of a SAFE product
 (spec/virtualize/safe.md §5
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>, §6
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#6-source-metadata>)."""
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>, §6
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#6-source-metadata>)."""
 
 from __future__ import annotations
 
 import json
 import re
 
-from vzip.virtualize.common import json_number
+from refkv.virtualize.common import json_number
 from refkv_reference.safe.product import DECIMAL, Element, Geocoding, Product, attr, kids, path, text
 
 MAX_SAFE = 2**53 - 1
 
 # The zarr-conventions CMOs (§5
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>), at
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>), at
 # tag v0.1.
 PROJ = {"uuid": "f17cb550-5864-4468-aeb7-f3180cfb622f",
         "schema_url": "https://raw.githubusercontent.com/zarr-conventions/proj/refs/tags/v0.1/schema.json",
@@ -52,7 +52,7 @@ WKT2 = (
 
 def wkt2(code: str) -> str | None:
     """`proj:wkt2` for a WGS 84 / UTM zone's CRS code (§5.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#52-resolution-groups>), else
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#52-resolution-groups>), else
     None."""
     m = re.fullmatch(r"EPSG:([1-9][0-9]*)", code)
     if m is None or len(m.group(1)) != 5:
@@ -68,12 +68,12 @@ def wkt2(code: str) -> str | None:
 
 
 # ---------------------------------------------------------------- the grids (§5.1
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#51-the-grid-of-a-resolution>)
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#51-the-grid-of-a-resolution>)
 
 
 def grid(geo: Geocoding, r: int) -> tuple[list[float], list[int], list[float]]:
     """(transform, shape, bounding box) of resolution r (§5.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#51-the-grid-of-a-resolution>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#51-the-grid-of-a-resolution>)."""
     rows, cols = geo.sizes[r]
     ulx, uly, xdim, ydim = geo.positions[r]
     x1, y1 = ulx + xdim * cols, uly + ydim * rows
@@ -91,7 +91,7 @@ def crs(geo: Geocoding) -> dict:
 
 def group_attributes(geo: Geocoding, r: int) -> dict:
     """A resolution group's attributes (§5.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#52-resolution-groups>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#52-resolution-groups>)."""
     transform, shape, bbox = grid(geo, r)
     return {"zarr_conventions": [PROJ, SPATIAL], **crs(geo), "spatial:dimensions": ["y", "x"],
             "spatial:transform": transform, "spatial:shape": shape, "spatial:bbox": bbox,
@@ -100,7 +100,7 @@ def group_attributes(geo: Geocoding, r: int) -> dict:
 
 def root_geozarr(product: Product, resolutions: list[int]) -> tuple[list[dict], dict]:
     """The root's GeoZarr CMOs and members (§5.3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#53-the-root>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#53-the-root>)."""
     geo = product.geocoding
     members = {**crs(geo), "spatial:bbox": grid(geo, resolutions[0])[2]}
     cmos = [PROJ, SPATIAL]
@@ -115,12 +115,12 @@ def root_geozarr(product: Product, resolutions: list[int]) -> tuple[list[dict], 
 
 
 # ---------------------------------------------------------------- values (§6.1
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#61-values>)
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#61-values>)
 
 
 def typed(t: str):
     """A text as a value (§6.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#61-values>): a decimal number
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#61-values>): a decimal number
     as a JSON number, else the string."""
     if not DECIMAL.match(t):
         return t
@@ -148,7 +148,7 @@ def string(els: list[Element]):
 
 
 def measure(els: list[Element]):
-    """A measure (§6.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#61-values>):
+    """A measure (§6.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#61-values>):
     {"value", "unit"} when the element has a unit, else its value."""
     v = value(els)
     if v is None:
@@ -171,7 +171,7 @@ def _put(out: dict, key: str, v) -> None:
         out[key] = v
 
 
-MAX_RECORDS = 64  # the most elements of a list copied as records (§6.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#62-band-arrays>, §6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)
+MAX_RECORDS = 64  # the most elements of a list copied as records (§6.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#62-band-arrays>, §6.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)
 
 
 def _records(els: list[Element], names: tuple[str, ...]) -> list[dict] | None:
@@ -194,7 +194,7 @@ def characteristics(product: Product) -> Element | None:
 
 def band_metadata(product: Product, image_text: str, name: str, siz_b64: str) -> dict:
     """A band array's source metadata (§6.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#62-band-arrays>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#62-band-arrays>)."""
     s: dict = {"IMAGE_FILE": image_text}
     x = characteristics(product)
     l2a = product.level == "L2A"
@@ -243,7 +243,7 @@ def band_metadata(product: Product, image_text: str, name: str, siz_b64: str) ->
 
 def root_metadata(product: Product) -> dict:
     """The root's source metadata (§6.3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)."""
     s: dict = {}
     info = path(product.metadata, "General_Info/Product_Info")
     for n in ("PRODUCT_URI", "PROCESSING_LEVEL", "PRODUCT_TYPE", "PROCESSING_BASELINE"):
@@ -261,7 +261,7 @@ def root_metadata(product: Product) -> dict:
 
 
 # ---------------------------------------------------------------- vzip_source's budget (§6.3
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)
 
 BUDGET = 65536
 
@@ -277,14 +277,14 @@ READ_AHEAD = 16  # the candidates read together
 
 def choose_texts(xml_sizes: dict[str, int], read_texts, lists: dict[str, list[str]]) -> dict:
     """The XML documents kept as text, with their text values (§6.3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>):
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>):
     `xml_sizes` maps each
     XML document's key to its size, `read_texts(keys)` reads the text values of candidates
     (documents of at most 65536 bytes), and `lists` holds the other members of `S`
     (`empty`, `empty_dirs`, `ignored`), which never move. The candidates are read in the
     order they are taken, at most READ_AHEAD at a time, and no longer once the next one
     cannot fit (§12.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#122-objects-and-reading>): `S`
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#122-objects-and-reading>): `S`
     with only its texts and `lists`, J bytes of JSON, and a
     candidate of n bytes as text is more than J + n bytes."""
     key_size = {k: json_size(k) for k in xml_sizes}

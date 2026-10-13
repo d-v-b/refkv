@@ -123,7 +123,7 @@ Rejected:
 The layout makes reading costly, and nothing in the archive can fix that.
 A chunk is about 128 pieces of the file, one per row of JPEG blocks
 (MCUs), and consecutive pieces are a whole strip row apart. The
-[NDPI access study](https://github.com/d-v-b/vzip/blob/research/ndpi-access/experiments/ndpi_access/README.md)
+[NDPI access study](https://github.com/d-v-b/refkv/blob/research/ndpi-access/experiments/ndpi_access/README.md)
 (branch `research/ndpi-access`) measured what that costs:
 
 - **Over-read or many requests.** Today's readers merge the ranges of a

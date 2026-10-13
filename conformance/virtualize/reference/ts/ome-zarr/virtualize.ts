@@ -1,5 +1,5 @@
 // The OME-Zarr profile (spec/virtualize.md, §11
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#11-ome-zarr-profile>): an
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#11-ome-zarr-profile>): an
 // OME-Zarr 0.4 hierarchy
 // on Zarr v2 storage as OME-Zarr 0.5 on Zarr v3, each chunk referenced in place.
 
@@ -42,7 +42,7 @@ const get = (o: Obj, k: string): Json | undefined => (has(o, k) ? o[k] : undefin
 
 /**
  * A relative path (spec/virtualize/ome-zarr.md §3
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#3-ome-groups>): one or more
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#3-ome-groups>): one or more
  * segments separated by `/`, none empty, `.` or `..`.
  */
 export function relPath(p: unknown): p is string {
@@ -63,11 +63,11 @@ function version04(a: Obj, key: string): boolean {
 
 /**
  * Does the root of this Zarr v2 store declare OME-NGFF 0.4 content (§1.4
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>)?
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>)?
  */
 export async function declares04(store: Store): Promise<boolean> {
   const objects = store.objects;
-  prefetch(store); // the documents §10 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile> reads, these among them
+  prefetch(store); // the documents §10 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile> reads, these among them
   const attrs = async (path: string): Promise<Obj | undefined> => {
     if (!objects.has(join(path, ".zgroup")) || !objects.has(join(path, ".zattrs"))) return undefined;
     const a = await readDocument(store, join(path, ".zattrs"), { keep: true }); // read again by readHierarchy
@@ -104,7 +104,7 @@ export async function declares04(store: Store): Promise<boolean> {
 
 /**
  * `rel` resolved against the group path `base` (spec/virtualize/ome-zarr.md §4
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#4-validation>, image-label
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#4-validation>, image-label
  * `source`), or undefined above the root.
  */
 export function resolve(base: string, rel: string): string | undefined {
@@ -123,7 +123,7 @@ export function resolve(base: string, rel: string): string | undefined {
 
 /**
  * The scale of a valid list of coordinate transformations (spec/virtualize/ome-zarr.md §4
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#4-validation>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#4-validation>).
  */
 function transforms(where: string, ts: Json | undefined, n: number): number[] {
   if (!Array.isArray(ts) || (ts.length !== 1 && ts.length !== 2) || !ts.every(isObject)) {
@@ -149,7 +149,7 @@ const sorted = (xs: Iterable<string>) => [...xs].sort(compareKeys);
 const lastSegment = (p: string) => p.slice(p.lastIndexOf("/") + 1);
 
 export async function virtualizeOmeZarr(store: Store): Promise<StoreResult & { summary: object }> {
-  const h = await readHierarchy(store); // spec/virtualize/ome-zarr.md §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#2-hierarchy>: every rule of spec/virtualize/zarr2.md §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>–§3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays>
+  const h = await readHierarchy(store); // spec/virtualize/ome-zarr.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#2-hierarchy>: every rule of spec/virtualize/zarr2.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#2-nodes>–§3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#3-arrays>
   const attrs = h.groups;
   const arrays = h.arrays;
   for (const path of sorted(attrs.keys())) {
@@ -161,7 +161,7 @@ export async function virtualizeOmeZarr(store: Store): Promise<StoreResult & { s
   const images = new Set([...attrs.keys()].filter((p) => has(attrs.get(p)!, "multiscales")));
 
   // spec/virtualize/ome-zarr.md §4
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#4-validation> Images.
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#4-validation> Images.
   const levels: [string, number, number, string, string[]][] = []; // (image, multiscale, dataset, array, axis names)
   const multiscales = new Map<string, Obj[]>();
   for (const g of sorted(images)) {
@@ -215,7 +215,7 @@ export async function virtualizeOmeZarr(store: Store): Promise<StoreResult & { s
   }
 
   // spec/virtualize/ome-zarr.md §4
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#4-validation> omero.
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#4-validation> omero.
   for (const g of omeGroups) {
     const a = attrs.get(g)!;
     if (!has(a, "omero")) continue;
@@ -234,7 +234,7 @@ export async function virtualizeOmeZarr(store: Store): Promise<StoreResult & { s
   }
 
   // spec/virtualize/ome-zarr.md §4
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#4-validation> Labels.
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#4-validation> Labels.
   const labelImages = new Set<string>();
   const kept = new Map<string, number>(); // `${label image}\0${multiscale}` -> datasets kept, when fewer than all
   const keptKey = (g: string, i: number) => `${g}\0${i}`;
@@ -303,7 +303,7 @@ export async function virtualizeOmeZarr(store: Store): Promise<StoreResult & { s
   }
 
   // spec/virtualize/ome-zarr.md §4
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#4-validation> Plates and
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#4-validation> Plates and
   // wells.
   const wells = new Set([...attrs.keys()].filter((p) => has(attrs.get(p)!, "well")));
   const wellImages = new Map<string, Obj[]>();
@@ -382,7 +382,7 @@ export async function virtualizeOmeZarr(store: Store): Promise<StoreResult & { s
   }
 
   // spec/virtualize/ome-zarr.md §4
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#4-validation> Collections
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#4-validation> Collections
   // (bioformats2raw.layout).
   for (const g of collections) {
     const a = attrs.get(g)!;
@@ -403,9 +403,9 @@ export async function virtualizeOmeZarr(store: Store): Promise<StoreResult & { s
   }
 
   // spec/virtualize/ome-zarr.md §4
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#4-validation> I8 and
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#4-validation> I8 and
   // spec/virtualize/ome-zarr.md §6
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#6-arrays>: the axis names
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#6-arrays>: the axis names
   // of the levels the output keeps.
   const names = new Map<string, string[]>();
   for (const [g, i, j, target, axisNames] of levels) {
@@ -422,9 +422,9 @@ export async function virtualizeOmeZarr(store: Store): Promise<StoreResult & { s
   }
 
   // spec/virtualize/ome-zarr.md §5
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>,
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>,
   // spec/virtualize/ome-zarr.md §6
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#6-arrays> Output.
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#6-arrays> Output.
   const groups = new Map<string, Obj>();
   const omes = new Map<string, Json>();
   const unversioned = new Map<string, string[]>();
@@ -436,8 +436,8 @@ export async function virtualizeOmeZarr(store: Store): Promise<StoreResult & { s
     }
     const keys = seriesGroups.has(path) ? [...OME_KEYS, "series"] : OME_KEYS;
     const ome: Obj = { version: "0.5" };
-    const restored = new Set<string>(); // the OME members that the inverse of §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes> gives back from `ome`
-    const bare: string[] = []; // those of them without a version (spec/virtualize/ome-zarr.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>, §8 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>)
+    const restored = new Set<string>(); // the OME members that the inverse of §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes> gives back from `ome`
+    const bare: string[] = []; // those of them without a version (spec/virtualize/ome-zarr.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>, §8 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>)
     for (const k of keys) {
       if (!has(a, k)) continue;
       let v = a[k];
@@ -471,7 +471,7 @@ export async function virtualizeOmeZarr(store: Store): Promise<StoreResult & { s
       ome[k] = v;
     }
     // The attributes A keep what the inverse does not give back (spec/virtualize/ome-zarr.md §8
-    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>).
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>).
     groups.set(path, without(a, [...restored]));
     omes.set(path, ome);
     if (bare.length) unversioned.set(path, bare);

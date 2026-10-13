@@ -338,7 +338,7 @@ pub unsafe extern "C" fn vz_run_free(p: *mut Run) {
 }
 
 // ---- store runs (src/store.rs; conventions §8.9
-// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)
+// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>)
 
 use crate::store::{StoreFormat, StoreRun};
 

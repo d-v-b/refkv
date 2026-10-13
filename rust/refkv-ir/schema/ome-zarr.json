@@ -1,7 +1,7 @@
 {
   "source_model": "ome-zarr",
   "version": 1,
-  "about": "The source model of an OME-Zarr 0.4 hierarchy on Zarr v2 storage (spec/virtualize/ome-zarr.md, spec/virtualize.md §11 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#11-ome-zarr-profile>): the elements of its store IR, and the roles an OME group, a multiscale, a dataset, a label image, a plate, a well and a collection play, each with the constraints of spec/virtualize/ome-zarr.md §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#4-validation> a store must meet to have the OME-Zarr convention's layout. The Zarr v2 store format (src/zarr2.rs, schema/zarr2.json) reads the listing and the node documents and applies the Zarr v2 convention's rules (spec/virtualize/zarr2.md §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>–§5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>); for a store whose root declares OME-NGFF 0.4, its OME layer (src/ome_zarr.rs) decides which role each group and value plays, in the order the profile does, and checks this schema there; the projection reads a valid IR and checks nothing.",
+  "about": "The source model of an OME-Zarr 0.4 hierarchy on Zarr v2 storage (spec/virtualize/ome-zarr.md, spec/virtualize.md §11 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#11-ome-zarr-profile>): the elements of its store IR, and the roles an OME group, a multiscale, a dataset, a label image, a plate, a well and a collection play, each with the constraints of spec/virtualize/ome-zarr.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#4-validation> a store must meet to have the OME-Zarr convention's layout. The Zarr v2 store format (src/zarr2.rs, schema/zarr2.json) reads the listing and the node documents and applies the Zarr v2 convention's rules (spec/virtualize/zarr2.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#2-nodes>–§5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>); for a store whose root declares OME-NGFF 0.4, its OME layer (src/ome_zarr.rs) decides which role each group and value plays, in the order the profile does, and checks this schema there; the projection reads a valid IR and checks nothing.",
   "limits": {
     "max_safe": 9007199254740991,
     "max_document": 16777216,
@@ -17,10 +17,10 @@
     },
     "label_types": ["int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64"]
   },
-  "elements": {"about": "The store IR is the Zarr v2 format's (schema/zarr2.json, spec/virtualize/zarr2.md §4.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#41-elements>): the OME layer adds no element."},
+  "elements": {"about": "The store IR is the Zarr v2 format's (schema/zarr2.json, spec/virtualize/zarr2.md §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#41-elements>): the OME layer adds no element."},
   "roles": {
     "group": {
-      "about": "an explicit group (spec/virtualize/ome-zarr.md §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#3-ome-groups>)",
+      "about": "an explicit group (spec/virtualize/ome-zarr.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#3-ome-groups>)",
       "given": {"where": "", "has_ome": "its attributes have the member ome"},
       "constraints": [
         {"require": "!has_ome", "message": "{where}: the group already has an `ome` attribute"}
@@ -276,5 +276,5 @@
       ]
     }
   },
-  "about_builtins": "What the parser's code computes and the roles above check: the store's nodes from its listing and their documents (spec/virtualize/zarr2.md §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>–§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>, whose rejections are the code's), the JSON types of each value a role reads, relative paths and their resolution against a group (L6), the declaration of OME-NGFF 0.4 at the root (spec/virtualize.md §1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), and the dropped datasets of label images (L7)."
+  "about_builtins": "What the parser's code computes and the roles above check: the store's nodes from its listing and their documents (spec/virtualize/zarr2.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#2-nodes>–§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>, whose rejections are the code's), the JSON types of each value a role reads, relative paths and their resolution against a group (L6), the declaration of OME-NGFF 0.4 at the root (spec/virtualize.md §1.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>), and the dropped datasets of label images (L7)."
 }

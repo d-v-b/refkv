@@ -1,18 +1,18 @@
-"""python -m vzip.ir <url or path> <out.vzip> [--url <source url>] [--no-mirror]
-[--allow-private-hosts]: as python -m vzip.virtualize, through the IR (exit status 3
+"""python -m refkv.ir <url or path> <out.vzip> [--url <source url>] [--no-mirror]
+[--allow-private-hosts]: as python -m refkv.virtualize, through the IR (exit status 3
 when rejected). Every format reads through the read planner, under the reader
 policy (spec/archive.md §6.7
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>): a source on a loopback
+<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>): a source on a loopback
 or private host needs
 --allow-private-hosts."""
 
 import json
 import sys
 
-from vzip.errors import ResolutionError
-from vzip.ir import virtualize
-from vzip.policy import Policy
-from vzip.virtualize.common import Rejected
+from refkv.errors import ResolutionError
+from refkv.ir import virtualize
+from refkv.policy import Policy
+from refkv.virtualize.common import Rejected
 
 
 def main(argv: list[str]) -> int:

@@ -1,6 +1,6 @@
 """Writes small synthetic Imaris (IMS) files to fixtures/ims/ with
 h5py, covering the rules of the IMS profile (spec/virtualize.md §8
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#8-ims-profile>): both HDF5
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#8-ims-profile>): both HDF5
 file formats (h5py's default, the earliest, and libver="latest": old and new
 object headers, symbol-table and compact or dense groups, compact and dense
 attributes, version 1 B-tree, single chunk and fixed array chunk indexes,
@@ -308,7 +308,7 @@ def rejected() -> None:
 def reconstruction() -> None:
     """Files with the HDF5 objects of every kind that the source metadata
     node maps (spec/virtualize/ims.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata>), in both
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>), in both
     file formats."""
     for libver in ("earliest", "latest"):
         with open_file(f"ims_{libver}_reconstruction", libver) as f:
@@ -365,7 +365,7 @@ def imaris_text(obj, name: str | bytes, value: bytes) -> None:
 def review() -> None:
     """Files with the HDF5 objects that an adversarial review found the source
     metadata node to lose (spec/virtualize/ims.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata>): datatypes
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>): datatypes
     and shapes of attributes, named datatypes, references, external storage and links,
     null dataspaces, fill values, names that are not UTF-8 or collide, names
     that are not Zarr node names, and documents over the attribute budget."""
@@ -467,7 +467,7 @@ def review() -> None:
 
 def indexes() -> None:
     """The chunk indexes of HDF5's newer format (spec/virtualize.md §8.5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>): an
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>): an
     extensible array (one unlimited dimension), a version 2 B-tree (several),
     implicit (allocated early) and fixed arrays at maximum dimensions, with and
     without filters, for the image and for other datasets."""
@@ -515,7 +515,7 @@ def indexes() -> None:
 
 def review2() -> None:
     """Files with what the second adversarial review found (spec/virtualize/ims.md
-    §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata>):
+    §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>):
     documents over their budget (shared datatypes, references, hard links),
     a string datatype of no bytes, dimension scales, references inside other
     datatypes, compound datasets with variable-length members, filters,
@@ -614,8 +614,8 @@ def _implicit(group, name: str, shape, chunks, maxshape=None) -> None:
 
 def review3() -> None:
     """Files with what the third adversarial review found (spec/virtualize/ims.md
-    §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#4-output>, §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata>): region
+    §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>, §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>): region
     references sharing a global heap object, and over the budget
     of selections; object references in a spilled document; shuffled
     variable-length data, which HDF5 leaves unshuffled (filter mask bit 0); a
@@ -719,8 +719,8 @@ def _raw_edges(group, name: str, shape, chunks, dtype, data, maxshape=None, shuf
 
 def review4() -> None:
     """Files with what the fourth adversarial review found (spec/virtualize/ims.md
-    §5.1 <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#51-the-tree>, §5.4
-    <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>): a time-lapse
+    §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#51-the-tree>, §5.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>): a time-lapse
     whose image tree would use up a walk of a fixed
     number of objects, and partial edge chunks stored unfiltered."""
     with open_file("ims_latest_timelapse", "latest") as f:
@@ -763,7 +763,7 @@ def color_table(top, n: int = 4) -> str:
 
 def table_color() -> None:
     """Channels colored by a lookup table (spec/virtualize/ims.md §4
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#4-output>, the color), as in
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>, the color), as in
     Imaris's TableColor mode, and every way a table can fail to give a color."""
     with open_file("ims_latest_table_color", "latest") as f:
         meta = [
@@ -800,7 +800,7 @@ def global_heaps() -> None:
     """Variable-length string attributes in more than one global heap collection (written
     in three sessions of the file, each of which starts a collection), on a group the
     layout does not read: the IR describes each collection (spec/virtualize/ims.md §5.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#52-elements>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#52-elements>)."""
     with open_file("ims_latest_global_heaps", "latest") as f:
         imaris(f, [{"size": (1, 5, 6), "dims": (1, 8, 8), "chunks": (1, 4, 4)}], dtype="u1")
         f.create_group("Notes")

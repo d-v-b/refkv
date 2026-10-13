@@ -45,7 +45,7 @@ def parse(buf: bytes, problems: list) -> dict:
         raise ValueError("no end of central directory record")
     (_, disk, cd_disk, n_disk, n, cd_size, cd_off, clen) = struct.unpack_from("<IHHHHIIH", buf, i)
     comment = buf[i + 22 : i + 22 + clen]
-    # spec §10.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>: zip64 record, locator
+    # spec §10.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#102-zip64>: zip64 record, locator
     # and end record, in that order, in every archive
     if (disk, cd_disk) != (0, 0):
         problems.append("end record disk numbers are not 0")
@@ -118,7 +118,7 @@ LFH_SIG = b"PK\x03\x04"
 
 def check_spans(buf: bytes, spans: list[tuple[int, int]], cd_off: int) -> list[str]:
     """The writer requirements on the bytes before the central directory (spec §10.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#101-structure> rules 1 and 2):
+    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure> rules 1 and 2):
     the first entry starts at offset 0, entries don't overlap each other or the central
     directory, and bytes that belong to no entry (padding between entries) hold no
     local file header signature. `spans` are the entries' [local header, end of body)."""
@@ -171,7 +171,7 @@ def validate(path: Path, desc: dict) -> list[str]:
         if sig != 0x04034B50:
             problems.append(f"{nm}: bad local header")
             continue
-        # spec §10.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#101-structure> rules 4 and 7:
+        # spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure> rules 4 and 7:
         # only a large entry has a local extra field, and
         # it is exactly the 20-byte ZIP64 one; both headers' size fields are all ones
         large = r["size"] >= U32 or r["csize"] >= U32
@@ -232,7 +232,7 @@ def validate(path: Path, desc: dict) -> list[str]:
         if soff != sr["off"] + 30 + len(SOURCES) or ssize != sr["csize"]:
             problems.append("comment does not locate the __vz__/sources body")
         # spec/archive.md §5
-        # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>: the revision is
+        # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#5-source-table>: the revision is
         # recorded by the writer and only reported by readers,
         # so the description may leave it to the table; the encoding must still be canonical
         revision = desc.get("revision")

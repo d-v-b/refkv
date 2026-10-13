@@ -21,10 +21,10 @@ import zarr
 from virtualizarr.manifests import ChunkManifest, ManifestArray
 from virtualizarr.manifests.utils import create_v3_array_metadata
 
-from vzip.convert import write_vzip
-from vzip.shards import write_vzip_sharded
-import vzip.zarr
-from vzip.store import VZipStore
+from refkv.convert import write_vzip
+from refkv.shards import write_vzip_sharded
+import refkv.zarr
+from refkv.store import VZipStore
 
 warnings.filterwarnings("ignore")
 ROOT = Path(__file__).parent / "_bench"
@@ -93,7 +93,7 @@ def w_vzip(vds, out, mirror=True):
 
 def r_vzip(out, idx):
     s = VZipStore(str(out), max_concurrency=None)  # no request cap, as measured before the default of 8
-    a = zarr.open_array(vzip.zarr.store(s), path="v", mode="r")
+    a = zarr.open_array(refkv.zarr.store(s), path="v", mode="r")
     val = a[idx]
     return val, {"requests": s.stats.archive_requests + s.stats.external_requests,
                  "index_bytes_read": s.stats.archive_bytes}

@@ -1,7 +1,7 @@
-"""vzip's intermediate representation (design/ARCHITECTURE.md §3
-<https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
-the path `vzip.virtualize`
-takes for TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE (a `.SAFE.zip` here; a `.SAFE` directory through `store.py`) files, and Zarr v2, N5 and OME-Zarr stores (`store.py`): the Rust core (rust/refkv-ir, the `vzip_ir` module)
+"""refkv's intermediate representation (design/ARCHITECTURE.md §3
+<https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
+the path `refkv.virtualize`
+takes for TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE (a `.SAFE.zip` here; a `.SAFE` directory through `store.py`) files, and Zarr v2, N5 and OME-Zarr stores (`store.py`): the Rust core (rust/refkv-ir, the `refkv._ir` module)
 parses, checking each format's source model schema, plans the reads, projects the
 convention's hierarchy and mirrors the IR under `vzip_source`; this package is the
 host: the I/O (`planner.py`), the archive writer (`output.py` into `Output`), and
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 
-from vzip.virtualize.common import Rejected
+from refkv.virtualize.common import Rejected
 
 TIFF_MAGIC = (b"II*\0", b"MM\0*", b"II+\0", b"MM\0+")
 CZI_MAGIC = b"ZISRAWFILE" + bytes(6)
@@ -23,7 +23,7 @@ ZIP_MAGIC = b"PK\x03\x04"
 def nifti_version(head: bytes) -> int | None:
     """The NIfTI version a file's first bytes (at least 348 of them, when the file has
     them) select (spec/virtualize.md §1.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>), or None."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>), or None."""
     if len(head) < 12:
         return None
     sizes = (int.from_bytes(head[:4], "little", signed=True), int.from_bytes(head[:4], "big", signed=True))
@@ -56,15 +56,15 @@ def sniff(head: bytes) -> str | None:
 
 def parse(fmt: str, transport, conc: int | None = None):
     """(IR, facts, planner counts) of the source the transport reads, or Rejected."""
-    import vzip_ir
+    from refkv import _ir
 
-    from vzip.ir.planner import drive, new_run
+    from refkv.ir.planner import drive, new_run
 
     run = new_run(fmt, transport, conc)
     drive(run, transport, conc)
     try:
         ir, facts, stats = run.finish()
-    except vzip_ir.Rejected as e:
+    except _ir.Rejected as e:
         raise Rejected(str(e)) from None
     return ir, json.loads(facts), json.loads(stats)
 
@@ -77,10 +77,10 @@ def virtualize(location: str, url: str | None = None, mirror: bool = True, polic
     same strong one. `connections`: requests at a time to a remote source (default 8);
     `byte_cost`: seconds of wall time the planner charges a byte fetched (default 0.1 s
     per MB)."""
-    import vzip_ir
+    from refkv import _ir
 
-    from vzip.ir.output import from_rust
-    from vzip.ir.planner import drive, new_run, open_transport
+    from refkv.ir.output import from_rust
+    from refkv.ir.planner import drive, new_run, open_transport
 
     transport = transport or open_transport(location, policy)
     want = min(552, transport.size)
@@ -94,7 +94,7 @@ def virtualize(location: str, url: str | None = None, mirror: bool = True, polic
     fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"
     try:
         t, ir = run.output(url or location, mirror)
-    except vzip_ir.Rejected as e:
+    except _ir.Rejected as e:
         raise Rejected(str(e)) from None
     out = from_rust(t)
     out.size = transport.size

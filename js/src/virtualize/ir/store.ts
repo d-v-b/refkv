@@ -1,12 +1,12 @@
 // Virtualizing a store with the Rust core's store formats (rust/refkv-ir/src/store.rs;
-// conventions §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): the
+// conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): the
 // core parses the listing and the objects it reads, projects the convention's hierarchy and
 // mirrors the store IR; this host lists the store (store.ts), gives the core the keys the
 // listing ignores, performs its batches of object reads (one request per object, its spans, at
 // most the store's concurrency at a time), and turns its output (`Out::encode`) into the
 // writer's archive description: one url source per object some reference uses, its listed
 // size pinned, in order of first use, then the data sources (spec/virtualize.md §1.4
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>). The twin of
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>). The twin of
 // `run_store` and `StoreIrOutput` in python/src/refkv/ir/store.py.
 
 import type { Range, Source } from "../../protobuf.ts";
@@ -152,7 +152,7 @@ async function readRange(store: Store, key: string, offset: number, length: numb
  * reference uses, in order of first use (the references in order of their keys, each
  * one's ranges in order), its listed size pinned, then the data sources, also in order of
  * first use (spec/virtualize.md §1.4
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>; a Zarr v2
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>; a Zarr v2
  * store's objects are each one reference's, so this is one source per reference, in order of
  * the entries' keys). */
 export function storeDesc(raw: RawOutput, sizes: Map<string, number>): ArchiveDesc {

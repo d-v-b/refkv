@@ -1,7 +1,7 @@
 //! The Zarr v2 store format on the IR (spec/virtualize/zarr2.md §2
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>–§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>,
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#2-nodes>–§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>,
 //! the store IR of conventions
-//! §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), sans-IO.
+//! §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), sans-IO.
 //!
 //! From the listing it finds the nodes (the candidates, classified from the root down), then
 //! reads every node's documents (its `.zarray` or `.zgroup`, and its `.zattrs` if listed) in
@@ -14,7 +14,7 @@
 //! them) stays referenced. A store this format refuses is rejected with the reason.
 //!
 //! After the batch it decides whether the root declares OME-NGFF 0.4 (spec/virtualize.md §1.4
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), reading the
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>), reading the
 //! documents that test names and the batch did not (one batch each). A store that does is the
 //! OME-Zarr profile's: the OME layer (`ome_zarr.rs`) checks it and gives what the projection
 //! writes in place of the Zarr v2 convention's, and the facts' `profile` is `ome-zarr`.
@@ -36,7 +36,7 @@ pub fn schema() -> &'static Rules {
 }
 
 /// The group the mirror and the other objects go in (spec/virtualize/zarr2.md
-/// §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
+/// §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
 pub const SOURCE_GROUP: &str = "vzip_source";
 const MAX_SAFE: f64 = 9007199254740991.0;
 pub use crate::json::MAX_MEMBERS;
@@ -78,7 +78,7 @@ pub struct Zarr2 {
 
 impl Zarr2 {
     /// The nodes of the listing (spec/virtualize/zarr2.md
-    /// §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>), and the
+    /// §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#2-nodes>), and the
     /// documents to read; a store with no root node, a candidate with both `.zarray` and
     /// `.zgroup`, a node where the source metadata goes, or a document that cannot be read as
     /// JSON for its size is rejected.
@@ -152,7 +152,7 @@ impl Zarr2 {
     }
 
     /// Whether the root declares OME-NGFF 0.4 (spec/virtualize.md §1.4
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), or the
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>), or the
     /// document to read first. A document the test reads and cannot parse rejects the store.
     fn detect(&mut self) -> Res<crate::ome_zarr::Detect> {
         let (keys, index, got, tested) = (&self.keys, &self.index, &self.got, &mut self.tested);
@@ -188,8 +188,8 @@ fn given(z: &Jv, k: &str) -> V {
 
 /// An array's `zarr.json` without its attributes, its separator, its chunk grid and its
 /// metadata `M` (spec/virtualize/zarr2.md
-/// §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays>,
-/// §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>).
+/// §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#3-arrays>,
+/// §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>).
 fn array(path: &str, z: &Jv) -> Res<(Jv, String, Vec<u64>, Jv)> {
     let s = schema();
     let mut env = Vars::default();
@@ -250,7 +250,7 @@ fn array(path: &str, z: &Jv) -> Res<(Jv, String, Vec<u64>, Jv)> {
     });
     let (codec, extra) = compressor(path, z.get("compressor").filter(|v| **v != Jv::Null), b)?;
     codecs.extend(codec);
-    // M (§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>): the members §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays> does not
+    // M (§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>): the members §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#3-arrays> does not
     // read, as written; null fill values; a float type's integer
     // fill beyond 2^53 − 1; the compressor's members its codec does not carry
     let read: Vec<&str> = s.table("zarray_read").as_array().into_iter().flatten().filter_map(|x| x.as_str()).collect();
@@ -279,7 +279,7 @@ fn array(path: &str, z: &Jv) -> Res<(Jv, String, Vec<u64>, Jv)> {
 }
 
 /// The compressor's codec (spec/virtualize/zarr2.md
-/// §3.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#31-compressors>), and
+/// §3.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#31-compressors>), and
 /// its members the codec does not carry.
 fn compressor(path: &str, c: Option<&Jv>, b: u64) -> Res<(Option<Jv>, Jv)> {
     let s = schema();
@@ -414,7 +414,7 @@ impl StoreParser for Zarr2 {
             found.push((node, a, meta));
         }
         // the OME layer (spec/virtualize/ome-zarr.md
-        // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md>): its checks, and
+        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md>): its checks, and
         // what it writes in place of the Zarr v2 convention's
         let layer = if ome {
             let groups: BTreeMap<String, Jv> = found.iter().filter(|(n, _, _)| n["kind"] == "group")

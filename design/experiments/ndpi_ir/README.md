@@ -14,6 +14,6 @@ Run from the repository root.
   the frozen reference against the IR, over `design/experiments/ir_round2/rangeserver.py`.
 - `prepare_ir.py <sparse dir>` and `bench_ir.py [--byte-cost S_PER_MB]`: the
   NDPI access benchmark with the IR's read planner. They need `model.py` and
-  `bench.py` of the closed PR d-v-b/vzip#28 beside them:
+  `bench.py` of the closed PR d-v-b/refkv#28 beside them:
   `git show origin/research/ndpi-access:experiments/ndpi_access/model.py > design/experiments/ndpi_ir/model.py`
   (and `bench.py`).

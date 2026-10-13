@@ -1,5 +1,5 @@
 // Error classes of spec §8.4
-// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#84-errors>.
+// <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#84-errors>.
 
 export type ErrorClass = "archive" | "entry" | "body" | "payload" | "resolution" | "request";
 
@@ -22,7 +22,7 @@ export class MalformedError extends Error {
 
 /**
  * Thrown by the writer for invalid input (spec §9.1
- * <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#91-requirements>,
+ * <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#91-requirements>,
  * HARNESS.md).
  */
 export class InvalidInputError extends Error {

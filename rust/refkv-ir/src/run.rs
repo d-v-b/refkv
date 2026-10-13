@@ -25,7 +25,7 @@ pub enum Format {
     Safe,
     /// A TIFF the TIFF parser found to be NDPI: a run of `Tiff` becomes one of `Ndpi`
     /// when its parser does (spec/virtualize/ndpi.md §4
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), so
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), so
     /// hosts never test for NDPI themselves.
     Ndpi,
 }
@@ -63,7 +63,7 @@ impl Format {
     /// The format a file's first bytes give, if one of these: a hint, the format of its
     /// signature (any zip file is taken for a SAFE product's zip form, which then rejects one
     /// that is not, spec/virtualize/safe.md §12.1
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#121-choosing-the-profile>).
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#121-choosing-the-profile>).
     pub fn sniff(head: &[u8]) -> Option<Format> {
         // DICOM first: a dual-personality file's preamble may hold a TIFF header
         if head.len() >= 132 && &head[128..132] == b"DICM" {
@@ -300,7 +300,7 @@ impl Run {
 }
 
 /// The values the view shows (conventions §8.7
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>) whose bytes the
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>) whose bytes the
 /// parser did not keep,
 /// in the source: (element, offset, length). Each parser holds every such value it
 /// reads; these are read after it.

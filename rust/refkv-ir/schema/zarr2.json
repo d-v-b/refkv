@@ -1,7 +1,7 @@
 {
   "source_model": "zarr2",
   "version": 1,
-  "about": "The source model of a Zarr v2 store (spec/virtualize/zarr2.md, spec/virtualize.md §10 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>): the data types and compressors the Zarr v2 convention reads, and the roles a node's .zarray, its compressor and fill value, a .zgroup and a .zattrs play, each with the constraints a store must meet to have the convention's layout. The parser reads the listing and the documents (JSON by spec/virtualize.md §1.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>) and checks this schema for each node, in path order; the projection reads a valid IR and checks nothing.",
+  "about": "The source model of a Zarr v2 store (spec/virtualize/zarr2.md, spec/virtualize.md §10 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>): the data types and compressors the Zarr v2 convention reads, and the roles a node's .zarray, its compressor and fill value, a .zgroup and a .zattrs play, each with the constraints a store must meet to have the convention's layout. The parser reads the listing and the documents (JSON by spec/virtualize.md §1.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-json-documents>) and checks this schema for each node, in path order; the projection reads a valid IR and checks nothing.",
   "limits": {
     "max_safe": 9007199254740991,
     "max_dims": 32,
@@ -9,11 +9,11 @@
   },
   "tables": {
     "about": {
-      "dtypes": "The dtypes of spec/virtualize/zarr2.md §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays>: the Zarr v3 data type, its size b, and the byte order character",
+      "dtypes": "The dtypes of spec/virtualize/zarr2.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#3-arrays>: the Zarr v3 data type, its size b, and the byte order character",
       "int_ranges": "the values of each integer data type, for its fill value",
       "float_max": "the largest finite value of each float data type but float64, by size b, compared as binary64",
-      "compressors": "spec/virtualize/zarr2.md §3.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#31-compressors>: each id's levels (lo, hi) and the level numcodecs uses when the member is absent, and the members its codec carries",
-      "zarray_read": "the members of .zarray that §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays> reads; the others are kept in the source metadata M (§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>)"
+      "compressors": "spec/virtualize/zarr2.md §3.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#31-compressors>: each id's levels (lo, hi) and the level numcodecs uses when the member is absent, and the members its codec carries",
+      "zarray_read": "the members of .zarray that §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#3-arrays> reads; the others are kept in the source metadata M (§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>)"
     },
     "dtypes": {
       "|b1": {
@@ -261,11 +261,11 @@
     ]
   },
   "elements": {
-    "about": "spec/virtualize/zarr2.md §4.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#41-elements>: the store's directories and objects (conventions §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), and in each node document read, a value per top-level member"
+    "about": "spec/virtualize/zarr2.md §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#41-elements>: the store's directories and objects (conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), and in each node document read, a value per top-level member"
   },
   "roles": {
     "zarray": {
-      "about": "an array's .zarray (spec/virtualize/zarr2.md §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays>)",
+      "about": "an array's .zarray (spec/virtualize/zarr2.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#3-arrays>)",
       "given": {
         "path": "the array's path (/ for the root)",
         "object": "the document is a JSON object",
@@ -316,7 +316,7 @@
       ]
     },
     "fill": {
-      "about": "an array's fill_value (spec/virtualize/zarr2.md §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays>), given its data type",
+      "about": "an array's fill_value (spec/virtualize/zarr2.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#3-arrays>), given its data type",
       "given": {
         "path": "",
         "fill": "the member (absent when null)",
@@ -332,7 +332,7 @@
       ]
     },
     "compressor": {
-      "about": "an array's compressor (spec/virtualize/zarr2.md §3.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#31-compressors>); has_<member>: the member is written, null included",
+      "about": "an array's compressor (spec/virtualize/zarr2.md §3.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#31-compressors>); has_<member>: the member is written, null included",
       "given": {
         "path": "",
         "compressor": "the member (absent when null)",
@@ -380,7 +380,7 @@
       ]
     },
     "zgroup": {
-      "about": "an explicit group's .zgroup (spec/virtualize/zarr2.md §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>)",
+      "about": "an explicit group's .zgroup (spec/virtualize/zarr2.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#2-nodes>)",
       "given": {
         "key": "",
         "object": "",
@@ -394,7 +394,7 @@
       ]
     },
     "zattrs": {
-      "about": "a node's .zattrs (spec/virtualize/zarr2.md §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>)",
+      "about": "a node's .zattrs (spec/virtualize/zarr2.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#2-nodes>)",
       "given": {
         "key": "",
         "object": ""

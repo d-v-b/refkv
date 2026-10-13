@@ -3,8 +3,8 @@
 //! kept; one test of a run, and one per error.
 
 use serde_json::{json, Value as J};
-use vzip_ir::ir::{Ir, Res, NO_INDEX};
-use vzip_ir::store::{ObjectRequest, StoreFormat, StoreParser, StoreRun, StoreStep};
+use refkv_ir::ir::{Ir, Res, NO_INDEX};
+use refkv_ir::store::{ObjectRequest, StoreFormat, StoreParser, StoreRun, StoreStep};
 
 /// A parser that asks for `batches` in turn, then holds the objects `hold` (one value each).
 struct Asks {
@@ -33,7 +33,7 @@ impl StoreParser for Asks {
             let n = ir.len[o as usize];
             ir.value(o, "v", NO_INDEX, &format!("bytes[{n}]"), 0, (0, n), None)?;
         }
-        vzip_ir::check::finish(&mut ir)?;
+        refkv_ir::check::finish(&mut ir)?;
         Ok((ir, json!({"fed": self.fed.iter().map(|f| json!([f.0, f.1, f.2])).collect::<Vec<_>>(), "folders": self.folders})))
     }
 }
@@ -165,9 +165,9 @@ fn a_member_of_the_facts_the_profile_does_not_keep_is_refused() {
     // a file format's convention no ignored keys
     for (profile, member) in [("zarr2", "empty_dirs"), ("n5", "empty_dirs"), ("ome-zarr", "empty_dirs"),
                               ("tiff", "ignored")] {
-        let mut out = vzip_ir::out::Out::default();
+        let mut out = refkv_ir::out::Out::default();
         let facts = json!({ member: ["a/"] });
-        let e = vzip_ir::project::store::record_ignored(&mut out, &facts, profile).unwrap_err();
+        let e = refkv_ir::project::store::record_ignored(&mut out, &facts, profile).unwrap_err();
         assert!(e.contains(member), "{e}");
     }
 }

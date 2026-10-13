@@ -7,7 +7,7 @@ from __future__ import annotations
 import struct
 from typing import Callable, NamedTuple
 
-from vzip.virtualize.common import Reader, Rejected
+from refkv.virtualize.common import Reader, Rejected
 from refkv_reference.tiff.tags import Entry
 
 TAGS = {256, 257, 258, 259, 262, 266, 270, 277, 282, 283, 284, 296, 317, 322, 323, 324, 325, 330, 339, 347, 530}

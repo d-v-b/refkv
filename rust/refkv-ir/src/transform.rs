@@ -1,9 +1,9 @@
 //! The transforms of derived elements (conventions §8.5
-//! <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#85-forms-and-recipes>): every one a
+//! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>): every one a
 //! parser emits, by
 //! name, and whether a validator can derive its bytes again from the source (the view
 //! check, conventions §8.8
-//! <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>). A derived
+//! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>). A derived
 //! transform may hold shown values only if it can.
 
 use serde_json::Value as J;
@@ -51,7 +51,7 @@ impl Transform {
     }
 
     /// Whether its space may hold values the view shows (conventions §8.8
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>: only when a
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>: only when a
     /// validator can derive its bytes again).
     pub fn may_hold_shown(self) -> bool {
         match self {

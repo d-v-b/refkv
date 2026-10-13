@@ -1,5 +1,5 @@
 """The source mirror of a compact IR (ARCHITECTURE.md §3.4
-<https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#34-projections>): written by the
+<https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#34-projections>): written by the
 Rust core (`rust/refkv-ir/src/mirror.rs`, which documents the table), read back here.
 
 `Archive` reads an archive's entries with its references resolved.
@@ -18,7 +18,7 @@ class Archive:
     reads the archive's source 0 (the file the archive describes)."""
 
     def __init__(self, path: str, read_source) -> None:
-        from vzip.pb import Concat, Range, decode_source_table
+        from refkv.pb import Concat, Range, decode_source_table
 
         self.z = zipfile.ZipFile(path)
         self.sources = decode_source_table(self.z.read("__vz__/sources"))
@@ -53,27 +53,27 @@ class Archive:
 
 def load(archive: Archive):
     """The IR the mirror's table describes, as a Rust IR (for check and leaves)."""
-    import vzip_ir
+    from refkv import _ir
 
-    return vzip_ir.Ir.from_archive(archive.get, archive.read_source)
+    return _ir.Ir.from_archive(archive.get, archive.read_source)
 
 
 def canonical_problem(archive: Archive) -> str | None:
     """What makes the archive's mirror non-canonical (conventions §8.8
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>), or None: the
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>), or None: the
     validator's check, which rebuilds the table from what it loads and the source."""
-    import vzip_ir
+    from refkv import _ir
 
-    return vzip_ir.canonical_problem(archive.get, archive.read_source)
+    return _ir.canonical_problem(archive.get, archive.read_source)
 
 
 def view_problem(archive: Archive) -> str | None:
     """Where the archive's view differs from the one its table and source give
-    (conventions §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>), or
+    (conventions §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>), or
     None: the validator's check of the view."""
-    import vzip_ir
+    from refkv import _ir
 
-    return vzip_ir.view_problem(archive.z.namelist(), archive.get, archive.read_source)
+    return _ir.view_problem(archive.z.namelist(), archive.get, archive.read_source)
 
 
 def rebuild_from_archive(path: str, read_source, write) -> int:

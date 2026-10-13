@@ -1,7 +1,7 @@
 """Writes rust/refkv-ir/schema/dicom_dictionary.json, the data dictionary that
 the DICOM convention applies to elements whose VR the file does not state
 (spec/virtualize/dicom.md §5
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>).
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>).
 
     uv run python spec/virtualize/dicom/generate_dictionary.py
 

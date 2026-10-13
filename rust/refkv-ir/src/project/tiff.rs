@@ -1,5 +1,5 @@
 //! The TIFF image projection (spec/virtualize/tiff.md §4
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#4-the-image>) from a valid IR:
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#4-the-image>) from a valid IR:
 //! each level's planes name the IR's tiles; the facts hold the format, sizes, scales and
 //! translation.
 

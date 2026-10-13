@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Archive, VzipError } from "../src/archive.ts";
+import { Archive, RefkvError } from "../src/archive.ts";
 import { type ArchiveDesc, writeVzip } from "../src/writer.ts";
 
 const utf8 = (s: string) => new TextEncoder().encode(s);
@@ -51,7 +51,7 @@ test("reads back what the writer wrote", async () => {
 
 test("rejects a file that is not a vzip archive", async () => {
   await assert.rejects(Archive.open(utf8("not a zip at all, not even close"), "https://x/"), (e) =>
-    e instanceof VzipError && e.errorClass === "archive");
+    e instanceof RefkvError && e.errorClass === "archive");
 });
 
 test("rejects an unsupported format version", async () => {
@@ -64,11 +64,11 @@ test("reports an entry error for a reference stored with DEFLATE", async () => {
   const bytes = await writeVzip({ sources: [{ data: utf8("abc") }], entries: [{ key: "r", ranges: [{ source: 0, offset: 0n, length: 1n }] }] });
   const view = new DataView(bytes.buffer);
   // the central directory's offset, from the zip64 record (spec §10.2
-  // <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>)
+  // <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#102-zip64>)
   const cd = Number(view.getBigUint64(bytes.length - 44 - 76 + 48, true));
   view.setUint16(cd + 10, 8, true); // the reference's central directory record
   const a = await Archive.open(bytes, "https://x/");
-  await assert.rejects(a.read("r"), (e) => e instanceof VzipError && e.errorClass === "entry");
+  await assert.rejects(a.read("r"), (e) => e instanceof RefkvError && e.errorClass === "entry");
 });
 
 test("reports a payload error for a malformed reference", async () => {
@@ -78,17 +78,17 @@ test("reports a payload error for a malformed reference", async () => {
   const payload = bytes.indexOf(0x20, at);
   bytes[payload] = 0x0b;
   const a = await Archive.open(bytes, "https://x/");
-  await assert.rejects(a.read("r"), (e) => e instanceof VzipError && e.errorClass === "payload");
+  await assert.rejects(a.read("r"), (e) => e instanceof RefkvError && e.errorClass === "payload");
 });
 
 test("reports a resolution error for a source with an unsupported scheme", async () => {
   const a = await open({ sources: [{ url: "s3://bucket/blob.bin" }], entries: [{ key: "r", ranges: [{ source: 0, offset: 0n, length: 1n }] }] });
-  await assert.rejects(a.read("r"), (e) => e instanceof VzipError && e.errorClass === "resolution");
+  await assert.rejects(a.read("r"), (e) => e instanceof RefkvError && e.errorClass === "resolution");
 });
 
 test("reports a request error for a range past the end", async () => {
   const a = await open({ sources: [], entries: [{ key: "b", bytes: utf8("abc") }] });
-  await assert.rejects(a.read("b", 2, 5), (e) => e instanceof VzipError && e.errorClass === "request");
+  await assert.rejects(a.read("b", 2, 5), (e) => e instanceof RefkvError && e.errorClass === "request");
 });
 
 test("combines nearby reads of a url source into one request", async () => {

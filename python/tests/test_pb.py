@@ -2,12 +2,12 @@
 import pytest
 from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
 
-from vzip.pb import Concat, Range, Source, decode_source_table, encode_source_table
+from refkv.pb import Concat, Range, Source, decode_source_table, encode_source_table
 
 
 def _official():
     F = descriptor_pb2.FieldDescriptorProto
-    fdp = descriptor_pb2.FileDescriptorProto(name="vzip.proto", package="vzip.v0", syntax="proto3")
+    fdp = descriptor_pb2.FileDescriptorProto(name="refkv.proto", package="vzip.v0", syntax="proto3")
     rng = fdp.message_type.add(name="Range")
     for n, i, t in [("source", 1, F.TYPE_UINT32), ("offset", 3, F.TYPE_UINT64),
                     ("length", 4, F.TYPE_UINT64), ("data", 5, F.TYPE_BYTES)]:

@@ -154,7 +154,7 @@ last band per tile row (a rectilinear grid).
 ## 5. Results (2026-10-08)
 
 Equivalence is `compare.differences()` (§1.1) of the archives, without the
-entries under `vzip_source`, against `python -m vzip.virtualize`.
+entries under `vzip_source`, against `python -m refkv.virtualize`.
 
 | inputs | equivalent | both reject | rebuilt from the mirror archive |
 |---|---|---|---|
@@ -386,7 +386,7 @@ it is what a frame-time stream already is.
 
 **Equivalence** is `compare.differences()` of the archives without the
 entries under `vzip_source` (the fixture and fuzz runs compare the `Output`s
-directly, documents and references), against `python -m vzip.virtualize`.
+directly, documents and references), against `python -m refkv.virtualize`.
 
 | inputs | equivalent | both reject | rebuilt from the mirror archive alone |
 |---|---|---|---|
@@ -811,7 +811,7 @@ read of a TIFF or a CZI is a declared batch. Changes:
   most 4 times the bytes it asks for, plus 64 KiB, whatever the cost model
   wants, from a server or a local file. With 16, xt.czi's subblock headers
   (38 MB asked) were read as the whole 447 MB file on a single-range server;
-  with 4, they cannot be. `VZIP_AMPLIFICATION` overrides it, for experiments.
+  with 4, they cannot be. `REFKV_AMPLIFICATION` overrides it, for experiments.
   A local file's requests are served in the calling thread, without
   calibration.
 - **Calibration before planning.** A batch of more than 4 × concurrency
@@ -846,7 +846,7 @@ time). The measurements are round 3's scripts, now removed (`experiments/ir_roun
 fa64d87 in git history: `corpus.py`
 through the caching proxy, `measure.py` on local files, `sparse.py` and
 `remote.py` over the range server, `parity.py`, `rebuild.py`, `fuzz.py`,
-`runs.py`), with `VZIP_R3_WORK` naming their work directory (the sparse
+`runs.py`), with `REFKV_R3_WORK` naming their work directory (the sparse
 copies, the saved idr0096 listing, round 1's tree from `git archive 3042265`). Times are wall clock of one process under `/usr/bin/time -l` on local
 files (round 3 starts 0.3 s slower than today: it imports the extension and
 numpy); "r1" is round 1's code (3042265) run the same way.
@@ -918,7 +918,7 @@ schemas (embedded), the role checker and the XML scan.
 **Equivalence** is `compare.differences()` of the archives without the entries
 under `vzip_source` (corpora, through the caching proxy, one process each), or
 the `Output`s compared directly (fixtures, mutants, probes: documents,
-references and data sources), against `python -m vzip.virtualize`.
+references and data sources), against `python -m refkv.virtualize`.
 **Rebuild** is the source rebuilt from the IR archive alone
 (`cmirror.rebuild_from_archive`: the mirror's table, checked by the Rust
 checker, and `vzip_source/bytes`), compared byte for byte (sha-256 for the
@@ -1005,7 +1005,7 @@ planner's remote default); today's reader prefetches at 32.
   today's 32 (zen395 16.7 s against 5.4 s), at 16 about even (7.0 s). xt.czi
   is the cap's price: 76,274 requests, 923 s at 6 connections and 332 s at 16,
   where today reads the whole file in 24.8 s. With the cap raised to 16
-  (`VZIP_AMPLIFICATION=16`) round 3 reads the whole file too: 103.6 s, 29
+  (`REFKV_AMPLIFICATION=16`) round 3 reads the whole file too: 103.6 s, 29
   requests, 448 MB.
 - The TIFF files are a few requests either way (their IFDs are a chain; the
   tile tables come in one batch per level).
@@ -1099,7 +1099,7 @@ On `feat/virtualize-conventions-v2-work`, after round 2's ad3b714:
 # Adoption: the IR becomes the production path for TIFF, ND2 and CZI
 
 The adoption makes the Rust core the only implementation of TIFF (but NDPI), ND2
-and CZI in both `vzip.virtualize` (Python) and `js/src/virtualize` (browser and
+and CZI in both `refkv.virtualize` (Python) and `js/src/virtualize` (browser and
 Node): it parses, plans the reads, projects the convention's hierarchy and writes
 the mirror; each host performs the I/O and writes the archive. Today's Python and
 TypeScript profiles for the three formats are kept, unchanged but for their import
@@ -1263,10 +1263,10 @@ over entries, references and data sources, and each host writes them.
 
 ## 32. The switch-over
 
-- `vzip.virtualize.virtualize` opens a file through the IR's transport (under the
+- `refkv.virtualize.virtualize` opens a file through the IR's transport (under the
   reader policy for http(s): `Policy()`, private hosts and proxies refused; the CLI
   takes `--allow-private-hosts`), sniffs its first bytes, and sends TIFF (but NDPI),
-  ND2 and CZI to `vzip.ir.virtualize`; the other profiles keep their code and
+  ND2 and CZI to `refkv.ir.virtualize`; the other profiles keep their code and
   readers. `js/src/virtualize/index.ts` does the same with the wasm32 build
   (`virtualizeSource`, and `virtualizeImage` for callers with byte readers); its
   http source honors the TypeScript reader policy, through `#net`'s checked fetch
@@ -1292,7 +1292,7 @@ over entries, references and data sources, and each host writes them.
   that makes the mirror normative (or keeps §5 and ports the translators) is the
   user's decision.
 
-**The browser bundle.** The module is a sibling file (`dist/vzip_ir.wasm`, fetched
+**The browser bundle.** The module is a sibling file (`dist/refkv_ir.wasm`, fetched
 beside the script, compiled while it streams; under Node read from the cargo build),
 not inlined (base64 would add 2.1 MB to the service worker):
 
@@ -1300,7 +1300,7 @@ not inlined (base64 would add 2.1 MB to the service worker):
 |---|---|---|
 | `vzip-sw.js` | 634,713 B (171,479 gzip) | 507,272 B (137,982 gzip) |
 | `demo.js` | 65,775 B (23,294 gzip) | 62,803 B (22,116 gzip) |
-| `vzip_ir.wasm` | — | 1,579,717 B (498,119 gzip) |
+| `refkv_ir.wasm` | — | 1,579,717 B (498,119 gzip) |
 
 So a page that virtualizes loads about 463 KB more (gzip). Startup under Node:
 instantiating the module 2.3 ms cold; the first virtualization of a small TIFF
@@ -1314,7 +1314,7 @@ ready in 51 ms, the module's fetch and compilation included.
 |---|---|
 | fixtures, 4 shards of `compare.py` (`ref`, `py`, `web`) | 667 inputs: 293 equivalent, 374 rejected by all, 0 divergent; `py` and `web` identical, `vzip_source` included |
 | mutants (`just compare-mutants`: 10 per fixture, seed 0) | 5,290 inputs: 1,895 equivalent, 3,395 rejected by all, 0 divergent |
-| SVS (4), IDR idr0096 (205, the saved listing), CZI corpus (24), through the caching proxy offline (`design/experiments/ir_adopt/corpus.py`), `ref` against `python -m vzip.virtualize`, and against the browser code (`js/conformance/virtualize.ts`) | 233 of 233 equivalent, both |
+| SVS (4), IDR idr0096 (205, the saved listing), CZI corpus (24), through the caching proxy offline (`design/experiments/ir_adopt/corpus.py`), `ref` against `python -m refkv.virtualize`, and against the browser code (`js/conformance/virtualize.ts`) | 233 of 233 equivalent, both |
 | ND2 corpus through the proxy (both hosts) | 6 equivalent; 11 not comparable offline (the frozen reference reads blocks the cache lacks, 2,378 of them; the IR none; EBI was not contacted) |
 | ND2 local copies (3 whole files from EBI, the 27 GB sparse copy) | 4 of 4 equivalent, rebuilt byte for byte (sha-256) |
 | byte-exact rebuild from the mirror | every accepted fixture (`tests/mirror.rs`, python/tests/ir), 33 of 33 accepted probes, the 4 ND2 copies, SVS/IDR/CZI sparse copies |
@@ -1322,7 +1322,7 @@ ready in 51 ms, the module's fetch and compilation included.
 | native and wasm32 parity | parsers: 1,971 of 1,971 inputs (fixtures, probes, mutants) give the same IR digest; whole outputs: `py` and `web` identical on the 667 fixtures and 5,290 mutants |
 | `just test --ignore=python/tests/ir`, `just ir-test`, `just js::test` | green |
 | verify scripts (`just verify`, CZI, SAFE; private hosts opted in) | 0 failures (TIFF/ND2/CZI archives of the IR check their mirror's rebuild) |
-| `conformance/vzip/run.py --impl ref="python -m vzip.cli --allow-private-hosts"` | 5,125/5,125 reads, 11/11 writes, 45/45 rejects, 4,973/4,973 cross-reads, 1,582/1,582 http |
+| `conformance/vzip/run.py --impl ref="python -m refkv.cli --allow-private-hosts"` | 5,125/5,125 reads, 11/11 writes, 45/45 rejects, 4,973/4,973 cross-reads, 1,582/1,582 http |
 | `node build.mjs`, the service worker in Chromium | builds; virtualizes a TIFF, an ND2 and a CZI |
 | `just fixtures-check` (last, alone) | passes: two runs agree, and with the committed fixtures |
 
@@ -1443,7 +1443,7 @@ and keep their extra rounds: reading 7 MB whole costs more at 2.5 MB/s.
 `rust/refkv-ir/wasm/build.sh`: cargo's `wasm` profile (LTO, one codegen unit,
 opt-level 2, panic=abort), then binaryen's `wasm-opt -O3` when installed
 (installed here with Homebrew; CI installs it with apt), into
-`rust/refkv-ir/target/web/vzip_ir.wasm`. Measured with
+`rust/refkv-ir/target/web/refkv_ir.wasm`. Measured with
 `design/experiments/ir_adopt/wasm_bench.ts` under Node (compile and instantiate cold;
 the 220 fixtures through the shipped driver twice; four files from disk):
 
@@ -1459,7 +1459,7 @@ Instantiation is 0.05 ms in every build (V8 compiles lazily). The chosen build
 is 27% smaller (12% gzipped) at the same speed; opt-level `s` or `z` would
 save 9–20% more for 20–50% slower parsing. `wasm-opt -Oz` is no smaller than
 `-O3` at opt-level 2 (1,175,444 against 1,179,971 at opt-level 3), so `-O3`.
-`dist/vzip_ir.wasm` is the chosen build. Native and wasm32 parity: 1,971 of
+`dist/refkv_ir.wasm` is the chosen build. Native and wasm32 parity: 1,971 of
 1,971 parser digests (fixtures, probes, mutants), and `py` and `web` give the
 same archives on every fixture and mutant.
 
@@ -1618,7 +1618,7 @@ The validator on the corpus's 250 IR archives (local cache): load and check
   directory, and `just js::test` builds and uses it
   (`js/test/ir/budget.test.ts`: the exact message, as an ImageError, the
   browser's rejection; and no `vz_test_` export in the shipped module). The
-  shipped `vzip_ir.wasm` is byte-identical with and without the hook's code
+  shipped `refkv_ir.wasm` is byte-identical with and without the hook's code
   (1,181,746 bytes, the same 24 exports).
 - **Derived transforms** (`transform.rs`): every transform a parser emits is a
   variant of `Transform` (`ALL`, kept complete by `index`), parsers write
@@ -1764,7 +1764,7 @@ array documents each.
 
 **Hosts.** `store.rs`'s `StoreRun` turns a parser's batches into one request
 per object (its ranges merged within 4 KiB), keeps whole reads, and holds them
-for held objects; `vzip_ir.StoreRun` and `vzip.ir.store` drive it through the
+for held objects; `vzip_ir.StoreRun` and `refkv.ir.store` drive it through the
 store readers (S3 or a directory, the reader policy, the store's workers),
 `vz_store_*` and `wasm/store.mjs` in wasm. Native and wasm agree on the 117
 fixture stores.
@@ -1884,7 +1884,7 @@ Hamamatsu-1 56):
   the span cache 93 → 25 s (the span cache adds nothing there at 0.1 s per MB);
   `bench_ir.py --byte-cost 0` gives these.
 
-Not done: the store readers (`vzip.store`, `js/src/archive.ts`) still read chunk
+Not done: the store readers (`refkv.store`, `js/src/archive.ts`) still read chunk
 by chunk with a 64 KiB gap; adopting the planner there (a batch per view, a
 span cache, a ceiling of its own) is the open step this benchmark argues for.
 

@@ -1,5 +1,5 @@
 //! The read planner's policy (design/ARCHITECTURE.md §3.5
-//! <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#35-resources-and-io>), sans-IO:
+//! <https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#35-resources-and-io>), sans-IO:
 //! which requests to make for a parser's batch of ranges. The host performs the requests (HTTP,
 //! a local file, the browser's `fetch`), reports each one's bytes and time,
 //! and gets the batch's bytes back; the planner never reads.
@@ -113,7 +113,7 @@ pub struct Planner {
     pub concurrency: usize,
     /// Whether the server answers multi-range requests (None: not probed yet).
     pub multirange: Option<bool>,
-    /// A fixed cap, for experiments (VZIP_AMPLIFICATION).
+    /// A fixed cap, for experiments (REFKV_AMPLIFICATION).
     pub cap_override: Option<f64>,
     /// The cost of a byte fetched, as seconds of wall time (the host may set it; see
     /// BYTE_COST): a gap is fetched to save a request only when the time saved pays

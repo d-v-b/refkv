@@ -26,7 +26,7 @@ from run import grade, run_read  # noqa: E402
 from validate import validate  # noqa: E402
 
 CLI = ["node", str(ROOT / "js" / "conformance" / "cli.ts")]
-REF = ["uv", "run", "python", "-m", "vzip.cli"]
+REF = ["uv", "run", "python", "-m", "refkv.cli"]
 
 
 def main(out: Path) -> int:
@@ -56,7 +56,7 @@ def main(out: Path) -> int:
               f"ref read {len(qs) - len(fails)}/{len(qs)}")
     # The kit's only case of 65,535 entries or more is paged; this one is not. Its
     # count fits only the zip64 record (every archive has one; spec/archive.md §10.2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#102-zip64>).
     many = {"sources": [{"url": "blob.bin"}],
             "entries": [{"key": f"c/{i}", "ranges": [{"source": 0, "offset": i % 7, "length": 1}]}
                         for i in range(70000)]}

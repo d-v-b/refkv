@@ -1,15 +1,15 @@
 """The host's side of a store run (rust/refkv-ir/src/store.rs; conventions §8.9
-<https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): the I/O of a store
+<https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): the I/O of a store
 input that the Rust core parses, projects and mirrors.
 
 The core is sans-IO. The host lists the store and reads its objects through the store readers
-of `vzip.virtualize.store` (`HttpStore`: S3 `ListObjectsV2` and range requests, every request
+of `refkv.virtualize.store` (`HttpStore`: S3 `ListObjectsV2` and range requests, every request
 under the reader policy of spec/archive.md §6.7
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>; `DirStore`: a local
+<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>; `DirStore`: a local
 directory), and drives the run:
 
 - `listing(store)`: the store's objects as (key, size), keys in byte order: what
-  `vzip_ir.StoreRun` builds the IR's directories and objects from.
+  `refkv._ir.StoreRun` builds the IR's directories and objects from.
 - `drive_store(run, store)`: the loop. Each `poll()` is a batch: one request per object (its
   spans, a whole object being one span), made at most `store.workers` at a time (the
   concurrency of #37's prefetch of documents), then `complete()`.
@@ -18,10 +18,10 @@ directory), and drives the run:
   run. The output (`StoreIrOutput`) references objects through one url source per object
   some reference uses, its size pinned, in order of first use, and its data sources follow
   (spec/virtualize.md §1.4
-  <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>).
+  <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>).
 
 The core's store formats: `zarr2` (rust/refkv-ir/src/zarr2.rs, spec/virtualize/zarr2.md), which
-`vzip.virtualize` sends Zarr v2 stores to (deciding which are OME-Zarr 0.4's,
+`refkv.virtualize` sends Zarr v2 stores to (deciding which are OME-Zarr 0.4's,
 spec/virtualize/ome-zarr.md), and `safe` (rust/refkv-ir/src/safe/,
 spec/virtualize/safe.md), a SAFE product's directory form.
 """
@@ -34,8 +34,8 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from vzip.virtualize.common import Rejected
-from vzip.virtualize.store import Store, object_url, open_store
+from refkv.virtualize.common import Rejected
+from refkv.virtualize.store import Store, object_url, open_store
 
 
 def listing(store: Store) -> list[tuple[str, int]]:
@@ -70,7 +70,7 @@ def drive_store(run, store: Store, workers: int | None = None, fmt: str | None =
     (default `store.workers`) at a time; each reading thread closes its kept-alive
     connections at the end. `fmt` is the run's store format, which a rejection names
     (`Rejected.format`); pass it whenever it is known."""
-    import vzip_ir
+    from refkv import _ir
 
     workers = max(1, workers or store.workers)
     pool = ThreadPoolExecutor(workers) if workers > 1 else None
@@ -78,7 +78,7 @@ def drive_store(run, store: Store, workers: int | None = None, fmt: str | None =
         while True:
             try:
                 reqs = run.poll()
-            except vzip_ir.Rejected as e:
+            except _ir.Rejected as e:
                 raise Rejected(str(e), format=fmt) from None
             if reqs is None:
                 return
@@ -89,7 +89,7 @@ def drive_store(run, store: Store, workers: int | None = None, fmt: str | None =
             for k, parts in enumerate(results):
                 try:
                     run.complete(k, parts)
-                except vzip_ir.Rejected as e:
+                except _ir.Rejected as e:
                     raise Rejected(str(e), format=fmt) from None
     finally:
         if pool is not None:
@@ -111,7 +111,7 @@ def drive_store(run, store: Store, workers: int | None = None, fmt: str | None =
 
 @dataclass
 class StoreIrOutput:
-    """The output of a store run (`vzip_ir.StoreRun.output`): bytes entries, references
+    """The output of a store run (`refkv._ir.StoreRun.output`): bytes entries, references
     (`refs`: entry key -> its parts, each ("object", key, offset, length) of a store's
     object, (source, offset, length) of data source `source` (from 1, the core's numbering),
     or literal bytes), the data sources, the lazy prefixes and the summary. `sizes` are the
@@ -125,8 +125,8 @@ class StoreIrOutput:
     summary: dict = field(default_factory=dict)
     sizes: dict[str, int] = field(default_factory=dict)
     # The CRC-32C of a url source's bytes, when the ranges are to carry checksums
-    # (spec/archive.md §4.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>);
-    # set by vzip.virtualize._virtualize_store.
+    # (spec/archive.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>);
+    # set by refkv.virtualize._virtualize_store.
     checksum: Callable[[str, int, int], int] | None = None
 
     @property
@@ -160,10 +160,10 @@ class StoreIrOutput:
         some reference uses, in order of first use (the references in order of their keys,
         each one's ranges in order), then the data sources, also in order of first use
         (spec/virtualize.md §1.4
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>; a Zarr v2
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>; a Zarr v2
         or N5 store's objects are each one reference's, so this is one source per reference,
         in order of the entries' keys; spec/virtualize/safe.md §12.8
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#128-the-source-table>).
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#128-the-source-table>).
         A reference's parts become (source, offset, length) or bytes."""
         objects, data, refs = self._numbered()
         return [object_url(self.url, k) for k in objects], data, refs
@@ -199,8 +199,8 @@ class StoreIrOutput:
         return self.table()[0]
 
     def write(self, out_path: str) -> None:
-        from vzip.archive import VZipWriter
-        from vzip.pb import Range, Source
+        from refkv.archive import VZipWriter
+        from refkv.pb import Range, Source
 
         with open(out_path, "wb") as fh:
             w = VZipWriter(fh, page_size=1 << 16, checksum=self.checksum)
@@ -228,10 +228,10 @@ class StoreIrOutput:
             w.close()
 
     def to_store(self, *, policy=None, info: dict | None = None):
-        """The output as a `vzip.ReferenceStore`, which `save` writes as the archive
-        `write` writes, byte for byte (`vzip.virtualize.common.reference_store`)."""
-        from vzip.pb import Range, Source
-        from vzip.virtualize.common import reference_store
+        """The output as a `refkv.ReferenceStore`, which `save` writes as the archive
+        `write` writes, byte for byte (`refkv.virtualize.common.reference_store`)."""
+        from refkv.pb import Range, Source
+        from refkv.virtualize.common import reference_store
 
         objects, data, table = self._numbered()
         sources = [Source(url=object_url(self.url, k), size=self.sizes.get(k)) for k in objects] + \
@@ -268,23 +268,23 @@ def run_store(store: Store, fmt: str = "zarr2", mirror: bool = True):
     requests. With `mirror` false the output has no `vzip_source` mirror, and so no record of
     the ignored keys either. A rejection names `fmt` (`Rejected.format`), or, for one of the
     output's checks, the profile the run decided (`ome-zarr` once the 0.4 test passed)."""
-    import vzip_ir
+    from refkv import _ir
 
     if store._prefetch is not None:
         # documents read ahead (choosing the profile does): the run takes those read, and reads
         # the rest itself, so that at most `store.workers` reads are in flight
         store._prefetch.drain()
     try:
-        run = vzip_ir.StoreRun(fmt, listing(store), max(1, store.workers))
+        run = _ir.StoreRun(fmt, listing(store), max(1, store.workers))
         run.ignore(list(getattr(store, "ignored", [])), list(getattr(store, "folders", [])))
-    except vzip_ir.Rejected as e:
+    except _ir.Rejected as e:
         raise Rejected(str(e), format=fmt) from None
     drive_store(run, store, fmt=fmt)
     stats = json.loads(run.stats())
     profile = run.profile()  # the output's checks are the decided profile's (OME-Zarr's, say)
     try:
         t, ir = run.output(store.url, mirror)
-    except vzip_ir.Rejected as e:
+    except _ir.Rejected as e:
         raise Rejected(str(e), format=profile) from None
     out = from_rust(t, store.objects)
     out.summary["listingRequests"] = getattr(store, "requests", 0)

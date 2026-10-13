@@ -1,8 +1,8 @@
 //! The IMS image projection (spec/virtualize/ims.md §4
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#4-output>) from a valid IR: one
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>) from a valid IR: one
 //! image at the root, an array per resolution level, each chunk the IR's data element of the
 //! dataset's chunk (spec/virtualize/ims.md §8.8
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#88-chunk-references>). The
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#88-chunk-references>). The
 //! parser decided the layout and the keys (the facts); this writes them.
 
 use super::{arr, key, n, obj, strs, translations};

@@ -1,8 +1,8 @@
 //! The sans-IO IMS parser (spec/virtualize/ims.md
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md>): an Imaris file is an HDF5
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md>): an Imaris file is an HDF5
 //! file, read by `hdf5.rs`. Two phases, each run in rounds (`hdf5.rs`'s replay):
 //!
-//! 1. **The layout** (spec/virtualize/ims.md §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#2-the-source>–§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#4-output>): the groups, attributes and datasets the
+//! 1. **The layout** (spec/virtualize/ims.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#2-the-source>–§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>): the groups, attributes and datasets the
 //!    convention reads, in its order, every rejection of the profile checked here (the HDF5
 //!    subset by the reader, the Imaris layout by `schema/ims.json`'s roles). Its outcome is the
 //!    facts the projection writes: the root's metadata, the level arrays, and each chunk's key.
@@ -89,7 +89,7 @@ fn lenient<T>(r: R<T>) -> R<Option<T>> {
 }
 
 // ---- text (spec/virtualize/ims.md §2.1
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#21-attributes-as-text>)
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#21-attributes-as-text>)
 
 /// The text of a string's data: up to the first NUL, UTF-8 or else Latin-1.
 pub fn decode_text(data: &[u8]) -> String {
@@ -227,7 +227,7 @@ pub fn timestamp(s: Option<&str>) -> Option<(i64, f64)> {
 }
 
 /// The length unit of a `Unit` text (conventions §5
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#5-units>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>).
 fn length_unit(s: &str) -> Option<&'static str> {
     Some(match s {
         "\u{b5}m" | "\u{3bc}m" | "um" => "micrometer",
@@ -325,10 +325,10 @@ impl Ims {
         }
     }
 
-    // ---- phase 1: the layout (spec/virtualize/ims.md §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#2-the-source>–§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#4-output>)
+    // ---- phase 1: the layout (spec/virtualize/ims.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#2-the-source>–§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>)
 
     /// The object a group's link `name` leads to, None when the link is absent and not
-    /// `required` (spec/virtualize/ims.md §2.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>).
+    /// `required` (spec/virtualize/ims.md §2.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>).
     fn group(&mut self, links: &Links, name: &str, required: bool) -> R<Option<u64>> {
         if !links.has(name) {
             if required {
@@ -528,7 +528,7 @@ impl Ims {
         Ok((level_info, data_type.unwrap(), chunk_list))
     }
 
-    /// A channel group's image size and Data dataset (spec/virtualize/ims.md §2.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>).
+    /// A channel group's image size and Data dataset (spec/virtualize/ims.md §2.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>).
     fn image(&mut self, time_links: &Links, r: usize, c: usize) -> R<([u64; 3], hdf5::Dataset, u64)> {
         let channel = self.group(time_links, &format!("Channel {c}"), true)?.unwrap();
         let attrs = self.h.attributes(channel)?;
@@ -548,7 +548,7 @@ impl Ims {
         Ok((sizes, ds, data_at))
     }
 
-    /// The metadata groups' attributes (spec/virtualize/ims.md §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#3-metadata>), and the channels' colors.
+    /// The metadata groups' attributes (spec/virtualize/ims.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#3-metadata>), and the channels' colors.
     fn metadata(&mut self, root: &Links, times: u64, channels: u64) -> R<Meta> {
         let meta = if root.has("DataSetInfo") {
             let (_, l) = self.opened(root, "DataSetInfo")?;
@@ -636,7 +636,7 @@ impl Ims {
         Ok((attrs, links))
     }
 
-    /// A channel's omero color (spec/virtualize/ims.md §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#4-output>).
+    /// A channel's omero color (spec/virtualize/ims.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>).
     fn channel_color(&mut self, attrs: Option<&hdf5::Attrs>, links: Option<&Links>) -> R<String> {
         let base = unit_rgb(decimals(self.attr_text(attrs, "Color")?.as_deref(), 3).as_deref());
         let mode = self.optional_text(attrs, "ColorMode")?;
@@ -654,7 +654,7 @@ impl Ims {
     }
 
     /// A channel's ColorTable, as text: its attribute, else the small string dataset its link
-    /// leads to; None if neither can be read, never rejecting (spec/virtualize/ims.md §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#3-metadata>).
+    /// leads to; None if neither can be read, never rejecting (spec/virtualize/ims.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#3-metadata>).
     fn color_table(&mut self, attrs: Option<&hdf5::Attrs>, links: Option<&Links>) -> R<Option<String>> {
         if attrs.is_some_and(|a| a.get("ColorTable").is_some()) {
             return self.optional_text(attrs, "ColorTable");
@@ -690,7 +690,7 @@ impl Ims {
         Ok(lenient(r)?.flatten())
     }
 
-    /// The facts the projection writes (spec/virtualize/ims.md §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#4-output>).
+    /// The facts the projection writes (spec/virtualize/ims.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>).
     fn output(&self, level_info: &[([u64; 3], [u64; 3], bool)], data_type: &(String, Option<&'static str>, Option<(i64, i64)>), meta: Meta,
               levels: u64, times: u64, channels: u64) -> R<J> {
         let z0 = level_info[0].0[0];

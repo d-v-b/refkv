@@ -1,8 +1,8 @@
 """The virtualizers' pins and range checksums (spec/virtualize.md §1.2
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>, §1.4
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>;
-spec/archive.md §4.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>, §5.1
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-pins>)."""
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>, §1.4
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>;
+spec/archive.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>, §5.1
+<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#51-pins>)."""
 
 import threading
 import zipfile
@@ -11,18 +11,18 @@ from pathlib import Path
 
 import pytest
 
-from vzip.archive import Entry, parse_central_directory, parse_tail
-from vzip.pb import Concat, Range, Source, decode_table
-from vzip.policy import Policy, crc32c
-from vzip.store import VZipStore
-from vzip.virtualize import virtualize
+from refkv.archive import Entry, parse_central_directory, parse_tail
+from refkv.pb import Concat, Range, Source, decode_table
+from refkv.policy import Policy, crc32c
+from refkv.store import VZipStore
+from refkv.virtualize import virtualize
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 TIFF = FIXTURES / "tiff" / "tczyx_uint16_deflate.ome.tif"
 JPEG = FIXTURES / "tiff" / "jpeg_ycbcr.tif"  # has data sources (shared JPEG tables)
 STORE = FIXTURES / "zarr2" / "zarr2_dtypes"
 N5_STORE = FIXTURES / "n5" / "n5_objects"
-LOOPBACK = Policy(allow_private_hosts=True)  # the test server is on 127.0.0.1 (spec/archive.md §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3)
+LOOPBACK = Policy(allow_private_hosts=True)  # the test server is on 127.0.0.1 (spec/archive.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 3)
 
 
 @pytest.fixture

@@ -2,11 +2,11 @@
 // from Node: the host reads the ranges each step asks for and feeds them. Prints
 // one JSON line per file: the IR's element and run counts, the checker's verdict,
 // its digest and the facts (or the rejection), and the rounds, ranges and bytes read.
-// Usage: node rust/refkv-ir/wasm/run.mjs [--wasm <vzip_ir.wasm>] <file>...
+// Usage: node rust/refkv-ir/wasm/run.mjs [--wasm <refkv_ir.wasm>] <file>...
 import { openSync, readSync, fstatSync, readFileSync, closeSync } from "node:fs";
 
 const args = process.argv.slice(2);
-let wasmPath = new URL("../target/web/vzip_ir.wasm", import.meta.url);
+let wasmPath = new URL("../target/web/refkv_ir.wasm", import.meta.url);
 if (args[0] === "--wasm") { wasmPath = args[1]; args.splice(0, 2); }
 const { instance } = await WebAssembly.instantiate(readFileSync(wasmPath), {});
 const w = instance.exports;

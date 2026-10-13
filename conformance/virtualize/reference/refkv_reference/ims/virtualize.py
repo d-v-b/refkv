@@ -1,5 +1,5 @@
 """The IMS profile (spec/virtualize.md, §8
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#8-ims-profile>)."""
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#8-ims-profile>)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import re
 from collections.abc import Callable
 
 from refkv_reference.revision import IMS_REVISION
-from vzip.virtualize.common import LENGTHS, UNITS, Output, Reader, Rejected, array_json, root_json, image_ome
+from refkv.virtualize.common import LENGTHS, UNITS, Output, Reader, Rejected, array_json, root_json, image_ome
 from refkv_reference.ims.source import source_tree
 from refkv_reference.ims.hdf5 import MAX_SAFE, Hdf5, attribute_value, le
 
@@ -24,7 +24,7 @@ TIMESTAMP = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2}) ([0-9]{2}):([0-9]{2}):
 
 
 # ---- attribute values (spec/virtualize/ims.md §2.1
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#21-attributes-as-text>)
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#21-attributes-as-text>)
 
 def text(attrs: dict[bytes, bytes], name: str) -> str | None:
     """The text of a string attribute, or None if it is absent."""
@@ -39,7 +39,7 @@ def text(attrs: dict[bytes, bytes], name: str) -> str | None:
 
 def decode_text(data: bytes) -> str:
     """The text of a string's data: up to the first NUL, UTF-8 or else Latin-1 (§2.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#21-attributes-as-text>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#21-attributes-as-text>)."""
     raw = data.split(b"\0", 1)[0]
     try:
         return raw.decode("utf-8")
@@ -49,7 +49,7 @@ def decode_text(data: bytes) -> str:
 
 def optional_text(attrs: dict[bytes, bytes], name: str) -> str | None:
     """The text of an attribute that never rejects the input (spec/virtualize/ims.md §4
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#4-output>,
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>,
     the color): None if it is absent, its value cannot be read, or it is not a string."""
     try:
         return text(attrs, name)
@@ -59,7 +59,7 @@ def optional_text(attrs: dict[bytes, bytes], name: str) -> str | None:
 
 def integer(s: str | None) -> int | None:
     """An integer (§2.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#21-attributes-as-text>) from 1
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#21-attributes-as-text>) from 1
     to 2^53 - 1, or None."""
     if s is None or not DIGITS.fullmatch(s.strip(WS)):
         return None
@@ -79,7 +79,7 @@ def unit_rgb(values: list[float] | None) -> str | None:
 
 def channel_color(attrs: dict[bytes, bytes], table_text: Callable[[], str | None]) -> str:
     """A channel's omero color (spec/virtualize/ims.md §4
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#4-output>): its base color
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>): its base color
     (`Color`) or the top
     of its color table (the text `table_text` reads, only when needed), whichever `ColorMode`
     prefers, else white."""
@@ -126,7 +126,7 @@ def days(y: int, m: int, d: int) -> int:
 def timestamp(s: str | None) -> tuple[int, float] | None:
     """(whole seconds from 1970-01-01 00:00:00, fraction of a second), or None
     (spec/virtualize/ims.md §3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#3-metadata>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#3-metadata>)."""
     m = TIMESTAMP.fullmatch(s) if s is not None else None
     if m is None:
         return None
@@ -139,7 +139,7 @@ def timestamp(s: str | None) -> tuple[int, float] | None:
 
 
 # ---- the Imaris layout (spec/virtualize/ims.md §2.2
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>)
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>)
 
 def virtualize_ims(url: str, read: Reader, size: int) -> Output:
     f = Hdf5(read, size)
@@ -179,7 +179,7 @@ def virtualize_ims(url: str, read: Reader, size: int) -> Output:
         raise Rejected(f"more than {MAX_DATASETS} datasets")
 
     # spec/virtualize/ims.md §2.2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>: the
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>: the
     # datasets of every level, time point and channel.
     data_type = None
     level_info = []  # per level: (sizes z, y, x; chunk z, y, x; compressed)
@@ -223,7 +223,7 @@ def virtualize_ims(url: str, read: Reader, size: int) -> Output:
         level_info.append(info)
 
     # spec/virtualize/ims.md §3
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#3-metadata>: metadata.
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#3-metadata>: metadata.
     meta = f.links(group(root, "DataSetInfo")) if b"DataSetInfo" in root else {}
 
     def meta_group(name: str) -> tuple[dict[bytes, bytes], dict]:
@@ -239,7 +239,7 @@ def virtualize_ims(url: str, read: Reader, size: int) -> Output:
 
     def color_table(attrs: dict[bytes, bytes], links: dict) -> str | None:
         """A channel's ColorTable, as text (spec/virtualize/ims.md §3
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#3-metadata>): its attribute,
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#3-metadata>): its attribute,
         else the
         small string dataset its link leads to; None if neither can be read, never rejecting."""
         if b"ColorTable" in attrs:
@@ -291,9 +291,9 @@ def virtualize_ims(url: str, read: Reader, size: int) -> Output:
                 period = elapsed / (times - 1)
 
     # spec/virtualize/ims.md §4
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#4-output>: output;
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>: output;
     # spec/virtualize.md §8.8
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#88-chunk-references>: the
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#88-chunk-references>: the
     # chunk references.
     z0 = level_info[0][0][0]
     # A z axis also when chunks hold several z planes, so that they decode to Zarr chunks.
@@ -346,7 +346,7 @@ def virtualize_ims(url: str, read: Reader, size: int) -> Output:
         ome["omero"] = {"channels": channels_json}
     out = Output(url)
     # The source metadata (spec/virtualize/ims.md §5
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>).
     out.json("zarr.json", root_json(ome, "ims", url, revision=IMS_REVISION))
     for r, array in enumerate(arrays):
         out.json(f"{r}/zarr.json", array)
@@ -366,7 +366,7 @@ def virtualize_ims(url: str, read: Reader, size: int) -> Output:
         "channels": labels,
     }
     # The source metadata node (spec/virtualize/ims.md §5
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>).
     source_tree(f, read, images).emit(out)
     return out
 
@@ -374,7 +374,7 @@ def virtualize_ims(url: str, read: Reader, size: int) -> Output:
 def _data_type(dt) -> tuple[str, str | None, tuple[int | None, int | None]]:
     """(Zarr data type, byte order or None for one byte, integer range) of a Data dataset
     (spec/virtualize/ims.md §2.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>)."""
     order = "big" if dt.bits & 1 else "little"
     if dt.cls == 0 and dt.size in (1, 2, 4):
         if le(dt.props, 0, 2) != 0 or le(dt.props, 2, 2) != 8 * dt.size:

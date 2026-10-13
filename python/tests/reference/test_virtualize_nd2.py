@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from vzip.virtualize import Rejected
+from refkv.virtualize import Rejected
 from refkv_reference import virtualize
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "nd2"
@@ -41,7 +41,7 @@ def test_virtualizes_the_synthetic_files():
 
 def test_frame_headers_are_prefetched_with_a_padded_name():
     """Real files pad frame names to 4072 bytes: the prefetch covers the header and a 4 KiB name."""
-    from vzip.virtualize.common import file_reader
+    from refkv.virtualize.common import file_reader
     from refkv_reference.nd2 import virtualize_nd2
 
     for name, frames in (("nd2_tz_uint16.nd2", 12), ("nd2_compressed_positions.nd2", 8)):
@@ -413,7 +413,7 @@ def test_grid_cut_is_the_cut_of_contiguous_values():
     limit (spec/conventions.md §7), on chosen and on random shapes."""
     import random
 
-    from vzip.virtualize.common import grid_chunks
+    from refkv.virtualize.common import grid_chunks
     from refkv_reference.nd2.source import grid_chunk, grid_cut
 
     cases = [([1], 8), ([5, 7], 4), ([3_000_000], 8), ([2_097_153], 8), ([4096, 1024], 8), ([3, 5_000_000], 4),

@@ -1,4 +1,4 @@
-"""The event loop that the methods of vzip's stores that return at once run on.
+"""The event loop that the methods of refkv's stores that return at once run on.
 
 A store's operations are coroutines (`get_async`, ...); `get`, `classify`, `raw`
 and `list` run them here, on one loop on a thread of its own, started on first
@@ -25,13 +25,13 @@ def _the_loop() -> asyncio.AbstractEventLoop:
     with _lock:
         if _loop is None:
             loop = asyncio.new_event_loop()
-            threading.Thread(target=loop.run_forever, name="vzip-loop", daemon=True).start()
+            threading.Thread(target=loop.run_forever, name="refkv-loop", daemon=True).start()
             _loop = loop
         return _loop
 
 
 def run(coro: Coroutine[Any, Any, T]) -> T:
-    """The result of `coro`, run on vzip's loop; the caller's thread waits for it."""
+    """The result of `coro`, run on refkv's loop; the caller's thread waits for it."""
     loop = _the_loop()
     try:
         running = asyncio.get_running_loop()
@@ -39,6 +39,6 @@ def run(coro: Coroutine[Any, Any, T]) -> T:
         running = None
     if running is loop:
         coro.close()
-        raise RuntimeError("a vzip method that returns at once was called from a coroutine on "
-                           "vzip's own event loop, which it would block; await its _async form")
+        raise RuntimeError("a refkv method that returns at once was called from a coroutine on "
+                           "refkv's own event loop, which it would block; await its _async form")
     return asyncio.run_coroutine_threadsafe(coro, loop).result()

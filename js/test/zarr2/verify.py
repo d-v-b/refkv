@@ -3,19 +3,19 @@ own Zarr v2 reader.
 
 Each store in fixtures/zarr2/ is served by the harness proxy (with
 its S3 listing) and virtualized by js/conformance/virtualize.ts (the browser
-code, run under Node). Every array of the archive is read through vzip.zarr
+code, run under Node). Every array of the archive is read through refkv.zarr
 and zarr-python as Zarr v3 and must equal the same array read from the
 fixture directory by zarr-python as Zarr v2 (`zarr_format=2`, which reads
 `.zarray` itself and decodes chunks with numcodecs), with the same data type
 and fill value. Zero-size chunk objects have no entry (spec/virtualize.md §1.4
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>),
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>),
 so the reference reads a copy of the store without them (zarr-python fails on
 them); their keys are listed with the empty objects (the IR's mirror lists them as objects of size
 0, and rebuilds every document it holds, which must be the store's). Each object under
 `vzip_source/objects/` must read as the store's object at its unescaped key,
 none may open as a Zarr node, and the keys listed as empty must be exactly
 the store's empty objects, and none listed as ignored (spec/virtualize/zarr2.md §5
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
 `zarr2_reject_*` stores must be rejected.
 
 With `--remote <store URL> <array path>`, a public store is virtualized
@@ -48,11 +48,11 @@ FIXTURES = ROOT / "fixtures"
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
 from proxy import Proxy  # noqa: E402
 
-from vzip.policy import Policy  # noqa: E402
-import vzip.zarr  # noqa: E402  (a vzip archive as a zarr store; registers zlib)
+from refkv.policy import Policy  # noqa: E402
+import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers zlib)
 
 # The sources are served on 127.0.0.1, which spec §6.7
-# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
+# <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
 # default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
 
@@ -79,24 +79,24 @@ def same(got, want) -> bool:
 
 
 # A last segment escaped with ~ (spec/virtualize/zarr2.md §5
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
 # spec/virtualize/n5.md §6
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>).
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>).
 ESCAPED = re.compile(r"(?:zarr\.json|\.zarray|\.zgroup)~+\Z")
 NODE_NAME = re.compile(r"(?:zarr\.json|\.zarray|\.zgroup)\Z")
 
 
 def objects_problems(store_dir: Path, out: Path) -> list[str]:
     """The other objects and the empty ones against the store (spec/virtualize/zarr2.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
     spec/virtualize/n5.md §6
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>): each entry
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>): each entry
     under vzip_source/objects/ is its object, whose key
     is the entry's with one ~ taken off an escaped last segment; no Zarr node opens there; and
     every key listed as empty is an object of size 0."""
     problems = []
     names = zipfile.ZipFile(out).namelist()
-    vz = vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES)
+    vz = refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES)
     kept = [n for n in names if n.startswith("vzip_source/objects/")]
 
     async def read_all():
@@ -126,13 +126,13 @@ def objects_problems(store_dir: Path, out: Path) -> list[str]:
         own = json.loads(zipfile.ZipFile(out).read("vzip_source/empty.json"))
     if isinstance(own, dict) and "ir" in own:
         # a store IR's mirror (spec/virtualize/zarr2.md §4.1
-        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#41-elements>): it lists
+        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#41-elements>): it lists
         # every object with its size, the empty ones included, and rebuilds each document it holds
-        import vzip_ir
+        from refkv import _ir
 
         z = zipfile.ZipFile(out)
         try:
-            rebuilt = vzip_ir.rebuild_store(lambda k: z.read(k) if k in names else None)
+            rebuilt = _ir.rebuild_store(lambda k: z.read(k) if k in names else None)
         except Exception as e:  # noqa: BLE001 - a broken mirror is a problem to report
             return problems + [f"the mirror does not rebuild: {e}"]
         files = {f.relative_to(store_dir).as_posix(): f for f in store_dir.rglob("*") if f.is_file()}
@@ -167,7 +167,7 @@ def check_store(store_dir: Path, out: Path, tmp: str) -> list[str]:
             f.unlink()
     # numcodecs takes no member it does not know; the archive keeps such members as source
     # metadata (spec/virtualize/zarr2.md §4
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>), and
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>), and
     # they do not change how chunks decode.
     for f in copy.rglob(".zarray"):
         z = json.loads(f.read_text())
@@ -176,7 +176,7 @@ def check_store(store_dir: Path, out: Path, tmp: str) -> list[str]:
             z["compressor"] = {k: v for k, v in c.items() if k in NUMCODECS[c["id"]]}
             f.write_text(json.dumps(z))
     problems = []
-    vz = vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES)
+    vz = refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES)
     for path in arrays_of(out):
         got_arr = zarr.open_array(vz, path=path, mode="r", zarr_format=3)
         want_arr = zarr.open_array(LocalStore(copy, read_only=True), path=path, mode="r", zarr_format=2)
@@ -197,7 +197,7 @@ def remote(store_url: str, path: str) -> int:
             print(f"FAILED: {p.stderr[-300:]}")
             return 1
         print(p.stdout.strip()[:300])
-        got = zarr.open_array(vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES), path=path, mode="r", zarr_format=3)[...]
+        got = zarr.open_array(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), path=path, mode="r", zarr_format=3)[...]
         want = zarr.open_array(FsspecStore.from_url(store_url, read_only=True), path=path, mode="r",
                                zarr_format=2)[...]
         ok = same(got, want)

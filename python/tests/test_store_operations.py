@@ -1,5 +1,5 @@
-"""The operations of every vzip store, without zarr (spec §6.2
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#62-operations>): `get` with and
+"""The operations of every reference store, without zarr (spec §6.2
+<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#62-operations>): `get` with and
 without a request, `classify`, `list`, `list_dir`, `raw` and the source table, on a
 `ReferenceStore` and on the archives it saves, which read the same."""
 
@@ -8,11 +8,11 @@ import itertools
 
 import pytest
 
-import vzip
-from vzip import OffsetRequest, RangeRequest, SuffixRequest
-from vzip._sync import run
-from vzip.errors import RequestError, ResolutionError
-from vzip.pb import Concat, Range, Source
+import refkv
+from refkv import OffsetRequest, RangeRequest, SuffixRequest
+from refkv._sync import run
+from refkv.errors import RequestError, ResolutionError
+from refkv.pb import Concat, Range, Source
 
 SRC = bytes(range(64))
 HIDDEN = b"xyz"
@@ -34,12 +34,12 @@ def _stores(tmp_path):
     """The store in memory, and the archives it saves, with and without a page index."""
     (tmp_path / "src.bin").write_bytes(SRC)
     sources = [Source(url=f"file://{tmp_path}/src.bin"), Source(key="__vz__/shared")]
-    store = vzip.ReferenceStore(_mapping(), sources)
+    store = refkv.ReferenceStore(_mapping(), sources)
     out = {"memory": store}
     for page_size in [None, 64]:
         path = tmp_path / f"{page_size}.vzip"
         store.save(path, page_size=page_size)
-        out[f"archive, page_size={page_size}"] = vzip.open(path)
+        out[f"archive, page_size={page_size}"] = refkv.open(path)
     return out
 
 
@@ -127,20 +127,20 @@ def test_get_refuses_a_request_of_another_type(tmp_path):
 
 def test_get_of_a_refused_source_raises(tmp_path):
     """A source the reader policy refuses (a private host, spec §6.7
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3) fails
+    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 3) fails
     the get of a reference to it, in memory and from the archive, without reading it;
     classify, which reads no source, still says it is a reference."""
-    store = vzip.ReferenceStore({"r": Range(source=0, offset=0, length=4)},
+    store = refkv.ReferenceStore({"r": Range(source=0, offset=0, length=4)},
                                 [Source(url="http://127.0.0.1:9/x.bin")])
-    store.save(tmp_path / "r.vzip", policy=vzip.Policy(allow_private_hosts=True))
-    for s in [store, vzip.open(tmp_path / "r.vzip")]:
+    store.save(tmp_path / "r.vzip", policy=refkv.Policy(allow_private_hosts=True))
+    for s in [store, refkv.open(tmp_path / "r.vzip")]:
         with pytest.raises(ResolutionError, match="127.0.0.1"):
             s.get("r")
         assert s.classify("r") == "reference"
         assert s.stats.external_requests == 0
 
 
-def test_a_method_that_returns_at_once_refuses_vzips_own_loop(tmp_path):
+def test_a_method_that_returns_at_once_refuses_refkvs_own_loop(tmp_path):
     store = _stores(tmp_path)["memory"]
 
     async def nested():

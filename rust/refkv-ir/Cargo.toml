@@ -1,12 +1,12 @@
 [package]
-name = "vzip-ir"
+name = "refkv-ir"
 version = "0.1.0"
 edition = "2024"
-description = "vzip's intermediate representation: a compact columnar IR, sans-IO parsers, and the schema checker"
+description = "refkv's intermediate representation: a compact columnar IR, sans-IO parsers, and the schema checker"
 license = "MIT OR Apache-2.0"
 
 [lib]
-name = "vzip_ir"
+name = "refkv_ir"
 crate-type = ["cdylib", "rlib"]
 
 [features]

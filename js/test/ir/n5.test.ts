@@ -60,7 +60,7 @@ test("N5 stores through the core have the frozen virtualizer's hierarchy and a s
 });
 
 test("under a root dataset, the mirror's keys and the other objects are plain keys of vzip_source/", async () => {
-  // spec/virtualize/n5.md §6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>:
+  // spec/virtualize/n5.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>:
   // no node is a child of the root array; the empty block is in the mirror's listing, not in empty.json
   for (const name of ["n5_root_dataset_objects", "n5_root_dataset_empty_block"]) {
     const v = await virtualizeStore(directoryStore(FIXTURES + name, URL_OF(name)));

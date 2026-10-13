@@ -1,5 +1,5 @@
 //! The root's source metadata of a DICOM file (spec/virtualize/dicom.md §5
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>): its File
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>): its File
 //! Meta Information and dataset in the DICOM JSON Model (PS3.18 §F.2), without the members
 //! that would make the root large, and the paths the root names. Revision 25 wrote the moved
 //! members and the arrays the paths name under `vzip_source`; the IR mirror holds all of it
@@ -74,7 +74,7 @@ pub fn value_size(vr: &str) -> Option<u64> {
 }
 
 // ---- the data dictionary (spec/virtualize/dicom.md §5
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>)
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>)
 
 pub static DICTIONARY: &str = include_str!("../../schema/dicom_dictionary.json");
 
@@ -139,7 +139,7 @@ fn strip<'a>(b: &'a [u8], left: &[u8], right: &[u8]) -> &'a [u8] {
 }
 
 // ---- numbers and text (conventions §6
-// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>)
+// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)
 
 pub fn json_float(v: f64) -> J {
     if v.is_nan() {

@@ -21,7 +21,7 @@ def same_hierarchy(a, b) -> None:
     vzip_source: documents, references and data sources. The reference's root records
     the revision it implements (refkv_reference.revision: 20, or 25 for DICOM, NIfTI, IMS and NDPI),
     read as the current one."""
-    from vzip.virtualize.common import REVISION
+    from refkv.virtualize.common import REVISION
     from refkv_reference.revision import DICOM_REVISION, IMS_REVISION, REVISION_25
     from refkv_reference.revision import REVISION as FROZEN
 

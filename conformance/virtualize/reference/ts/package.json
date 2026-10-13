@@ -1,5 +1,5 @@
 {
-  "name": "vzip-reference-ts",
+  "name": "refkv-reference-ts",
   "private": true,
   "type": "module",
   "description": "The frozen TypeScript virtualizers of TIFF, ND2, CZI, DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2 and OME-Zarr (an ES module tree; type-checked and tested from js/)",

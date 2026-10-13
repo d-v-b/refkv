@@ -2,13 +2,13 @@
 // compilation and instantiation, and the throughput of the shipped driver over
 // every TIFF, ND2 and CZI fixture (two passes, the second warm), and the time of
 // each file given (read from disk through a block reader; the better of two runs).
-// Usage: VZIP_IR_WASM=<module> node design/experiments/ir_adopt/wasm_bench.ts [<file>...]
+// Usage: REFKV_IR_WASM=<module> node design/experiments/ir_adopt/wasm_bench.ts [<file>...]
 import fs from "node:fs";
 import zlib from "node:zlib";
 import { blockReader } from "../../../js/src/virtualize/common.ts";
 import { virtualizeImage } from "../../../js/src/virtualize/index.ts";
 
-const path = process.env.VZIP_IR_WASM!;
+const path = process.env.REFKV_IR_WASM!;
 const bytes = fs.readFileSync(path);
 const t0 = performance.now();
 const module = await WebAssembly.compile(bytes);

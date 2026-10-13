@@ -1,9 +1,9 @@
 // Runs the ND2 parser built for wasm32 (rust/refkv-ir, `just ir-wasm`) on a local
 // file from Node: the host reads the ranges each step asks for and feeds them.
-// Usage: node rust/refkv-ir/wasm/nd2.mjs <file.nd2> [vzip_ir.wasm]
+// Usage: node rust/refkv-ir/wasm/nd2.mjs <file.nd2> [refkv_ir.wasm]
 import { openSync, readSync, fstatSync, readFileSync } from "node:fs";
 
-const [file, wasmPath = new URL("../target/web/vzip_ir.wasm", import.meta.url)] =
+const [file, wasmPath = new URL("../target/web/refkv_ir.wasm", import.meta.url)] =
   process.argv.slice(2);
 const { instance } = await WebAssembly.instantiate(readFileSync(wasmPath), {});
 const w = instance.exports;

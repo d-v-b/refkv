@@ -7,7 +7,7 @@ import math
 import re
 
 from refkv_reference.revision import REVISION
-from vzip.virtualize.common import (
+from refkv.virtualize.common import (
     LENGTHS, MAX_PAYLOAD, UNITS, Output, Reader, Rejected, array_json, centred, declare, emit_plans, image_ome,
     payload_size, root_json, transpose_codec,
 )

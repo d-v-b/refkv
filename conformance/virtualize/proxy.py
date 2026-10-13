@@ -15,8 +15,8 @@ refused (403), since no virtualizer needs one. Remote bytes are fetched in
 the same bytes and upstream servers see each block only once.
 
 Stores (spec/virtualize.md §1.4
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>, §1.5
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>) are listed with S3
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>, §1.5
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store>) are listed with S3
 ListObjectsV2, path style, in the buckets `f` and `u`: `GET /f/?list-type=2&prefix=n5/x/` lists
 the fixture directory `n5/x/`, and `GET /u/?list-type=2&prefix=<id>/<rest>`
 lists the remote store that `<id>` names (its own listing, fetched once and
@@ -44,7 +44,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 BLOCK = 1 << 16
-UA = "vzip-virtualize-harness"
+UA = "refkv-virtualize-harness"
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -155,7 +155,7 @@ class RemoteListings:
         """(relative key, size) of the objects of the store at `store_url` whose
         relative key starts with `rest`."""
         sys.path.insert(0, str(ROOT / "python" / "src"))
-        from vzip.virtualize.store import listing_endpoint, parse_listing, query_encode
+        from refkv.virtualize.store import listing_endpoint, parse_listing, query_encode
 
         f = self.upstream.cache / (hashlib.sha256(f"list:{store_url}|{rest}".encode()).hexdigest() + ".json")
         if f.exists():
@@ -217,7 +217,7 @@ def make_handler(fixtures: Path, upstream: Upstream, page_size: int = 100):
 
         def _listing(self) -> bool:
             """Answers a ListObjectsV2 request (§1.5
-            <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>); False
+            <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store>); False
             if this is not one."""
             path, _, query = self.path.partition("?")
             if path not in ("/f/", "/u/") or not query:

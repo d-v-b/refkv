@@ -1,16 +1,16 @@
 """The host's side of the read planner (design/ARCHITECTURE.md §3.5
-<https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#35-resources-and-io>): the I/O.
+<https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#35-resources-and-io>): the I/O.
 
 The policy (what to request for a parser's batch: coalescing by cost, the
 amplification cap, multi-range packing, read-ahead, the budget) is the Rust
-core's (`rust/refkv-ir/src/plan.rs`), behind `vzip_ir.Run`. This module only
+core's (`rust/refkv-ir/src/plan.rs`), behind `refkv._ir.Run`. This module only
 performs the requests a run asks for and reports each one's bytes and time:
 
 - `FileTransport`: a local file, mapped; its requests are served in the calling
   thread.
 - `HttpTransport`: an http(s) object read through the archive reader's HTTP
-  layer (`vzip.store`), under the reader policy of spec/archive.md §6.7
-  <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>: the host is
+  layer (`refkv.store`), under the reader policy of spec/archive.md §6.7
+  <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>: the host is
   resolved here, every address is checked against rule 3 (loopback, private,
   link-local and special addresses are refused unless the policy has
   `allow_private_hosts`), a request that would go through a proxy is refused
@@ -38,11 +38,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urljoin, urlparse
 
-from vzip.errors import ResolutionError
-from vzip.policy import Policy
-from vzip.virtualize.common import EtagLog, Rejected
+from refkv.errors import ResolutionError
+from refkv.policy import Policy
+from refkv.virtualize.common import EtagLog, Rejected
 
-UA = "vzip-virtualize"
+UA = "refkv-virtualize"
 RETRY = (429, 500, 502, 503, 504)
 REDIRECTS = (301, 302, 303, 307, 308)
 OPEN = 1 << 16  # the bytes the request that opens a remote source reads
@@ -69,12 +69,12 @@ class FileTransport:
 
 class HttpTransport:
     """An http(s) object, read under the reader policy (spec/archive.md §6.7
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>)."""
 
     remote = True
 
     def __init__(self, url: str, policy: Policy | None = None, attempts: int = 6, base_delay: float = 0.5) -> None:
-        from vzip.store import _check_http_url
+        from refkv.store import _check_http_url
 
         self.url, self.attempts, self.base_delay = url, attempts, base_delay
         self.policy = policy or Policy()
@@ -108,7 +108,7 @@ class HttpTransport:
         """One GET of the object (redirects followed and checked): (status, headers, body).
         With `multipart`, a body that is not multipart/byteranges (a 200 is the whole
         object) is not read: the body is b"" and the connection closed."""
-        from vzip.store import _check_http_url
+        from refkv.store import _check_http_url
 
         url = self.url
         headers = {**headers, "User-Agent": UA, "Accept-Encoding": "identity"}
@@ -206,11 +206,11 @@ class HttpTransport:
 
 
 def _send(url: str, headers: dict[str, str], check, unchecked_proxy: bool, multipart: bool):
-    """`vzip.store._send` (one GET, not following redirects, its connection's address
+    """`refkv.store._send` (one GET, not following redirects, its connection's address
     checked by `check`), except that a response other than a 206 (or, with
     `multipart`, other than multipart/byteranges) is closed before its body is
     read: a 200 is the whole object."""
-    from vzip import store
+    from refkv import store
 
     if store._proxy(url) is not None:
         return store._send(url, headers, check, unchecked_proxy)
@@ -291,29 +291,29 @@ CONNECTIONS = 8  # requests at a time to a remote host, by default (a browser ha
 
 def concurrency(transport, connections: int | None = None) -> int:
     """Requests at a time: `connections` (default CONNECTIONS) for a remote source, 4
-    for a local file; VZIP_CONCURRENCY overrides the default, for experiments."""
+    for a local file; REFKV_CONCURRENCY overrides the default, for experiments."""
     if not transport.remote:
         return 4
     if connections:
         return connections
-    env = os.environ.get("VZIP_CONCURRENCY")
+    env = os.environ.get("REFKV_CONCURRENCY")
     return int(env) if env else CONNECTIONS
 
 
 def new_run(fmt: str, transport, conc: int | None = None, byte_cost: float | None = None):
     """A Rust run of format `fmt` over the transport, seeded with the bytes that opened
     it. `byte_cost`: seconds of wall time a byte fetched costs the planner (default:
-    the core's, 0.1 s per MB); VZIP_BYTE_COST (seconds per MB) sets it for experiments."""
-    import vzip_ir
+    the core's, 0.1 s per MB); REFKV_BYTE_COST (seconds per MB) sets it for experiments."""
+    from refkv import _ir
 
-    amp = os.environ.get("VZIP_AMPLIFICATION")  # for experiments
-    env_cost = os.environ.get("VZIP_BYTE_COST")
+    amp = os.environ.get("REFKV_AMPLIFICATION")  # for experiments
+    env_cost = os.environ.get("REFKV_BYTE_COST")
     if byte_cost is None and env_cost:
         byte_cost = float(env_cost) * 1e-6
-    whole = os.environ.get("VZIP_WHOLE_BELOW")  # for experiments: the size read whole (bytes)
-    run = vzip_ir.Run(fmt, transport.size, transport.remote, concurrency(transport, conc),
+    whole = os.environ.get("REFKV_WHOLE_BELOW")  # for experiments: the size read whole (bytes)
+    run = _ir.Run(fmt, transport.size, transport.remote, concurrency(transport, conc),
                       float(amp) if amp else None, byte_cost, int(whole) if whole else None)
-    if os.environ.get("VZIP_MULTIRANGE") == "0":
+    if os.environ.get("REFKV_MULTIRANGE") == "0":
         run.multirange = False
     o, head, dt = transport.head
     if head:
@@ -324,7 +324,7 @@ def new_run(fmt: str, transport, conc: int | None = None, byte_cost: float | Non
 
 def drive(run, transport, conc: int | None = None) -> None:
     """Performs the requests a run asks for until it is done, at most `conc` at a time."""
-    import vzip_ir
+    from refkv import _ir
 
     conc = concurrency(transport, conc)
     pool = ThreadPoolExecutor(conc) if transport.remote else None
@@ -332,7 +332,7 @@ def drive(run, transport, conc: int | None = None) -> None:
         while True:
             try:
                 reqs = run.poll()
-            except vzip_ir.Rejected as e:
+            except _ir.Rejected as e:
                 raise Rejected(str(e)) from None
             if reqs is None:
                 return
@@ -343,7 +343,7 @@ def drive(run, transport, conc: int | None = None) -> None:
             for k, (parts, dt) in enumerate(results):
                 try:
                     run.complete(k, parts, dt)
-                except vzip_ir.Rejected as e:
+                except _ir.Rejected as e:
                     raise Rejected(str(e)) from None
     finally:
         if pool is not None:

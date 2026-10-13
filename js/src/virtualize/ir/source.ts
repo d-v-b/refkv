@@ -1,11 +1,11 @@
 // The range sources a run reads (the I/O of the read planner, design/ARCHITECTURE.md
-// §3.5 <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#35-resources-and-io>): bytes
+// §3.5 <https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#35-resources-and-io>): bytes
 // the caller can read itself (`readerSource`), and an http(s)
 // object read under the reader policy of spec/archive.md §6.7
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> (`openHttpSource`),
+// <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> (`openHttpSource`),
 // the twin of `HttpTransport` in python/src/refkv/ir/planner.py.
 
-import { checkAddress, checkPolicy, type Policy, VzipError } from "../../archive.ts";
+import { checkAddress, checkPolicy, type Policy, RefkvError } from "../../archive.ts";
 import { EtagLog, HttpResolutionError } from "../../http.ts";
 import { checkHttpUrl } from "../../uri.ts";
 import { checkedFetch } from "#net";
@@ -63,7 +63,7 @@ export function bytesSource(bytes: Uint8Array): RangeSource {
 export interface HttpSourceOptions {
   /**
    * The reader policy (spec/archive.md §6.7
-   * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>); private and
+   * <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>); private and
    * special hosts are refused without `allowPrivateHosts`.
    */
   policy?: Policy;
@@ -101,7 +101,7 @@ const isNode = typeof process !== "undefined" && process.versions?.node !== unde
 
 /**
  * An http(s) object, read under the reader policy (spec/archive.md §6.7
- * <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>).
  */
 export class HttpSource implements RangeSource {
   readonly remote = true;
@@ -142,7 +142,7 @@ export class HttpSource implements RangeSource {
       try {
         checkHttpUrl(u);
       } catch (e) {
-        throw new VzipError("resolution", (e as Error).message);
+        throw new RefkvError("resolution", (e as Error).message);
       }
       checkPolicy(policy, url, u);
     };
@@ -233,8 +233,8 @@ export class HttpSource implements RangeSource {
     try {
       response = await this.send(this.at, headers, signal ?? this.signal, cache);
     } catch (e) {
-      if (e instanceof VzipError || e instanceof HttpResolutionError) throw e;
-      if (this.refusals.has((e as Error).message)) throw new VzipError("resolution", (e as Error).message);
+      if (e instanceof RefkvError || e instanceof HttpResolutionError) throw e;
+      if (this.refusals.has((e as Error).message)) throw new RefkvError("resolution", (e as Error).message);
       (signal ?? this.signal)?.throwIfAborted();
       // a network error (fetch's TypeError, a Node socket error) is retried; others (a
       // proxy the reader cannot check, a bad redirect) are not
@@ -271,7 +271,7 @@ export class HttpSource implements RangeSource {
       try {
         return await f();
       } catch (e) {
-        if (e instanceof VzipError || e instanceof HttpResolutionError || (e as Error).name === "AbortError") throw e;
+        if (e instanceof RefkvError || e instanceof HttpResolutionError || (e as Error).name === "AbortError") throw e;
         const last = attempt >= this.attempts - 1;
         if (e instanceof Transient) {
           if (last) throw new HttpResolutionError(`${this.url}: HTTP ${e.status} after ${this.attempts} attempts`);
@@ -340,7 +340,7 @@ export class HttpSource implements RangeSource {
       }
       got = multipartParts(await this.body(response), ctype);
     } catch (e) {
-      if (e instanceof VzipError || e instanceof HttpResolutionError || (e as Error).name === "AbortError") throw e;
+      if (e instanceof RefkvError || e instanceof HttpResolutionError || (e as Error).name === "AbortError") throw e;
       return null;
     }
     if (got === null) return null;
@@ -362,11 +362,11 @@ export function openHttpSource(url: string, options: HttpSourceOptions = {}): Pr
   try {
     checkHttpUrl(url);
   } catch (e) {
-    return Promise.reject(new VzipError("resolution", (e as Error).message));
+    return Promise.reject(new RefkvError("resolution", (e as Error).message));
   }
-  if (!/^https?:/i.test(url)) return Promise.reject(new VzipError("resolution", `${url}: not an http(s) URL`));
+  if (!/^https?:/i.test(url)) return Promise.reject(new RefkvError("resolution", `${url}: not an http(s) URL`));
   try {
-    checkPolicy(options.policy ?? {}, url, url); // spec/archive.md §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>, before any request
+    checkPolicy(options.policy ?? {}, url, url); // spec/archive.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>, before any request
   } catch (e) {
     return Promise.reject(e);
   }

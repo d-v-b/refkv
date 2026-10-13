@@ -1,5 +1,5 @@
 // The root and the names (conventions §8.1
-// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>) in the browser host: a
+// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>) in the browser host: a
 // crafted IR, loaded
 // into the core's test module (rust/refkv-ir/target/web-test, built with the test-only
 // hooks by `just js::wasm-test`), mirrors when its root is a struct named "" spanning
@@ -13,7 +13,7 @@ import { ImageError } from "../../src/virtualize/common.ts";
 import { rejection } from "../../src/virtualize/ir/run.ts";
 import { type IrExports, put } from "../../src/virtualize/ir/wasm.ts";
 
-const TEST_WASM = new URL("../../../rust/refkv-ir/target/web-test/vzip_ir.wasm", import.meta.url);
+const TEST_WASM = new URL("../../../rust/refkv-ir/target/web-test/refkv_ir.wasm", import.meta.url);
 
 type TestExports = IrExports & { vz_test_mirror(json: number, n: number, profile: number): bigint };
 

@@ -1,4 +1,4 @@
-"""SAFE through the IR (vzip.virtualize, the Rust core natively): the directory form as a store
+"""SAFE through the IR (refkv.virtualize, the Rust core natively): the directory form as a store
 run, whose output references ranges of its band files and data sources, and the zip form as a
 file run. Equivalence with the frozen reference is compare.py's; the IR, its mirror and every
 rejection are rust/refkv-ir/tests/safe.rs's."""
@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from vzip.ir.store import StoreIrOutput
-from vzip.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
-from vzip.virtualize.common import Output
-from vzip.virtualize.store import object_url
+from refkv.ir.store import StoreIrOutput
+from refkv.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
+from refkv.virtualize.common import Output
+from refkv.virtualize.store import object_url
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "safe"
 URL = "https://data.test/safe/{}"

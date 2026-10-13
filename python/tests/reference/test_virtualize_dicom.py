@@ -15,7 +15,7 @@ import json
 
 import pytest
 
-from vzip.virtualize import Rejected
+from refkv.virtualize import Rejected
 from refkv_reference import virtualize
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "dicom"
@@ -110,7 +110,7 @@ def test_rejects(name, message):
 
 def test_value_json():
     """Each VR's translation (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
     import struct
 
     from refkv_reference.dicom.source import value_json
@@ -155,7 +155,7 @@ def test_value_json():
 def test_json_size():
     """The size of an attribute as JSON.stringify writes it, which decides
     whether it stays on the root (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
     from refkv_reference.dicom.source import json_size
 
     numbers = [1e21, 1e-7, 0.1, 9.0, -0.0, 123456789012345680000.0, 1.5e-6, -2.5e-300, 5e-324, 2**53]
@@ -222,7 +222,7 @@ def test_a_gathered_sequence_whose_arrays_cost_over_16_times_its_bytes_keeps_its
 
 def test_dictionary_vr():
     """The VR of an element whose file does not state it (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
     from refkv_reference.dicom.source import dictionary_vr
 
     cases = {
@@ -273,7 +273,7 @@ def test_elements_without_a_stated_vr_take_the_dictionarys():
 
 def test_large_values_are_arrays_and_nothing_after_pixel_data_is_lost():
     """spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>: arrays
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>: arrays
     named by BulkDataURI, per-frame groups on
     vzip_source, elements after Pixel Data, and no layout or padding."""
     _, out = virtualize(str(FIXTURES / "dicom_reconstruction.dcm"), url="https://data.test/r.dcm")
@@ -322,7 +322,7 @@ def _items(name: str, sequence: str = "dataset/52009230") -> tuple[list[dict], l
 
 def test_the_source_metadata_keeps_what_the_file_holds():
     """spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>:
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>:
     duplicates, values under a multibyte
     character set, the preamble, large values as arrays (or on vzip_source),
     per-frame values gathered by frame, and the bytes of the pixel data that no

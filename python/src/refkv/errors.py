@@ -1,30 +1,30 @@
-"""Error classes of spec §6.4 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#64-errors>.
+"""Error classes of spec §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#64-errors>.
 Each is a ValueError so existing callers keep working."""
 
 
-class VzipError(ValueError):
+class RefkvError(ValueError):
     cls = "error"
 
 
-class ArchiveError(VzipError):
+class ArchiveError(RefkvError):
     cls = "archive"
 
 
-class EntryError(VzipError):
+class EntryError(RefkvError):
     cls = "entry"
 
 
-class BodyError(VzipError):
+class BodyError(RefkvError):
     cls = "body"
 
 
-class PayloadError(VzipError):
+class PayloadError(RefkvError):
     cls = "payload"
 
 
-class ResolutionError(VzipError):
+class ResolutionError(RefkvError):
     cls = "resolution"
 
 
-class RequestError(VzipError):
+class RequestError(RefkvError):
     cls = "request"

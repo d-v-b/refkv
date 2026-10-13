@@ -12,11 +12,11 @@ import zipfile
 from pathlib import Path
 
 import pytest
-import vzip_ir
+from refkv import _ir
 
-from vzip.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
-from vzip.virtualize.common import declare
-from vzip.virtualize.store import object_url
+from refkv.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
+from refkv.virtualize.common import declare
+from refkv.virtualize.store import object_url
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "zarr2"
 URL = "https://data.test/zarr2/{}/"
@@ -94,7 +94,7 @@ def listing(out, tmp_path: Path) -> dict[str, tuple[int, bytes | None]]:
     out.write(str(archive))
     with zipfile.ZipFile(archive) as z:
         names = set(z.namelist())
-        return {k: (n, b) for k, n, b in vzip_ir.rebuild_store(lambda k: z.read(k) if k in names else None)}
+        return {k: (n, b) for k, n, b in _ir.rebuild_store(lambda k: z.read(k) if k in names else None)}
 
 
 def test_virtualizes_the_synthetic_stores(tmp_path):
@@ -118,11 +118,11 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     _, out = virtualize(str(FIXTURES / "zarr2_fill_values"), url=URL.format("f"))
     assert [k for k, _ in out.chunks if k.startswith(("nan/", "inf/"))] == ["inf/1.0", "nan/1.0"]
     # The empty one is an object of the mirror's listing, of size 0 (§4.1
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#41-elements>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#41-elements>).
     assert listing(out, tmp_path)["nan/0.0"] == (0, None)
     # Stray objects and nodes inside arrays are kept whole under vzip_source/objects/
     # (spec/virtualize/zarr2.md §5
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>);
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>);
     # .zmetadata is not.
     _, out = virtualize(str(FIXTURES / "zarr2_hierarchy"), url=URL.format("h"))
     assert [k for k, _ in out.chunks] == [
@@ -136,9 +136,9 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
                                                               {"attributes": {"_ARRAY_DIMENSIONS": ["y", "x"]}})
     assert not {"a/c/inside/zarr.json", "orphan/zarr.json", "ghost/zarr.json", "notes/zarr.json"} & set(out.docs)
     # Attributes are copied unchanged under the convention (spec/virtualize.md conventions §2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>), OME-NGFF 0.4
+    # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), OME-NGFF 0.4
     # ones included: the root does not declare OME-NGFF 0.4 (§1.4
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), so the store is
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>), so the store is
     # not read by the OME-Zarr profile.
     _, out = virtualize(str(FIXTURES / "zarr2_ome_attrs"), url=URL.format("o"))
     for path in ("", "0", "0/labels", "0/labels/cells", "v03", "has_ome", "mixed", "dup_axes"):
@@ -146,14 +146,14 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
         expected = declare({}, "zarr2", URL.format("o") if path == "" else None, {"attributes": zattrs})
         assert out.docs[key(path)]["attributes"] == expected, path
     assert not any("dimension_names" in d for k, d in out.docs.items() if not k.startswith("vzip_source/"))
-    # Other conventions, a vzip declaration and a malformed zarr_conventions are all copied as they are.
+    # Other conventions, a refkv declaration and a malformed zarr_conventions are all copied as they are.
     _, out = virtualize(str(FIXTURES / "zarr2_conventions"), url=URL.format("c"))
     for path in ("", "x", "v", "bad"):
         zattrs = json.loads((FIXTURES / "zarr2_conventions" / path / ".zattrs").read_text())
         assert out.docs[key(path)]["attributes"] == declare({}, "zarr2", URL.format("c") if path == "" else None,
                                                             {"attributes": zattrs}), path
     # Source metadata (spec/virtualize/zarr2.md §4
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>): the
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>): the
     # attributes, with integers beyond 2^53
     # kept exact, and the members of .zarray and .zgroup the Zarr v3 metadata does not reproduce.
     url = URL.format("zarr2_source_metadata")
@@ -167,7 +167,7 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     for path in ("neg_zero_f4", "zlib_9", "zstd_checksum"):
         assert out.docs[key(path)]["attributes"] == {}, path
     # A float fill written as an integer beyond 2^53 - 1 is kept as written (§4
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>).
     assert out.docs[key("big_fill_f8")]["attributes"] == declare(
         {}, "zarr2", None, {"metadata": {"fill_value": 18446744073709551616}})
     # The archive holds the integers' every digit, and the hex fill.
@@ -259,7 +259,7 @@ def test_rejects(name, message):
 def test_root_array_keeps_other_objects_without_a_group(tmp_path):
     """An array has no children: under a root array, the other objects and the mirror are plain
     keys under vzip_source/ (spec/virtualize/zarr2.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>)."""
     name = "zarr2/zarr2_root_array_objects"
     _, out = virtualize(str(FIXTURES.parent / name), url=f"https://data.test/{name}/")
     assert out.docs["zarr.json"]["node_type"] == "array"

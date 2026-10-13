@@ -5,11 +5,11 @@
 //! per way a valid table can be non-canonical, which the validator flags.
 
 use std::path::Path;
-use vzip_ir::check::{check, leaves};
-use vzip_ir::ir::{Ir, NO_INDEX, STRUCT, VALUE};
-use vzip_ir::mirror::{text_json, canonical, canonical_problem, load, mirror, ordered, shown, table, table_from_out, view_problem, write, Table};
-use vzip_ir::out::Out;
-use vzip_ir::run::{run_bytes, Format};
+use refkv_ir::check::{check, leaves};
+use refkv_ir::ir::{Ir, NO_INDEX, STRUCT, VALUE};
+use refkv_ir::mirror::{text_json, canonical, canonical_problem, load, mirror, ordered, shown, table, table_from_out, view_problem, write, Table};
+use refkv_ir::out::Out;
+use refkv_ir::run::{run_bytes, Format};
 
 fn fixtures() -> Vec<(Format, std::path::PathBuf)> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
@@ -45,7 +45,7 @@ fn the_table_is_the_canonical_ir_rebuilds_the_source_and_is_a_fixed_point() {
         assert_eq!(ordered(&back), ordered(&ir), "{p:?}");
         check(&back).unwrap();
         // the root: named "", no index, a struct in the source spanning it (§8.1
-        // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>)
+        // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>)
         assert_eq!((back.kind[0], back.name_of(0), back.nidx[0], back.space[0]), (STRUCT, String::new(), NO_INDEX, 0), "{p:?}");
         assert_eq!((back.start[0], back.len[0]), (0, data.len() as u64), "{p:?}");
         let mut rebuilt = Vec::new();
@@ -407,8 +407,8 @@ fn flags_a_value_shown_above_the_size_limit() {
 }
 
 /// Text values in the view (conventions §8.7
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>): §6
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>'s text,
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>): §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>'s text,
 /// and `{text, after}` when bytes after the NUL are not all zero.
 #[test]
 fn text_values_show_their_text_and_what_follows_its_nul() {
@@ -443,13 +443,13 @@ fn text_values_show_their_text_and_what_follows_its_nul() {
 /// Every derived transform a parser can emit (`Transform::ALL`, which `index` keeps
 /// complete) either may hold shown values and a validator can derive it again, or may
 /// hold none (conventions §8.8
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>); and on every
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>); and on every
 /// fixture, each derived element names a
 /// known transform and no space that may hold none holds a shown value.
 #[test]
 fn every_derived_transform_holding_shown_values_can_be_derived_again() {
-    use vzip_ir::ir::DERIVED;
-    use vzip_ir::transform::Transform;
+    use refkv_ir::ir::DERIVED;
+    use refkv_ir::transform::Transform;
     for (k, t) in Transform::ALL.into_iter().enumerate() {
         assert_eq!(t.index(), k, "{t:?} is not at its index in ALL");
         let derivable = t.rederive(&[], &serde_json::Value::Null).is_some();

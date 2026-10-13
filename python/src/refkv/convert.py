@@ -1,9 +1,9 @@
-"""VirtualiZarr virtual datasets as vzip stores.
+"""VirtualiZarr virtual datasets as reference stores.
 
-`vzip.ReferenceStore.from_virtualizarr(vds)` is the entry point; this module does
+`refkv.ReferenceStore.from_virtualizarr(vds)` is the entry point; this module does
 the conversion, and keeps the older one-step function `write_vzip`.
 
-vzip does not import xarray: it calls the methods of the dataset it is given.
+refkv does not import xarray: it calls the methods of the dataset it is given.
 
 The conversion literally builds the two key spaces separately and overlays
 them: zarr metadata and any loadable (non-virtual) variables go into an
@@ -17,7 +17,7 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from vzip._extras import missing
+from refkv._extras import missing
 
 if TYPE_CHECKING:
     import xarray as xr
@@ -27,10 +27,10 @@ try:
     from virtualizarr.manifests import ManifestArray
     from virtualizarr.writers.icechunk import extract_codecs, update_attributes
 except ImportError as e:
-    raise missing("virtualizarr", "Converting VirtualiZarr datasets (vzip.convert)", e) from e
+    raise missing("virtualizarr", "Converting VirtualiZarr datasets (refkv.convert)", e) from e
 from zarr.storage import MemoryStore  # noqa: E402
 
-from vzip.refstore import Summary
+from refkv.refstore import Summary
 
 
 def consolidate(store) -> None:
@@ -45,7 +45,7 @@ def consolidate(store) -> None:
 
 def _write_loadable(vds: xr.Dataset, loadable: dict, store) -> None:
     """Write the loadable (non-virtual) variables of `vds` into the zarr `store`
-    with xarray's CF encoding, through the class of `vds` itself, so that vzip
+    with xarray's CF encoding, through the class of `vds` itself, so that refkv
     never imports xarray.
 
     The variables go into a new dataset of their own, without the coordinate
@@ -106,7 +106,7 @@ def read_at_open(key: str, vds: xr.Dataset) -> bool:
 
     Writers add these with `late=True`, so that they sit in the part of the
     archive a reader fetches when it opens it (spec §14.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#142-recommended-layout-informative>) and
+    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#142-recommended-layout-informative>) and
     cost no request. """
     return key.endswith("zarr.json") or key.split("/", 1)[0] in vds.xindexes
 
@@ -120,9 +120,9 @@ def write_vzip(
     page_size: int | None = None,
 ) -> Summary:
     """Write a VirtualiZarr virtual dataset to a vzip archive at `path`, and return a
-    `vzip.Summary` of it.
+    `refkv.Summary` of it.
 
-    The same as `vzip.ReferenceStore.from_virtualizarr(vds).save(path, ...)`, which
+    The same as `refkv.ReferenceStore.from_virtualizarr(vds).save(path, ...)`, which
     is the preferred spelling: the store reads before it is saved, and takes
     `rewrite_urls` and the reader options.
 
@@ -139,7 +139,7 @@ def write_vzip(
 
     Raises ValueError if the default reader policy would refuse a source, such as
     an `s3://` URL; `ReferenceStore.save` says how to fix it."""
-    from vzip.refstore import ReferenceStore
+    from refkv.refstore import ReferenceStore
 
     return ReferenceStore.from_virtualizarr(vds).save(
         path, mirror_refs=mirror_refs, relative_to=relative_to, page_size=page_size)

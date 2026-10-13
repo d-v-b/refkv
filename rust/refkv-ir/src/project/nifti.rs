@@ -1,7 +1,7 @@
 //! The NIfTI image projection (spec/virtualize/nifti.md §4
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#4-the-image>, and the root's
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#4-the-image>, and the root's
 //! source metadata of §5
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>) from a valid
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>) from a valid
 //! IR: the header is the IR's `header` value, and the array's chunks are cut from its
 //! `voxels` element.
 
@@ -13,16 +13,16 @@ use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
 /// The most bytes of a chunk of the image (spec/virtualize/nifti.md §4.1
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#41-the-array>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#41-the-array>).
 const CHUNK_BYTES: u64 = 1 << 17;
 /// The most channels given display windows (spec/virtualize/nifti.md §4.4
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#44-channels>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#44-channels>).
 const MAX_CHANNELS: i64 = 64;
 const MAX_SAFE: i64 = (1 << 53) - 1;
 const COLORS: [(&str, &str); 4] = [("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF"), ("A", "FFFFFF")];
 
 /// A header value as the root's source metadata writes it (spec/virtualize/nifti.md §5
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>): an
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>): an
 /// integer exactly (as text past 2^53 - 1); a float as a number, "NaN", "Infinity" or
 /// "-Infinity", or {"bits": hex} for a negative zero or a NaN other than the canonical one.
 fn value_json(h: &Header, at: usize, kind: &str) -> J {
@@ -79,7 +79,7 @@ fn int_or(v: Option<f64>, default: i64) -> J {
 /// The array's axes, the voxels' axes in file order (dimension 5 outermost, a color
 /// type's samples innermost) and their sizes, the bytes of an element of the stored
 /// array, and its cut (§4.1
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#41-the-array>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#41-the-array>).
 struct Cut {
     axes: Vec<&'static str>,
     stored: Vec<&'static str>,
@@ -134,7 +134,7 @@ fn parts<'a>(ir: &'a Ir, facts: &J) -> Result<(Header<'a>, u32), String> {
 }
 
 /// The source's ranges of the edge chunks the projection copies (§7.2
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#72-chunks>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>).
 pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
     let (h, voxels) = parts(ir, facts)?;
     let c = cut(&h, ir.start[voxels as usize], facts)?;
@@ -156,7 +156,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let color = samples > 1;
     let f = |name: &str| h.get(name).f();
 
-    // value scaling (§4.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#42-value-scaling>)
+    // value scaling (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#42-value-scaling>)
     let mut scaling = None;
     if !color {
         let (slope, inter) = (f("scl_slope"), f("scl_inter"));
@@ -167,7 +167,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let nontrivial = scaling.is_some_and(|(s, i)| s != 1.0 || i != 0.0);
 
     // scales, units and position (§4.3
-    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#43-scales-units-and-position>)
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#43-scales-units-and-position>)
     let units_code = h.get("xyzt_units").i();
     let space = match units_code & 7 {
         1 => Some("meter"),
@@ -212,7 +212,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         }
     }
 
-    // channels (§4.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#44-channels>)
+    // channels (§4.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#44-channels>)
     let mut channels = None;
     if color {
         channels = Some(
@@ -239,7 +239,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         }
     }
 
-    // the array (§4.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#41-the-array>)
+    // the array (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#41-the-array>)
     let Cut { axes, stored, shape: stored_shape, item, grid, chunks } = cut(&h, vox, facts)?;
     let shape_of = |a: &str| stored_shape[stored.iter().position(|s| *s == a).unwrap()];
     let pos = |a: &str| stored.iter().position(|s| *s == a).unwrap();

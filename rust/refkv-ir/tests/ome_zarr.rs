@@ -5,7 +5,7 @@
 //! rejects it); and the hostile probes.
 
 use std::path::{Path, PathBuf};
-use vzip_ir::store::{run_store, store_output, StoreFormat};
+use refkv_ir::store::{run_store, store_output, StoreFormat};
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures")
@@ -25,7 +25,7 @@ fn walk(root: &Path, rel: &str, out: &mut Vec<(String, u64)>) {
 }
 
 /// The output of the store in `dir`, mirrored, or its rejection.
-fn output(dir: &Path) -> Result<vzip_ir::out::Out, String> {
+fn output(dir: &Path) -> Result<refkv_ir::out::Out, String> {
     let mut keys = Vec::new();
     walk(dir, "", &mut keys);
     keys.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
@@ -52,16 +52,16 @@ fn accepted_stores_mirror_and_rebuild_their_documents() {
                 assert_eq!(out.summary["format"], "ome-zarr", "{name}");
                 let entries: std::collections::HashMap<&str, &Vec<u8>> = out.entries.iter().map(|(k, v)| (k.as_str(), v)).collect();
                 let get = |k: &str| entries.get(k).map(|v| v.to_vec());
-                for (key, n, b) in vzip_ir::mirror::rebuild_store(&get).unwrap() {
+                for (key, n, b) in refkv_ir::mirror::rebuild_store(&get).unwrap() {
                     if let Some(b) = b {
                         assert_eq!(b, std::fs::read(dir.join(&key)).unwrap(), "{name}: {key}");
                         assert_eq!(b.len() as u64, n);
                     }
                 }
                 let mut never = |_: u64, _: u64| -> Result<Vec<u8>, String> { panic!("a store's mirror reads no source") };
-                assert_eq!(vzip_ir::mirror::canonical_problem(&get, &mut never), None, "{name}");
+                assert_eq!(refkv_ir::mirror::canonical_problem(&get, &mut never), None, "{name}");
                 let keys: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
-                assert_eq!(vzip_ir::mirror::view_problem(&keys, &get, &mut never), None, "{name}");
+                assert_eq!(refkv_ir::mirror::view_problem(&keys, &get, &mut never), None, "{name}");
                 accepted += 1;
             }
         }
@@ -162,7 +162,7 @@ fn every_rejection_fixture_has_a_test() {
 // or accepted, in bounded time and with a bounded mirror
 
 /// The output of a store held in memory (key -> bytes), mirrored, or its rejection, and the time.
-fn output_of(objects: &[(String, Vec<u8>)]) -> (Result<vzip_ir::out::Out, String>, std::time::Duration) {
+fn output_of(objects: &[(String, Vec<u8>)]) -> (Result<refkv_ir::out::Out, String>, std::time::Duration) {
     let mut keys: Vec<(String, u64)> = objects.iter().map(|(k, b)| (k.clone(), b.len() as u64)).collect();
     keys.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
     let by: std::collections::HashMap<&str, &Vec<u8>> = objects.iter().map(|(k, b)| (k.as_str(), b)).collect();
@@ -296,7 +296,7 @@ fn ignored_keys_are_vzip_source_metadata() {
     // the recorded ignored keys sit beside the mirror's description, sorted by their bytes
     let objects = image("", &["0"]);
     let keys: Vec<(String, u64)> = objects.iter().map(|(k, b)| (k.clone(), b.len() as u64)).collect();
-    let mut r = vzip_ir::store::StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
+    let mut r = refkv_ir::store::StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
     r.ignore(vec!["z/./a".into(), "donn\u{e9}es/./x".into()], Vec::new()).unwrap();
     while let Some(reqs) = r.poll().unwrap() {
         for (k, q) in reqs.iter().enumerate() {
@@ -313,7 +313,7 @@ fn ignored_keys_are_vzip_source_metadata() {
     // the mirror is canonical with its ignored keys beside it
     let get = |k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone());
     let mut never = |_: u64, _: u64| -> Result<Vec<u8>, String> { panic!("a store's mirror reads no source") };
-    assert_eq!(vzip_ir::mirror::canonical_problem(&get, &mut never), None);
+    assert_eq!(refkv_ir::mirror::canonical_problem(&get, &mut never), None);
 }
 
 #[test]
@@ -352,7 +352,7 @@ fn a_run_names_the_profile_it_decided() {
     // before its batch a Zarr v2 run is zarr2's; after it, OME-Zarr's when the root declares 0.4
     let objects = image("", &["0"]);
     let keys: Vec<(String, u64)> = objects.iter().map(|(k, b)| (k.clone(), b.len() as u64)).collect();
-    let mut r = vzip_ir::store::StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
+    let mut r = refkv_ir::store::StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
     assert_eq!(r.profile(), "zarr2");
     while let Some(reqs) = r.poll().unwrap() {
         for (k, q) in reqs.iter().enumerate() {

@@ -1,13 +1,13 @@
-"""The store dispatch of `vzip.virtualize` as it was before SAFE directories and Zarr v2, N5 and
+"""The store dispatch of `refkv.virtualize` as it was before SAFE directories and Zarr v2, N5 and
 OME-Zarr stores moved onto the Rust IR (revision 26), with the frozen SAFE, Zarr v2, N5 and
 OME-Zarr profiles (`refkv_reference.safe`, `refkv_reference.zarr2`, `refkv_reference.n5`,
 `refkv_reference.ome_zarr`, which builds on the Zarr v2 one)."""
 
 from __future__ import annotations
 
-from vzip.policy import Policy, crc32c
+from refkv.policy import Policy, crc32c
 from refkv_reference.ome_zarr import declares_04, virtualize_ome_zarr
-from vzip.virtualize.store import WORKERS, StoreOutput, choose_profile, object_url, open_store
+from refkv.virtualize.store import WORKERS, StoreOutput, choose_profile, object_url, open_store
 from refkv_reference.n5 import virtualize_n5
 from refkv_reference.safe import SafeOutput, virtualize_safe_store
 from refkv_reference.zarr2 import virtualize_zarr2

@@ -1,10 +1,10 @@
 //! The compact IR's invariants with runs: folding, finish (gap runs, unfolding,
 //! aliases), check and the rebuild's leaves; the root and the names (conventions
-//! §8.1 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>), one test for
+//! §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>), one test for
 //! the IRs that keep them and one per way to break them.
 
-use vzip_ir::check::{check, finish, leaves, names};
-use vzip_ir::ir::*;
+use refkv_ir::check::{check, finish, leaves, names};
+use refkv_ir::ir::*;
 
 /// `n` segments of a 32-byte header and `body` bytes of data, `stride` apart from `at`.
 fn segments(ir: &mut Ir, at: u64, n: u64, body: u64, stride: u64, fold: bool) {

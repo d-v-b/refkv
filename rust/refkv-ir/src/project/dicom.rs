@@ -1,5 +1,5 @@
 //! The DICOM image projection (spec/virtualize/dicom.md §4
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#4-output>) from a valid IR:
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#4-output>) from a valid IR:
 //! each frame's chunk names the IR's data elements under the top-level Pixel Data (its
 //! fragments by `bounds`, or one per frame), made explicit about its color transform for a
 //! JPEG with three samples; the facts hold the array, its scales, the window and the root's

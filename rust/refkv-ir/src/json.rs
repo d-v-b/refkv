@@ -1,5 +1,5 @@
 //! A store's JSON documents as the store profiles read them
-//! (spec/virtualize.md §1.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>):
+//! (spec/virtualize.md §1.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-json-documents>):
 //! UTF-8 without a byte order mark, at most 16 MiB, nesting at most 256 deep, no `NaN` or
 //! `Infinity` literal, every number finite in binary64, a repeated member the last one
 //! written (in the place of the first). An integer literal (no fraction, no exponent) keeps
@@ -98,7 +98,7 @@ impl Jv {
     }
 
     /// An integer of spec/virtualize.md §1.6
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents> from `lo` to `hi` (within ±(2^53 − 1)): an integer literal, or a
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-json-documents> from `lo` to `hi` (within ±(2^53 − 1)): an integer literal, or a
     /// number whose value is an integer.
     pub fn int(&self, lo: i64, hi: i64) -> Option<i64> {
         const MAX_SAFE: f64 = 9007199254740991.0;
@@ -212,7 +212,7 @@ pub struct Doc {
 }
 
 /// The document `data` by spec/virtualize.md §1.6
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents>, or the reason it is rejected.
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-json-documents>, or the reason it is rejected.
 pub fn parse(data: &[u8]) -> Result<Doc, String> {
     parse_within(data, MAX_DEPTH)
 }
@@ -501,7 +501,7 @@ pub const MAX_MEMBERS: usize = 4096;
 pub const FIXED_NAMES: [&str; 2] = ["gaps", "json"];
 
 /// Holds a store's document, the object `o` of `n` bytes, in its IR (conventions §8.9
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): a value per
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): a value per
 /// top-level member (`members`, from [`parse`]: its value's text, `ascii[n]`, named by its key
 /// as [`crate::ir::source_names`] names texts, with [`FIXED_NAMES`] fixed), the rest gaps
 /// ([`crate::check::finish`] fills them); a document of no member is one gap, one of more than

@@ -1,5 +1,5 @@
 //! References to elements of an IR, checked against the IR (design/ARCHITECTURE.md §3.3
-//! <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#33-invariants>,
+//! <https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#33-invariants>,
 //! "the end of the amplification class"): every reference is charged to the run's
 //! budget, and so is every repeated one, a reference to bytes a reference already
 //! used, which the IR can only reach through an alias (it claims no byte twice),

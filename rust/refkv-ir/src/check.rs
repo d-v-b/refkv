@@ -1,5 +1,5 @@
 //! The invariants (design/ARCHITECTURE.md §3.3
-//! <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#33-invariants>) over an IR with
+//! <https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#33-invariants>) over an IR with
 //! runs: injectivity and
 //! coverage (`finish` establishes them, `check` verifies them), and the leaves in
 //! source order (the rebuild).
@@ -24,7 +24,7 @@
 //! first claimant.
 //!
 //! **Stores.** A store IR (conventions §8.9
-//! <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>) has many sources, its
+//! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>) has many sources, its
 //! objects. The checks run on **virtual offsets**: the objects end to end, in id order, each
 //! byte of object `o` at `x` at `base(o) + x` ([`Sources`]). A referenced object (one of a
 //! length with no children) is one leaf, its whole source; a held object's leaves partition it.
@@ -145,8 +145,8 @@ pub struct Layout {
 }
 
 /// Whether element `i` is a leaf (conventions §8.1
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>, §8.9
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): a value, data, derived
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>, §8.9
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): a value, data, derived
 /// element or gap with a length in space 0, or a referenced object (`kids`: whether each element
 /// has children).
 pub fn claims(ir: &Ir, kids: &[bool], i: usize) -> bool {
@@ -256,7 +256,7 @@ fn bytes_text(ir: &Ir, src: &Sources, s: u64, e: u64) -> String {
 }
 
 /// The shape of a store IR (conventions §8.9
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), or of a file IR's
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), or of a file IR's
 /// lack of objects: outside its objects a store IR has only the root and directories (structs
 /// with no extent, in space 0, not runs); an object's parent is the root or a directory, its
 /// extent is `(0, size)` in space 0, and it is not a run; an empty object (size 0) has no
@@ -535,7 +535,7 @@ fn who_member(ir: &Ir, i: u32, j: u64) -> String {
 }
 
 /// The root and the names (conventions §8.1
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>). Element 0 is the
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>). Element 0 is the
 /// **root**: a struct named `""` with no name index, in space 0, whose extent is `(0, size)`, the
 /// whole source, and which is not a run. Every other element has a full name that
 /// is not empty. Among the children of one element (each member of a run a child),
@@ -767,7 +767,7 @@ pub fn leaves(ir: &Ir) -> Res<Vec<(u64, u64)>> {
 }
 
 /// The rebuild of a store IR's held objects (conventions §8.9
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): for each held object
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): for each held object
 /// (one with children), in id order, its leaves in order of their start as ranges (offset,
 /// length) of its own source, adjacent ranges merged. Referenced objects are not rebuilt.
 pub fn held_leaves(ir: &Ir) -> Res<Vec<(u32, Vec<(u64, u64)>)>> {

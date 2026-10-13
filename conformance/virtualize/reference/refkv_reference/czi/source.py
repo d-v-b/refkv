@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import struct
 
-from vzip.virtualize.common import Plan, Reader, blob_chunks, family_plans, grid_chunks, json_base64, json_text
+from refkv.virtualize.common import Plan, Reader, blob_chunks, family_plans, grid_chunks, json_base64, json_text
 from refkv_reference.czi.segments import LETTERS, Attachment, Directory, MetadataSegment, Subblocks, guid
 from refkv_reference.nd2.source import copied_bytes, json_size
 
@@ -145,7 +145,7 @@ def attachment_plans(read: Reader, atts: list[Attachment]) -> tuple[list, list[P
 
 
 def _own(s: dict) -> dict:
-    from vzip.virtualize.common import declare
+    from refkv.virtualize.common import declare
 
     return declare({}, "czi", None, s)
 

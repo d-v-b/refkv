@@ -1,4 +1,4 @@
-"""`vzip.zarr`: a vzip store read through zarr's store interface gives what the vzip
+"""`refkv.zarr`: a reference store read through zarr's store interface gives what the refkv
 store gives (the mutations it rejects are in test_refstore.py)."""
 
 import subprocess
@@ -9,9 +9,9 @@ from zarr.abc.store import OffsetByteRequest, RangeByteRequest, SuffixByteReques
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
-import vzip
-import vzip.zarr
-from vzip import OffsetRequest, RangeRequest, SuffixRequest
+import refkv
+import refkv.zarr
+from refkv import OffsetRequest, RangeRequest, SuffixRequest
 
 from test_store_operations import VALUES, _stores
 
@@ -20,11 +20,11 @@ PROTO = default_buffer_prototype()
 
 def test_zarr_reads_what_the_store_reads(tmp_path):
     """get (each byte request), get_partial_values, exists, list, list_prefix and
-    list_dir, through zarr, for each store and for `vzip.zarr.open`."""
+    list_dir, through zarr, for each store and for `refkv.zarr.open`."""
     requests = {None: None, RangeByteRequest(1, 3): RangeRequest(1, 3),
                 OffsetByteRequest(2): OffsetRequest(2), SuffixByteRequest(2): SuffixRequest(2)}
-    stores = {name: vzip.zarr.store(s) for name, s in _stores(tmp_path).items()}
-    stores["vzip.zarr.open"] = vzip.zarr.open(tmp_path / "None.vzip")
+    stores = {name: refkv.zarr.store(s) for name, s in _stores(tmp_path).items()}
+    stores["refkv.zarr.open"] = refkv.zarr.open(tmp_path / "None.vzip")
 
     async def read(zs):
         got = {}
@@ -49,17 +49,17 @@ def test_zarr_reads_what_the_store_reads(tmp_path):
 
 
 def test_store_refuses_another_type():
-    with pytest.raises(TypeError, match="wraps a vzip store"):
-        vzip.zarr.store({"a": b""})
+    with pytest.raises(TypeError, match="wraps a reference store"):
+        refkv.zarr.store({"a": b""})
 
 
 def test_without_zarr_the_adapter_names_its_extra():
     code = ("import sys; sys.modules['zarr'] = None\n"
-            "import vzip\n"
+            "import refkv\n"
             "try:\n"
-            "    vzip.zarr\n"
+            "    refkv.zarr\n"
             "except ImportError as e:\n"
             "    print(e)\n")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
-    assert "vzip.zarr needs 'zarr', which vzip's 'zarr' extra installs" in out.stdout
-    assert "vzip[zarr]" in out.stdout
+    assert "refkv.zarr needs 'zarr', which refkv's 'zarr' extra installs" in out.stdout
+    assert "refkv[zarr]" in out.stdout

@@ -1,13 +1,13 @@
 //! The N5 store format on the IR (spec/virtualize/n5.md
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md>, its §5
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#5-source-metadata>; conventions
-//! §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), sans-IO: from
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md>, its §5
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#5-source-metadata>; conventions
+//! §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), sans-IO: from
 //! the listing's IR, it reads the candidates' `attributes.json` (spec/virtualize/n5.md §2
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#2-nodes>) from the root down,
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#2-nodes>) from the root down,
 //! a round at a time: each round is every candidate not read yet whose candidates above it are
 //! read and are groups (a candidate inside a dataset is never read), so a container is read in
 //! as many rounds as its candidates nest. Each document is read by spec/virtualize.md §1.6
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents> (`json.rs`)
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-json-documents> (`json.rs`)
 //! and checked by the schema (`schema/n5.json`: the roles `candidate`, `document` and
 //! `dataset`); each is held, one value per top-level member (`ascii[n]`, the value's JSON
 //! text), the rest gaps (`json::hold`: a document of more than 4096 members is one value `json`).
@@ -134,7 +134,7 @@ impl N5 {
 }
 
 /// The schema's role `dataset` (spec/virtualize/n5.md §3
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#3-datasets>) for the document
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#3-datasets>) for the document
 /// `doc` of the dataset at `path`.
 pub fn check_dataset(path: &str, doc: &Jv) -> Res<()> {
     let names = |v: &Jv| crate::expr::V::List(v.members().iter().map(|(k, _)| crate::expr::V::Str(k.text.clone())).collect());
@@ -169,7 +169,7 @@ impl StoreParser for N5 {
         }
         if !self.started && self.next.is_empty() {
             // the host chose the profile by the root's attributes.json (spec/virtualize.md §1.4
-            // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>)
+            // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>)
             return Err(format!("not an N5 store: the root has no {DOCUMENT}"));
         }
         self.started = true;

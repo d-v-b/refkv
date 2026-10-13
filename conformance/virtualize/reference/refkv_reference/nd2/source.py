@@ -9,7 +9,7 @@ import re
 import struct
 from dataclasses import dataclass, field
 
-from vzip.virtualize.common import (
+from refkv.virtualize.common import (
     MAX_CHUNK, MAX_PADDING, MAX_SAFE, MAX_TOTAL_PADDING, SMALL_PADDING, Plan, Reader, Rejected, blob_chunks, declare,
     decode_text, family_plans, grid_chunks, text_json,
 )

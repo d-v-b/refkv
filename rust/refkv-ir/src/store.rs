@@ -1,5 +1,5 @@
 //! A store run (conventions §8.9
-//! <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): a store format's
+//! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): a store format's
 //! parser and the object reads it asks for, sans-IO. The host lists the store (S3
 //! `ListObjectsV2` or a directory walk, under the reader policy) and gives the listing to
 //! [`StoreRun::new`], which builds the IR's directories and objects ([`Ir::listing`]); then
@@ -41,7 +41,7 @@ pub trait StoreParser: Send + Sync {
     fn feed(&mut self, object: usize, offset: u64, data: &[u8]);
     /// The empty objects whose keys end in `/` (each with its `/`), which the listing ignores
     /// and does not record (spec/virtualize.md §1.4
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), told before
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>), told before
     /// the first step ([`StoreRun::ignore`]): a SAFE directory's are its directories. The
     /// recorded ignored keys reach the projection in the facts instead.
     fn folders(&mut self, _folders: &[String]) {}
@@ -58,13 +58,13 @@ pub trait StoreParser: Send + Sync {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum StoreFormat {
     /// A Zarr v2 store (`zarr2.rs`; spec/virtualize/zarr2.md
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md>).
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md>).
     Zarr2,
     /// A Sentinel-2 SAFE product's directory (`safe/`; spec/virtualize/safe.md
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md>).
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md>).
     Safe,
     /// An N5 container (`n5.rs`; spec/virtualize/n5.md
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md>).
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md>).
     N5,
 }
 
@@ -177,7 +177,7 @@ impl StoreRun {
     }
 
     /// The keys the listing ignores (spec/virtualize.md §1.4
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), which are
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>), which are
     /// not objects of the IR, given before the first poll: `keys`, the relative keys of the
     /// ignored objects the store reader recorded, and `folders`, those of the empty objects
     /// whose keys end in `/` (each with its `/`), which are not recorded. The parser is told

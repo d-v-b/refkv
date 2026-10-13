@@ -1,10 +1,10 @@
 // The ZIP64 end records, which every archive has, and large entries (spec §10.1
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#101-structure> rules 4 and 7, §10.2
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>).
+// <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure> rules 4 and 7, §10.2
+// <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#102-zip64>).
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Archive, VzipError } from "../src/archive.ts";
+import { Archive, RefkvError } from "../src/archive.ts";
 import {
   centralRecord,
   type Header,
@@ -41,7 +41,7 @@ function tail(b: Uint8Array) {
 
 const view = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength);
 const open = (b: Uint8Array) => Archive.open(b, "https://data.test/a.vzip", fetchRemote);
-const isClass = (cls: string) => (e: unknown) => e instanceof VzipError && e.errorClass === cls;
+const isClass = (cls: string) => (e: unknown) => e instanceof RefkvError && e.errorClass === cls;
 
 test("writes the zip64 end records in every archive, and reads them whatever the end record holds", async () => {
   const many = Array.from({ length: 70000 }, (_, i) => ({

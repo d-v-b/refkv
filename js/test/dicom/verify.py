@@ -42,11 +42,11 @@ from pydicom.tag import BaseTag
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
-from vzip.policy import Policy  # noqa: E402
-import vzip.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg and imagecodecs_jpeg2k)
+from refkv.policy import Policy  # noqa: E402
+import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg and imagecodecs_jpeg2k)
 
 # The sources are served on 127.0.0.1, which spec §6.7
-# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
+# <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
 # default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
 HERE = Path(__file__).parent
@@ -101,7 +101,7 @@ def expected(ds: pydicom.Dataset) -> np.ndarray:
 
 
 LAYOUT = {"7FE00001", "7FE00002", "FFFCFFFC"}  # offset tables and padding: recorded only where they are not layout
-ADOBE = 18  # the bytes of the SOI and Adobe marker that replace an RGB JPEG frame's SOI (spec/virtualize.md §6.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#65-frames>)
+ADOBE = 18  # the bytes of the SOI and Adobe marker that replace an RGB JPEG frame's SOI (spec/virtualize.md §6.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#65-frames>)
 BINARY = {"OB", "OD", "OF", "OL", "OV", "OW", "UN"}
 SIZES = {"AT": 4, "FL": 4, "FD": 8, "SL": 4, "SS": 2, "UL": 4, "US": 2, "SV": 8, "UV": 8}
 pydicom.config.convert_wrong_length_to_UN = True  # numeric values whose length is not a multiple of the size
@@ -157,7 +157,7 @@ def collapse(d: dict, path: str) -> dict:
 def gathered_uri(path: str, sequence: str) -> str:
     """Where a value in an item of the gathered sequence at `sequence` is
     gathered (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>): `path` is
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>): `path` is
     <sequence>/<i>/<p>."""
     i, rest = path[len(sequence) + 1:].split("/", 1)
     return f"vzip_source/{sequence}/items/{rest}/value#{i}"
@@ -172,7 +172,7 @@ def fragment_problems(root, source: dict, ds: pydicom.Dataset) -> list[str]:
     """Encapsulated pixel data without an Extended Offset Table, rebuilt from
     the frames' chunks, `pixel_fragments` and `pixel_offset_table`
     (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>): the Basic
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>): the Basic
     Offset Table, then each fragment's item."""
     n = int(ds.get("NumberOfFrames", 1) or 1)
     axes = list(root["0"].metadata.dimension_names)
@@ -209,7 +209,7 @@ def array_values(root, uri: str) -> np.ndarray:
 
 def header_problems(root, data: bytes) -> list[str]:
     """Reconstruction (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>): the
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>): the
     source metadata, its
     node's meta and dataset and the arrays its BulkDataURIs name, against pydicom's DICOM
     JSON Model, without group lengths, layout and Pixel Data; then the preamble,
@@ -241,7 +241,7 @@ def header_problems(root, data: bytes) -> list[str]:
     def layout(k: str) -> bool:
         """Group lengths and the Extended Offset Table, which ours omits where
         they are layout (spec/virtualize/dicom.md §5
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
         return k.endswith("0000") or k in LAYOUT
 
     def resolve(k: str, a: dict, charsets, path: str, sequence: str | None) -> dict:
@@ -394,7 +394,7 @@ def check(name: str, url: str, data: bytes, tmp: Path) -> tuple[bool, str]:
         return ok, ("rejected: " + p.stderr.strip()[-90:]) if ok else "NOT REJECTED " + p.stderr[-200:]
     if p.returncode:
         return False, f"FAILED: {p.stderr.strip()[-300:]}"
-    root = zarr.open_group(vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
+    root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
     if is_mirror(out):  # the IR's mirror (revision 26): the source rebuilt from it
         source = tmp / "source.dcm"
         source.write_bytes(data)
@@ -419,7 +419,7 @@ def main(argv: list[str]) -> int:
         if argv:
             for target in argv:
                 if target.startswith(("http://", "https://")):
-                    req = urllib.request.Request(target, headers={"User-Agent": "vzip-verify"})
+                    req = urllib.request.Request(target, headers={"User-Agent": "refkv-verify"})
                     data = urllib.request.urlopen(req, timeout=600).read()
                     url = target
                 else:

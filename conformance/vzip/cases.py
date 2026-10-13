@@ -69,7 +69,7 @@ def _basic(root: Path) -> dict:
             {"url": "data/sub%2Fmy%20file.bin"},
             {"url": "FILE://LocalHost" + (root / "data" / "blob.bin").resolve().as_uri()[7:]},
             # 17-23: pins (spec §5.1
-            # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-pins>); every data file's
+            # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#51-pins>); every data file's
             # mtime is MTIME
             {"url": "data/blob.bin", "size": 1024},
             {"url": "data/blob.bin", "size": 1023},
@@ -139,7 +139,7 @@ def _basic(root: Path) -> dict:
 
 def _http(server_base: str) -> dict:
     """A description whose sources are served by conformance/vzip/http_server.py (spec §5.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#52-reading-over-http>)."""
     from http_server import etag_for
 
     B = server_base + "vectors/"
@@ -261,7 +261,7 @@ def descriptions(root: Path, http_base: str | None = None) -> dict[str, dict]:
     empty = {"page_size": None, "mirror": True, "sources": [], "entries": []}
     empty_paged = {**empty, "page_size": 100}
     # a single literal range of 65515 bytes encodes to exactly 65519 bytes (spec §11.3
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#113-reference-entries>)
+    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#113-reference-entries>)
     max_payload = {"page_size": None, "mirror": True, "sources": [], "entries": [
         {"key": "big", "ranges": [{"data": "ab" * 65515}]}]}
     return {
@@ -346,8 +346,8 @@ def invalid_descriptions(root: Path) -> dict[str, dict]:
 
 
 def _writer(path: Path, sources=None, **kw):
-    from vzip.archive import VZipWriter
-    from vzip.pb import Source
+    from refkv.archive import VZipWriter
+    from refkv.pb import Source
 
     f = open(path, "wb")
     w = VZipWriter(f, **kw)
@@ -375,7 +375,7 @@ def _varint(n: int) -> bytes:
 def crafted(root: Path) -> dict[str, dict]:
     """name -> {"build": fn(path), "open": "ok" | "fail", "expect": [(query, accept)],
     "read_path": optional fn(path) -> path to hand to the reader}"""
-    from vzip.pb import Concat, Range, Source
+    from refkv.pb import Concat, Range, Source
 
     cases: dict[str, dict] = {}
     REF = {"ok": True, "kind": "reference"}
@@ -407,8 +407,8 @@ def crafted(root: Path) -> dict[str, dict]:
     fine = [(get("fine"), [ok_value(b"ok")])]
 
     # -- entry errors (§11.1
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#111-classification>, §11.3
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#113-reference-entries>): only that key
+    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#111-classification>, §11.3
+    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#113-reference-entries>): only that key
     # fails ---------------------
     def both_ids(path):
         f, w = _writer(path)
@@ -462,7 +462,7 @@ def crafted(root: Path) -> dict[str, dict]:
     bad_method_paged.expect = bad_method.expect
     case("unsupported_method_paged")(bad_method_paged)
 
-    # -- payload errors (§4 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#4-messages>):
+    # -- payload errors (§4 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#4-messages>):
     # classify says reference, every get fails ------
     def truncated(path):
         f, w = _writer(path)
@@ -526,7 +526,7 @@ def crafted(root: Path) -> dict[str, dict]:
     case("offset_plus_length_overflow")(length_overflow)
 
     # -- accepted encodings (§4.1
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#41-encoding>)
+    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#41-encoding>)
     # -------------------------------------------
     def unknown_fields(path):
         f, w = _writer(path)
@@ -567,7 +567,7 @@ def crafted(root: Path) -> dict[str, dict]:
     case("concat_with_one_or_zero_parts")(concat_one)
 
     # -- reference bodies (§11.3
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#113-reference-entries>): never
+    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#113-reference-entries>): never
     # checked, raw returns them -------------
     def empty_body(path):
         f, w = _writer(path)
@@ -578,8 +578,8 @@ def crafted(root: Path) -> dict[str, dict]:
     case("reference_with_empty_body")(empty_body)
 
     # -- resolution errors (§5
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>, §6.3
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#63-resolving-a-reference>)
+    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#5-source-table>, §6.3
+    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#63-resolving-a-reference>)
     # ----------------------------------------
     def key_to_ref(path):
         f, w = _writer(path, sources=[Source(url="data/blob.bin"), Source(key="target")])
@@ -804,9 +804,9 @@ def crafted(root: Path) -> dict[str, dict]:
     # -- revision 7 ----------------------------------------------------------
     def oob_tail(path):
         # a data source range past the end of its value: writers must reject it (§7
-        # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#7-writing>),
+        # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#7-writing>),
         # and readers fail only the windows that need the missing bytes (§6.3
-        # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#63-resolving-a-reference>)
+        # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#63-resolving-a-reference>)
         f, w = _writer(path, sources=[Source(data=b"SHARED")])
         _raw_ref(w, "x", 0x7A77, Concat((Range(source=0, offset=4, length=5),
                                          Range(data=b"!"))).encode())
@@ -872,7 +872,7 @@ def crafted(root: Path) -> dict[str, dict]:
     def long_zip64_block(path):
         # a ZIP64 block of 16 bytes on a record whose offset is all ones: the offset is
         # the first 8 bytes, the rest is ignored (§10.2
-        # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>)
+        # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#102-zip64>)
         f, w = _writer(path)
         w.add_bytes("z", b"hello")
         w.close(); f.close()
@@ -912,7 +912,7 @@ def crafted(root: Path) -> dict[str, dict]:
         w.close(); f.close()
     case("invalid_earlier_occurrence_in_source_table", open="fail")(earlier_invalid_source)
 
-    # -- archive errors (§6.4 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#64-errors>):
+    # -- archive errors (§6.4 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#64-errors>):
     # open fails ------------------------------------
     def pin_on_key(path):
         f, w = _writer(path)
@@ -943,13 +943,13 @@ def crafted(root: Path) -> dict[str, dict]:
     case("pinned_duplicate", open="fail")(
         lambda p: page_outside(p, lambda idx: [idx.pinned.add(key="k00", data_offset=0, size=1,
                                                               csize=1, method=0) for _ in "ab"]))
-    # revision 11: a pinned large entry must be STORED (§12.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#122-lookup>);
+    # revision 11: a pinned large entry must be STORED (§12.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#122-lookup>);
     # no record is consulted
     case("pinned_large_deflate", open="fail")(
         lambda p: page_outside(p, lambda idx: idx.pinned.add(key="k00", data_offset=0,
                                                              size=0xFFFFFFFF, csize=1, method=8)))
 
-    # -- revision 11: the zip64 end records are always present (§10.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>)
+    # -- revision 11: the zip64 end records are always present (§10.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#102-zip64>)
     def end_records(path, mutate, paged=False):
         """Write a small archive, then let `mutate(b, z, loc, eocd)` change its bytes `b`,
         given the offsets of the zip64 record, its locator and the end record. `mutate`
@@ -1018,7 +1018,7 @@ def crafted(root: Path) -> dict[str, dict]:
     zip64_counts_ignored.expect = end_ok
     case("zip64_record_counts_ignored")(zip64_counts_ignored)
 
-    # -- revision 11: large entries (§10.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#101-structure> rules 4 and 7, §10.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#102-zip64>)
+    # -- revision 11: large entries (§10.1 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure> rules 4 and 7, §10.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#102-zip64>)
     # Bodies of 4 GiB or more are sparse files: zeros, then a short tail.
     def large(path):
         f, w = _writer(path)
@@ -1092,8 +1092,8 @@ def crafted(root: Path) -> dict[str, dict]:
     # -- revision 11: local headers outside the central directory ----------------
     def orphan_local_header(path):
         # a local header and body that no central directory record points to, as a
-        # SOZip index file is: not allowed (§10.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#101-structure> rule 2), but readers
-        # never look for one, so the archive reads normally (§13.4 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#134-violations-readers-need-not-detect>)
+        # SOZip index file is: not allowed (§10.1 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure> rule 2), but readers
+        # never look for one, so the archive reads normally (§13.4 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#134-violations-readers-need-not-detect>)
         f, w = _writer(path)
         w.add_bytes("fine", b"ok")
         name, body = b".fine.sozip.idx", b"\0" * 32
@@ -1241,7 +1241,7 @@ def _rewrite_index(path: Path, mutate) -> None:
     new = comp.compress(idx.SerializeToString()) + comp.flush()
     # put the new body between the central directory and the zip64 end records and point
     # the comment at it; readers use the comment's offsets (spec §10.4
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#104-end-of-central-directory-record-and-archive-comment>),
+    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#104-end-of-central-directory-record-and-archive-comment>),
     # and a ZIP tool still sees the old entry. The zip64 record moves, so its locator is
     # updated.
     tail = bytearray(b[-(60 + 76):])

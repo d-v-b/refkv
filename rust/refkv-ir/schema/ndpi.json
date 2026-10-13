@@ -1,7 +1,7 @@
 {
   "source_model": "ndpi",
   "version": 1,
-  "about": "The source model of a Hamamatsu NDPI slide (spec/virtualize/ndpi.md <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md>): a little-endian classic TIFF with 64-bit offsets (an 8-byte first-IFD offset, 8-byte next-IFD offsets, a high word per entry after each IFD) whose levels are single JPEG strips with restart markers. The TIFF parser reads it in its NDPI variant (rust/refkv-ir/src/tiff.rs) and checks this schema where the profile meets each role; the strip's JPEG header and its restart intervals are read by rust/refkv-ir/src/ndpi.rs. Projections read a valid IR and check nothing.",
+  "about": "The source model of a Hamamatsu NDPI slide (spec/virtualize/ndpi.md <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md>): a little-endian classic TIFF with 64-bit offsets (an 8-byte first-IFD offset, 8-byte next-IFD offsets, a high word per entry after each IFD) whose levels are single JPEG strips with restart markers. The TIFF parser reads it in its NDPI variant (rust/refkv-ir/src/tiff.rs) and checks this schema where the profile meets each role; the strip's JPEG header and its restart intervals are read by rust/refkv-ir/src/ndpi.rs. Projections read a valid IR and check nothing.",
   "limits": {
     "max_safe": 9007199254740991,
     "max_ifds": 100000,
@@ -21,7 +21,7 @@
       "offset": [3, 4, 8, 9]
     },
     "tags": {
-      "about": "The tags of the table (spec/virtualize/ndpi.md §2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#2-the-source>): kind (the field types allowed), scalar (the first value is read, and there must be one).",
+      "about": "The tags of the table (spec/virtualize/ndpi.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#2-the-source>): kind (the field types allowed), scalar (the first value is read, and there must be one).",
       "256": {"name": "ImageWidth", "kind": "integer", "scalar": true},
       "257": {"name": "ImageLength", "kind": "integer", "scalar": true},
       "258": {"name": "BitsPerSample", "kind": "integer", "scalar": false},
@@ -45,7 +45,7 @@
     "resolution_units": {"2": 25400.0, "3": 10000.0}
   },
   "elements": {
-    "about": "The IR of an NDPI file (spec/virtualize/ndpi.md §5.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#51-elements>). Names in angle brackets are variables.",
+    "about": "The IR of an NDPI file (spec/virtualize/ndpi.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#51-elements>). Names in angle brackets are variables.",
     "header": {
       "kind": "struct",
       "children": {"byte_order": "ascii[2]", "magic": "<u2", "first_ifd": "<u8"}
@@ -107,7 +107,7 @@
       "constraints": [{"require": "levels >= 1", "message": "no NDPI levels"}]
     },
     "level": {
-      "about": "a main-chain IFD whose Magnification is positive (spec/virtualize/ndpi.md §3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#3-levels>)",
+      "about": "a main-chain IFD whose Magnification is positive (spec/virtualize/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#3-levels>)",
       "given": {
         "compression": "(default 1)",
         "photometric": "",
@@ -185,7 +185,7 @@
       ]
     },
     "intervals": {
-      "about": "a level's restart intervals (spec/virtualize/ndpi.md §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>)",
+      "about": "a level's restart intervals (spec/virtualize/ndpi.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>)",
       "given": {
         "matches": "McuStarts has q × r values, increasing, the last before len(S)",
         "nonempty": "every interval holds at least one byte"
@@ -210,5 +210,5 @@
       "constraints": [{"require": "finite(x) && finite(y)", "message": "a translation is not finite"}]
     }
   },
-  "about_builtins": "What the parser's code computes and the roles above check: detection (spec/virtualize/ndpi.md §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: a little-endian magic-42 TIFF whose IFD at the u64 at bytes 4-11 has tag 65420 among its entries; it never rejects); the main chain in NDPI's IFD layout (each next offset, a u64, until 0); each value with its high word; the levels (main-chain IFDs whose Magnification is positive, every IFD's Magnification read); the strip's JPEG header (its marker segments, SOF0's sampling factors, DRI's restart interval); the intervals and the chunk size a × b (b the largest within the payload limit)."
+  "about_builtins": "What the parser's code computes and the roles above check: detection (spec/virtualize/ndpi.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: a little-endian magic-42 TIFF whose IFD at the u64 at bytes 4-11 has tag 65420 among its entries; it never rejects); the main chain in NDPI's IFD layout (each next offset, a u64, until 0); each value with its high word; the levels (main-chain IFDs whose Magnification is positive, every IFD's Magnification read); the strip's JPEG header (its marker segments, SOF0's sampling factors, DRI's restart interval); the intervals and the chunk size a × b (b the largest within the payload limit)."
 }

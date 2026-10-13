@@ -1,20 +1,20 @@
-"""An in-memory vzip store, and its persistence as a vzip archive.
+"""An in-memory reference store, and its persistence as a vzip archive.
 
-A vzip store maps each key to bytes or to a reference value: the
+A reference store maps each key to bytes or to a reference value: the
 concatenation of byte ranges of other objects, named through the store's one
 source table (spec/archive.md, Part 1
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#part-1-reference-values>). A
-`ReferenceStore` holds that mapping in memory, and reads like any vzip store
-(`vzip.store.ReferenceReader`); `vzip.zarr.store(store)` opens it for zarr and
-xarray, as `vzip.zarr.open` does a saved archive. `save` writes it as a vzip
+<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#part-1-reference-values>). A
+`ReferenceStore` holds that mapping in memory, and reads like any reference store
+(`refkv.store.ReferenceReader`); `refkv.zarr.store(store)` opens it for zarr and
+xarray, as `refkv.zarr.open` does a saved archive. `save` writes it as a vzip
 archive, one ZIP file (Part 2
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#part-2-the-zip-binding>), which
-`vzip.open` reads back as a store with the same values.
+<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#part-2-the-zip-binding>), which
+`refkv.open` reads back as a store with the same values.
 
-`vzip.virtualize.virtualize` returns one too, for an image file or a store:
+`refkv.virtualize.virtualize` returns one too, for an image file or a store:
 
-    import vzip
-    from vzip.virtualize import virtualize
+    import refkv
+    from refkv.virtualize import virtualize
 
     store = virtualize("https://example.org/image.ome.tiff")
     store.info["format"]                # "tiff", and what the profile found
@@ -25,12 +25,12 @@ The workflow for virtual datasets, such as many netCDF files virtualized with
 VirtualiZarr and concatenated with xarray:
 
     import xarray as xr
-    import vzip
+    import refkv
 
-    store = vzip.ReferenceStore.from_virtualizarr(vds)  # vds: a virtual dataset
-    ds = xr.open_zarr(vzip.zarr.store(store))  # readable now: chunks come from the files
+    store = refkv.ReferenceStore.from_virtualizarr(vds)  # vds: a virtual dataset
+    ds = xr.open_zarr(refkv.zarr.store(store))  # readable now: chunks come from the files
     summary = store.save("data.vzip")   # one file: the metadata and the references
-    ds = xr.open_zarr(vzip.zarr.open("data.vzip"))
+    ds = xr.open_zarr(refkv.zarr.open("data.vzip"))
 """
 
 from __future__ import annotations
@@ -48,13 +48,13 @@ from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from vzip.archive import INDEX_KEY, RESERVED_PREFIX, SOURCES_KEY, VZipWriter
-from vzip.errors import ResolutionError
-from vzip.pb import Concat, Range, Reference, Source, parts
-from vzip.policy import Policy
-from vzip.store import DEFAULT_CONCURRENCY, Kind, ReferenceReader, Request, Stats, _abs_range
-from vzip.uri import file_uri, is_uri_reference
-from vzip.uri import resolve as resolve_reference
+from refkv.archive import INDEX_KEY, RESERVED_PREFIX, SOURCES_KEY, VZipWriter
+from refkv.errors import ResolutionError
+from refkv.pb import Concat, Range, Reference, Source, parts
+from refkv.policy import Policy
+from refkv.store import DEFAULT_CONCURRENCY, Kind, ReferenceReader, Request, Stats, _abs_range
+from refkv.uri import file_uri, is_uri_reference
+from refkv.uri import resolve as resolve_reference
 
 
 @dataclass(frozen=True)
@@ -126,51 +126,51 @@ def _rewrite(rewrite_urls: Mapping[str, str] | Callable[[str], str | None] | Non
 
 
 class ReferenceStore(ReferenceReader):
-    """An in-memory vzip store: each key maps to bytes or to a reference value,
+    """An in-memory reference store: each key maps to bytes or to a reference value,
     resolved through one source table.
 
     It reads right away: `store.get(key)`, or, for zarr and xarray,
-    `xr.open_zarr(vzip.zarr.store(store))`. References are resolved with the same
-    reader as a saved archive (`vzip.open`), under the same `Policy`, and with
+    `xr.open_zarr(refkv.zarr.store(store))`. References are resolved with the same
+    reader as a saved archive (`refkv.open`), under the same `Policy`, and with
     the same options. `save` writes it as a vzip archive.
 
     Build one with a constructor:
 
-    - `vzip.virtualize.virtualize(location)`, from an image file or an N5, Zarr v2,
+    - `refkv.virtualize.virtualize(location)`, from an image file or an N5, Zarr v2,
       OME-Zarr or SAFE store;
     - `ReferenceStore.from_virtualizarr(vds)`, from a VirtualiZarr virtual dataset;
     - `ReferenceStore(mapping, sources)`, from a mapping of keys to `bytes`, `Range`
       or `Concat` values, and the `Source` table their ranges index.
 
     A store never changes once it is built: it has no method that writes,
-    `mapping` and `sources` are read-only views, and through `vzip.zarr` every
+    `mapping` and `sources` are read-only views, and through `refkv.zarr` every
     zarr write or delete raises the ValueError zarr raises for a read-only store.
     To change a store, build a new one.
 
     Keyword arguments:
 
     - `url`: the base URI that relative source URLs resolve against (spec §5
-      <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#5-source-table>). The default,
+      <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#5-source-table>). The default,
       the current directory, makes the store a local one for the reader policy:
       it may read `file:` sources, like an archive opened from a local path.
     - `read_at_open`: the keys a reader fetches when it opens the store, which
       `save` places where an archive's opening request reads them. The default
       is every `zarr.json` document.
     - `compressed`: the keys of bytes values that `save` writes DEFLATE-compressed
-      (spec §10.1 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#101-structure>):
+      (spec §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#101-structure>):
       a smaller archive, but a reader then fetches such a value whole to read any
       range of it. The default is none. Each must be a key of a bytes value.
     - `page_size`: the page index `save` writes when it is not given one (see
       `save`; the default, None, writes none).
     - `info`: what the store's builder says about it, as JSON-like values, read
-      back as `store.info`; `save` does not write it. `vzip.virtualize` records
+      back as `store.info`; `save` does not write it. `refkv.virtualize` records
       the format and the profile's summary here.
 
     `save` writes the values in the order of `mapping`, but for those of
     `read_at_open`, which it writes last, in that order too: with `read_at_open`,
     `compressed` and `page_size`, a builder decides the whole archive, byte for byte.
     - `registry`, `stats`, `policy`, `max_concurrency`: how references are
-      resolved, as for every vzip store (`vzip.store.ReferenceReader`). The
+      resolved, as for every reference store (`refkv.store.ReferenceReader`). The
       default policy, `Policy()`, reads `http(s)` sources on public hosts and,
       here, local files; it refuses other schemes, such as `s3`, except under
       a prefix the `registry` has a store for, such as the
@@ -215,7 +215,7 @@ class ReferenceStore(ReferenceReader):
                                 f"not {type(v).__name__}")
         for s in sources:
             if not isinstance(s, Source):
-                raise TypeError(f"sources are vzip.pb.Source, not {type(s).__name__}")
+                raise TypeError(f"sources are refkv.pb.Source, not {type(s).__name__}")
         self._values = values
         self._sources = list(sources)
         self._keys = sorted(k for k in values if not k.startswith(RESERVED_PREFIX))
@@ -260,7 +260,7 @@ class ReferenceStore(ReferenceReader):
           reads them: a mapping of URL prefixes to their replacements (the
           longest matching prefix wins), or a function of a URL that returns
           its new URL (or None to keep it). For files on a public S3 bucket,
-          `rewrite_urls=vzip.public_s3_url` writes `s3://bucket/key` as
+          `rewrite_urls=refkv.public_s3_url` writes `s3://bucket/key` as
           `https://bucket.s3.amazonaws.com/key`, which the default reader
           policy allows, and any reader can read, a browser included.
         - `registry`: the stores to read sources with, such as the
@@ -271,7 +271,7 @@ class ReferenceStore(ReferenceReader):
         - Other keyword arguments go to the `ReferenceStore` constructor
           (`policy`, `stats`, `max_concurrency`, `url`).
         """
-        from vzip.convert import read_at_open, split_virtual_dataset
+        from refkv.convert import read_at_open, split_virtual_dataset
 
         concrete, refs = split_virtual_dataset(vds)
         rewrite = _rewrite(rewrite_urls)
@@ -310,9 +310,9 @@ class ReferenceStore(ReferenceReader):
     def info(self) -> dict:
         """What the store's builder says about it, as a copy: changing it leaves the
         store's own unchanged. For a store from
-        `vzip.virtualize.virtualize`: `format`, the profile that virtualized the
+        `refkv.virtualize.virtualize`: `format`, the profile that virtualized the
         input (such as "tiff" or "zarr2"), and the profile's summary of what it
-        found, as `python -m vzip.virtualize` prints it. Empty otherwise."""
+        found, as `python -m refkv.virtualize` prints it. Empty otherwise."""
         return copy.deepcopy(self._info)
 
     def __eq__(self, other: object) -> bool:
@@ -337,7 +337,7 @@ class ReferenceStore(ReferenceReader):
         policy: Policy | None = None,
     ) -> Summary:
         """Write the store as a vzip archive at the local `path`, and return a
-        `Summary` of it. `vzip.open(path)` reads it back with the same values.
+        `Summary` of it. `refkv.open(path)` reads it back with the same values.
 
         The entries are written in the store's order (see the class), the bytes
         values of `compressed` DEFLATE-compressed.
@@ -345,7 +345,7 @@ class ReferenceStore(ReferenceReader):
         - `page_size`: the store's `page_size` by default. None writes no page index, and a reader
           then loads the whole central directory, about 125 bytes per key, when
           it opens the archive. A number writes a page index (spec §12
-          <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#12-page-index-optional>) with
+          <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#12-page-index-optional>) with
           pages of about that many bytes, so a reader loads only the pages that
           hold the keys it reads. `65536` is a good value once the directory
           grows past a few MB, and matters most for an archive read over the
@@ -356,7 +356,7 @@ class ReferenceStore(ReferenceReader):
         - `mirror_refs`: True (the default) also writes each reference's
           payload as its entry's body, so a ZIP tool that ignores extra fields
           still sees it (spec §11.3
-          <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#113-reference-entries> says
+          <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#113-reference-entries> says
           writers should); False leaves those bodies empty, a smaller archive.
         - `relative_to`: a URL prefix, such as the URL of the directory the
           archive will be served from. Source URLs under it are written relative
@@ -366,7 +366,7 @@ class ReferenceStore(ReferenceReader):
           source it refuses raises ResolutionError (a ValueError), and nothing
           is written. The error says how to fix it: write `s3://` URLs of a
           public bucket as HTTPS
-          (`ReferenceStore.from_virtualizarr(vds, rewrite_urls=vzip.public_s3_url)`),
+          (`ReferenceStore.from_virtualizarr(vds, rewrite_urls=refkv.public_s3_url)`),
           or pass the policy the archive's readers will use, such as
           `Policy(schemes={"s3"})`.
         """
@@ -463,7 +463,7 @@ class ReferenceStore(ReferenceReader):
     async def raw_async(self, key: str) -> bytes | None:
         """A bytes value, a hidden key's included; a reference's payload, as `save`
         writes it (spec §4.4
-        <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#44-reference-payloads>), with
+        <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#44-reference-payloads>), with
         the source indexes of this store's table. The format entries an archive
         holds are written by `save`, and are missing here."""
         v = self._values.get(key)

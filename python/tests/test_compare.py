@@ -1,5 +1,5 @@
 """conformance/virtualize/compare.py: §1.1
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence> equivalence
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence> equivalence
 with exact integers, and the strict
 reading of every archive (spec/archive.md, through the independent reader and the writer checks)."""
 
@@ -15,8 +15,8 @@ ROOT = Path(__file__).parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
 import compare  # noqa: E402
 
-from vzip.archive import VZipWriter  # noqa: E402
-from vzip.pb import Range, Source  # noqa: E402
+from refkv.archive import VZipWriter  # noqa: E402
+from refkv.pb import Range, Source  # noqa: E402
 
 URL = "https://data.test/image.tif"
 
@@ -29,10 +29,10 @@ def test_differences():
     big = 2**53 + 1
     cases = [
         ({"shape": [1]}, {"shape": [1]}, True),
-        ({"scale": [1]}, {"scale": [1.0]}, True),  # a computed number written either way (§1.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#13-arithmetic>)
+        ({"scale": [1]}, {"scale": [1.0]}, True),  # a computed number written either way (§1.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#13-arithmetic>)
         ({"fill_value": big}, {"fill_value": big - 1}, False),  # integers exactly: binary64 would equal them
         # an integer against a float: equal only if the float is exactly that integer (§1.1
-        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>)
+        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>)
         ({"fill_value": big}, {"fill_value": float(big)}, False),
         ({"fill_value": big - 1}, {"fill_value": float(big)}, True),
         ({"flag": True}, {"flag": 1}, False),
@@ -106,7 +106,7 @@ def _jpeg_gray(o: int, n: int) -> bytes:
 
 
 def _mirror_archive(tmp_path, edit=None) -> Path:
-    from vzip.virtualize import _virtualize as virtualize  # the profile output, not the store
+    from refkv.virtualize import _virtualize as virtualize  # the profile output, not the store
 
     _, out = virtualize(str(ROOT / "fixtures/tiff/jpeg_gray.tif"), "https://data.test/jpeg_gray.tif")
     if edit:
@@ -118,7 +118,7 @@ def _mirror_archive(tmp_path, edit=None) -> Path:
 
 def test_mirror_problem():
     """A TIFF archive's IR mirror (conventions §8
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) that reads and
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>) that reads and
     checks: no problem; an archive without a mirror: not checked."""
     import tempfile
 
@@ -146,7 +146,7 @@ def test_mirror_problem_finds_a_size_other_than_the_pin(tmp_path):
 
 def test_mirror_problem_finds_a_table_that_is_not_canonical(tmp_path):
     """A valid table whose chunks are deflated: the validator flags it (conventions §8.8
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>)."""
     import json
     import zlib
 
@@ -222,7 +222,7 @@ def test_mirror_problem_finds_a_view_that_is_not_the_tables(tmp_path):
 def _store_archive(tmp_path, name="zarr2_hierarchy", edit=None, kind="zarr2") -> tuple[Path, callable]:
     """A fixture store's archive (a Zarr v2 store's or a SAFE directory's: its mirror a store
     IR's), and a fetch of ranges of its objects by URL."""
-    from vzip.virtualize import _virtualize as virtualize  # the profile output, not the store
+    from refkv.virtualize import _virtualize as virtualize  # the profile output, not the store
 
     url = f"https://data.test/{name}/"
     _, out = virtualize(str(ROOT / "fixtures" / kind / name), url)
@@ -239,7 +239,7 @@ def _store_archive(tmp_path, name="zarr2_hierarchy", edit=None, kind="zarr2") ->
 
 def test_store_mirror_problem(tmp_path):
     """A store's mirror (conventions §8.9
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>) that reads, rebuilds
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>) that reads, rebuilds
     the listing and the documents, and is canonical: no problem."""
     for kind, name in (("zarr2", "zarr2_hierarchy"), ("zarr2", "zarr2_objects"), ("zarr2", "zarr2_root_array_empty"),
                        ("safe", "safe_l2a_pb0207")):

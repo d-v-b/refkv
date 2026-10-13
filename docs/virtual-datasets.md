@@ -10,7 +10,7 @@ from the file it came from: no data is copied.
 
 <!-- This installs main, which has these extras once this page is merged; do not pin a branch. -->
 ```bash
-pip install "vzip[virtualizarr] @ git+https://github.com/d-v-b/vzip" xarray h5py h5netcdf fsspec aiohttp
+pip install "vzip[virtualizarr] @ git+https://github.com/d-v-b/refkv" xarray h5py h5netcdf fsspec aiohttp
 ```
 
 The `virtualizarr` extra installs VirtualiZarr, which

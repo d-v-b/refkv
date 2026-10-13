@@ -1,5 +1,5 @@
 //! What NDPI adds to TIFF (spec/virtualize/ndpi.md §4
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), beyond its
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), beyond its
 //! IFD layout (which `tiff.rs` reads in its NDPI variant): a level's strip is one JPEG stream
 //! whose restart intervals McuStarts locates, and each chunk is a JPEG stream rebuilt from the
 //! strip's header (its parts around SOF0 shared, a literal SOF0 of the chunk's size), `a × b`

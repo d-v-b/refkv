@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from vzip.virtualize.common import CONVENTION_KEY, PROFILES, REVISION, convention
+from refkv.virtualize.common import CONVENTION_KEY, PROFILES, REVISION, convention
 
 HERE = Path(__file__).parent
 STORES = {"n5", "zarr2", "ome-zarr"}
@@ -37,7 +37,7 @@ SOURCE_METADATA: dict[str, dict] = {
     "nd2": {"anyOf": [
         {
             "type": "object",
-            "description": "The root's: the signature and the decoded chunks it keeps (spec/virtualize/nd2.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#5-source-metadata>)",
+            "description": "The root's: the signature and the decoded chunks it keeps (spec/virtualize/nd2.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-source-metadata>)",
             "properties": {
                 "signature": {"$ref": "#/$defs/text", "description": "The signature chunk's data up to its first NUL"},
                 "chunks": {
@@ -58,7 +58,7 @@ SOURCE_METADATA: dict[str, dict] = {
     ]},
     "dicom": {"anyOf": [{
         "type": "object",
-        "description": "The root's (spec/virtualize/dicom.md §5.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#51-the-root>); a path vzip_source/<p> names the IR's element at <p>",
+        "description": "The root's (spec/virtualize/dicom.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#51-the-root>); a path vzip_source/<p> names the IR's element at <p>",
         "properties": {
             "preamble": {"type": "string", "contentEncoding": "base64",
                          "description": "The 128-byte preamble, unless all zero"},
@@ -86,7 +86,7 @@ SOURCE_METADATA: dict[str, dict] = {
     ]},
     "nifti": {"anyOf": [{
         "type": "object",
-        "description": "The root's: the version, the byte order, the header, and what the layout derives from it (spec/virtualize/nifti.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>)",
+        "description": "The root's: the version, the byte order, the header, and what the layout derives from it (spec/virtualize/nifti.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>)",
         "properties": {
             "nifti_version": {"enum": [1, 2]},
             "byte_order": {"enum": ["little", "big"]},
@@ -132,7 +132,7 @@ SOURCE_METADATA: dict[str, dict] = {
     "n5": {"anyOf": [
         {
             "type": "object",
-            "description": "A node's (spec/virtualize/n5.md §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#5-source-metadata>)",
+            "description": "A node's (spec/virtualize/n5.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#5-source-metadata>)",
             "properties": {
                 "attributes": {"type": "object", "minProperties": 1,
                                "description": "The node's attributes.json without the layout members"},
@@ -150,7 +150,7 @@ SOURCE_METADATA: dict[str, dict] = {
             "additionalProperties": False,
         },
         # vzip_source's: a store IR's description, and the recorded ignored keys (§5.1
-        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>)
+        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>)
         {"allOf": [{"$ref": "#/$defs/storeMirror"},
                    {"properties": {"ir": {"required": ["objects"]}, "empty_dirs": False}}]},
         {"$ref": "#/$defs/mirrorView"},
@@ -158,7 +158,7 @@ SOURCE_METADATA: dict[str, dict] = {
     "zarr2": {"anyOf": [
         {
             "type": "object",
-            "description": "A node's (spec/virtualize/zarr2.md §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>)",
+            "description": "A node's (spec/virtualize/zarr2.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>)",
             "properties": {
                 "attributes": {"type": "object", "minProperties": 1, "description": "The node's .zattrs, as copied"},
                 "metadata": {"type": "object", "minProperties": 1,
@@ -168,7 +168,7 @@ SOURCE_METADATA: dict[str, dict] = {
             "additionalProperties": False,
         },
         # vzip_source's: a store IR's description, and the recorded ignored keys (§5
-        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>)
+        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>)
         {"allOf": [{"$ref": "#/$defs/storeMirror"},
                    {"properties": {"ir": {"required": ["objects"]}, "empty_dirs": False}}]},
         {"$ref": "#/$defs/mirrorView"},
@@ -176,7 +176,7 @@ SOURCE_METADATA: dict[str, dict] = {
     "ome-zarr": {"anyOf": [
         {
             "type": "object",
-            "description": "A node's (spec/virtualize/ome-zarr.md §8 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>)",
+            "description": "A node's (spec/virtualize/ome-zarr.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>)",
             "properties": {
                 "attributes": {"type": "object", "minProperties": 1,
                                "description": "The node's .zattrs, without the OME members the ome object gives back"},
@@ -190,7 +190,7 @@ SOURCE_METADATA: dict[str, dict] = {
             "additionalProperties": False,
         },
         # vzip_source's: the Zarr v2 store's IR, as zarr2's (spec/virtualize/ome-zarr.md §8.2
-        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#82-the-store-ir>)
+        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#82-the-store-ir>)
         {"allOf": [{"$ref": "#/$defs/storeMirror"},
                    {"properties": {"ir": {"required": ["objects"]}, "empty_dirs": False}}]},
         {"$ref": "#/$defs/mirrorView"},
@@ -198,7 +198,7 @@ SOURCE_METADATA: dict[str, dict] = {
 }
 
 # A dataset in the DICOM JSON Model (PS3.18 §F.2), as spec/virtualize/dicom.md §5
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/dicom.md#5-source-metadata> writes it.
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata> writes it.
 DICOM_DEFS = {
     "dataset": {
         "type": "object",
@@ -250,7 +250,7 @@ _RECORDS = {"type": "array", "items": {"type": "object", "additionalProperties":
 SOURCE_METADATA["safe"] = {"oneOf": [
     {
         "type": "object",
-        "description": "The root's: the product's identity, from the product and tile metadata (§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)",
+        "description": "The root's: the product's identity, from the product and tile metadata (§6.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)",
         "properties": {
             **{k: {"type": "string"} for k in ("PRODUCT_URI", "PROCESSING_LEVEL", "PRODUCT_TYPE", "PROCESSING_BASELINE",
                                                "TILE_ID", "SENSING_TIME", "HORIZONTAL_CS_NAME", "HORIZONTAL_CS_CODE")},
@@ -262,7 +262,7 @@ SOURCE_METADATA["safe"] = {"oneOf": [
     },
     {
         "type": "object",
-        "description": "A band array's: a derived convenience copied from the product metadata (§6.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#62-band-arrays>), and the band "
+        "description": "A band array's: a derived convenience copied from the product metadata (§6.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#62-band-arrays>), and the band "
                        "file's SIZ segment",
         "properties": {
             "IMAGE_FILE": {"type": "string"},
@@ -282,7 +282,7 @@ SOURCE_METADATA["safe"] = {"oneOf": [
         "additionalProperties": False,
     },
     # vzip_source's: the IR mirror's description, the empty directories and the keys of the
-    # ignored objects (§6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)
+    # ignored objects (§6.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)
     {"$ref": "#/$defs/storeMirror"},
     # a view document, without the members the branches above require (or `vzip_source`'s of
     # revision 25), which name no SAFE IR element (`siz` and `xml` do: they are not excluded), so
@@ -300,7 +300,7 @@ _DIMENSIONS = {"type": "object", "description": "The Start of each of S, B, H, I
 _ATTACHMENT = {"oneOf": [
     {
         "type": "object",
-        "description": "An A1 attachment entry, and the form of its data at attachments/<k> (spec/virtualize/czi.md §5.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#53-elements>)",
+        "description": "An A1 attachment entry, and the form of its data at attachments/<k> (spec/virtualize/czi.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#53-elements>)",
         "properties": {
             "name": {"$ref": "#/$defs/text"},
             "content_file_type": {"$ref": "#/$defs/text"},
@@ -323,7 +323,7 @@ _ATTACHMENT = {"oneOf": [
 SOURCE_METADATA["czi"] = {"anyOf": [
     {
         "type": "object",
-        "description": "The root's: the file header (spec/virtualize/czi.md §5.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#51-the-root>)",
+        "description": "The root's: the file header (spec/virtualize/czi.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#51-the-root>)",
         "properties": {
             "version": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2},
             "primary_file_guid": _GUID,
@@ -336,14 +336,14 @@ SOURCE_METADATA["czi"] = {"anyOf": [
     },
     {
         "type": "object",
-        "description": "An image's: the dimensions that select its series (spec/virtualize/czi.md §4.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#42-images>)",
+        "description": "An image's: the dimensions that select its series (spec/virtualize/czi.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#42-images>)",
         "properties": {"dimensions": _DIMENSIONS},
         "required": ["dimensions"],
         "additionalProperties": False,
     },
     {
         "type": "object",
-        "description": "A tile array's: its tile position, the planes at its index 0, and its copy (spec/virtualize/czi.md §4.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#44-tiles>)",
+        "description": "A tile array's: its tile position, the planes at its index 0, and its copy (spec/virtualize/czi.md §4.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#44-tiles>)",
         "properties": {
             "dimensions": _DIMENSIONS,
             "x": {"type": "integer"},
@@ -362,19 +362,19 @@ SOURCE_METADATA["czi"] = {"anyOf": [
     {"$ref": "#/$defs/mirrorView"},
 ]}
 # The IR mirror (spec/conventions.md §8
-# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2,
+# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2,
 # CZI, DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2, N5 and OME-Zarr conventions: vzip_source's
 # source metadata, and the view documents of the groups under vzip_source/tree.
 IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ims", "ndpi", "safe", "zarr2", "n5",
                "ome-zarr")
 # The store conventions, whose vzip_source holds, beside the mirror's description, members of
 # their own (`storeMirror`; spec/conventions.md §8.9
-# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>).
+# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>).
 IR_STORES = ("safe", "zarr2", "n5", "ome-zarr")
 MIRROR_DEFS = {
     "mirror": {
         "type": "object",
-        "description": "vzip_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>)",
+        "description": "vzip_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>)",
         "properties": {"ir": {
             "type": "object",
             "properties": {
@@ -382,16 +382,16 @@ MIRROR_DEFS = {
                 "size": {"type": "integer", "minimum": 0,
                          "description": "The source's size in bytes (a store IR's: its objects' sizes, summed)"},
                 "objects": {"type": "integer", "minimum": 0,
-                            "description": "A store IR's objects (spec/conventions.md §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>); a file IR has none"},
+                            "description": "A store IR's objects (spec/conventions.md §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>); a file IR has none"},
                 "elements": {"type": "integer", "minimum": 1, "description": "The elements, column runs expanded"},
                 "rows": {"type": "integer", "minimum": 1, "description": "The rows the table stores"},
                 "names": {"type": "array", "items": {"type": "string"}, "minItems": 1,
                           "prefixItems": [{"const": ""}],
-                          "description": "The interned names, sorted; the first, \"\", is the root's (conventions §8.1 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>)"},
+                          "description": "The interned names, sorted; the first, \"\", is the root's (conventions §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>)"},
                 "types": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                          "prefixItems": [{"const": ""}], "description": "The interned types (§8.6 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#86-types>)"},
+                          "prefixItems": [{"const": ""}], "description": "The interned types (§8.6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#86-types>)"},
                 "forms": {"type": "array", "items": {"type": "string"},
-                          "description": "The interned forms, each a JSON text (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#85-forms-and-recipes>)"},
+                          "description": "The interned forms, each a JSON text (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"},
             },
             "required": ["version", "size", "elements", "rows", "names", "types", "forms"],
             "additionalProperties": False,
@@ -401,10 +401,10 @@ MIRROR_DEFS = {
     },
     "mirrorView": {
         "type": "object",
-        "description": "A view group's (vzip_source/tree/...): a struct's view document (spec/conventions.md §8.7 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>)",
+        "description": "A view group's (vzip_source/tree/...): a struct's view document (spec/conventions.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>)",
         "properties": {
             "$vz": {"const": "derived", "description": "A derived element's document"},
-            "$form": {"type": ["string", "null"], "description": "A derived element's form (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#85-forms-and-recipes>)"},
+            "$form": {"type": ["string", "null"], "description": "A derived element's form (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"},
             "$partial": {"const": True, "description": "The document stops short of the struct's children"},
         },
         "minProperties": 1,
@@ -424,7 +424,7 @@ MIRROR_DEFS = {
 
 
 # The store conventions' vzip_source (spec/conventions.md §8.9
-# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): the mirror's description
+# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): the mirror's description
 # (a store IR's, with its objects; a SAFE zip file's, a file IR's) and the members the convention
 # keeps beside it, outside the IR, each only when it is not empty: a SAFE product's empty
 # directories and the recorded ignored keys. A convention narrows it (Zarr v2's: a store IR's, no
@@ -432,14 +432,14 @@ MIRROR_DEFS = {
 STORE_MIRROR_DEFS = {
     "storeMirror": {
         "type": "object",
-        "description": "vzip_source's, for a store convention: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>, §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), and the members the convention keeps beside it",
+        "description": "vzip_source's, for a store convention: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>, §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), and the members the convention keeps beside it",
         "properties": {
             "ir": {"$ref": "#/$defs/mirror/properties/ir"},
             "empty_dirs": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                           "description": "A SAFE product's empty directories (spec/virtualize/safe.md §6.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)"},
+                           "description": "A SAFE product's empty directories (spec/virtualize/safe.md §6.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)"},
             "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1,
                         "description": "The recorded keys of the listed objects that spec/virtualize.md "
-                                       "§1.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs> ignores"},
+                                       "§1.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs> ignores"},
         },
         "required": ["ir"],
         "additionalProperties": False,
@@ -447,7 +447,7 @@ STORE_MIRROR_DEFS = {
 }
 
 # The GeoZarr members a SAFE node may hold besides the convention's (spec/virtualize/safe.md §5
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>); their
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>); their
 # own schemas (zarr-conventions proj, spatial and multiscales v0.1) validate them.
 GEOZARR = {
     "proj:code": {"type": "string"},
@@ -501,7 +501,7 @@ def schema(profile: str) -> dict:
         "rootProperty": root,
         "sourceMetadata": SOURCE_METADATA[profile],
         "headerValue": {
-            "description": "A translated header value (spec/conventions.md §6 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>)",
+            "description": "A translated header value (spec/conventions.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)",
             "anyOf": [{"type": "number"}, {"$ref": "#/$defs/text"},
                       {"type": "array", "items": {"anyOf": [{"type": "number"}, {"type": "string"}]}}],
         },

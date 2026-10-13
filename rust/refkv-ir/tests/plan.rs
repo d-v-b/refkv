@@ -1,7 +1,7 @@
 //! The read planner's policy (src/plan.rs): one test over the servers it plans
 //! for, and one per error.
 
-use vzip_ir::plan::{plan_spans, Planner, Request, CEILING};
+use refkv_ir::plan::{plan_spans, Planner, Request, CEILING};
 
 /// Serves a planner's rounds from `data`, `seconds` per request (a multi-range
 /// request refused when `packs` is false), and gives the batch's bytes.
@@ -75,7 +75,7 @@ fn plans_by_the_server() {
                 // at the default cost of bytes (0.1 s per MB), a gap pays below
                 // L / (1 / B + 6 × 0.1 µs) = 65 KB, not 162 KB: gaps of 130 KB, which
                 // the time-optimal plan merges, do not
-                p.byte_cost = vzip_ir::plan::BYTE_COST;
+                p.byte_cost = refkv_ir::plan::BYTE_COST;
                 let t = p.policy(heads.len()).0 as f64;
                 assert!((t / 65_000.0 - 1.0).abs() < 0.01, "{t}");
                 let sparse: Vec<(u64, u64)> = (0..400u64).map(|k| (k << 17, 512)).collect();

@@ -2,10 +2,10 @@
 # install without extras, the browser code's type check and Node tests, the IR core's
 # tests, the fixture
 # comparison of the virtualizers against the frozen reference (spec/virtualize.md §1.1
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>, with
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>, with
 # spec/archive.md's strict reading of every archive), the reproducibility of the fixture
 # generators, and the section references, each a link to a heading that exists. TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2, OME-Zarr and N5 stores, go through the Rust core (rust/refkv-ir), built natively
-# for Python (`uv sync`, which builds it into vzip as the module vzip_ir) and for wasm32 for the browser code (`just js::wasm`).
+# for Python (`uv sync`, which builds it into refkv as the module refkv._ir) and for wasm32 for the browser code (`just js::wasm`).
 name: ci
 
 on:
@@ -177,7 +177,7 @@ jobs:
   sections:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # spec/tools imports neither vzip nor its Rust core: install the tools, not the project
+    # spec/tools imports neither refkv nor its Rust core: install the tools, not the project
     env:
       UV_NO_SYNC: "1"
     steps:

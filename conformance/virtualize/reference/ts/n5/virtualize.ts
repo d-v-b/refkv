@@ -1,5 +1,5 @@
 // The N5 profile (spec/virtualize.md, §9
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#9-n5-profile>): an N5 container as
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#9-n5-profile>): an N5 container as
 // a Zarr v3 hierarchy, each block a whole-object chunk read by the n5_default codec.
 // Frozen at revision 25 (the last before N5 moved onto the IR), which its root records (the
 // frozen Zarr v2 profile's declareNodes declares it).
@@ -47,7 +47,7 @@ const DATA_TYPES: Record<string, number> = {
 const BLOSC_NAMES = ["blosclz", "lz4", "lz4hc", "snappy", "zlib", "zstd"];
 const MAX_BLOCK = 2 ** 31 - 1;
 
-// conventions §5 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#5-units>'s units, and
+// conventions §5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>'s units, and
 // the unit names they map to.
 const UNITS: Record<string, string> = {
   "µm": "micrometer", "μm": "micrometer", um: "micrometer", nm: "nanometer", mm: "millimeter", cm: "centimeter",
@@ -60,9 +60,9 @@ const LAYOUT_KEYS = ["dimensions", "blockSize", "dataType", "compression", "comp
 
 /**
  * The Zarr v3 blosc codec of an n5-blosc or numcodecs Blosc configuration (spec/virtualize/n5.md §3
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#3-datasets>,
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#3-datasets>,
  * spec/virtualize/zarr2.md §3.1
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#31-compressors>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#31-compressors>).
  */
 export function bloscCodec(
   c: { [k: string]: Json },
@@ -91,7 +91,7 @@ const LEVELS: Record<string, [number, number, number]> = { gzip: [-1, 9, 6], zst
 
 /**
  * The level of a gzip or zstd compression (spec/virtualize/n5.md §3
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#3-datasets>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#3-datasets>).
  */
 function level(t: string, compression: { [k: string]: Json }): number {
   const [lo, hi, dflt] = LEVELS[t];
@@ -135,7 +135,7 @@ interface ArrayDoc {
 
 /**
  * A dataset's zarr.json (spec/virtualize/n5.md §3
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#3-datasets>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#3-datasets>).
  */
 function dataset(path: string, doc: { [k: string]: Json }): ArrayDoc {
   const dims = doc.dimensions;
@@ -182,7 +182,7 @@ function dataset(path: string, doc: { [k: string]: Json }): ArrayDoc {
     fill_value: 0,
     codecs: [{ name: "n5_default", configuration: { codecs: inner } }],
     // The source metadata (spec/virtualize/n5.md §5
-    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#5-source-metadata>): the
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#5-source-metadata>): the
     // document without its layout members, and what of those the zarr.json does not reproduce.
     attributes: sourceMetadata(without(doc, LAYOUT_KEYS), meta),
   };
@@ -190,7 +190,7 @@ function dataset(path: string, doc: { [k: string]: Json }): ArrayDoc {
 
 // ---------------------------------------------------------------- multiscales
 // (spec/virtualize/n5.md §4
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#4-multiscale-images>)
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#4-multiscale-images>)
 
 const AXIS_TYPES: Record<string, string> = { x: "space", y: "space", z: "space", t: "time", c: "channel" };
 
@@ -374,7 +374,7 @@ export async function virtualizeN5(store: Store): Promise<StoreResult & { summar
     else if (key.endsWith("/attributes.json")) candidates.push(key.slice(0, -"/attributes.json".length));
   }
   // spec/virtualize/n5.md §2
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#2-nodes>: classify from the root
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#2-nodes>: classify from the root
   // down; a candidate's kind needs its document.
   const docs = new Map<string, { [k: string]: Json }>();
   const datasets = new Set<string>();
@@ -436,7 +436,7 @@ export async function virtualizeN5(store: Store): Promise<StoreResult & { summar
     if (found === undefined) continue;
     const [ome, levels, axes] = found;
     // A level of an earlier image with other axis names (spec/virtualize/n5.md §4
-    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#4-multiscale-images>).
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#4-multiscale-images>).
     if (levels.some((lv) => named.has(lv) && JSON.stringify(named.get(lv)) !== JSON.stringify(axes))) continue;
     omes.set(g, ome);
     images.push({ path: g, convention });
@@ -462,7 +462,7 @@ export async function virtualizeN5(store: Store): Promise<StoreResult & { summar
   const chunks = all.filter(([, n]) => n > 0);
   const result: StoreResult = { docs: out, chunks };
   // An empty chunk object has no entry: its key is listed with the empty objects (§6
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>).
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>).
   const used = new Set([...[...docs.keys()].map((p) => join(p, "attributes.json")), ...chunks.map(([k]) => k)]);
   const others = keepObjects(result, objects, used, [...docs.keys(), ...implicit], reject, store.ignored);
   return {

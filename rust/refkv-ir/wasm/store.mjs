@@ -4,13 +4,13 @@
 // Prints one JSON line per store: the output's entries (key and SHA-256 of the bytes) and
 // references, or the rejection, and the batches, requests and bytes read.
 // Exits 1 when a store is rejected (each rejection still printed).
-// Usage: node rust/refkv-ir/wasm/store.mjs [--wasm <vzip_ir.wasm>] [--format zarr2|n5] <dir>...
+// Usage: node rust/refkv-ir/wasm/store.mjs [--wasm <refkv_ir.wasm>] [--format zarr2|n5] <dir>...
 import { readFileSync, readdirSync, statSync, openSync, readSync, closeSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 
 const args = process.argv.slice(2);
-let wasmPath = new URL("../target/web/vzip_ir.wasm", import.meta.url);
+let wasmPath = new URL("../target/web/refkv_ir.wasm", import.meta.url);
 let format = "zarr2";
 for (;;) {
   if (args[0] === "--wasm") { wasmPath = args[1]; args.splice(0, 2); continue; }

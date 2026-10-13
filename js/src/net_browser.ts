@@ -1,6 +1,6 @@
 // `#net` in a browser (package.json "imports"): `fetch` hides the address it
 // connects to, so rule 3 of spec §6.7
-// <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> is checked on hosts as
+// <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> is checked on hosts as
 // written (archive.ts), and Private Network Access covers the rest.
 
 import type { CheckedFetch } from "./http.ts";

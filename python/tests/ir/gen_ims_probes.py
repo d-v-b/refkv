@@ -1,5 +1,5 @@
 """Hostile IMS probes for the IR (spec/virtualize/ims.md §5.3
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#53-the-walk>): amplification
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#53-the-walk>): amplification
 through hard links, loops in B-trees and object headers, deep and wide groups. Each is a
 synthetic Imaris file (fixtures/generators/ims/write_fixtures.py), some patched after h5py
 wrote them.

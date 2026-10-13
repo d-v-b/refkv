@@ -8,7 +8,7 @@ that block can be exposed as a shard whose value is the concatenation
     [source file bytes 0..end] ++ [index bytes (inline)]
 
 and whose index offsets are simply the chunk offsets in the source file.
-zarr's own sharding codec then does the lookup, and the vzip store maps its
+zarr's own sharding codec then does the lookup, and the reference store maps its
 range requests onto the source file. The per-chunk manifest becomes a
 standard zarr shard index (16 bytes per chunk).
 """
@@ -22,7 +22,7 @@ from pathlib import Path
 
 import numpy as np
 
-from vzip._extras import missing
+from refkv._extras import missing
 
 if TYPE_CHECKING:
     import xarray as xr
@@ -32,14 +32,14 @@ try:
     from virtualizarr.manifests import ManifestArray
     from virtualizarr.writers.icechunk import update_attributes
 except ImportError as e:
-    raise missing("virtualizarr", "Sharded archives of VirtualiZarr datasets (vzip.shards)",
+    raise missing("virtualizarr", "Sharded archives of VirtualiZarr datasets (refkv.shards)",
                   e) from e
 from zarr.codecs import BytesCodec, ShardingCodec  # noqa: E402
 from zarr.storage import MemoryStore  # noqa: E402
 
-from vzip.archive import VZipWriter
-from vzip.convert import consolidate, read_at_open, _write_loadable
-from vzip.pb import Range
+from refkv.archive import VZipWriter
+from refkv.convert import consolidate, read_at_open, _write_loadable
+from refkv.pb import Range
 
 _MISSING = np.uint64(2**64 - 1)
 

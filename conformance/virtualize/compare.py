@@ -1,13 +1,13 @@
 """Compares virtualizers (spec/virtualize.md §1.1
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>, §14
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-conformance>; HARNESS.md).
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>, §14
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-conformance>; HARNESS.md).
 
 Every implementation runs on every input of the corpus, which the caching
 proxy (proxy.py) serves over local HTTP: the synthetic files in
 fixtures/ (one directory per format), the synthetic stores in
 fixtures/n5/, zarr2/ and ome-zarr/ (one directory per store,
 served with the S3 listing of spec/virtualize.md §1.5
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>), the synthetic SAFE
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store>), the synthetic SAFE
 products in fixtures/safe/ (directories, and .SAFE.zip files), the
 synthetic CZI files in fixtures/czi/, the 205 OME-TIFFs of IDR
 idr0096, and the public files and stores in corpus_*.txt. For each input, all
@@ -17,7 +17,7 @@ one).
 
 Corpus lines are `url|name`, or `url|name|py-only` for an input larger than
 the browser implementation's limit (spec/virtualize.md §14
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-conformance>): such inputs are
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-conformance>): such inputs are
 skipped unless `--large` is given, and then every implementation but `web` runs on them.
 Store URLs end in `/`. A line may end with the input's fingerprint, which
 corpus_hash.py records and checks.
@@ -26,7 +26,7 @@ Implementations are `name=command`, where the command is run as
 `command <url> <out>`. The built-in ones write vzip archives: `ref` (the
 reference, the frozen Python profiles of conformance/virtualize/reference/ for
 TIFF, ND2, CZI, DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2, N5 and OME-Zarr and the shipped ones
-for the others), `py` (`python -m vzip.virtualize`) and `web` (the browser code under Node).
+for the others), `py` (`python -m refkv.virtualize`) and `web` (the browser code under Node).
 Others write HARNESS.md's JSON description; give them as `--impl name=command`.
 
 `py` and `web` virtualize TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE files, and
@@ -82,16 +82,16 @@ from validate import validate  # noqa: E402
 from vzip_impl import reader as strict_reader  # noqa: E402
 from vzip_impl.errors import VzError  # noqa: E402
 
-from vzip.pb import Concat, Range, Source, decode_source_table  # noqa: E402
-from vzip.virtualize.common import REVISION, same  # noqa: E402
+from refkv.pb import Concat, Range, Source, decode_source_table  # noqa: E402
+from refkv.virtualize.common import REVISION, same  # noqa: E402
 
 IDR = "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant/20210609-ftp-ome-tiffs/"
 BUILTIN = {
     # the inputs are served from 127.0.0.1, which the reader policy refuses by default
     # (spec/archive.md §6.7
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)
+    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>)
     "ref": ("vzip", ["uv", "run", "python", str(HERE / "reference" / "cli.py"), "--allow-private-hosts"]),
-    "py": ("vzip", ["uv", "run", "python", "-m", "vzip.virtualize", "--allow-private-hosts"]),
+    "py": ("vzip", ["uv", "run", "python", "-m", "refkv.virtualize", "--allow-private-hosts"]),
     "web": ("vzip", ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"]),
 }
 # The profiles whose shipped implementations write the IR's mirror under vzip_source.
@@ -120,7 +120,7 @@ def _no_duplicates(pairs: list) -> dict:
 
 def from_vzip(path: Path) -> dict:
     """An archive's output (§1.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>), once it
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>), once it
     has passed `strict`."""
     try:  # first, so that zipfile never reads what spec/archive.md does not
         strict_reader.Archive(str(path)).close()
@@ -167,10 +167,10 @@ def strict(path: Path, view: dict) -> list[str]:
     writers under test: the independent reader (conformance/impls/python, written from spec/archive.md
     alone) must open it and see exactly the output `view` holds, and the archive must
     meet the writer requirements (spec/archive.md §10
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#10-zip-container>, §11
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#11-entries>, §12
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#12-page-index-optional>, §14
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#14-writing-a-vzip-archive>) as
+    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#10-zip-container>, §11
+    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#11-entries>, §12
+    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#12-page-index-optional>, §14
+    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#14-writing-a-vzip-archive>) as
     conformance/vzip/validate.py,
     with its own ZIP parser, checks them: canonical payloads, reference bodies,
     duplicate names, hidden entries, CRC-32s, local headers and the page index."""
@@ -261,7 +261,7 @@ def differences(a: dict, b: dict) -> list[str]:
     if ka != kb:
         out.append(f"keys only in reference: {sorted(ka - kb)[:5]}, only in this one: {sorted(kb - ka)[:5]}")
     for k in sorted(ka & kb):
-        if not same(a["entries"][k], b["entries"][k]):  # §1.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>: integers exactly
+        if not same(a["entries"][k], b["entries"][k]):  # §1.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>: integers exactly
             out.append(f"{k}: reference {json.dumps(a['entries'][k], default=str)[:400]} != "
                        f"{json.dumps(b['entries'][k], default=str)[:400]}")
             if len(out) > 6:
@@ -294,25 +294,25 @@ def run(impl: tuple[str, list[str]], url: str, out: Path) -> tuple[str, object]:
 
 def mirror_problem(path: Path, view: dict, read=None, fetch=None) -> str | None:
     """For an archive whose vzip_source is an IR mirror (conventions §8
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#8-the-ir-mirror>): None when its
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>): None when its
     table reads, its invariants hold, it describes a source of source 0's size, it is
-    canonical (§8.8 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>,
+    canonical (§8.8 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>,
     rebuilt from what it loads, it is the same table) and its view is
     the one the table and the source give (§8.7
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>); else what is wrong.
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>); else what is wrong.
     The array columns' bytes and the view's values are read from source 0 (small ranges;
     `read(offset, length)`, by default its URL). A store IR's mirror is checked by
     `store_mirror_problem`, which reads no source and fetches the held objects with
     `fetch(url, size)` (by default over HTTP); `read` applies to a file's mirror only. These are
     checks in addition to comparing mirrors entry for entry (spec/virtualize.md §1.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>)."""
     doc = view["entries"].get("vzip_source/zarr.json")
     own = (doc[1].get("attributes", {}).get("vzip_virtualized", {}) if doc and doc[0] == "json" else {})
     if not any(isinstance(v, dict) and "ir" in v for v in own.values()):
         return None
     if any(isinstance(v, dict) and isinstance(v.get("ir"), dict) and "objects" in v["ir"] for v in own.values()):
         return store_mirror_problem(path, view, fetch)
-    from vzip.ir.cmirror import Archive, canonical_problem, load, view_problem
+    from refkv.ir.cmirror import Archive, canonical_problem, load, view_problem
 
     url = view["sources"][0]
 
@@ -338,13 +338,13 @@ def mirror_problem(path: Path, view: dict, read=None, fetch=None) -> str | None:
 
 
 # A SAFE folder marker's key ends in it (spec/virtualize/safe.md §2.1
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#21-objects>).
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#21-objects>).
 SAFE_MARKER = "_$folder$"
 
 
 def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     """For an archive whose vzip_source is a store IR's mirror (conventions §8.9
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): None when its table
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): None when its table
     reads and its invariants hold, it rebuilds the store's listing (every url source names an
     object of it and pins its size, and every object the archive references has a source) and
     every held object byte for byte, it is canonical and its view is the one its table and the
@@ -354,10 +354,10 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     each its own range, at the object's virtual offsets. No source 0 is read."""
     import bisect
 
-    import vzip_ir
+    from refkv import _ir
 
-    from vzip.ir.cmirror import Archive, canonical_problem, load, view_problem
-    from vzip.virtualize.store import object_url
+    from refkv.ir.cmirror import Archive, canonical_problem, load, view_problem
+    from refkv.virtualize.store import object_url
 
     def never(o: int, n: int) -> bytes:
         raise AssertionError(f"a store's mirror read [{o}, {o + n}) of a source 0")
@@ -372,7 +372,7 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
         archive = Archive(str(path), never)
         ir = load(archive)
         ir.check()
-        rebuilt = vzip_ir.rebuild_store(archive.get)
+        rebuilt = _ir.rebuild_store(archive.get)
     except Exception as e:  # noqa: BLE001
         return f"{type(e).__name__}: {e}"
     root = view["entries"].get("zarr.json")
@@ -392,7 +392,7 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
             return f"{key}: the mirror lists {size} bytes, its source pins {pins[u]}"
         # every object the archive references has a source: every object neither held nor
         # empty, but a SAFE product's folder markers, which it drops (spec/virtualize/safe.md
-        # §2.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#21-objects>)
+        # §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#21-objects>)
         marker = prop.get("profile") == "safe" and key.endswith(SAFE_MARKER) and len(key) > len(SAFE_MARKER)
         if held is None and size > 0 and u not in pins and not marker:
             return f"{key}: a referenced object of {size} bytes that no source names"

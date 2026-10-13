@@ -1,10 +1,10 @@
 """Run the vzip conformance suite against one or more implementations.
 
-    uv run python conformance/vzip/run.py --impl ref="uv run python -m vzip.cli --allow-private-hosts" \\
+    uv run python conformance/vzip/run.py --impl ref="uv run python -m refkv.cli --allow-private-hosts" \\
         --impl rust=/path/to/vzip --out conformance/results/round1
 
 The runner serves the HTTP sources on 127.0.0.1, which a reader following
-spec/archive.md §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule
+spec/archive.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule
 3 refuses by default: give each implementation's command
 the option that allows private hosts (HARNESS.md).
 
@@ -89,7 +89,7 @@ def grade(out: dict, queries: list[dict], accepts: list[list[dict]], open_must: 
 
 
 # (query, max GET requests to data objects, pinned?) — spec §5.2
-# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>
+# <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#52-reading-over-http>
 ACCOUNTING = [
     ({"op": "get", "key": "h/plain"}, 1, False),
     ({"op": "get", "key": "h/plain", "range": {"start": 2, "end": 5}}, 1, False),
@@ -102,7 +102,7 @@ ACCOUNTING = [
 
 def http_accounting(cli, arc: Path, http, out: Path) -> list[dict]:
     """Check the requests a reader sends to resolve http sources (spec §5.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#52-reading-over-http>)."""
     fails = []
     for q, max_gets, pinned in ACCOUNTING:
         http.log.clear()
@@ -125,7 +125,7 @@ def http_accounting(cli, arc: Path, http, out: Path) -> list[dict]:
             if pinned and not ("if-match" in h and "if-unmodified-since" in h):
                 problems.append("pinned source read without If-Match / If-Unmodified-Since")
         if problems:
-            fails.append({"query": q, "got": problems, "accept": "spec §5.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http> request rules"})
+            fails.append({"query": q, "got": problems, "accept": "spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#52-reading-over-http> request rules"})
     return fails
 
 
@@ -170,7 +170,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--impl", action="append", required=True, help="name=command")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--ref", default="uv run python -m vzip.cli --allow-private-hosts")
+    ap.add_argument("--ref", default="uv run python -m refkv.cli --allow-private-hosts")
     ap.add_argument("--skip", action="append", default=[], help="skip descriptions by name")
     args = ap.parse_args()
     out = Path(args.out).resolve()
@@ -242,7 +242,7 @@ def main() -> int:
                 "stderr": p.stderr.strip()[-200:]}
 
     # 1d. http profile: request accounting (spec §5.2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#52-reading-over-http>), one query per
+    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#52-reading-over-http>), one query per
     # CLI run
     if "http_basic" in vectors:
         arc = vectors["http_basic"]["archive"]

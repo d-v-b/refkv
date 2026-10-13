@@ -5,7 +5,7 @@ import type { Range, Source } from "../protobuf.ts";
 
 /**
  * The input is rejected for a reason no single profile owns (§1.2
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>).
  */
 export class ImageError extends Error {}
 
@@ -108,7 +108,7 @@ export class Prefetched {
 }
 
 // ---- reference payloads (§1.2
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>)
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>)
 
 /** The largest reference payload a vzip entry can carry. */
 export const MAX_PAYLOAD = 65519;
@@ -134,7 +134,7 @@ function rangeSize(r: Part): number {
 
 /**
  * The encoded size of a reference to `ranges` (§1.2
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>).
  */
 export function payloadSize(ranges: Part[]): number {
   if (ranges.length === 1) return rangeSize(ranges[0]);
@@ -144,7 +144,7 @@ export function payloadSize(ranges: Part[]): number {
   }, 0);
 }
 
-/** The data sources of a file input's output (§1.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>): byte strings shared by
+/** The data sources of a file input's output (§1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>): byte strings shared by
  * many references, numbered from 1 (after the url source 0) in order of
  * first use. */
 export class DataSources {
@@ -177,11 +177,11 @@ export function toRange(p: Part): Range {
 }
 
 // ---- the virtualization conventions (conventions §2
-// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>)
+// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>)
 
 /**
  * The key of the virtualization convention's property (conventions §2
- * <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>).
  */
 export const CONVENTION_KEY = "vzip_virtualized";
 
@@ -190,8 +190,8 @@ export type Profile = "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "n5"
 /** Each profile's convention: its fixed UUID, its current version and its name in the description. */
 /** The revision of spec/virtualize.md this implementation follows. Until the release, every
  * convention is at version 0 and the root property records it (conventions §1
- * <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#1-conventions>, §2
- * <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>). */
+ * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>, §2
+ * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>). */
 export const REVISION = 26;
 export const PROFILES: Record<Profile, [uuid: string, version: number, title: string]> = {
   tiff: ["48e9ac4e-1156-4a62-955e-20467d9c2700", 0, "TIFF"],
@@ -212,7 +212,7 @@ export const UUIDS = new Set(Object.values(PROFILES).map(([uuid]) => uuid));
 export function convention(profile: Profile): { [k: string]: string } {
   const [uuid, version, title] = PROFILES[profile];
   // Version 0 has no tag: its URLs name the development branch (conventions §1
-  // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#1-conventions>).
+  // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>).
   const tag = `virtualize-${profile}-v${version}`;
   const [ref, blob] = version === 0 ? ["heads/main", "main"] : [`tags/${tag}`, tag];
   return {
@@ -224,7 +224,7 @@ export function convention(profile: Profile): { [k: string]: string } {
   };
 }
 
-/** The root's property without its source metadata (conventions §2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>): the profile, its
+/** The root's property without its source metadata (conventions §2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>): the profile, its
  * convention's version, the revision while that version is 0 (`revision`: the one the
  * implementation follows; the frozen reference records its own), and the source URL. */
 export function rootProperty(profile: Profile, url: string, revision = REVISION): { [k: string]: unknown } {
@@ -232,7 +232,7 @@ export function rootProperty(profile: Profile, url: string, revision = REVISION)
   return { profile, version, ...(version === 0 ? { revision } : {}), source: { url } };
 }
 
-/** A node's attributes (conventions §2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>): `attributes`, the members the target formats
+/** A node's attributes (conventions §2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>): `attributes`, the members the target formats
  * define (such as `ome`), and the profile's convention when the node is the
  * root (`url`, the source URL, is given) or has source-specific metadata
  * (`own` is a nonempty object): its metadata object in `zarr_conventions`,
@@ -260,7 +260,7 @@ export function setMember(o: Record<string, unknown>, key: string, value: unknow
 
 /**
  * A number as source metadata (spec/conventions.md §6
- * <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>).
  */
 export function jsonNumber(v: number | bigint): number | string {
   const max = BigInt(Number.MAX_SAFE_INTEGER);
@@ -272,7 +272,7 @@ export function jsonNumber(v: number | bigint): number | string {
 
 /**
  * Bytes as text: UTF-8 if valid, else ISO 8859-1 (spec/conventions.md §6
- * <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>).
  */
 export function decodeText(b: Uint8Array): string {
   try {
@@ -284,7 +284,7 @@ export function decodeText(b: Uint8Array): string {
   }
 }
 
-/** A text value (spec/conventions.md §6 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>): UTF-8 if valid, else {latin1: ...},
+/** A text value (spec/conventions.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>): UTF-8 if valid, else {latin1: ...},
  * so that the bytes can always be recovered. */
 export function textJson(b: Uint8Array): string | { latin1: string } {
   try {
@@ -309,7 +309,7 @@ export function jsonText(b: Uint8Array): string | { latin1: string } {
 
 /**
  * The JSON text of an output document (spec/virtualize.md §1.1
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>).
  * `JSON.stringify` writes a binary64 value that is an integer beyond 2^53 − 1 and below 10^21
  * as digits padded with zeros (2^64 as `18446744073709552000`), which reads as
  * an integer literal of another value; this writes its exact digits instead.
@@ -330,7 +330,7 @@ export function base64(b: Uint8Array): string {
 }
 
 // ---- the source metadata node (spec/conventions.md §2
-// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>)
+// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>)
 
 export const SOURCE_NODE = "vzip_source";
 export const MAX_PAYLOAD_BYTES = 65519;
@@ -411,7 +411,7 @@ export function emitPlans(plans: Plan[], nodeAttributes: Record<string, unknown>
 
 /** The C-order array of `shape`, of `item`-byte elements contiguous at
  * `offset`, cut as spec/conventions.md §7
- * <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
+ * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
  * contiguous values: its chunk
  * shape, and its chunks (coords joined by "/" -> the ranges that hold it). The
  * cut axis `a` is the first whose index holds at most 2^24 bytes (`s`); along
@@ -503,7 +503,7 @@ const RAGGED_CHUNK = 2 ** 20;
 
 /**
  * A family of byte values [index, offset, length], as spec/conventions.md §7
- * <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays> says.
+ * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays> says.
  */
 export async function familyPlans(
   path: string, members: [number, number, number][], read: ByteReader, count?: number, ragged = false,
@@ -542,7 +542,7 @@ export async function familyPlans(
   const offsets = new Uint8Array(8 * (count + 1));
   starts.forEach((x, i) => new DataView(offsets.buffer).setBigInt64(8 * i, BigInt(x), true));
   // The offsets are copied, and cut as contiguous values (spec/conventions.md §7
-  // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>).
+  // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>).
   const [offsetShape, cut] = await gridChunks(0, [count + 1], 8, async (o, n) => offsets.slice(o, o + n));
   const offsetChunks = new Map<string, Uint8Array>();
   for (const [k, v] of cut) {

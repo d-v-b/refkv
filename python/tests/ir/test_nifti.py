@@ -11,9 +11,9 @@ import time
 import pytest
 
 from ir_helpers import FIXTURES, same_hierarchy
-from vzip.ir import virtualize as via_ir
-from vzip.ir.cmirror import rebuild_from_archive
-from vzip.virtualize import Rejected
+from refkv.ir import virtualize as via_ir
+from refkv.ir.cmirror import rebuild_from_archive
+from refkv.virtualize import Rejected
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
 NIIS = sorted((FIXTURES / "nifti").glob("*.nii"))
@@ -42,16 +42,16 @@ def test_projects_as_the_reference_and_rebuilds(path, tmp_path):
 def test_edge_chunks_past_the_payload_are_copied_as_the_reference_copies_them(tmp_path, monkeypatch):
     """An edge chunk whose reference (its range and its zero padding) does not fit in a
     payload is copied into the archive, padding included (spec/virtualize/nifti.md §7.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#72-chunks>). With
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>). With
     NIfTI's chunk limit no file reaches it in practice, so both sides take a payload limit
     of 8 bytes here: every padded edge chunk is copied, by the run's last batch, and the
     hierarchy is the frozen reference's."""
-    import vzip_ir
+    from refkv import _ir
 
-    from vzip.virtualize import common
+    from refkv.virtualize import common
 
     monkeypatch.setattr(common, "MAX_PAYLOAD", 8)
-    vzip_ir._set_nifti_copy_threshold(8)
+    _ir._set_nifti_copy_threshold(8)
     copied = 0
     try:
         for path in NIIS:
@@ -69,7 +69,7 @@ def test_edge_chunks_past_the_payload_are_copied_as_the_reference_copies_them(tm
             rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
             assert buf.getvalue() == data
     finally:
-        vzip_ir._set_nifti_copy_threshold(None)
+        _ir._set_nifti_copy_threshold(None)
     assert copied >= 1  # nifti_chunk_edge_literal.nii's edge chunk
 
 
@@ -163,14 +163,14 @@ def test_a_large_extension_is_not_read(tmp_path):
     assert out.summary["planner"]["asked"] < 1 << 21
 
 
-@pytest.mark.skipif(os.environ.get("VZIP_LARGE_TESTS") != "1",
-                    reason="a 16 GiB sparse file, 5 GB of memory and about 13 minutes: set VZIP_LARGE_TESTS=1")
+@pytest.mark.skipif(os.environ.get("REFKV_LARGE_TESTS") != "1",
+                    reason="a 16 GiB sparse file, 5 GB of memory and about 13 minutes: set REFKV_LARGE_TESTS=1")
 def test_more_than_2_22_chunks_are_cut_as_the_reference_cuts_them(tmp_path, monkeypatch):
     """A NIfTI-2 uint8 volume of 4096 x 43 x 97542 voxels (a sparse file of 16 GiB): its
     rows of 43 x 4096 bytes do not fit the chunk limit with a small padding, so the cut
     moves to x, and the array has 97542 x 43 = 4194306 chunks of one row, more than 2^22
     (spec/virtualize/nifti.md §4.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#41-the-array>). The IR
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#41-the-array>). The IR
     cuts them all, as the frozen reference does: the archives are equivalent outside
     vzip_source."""
     from pathlib import Path

@@ -6,12 +6,12 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use vzip_ir::check;
-use vzip_ir::ir::{Ir, OBJECT};
-use vzip_ir::mirror::{canonical_problem, load, rebuild_store, table_from_out, view_problem};
-use vzip_ir::out::Out;
-use vzip_ir::run::{output, run_bytes, Format};
-use vzip_ir::store::{run_store, store_output, StoreFormat};
+use refkv_ir::check;
+use refkv_ir::ir::{Ir, OBJECT};
+use refkv_ir::mirror::{canonical_problem, load, rebuild_store, table_from_out, view_problem};
+use refkv_ir::out::Out;
+use refkv_ir::run::{output, run_bytes, Format};
+use refkv_ir::store::{run_store, store_output, StoreFormat};
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/safe")
@@ -205,16 +205,16 @@ fn a_value_the_view_shows_unread_in_an_object_described_in_place_is_refused() {
     let mut ir = Ir::new_store();
     let o = ir.listing(&[("a".to_string(), 4)]).unwrap()[0];
     ir.describe_in_place(o).unwrap();
-    ir.value(o, "v", vzip_ir::ir::NO_INDEX, ">u4", 0, (0, 4), None).unwrap();
+    ir.value(o, "v", refkv_ir::ir::NO_INDEX, ">u4", 0, (0, 4), None).unwrap();
     check::finish(&mut ir).unwrap();
     let mut out = Out::new("https://example.org/s/");
-    let e = vzip_ir::mirror::mirror(&ir, &mut out, "safe").unwrap_err();
+    let e = refkv_ir::mirror::mirror(&ir, &mut out, "safe").unwrap_err();
     assert!(e.contains("described in place, was not read"), "{e}");
 }
 
 #[test]
 fn a_band_file_whose_main_header_passes_64_kib_is_refused_near_the_bound() {
-    use vzip_ir::safe::jp2::BandReader;
+    use refkv_ir::safe::jp2::BandReader;
     // a JP2 signature and file type, then a codestream whose main header after SIZ is COD, QCD
     // and COM segments, 4 MiB in all, then an SOT: refused once the walk passes 64 KiB, without
     // reading on
@@ -232,7 +232,7 @@ fn a_band_file_whose_main_header_passes_64_kib_is_refused_near_the_bound() {
     }
     f.extend_from_slice(&[0xFF, 0x90]);
     let mut r = BandReader::new(f.len() as u64);
-    let rules = vzip_ir::rules::safe();
+    let rules = refkv_ir::rules::safe();
     let e = loop {
         match r.step(rules) {
             Ok(Some((o, n))) => r.feed(o, f[o as usize..(o + n) as usize].to_vec()),

@@ -3,10 +3,10 @@ import itertools
 
 import pytest
 
-from vzip.archive import VZipWriter
-from vzip.errors import EntryError
-from vzip._sync import run
-from vzip.store import VZipStore
+from refkv.archive import VZipWriter
+from refkv.errors import EntryError
+from refkv._sync import run
+from refkv.store import VZipStore
 
 
 def _write(path, page_size):

@@ -6,10 +6,10 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use vzip_ir::check::check;
-use vzip_ir::mirror::{canonical_problem, rebuild_store, view_problem};
-use vzip_ir::out::Out;
-use vzip_ir::store::{store_output, StoreFormat};
+use refkv_ir::check::check;
+use refkv_ir::mirror::{canonical_problem, rebuild_store, view_problem};
+use refkv_ir::out::Out;
+use refkv_ir::store::{store_output, StoreFormat};
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/n5")
@@ -34,10 +34,10 @@ fn walk(root: &Path) -> BTreeMap<String, Vec<u8>> {
 }
 
 /// The output of the N5 format over a store in memory, with the recorded ignored keys.
-fn virtualize(files: &BTreeMap<String, Vec<u8>>, ignored: &[&str]) -> Result<(Out, vzip_ir::ir::Ir), String> {
+fn virtualize(files: &BTreeMap<String, Vec<u8>>, ignored: &[&str]) -> Result<(Out, refkv_ir::ir::Ir), String> {
     let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
     let bytes: Vec<&Vec<u8>> = files.values().collect();
-    let mut r = vzip_ir::store::StoreRun::new(StoreFormat::N5, keys, 4)?;
+    let mut r = refkv_ir::store::StoreRun::new(StoreFormat::N5, keys, 4)?;
     r.ignore(ignored.iter().map(|s| s.to_string()).collect(), Vec::new())?;
     while let Some(reqs) = r.poll()? {
         for (k, q) in reqs.iter().enumerate() {
@@ -95,7 +95,7 @@ fn accepted_fixtures_mirror_their_documents_and_listing() {
         assert!(own["ir"]["objects"].as_u64() == Some(files.len() as u64), "{name}");
         // chunks at their keys, other objects under vzip_source/objects/, each whole
         for (k, parts) in &out.refs {
-            let [vzip_ir::out::Part::Obj(o, 0, n)] = parts.as_slice() else { panic!("{name}: {k}") };
+            let [refkv_ir::out::Part::Obj(o, 0, n)] = parts.as_slice() else { panic!("{name}: {k}") };
             assert_eq!(*n, files[o].len() as u64);
             assert!(k == o || k.starts_with("vzip_source/objects/"), "{name}: {k}");
         }
@@ -226,7 +226,7 @@ fn a_blosc_blocksize_that_is_a_list_is_refused() {
 #[test]
 fn a_node_at_vzip_source_is_refused_even_with_nothing_else_to_keep() {
     // the mirror is always vzip_source (spec/virtualize/n5.md §6
-    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>)
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>)
     let files = BTreeMap::from([
         ("attributes.json".to_string(), b"{}".to_vec()),
         ("vzip_source/attributes.json".to_string(), b"{}".to_vec()),
@@ -261,7 +261,7 @@ fn a_document_of_more_than_4096_members_is_one_value() {
             assert_eq!(kids.len(), 1);
             assert_eq!((named(kids[0]).0.as_str(), ir.start[kids[0] as usize], ir.len[kids[0] as usize]), ("json", 0, n));
         } else {
-            let values = kids.iter().filter(|&&i| ir.kind[i as usize] == vzip_ir::ir::VALUE).count();
+            let values = kids.iter().filter(|&&i| ir.kind[i as usize] == refkv_ir::ir::VALUE).count();
             assert_eq!(values, 4096);
             assert!(kids.iter().any(|&i| named(i) == ("json~".to_string(), 0)));
             assert!(!kids.iter().any(|&i| named(i).0 == "json"));

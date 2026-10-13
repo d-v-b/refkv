@@ -1,6 +1,6 @@
 """The reader policy of spec §6.7
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>, and the range checksum
-of spec §4.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>."""
+<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>, and the range checksum
+of spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ from urllib.parse import urlsplit
 
 import google_crc32c
 
-from vzip.errors import ResolutionError
+from refkv.errors import ResolutionError
 
 # The defaults of spec §6.7
-# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>'s table.
+# <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>'s table.
 MAX_SOURCES = 1 << 22
 MAX_READS = 1024
 MAX_FORMAT_ENTRY = 256 << 20
@@ -29,14 +29,14 @@ def crc32c(data: bytes) -> int:
 
 def _scheme(url: str) -> str:
     """The scheme of an absolute URL, lowercase, with https counted as http (§6.7
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 1)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 1)."""
     s = url.split(":", 1)[0].lower() if ":" in url else ""
     return "http" if s == "https" else s
 
 
 def matches_prefix(url: str, prefix: str) -> bool:
     """Does `url` match `prefix` (spec §6.7
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 2)?"""
+    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 2)?"""
     if not url.startswith(prefix):
         return False
     rest = url[len(prefix):]
@@ -47,7 +47,7 @@ def matches_prefix(url: str, prefix: str) -> bool:
 
 
 # ------------------------------------------------------------ address classes (§6.7
-# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3)
+# <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 3)
 
 LOOPBACK, PRIVATE, LINK_LOCAL, SPECIAL, PUBLIC = "loopback", "private", "link-local", "special", "public"
 
@@ -67,7 +67,7 @@ _6TO4 = ipaddress.ip_network("2002::/16")
 
 def address_class(address: str | ipaddress.IPv4Address | ipaddress.IPv6Address) -> str:
     """The class of an IP address (spec §6.7
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3): loopback,
+    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 3): loopback,
     private, link-local, special or public. An IPv6 address that embeds an IPv4 one
     (IPv4-mapped, NAT64, 6to4) has the IPv4 address's class."""
     if isinstance(address, str):
@@ -119,19 +119,19 @@ def scheme_remedy(url: str) -> str:
     root = f"{s}://{urlsplit(url).netloc}"
     if public_s3_url(url) is not None:
         return ("If the bucket is public, write its HTTPS URLs instead "
-                "(ReferenceStore.from_virtualizarr(vds, rewrite_urls=vzip.public_s3_url)); "
+                "(ReferenceStore.from_virtualizarr(vds, rewrite_urls=refkv.public_s3_url)); "
                 f"or read it with registry={{{root!r}: S3Store(...)}}, a store for the "
-                "bucket (help(vzip.store.Resolver)), and save it with "
+                "bucket (help(refkv.store.Resolver)), and save it with "
                 "policy=Policy(schemes={'s3'}).")
     return (f"Write http(s) URLs instead, or read it with registry={{{root!r}: store}}, a "
-            f"store that serves those URLs (help(vzip.store.Resolver)), and save it with "
+            f"store that serves those URLs (help(refkv.store.Resolver)), and save it with "
             f"policy=Policy(schemes={{{s!r}}}).")
 
 
 @dataclass(frozen=True)
 class Policy:
     """What a reader may resolve, and its resource limits (spec §6.7
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>).
+    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>).
 
     - `schemes`: schemes allowed besides those rule 1 allows by default
       (`http` and `https` for every archive, `file` for a local one), such as
@@ -160,12 +160,12 @@ class Policy:
 
     For example, to read only sources under one prefix, or to save an
     archive whose references name an S3 bucket, which its readers will read
-    with a store registered for the bucket (`help(vzip.store.Resolver)`):
+    with a store registered for the bucket (`help(refkv.store.Resolver)`):
 
-        policy = vzip.Policy(prefixes=("https://data.example/archive/",))
-        store = vzip.open("data.vzip", policy=policy)
+        policy = refkv.Policy(prefixes=("https://data.example/archive/",))
+        store = refkv.open("data.vzip", policy=policy)
 
-        store.save("data.vzip", policy=vzip.Policy(schemes={"s3"}))
+        store.save("data.vzip", policy=refkv.Policy(schemes={"s3"}))
 
     `ReferenceStore.save` checks the references it writes against a policy
     too, `Policy()` by default, so an archive that the default reader cannot
@@ -197,16 +197,16 @@ class Policy:
         alone, and rule 3 still applies."""
         if self.prefixes is not None:
             if not any(matches_prefix(url, p) for p in self.prefixes):
-                raise ResolutionError(f"{url}: not under an allowed URL prefix (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)")
+                raise ResolutionError(f"{url}: not under an allowed URL prefix (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>)")
         else:
             s, local = _scheme(url), _scheme(base) == "file"
             if s == "file":
                 if not (local or self.allow_files_from_remote_archives):
                     raise ResolutionError(
                         f"{url}: an archive opened from a URL may not read local files "
-                        f"(spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)")
+                        f"(spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>)")
             elif s != "http" and not registered and s not in {_scheme(x + ":") for x in self.schemes}:
-                raise ResolutionError(f"{url}: the scheme {s!r} is not allowed (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>). "
+                raise ResolutionError(f"{url}: the scheme {s!r} is not allowed (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>). "
                                       + scheme_remedy(url))
         if _scheme(url) == "http":
             try:
@@ -226,4 +226,4 @@ class Policy:
             return
         at = f" (at {address})" if address else ""
         raise ResolutionError(f"{url}: the host{at} is a {c} address, which the reader does not "
-                              f"reach without allow_private_hosts=True (spec §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)")
+                              f"reach without allow_private_hosts=True (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>)")

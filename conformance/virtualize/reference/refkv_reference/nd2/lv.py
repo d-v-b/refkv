@@ -6,7 +6,7 @@ import base64
 import struct
 import zlib
 
-from vzip.virtualize.common import Rejected
+from refkv.virtualize.common import Rejected
 
 
 class LVList(list):

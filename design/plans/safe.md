@@ -316,7 +316,7 @@ breaks it):
 virtualizes each fixture (served by the harness proxy with its S3 listing,
 and the zips as files) with the browser code
 (`js/conformance/virtualize.ts`) and the Python one, opens each archive
-through VZipStore and zarr-python (with `vzip.codecs` registered), and
+through VZipStore and zarr-python (with `refkv.codecs` registered), and
 checks:
 
 - **every band array**, read whole, equals the band file decoded by an

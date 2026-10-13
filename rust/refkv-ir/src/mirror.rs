@@ -1,9 +1,9 @@
 //! The source mirror (design/ARCHITECTURE.md §3.4
-//! <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#34-projections>) of an IR: one
+//! <https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#34-projections>) of an IR: one
 //! projection for every format, written under `vzip_source`. It never reads the source.
 //!
 //! The mirror is canonical (spec/conventions.md §8.8
-//! <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>): a function of
+//! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>): a function of
 //! the IR alone, so two producers write the same entries for one source. [`canonical`] expands the
 //! IR's runs, leaves out the derived spaces past the budget, numbers the elements in
 //! canonical order (`canon.rs`) and sorts the interned strings; [`table`] folds the
@@ -20,7 +20,7 @@
 //! | `held` | family | a store IR's held objects' bytes, in id order (when there are any) |
 //!
 //! **Stores** (conventions §8.9
-//! <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>). A store IR's
+//! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>). A store IR's
 //! description has `objects`; its object rows' starts are stored as they are (0), and the next
 //! row with a length codes its start from the object's; the held objects' bytes are `ir/held`,
 //! so the table alone rebuilds them and reads their shown values.
@@ -38,7 +38,7 @@ use std::collections::{HashMap, HashSet};
 
 pub const VERSION: u64 = 2;
 /// Rows of derived spaces the table keeps together (conventions §8.2
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>).
 const DERIVED_ROWS: u64 = 1 << 20;
 const MIN_COUNT: usize = 3;
 /// A column run's member is up to this many consecutive siblings (a CZI directory
@@ -82,13 +82,13 @@ impl Folded {
 }
 
 /// The rows a table may expand to: the loader's budget (conventions §8.3
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#83-column-runs>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#83-column-runs>).
 pub fn row_limit(size: u64) -> u64 {
     (1 << 22) + size / 4
 }
 
 /// The rows a store IR's table may expand to (conventions §8.9
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): `2^22 + floor(Z / 4)
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): `2^22 + floor(Z / 4)
 /// + 4 × o` for `o` objects of `Z` bytes in all.
 pub fn store_row_limit(size: u64, objects: u64) -> u64 {
     row_limit(size).saturating_add(objects.saturating_mul(4))
@@ -120,9 +120,9 @@ fn shared_refs(form: &str) -> Vec<(usize, usize, usize)> {
 }
 
 /// The canonical IR of `ir` (conventions §8.8
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>), or why it has
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>), or why it has
 /// none (the root and the
-/// names of §8.1 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>,
+/// names of §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>,
 /// `check::names`, do not hold): every run expanded; the elements in
 /// canonical order, numbered by it (a parent before its children, siblings by first
 /// byte, name, name index); the descendants of a derived element left out when they
@@ -141,7 +141,7 @@ pub fn canonical(ir: &Ir) -> Result<Ir, String> {
         x.unfold(r)?;
     }
     // the root and the names (§8.1
-    // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#81-elements>): a table that
+    // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>): a table that
     // breaks them is invalid
     crate::check::names(&x)?;
     x.build_children();
@@ -309,7 +309,7 @@ fn child(y: &Ir, p: u32, name: &str, nidx: u64) -> Option<u32> {
 }
 
 /// The array an encoding-2 column reads (conventions §8.8
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>, the named array
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>, the named array
 /// rules): for a column run whose member 0 is row `r`, its field `f`, by the profile's rules.
 /// Returns (row, item size, big-endian). TIFF has one rule; the others none.
 fn array_rule(profile: &str, y: &Ir, r: usize, f: i64) -> Option<(u32, usize, bool)> {
@@ -353,7 +353,7 @@ fn tiff_layout(y: &Ir, r: usize, f: i64) -> Option<(u32, usize, bool)> {
 }
 
 /// The stored table of a canonical IR (conventions §8.8
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>): its column
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>): its column
 /// runs found outermost first, left to right, each at the period that folds the most siblings
 /// (the smaller on a tie); each column at the first encoding that holds it (none
 /// when constant, 3, 0, 2, 1). `array(row)` gives the bytes of a value an encoding-2
@@ -521,7 +521,7 @@ pub fn expanded_rows(t: &Table) -> u64 {
 }
 
 /// Stores table `t` under `vzip_source` (conventions §8.2
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#82-the-table>): its description in
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>): its description in
 /// `vzip_source`'s source metadata under `profile`'s convention, `ir/rows`, `ir/tables`
 /// (codes in order: runs, aliases, forms, column runs, columns, column values) and,
 /// when there are shared sources, `ir/shared`. `deflate` (for tests of what a
@@ -530,7 +530,7 @@ pub fn write(t: &Table, out: &mut Out, profile: &str, deflate: bool) {
     let mut own = json!({"ir": {"version": VERSION, "size": t.size, "elements": expanded_rows(t), "rows": t.kind.len(),
                             "names": t.names, "types": t.types, "forms": t.form_text}});
     if let Some(o) = t.objects {
-        // a store IR (§8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)
+        // a store IR (§8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>)
         let ir = own["ir"].as_object_mut().unwrap();
         let mut m = Map::new();
         for (k, v) in std::mem::take(ir) {
@@ -615,7 +615,7 @@ pub fn mirror(ir: &Ir, out: &mut Out, profile: &str) -> Result<Folded, String> {
         }
     }
     // a derived space holds shown values only when a validator can derive it (§8.8
-    // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>)
+    // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>)
     for i in 0..y.len() as u32 {
         let d = y.space[i as usize];
         if d != 0 && shown(&y, profile, i) {
@@ -632,7 +632,7 @@ pub fn mirror(ir: &Ir, out: &mut Out, profile: &str) -> Result<Folded, String> {
 }
 
 /// A store IR's held objects (conventions §8.9
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>) each have their bytes
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>) each have their bytes
 /// (`Ir::hold_all`), and the values the view shows in their sources are read from them.
 fn hold_shown(y: &mut Ir, profile: &str) -> Result<(), String> {
     let kids = y.has_children();
@@ -738,7 +738,7 @@ const INLINE: usize = 1 << 14; // a struct whose view is larger is a group of it
 const WORK: usize = 1 << 20; // elements the view visits
 const TOTAL: usize = 1 << 24; // bytes of all view documents
 /// The most bytes of a value the view shows (conventions §8.7
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>).
 pub const VIEW_VALUE: u64 = 1 << 10;
 const MAX_SAFE: i128 = (1 << 53) - 1;
 
@@ -804,7 +804,7 @@ pub fn tag_json(v: &Val) -> J {
 }
 
 /// Whether the view shows value `i` (conventions §8.7
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>): a value of a number,
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>): a value of a number,
 /// record,
 /// `guid`, `xml` or text type (`ascii`, `cstr`, `utf16`; not `bytes`) whose extent is
 /// at most 1024 bytes, other than an ND2 frame's `timestamp` (which a parser need not
@@ -906,7 +906,7 @@ impl<'a> View<'a> {
         let mut left = DOC;
         for &c in y.children(s) {
             // a store's referenced and empty objects are not shown, nor visited (§8.9
-            // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)
+            // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>)
             if y.kind[c as usize] == OBJECT && y.children(c).is_empty() {
                 continue;
             }
@@ -1005,8 +1005,8 @@ impl<'a> View<'a> {
 }
 
 /// A text value's view (conventions §8.7
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>, by §6
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>'s rule):
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>, by §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>'s rule):
 /// its text, the bytes up to the
 /// first NUL (`ascii`, `cstr`) or NUL unit (`utf16`): for `ascii` and `cstr` a string
 /// when UTF-8, else `{"latin1": s}` (each byte the code point U+00bb); for `utf16` a
@@ -1360,7 +1360,7 @@ pub fn load(t: &Table, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>
     ir.targets.sort();
     if ir.store {
         // the held objects' bytes, in id order (§8.9
-        // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>)
+        // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>)
         let kids = ir.has_children();
         let held: Vec<u32> = (0..n).filter(|&i| ir.held(&kids, i)).map(|i| i as u32).collect();
         if held.len() != t.held.len() {
@@ -1504,7 +1504,7 @@ pub fn table_from(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Table, String
 
 
 /// What makes a stored mirror non-canonical (conventions §8.8
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>), or None when
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>), or None when
 /// it is canonical: the first of a run (code 0), a compressed chunk, unsorted strings, rows
 /// out of canonical order, and a table that differs from the one [`table`] folds the
 /// loaded IR into (entry by entry). `get(key)` gives the archive's entries, `read`
@@ -1590,7 +1590,7 @@ pub fn canonical_problem(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn F
     // vzip_source's source metadata may hold, beside `ir`, the members the store conventions keep
     // outside the IR (`project::store::kept`: the ignored keys, a SAFE product's empty
     // directories; conventions §8.9
-    // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): they are not the
+    // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): they are not the
     // table's, so they are set aside; any other member, and these in another profile, is a
     // difference
     let description = format!("{SOURCE_NODE}/zarr.json");
@@ -1618,8 +1618,8 @@ pub fn canonical_problem(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn F
 }
 
 /// The bytes of a derived element's space, from the source (conventions §8.5
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#85-forms-and-recipes>, §8.8
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#88-canonical-form>): its
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>, §8.8
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>): its
 /// form's transform (`transform.rs`) applied to its extent.
 fn derived_bytes(y: &Ir, d: u32, read: &mut dyn FnMut(u32) -> Result<Vec<u8>, String>) -> Result<Vec<u8>, String> {
     let form = y.form(d).unwrap_or("");
@@ -1658,12 +1658,12 @@ fn read_merged(ranges: &[(u64, u64)], read: &mut dyn FnMut(u64, u64) -> Result<V
 }
 
 /// The view a stored mirror's table gives (conventions §8.7
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>): the canonical IR it
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>): the canonical IR it
 /// loads, every value the view shows read from the source (a derived space's from its
 /// transform, an `xml` value with its references decoded), rendered. A store IR's values are
 /// read from its held objects' bytes, or, in an object described in place, by `read` at
 /// their virtual offsets (§8.9
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>: object `o`'s byte
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>: object `o`'s byte
 /// `x` at the sum of the sizes of the objects before it, in id order, plus `x`).
 pub fn rebuilt_view(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn FnMut(u64, u64) -> Result<Vec<u8>, String>)
                     -> Result<Out, String> {
@@ -1672,7 +1672,7 @@ pub fn rebuilt_view(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn FnMut(
     let back = load(&t, read)?;
     let mut y = canonical(&back)?;
     // a store IR's held objects' bytes (§8.9
-    // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): its sources
+    // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): its sources
     let src = y.sources();
     let held: HashMap<u32, Vec<u8>> = src.objects.iter().filter_map(|&o| y.value_bytes(o).map(|b| (o, b.to_vec()))).collect();
     let (starts, lens) = if y.store { (y.start.clone(), y.len.clone()) } else { (Vec::new(), Vec::new()) };
@@ -1694,7 +1694,7 @@ pub fn rebuilt_view(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn FnMut(
                 want.push((y.start[iu], y.len[iu]));
             } else if y.in_place(src.of[iu]) {
                 // an object described in place: its source, at virtual offsets (§8.9
-                // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>),
+                // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>),
                 // each value read exactly (a store's objects are read by key, not merged)
                 exact.push((src.vstart(&y, iu), y.len[iu]));
             }
@@ -1751,7 +1751,7 @@ pub fn rebuilt_view(get: &dyn Fn(&str) -> Option<Vec<u8>>, read: &mut dyn FnMut(
 
 /// Where a stored view differs from the one its table and source give (the
 /// validator's check, conventions §8.7
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>), or None: the first
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>), or None: the first
 /// group missing or extra,
 /// then, group by group, the first member (a path of keys) missing, extra or other.
 /// `keys` are the archive's entry names.
@@ -1833,7 +1833,7 @@ pub fn ordered(ir: &Ir) -> (Vec<(u8, u32, String, u64, String, u32, u64, u64)>, 
 }
 
 /// The rebuild of a store's mirror (conventions §8.9
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), from the archive's
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), from the archive's
 /// entries alone (`get`): the table loaded and checked, then every object of the listing in id
 /// order as (key, size, bytes), the bytes of a held object its leaves' bytes in order of their
 /// start, read from `ir/held` (None for a referenced or an empty object: the archive references

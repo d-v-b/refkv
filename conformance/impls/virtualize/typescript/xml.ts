@@ -1,5 +1,5 @@
 // The OME-XML tag scan of spec/virtualize.md §3.2
-// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#32-ome-xml>.
+// <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#32-ome-xml>.
 
 export interface Tag {
   start: number; // index of "<"

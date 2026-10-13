@@ -1,14 +1,14 @@
 //! The image projections (design/ARCHITECTURE.md §3.4
-//! <https://github.com/d-v-b/vzip/blob/main/design/ARCHITECTURE.md#34-projections>): a valid IR and
+//! <https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#34-projections>): a valid IR and
 //! its facts into
 //! today's Zarr hierarchy (spec/virtualize/tiff.md §4
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#4-the-image>,
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#4-the-image>,
 //! spec/virtualize/czi.md §4
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#4-output>,
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#4-output>,
 //! spec/virtualize/nd2.md §4
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#4-the-image>, and ND2's root
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#4-the-image>, and ND2's root
 //! source metadata of §5.1
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>). A
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>). A
 //! projection checks nothing (the parser checked the schema)
 //! and reads nothing (the IR holds what it needs).
 
@@ -62,7 +62,7 @@ pub fn reads(format: Format, ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, Stri
 
 /// A fixed-size character field: its bytes up to the first NUL, as a text value
 /// (conventions §6
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>):
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>):
 /// UTF-8 if valid, else {"latin1": ...}.
 fn json_text(b: &[u8]) -> J {
     let b = &b[..b.iter().position(|&c| c == 0).unwrap_or(b.len())];

@@ -1,16 +1,16 @@
 //! The OME layer of the Zarr v2 store format (spec/virtualize/ome-zarr.md §3
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#3-ome-groups>–§8
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>): whether
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#3-ome-groups>–§8
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>): whether
 //! a Zarr v2 store's root declares OME-NGFF 0.4 (spec/virtualize.md §1.4
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>), then, on the
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>), then, on the
 //! hierarchy `zarr2.rs` read, the OME groups, the checks of §4
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#4-validation> (each a role of
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#4-validation> (each a role of
 //! `schema/ome-zarr.json`), and what the projection writes in place of the Zarr v2 convention's:
 //! `ome` 0.5 for each OME group, the attributes the inverse of §5
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes> does not
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes> does not
 //! give back and the unversioned members, `dimension_names` for each level, and the OME-XML
 //! referenced at its own key (§7
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#7-chunks-and-ome-xml>).
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#7-chunks-and-ome-xml>).
 
 use crate::expr::V;
 use crate::ir::Res;
@@ -150,7 +150,7 @@ fn place(p: &str) -> String {
     if p.is_empty() { "/".into() } else { p.to_string() }
 }
 
-/// A relative path (§3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#3-ome-groups>): one or more segments separated by `/`, none empty, `.` or `..`.
+/// A relative path (§3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#3-ome-groups>): one or more segments separated by `/`, none empty, `.` or `..`.
 pub fn rel_path(p: Option<&Jv>) -> bool {
     p.and_then(|v| v.s()).is_some_and(|s| !s.is_empty() && s.split('/').all(|x| !x.is_empty() && x != "." && x != ".."))
 }
@@ -194,7 +194,7 @@ pub enum Detect {
 }
 
 /// Does the root of a Zarr v2 store declare OME-NGFF 0.4 (spec/virtualize.md §1.4
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>)? `doc(key)` is
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>)? `doc(key)` is
 /// a document's value (Err: the rejection), or None while it is not read.
 pub fn declares_04(listed: &dyn Fn(&str) -> bool, doc: &mut dyn FnMut(&str) -> Option<Res<Jv>>) -> Res<Detect> {
     if listed(".zarray") {
@@ -559,7 +559,7 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
         check("collection", rules::env([("where", text(&place(g))), ("ome", text(&ome)), ("layout", layout), ("series", flag(series)), ("numbered", flag(numbered))]))?;
     }
 
-    // I8, §6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#6-arrays>: the axis names of the levels the output keeps
+    // I8, §6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#6-arrays>: the axis names of the levels the output keeps
     let mut names: HashMap<String, Vec<V>> = HashMap::new();
     // each level's first multiscale (image, index), whose axis names the output writes
     let mut first: HashMap<String, (String, usize)> = HashMap::new();
@@ -575,7 +575,7 @@ pub fn layer(attrs: &BTreeMap<String, Jv>, arrays: &BTreeMap<String, ArrayInfo>,
     }
     let dropped: usize = kept.iter().map(|((g, i), n)| multiscales[g][*i].get("datasets").unwrap().as_arr().unwrap().len() - n).sum();
 
-    // the output: §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>, §6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#6-arrays>, §8 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>
+    // the output: §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>, §6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#6-arrays>, §8 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>
     let mut groups: BTreeMap<String, Jv> = BTreeMap::new();
     let mut omes: HashMap<String, Jv> = HashMap::new();
     let mut unversioned: HashMap<String, Vec<&str>> = HashMap::new();

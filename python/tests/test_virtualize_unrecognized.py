@@ -1,5 +1,5 @@
 """An input file no IR format recognizes is rejected by its first bytes (spec/virtualize.md
-§1.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>), from the
+§1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>), from the
 request that opens the source: no second read of a remote one."""
 
 import threading
@@ -7,8 +7,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from vzip.policy import Policy
-from vzip.virtualize import NOT_SUPPORTED, Rejected, virtualize
+from refkv.policy import Policy
+from refkv.virtualize import NOT_SUPPORTED, Rejected, virtualize
 
 BODY = b"not an image file " * 100
 

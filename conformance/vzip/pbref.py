@@ -1,4 +1,4 @@
-"""vzip messages built with the official protobuf runtime (independent of vzip.pb).
+"""vzip messages built with the official protobuf runtime (independent of refkv.pb).
 
 Used by the conformance kit to compute canonical encodings and to decode
 payloads found in archives under test.
@@ -12,7 +12,7 @@ _F = descriptor_pb2.FieldDescriptorProto
 
 
 def _build():
-    fdp = descriptor_pb2.FileDescriptorProto(name="vzip.proto", package="vzip.v0", syntax="proto3")
+    fdp = descriptor_pb2.FileDescriptorProto(name="refkv.proto", package="vzip.v0", syntax="proto3")
 
     rng = fdp.message_type.add(name="Range")
     for n, i, t in [("source", 1, _F.TYPE_UINT32), ("offset", 3, _F.TYPE_UINT64),

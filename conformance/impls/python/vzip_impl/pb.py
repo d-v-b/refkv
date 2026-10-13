@@ -1,5 +1,5 @@
 """Hand-written protobuf wire-format encoding/decoding for the vzip schema (spec §5
-<https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#5-messages>, Appendix
+<https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#5-messages>, Appendix
 A)."""
 
 MAX64 = (1 << 64) - 1

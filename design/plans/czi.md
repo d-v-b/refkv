@@ -79,7 +79,7 @@ Shared changes:
   `imagecodecs_jpeg2k`. `numcodecs.shuffle` and `zstd` are zarr-python's.
   Readers with rectilinear levels need
   `zarr.config.set({"array.rectilinear_chunks": True})` (zarr-python 3.4);
-  the verifier and `vzip.store` helpers set it.
+  the verifier and `refkv.store` helpers set it.
 - `spec/virtualize.md`: the detection row (profile §13.1), the profile table
   row, §13 = CZI and §14 = Conformance (update the `#13-conformance`
   anchors), revision 18 in `REVISIONS.md`.
@@ -181,7 +181,7 @@ Rejected: one fixture per rejection test of §3, named `czi_reject_<case>`.
 
 `js/test/czi/verify.py` serves the fixtures over local HTTP, runs the
 browser virtualizer under Node, opens every archive with `VZipStore` and
-zarr-python (with `vzip.codecs` and rectilinear enabled), and checks:
+zarr-python (with `refkv.codecs` and rectilinear enabled), and checks:
 
 1. **Pixels, per subblock**, against **czifile** (independent, pure Python,
    BSD-3): for every subblock, `CziSubBlockSegmentData.data()` (stored

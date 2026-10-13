@@ -1,5 +1,5 @@
 // The Zarr v2 profile (spec/virtualize.md, §10
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>): a Zarr v2
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>): a Zarr v2
 // hierarchy as a Zarr v3 one, each chunk a whole-object reference under its own key.
 
 import type { Profile } from "../../../../../js/src/virtualize/common.ts";
@@ -57,9 +57,9 @@ function dataType(dtype: Json): [string, number, string] {
 }
 
 // The members of .zarray that §3
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays> reads; the others are
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#3-arrays> reads; the others are
 // kept in M (spec/virtualize/zarr2.md §4
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>).
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>).
 const ZARRAY_READ = ["zarr_format", "shape", "chunks", "dtype", "order", "compressor", "filters", "fill_value",
   "dimension_separator"];
 const NEG_ZERO: Record<number, string> = { 2: "0x8000", 4: "0x80000000", 8: "0x8000000000000000" };
@@ -88,7 +88,7 @@ function fillValue(v: Json, dt: string, b: number): Json {
 
 /**
  * The level of a zlib, gzip or zstd compressor (spec/virtualize/zarr2.md §3.1
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#31-compressors>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#31-compressors>).
  */
 function level(id: string, c: { [k: string]: Json }): number {
   const [lo, hi, dflt] = LEVELS[id];
@@ -135,8 +135,8 @@ const get = (o: { [k: string]: Json }, k: string): Json => (has(o, k) ? o[k] : n
 
 /** An array's zarr.json, its dimension separator, and the members of its .zarray that
  * the zarr.json does not reproduce (spec/virtualize/zarr2.md §3
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays>, §4
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>). */
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#3-arrays>, §4
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>). */
 function array(path: string, z: Json, attrs: { [k: string]: Json }): [ArrayDoc, string, { [k: string]: Json }] {
   if (!isObject(z)) reject(`${path}/.zarray is not a JSON object`);
   const zz = z as { [k: string]: Json };
@@ -188,8 +188,8 @@ function array(path: string, z: Json, attrs: { [k: string]: Json }): [ArrayDoc, 
 
 /**
  * A Zarr v2 hierarchy read by spec/virtualize/zarr2.md §2
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>–§3
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays>.
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#2-nodes>–§3
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#3-arrays>.
  */
 export interface Hierarchy {
   arrays: Map<string, ArrayDoc>;
@@ -199,7 +199,7 @@ export interface Hierarchy {
   implicit: Set<string>;
   /**
    * Each node's metadata M (spec/virtualize/zarr2.md §4
-   * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#4-source-metadata>).
+   * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>).
    */
   meta: Map<string, { [k: string]: Json }>;
   /** The node documents read. */
@@ -248,7 +248,7 @@ export function prefetch(store: Store) {
 
 /**
  * The nodes of a Zarr v2 store (spec/virtualize/zarr2.md §2
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#2-nodes>), each document read
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#2-nodes>), each document read
  * and checked.
  */
 export async function readHierarchy(store: Store): Promise<Hierarchy> {
@@ -287,7 +287,7 @@ export async function readHierarchy(store: Store): Promise<Hierarchy> {
 
 /**
  * Every chunk object of every array (spec/virtualize/zarr2.md §3
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#3-arrays>), sizes 0 included,
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#3-arrays>), sizes 0 included,
  * in key order.
  */
 export function chunkObjects(store: Store, h: Hierarchy): [string, number][] {
@@ -309,14 +309,14 @@ export function chunkObjects(store: Store, h: Hierarchy): [string, number][] {
  * `groups` gives, arrays as `arrays` gives, their `attributes` the attributes A to keep),
  * an entry per nonempty chunk object, the whole objects `extra` under their own keys, and
  * every other object under `vzip_source/objects/` (§1.4
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>,
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>,
  * spec/virtualize/zarr2.md §5
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
  * Each node's source metadata is A and its metadata M, under `profile`'s convention, and
  * the groups `omes` names get the member `ome` it gives (conventions §2
- * <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>), and the members
+ * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), and the members
  * `unversioned` gives (spec/virtualize/ome-zarr.md §8
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>). Also
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>). Also
  * returns
  * every chunk object and the number of other objects. */
 export function hierarchyOutput(
@@ -344,7 +344,7 @@ export function hierarchyOutput(
   const result: StoreResult = { docs, chunks };
   // An empty object in `extra` is not in the hierarchy: its key is listed with the other empty ones.
   // An empty chunk object has no entry either: its key is listed with the empty ones (§5
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
   const used = new Set([...h.documents, ...all.filter(([, n]) => n > 0).map(([k]) => k), ...extra.filter(([, n]) => n > 0).map(([k]) => k)]);
   const others = keepObjects(result, store.objects, used, [...h.arrays.keys(), ...h.groups.keys(), ...h.implicit], reject, store.ignored);
   return [result, all, others];

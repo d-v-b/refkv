@@ -4,15 +4,15 @@ connection), with multi-range requests ("ebi") and with single ranges ("ebi1"); 
 IR at 6 connections (a browser's) and 16. Today's reader prefetches at 32. Servers
 are started here and stopped at the end.
 Usage: remote.py <out.json> <profiles: ebi,ebi1> <connections: 8,32> [--no-today] [--today <cmd>] <name>...
-VZIP_ADOPT_TAG suffixes the IR's keys (`ir_c8<tag>`); VZIP_BYTE_COST and VZIP_WHOLE_BELOW
+REFKV_ADOPT_TAG suffixes the IR's keys (`ir_c8<tag>`); REFKV_BYTE_COST and REFKV_WHOLE_BELOW
 set the planner's byte cost (s per MB) and small-source size for experiments.
-`--today` names today's command (default `python -m vzip.virtualize`; after the
+`--today` names today's command (default `python -m refkv.virtualize`; after the
 switch-over, the frozen reference: `python conformance/virtualize/reference/cli.py`)."""
 import ast, json, os, re, subprocess, sys, time, urllib.request
 from pathlib import Path
 W = Path(__file__).resolve().parents[3]
-HERE = Path(os.environ["VZIP_ADOPT_WORK"])  # sparse/ (the copies), measure_out/
-TAG = os.environ.get("VZIP_ADOPT_TAG", "")  # a suffix for the IR's results (e.g. a setting under test)
+HERE = Path(os.environ["REFKV_ADOPT_WORK"])  # sparse/ (the copies), measure_out/
+TAG = os.environ.get("REFKV_ADOPT_TAG", "")  # a suffix for the IR's results (e.g. a setting under test)
 PROFILES = {"fast": (18321, 0, 1, None), "ebi": (18322, 65, 1, 2.5), "ebi1": (18323, 65, 0, 2.5)}
 
 
@@ -45,7 +45,7 @@ def _planner(stdout: str):
 
 def main():
     args = sys.argv[1:]
-    today = ["uv", "run", "python", "-m", "vzip.virtualize"]
+    today = ["uv", "run", "python", "-m", "refkv.virtualize"]
     if "--today" in args:
         i = args.index("--today")
         today = args[i + 1].split()
@@ -72,7 +72,7 @@ def main():
                 if not no_today:
                     r["today"] = run(today + [url], out / "t.vzip", port)
                 for c in concs:
-                    r[f"ir_c{c}{TAG}"] = run(["uv", "run", "python", "-m", "vzip.virtualize", "--allow-private-hosts",
+                    r[f"ir_c{c}{TAG}"] = run(["uv", "run", "python", "-m", "refkv.virtualize", "--allow-private-hosts",
                                               "--connections", str(c), url], out / "i.vzip", port)
                 res[f"{name}|{pr}"] = r
                 res_path.write_text(json.dumps(res, indent=1))

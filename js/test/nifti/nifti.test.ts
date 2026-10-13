@@ -41,7 +41,7 @@ test("virtualizes the synthetic NIfTI files", async () => {
     assert.equal(v.format, "nifti");
     assert.deepEqual({ ...v.summary, ...expected }, v.summary, name);
     // no data sources; source 0 pins the file's size (spec/virtualize.md §1.2
-    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>)
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>)
     assert.deepEqual(v.sources, [{ url: `https://data.test/${name}`, size: BigInt(fileSize(name)) }], name);
   }
   // A color type is interleaved, and its omero channels are R, G, B.
@@ -52,7 +52,7 @@ test("virtualizes the synthetic NIfTI files", async () => {
   ]);
   assert.deepEqual(decoded(rgb, "zarr.json").attributes.ome.omero.channels.map((c: { label: string }) => c.label), ["R", "G", "B"]);
   // Scaling is recorded in the convention's property (conventions §2
-  // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>), and the window is
+  // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), and the window is
   // in raw values.
   const scaled = decoded(await virtualize("nifti_n1_be_int16_4d_scaled.nii"), "zarr.json").attributes;
   assert.deepEqual(Object.keys(scaled).sort(), ["ome", "vzip_virtualized", "zarr_conventions"]);
@@ -142,7 +142,7 @@ test("keeps the bytes between the header and the voxels", async () => {
 test("keeps the bits of float header fields", async () => {
   // A negative zero, or a NaN other than the canonical one, is {"bits": hex}
   // (spec/virtualize/nifti.md §5
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>).
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>).
   const header = async (name: string) => decoded(await virtualize(name), "zarr.json").attributes.vzip_virtualized.nifti.header;
   const one = await header("nifti_header_float_bits.nii");
   assert.deepEqual([one.intent_p1, one.scl_slope, one.cal_min, one.slice_duration, one.toffset, one.pixdim[5], one.srow_x[1]],

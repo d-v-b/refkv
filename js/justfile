@@ -14,7 +14,7 @@ default:
 install:
     npm ci
 
-# Build the Rust core for wasm32 (rust/refkv-ir/target/wasm/vzip_ir.wasm; optimized by wasm-opt when installed)
+# Build the Rust core for wasm32 (rust/refkv-ir/target/wasm/refkv_ir.wasm; optimized by wasm-opt when installed)
 wasm:
     ../rust/refkv-ir/wasm/build.sh
 

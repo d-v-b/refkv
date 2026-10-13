@@ -1,5 +1,5 @@
 // Reader error cases (spec §8
-// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#8-reading>). One test
+// <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#8-reading>). One test
 // per error case.
 import { test } from "node:test";
 import assert from "node:assert/strict";

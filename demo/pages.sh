@@ -59,6 +59,6 @@ node demo/pages_index.mjs "$site"
 
 git -C "$site" add -A
 git -C "$site" -c user.name="$(git config user.name)" -c user.email="$(git config user.email)" \
-  commit --quiet -m "chore(pages): build ${demo} from d-v-b/vzip@${commit} and d-v-b/neuroglancer@${ng_commit}"
+  commit --quiet -m "chore(pages): build ${demo} from d-v-b/refkv@${commit} and d-v-b/neuroglancer@${ng_commit}"
 git -C "$site" push --quiet "$remote_url" gh-pages
 echo "published ${demo}/ (from ${commit})"

@@ -1,6 +1,6 @@
 """JPEG 2000 band files (spec/virtualize.md §12.3
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#123-band-files>) and their chunks
-(§12.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#126-chunks>).
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>) and their chunks
+(§12.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#126-chunks>).
 
 A band file is a JP2 file whose codestream has one tile-part per tile, in
 raster order. Each tile becomes a standalone codestream: the file's main
@@ -14,17 +14,17 @@ import struct
 from dataclasses import dataclass, field
 from typing import Callable
 
-from vzip.virtualize.common import Rejected
+from refkv.virtualize.common import Rejected
 
 MAX_BOXES = 1024
-MAX_REST = 1 << 16  # the most bytes of a main header after its SIZ segment (spec/virtualize.md §12.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#123-band-files>)
-MAX_TAIL = 1 << 12  # the most bytes of a chunk's empty tiles and EOC (§12.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#126-chunks>)
+MAX_REST = 1 << 16  # the most bytes of a main header after its SIZ segment (spec/virtualize.md §12.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>)
+MAX_TAIL = 1 << 12  # the most bytes of a chunk's empty tiles and EOC (§12.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#126-chunks>)
 BLOCK = 1 << 16
 SMALL_TILE = 1 << 14  # after a tile-part this small, the next tile-part headers are read in a block
 SOC, SIZ, SOT, EOC = 0xFF4F, 0xFF51, 0xFF90, 0xFFD9
 COD, COC, QCD = 0xFF52, 0xFF53, 0xFF5C
 # The markers a main header may have after SIZ (§12.3
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#123-band-files>).
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>).
 ALLOWED = {COD, COC, QCD, 0xFF5D, 0xFF5E, 0xFF5F, 0xFF63, 0xFF64}
 NAMES = {0xFF55: "TLM", 0xFF57: "PLM", 0xFF60: "PPM", 0xFF50: "CAP", 0xFF59: "CPF"}
 
@@ -56,7 +56,7 @@ class Reader:
 @dataclass
 class Codestream:
     """A band file's structure (§12.3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#123-band-files>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>)."""
 
     n: int
     c0: int  # where the codestream starts: the JP2 header is [0, c0)
@@ -85,7 +85,7 @@ def _u16(b: bytes, at: int) -> int:
 def boxes(r: Reader) -> int:
     """c0, the start of the codestream: the contents of the first jp2c box,
     which must end at the end of the file (§12.3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#123-band-files>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>)."""
     n, o = r.n, 0
     for i in range(MAX_BOXES):
         if o + 8 > n:
@@ -120,7 +120,7 @@ def boxes(r: Reader) -> int:
 
 def _coding(seg: bytes, at: int, scod: int, what: str) -> tuple[int, list[tuple[int, int]]]:
     """(N, [(PPx_r, PPy_r)]) from the SPcod/SPcoc fields at `at` (§12.3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#123-band-files>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>)."""
     levels = seg[at]
     if levels > 32:
         raise Rejected(f"{what} has {levels} decomposition levels, more than 32")
@@ -133,7 +133,7 @@ def _coding(seg: bytes, at: int, scod: int, what: str) -> tuple[int, list[tuple[
 
 def main_header(r: Reader, c0: int) -> Codestream:
     """The SIZ segment and the main header rest of the codestream at c0 (§12.3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#123-band-files>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>)."""
     c1 = r.n
     if c0 + 4 > c1 or _u16(r.read(c0, 2), 0) != SOC:
         raise Rejected("a band file's codestream does not start with SOC")
@@ -230,7 +230,7 @@ def main_header(r: Reader, c0: int) -> Codestream:
 
 def walk(r: Reader, cs: Codestream) -> None:
     """The tile-parts (§12.3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#123-band-files>): one per tile,
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>): one per tile,
     in raster order, then EOC at the end."""
     c1 = r.n
     nx, ny = cs.grid
@@ -275,7 +275,7 @@ def _nprec(z0: int, z1: int, d: int, e: int) -> int:
 
 def empty_packets(cs: Codestream, x0: int, x1: int, y0: int, y1: int) -> int:
     """e_k: the packets of a tile of area [x0, x1) × [y0, y1) (§12.6
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#126-chunks>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#126-chunks>)."""
     n = 0
     for levels, pp in cs.coding:
         for res in range(levels + 1):
@@ -286,7 +286,7 @@ def empty_packets(cs: Codestream, x0: int, x1: int, y0: int, y1: int) -> int:
 
 def _area(cs: Codestream, t: int) -> tuple[int, int, int, int, int, int]:
     """(x0, y0, w, h, a, b) of the chunk of tile t (§12.6
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#126-chunks>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#126-chunks>)."""
     nx, _ = cs.grid
     T, U = cs.tile_w, cs.tile_h
     x0, y0 = (t % nx) * T, (t // nx) * U
@@ -299,7 +299,7 @@ def _area(cs: Codestream, t: int) -> tuple[int, int, int, int, int, int]:
 def tail_packets(cs: Codestream, t: int) -> list[int]:
     """[e_1, …, e_{a×b−1}], the empty packets of the empty tiles of the chunk of tile t,
     once their tail (§12.6
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#126-chunks>), of 2 + Σ (14 +
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#126-chunks>), of 2 + Σ (14 +
     e_k) bytes, is known to be at most MAX_TAIL:
     it is measured before anything is made, and rejected past MAX_TAIL."""
     x0, y0, w, h, a, b = _area(cs, t)
@@ -320,13 +320,13 @@ def tail_packets(cs: Codestream, t: int) -> list[int]:
 
 def tail_length(cs: Codestream, t: int) -> int:
     """The length of the chunk of tile t's empty tiles and EOC (§12.6
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#126-chunks>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#126-chunks>)."""
     return 2 + sum(14 + e for e in tail_packets(cs, t))
 
 
 def chunk_parts(cs: Codestream, t: int) -> tuple[bytes, bytes, tuple[int, int], bytes, bool]:
     """The chunk of tile t (§12.6
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#126-chunks>): (SOC + SIZ', SOT,
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#126-chunks>): (SOC + SIZ', SOT,
     (offset, length) of the body in the band
     file, the empty tiles and EOC, whether it has empty tiles)."""
     x0, y0, w, h, a, b = _area(cs, t)

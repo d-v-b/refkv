@@ -29,7 +29,7 @@ const one = [[[1, 1, 1]]];
 const s = (subblocks: number, images: number[][][], extra: object = {}) =>
   ({ subblocks, images, tiles: 0, unplaced: 0, segments: 0, attachments: 0, tail: 0, ...extra });
 
-// The Python reference's summaries (python -m vzip.virtualize).
+// The Python reference's summaries (python -m refkv.virtualize).
 const SUMMARIES: [string, object][] = [
   ["czi_attachments", s(1, one, { attachments: 12 })],
   ["czi_bgr24_raw", s(1, one)],

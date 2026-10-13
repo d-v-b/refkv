@@ -112,7 +112,7 @@ export function rangeMsgLen(o: number, n: number): number {
 
 /**
  * Payload size (spec/virtualize.md §1.2
- * <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#12-input>) of a
+ * <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#12-input>) of a
  * list of ranges of source 0.
  */
 export function payloadLen(ranges: [number, number, number][]): number {

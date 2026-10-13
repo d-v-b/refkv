@@ -31,7 +31,7 @@ fs.writeFileSync(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>vzip demos</title>
+<title>refkv demos</title>
 <style>
   :root { --bg: #fafaf8; --fg: #1d1d1b; --muted: #6b6b66; --line: #deddd8; --accent: #2d5bd7;
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
@@ -50,8 +50,8 @@ fs.writeFileSync(
 </head>
 <body>
 <main>
-  <h1>vzip demos</h1>
-  <p>Demos of <a href="https://github.com/d-v-b/vzip">vzip</a>, ZIP plus a reference value type, for reference stores.</p>
+  <h1>refkv demos</h1>
+  <p>Demos of <a href="https://github.com/d-v-b/refkv">refkv</a>, ZIP plus a reference value type, for reference stores.</p>
   <ul>
 ${demos.map((d) => `    <li><a href="${escape(d.dir)}/">${escape(d.title)}</a><span>${escape(d.description)}</span></li>`).join("\n")}
   </ul>
@@ -62,9 +62,9 @@ ${demos.map((d) => `    <li><a href="${escape(d.dir)}/">${escape(d.title)}</a><s
 );
 fs.writeFileSync(
   path.join(site, "README.md"),
-  `# vzip demos
+  `# refkv demos
 
-Live demos of [vzip](https://github.com/d-v-b/vzip), ZIP plus a reference value type,
+Live demos of [refkv](https://github.com/d-v-b/refkv), ZIP plus a reference value type,
 for reference stores: **https://d-v-b.github.io/vzip-demo/**
 
 | demo | what it does |
@@ -73,7 +73,7 @@ ${demos.map((d) => `| [${d.title}](https://d-v-b.github.io/vzip-demo/${d.dir}/) 
 
 This repository holds only the built sites, one directory per demo, published
 with GitHub Pages from the \`gh-pages\` branch. The source is in
-[d-v-b/vzip](https://github.com/d-v-b/vzip) (the demos are in \`demo/\`, built from \`js/\`, and are
+[d-v-b/refkv](https://github.com/d-v-b/refkv) (the demos are in \`demo/\`, built from \`js/\`, and are
 published by \`demo/pages.sh\`) and in the vzip-enabled Neuroglancer fork,
 [d-v-b/neuroglancer](https://github.com/d-v-b/neuroglancer/tree/vzip).
 `,

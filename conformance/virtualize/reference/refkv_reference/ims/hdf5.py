@@ -1,6 +1,6 @@
 """Reading the structure of an HDF5 file (§8.1
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#81-hdf5-structures>–§8.6
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#86-attributes>): the superblock,
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#81-hdf5-structures>–§8.6
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#86-attributes>): the superblock,
 object headers and their messages, the links of groups, attributes, and the chunk
 index of a chunked dataset. Pixel data is never read, and checksums are not
 checked."""
@@ -9,24 +9,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from vzip.virtualize.common import Reader, Rejected, json_number, text_json
+from refkv.virtualize.common import Reader, Rejected, json_number, text_json
 
 SIGNATURE = b"\x89HDF\r\n\x1a\n"
 UNDEFINED = 2**64 - 1
 MAX_SAFE = 2**53 - 1
-MAX_BLOCKS = 1000  # blocks of one object header (§8.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#82-object-headers>)
+MAX_BLOCKS = 1000  # blocks of one object header (§8.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#82-object-headers>)
 MAX_HEADERS = 4096  # object headers held in memory at once
-MAX_BTREE2_DEPTH = 16  # §8.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#84-version-2-b-trees-and-fractal-heaps>
+MAX_BTREE2_DEPTH = 16  # §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#84-version-2-b-trees-and-fractal-heaps>
 # The record size of each type of version 2 B-tree read: huge fractal heap
 # objects, link names and attribute names (§8.4
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#84-version-2-b-trees-and-fractal-heaps>);
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#84-version-2-b-trees-and-fractal-heaps>);
 # chunk records (types 10 and
 # 11) have the size the dataset gives them (§8.5
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>).
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>).
 RECORD_SIZES = {1: 24, 5: 11, 8: 17}
 
 # Message types (§8.2
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#82-object-headers>).
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#82-object-headers>).
 DATASPACE, LINK_INFO, DATATYPE, FILL_VALUE, LINK, LAYOUT = 0x01, 0x02, 0x03, 0x05, 0x06, 0x08
 FILTERS, ATTRIBUTE, CONTINUATION, SYMBOL_TABLE, ATTRIBUTE_INFO = 0x0B, 0x0C, 0x10, 0x11, 0x15
 EXTERNAL_FILES = 0x07
@@ -61,7 +61,7 @@ def log2(v: int) -> int:
 
 # A link's target: an object header address (a hard link), a path (a soft
 # link), or (type, value) for any other type of link (§8.9
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
 Target = int | bytes | tuple[int, bytes | None]
 
 
@@ -105,7 +105,7 @@ class Dataset:
     type_message: bytes = b""  # the datatype message
     named: int | None = None  # the committed datatype's object header, for a shared datatype
     single_mask: int = 0  # single chunk index: the filtered chunk's filter mask
-    raw_edges: bool = False  # partial edge chunks are stored unfiltered (layout flag 1, §8.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>)
+    raw_edges: bool = False  # partial edge chunks are stored unfiltered (layout flag 1, §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>)
 
 
 def parse_datatype(d: bytes) -> Datatype:
@@ -132,7 +132,7 @@ def parse_dataspace(d: bytes) -> Dataspace:
 
 class Hdf5:
     """An HDF5 file read through `read` (§8.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#81-hdf5-structures>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#81-hdf5-structures>)."""
 
     def __init__(self, read: Reader, size: int) -> None:
         self.read = read
@@ -164,7 +164,7 @@ class Hdf5:
         self.root = root
 
     # ---- object headers (§8.2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#82-object-headers>)
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#82-object-headers>)
 
     def header(self, at: int) -> list[Message]:
         if at not in self._headers:
@@ -239,7 +239,7 @@ class Hdf5:
     @staticmethod
     def message(messages: list[Message], typ: int, required: bool = True) -> bytes | None:
         """The data of the one message of type `typ` (§8.2
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#82-object-headers>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#82-object-headers>)."""
         found = [m for m in messages if m.type == typ]
         if len(found) > 1:
             raise Rejected(f"object header has {len(found)} messages of type {typ}")
@@ -254,7 +254,7 @@ class Hdf5:
     def committed(self, shared: bytes) -> tuple[bytes, int]:
         """The datatype message of the committed datatype that a shared
         datatype message leads to, and its object header (§8.9
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)."""
         version = le(shared, 0, 1)
         if version == 1:
             at = address(le(shared, 8, 8))
@@ -269,7 +269,7 @@ class Hdf5:
     def datatype(self, messages: list[Message]) -> tuple[bytes, int | None]:
         """The datatype message of an object header, through a committed datatype
         when it is shared, and that datatype's object header (or None) (§8.9
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)."""
         found = [m for m in messages if m.type == DATATYPE]
         if len(found) != 1:
             raise Rejected(f"object header has {len(found)} messages of type {DATATYPE}")
@@ -278,7 +278,7 @@ class Hdf5:
         return found[0].data, None
 
     # ---- groups (§8.3
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#83-groups-and-links>)
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#83-groups-and-links>)
 
     def links(self, at: int) -> dict[bytes, Target]:
         """A group's links: name -> target."""
@@ -337,7 +337,7 @@ class Hdf5:
 
     def follow(self, links: dict[bytes, Target], name: bytes) -> int:
         """The object header that the link `name` of a group leads to (§8.3
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#83-groups-and-links>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#83-groups-and-links>)."""
         target = links[name]
         if isinstance(target, bytes):
             if not target.startswith(b"/"):
@@ -365,8 +365,8 @@ class Hdf5:
     def _btree1(self, at: int, node_type: int, key_size: int, seen: set[int], level: int | None):
         """The leaves' children of the version 1 B-tree at `at`: addresses
         (type 0, groups), or (key, address) pairs (type 1, chunks) (§8.3
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#83-groups-and-links>, §8.5
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#83-groups-and-links>, §8.5
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>)."""
         if at in seen:
             raise Rejected(f"B-tree node at {at} read twice")
         seen.add(at)
@@ -393,7 +393,7 @@ class Hdf5:
                 yield body[i * step : i * step + key_size], child
 
     # ---- version 2 B-trees and fractal heaps (§8.4
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#84-version-2-b-trees-and-fractal-heaps>)
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#84-version-2-b-trees-and-fractal-heaps>)
 
     def btree2(self, at: int, typ: int, sizes=None) -> list[bytes]:
         """The records of the version 2 B-tree at `at`, which MUST have type `typ`
@@ -447,7 +447,7 @@ class Hdf5:
         return self._heaps[at]
 
     # ---- attributes (§8.6
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#86-attributes>)
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#86-attributes>)
 
     def attributes(self, at: int, where: dict[bytes, int] | None = None) -> dict[bytes, bytes]:
         """An object's attributes: name -> attribute message; `where` receives
@@ -486,11 +486,11 @@ class Hdf5:
         return out
 
     # ---- datasets (§8.5
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>)
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>)
 
     def dataset(self, at: int, any_layout: bool = False) -> Dataset:
         """A dataset: a chunked one with a zero fill value (§8.5
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>),
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>),
         or, with
         `any_layout`, one of any layout and fill value (the source metadata)."""
         messages = self.header(at)
@@ -586,7 +586,7 @@ class Hdf5:
                        fill=fill, type_message=type_message, named=named, single_mask=single_mask, raw_edges=raw_edges)
 
     # ---- the global heap (§8.9
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)
 
     def global_object(self, at: int, index: int) -> tuple[int, int]:
         """The (address, size) of the object `index` of the global heap collection at `at`."""
@@ -616,7 +616,7 @@ class Hdf5:
 
     def virtual_mapping(self, layout: bytes) -> list[dict]:
         """The mappings of a virtual dataset's layout message, from the global heap (§8.9
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)."""
         if le(layout, 0, 1) not in (4, 5) or le(layout, 1, 1) != 3:
             raise Rejected("not a virtual dataset layout")
         at = address(le(layout, 2, 8))
@@ -643,10 +643,10 @@ class Hdf5:
 
     def chunks(self, ds: Dataset, masks: dict | None = None) -> dict[tuple[int, ...], tuple[int, int]]:
         """The allocated chunks: grid coordinates -> (address, size) (§8.5
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>). A
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>). A
         chunk's filter mask MUST be 0, unless `masks` receives the chunks' that
         are not (§8.9
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>);
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>);
         a partial edge chunk stored unfiltered has every filter's bit set."""
         out: dict[tuple[int, ...], tuple[int, int]] = {}
         nbytes = ds.datatype.size
@@ -703,7 +703,7 @@ class Hdf5:
     def implicit(self, ds: Dataset) -> list[int]:
         """The maximum grid of an implicit chunk index, whose last chunk MUST lie within the file
         (§8.5
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>)."""
         maxgrid = _max_grid(ds, False)
         nbytes = _product(ds.chunk) * ds.datatype.size
         # The last chunk is the furthest: when it lies within the file, so do the others.
@@ -713,7 +713,7 @@ class Hdf5:
 
     def _entry(self, data: bytes, k: int, entry: int, filtered: bool, nbytes: int) -> tuple[int | None, int, int]:
         """An array index's entry: (the chunk's address or None, its size, its filter mask) (§8.5
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>)."""
         chunk_at = address(le(data, k * entry, 8))
         if chunk_at is None or not filtered:
             return chunk_at, nbytes, 0
@@ -906,7 +906,7 @@ def _ravel(coords, grid: list[int]) -> int:
 
 def _max_grid(ds: Dataset, unlimited: bool) -> list[int | None]:
     """The number of chunks along each dimension at the maximum dimensions
-    (§8.5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>):
+    (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>):
     None for an unlimited one, which only `unlimited` allows."""
     if ds.maxdims is None:
         return list(ds.grid)
@@ -925,7 +925,7 @@ def _max_grid(ds: Dataset, unlimited: bool) -> list[int | None]:
 
 class FractalHeap:
     """The managed objects of a fractal heap (§8.4
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#84-version-2-b-trees-and-fractal-heaps>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#84-version-2-b-trees-and-fractal-heaps>)."""
 
     def __init__(self, f: Hdf5, at: int) -> None:
         self.f = f
@@ -1027,7 +1027,7 @@ class FractalHeap:
 
 def parse_link(d: bytes) -> tuple[bytes, Target]:
     """A link message: (name, target) (§8.3
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#83-groups-and-links>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#83-groups-and-links>)."""
     if le(d, 0, 1) != 1:
         raise Rejected("unsupported link message version")
     flags, p, kind = le(d, 1, 1), 2, 0
@@ -1047,7 +1047,7 @@ def parse_link(d: bytes) -> tuple[bytes, Target]:
         return name, d[p + name_length + 2 : p + name_length + 2 + n]
     if kind != 0:
         # Any other type: its value, or None when it does not lie within the message (§8.9
-        # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
+        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
         q = p + name_length
         n = le(d, q, 2) if q + 2 <= len(d) else None
         return name, (kind, d[q + 2 : q + 2 + n] if n is not None and q + 2 + n <= len(d) else None)
@@ -1078,7 +1078,7 @@ def _pad8(n: int) -> int:
 
 def attribute_value(d: bytes) -> tuple[Datatype, int, bytes]:
     """An attribute's (datatype, element count, data) (§8.6
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#86-attributes>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#86-attributes>)."""
     type_message, dims, data = attribute_parts(d)
     count = 1
     for n in dims:
@@ -1088,7 +1088,7 @@ def attribute_value(d: bytes) -> tuple[Datatype, int, bytes]:
 
 def attribute_parts(d: bytes) -> tuple[bytes, list[int], bytes]:
     """An attribute's (datatype message, dimensions, data) (§8.6
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#86-attributes>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#86-attributes>)."""
     flags, name_size, type_size, space_size, p = _attribute_layout(d)
     if flags & 3:
         raise Rejected("attribute with a shared datatype or dataspace")
@@ -1118,7 +1118,7 @@ def attribute_full(d: bytes, committed=None) -> tuple[bytes, list[int] | None, b
     dataspace, data, committed datatype's object header or None, where the
     data starts in the message), its shared datatype resolved by `committed`
     (§8.9
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)."""
     flags, name_size, type_size, space_size, p = _attribute_layout(d)
     if flags & 2:
         raise Rejected("an attribute with a shared dataspace")
@@ -1149,7 +1149,7 @@ def attribute_full(d: bytes, committed=None) -> tuple[bytes, list[int] | None, b
 
 def fill_value(d: bytes) -> bytes:
     """The fill value of a fill value message, or no bytes when it gives none (§8.5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>)."""
     version = le(d, 0, 1)
     if version in (1, 2):
         if version == 2 and not le(d, 3, 1):
@@ -1168,7 +1168,7 @@ def fill_value(d: bytes) -> bytes:
 
 def fill_is_zero(d: bytes) -> bool:
     """Whether a fill value message gives no fill value, or zero (§8.5
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>)."""
     return not any(fill_value(d))
 
 
@@ -1198,9 +1198,9 @@ def parse_filters(d: bytes | None) -> list[int]:
 
 def parse_selection(d: bytes, p: int) -> tuple[dict, int]:
     """The serialized dataspace selection at `p`: its description (spec/virtualize/ims.md
-    §5.3 <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/ims.r25.md#53-attributes>) and where
+    §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#53-attributes>) and where
     it ends (§8.9
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)."""
     kind, version = le(d, p, 4), le(d, p + 4, 4)
     p += 8
     if kind in (0, 3):

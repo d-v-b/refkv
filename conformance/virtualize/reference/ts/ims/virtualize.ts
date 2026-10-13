@@ -1,5 +1,5 @@
 // Virtualizing an Imaris IMS file (HDF5) by the IMS profile (spec/virtualize/ims.md,
-// §8 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#8-ims-profile>): every chunk
+// §8 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#8-ims-profile>): every chunk
 // of every resolution level, time point and channel becomes a Zarr chunk that references the file.
 
 import type { Range } from "../../../../../js/src/protobuf.ts";
@@ -21,7 +21,7 @@ const DIGITS = /^[0-9]+$/;
 const TIMESTAMP = /^([0-9]{4})-([0-9]{2})-([0-9]{2}) ([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]+))?$/;
 
 // The length units of conventions §5
-// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#5-units>, by symbol.
+// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>, by symbol.
 const LENGTH_UNITS: Record<string, string> = {
   "\u00b5m": "micrometer", "\u03bcm": "micrometer", "um": "micrometer", "nm": "nanometer", "mm": "millimeter",
   "cm": "centimeter", "m": "meter", "\u00c5": "angstrom", "\u212b": "angstrom", "pm": "picometer", "in": "inch",
@@ -35,7 +35,7 @@ const reject = (message: string): never => {
 const trim = (s: string) => s.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");
 
 // ---- attribute values (spec/virtualize/ims.md §2.1
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#21-attributes-as-text>)
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#21-attributes-as-text>)
 
 /** The text of a string attribute, or undefined if it is absent. */
 function text(attrs: Map<string, Uint8Array>, name: string): string | undefined {
@@ -48,7 +48,7 @@ function text(attrs: Map<string, Uint8Array>, name: string): string | undefined 
 
 /**
  * The text of a string's data: up to the first NUL, UTF-8 or else Latin-1 (§2.1
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#21-attributes-as-text>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#21-attributes-as-text>).
  */
 function decodeText(data: Uint8Array): string {
   const raw = untilNul(data);
@@ -59,7 +59,7 @@ function decodeText(data: Uint8Array): string {
   }
 }
 
-/** The text of an attribute that never rejects the input (spec/virtualize/ims.md §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#4-output>, the
+/** The text of an attribute that never rejects the input (spec/virtualize/ims.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>, the
  *  color): undefined if it is absent, its value cannot be read, or it is not a string. */
 function optionalText(attrs: Map<string, Uint8Array>, name: string): string | undefined {
   try {
@@ -72,7 +72,7 @@ function optionalText(attrs: Map<string, Uint8Array>, name: string): string | un
 
 /**
  * An integer (§2.1
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#21-attributes-as-text>) from 1 to
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#21-attributes-as-text>) from 1 to
  * 2^53 - 1, or undefined.
  */
 function integer(s: string | undefined): number | undefined {
@@ -89,7 +89,7 @@ function unitRgb(values: number[] | undefined): string | undefined {
   return values.map((v) => Math.floor(v * 255 + 0.5).toString(16).toUpperCase().padStart(2, "0")).join("");
 }
 
-/** A channel's omero color (spec/virtualize/ims.md §4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#4-output>): its base color (`Color`) or the top of
+/** A channel's omero color (spec/virtualize/ims.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>): its base color (`Color`) or the top of
  *  its color table (the text `tableText` reads, only when needed), whichever `ColorMode`
  *  prefers, else white. */
 async function channelColor(
@@ -135,7 +135,7 @@ function days(y: number, m: number, d: number): number {
 /**
  * [whole seconds from 1970-01-01 00:00:00, fraction of a second], or undefined
  * (spec/virtualize/ims.md §3
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#3-metadata>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#3-metadata>).
  */
 function timestamp(s: string | undefined): [number, number] | undefined {
   const m = s === undefined ? null : s.match(TIMESTAMP);
@@ -151,7 +151,7 @@ function timestamp(s: string | undefined): [number, number] | undefined {
 
 /** [Zarr data type, byte order or undefined for one byte, integer range or
  * undefined] of a Data dataset (spec/virtualize/ims.md §2.2
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>). */
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>). */
 function dataType(dt: Datatype): [string, string | undefined, [number, number] | undefined] {
   const order = dt.bits & 1 ? "big" : "little";
   if (dt.cls === 0 && (dt.size === 1 || dt.size === 2 || dt.size === 4)) {
@@ -201,7 +201,7 @@ export async function virtualizeIms(
   };
 
   // spec/virtualize/ims.md §2.2
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>: the
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#22-the-imaris-layout>: the
   // levels, time points and channels.
   const root = await f.links(f.root);
   if (!root.has("DataSet")) reject("not an Imaris file (no DataSet group)");
@@ -264,7 +264,7 @@ export async function virtualizeIms(
   const [dtype, endian, range] = type!;
 
   // spec/virtualize/ims.md §3
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#3-metadata>: metadata.
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#3-metadata>: metadata.
   const meta: Links = root.has("DataSetInfo") ? await f.links(await follow(root, "DataSetInfo")) : new Map();
   const metaGroup = async (name: string): Promise<[Map<string, Uint8Array>, Links]> => {
     if (!meta.has(name)) return [new Map(), new Map()];
@@ -274,7 +274,7 @@ export async function virtualizeIms(
   };
   const metaAttrs = async (name: string) => (await metaGroup(name))[0];
   // A channel's ColorTable, as text (spec/virtualize/ims.md §3
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#3-metadata>): its attribute,
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#3-metadata>): its attribute,
   // else the small
   // string dataset its link leads to; undefined if neither can be read, never rejecting.
   const colorTable = async (attrs: Map<string, Uint8Array>, links: Links): Promise<string | undefined> => {
@@ -327,9 +327,9 @@ export async function virtualizeIms(
   }
 
   // spec/virtualize/ims.md §4
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#4-output>: output;
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>: output;
   // spec/virtualize.md §8.8
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#88-chunk-references>: the chunk
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#88-chunk-references>: the chunk
   // references.
   const z0 = levelInfo[0].sizes[0];
   // A z axis also when chunks hold several z planes, so that they decode to Zarr chunks.
@@ -425,7 +425,7 @@ export async function virtualizeIms(
     chunks++;
   }
   // The source metadata node (spec/virtualize/ims.md §5
-  // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ims.md#5-source-metadata>).
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>).
   for (const e of (await sourceTree(f, f.read, images)).entries()) entries.push(e);
   return {
     sources: [{ url }],

@@ -1,8 +1,8 @@
 """The reader policy (spec §6.7
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>), range checksums (§4.2
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>), pins (§5.1
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-pins>) and the
-recorded revision (§1.3 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#13-versioning>), in
+<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>), range checksums (§4.2
+<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>), pins (§5.1
+<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#51-pins>) and the
+recorded revision (§1.3 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#13-versioning>), in
 the reference reader and writer."""
 
 import threading
@@ -11,16 +11,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from vzip.archive import SPEC_REVISION, VZipWriter
-from vzip.errors import ArchiveError, RequestError, ResolutionError
-from vzip.pb import Range, Source, decode_table
-from vzip.policy import Policy, address_class, crc32c, matches_prefix
-from vzip._sync import run
-from vzip.store import RangeRequest, VZipStore
+from refkv.archive import SPEC_REVISION, VZipWriter
+from refkv.errors import ArchiveError, RequestError, ResolutionError
+from refkv.pb import Range, Source, decode_table
+from refkv.policy import Policy, address_class, crc32c, matches_prefix
+from refkv._sync import run
+from refkv.store import RangeRequest, VZipStore
 
 BLOB = bytes(range(256)) * 64  # 16 KiB
 # The test server is on 127.0.0.1, which spec §6.7
-# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
+# <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
 # default.
 SERVED = Policy(allow_private_hosts=True)
 
@@ -317,7 +317,7 @@ def test_refuses_a_bytes_entry_that_inflates_past_its_size(tmp_path):
     with open(path, "wb") as f, VZipWriter(f) as w:
         c = zlib.compressobj(9, zlib.DEFLATED, -15)
         w._entry_raw("bomb", b"x" * 10, c.compress(b"x" * (1 << 20)) + c.flush())
-    from vzip.errors import BodyError
+    from refkv.errors import BodyError
     with pytest.raises(BodyError, match="inflates to more than 10 bytes"):
         _get(VZipStore(str(path)), "bomb")
 
@@ -374,7 +374,7 @@ def resolver(monkeypatch):
     """Maps host names to addresses for the reader (`names`), passing others on."""
     import socket
 
-    import vzip.store
+    import refkv.store
 
     names: dict[str, str] = {}
     looked_up: list[str] = []
@@ -386,13 +386,13 @@ def resolver(monkeypatch):
             return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (names[host], port))]
         return real(host, port, *args, **kwargs)
 
-    monkeypatch.setattr(vzip.store, "_getaddrinfo", fake)
+    monkeypatch.setattr(refkv.store, "_getaddrinfo", fake)
     return names, looked_up
 
 
 def _range(policy, base, url):
     """Bytes 0-4 of `url`, read for an archive at `base` under `policy`, as the store does."""
-    from vzip.store import http_range
+    from refkv.store import http_range
 
     address = None if policy.allow_private_hosts else policy.check_address
     return http_range(url, 0, 4, Source(url=url), lambda u: policy.check(base, u), address,
@@ -407,7 +407,7 @@ def _loopback_only(url, ip):
 
 def _read(url, seen=None):
     """Bytes 0-4 of `url` through http_range with `_loopback_only`, recording checked addresses."""
-    from vzip.store import http_range
+    from refkv.store import http_range
 
     def address(u, ip):
         if seen is not None:

@@ -2,8 +2,8 @@
 //! test over valid combinations, and one test per error.
 
 use std::collections::HashMap;
-use vzip_ir::expr::{self, Env, V};
-use vzip_ir::rules::{self, Rules};
+use refkv_ir::expr::{self, Env, V};
+use refkv_ir::rules::{self, Rules};
 
 fn ev(s: &str, env: &Env) -> V {
     expr::eval(&expr::parse(s).unwrap(), env)
@@ -156,6 +156,6 @@ fn kind_and_int_read_json_values() {
 
 #[test]
 fn the_n5_schema_is_valid() {
-    let n = vzip_ir::n5::schema();
+    let n = refkv_ir::n5::schema();
     assert!(n.has_role("candidate") && n.has_role("document") && n.has_role("dataset"));
 }

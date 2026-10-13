@@ -1,6 +1,6 @@
 """Shared parts of the virtualizers (spec/virtualize.md §1
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#1-introduction>, §2
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#2-the-zarr-layout>)."""
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#1-introduction>, §2
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#2-the-zarr-layout>)."""
 
 from __future__ import annotations
 
@@ -18,15 +18,15 @@ import math
 from dataclasses import dataclass, field
 from typing import Callable
 
-from vzip.archive import VZipWriter
-from vzip.errors import ResolutionError
-from vzip.pb import Range, Source
-from vzip.policy import Policy
+from refkv.archive import VZipWriter
+from refkv.errors import ResolutionError
+from refkv.pb import Range, Source
+from refkv.policy import Policy
 
 
 class Rejected(Exception):
     """The input is not accepted by the profile (spec/virtualize.md §1.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>). `format`: the Rust
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>). `format`: the Rust
     core's store format that refused it once a store run was started, or the profile that run
     decided (`ome-zarr` once the 0.4 test passed) for a rejection of the output's checks; else
     None."""
@@ -38,10 +38,10 @@ class Rejected(Exception):
 
 def same(a, b) -> bool:
     """JSON values equal as spec/virtualize.md §1.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence> compares
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence> compares
     them: a number written as an integer
     (a Python int) is that integer exactly (§1.6
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#16-json-documents> copies one with
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-json-documents> copies one with
     every digit), any other
     number (a float) its binary64 value, and two numbers are equal when their values are, so
     an integer equals only a float that is exactly that integer. Booleans are not numbers."""
@@ -65,24 +65,24 @@ Part = tuple[int, int] | tuple[int, int, int] | bytes
 class Output:
     """A virtualizer's output: the url source 0, the data sources after it,
     and the entries (§1.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#11-output-and-equivalence>, §1.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>, §1.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>)."""
 
     url: str
     bytes_entries: dict[str, bytes] = field(default_factory=dict)
     refs: dict[str, list[Part]] = field(default_factory=dict)
     summary: dict = field(default_factory=dict)
     # The data sources 1, 2, ... in order of first use (§1.2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>), and their indexes.
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>), and their indexes.
     data: dict[bytes, int] = field(default_factory=dict)
     # The documents under these prefixes are read only when asked for, like chunks:
     # those of the source metadata node, and of nodes a profile has one of per tile.
     lazy: tuple[str, ...] = ("vzip_source/",)
-    # Source 0's pins (§1.2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>),
+    # Source 0's pins (§1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>),
     # and the CRC-32C of a url source's bytes, when the
     # ranges are to carry checksums (spec/archive.md §4.2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>); set by
-    # vzip.virtualize._virtualize.
+    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>); set by
+    # refkv.virtualize._virtualize.
     size: int | None = None
     etag: str | None = None
     checksum: Callable[[str, int, int], int] | None = None
@@ -93,7 +93,7 @@ class Output:
 
     def shared(self, value: bytes) -> tuple[int, int, int]:
         """A range of all of `value`, as a data source (§1.2
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>): the source is
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>): the source is
         added to the table the first time `value` is used."""
         value = bytes(value)
         i = self.data.setdefault(value, len(self.data) + 1)
@@ -124,7 +124,7 @@ class Output:
             w.close()
 
     def to_store(self, *, policy: Policy | None = None, info: dict | None = None):
-        """The output as a `vzip.ReferenceStore`, which `save` writes as the archive
+        """The output as a `refkv.ReferenceStore`, which `save` writes as the archive
         `write` writes, byte for byte (`reference_store`)."""
         sources = [Source(url=self.url, size=self.size, etag=self.etag)]
         for value, i in sorted(self.data.items(), key=lambda item: item[1]):
@@ -147,21 +147,21 @@ class Output:
 
 
 PAGE_SIZE = 1 << 16  # the page index of a virtualized archive (spec/archive.md §12
-# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#12-page-index-optional>)
+# <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#12-page-index-optional>)
 
 
 def reference_store(refs, entries, sources: list[Source], *, checksum=None,
                     policy: Policy | None = None, info: dict | None = None):
-    """A profile output as a `vzip.ReferenceStore`, in the layout every output's
+    """A profile output as a `refkv.ReferenceStore`, in the layout every output's
     `write` gives its archive: the references (key, ranges) first, then the bytes
     entries (key, bytes, late), in the order given; a late entry is read when the
     archive opens (`read_at_open`), and every other one is compressed. With
     `checksum(url, offset, length)`, each range of a url source carries the CRC-32C
     of its bytes (spec/archive.md §4.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>). The store
+    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>). The store
     reads its sources under `policy`."""
-    from vzip.pb import Concat
-    from vzip.refstore import ReferenceStore, bulk
+    from refkv.pb import Concat
+    from refkv.refstore import ReferenceStore, bulk
 
     def checked(r: Range) -> Range:
         if checksum is None or r.data is not None or r.crc32c is not None:
@@ -188,13 +188,13 @@ def reference_store(refs, entries, sources: list[Source], *, checksum=None,
 
 
 MAX_PAYLOAD = 65519
-SOURCE_NODE = "vzip_source"  # the source metadata node (spec/conventions.md §2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>)
+SOURCE_NODE = "vzip_source"  # the source metadata node (spec/conventions.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>)
 
 
 @dataclass
 class Plan:
     """An array of the source metadata node (spec/conventions.md §7
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>)."""
     path: str  # under vzip_source
     data_type: str
     shape: list[int]
@@ -258,7 +258,7 @@ def grid_chunks(offset: int, shape: list[int], item: int, read: "Reader | None" 
                 deepen: bool = True, limit: int = MAX_CHUNK) -> tuple[list[int], dict]:
     """The C-order array of `shape`, of `item`-byte elements contiguous at
     `offset`, cut as spec/conventions.md §7
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
     contiguous values: its chunk
     shape, and its chunks (coords -> the ranges that hold it, or its bytes).
     The cut axis `a` is the first whose index holds at most 2^24 bytes (`s`);
@@ -344,7 +344,7 @@ def row_chunks(offset: int, rows: int, row_bytes: int, row_shape: tuple = (), re
 def family_plans(path: str, members: list[tuple[int, int, int]], read: "Reader",
                  count: int | None = None, ragged: bool = False) -> list[Plan]:
     """A family of byte values (index, offset, length), as spec/conventions.md §7
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays> says,
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays> says,
     of `count` members (by default, one more than the largest index); `ragged`
     asks for the offsets-and-data form whatever the lengths."""
     if count is None:
@@ -373,7 +373,7 @@ def family_plans(path: str, members: list[tuple[int, int, int]], read: "Reader",
     starts.append(total)
     packed = struct.pack(f"<{count + 1}q", *starts)
     # The offsets are copied, and cut as contiguous values (spec/conventions.md §7
-    # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>).
     shape, cut = grid_chunks(0, [count + 1], 8, lambda o, n: packed[o : o + n])
     offsets = {k: v if isinstance(v, bytes) else b"".join(packed[r[0] : r[0] + r[1]] if isinstance(r, tuple) else r
                                                           for r in v) for k, v in cut.items()}
@@ -426,7 +426,7 @@ MAX_SAFE = 2**53 - 1
 
 def json_number(v):
     """A number as source metadata (spec/conventions.md §6
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)."""
     if isinstance(v, float):
         if math.isnan(v):
             return "NaN"
@@ -438,7 +438,7 @@ def json_number(v):
 
 def decode_text(b: bytes) -> str:
     """Bytes as text: UTF-8 if valid, else ISO 8859-1 (spec/conventions.md §6
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)."""
     try:
         return b.decode("utf-8")
     except UnicodeDecodeError:
@@ -447,7 +447,7 @@ def decode_text(b: bytes) -> str:
 
 def text_json(b: bytes):
     """A text value (spec/conventions.md §6
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>): UTF-8
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>): UTF-8
     if valid, else {"latin1": ...}, so that the bytes can always be recovered."""
     try:
         return b.decode("utf-8")
@@ -477,7 +477,7 @@ def _range_size(r: Part) -> int:
 
 def payload_size(ranges: list[Part]) -> int:
     """The encoded size of a reference to `ranges` (§1.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>)."""
     if len(ranges) == 1:
         return _range_size(ranges[0])
     return sum(1 + _varint_size(n) + n for n in map(_range_size, ranges))
@@ -493,7 +493,7 @@ UNITS = {
 TYPES = {"t": "time", "c": "channel", "z": "space", "y": "space", "x": "space"}
 
 # Sizes of the length units in metres (conventions §5
-# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#5-units>).
+# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>).
 LENGTHS = {
     "micrometer": 1e-6, "nanometer": 1e-9, "millimeter": 1e-3, "centimeter": 1e-2, "meter": 1.0,
     "angstrom": 1e-10, "picometer": 1e-12, "inch": 0.0254, "foot": 0.3048,
@@ -502,13 +502,13 @@ LENGTHS = {
 
 def centred(cx: float, cy: float, w0: int, h0: int, sx: float, sy: float) -> dict:
     """The translation of an image whose centre is at (cx, cy) (conventions §5
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#5-units>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>)."""
     return {"x": cx - w0 * sx / 2, "y": cy - h0 * sy / 2}
 
 
 def array_json(shape, data_type: str, chunk_shape, codecs: list, axes: list[str]) -> dict:
     """An array's zarr.json (conventions §3
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#3-arrays>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#3-arrays>)."""
     return {
         "zarr_format": 3,
         "node_type": "array",
@@ -525,7 +525,7 @@ def array_json(shape, data_type: str, chunk_shape, codecs: list, axes: list[str]
 
 def transpose_codec(axes: list[str]) -> dict:
     """The transpose codec for frames that hold the channel axis last (conventions §3
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#3-arrays>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#3-arrays>)."""
     stored = [a for a in axes if a != "c"] + ["c"]
     return {"name": "transpose", "configuration": {"order": [axes.index(a) for a in stored]}}
 
@@ -535,13 +535,13 @@ def group_json(ome: dict) -> dict:
 
 
 # The virtualization conventions (conventions §2
-# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>): one per profile, each
+# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>): one per profile, each
 # with its fixed UUID, its current version and its name in the description.
 CONVENTION_KEY = "vzip_virtualized"
 # The revision of spec/virtualize.md this implementation follows. Until the release, every
 # convention is at version 0 and the root property records it (conventions §1
-# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#1-conventions>, §2
-# <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>).
+# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>, §2
+# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>).
 REVISION = 26
 PROFILES = {
     "tiff": ("48e9ac4e-1156-4a62-955e-20467d9c2700", 0, "TIFF"),
@@ -561,10 +561,10 @@ UUIDS = frozenset(uuid for uuid, _, _ in PROFILES.values())
 
 def convention(profile: str) -> dict:
     """The Convention Metadata Object of a profile's convention (conventions §2
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>)."""
     uuid, version, title = PROFILES[profile]
     # Version 0 has no tag: its URLs name the development branch (conventions §1
-    # <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#1-conventions>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>).
     ref, blob = ("heads/main", "main") if version == 0 else (f"tags/virtualize-{profile}-v{version}",) * 2
     return {
         "uuid": uuid,
@@ -577,7 +577,7 @@ def convention(profile: str) -> dict:
 
 def root_property(profile: str, url: str, revision: int = REVISION) -> dict:
     """The root's property without its source metadata (conventions §2
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>): the profile, its
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>): the profile, its
     convention's version, the revision while that version is 0 (`revision`: the one the
     implementation follows; the frozen reference records its own), and the source URL."""
     version = PROFILES[profile][1]
@@ -588,7 +588,7 @@ def root_property(profile: str, url: str, revision: int = REVISION) -> dict:
 def declare(attributes: dict, profile: str, url: str | None, own: dict | None = None,
             revision: int = REVISION) -> dict:
     """A node's attributes (conventions §2
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>): `attributes`, the
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>): `attributes`, the
     members the target formats
     define (such as `ome`), and the profile's convention when the node is the
     root (`url`, the source URL, is given) or has source-specific metadata
@@ -607,8 +607,8 @@ def declare(attributes: dict, profile: str, url: str | None, own: dict | None = 
 
 def root_json(ome: dict, profile: str, url: str, own: dict | None = None, revision: int = REVISION) -> dict:
     """The root image group of a file profile (conventions §4
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#4-images>, conventions §2
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>), with the
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#4-images>, conventions §2
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), with the
     source-specific metadata `own`."""
     return {"zarr_format": 3, "node_type": "group",
             "attributes": declare({"ome": ome}, profile, url, own, revision)}
@@ -620,7 +620,7 @@ def image_ome(axes: list[str], units: dict, scales: list[list[float]], name: str
         if not all(math.isfinite(v) for v in t):
             raise Rejected("a translation is not finite")
     """The OME-NGFF 0.5 object of an image (conventions §4
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#4-images>), with a translation per
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#4-images>), with a translation per
     level after its scale when `translations` is given."""
     ms = {}
     if name is not None:
@@ -656,7 +656,7 @@ def _retry(f):
 
 class _ThreadConnections:
     """Kept-alive connections, one per thread and origin, with the interface of
-    `vzip.store._Pool`: each thread that reads closes its own (`release`) as it
+    `refkv.store._Pool`: each thread that reads closes its own (`release`) as it
     ends. A new TLS connection per range costs a round trip or more, which
     dominates many small reads, such as a SAFE product's band files'."""
 
@@ -670,7 +670,7 @@ class _ThreadConnections:
         return conns
 
     def get(self, scheme: str, host: str, port: int | None):
-        from vzip.store import new_connection
+        from refkv.store import new_connection
 
         conn = self._conns().pop((scheme, host, port), None)
         if conn is not None:
@@ -696,8 +696,8 @@ def follow(base: str, url: str, send: Callable, policy: Policy):
     """(url, status, headers, body) of the request `send(url)` makes, following at
     most 5 redirects: the policy checks `url`, and each redirect's target before it
     is requested, for the input at `base`. `send` does not follow redirects."""
-    from vzip.store import _check_http_url
-    from vzip.uri import is_uri_reference
+    from refkv.store import _check_http_url
+    from refkv.uri import is_uri_reference
 
     for hop in range(6):
         policy.check(base, url)
@@ -723,13 +723,13 @@ def http_reader(url: str, block: int = 1 << 16, policy: Policy | None = None) ->
     """A cached range reader for an http(s) URL, and the object's size. Every request
     (the size's, each range's, prefetch's) is made under the reader policy `policy`
     (spec/archive.md §6.7
-    <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>, default `Policy()`),
+    <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>, default `Policy()`),
     as `HttpStore`'s are: each redirect target is
     checked before it is requested; unless the policy has `allow_private_hosts`, the
     address each request is sent to is checked, on a new connection and on a
     kept-alive one; and a request that would go through a proxy is refused unless
     the policy has `allow_unchecked_proxy`."""
-    from vzip import store
+    from refkv import store
 
     policy = policy or Policy()
     etags = EtagLog()
@@ -894,7 +894,7 @@ def http_reader(url: str, block: int = 1 << 16, policy: Policy | None = None) ->
 
 class EtagLog:
     """The ETag of every response for one object, for its `etag` pin (spec/virtualize.md §1.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>)."""
 
     def __init__(self) -> None:
         self.seen: set[str | None] = set()
@@ -919,7 +919,7 @@ STRONG_ETAG = re.compile(r'^"[\x21\x23-\x7e]*"$')
 
 
 # Some servers (Mendeley Data) refuse urllib's default User-Agent; the store reads send this one.
-UA = "vzip-virtualize"
+UA = "refkv-virtualize"
 MAX_BLOCKS = 2048  # cached blocks of an http reader (128 MiB at 64 KiB)
 
 

@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from vzip.virtualize import Rejected
+from refkv.virtualize import Rejected
 from refkv_reference import virtualize
 from refkv_reference.czi.coding import jpeg_frame, jpegxr_size, zstd1_header, zstd_content_size
 from refkv_reference.czi.layout import layer, row_band

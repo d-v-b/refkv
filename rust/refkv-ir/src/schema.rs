@@ -77,7 +77,7 @@ fn object_members<'a>(item: Item<'a>, what: &str) -> Res<Vec<(String, Node<'a>)>
 }
 
 /// A member read by its spec (spec/virtualize/nd2.md §2.2
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#22-lite-variant>): `item` None
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#22-lite-variant>): `item` None
 /// is a missing member.
 fn read(
     item: Option<Item<'_>>,
@@ -372,7 +372,7 @@ pub struct Loop {
 }
 
 /// The flattening of spec/virtualize/nd2.md §3
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#3-metadata> (rules 1 to 3).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#3-metadata> (rules 1 to 3).
 pub fn flatten(root: &V) -> Vec<Loop> {
     let mut loops: Vec<Loop> = Vec::new();
     fn visit(node: &V, depth: u32, loops: &mut Vec<Loop>) {
@@ -591,7 +591,7 @@ pub fn check_nd2(
     ]);
     env.insert("placed".into(), pl);
     // stage translations (spec/virtualize/nd2.md §4.3
-    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#43-output>)
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#43-output>)
     let calibrated = env.get("calibrated").is_some_and(|v| v.truthy());
     let det = num(&env, "det");
     let stages: Vec<(Option<f64>, Option<f64>)> = match find("p") {

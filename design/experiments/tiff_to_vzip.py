@@ -1,7 +1,7 @@
 """Virtualize a remote tiled (pyramidal, OME-) TIFF as a vzip archive, with pins.
 
 This is the original experiment. The TIFF profile of spec/virtualize.md, which
-two implementations follow, is `python -m vzip.virtualize`; this script
+two implementations follow, is `python -m refkv.virtualize`; this script
 differs from it in its OME metadata (no units or physical scales) and in
 pinning the source by default.
 
@@ -13,7 +13,7 @@ Reads only the TIFF's IFDs over HTTP range requests, then writes:
 * `OME/METADATA.ome.xml`: the OME-XML, as a real (deflated) bytes entry
 
 The URL source is pinned to the object's size, ETag and Last-Modified (spec §5.1
-<https://github.com/d-v-b/vzip/blob/main/spec/archive.md#51-pins>),
+<https://github.com/d-v-b/refkv/blob/main/spec/archive.md#51-pins>),
 unless `--no-pins` is given. Browsers can only check pins on servers that expose
 those headers to cross-origin pages, which many (EBI's included) do not.
 
@@ -34,9 +34,9 @@ import tifffile
 import zarr
 from zarr.storage import MemoryStore
 
-from vzip.archive import VZipWriter
-from vzip.zarr.codecs import Jpeg2kCodec
-from vzip.pb import Range, Source
+from refkv.archive import VZipWriter
+from refkv.zarr.codecs import Jpeg2kCodec
+from refkv.pb import Range, Source
 
 JPEG2K = {33003, 33004, 33005, 34712}
 

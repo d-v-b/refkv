@@ -1,9 +1,9 @@
 """For the verify scripts: TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE archives the IR wrote hold its mirror
 under `vzip_source` (rust/refkv-ir/src/mirror.rs), not the source metadata of
 conventions §6
-<https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#6-source-metadata-as-json>. Their
+<https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>. Their
 source checks are then the mirror's: the source rebuilt from
-the archive alone, byte for byte (`vzip.ir.cmirror.rebuild_from_archive`)."""
+the archive alone, byte for byte (`refkv.ir.cmirror.rebuild_from_archive`)."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def is_mirror(archive: Path) -> bool:
 
 def mirror_problems(archive: Path, source: Path) -> list[str]:
     """[] when the mirror rebuilds `source` byte for byte, else what went wrong."""
-    from vzip.ir.cmirror import rebuild_from_archive
+    from refkv.ir.cmirror import rebuild_from_archive
 
     h = hashlib.sha256()
     with open(source, "rb") as f:

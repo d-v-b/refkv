@@ -1,4 +1,4 @@
-"""Section references (§n) in vzip: links to the headings they mean, and a check.
+"""Section references (§n) in refkv: links to the headings they mean, and a check.
 
     uv run python spec/tools/sections.py check [paths...]
     uv run python spec/tools/sections.py migrate [--write] [--report refs.tsv]
@@ -10,7 +10,7 @@ section's heading, never a bare "§n":
   "§n": `[§6.7](#67-reader-policy)`, `[spec/archive.md §6.7](archive.md#67-reader-policy)`;
 - in code (comments and docstrings, and the descriptions in the JSON schemas and
   source models), the "§n" followed by the heading's URL in angle brackets:
-  `spec/archive.md §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>`.
+  `spec/archive.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>`.
 
 `check` fails on a bare reference outside the records of past states (EXCLUDED)
 and the user-facing strings listed in bare_refs_allowed.txt, and on a link
@@ -41,7 +41,7 @@ from functools import cache
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[2]
-URL = "https://github.com/d-v-b/vzip/blob/main/"
+URL = "https://github.com/d-v-b/refkv/blob/main/"
 HERE = Path(__file__).resolve().parent
 
 # Records of past states: their references cite the documents as they were then, so

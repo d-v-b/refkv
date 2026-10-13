@@ -1,7 +1,7 @@
 //! The ND2 image projection (spec/virtualize/nd2.md §4
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#4-the-image>, and the root's
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#4-the-image>, and the root's
 //! source metadata
-//! of §5.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>) from
+//! of §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>) from
 //! a valid IR: the IR holds what it needs.
 
 use super::{arr, json_text, n, truthy};
@@ -19,13 +19,13 @@ const MAX_ROOT_TOTAL: usize = 1 << 16;
 /// The largest integer JSON holds exactly.
 const MAX_SAFE: i128 = (1 << 53) - 1;
 /// The names of the tags (spec/virtualize/nd2.md §5.1
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>).
 const TAGS: [&str; 3] = ["utf16", "int", "float"];
 
 use crate::out::{js_string_size, json_size};
 
 // ---- values as JSON (spec/virtualize/nd2.md §5.1
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>)
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>)
 
 /// An integer as JSON: itself, or a tag when JSON cannot hold it exactly.
 fn int_json(v: i128) -> J {
@@ -92,7 +92,7 @@ fn exact_text(units: &[u8]) -> J {
 }
 
 /// An XML variant value by its runtype (spec/virtualize/nd2.md §5.1
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>).
 fn scalar(runtype: Option<&str>, value: &str) -> J {
     const INTS: [&str; 8] = ["lx_int8", "lx_int16", "lx_int32", "lx_int64", "lx_uint8", "lx_uint16", "lx_uint32", "lx_uint64"];
     let unsigned = value.strip_prefix(['+', '-']).unwrap_or(value);
@@ -144,7 +144,7 @@ impl Values<'_> {
 
     /// The name the source gives an LV record or an XML element: its element's name
     /// with `source_names`'s rule undone (spec/virtualize/nd2.md §5.3
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#53-elements>).
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#53-elements>).
     fn source_name(&self, i: u32) -> String {
         source_text(self.ir.names.get(self.ir.name[i as usize]), self.ir.nidx[i as usize])
     }
@@ -229,7 +229,7 @@ fn frame_scaled(name: &[u8]) -> bool {
 }
 
 /// The root's `chunks` (spec/virtualize/nd2.md §5.1
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>): the decoded
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>): the decoded
 /// chunks that do not grow with the frames, have at most 16 KiB of JSON, and fit the root's budget.
 fn root_chunks(ir: &Ir, decoded: &[J]) -> Result<J, String> {
     let mut vals = Values { ir, types: HashMap::new() };
@@ -276,7 +276,7 @@ fn root_chunks(ir: &Ir, decoded: &[J]) -> Result<J, String> {
 }
 
 // ---- the image (spec/virtualize/nd2.md §4
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#4-the-image>)
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#4-the-image>)
 
 /// Each placed frame's pixels: f -> (start, length), runs expanded.
 fn placed_frames(ir: &Ir) -> BTreeMap<u64, (u64, u64)> {
@@ -304,7 +304,7 @@ fn int(v: &J) -> i64 {
 }
 
 /// Labels and colors (spec/virtualize/nd2.md §4.2
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nd2.md#42-channels>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#42-channels>).
 fn channels(planes: &J, comp: u64) -> (Vec<String>, Vec<String>) {
     let count = int(&planes["uiCount"]);
     let mut ps: BTreeMap<i64, (String, i64, i64)> = BTreeMap::new();

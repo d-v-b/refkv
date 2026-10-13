@@ -18,8 +18,8 @@ from functools import partial
 
 import pytest
 
-from vzip.virtualize import Rejected
-from vzip.virtualize.common import declare as declare_now
+from refkv.virtualize import Rejected
+from refkv.virtualize.common import declare as declare_now
 from refkv_reference import virtualize
 from refkv_reference.revision import STORES_REVISION
 
@@ -176,9 +176,9 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
             got = flat(d["coordinateTransformations"][1]["translation"] for d in datasets)
             assert got == pytest.approx(flat(translations)), name
     # Every node's attributes.json is its source metadata (spec/virtualize/n5.md §5
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#5-source-metadata>): the
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#5-source-metadata>): the
     # attributes, and the version n5; nodes inside datasets and stray objects are other objects (§6
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>).
     _, out = virtualize(str(FIXTURES / "n5_hierarchy"), url=URL.format("n5_hierarchy"))
     assert out.docs["zarr.json"]["attributes"] == declare(
         {}, "n5", URL.format("n5_hierarchy"), {"attributes": {"description": "groups"}, "metadata": {"n5": "4.0.0"}})
@@ -192,8 +192,8 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     # The missing block (1/0) and the empty one (2/0) have no entry.
     assert [k for k, _ in out.chunks if k.startswith("a/b/sparse/")] == ["a/b/sparse/0/0"]
     # The empty block's key is listed with the empty objects (§3.1
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#31-chunks>, §6
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#31-chunks>, §6
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>).
     assert out.docs["vzip_source/zarr.json"]["attributes"]["vzip_virtualized"]["n5"] == {"empty": ["a/b/sparse/2/0"]}
     # Block keys follow the grid in N5 dimension order (two blocks along the second, two along the first).
     _, out = virtualize(str(FIXTURES / "n5_compressions"), url=URL.format("n5_compressions"))
@@ -229,7 +229,7 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
         "metadata": {"compression": {"nthreads": 1}}}
     # A dataset nested in a dataset, a stray object and a README are kept whole
     # (spec/virtualize/n5.md §6
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>).
     url = URL.format("n5_objects")
     _, out = virtualize(str(FIXTURES / "n5_objects"), url=url)
     assert [k for k, _ in out.chunks] == ["a/0", "vzip_source/objects/README", "vzip_source/objects/a/labels/0",

@@ -1,6 +1,6 @@
 //! A sans-IO parser of TIFF, BigTIFF and OME-TIFF files into the IR
 //! (spec/virtualize.md §3
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#3-tiff-profile>,
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-tiff-profile>,
 //! spec/virtualize/tiff.md): it never reads; it asks for batches
 //! of ranges (`step`), is given their bytes (`feed`), and holds them only until
 //! the step that uses them.
@@ -14,9 +14,9 @@
 //! meets each role: a file that fails is rejected there, and nowhere else.
 //!
 //! **The NDPI variant** (spec/virtualize/ndpi.md
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md>). After the header, the
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md>). After the header, the
 //! parser tests the file for NDPI (§4
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>, which never
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>, which never
 //! rejects): a little-endian magic-42 TIFF whose IFD at the u64 at bytes 4–11 has tag 65420. An
 //! NDPI is read by the same rounds with these extension points, each a method that asks
 //! `self.ndpi`:
@@ -58,7 +58,7 @@ fn is_table(tag: u16) -> bool {
 }
 
 /// The tags of NDPI's table (spec/virtualize/ndpi.md §2
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#2-the-source>), and the tags
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#2-the-source>), and the tags
 /// NDPI adds to TIFF's layout tags (McuStarts and McuStartsHighBytes).
 const NDPI_TABLE: [u16; 17] = [
     256, 257, 258, 259, 262, 273, 277, 279, 282, 283, 296, 65420, 65421, 65422, 65423, 65426, 65432,
@@ -329,7 +329,7 @@ impl Tiff {
     }
 
     /// A pointer tag (spec/virtualize/tiff.md §5.2
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#52-which-ifds>), of the
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#52-which-ifds>), of the
     /// variant's table and layout tags.
     fn is_pointer(&self, tag: u16, typ: u16) -> bool {
         match tag {
@@ -390,7 +390,7 @@ impl Tiff {
                     let h = self.fed.get(0, n).ok_or("internal: no header")?.to_vec();
                     self.fed.clear();
                     // the NDPI test (spec/virtualize/ndpi.md §4
-                    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>):
+                    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>):
                     // the IFD at V, the u64 at bytes 4–11, of a little-endian classic TIFF
                     if h.len() >= 12 && h[..4] == *b"II*\0" {
                         let v = u64_at(&h, 4, true);
@@ -964,7 +964,7 @@ impl Tiff {
                 let eager = describe && n <= max_decode && (want.contains_key(&(e.off, n)) || self.eager + n <= eager_limit);
                 // every numeric value of at most 1024 bytes is held, whatever its tag: the
                 // mirror's view shows it (conventions §8.7
-                // <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>)
+                // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>)
                 let shown = n <= crate::mirror::VIEW_VALUE && e.typ != 7 && type_size(e.typ).is_some();
                 if required || eager || shown {
                     let w = want.entry((e.off, n)).or_default();
@@ -987,13 +987,13 @@ impl Tiff {
 }
 
 // ---- the layout (spec/virtualize/tiff.md §4
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#4-the-image>), as the profile
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#4-the-image>), as the profile
 // reads it
 
 type Vals = HashMap<u16, Loaded>;
 
 /// The OME-XML of spec/virtualize/tiff.md §3
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#3-ome-xml>: the first image's
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-ome-xml>: the first image's
 /// name, its Pixels' attributes, its TiffData elements, and its first Plane at (0, 0, 0).
 #[derive(Default, Debug)]
 struct Ome {
@@ -1163,7 +1163,7 @@ fn int_attr(rules: &Rules, attrs: &[(String, String)], key: &str, default: u64, 
 }
 
 /// The `name = value` fields of an Aperio ImageDescription (spec/virtualize/tiff.md §4.4
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#44-arrays>), or None.
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>), or None.
 fn aperio_fields(d: &str) -> Option<Vec<(String, String)>> {
     if !d.starts_with("Aperio") {
         return None;
@@ -1427,8 +1427,8 @@ impl Tiff {
         let (bits, spp, sample_format, planar, compression, predictor, photometric) = f0;
         self.check("predictor", rules::env([("compression", num(compression as f64)), ("predictor", num(predictor as f64))]))?;
         // the planes (spec/virtualize/tiff.md §3
-        // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#3-ome-xml>, §4.1
-        // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#41-planes>), in (t, c,
+        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-ome-xml>, §4.1
+        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#41-planes>), in (t, c,
         // z) order, as main-chain IFD indices
         let empty = vec![];
         let px = ome.as_ref().map(|o| &o.pixels).unwrap_or(&empty);
@@ -1519,7 +1519,7 @@ impl Tiff {
         self.check("plane_map", rules::env([("mapped", flag(mapped))]))?;
         let planes: Vec<usize> = plane_ifd.iter().map(|&i| self.chain[i as usize]).collect();
         // the levels (spec/virtualize/tiff.md §4.2
-        // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#42-pyramid-levels>)
+        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#42-pyramid-levels>)
         let mut levels: Vec<Level> = Vec::new();
         let subs0 = self.ifds[i0].subs.clone();
         if !subs0.is_empty() {
@@ -1565,7 +1565,7 @@ impl Tiff {
             }
         }
         // data type and codecs (spec/virtualize/tiff.md §4.3
-        // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#43-data-types-and-codecs>)
+        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#43-data-types-and-codecs>)
         let mut env = rules::env([
             ("bits", num(bits as f64)),
             ("sample_format", num(sample_format as f64)),
@@ -1642,7 +1642,7 @@ impl Tiff {
             }
         }
         // pixel size and position (spec/virtualize/tiff.md §4.4
-        // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#44-arrays>)
+        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>)
         let unit_of = |u: &str| self.rules.table("units").get(u).and_then(|x| x.as_str()).map(|x| x.to_string());
         let length = |u: &str| self.rules.table("lengths").get(u).and_then(|x| x.as_f64());
         let mut units: BTreeMap<char, String> = BTreeMap::new();
@@ -1903,7 +1903,7 @@ impl Tiff {
     }
 
     /// The pointer tags of the IFDs read, in tree order (spec/virtualize/tiff.md §5
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/tiff.md#5-source-metadata>).
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#5-source-metadata>).
     fn start_pointers(&mut self) {
         self.todo.clear();
         let mut ks: Vec<usize> = (0..self.ifds.len()).collect();
@@ -2060,8 +2060,8 @@ impl Tiff {
 }
 
 // ---- the NDPI layout (spec/virtualize/ndpi.md §3
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#3-levels>, §4
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-the-image>), as the profile
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#3-levels>, §4
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>), as the profile
 // reads it
 
 /// An NDPI tag's values, as the profile reads them.
@@ -2213,7 +2213,7 @@ impl Tiff {
             return Err(Stop::Need(need));
         }
         // the levels (spec/virtualize/ndpi.md §3
-        // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#3-levels>)
+        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#3-levels>)
         let mut tags: Vec<(usize, NVals)> = Vec::new();
         let mut levels: Vec<(usize, f64, u64, u64)> = Vec::new(); // (IFD, magnification, w, h)
         for (j, &k) in self.chain.iter().enumerate() {
@@ -2254,7 +2254,7 @@ impl Tiff {
         self.check("images", rules::env([("levels", num(levels.len() as f64))]))?;
         let vals = |k: usize| &tags.iter().find(|t| t.0 == k).unwrap().1;
         // scale and position (spec/virtualize/ndpi.md §4
-        // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-the-image>)
+        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>)
         let (k0, _, bw, bh) = levels[0];
         let m0 = vals(k0);
         let per_unit = self

@@ -1,5 +1,5 @@
 // TIFF profile, spec/virtualize.md §3
-// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#3-tiff-profile>.
+// <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#3-tiff-profile>.
 
 import {
   AXIS_TYPE,
@@ -192,7 +192,7 @@ interface Geom {
 
 /**
  * Size checks of §3.1
- * <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#31-reading> for
+ * <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#31-reading> for
  * an IFD that is a plane, a level or a candidate.
  */
 function checkSize(ifd: IFD, what: string): { w: number; h: number } {
@@ -336,7 +336,7 @@ export async function virtualizeTiff(src: Source, out: Output): Promise<void> {
   } else first = rd.u32(hdr, 4);
 
   // §3.1
-  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#31-reading>
+  // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#31-reading>
   // IFDs
   const main: IFD[] = [];
   let off = first;
@@ -359,7 +359,7 @@ export async function virtualizeTiff(src: Source, out: Output): Promise<void> {
   const spp = fmt0.spp;
 
   // §3.2
-  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#32-ome-xml>
+  // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#32-ome-xml>
   // OME-XML
   let D: Uint8Array | undefined;
   let ome: OmeInfo | undefined;
@@ -384,7 +384,7 @@ export async function virtualizeTiff(src: Source, out: Output): Promise<void> {
   }
 
   // §3.3
-  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#33-planes>
+  // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#33-planes>
   // Planes
   let sizeZ = 1;
   let sizeT = 1;
@@ -459,7 +459,7 @@ export async function virtualizeTiff(src: Source, out: Output): Promise<void> {
   }
 
   // §3.4
-  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#34-pyramid-levels>
+  // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#34-pyramid-levels>
   // Levels
   const levels: IFD[][] = [planeIfd.map((i) => main[i])];
   const s = ifd0.tags.get(330)?.count ?? 0;
@@ -504,7 +504,7 @@ export async function virtualizeTiff(src: Source, out: Output): Promise<void> {
   });
 
   // §3.5
-  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#35-data-types-and-codecs>
+  // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#35-data-types-and-codecs>
   // Data type and codecs
   const prefix = { 1: "uint", 2: "int", 3: "float" }[fmt0.sf as 1 | 2 | 3];
   if (prefix === undefined) reject(`SampleFormat ${fmt0.sf}`);
@@ -525,7 +525,7 @@ export async function virtualizeTiff(src: Source, out: Output): Promise<void> {
   else reject(`Compression ${comp} with Predictor ${pred}`);
 
   // §3.6
-  // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#36-output>
+  // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#36-output>
   // Output
   const channels = ome !== undefined ? sizeC : spp;
   const dims: string[] = [];

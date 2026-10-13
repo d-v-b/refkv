@@ -1,8 +1,8 @@
 {
-  "name": "vzip-web",
+  "name": "refkv",
   "private": true,
   "type": "module",
-  "description": "vzip in the browser: a service worker that serves vzip archives, and virtualized TIFFs, as plain HTTP Zarr",
+  "description": "refkv in the browser: a service worker that serves vzip archives, and virtualized TIFFs, as plain HTTP Zarr",
   "imports": {
     "#net": {
       "node": "./src/net_node.ts",

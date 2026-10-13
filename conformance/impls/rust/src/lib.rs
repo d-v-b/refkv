@@ -18,7 +18,7 @@ pub const EXTRA_CONCAT: u16 = 0x7A77;
 pub const MAX_PAYLOAD: usize = 65519;
 
 /// Resource limit (§10
-/// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#10-security-considerations>):
+/// <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#10-security-considerations>):
 /// the largest value window, inflated body, or HTTP body a single operation may materialise. 1 GiB.
 pub const MEMORY_LIMIT: u64 = 1 << 30;
 
@@ -66,7 +66,7 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {}
 
 /// Is `s` a strong entity tag `DQUOTE *etagc DQUOTE` (§6.1
-/// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#61-pins>)?
+/// <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#61-pins>)?
 pub fn is_strong_etag(s: &str) -> bool {
     let b = s.as_bytes();
     b.len() >= 2
@@ -77,7 +77,7 @@ pub fn is_strong_etag(s: &str) -> bool {
 
 /// Inflates a raw DEFLATE body, requiring a single complete stream that ends
 /// exactly at the end of `data` (§8.1
-/// <https://github.com/d-v-b/vzip/blob/main/spec/history/archive/SPEC.r7.md#81-opening>). Output
+/// <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#81-opening>). Output
 /// beyond `limit` bytes fails.
 pub fn inflate_clean(data: &[u8], limit: u64) -> Result<Vec<u8>, String> {
     use flate2::{Decompress, FlushDecompress, Status};

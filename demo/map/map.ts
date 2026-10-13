@@ -30,7 +30,7 @@ const setStatus = (text: string, error = false) => {
 async function getJson(url: string) {
   const r = await fetch(url);
   if (r.headers.get(WORKER_HEADER) === null) {
-    throw new Error("the vzip service worker did not answer; reload the page and try again");
+    throw new Error("the refkv service worker did not answer; reload the page and try again");
   }
   if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
   return r.json();
@@ -38,7 +38,7 @@ async function getJson(url: string) {
 
 /**
  * How a band's digital numbers become reflectance (§6.2
- * <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#62-band-arrays>): `(DN + offset)
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#62-band-arrays>): `(DN + offset)
  * / quantification`.
  */
 interface Radiometry {
@@ -123,7 +123,7 @@ async function main() {
     const s = (await getJson(`${zarrUrl}r10m/${band}/zarr.json`)).attributes?.vzip_virtualized?.safe ?? {};
     // Offsets exist from processing baseline 04.00; they are not applied to
     // the arrays (§6.2
-    // <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#62-band-arrays>), so the
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#62-band-arrays>), so the
     // style applies them.
     const q = s.BOA_QUANTIFICATION_VALUE ?? s.QUANTIFICATION_VALUE;
     return {
@@ -198,7 +198,7 @@ async function main() {
       : where;
   });
   // For the end-to-end test.
-  (window as unknown as { vzipMap: unknown }).vzipMap = { map, getLayer: () => layer, zarrUrl };
+  (window as unknown as { refkvMap: unknown }).refkvMap = { map, getLayer: () => layer, zarrUrl };
 }
 
 main().catch((e) => setStatus(String(e.message ?? e), true));

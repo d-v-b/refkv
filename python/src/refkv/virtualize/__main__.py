@@ -2,20 +2,20 @@ import json
 import os
 import sys
 
-from vzip.errors import ResolutionError
-from vzip.policy import Policy
-from vzip.virtualize import Rejected, virtualize
-from vzip.virtualize.store import WORKERS
+from refkv.errors import ResolutionError
+from refkv.policy import Policy
+from refkv.virtualize import Rejected, virtualize
+from refkv.virtualize.store import WORKERS
 
 
 def main(argv: list[str]) -> int:
     args = list(argv)
     url = None
-    checksums = "--checksums" in args  # spec/archive.md §4.2 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>: reads every referenced byte
+    checksums = "--checksums" in args  # spec/archive.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>: reads every referenced byte
     if checksums:
         args.remove("--checksums")
     # spec/archive.md §6.7
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3: an input on
+    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 3: an input on
     # a loopback or private host needs this (UNSAFE)
     private = "--allow-private-hosts" in args
     if private:
@@ -39,7 +39,7 @@ def main(argv: list[str]) -> int:
         workers = int(args[i + 1])
         del args[i : i + 2]
     if len(args) != 2:
-        print("usage: python -m vzip.virtualize <url or path> <out.vzip> [--url <source url>] [--checksums]"
+        print("usage: python -m refkv.virtualize <url or path> <out.vzip> [--url <source url>] [--checksums]"
               " [--allow-private-hosts] [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]\n"
               "(a URL ending in / or a directory is an N5 or Zarr v2 store; a directory needs --url;\n"
               f"a store's documents are read by up to N requests at a time, default {WORKERS})",

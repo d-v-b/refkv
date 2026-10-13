@@ -1,6 +1,6 @@
 //! A sans-IO parser of NIfTI-1 and NIfTI-2 single files into the IR (spec/virtualize/nifti.md §7
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#7-nifti-profile>, and the
-//! source model of §5.3 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#53-elements>).
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#7-nifti-profile>, and the
+//! source model of §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#53-elements>).
 //!
 //! Rounds: (1) the first 552 bytes (the header and its extender); (2) the extension
 //! chain, a window of up to 1 MiB at a time from the extension it stopped at. The
@@ -27,7 +27,7 @@ static COPY_THRESHOLD: AtomicUsize = AtomicUsize::new(MAX_PAYLOAD);
 /// For tests: the payload past which an edge chunk is copied (None: MAX_PAYLOAD). With
 /// NIfTI's chunk limit no file pads an edge chunk past MAX_PAYLOAD in practice, so the copy
 /// (spec/virtualize/nifti.md §7.2
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#72-chunks>) is reached
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>) is reached
 /// this way.
 pub fn set_copy_threshold(n: Option<usize>) {
     COPY_THRESHOLD.store(n.unwrap_or(MAX_PAYLOAD), Ordering::Relaxed);
@@ -36,7 +36,7 @@ pub fn set_copy_threshold(n: Option<usize>) {
 /// The bytes of the chain read at a time.
 const SCAN: u64 = 1 << 20;
 /// The largest value the view shows, which the parser keeps (conventions §8.7
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#87-the-view>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>).
 const SHOWN: u64 = 1024;
 /// The ecodes of text extensions: AFNI, XCEDE and CIFTI XML, comments, MRS JSON.
 pub const TEXT_CODES: [i32; 5] = [4, 6, 8, 32, 44];
@@ -44,7 +44,7 @@ pub const TEXT_CODES: [i32; 5] = [4, 6, 8, 32, 44];
 /// A header field: its name, offset, kind (`i2`, `i4`, `i8`, `u1`, `f4`, `f8`, or `c`
 /// for text) and count (values, or a text's bytes), in the standard's order
 /// (spec/virtualize/nifti.md §2
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#2-the-header>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#2-the-header>).
 pub type Field = (&'static str, usize, &'static str, usize);
 
 pub const NIFTI1: [Field; 43] = [
@@ -75,7 +75,7 @@ pub const NIFTI2: [Field; 37] = [
 ];
 
 /// The NIfTI version a file's first bytes select (spec/virtualize.md §1.2
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>), if one.
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>), if one.
 pub fn detect(head: &[u8]) -> Option<u8> {
     if head.len() < 12 {
         return None;
@@ -167,7 +167,7 @@ impl<'a> Header<'a> {
     }
 
     /// The header as one record type (conventions §8.6
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#86-types>).
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#86-types>).
     pub fn record_type(&self) -> String {
         let e = if self.little { "<" } else { ">" };
         let parts: Vec<String> = self
@@ -272,7 +272,7 @@ impl Nifti {
     }
 
     /// The header and its checks (spec/virtualize/nifti.md §7.1
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#71-header>), then the
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#71-header>), then the
     /// elements of the header, the extender and the voxel data.
     fn head(&mut self) -> Res<()> {
         let got = self.fed.get(0, self.size.min(552)).ok_or("internal: no header")?.to_vec();
@@ -342,7 +342,7 @@ impl Nifti {
     }
 
     /// The extensions in a window of the chain from `q` (spec/virtualize/nifti.md §5
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/nifti.md#5-source-metadata>):
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>):
     /// the chain stops at an `esize` below 8 or past the voxel data.
     fn chain(&mut self, block: &[u8]) -> Res<()> {
         let e = if self.little { "<" } else { ">" };

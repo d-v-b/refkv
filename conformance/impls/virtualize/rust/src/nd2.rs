@@ -1,5 +1,5 @@
 // §4
-// <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#4-nd2-profile>
+// <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#4-nd2-profile>
 // ND2 profile.
 
 use crate::common::*;
@@ -216,7 +216,7 @@ struct Plane {
 pub fn virtualize(r: &mut Reader) -> R<Output> {
     let fsize = r.size;
     // §4.1
-    // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#41-chunks>
+    // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#41-chunks>
     // signature
     let h0 = header(r, 0)?;
     let name0 = chunk_name(r, 0, &h0)?;
@@ -280,7 +280,7 @@ pub fn virtualize(r: &mut Reader) -> R<Output> {
     }
 
     // §4.3
-    // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#43-metadata>
+    // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#43-metadata>
     // attributes
     let attrs_chunk = match read_lv_chunk(r, &map, "ImageAttributesLV!")? {
         Some(v) => v,
@@ -397,7 +397,7 @@ pub fn virtualize(r: &mut Reader) -> R<Output> {
     }
 
     // §4.4
-    // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#44-frames>
+    // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#44-frames>
     // frames
     let mut nframes: u128 = 1;
     for l in &loops {
@@ -539,7 +539,7 @@ pub fn virtualize(r: &mut Reader) -> R<Output> {
     }
 
     // §4.5
-    // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#45-channels>
+    // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#45-channels>
     // channels
     let mut chans: Vec<(String, String)> = Vec::new();
     let mut labeled = false;
@@ -598,7 +598,7 @@ pub fn virtualize(r: &mut Reader) -> R<Output> {
     let omero = Json::obj(vec![("channels", Json::Arr(omero_channels))]);
 
     // §4.6
-    // <https://github.com/d-v-b/vzip/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#46-output>
+    // <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#46-output>
     // output
     let lt = loops.iter().position(|l| l.kind == Kind::Time);
     let lp = loops.iter().position(|l| l.kind == Kind::Position);

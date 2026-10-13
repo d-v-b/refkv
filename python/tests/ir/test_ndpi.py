@@ -7,9 +7,9 @@ import io
 import pytest
 
 from ir_helpers import FIXTURES, same_hierarchy
-from vzip.ir import virtualize as via_ir
-from vzip.ir.cmirror import rebuild_from_archive
-from vzip.virtualize import Rejected
+from refkv.ir import virtualize as via_ir
+from refkv.ir.cmirror import rebuild_from_archive
+from refkv.virtualize import Rejected
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
 NDPIS = sorted((FIXTURES / "ndpi").iterdir())
@@ -36,7 +36,7 @@ def test_projects_as_today_and_rebuilds(path, tmp_path):
 
 
 def test_header_pieces_are_data_sources():
-    """§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: the
+    """§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: the
     header before and after SOF0 are data sources, one per distinct byte string in order of
     first use, shared by every chunk and level; the strip's own SOF0, which each chunk
     replaces, is in the mirror (the strip is an element, rebuilt byte for byte)."""
@@ -60,7 +60,7 @@ def test_header_pieces_are_data_sources():
 
 
 def test_every_ifd_and_high_word_is_an_element():
-    """§5.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#51-elements>: the
+    """§5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#51-elements>: the
     12-byte header, each IFD's entries and their high words, the pointer tags' IFDs read in
     NDPI's layout, a duplicate tag, and the strips."""
     _, _, ir = via_ir(str(FIXTURES / "ndpi" / "ndpi_pointers.ndpi"), "u")
@@ -75,7 +75,7 @@ def test_every_ifd_and_high_word_is_an_element():
 
 
 def test_reads_only_the_values_it_uses():
-    """§4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: the
+    """§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: the
     values of an IFD that is not a level are not checked, so the macro image's McuStarts
     (LONG8, above 2^53 - 1) does not reject."""
     _, out, _ = via_ir(str(FIXTURES / "ndpi" / "ndpi_unused_values.ndpi"), "u")

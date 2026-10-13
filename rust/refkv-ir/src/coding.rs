@@ -1,8 +1,8 @@
 //! CZI codec headers (spec/virtualize/czi.md §3.1
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#31-pixel-types-and-codecs>–§3.2
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#32-conforming-and-unplaced-subblocks>,
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#31-pixel-types-and-codecs>–§3.2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#32-conforming-and-unplaced-subblocks>,
 //! spec/virtualize.md §13.4
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#134-codec-headers>): a
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#134-codec-headers>): a
 //! subblock's coded size from the first 2^16 bytes of its data at most. The
 //! readers are given the bytes read so far; one that needs more says how many
 //! (`Err(n)`), and is run again with them.
@@ -238,7 +238,7 @@ pub fn coded_size(pt: i32, comp: i32, w: u64, h: u64, n: u64, head: &Head) -> Re
 }
 
 /// The codecs after `transpose` (spec/virtualize/czi.md §3.1
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/czi.md#31-pixel-types-and-codecs>), as
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#31-pixel-types-and-codecs>), as
 /// JSON.
 pub fn codec_chain(pt: i32, comp: i32, hilo: bool) -> serde_json::Value {
     use serde_json::json;

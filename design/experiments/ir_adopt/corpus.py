@@ -1,14 +1,14 @@
 """Adoption: today's profile and the IR on corpus inputs through the caching proxy, offline
 (a block the cache lacks fails the request: no remote host is contacted), one process
 each (/usr/bin/time -l), outputs compared without vzip_source. The IR runs at
-VZIP_CONCURRENCY (6) connections. `--today <cmd>` names today's command (default
-`python -m vzip.virtualize`); `--ir <cmd>` the IR's (default `python -m vzip.ir
+REFKV_CONCURRENCY (6) connections. `--today <cmd>` names today's command (default
+`python -m refkv.virtualize`); `--ir <cmd>` the IR's (default `python -m refkv.ir
 --allow-private-hosts`).
 Usage: corpus.py <prefix: czi-|nd2-|idr-|svs-> <out dir> [--keep] [--only name] [--today <cmd>] [--ir <cmd>]"""
 import json, os, re, subprocess, sys, time, threading, hashlib, urllib.parse
 from pathlib import Path
 W = Path(__file__).resolve().parents[3]
-HERE = Path(os.environ["VZIP_ADOPT_WORK"])  # the saved IDR listing (idr_listing.html)
+HERE = Path(os.environ["REFKV_ADOPT_WORK"])  # the saved IDR listing (idr_listing.html)
 sys.path.insert(0, str(W / "conformance/virtualize"))
 import proxy as P
 from compare import at_revision, from_vzip, differences
@@ -44,7 +44,7 @@ def timed(cmd, out):
     r0, m0 = dict(reads), len(misses)
     t = time.time()
     p = subprocess.run(["/usr/bin/time", "-l"] + cmd + [str(out)], capture_output=True, text=True, timeout=7200, cwd=W,
-                       env={**os.environ, "VZIP_CONCURRENCY": os.environ.get("VZIP_CONCURRENCY", "6")})
+                       env={**os.environ, "REFKV_CONCURRENCY": os.environ.get("REFKV_CONCURRENCY", "6")})
     dt = time.time() - t
     m = re.search(r"(\d+)\s+maximum resident set size", p.stderr)
     rss = int(m[1]) >> 20 if m else -1
@@ -76,8 +76,8 @@ def opt(name, default):
     return sys.argv[sys.argv.index(name) + 1].split() if name in sys.argv else default
 
 
-TODAY = opt("--today", ["uv", "run", "python", "-m", "vzip.virtualize"])
-IR = opt("--ir", ["uv", "run", "python", "-m", "vzip.ir", "--allow-private-hosts"])
+TODAY = opt("--today", ["uv", "run", "python", "-m", "refkv.virtualize"])
+IR = opt("--ir", ["uv", "run", "python", "-m", "refkv.ir", "--allow-private-hosts"])
 
 
 def main():

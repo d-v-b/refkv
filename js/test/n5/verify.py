@@ -2,8 +2,8 @@
 
 Each store in fixtures/n5/ is served by the harness proxy (with its
 S3 listing) and virtualized by js/conformance/virtualize.ts (the browser
-code, run under Node). Every array of the archive is read through vzip.zarr
-and zarr-python (with vzip.zarr.codecs' n5_default codec) and must equal:
+code, run under Node). Every array of the archive is read through refkv.zarr
+and zarr-python (with refkv.zarr.codecs' n5_default codec) and must equal:
 
 - the dataset as read by `read_n5` below, a block reader written from the N5
   specification alone (header, column-major big-endian elements, each
@@ -15,7 +15,7 @@ and zarr-python (with vzip.zarr.codecs' n5_default codec) and must equal:
 `n5_reject_*` stores must be rejected; reading `n5_edge_varlength_block`'s
 array must fail (its varlength block is refused by the codec). The archive's
 `vzip_source` is the store's IR mirror (spec/virtualize/n5.md §5.1
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>): rebuilt from
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>): rebuilt from
 the archive alone, its listing must be the store's (every object's key and size, the empty ones
 included) and every node's attributes.json must be the store's, byte for byte.
 
@@ -51,18 +51,18 @@ FIXTURES = ROOT / "fixtures"
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
 from proxy import Proxy  # noqa: E402
 
-from vzip.policy import Policy  # noqa: E402
-import vzip.zarr  # noqa: E402  (a vzip archive as a zarr store; registers n5_default and zlib)
+from refkv.policy import Policy  # noqa: E402
+import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers n5_default and zlib)
 
 # The sources are served on 127.0.0.1, which spec §6.7
-# <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
+# <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy> rule 3 refuses by
 # default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
 
 # The other objects' check is the Zarr v2 verifier's (spec/virtualize/n5.md §6
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#6-other-objects> is
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects> is
 # spec/virtualize/zarr2.md §5
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
 _spec = importlib.util.spec_from_file_location("zarr2_verify", HERE.parent / "zarr2" / "verify.py")
 zarr2_verify = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(zarr2_verify)
@@ -144,7 +144,7 @@ def virtualize(url: str, out: Path) -> subprocess.CompletedProcess:
 
 def check_store(store_dir: Path, out: Path) -> list[str]:
     problems = []
-    vz = vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES)
+    vz = refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES)
     for path in arrays_of(out):
         attrs = json.loads((store_dir / path / "attributes.json").read_text())
         arr = zarr.open_array(vz, path=path, mode="r", zarr_format=3)
@@ -175,15 +175,15 @@ def mirror_problems(store_dir: Path, out: Path) -> list[str]:
     each object it holds (a node's attributes.json) is the store's, byte for byte."""
     import zipfile
 
-    import vzip_ir
+    from refkv import _ir
 
-    from vzip.ir.cmirror import Archive
+    from refkv.ir.cmirror import Archive
 
     def never(o: int, n: int) -> bytes:
         raise AssertionError("a store's mirror reads no source")
 
     stored = {f.relative_to(store_dir).as_posix(): f for f in store_dir.rglob("*") if f.is_file()}
-    rebuilt = vzip_ir.rebuild_store(Archive(str(out), never).get)
+    rebuilt = _ir.rebuild_store(Archive(str(out), never).get)
     problems = []
     if {k: n for k, n, _ in rebuilt} != {k: f.stat().st_size for k, f in stored.items()}:
         problems.append("the mirror's listing is not the store's")
@@ -220,7 +220,7 @@ def remote(store_url: str, path: str) -> int:
                 raise
 
         want = read_n5(attrs, get)
-        got = zarr.open_group(vzip.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)[path][...]
+        got = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)[path][...]
         ok = got.shape == want.shape and np.array_equal(got, want)
         print(f"{path}: {got.dtype}{got.shape}, {'equal to read_n5' if ok else 'DIFFERS from read_n5'}, "
               f"{int(np.count_nonzero(want))} nonzero values")

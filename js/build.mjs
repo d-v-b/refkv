@@ -1,7 +1,7 @@
 // Builds dist/: the service worker (vzip-sw.js, a classic script so it works
 // in every browser with service workers), the demo page, the map page for
 // Sentinel-2 products (map.html, with OpenLayers, and the JPEG 2000 decoder
-// and its worker), and the Rust core's wasm32 build (vzip_ir.wasm, which
+// and its worker), and the Rust core's wasm32 build (refkv_ir.wasm, which
 // `#irwasm` fetches from beside the script; `just js::wasm` builds it).
 //
 // The JPEG 2000 and JPEG XR decoders (jpeg2000_decoder.wasm: hayro-jpeg2000,
@@ -19,7 +19,7 @@ import * as esbuild from "esbuild";
 const here = path.dirname(new URL(import.meta.url).pathname);
 
 const dist = path.join(here, "dist");
-const wasm = process.env.VZIP_IR_WASM || path.join(here, "../rust/refkv-ir/target/web/vzip_ir.wasm");
+const wasm = process.env.REFKV_IR_WASM || path.join(here, "../rust/refkv-ir/target/web/refkv_ir.wasm");
 if (!fs.existsSync(wasm)) {
   console.error(`${wasm} is missing: build it with \`just js::wasm\``);
   process.exit(1);
@@ -48,7 +48,7 @@ await esbuild.build({
 await build("../demo/map/jpeg2k_worker.ts", "jpeg2k_worker.js", { format: "iife", minify: true });
 fs.copyFileSync(path.join(here, "../demo/index.html"), path.join(dist, "index.html"));
 fs.copyFileSync(path.join(here, "../demo/map/map.html"), path.join(dist, "map.html"));
-fs.copyFileSync(wasm, path.join(dist, "vzip_ir.wasm"));
+fs.copyFileSync(wasm, path.join(dist, "refkv_ir.wasm"));
 for (const decoder of decoders) {
   if (fs.existsSync(decoder)) {
     fs.copyFileSync(decoder, path.join(dist, path.basename(decoder)));

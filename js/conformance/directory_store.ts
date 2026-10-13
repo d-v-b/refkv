@@ -1,5 +1,5 @@
 // A local directory as a store (spec/virtualize.md §1.5
-// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#15-listing-a-store>), under Node: its
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store>), under Node: its
 // regular files at any depth, without symbolic links or names that are not UTF-8.
 
 import fs from "node:fs";

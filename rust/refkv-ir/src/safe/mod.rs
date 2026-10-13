@@ -1,12 +1,12 @@
 //! A sans-IO parser of Sentinel-2 SAFE products into the IR (spec/virtualize/safe.md, the
-//! profile's §12 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#12-safe-profile>),
+//! profile's §12 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#12-safe-profile>),
 //! in both forms:
 //!
 //! - **the directory form**, a store ([`crate::store::StoreParser`]): a store IR whose objects
 //!   are the listing's. The XML documents it reads whole are held (the product and tile
 //!   metadata, and every other XML document of at most 2^16 bytes); the band files, read in
 //!   ranges, are described in place (conventions §8.9
-//!   <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>); every other
+//!   <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>); every other
 //!   object is referenced.
 //! - **the zip form**, a file ([`crate::Parser`]): a file IR of the `.SAFE.zip`, whose zip
 //!   structures, entries and band files are elements of source 0.
@@ -46,7 +46,7 @@ pub fn is_xml(key: &str) -> bool {
 }
 
 /// (the folder markers among `keys`, the empty directories, sorted) (spec/virtualize/safe.md
-/// §2.1 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#21-objects>): a folder
+/// §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#21-objects>): a folder
 /// marker is a key `d_$folder$` with `d` not empty; `directories` are the keys, ending in `/`,
 /// of a zip file's directory entries or of a listing's empty `d/` objects. The directories they
 /// name are empty when no key (theirs and the markers' included) is under them.
@@ -194,7 +194,7 @@ impl Safe {
         self.by_key.get(key).is_some_and(|o| !self.markers.contains(o))
     }
 
-    // ---- the zip form's own structures (§12.4 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#124-the-zip-form>)
+    // ---- the zip form's own structures (§12.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>)
 
     fn zip_step(&mut self) -> Result<(), String> {
         let n = self.size;
@@ -298,7 +298,7 @@ impl Safe {
         Ok(())
     }
 
-    // ---- the product (§2 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#2-the-source>)
+    // ---- the product (§2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#2-the-source>)
 
     fn start(&mut self) -> Result<(), String> {
         let keys: Vec<&str> = self.objs.iter().map(|o| o.key.as_str()).collect();
@@ -399,7 +399,7 @@ impl Safe {
     }
 
     /// Each band's resolution and band name, and its chunks' empty tiles, checked (§2.5
-    /// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#25-band-files>, §12.6 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#126-chunks>).
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#25-band-files>, §12.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#126-chunks>).
     fn finish_bands(&mut self) -> Result<(), String> {
         let geo = self.geo.as_ref().unwrap();
         let mut names: HashSet<(u64, String)> = HashSet::new();
@@ -638,7 +638,7 @@ const ZIP64_LOCATOR_TYPE: &str = "{signature:<u4,cd_disk:<u4,record_offset:<u8,d
 const END_TYPE: &str = "{signature:<u4,disk:<u2,cd_disk:<u2,entries_here:<u2,entries:<u2,cd_size:<u4,cd_offset:<u4,comment_length:<u2}";
 
 /// A band file's elements under `parent`, its offsets from `base` (spec/virtualize/safe.md §6.3
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
 fn emit_band(ir: &mut Ir, parent: u32, base: u64, cs: &Codestream) -> Result<(), String> {
     for (i, b) in cs.boxes.iter().enumerate() {
         let bx = ir.struct_(parent, "boxes/", i as u64, 0, Some((base + b.at, b.len)))?;

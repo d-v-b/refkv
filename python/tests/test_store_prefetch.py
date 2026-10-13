@@ -15,10 +15,10 @@ from xml.sax.saxutils import escape
 
 import pytest
 
-import vzip.virtualize
-from vzip.policy import Policy
-from vzip.virtualize import Rejected, _virtualize_store as virtualize_store  # the profile output, not the store
-from vzip.virtualize.store import _Prefetch, object_url, open_store
+import refkv.virtualize
+from refkv.policy import Policy
+from refkv.virtualize import Rejected, _virtualize_store as virtualize_store  # the profile output, not the store
+from refkv.virtualize.store import _Prefetch, object_url, open_store
 
 FIXTURES = Path(__file__).parents[2] / "fixtures"
 STORES = sorted(p for f in ("n5", "zarr2", "ome-zarr") for p in (FIXTURES / f).iterdir() if p.is_dir())
@@ -82,7 +82,7 @@ def directory(root: Path) -> dict[str, bytes]:
 def outcome(monkeypatch, s3: FakeS3, workers: int):
     """("ok", format, docs, chunks), ("rejected", message) or ("failed", type, message)."""
     # The store reads through `s3` as a test's opener, so without kept-alive connections.
-    monkeypatch.setattr(vzip.virtualize, "open_store",
+    monkeypatch.setattr(refkv.virtualize, "open_store",
                         lambda location, url=None, **kw: open_store(location, url, opener=s3, **kw))
     try:
         fmt, out = virtualize_store(URL, workers=workers)
@@ -157,7 +157,7 @@ def test_a_short_read_is_the_same_failure(monkeypatch):
 
 def test_a_failed_read_of_a_document_fails_the_run_whatever_the_others_say(monkeypatch):
     # The Rust core reads every node's documents in one batch before it checks any (conventions
-    # §8.9 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): b/.zarray's
+    # §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): b/.zarray's
     # failed read fails the run, at any concurrency, though a/.zarray would reject it.
     objects = {".zgroup": b'{"zarr_format": 2}', "a/.zarray": b'{"zarr_format": 3}', "b/.zarray": 404}
     failed = outcome(monkeypatch, FakeS3(objects), 8)
@@ -210,7 +210,7 @@ def test_concurrent_reads_over_kept_alive_connections(s3_server):
     for workers in (1, 8):
         state["reads"].clear()
         # the server is on 127.0.0.1, which the reader policy refuses by default (spec/archive.md
-        # §6.7 <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#67-reader-policy>)
+        # §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#67-reader-policy>)
         fmt, out = virtualize_store(url, workers=workers, policy=Policy(allow_private_hosts=True))
         results.append((fmt, json.dumps(out.docs, sort_keys=True), out.chunks))
         assert set(state["reads"].values()) == {1}

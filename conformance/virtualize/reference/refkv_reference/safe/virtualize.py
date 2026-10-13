@@ -1,5 +1,5 @@
 """The SAFE profile (spec/virtualize.md, §12
-<https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#12-safe-profile>): the output of a
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#12-safe-profile>): the output of a
 Sentinel-2 product, in the directory form (a store input) or the zip form (a file input)."""
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable
 
-from vzip.virtualize.common import (
+from refkv.virtualize.common import (
     CONVENTION_KEY, MAX_PAYLOAD, PROFILES, Reader, root_property, Rejected, SOURCE_NODE, blob_chunks, convention, declare,
     json_base64, payload_size, text_json,
 )
@@ -20,15 +20,15 @@ from refkv_reference.safe.metadata import (
     band_metadata, choose_texts, group_attributes, root_geozarr, root_metadata,
 )
 from refkv_reference.safe.product import band_name, folders, is_xml, read_product, resolution
-from vzip.virtualize.store import Store, object_key, object_url
+from refkv.virtualize.store import Store, object_key, object_url
 
 PROFILE = "safe"
 WORKERS = 16
 
 
 # ---------------------------------------------------------------- the product's objects (§12.2
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#122-objects-and-reading>, §12.4
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#124-the-zip-form>)
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#122-objects-and-reading>, §12.4
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>)
 
 
 class Objects:
@@ -155,13 +155,13 @@ class ZipObjects(Objects):
 
 
 # ---------------------------------------------------------------- the output (§12.8
-# <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#128-the-source-table>)
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#128-the-source-table>)
 
 
 @dataclass
 class Shared:
     """A shared byte string: a data source (§1.2
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>)."""
 
     value: bytes
 
@@ -179,11 +179,11 @@ class SafeOutput:
     refs: dict[str, list] = field(default_factory=dict)
     summary: dict = field(default_factory=dict)
     # The url sources' size pins (spec/virtualize.md §1.2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#12-input>, §1.4
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>): the zip file's
-    # size and ETag (set by vzip.virtualize.virtualize), or each object's listed size; and the
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>, §1.4
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>): the zip file's
+    # size and ETag (set by refkv.virtualize.virtualize), or each object's listed size; and the
     # CRC-32C of a url source's bytes, when ranges are to carry checksums (spec/archive.md §4.2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/archive.md#42-range>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/archive.md#42-range>).
     size: int | None = None
     etag: str | None = None
     object_sizes: dict[str, int] = field(default_factory=dict)
@@ -191,7 +191,7 @@ class SafeOutput:
 
     def table(self) -> tuple[list[str], list[bytes], dict[str, list]]:
         """The url sources, the data sources, and the references with numbered sources (§12.8
-        <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#128-the-source-table>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#128-the-source-table>)."""
         keys = sorted(self.refs)
         if self.form == "zip":
             urls = [self.url]
@@ -216,8 +216,8 @@ class SafeOutput:
         return urls, list(data), out
 
     def write(self, out_path: str) -> None:
-        from vzip.archive import VZipWriter
-        from vzip.pb import Range, Source
+        from refkv.archive import VZipWriter
+        from refkv.pb import Range, Source
 
         urls, data, refs = self.table()
         if self.form == "zip":
@@ -252,7 +252,7 @@ def _group(attributes: dict | None = None) -> dict:
 
 def _bytes_array(n: int, size: int) -> dict:
     """The zarr.json of an array of `n` bytes in chunks of `size` (conventions §7
-    <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#7-source-values-as-arrays>,
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>,
     Bytes)."""
     return {"zarr_format": 3, "node_type": "array", "shape": [n], "data_type": "uint8",
             "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": [size]}},
@@ -370,7 +370,7 @@ def virtualize_product(url: str, objects: Objects) -> SafeOutput:
         tile_parts += len(cs.tiles)
 
     # vzip_source (spec/virtualize/safe.md §6.3
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
     s = {}
     if in_text:
         s["xml"] = {k: texts[k] for k in sorted(in_text)}
@@ -421,14 +421,14 @@ def virtualize_product(url: str, objects: Objects) -> SafeOutput:
 
 def virtualize_safe_store(store: Store) -> SafeOutput:
     """The directory form (§12
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#12-safe-profile>): a listed
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#12-safe-profile>): a listed
     `.SAFE` directory."""
     return virtualize_product(store.url, StoreObjects(store))
 
 
 def virtualize_safe_zip(url: str, read: Reader, size: int) -> SafeOutput:
     """The zip form (§12.4
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#124-the-zip-form>): a
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>): a
     `.SAFE.zip` file."""
     objects = ZipObjects(read, size)
     out = virtualize_product(url, objects)
@@ -442,5 +442,5 @@ def virtualize_safe_zip(url: str, read: Reader, size: int) -> SafeOutput:
 
 def is_zip(head: bytes) -> bool:
     """A ZIP local file header's signature (§12.1
-    <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#121-choosing-the-profile>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#121-choosing-the-profile>)."""
     return head[:4] == zipdir.LOCAL

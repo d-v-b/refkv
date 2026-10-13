@@ -9,7 +9,7 @@ import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
 import { isDeepStrictEqual } from "node:util";
 import { virtualizeImage as referenceImage } from "../../../conformance/virtualize/reference/ts/index.ts";
-import { VzipError } from "../../src/archive.ts";
+import { RefkvError } from "../../src/archive.ts";
 import { HttpResolutionError } from "../../src/http.ts";
 import { blockReader, ImageError } from "../../src/virtualize/common.ts";
 import { irFormat, virtualizeImage, virtualizeSource } from "../../src/virtualize/index.ts";
@@ -141,7 +141,7 @@ test("an http source gives the in-memory output, with its pins and checksums", a
 test("refuses a private host without allowPrivateHosts, before any request", async () => {
   const before = state.requests;
   await assert.rejects(openHttpSource(base + "tiff/jpeg_gray.tif"),
-    (e) => e instanceof VzipError && e.errorClass === "resolution" && /loopback/.test(e.message));
+    (e) => e instanceof RefkvError && e.errorClass === "resolution" && /loopback/.test(e.message));
   assert.equal(state.requests, before);
 });
 

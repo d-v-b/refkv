@@ -1,10 +1,10 @@
-"""The frozen Zarr v2 profile's output: `vzip.virtualize.store.StoreOutput`, its root declaring
+"""The frozen Zarr v2 profile's output: `refkv.virtualize.store.StoreOutput`, its root declaring
 the revision the profile is frozen at (`refkv_reference.revision.STORES_REVISION`, 25, the last
 before Zarr v2 stores moved onto the Rust IR in revision 26), as that module pins the other
 twins."""
 
-from vzip.virtualize.common import declare
-from vzip.virtualize.store import StoreOutput as _StoreOutput
+from refkv.virtualize.common import declare
+from refkv.virtualize.store import StoreOutput as _StoreOutput
 from refkv_reference.revision import STORES_REVISION
 
 

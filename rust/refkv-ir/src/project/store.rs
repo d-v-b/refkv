@@ -1,5 +1,5 @@
 //! What the store projections share (conventions §8.9
-//! <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>): the key of an other
+//! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): the key of an other
 //! object under `vzip_source/objects/`, a node's declaration, the canonical decimal of a chunk
 //! index, the output keys the archive allows, and the ignored keys recorded beside the mirror.
 //! Zarr v2 (`zarr2.rs`) uses them, and so do the other store formats.
@@ -14,7 +14,7 @@ pub const OBJECTS: &str = "vzip_source/objects/";
 /// The hierarchy's key of the other object `key`: under `vzip_source/objects/`, with `~`
 /// appended to a last segment that is `zarr.json`, `.zarray` or `.zgroup` followed by any
 /// number of `~`, so that no Zarr reader opens a node there (spec/virtualize/zarr2.md
-/// §5 <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
+/// §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
 pub fn object_key(key: &str) -> String {
     let last = key.rsplit('/').next().unwrap_or("");
     let base = last.trim_end_matches('~');
@@ -24,7 +24,7 @@ pub fn object_key(key: &str) -> String {
 
 /// A node's attributes: the convention declared when the node is the root (`url`) or has
 /// source metadata `s` (conventions
-/// §2 <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#2-attributes>).
+/// §2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>).
 pub fn declare(profile: &str, url: Option<&str>, s: Option<Jv>) -> Jv {
     let mut value = match url {
         Some(u) => Jv::from_j(&J::Object(root_property(profile, u))),
@@ -58,15 +58,15 @@ pub fn check_key(key: &str) -> Result<(), String> {
 
 /// The members of `vzip_source`'s source metadata that the store conventions keep beside the
 /// mirror's `ir`, outside the IR (conventions §8.9
-/// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>), by profile: Zarr v2's
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), by profile: Zarr v2's
 /// ignored keys (spec/virtualize/zarr2.md §5
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>), and so
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>), and so
 /// OME-Zarr's (spec/virtualize/ome-zarr.md §8.2
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#82-the-store-ir>), N5's
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#82-the-store-ir>), N5's
 /// (spec/virtualize/n5.md §5.1
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>), and SAFE's
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>), and SAFE's
 /// empty directories and ignored keys, in both its forms (spec/virtualize/safe.md §6.3
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
 /// The mirror check sets these aside, and only these.
 pub fn kept(profile: &str) -> &'static [&'static str] {
     match profile {
@@ -80,11 +80,11 @@ pub fn kept(profile: &str) -> &'static [&'static str] {
 /// metadata, from the facts, each only when it is not empty: a SAFE product's empty
 /// directories (`empty_dirs`, as its parser sorted them), then the recorded ignored keys
 /// (spec/virtualize.md §1.4
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize.md#14-store-inputs>; `ignored`), in
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>; `ignored`), in
 /// the order of their UTF-8 bytes (spec/virtualize/zarr2.md §5
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
 /// spec/virtualize/safe.md §6.3
-/// <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
 /// Nothing when there are none. An output made without its mirror (`mirror` false, which no
 /// virtualizer does) has no `vzip_source` source metadata at all, and so does not record them
 /// either: like the mirror, they are what such an output leaves out. Facts that carry a member

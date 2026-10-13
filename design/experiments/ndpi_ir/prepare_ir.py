@@ -7,8 +7,8 @@ from pathlib import Path
 import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 import model as m
-from vzip.ir import parse
-from vzip.ir.planner import open_transport
+from refkv.ir import parse
+from refkv.ir.planner import open_transport
 
 sparse = Path(sys.argv[1])
 m.CACHE.mkdir(exist_ok=True)

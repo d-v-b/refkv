@@ -1,5 +1,5 @@
 // The mirror's row budget in the browser host (conventions §8.3
-// <https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#83-column-runs>): a crafted IR,
+// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#83-column-runs>): a crafted IR,
 // loaded into the core's test module (rust/refkv-ir/target/web-test, built with the test-only
 // hooks by `just js::wasm-test`), whose mirror would have more rows than
 // 2^22 + floor(size / 4), is a rejection with the exact message, as Python's and
@@ -13,7 +13,7 @@ import { rejection } from "../../src/virtualize/ir/run.ts";
 import { type IrExports, put } from "../../src/virtualize/ir/wasm.ts";
 import { WASM_URL } from "../../src/virtualize/ir/wasm_node.ts";
 
-const TEST_WASM = new URL("../../../rust/refkv-ir/target/web-test/vzip_ir.wasm", import.meta.url);
+const TEST_WASM = new URL("../../../rust/refkv-ir/target/web-test/refkv_ir.wasm", import.meta.url);
 
 type TestExports = IrExports & { vz_test_mirror(json: number, n: number, profile: number): bigint };
 

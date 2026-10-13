@@ -1,8 +1,8 @@
-"""The OME-Zarr profile through the Rust core (vzip.ir.store; spec/virtualize/ome-zarr.md) on
+"""The OME-Zarr profile through the Rust core (refkv.ir.store; spec/virtualize/ome-zarr.md) on
 the synthetic stores: the same outcome as the frozen reference (revision 25) for every store,
 the same hierarchy outside `vzip_source`, and `vzip_source` the store's IR mirror, which
 rebuilds every node document byte for byte (conventions §8.9
-<https://github.com/d-v-b/vzip/blob/main/spec/conventions.md#89-stores>). The reference's own
+<https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>). The reference's own
 tests are python/tests/reference/test_virtualize_ome_zarr.py; the full comparison, browser
 included, is conformance/virtualize/compare.py's.
 """
@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from vzip.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
-from vzip.virtualize.common import CONVENTION_KEY, REVISION
+from refkv.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
+from refkv.virtualize.common import CONVENTION_KEY, REVISION
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "virtualize" / "reference"))
 from refkv_reference import virtualize as reference  # noqa: E402
@@ -61,13 +61,13 @@ def test_the_ir_gives_the_reference_hierarchy(store):
 
 
 def test_the_mirror_rebuilds_each_node_document():
-    import vzip_ir
+    from refkv import _ir
 
     for store in STORES:
         if "_reject_" in store.name:
             continue
         _, out = virtualize(str(store), URL.format(store.name))
-        rebuilt = vzip_ir.rebuild_store(out.entries.get)
+        rebuilt = _ir.rebuild_store(out.entries.get)
         held = {k: b for k, _, b in rebuilt if b is not None}
         assert held and all(Path(k).name in (".zgroup", ".zarray", ".zattrs") for k in held), store.name
         for k, b in held.items():
@@ -78,7 +78,7 @@ def test_the_mirror_rebuilds_each_node_document():
 def test_a_rejection_names_the_profile_the_store_was_decided_to_be(tmp_path):
     # the output's checks are the decided profile's: in a store whose root declares OME-NGFF 0.4,
     # OME-Zarr's own and the Zarr v2 rules it applies (spec/virtualize/ome-zarr.md §2
-    # <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ome-zarr.md#2-hierarchy>); in any
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#2-hierarchy>); in any
     # other Zarr v2 store, the zarr2 format's
     with pytest.raises(Rejected) as e:
         virtualize(str(FIXTURES / "ome_zarr_reject_axes_count"), URL.format("a"))

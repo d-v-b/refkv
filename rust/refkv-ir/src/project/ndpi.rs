@@ -1,6 +1,6 @@
 //! The NDPI image projection (spec/virtualize/ndpi.md §3
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#3-levels>, §4
-//! <https://github.com/d-v-b/vzip/blob/main/spec/virtualize/ndpi.md#4-the-image>) from a valid IR:
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#3-levels>, §4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>) from a valid IR:
 //! one array per level, whose chunk is the level's strip, or, with McuStarts, `a × b` of the
 //! strip's restart intervals as a JPEG stream of their own (`ndpi::Grid`); the facts hold the
 //! sizes, the grids, scales and translation, and the IR the McuStarts values.
