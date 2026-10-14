@@ -1,6 +1,6 @@
 # refkv: a reference value type for key-value stores
 
-Format version: 0 (**provisional**) · Specification revision: 11.1
+Format version: 0 (**provisional**) · Specification revision: 11.2
 
 ## 1. Introduction
 
@@ -763,7 +763,10 @@ Opening a store reads and checks the following. Any failure is an
 - the resource limits that apply at open ([§6.7](#67-reader-policy),
   [§8](#8-security-considerations)). A resource limit reached while
   opening, for example while reading the source table, or a source table
-  with more sources than the reader allows, is an archive error.
+  with more sources than the reader allows, is an archive error;
+- for a reader that applies the host rule to the store's own requests
+  ([§6.7](#67-reader-policy) rule 3), that it allows the addresses
+  and redirects that opening reaches.
 
 A reader MAY read more, but MUST NOT report an error at open that this
 section and its binding do not list.
@@ -994,7 +997,16 @@ it; the other limits are resource limits ([§6.4](#64-errors)).
      Private Network Access refuse such requests from public pages unless
      the private server consents. It cannot see the browser's proxy either.
 
-   The store's own location is not checked: the application chose it.
+   The store's own location is the application's choice, and this rule
+   does not require a reader to check it. A reader MAY apply the rule to
+   the store's own requests as well, under the same setting: to the
+   host of the store's location, and to every address and redirect target
+   those requests reach, as for a source. A refusal while opening is then
+   an archive error ([§6.1](#61-opening)); a later one fails the operation
+   that needed the request, as any failure to read the store does. A
+   store's location may itself come from an untrusted place, such as a
+   link, and a public host can redirect the reader's request for it to a
+   private one.
 4. **Sources.** A reader MUST have a maximum number of sources. Opening a
    store whose source table has more is an archive error.
 5. **Requests per value.** A reader MUST have a maximum number of reads of
@@ -1026,7 +1038,7 @@ defaults:
 | `file` for a remote store | refused |
 | a `file:` URL's host (a UNC path on Windows, [§5](#5-source-table)) | refused |
 | prefixes | none (rule 1 applies) |
-| hosts (rule 3) | public addresses only, for every store |
+| hosts (rule 3) | public addresses only, for every store; the Python reader applies the rule to a store it reads over HTTP itself, its location and redirects included |
 | proxies while rule 3 applies | refused |
 | sources per store | 4,194,304 (2^22) |
 | reads per `get` | 1024 |
@@ -1088,6 +1100,9 @@ A binding adds the reasons that come from its backend
   - readers that cannot see addresses: a browser checks hosts written as
     IP literals or `localhost`, and relies on Private Network Access for
     names that resolve to private addresses and for redirect hops;
+  - the store's own requests, for a reader that does not apply rule 3 to
+    them: a store's location from an untrusted place, or a redirect of it,
+    can name a private address;
   - applications that set an unsafe setting. With unchecked proxies, a
     name that resolves to a public address where the reader runs, and to
     a private one where the proxy runs, is not detected. With private

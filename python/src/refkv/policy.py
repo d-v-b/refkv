@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 import google_crc32c
 
+from refkv._extras import OBSTORE_HINT
 from refkv.errors import ResolutionError
 
 # The defaults of spec §6.7
@@ -121,7 +122,7 @@ def scheme_remedy(url: str) -> str:
         return ("If the bucket is public, write its HTTPS URLs instead "
                 "(ReferenceStore.from_virtualizarr(vds, rewrite_urls=refkv.public_s3_url)); "
                 f"or read it with registry={{{root!r}: S3Store(...)}}, a store for the "
-                "bucket (help(refkv.reader.Resolver)), and save it with "
+                f"bucket ({OBSTORE_HINT}; help(refkv.reader.Resolver)), and save it with "
                 "policy=Policy(schemes={'s3'}).")
     return (f"Write http(s) URLs instead, or read it with registry={{{root!r}: store}}, a "
             f"store that serves those URLs (help(refkv.reader.Resolver)), and save it with "
@@ -155,7 +156,11 @@ class Policy:
     - `allow_private_hosts`: UNSAFE. Lets the archive send requests to
       loopback, private, link-local (cloud metadata) and other special
       addresses (rule 3), which every archive, local or remote, is otherwise
-      refused. Rule 3's checks are then skipped, proxies included.
+      refused. Rule 3's checks are then skipped, proxies included. The rule
+      covers the reads of an archive at an `http(s)` URL too, which refkv
+      makes with the client that reads sources: its host, every address
+      connected to and every redirect (spec §6.7 allows a reader this), so
+      opening `http://localhost:8000/a.vzip` needs this setting.
     - `allow_unchecked_proxy`: UNSAFE. Lets requests go through an HTTP proxy
       while rule 3 applies. The proxy connects, so the reader cannot check
       the address it reaches; it checks what the name resolves to locally,
@@ -228,6 +233,15 @@ class Policy:
                     f"{url}: a file: URL with the host {host!r} (a UNC path) reads over the "
                     f"network, which the reader does not do without allow_file_hosts=True "
                     f"(spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)")
+        self.check_host(url)
+
+    def check_host(self, url: str) -> None:
+        """Raise ResolutionError unless rule 3 allows the host of an http(s) `url` as
+        it is written: an IP literal by its class, `localhost` as loopback. A name
+        passes here; the reader checks each address it resolves to
+        (`check_address`). Rules 1 and 2 are not applied, so this is the check
+        for the archive's own URL, which the application chose, and its
+        redirects."""
         if _scheme(url) == "http":
             try:
                 host = urlsplit(url).hostname

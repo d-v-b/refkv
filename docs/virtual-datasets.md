@@ -14,14 +14,16 @@ pip install "refkv[virtualizarr] @ git+https://github.com/d-v-b/refkv#subdirecto
 ```
 
 The `virtualizarr` extra installs VirtualiZarr, which
-`refkv.ReferenceStore.from_virtualizarr` needs, and with it xarray, obstore and
-obspec_utils; and the `zarr` extra, zarr-python, with which `refkv.zarr` opens
-a store for `xr.open_zarr`. refkv itself does not import xarray. The rest are
+`refkv.ReferenceStore.from_virtualizarr` needs, and with it xarray and
+obspec_utils; the `zarr` extra, zarr-python, with which `refkv.zarr` opens
+a store for `xr.open_zarr`; and the `obstore` extra, obstore, whose `S3Store`
+reads the bucket. refkv itself imports neither xarray nor obstore. The rest are
 for the example: h5py for VirtualiZarr's HDF5 parser, and h5netcdf, fsspec
 and aiohttp for xarray to read a netCDF file over HTTPS and check the
 archive's values; xarray brings pandas. Without the extras, refkv reads and
-writes archives, and holds a `ReferenceStore` built from a mapping, without
-Zarr; `refkv[zarr]` alone adds `refkv.zarr`. (In a clone of this repository,
+writes archives, local or at `http(s)` URLs, and holds a `ReferenceStore`
+built from a mapping, without Zarr or obstore; `refkv[zarr]` alone adds
+`refkv.zarr`, and `refkv[obstore]` alone the stores for `registry=`. (In a clone of this repository,
 `uv sync` installs all of these.)
 
 ## An example: five years of sea surface temperature
@@ -54,7 +56,7 @@ import virtualizarr as vz
 import xarray as xr
 from obspec_utils.readers import BlockStoreReader
 from obspec_utils.registry import ObjectStoreRegistry
-from obstore.store import S3Store
+from obstore.store import S3Store  # refkv[obstore], which refkv[virtualizarr] includes
 from virtualizarr.parsers import HDFParser
 
 import refkv
@@ -168,7 +170,9 @@ prefix relative to the archive, so the two can move together.
 
 For private data, every reference store takes `registry=`: the
 `ObjectStoreRegistry` you gave VirtualiZarr, or a mapping of URL prefixes to
-stores. Readers need the same stores, so tell `save` their policy:
+stores, such as obstore's (`pip install "refkv[obstore]"`, which the
+`virtualizarr` extra includes). Readers need the same stores, so tell `save`
+their policy:
 
 ```python
 from obstore.store import S3Store
@@ -210,7 +214,14 @@ register its store, as above; that allows its URLs. The rules are in
   a private one, pass `registry=` to read, and
   `policy=refkv.Policy(schemes={"s3"})` to `save` ([publishing](#publishing)).
 - **`no store is registered for s3://...`.** The policy allows the scheme,
-  but no store serves the URL; pass `registry={"s3://bucket": S3Store(...)}`.
+  but no store serves the URL; pass `registry={"s3://bucket": S3Store(...)}`,
+  with obstore's `S3Store` (`refkv[obstore]`).
+- **`the host is a loopback address`** (or private, link-local, special),
+  opening an archive or reading a source. refkv refuses requests to
+  addresses on your machine and network by default, an archive's own
+  included ([spec §6.7](../spec/refkv.md#67-reader-policy) rule 3). For an
+  archive you serve yourself, such as `http://localhost:8000/data.vzip`, pass
+  `policy=refkv.Policy(allow_private_hosts=True)`.
 - **`the request would go through the proxy ...`.** refkv checks the
   address each request goes to, and cannot check one a proxy connects to.
   Exempt the host with `no_proxy`, or pass

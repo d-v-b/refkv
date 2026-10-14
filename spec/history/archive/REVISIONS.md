@@ -1151,6 +1151,44 @@ system; `Policy(allow_file_hosts=True)` is the setting. Its URIs for POSIX
 paths are unchanged, byte for byte. The browser reader reads only `http(s)`
 sources, and is unchanged.
 
+## Revision 11.2: the host rule for the store's own requests
+
+Format version 0, specification revision 11.2. **Status: provisional.** No
+result changes for a reader that does not take up the new permission, so the
+revision 11 conformance suite applies unchanged (its archives are local
+files); stores still record revision 11.
+
+**What prompted it.** The reference Python reader read an archive at an
+`http(s)` URL with obstore, whose HTTP client makes its own connections, so
+rule 3 of [§6.7](../../refkv.md#67-reader-policy) could not be applied to the
+archive's requests or their redirects. The reader now reads the archive with
+its own HTTP client, the one that reads sources, and checks those requests as
+it checks a source's. [§6.1](../../refkv.md#61-opening) forbade an error at
+open that it does not list, and rule 3 said that the store's own location is
+not checked, so the check needed the specification's leave.
+
+**The change.**
+- **[§6.7](../../refkv.md#67-reader-policy) rule 3:** the store's own location
+  is still the application's choice, and a reader need not check it. A
+  reader MAY apply the rule to the store's own requests, under the same
+  setting: the location's host, and every address and redirect target those
+  requests reach. A store's location can come from an untrusted place, and a
+  public host can redirect a request for it to a private address.
+- **[§6.1](../../refkv.md#61-opening):** a refusal of the store's own requests
+  by a reader that applies the rule is an archive error.
+- **[§8](../../refkv.md#8-security-considerations):** the store's own requests
+  are among what the policy does not cover, for a reader that does not
+  apply rule 3 to them.
+- **The defaults table:** the Python reader applies the rule to a store it
+  reads over HTTP.
+
+**Implementations.** The reference implementation reads an archive at an
+`http(s)` URL with `refkv.reader.HttpObjects`, over the HTTP client that
+reads sources: an archive on a loopback, private, link-local or special
+address, or one redirected to such an address, is refused unless
+`Policy(allow_private_hosts=True)`. The browser reader is unchanged: it does
+not check the archive's location.
+
 ## Open feedback: browser readers (from the Neuroglancer driver)
 
 The Neuroglancer driver

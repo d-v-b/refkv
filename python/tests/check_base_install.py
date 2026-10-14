@@ -4,9 +4,11 @@ only a wheel or the sdist was installed (the release workflow's), or, with the
 argument `zarr`, only `pip install 'python/[zarr]'`.
 
 The base install: `import refkv` imports neither xarray nor zarr, which are not
-installed, and the operations work without them: build a ReferenceStore from a
+installed, nor obstore, which no install without the virtualizarr or obstore
+extra has, and the operations work without them: build a ReferenceStore from a
 mapping, read a bytes value and a reference, save it, reopen the archive with
-refkv.open and read it again, run the conformance CLI on it, and virtualize a
+refkv.open and read it again, open it over HTTP (from a server on the loopback
+interface, with its source served beside it), run the conformance CLI on it, and virtualize a
 NIfTI file and a TIFF, both through the Rust core (refkv._core), which the install
 must have built, and a Zarr v2 store. Each optional part names the extra it needs.
 
@@ -20,16 +22,19 @@ import json
 import os
 import sys
 import tempfile
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import refkv
+from refkv.errors import ArchiveError
 from refkv.pb import Concat, Range, Source
 from refkv.uri import file_uri
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 mode = sys.argv[1] if len(sys.argv) > 1 else "base"
 assert mode in ("base", "zarr"), f"usage: check_base_install.py [base|zarr], not {mode!r}"
-absent = ["xarray", "virtualizarr", "imagecodecs", "pytest"] + (["zarr"] if mode == "base" else [])
+absent = ["xarray", "virtualizarr", "imagecodecs", "pytest", "obstore"] + (["zarr"] if mode == "base" else [])
 for name in absent:
     assert importlib.util.find_spec(name) is None, f"{name} is installed: not a {mode} install"
 assert "xarray" not in sys.modules and "zarr" not in sys.modules, "importing refkv imported zarr"
@@ -69,6 +74,46 @@ with tempfile.TemporaryDirectory() as d:
         assert s.list() == ["x/c/0", "x/zarr.json", "y"] and s.list_dir("") == ["x", "y"]
         assert s.raw("x/c/0") == Range(source=0, offset=4, length=4).encode()
     assert reopened.max_concurrency == 8
+
+    class Served(BaseHTTPRequestHandler):
+        """The files of the directory, with range requests (`a-b` and `-n`)."""
+
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            data = Path(self.path.lstrip("/")).read_bytes()
+            a, b = self.headers["Range"].removeprefix("bytes=").split("-")
+            a, b = (max(len(data) - int(b), 0), len(data) - 1) if a == "" else (int(a), min(int(b), len(data) - 1))
+            self.send_response(206)
+            self.send_header("Content-Range", f"bytes {a}-{b}/{len(data)}")
+            self.send_header("Content-Length", str(b - a + 1))
+            self.end_headers()
+            self.wfile.write(data[a:b + 1])
+
+    for name in ["http_proxy", "HTTP_PROXY"]:
+        os.environ.pop(name, None)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Served)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    served = refkv.ReferenceStore(mapping, [Source(url=f"{base}/src.bin")])
+    served.save("h.vzip", page_size=64, policy=refkv.Policy(allow_private_hosts=True))
+    # an archive's own loopback address is refused by default, as its sources' are
+    try:
+        refkv.open(f"{base}/h.vzip").list()
+    except ArchiveError as e:
+        assert "loopback address" in str(e), e
+    else:
+        sys.exit("an archive on the loopback interface was opened without allow_private_hosts")
+    over_http = refkv.open(f"{base}/h.vzip", policy=refkv.Policy(allow_private_hosts=True))
+    assert over_http.list() == store.list()
+    assert {k: over_http.get(k) for k in store.list()} == {k: store.get(k) for k in store.list()}
+    assert over_http.stats.archive_requests >= 2 and over_http.stats.external_requests >= 1
+    server.shutdown()
+    server.server_close()
+    assert "obstore" not in sys.modules, "reading over http imported obstore"
 
     from refkv.vzip import cli
 
