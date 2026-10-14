@@ -8,7 +8,9 @@
   era_2.nc: shape=(4, 6) chunks=(4, 6) dtype=float32 filters={'compression': 'gzip', 'opts': 4, 'shuffle': True}
   era_3.nc: shape=(4, 6) chunks=(4, 6) dtype=float32 filters=none
   -> each file virtualizes on its own: 4 virtual datasets
-  -> combining them fails: NotImplementedError: The ManifestArray class cannot concatenate arrays which were stored using different codecs, But found codecs (BytesCodec(endian='little'), Zlib(codec_name='numcodecs.zlib', codec_config={'level': 4})) vs (BytesCodec(endi
+  VirtualiZarr: combining fails: NotImplementedError: The ManifestArray class cannot concatenate arrays which were stored using different codecs, But found codecs (BytesCodec(endian='little'), Zlib(codec_name='numcodecs.zlib', codec_config={'level': 4}))
+  refkv: one array, 3 chunk variants, saved and reopened: v(16, 6) float32, every value matches the files
+     the archive is 3,048 bytes; the chunks stay in the 4 files (43,964 bytes), read in place
 
 ==============================================================================
 2. rectilinear chunks
@@ -18,7 +20,9 @@
   month_1.nc: shape=(28, 6) chunks=(28, 6) dtype=float32 filters={'compression': 'gzip', 'opts': 4}
   month_2.nc: shape=(31, 6) chunks=(31, 6) dtype=float32 filters={'compression': 'gzip', 'opts': 4}
   -> each file virtualizes on its own: 3 virtual datasets
-  -> combining them fails: ValueError: Cannot concatenate arrays with inconsistent chunk shapes: (28, 6) vs (31, 6) .Requires ZEP003 (Variable-length Chunks).
+  VirtualiZarr: combining fails: ValueError: Cannot concatenate arrays with inconsistent chunk shapes: (28, 6) vs (31, 6) .Requires ZEP003 (Variable-length Chunks).
+  refkv: one array, 2 chunk variants, saved and reopened: v(90, 6) float32, every value matches the files
+     the archive is 3,416 bytes; the chunks stay in the 3 files (35,389 bytes), read in place
 
 ==============================================================================
 3. ragged inner chunks
@@ -28,7 +32,9 @@
   ragged_1.nc: shape=(10, 6) chunks=(4, 6) dtype=float32 filters={'compression': 'gzip', 'opts': 4}
   ragged_2.nc: shape=(10, 6) chunks=(4, 6) dtype=float32 filters={'compression': 'gzip', 'opts': 4}
   -> each file virtualizes on its own: 3 virtual datasets
-  -> combining them fails: ValueError: Cannot concatenate arrays with partial chunks because only regular chunk grids are currently supported. Concat input 0 has array length 10 along the concatenation axis which is not evenly divisible by chunk length 4.
+  VirtualiZarr: combining fails: ValueError: Cannot concatenate arrays with partial chunks because only regular chunk grids are currently supported. Concat input 0 has array length 10 along the concatenation axis which is not evenly divisible by
+  refkv: one array, 1 chunk variant, saved and reopened: v(30, 6) float32, every value matches the files
+     the archive is 3,570 bytes; the chunks stay in the 3 files (33,631 bytes), read in place
 
 ==============================================================================
 4. per-file scale_factor / add_offset
@@ -38,12 +44,13 @@
   scaled_1.nc: shape=(4, 6) chunks=(4, 6) dtype=int16 filters={'compression': 'gzip', 'opts': 4} {'scale_factor': 0.019999999552965164, 'add_offset': 270.0}
   scaled_2.nc: shape=(4, 6) chunks=(4, 6) dtype=int16 filters={'compression': 'gzip', 'opts': 4} {'scale_factor': 0.004999999888241291, 'add_offset': 290.0}
   -> each file virtualizes on its own: 3 virtual datasets
-  -> combined: v(12, 6), codecs/encoding of the FIRST file used for all
-  -> SILENTLY WRONG: 48 of 72 values differ from the files
+  VirtualiZarr: combined (one codec chain and the first file's attributes for all): SILENTLY WRONG, 48 of 72 values differ from the files
      expected [287.03 286.26 289.55 285.9  287.4  289.54 288.84 288.14 289.43 289.17
  289.47 288.41]
      got      [287.03 286.26 289.55 285.9  288.7  289.77 289.42 289.07 278.86 278.34
  278.94 276.82]
+  refkv: one array, 3 chunk variants, saved and reopened: v(12, 6) float32, every value matches the files
+     the archive is 3,057 bytes; the chunks stay in the 3 files (32,836 bytes), read in place
 
 ==============================================================================
 5. varying dtype
@@ -53,4 +60,6 @@
   dtype_1.nc: shape=(4, 6) chunks=(4, 6) dtype=int16 filters={'compression': 'gzip', 'opts': 4}
   dtype_2.nc: shape=(4, 6) chunks=(4, 6) dtype=float32 filters={'compression': 'gzip', 'opts': 4}
   -> each file virtualizes on its own: 3 virtual datasets
-  -> combining them fails: ValueError: Cannot combine arrays with inconsistent dtypes, but got 2 distinct dtypes: {dtype('<f4'), dtype('<i2')}
+  VirtualiZarr: combining fails: ValueError: Cannot combine arrays with inconsistent dtypes, but got 2 distinct dtypes: {dtype('<i2'), dtype('<f4')}
+  refkv: one array, 2 chunk variants, saved and reopened: v(12, 6) float32, every value matches the files
+     the archive is 2,781 bytes; the chunks stay in the 3 files (32,879 bytes), read in place

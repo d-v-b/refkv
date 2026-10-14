@@ -20,6 +20,8 @@ Cases (the use cases of the issue):
 
 from __future__ import annotations
 
+import json
+import sys
 import tempfile
 import warnings
 from pathlib import Path
@@ -33,6 +35,7 @@ from obstore.store import LocalStore
 from virtualizarr.parsers import HDFParser
 
 warnings.filterwarnings("ignore")
+sys.path.insert(0, str(Path(__file__).parent))
 NX = 6  # a small spatial axis, so every case runs in a second
 
 
@@ -96,23 +99,53 @@ def run(title: str, issue: str, make) -> None:
                       f"filters={filters or 'none'}" + (f" {cf}" if cf else ""))
         vdss = virtualize(paths, root)  # each file alone virtualizes fine
         print(f"  -> each file virtualizes on its own: {len(vdss)} virtual datasets")
-        try:
-            combined = combine(vdss)
-        except Exception as e:  # the cliff: no single Zarr array can describe these files
-            print(f"  -> combining them fails: {type(e).__name__}: {str(e).splitlines()[0][:220]}")
-            return
-        print(f"  -> combined: v{tuple(combined['v'].shape)}, codecs/encoding of the FIRST file used for all")
-        try:
-            got, want = read_back(combined), truth(paths)
-        except Exception as e:
-            print(f"  -> reading the combined array fails: {type(e).__name__}: {str(e).splitlines()[0][:200]}")
-            return
-        if got.shape == want.shape and np.allclose(got, want, equal_nan=True):
-            print("  -> values match the files")
-        else:
-            bad = int(np.sum(~np.isclose(got, want, equal_nan=True))) if got.shape == want.shape else "all"
-            print(f"  -> SILENTLY WRONG: {bad} of {want.size} values differ from the files")
-            print(f"     expected {np.round(want[:, 0], 3)}\n     got      {np.round(got[:, 0], 3)}")
+        want = truth(paths)
+        virtualizarr_result(vdss, want)
+        refkv_result(vdss, want, root)
+
+
+def virtualizarr_result(vdss: list[xr.Dataset], want: np.ndarray) -> None:
+    """VirtualiZarr: concatenate the ManifestArrays, then read through Zarr."""
+    try:
+        combined = combine(vdss)
+    except Exception as e:  # the cliff: no single Zarr array can describe these files
+        print(f"  VirtualiZarr: combining fails: {type(e).__name__}: {str(e).splitlines()[0][:200]}")
+        return
+    try:
+        got = read_back(combined)
+    except Exception as e:
+        print(f"  VirtualiZarr: combined, but reading fails: {type(e).__name__}: {str(e).splitlines()[0][:200]}")
+        return
+    report("VirtualiZarr: combined (one codec chain and the first file's attributes for all)", got, want)
+
+def report(label: str, got: np.ndarray, want: np.ndarray) -> None:
+    if got.shape == want.shape and np.allclose(got, want, equal_nan=True):
+        print(f"  {label}: v{got.shape} {got.dtype}, every value matches the files")
+    else:
+        bad = int(np.sum(~np.isclose(got, want, equal_nan=True))) if got.shape == want.shape else "all"
+        print(f"  {label}: SILENTLY WRONG, {bad} of {want.size} values differ from the files")
+        print(f"     expected {np.round(want[:, 0], 2)}\n     got      {np.round(got[:, 0], 2)}")
+
+
+def refkv_result(vdss: list[xr.Dataset], want: np.ndarray, root: Path) -> None:
+    """refkv: one array from the same per-file manifests (variant.py), saved as a vzip
+    archive and read back through Zarr."""
+    import refkv
+    import variant
+
+    try:
+        store = variant.combine(vdss)
+        archive = root / "combined.vzip"
+        store.save(str(archive))
+        got = variant.read(refkv.open(str(archive)))
+    except Exception as e:
+        print(f"  refkv: fails: {type(e).__name__}: {str(e).splitlines()[0][:200]}")
+        return
+    n = len(json.loads(store.get("v/zarr.json"))["codecs"][0]["configuration"]["variants"])
+    report(f"refkv: one array, {n} chunk variant{'s' * (n != 1)}, saved and reopened", got, want)
+    data = sum(p.stat().st_size for p in root.glob("*.nc"))
+    print(f"     the archive is {archive.stat().st_size:,} bytes; the chunks stay in the "
+          f"{len(store.sources)} files ({data:,} bytes), read in place")
 
 
 rng = np.random.default_rng(0)
