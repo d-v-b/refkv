@@ -69,10 +69,13 @@ Every value read, in every run and access pattern, matched the source files.
   transaction logs, presenting Zarr version 3, read through the Icechunk
   library. A reader loads the manifest holding the reference it needs.
   Written here with `vds.vz.to_icechunk(session.store)`.
-- **vzip** is one ZIP file presenting Zarr version 3, read here through this
-  repository's Python store. A reader loads the whole central directory at
-  open, or, with a page index, the 64 KiB page holding the reference.
-  Written here with `refkv.convert.write_vzip(vds, path)`.
+- **vzip** is one ZIP file holding a key-value store whose values are
+  bytes or references. It knows nothing about Zarr; the converter used here
+  writes Zarr version 3 metadata and chunk keys into it, and this
+  repository's Python store presents the result to zarr-python. A reader
+  loads the whole central directory at open, or, with a page index, the
+  64 KiB page holding the reference. Written here with
+  `refkv.convert.write_vzip(vds, path)`.
 
 The kerchunk files are written by VirtualiZarr's kerchunk writer, not by
 kerchunk's own `SingleHdf5ToZarr` and `MultiZarrToZarr`. With chunks
