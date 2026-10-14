@@ -18,8 +18,7 @@ vzip is this repository's format. It is an experiment: a specification, a
 reference implementation, and no production users. These measurements exist
 to show what its design costs, and where it does worse, so that the
 experiment is honest. Nothing below should be read as a reason to choose
-vzip over Icechunk for a production deployment; see
-[Which to use](#which-to-use).
+vzip over Icechunk for a production deployment.
 
 The code is in [`comparison/`](comparison/README.md). Every number below can
 be regenerated with `just compare-formats`.
@@ -404,28 +403,6 @@ splits each read into five ranges. With one request per object it made
 An earlier version of vzip's reader opened a new connection for every
 chunk, and took 7.5 s here and 9.3 s for the large time series. Reusing
 connections brought it level with the others (see the history above).
-
-## Which to use
-
-For a production virtual Zarr dataset, use Icechunk. It has the mature
-tooling: a maintained Rust library with Python bindings, cloud object-store
-backends, a VirtualiZarr writer, and transactional commits with history,
-branches and appends. It is the only format here whose implementation is
-built and supported for production use, and the only one that can change a
-dataset without rewriting it. Its measured costs, a larger size than
-kerchunk Parquet and a slower time series with split manifests, are small
-next to that.
-
-kerchunk is the established Python option, and the format most existing
-virtual datasets are stored in. It is a reasonable choice where the dataset
-does not change and the readers are fsspec-based Python.
-
-vzip is not a production alternative to either. It is this repository's
-experiment in storing references in a plain ZIP file, with a reference
-implementation and no production users, release history or support. The
-numbers above show the experiment keeping up with the others on reads and
-paying for its design in size and write time. That is the result of the
-experiment, not a recommendation to deploy it.
 
 ## Limits
 
