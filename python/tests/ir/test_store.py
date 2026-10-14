@@ -17,7 +17,7 @@ from xml.sax.saxutils import escape
 
 import pytest
 
-from refkv import _ir
+from refkv import _core
 from refkv.ir.store import virtualize_store
 from refkv.virtualize.common import Rejected
 from refkv.virtualize.store import object_url
@@ -110,7 +110,7 @@ def test_a_store_run_reads_each_document_once_and_its_mirror_rebuilds_them(root,
         except KeyError:
             return None
 
-    rebuilt = _ir.rebuild_store(get)
+    rebuilt = _core.rebuild_store(get)
     assert sorted((k, n) for k, n, _ in rebuilt) == sorted((k, len(v)) for k, v in objects.items())
     assert {k: b for k, _, b in rebuilt if b is not None} == {k: objects[k] for k in docs}
     # a local directory gives the same output
@@ -132,7 +132,7 @@ def test_a_document_shorter_than_listed_fails_the_run():
 
 def test_an_unknown_store_format_is_refused():
     with pytest.raises(ValueError, match="no store format"):
-        _ir.StoreRun("no-such-format", [("attributes.json", 2)], 4)
+        _core.StoreRun("no-such-format", [("attributes.json", 2)], 4)
 
 
 def test_the_ignored_keys_are_refkv_source_s_member_ignored():

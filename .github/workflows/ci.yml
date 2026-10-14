@@ -5,7 +5,7 @@
 # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>, with
 # spec/bindings/vzip.md's strict reading of every archive), the reproducibility of the fixture
 # generators, and the section references, each a link to a heading that exists. TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2, OME-Zarr and N5 stores, go through the Rust core (rust/refkv-ir), built natively
-# for Python (`uv sync`, which builds it into refkv as the module refkv._ir) and for wasm32 for the browser code (`just js::wasm`).
+# for Python (`uv sync`, which builds python/, refkv, with its bindings as the module refkv._core) and for wasm32 for the browser code (`just js::wasm`).
 # The Python tests, the install without extras, the IR core's tests and the Node tests run
 # on Linux, macOS and Windows; the fixture comparison, the fixtures' reproducibility and the
 # section references, which do not depend on the system, on Linux only.
@@ -59,7 +59,9 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust/refkv-ir
+          workspaces: |
+            rust/refkv-ir
+            python
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - if: runner.os == 'Linux'
         run: sudo apt-get install -y --no-install-recommends binaryen
@@ -133,14 +135,17 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust/refkv-ir
+          workspaces: |
+            rust/refkv-ir
+            python
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - if: runner.os == 'Linux'
         run: sudo apt-get install -y --no-install-recommends binaryen
       - uses: extractions/setup-just@v2
       - run: uv sync --all-groups --locked
-      # the Python host's tests (python/tests/ir), the other half of `just ir-test`, run in
-      # the pytest job, with the rest
+      # the core's Rust tests, and a cargo build of its Python bindings' crate (python/); the
+      # Python host's tests (python/tests/ir), the other half of `just ir-test`, run in the
+      # pytest job, with the rest
       - run: just ir-rust-test
       - run: just ir-wasm
 
@@ -165,7 +170,9 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust/refkv-ir
+          workspaces: |
+            rust/refkv-ir
+            python
       # binaryen's wasm-opt shrinks the wasm32 module (rust/refkv-ir/wasm/build.sh; optional)
       - run: sudo apt-get install -y --no-install-recommends binaryen
       - run: uv sync --all-groups --locked
@@ -179,7 +186,7 @@ jobs:
           name: fixture-compare-${{ matrix.shard }}
           path: conformance/results/fixtures/results.json
 
-  # The package without its extras (pyproject.toml): it reads, writes and virtualizes
+  # The package without its extras (python/pyproject.toml): it reads, writes and virtualizes
   # archives without zarr, and each optional part's ImportError names the extra that
   # installs it; then with only the zarr extra, which reads them through zarr
   base-install:
@@ -199,7 +206,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust/refkv-ir
+          workspaces: |
+            rust/refkv-ir
+            python
       # the two venvs, and their Pythons: bin/python, or Scripts/python.exe on Windows (with
       # RUNNER_TEMP's `\` written as `/`, for Git Bash)
       - run: |
@@ -209,10 +218,10 @@ jobs:
             echo "ZARR_VENV=$tmp/zarr"; echo "ZARR_PYTHON=$tmp/zarr/$bin"; } >> "$GITHUB_ENV"
       # pip, as docs/README.md#installing says (it builds the Rust core into the wheel)
       - run: uv venv --seed "$PIP_VENV"
-      - run: '"$PIP_PYTHON" -m pip install .'
+      - run: '"$PIP_PYTHON" -m pip install ./python'
       - run: just base-install-check "$PIP_PYTHON" base
       - run: uv venv "$ZARR_VENV"
-      - run: uv pip install --python "$ZARR_VENV" ".[zarr]"
+      - run: uv pip install --python "$ZARR_VENV" "./python[zarr]"
       - run: just base-install-check "$ZARR_PYTHON" zarr
 
   sections:
@@ -227,7 +236,7 @@ jobs:
         with:
           enable-cache: true
       - uses: extractions/setup-just@v2
-      - run: uv sync --all-groups --locked --no-install-project
+      - run: uv sync --all-groups --locked --no-install-package refkv
       # every "§n" is a link to its heading, and every such link resolves (spec/tools/sections.py)
       - run: just sections
 
@@ -243,6 +252,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust/refkv-ir
+          workspaces: |
+            rust/refkv-ir
+            python
       - run: uv sync --all-groups --locked
       - run: just fixtures-check

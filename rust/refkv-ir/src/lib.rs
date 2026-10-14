@@ -2,7 +2,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
 //! in Rust: a compact columnar IR with runs, its invariants, sans-IO parsers, and the checker of a
 //! source model schema. The core has no I/O and builds for wasm32; the Python
-//! bindings are behind the `python` feature.
+//! bindings are a crate of their own (python/src/lib.rs, the module `refkv._core`).
 
 pub mod canon;
 pub mod transform;
@@ -37,9 +37,6 @@ pub mod tiff;
 pub mod types;
 pub mod xml;
 pub mod zarr2;
-
-#[cfg(feature = "python")]
-mod py;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;

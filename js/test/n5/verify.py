@@ -175,7 +175,7 @@ def mirror_problems(store_dir: Path, out: Path) -> list[str]:
     each object it holds (a node's attributes.json) is the store's, byte for byte."""
     import zipfile
 
-    from refkv import _ir
+    from refkv import _core
 
     from refkv.ir.cmirror import Archive
 
@@ -183,7 +183,7 @@ def mirror_problems(store_dir: Path, out: Path) -> list[str]:
         raise AssertionError("a store's mirror reads no source")
 
     stored = {f.relative_to(store_dir).as_posix(): f for f in store_dir.rglob("*") if f.is_file()}
-    rebuilt = _ir.rebuild_store(Archive(str(out), never).get)
+    rebuilt = _core.rebuild_store(Archive(str(out), never).get)
     problems = []
     if {k: n for k, n, _ in rebuilt} != {k: f.stat().st_size for k, f in stored.items()}:
         problems.append("the mirror's listing is not the store's")

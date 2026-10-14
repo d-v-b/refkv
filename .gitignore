@@ -24,7 +24,12 @@ conformance/impls/typescript/test/.tmp/
 
 # The IR core's build output
 rust/refkv-ir/target/
+# the Python bindings' build output
+python/target/
 
-# the Rust core, compiled into its package by `uv sync` (pyproject.toml)
+# the Python bindings to the Rust core, compiled into the package by `uv sync` (python/pyproject.toml)
+python/src/refkv/_core*.so
+python/src/refkv/_core*.pyd
+# and its earlier name, in checkouts built before the bindings moved to python/
 python/src/refkv/_ir*.so
 python/src/refkv/_ir*.pyd

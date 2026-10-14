@@ -209,11 +209,11 @@ def rebuild_store(out: Path, docs: dict, read) -> dict[str, bytes]:
     `refkv_source/objects/`, and each band file, described in place, from its own source
     (`read(key, offset, length)`) up to its codestream, then its codestream from its chunks.
     The folder markers are not rebuilt."""
-    from refkv import _ir
+    from refkv import _core
 
     vz = refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES)
     files: dict[str, bytes] = {}
-    objects = _ir.rebuild_store(_get(out))
+    objects = _core.rebuild_store(_get(out))
     kept = [n for n in zipfile.ZipFile(out).namelist() if n.startswith("refkv_source/objects/")]
     whole = {}
     for n, data in zip(kept, get_all(vz, kept)):
@@ -404,11 +404,11 @@ def described_keys(out: Path, docs: dict, url: str) -> set[str]:
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>):
     a directory's listing, from the mirror alone; or a zip file's objects, which its file IR
     covers whole (its leaves partition the file), read from its central directory."""
-    from refkv import _ir
+    from refkv import _core
 
     desc = docs["refkv_source/zarr.json"]["attributes"]["refkv_virtualized"]["safe"]["ir"]
     if "objects" in desc:
-        return {k for k, _, _ in _ir.rebuild_store(_get(out))}
+        return {k for k, _, _ in _core.rebuild_store(_get(out))}
     return set(zip_entries(url)[1])
 
 

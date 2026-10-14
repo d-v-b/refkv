@@ -12,7 +12,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
-from refkv import _ir
+from refkv import _core
 
 from refkv.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
 from refkv.virtualize.common import declare
@@ -94,7 +94,7 @@ def listing(out, tmp_path: Path) -> dict[str, tuple[int, bytes | None]]:
     out.write(str(archive))
     with zipfile.ZipFile(archive) as z:
         names = set(z.namelist())
-        return {k: (n, b) for k, n, b in _ir.rebuild_store(lambda k: z.read(k) if k in names else None)}
+        return {k: (n, b) for k, n, b in _core.rebuild_store(lambda k: z.read(k) if k in names else None)}
 
 
 def test_virtualizes_the_synthetic_stores(tmp_path):

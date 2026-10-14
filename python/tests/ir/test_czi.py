@@ -8,7 +8,7 @@ import threading
 from http.server import ThreadingHTTPServer
 
 import pytest
-from refkv import _ir
+from refkv import _core
 
 from ir_helpers import FIXTURES, same_hierarchy
 from refkv.ir import virtualize as via_ir
@@ -74,7 +74,7 @@ def as_dict(v):
 
 def test_streaming_xml_values_are_the_tree_s():
     for xml in XMLS:
-        r = json.loads(_ir.czi_xml_values(xml.encode()))
+        r = json.loads(_core.czi_xml_values(xml.encode()))
         r["info"] = [{k: c[k] for k in ("name", "color", "bits")} for c in r["info"]]
         r["display"] = [{k: c[k] for k in ("name", "color", "low", "high")} for c in r["display"]]
         r["scenes"] = sorted((i, n) for i, n in r["scenes"])
@@ -96,7 +96,7 @@ def test_bands_have_a_floor():
         ((16777259, 16777259, 1, 1, 1, False), (16777259, 16777259, 1)),  # compressed: one chunk
     ]
     for args, (y, rows, per) in cases:
-        got = _ir.czi_bands(*args)
+        got = _core.czi_bands(*args)
         assert (json.loads(got[0]), got[1], got[2]) == (y, rows, per), args
 
 

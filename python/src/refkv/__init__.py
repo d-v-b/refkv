@@ -36,12 +36,19 @@ virtual-dataset workflow; `help(refkv.refstore)` has its details.
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING
 
 from refkv.pb import Concat, Range, Source
 from refkv.policy import Policy, public_s3_url
 from refkv.reader import OffsetRequest, RangeRequest, Stats, SuffixRequest
 from refkv.refstore import ReferenceStore, Summary
+
+try:
+    __version__ = version("refkv")
+    """The installed distribution's version (git's, at build: python/tools/version.py)."""
+except PackageNotFoundError:  # a source tree on sys.path, not installed
+    __version__ = "0.0.0+unknown"
 
 if TYPE_CHECKING:
     from refkv.vzip.store import VZipStore

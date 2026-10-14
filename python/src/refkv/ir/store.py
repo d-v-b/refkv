@@ -9,7 +9,7 @@ under the reader policy of spec/refkv.md §6.7
 directory), and drives the run:
 
 - `listing(store)`: the store's objects as (key, size), keys in byte order: what
-  `refkv._ir.StoreRun` builds the IR's directories and objects from.
+  `refkv._core.StoreRun` builds the IR's directories and objects from.
 - `drive_store(run, store)`: the loop. Each `poll()` is a batch: one request per object (its
   spans, a whole object being one span), made at most `store.workers` at a time (the
   concurrency of #37's prefetch of documents), then `complete()`.
@@ -70,7 +70,7 @@ def drive_store(run, store: Store, workers: int | None = None, fmt: str | None =
     (default `store.workers`) at a time; each reading thread closes its kept-alive
     connections at the end. `fmt` is the run's store format, which a rejection names
     (`Rejected.format`); pass it whenever it is known."""
-    from refkv import _ir
+    from refkv import _core
 
     workers = max(1, workers or store.workers)
     pool = ThreadPoolExecutor(workers) if workers > 1 else None
@@ -78,7 +78,7 @@ def drive_store(run, store: Store, workers: int | None = None, fmt: str | None =
         while True:
             try:
                 reqs = run.poll()
-            except _ir.Rejected as e:
+            except _core.Rejected as e:
                 raise Rejected(str(e), format=fmt) from None
             if reqs is None:
                 return
@@ -89,7 +89,7 @@ def drive_store(run, store: Store, workers: int | None = None, fmt: str | None =
             for k, parts in enumerate(results):
                 try:
                     run.complete(k, parts)
-                except _ir.Rejected as e:
+                except _core.Rejected as e:
                     raise Rejected(str(e), format=fmt) from None
     finally:
         if pool is not None:
@@ -111,7 +111,7 @@ def drive_store(run, store: Store, workers: int | None = None, fmt: str | None =
 
 @dataclass
 class StoreIrOutput:
-    """The output of a store run (`refkv._ir.StoreRun.output`): bytes entries, references
+    """The output of a store run (`refkv._core.StoreRun.output`): bytes entries, references
     (`refs`: entry key -> its parts, each ("object", key, offset, length) of a store's
     object, (source, offset, length) of data source `source` (from 1, the core's numbering),
     or literal bytes), the data sources, the lazy prefixes and the summary. `sizes` are the
@@ -268,23 +268,23 @@ def run_store(store: Store, fmt: str = "zarr2", mirror: bool = True):
     requests. With `mirror` false the output has no `refkv_source` mirror, and so no record of
     the ignored keys either. A rejection names `fmt` (`Rejected.format`), or, for one of the
     output's checks, the profile the run decided (`ome-zarr` once the 0.4 test passed)."""
-    from refkv import _ir
+    from refkv import _core
 
     if store._prefetch is not None:
         # documents read ahead (choosing the profile does): the run takes those read, and reads
         # the rest itself, so that at most `store.workers` reads are in flight
         store._prefetch.drain()
     try:
-        run = _ir.StoreRun(fmt, listing(store), max(1, store.workers))
+        run = _core.StoreRun(fmt, listing(store), max(1, store.workers))
         run.ignore(list(getattr(store, "ignored", [])), list(getattr(store, "folders", [])))
-    except _ir.Rejected as e:
+    except _core.Rejected as e:
         raise Rejected(str(e), format=fmt) from None
     drive_store(run, store, fmt=fmt)
     stats = json.loads(run.stats())
     profile = run.profile()  # the output's checks are the decided profile's (OME-Zarr's, say)
     try:
         t, ir = run.output(store.url, mirror)
-    except _ir.Rejected as e:
+    except _core.Rejected as e:
         raise Rejected(str(e), format=profile) from None
     out = from_rust(t, store.objects)
     out.summary["listingRequests"] = getattr(store, "requests", 0)

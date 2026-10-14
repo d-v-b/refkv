@@ -1,7 +1,7 @@
 """The NDPI access benchmark (research/ndpi-access) with the IR's read planner: the policy of
 rust/refkv-ir/src/plan.rs (`Planner::policy`, calibrated, on a remote server: the gap threshold
 and amplification cap from the latency, rate, connections and byte cost; `packs` for
-multi-range servers) and its merge (`refkv._ir.plan_spans`, the Rust function itself).
+multi-range servers) and its merge (`refkv._core.plan_spans`, the Rust function itself).
 Usage: bench_ir.py [--byte-cost S_PER_MB]"""
 from __future__ import annotations
 import dataclasses, sys
@@ -10,7 +10,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 import bench
 import model as m
-from refkv import _ir
+from refkv import _core
 
 MIN_GAP, MAX_GAP, WARM_GAP, PACKED_GAP = 4 << 10, 8 << 20, 4 << 10, 512
 DOMINATE, MAX_RANGES = 0.5, 100
@@ -37,7 +37,7 @@ class IRPlanner(m.Planner):
     def batch(self, r: np.ndarray, net: m.Net) -> list[list[tuple[int, int]]]:
         ranges = [(int(s), int(e - s)) for s, e in r]
         gap, cap = self.policy(len(ranges), net)
-        spans = _ir.plan_spans(ranges, gap, cap, net.conns)
+        spans = _core.plan_spans(ranges, gap, cap, net.conns)
         if net.multirange and len(spans) > 1:
             size = min(max(-(-len(spans) // net.conns), 1), MAX_RANGES)
             return [spans[k:k + size] for k in range(0, len(spans), size)]

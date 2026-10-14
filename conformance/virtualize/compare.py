@@ -363,7 +363,7 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     each its own range, at the object's virtual offsets. No source 0 is read."""
     import bisect
 
-    from refkv import _ir
+    from refkv import _core
 
     from refkv.ir.cmirror import Archive, canonical_problem, load, view_problem
     from refkv.virtualize.store import object_url
@@ -381,7 +381,7 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
         archive = Archive(str(path), never)
         ir = load(archive)
         ir.check()
-        rebuilt = _ir.rebuild_store(archive.get)
+        rebuilt = _core.rebuild_store(archive.get)
     except Exception as e:  # noqa: BLE001
         return f"{type(e).__name__}: {e}"
     root = view["entries"].get("zarr.json")

@@ -1,7 +1,7 @@
 """refkv's intermediate representation (design/ARCHITECTURE.md §3
 <https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
 the path `refkv.virtualize`
-takes for TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE (a `.SAFE.zip` here; a `.SAFE` directory through `store.py`) files, and Zarr v2, N5 and OME-Zarr stores (`store.py`): the Rust core (rust/refkv-ir, the `refkv._ir` module)
+takes for TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE (a `.SAFE.zip` here; a `.SAFE` directory through `store.py`) files, and Zarr v2, N5 and OME-Zarr stores (`store.py`): the Rust core (rust/refkv-ir, the `refkv._core` module)
 parses, checking each format's source model schema, plans the reads, projects the
 convention's hierarchy and mirrors the IR under `refkv_source`; this package is the
 host: the I/O (`planner.py`), the archive writer (`output.py` into `Output`), and
@@ -56,7 +56,7 @@ def sniff(head: bytes) -> str | None:
 
 def parse(fmt: str, transport, conc: int | None = None):
     """(IR, facts, planner counts) of the source the transport reads, or Rejected."""
-    from refkv import _ir
+    from refkv import _core
 
     from refkv.ir.planner import drive, new_run
 
@@ -64,7 +64,7 @@ def parse(fmt: str, transport, conc: int | None = None):
     drive(run, transport, conc)
     try:
         ir, facts, stats = run.finish()
-    except _ir.Rejected as e:
+    except _core.Rejected as e:
         raise Rejected(str(e)) from None
     return ir, json.loads(facts), json.loads(stats)
 
@@ -77,7 +77,7 @@ def virtualize(location: str, url: str | None = None, mirror: bool = True, polic
     same strong one. `connections`: requests at a time to a remote source (default 8);
     `byte_cost`: seconds of wall time the planner charges a byte fetched (default 0.1 s
     per MB)."""
-    from refkv import _ir
+    from refkv import _core
 
     from refkv.ir.output import from_rust
     from refkv.ir.planner import drive, new_run, open_transport
@@ -96,7 +96,7 @@ def virtualize(location: str, url: str | None = None, mirror: bool = True, polic
     try:
         t, ir = run.output(url or (location if transport.remote else path_reference(location)),
                            mirror)
-    except _ir.Rejected as e:
+    except _core.Rejected as e:
         raise Rejected(str(e)) from None
     out = from_rust(t)
     out.size = transport.size

@@ -1,0 +1,90 @@
+# The refkv distribution: the Python package src/refkv, with its bindings to the Rust core
+# (src/lib.rs, over ../rust/refkv-ir) compiled into it as the module refkv._core, so refkv
+# always runs the core of its own commit. Building it needs a Rust toolchain. The repository's
+# root pyproject.toml is a uv workspace over this package, with the environment of the
+# conformance harnesses, the fixture generators and the benchmarks.
+[build-system]
+requires = ["maturin>=1.9.2,<2"]
+build-backend = "maturin"
+
+[project]
+name = "refkv"
+# from Cargo.toml, whose committed version is a placeholder: tools/version.py writes the
+# one `git describe` gives, for a build (RELEASING.md)
+dynamic = ["version"]
+description = "refkv: a reference value type for key-value stores, its ZIP binding (vzip archives), and virtualization of image files and stores"
+# the PyPI page; it links to the repository's files by URL
+readme = "README.md"
+authors = [
+    { name = "Davis Vann Bennett", email = "davis.v.bennett@gmail.com" }
+]
+requires-python = ">=3.12"
+# copies of the repository's (tests/test_package.py checks they are identical)
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+]
+# The base install reads and writes vzip archives, holds a ReferenceStore and
+# virtualizes image files and stores, without Zarr (numpy: refkv.shards), through
+# the Rust core this package builds and ships as the module refkv._core (below); the
+# extras add the rest (src/refkv/_extras.py).
+dependencies = [
+    "google-crc32c>=1.9.0",
+    "numpy>=2.5.3",
+    "obstore>=0.11.1",
+]
+
+[project.urls]
+Repository = "https://github.com/d-v-b/refkv"
+Documentation = "https://github.com/d-v-b/refkv/tree/main/docs"
+Issues = "https://github.com/d-v-b/refkv/issues"
+
+[project.optional-dependencies]
+# refkv.zarr: a reference store as a read-only zarr store, for zarr and xarray, and the codecs
+# of archives of virtualized image files and stores
+zarr = [
+    "zarr>=3.4.0",
+]
+# the JPEG, JPEG 2000 and JPEG XR decoders of refkv.zarr's image codecs
+images = [
+    "refkv[zarr]",
+    "imagecodecs>=2026.8.16",
+]
+# ReferenceStore.from_virtualizarr, refkv.convert and refkv.shards, which build Zarr
+# metadata. refkv does not import xarray: it calls the methods of the datasets
+# VirtualiZarr builds
+virtualizarr = [
+    "refkv[zarr]",
+    "virtualizarr>=2.7.3",
+]
+
+[tool.maturin]
+module-name = "refkv._core"
+python-source = "src"
+# the module's earlier name, which a checkout built before it moved may still hold
+exclude = ["src/refkv/_ir*"]
+# The sdist keeps maturin's default generator, which takes `cargo package`'s file lists of
+# this crate and of the core (../rust/refkv-ir, a path dependency outside this directory),
+# so the sdist builds on its own. The "git" generator archives this directory alone, and
+# leaves the core out.
+
+[tool.uv]
+# rebuild the bindings when they, the core's Rust sources or its source models change
+# (`uv sync`, `uv run`)
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "Cargo.toml" },
+    { file = "Cargo.lock" },
+    { file = "build.rs" },
+    { file = "src/**/*.rs" },
+    { file = "../rust/refkv-ir/Cargo.toml" },
+    { file = "../rust/refkv-ir/src/**/*.rs" },
+    { file = "../rust/refkv-ir/schema/*.json" },
+]

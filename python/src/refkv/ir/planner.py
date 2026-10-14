@@ -3,7 +3,7 @@
 
 The policy (what to request for a parser's batch: coalescing by cost, the
 amplification cap, multi-range packing, read-ahead, the budget) is the Rust
-core's (`rust/refkv-ir/src/plan.rs`), behind `refkv._ir.Run`. This module only
+core's (`rust/refkv-ir/src/plan.rs`), behind `refkv._core.Run`. This module only
 performs the requests a run asks for and reports each one's bytes and time:
 
 - `FileTransport`: a local file, mapped; its requests are served in the calling
@@ -304,14 +304,14 @@ def new_run(fmt: str, transport, conc: int | None = None, byte_cost: float | Non
     """A Rust run of format `fmt` over the transport, seeded with the bytes that opened
     it. `byte_cost`: seconds of wall time a byte fetched costs the planner (default:
     the core's, 0.1 s per MB); REFKV_BYTE_COST (seconds per MB) sets it for experiments."""
-    from refkv import _ir
+    from refkv import _core
 
     amp = os.environ.get("REFKV_AMPLIFICATION")  # for experiments
     env_cost = os.environ.get("REFKV_BYTE_COST")
     if byte_cost is None and env_cost:
         byte_cost = float(env_cost) * 1e-6
     whole = os.environ.get("REFKV_WHOLE_BELOW")  # for experiments: the size read whole (bytes)
-    run = _ir.Run(fmt, transport.size, transport.remote, concurrency(transport, conc),
+    run = _core.Run(fmt, transport.size, transport.remote, concurrency(transport, conc),
                       float(amp) if amp else None, byte_cost, int(whole) if whole else None)
     if os.environ.get("REFKV_MULTIRANGE") == "0":
         run.multirange = False
@@ -324,7 +324,7 @@ def new_run(fmt: str, transport, conc: int | None = None, byte_cost: float | Non
 
 def drive(run, transport, conc: int | None = None) -> None:
     """Performs the requests a run asks for until it is done, at most `conc` at a time."""
-    from refkv import _ir
+    from refkv import _core
 
     conc = concurrency(transport, conc)
     pool = ThreadPoolExecutor(conc) if transport.remote else None
@@ -332,7 +332,7 @@ def drive(run, transport, conc: int | None = None) -> None:
         while True:
             try:
                 reqs = run.poll()
-            except _ir.Rejected as e:
+            except _core.Rejected as e:
                 raise Rejected(str(e)) from None
             if reqs is None:
                 return
@@ -343,7 +343,7 @@ def drive(run, transport, conc: int | None = None) -> None:
             for k, (parts, dt) in enumerate(results):
                 try:
                     run.complete(k, parts, dt)
-                except _ir.Rejected as e:
+                except _core.Rejected as e:
                     raise Rejected(str(e)) from None
     finally:
         if pool is not None:
