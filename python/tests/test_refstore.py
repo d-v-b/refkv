@@ -182,7 +182,7 @@ def _s3_store(**kwargs):
 def test_reading_a_refused_scheme_says_how_to_fix_it():
     store = _s3_store()
     with pytest.raises(ResolutionError, match=r"'s3' is not allowed .*refkv\.public_s3_url.*"
-                                              r"registry=\{'s3://some-bucket': S3Store"):
+                                              r"registry=\{'s3://some-bucket': S3Store.*refkv\[obstore\]"):
         xr.open_zarr(refkv.zarr.store(store), consolidated=False).x.values
 
 
@@ -283,8 +283,10 @@ def test_registry_reads_registered_sources(netcdf_files, tmp_path):
 
 def test_unregistered_s3_source_is_refused_without_credential_lookup(monkeypatch):
     """A scheme the policy allows, but no store registered for its URL: refkv makes no
-    store itself (obstore's from_url would query credential sources, the cloud
-    metadata address among them), and says to register one."""
+    store itself (a store built from a URL alone, such as obstore's from_url, would
+    query credential sources, the cloud metadata address among them), and says to
+    register one, naming the extra that has obstore's stores. refkv does not import
+    obstore (test_imports.py); the patches catch a store built through it anyway."""
     import obstore.store
 
     def no_lookup(*a, **k):
@@ -294,7 +296,7 @@ def test_unregistered_s3_source_is_refused_without_credential_lookup(monkeypatch
         monkeypatch.setattr(obstore.store, name, no_lookup)
     store = _s3_store(policy=refkv.Policy(schemes={"s3"}))
     with pytest.raises(ResolutionError, match=r"no store is registered for s3://some-bucket\. "
-                                              r".*registry=\{'s3://some-bucket': store\}"):
+                                              r".*registry=\{'s3://some-bucket': store\}.*refkv\[obstore\]"):
         xr.open_zarr(refkv.zarr.store(store), consolidated=False).x.values
 
 

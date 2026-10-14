@@ -15,7 +15,7 @@ import virtualizarr as vz
 import xarray as xr
 from obspec_utils.readers import BlockStoreReader
 from obspec_utils.registry import ObjectStoreRegistry
-from obstore.store import S3Store
+from obstore.store import S3Store  # refkv[obstore], which refkv[virtualizarr] includes
 from virtualizarr.parsers import HDFParser
 
 import refkv

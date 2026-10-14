@@ -31,14 +31,13 @@ classifiers = [
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
 ]
-# The base install reads and writes vzip archives, holds a ReferenceStore and
-# virtualizes image files and stores, without Zarr (numpy: refkv.shards), through
-# the Rust core this package builds and ships as the module refkv._core (below); the
-# extras add the rest (src/refkv/_extras.py).
+# The base install reads and writes vzip archives, local and over http(s) (with refkv's
+# own HTTP client), holds a ReferenceStore and virtualizes image files and stores,
+# without Zarr (numpy: refkv.shards), through the Rust core this package builds and
+# ships as the module refkv._core (below); the extras add the rest (src/refkv/_extras.py).
 dependencies = [
     "google-crc32c>=1.9.0",
     "numpy>=2.5.3",
-    "obstore>=0.11.1",
 ]
 
 [project.urls]
@@ -57,11 +56,17 @@ images = [
     "refkv[zarr]",
     "imagecodecs>=2026.8.16",
 ]
+# obstore's stores, such as S3Store, to pass as registry= for s3://, gs:// and az:// sources
+# (refkv takes any obspec store, and does not import obstore itself)
+obstore = [
+    "obstore>=0.11.1",
+]
 # ReferenceStore.from_virtualizarr, refkv.convert and refkv.shards, which build Zarr
 # metadata. refkv does not import xarray: it calls the methods of the datasets
-# VirtualiZarr builds
+# VirtualiZarr builds. VirtualiZarr's registries hold obstore stores, so this has the
+# obstore extra too
 virtualizarr = [
-    "refkv[zarr]",
+    "refkv[zarr,obstore]",
     "virtualizarr>=2.7.3",
 ]
 

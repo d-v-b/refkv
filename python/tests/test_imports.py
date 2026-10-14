@@ -2,6 +2,8 @@
 
 - refkv does not import xarray: it calls the methods of the datasets it is given,
   and xarray is a dependency only of the documentation's examples and the tests.
+- refkv does not import obstore, which the base install does not have: the
+  application's stores come in through `registry=`.
 - Only the zarr adapter (`refkv.zarr`) and the VirtualiZarr conversion
   (`refkv.convert`, `refkv.shards`) import zarr, which the base install does not
   have: the other modules neither import it nor import the adapter.
@@ -96,6 +98,13 @@ def test_imports_are_found():
 def test_refkv_does_not_import_xarray():
     found = importers(SRC, "xarray")
     assert found == {}, f"modules of refkv import xarray (file: lines): {found}"
+
+
+def test_refkv_does_not_import_obstore():
+    """obstore is an extra (refkv[obstore]): an application passes its stores as
+    `registry=`, and refkv reads local files and http(s) URLs itself."""
+    found = importers(SRC, "obstore")
+    assert found == {}, f"modules of refkv import obstore (file: lines): {found}"
 
 
 def test_only_the_adapter_imports_zarr():

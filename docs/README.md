@@ -19,12 +19,16 @@ refkv can present TIFF, NDPI, ND2, CZI, DICOM, NIfTI and Imaris files, and N5, Z
 ## Installing
 
 `pip install "refkv @ git+https://github.com/d-v-b/refkv#subdirectory=python"` installs the Python
-package's base: it reads and writes vzip archives, and virtualizes files and
-stores through refkv's Rust core, which the install compiles into the same
-package (this needs a Rust toolchain, such as [rustup](https://rustup.rs)'s). Two extras add the rest:
+package's base: it reads and writes vzip archives, local or at `http(s)` URLs,
+and virtualizes files and stores through refkv's Rust core, which the install
+compiles into the same package (this needs a Rust toolchain, such as
+[rustup](https://rustup.rs)'s). Extras add the rest:
 `refkv[virtualizarr]` for virtual datasets from VirtualiZarr (below; refkv
-itself does not import xarray), and `refkv[images]` for the JPEG, JPEG 2000 and JPEG XR codecs that
-archives of image files use. In a clone, `uv sync` installs both, and the
+itself does not import xarray), `refkv[images]` for the JPEG, JPEG 2000 and JPEG XR codecs that
+archives of image files use, `refkv[zarr]` for `refkv.zarr`, and
+`refkv[obstore]` for obstore's `S3Store` and the other cloud stores, to pass
+as `registry=` for `s3://`, `gs://` or `az://` sources (`refkv[virtualizarr]`
+includes it). In a clone, `uv sync` installs them all, and the
 repository's test and benchmark tools.
 
 ## Virtual datasets from xarray and VirtualiZarr

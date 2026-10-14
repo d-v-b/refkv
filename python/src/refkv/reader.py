@@ -33,8 +33,7 @@ from email.message import Message
 from typing import Literal
 from urllib.parse import unquote, urljoin, urlparse, urlsplit
 
-from obstore.store import HTTPStore
-
+from refkv._extras import OBSTORE_HINT
 from refkv._sync import run
 from refkv.errors import PayloadError, RequestError, ResolutionError
 from refkv.pb import Reference, Source, parts
@@ -113,18 +112,21 @@ class Resolver:
       written, so an IP literal or `localhost` of a non-public class is
       refused. It cannot check the addresses a registered store connects to,
       or the redirects it follows: the store makes its own connections. For a
-      source that no store is registered for, refkv's own HTTP client checks
+      URL that no store is registered for, refkv's own HTTP client checks
       every address it connects to.
 
-    Without a registered store, refkv reads `http(s)` sources with its own HTTP
-    client, an archive at an `http(s)` URL with obstore, and a local archive and
-    `file:` sources from the file system. It makes no store for any
-    other scheme: obstore's `from_url` would look for credentials (environment
-    variables, configuration files, the cloud metadata service at
-    169.254.169.254), out of the reader policy's reach. Reading such a URL
-    without a registered store is a `ResolutionError`.
+    Without a registered store, refkv reads `http(s)` URLs, the archive's own
+    and its sources, with its own HTTP client (`HttpObjects` for the
+    archive), which applies rule 3 to the archive's host, to every address it
+    connects to and to every redirect; and it reads a local archive and
+    `file:` sources from the file system. It makes no store for any other
+    scheme: a store built from a URL alone, such as obstore's `from_url`,
+    would look for credentials (environment variables, configuration files,
+    the cloud metadata service at 169.254.169.254), out of the reader policy's
+    reach. Reading such a URL without a registered store is a
+    `ResolutionError`.
 
-    For a public S3 bucket:
+    For a public S3 bucket, with obstore (`pip install 'refkv[obstore]'`):
 
         from obstore.store import S3Store
 
@@ -138,7 +140,7 @@ class Resolver:
     def __init__(self, registry=None) -> None:
         self._registry = None  # an ObjectStoreRegistry-like object, with .resolve(url)
         self._prefixes: list[tuple[str, str, tuple[str, ...], object]] = []
-        self._made: dict[str, object] = {}  # the stores refkv made, by scheme://netloc
+        self._made: dict[str, object] = {}  # LocalFiles, made once
         if isinstance(registry, Resolver):
             self._registry, self._prefixes = registry._registry, list(registry._prefixes)
         elif isinstance(registry, Mapping):
@@ -184,10 +186,14 @@ class Resolver:
             path = path[len(root):].lstrip("/")
         return store, path
 
-    def resolve(self, url: str, *, allow_file_host: bool = False) -> tuple[object, str]:
+    def resolve(self, url: str, *, allow_file_host: bool = False, policy: Policy | None = None,
+                executor=None) -> tuple[object, str]:
         """The store that reads `url`, and the object's path in it. `allow_file_host`:
         a `file:` URL may name a host, a UNC path on Windows (spec §5
-        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)."""
+        <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>).
+        For an `http(s)` URL that no store is registered for, the store is an
+        `HttpObjects`, which reads under `policy` (default: `Policy()`) on
+        `executor`."""
         found = self.registered(url)
         if found is not None:
             return found
@@ -207,16 +213,14 @@ class Resolver:
                 f"{url}: no store is registered for {root}. refkv does not make one itself, "
                 f"since it would look for credentials outside the reader policy "
                 f"(spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>). "
-                f"Pass registry={{{root!r}: store}}, such as an obstore S3Store, or an "
-                f"obspec_utils ObjectStoreRegistry"
+                f"Pass registry={{{root!r}: store}}, such as an S3Store ({OBSTORE_HINT}), or "
+                f"an obspec_utils ObjectStoreRegistry"
                 + ("; or, for a public bucket, write its HTTPS URLs "
                    "(rewrite_urls=refkv.public_s3_url)." if public_s3_url(url) else "."))
-        root = f"{scheme}://{p.netloc}"
-        if root not in self._made:
-            self._made[root] = HTTPStore.from_url(
-                root, client_options={"allow_http": scheme == "http"})
-        # object_store paths are decoded; it percent-encodes them itself when building URLs
-        return self._made[root], unquote(p.path).lstrip("/")
+        # the request target as written (path and query), after the origin as written
+        url = url.split("#", 1)[0]
+        origin = url[:len(p.scheme) + 3 + len(p.netloc)]
+        return HttpObjects(origin, policy, executor), url[len(origin):]
 
 
 class _Got:
@@ -230,10 +234,11 @@ class _Got:
 
 
 class LocalFiles:
-    """Local files, by OS path, with the methods of an obstore store that the reader
-    calls. obstore's LocalStore takes `/`-separated paths under one root, which
-    cannot name a Windows drive letter or a UNC path; this takes the path that
-    `refkv.uri.file_path` maps a `file:` URL to, on every system."""
+    """Local files, by OS path, with the methods of an obspec store that the reader
+    calls on a store it makes itself. obstore's LocalStore takes `/`-separated
+    paths under one root, which cannot name a Windows drive letter or a UNC path;
+    this takes the path that `refkv.uri.file_path` maps a `file:` URL to, on every
+    system."""
 
     @staticmethod
     def _range(path: str, start: int, end: int) -> bytes:
@@ -518,29 +523,24 @@ def _send_urllib(url: str, headers: dict[str, str], method: str = "GET") -> tupl
 _REDIRECTS = (301, 302, 303, 307, 308)
 
 
-def http_range(url: str, start: int, end: int, src: Source,
-               allow: Callable[[str], None] | None = None,
-               address: Callable[[str, str], None] | None = None,
-               unchecked_proxy: bool = False) -> tuple[bytes, int | None]:
-    """Bytes [start, end) of an http(s) object, and its size if known (spec §5.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>).
-
-    `allow(url)` raises for a redirect target the reader's policy refuses
-    (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>); it is
-    called before the request to that target is sent.
-    `address(url, ip)` raises for an IP address the policy refuses (rule 3);
-    it is called on the address each request is sent to, before sending it.
-    With `address`, a request that would go through a proxy is refused unless
-    `unchecked_proxy`."""
+def _http_get(url: str, range_: str, src: Source | None,
+              allow: Callable[[str], None] | None, address: Callable[[str, str], None] | None,
+              unchecked_proxy: bool) -> tuple[str, int, Message, bytes]:
+    """One GET of an http(s) object with the header `Range: bytes=<range_>`, its
+    redirects followed and checked, and the response's status, fields and pins
+    checked (spec §5.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>):
+    (final URL, status, headers, body) of a 200 or a 206. `src`'s pins, if any,
+    are sent and checked. `allow` and `address` are `http_range`'s."""
     import email.utils
 
     from refkv.uri import is_uri_reference
 
     _check_http_url(url)
-    headers = {"Range": f"bytes={start}-{end - 1}", "Accept-Encoding": "identity"}
-    if src.etag is not None:
+    headers = {"Range": f"bytes={range_}", "Accept-Encoding": "identity"}
+    if src is not None and src.etag is not None:
         headers["If-Match"] = src.etag
-    if src.modified_not_after is not None:
+    if src is not None and src.modified_not_after is not None:
         t = src.modified_not_after
         if not -62135596800 <= t <= 253402300799:  # years 1..9999
             raise ResolutionError("modified_not_after cannot be written as an HTTP-date")
@@ -582,15 +582,14 @@ def http_range(url: str, start: int, end: int, src: Source,
             raise ResolutionError(f"{url}: more than one {name} field")
     encs = msg.get_all("Content-Encoding") or []
     enc = ", ".join(e.strip() for e in encs).lower() if encs else "identity"
-    crange = msg.get("Content-Range")
     etag, last_modified = msg.get("ETag"), msg.get("Last-Modified")
     # spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>:
     # servers may ignore conditional headers, so check the response itself
-    if src.etag is not None and etag != src.etag:
+    if src is not None and src.etag is not None and etag != src.etag:
         raise ResolutionError(f"{url}: the ETag is {etag!r}, but the archive pins {src.etag!r}: "
                               f"the source changed since the archive was written, or its server "
                               f"does not send the ETag")
-    if src.modified_not_after is not None:
+    if src is not None and src.modified_not_after is not None:
         lm = imf_fixdate(last_modified)
         if lm is None:
             raise ResolutionError(f"{url}: Last-Modified {last_modified!r} is not an IMF-fixdate")
@@ -598,20 +597,121 @@ def http_range(url: str, start: int, end: int, src: Source,
             raise ResolutionError(f"{url}: Last-Modified {last_modified} is after the pin")
     if enc != "identity":
         raise ResolutionError(f"{url}: response has Content-Encoding {enc!r}")
-    if status == 200:  # the server ignored Range
-        if len(body) < end:
-            raise ResolutionError(f"{url} is shorter than {end} bytes")
-        return body[start:end], len(body)
+    return url, status, msg, body
+
+
+def _content_range(url: str, msg: Message, status: int) -> tuple[int, int, str]:
+    """The first and last byte and the total (`*` if unknown) of a 206's Content-Range."""
+    crange = msg.get("Content-Range")
     if status != 206 or not crange:
         raise ResolutionError(f"{url}: unexpected response {status} {crange!r}")
     m = re.fullmatch(r"(?i:bytes) (\d+)-(\d+)/(\d+|\*)", crange.strip())
     if not m:
         raise ResolutionError(f"{url}: invalid Content-Range {crange!r}")
-    a, z, total = int(m[1]), int(m[2]), m[3]
-    if a != start or z != end - 1 or len(body) != z - a + 1 or (total != "*" and z >= int(total)):
-        raise ResolutionError(f"{url}: server returned {crange!r} ({len(body)} bytes) for "
-                              f"[{start}, {end})")
+    return int(m[1]), int(m[2]), m[3]
+
+
+def http_range(url: str, start: int, end: int, src: Source | None,
+               allow: Callable[[str], None] | None = None,
+               address: Callable[[str, str], None] | None = None,
+               unchecked_proxy: bool = False, *, clip: bool = False) -> tuple[bytes, int | None]:
+    """Bytes [start, end) of an http(s) object, and its size if known (spec §5.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>).
+
+    `src`: the source whose pins the response must match (None: no pins).
+    `allow(url)` raises for a redirect target the reader's policy refuses
+    (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>); it is
+    called before the request to that target is sent.
+    `address(url, ip)` raises for an IP address the policy refuses (rule 3);
+    it is called on the address each request is sent to, before sending it.
+    With `address`, a request that would go through a proxy is refused unless
+    `unchecked_proxy`. With `clip`, a range that runs past the end of the
+    object gives the bytes up to its end, [start, size), as an object store's
+    range read does; otherwise that is an error."""
+    url, status, msg, body = _http_get(url, f"{start}-{end - 1}", src, allow, address,
+                                       unchecked_proxy)
+    if status == 200:  # the server ignored Range
+        if len(body) < (start if clip else end):
+            raise ResolutionError(f"{url} is shorter than {end} bytes")
+        return body[start:end], len(body)
+    a, z, total = _content_range(url, msg, status)
+    last = end - 1 if not clip or total == "*" else min(end, int(total)) - 1
+    if a != start or z != last or len(body) != z - a + 1 or (total != "*" and z >= int(total)):
+        raise ResolutionError(f"{url}: server returned {msg.get('Content-Range')!r} "
+                              f"({len(body)} bytes) for [{start}, {end})")
     return body, None if total == "*" else int(total)
+
+
+def http_suffix(url: str, n: int,
+                allow: Callable[[str], None] | None = None,
+                address: Callable[[str, str], None] | None = None,
+                unchecked_proxy: bool = False) -> tuple[bytes, int]:
+    """The last `n` bytes of an http(s) object (all of it, if it is shorter), and
+    its size: `http_range`'s rules, for the request `Range: bytes=-n`. A response
+    that does not give the size is an error."""
+    if n < 1:
+        raise ValueError(f"a suffix is at least one byte, not {n}")
+    url, status, msg, body = _http_get(url, f"-{n}", None, allow, address, unchecked_proxy)
+    if status == 200:  # the server ignored Range
+        return body[max(len(body) - n, 0):], len(body)
+    a, z, total = _content_range(url, msg, status)
+    if total == "*":
+        raise ResolutionError(f"{url}: the response to a suffix request does not give the "
+                              f"object's size")
+    size = int(total)
+    if a != max(size - n, 0) or z != size - 1 or len(body) != z - a + 1:
+        raise ResolutionError(f"{url}: server returned {msg.get('Content-Range')!r} "
+                              f"({len(body)} bytes) for the last {n} bytes")
+    return body, size
+
+
+class HttpObjects:
+    """The objects of one http(s) origin, read with refkv's own HTTP client under a
+    reader policy (spec §6.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>), with
+    the methods of an obspec store that the reader calls on a store it makes
+    itself: `get_range_async` and, for a suffix, `get_async`. `Resolver.resolve`
+    makes one for an archive at an `http(s)` URL, so that the archive and its
+    sources are read by one HTTP client, with the same connections
+    (`_POOL`), redirect rules and address checks (rule 3): the archive's own
+    host, every address connected to and every redirect target, unless the
+    policy has `allow_private_hosts`. A path is the request target that
+    follows the origin in the URL: its path and query, as written.
+
+    The blocking requests run on `executor` (default: asyncio's), which the
+    reader sets to its own threads, so they count towards its
+    `max_concurrency`."""
+
+    def __init__(self, origin: str, policy: Policy | None = None, executor=None) -> None:
+        self.origin = origin
+        self.policy = policy or Policy()
+        self.executor = executor
+
+    def __repr__(self) -> str:
+        return f"HttpObjects({self.origin!r})"
+
+    async def _call(self, f, path: str, *args, **kwargs):
+        url = self.origin + path
+        p = self.policy
+        p.check_host(url)  # as written, before resolving it; each address is checked as well
+        address = None if p.allow_private_hosts else p.check_address
+        return await asyncio.get_running_loop().run_in_executor(
+            self.executor, functools.partial(f, url, *args, p.check_host, address,
+                                             p.allow_unchecked_proxy, **kwargs))
+
+    async def get_range_async(self, path: str, *, start: int, end: int) -> bytes:
+        """Bytes [start, min(end, size)) of the object: a range that runs past its
+        end is cut there, as obstore does, and `start` past it is an error."""
+        if end <= start:
+            return b""
+        data, _ = await self._call(http_range, path, start, end, None, clip=True)
+        return data
+
+    async def get_async(self, path: str, *, options: dict) -> _Got:
+        """The last `options["range"]["suffix"]` bytes of the object, and its size."""
+        if set(options) != {"range"} or set(options["range"]) != {"suffix"}:
+            raise NotImplementedError(f"HttpObjects.get_async reads a suffix, not {options!r}")
+        return _Got(*await self._call(http_suffix, path, options["range"]["suffix"]))
 
 
 def _size_mismatch(url: str, pin: int, size: int | None) -> str:
@@ -661,7 +761,7 @@ DEFAULT_CONCURRENCY = 8
 
 
 UNCAPPED_THREADS = 64
-"""The threads a store with `max_concurrency=None` reads HTTP sources with."""
+"""The threads a store with `max_concurrency=None` reads over HTTP with."""
 
 
 class ReferenceReader:
@@ -718,8 +818,9 @@ class ReferenceReader:
       with ranges of several sources), and a dask computation runs many zarr
       operations at once, so only this option bounds the connections a
       computation opens. It counts the requests of this store object, per event
-      loop; several stores each have their own cap. HTTP sources are read on
-      the store's own threads, as many as the cap (64 with no cap), so the cap
+      loop; several stores each have their own cap. HTTP sources, and an
+      archive at an `http(s)` URL, are read on the store's own threads, as
+      many as the cap (64 with no cap), so the cap
       is the same on every machine: it doesn't depend on the CPU count, as
       asyncio's shared default thread pool does.
     """
@@ -848,7 +949,8 @@ class ReferenceReader:
         # the archive's own URL is the application's choice; a source's file: host
         # needs the policy's allow_file_hosts
         store, path = self.resolver.resolve(
-            url, allow_file_host=url == self.url or self.policy.allow_file_hosts)
+            url, allow_file_host=url == self.url or self.policy.allow_file_hosts,
+            policy=self.policy, executor=self._executor())
         try:
             async with self._limit():
                 data = bytes(await store.get_range_async(path, start=start, end=end))

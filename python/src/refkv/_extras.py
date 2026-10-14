@@ -8,13 +8,22 @@ virtualizes image files and stores, without Zarr. The extras add:
   archives of virtualized image files and stores use (`refkv.zarr.codecs`);
 - `images`: the JPEG, JPEG 2000 and JPEG XR decoders of those codecs
   (imagecodecs), with the `zarr` extra;
+- `obstore`: obstore, whose stores (`S3Store`, `GCSStore`, `AzureStore`, ...)
+  an application passes as `registry=` to read `s3://`, `gs://` or `az://`
+  sources. refkv does not import it: a registry takes any obspec store, and
+  refkv reads local files and `http(s)` URLs, archives and sources, itself.
+  `OBSTORE_HINT` is what refkv's errors say where such a store is needed;
 - `virtualizarr`: VirtualiZarr, for `ReferenceStore.from_virtualizarr`,
   `refkv.convert` and `refkv.shards`, with the `zarr` extra, since they build
-  Zarr metadata. refkv does not import xarray: it calls the methods of the
+  Zarr metadata, and the `obstore` extra, whose stores VirtualiZarr's
+  registries hold. refkv does not import xarray: it calls the methods of the
   datasets VirtualiZarr builds.
 """
 
 from __future__ import annotations
+
+OBSTORE_HINT = "obstore's, which refkv's 'obstore' extra installs: pip install 'refkv[obstore]'"
+"""Where an error names a store for a bucket, such as `S3Store(...)`: whose it is."""
 
 
 def missing(extra: str, feature: str, error: ImportError) -> ImportError:

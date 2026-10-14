@@ -1802,7 +1802,6 @@ source = { editable = "python" }
 dependencies = [
     { name = "google-crc32c" },
     { name = "numpy" },
-    { name = "obstore" },
 ]
 
 [package.optional-dependencies]
@@ -1810,7 +1809,11 @@ images = [
     { name = "imagecodecs" },
     { name = "zarr" },
 ]
+obstore = [
+    { name = "obstore" },
+]
 virtualizarr = [
+    { name = "obstore" },
     { name = "virtualizarr" },
     { name = "zarr" },
 ]
@@ -1823,13 +1826,13 @@ requires-dist = [
     { name = "google-crc32c", specifier = ">=1.9.0" },
     { name = "imagecodecs", marker = "extra == 'images'", specifier = ">=2026.8.16" },
     { name = "numpy", specifier = ">=2.5.3" },
-    { name = "obstore", specifier = ">=0.11.1" },
+    { name = "obstore", marker = "extra == 'obstore'", specifier = ">=0.11.1" },
     { name = "refkv", extras = ["zarr"], marker = "extra == 'images'", editable = "python" },
-    { name = "refkv", extras = ["zarr"], marker = "extra == 'virtualizarr'", editable = "python" },
+    { name = "refkv", extras = ["zarr", "obstore"], marker = "extra == 'virtualizarr'", editable = "python" },
     { name = "virtualizarr", marker = "extra == 'virtualizarr'", specifier = ">=2.7.3" },
     { name = "zarr", marker = "extra == 'zarr'", specifier = ">=3.4.0" },
 ]
-provides-extras = ["images", "virtualizarr", "zarr"]
+provides-extras = ["images", "obstore", "virtualizarr", "zarr"]
 
 [[package]]
 name = "refkv-workspace"
@@ -1859,7 +1862,7 @@ dev = [
     { name = "pyproj" },
     { name = "pytest" },
     { name = "rasterio" },
-    { name = "refkv", extra = ["images", "virtualizarr", "zarr"] },
+    { name = "refkv", extra = ["images", "obstore", "virtualizarr", "zarr"] },
     { name = "tifffile" },
     { name = "xarray" },
     { name = "zarr-n5" },
@@ -1890,7 +1893,7 @@ dev = [
     { name = "pyproj", specifier = ">=3.8.0" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "rasterio", specifier = ">=1.5.2" },
-    { name = "refkv", extras = ["zarr", "images", "virtualizarr"], editable = "python" },
+    { name = "refkv", extras = ["zarr", "images", "virtualizarr", "obstore"], editable = "python" },
     { name = "tifffile", specifier = ">=2026.9.20" },
     { name = "xarray", specifier = ">=2026.9.0" },
     { name = "zarr-n5", specifier = ">=0.3.1" },

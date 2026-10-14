@@ -25,11 +25,18 @@ For netCDF, HDF5 and the other files
 store that xarray opens ([example](https://github.com/d-v-b/refkv/blob/main/docs/virtual-datasets.md)).
 
 ```bash
-pip install refkv                  # read, write, virtualize
+pip install refkv                  # read (local or over http(s)), write, virtualize
 pip install "refkv[zarr]"          # refkv.zarr: open a store with zarr-python and xarray
 pip install "refkv[images]"        # and the JPEG, JPEG 2000 and JPEG XR codecs
-pip install "refkv[virtualizarr]"  # virtual datasets from VirtualiZarr
+pip install "refkv[virtualizarr]"  # virtual datasets from VirtualiZarr (with obstore)
+pip install "refkv[obstore]"       # obstore's S3Store and others, for registry= (s3://, gs://, az://)
 ```
+
+The base install reads archives and sources over `http(s)` with refkv's own HTTP client,
+which refuses loopback, private and link-local addresses unless
+`Policy(allow_private_hosts=True)`, and requests through an HTTP proxy, whose
+connections it cannot check, unless `Policy(allow_unchecked_proxy=True)`: an
+archive's own URL included.
 
 Wheels are built for Linux, macOS and Windows (Python 3.12 and later).
 
