@@ -159,8 +159,9 @@ class Policy:
       refused. Rule 3's checks are then skipped, proxies included. The rule
       covers the reads of an archive at an `http(s)` URL too, which refkv
       makes with the client that reads sources: its host, every address
-      connected to and every redirect (spec §6.7 allows a reader this), so
-      opening `http://localhost:8000/a.vzip` needs this setting.
+      connected to and every redirect, as spec §6.7
+      <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> allows a
+      reader to; so opening `http://localhost:8000/a.vzip` needs this setting.
     - `allow_unchecked_proxy`: UNSAFE. Lets requests go through an HTTP proxy
       while rule 3 applies. The proxy connects, so the reader cannot check
       the address it reaches; it checks what the name resolves to locally,
