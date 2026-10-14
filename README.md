@@ -1,5 +1,9 @@
 # refkv: reference-aware key-value storage
 
+> [!CAUTION]
+> This project is almost entirely vibe-coded. It is intended for personal use,
+> and as a proof of concept.
+
 refkv defines reference semantics for key-value storage. This allows an object
 in one key-value store to refer to a byte range, or sequence of byte ranges,
 in other storage backends.

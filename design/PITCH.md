@@ -1,6 +1,12 @@
-# Why vzip
+# vzip: an experiment in a single-file reference format
 
-## The problem
+**vzip is an experiment, not a product.** If you need to virtualize Zarr
+data today, use the established tools: [Icechunk](https://icechunk.io/)
+for production datasets, and [kerchunk](https://github.com/fsspec/kerchunk)
+where a static set of references read from Python is enough. Both are
+maintained, documented and widely used, and VirtualiZarr writes both.
+
+## The question
 
 Petabytes of scientific data sit in HDF5, netCDF, GRIB and TIFF files on
 object storage. [kerchunk](https://github.com/fsspec/kerchunk) showed that
@@ -12,38 +18,37 @@ kerchunk and makes virtual datasets easy to build and combine with xarray.
 vzip exists because of both projects; see
 [Where the ideas come from](#where-the-ideas-come-from).
 
-The hard part is storing those references. A virtual dataset is a Zarr store
-in which some keys hold real bytes (metadata, small coordinate arrays) and
-others hold "go read these bytes over there". Today there are three ways to
-store that, and each one costs something:
+A virtual dataset is a Zarr store in which some keys hold real bytes
+(metadata, small coordinate arrays) and others hold "go read these bytes
+over there". The established ways to store that each come with an
+implementation and an ecosystem:
 
-- **kerchunk JSON**:
-  - ~135 bytes per reference;
-  - the whole document has to be downloaded and parsed before anything can be
-    read: 109 MB for a million chunks.
-- **kerchunk Parquet**:
-  - compact, but a directory of files in an fsspec-specific layout;
-  - reading it needs a Parquet library, plus the conventions of one Python
-    ecosystem.
-- **Icechunk**:
-  - versioned, transactional and fast;
-  - but a reader is a Rust library;
-  - its formats are defined by its implementation;
-  - it is maintained by one company.
+- **kerchunk JSON** is one JSON document, read by fsspec's reference
+  filesystem.
+- **kerchunk Parquet** is a compact directory of Parquet files, also read by
+  fsspec.
+- **Icechunk** is a versioned, transactional repository with a Rust library,
+  Python bindings and cloud backends. It is the most complete of the three
+  and the one to reach for in production.
 
-  That's the right trade if you need commits and branches. It's a lot to
-  depend on if you only need to publish a set of references.
-
-There is no small, boring format for this: one you could read from a
-specification in an afternoon, in any language, with tools you already have.
+The experiment asks a narrower question: can the reference mapping itself be
+written down as a short specification, independent of any one
+implementation, such that someone could read it from the spec in an
+afternoon, in any language, with tools they already have? And what does such
+a format cost against the established ones? vzip is the attempt, and the
+rest of this document, [COMPARISON.md](COMPARISON.md) and
+[FINDINGS.md](FINDINGS.md) are the findings.
 
 ## Status
 
-Format version 0 (`vzip/0`) is **provisional**, as of
-[spec revision 8](../spec/refkv.md). The format is believed complete and
-implementers may rely on it, but it can still change in response to
-feedback. Any incompatible change will be announced in the
-[changelog](../spec/history/archive/REVISIONS.md). Feedback is welcome.
+Format version 0 (`vzip/0`) is **experimental**. The
+[spec](../spec/refkv.md) is believed complete, but it can change without
+regard for existing archives, and it has no production users, release
+history or support. The implementations in this repository are reference
+implementations written to test the spec, not libraries to build on.
+Changes are recorded in the
+[changelog](../spec/history/archive/REVISIONS.md). Feedback is welcome;
+dependence is not advised.
 
 ## The idea
 
@@ -100,7 +105,7 @@ Very little in its data model is new.
   kerchunk's Parquet layout showed how compact references can be:
   dictionary-encoded paths, columns of offsets and lengths, read lazily in
   pieces. It is the bar vzip's size and request counts are measured against
-  [below](#what-it-costs-measured).
+  in [COMPARISON.md](COMPARISON.md).
 - **[VirtualiZarr](https://github.com/zarr-developers/VirtualiZarr)**
   (started by Tom Nicholas, now a zarr-developers project) recast virtual Zarr
   in Zarr's own terms. It grew out of discussions on kerchunk
@@ -126,16 +131,16 @@ Very little in its data model is new.
 
 What vzip adds is narrow: a reference value type with a binary encoding,
 and its binding to a single file (ZIP), defined by one document with a
-conformance suite, so that references can be
-read without fsspec, Python, or a particular storage engine. It is meant to
-sit alongside these tools, not replace them. VirtualiZarr could write vzip as
-one more output format, as it writes kerchunk references and Icechunk today.
+conformance suite, so that references can be read without fsspec, Python, or
+a particular storage engine. It is a study of that one idea, not a
+replacement for these tools. If the idea turns out to be useful, the right
+home for it is probably inside them, for example as one more VirtualiZarr
+output format, rather than as a separate project.
 
 ## Why ZIP first
 
 The reference value type could live in many backends. ZIP is the one the
-spec binds it to, because:
-
+experiment binds it to, because:
 
 - **It is already cloud-optimized.** The index (the central directory) is at
   the end of the file. One range request for the tail finds everything else.
@@ -151,30 +156,27 @@ spec binds it to, because:
   document](../spec/bindings/vzip.md). Every archive records its format version (`vzip/0`
   today), so a reader knows whether it can read an archive before it tries.
 
-## What it costs, measured
+## What it costs
 
-Measured on a synthetic million-chunk dataset, opening it and reading one
-chunk over HTTP with 20 ms of latency per request:
+[COMPARISON.md](COMPARISON.md) measures vzip against kerchunk JSON, kerchunk
+Parquet and Icechunk on the same virtual dataset, read over HTTP in several
+access patterns, with every request counted. In short: with a page index,
+vzip opens and reads single values and maps as fast as the others; it is the
+largest of the four on disk and the slowest to write; and a read that
+crosses every page of its index, such as a time series, is slower than the
+others. Those are the costs of the design, measured so that the experiment
+is honest about them.
 
-| format | requests | index bytes fetched | size on disk |
-|---|---|---|---|
-| vzip, virtual shards | 4 | 0.17 MB | 8 B / ref |
-| vzip, one entry per chunk + page index | 4 | 0.15 MB | 128 B / ref |
-| kerchunk Parquet | 4 | 0.64 MB | 6 B / ref |
-| Icechunk | 11 | 16.7 MB | 22 B / ref |
-| kerchunk JSON | 3 | 109 MB | 136 B / ref |
-
-Opening a small dataset, with all metadata included, takes **one request**:
-the writer places the metadata documents next to the directory at the end of
-the file.
-
-"Virtual shards" are not a separate feature. They are a usage pattern: one
+"Virtual shards" are a usage pattern the experiment also tried: one
 reference per source file, made of the file's bytes followed by a standard
-Zarr shard index. Zarr's own sharding codec then does the per-chunk lookup.
+Zarr shard index, so that Zarr's own sharding codec does the per-chunk
+lookup. They make the archive far smaller, at the cost of requiring source
+files that tile a regular grid.
 
-## Simple enough to implement from the spec
+## Can it be implemented from the spec alone?
 
-To check the "afternoon" claim, agents implemented vzip from
+This is the experiment's central question. To test it, agents implemented
+vzip from
 [spec/refkv.md](../spec/refkv.md) alone, in Rust, TypeScript and Python, with no access to
 any existing code. This was done in seven rounds, with fresh agents each time.
 After each round, their notes and every disagreement between them went back
@@ -194,22 +196,29 @@ round-7 implementations are in [conformance/impls/](../conformance/impls/).
 
 ## What vzip is not
 
+- **Not a production tool.** It has no users, no releases, no support, and
+  a spec that may change incompatibly. Use Icechunk or kerchunk for anything
+  you or others depend on.
 - **Not a version-control system.** It has no commits, branches or
-  transactions. To change a vzip, write a new one. If you need history,
-  concurrent writers or time travel, use Icechunk.
+  transactions. To change a vzip, write a new one. Icechunk has history,
+  concurrent writers and time travel, and is the right choice when a dataset
+  changes.
 - **Not tied to Zarr.** Keys are strings and values are bytes. Zarr is the
   motivating case, not a dependency.
 - **Not a replacement for real Zarr data.** It references bytes that live in
   other formats, with their chunking and compression.
 
-## Who it's for
+## Who this is for
 
-- **Data producers** who want to publish an analysis-ready "view" of an
-  archive of netCDF/HDF5 files as one file next to the data.
-- **Tool authors** who want to read virtual datasets without taking on a
-  large dependency.
-- **Anyone archiving a virtual dataset** for the long term, who wants a format
-  a future reader can rebuild from a short document.
+- **Data producers** who want to publish a virtual view of an archive
+  should use Icechunk, or kerchunk through VirtualiZarr. Not vzip.
+- **People designing reference formats**, in the Zarr community or
+  elsewhere, may find the spec, the conformance suite, the implementation
+  rounds and the measurements useful as evidence about what a small,
+  spec-first, single-file format can and cannot do.
+- **Anyone curious** whether a ZIP file can carry a virtual dataset can read
+  the spec and try the reference implementations, knowing they are
+  experiments.
 
 ## Open questions
 

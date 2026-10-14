@@ -4,11 +4,16 @@ This document measures four ways of storing a virtual Zarr dataset (chunk
 references into existing netCDF4/HDF5 files) on the same data, and reports
 what was measured.
 
-It is not a ranking. Each format makes different trade-offs, and which one
-fits depends on the use case. vzip is this repository's format. We think it
-has properties that suit some use cases, listed in
-[Where each format fits](#where-each-format-fits), and these measurements
-show what those properties cost and where vzip does worse.
+Note: for
+production-grade Zarr virtualization, Icechunk should be the first choice.
+kerchunk is the established Python option, and the one most existing virtual
+datasets are stored in.
+
+vzip is this repository's format. It is an experiment: a specification, a
+reference implementation, and no production users. These measurements exist
+to show what its design costs, and where it does worse, so that the
+experiment is honest. Nothing below should be read as a reason to choose
+vzip over Icechunk for a production deployment.
 
 The code is in [`comparison/`](comparison/README.md). Every number below can
 be regenerated with `just compare-formats`.
@@ -53,15 +58,24 @@ Every value read, in every run and access pattern, matched the source files.
 
 ## The formats
 
-| | kerchunk JSON | kerchunk Parquet | Icechunk | vzip |
-|---|---|---|---|---|
-| what is written | one JSON file, optionally compressed | a directory: `.zmetadata` and Parquet files of references | a repository: config, branches, snapshots, manifests, transaction logs | one ZIP file |
-| how a reader finds a reference | loads the whole file | loads the Parquet file holding it | loads the manifest holding it | reads the whole central directory at open, or with a page index, the 64 KiB page holding it |
-| Zarr version presented | 2 (as written by VirtualiZarr) | 2 | 3 | 3 |
-| changing it | rewrite | rewrite | commits, with history, branches and tags | rewrite |
-| checks that referenced files haven't changed | none | none | optional: refuses chunks modified after a given time | optional: size, ETag or modification time per source ([spec/refkv.md §5.1](../spec/refkv.md#51-pins)) |
-| readers | fsspec's reference filesystem (Python) | fsspec's reference filesystem (Python) | the Icechunk library (Rust, with Python bindings) | this repository's Python store; independent Rust, TypeScript and Python readers; a browser reader; any ZIP tool for entries stored as bytes |
-| written here with | `vds.vz.to_kerchunk(format="json")` | `vds.vz.to_kerchunk(format="parquet")` | `vds.vz.to_icechunk(session.store)` | `refkv.convert.write_vzip(vds, path)` |
+- **kerchunk JSON** is one JSON file, optionally compressed, presenting
+  Zarr version 2 as written by VirtualiZarr. A reader loads the whole file.
+  Written here with `vds.vz.to_kerchunk(format="json")`.
+- **kerchunk Parquet** is a directory: `.zmetadata` and Parquet files of
+  references, presenting Zarr version 2. A reader loads the Parquet file
+  holding the reference it needs. Written here with
+  `vds.vz.to_kerchunk(format="parquet")`.
+- **Icechunk** is a repository of config, branches, snapshots, manifests and
+  transaction logs, presenting Zarr version 3, read through the Icechunk
+  library. A reader loads the manifest holding the reference it needs.
+  Written here with `vds.vz.to_icechunk(session.store)`.
+- **vzip** is one ZIP file holding a key-value store whose values are
+  bytes or references. It knows nothing about Zarr; the converter used here
+  writes Zarr version 3 metadata and chunk keys into it, and this
+  repository's Python store presents the result to zarr-python. A reader
+  loads the whole central directory at open, or, with a page index, the
+  64 KiB page holding the reference. Written here with
+  `refkv.convert.write_vzip(vds, path)`.
 
 The kerchunk files are written by VirtualiZarr's kerchunk writer, not by
 kerchunk's own `SingleHdf5ToZarr` and `MultiZarrToZarr`. With chunks
@@ -387,43 +401,6 @@ splits each read into five ranges. With one request per object it made
 An earlier version of vzip's reader opened a new connection for every
 chunk, and took 7.5 s here and 9.3 s for the large time series. Reusing
 connections brought it level with the others (see the history above).
-
-## Where each format fits
-
-This section describes properties, not scores. Several of them were not
-measured here.
-
-- **kerchunk JSON** is the simplest: one text file that any JSON tool can
-  read and edit. With templates and gzip it is small, but every reader loads
-  all of it.
-- **kerchunk Parquet** is the most compact here, and opens with little data.
-  It is a directory of files, read in Python through fsspec.
-- **Icechunk** is the only one of the four with transactions, history,
-  branches and appends. It is the natural choice for a dataset that changes
-  over time, or that several writers update. It is a repository of many
-  objects, read through the Icechunk library.
-- **vzip**'s properties may suit some cases:
-  - **One file.** One object to copy, upload, attach or delete.
-  - **A plain ZIP file.** Any ZIP tool lists its keys and reads its bytes
-    entries, such as `zarr.json` documents.
-  - **Bytes and references in one key space.** An archive can hold real
-    chunks (for example, edited ones) and references side by side.
-  - **Sources pinned by size, ETag or modification time.** A reader can
-    refuse data that changed. Icechunk has a similar check, by modification
-    time.
-  - **Independent readers checked by one conformance suite:** Rust,
-    TypeScript and Python, and a reader for the browser.
-
-  Its costs, as measured here:
-  - It is the largest of the four: 1.2× plain kerchunk JSON, about 7×
-    Icechunk, 14× compressed kerchunk JSON and 40× kerchunk Parquet.
-  - It is the slowest to write.
-
-  Other costs follow from its design:
-  - Without a page index, it loads every reference at open.
-  - With one, a read that crosses every page, such as a time series, fetches
-    the whole index piece by piece.
-  - It has no way to update an archive except rewriting the file.
 
 ## Limits
 
