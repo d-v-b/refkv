@@ -5,15 +5,15 @@
 > and as a proof of concept. If you need to virtualize Zarr data, use
 > [Icechunk](https://icechunk.io/) or [kerchunk](https://github.com/fsspec/kerchunk).
 
-This repository holds two things and keeps them apart.
+This repository is an experiment. It defines two things at different levels of abstraction
 
-**refkv is the model.** It is a reference value type for key-value storage:
+**refkv** A reference value type for key-value storage:
 a value is either bytes or a reference to byte ranges of other objects, such
 as the chunks inside HDF5, netCDF or TIFF files. The model is specified
 without a backend ([spec/refkv.md](spec/refkv.md)), so any key-value store
 that can tell bytes from references can hold such a store.
 
-**vzip is the implementation.** It is the one binding of the model the
+**vzip** One binding of the model the
 specification makes normative ([spec/bindings/vzip.md](spec/bindings/vzip.md)):
 a refkv store kept in one ordinary ZIP file, a `.vzip` archive. The
 [pitch](design/PITCH.md) explains the model, the binding, why ZIP, and what
