@@ -8,7 +8,7 @@
   era_3.nc: shape=(8, 6) chunks=(4, 6) float32 uncompressed
   one Zarr array today: not one array: NotImplementedError: The ManifestArray class cannot concatenate arrays which were stored using different codecs, But found codecs (BytesCodec(endian='little'), Zlib(codec_name='numc
   switch sketch:        one array, 3 switch cases: identical to the files (bit for bit)
-                        the archive is 3,975 bytes; the chunks stay in the 4 files (44,339 bytes), read in place
+                        the archive is 4,147 bytes; the chunks stay in the 4 files (44,339 bytes), read in place
 
 ==============================================================================
 2. rectilinear: monthly files of 31, 28 and 31 days, one chunk each
@@ -18,7 +18,7 @@
   month_2.nc: shape=(31, 6) chunks=(31, 6) float32 gzip
   one Zarr array today: not one array: ValueError: Cannot concatenate arrays with inconsistent chunk shapes: (28, 6) vs (31, 6) .Requires ZEP003 (Variable-length Chunks).
   switch sketch:        one array, 2 switch cases: identical to the files (bit for bit)
-                        the archive is 3,616 bytes; the chunks stay in the 3 files (34,740 bytes), read in place
+                        the archive is 3,698 bytes; the chunks stay in the 3 files (34,740 bytes), read in place
 
 ==============================================================================
 3. ragged inner chunks: 10 steps per file chunked by 4 (4, 4, 2)
@@ -28,7 +28,7 @@
   ragged_2.nc: shape=(10, 6) chunks=(4, 6) float32 gzip
   one Zarr array today: not one array: ValueError: Cannot concatenate arrays with partial chunks because only regular chunk grids are currently supported. Concat input 0 has array length 10 along the concatenati
   switch sketch:        one array, 1 switch case: identical to the files (bit for bit)
-                        the archive is 3,665 bytes; the chunks stay in the 3 files (33,433 bytes), read in place
+                        the archive is 3,811 bytes; the chunks stay in the 3 files (33,433 bytes), read in place
 
 ==============================================================================
 4. per-file scale_factor / add_offset on int16 (BOM BARPA)
@@ -38,7 +38,7 @@
   scaled_2.nc: shape=(10, 6) chunks=(5, 6) int16 gzip ×0.005 +290
   one Zarr array today: combined, with the first file's attributes for every file (combine_attrs='override'; 'no_conflicts' refuses instead): max |difference| 19.6; 120 of 180 values off by more than 0.001
   switch sketch:        one array, 1 switch case: identical to the files (bit for bit)
-                        the archive is 3,745 bytes; the chunks stay in the 3 files (33,190 bytes), read in place
+                        the archive is 3,849 bytes; the chunks stay in the 3 files (33,190 bytes), read in place
 
 ==============================================================================
 5. varying dtype: int16, int16, float32
@@ -46,8 +46,16 @@
   dtype_0.nc: shape=(10, 6) chunks=(5, 6) int16 gzip
   dtype_1.nc: shape=(10, 6) chunks=(5, 6) int16 gzip
   dtype_2.nc: shape=(10, 6) chunks=(5, 6) float32 gzip
-  one Zarr array today: not one array: ValueError: Cannot combine arrays with inconsistent dtypes, but got 2 distinct dtypes: {dtype('<f4'), dtype('<i2')}
+  one Zarr array today: not one array: ValueError: Cannot combine arrays with inconsistent dtypes, but got 2 distinct dtypes: {dtype('<i2'), dtype('<f4')}
   switch sketch:        one array, 2 switch cases: identical to the files (bit for bit)
-                        the archive is 3,635 bytes; the chunks stay in the 3 files (33,173 bytes), read in place
+                        the archive is 3,759 bytes; the chunks stay in the 3 files (33,173 bytes), read in place
+
+==============================================================================
+6. concatenating two combined arrays (gzip, shuffle + gzip | gzip, uncompressed)
+------------------------------------------------------------------------------
+  array A: 2 cases ['7508e002dae26618', 'b86f3102cff388cc']
+  array B: 2 cases ['7508e002dae26618', 'e2879ab0551143ab']
+  A + B:   3 cases (the shared gzip case once); every chunk header copied unchanged: True; codecs equal to combining all four files at once: True
+  concatenated, saved and reopened: identical to the files (bit for bit)
 
 figures: <repo>/design/experiments/inhomogeneous/figures

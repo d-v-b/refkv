@@ -219,7 +219,8 @@ def plot(r: Result, path: Path) -> None:
     ax.set_xlabel("time index")
     ax.set_ylabel("v at x = 0")
     vz = r.vz_note if r.vz is not None else "\n".join(textwrap.wrap(r.vz_note, 120))
-    ax.set_title(f"one Zarr array today: {vz}", fontsize=8, loc="left", color="0.3")
+    ax.set_title(vz if r.title.startswith("6.") else f"one Zarr array today: {vz}", fontsize=8, loc="left",
+                 color="0.3")
     ax.legend(fontsize=8, loc="best")
     im = ax2.imshow(r.rk.T, aspect="auto", cmap="viridis", interpolation="nearest",
                     extent=(-0.5, n - 0.5, NX - 0.5, -0.5))
@@ -299,10 +300,46 @@ CASES = [
     ("5. varying dtype: int16, int16, float32", dtype_files),
 ]
 
+def concatenation(figures: Path) -> None:
+    """Two arrays combined separately, then concatenated as manifests: the case tables
+    merge by union of their content keys, and no chunk's header is rewritten."""
+    title = "6. concatenating two combined arrays (gzip, shuffle + gzip | gzip, uncompressed)"
+    print(f"\n{'=' * 78}\n{title}\n{'-' * 78}")
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        paths = []
+        for i, (comp, shuf) in enumerate([("gzip", False), ("gzip", True), ("gzip", False), (None, False)]):
+            p = root / f"part_{i}.nc"
+            write(p, smooth(np.arange(8 * i, 8 * i + 8)).astype("float32"), t0=8 * i, chunks=(4, NX),
+                  compression=comp, shuffle=shuf)
+            paths.append(p)
+        vdss = virtualize(paths, root)
+        a, b = switch.build(vdss[:2]), switch.build(vdss[2:])
+        mapping, sources = switch.concatenate(a, b)
+        keys = [set(json.loads(m["v/zarr.json"])["codecs"][0]["configuration"]["cases"]) for m in (a[0], b[0], mapping)]
+        moved = all(mapping[f"v/c/{int(k.split('/')[2]) + len(json.loads(a[0]['v/zarr.json'])['chunk_grid']['configuration']['chunk_shapes'][0])}/{k.split('/')[3]}"].parts[0].data
+                    == ref.parts[0].data for k, ref in b[0].items() if k.startswith("v/c/"))
+        direct = json.loads(switch.build(vdss)[0]["v/zarr.json"])["codecs"]
+        same = json.loads(mapping["v/zarr.json"])["codecs"] == direct
+        archive = root / "concatenated.vzip"
+        refkv.ReferenceStore(mapping, sources).save(str(archive))
+        got, want = switch.read(refkv.open(str(archive))), truth(paths)
+    print(f"  array A: {len(keys[0])} cases {sorted(keys[0])}\n  array B: {len(keys[1])} cases {sorted(keys[1])}")
+    print(f"  A + B:   {len(keys[2])} cases (the shared gzip case once); every chunk header copied unchanged: {moved};"
+          f" codecs equal to combining all four files at once: {same}")
+    note = "concatenated, saved and reopened: " + compare(got, want)
+    print(f"  {note}")
+    r = Result(title, ["float32\ngzip", "float32\ngzip+shuffle", "float32\ngzip", "float32\nuncompressed"],
+               [0, 8, 16, 24], want, vz_note="array A = files 1-2 and array B = files 3-4, each combined with switch, then concatenated", rk=got,
+               rk_note=f"A ({len(keys[0])} cases) + B ({len(keys[1])} cases) = {len(keys[2])} cases: " + compare(got, want))
+    plot(r, figures / "case6.png")
+
+
 if __name__ == "__main__":
     figures = HERE / "figures"
     figures.mkdir(exist_ok=True)
     for i, (title, make) in enumerate(CASES, 1):
         r = run(title, make)
         plot(r, figures / f"case{i}.png")
+    concatenation(figures)
     print(f"\nfigures: {figures}")

@@ -13,19 +13,23 @@ chunk can differ is its own, independent codec:
 
 and one codec, `switch`, chooses per chunk which composition of them applies:
 
-- `switch` is an array-to-bytes codec, `{"cases": [chain, chain, ...]}`, each case an
-  ordinary Zarr codec chain (array-to-array codecs, one array-to-bytes codec,
-  bytes-to-bytes codecs). A chunk's bytes start with a varint, the index of its case;
-  `switch` decodes the rest with that case's chain, as `sharding_indexed` decodes its
-  inner chunks with its inner chain.
+- `switch` is an array-to-bytes codec,
+  `{"cases": {key: {"codecs": chain, "parameters": [data_type, ...]}}}`. Each case is an
+  ordinary Zarr codec chain that may leave numbers open (`{"parameter": k}`), keyed by
+  the first 8 bytes of the SHA-256 of its canonical JSON. A chunk's bytes start with its
+  case's key and that case's parameters; `switch` fills them in and decodes the rest
+  with that chain, as `sharding_indexed` decodes its inner chunks with its inner chain.
+- Keys name cases by their content: arrays that use the same chain use the same key,
+  so concatenating arrays merges their case tables by union, and no chunk is rewritten
+  (`concatenate`).
 - `crop` is an array-to-array codec, `{"shape": [...]}`: the stored chunk's shape. It
   decodes by cropping to the chunk's cell (HDF5 stores edge chunks whole) and encodes
   by padding with the fill value.
 
-refkv's reference values carry each chunk's case index: a chunk is
-`Concat(Range(data=<varint>), Range(source=<file>, offset, length))`, a literal byte in
-the archive, then the file's own bytes read in place. No store injects anything at read
-time and no codec does I/O.
+refkv's reference values carry each chunk's header: a chunk is
+`Concat(Range(data=<key + parameters>), Range(source=<file>, offset, length))`, literal
+bytes in the archive, then the file's own bytes read in place. No store injects
+anything at read time and no codec does I/O.
 
 Ragged and month-length files use the zarr-extensions `rectilinear` chunk grid, which
 zarr-python 3.4 reads with `zarr.config.set({"array.rectilinear_chunks": True})`.
@@ -33,6 +37,7 @@ zarr-python 3.4 reads with `zarr.config.set({"array.rectilinear_chunks": True})`
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, replace
 from functools import lru_cache
@@ -50,26 +55,6 @@ from zarr.registry import get_pipeline_class, register_codec
 import refkv
 import refkv.zarr
 from refkv.pb import Concat, Range, Source
-
-
-def varint(n: int) -> bytes:
-    out = bytearray()
-    while True:
-        b, n = n & 0x7F, n >> 7
-        out.append(b | (0x80 if n else 0))
-        if not n:
-            return bytes(out)
-
-
-def read_varint(buf: bytes) -> tuple[int, int]:
-    n = shift = pos = 0
-    while True:
-        b = buf[pos]
-        pos += 1
-        n |= (b & 0x7F) << shift
-        shift += 7
-        if not b & 0x80:
-            return n, pos
 
 
 @dataclass(frozen=True)
@@ -108,42 +93,64 @@ class CropCodec(ArrayArrayCodec):
 register_codec("crop", CropCodec)
 
 
+KEY_BYTES = 8  # a case's key: the first 8 bytes of the SHA-256 of its canonical JSON
+
+
+def canonical(case: dict) -> bytes:
+    """A case's canonical JSON: sorted keys, no whitespace, UTF-8. (A standard would
+    name RFC 8785, which also fixes how numbers are written.)"""
+    return json.dumps(case, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+
+
+def case_key(case: dict) -> bytes:
+    return hashlib.sha256(canonical(case)).digest()[:KEY_BYTES]
+
+
 @dataclass(frozen=True)
 class SwitchCodec(ArrayBytesCodec):
-    """`switch`: `{"cases": [{"codecs": chain, "parameters": [data_type, ...]}, ...]}`.
+    """`switch`: `{"cases": {key: {"codecs": chain, "parameters": [data_type, ...]}}}`.
 
     A case is a codec chain that may leave values open: `{"parameter": k}` anywhere in a
-    codec's configuration stands for the chunk's k-th parameter. A chunk is a varint
-    case index, then the case's parameters (each in its declared data type,
-    little-endian), then the bytes the completed chain decodes. Chunks that differ only
-    in numbers share one case, so `zarr.json` grows with the kinds of encoding, and the
-    numbers travel with each chunk.
+    codec's configuration stands for the chunk's k-th parameter. A case's key is the
+    hex of the first 8 bytes of the SHA-256 of its canonical JSON, so it names the case
+    by its content, not its position: arrays that share a case share its key, and two
+    case tables merge by union. A chunk is the 8-byte key, then the case's parameters
+    (each little-endian in its declared data type), then the bytes the completed chain
+    decodes.
     """
 
-    cases: tuple = ()  # (codecs as JSON, parameter dtypes)
+    cases: tuple = ()  # (key hex, codecs as JSON, parameter dtypes)
     is_fixed_size = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_by_key", {k: (codecs, params) for k, codecs, params in self.cases})
 
     @classmethod
     def from_dict(cls, data: dict) -> Self:
-        return cls(cases=tuple((json.dumps(c["codecs"]), tuple(c.get("parameters", ())))
-                               for c in data["configuration"]["cases"]))
+        cases = []
+        for key, case in data["configuration"]["cases"].items():
+            if case_key(case).hex() != key:
+                raise ValueError(f"switch: case {key} is not the key of its contents ({case_key(case).hex()})")
+            cases.append((key, json.dumps(case["codecs"]), tuple(case.get("parameters", ()))))
+        return cls(cases=tuple(cases))
 
     def to_dict(self) -> dict:
-        return {"name": "switch", "configuration": {"cases": [
-            {"codecs": json.loads(codecs), "parameters": list(params)} for codecs, params in self.cases]}}
-
-    def _chain(self, index: int, values: tuple) -> tuple:
-        return _completed(self.cases[index][0], values)
+        return {"name": "switch", "configuration": {"cases": {
+            key: {"codecs": json.loads(codecs), "parameters": list(params)} for key, codecs, params in self.cases}}}
 
     async def _decode_single(self, chunk_bytes: Buffer, chunk_spec: ArraySpec) -> NDBuffer:
         raw = chunk_bytes.to_bytes()
-        index, pos = read_varint(raw)
+        key, pos = raw[:KEY_BYTES].hex(), KEY_BYTES
+        try:
+            codecs, params = self._by_key[key]
+        except KeyError:
+            raise ValueError(f"switch: the chunk names case {key}, which the array does not list") from None
         values = []
-        for dtype in self.cases[index][1]:
+        for dtype in params:
             dt = np.dtype(dtype).newbyteorder("<")
             values.append(np.frombuffer(raw, dtype=dt, count=1, offset=pos)[0].item())
             pos += dt.itemsize
-        pipeline = get_pipeline_class().from_codecs(self._chain(index, tuple(values))).evolve_from_array_spec(chunk_spec)
+        pipeline = get_pipeline_class().from_codecs(_completed(codecs, tuple(values))).evolve_from_array_spec(chunk_spec)
         (out,) = await pipeline.decode([(chunk_spec.prototype.buffer.from_bytes(raw[pos:]), chunk_spec)])
         return out
 
@@ -208,10 +215,10 @@ def chain(ma, attrs, out_dtype: np.dtype) -> tuple[list[dict], list[str], list[f
     return codecs + [c.to_dict() for c in m.codecs], params, values
 
 
-def header(index: int, params: list[str], values: list[float]) -> bytes:
-    """A chunk's switch header: its case, then its parameters."""
-    return varint(index) + b"".join(np.array([v], dtype=np.dtype(d).newbyteorder("<")).tobytes()
-                                    for d, v in zip(params, values))
+def header(case: dict, values: list[float]) -> bytes:
+    """A chunk's switch header: its case's key, then its parameters."""
+    return case_key(case) + b"".join(np.array([v], dtype=np.dtype(d).newbyteorder("<")).tobytes()
+                                    for d, v in zip(case["parameters"], values))
 
 
 def lengths(n: int, c: int) -> list[int]:
@@ -221,11 +228,15 @@ def lengths(n: int, c: int) -> list[int]:
 def combine(vdss: list[xr.Dataset], name: str = "v", dim: str = "time") -> refkv.ReferenceStore:
     """One reference store holding `name` concatenated along `dim` (axis 0) across the
     files' virtual datasets, with the concatenated coordinates."""
+    return refkv.ReferenceStore(*build(vdss, name, dim))
+
+
+def build(vdss: list[xr.Dataset], name: str = "v", dim: str = "time") -> tuple[dict, list[Source]]:
+    """`combine`'s mapping and sources."""
     scaled = any("scale_factor" in v[name].attrs or "add_offset" in v[name].attrs for v in vdss)
     out_dtype = np.dtype(np.result_type(*[np.float32 if scaled else v[name].data.metadata.data_type.to_native_dtype()
                                           for v in vdss]))
-    cases: list[dict] = []
-    index: dict[str, int] = {}
+    cases: dict[str, dict] = {}
     sources, source_of, mapping = [], {}, {}
     time_chunks: list[int] = []
     other = None
@@ -233,10 +244,8 @@ def combine(vdss: list[xr.Dataset], name: str = "v", dim: str = "time") -> refkv
         ma = vds[name].data
         codecs, params, values = chain(ma, vds[name].attrs, out_dtype)
         case = {"codecs": codecs, "parameters": params}
-        k = index.setdefault(json.dumps(case, sort_keys=True), len(cases))
-        if k == len(cases):
-            cases.append(case)
-        head = header(k, params, values)
+        cases[case_key(case).hex()] = case
+        head = header(case, values)
         c0, *crest = ma.metadata.chunks
         rest = [lengths(n, c) for n, c in zip(ma.shape[1:], crest)]
         if other is None:
@@ -276,7 +285,50 @@ def combine(vdss: list[xr.Dataset], name: str = "v", dim: str = "time") -> refkv
             "dimension_names": [coord], "attributes": attrs,
         }).encode()
         mapping[f"{coord}/c/0"] = values.tobytes()
-    return refkv.ReferenceStore(mapping, sources)
+    return mapping, sources
+
+
+def concatenate(a: tuple[dict, list[Source]], b: tuple[dict, list[Source]], name: str = "v",
+                dim: str = "time") -> tuple[dict, list[Source]]:
+    """`b` appended to `a` along `dim` (axis 0), as manifest operations do: the case
+    tables merge by union of their keys, `b`'s chunks move along the axis and their
+    references renumber the sources they name. Every chunk's header (its case key and
+    parameters) is copied as it is."""
+    (ma, sa), (mb, sb) = a, b
+    meta_a, meta_b = json.loads(ma[f"{name}/zarr.json"]), json.loads(mb[f"{name}/zarr.json"])
+    grid_a = meta_a["chunk_grid"]["configuration"]["chunk_shapes"]
+    grid_b = meta_b["chunk_grid"]["configuration"]["chunk_shapes"]
+    if meta_a["data_type"] != meta_b["data_type"] or grid_a[1:] != grid_b[1:]:
+        raise ValueError("the arrays differ in data type or in their chunks along the other axes")
+    cases = dict(meta_a["codecs"][0]["configuration"]["cases"])
+    for key, case in meta_b["codecs"][0]["configuration"]["cases"].items():
+        if cases.setdefault(key, case) != case:
+            raise ValueError(f"case {key} names two different chains")  # a key collision
+    shift, prefix = len(grid_a[0]), f"{name}/c/"
+    mapping = {k: v for k, v in ma.items() if k.startswith(prefix)}
+    for k, ref in mb.items():
+        if k.startswith(prefix):
+            i, *rest = k[len(prefix):].split("/")
+            mapping[prefix + "/".join([str(int(i) + shift), *rest])] = Concat(tuple(
+                p if p.data is not None else Range(source=p.source + len(sa), offset=p.offset, length=p.length, crc32c=p.crc32c)
+                for p in ref.parts))
+    meta = dict(meta_a, shape=[meta_a["shape"][0] + meta_b["shape"][0], *meta_a["shape"][1:]])
+    meta["chunk_grid"] = {"name": "rectilinear", "configuration": {"kind": "inline",
+                                                                   "chunk_shapes": [grid_a[0] + grid_b[0], *grid_a[1:]]}}
+    meta["codecs"] = [{"name": "switch", "configuration": {"cases": cases}}]
+    mapping["zarr.json"] = ma["zarr.json"]
+    mapping[f"{name}/zarr.json"] = json.dumps(meta).encode()
+    for coord in meta_a["dimension_names"]:
+        cm = json.loads(ma[f"{coord}/zarr.json"])
+        if coord == dim:
+            dt = np.dtype(cm["data_type"]).newbyteorder("<")
+            values = np.concatenate([np.frombuffer(ma[f"{coord}/c/0"], dt), np.frombuffer(mb[f"{coord}/c/0"], dt)])
+            cm = dict(cm, shape=[len(values)], chunk_grid={"name": "regular", "configuration": {"chunk_shape": [len(values)]}})
+            mapping[f"{coord}/c/0"] = values.tobytes()
+        else:
+            mapping[f"{coord}/c/0"] = ma[f"{coord}/c/0"]
+        mapping[f"{coord}/zarr.json"] = json.dumps(cm).encode()
+    return mapping, [*sa, *sb]
 
 
 def read(store, name: str = "v") -> np.ndarray:

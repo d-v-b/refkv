@@ -15,10 +15,10 @@ scale and offset (as GRIB packs each message). One source file holds the N chunk
 each zlib-compressed int16. Two archives describe the same array:
 
 - **one case per chunk**: N cases in `zarr.json`, each a full chain with its numbers;
-  a chunk's header is its case index.
+  a chunk's header is its case's 8-byte key.
 - **one case, two parameters**: one chain in `zarr.json` with `scale_offset`'s
   `offset` and `scale` left open; a chunk's header is the case index and its two
-  float64 numbers, a literal in its reference in the archive's paged index.
+  float64 numbers after the key, a literal in its reference in the archive's paged index.
 
 For each, the run reports `zarr.json`, the archive, the time to open the array and to
 read one chunk, and checks 200 chunks spread over the array against the physical
@@ -48,8 +48,9 @@ FILL = -32767
 
 
 def packing(i: int) -> tuple[float, float]:
-    """Chunk i's CF scale_factor and add_offset: a different pair for every chunk."""
-    return 0.01 * (1 + (i % 97) / 97), 280.0 + (i % 101) * 0.1
+    """Chunk i's CF scale_factor and add_offset: a different pair for every chunk (the
+    offset alone is unique; content keys would merge chunks that repeat a pair)."""
+    return 0.01 * (1 + (i % 97) / 97), 280.0 + i * 1e-5
 
 
 def physical(i: int) -> np.ndarray:
@@ -81,10 +82,10 @@ def chain(scale, offset) -> list[dict]:
 
 def archive(path: Path, url: str, ranges: list[tuple[int, int]], templated: bool) -> int:
     n = len(ranges)
-    if templated:
-        cases = [{"codecs": chain({"parameter": 1}, {"parameter": 0}), "parameters": ["float64", "float64"]}]
-    else:
-        cases = [{"codecs": chain(1 / packing(i)[0], packing(i)[1]), "parameters": []} for i in range(n)]
+    template = {"codecs": chain({"parameter": 1}, {"parameter": 0}), "parameters": ["float64", "float64"]}
+    per_chunk = [] if templated else [{"codecs": chain(1 / packing(i)[0], packing(i)[1]), "parameters": []}
+                                      for i in range(n)]
+    cases = {switch.case_key(c).hex(): c for c in ([template] if templated else per_chunk)}
     meta = {"zarr_format": 3, "node_type": "array", "shape": [CHUNK[0] * n, CHUNK[1]], "data_type": "float32",
             "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": list(CHUNK)}},
             "chunk_key_encoding": {"name": "default", "configuration": {"separator": "/"}},
@@ -95,8 +96,7 @@ def archive(path: Path, url: str, ranges: list[tuple[int, int]], templated: bool
                "v/zarr.json": doc}
     for i, (off, length) in enumerate(ranges):
         scale, offset = packing(i)
-        head = (switch.header(0, ["float64", "float64"], [offset, 1 / scale]) if templated
-                else switch.varint(i))
+        head = switch.header(template, [offset, 1 / scale]) if templated else switch.header(per_chunk[i], [])
         mapping[f"v/c/{i}/0"] = Concat((Range(data=head), Range(source=0, offset=off, length=length)))
     refkv.ReferenceStore(mapping, [Source(url=url)]).save(str(path))
     return len(doc)
