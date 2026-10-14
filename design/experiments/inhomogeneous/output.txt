@@ -46,7 +46,7 @@
   dtype_0.nc: shape=(10, 6) chunks=(5, 6) int16 gzip
   dtype_1.nc: shape=(10, 6) chunks=(5, 6) int16 gzip
   dtype_2.nc: shape=(10, 6) chunks=(5, 6) float32 gzip
-  one Zarr array today: not one array: ValueError: Cannot combine arrays with inconsistent dtypes, but got 2 distinct dtypes: {dtype('<i2'), dtype('<f4')}
+  one Zarr array today: not one array: ValueError: Cannot combine arrays with inconsistent dtypes, but got 2 distinct dtypes: {dtype('<f4'), dtype('<i2')}
   switch sketch:        one array, 2 switch cases: identical to the files (bit for bit)
                         the archive is 3,759 bytes; the chunks stay in the 3 files (33,173 bytes), read in place
 

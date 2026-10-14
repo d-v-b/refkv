@@ -3,9 +3,13 @@
 # dependencies = [
 #     "refkv[virtualizarr]>=0.1.0",
 #     "obstore>=0.11.1",
+#     "virtualizarr>=2.7.3",
 #     "zarr>=3.4.0",
 #     "cast-value-rs>=0.4.2",
 #     "xarray>=2026.9.0",
+#     "h5py>=3.16.0",
+#     "h5netcdf>=1.8.1",
+#     "matplotlib>=3.10",
 # ]
 # ///
 """How `switch` scales when every chunk is encoded differently.
@@ -40,7 +44,7 @@ import zarr
 
 import refkv
 import refkv.zarr
-import switch  # next to this script, which Python puts on sys.path
+from demo import _completed, case_key, header  # the switch sketch, in demo.py next to this script
 from refkv.pb import Concat, Range, Source
 
 CHUNK = (4, 6)
@@ -85,7 +89,7 @@ def archive(path: Path, url: str, ranges: list[tuple[int, int]], templated: bool
     template = {"codecs": chain({"parameter": 1}, {"parameter": 0}), "parameters": ["float64", "float64"]}
     per_chunk = [] if templated else [{"codecs": chain(1 / packing(i)[0], packing(i)[1]), "parameters": []}
                                       for i in range(n)]
-    cases = {switch.case_key(c).hex(): c for c in ([template] if templated else per_chunk)}
+    cases = {case_key(c).hex(): c for c in ([template] if templated else per_chunk)}
     meta = {"zarr_format": 3, "node_type": "array", "shape": [CHUNK[0] * n, CHUNK[1]], "data_type": "float32",
             "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": list(CHUNK)}},
             "chunk_key_encoding": {"name": "default", "configuration": {"separator": "/"}},
@@ -96,14 +100,14 @@ def archive(path: Path, url: str, ranges: list[tuple[int, int]], templated: bool
                "v/zarr.json": doc}
     for i, (off, length) in enumerate(ranges):
         scale, offset = packing(i)
-        head = switch.header(template, [offset, 1 / scale]) if templated else switch.header(per_chunk[i], [])
+        head = header(template, [offset, 1 / scale]) if templated else header(per_chunk[i], [])
         mapping[f"v/c/{i}/0"] = Concat((Range(data=head), Range(source=0, offset=off, length=length)))
     refkv.ReferenceStore(mapping, [Source(url=url)]).save(str(path))
     return len(doc)
 
 
 def measure(path: Path, n: int) -> tuple[float, float, int]:
-    switch._completed.cache_clear()
+    _completed.cache_clear()
     t0 = time.perf_counter()
     a = zarr.open_array(refkv.zarr.store(refkv.open(str(path))), path="v", mode="r")
     t1 = time.perf_counter()

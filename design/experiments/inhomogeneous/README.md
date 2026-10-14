@@ -15,7 +15,8 @@ The demo looks at the next step: one logical array along time.
   variable-length chunks). That refusal is the safe behavior; the gap it reports is
   the one the issue is about.
 - **A sketch of design 2.1 from the issue.** The same per-file manifests from
-  VirtualiZarr are combined by [switch.py](switch.py) into one array whose chunks each
+  VirtualiZarr are combined by the switch sketch (its own section of
+  [demo.py](demo.py)) into one array whose chunks each
   select their own codec chain. That array is saved as a vzip archive with refkv,
   reopened, and read through zarr-python and xarray.
 
@@ -25,8 +26,9 @@ cd design/experiments/inhomogeneous && uv run demo.py
 
 `demo.py` declares its dependencies inline
 ([PEP 723](https://peps.python.org/pep-0723/)), so `uv run` builds an environment for
-it alone, with refkv from PyPI. It doesn't use this repository's environment. The two
-files, `demo.py` and [switch.py](switch.py), run from any directory.
+it alone, with refkv from PyPI. It doesn't use this repository's environment. It is
+one file: copy `demo.py` anywhere and run it. [scaling.py](scaling.py) imports the
+switch sketch from `demo.py`, so it needs `demo.py` beside it.
 
 | case | the files | one Zarr array today | switch sketch |
 |---|---|---|---|
