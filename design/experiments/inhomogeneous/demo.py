@@ -7,7 +7,7 @@ logical Zarr array along time, the way you would a real archive. Each case repor
 what happens: an error, or a combined array whose values are compared with the
 truth read straight from the files.
 
-    uv run python design/experiments/inhomogeneous/demo.py
+    uv run --with "cast-value-rs>=0.4.2" python design/experiments/inhomogeneous/demo.py
 
 Cases (the use cases of the issue):
 
@@ -131,7 +131,7 @@ def refkv_result(vdss: list[xr.Dataset], want: np.ndarray, root: Path) -> None:
     """refkv: one array from the same per-file manifests (variant.py), saved as a vzip
     archive and read back through Zarr."""
     import refkv
-    import variant
+    import switch as variant
 
     try:
         store = variant.combine(vdss)
@@ -141,8 +141,8 @@ def refkv_result(vdss: list[xr.Dataset], want: np.ndarray, root: Path) -> None:
     except Exception as e:
         print(f"  refkv: fails: {type(e).__name__}: {str(e).splitlines()[0][:200]}")
         return
-    n = len(json.loads(store.get("v/zarr.json"))["codecs"][0]["configuration"]["variants"])
-    report(f"refkv: one array, {n} chunk variant{'s' * (n != 1)}, saved and reopened", got, want)
+    n = len(json.loads(store.get("v/zarr.json"))["codecs"][0]["configuration"]["cases"])
+    report(f"refkv: one array, {n} switch case{'s' * (n != 1)}, saved and reopened", got, want)
     data = sum(p.stat().st_size for p in root.glob("*.nc"))
     print(f"     the archive is {archive.stat().st_size:,} bytes; the chunks stay in the "
           f"{len(store.sources)} files ({data:,} bytes), read in place")
