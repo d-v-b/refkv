@@ -97,32 +97,79 @@ Each thing that varies between the files is its own, independent codec:
 
 One codec, `switch`, chooses per chunk which composition of them applies.
 
-- **What `switch` is.** It is an array-to-bytes codec, `{"cases": [chain, ...]}`,
-  where each case is an ordinary Zarr codec chain. A chunk's bytes start with a
-  varint, the index of its case. `switch` decodes the rest with that chain, the way
-  `sharding_indexed` decodes inner chunks with its inner chain.
-- **Where the index comes from.** refkv's reference values carry it. A chunk is
-  `Concat(Range(data=<varint>), Range(source=<file>, offset, length))`: one literal
-  byte in the archive, then the file's own bytes.
+- **What `switch` is.** It is an array-to-bytes codec,
+  `{"cases": [{"codecs": chain, "parameters": [data_type, ...]}, ...]}`.
+  - **Each case is an ordinary Zarr codec chain that may leave numbers open.**
+    `{"parameter": k}` anywhere in a codec's configuration stands for the chunk's
+    k-th parameter.
+  - **A chunk's bytes start with a header:** a varint case index, then that case's
+    parameters, each little-endian in its declared data type.
+  - **`switch` fills in the case with those values and decodes the rest with it,** the
+    way `sharding_indexed` decodes inner chunks with its inner chain.
+- **Where the header comes from.** refkv's reference values carry it. A chunk is
+  `Concat(Range(data=<header>), Range(source=<file>, offset, length))`: a few literal
+  bytes in the archive's index, then the file's own bytes.
+- **What goes where.** `zarr.json` holds the *kinds* of encoding: in case 4, one case
+  for all three files. Each file's `add_offset` and the reciprocal of its
+  `scale_factor` travel in its chunks' headers, 17 bytes each. Chunks that differ only
+  in numbers share a case.
 - **Grids.** Month-length and ragged files use the zarr-extensions
   [`rectilinear`](https://github.com/zarr-developers/zarr-extensions/tree/main/chunk-grids/rectilinear)
   chunk grid.
 
-Case 4's array, with two of its three cases:
+Case 4's array, with its one case:
 
 ```json
 "data_type": "float32",
-"chunk_grid": {"name": "rectilinear", "configuration": {"kind": "inline", "chunk_shapes": [[4, 4, 4], [6]]}},
-"codecs": [{"name": "switch", "configuration": {"cases": [
-  [{"name": "scale_offset", "configuration": {"offset": 280.0, "scale": 100.00000223517424}},
-   {"name": "cast_value", "configuration": {"data_type": "int16",
-     "scalar_map": {"encode": [["NaN", -32767]], "decode": [[-32767, "NaN"]]}}},
-   {"name": "crop", "configuration": {"shape": [4, 6]}},
-   {"name": "bytes", "configuration": {"endian": "little"}},
-   {"name": "numcodecs.zlib", "configuration": {"level": 4}}],
-  [{"name": "scale_offset", "configuration": {"offset": 270.0, "scale": 50.00000111758712}},
-   ...]]}}]
+"chunk_grid": {"name": "rectilinear", "configuration": {"kind": "inline", "chunk_shapes": [[5, 5, 5, 5, 5, 5], [6]]}},
+"codecs": [{"name": "switch", "configuration": {"cases": [{
+  "codecs": [
+    {"name": "scale_offset", "configuration": {"offset": {"parameter": 0}, "scale": {"parameter": 1}}},
+    {"name": "cast_value", "configuration": {"data_type": "int16",
+      "scalar_map": {"encode": [["NaN", -32767]], "decode": [[-32767, "NaN"]]}}},
+    {"name": "crop", "configuration": {"shape": [5, 6]}},
+    {"name": "bytes", "configuration": {"endian": "little"}},
+    {"name": "numcodecs.zlib", "configuration": {"level": 4}}],
+  "parameters": ["float64", "float64"]}]}}]
 ```
+
+## Scaling: when every chunk is encoded differently
+
+A table of whole chains grows with the number of distinct encodings, and every reader
+reads the whole table before its first chunk. [scaling.py](scaling.py) measures the
+worst case: N chunks, each packed with its own CF scale and offset (as GRIB packs each
+message), in one source file. It describes the same array two ways:
+
+- **One case per chunk:** each chunk's numbers are written into its own case.
+- **One case, two parameters:** each chunk's numbers are in its header.
+
+```bash
+uv run scaling.py
+```
+
+| chunks | design | `zarr.json` | archive | open the array | read one chunk |
+|---|---|---|---|---|---|
+| 1,000 | one case per chunk | 378 kB | 0.50 MB | 0.02 s | 2.0 ms |
+| 1,000 | one case, two parameters | 0.8 kB | 0.16 MB | 0.00 s | 1.4 ms |
+| 10,000 | one case per chunk | 3.8 MB | 5.05 MB | 0.17 s | 1.9 ms |
+| 10,000 | one case, two parameters | 0.8 kB | 1.58 MB | 0.02 s | 1.7 ms |
+| 100,000 | one case per chunk | 37.7 MB | 51.0 MB | 2.26 s | 1.8 ms |
+| 100,000 | one case, two parameters | 0.8 kB | 16.1 MB | 0.28 s | 1.4 ms |
+
+Both designs read 200 chunks spread over the array bit for bit
+([scaling_output.txt](scaling_output.txt)).
+
+- **One case per chunk.** `zarr.json` costs about 380 bytes per chunk, all read and
+  parsed before the first chunk.
+- **One case, two parameters.** `zarr.json` stays the same size whatever the chunk
+  count. The parameters cost 17 bytes per chunk, in the reference each read already
+  fetches. What still grows with N, about 160 bytes per chunk and 0.28 s to open at
+  100,000, is the archive's own index of 100,000 keys. Any archive of that many chunks
+  pays it.
+
+That is the split in point 1 of the issue. Context chunks share goes in the metadata;
+context per chunk goes in the manifest, which already exists per chunk. With
+references that carry literal bytes, the second half needs no new mechanism.
 
 ## Why the chooser is generic, and the formats live in the transformations
 
@@ -167,9 +214,11 @@ reason.
   (zarr-extensions) already puts a per-chunk header in the chunk bytes, to turn codecs
   of one chain on or off. `switch` chooses among chains, so it also covers what
   `conditional` can't: a different dtype, scaling, or stored shape per chunk.
-- **Concatenating two such arrays** (manifest-level operations, as VirtualiZarr does them) means
-  joining their case lists and renumbering each chunk's index: one literal byte per
-  chunk, rewritten by tooling. No source bytes change.
+- **Concatenating two such arrays** (manifest-level operations, as VirtualiZarr does
+  them) means joining their case lists and renumbering the case index at the start of
+  each chunk's header. The parameters travel with the chunk unchanged, and so do the
+  source bytes. Identifying cases by a hash of their canonical JSON instead of by
+  position would make the join a union, with no renumbering.
 
 ## Limits
 

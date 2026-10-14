@@ -1,0 +1,7 @@
+  chunks  design                       zarr.json    archive     open   read 1  checked
+   1,000  one case per chunk             377.8kB     0.50MB    0.02s    2.0ms  200 chunks bit for bit
+   1,000  one case, two parameters         0.8kB     0.16MB    0.00s    1.4ms  200 chunks bit for bit
+  10,000  one case per chunk           3,775.3kB     5.05MB    0.17s    1.9ms  200 chunks bit for bit
+  10,000  one case, two parameters         0.8kB     1.58MB    0.02s    1.7ms  200 chunks bit for bit
+ 100,000  one case per chunk          37,749.8kB    51.01MB    2.26s    1.8ms  200 chunks bit for bit
+ 100,000  one case, two parameters         0.8kB    16.10MB    0.28s    1.4ms  200 chunks bit for bit

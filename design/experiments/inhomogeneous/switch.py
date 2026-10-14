@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, replace
+from functools import lru_cache
 from typing import Self
 
 import numpy as np
@@ -109,23 +110,40 @@ register_codec("crop", CropCodec)
 
 @dataclass(frozen=True)
 class SwitchCodec(ArrayBytesCodec):
-    """`switch`: `{"cases": [chain, ...]}`; a chunk is a varint case index, then the
-    bytes that case's chain decodes."""
+    """`switch`: `{"cases": [{"codecs": chain, "parameters": [data_type, ...]}, ...]}`.
 
-    cases: tuple = ()  # each a tuple of parsed codecs
+    A case is a codec chain that may leave values open: `{"parameter": k}` anywhere in a
+    codec's configuration stands for the chunk's k-th parameter. A chunk is a varint
+    case index, then the case's parameters (each in its declared data type,
+    little-endian), then the bytes the completed chain decodes. Chunks that differ only
+    in numbers share one case, so `zarr.json` grows with the kinds of encoding, and the
+    numbers travel with each chunk.
+    """
+
+    cases: tuple = ()  # (codecs as JSON, parameter dtypes)
     is_fixed_size = False
 
     @classmethod
     def from_dict(cls, data: dict) -> Self:
-        return cls(cases=tuple(tuple(parse_codecs(chain)) for chain in data["configuration"]["cases"]))
+        return cls(cases=tuple((json.dumps(c["codecs"]), tuple(c.get("parameters", ())))
+                               for c in data["configuration"]["cases"]))
 
     def to_dict(self) -> dict:
-        return {"name": "switch", "configuration": {"cases": [[c.to_dict() for c in chain] for chain in self.cases]}}
+        return {"name": "switch", "configuration": {"cases": [
+            {"codecs": json.loads(codecs), "parameters": list(params)} for codecs, params in self.cases]}}
+
+    def _chain(self, index: int, values: tuple) -> tuple:
+        return _completed(self.cases[index][0], values)
 
     async def _decode_single(self, chunk_bytes: Buffer, chunk_spec: ArraySpec) -> NDBuffer:
         raw = chunk_bytes.to_bytes()
         index, pos = read_varint(raw)
-        pipeline = get_pipeline_class().from_codecs(self.cases[index]).evolve_from_array_spec(chunk_spec)
+        values = []
+        for dtype in self.cases[index][1]:
+            dt = np.dtype(dtype).newbyteorder("<")
+            values.append(np.frombuffer(raw, dtype=dt, count=1, offset=pos)[0].item())
+            pos += dt.itemsize
+        pipeline = get_pipeline_class().from_codecs(self._chain(index, tuple(values))).evolve_from_array_spec(chunk_spec)
         (out,) = await pipeline.decode([(chunk_spec.prototype.buffer.from_bytes(raw[pos:]), chunk_spec)])
         return out
 
@@ -136,18 +154,46 @@ class SwitchCodec(ArrayBytesCodec):
         raise NotImplementedError
 
 
+def _json_number(v: float | int):
+    """A parameter as JSON, as Zarr writes fill values: NaN and the infinities as strings."""
+    if isinstance(v, float) and not np.isfinite(v):
+        return "NaN" if np.isnan(v) else ("Infinity" if v > 0 else "-Infinity")
+    return v
+
+
+@lru_cache(maxsize=4096)
+def _completed(codecs: str, values: tuple) -> tuple:
+    """A case's codecs with its open values filled in, parsed (cached: chunks that
+    share a case and its numbers share one parse)."""
+
+    def fill(node):
+        if isinstance(node, dict):
+            if set(node) == {"parameter"}:
+                return _json_number(values[node["parameter"]])
+            return {k: fill(v) for k, v in node.items()}
+        if isinstance(node, list):
+            return [fill(v) for v in node]
+        return node
+
+    return tuple(parse_codecs(fill(json.loads(codecs))))
+
+
 register_codec("switch", SwitchCodec)
 
 
-def case(ma, attrs, out_dtype: np.dtype) -> list[dict]:
-    """The codec chain that decodes one file's chunks to the combined array's dtype:
-    the independent transforms its file needs, then the file's own codecs."""
+def chain(ma, attrs, out_dtype: np.dtype) -> tuple[list[dict], list[str], list[float]]:
+    """How one file's chunks decode to the combined array's dtype: a case (the
+    independent transforms its file needs, then the file's own codecs, with the numbers
+    that vary between files left open) and the values of those numbers."""
     m = ma.metadata
     stored = m.data_type.to_native_dtype()
-    chain: list[dict] = []
+    codecs: list[dict] = []
+    params: list[str] = []
+    values: list[float] = []
     if "scale_factor" in attrs or "add_offset" in attrs:  # CF: physical = packed * scale_factor + add_offset
-        chain.append({"name": "scale_offset", "configuration": {
-            "offset": float(attrs.get("add_offset", 0)), "scale": 1 / float(attrs.get("scale_factor", 1))}})
+        codecs.append({"name": "scale_offset", "configuration": {"offset": {"parameter": 0}, "scale": {"parameter": 1}}})
+        params += ["float64", "float64"]
+        values += [float(attrs.get("add_offset", 0)), 1 / float(attrs.get("scale_factor", 1))]
     if stored != out_dtype:
         config = {"data_type": stored.name}
         if stored.kind in "iu":
@@ -157,9 +203,15 @@ def case(ma, attrs, out_dtype: np.dtype) -> list[dict]:
             if fill is None:
                 raise ValueError(f"an {stored} file without _FillValue: no integer can stand for NaN")
             config["scalar_map"] = {"encode": [["NaN", int(fill)]], "decode": [[int(fill), "NaN"]]}
-        chain.append({"name": "cast_value", "configuration": config})
-    chain.append({"name": "crop", "configuration": {"shape": list(m.chunks)}})
-    return chain + [c.to_dict() for c in m.codecs]
+        codecs.append({"name": "cast_value", "configuration": config})
+    codecs.append({"name": "crop", "configuration": {"shape": list(m.chunks)}})
+    return codecs + [c.to_dict() for c in m.codecs], params, values
+
+
+def header(index: int, params: list[str], values: list[float]) -> bytes:
+    """A chunk's switch header: its case, then its parameters."""
+    return varint(index) + b"".join(np.array([v], dtype=np.dtype(d).newbyteorder("<")).tobytes()
+                                    for d, v in zip(params, values))
 
 
 def lengths(n: int, c: int) -> list[int]:
@@ -172,17 +224,19 @@ def combine(vdss: list[xr.Dataset], name: str = "v", dim: str = "time") -> refkv
     scaled = any("scale_factor" in v[name].attrs or "add_offset" in v[name].attrs for v in vdss)
     out_dtype = np.dtype(np.result_type(*[np.float32 if scaled else v[name].data.metadata.data_type.to_native_dtype()
                                           for v in vdss]))
-    cases: list[list[dict]] = []
+    cases: list[dict] = []
     index: dict[str, int] = {}
     sources, source_of, mapping = [], {}, {}
     time_chunks: list[int] = []
     other = None
     for vds in vdss:
         ma = vds[name].data
-        chain = case(ma, vds[name].attrs, out_dtype)
-        k = index.setdefault(json.dumps(chain, sort_keys=True), len(cases))
+        codecs, params, values = chain(ma, vds[name].attrs, out_dtype)
+        case = {"codecs": codecs, "parameters": params}
+        k = index.setdefault(json.dumps(case, sort_keys=True), len(cases))
         if k == len(cases):
-            cases.append(chain)
+            cases.append(case)
+        head = header(k, params, values)
         c0, *crest = ma.metadata.chunks
         rest = [lengths(n, c) for n, c in zip(ma.shape[1:], crest)]
         if other is None:
@@ -197,7 +251,7 @@ def combine(vdss: list[xr.Dataset], name: str = "v", dim: str = "time") -> refkv
             if s == len(sources):
                 sources.append(Source(url=e["path"]))
             mapping[f"{name}/c/" + "/".join(map(str, (base + i, *js)))] = Concat(
-                (Range(data=varint(k)), Range(source=s, offset=e["offset"], length=e["length"])))
+                (Range(data=head), Range(source=s, offset=e["offset"], length=e["length"])))
     mapping["zarr.json"] = json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {}}).encode()
     mapping[f"{name}/zarr.json"] = json.dumps({
         "zarr_format": 3, "node_type": "array",
