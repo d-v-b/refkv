@@ -1,19 +1,23 @@
-# Inhomogeneous files: one array with refkv, where VirtualiZarr can't combine them
+# Inhomogeneous files: the zarr-specs#399 cases, and a per-chunk codec sketch
 
 An executable companion to
 [zarr-developers/zarr-specs#399](https://github.com/zarr-developers/zarr-specs/issues/399)
 ("Varying codec parameters per-chunk"). [demo.py](demo.py) writes small netCDF4
-files, each valid and consistent on its own, in the five shapes the issue
-describes. It virtualizes each file with VirtualiZarr (which works). It then
-combines them along time into one logical array twice:
+files in the five shapes the issue describes. Each file is valid and consistent on its
+own, and VirtualiZarr parses every one of them without trouble.
 
-- **VirtualiZarr:** concatenating the files' ManifestArrays, as
-  `open_virtual_mfdataset` does.
-- **refkv:** building one array from the same per-file manifests, with
-  [switch.py](switch.py). The result is saved as a vzip archive, reopened, and read
-  through zarr-python and xarray.
+The demo looks at the next step: one logical array along time.
 
-Both are compared with the files read one by one.
+- **One Zarr array today.** This is `xr.concat` of the virtual datasets, as
+  `open_virtual_mfdataset` does it. A Zarr array has one codec chain, one dtype, one
+  regular chunk grid and one set of attributes. So VirtualiZarr refuses combinations
+  that would need more, and its errors say what's missing (it names ZEP003 for
+  variable-length chunks). That refusal is the safe behavior; the gap it reports is
+  the one the issue is about.
+- **A sketch of design 2.1 from the issue.** The same per-file manifests from
+  VirtualiZarr are combined by [switch.py](switch.py) into one array whose chunks each
+  select their own codec chain. That array is saved as a vzip archive with refkv,
+  reopened, and read through zarr-python and xarray.
 
 ```bash
 cd design/experiments/inhomogeneous && uv run demo.py
@@ -24,13 +28,26 @@ cd design/experiments/inhomogeneous && uv run demo.py
 it alone, with refkv from PyPI. It doesn't use this repository's environment. The two
 files, `demo.py` and [switch.py](switch.py), run from any directory.
 
-| case | the files | VirtualiZarr | refkv |
+| case | the files | one Zarr array today | switch sketch |
 |---|---|---|---|
-| 1. codec eras (GOES-16) | gzip, gzip, shuffle + gzip, uncompressed | fails: one codec chain per array | ✅ bit for bit, 3 cases |
-| 2. rectilinear chunks (monthly files) | 31, 28 and 31 days, one chunk each | fails: needs variable-length chunks | ✅ bit for bit, rectilinear grid |
-| 3. ragged inner chunks (tiled cubes) | 10 steps each, chunked by 4 (4, 4, 2) | fails: partial chunks break the regular grid | ✅ bit for bit, rectilinear grid + `crop` |
-| 4. per-file `scale_factor` / `add_offset` (BOM BARPA) | int16, each file with its own CF scaling | **combines, then 120 of 180 values are wrong, by up to 19.6** | ✅ bit for bit, 3 cases |
-| 5. varying dtype | int16, int16, float32 | fails: one array, one dtype | ✅ bit for bit, 2 cases |
+| 1. codec eras (GOES-16) | gzip, gzip, shuffle + gzip, uncompressed | not expressible: one codec chain per array | bit for bit, 3 cases |
+| 2. rectilinear chunks (monthly files) | 31, 28 and 31 days, one chunk each | not expressible: needs variable-length chunks (ZEP003) | bit for bit, rectilinear grid |
+| 3. ragged inner chunks (tiled cubes) | 10 steps each, chunked by 4 (4, 4, 2) | not expressible: partial chunks inside a regular grid | bit for bit, rectilinear grid + `crop` |
+| 4. per-file `scale_factor` / `add_offset` (BOM BARPA) | int16, each file with its own CF scaling | one array, one set of attributes (see below) | bit for bit, 3 cases |
+| 5. varying dtype | int16, int16, float32 | not expressible: one dtype per array | bit for bit, 2 cases |
+
+Case 4 is the subtle one, and it isn't specific to any tool. CF scaling is array-level
+attributes, and one array has one set, so concatenating the files has to choose:
+
+- **`combine_attrs="override"`** is the default in both `xr.concat` and
+  `open_virtual_mfdataset`. It keeps the first file's `scale_factor` and `add_offset`,
+  so the other files' integers decode with the wrong scaling: 120 of 180 values are
+  off, by up to 19.6.
+- **`"no_conflicts"`** refuses the combination.
+- **`"drop_conflicts"`** drops the scaling, leaving the raw integers.
+
+None of these gives one correctly scaled array, because the scaling varies per file.
+That's the issue's point: the per-file context has to live somewhere per chunk.
 
 ## How the results are checked
 
@@ -38,9 +55,11 @@ files, `demo.py` and [switch.py](switch.py), run from any directory.
   applies HDF5's own filters (deflate, shuffle) and xarray's CF decoding
   (`scale_factor`, `add_offset`, `_FillValue`). The decoded arrays are concatenated
   along time.
-- **The combined arrays.** VirtualiZarr's result is read through Zarr, using refkv's
-  in-memory store for its manifest. refkv's is saved as a vzip archive, reopened, and
-  read through zarr-python and xarray.
+- **The combined arrays.**
+  - The concatenated virtual dataset is read through Zarr, using refkv's in-memory
+    store for its manifest.
+  - The switch sketch is saved as a vzip archive, reopened, and read through
+    zarr-python and xarray.
 - **The comparison.** "Bit for bit" means `np.array_equal(..., equal_nan=True)`, with
   no tolerance. Otherwise the run reports the largest absolute difference, and how
   many values are off by more than 0.001.
@@ -50,13 +69,10 @@ files, `demo.py` and [switch.py](switch.py), run from any directory.
 
 [`figures/`](figures/) has one plot per case:
 
-- **Top panel:** `v` along time at `x = 0`, for the files, refkv, and VirtualiZarr
-  where it combines. The dotted lines are the file boundaries; each file's encoding is
-  labeled above its span.
-- **Bottom panel:** all of refkv's `v(time, x)`.
-
-Case 4 is the one where VirtualiZarr produces an array: the second file drifts, and
-the third drops by about 20.
+- **Top panel:** `v` along time at `x = 0`, for the files and both combined arrays.
+  The dotted lines are the file boundaries; each file's encoding is labeled above its
+  span.
+- **Bottom panel:** all of the sketch's `v(time, x)`.
 
 ![case 4](figures/case4.png)
 
@@ -68,13 +84,13 @@ the third drops by about 20.
 The archives hold a few kilobytes of metadata; the chunks are read in place from
 the netCDF files. [output.txt](output.txt) is a full run.
 
-## How: one codec per transformation, and one that chooses
+## How the sketch works: one codec per transformation, and one that chooses
 
 Each thing that varies between the files is its own, independent codec:
 
 | what varies per file | codec |
 |---|---|
-| compression, shuffle | the file's own codecs, as VirtualiZarr reports them (`numcodecs.zlib`, `numcodecs.shuffle`) |
+| compression, shuffle | the file's own codecs, as VirtualiZarr's HDF5 parser reports them (`numcodecs.zlib`, `numcodecs.shuffle`) |
 | stored dtype | [`cast_value`](https://github.com/zarr-developers/zarr-extensions/tree/main/codecs/cast_value) (zarr-extensions, in zarr-python 3.4) |
 | CF `scale_factor` / `add_offset` | [`scale_offset`](https://github.com/zarr-developers/zarr-extensions/tree/main/codecs/scale_offset) (zarr-extensions, in zarr-python 3.4) |
 | stored chunk shape (HDF5 stores edge chunks whole) | `crop` (new: decodes by keeping the cell, encodes by padding) |
@@ -151,7 +167,7 @@ reason.
   (zarr-extensions) already puts a per-chunk header in the chunk bytes, to turn codecs
   of one chain on or off. `switch` chooses among chains, so it also covers what
   `conditional` can't: a different dtype, scaling, or stored shape per chunk.
-- **Concatenating two such arrays** (VirtualiZarr's manifest-level operations) means
+- **Concatenating two such arrays** (manifest-level operations, as VirtualiZarr does them) means
   joining their case lists and renumbering each chunk's index: one literal byte per
   chunk, rewritten by tooling. No source bytes change.
 

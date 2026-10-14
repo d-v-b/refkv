@@ -12,23 +12,31 @@
 #     "matplotlib>=3.10",
 # ]
 # ///
-"""Why many-file datasets fall off the virtualization "complexity cliff", and how
-refkv gets them into one array.
+"""The many-file cases of zarr-developers/zarr-specs#399 ("Varying codec parameters
+per-chunk"), and a sketch of one way to express them as a single Zarr array.
 
-An executable companion to zarr-developers/zarr-specs#399 ("Varying codec parameters
-per-chunk"). Each case writes a few small netCDF4 files, each valid and consistent on
-its own, holding one smooth field `v(time, x)` that continues across the files. It
-virtualizes every file with VirtualiZarr, then combines them into one array along time
-twice: with VirtualiZarr (concatenating its ManifestArrays) and with refkv
-(switch.py). Each result is read back through Zarr and compared with the files read
-one by one:
+Each case writes a few small netCDF4 files, each valid and consistent on its own,
+holding one smooth field `v(time, x)` that continues across the files. Every file is
+virtualized with VirtualiZarr, which parses all of them without trouble. The question
+is the next step, one logical array along time:
+
+- "one Zarr array today": `xr.concat` of the virtual datasets, as
+  `open_virtual_mfdataset` does. A Zarr array has one codec chain, one dtype, one
+  regular chunk grid and one set of attributes, so VirtualiZarr refuses combinations
+  that would need more, and says what is missing. That refusal protects users; it is
+  the gap the issue describes.
+- "switch sketch": the same per-file manifests, combined by switch.py into one array
+  whose chunks each select their own codec chain (design 2.1 of the issue), saved as a
+  vzip archive with refkv and read back through Zarr.
+
+Both are compared with the files read one by one:
 
 - the reference is each file decoded by xarray + h5netcdf (HDF5's own filters, CF
   scaling and _FillValue), concatenated;
 - "identical" means equal bit for bit (NaN equal to NaN); otherwise the largest
   absolute difference is reported;
-- figures/ gets one plot per case: the files, refkv and VirtualiZarr along time at
-  x = 0, with the files' boundaries, and refkv minus the files over (time, x).
+- figures/ gets one plot per case: the files and the combined arrays along time at
+  x = 0, with the files' boundaries, and the sketch's whole field over (time, x).
 
     uv run demo.py
 
@@ -129,18 +137,20 @@ def compare(got: np.ndarray, want: np.ndarray) -> str:
 
 
 def virtualizarr_result(r: Result, vdss: list[xr.Dataset]) -> None:
-    """VirtualiZarr: concatenate the ManifestArrays, then read through Zarr."""
+    """One Zarr array today: concatenate the virtual datasets (xarray's default
+    combine_attrs="override", as open_virtual_mfdataset uses), then read through Zarr."""
     import refkv
     import refkv.zarr
 
     try:
         combined = xr.concat(vdss, dim="time", coords="minimal", compat="override", combine_attrs="override")
-    except Exception as e:  # the cliff: no single Zarr array can describe these files
-        r.vz_note = f"combining fails: {type(e).__name__}: {str(e).splitlines()[0][:160]}"
+    except Exception as e:  # what one Zarr array can't express, as VirtualiZarr reports it
+        r.vz_note = f"not one array: {type(e).__name__}: {str(e).splitlines()[0][:160]}"
         return
     store = refkv.ReferenceStore.from_virtualizarr(combined)
     r.vz = xr.open_zarr(refkv.zarr.store(store), consolidated=False)["v"].values
-    r.vz_note = "combined: " + compare(r.vz, r.want)
+    r.vz_note = ("combined, with the first file's attributes for every file (combine_attrs='override'; "
+                 "'no_conflicts' refuses instead): " + compare(r.vz, r.want))
 
 
 def refkv_result(r: Result, vdss: list[xr.Dataset], root: Path) -> None:
@@ -182,7 +192,8 @@ def run(title: str, make) -> Result:
         vdss = virtualize(paths, root)  # each file alone virtualizes fine
         virtualizarr_result(r, vdss)
         refkv_result(r, vdss, root)
-    print(f"  VirtualiZarr: {r.vz_note}\n  refkv:        {r.rk_note}\n                {r.extra['archive']}")
+    print(f"  one Zarr array today: {r.vz_note}\n  switch sketch:        {r.rk_note}\n"
+          f"                        {r.extra['archive']}")
     return r
 
 
@@ -199,9 +210,10 @@ def plot(r: Result, path: Path) -> None:
     t = np.arange(n)
     ax.plot(t, r.want[:, 0], color="0.75", lw=6, label="the files, each read on its own")
     if r.vz is not None:
-        ax.plot(t, r.vz[:, 0], color="tab:red", lw=1.5, marker="x", ms=4, label="VirtualiZarr, combined")
+        ax.plot(t, r.vz[:, 0], color="tab:orange", lw=1.5, marker="x", ms=4,
+                label="one Zarr array today (first file's attributes)")
     if r.rk is not None:
-        ax.plot(t, r.rk[:, 0], color="k", lw=1.2, ls="--", label="refkv, combined")
+        ax.plot(t, r.rk[:, 0], color="k", lw=1.2, ls="--", label="switch sketch")
     ends = r.boundaries[1:] + [n]
     for b in r.boundaries[1:]:
         ax.axvline(b - 0.5, color="0.5", lw=0.8, ls=":")
@@ -212,7 +224,7 @@ def plot(r: Result, path: Path) -> None:
     ax.set_xlabel("time index")
     ax.set_ylabel("v at x = 0")
     vz = r.vz_note if r.vz is not None else "\n".join(textwrap.wrap(r.vz_note, 120))
-    ax.set_title(f"VirtualiZarr: {vz}", fontsize=8, loc="left", color="tab:red")
+    ax.set_title(f"one Zarr array today: {vz}", fontsize=8, loc="left", color="0.3")
     ax.legend(fontsize=8, loc="best")
     im = ax2.imshow(r.rk.T, aspect="auto", cmap="viridis", interpolation="nearest",
                     extent=(-0.5, n - 0.5, NX - 0.5, -0.5))
@@ -220,7 +232,7 @@ def plot(r: Result, path: Path) -> None:
         ax2.axvline(b - 0.5, color="w", lw=0.8, ls=":")
     ax2.set_xlabel("time index")
     ax2.set_ylabel("x")
-    ax2.set_title(f"refkv, all of v(time, x): {r.rk_note}", fontsize=8, loc="left")
+    ax2.set_title(f"switch sketch, all of v(time, x): {r.rk_note}", fontsize=8, loc="left")
     fig.colorbar(im, ax=ax2, label="v")
     fig.savefig(path, dpi=110)
     plt.close(fig)
