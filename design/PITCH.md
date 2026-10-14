@@ -173,27 +173,6 @@ Zarr shard index, so that Zarr's own sharding codec does the per-chunk
 lookup. They make the archive far smaller, at the cost of requiring source
 files that tile a regular grid.
 
-## Can it be implemented from the spec alone?
-
-This is the experiment's central question. To test it, agents implemented
-vzip from
-[spec/refkv.md](../spec/refkv.md) alone, in Rust, TypeScript and Python, with no access to
-any existing code. This was done in seven rounds, with fresh agents each time.
-After each round, their notes and every disagreement between them went back
-into the spec ([spec/history/archive/REVISIONS.md](../spec/history/archive/REVISIONS.md)).
-
-- **Size:** each implementation, reader plus writer, is about 1,500–2,100
-  lines.
-- **Round 1:** every implementation passed the conformance suite and read the
-  others' archives. But on 11 queries they gave different answers that the
-  spec allowed.
-- **Rounds 2–7:** fresh agents again passed everything, and on every
-  tested query all of them, plus the reference, gave the same answer. That
-  includes error classes.
-
-Rounds 5–7 added HTTP, which all three implementations support. The
-round-7 implementations are in [conformance/impls/](../conformance/impls/).
-
 ## What vzip is not
 
 - **Not a production tool.** It has no users, no releases, no support, and
@@ -213,9 +192,9 @@ round-7 implementations are in [conformance/impls/](../conformance/impls/).
 - **Data producers** who want to publish a virtual view of an archive
   should use Icechunk, or kerchunk through VirtualiZarr. Not vzip.
 - **People designing reference formats**, in the Zarr community or
-  elsewhere, may find the spec, the conformance suite, the implementation
-  rounds and the measurements useful as evidence about what a small,
-  spec-first, single-file format can and cannot do.
+  elsewhere, may find the spec, the conformance suite and the measurements
+  useful as evidence about what a small, spec-first, single-file format can
+  and cannot do.
 - **Anyone curious** whether a ZIP file can carry a virtual dataset can read
   the spec and try the reference implementations, knowing they are
   experiments.
