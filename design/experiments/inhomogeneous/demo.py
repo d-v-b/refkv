@@ -55,13 +55,14 @@ Cases (the use cases of the issue):
 from __future__ import annotations
 
 import json
-import sys
 import tempfile
+import textwrap
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import h5py
+import matplotlib
 import numpy as np
 import virtualizarr as vz
 import xarray as xr
@@ -69,8 +70,14 @@ from obspec_utils.registry import ObjectStoreRegistry
 from obstore.store import LocalStore
 from virtualizarr.parsers import HDFParser
 
+import refkv
+import refkv.zarr
+import switch  # next to this script, which Python puts on sys.path
+
+matplotlib.use("Agg")  # files only, no display
+import matplotlib.pyplot as plt  # noqa: E402 - after choosing the backend
+
 warnings.filterwarnings("ignore")
-sys.path.insert(0, str(Path(__file__).parent))
 HERE = Path(__file__).parent
 NX = 6  # a small spatial axis, so every case runs in a second
 
@@ -139,9 +146,6 @@ def compare(got: np.ndarray, want: np.ndarray) -> str:
 def virtualizarr_result(r: Result, vdss: list[xr.Dataset]) -> None:
     """One Zarr array today: concatenate the virtual datasets (xarray's default
     combine_attrs="override", as open_virtual_mfdataset uses), then read through Zarr."""
-    import refkv
-    import refkv.zarr
-
     try:
         combined = xr.concat(vdss, dim="time", coords="minimal", compat="override", combine_attrs="override")
     except Exception as e:  # what one Zarr array can't express, as VirtualiZarr reports it
@@ -156,9 +160,6 @@ def virtualizarr_result(r: Result, vdss: list[xr.Dataset]) -> None:
 def refkv_result(r: Result, vdss: list[xr.Dataset], root: Path) -> None:
     """refkv: one array from the same per-file manifests (switch.py), saved as a vzip
     archive, reopened, and read through Zarr."""
-    import refkv
-    import switch
-
     store = switch.combine(vdss)
     archive = root / "combined.vzip"
     store.save(str(archive))
@@ -198,12 +199,6 @@ def run(title: str, make) -> Result:
 
 
 def plot(r: Result, path: Path) -> None:
-    import textwrap
-
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
     fig, (ax, ax2) = plt.subplots(2, 1, figsize=(9, 6.5), height_ratios=[3, 2], constrained_layout=True)
     fig.suptitle(r.title, fontsize=10, x=0.01, ha="left")
     n = r.want.shape[0]
