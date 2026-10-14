@@ -4,9 +4,7 @@
 data today, use the established tools: [Icechunk](https://icechunk.io/)
 for production datasets, and [kerchunk](https://github.com/fsspec/kerchunk)
 where a static set of references read from Python is enough. Both are
-maintained, documented and widely used, and VirtualiZarr writes both. vzip
-is none of those things. This document explains what the experiment is asking
-and what it has found so far.
+maintained, documented and widely used, and VirtualiZarr writes both.
 
 ## The question
 
