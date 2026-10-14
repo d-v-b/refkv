@@ -16,20 +16,52 @@ combines them along time into one logical array twice:
 Both are compared with the files read one by one.
 
 ```bash
-uv run --with "cast-value-rs>=0.4.2" python design/experiments/inhomogeneous/demo.py
+uv run --with "cast-value-rs>=0.4.2" --with matplotlib python design/experiments/inhomogeneous/demo.py
 ```
 
 | case | the files | VirtualiZarr | refkv |
 |---|---|---|---|
-| 1. codec eras (GOES-16) | gzip, gzip, shuffle + gzip, uncompressed | fails: one codec chain per array | ✅ 3 cases |
-| 2. rectilinear chunks (monthly files) | 31, 28 and 31 days, one chunk each | fails: needs variable-length chunks | ✅ rectilinear grid |
-| 3. ragged inner chunks (tiled cubes) | 10 steps each, chunked by 4 (4, 4, 2) | fails: partial chunks break the regular grid | ✅ rectilinear grid, `crop` |
-| 4. per-file `scale_factor` / `add_offset` (BOM BARPA) | int16, each file with its own CF scaling | **combines, then 48 of 72 values are silently wrong** | ✅ 3 cases |
-| 5. varying dtype | int16, int16, float32 | fails: one array, one dtype | ✅ 2 cases |
+| 1. codec eras (GOES-16) | gzip, gzip, shuffle + gzip, uncompressed | fails: one codec chain per array | ✅ bit for bit, 3 cases |
+| 2. rectilinear chunks (monthly files) | 31, 28 and 31 days, one chunk each | fails: needs variable-length chunks | ✅ bit for bit, rectilinear grid |
+| 3. ragged inner chunks (tiled cubes) | 10 steps each, chunked by 4 (4, 4, 2) | fails: partial chunks break the regular grid | ✅ bit for bit, rectilinear grid + `crop` |
+| 4. per-file `scale_factor` / `add_offset` (BOM BARPA) | int16, each file with its own CF scaling | **combines, then 120 of 180 values are wrong, by up to 19.6** | ✅ bit for bit, 3 cases |
+| 5. varying dtype | int16, int16, float32 | fails: one array, one dtype | ✅ bit for bit, 2 cases |
 
-In every refkv case, every value equals the files' values. The archive holds a
-few kilobytes of metadata; the chunks are read in place from the netCDF files.
-[output.txt](output.txt) is a full run.
+## How the results are checked
+
+- **The reference.** Each file is read on its own by xarray with h5netcdf, which
+  applies HDF5's own filters (deflate, shuffle) and xarray's CF decoding
+  (`scale_factor`, `add_offset`, `_FillValue`). The decoded arrays are concatenated
+  along time.
+- **The combined arrays.** VirtualiZarr's result is read through Zarr, using refkv's
+  in-memory store for its manifest. refkv's is saved as a vzip archive, reopened, and
+  read through zarr-python and xarray.
+- **The comparison.** "Bit for bit" means `np.array_equal(..., equal_nan=True)`, with
+  no tolerance. Otherwise the run reports the largest absolute difference, and how
+  many values are off by more than 0.001.
+- **The data.** Each case's files hold one smooth field, `v(time, x)`, that continues
+  across the files. A file decoded with another file's codecs, dtype or scaling shows
+  as a break at its boundary.
+
+[`figures/`](figures/) has one plot per case:
+
+- **Top panel:** `v` along time at `x = 0`, for the files, refkv, and VirtualiZarr
+  where it combines. The dotted lines are the file boundaries; each file's encoding is
+  labeled above its span.
+- **Bottom panel:** all of refkv's `v(time, x)`.
+
+Case 4 is the one where VirtualiZarr produces an array: the second file drifts, and
+the third drops by about 20.
+
+![case 4](figures/case4.png)
+
+| | | |
+|---|---|---|
+| [![case 1](figures/case1.png)](figures/case1.png) | [![case 2](figures/case2.png)](figures/case2.png) | [![case 3](figures/case3.png)](figures/case3.png) |
+| [![case 5](figures/case5.png)](figures/case5.png) | | |
+
+The archives hold a few kilobytes of metadata; the chunks are read in place from
+the netCDF files. [output.txt](output.txt) is a full run.
 
 ## How: one codec per transformation, and one that chooses
 
@@ -121,10 +153,11 @@ reason.
 ## Limits
 
 - **`switch` and `crop` are defined here**, not registered as zarr extensions.
-- **`scale_offset` stores the encode multiplier, CF the decode one.** CF's
-  `scale_factor` of 0.01 becomes `scale` 100.00000223517424, the reciprocal of
-  float32 0.01. Decoding through `x / scale` matches `x * scale_factor` to within an
-  ulp, not bit for bit. Losing no information would need `scale_offset` to accept the
+- **`scale_offset` stores the encode multiplier; CF stores the decode one.** CF's
+  `scale_factor` of 0.01 becomes `scale` 100.00000223517424, the reciprocal of float32
+  0.01. Here decoding through `x / scale` gives exactly what `x * scale_factor` gives,
+  bit for bit, but that isn't guaranteed for every factor and value: in general the
+  two agree to within an ulp. A guarantee would need `scale_offset` to accept the
   factor in either direction.
 - **The fill value must round-trip through every case.** The array's fill value is
   NaN, and an int16 case can't hold NaN. Each such case's `cast_value` therefore maps

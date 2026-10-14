@@ -1,65 +1,53 @@
 
 ==============================================================================
-1. codec eras
-  the compression changes partway through the record (GOES-16)
+1. codec eras: gzip, gzip, shuffle + gzip, uncompressed (GOES-16)
 ------------------------------------------------------------------------------
-  era_0.nc: shape=(4, 6) chunks=(4, 6) dtype=float32 filters={'compression': 'gzip', 'opts': 4}
-  era_1.nc: shape=(4, 6) chunks=(4, 6) dtype=float32 filters={'compression': 'gzip', 'opts': 4}
-  era_2.nc: shape=(4, 6) chunks=(4, 6) dtype=float32 filters={'compression': 'gzip', 'opts': 4, 'shuffle': True}
-  era_3.nc: shape=(4, 6) chunks=(4, 6) dtype=float32 filters=none
-  -> each file virtualizes on its own: 4 virtual datasets
-  VirtualiZarr: combining fails: NotImplementedError: The ManifestArray class cannot concatenate arrays which were stored using different codecs, But found codecs (BytesCodec(endian='little'), Zlib(codec_name='numcodecs.zlib', codec_config={'level': 4}))
-  refkv: one array, 3 switch cases, saved and reopened: v(16, 6) float32, every value matches the files
-     the archive is 3,261 bytes; the chunks stay in the 4 files (43,964 bytes), read in place
+  era_0.nc: shape=(8, 6) chunks=(4, 6) float32 gzip
+  era_1.nc: shape=(8, 6) chunks=(4, 6) float32 gzip
+  era_2.nc: shape=(8, 6) chunks=(4, 6) float32 gzip+shuffle
+  era_3.nc: shape=(8, 6) chunks=(4, 6) float32 uncompressed
+  VirtualiZarr: combining fails: NotImplementedError: The ManifestArray class cannot concatenate arrays which were stored using different codecs, But found codecs (BytesCodec(endian='little'), Zlib(codec_name='numc
+  refkv:        one array, 3 switch cases: identical to the files (bit for bit)
+                the archive is 3,885 bytes; the chunks stay in the 4 files (44,339 bytes), read in place
 
 ==============================================================================
-2. rectilinear chunks
-  monthly files: 31, 28 and 31 days, one chunk each
+2. rectilinear: monthly files of 31, 28 and 31 days, one chunk each
 ------------------------------------------------------------------------------
-  month_0.nc: shape=(31, 6) chunks=(31, 6) dtype=float32 filters={'compression': 'gzip', 'opts': 4}
-  month_1.nc: shape=(28, 6) chunks=(28, 6) dtype=float32 filters={'compression': 'gzip', 'opts': 4}
-  month_2.nc: shape=(31, 6) chunks=(31, 6) dtype=float32 filters={'compression': 'gzip', 'opts': 4}
-  -> each file virtualizes on its own: 3 virtual datasets
+  month_0.nc: shape=(31, 6) chunks=(31, 6) float32 gzip
+  month_1.nc: shape=(28, 6) chunks=(28, 6) float32 gzip
+  month_2.nc: shape=(31, 6) chunks=(31, 6) float32 gzip
   VirtualiZarr: combining fails: ValueError: Cannot concatenate arrays with inconsistent chunk shapes: (28, 6) vs (31, 6) .Requires ZEP003 (Variable-length Chunks).
-  refkv: one array, 2 switch cases, saved and reopened: v(90, 6) float32, every value matches the files
-     the archive is 3,556 bytes; the chunks stay in the 3 files (35,389 bytes), read in place
+  refkv:        one array, 2 switch cases: identical to the files (bit for bit)
+                the archive is 3,556 bytes; the chunks stay in the 3 files (34,740 bytes), read in place
 
 ==============================================================================
-3. ragged inner chunks
-  each file chunked by 4 along time, 10 steps: chunks 4, 4, 2
+3. ragged inner chunks: 10 steps per file chunked by 4 (4, 4, 2)
 ------------------------------------------------------------------------------
-  ragged_0.nc: shape=(10, 6) chunks=(4, 6) dtype=float32 filters={'compression': 'gzip', 'opts': 4}
-  ragged_1.nc: shape=(10, 6) chunks=(4, 6) dtype=float32 filters={'compression': 'gzip', 'opts': 4}
-  ragged_2.nc: shape=(10, 6) chunks=(4, 6) dtype=float32 filters={'compression': 'gzip', 'opts': 4}
-  -> each file virtualizes on its own: 3 virtual datasets
-  VirtualiZarr: combining fails: ValueError: Cannot concatenate arrays with partial chunks because only regular chunk grids are currently supported. Concat input 0 has array length 10 along the concatenation axis which is not evenly divisible by
-  refkv: one array, 1 switch case, saved and reopened: v(30, 6) float32, every value matches the files
-     the archive is 3,635 bytes; the chunks stay in the 3 files (33,631 bytes), read in place
+  ragged_0.nc: shape=(10, 6) chunks=(4, 6) float32 gzip
+  ragged_1.nc: shape=(10, 6) chunks=(4, 6) float32 gzip
+  ragged_2.nc: shape=(10, 6) chunks=(4, 6) float32 gzip
+  VirtualiZarr: combining fails: ValueError: Cannot concatenate arrays with partial chunks because only regular chunk grids are currently supported. Concat input 0 has array length 10 along the concatenati
+  refkv:        one array, 1 switch case: identical to the files (bit for bit)
+                the archive is 3,635 bytes; the chunks stay in the 3 files (33,433 bytes), read in place
 
 ==============================================================================
-4. per-file scale_factor / add_offset
-  each file packs int16 with its own CF scaling (BOM BARPA)
+4. per-file scale_factor / add_offset on int16 (BOM BARPA)
 ------------------------------------------------------------------------------
-  scaled_0.nc: shape=(4, 6) chunks=(4, 6) dtype=int16 filters={'compression': 'gzip', 'opts': 4} {'scale_factor': 0.009999999776482582, 'add_offset': 280.0}
-  scaled_1.nc: shape=(4, 6) chunks=(4, 6) dtype=int16 filters={'compression': 'gzip', 'opts': 4} {'scale_factor': 0.019999999552965164, 'add_offset': 270.0}
-  scaled_2.nc: shape=(4, 6) chunks=(4, 6) dtype=int16 filters={'compression': 'gzip', 'opts': 4} {'scale_factor': 0.004999999888241291, 'add_offset': 290.0}
-  -> each file virtualizes on its own: 3 virtual datasets
-  VirtualiZarr: combined (one codec chain and the first file's attributes for all): SILENTLY WRONG, 48 of 72 values differ from the files
-     expected [287.03 286.26 289.55 285.9  287.4  289.54 288.84 288.14 289.43 289.17
- 289.47 288.41]
-     got      [287.03 286.26 289.55 285.9  288.7  289.77 289.42 289.07 278.86 278.34
- 278.94 276.82]
-  refkv: one array, 3 switch cases, saved and reopened: v(12, 6) float32, every value matches the files
-     the archive is 3,784 bytes; the chunks stay in the 3 files (32,836 bytes), read in place
+  scaled_0.nc: shape=(10, 6) chunks=(5, 6) int16 gzip ×0.01 +280
+  scaled_1.nc: shape=(10, 6) chunks=(5, 6) int16 gzip ×0.02 +270
+  scaled_2.nc: shape=(10, 6) chunks=(5, 6) int16 gzip ×0.005 +290
+  VirtualiZarr: combined: max |difference| 19.6; 120 of 180 values off by more than 0.001
+  refkv:        one array, 3 switch cases: identical to the files (bit for bit)
+                the archive is 4,299 bytes; the chunks stay in the 3 files (33,190 bytes), read in place
 
 ==============================================================================
-5. varying dtype
-  the same variable is int16 in two files and float32 in the third
+5. varying dtype: int16, int16, float32
 ------------------------------------------------------------------------------
-  dtype_0.nc: shape=(4, 6) chunks=(4, 6) dtype=int16 filters={'compression': 'gzip', 'opts': 4}
-  dtype_1.nc: shape=(4, 6) chunks=(4, 6) dtype=int16 filters={'compression': 'gzip', 'opts': 4}
-  dtype_2.nc: shape=(4, 6) chunks=(4, 6) dtype=float32 filters={'compression': 'gzip', 'opts': 4}
-  -> each file virtualizes on its own: 3 virtual datasets
+  dtype_0.nc: shape=(10, 6) chunks=(5, 6) int16 gzip
+  dtype_1.nc: shape=(10, 6) chunks=(5, 6) int16 gzip
+  dtype_2.nc: shape=(10, 6) chunks=(5, 6) float32 gzip
   VirtualiZarr: combining fails: ValueError: Cannot combine arrays with inconsistent dtypes, but got 2 distinct dtypes: {dtype('<i2'), dtype('<f4')}
-  refkv: one array, 2 switch cases, saved and reopened: v(12, 6) float32, every value matches the files
-     the archive is 3,060 bytes; the chunks stay in the 3 files (32,879 bytes), read in place
+  refkv:        one array, 2 switch cases: identical to the files (bit for bit)
+                the archive is 3,575 bytes; the chunks stay in the 3 files (33,173 bytes), read in place
+
+figures: <repo>/design/experiments/inhomogeneous/figures
