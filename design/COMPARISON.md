@@ -4,12 +4,7 @@ This document measures four ways of storing a virtual Zarr dataset (chunk
 references into existing netCDF4/HDF5 files) on the same data, and reports
 what was measured.
 
-On the measurements, the four formats are close: every one of them read the
-same values at nearly the same speed in most access patterns. The
-measurements are not where they differ most. Icechunk is a maintained,
-production-grade system with far more mature tooling than vzip: a Rust
-library with Python bindings, transactional commits with history and
-branches, writers in VirtualiZarr, and users in production. For
+Note: for
 production-grade Zarr virtualization, Icechunk should be the first choice.
 kerchunk is the established Python option, and the one most existing virtual
 datasets are stored in.
