@@ -2,27 +2,30 @@
 
 > [!CAUTION]
 > This project is almost entirely vibe-coded. It is intended for personal use,
-> and as a proof of concept.
+> and as a proof of concept. If you need to virtualize Zarr data, use
+> [Icechunk](https://icechunk.io/) or [kerchunk](https://github.com/fsspec/kerchunk).
 
-refkv defines reference semantics for key-value storage. This allows an object
-in one key-value store to refer to a byte range, or sequence of byte ranges,
-in other storage backends.
+This repository is an experiment. It defines two things at different levels of abstraction
 
-refkv is used to define vzip, a single-file reference-aware storage solution.
+**refkv** A reference value type for key-value storage:
+a value is either bytes or a reference to byte ranges of other objects, such
+as the chunks inside HDF5, netCDF or TIFF files. The model is specified
+without a backend ([spec/refkv.md](spec/refkv.md)), so any key-value store
+that can tell bytes from references can hold such a store.
 
-The specification has two parts. [refkv](spec/refkv.md) defines the reference
-value type: a value is either bytes or a reference to byte ranges of other
-objects, such as the chunks inside HDF5, netCDF or TIFF files, and any
-key-value store that can tell the two apart can hold references. The
-[vzip binding](spec/bindings/vzip.md) keeps such a store in one ordinary ZIP
-file, a `.vzip` archive. ZIP is the one binding specified today; the
-[pitch](design/PITCH.md) says why.
+**vzip** One binding of the model the
+specification makes normative ([spec/bindings/vzip.md](spec/bindings/vzip.md)):
+a refkv store kept in one ordinary ZIP file, a `.vzip` archive. The
+[pitch](design/PITCH.md) explains the model, the binding, why ZIP, and what
+the experiment has found; [COMPARISON.md](design/COMPARISON.md) measures vzip
+against kerchunk and Icechunk.
 
-On top of that, refkv virtualizes data: it reads TIFF, NDPI, ND2, CZI, DICOM,
-NIfTI and Imaris files, N5, Zarr v2 and OME-Zarr stores, and Sentinel-2 SAFE
-products, and presents each as a Zarr hierarchy whose chunks are references to
-the original bytes, without copying them. A Rust core parses each format and
-runs natively from Python and as WebAssembly in the browser.
+The code in this repository exercises the model by writing vzip archives. A
+Rust core reads TIFF, NDPI, ND2, CZI, DICOM, NIfTI and Imaris files, N5,
+Zarr v2 and OME-Zarr stores, and Sentinel-2 SAFE products, and presents each
+as a Zarr hierarchy whose chunks are references to the original bytes,
+without copying them. It runs natively from Python and as WebAssembly in the
+browser.
 
 ```python
 from refkv.virtualize import virtualize
@@ -39,7 +42,9 @@ store that xarray opens, through `refkv.zarr` with the `zarr` extra
 [docs/](docs/README.md) is for users: installing, the live demos, and a page
 per format.
 
-Status: experimental, proof of concept, anything can change.
+Status: experimental, proof of concept, anything can change. There are no
+production users, no release history and no support, and the specification
+can change without regard for existing archives.
 
 ## Layout
 
