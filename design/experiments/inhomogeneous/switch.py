@@ -149,9 +149,15 @@ def case(ma, attrs, out_dtype: np.dtype) -> list[dict]:
         chain.append({"name": "scale_offset", "configuration": {
             "offset": float(attrs.get("add_offset", 0)), "scale": 1 / float(attrs.get("scale_factor", 1))}})
     if stored != out_dtype:
-        # decoding stored -> out_dtype is exact; out_of_range only governs encoding, here the
-        # fill value, which every case's chain must be able to encode
-        chain.append({"name": "cast_value", "configuration": {"data_type": stored.name, "out_of_range": "clamp"}})
+        config = {"data_type": stored.name}
+        if stored.kind in "iu":
+            # the array's fill value, NaN, has to round-trip through the integer type
+            # (cast_value, "data_type"): CF's _FillValue is the integer that stands for it
+            fill = attrs.get("_FillValue")
+            if fill is None:
+                raise ValueError(f"an {stored} file without _FillValue: no integer can stand for NaN")
+            config["scalar_map"] = {"encode": [["NaN", int(fill)]], "decode": [[int(fill), "NaN"]]}
+        chain.append({"name": "cast_value", "configuration": config})
     chain.append({"name": "crop", "configuration": {"shape": list(m.chunks)}})
     return chain + [c.to_dict() for c in m.codecs]
 
@@ -198,7 +204,7 @@ def combine(vdss: list[xr.Dataset], name: str = "v", dim: str = "time") -> refkv
         "shape": [sum(time_chunks), *map(sum, other)], "data_type": out_dtype.name,
         "chunk_grid": {"name": "rectilinear", "configuration": {"kind": "inline", "chunk_shapes": [time_chunks, *other]}},
         "chunk_key_encoding": {"name": "default", "configuration": {"separator": "/"}},
-        "fill_value": 0.0, "codecs": [{"name": "switch", "configuration": {"cases": cases}}],
+        "fill_value": "NaN", "codecs": [{"name": "switch", "configuration": {"cases": cases}}],
         "dimension_names": list(vdss[0][name].dims), "attributes": {},
     }).encode()
     for coord in vdss[0][name].dims:  # the coordinates, small: inline bytes

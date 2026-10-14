@@ -62,7 +62,8 @@ Case 4's array, with two of its three cases:
 "chunk_grid": {"name": "rectilinear", "configuration": {"kind": "inline", "chunk_shapes": [[4, 4, 4], [6]]}},
 "codecs": [{"name": "switch", "configuration": {"cases": [
   [{"name": "scale_offset", "configuration": {"offset": 280.0, "scale": 100.00000223517424}},
-   {"name": "cast_value", "configuration": {"data_type": "int16", "out_of_range": "clamp"}},
+   {"name": "cast_value", "configuration": {"data_type": "int16",
+     "scalar_map": {"encode": [["NaN", -32767]], "decode": [[-32767, "NaN"]]}}},
    {"name": "crop", "configuration": {"shape": [4, 6]}},
    {"name": "bytes", "configuration": {"endian": "little"}},
    {"name": "numcodecs.zlib", "configuration": {"level": 4}}],
@@ -125,8 +126,14 @@ reason.
   float32 0.01. Decoding through `x / scale` matches `x * scale_factor` to within an
   ulp, not bit for bit. Losing no information would need `scale_offset` to accept the
   factor in either direction.
-- **The fill value must survive every case's encode direction.** `cast_value` refuses
-  a NaN fill for an int16 case, so the arrays use 0, with `out_of_range: "clamp"`.
-  Clamping only affects encoding; decoding int16 to float32 is exact.
+- **The fill value must round-trip through every case.** The array's fill value is
+  NaN, and an int16 case can't hold NaN. Each such case's `cast_value` therefore maps
+  NaN to the file's CF `_FillValue` and back (`scalar_map`), which is what
+  `_FillValue` means. A file without `_FillValue` has no lossless choice, so the demo
+  refuses it. An earlier version used `out_of_range: "clamp"` with a fill of 0, which
+  can't round-trip either; zarr-python 3.4 accepted it anyway. That is a zarr-python
+  bug against the cast_value spec ("If the fill value cannot survive a round-trip
+  cast, implementations MUST treat this as an error"), and it is being fixed
+  separately.
 - **zarr-python's `cast_value` needs the `cast-value-rs` package.**
 - **Versions:** VirtualiZarr 2.7.3, zarr 3.4.0, xarray 2026.9.0, h5py 3.16.0.

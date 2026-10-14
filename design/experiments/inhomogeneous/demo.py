@@ -189,7 +189,8 @@ def scaled_files(root: Path) -> list[Path]:
         physical = 285.0 + 5 * rng.random((4, NX))
         packed = np.round((physical - offset) / scale).astype("int16")
         write(p, packed, t0=4 * i, chunks=(4, NX), compression="gzip",
-              attrs={"scale_factor": np.float32(scale), "add_offset": np.float32(offset)})
+              attrs={"scale_factor": np.float32(scale), "add_offset": np.float32(offset),
+                     "_FillValue": np.int16(-32767)})
         paths.append(p)
     return paths
 
@@ -198,7 +199,8 @@ def dtype_files(root: Path) -> list[Path]:
     paths = []
     for i, dtype in enumerate(["int16", "int16", "float32"]):
         p = root / f"dtype_{i}.nc"
-        write(p, (100 * rng.random((4, NX))).astype(dtype), t0=4 * i, chunks=(4, NX), compression="gzip")
+        write(p, (100 * rng.random((4, NX))).astype(dtype), t0=4 * i, chunks=(4, NX), compression="gzip",
+              attrs={"_FillValue": np.int16(-32767)} if dtype == "int16" else None)
         paths.append(p)
     return paths
 
