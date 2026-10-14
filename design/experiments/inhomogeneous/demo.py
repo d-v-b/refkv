@@ -38,7 +38,8 @@ Both are compared with the files read one by one:
 - figures/ gets one plot per case: the files and the combined arrays along time at
   x = 0, with the files' boundaries, and the sketch's whole field over (time, x).
 
-    uv run demo.py
+    uv run demo.py           # the six cases, and figures/
+    uv run demo.py scaling   # how switch scales when every chunk is encoded differently
 
 The dependencies are declared inline (PEP 723), so `uv run` builds an environment for
 this script alone; py, next to it, is the only other file it needs.
@@ -56,9 +57,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 import tempfile
 import textwrap
+import time
 import warnings
+import zlib
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
@@ -669,7 +673,124 @@ def concatenation(figures: Path) -> None:
     plot(r, figures / "case6.png")
 
 
-if __name__ == "__main__":
+# --------------------------------------------------------------------------------------
+# Scaling: `uv run demo.py scaling`.
+#
+# How `switch` scales when every chunk is encoded differently.
+#
+# The worst case for a table of codec chains: N chunks, each packed with its own CF
+# scale and offset (as GRIB packs each message). One source file holds the N chunks,
+# each zlib-compressed int16. Two archives describe the same array:
+#
+# - **one case per chunk**: N cases in `zarr.json`, each a full chain with its numbers;
+#   a chunk's header is its case's 8-byte key.
+# - **one case, two parameters**: one chain in `zarr.json` with `scale_offset`'s
+#   `offset` and `scale` left open; a chunk's header is the case index and its two
+#   float64 numbers after the key, a literal in its reference in the archive's paged index.
+#
+# For each, the run reports `zarr.json`, the archive, the time to open the array and to
+# read one chunk, and checks 200 chunks spread over the array against the physical
+# values, bit for bit.
+#
+#     uv run demo.py scaling
+# --------------------------------------------------------------------------------------
+
+
+SCALE_CHUNK = (4, 6)
+SCALE_FILL = -32767
+
+
+def scale_packing(i: int) -> tuple[float, float]:
+    """Chunk i's CF scale_factor and add_offset: a different pair for every chunk (the
+    offset alone is unique; content keys would merge chunks that repeat a pair)."""
+    return 0.01 * (1 + (i % 97) / 97), 280.0 + i * 1e-5
+
+
+def scale_physical(i: int) -> np.ndarray:
+    t = np.arange(SCALE_CHUNK[0] * i, SCALE_CHUNK[0] * (i + 1))[:, None]
+    return 285 + 4 * np.sin(2 * np.pi * t / 37.0) + 0.6 * np.cos(2 * np.pi * np.arange(SCALE_CHUNK[1])[None, :] / SCALE_CHUNK[1])
+
+
+def scale_source(path: Path, n: int) -> list[tuple[int, int]]:
+    """The N packed chunks, back to back; each one's (offset, length)."""
+    ranges, pos = [], 0
+    with open(path, "wb") as f:
+        for i in range(n):
+            scale, offset = scale_packing(i)
+            packed = np.round((scale_physical(i) - offset) / scale).astype("<i2")
+            data = zlib.compress(packed.tobytes(), 4)
+            f.write(data)
+            ranges.append((pos, len(data)))
+            pos += len(data)
+    return ranges
+
+
+def scale_chain(scale, offset) -> list[dict]:
+    return [{"name": "scale_offset", "configuration": {"offset": offset, "scale": scale}},
+            {"name": "cast_value", "configuration": {"data_type": "int16",
+                                                       "scalar_map": {"encode": [["NaN", SCALE_FILL]], "decode": [[SCALE_FILL, "NaN"]]}}},
+            {"name": "bytes", "configuration": {"endian": "little"}},
+            {"name": "numcodecs.zlib", "configuration": {"level": 4}}]
+
+
+def scale_archive(path: Path, url: str, ranges: list[tuple[int, int]], templated: bool) -> int:
+    n = len(ranges)
+    template = {"codecs": scale_chain({"parameter": 1}, {"parameter": 0}), "parameters": ["float64", "float64"]}
+    per_chunk = [] if templated else [{"codecs": scale_chain(1 / scale_packing(i)[0], scale_packing(i)[1]), "parameters": []}
+                                      for i in range(n)]
+    cases = {case_key(c).hex(): c for c in ([template] if templated else per_chunk)}
+    meta = {"zarr_format": 3, "node_type": "array", "shape": [SCALE_CHUNK[0] * n, SCALE_CHUNK[1]], "data_type": "float32",
+            "chunk_grid": {"name": "regular", "configuration": {"chunk_shape": list(SCALE_CHUNK)}},
+            "chunk_key_encoding": {"name": "default", "configuration": {"separator": "/"}},
+            "fill_value": "NaN", "codecs": [{"name": "switch", "configuration": {"cases": cases}}],
+            "attributes": {}}
+    doc = json.dumps(meta).encode()
+    mapping = {"zarr.json": json.dumps({"zarr_format": 3, "node_type": "group", "attributes": {}}).encode(),
+               "v/zarr.json": doc}
+    for i, (off, length) in enumerate(ranges):
+        scale, offset = scale_packing(i)
+        head = header(template, [offset, 1 / scale]) if templated else header(per_chunk[i], [])
+        mapping[f"v/c/{i}/0"] = Concat((Range(data=head), Range(source=0, offset=off, length=length)))
+    refkv.ReferenceStore(mapping, [Source(url=url)]).save(str(path))
+    return len(doc)
+
+
+def scale_measure(path: Path, n: int) -> tuple[float, float, int]:
+    _completed.cache_clear()
+    t0 = time.perf_counter()
+    a = zarr.open_array(refkv.zarr.store(refkv.open(str(path))), path="v", mode="r")
+    t1 = time.perf_counter()
+    a[SCALE_CHUNK[0] * (n - 1):SCALE_CHUNK[0] * n]
+    t2 = time.perf_counter()
+    wrong = 0
+    for i in np.linspace(0, n - 1, 200).astype(int):
+        scale, offset = scale_packing(i)
+        packed = np.round((scale_physical(i) - offset) / scale).astype("int16")
+        want = packed.astype("float32") / np.float32(1 / scale) + np.float32(offset)
+        got = a[SCALE_CHUNK[0] * i:SCALE_CHUNK[0] * (i + 1)]
+        wrong += not np.array_equal(got, want.astype("float32"))
+    return t1 - t0, t2 - t1, wrong
+
+
+def scaling() -> None:
+    """The scaling run (`uv run demo.py scaling`)."""
+    print(f"{'chunks':>8}  {'design':<26}{'zarr.json':>12}{'archive':>11}{'open':>9}{'read 1':>9}  checked")
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        for n in (1_000, 10_000, 100_000):
+            src = root / f"source_{n}.bin"
+            ranges = scale_source(src, n)
+            for templated, label in ((False, "one case per chunk"), (True, "one case, two parameters")):
+                path = root / f"{n}_{templated}.vzip"
+                doc = scale_archive(path, src.as_uri(), ranges, templated)
+                t_open, t_read, wrong = scale_measure(path, n)
+                print(f"{n:>8,}  {label:<26}{doc / 1e3:>10,.1f}kB{path.stat().st_size / 1e6:>9.2f}MB"
+                      f"{t_open:>8.2f}s{t_read * 1e3:>7.1f}ms  "
+                      + ("200 chunks bit for bit" if not wrong else f"{wrong} of 200 chunks differ"))
+
+
+def main() -> None:
+    """The six cases and their figures (`uv run demo.py`)."""
     figures = HERE / "figures"
     figures.mkdir(exist_ok=True)
     for i, (title, make) in enumerate(CASES, 1):
@@ -677,3 +798,12 @@ if __name__ == "__main__":
         plot(r, figures / f"case{i}.png")
     concatenation(figures)
     print(f"\nfigures: {figures}")
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["scaling"]:
+        scaling()
+    elif sys.argv[1:]:
+        sys.exit("usage: demo.py [scaling]")
+    else:
+        main()

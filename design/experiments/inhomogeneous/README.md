@@ -27,8 +27,8 @@ cd design/experiments/inhomogeneous && uv run demo.py
 `demo.py` declares its dependencies inline
 ([PEP 723](https://peps.python.org/pep-0723/)), so `uv run` builds an environment for
 it alone, with refkv from PyPI. It doesn't use this repository's environment. It is
-one file: copy `demo.py` anywhere and run it. [scaling.py](scaling.py) imports the
-switch sketch from `demo.py`, so it needs `demo.py` beside it.
+one file: copy `demo.py` anywhere and run it. `uv run demo.py scaling` runs the scaling
+comparison below.
 
 | case | the files | one Zarr array today | switch sketch |
 |---|---|---|---|
@@ -148,7 +148,7 @@ Case 4's array, with its one case:
 ## Scaling: when every chunk is encoded differently
 
 A table of whole chains grows with the number of distinct encodings, and every reader
-reads the whole table before its first chunk. [scaling.py](scaling.py) measures the
+reads the whole table before its first chunk. `uv run demo.py scaling` measures the
 worst case: N chunks, each packed with its own CF scale and offset (as GRIB packs each
 message), in one source file. It describes the same array two ways:
 
@@ -156,7 +156,7 @@ message), in one source file. It describes the same array two ways:
 - **One case, two parameters:** each chunk's numbers are in its header.
 
 ```bash
-uv run scaling.py
+uv run demo.py scaling
 ```
 
 | chunks | design | `zarr.json` | archive | open the array | read one chunk |
