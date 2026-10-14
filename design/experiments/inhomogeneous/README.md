@@ -16,8 +16,13 @@ combines them along time into one logical array twice:
 Both are compared with the files read one by one.
 
 ```bash
-uv run --with "cast-value-rs>=0.4.2" --with matplotlib python design/experiments/inhomogeneous/demo.py
+cd design/experiments/inhomogeneous && uv run demo.py
 ```
+
+`demo.py` declares its dependencies inline
+([PEP 723](https://peps.python.org/pep-0723/)), so `uv run` builds an environment for
+it alone, with refkv from PyPI. It doesn't use this repository's environment. The two
+files, `demo.py` and [switch.py](switch.py), run from any directory.
 
 | case | the files | VirtualiZarr | refkv |
 |---|---|---|---|
@@ -168,5 +173,5 @@ reason.
   bug against the cast_value spec ("If the fill value cannot survive a round-trip
   cast, implementations MUST treat this as an error"), and it is being fixed
   separately.
-- **zarr-python's `cast_value` needs the `cast-value-rs` package.**
+- **zarr-python's `cast_value` needs the `cast-value-rs` package**, which the script declares.
 - **Versions:** VirtualiZarr 2.7.3, zarr 3.4.0, xarray 2026.9.0, h5py 3.16.0.

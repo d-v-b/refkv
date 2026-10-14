@@ -1,3 +1,17 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "refkv[virtualizarr]>=0.1.0",
+#     "obstore>=0.11.1",
+#     "virtualizarr>=2.7.3",
+#     "zarr>=3.4.0",
+#     "cast-value-rs>=0.4.2",
+#     "xarray>=2026.9.0",
+#     "h5py>=3.16.0",
+#     "h5netcdf>=1.8.1",
+#     "matplotlib>=3.10",
+# ]
+# ///
 """Why many-file datasets fall off the virtualization "complexity cliff", and how
 refkv gets them into one array.
 
@@ -16,7 +30,10 @@ one by one:
 - figures/ gets one plot per case: the files, refkv and VirtualiZarr along time at
   x = 0, with the files' boundaries, and refkv minus the files over (time, x).
 
-    uv run --with "cast-value-rs>=0.4.2" --with matplotlib python design/experiments/inhomogeneous/demo.py
+    uv run demo.py
+
+The dependencies are declared inline (PEP 723), so `uv run` builds an environment for
+this script alone; switch.py, next to it, is the only other file it needs.
 
 Cases (the use cases of the issue):
 
