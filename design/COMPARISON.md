@@ -134,35 +134,12 @@ asynchronously and passed to `zarr.storage.FsspecStore`; Icechunk through
 
 `chunks=None` matters for kerchunk. With xarray's default dask chunking,
 xarray tokenizes the store by pickling it, and fsspec's reference filesystem
-unpickles by downloading its references again. That tripled kerchunk JSON's
-open cost in an earlier version of this comparison.
+unpickles by downloading its references again, which inflates kerchunk's
+open cost.
 
 Library versions: vzip 0.1.0 (this repository), VirtualiZarr 2.7.3, kerchunk
 0.2.10, fsspec 2026.9.0, Icechunk 2.2.2, zarr-python 3.4.0, xarray 2026.9.0;
 Python 3.12 on macOS (Apple silicon). `uv.lock` pins the exact environment.
-
-### How this comparison changed
-
-The first version of this comparison measured vzip unfavorably at open, and
-we changed vzip's reader and converter in response:
-- consolidated metadata (#23);
-- a listing that seeks through the page index (#22);
-- coordinate chunks stored with the metadata (#22).
-
-An adversarial review then pointed out four problems:
-- the other formats still ran on their defaults;
-- kerchunk was opened through a sync wrapper;
-- dask's pickling tripled kerchunk's open cost;
-- the comparison measured only one access pattern.
-
-This version gives every format a default and a tuned variant, opens all of
-them the same way, and adds access patterns, write times, bandwidth and
-repeated runs.
-
-Those runs showed vzip's Python reader 20–25% slower than kerchunk's on the
-same requests. Most of that was a new TCP connection for every chunk. vzip's
-store now reuses connections (#24), and the results below are from after
-that change.
 
 ## Results
 
@@ -397,10 +374,6 @@ In the small run, every format read 2,880 chunks:
 Default Icechunk made 14,410 requests, because by default its HTTP store
 splits each read into five ranges. With one request per object it made
 2,904.
-
-An earlier version of vzip's reader opened a new connection for every
-chunk, and took 7.5 s here and 9.3 s for the large time series. Reusing
-connections brought it level with the others (see the history above).
 
 ## Limits
 
