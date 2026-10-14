@@ -224,7 +224,9 @@ register its store, as above; that allows its URLs. The rules are in
   `policy=refkv.Policy(allow_private_hosts=True)`.
 - **`the request would go through the proxy ...`.** refkv checks the
   address each request goes to, and cannot check one a proxy connects to.
-  Exempt the host with `no_proxy`, or pass
+  This holds for an archive's own URL as well as for its sources, so behind
+  a proxy (`http_proxy`, `https_proxy`) opening an `https://` archive fails
+  too. Exempt the host with `no_proxy`, or pass
   `policy=refkv.Policy(allow_unchecked_proxy=True)`.
 
 The docstrings say more: `help(refkv.ReferenceStore)`, `help(refkv.zarr.open)`

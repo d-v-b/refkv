@@ -34,7 +34,9 @@ pip install "refkv[obstore]"       # obstore's S3Store and others, for registry=
 
 The base install reads archives and sources over `http(s)` with refkv's own HTTP client,
 which refuses loopback, private and link-local addresses unless
-`Policy(allow_private_hosts=True)`, an archive's own address included.
+`Policy(allow_private_hosts=True)`, and requests through an HTTP proxy, whose
+connections it cannot check, unless `Policy(allow_unchecked_proxy=True)`: an
+archive's own URL included.
 
 Wheels are built for Linux, macOS and Windows (Python 3.12 and later).
 

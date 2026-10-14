@@ -212,6 +212,23 @@ def test_refuses_a_redirect_of_the_archive_to_a_private_address(server, tmp_path
         assert state["paths"] == ["/moved/a.vzip"]  # the redirect only
 
 
+def test_refuses_an_archive_through_a_proxy(server, tmp_path, names, monkeypatch):
+    """Rule 3 cannot check where a proxy connects, so an archive whose request would
+    go through one is refused, naming the opt-out; with it, the proxy (here the test
+    server) serves the archive."""
+    base, state = server
+    local = refkv.open(_serve_archive(base, state, tmp_path), policy=SERVED)
+    names["public.test"] = "93.184.215.14"
+    monkeypatch.setenv("http_proxy", base)
+    state["files"]["http://public.test/a.vzip"] = state["files"]["/a.vzip"]
+    with pytest.raises(ArchiveError, match="through the proxy.*allow_unchecked_proxy=True"):
+        refkv.open("http://public.test/a.vzip").list()
+    assert state["paths"] == []
+    store = refkv.open("http://public.test/a.vzip", policy=Policy(allow_unchecked_proxy=True))
+    assert store.list() == local.list()
+    assert state["paths"][0] == "http://public.test/a.vzip"  # an absolute target: the proxy
+
+
 @pytest.mark.parametrize("pin", ["etag", "size"])
 def test_detects_a_pin_mismatch_of_a_source_of_an_http_archive(server, tmp_path, pin):
     """A source of an archive read over HTTP is read with its pins checked: an ETag
