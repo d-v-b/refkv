@@ -9,9 +9,15 @@ reference implementation, the test vectors or each other's code. Each agent's
 `SPEC_NOTES.md` lists the ambiguities it reported; notes from every round are
 in [design/conformance/archive/](../../design/conformance/archive/).
 
+The Rust one is no longer independent as a writer: its `write` command writes
+with the archive writer of [rust/refkv-vzip](../../rust/refkv-vzip), the one the
+`vzip convert` CLI uses (which writes Python's archives byte for byte), and its
+reader decodes the messages with that crate's codec. Its reader was brought to
+revision 11 (below).
+
 | dir | language | dependencies | HTTP | run |
 |---|---|---|---|---|
-| `rust/` | Rust | flate2, crc32fast (hand-written HTTP/1.1 client, JSON parser, URI and date code) | http | `cargo build --release`, then `./vzip` |
+| `rust/` | Rust | flate2, refkv-vzip (the writer and the messages; hand-written HTTP/1.1 client, JSON parser, URI and date code) | http | `cargo build --release`, then `./vzip` |
 | `typescript/` | TypeScript (Node ≥ 23, type stripping) | none | http, https | `./vzip` |
 | `python/` | Python 3.12 | standard library | http, https | `./vzip` (needs `uv`) |
 
@@ -32,7 +38,7 @@ because of their round-7 notes:
 - query files with lone-surrogate keys, or with numbers of 2^53 or more, are
   invalid (TypeScript and Python).
 
-**Against revision 11** they are unchanged, and `just conformance` reports
+**Against revision 11** the TypeScript and Python ones are unchanged, and `just conformance` reports
 what revision 11 changed in the ZIP binding
 ([spec/bindings/vzip.md §10.1](../../spec/bindings/vzip.md#101-structure) rule 7,
 [§10.2](../../spec/bindings/vzip.md#102-zip64)), besides the four rules above:
@@ -47,3 +53,8 @@ what revision 11 changed in the ZIP binding
   4 GiB or more in `large_entries` (6 queries).
 - They read every archive the revision-11 writers write without a large
   entry: the end record's all-ones fields send them to the zip64 record.
+
+The Rust one now passes every check of the revision-11 suite: its reader
+requires the zip64 end records and takes the directory from them alone, reads
+entries of 4 GiB or more, refuses a pinned large DEFLATE entry and a repeated
+`ETag` field, and its archives are the revision-11 writer's.

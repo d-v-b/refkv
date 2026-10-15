@@ -163,9 +163,15 @@ def build_zip(entries, sources_pb, comment=None, extra_cd=b""):
     out += cd
     if comment is None:
         comment = b"vzip/0" + struct.pack("<QQ", slho + 30 + len(sname), len(sbody))
-    n = len(entries) + 1
-    out += struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, n, n, len(cd), cdo, len(comment)) + comment
-    return out
+    return out + end_records(len(out), len(entries) + 1, len(cd), cdo, comment)
+
+
+def end_records(at, n, cd_size, cd_offset, comment):
+    """The end records of spec/bindings/vzip.md §10.2, at offset `at`: the zip64 EOCD and its
+    locator, then the EOCD, whose counts, size and offset are all ones."""
+    return (struct.pack("<IQHHIIQQQQ", 0x06064B50, 44, 20, 45, 0, 0, n, n, cd_size, cd_offset)
+            + struct.pack("<IIQI", 0x07064B50, 0, at, 1)
+            + struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, 0xFFFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFF, len(comment)) + comment)
 
 
 def ref_extra(payload, id=0x7A76):
@@ -402,7 +408,7 @@ def test_reader_errors():
     open_err("index record in unpaged", build_zip([{"name": "__vz__/index", "body": b""}], ok_src))
     open_err("cd outside file", patch_eocd(good, cd_offset=len(good) + 5))
     open_err("cd bad record", patch_eocd(good, cd_size_delta=-1))
-    open_err("zip64 without locator", patch_eocd(good, cd_offset=0xFFFFFFFF))
+    open_err("no zip64 end records", without_zip64_records(good))
     # bad url at open is fine (checked at resolution)
     p = save("badurl.vzip", build_zip([], pb_table([pb_source(url="a b")])))
     rc, out = read(p, [])
@@ -505,18 +511,26 @@ def make_trailing():
     lh = struct.pack("<IHHHHHIIIHH", 0x04034B50, 20, 0x800, 8, 0, 0x21, 0, len(body), 0, len(sname), 0) + sname + body
     cd = struct.pack("<IHHHHHHIIIHHHHHII", 0x02014B50, 20, 20, 0x800, 8, 0, 0x21, 0, len(body), 0, len(sname), 0, 0, 0, 0, 0, 0) + sname
     comment = b"vzip/0" + struct.pack("<QQ", 30 + len(sname), len(body))
-    return lh + cd + struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, 1, 1, len(cd), len(lh), len(comment)) + comment
+    return lh + cd + end_records(len(lh) + len(cd), 1, len(cd), len(lh), comment)
 
 
 def patch_eocd(data, cd_offset=None, cd_size_delta=0):
-    i = len(data) - 44
-    assert data[i:i + 4] == b"PK\x05\x06"
+    """`data` with the zip64 EOCD's directory size and offset changed (the EOCD's own are ignored)."""
+    i = len(data) - 44 - 20 - 56
+    assert data[i:i + 4] == b"PK\x06\x06"
     b = bytearray(data)
-    size, off = struct.unpack_from("<II", b, i + 12)
+    size, off = struct.unpack_from("<QQ", b, i + 40)
     if cd_offset is not None:
         off = cd_offset
-    struct.pack_into("<II", b, i + 12, size + cd_size_delta, off)
+    struct.pack_into("<QQ", b, i + 40, size + cd_size_delta, off)
     return bytes(b)
+
+
+def without_zip64_records(data):
+    """`data` without its zip64 EOCD and locator, as a revision-8 writer wrote it."""
+    i = len(data) - 44 - 20 - 56
+    assert data[i:i + 4] == b"PK\x06\x06"
+    return data[:i] + data[i + 76:]
 
 
 def test_paged_lookup():

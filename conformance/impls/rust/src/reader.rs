@@ -4,9 +4,9 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#7-page-index-optional>,
 //! §8 <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#8-reading>).
 
-use crate::proto::{self, CdIndex, Range, Source, SourceKind};
+use refkv_vzip::pb::{self, CdIndex, Range, Source, SourceKind};
 use crate::uri::{self, Uri};
-use crate::{inflate_clean, is_strong_etag, Error, ErrorClass, INDEX_KEY, MEMORY_LIMIT, RESERVED_PREFIX, SOURCES_KEY};
+use crate::{inflate_clean, Error, ErrorClass, INDEX_KEY, MEMORY_LIMIT, RESERVED_PREFIX, SOURCES_KEY};
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::os::unix::fs::FileExt;
@@ -132,9 +132,6 @@ fn analyze(r: &Record) -> Result<Entry, Error> {
     if r.method != 0 && r.method != 8 {
         return Err(e(format!("unsupported compression method {}", r.method)));
     }
-    if r.csize == 0xFFFF_FFFF || r.usize == 0xFFFF_FFFF {
-        return Err(e("size field is 0xFFFFFFFF".into()));
-    }
     let x = &r.extra;
     let mut i = 0;
     let mut refs: Vec<(u16, &[u8])> = Vec::new();
@@ -159,21 +156,40 @@ fn analyze(r: &Record) -> Result<Entry, Error> {
     if z64.len() > 1 {
         return Err(e("more than one ZIP64 extra block".into()));
     }
-    let lho = if r.lho == 0xFFFF_FFFF {
-        match z64.first() {
-            Some(d) if d.len() >= 8 => u64le(d, 0),
-            _ => return Err(e("offset is 0xFFFFFFFF without an 8-byte ZIP64 block".into())),
+    // spec/bindings/vzip.md §10.2
+    // <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#102-zip64>: a large entry
+    // (both sizes 0xFFFFFFFF; spec/bindings/vzip.md §10.1
+    // <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#101-structure> rule 7) has
+    // its sizes, then an offset of 4 GiB or more, in the one ZIP64 block, in that order
+    if (r.usize == 0xFFFF_FFFF) != (r.csize == 0xFFFF_FFFF) {
+        return Err(e("exactly one size field is 0xFFFFFFFF".into()));
+    }
+    let large = r.usize == 0xFFFF_FFFF;
+    let need = if large { 16 } else { 0 } + if r.lho == 0xFFFF_FFFF { 8 } else { 0 };
+    let (mut usize, mut csize, mut lho) = (r.usize as u64, r.csize as u64, r.lho as u64);
+    if need > 0 {
+        let Some(d) = z64.first().filter(|d| d.len() >= need) else {
+            return Err(e("ZIP64 extra block missing or too short".into()));
+        };
+        if large {
+            usize = u64le(d, 0);
+            csize = u64le(d, 8);
         }
-    } else {
-        r.lho as u64
-    };
+        if r.lho == 0xFFFF_FFFF {
+            lho = u64le(d, if large { 16 } else { 0 });
+        }
+    }
     if refs.len() > 1 {
         return Err(e("more than one reference extra block".into()));
     }
+    if large && r.method != 0 {
+        return Err(e("large entry is not STORED".into()));
+    }
     let body = Body {
-        off: lho.saturating_add(30).saturating_add(r.name.len() as u64),
-        csize: r.csize as u64,
-        usize: r.usize as u64,
+        // the local header of a large entry has its 20-byte ZIP64 extra field
+        off: lho.saturating_add(30).saturating_add(r.name.len() as u64).saturating_add(if large { 20 } else { 0 }),
+        csize,
+        usize,
         method: r.method,
     };
     match refs.first() {
@@ -181,6 +197,9 @@ fn analyze(r: &Record) -> Result<Entry, Error> {
         Some((id, d)) => {
             if r.method == 8 {
                 return Err(e("reference entry uses method 8".into()));
+            }
+            if large {
+                return Err(e("reference entry is large".into()));
             }
             Ok(Entry::Reference { id: *id, payload: d.to_vec(), body })
         }
@@ -258,32 +277,30 @@ impl Archive {
         let sources_loc = (u64le(comment, 6), u64le(comment, 14));
         let index_loc = if comment.len() == 38 { Some((u64le(comment, 22), u64le(comment, 30))) } else { None };
 
-        // §3.2 <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#32-zip64>:
-        // ZIP64 end records.
-        let (n_disk, n_total) = (u16le(&eocd, 8), u16le(&eocd, 10));
-        let (mut cd_size, mut cd_offset) = (u32le(&eocd, 12) as u64, u32le(&eocd, 16) as u64);
-        if n_disk == 0xFFFF || n_total == 0xFFFF || cd_size == 0xFFFF_FFFF || cd_offset == 0xFFFF_FFFF {
-            if eocd_at < 20 {
-                return Err(archive("zip64 end of central directory locator missing"));
-            }
-            let loc = rd(eocd_at - 20, 20)?;
-            if u32le(&loc, 0) != 0x07064b50 {
-                return Err(archive("zip64 end of central directory locator missing"));
-            }
-            let z_off = u64le(&loc, 8);
-            if !Self::within(size, z_off, 56) {
-                return Err(archive("zip64 end of central directory record lies outside the file"));
-            }
-            let z = rd(z_off, 56)?;
-            if u32le(&z, 0) != 0x06064b50 {
-                return Err(archive("bad zip64 end of central directory signature"));
-            }
-            if u64le(&z, 4) != 44 {
-                return Err(archive("zip64 end of central directory record size is not 44"));
-            }
-            cd_size = u64le(&z, 40);
-            cd_offset = u64le(&z, 48);
+        // spec/bindings/vzip.md §10.2
+        // <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#102-zip64>: every archive
+        // has the ZIP64 end records, and the directory's size and offset always come from the
+        // zip64 record; the end of central directory record's own counts, size and offset are
+        // ignored.
+        if eocd_at < 20 {
+            return Err(archive("zip64 end of central directory locator missing"));
         }
+        let loc = rd(eocd_at - 20, 20)?;
+        if u32le(&loc, 0) != 0x07064b50 {
+            return Err(archive("zip64 end of central directory locator missing"));
+        }
+        let z_off = u64le(&loc, 8);
+        if !Self::within(size, z_off, 56) {
+            return Err(archive("zip64 end of central directory record lies outside the file"));
+        }
+        let z = rd(z_off, 56)?;
+        if u32le(&z, 0) != 0x06064b50 {
+            return Err(archive("bad zip64 end of central directory signature"));
+        }
+        if u64le(&z, 4) != 44 {
+            return Err(archive("zip64 end of central directory record size is not 44"));
+        }
+        let (cd_size, cd_offset) = (u64le(&z, 40), u64le(&z, 48));
         if !Self::within(size, cd_offset, cd_size) {
             return Err(archive("central directory lies outside the file"));
         }
@@ -297,38 +314,29 @@ impl Archive {
             inflate_clean(&b, MEMORY_LIMIT).map_err(|e| archive(format!("{what}: {e}")))
         };
         let sources_raw = load(sources_loc, "__vz__/sources")?;
-        let sources = proto::decode_source_table(&sources_raw)
+        // the decoder checks each source's own rules too: a kind, pins only on a url source, a
+        // strong entity tag
+        let (sources, _revision) = pb::decode_source_table(&sources_raw)
             .map_err(|e| archive(format!("source table is malformed: {e}")))?;
         for (i, s) in sources.iter().enumerate() {
             match &s.kind {
-                None => return Err(archive(format!("source {i} has no kind"))),
-                Some(SourceKind::Url(u)) if u.is_empty() => return Err(archive(format!("source {i}: empty url"))),
-                Some(SourceKind::Key(k)) if k.is_empty() => return Err(archive(format!("source {i}: empty key"))),
-                Some(SourceKind::Url(_)) => {}
-                Some(_) => {
-                    if s.size.is_some() || s.etag.is_some() || s.modified_not_after.is_some() {
-                        return Err(archive(format!("source {i}: pin on a non-url source")));
-                    }
-                }
-            }
-            if let Some(e) = &s.etag {
-                if !is_strong_etag(e) {
-                    return Err(archive(format!("source {i}: etag {e:?} is not a strong entity tag")));
-                }
+                SourceKind::Url(u) if u.is_empty() => return Err(archive(format!("source {i}: empty url"))),
+                SourceKind::Key(k) if k.is_empty() => return Err(archive(format!("source {i}: empty key"))),
+                _ => {}
             }
         }
 
         let store = match index_loc {
             Some(loc) => {
                 let index_raw = load(loc, "__vz__/index")?;
-                let index = proto::decode_cd_index(&index_raw)
+                let index = pb::decode_cd_index(&index_raw)
                     .map_err(|e| archive(format!("page index does not decode: {e}")))?;
                 let mut expect = 0u64;
                 for (i, p) in index.pages.iter().enumerate() {
                     if p.length == 0 {
                         return Err(archive(format!("page {i} has length 0")));
                     }
-                    if !p.offset.checked_add(p.length).is_some_and(|e| e <= cd_size) {
+                    if p.offset.checked_add(p.length).is_none_or(|e| e > cd_size) {
                         return Err(archive(format!("page {i} lies outside the central directory")));
                     }
                     if p.offset != expect {
@@ -356,6 +364,11 @@ impl Archive {
                     }
                     if p.method != 0 && p.method != 8 {
                         return Err(archive(format!("pinned method {} is not 0 or 8", p.method)));
+                    }
+                    // spec/bindings/vzip.md §12.2
+                    // <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#122-lookup>
+                    if p.method != 0 && (p.size >= 0xFFFF_FFFF || p.csize >= 0xFFFF_FFFF) {
+                        return Err(archive(format!("pinned {:?} is large and not STORED", p.key)));
                     }
                     if !Self::within(size, p.data_offset, p.csize) {
                         return Err(archive(format!("pinned body of {:?} lies outside the file", p.key)));
@@ -473,11 +486,10 @@ impl Archive {
     }
 
     pub fn get(&self, key: &str, req: Request) -> Result<Option<Vec<u8>>, Error> {
-        if let Request::Range(s, e) = req {
-            if s > e {
+        if let Request::Range(s, e) = req
+            && s > e {
                 return Err(err(ErrorClass::Request, format!("range start {s} > end {e}")));
             }
-        }
         let k = key.as_bytes();
         if is_hidden(k) {
             return Ok(None);
@@ -553,9 +565,9 @@ impl Archive {
             return Err(pe(format!("reference payload is {} bytes (max 65519)", payload.len())));
         }
         let parts: Vec<Range> = if id == crate::EXTRA_RANGE {
-            vec![proto::decode_range(payload).map_err(|e| pe(format!("malformed Range: {e}")))?]
+            vec![Range::decode(payload).map_err(|e| pe(format!("malformed Range: {e}")))?]
         } else {
-            proto::decode_concat(payload).map_err(|e| pe(format!("malformed Concat: {e}")))?
+            pb::decode_concat(payload).map_err(|e| pe(format!("malformed Concat: {e}")))?
         };
         let mut total: u64 = 0;
         for (i, p) in parts.iter().enumerate() {
@@ -598,7 +610,7 @@ impl Archive {
     fn read_source(&self, idx: usize, from: u64, to: u64) -> Result<Vec<u8>, Error> {
         let re = |m: String| err(ErrorClass::Resolution, m);
         let s = &self.sources[idx];
-        match s.kind.as_ref().unwrap() {
+        match &s.kind {
             SourceKind::Data(d) => {
                 if to > d.len() as u64 {
                     return Err(re(format!("data source {idx} has {} bytes, need {to}", d.len())));
@@ -656,11 +668,10 @@ fn read_file_range(u: &Uri, from: u64, to: u64, pins: &crate::http::Pins) -> Res
         return Err(re(format!("{} is not a regular file", path.display())));
     }
     let len = md.len();
-    if let Some(p) = pins.size {
-        if p != len {
+    if let Some(p) = pins.size
+        && p != len {
             return Err(re(format!("file size {len} does not match size pin {p}")));
         }
-    }
     if let Some(p) = pins.modified_not_after {
         let m = md.mtime(); // whole seconds, rounded down (st_mtim.tv_sec)
         if m > p {

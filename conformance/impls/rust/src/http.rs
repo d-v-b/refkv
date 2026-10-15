@@ -258,8 +258,11 @@ pub fn read_range(url: &Uri, a: u64, b: u64, pins: &Pins, limit: u64) -> Result<
                 return Err(res(format!("response has Content-Encoding {joined:?}")));
             }
         }
+        // a repeated ETag field is an error even on an unpinned read (spec/refkv.md §5.2
+        // <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>)
+        let etag = resp.one("etag")?;
         if let Some(pin) = pins.etag {
-            match resp.one("etag")? {
+            match etag {
                 Some(e) if e == pin => {}
                 Some(e) => return Err(res(format!("ETag {e:?} does not match pin {pin:?}"))),
                 None => return Err(res("response has no ETag; etag pin cannot be checked")),
@@ -282,11 +285,10 @@ pub fn read_range(url: &Uri, a: u64, b: u64, pins: &Pins, limit: u64) -> Result<
             if ra != a || rz != b - 1 {
                 return Err(res(format!("server returned range {ra}-{rz}, requested {a}-{}", b - 1)));
             }
-            if let Some(t) = total {
-                if rz >= t {
+            if let Some(t) = total
+                && rz >= t {
                     return Err(res("Content-Range end not less than total"));
                 }
-            }
             if let Some(p) = pins.size {
                 match total {
                     Some(t) if t == p => {}
@@ -302,11 +304,10 @@ pub fn read_range(url: &Uri, a: u64, b: u64, pins: &Pins, limit: u64) -> Result<
         }
         // 200: whole object
         let body = resp.body(limit)?;
-        if let Some(p) = pins.size {
-            if body.len() as u64 != p {
+        if let Some(p) = pins.size
+            && body.len() as u64 != p {
                 return Err(res(format!("object size {} does not match size pin {p}", body.len())));
             }
-        }
         if (body.len() as u64) < b {
             return Err(res(format!("object has {} bytes, need {b}", body.len())));
         }

@@ -1,9 +1,10 @@
-//! vzip: a ZIP container for byte-range references (format version 0).
+//! vzip: a ZIP container for byte-range references (format version 0): a reader, and the
+//! HARNESS.md CLI over it and over the archive writer of rust/refkv-vzip, which writes the
+//! archives (`writer`) and whose messages the reader decodes.
 
 pub mod http;
 pub mod httpdate;
 pub mod json;
-pub mod proto;
 pub mod reader;
 pub mod uri;
 pub mod writer;
@@ -65,16 +66,6 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// Is `s` a strong entity tag `DQUOTE *etagc DQUOTE` (§6.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#61-pins>)?
-pub fn is_strong_etag(s: &str) -> bool {
-    let b = s.as_bytes();
-    b.len() >= 2
-        && b[0] == b'"'
-        && b[b.len() - 1] == b'"'
-        && b[1..b.len() - 1].iter().all(|&c| c == 0x21 || (0x23..=0x7E).contains(&c))
-}
-
 /// Inflates a raw DEFLATE body, requiring a single complete stream that ends
 /// exactly at the end of `data` (§8.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#81-opening>). Output
@@ -117,16 +108,11 @@ pub fn inflate_clean(data: &[u8], limit: u64) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-pub fn deflate(data: &[u8]) -> Vec<u8> {
-    use std::io::Write;
-    let mut e = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
-    e.write_all(data).unwrap();
-    e.finish().unwrap()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use refkv_vzip::deflate;
+
     #[test]
     fn inflate_checks() {
         let d = deflate(b"hello hello hello");
@@ -138,14 +124,5 @@ mod tests {
         assert!(inflate_clean(&d, 5).is_err());
         assert_eq!(inflate_clean(&deflate(b""), 0).unwrap(), b"");
         assert!(inflate_clean(&[], 10).is_err());
-    }
-    #[test]
-    fn etags() {
-        assert!(is_strong_etag("\"abc\""));
-        assert!(is_strong_etag("\"\""));
-        assert!(!is_strong_etag("W/\"abc\""));
-        assert!(!is_strong_etag("\"a b\""));
-        assert!(!is_strong_etag("\"a\"b\""));
-        assert!(!is_strong_etag("\""));
     }
 }
