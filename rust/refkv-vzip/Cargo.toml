@@ -1,0 +1,27 @@
+# The vzip archive (spec/bindings/vzip.md): the protobuf messages of spec/proto/refkv.proto,
+# hand-written as python/src/refkv/pb.py is, and the archive writer, ported byte for byte from
+# python/src/refkv/vzip/archive.py's VZipWriter. A crate of its own, not a member of a Cargo
+# workspace (python/Cargo.toml says why): the CLI (rust/refkv-cli) and the conformance harness
+# (conformance/impls/rust) depend on it by path.
+[package]
+name = "refkv-vzip"
+version = "0.1.0"
+edition = "2024"
+description = "vzip archives: refkv's protobuf messages and the archive writer"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+crc32fast = "1.5"
+# DEFLATE through zlib itself, built from its sources: the bytes Python's zlib.compressobj(9,
+# DEFLATED, -15) gives, so that an archive matches the Python writer's byte for byte (miniz_oxide
+# and zlib-rs compress differently, and a system's zlib may be zlib-ng's)
+flate2 = { version = "1.1", default-features = false, features = ["zlib"] }
+libz-sys = { version = "1.1", default-features = false, features = ["libc", "static"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+debug = false
