@@ -114,17 +114,15 @@ fn valid_authority(a: &str) -> bool {
         Some(i) => (Some(&a[..i]), &a[i + 1..]),
         None => (None, a),
     };
-    if let Some(u) = userinfo {
-        if !chars_ok(u, |c| is_unreserved(c) || is_sub_delim(c) || c == b':') {
+    if let Some(u) = userinfo
+        && !chars_ok(u, |c| is_unreserved(c) || is_sub_delim(c) || c == b':') {
             return false;
         }
-    }
     let (host, port) = split_host_port(hostport);
-    if let Some(p) = port {
-        if !p.bytes().all(|c| c.is_ascii_digit()) {
+    if let Some(p) = port
+        && !p.bytes().all(|c| c.is_ascii_digit()) {
             return false;
         }
-    }
     if host.starts_with('[') {
         let Some(inner) = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) else { return false };
         if inner.starts_with(['v', 'V']) {
@@ -374,11 +372,10 @@ pub fn file_base_uri(p: &std::path::Path) -> std::io::Result<Uri> {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#6-source-table>).
 pub fn file_uri_to_path(u: &Uri) -> Result<std::path::PathBuf, String> {
     use std::os::unix::ffi::OsStringExt;
-    if let Some(a) = &u.authority {
-        if !(a.is_empty() || a.eq_ignore_ascii_case("localhost")) {
+    if let Some(a) = &u.authority
+        && !(a.is_empty() || a.eq_ignore_ascii_case("localhost")) {
             return Err(format!("file: URI authority must be empty or localhost, got {a:?}"));
         }
-    }
     if !u.path.starts_with('/') {
         return Err("file: URI path must be absolute".into());
     }

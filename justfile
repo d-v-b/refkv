@@ -43,8 +43,23 @@ ir-rust-test:
     cargo test --release --manifest-path rust/refkv-ir/Cargo.toml
     just python::cargo-test
 
-# Run every offline test: the Python reference, the browser code and the independent implementations
-test-all: test js::test impls::test
+# Test the vzip archive writer (rust/refkv-vzip) and the `vzip convert` CLI (rust/refkv-cli), and
+# build the CLI (rust/refkv-cli/target/release/vzip)
+cli-test:
+    cargo test --release --manifest-path rust/refkv-vzip/Cargo.toml
+    cargo test --release --manifest-path rust/refkv-cli/Cargo.toml
+    cargo build --release --manifest-path rust/refkv-cli/Cargo.toml
+
+# Convert the fixture corpus with `python -m refkv.virtualize` and with the Rust CLI, from local
+# paths and over HTTP (a server on 127.0.0.1), with and without --checksums, and check that both
+# give the same archives, byte for byte (rust/refkv-cli/tests/identical.py; e.g. `--only nd2`)
+cli-identical *args: ir-build
+    cargo build --release --manifest-path rust/refkv-cli/Cargo.toml
+    uv run python rust/refkv-cli/tests/identical.py {{args}}
+
+# Run every offline test: the Python reference, the browser code, the independent implementations,
+# and the Rust CLI against the Python one
+test-all: test js::test impls::test cli-test cli-identical
 
 # Type-check the browser code
 check: js::typecheck

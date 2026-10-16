@@ -6,8 +6,9 @@
 # spec/bindings/vzip.md's strict reading of every archive), the reproducibility of the fixture
 # generators, and the section references, each a link to a heading that exists. TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2, OME-Zarr and N5 stores, go through the Rust core (rust/refkv-ir), built natively
 # for Python (`uv sync`, which builds python/, refkv, with its bindings as the module refkv._core) and for wasm32 for the browser code (`just js::wasm`).
-# The Python tests, the install without extras, the IR core's tests and the Node tests run
-# on Linux, macOS and Windows; the fixture comparison, the fixtures' reproducibility and the
+# The vzip CLI (rust/refkv-cli) is checked against the Python virtualizer, archive for archive.
+# The Python tests, the install without extras, the IR core's tests, the CLI's and the Node tests
+# run on Linux, macOS and Windows; the fixture comparison, the fixtures' reproducibility and the
 # section references, which do not depend on the system, on Linux only.
 name: ci
 
@@ -148,6 +149,41 @@ jobs:
       # pytest job, with the rest
       - run: just ir-rust-test
       - run: just ir-wasm
+
+  # The vzip archive writer (rust/refkv-vzip) and the `vzip convert` CLI (rust/refkv-cli): their
+  # tests, and the CLI against `python -m refkv.virtualize` on the fixture corpus, whose archives
+  # must be the same, byte for byte (`just cli-identical`); and, but on Windows, where it does not
+  # build, the conformance harness built on the writer (conformance/impls/rust)
+  cli:
+    name: cli (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust/refkv-ir
+            rust/refkv-vzip
+            rust/refkv-cli
+            conformance/impls/rust
+            python
+      - uses: extractions/setup-just@v2
+      - run: uv sync --all-groups --locked
+      - run: just cli-test
+      - run: just cli-identical
+      - if: runner.os != 'Windows'
+        run: just impls::rust::test
 
   fixture-compare:
     runs-on: ubuntu-latest
