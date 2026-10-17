@@ -241,7 +241,7 @@ impl<R: ReadAt> Store<R> {
             Ok(b)
         };
 
-        // the superblock (§17.2)
+        // the superblock (spec/bindings/phkv.md §17.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#172-finding-the-superblock>)
         let mut found = None;
         for d in format::probe_distances() {
             if d + format::SUPERBLOCK_SIZE > file_size {
@@ -264,7 +264,7 @@ impl<R: ReadAt> Store<R> {
         }
         let n = sb.key_count;
 
-        // the directory (§17.3)
+        // the directory (spec/bindings/phkv.md §17.3 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#173-section-directory>)
         if sb.directory_length > limits.open_bytes {
             return err(Class::Archive, "the section directory exceeds the limit for data read at open");
         }
@@ -274,7 +274,8 @@ impl<R: ReadAt> Store<R> {
         }
         let dir = DirEntry::decode_all(&dir).map_err(archive)?;
 
-        // the sections, by type, count and codec (§17.4)
+        // the sections, by type, count and codec (spec/bindings/phkv.md §17.4
+        // <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#174-sections>)
         let mut one: [Option<DirEntry>; 8] = [None; 8];
         let mut property_entries = Vec::new();
         for e in &dir {
