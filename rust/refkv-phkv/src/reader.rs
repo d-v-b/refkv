@@ -12,7 +12,8 @@ use crate::ptrhash::{self, Params};
 use refkv_vzip::pb::{self, Range, Source, SourceKind};
 use std::cell::RefCell;
 use std::io;
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 /// Random access to the bytes of a store.
 pub trait ReadAt {
@@ -146,11 +147,15 @@ pub struct Limits {
     /// over 8 per key), so that a lookup reads no slot: 0 reads none, as a lookup then reads its
     /// slot from the file
     pub slots_at_open: u64,
+    /// the bytes of SLOTS a lookup reads at once, and keeps for later lookups, when SLOTS was not
+    /// read at open: blocks of this many bytes from the start of the section. 8 or less reads only
+    /// the lookup's own slot, and keeps nothing.
+    pub slot_block: u64,
 }
 
 impl Default for Limits {
     fn default() -> Limits {
-        Limits { sources: 1 << 22, url_reads: 1024, open_bytes: 256 << 20, request_bytes: 1 << 32, record_read: 512, tail: DEFAULT_TAIL, slots_at_open: 0 }
+        Limits { sources: 1 << 22, url_reads: 1024, open_bytes: 256 << 20, request_bytes: 1 << 32, record_read: 512, tail: DEFAULT_TAIL, slots_at_open: 0, slot_block: 0 }
     }
 }
 
@@ -213,6 +218,8 @@ pub struct Store<R: ReadAt> {
     slots: u64,
     /// the SLOTS section, if it was read at open
     slots_buf: Option<Vec<u8>>,
+    /// the blocks of SLOTS read so far, by index, when the section is read in blocks
+    slot_blocks: Mutex<HashMap<u64, Vec<u8>>>,
     hash: Option<(Params, Vec<u8>)>,
     pages: Vec<Page>,
     property_entries: Vec<DirEntry>,
@@ -425,7 +432,7 @@ impl<R: ReadAt> Store<R> {
             hash = Some((params, pilots));
             pages = format::decode_pages(&whole(&one[section::PAGES as usize].unwrap())?, records.0, records.1).map_err(|m| archive(format!("PAGES: {m}")))?;
         }
-        Ok(Store { r, file_size, sb, limits, sources, revision, metadata, records, slots, slots_buf, hash, pages, property_entries, properties: OnceLock::new() })
+        Ok(Store { r, file_size, sb, limits, sources, revision, metadata, records, slots, slots_buf, slot_blocks: Mutex::default(), hash, pages, property_entries, properties: OnceLock::new() })
     }
 
     /// The store's file.
@@ -500,6 +507,16 @@ impl<R: ReadAt> Store<R> {
         let s = ptrhash::slot(params, pilots, ptrhash::hash(key.as_bytes(), params.seed));
         let off = match &self.slots_buf {
             Some(b) => format::le_u64(b, 8 * s as usize),
+            None if self.limits.slot_block > 8 => {
+                let block = self.limits.slot_block & !7;
+                let (i, at) = (8 * s / block, (8 * s % block) as usize);
+                let mut blocks = self.slot_blocks.lock().unwrap_or_else(|e| e.into_inner());
+                if !blocks.contains_key(&i) {
+                    let len = block.min(8 * params.total_slots() - i * block);
+                    blocks.insert(i, self.read(self.slots + i * block, len, Class::Entry)?);
+                }
+                format::le_u64(&blocks[&i], at)
+            }
             None => format::le_u64(&self.read(self.slots + 8 * s, 8, Class::Entry)?, 0),
         };
         if off == format::EMPTY_SLOT {

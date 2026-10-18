@@ -16,6 +16,9 @@ runs a smaller matrix; the default one (up to 10^6 keys) takes about 15 minutes.
 `trace.py DIR N` prints the requests of a cold open and two lookups, paged vzip and phkv side by side, and
 what each reads (a section, a page, an entry's bytes): `uv run python rust/refkv-phkv/bench/trace.py rust/refkv-phkv/bench/data 100000`.
 
+`versus.py --data DIR` puts paged vzip beside phkv with its slots read one at a time and in 4 KiB blocks
+(`Limits::slot_block`, the size of a vzip page), counting later lookups over 200 and 5,000 lookups.
+
 ## What is measured
 
 - **Files.** The same keys written five ways by `examples/bench.rs build`: vzip without and with a

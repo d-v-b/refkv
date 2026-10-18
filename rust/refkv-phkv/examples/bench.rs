@@ -5,7 +5,7 @@
 //! bench build <dir> <n> <refs|bytes> <value_bytes>                  writes n.phkv, n.hybrid, n.vzip, n.paged.vzip
 //! bench build <dir> <n> <refs|bytes> <value_bytes> <tag> <page_size> <inline_max>
 //!                                                                    writes only n.<tag>.phkv and n.<tag>.hybrid
-//! bench read <path-or-url> <refs|bytes> <n> <reps> [<tail> <record_read> <slots_at_open>]
+//! bench read <path-or-url> <refs|bytes> <n> <reps> [<tail> <record_read> <slots_at_open> <slot_block> <lookups>]
 //!                                                                    times the reader, prints one JSON object
 //! ```
 use refkv_phkv::{HybridWriter, Limits, NoUrls, Options, Request, Store, Writer, DEFAULT_TAIL};
@@ -216,7 +216,7 @@ fn median(v: &mut [f64]) -> f64 {
     v[v.len() / 2]
 }
 
-fn read(t: &dyn Open, refs: bool, n: u64, reps: usize) {
+fn read(t: &dyn Open, refs: bool, n: u64, reps: usize, lookups: usize) {
     let mut rng = 0x1234_5678_9abc_def0u64;
     let mut next = move || {
         rng ^= rng << 13;
@@ -243,7 +243,6 @@ fn read(t: &dyn Open, refs: bool, n: u64, reps: usize) {
     // warm: one store, many lookups
     let s = t.open();
     let (mut lat, mut r, mut b) = (vec![], 0, 0);
-    let lookups = 200;
     for _ in 0..lookups {
         let k = key(next());
         let (r0, b0) = c.get();
@@ -254,6 +253,7 @@ fn read(t: &dyn Open, refs: bool, n: u64, reps: usize) {
         r += r1 - r0;
         b += b1 - b0;
     }
+    let mean = lat.iter().sum::<f64>() / lat.len() as f64;
     lat.sort_by(|a, b| a.partial_cmp(b).unwrap());
     // list: the 100 keys under one prefix, on an opened store
     let a = next() / 100;
@@ -272,11 +272,12 @@ fn read(t: &dyn Open, refs: bool, n: u64, reps: usize) {
     }
     println!(
         "{{\"open_ms\":{:.3},\"open_requests\":{open_r},\"open_bytes\":{open_b},\"first_get_ms\":{:.3},\"first_get_requests\":{get_r},\"first_get_bytes\":{get_b},\
-\"warm_ms_median\":{:.3},\"warm_ms_p95\":{:.3},\"warm_requests_per_get\":{:.3},\"warm_bytes_per_get\":{:.1},\
+\"warm_ms_median\":{:.3},\"warm_ms_mean\":{:.3},\"warm_ms_p95\":{:.3},\"warm_requests_per_get\":{:.3},\"warm_bytes_per_get\":{:.1},\
 \"list_ms\":{:.3},\"list_requests\":{list_r},\"list_bytes\":{list_b}}}",
         median(&mut open_ms),
         median(&mut get_ms),
         lat[lat.len() / 2],
+        mean,
         lat[lat.len() * 95 / 100],
         r as f64 / lookups as f64,
         b as f64 / lookups as f64,
@@ -309,9 +310,9 @@ fn main() {
         }
         Some("read") => {
             let defaults = Limits::default();
-            let limits = Limits { tail: a.get(6).map_or(DEFAULT_TAIL, |v| v.parse().unwrap()), record_read: a.get(7).map_or(defaults.record_read, |v| v.parse().unwrap()), slots_at_open: a.get(8).map_or(0, |v| v.parse().unwrap()), ..defaults };
+            let limits = Limits { tail: a.get(6).map_or(DEFAULT_TAIL, |v| v.parse().unwrap()), record_read: a.get(7).map_or(defaults.record_read, |v| v.parse().unwrap()), slots_at_open: a.get(8).map_or(0, |v| v.parse().unwrap()), slot_block: a.get(9).map_or(0, |v| v.parse().unwrap()), ..defaults };
             let t: Box<dyn Open> = if a[2].starts_with("http://") { Box::new(HttpOpen(a[2].clone(), Counts::default(), limits)) } else { Box::new(LocalOpen(a[2].clone(), Counts::default(), limits)) };
-            read(&*t, a[3] == "refs", a[4].parse().unwrap(), a[5].parse().unwrap());
+            read(&*t, a[3] == "refs", a[4].parse().unwrap(), a[5].parse().unwrap(), a.get(10).map_or(200, |v| v.parse().unwrap()));
         }
         Some("trace") => {
             // bench trace <url> <refs|bytes> <key>...

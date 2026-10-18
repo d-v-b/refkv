@@ -357,3 +357,27 @@ fn slots_read_at_open() {
 fn whole_in(s: &Store<Logging>, key: &str) -> Option<Vec<u8>> {
     s.get(key, Request::Whole, &NoUrls).unwrap()
 }
+
+#[test]
+fn slots_read_in_blocks() {
+    let b = write(Options::default(), |w| {
+        for i in 0..3000 {
+            w.add_bytes(&format!("k/{i:05}"), format!("value {i}").as_bytes()).unwrap();
+        }
+    });
+    // 3,000 keys have a little over 3,000 slots: 24 KiB, six blocks of 4 KiB
+    let limits = refkv_phkv::Limits { slot_block: 4096, ..Default::default() };
+    let s = Store::open_with(Logging(b, Default::default()), limits).unwrap();
+    s.reader().1.borrow_mut().clear();
+    for i in 0..3000 {
+        assert_eq!(whole_in(&s, &format!("k/{i:05}")).unwrap(), format!("value {i}").as_bytes());
+    }
+    assert_eq!(whole_in(&s, "k/99999"), None);
+    let reads = s.reader().1.borrow().clone();
+    // records are read 512 bytes at a time or less, blocks are longer: a record read per key, and each
+    // of the six blocks once, the miss included
+    let blocks: Vec<_> = reads.iter().filter(|r| r.1 > 512).collect();
+    assert_eq!(blocks.len(), 6, "{blocks:?}");
+    assert!(blocks.iter().all(|r| r.1 <= 4096));
+    assert_eq!(reads.len(), 3000 + 6);
+}

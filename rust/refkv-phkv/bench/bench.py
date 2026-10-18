@@ -91,7 +91,7 @@ class Server:
             return self.requests, self.bytes
 
 
-def read_python(url: str, workload: str, n: int, reps: int) -> dict:
+def read_python(url: str, workload: str, n: int, reps: int, lookups: int = 200) -> dict:
     """The vzip reader (refkv.vzip.VZipStore), measured as bench.rs measures phkv's."""
     refs = workload == "refs"
     rng = random.Random(1)
@@ -116,7 +116,6 @@ def read_python(url: str, workload: str, n: int, reps: int) -> dict:
     s, st = new()
     lookup(s, key(rng.randrange(n)))
     lat, r, b = [], 0, 0
-    lookups = 200
     for _ in range(lookups):
         k = key(rng.randrange(n))
         r0, b0 = st.archive_requests, st.archive_bytes
@@ -125,6 +124,7 @@ def read_python(url: str, workload: str, n: int, reps: int) -> dict:
         lat.append((time.perf_counter() - t) * 1e3)
         r += st.archive_requests - r0
         b += st.archive_bytes - b0
+    mean = sum(lat) / len(lat)
     lat.sort()
     a = rng.randrange(n) // 100
     prefix = f"arr/c/{a // 100}/{a % 100}/"
@@ -139,14 +139,15 @@ def read_python(url: str, workload: str, n: int, reps: int) -> dict:
     return {
         "open_ms": None, "open_requests": None, "open_bytes": None,
         "first_get_ms": statistics.median(first_ms), "first_get_requests": fr, "first_get_bytes": fb,
-        "warm_ms_median": lat[len(lat) // 2], "warm_ms_p95": lat[len(lat) * 95 // 100],
+        "warm_ms_median": lat[len(lat) // 2], "warm_ms_mean": mean, "warm_ms_p95": lat[len(lat) * 95 // 100],
         "warm_requests_per_get": r / lookups, "warm_bytes_per_get": b / lookups,
         "list_ms": statistics.median(list_ms), "list_requests": lr, "list_bytes": lb,
     }
 
 
 def read_rust(target: str, workload: str, n: int, reps: int, *limits: int) -> dict:
-    """`limits`: the reader's tail, record_read and slots_at_open, if not the defaults."""
+    """`limits`: the reader's tail, record_read, slots_at_open and slot_block, then the number of
+    later lookups, if not the defaults."""
     out = subprocess.run([str(BENCH), "read", target, workload, str(n), str(reps), *map(str, limits)], check=True, capture_output=True, text=True).stdout
     d = json.loads(out)
     # the Rust reader opens and then looks up; the Python one does both in its first lookup
