@@ -39,6 +39,7 @@ class Server:
     def __init__(self, root: Path):
         server = self
         self.rtt = 0.0
+        self.bandwidth = 0.0  # bytes per second of each connection; 0 for no limit
         self.requests = 0
         self.bytes = 0
         self.lock = threading.Lock()
@@ -60,11 +61,12 @@ class Server:
                 spec = (self.headers.get("Range") or "bytes=0-").removeprefix("bytes=")
                 a, _, b = spec.partition("-")
                 start, end = (max(0, size - int(b)), size) if a == "" else (int(a), min(size, int(b) + 1) if b else size)
-                if server.rtt:
-                    time.sleep(server.rtt)
                 with open(path, "rb") as f:
                     f.seek(start)
                     body = f.read(end - start)
+                delay = server.rtt + (len(body) / server.bandwidth if server.bandwidth else 0)
+                if delay:
+                    time.sleep(delay)
                 with server.lock:
                     server.requests += 1
                     server.bytes += len(body)
@@ -144,7 +146,7 @@ def read_python(url: str, workload: str, n: int, reps: int) -> dict:
 
 
 def read_rust(target: str, workload: str, n: int, reps: int, *limits: int) -> dict:
-    """`limits`: the reader's tail and record_read, if not the defaults."""
+    """`limits`: the reader's tail, record_read and slots_at_open, if not the defaults."""
     out = subprocess.run([str(BENCH), "read", target, workload, str(n), str(reps), *map(str, limits)], check=True, capture_output=True, text=True).stdout
     d = json.loads(out)
     # the Rust reader opens and then looks up; the Python one does both in its first lookup

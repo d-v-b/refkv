@@ -584,7 +584,9 @@ following. Any failure is an archive error:
 
 A reader MAY read more, but MUST NOT report an error at open that this
 section and [§6.1](../refkv.md#61-opening) do not list. In particular,
-records, slots and PROPERTY sections are not read at open.
+records and PROPERTY sections are not read at open. A reader MAY read
+the SLOTS section whole and keep it, which saves a read per lookup at the cost
+of about 8 bytes per key read at open and held.
 
 ### 22.2 Operations
 

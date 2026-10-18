@@ -74,6 +74,19 @@ def main():
         a = run("bytes", n, name, DEFAULT_TAIL, 512, sweep="writer", page_size=page, inline_max=inline)
         b = run("bytes", n, name, DEFAULT_TAIL, 4096, sweep="writer", page_size=page, inline_max=inline)
         print(f"| {human(page)}, {human(inline) if inline else 'none'} | {human(a['file_bytes'])} | {cell(a)} | {cell(b)} | {a['list_requests']} req, {human(a['list_bytes'])}, {a['list_ms']:.0f} ms |")
+    print("\n### `slots_at_open`: SLOTS read whole at open, over HTTP with a bandwidth per connection\n")
+    print("Total time for k lookups of random keys on a cold store: the first lookup (open included) and k − 1 later ones. SLOTS is 8.2 bytes per key.\n")
+    print("| keys, workload | bandwidth | slots_at_open | open + first lookup | later lookup | k = 1 | k = 10 | k = 100 | k = 1,000 |\n|---|---|---|---|---|---|---|---|---|")
+    cases = [("refs", 100_000, 512, "100,000 references"), ("refs", args.big, 512, f"{args.big:,} references"), ("bytes", args.bytes_keys, 2048, f"{args.bytes_keys:,} keys of 1 KiB values (record_read 2 KiB)")]
+    for workload, n, rr, label in cases:
+        for mbps in (0, 100, 12.5):
+            server.bandwidth = mbps * 1e6
+            for slots in (0, 1 << 30):
+                r = run(workload, n, f"{n}.phkv", DEFAULT_TAIL, rr, slots, sweep="slots_at_open", slots_at_open=slots, mbps=mbps)
+                first, later = r["first_get_ms"], r["warm_ms_median"]
+                tot = lambda k: f"{first + (k - 1) * later:.0f} ms"
+                print(f"| {label} | {'none' if not mbps else f'{mbps:g} MB/s'} | {'off' if not slots else 'whole'} | {cold(r)} | {r['warm_requests_per_get']:.2f} req, {later:.0f} ms | {tot(1)} | {tot(10)} | {tot(100)} | {tot(1000)} |")
+    server.bandwidth = 0
     (args.data / "sweep.json").write_text(json.dumps(results, indent=1))
 
 

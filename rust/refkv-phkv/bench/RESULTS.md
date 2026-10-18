@@ -89,8 +89,42 @@ A larger `page_size` cuts the `list` requests (26 to 3 at 64 KiB) by reading mor
 lookups nothing, since a lookup reads a record, not a page. Values not inline (`inline_max` 0) make
 records small, so a `list` is 2 requests, but every lookup is 3 (slot, record, value).
 
-What the parameters do not fix: the lookup's two dependent reads (slot, then record) stay; `list`
-still takes one request per page, only fewer pages; and a bigger `tail` is bytes read at every open.
+**Reader `Limits::slots_at_open`**, the longest SLOTS section read whole at open and kept (default 0, off), over HTTP with 20 ms per request and a bandwidth per connection
+
+Total time for k lookups of random keys on a cold store: the first lookup (open included) and k − 1 later ones. SLOTS is 8.2 bytes per key.
+
+| keys, workload | bandwidth | slots_at_open | open + first lookup | later lookup | k = 1 | k = 10 | k = 100 | k = 1,000 |
+|---|---|---|---|---|---|---|---|---|
+| 100,000 references | none | off | 3 req, 64.6 KiB, 63 ms | 1.96 req, 42 ms | 63 ms | 437 ms | 4178 ms | 41583 ms |
+| 100,000 references | none | whole | 3 req, 829.2 KiB, 64 ms | 1.00 req, 21 ms | 64 ms | 250 ms | 2106 ms | 20674 ms |
+| 100,000 references | 100 MB/s | off | 3 req, 64.6 KiB, 63 ms | 1.96 req, 41 ms | 63 ms | 435 ms | 4155 ms | 41353 ms |
+| 100,000 references | 100 MB/s | whole | 3 req, 829.2 KiB, 73 ms | 1.00 req, 21 ms | 73 ms | 259 ms | 2119 ms | 20724 ms |
+| 100,000 references | 12.5 MB/s | off | 3 req, 64.6 KiB, 68 ms | 1.96 req, 41 ms | 68 ms | 442 ms | 4173 ms | 41490 ms |
+| 100,000 references | 12.5 MB/s | whole | 3 req, 829.2 KiB, 133 ms | 1.00 req, 21 ms | 133 ms | 319 ms | 2180 ms | 20786 ms |
+| 1,000,000 references | none | off | 5 req, 281.6 KiB, 106 ms | 2.00 req, 41 ms | 106 ms | 478 ms | 4202 ms | 41433 ms |
+| 1,000,000 references | none | whole | 3 req, 8.1 MiB, 86 ms | 1.00 req, 21 ms | 86 ms | 272 ms | 2129 ms | 20703 ms |
+| 1,000,000 references | 100 MB/s | off | 5 req, 281.6 KiB, 109 ms | 2.00 req, 41 ms | 109 ms | 481 ms | 4200 ms | 41393 ms |
+| 1,000,000 references | 100 MB/s | whole | 3 req, 8.1 MiB, 161 ms | 1.00 req, 21 ms | 161 ms | 347 ms | 2206 ms | 20793 ms |
+| 1,000,000 references | 12.5 MB/s | off | 5 req, 281.6 KiB, 129 ms | 2.00 req, 41 ms | 129 ms | 502 ms | 4227 ms | 41480 ms |
+| 1,000,000 references | 12.5 MB/s | whole | 3 req, 8.1 MiB, 763 ms | 1.00 req, 21 ms | 763 ms | 950 ms | 2814 ms | 21461 ms |
+| 100,000 keys of 1 KiB values (record_read 2 KiB) | none | off | 4 req, 162.3 KiB, 86 ms | 2.00 req, 41 ms | 86 ms | 458 ms | 4177 ms | 41361 ms |
+| 100,000 keys of 1 KiB values (record_read 2 KiB) | none | whole | 3 req, 961.4 KiB, 67 ms | 1.00 req, 21 ms | 67 ms | 253 ms | 2119 ms | 20774 ms |
+| 100,000 keys of 1 KiB values (record_read 2 KiB) | 100 MB/s | off | 4 req, 162.3 KiB, 88 ms | 2.00 req, 41 ms | 88 ms | 461 ms | 4186 ms | 41437 ms |
+| 100,000 keys of 1 KiB values (record_read 2 KiB) | 100 MB/s | whole | 3 req, 961.4 KiB, 77 ms | 1.00 req, 21 ms | 77 ms | 263 ms | 2124 ms | 20733 ms |
+| 100,000 keys of 1 KiB values (record_read 2 KiB) | 12.5 MB/s | off | 4 req, 162.3 KiB, 100 ms | 2.00 req, 42 ms | 100 ms | 474 ms | 4214 ms | 41621 ms |
+| 100,000 keys of 1 KiB values (record_read 2 KiB) | 12.5 MB/s | whole | 3 req, 961.4 KiB, 146 ms | 1.00 req, 21 ms | 146 ms | 333 ms | 2206 ms | 20932 ms |
+
+Reading SLOTS at open (8.2 bytes per key, held in memory) makes a lookup one request, the record, instead of
+two. It is read in the same request as PAGES and PTRHASH, which lie after it, so the open does not take more
+requests: at 10^6 keys it takes fewer (3 against 5), since those sections no longer need reads of their own.
+What it costs is bytes at open, 8.1 MiB at 10^6 keys. With no bandwidth limit the open costs the same or
+less. At 100 MB/s the first lookup costs 52 ms more at 10^6 keys, and reading SLOTS pays for itself after about 3
+lookups; at 12.5 MB/s (100 Mbit/s) the first lookup costs 634 ms more, and it pays after about 32. At
+10^5 keys (0.8 MiB) it pays after about 3 to 4 lookups even at 12.5 MB/s. A store opened to read one key is better off
+without it; one opened to read many is better off with it.
+
+What the parameters do not fix: `list` still takes one request per page, only fewer pages; and a bigger
+`tail` or `slots_at_open` is bytes read at every open.
 
 ## Tables
 

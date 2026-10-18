@@ -148,3 +148,18 @@ fn refuses() {
     w.set_property("ghost", "mode", Prop::U64(1)).unwrap();
     assert!(w.close().is_err(), "a property of a missing key");
 }
+
+#[test]
+fn slots_read_at_open_in_a_hybrid_store() {
+    let b = build(Some(4096), 20_000);
+    let limits = refkv_phkv::Limits { slots_at_open: 1 << 22, ..Default::default() };
+    let c = Counting(b.clone(), Default::default());
+    let s = Store::open_with(c, limits).unwrap();
+    let opened = s.reader().1.get();
+    assert!(opened <= 4, "{opened} reads");
+    for i in (0..20_000).step_by(997) {
+        assert_eq!(s.get(&format!("m/{i:06}"), Request::Whole, &NoUrls).unwrap().unwrap(), (i as u64).to_le_bytes());
+    }
+    assert_eq!(s.get("m/absent", Request::Whole, &NoUrls).unwrap(), None);
+    assert_eq!(s.list("m/0000").unwrap().len(), 100);
+}

@@ -142,11 +142,15 @@ pub struct Limits {
     /// the bytes at the end of the file read first, which hold the superblock and whatever
     /// else of the store lies in them
     pub tail: u64,
+    /// the longest SLOTS section that is read whole at open and kept (8 bytes per slot, a little
+    /// over 8 per key), so that a lookup reads no slot: 0 reads none, as a lookup then reads its
+    /// slot from the file
+    pub slots_at_open: u64,
 }
 
 impl Default for Limits {
     fn default() -> Limits {
-        Limits { sources: 1 << 22, url_reads: 1024, open_bytes: 256 << 20, request_bytes: 1 << 32, record_read: 512, tail: DEFAULT_TAIL }
+        Limits { sources: 1 << 22, url_reads: 1024, open_bytes: 256 << 20, request_bytes: 1 << 32, record_read: 512, tail: DEFAULT_TAIL, slots_at_open: 0 }
     }
 }
 
@@ -207,6 +211,8 @@ pub struct Store<R: ReadAt> {
     /// `[start, end)` of RECORDS, the SLOTS section's offset, the perfect hash and the pages
     records: (u64, u64),
     slots: u64,
+    /// the SLOTS section, if it was read at open
+    slots_buf: Option<Vec<u8>>,
     hash: Option<(Params, Vec<u8>)>,
     pages: Vec<Page>,
     property_entries: Vec<DirEntry>,
@@ -390,19 +396,41 @@ impl<R: ReadAt> Store<R> {
             None => Vec::new(),
         };
         let (mut records, mut slots, mut hash, mut pages) = ((0, 0), 0, None, Vec::new());
+        let mut slots_buf = None;
         if n > 0 {
             let rec = one[section::RECORDS as usize].unwrap();
             records = (rec.offset, rec.offset + rec.length);
-            let (params, pilots) = format::decode_ptrhash(whole(&one[section::PTRHASH as usize].unwrap())?, n).map_err(|m| archive(format!("PTRHASH: {m}")))?;
+            // SLOTS is read whole, if it is short enough, with what follows it, in one read: that
+            // read and the bytes already read hold everything from SLOTS to the end of the file
             let sl = one[section::SLOTS as usize].unwrap();
+            let slots_whole = sl.length <= limits.slots_at_open.min(limits.open_bytes);
+            if slots_whole {
+                let have = window.borrow().clone();
+                let (at, b) = if have.1.is_empty() { (tail_at, tail.clone()) } else { have };
+                if sl.offset < at {
+                    let mut head = vec![0u8; (at - sl.offset) as usize];
+                    r.read_at(sl.offset, &mut head).map_err(|e| archive(e.to_string()))?;
+                    head.extend_from_slice(&b);
+                    *window.borrow_mut() = (sl.offset, head);
+                }
+            }
+            let (params, pilots) = format::decode_ptrhash(whole(&one[section::PTRHASH as usize].unwrap())?, n).map_err(|m| archive(format!("PTRHASH: {m}")))?;
             if params.total_slots().checked_mul(8) != Some(sl.length) {
                 return err(Class::Archive, format!("SLOTS of {} bytes for {} slots", sl.length, params.total_slots()));
             }
             slots = sl.offset;
+            if slots_whole {
+                slots_buf = Some(read(sl.offset, sl.length)?);
+            }
             hash = Some((params, pilots));
             pages = format::decode_pages(&whole(&one[section::PAGES as usize].unwrap())?, records.0, records.1).map_err(|m| archive(format!("PAGES: {m}")))?;
         }
-        Ok(Store { r, file_size, sb, limits, sources, revision, metadata, records, slots, hash, pages, property_entries, properties: OnceLock::new() })
+        Ok(Store { r, file_size, sb, limits, sources, revision, metadata, records, slots, slots_buf, hash, pages, property_entries, properties: OnceLock::new() })
+    }
+
+    /// The store's file.
+    pub fn reader(&self) -> &R {
+        &self.r
     }
 
     /// The store's file, and what it was opened with.
@@ -470,8 +498,10 @@ impl<R: ReadAt> Store<R> {
             return Ok(None);
         };
         let s = ptrhash::slot(params, pilots, ptrhash::hash(key.as_bytes(), params.seed));
-        let b = self.read(self.slots + 8 * s, 8, Class::Entry)?;
-        let off = format::le_u64(&b, 0);
+        let off = match &self.slots_buf {
+            Some(b) => format::le_u64(b, 8 * s as usize),
+            None => format::le_u64(&self.read(self.slots + 8 * s, 8, Class::Entry)?, 0),
+        };
         if off == format::EMPTY_SLOT {
             return Ok(None);
         }
