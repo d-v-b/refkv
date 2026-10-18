@@ -59,6 +59,12 @@ cli-identical *args: ir-build
     cargo build --release --manifest-path rust/refkv-cli/Cargo.toml
     uv run python rust/refkv-cli/tests/identical.py {{args}}
 
+# Benchmark phkv against vzip on local files and over HTTP: requests, bytes and latency
+# (rust/refkv-phkv/bench/README.md; e.g. `just phkv-bench --sizes 1000 10000 --rtt-ms 20`)
+phkv-bench *args: ir-build
+    cargo build --release --example bench --manifest-path rust/refkv-phkv/Cargo.toml
+    uv run python rust/refkv-phkv/bench/bench.py {{args}}
+
 # Run every offline test: the Python reference, the browser code, the independent implementations,
 # and the Rust CLI against the Python one
 test-all: test js::test impls::test cli-test cli-identical
