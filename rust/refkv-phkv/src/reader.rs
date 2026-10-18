@@ -138,7 +138,9 @@ pub struct Limits {
     pub open_bytes: u64,
     /// the bytes one get or raw may hold in memory, a value decoded whole included
     pub request_bytes: u64,
-    /// the bytes read at a record's offset at first
+    /// the bytes read at a record's offset at first, by default enough for a record whose value is
+    /// inline at the writer's default `inline_max` (4 KiB), its key and header: a longer record takes
+    /// a second read
     pub record_read: u64,
     /// the bytes at the end of the file read first, which hold the superblock and whatever
     /// else of the store lies in them
@@ -155,7 +157,7 @@ pub struct Limits {
 
 impl Default for Limits {
     fn default() -> Limits {
-        Limits { sources: 1 << 22, url_reads: 1024, open_bytes: 256 << 20, request_bytes: 1 << 32, record_read: 512, tail: DEFAULT_TAIL, slots_at_open: 0, slot_block: DEFAULT_SLOT_BLOCK }
+        Limits { sources: 1 << 22, url_reads: 1024, open_bytes: 256 << 20, request_bytes: 1 << 32, record_read: DEFAULT_RECORD_READ, tail: DEFAULT_TAIL, slots_at_open: 0, slot_block: DEFAULT_SLOT_BLOCK }
     }
 }
 
@@ -229,8 +231,12 @@ pub struct Store<R: ReadAt> {
 /// How many bytes of SLOTS a lookup reads at once, by default (`Limits::slot_block`).
 pub const DEFAULT_SLOT_BLOCK: u64 = 4096;
 
-/// How many bytes of the end of the file a reader reads first, by default: 64 KiB and a superblock.
-pub const DEFAULT_TAIL: u64 = (64 << 10) + format::SUPERBLOCK_SIZE;
+/// How many bytes of the end of the file a reader reads first, by default: 512 KiB and a
+/// superblock, which holds the perfect hash and page index of about 10^6 keys.
+pub const DEFAULT_TAIL: u64 = (512 << 10) + format::SUPERBLOCK_SIZE;
+
+/// How many bytes of a record a lookup reads first, by default (`Limits::record_read`).
+pub const DEFAULT_RECORD_READ: u64 = 4608;
 
 /// Where the central directory starts, from the vzip end of central directory record at the end
 /// of `tail` (spec/bindings/vzip.md §10.4

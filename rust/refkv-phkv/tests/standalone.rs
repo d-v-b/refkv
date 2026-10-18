@@ -309,7 +309,9 @@ fn no_byte_is_read_twice() {
             w.add_bytes(&format!("k/{i:05}"), &value).unwrap();
         }
     });
-    let s = Store::open(Logging(b, Default::default())).unwrap();
+    // a first read of the file and of a record shorter than the section and the record
+    let limits = refkv_phkv::Limits { tail: (64 << 10) + 64, record_read: 512, ..Default::default() };
+    let s = Store::open_with(Logging(b, Default::default()), limits).unwrap();
     assert_eq!(s.get("k/02500", Request::Whole, &NoUrls).unwrap().unwrap(), value);
     let (_, file) = s.into_reader();
     // the first read is the tail; a lookup's slot may lie inside it, since the tail is not kept after
@@ -368,7 +370,7 @@ fn slots_read_in_blocks() {
         }
     });
     // 3,000 keys have a little over 3,000 slots: 24 KiB, six blocks of 4 KiB
-    let limits = refkv_phkv::Limits { slot_block: 4096, ..Default::default() };
+    let limits = refkv_phkv::Limits { slot_block: 4096, record_read: 512, ..Default::default() };
     let s = Store::open_with(Logging(b, Default::default()), limits).unwrap();
     s.reader().1.borrow_mut().clear();
     for i in 0..3000 {

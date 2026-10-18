@@ -15,7 +15,9 @@ from pathlib import Path
 
 from bench import BENCH, Server, read_rust
 
-DEFAULT_TAIL = (64 << 10) + 64
+DEFAULT_TAIL = (512 << 10) + 64  # the reader's defaults (Limits)
+DEFAULT_RECORD_READ = 4608
+OLD_TAIL = (64 << 10) + 64  # the defaults before
 
 
 def human(b):
@@ -50,21 +52,21 @@ def main():
 
     n = args.big
     print(f"### `tail`: the bytes read first, {n:,} references, open and one lookup\n")
-    tails = [DEFAULT_TAIL, 128 << 10, 256 << 10, 512 << 10, 1 << 20]
+    tails = [OLD_TAIL, 128 << 10, 256 << 10, DEFAULT_TAIL, 1 << 20]
     print("| tail | " + " | ".join(human(t) for t in tails) + " |\n|---|" + "---|" * len(tails))
     for label, name in (("standalone", f"{n}.phkv"), ("hybrid", f"{n}.hybrid")):
-        print(f"| {label} | " + " | ".join(cold(run("refs", n, name, t, 512, sweep="tail", tail=t)) for t in tails) + " |")
+        print(f"| {label} | " + " | ".join(cold(run("refs", n, name, t, DEFAULT_RECORD_READ, sweep="tail", tail=t)) for t in tails) + " |")
 
     n = args.bytes_keys
     print(f"\n### `record_read`: the bytes read at a record first, {n:,} keys of 1 KiB inline values\n")
-    rrs = [512, 1024, 2048, 4096]
+    rrs = [512, 1024, 2048, DEFAULT_RECORD_READ]
     print("| record_read | " + " | ".join(human(t) for t in rrs) + " |\n|---|" + "---|" * len(rrs))
     cell = lambda r: f"{r['warm_requests_per_get']:.2f} req, {human(r['warm_bytes_per_get'])}, {r['warm_ms_median']:.0f} ms"
     print("| later lookup | " + " | ".join(cell(run("bytes", n, f"{n}.phkv", DEFAULT_TAIL, rr, sweep="record_read", record_read=rr)) for rr in rrs) + " |")
 
     print(f"\n### Writer: `page_size` and `inline_max`, {n:,} keys of 1 KiB values\n")
     variants = [("default", 4096, 4096), ("p16k", 16384, 4096), ("p64k", 65536, 4096), ("p64k_rr", 65536, 4096), ("noinline", 4096, 0)]
-    print("| page_size, inline_max | file | later lookup (record_read 512) | later lookup (record_read 4096) | list of 100 keys |\n|---|---|---|---|---|")
+    print("| page_size, inline_max | file | later lookup (record_read 512) | later lookup (record_read 4.5 KiB) | list of 100 keys |\n|---|---|---|---|---|")
     for tag, page, inline in variants:
         name = f"{n}.phkv" if tag == "default" else f"{n}.{tag}.phkv"
         if tag == "p64k_rr":
@@ -72,12 +74,12 @@ def main():
         if tag != "default" and not (args.data / "bytes" / name).exists():
             subprocess.run([str(BENCH), "build", str(args.data / "bytes"), str(n), "bytes", "1024", tag, str(page), str(inline)], check=True)
         a = run("bytes", n, name, DEFAULT_TAIL, 512, sweep="writer", page_size=page, inline_max=inline)
-        b = run("bytes", n, name, DEFAULT_TAIL, 4096, sweep="writer", page_size=page, inline_max=inline)
+        b = run("bytes", n, name, DEFAULT_TAIL, DEFAULT_RECORD_READ, sweep="writer", page_size=page, inline_max=inline)
         print(f"| {human(page)}, {human(inline) if inline else 'none'} | {human(a['file_bytes'])} | {cell(a)} | {cell(b)} | {a['list_requests']} req, {human(a['list_bytes'])}, {a['list_ms']:.0f} ms |")
     print("\n### `slots_at_open`: SLOTS read whole at open, over HTTP with a bandwidth per connection\n")
     print("Total time for k lookups of random keys on a cold store: the first lookup (open included) and k − 1 later ones. SLOTS is 8.2 bytes per key.\n")
     print("| keys, workload | bandwidth | slots_at_open | open + first lookup | later lookup | k = 1 | k = 10 | k = 100 | k = 1,000 |\n|---|---|---|---|---|---|---|---|---|")
-    cases = [("refs", 100_000, 512, "100,000 references"), ("refs", args.big, 512, f"{args.big:,} references"), ("bytes", args.bytes_keys, 2048, f"{args.bytes_keys:,} keys of 1 KiB values (record_read 2 KiB)")]
+    cases = [("refs", 100_000, DEFAULT_RECORD_READ, "100,000 references"), ("refs", args.big, DEFAULT_RECORD_READ, f"{args.big:,} references"), ("bytes", args.bytes_keys, DEFAULT_RECORD_READ, f"{args.bytes_keys:,} keys of 1 KiB values")]
     for workload, n, rr, label in cases:
         for mbps in (0, 100, 12.5):
             server.bandwidth = mbps * 1e6

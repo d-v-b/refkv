@@ -195,9 +195,11 @@ with an archive error ([§6.4](../refkv.md#64-errors)).
 
 The three conditions together make a false match vanishingly rare: random
 bytes match with probability about 2^-64 per candidate, and a superblock
-written for another distance does not match at this one. A reader reads the
-last 64 KiB + 64 bytes first, which holds the end records and every probe
-candidate up to 64 KiB, and reads 64 bytes per larger candidate. A hybrid
+written for another distance does not match at this one. A reader reads at
+least the last 64 KiB + 64 bytes first, which holds the end records and every
+probe candidate up to 64 KiB, and reads 64 bytes per larger candidate. (The
+reference reader reads 512 KiB + 64 bytes, which holds the PTRHASH and PAGES
+sections of about 10^6 keys as well.) A hybrid
 store's superblock takes one such read when the central directory is larger
 than that, however large it is; a standalone store's takes one per probe
 distance beyond the tail it needs to reach.
@@ -700,9 +702,11 @@ key; a writer that finds no seed and pilots for its keys fails.
 ```
 
 With this layout, what a reader reads at open is at the end of the file. It
-reads the last 64 KiB, which holds the superblock and directory, and then the
-range from PAGES to the directory, if the first read did not cover it. Each
-`get` then reads one slot and one record, plus the value if it is not inline.
+reads the last bytes of the file (64 KiB or more), which hold the superblock
+and directory, and then the range from PAGES to the directory, if the first
+read did not cover it. Each `get` then reads one slot and one record, plus the
+value if it is not inline. A reader that keeps the slots it reads, a block at
+a time, reads no slot for a later `get` whose slot is in a block it has.
 
 ### 23.3 File names
 

@@ -46,12 +46,12 @@ what each reads (a section, a page, an entry's bytes): `uv run python rust/refkv
   on a local file the Rust reader's sub-millisecond times are mostly the language, and the
   comparison that means something is over HTTP with a delay, where requests dominate.
 - **The Rust HTTP `ReadAt` is the harness's.** The crate gives only the trait. This one asks for the
-  last 64 KiB + 64 B with one suffix request (its `Content-Range` gives the size), and serves later
-  reads inside those bytes from them, so a store that fits in them (every phkv file of 1,000 to
-  ~10,000 references) is read by that one request, and later lookups cost nothing. A `ReadAt` that
-  asked for the size with `HEAD` would add a request to every open.
-- **Caches.** Each store keeps what it has read. In *later lookups*, vzip with a page index fetches a page once
-  and phkv has no page to fetch, so those rows compare a warming cache with none. *First lookup* is the
-  cold cost of one lookup.
+  reader's first read (`Limits::tail`, 512 KiB + 64 B by default) with one suffix request, whose
+  `Content-Range` gives the size, and serves the open's later reads inside those bytes from them. Once the
+  store is open it no longer does, so a lookup's reads are all counted, as the store makes them. A
+  `ReadAt` that asked for the size with `HEAD` would add a request to every open.
+- **Caches.** Each store keeps what it has read: vzip's pages, and phkv's blocks of slots
+  (`Limits::slot_block`, 4 KiB). *First lookup* is the cold cost of one lookup; *later lookups* warm the
+  caches, the more of them the more.
 - **One machine, loopback, one run.** The delay is added, not measured on a network. Times under
   10 ms vary by a fraction of a millisecond between runs; request counts do not vary.

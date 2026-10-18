@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Paged vzip against phkv, over HTTP: the open and first lookup, and later lookups, with phkv's
-slots read one at a time, in blocks the size of a vzip page (Limits::slot_block, the default), and
-with a longer first read and record read as well.
+reader's first defaults (slots one at a time, a 64 KiB first read, a 512 B record read), with slot
+blocks the size of a vzip page alone, and with today's defaults (slot blocks, 512 KiB, 4.5 KiB).
 
     uv run python rust/refkv-phkv/bench/versus.py --data DIR
 
@@ -15,7 +15,9 @@ import json
 
 from bench import Server, read_python, read_rust
 
-DEFAULT_TAIL = (64 << 10) + 64
+OLD_TAIL = (64 << 10) + 64  # the reader's defaults before
+DEFAULT_TAIL = (512 << 10) + 64  # and now (Limits)
+DEFAULT_RECORD_READ = 4608
 PAGE = 4096  # the page size of the benchmark's vzip archives
 
 
@@ -39,8 +41,9 @@ def main():
     rows = []
     for workload, n in cases:
         readers = [("vzip, paged", "paged.vzip", None)]
-        readers += [("phkv, slots one at a time", "phkv", (DEFAULT_TAIL, 512, 0)), ("phkv, defaults (4 KiB slot blocks)", "phkv", (DEFAULT_TAIL, 512, PAGE))]
-        readers += [("phkv, + record_read 2 KiB, tail 512 KiB", "phkv", (512 << 10, 2048, PAGE))]
+        readers += [("phkv, the first defaults (slots one at a time, 64 KiB first read, 512 B record read)", "phkv", (OLD_TAIL, 512, 0))]
+        readers += [("phkv, 4 KiB slot blocks only", "phkv", (OLD_TAIL, 512, PAGE))]
+        readers += [("phkv, defaults (4 KiB slot blocks, 512 KiB first read, 4.5 KiB record read)", "phkv", (DEFAULT_TAIL, DEFAULT_RECORD_READ, PAGE))]
         print(f"\n### {n:,} keys, `{workload}`: over HTTP, {args.rtt_ms:g} ms per request\n")
         print(f"| reader | open + first lookup | later lookup ({args.short} lookups) | later lookup ({args.long:,} lookups, counted) |\n|---|---|---|---|")
         for label, suffix, limits in readers:

@@ -84,6 +84,9 @@ struct Counts {
     bytes: AtomicU64,
     /// each read's offset and length, in order
     log: std::sync::Mutex<Vec<(u64, u64)>>,
+    /// whether the store is open: after that, the HTTP transport no longer serves reads from the bytes
+    /// it read first, so that what a lookup costs is the store's doing, not the transport's
+    opened: std::sync::atomic::AtomicBool,
 }
 
 impl Counts {
@@ -144,7 +147,7 @@ impl refkv_phkv::ReadAt for Http<'_> {
     }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
-        if let Some((n, t)) = self.tail.get() {
+        if let Some((n, t)) = self.tail.get().filter(|_| !self.counts.opened.load(Relaxed)) {
             let at = n - t.len() as u64;
             if offset >= at {
                 let s = (offset - at) as usize;
@@ -198,7 +201,10 @@ impl Open for HttpOpen {
 
     fn open(&self) -> Store<Dyn<'_>> {
         let agent: ureq::Agent = ureq::Agent::config_builder().http_status_as_error(true).proxy(None).build().into();
-        Store::open_with(Dyn(Box::new(Http { agent, url: &self.0, counts: &self.1, tail: OnceCell::new(), prime: self.2.tail })), self.2).unwrap()
+        self.1.opened.store(false, Relaxed);
+        let s = Store::open_with(Dyn(Box::new(Http { agent, url: &self.0, counts: &self.1, tail: OnceCell::new(), prime: self.2.tail })), self.2).unwrap();
+        self.1.opened.store(true, Relaxed);
+        s
     }
 }
 
