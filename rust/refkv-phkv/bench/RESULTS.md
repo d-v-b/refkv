@@ -123,6 +123,17 @@ lookups; at 12.5 MB/s (100 Mbit/s) the first lookup costs 634 ms more, and it pa
 10^5 keys (0.8 MiB) it pays after about 3 to 4 lookups even at 12.5 MB/s. A store opened to read one key is better off
 without it; one opened to read many is better off with it.
 
+**Reading SLOTS in blocks** (`slots_model.py`, a calculation, not a measurement). A lookup wants one 8-byte slot, and the
+hash scatters keys, so which slot is uniform over the section, with no locality. Blocks of B slots read when needed
+and kept cost, for k lookups, M(1 − (1 − 1/M)^k) requests (M = N/B), each R + 8B/W. Over 3,465 combinations of
+section size (10^4 to 10^8 slots), round trip (1 to 500 ms), bandwidth (0.1 MB/s to unlimited) and k (1 to 10^8), a block between one
+slot and the whole section never beat both by 5%: the best size is 8 bytes or the whole section. The whole section
+wins once k > 1 + 8N/(W R): at 10^6 keys and 20 ms, k ≥ 5 at 100 MB/s, k ≥ 34 at 12.5 MB/s, any k > 1 with
+no bandwidth limit. With k unknown, one fixed block size is at most 1.9 times (100 MB/s, 1.7 MiB) to 2.05 times
+(12.5 MB/s, 256 KiB) the best, and a reader that reads slots one at a time until k reaches that threshold and then
+reads the whole section is at most 2 times (the ski-rental rule). For a lookup of many keys at once, sort their slots and
+merge reads whose gap is below R × W bytes (2 MB at 100 MB/s and 20 ms; 250 KB at 12.5 MB/s).
+
 What the parameters do not fix: `list` still takes one request per page, only fewer pages; and a bigger
 `tail` or `slots_at_open` is bytes read at every open.
 
