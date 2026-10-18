@@ -38,7 +38,8 @@ pub trait Keys {
 pub struct SourceTable {
     slots: Vec<Slot>,
     interned: HashMap<Source, u32>,
-    /// the ranges of the sources that are not url sources, for the bounds checks of §7
+    /// the ranges of the sources that are not url sources, for the bounds checks of spec/refkv.md
+    /// §7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>
     range_checks: Vec<(String, Range)>,
 }
 
