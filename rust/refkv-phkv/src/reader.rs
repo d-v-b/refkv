@@ -566,8 +566,8 @@ impl<R: ReadAt> Store<R> {
         if off == format::EMPTY_SLOT {
             return Ok(None);
         }
-        let (off, length) = format::unpack_slot(off);
-        let rec = self.record_at(off, length)?;
+        let (rel, length) = format::unpack_slot(off, format::slot_offset_bits(self.records.1 - self.records.0));
+        let rec = self.record_at(self.records.0.saturating_add(rel), length)?;
         Ok((rec.key == key.as_bytes()).then_some(rec))
     }
 

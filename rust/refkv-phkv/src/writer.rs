@@ -258,6 +258,7 @@ pub(crate) fn build_tail(input: TailInput, at: u64, d: u64, region_offset: u64, 
         }
         let records = &out[(records_start - at) as usize..];
         dir.push(DirEntry { kind: section::RECORDS, codec: 0, flags: 0, offset: records_start, length: records.len() as u64, size: records.len() as u64, crc32c: format::crc32c(records) });
+        let offset_bits = format::slot_offset_bits(records.len() as u64);
 
         // the perfect hash, and SLOTS
         let keys: Vec<&[u8]> = entries.iter().map(|e| e.key.as_bytes()).collect();
@@ -267,7 +268,7 @@ pub(crate) fn build_tail(input: TailInput, at: u64, d: u64, region_offset: u64, 
         for s in &built.slots {
             let slot = match s {
                 None => format::EMPTY_SLOT,
-                Some(i) => format::pack_slot(offsets[*i as usize], lengths[*i as usize]).ok_or_else(|| Error::Invalid("a record lies 256 TiB or more into the file".into()))?,
+                Some(i) => format::pack_slot(offsets[*i as usize] - records_start, lengths[*i as usize], offset_bits),
             };
             slots.extend_from_slice(&slot.to_le_bytes());
         }

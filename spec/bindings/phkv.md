@@ -310,13 +310,20 @@ The section is **malformed**, an archive error, if:
 
 The SLOTS section is `P × S` slots of 8 bytes. Slot `i` is a `u64` that is
 either 2^64 − 1, for an empty slot, or a record's place
-([§19.1](#191-record-encoding)):
+([§19.1](#191-record-encoding)). Let `R` be the length of the RECORDS section,
+and `O` the number of bits `R` takes: the least `O` with `R < 2^O`. Then:
 
-- bits 0–47: the record's offset, less than 2^48 − 1;
-- bits 48–63: the record's length in bytes, if it is less than 2^16, else 0.
+- bits 0 to `O − 1`: the record's offset from the start of the RECORDS
+  section;
+- bits `O` to 63: the record's length in bytes, if it is less than
+  `2^(64 − O)`, else 0.
 
-A writer MUST NOT write a record at an offset of 2^48 − 1 or more (256 TiB).
-The section's length MUST be `8 × P × S`, else it is an archive error. The
+An offset is at most `R − 1`, so a record's slot is never 2^64 − 1. Both the
+writer and the reader derive `O` from `R`, so the store does not record it.
+For example, a RECORDS section of 30,000,000 bytes takes 25 bits of offset,
+which leaves 39 bits of length: a record 28 bytes long and 1,234 bytes into
+RECORDS has the slot `1234 + 28 × 2^25` (0x380004D2). The section's length MUST be
+`8 × P × S`, else it is an archive error. The
 section's offset SHOULD be a multiple of 8, for readers that map the file.
 
 ### 18.3 Query
@@ -461,8 +468,8 @@ A reader determines whether a key `k` has a record as follows:
 1. If `n = 0`, `k` has none.
 2. Compute `k`'s slot ([§18.3](#183-query)) and read the slot's 8 bytes. If
    the slot is empty (2^64 − 1), `k` has no record.
-3. The slot's offset MUST lie within the RECORDS section, and the record
-   there MUST be well-formed ([§19.1](#191-record-encoding)) and, if the slot
+3. The slot's offset, from the start of the RECORDS section, MUST lie within
+   it, and the record there MUST be well-formed ([§19.1](#191-record-encoding)) and, if the slot
    gives a length, exactly that long; otherwise it is an entry error for `k`,
    since the reader cannot tell whether `k` is present. A reader can read a
    record whose slot gives its length in one read of that many bytes; it
@@ -750,7 +757,7 @@ name.
 | hash_id XXH64 | 1 | phkv binding |
 | pilot multiplier | 0x517CC1B727220A95 | phkv binding |
 | empty slot | 2^64 − 1 | phkv binding |
-| slot | bits 0–47 record offset, bits 48–63 record length (0 for 2^16 bytes or more) | phkv binding |
+| slot | the low `O` bits the record's offset into RECORDS, the others its length (0 if it does not fit), where `O` is the bit length of the RECORDS section's length | phkv binding |
 | payload limit | 2^24 | phkv binding |
 | hybrid entry | `__vz__/phkv` | phkv binding |
 

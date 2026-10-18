@@ -17,10 +17,12 @@ The reader measured here, against the first run:
   record whose value is inline at the writer's default `inline_max` of 4 KiB;
 - the whole blocks of SLOTS that the first read already holds are kept as if a lookup had read them, and
   a record's first read stops at the end of its page, since a page holds whole records;
-- a format change: a slot holds its record's length as well as its offset (bits 0–47 the offset, bits 48–63
-  the length, 0 for a record of 64 KiB or more;
-  [§18.2](../../../spec/bindings/phkv.md#182-slots-section)), so a record is read in one read of exactly its
-  length, and `record_read` applies only to records of 64 KiB or more.
+- a format change: a slot holds its record's length as well as its offset
+  ([§18.2](../../../spec/bindings/phkv.md#182-slots-section)). The offset is from the start of RECORDS, in as
+  many low bits as the RECORDS section's length needs (25 at 10^6 references), and the length takes the rest
+  (39 bits there), or is 0 for a record too long for them. A record is therefore read in one read of exactly
+  its length, and `record_read` applies only to a record whose slot gives no length, which takes a RECORDS
+  section of about a terabyte and a record of megabytes.
 
 ## Paged vzip against phkv
 
@@ -104,8 +106,8 @@ so its bytes double.
 |---|---|---|---|---|
 | later lookup | 1.34 req, 2.4 KiB, 21 ms | 1.34 req, 2.4 KiB, 21 ms | 1.34 req, 2.4 KiB, 21 ms | 1.34 req, 2.4 KiB, 21 ms |
 
-Now that a slot gives its record's length, `record_read` changes nothing here: every record is under 64 KiB
-and is read in one read of its length. It applies only to records of 64 KiB or more, whose slots give no length.
+Now that a slot gives its record's length, `record_read` changes nothing here: every record is read in one
+read of its length. It applies only to a record whose slot gives no length.
 
 **Writer `page_size` and `inline_max`**, 10^5 keys of 1 KiB values (the writer's, recorded in the file):
 
