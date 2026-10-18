@@ -13,6 +13,9 @@ uv run python rust/refkv-phkv/bench/report.py rust/refkv-phkv/bench/data > table
 `record_read` and the writer's `page_size` and `inline_max` over HTTP, on those files (about 5 minutes). `bench.py --sizes 1000 10000 --bytes-sizes 10000 --rtt-ms 20 --reps 3`
 runs a smaller matrix; the default one (up to 10^6 keys) takes about 15 minutes.
 
+`trace.py DIR N` prints the requests of a cold open and two lookups, paged vzip and phkv side by side, and
+what each reads (a section, a page, an entry's bytes): `uv run python rust/refkv-phkv/bench/trace.py rust/refkv-phkv/bench/data 100000`.
+
 ## What is measured
 
 - **Files.** The same keys written five ways by `examples/bench.rs build`: vzip without and with a

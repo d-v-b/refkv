@@ -82,6 +82,8 @@ fn build(dir: &str, n: u64, workload: &str, vsize: usize, variant: Option<(&str,
 struct Counts {
     reads: AtomicU64,
     bytes: AtomicU64,
+    /// each read's offset and length, in order
+    log: std::sync::Mutex<Vec<(u64, u64)>>,
 }
 
 impl Counts {
@@ -101,6 +103,7 @@ impl refkv_phkv::ReadAt for Local<'_> {
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
         self.1.reads.fetch_add(1, Relaxed);
         self.1.bytes.fetch_add(buf.len() as u64, Relaxed);
+        self.1.log.lock().unwrap().push((offset, buf.len() as u64));
         self.0.read_at(offset, buf)
     }
 }
@@ -136,6 +139,7 @@ impl refkv_phkv::ReadAt for Http<'_> {
         }
         let (body, total) = self.fetch(format!("-{}", self.prime))?;
         let n = total.ok_or_else(|| io::Error::other("no Content-Range"))?;
+        self.counts.log.lock().unwrap().push((n - body.len() as u64, body.len() as u64));
         Ok(self.tail.get_or_init(|| (n, body)).0)
     }
 
@@ -149,6 +153,7 @@ impl refkv_phkv::ReadAt for Http<'_> {
             }
         }
         let (body, _) = self.fetch(format!("{}-{}", offset, offset + buf.len() as u64 - 1))?;
+        self.counts.log.lock().unwrap().push((offset, buf.len() as u64));
         buf.copy_from_slice(&body);
         Ok(())
     }
@@ -279,6 +284,22 @@ fn read(t: &dyn Open, refs: bool, n: u64, reps: usize) {
     );
 }
 
+/// Opens a store and looks up each key in turn, printing the reads made by the open and by each
+/// lookup as JSON: `{"size": n, "steps": [["open", [[offset, length], ...]], [key, [...]], ...]}`.
+fn trace(t: &dyn Open, refs: bool, keys: &[String]) {
+    let c = t.counts();
+    let mut steps = Vec::new();
+    let take = || std::mem::take(&mut *c.log.lock().unwrap());
+    let fmt = |l: Vec<(u64, u64)>| l.iter().map(|(o, n)| format!("[{o},{n}]")).collect::<Vec<_>>().join(",");
+    let s = t.open();
+    steps.push(format!("[\"open\",[{}]]", fmt(take())));
+    for k in keys {
+        lookup(&s, refs, k);
+        steps.push(format!("[\"{k}\",[{}]]", fmt(take())));
+    }
+    println!("{{\"steps\":[{}]}}", steps.join(","));
+}
+
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     match a.get(1).map(String::as_str) {
@@ -291,6 +312,11 @@ fn main() {
             let limits = Limits { tail: a.get(6).map_or(DEFAULT_TAIL, |v| v.parse().unwrap()), record_read: a.get(7).map_or(defaults.record_read, |v| v.parse().unwrap()), ..defaults };
             let t: Box<dyn Open> = if a[2].starts_with("http://") { Box::new(HttpOpen(a[2].clone(), Counts::default(), limits)) } else { Box::new(LocalOpen(a[2].clone(), Counts::default(), limits)) };
             read(&*t, a[3] == "refs", a[4].parse().unwrap(), a[5].parse().unwrap());
+        }
+        Some("trace") => {
+            // bench trace <url> <refs|bytes> <key>...
+            let t = HttpOpen(a[2].clone(), Counts::default(), Limits::default());
+            trace(&t, a[3] == "refs", &a[4..]);
         }
         _ => eprintln!("usage: see the top of this file"),
     }
