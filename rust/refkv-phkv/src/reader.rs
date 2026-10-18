@@ -506,10 +506,22 @@ impl<R: ReadAt> Store<R> {
     }
 
     /// The record at `off` in RECORDS: an entry error if it is outside or malformed.
-    fn record_at(&self, off: u64) -> Result<Record, ReadError> {
+    /// `length`, if the slot gives it, is the record's length: the record is read in one read of
+    /// exactly that many bytes.
+    fn record_at(&self, off: u64, length: Option<u64>) -> Result<Record, ReadError> {
         let (start, end) = self.records;
         if off < start || off >= end {
             return err(Class::Entry, format!("a slot points at {off}, outside RECORDS [{start}, {end})"));
+        }
+        if let Some(n) = length {
+            if n > end - off {
+                return err(Class::Entry, format!("the record at {off} of {n} bytes extends past the end of RECORDS"));
+            }
+            let b = self.read(off, n, Class::Entry)?;
+            return match format::parse_record(&b, self.sb.hybrid()).map_err(|m| ReadError { class: Class::Entry, message: format!("record at {off}: {m}") })? {
+                Parsed::Whole(rec, len) if len as u64 == n => Ok(rec),
+                _ => err(Class::Entry, format!("the record at {off} is not the {n} bytes its slot gives")),
+            };
         }
         // a page holds whole records, so a record ends at the end of its page or before
         let page_end = match self.pages.partition_point(|p| p.offset <= off) {
@@ -554,7 +566,8 @@ impl<R: ReadAt> Store<R> {
         if off == format::EMPTY_SLOT {
             return Ok(None);
         }
-        let rec = self.record_at(off)?;
+        let (off, length) = format::unpack_slot(off);
+        let rec = self.record_at(off, length)?;
         Ok((rec.key == key.as_bytes()).then_some(rec))
     }
 

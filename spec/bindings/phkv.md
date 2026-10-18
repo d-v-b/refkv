@@ -38,8 +38,8 @@ its keys. The phkv binding answers the three questions of
 What a phkv store adds over the ZIP binding:
 
 - **One-hop lookup.** A reader holds the perfect hash's pilots in memory. To
-  find a key it computes a slot, reads that slot's 8-byte record offset from
-  the slot table, and reads the record, whose key it compares with the one
+  find a key it computes a slot, reads that slot's 8 bytes (the record's
+  offset and length) from the slot table, and reads the record, whose key it compares with the one
   asked for ([§19.5](#195-lookup)).
 - **Sorted keys.** Records are stored in UTF-8 order with a page index, so
   `list(prefix)` and binary search work as in a paged vzip archive
@@ -308,10 +308,16 @@ The section is **malformed**, an archive error, if:
 
 ### 18.2 SLOTS section
 
-The SLOTS section is `P × S` slots of 8 bytes. Slot `i` holds either a
-`u64` offset of a record ([§19.1](#191-record-encoding)), or 2^64 − 1 for an
-empty slot. Its length MUST be `8 × P × S`, else it is an archive error. The
-offset SHOULD be a multiple of 8, for readers that map the file.
+The SLOTS section is `P × S` slots of 8 bytes. Slot `i` is a `u64` that is
+either 2^64 − 1, for an empty slot, or a record's place
+([§19.1](#191-record-encoding)):
+
+- bits 0–47: the record's offset, less than 2^48 − 1;
+- bits 48–63: the record's length in bytes, if it is less than 2^16, else 0.
+
+A writer MUST NOT write a record at an offset of 2^48 − 1 or more (256 TiB).
+The section's length MUST be `8 × P × S`, else it is an archive error. The
+section's offset SHOULD be a multiple of 8, for readers that map the file.
 
 ### 18.3 Query
 
@@ -456,9 +462,11 @@ A reader determines whether a key `k` has a record as follows:
 2. Compute `k`'s slot ([§18.3](#183-query)) and read the slot's 8 bytes. If
    the slot is empty (2^64 − 1), `k` has no record.
 3. The slot's offset MUST lie within the RECORDS section, and the record
-   there MUST be well-formed ([§19.1](#191-record-encoding)); otherwise it is
-   an entry error for `k`, since the reader cannot tell whether `k` is
-   present.
+   there MUST be well-formed ([§19.1](#191-record-encoding)) and, if the slot
+   gives a length, exactly that long; otherwise it is an entry error for `k`,
+   since the reader cannot tell whether `k` is present. A reader can read a
+   record whose slot gives its length in one read of that many bytes; it
+   reads a record whose slot does not (length 0) as its encoding says.
 4. If the record's key is `k`, that is `k`'s record. Otherwise `k` has none.
 
 A reader MAY instead find `k` through the page index, by selecting the last
@@ -742,6 +750,7 @@ name.
 | hash_id XXH64 | 1 | phkv binding |
 | pilot multiplier | 0x517CC1B727220A95 | phkv binding |
 | empty slot | 2^64 − 1 | phkv binding |
+| slot | bits 0–47 record offset, bits 48–63 record length (0 for 2^16 bytes or more) | phkv binding |
 | payload limit | 2^24 | phkv binding |
 | hybrid entry | `__vz__/phkv` | phkv binding |
 

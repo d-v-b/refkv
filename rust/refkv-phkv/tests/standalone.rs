@@ -430,3 +430,44 @@ fn a_record_read_stops_at_the_end_of_its_page() {
     assert_eq!(reads.len(), 2 * 5000usize.div_ceil(13));
     assert!(reads.iter().all(|r| r.1 == 8 || r.1 <= 1024 + 300), "{:?}", reads.iter().map(|r| r.1).max());
 }
+
+#[test]
+fn a_slot_gives_its_record_length() {
+    // records of 3 sizes, one too long for the slot's 16 bits of length
+    let big = vec![5u8; 70_000];
+    let b = write(Options { inline_max: 1 << 20, ..Options::default() }, |w| {
+        w.add_bytes("small", b"v").unwrap();
+        w.add_bytes("medium", &[1u8; 3000]).unwrap();
+        w.add_bytes("big", &big).unwrap();
+    });
+    let limits = refkv_phkv::Limits { slots_at_open: 1 << 20, ..Default::default() };
+    let s = Store::open_with(Logging(b.clone(), Default::default()), limits).unwrap();
+    s.reader().1.borrow_mut().clear();
+    assert_eq!(whole_in(&s, "small").unwrap(), b"v");
+    assert_eq!(whole_in(&s, "medium").unwrap(), vec![1u8; 3000]);
+    assert_eq!(whole_in(&s, "big").unwrap(), big);
+    let reads = s.reader().1.borrow().clone();
+    // one read each for the two records whose length the slot gives, exactly as long as the record;
+    // the big one is read as before, its first read and then the rest
+    assert_eq!(reads.len(), 4, "{reads:?}");
+    assert!(reads[0].1 < 40 && reads[1].1 > 3000 && reads[1].1 < 3050, "{reads:?}");
+
+    // a slot whose length is wrong is an entry error
+    let sb = superblock(&b);
+    let dir = format::DirEntry::decode_all(&b[sb.directory_offset as usize..(sb.directory_offset + sb.directory_length) as usize]).unwrap();
+    let slots = dir.iter().find(|e| e.kind == format::section::SLOTS).unwrap();
+    let mut b2 = b.clone();
+    for i in 0..slots.length / 8 {
+        let at = (slots.offset + 8 * i) as usize;
+        let v = format::le_u64(&b2, at);
+        if v != format::EMPTY_SLOT {
+            let (off, len) = format::unpack_slot(v);
+            if let Some(len) = len {
+                b2[at..at + 8].copy_from_slice(&format::pack_slot(off, len + 1).unwrap().to_le_bytes());
+            }
+        }
+    }
+    let s2 = Store::open(b2).unwrap();
+    assert_eq!(s2.classify("small").unwrap_err().class, Class::Entry);
+    assert!(s2.classify("big").unwrap().is_some(), "a slot with no length is read as before");
+}

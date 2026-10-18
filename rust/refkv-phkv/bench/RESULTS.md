@@ -16,7 +16,11 @@ The reader measured here, against the first run:
   it was 64 KiB + 64 B); the first read of a record is 4.5 KiB (`record_read`; it was 512 B), which holds a
   record whose value is inline at the writer's default `inline_max` of 4 KiB;
 - the whole blocks of SLOTS that the first read already holds are kept as if a lookup had read them, and
-  a record's first read stops at the end of its page, since a page holds whole records.
+  a record's first read stops at the end of its page, since a page holds whole records;
+- a format change: a slot holds its record's length as well as its offset (bits 0–47 the offset, bits 48–63
+  the length, 0 for a record of 64 KiB or more;
+  [§18.2](../../../spec/bindings/phkv.md#182-slots-section)), so a record is read in one read of exactly its
+  length, and `record_read` applies only to records of 64 KiB or more.
 
 ## Paged vzip against phkv
 
@@ -28,40 +32,41 @@ and a page about 50 central directory records, so phkv's cache fills about 7 tim
 
 | reader | open + first lookup | later lookup (200 lookups) | later lookup (5,000 lookups, counted) |
 |---|---|---|---|
-| vzip, paged | 4 req, 81.4 KiB, 103 ms | 1.96 req, 3.8 KiB, 43 ms | 1.33 req, 1.3 KiB |
-| phkv, the first defaults (slots one at a time, 64 KiB first read, 512 B record read) | 3 req, 64.3 KiB, 63 ms | 2.00 req, 480 B, 42 ms | 2.00 req, 489 B |
-| phkv, 4 KiB slot blocks only | 3 req, 68.2 KiB, 63 ms | 1.59 req, 2.8 KiB, 33 ms | 1.04 req, 639 B |
-| phkv, defaults (4 KiB slot blocks, 512 KiB first read, 4.5 KiB record read) | 3 req, 516.2 KiB, 64 ms | 1.25 req, 3.0 KiB, 26 ms | 1.02 req, 2.1 KiB |
+| vzip, paged | 4 req, 81.4 KiB, 105 ms | 1.96 req, 3.8 KiB, 43 ms | 1.33 req, 1.3 KiB |
+| phkv, the first defaults (slots one at a time, 64 KiB first read, 512 B record read) | 3 req, 64.1 KiB, 64 ms | 2.00 req, 36 B, 42 ms | 2.00 req, 36 B |
+| phkv, 4 KiB slot blocks only | 3 req, 68.1 KiB, 63 ms | 1.59 req, 2.4 KiB, 33 ms | 1.04 req, 185 B |
+| phkv, defaults (4 KiB slot blocks, 512 KiB first read, 4.5 KiB record read) | 3 req, 516.1 KiB, 65 ms | 1.25 req, 1.0 KiB, 26 ms | 1.02 req, 94 B |
 
 #### 1,000,000 keys, `refs`: over HTTP, 20 ms per request
 
 | reader | open + first lookup | later lookup (200 lookups) | later lookup (5,000 lookups, counted) |
 |---|---|---|---|
-| vzip, paged | 4 req, 199.8 KiB, 202 ms | 1.99 req, 4.0 KiB, 44 ms | 1.87 req, 3.5 KiB |
-| phkv, the first defaults (slots one at a time, 64 KiB first read, 512 B record read) | 5 req, 281.6 KiB, 106 ms | 2.00 req, 495 B, 42 ms | 2.00 req, 490 B |
-| phkv, 4 KiB slot blocks only | 5 req, 285.6 KiB, 106 ms | 1.95 req, 4.3 KiB, 41 ms | 1.37 req, 1.9 KiB |
-| phkv, defaults (4 KiB slot blocks, 512 KiB first read, 4.5 KiB record read) | 3 req, 516.8 KiB, 66 ms | 1.93 req, 5.8 KiB, 41 ms | 1.36 req, 3.4 KiB |
+| vzip, paged | 4 req, 199.8 KiB, 209 ms | 1.99 req, 4.0 KiB, 44 ms | 1.87 req, 3.5 KiB |
+| phkv, the first defaults (slots one at a time, 64 KiB first read, 512 B record read) | 5 req, 281.1 KiB, 107 ms | 2.00 req, 38 B, 42 ms | 2.00 req, 38 B |
+| phkv, 4 KiB slot blocks only | 5 req, 285.1 KiB, 107 ms | 1.95 req, 3.8 KiB, 41 ms | 1.37 req, 1.5 KiB |
+| phkv, defaults (4 KiB slot blocks, 512 KiB first read, 4.5 KiB record read) | 3 req, 516.1 KiB, 66 ms | 1.93 req, 3.7 KiB, 40 ms | 1.36 req, 1.5 KiB |
 
 #### 100,000 keys, `bytes`: over HTTP, 20 ms per request
 
 | reader | open + first lookup | later lookup (200 lookups) | later lookup (5,000 lookups, counted) |
 |---|---|---|---|
-| vzip, paged | 4 req, 80.4 KiB, 96 ms | 1.95 req, 4.8 KiB, 43 ms | 1.28 req, 2.1 KiB |
-| phkv, the first defaults (slots one at a time, 64 KiB first read, 512 B record read) | 5 req, 161.4 KiB, 107 ms | 3.00 req, 1.0 KiB, 63 ms | 3.00 req, 1.0 KiB |
-| phkv, 4 KiB slot blocks only | 5 req, 165.4 KiB, 107 ms | 2.62 req, 3.5 KiB, 54 ms | 2.04 req, 1.2 KiB |
-| phkv, defaults (4 KiB slot blocks, 512 KiB first read, 4.5 KiB record read) | 3 req, 520.2 KiB, 66 ms | 1.34 req, 4.0 KiB, 28 ms | 1.02 req, 2.7 KiB |
+| vzip, paged | 4 req, 80.4 KiB, 97 ms | 1.95 req, 4.8 KiB, 43 ms | 1.28 req, 2.1 KiB |
+| phkv, the first defaults (slots one at a time, 64 KiB first read, 512 B record read) | 4 req, 161.4 KiB, 87 ms | 2.00 req, 1.0 KiB, 42 ms | 2.00 req, 1.0 KiB |
+| phkv, 4 KiB slot blocks only | 4 req, 165.4 KiB, 87 ms | 1.61 req, 3.5 KiB, 34 ms | 1.04 req, 1.2 KiB |
+| phkv, defaults (4 KiB slot blocks, 512 KiB first read, 4.5 KiB record read) | 3 req, 517.1 KiB, 67 ms | 1.34 req, 2.4 KiB, 28 ms | 1.02 req, 1.1 KiB |
 
 What it shows, with the defaults:
 
 - **Every operation takes fewer requests with phkv.** Open and first lookup: 3 against 4. Later lookups over
   200: 1.25, 1.93 and 1.34 against 1.96, 1.99 and 1.95; over 5,000: 1.02, 1.36 and 1.02 against 1.33, 1.87
   and 1.28. At 10^5 keys the first read holds most of SLOTS, so most lookups read no slot at all.
-- **Bytes per lookup are close to vzip's**: 2.1 to 5.8 KiB against 1.3 to 4.8 KiB. A record read stops at the
-  end of its page, and a 4 KiB slot block is read once and kept. An open reads more: 516 to 520 KiB, against
-  80 to 200 KiB. At 100 MB/s that is about 4 ms; at 20 ms per request, a fifth of a round trip.
-- Each default does its part: slot blocks make later lookups cheaper; the 512 KiB first read takes the
-  10^6-key open from 5 requests to 3, and its share of SLOTS saves slot reads; the 4.5 KiB record read, capped
-  at the page, takes a lookup of a 1 KiB value from two record reads to one.
+- **Every lookup reads fewer bytes with phkv**: 94 B to 3.7 KiB against 1.3 to 4.8 KiB. A record is read in
+  one read of exactly its length (28 B for a reference, 1.0 KiB for a 1 KiB value), since its slot gives it; what
+  is left is the 4 KiB slot block, read once and kept. An open reads more: 516 to 517 KiB, against 80 to 200
+  KiB. At 100 MB/s that is about 4 ms; at 20 ms per request, a fifth of a round trip.
+- Each part does its share: slot blocks make later lookups cheaper; the 512 KiB first read takes the 10^6-key
+  open from 5 requests to 3, and its share of SLOTS saves slot reads; the record's length in its slot makes
+  every record one read of its own bytes.
 
 ## What else the full matrix shows
 
@@ -86,8 +91,8 @@ Over HTTP with 20 ms per request (`sweep.py`), the other parameters at their def
 
 | tail | 64.1 KiB | 128.0 KiB | 256.0 KiB | 512.1 KiB | 1.0 MiB |
 |---|---|---|---|---|---|
-| standalone | 5 req, 288.3 KiB, 107 ms | 5 req, 288.3 KiB, 107 ms | 4 req, 288.3 KiB, 86 ms | 3 req, 519.3 KiB, 65 ms | 3 req, 1.0 MiB, 67 ms |
-| hybrid | 7 req, 351.4 KiB, 148 ms | 7 req, 415.3 KiB, 149 ms | 6 req, 543.3 KiB, 127 ms | 5 req, 1.0 MiB, 108 ms | 5 req, 2.0 MiB, 109 ms |
+| standalone | 5 req, 285.1 KiB, 106 ms | 5 req, 285.1 KiB, 107 ms | 4 req, 285.1 KiB, 86 ms | 3 req, 516.1 KiB, 65 ms | 3 req, 1.0 MiB, 66 ms |
+| hybrid | 7 req, 348.2 KiB, 149 ms | 7 req, 412.1 KiB, 149 ms | 6 req, 540.1 KiB, 128 ms | 5 req, 1.0 MiB, 108 ms | 5 req, 2.0 MiB, 110 ms |
 
 512 KiB takes the 10^6-key open from 5 requests to 3, because PTRHASH and PAGES (about 280 KiB) come with it.
 For a hybrid store the first read is made twice (the end of the file, and the window before the superblock),
@@ -97,18 +102,19 @@ so its bytes double.
 
 | record_read | 512 B | 1.0 KiB | 2.0 KiB | 4.5 KiB |
 |---|---|---|---|---|
-| later lookup | 2.35 req, 2.4 KiB, 42 ms | 2.35 req, 2.4 KiB, 42 ms | 1.34 req, 3.2 KiB, 21 ms | 1.34 req, 4.0 KiB, 21 ms |
+| later lookup | 1.34 req, 2.4 KiB, 21 ms | 1.34 req, 2.4 KiB, 21 ms | 1.34 req, 2.4 KiB, 21 ms | 1.34 req, 2.4 KiB, 21 ms |
 
-A first read as long as the record (2 KiB for a 1 KiB value and its key) saves the record's second read.
+Now that a slot gives its record's length, `record_read` changes nothing here: every record is under 64 KiB
+and is read in one read of its length. It applies only to records of 64 KiB or more, whose slots give no length.
 
 **Writer `page_size` and `inline_max`**, 10^5 keys of 1 KiB values (the writer's, recorded in the file):
 
 | page_size, inline_max | file | later lookup (record_read 512) | later lookup (record_read 4.5 KiB) | list of 100 keys |
 |---|---|---|---|---|
-| 4.0 KiB, 4.0 KiB | 101.2 MiB | 2.35 req, 2.4 KiB, 42 ms | 1.34 req, 4.0 KiB, 21 ms | 26 req, 106.8 KiB, 539 ms |
-| 16.0 KiB, 4.0 KiB | 101.1 MiB | 2.27 req, 2.1 KiB, 42 ms | 1.27 req, 5.2 KiB, 21 ms | 7 req, 115.1 KiB, 147 ms |
-| 64.0 KiB, 4.0 KiB | 101.1 MiB | 2.25 req, 2.0 KiB, 42 ms | 1.25 req, 5.4 KiB, 21 ms | 3 req, 194.1 KiB, 62 ms |
-| 4.0 KiB, none | 101.5 MiB | 2.25 req, 2.5 KiB, 41 ms | 2.25 req, 4.0 KiB, 41 ms | 2 req, 8.0 KiB, 41 ms |
+| 4.0 KiB, 4.0 KiB | 101.2 MiB | 1.34 req, 2.4 KiB, 21 ms | 1.34 req, 2.4 KiB, 21 ms | 26 req, 106.8 KiB, 545 ms |
+| 16.0 KiB, 4.0 KiB | 101.1 MiB | 1.27 req, 2.1 KiB, 21 ms | 1.27 req, 2.1 KiB, 21 ms | 7 req, 115.1 KiB, 146 ms |
+| 64.0 KiB, 4.0 KiB | 101.1 MiB | 1.25 req, 2.0 KiB, 21 ms | 1.25 req, 2.0 KiB, 21 ms | 3 req, 194.1 KiB, 63 ms |
+| 4.0 KiB, none | 101.5 MiB | 2.25 req, 2.1 KiB, 42 ms | 2.25 req, 2.1 KiB, 42 ms | 2 req, 8.0 KiB, 41 ms |
 
 A larger `page_size` cuts the `list` requests (26 to 3 at 64 KiB) by reading more bytes per page; lookups do
 not read pages. Values not inline (`inline_max` 0) make records small, so a `list` is 2 requests, but a lookup
@@ -120,24 +126,24 @@ later ones at their mean time):
 
 | keys, workload | bandwidth | slots_at_open | open + first lookup | later lookup | k = 1 | k = 10 | k = 100 | k = 1,000 |
 |---|---|---|---|---|---|---|---|---|
-| 100,000 references | none | off | 3 req, 518.4 KiB, 64 ms | 1.25 req, 26 ms | 64 ms | 299 ms | 2644 ms | 26095 ms |
-| 100,000 references | none | whole | 3 req, 831.1 KiB, 65 ms | 1.00 req, 21 ms | 65 ms | 252 ms | 2116 ms | 20765 ms |
-| 100,000 references | 100 MB/s | off | 3 req, 518.4 KiB, 69 ms | 1.25 req, 26 ms | 69 ms | 304 ms | 2654 ms | 26155 ms |
-| 100,000 references | 100 MB/s | whole | 3 req, 831.1 KiB, 75 ms | 1.00 req, 21 ms | 75 ms | 263 ms | 2141 ms | 20926 ms |
-| 100,000 references | 12.5 MB/s | off | 3 req, 518.4 KiB, 107 ms | 1.25 req, 26 ms | 107 ms | 344 ms | 2718 ms | 26459 ms |
-| 100,000 references | 12.5 MB/s | whole | 3 req, 831.1 KiB, 134 ms | 1.00 req, 21 ms | 134 ms | 322 ms | 2204 ms | 21023 ms |
-| 1,000,000 references | none | off | 3 req, 519.3 KiB, 65 ms | 1.93 req, 40 ms | 65 ms | 424 ms | 4016 ms | 39941 ms |
-| 1,000,000 references | none | whole | 3 req, 8.1 MiB, 76 ms | 1.00 req, 21 ms | 76 ms | 263 ms | 2133 ms | 20841 ms |
-| 1,000,000 references | 100 MB/s | off | 3 req, 519.3 KiB, 70 ms | 1.93 req, 40 ms | 70 ms | 432 ms | 4049 ms | 40223 ms |
-| 1,000,000 references | 100 MB/s | whole | 3 req, 8.1 MiB, 160 ms | 1.00 req, 21 ms | 160 ms | 348 ms | 2227 ms | 21019 ms |
-| 1,000,000 references | 12.5 MB/s | off | 3 req, 519.3 KiB, 108 ms | 1.93 req, 41 ms | 108 ms | 473 ms | 4126 ms | 40659 ms |
-| 1,000,000 references | 12.5 MB/s | whole | 3 req, 8.1 MiB, 761 ms | 1.00 req, 21 ms | 761 ms | 950 ms | 2834 ms | 21675 ms |
-| 100,000 keys of 1 KiB values | none | off | 3 req, 517.1 KiB, 66 ms | 1.34 req, 28 ms | 66 ms | 319 ms | 2842 ms | 28080 ms |
-| 100,000 keys of 1 KiB values | none | whole | 3 req, 960.4 KiB, 67 ms | 1.00 req, 21 ms | 67 ms | 255 ms | 2132 ms | 20897 ms |
-| 100,000 keys of 1 KiB values | 100 MB/s | off | 3 req, 517.1 KiB, 71 ms | 1.34 req, 28 ms | 71 ms | 323 ms | 2843 ms | 28036 ms |
-| 100,000 keys of 1 KiB values | 100 MB/s | whole | 3 req, 960.4 KiB, 78 ms | 1.00 req, 22 ms | 78 ms | 272 ms | 2217 ms | 21662 ms |
-| 100,000 keys of 1 KiB values | 12.5 MB/s | off | 3 req, 517.1 KiB, 109 ms | 1.34 req, 28 ms | 109 ms | 363 ms | 2905 ms | 28329 ms |
-| 100,000 keys of 1 KiB values | 12.5 MB/s | whole | 3 req, 960.4 KiB, 147 ms | 1.00 req, 21 ms | 147 ms | 336 ms | 2224 ms | 21103 ms |
+| 100,000 references | none | off | 3 req, 516.1 KiB, 64 ms | 1.25 req, 26 ms | 64 ms | 301 ms | 2666 ms | 26316 ms |
+| 100,000 references | none | whole | 3 req, 828.8 KiB, 66 ms | 1.00 req, 21 ms | 66 ms | 253 ms | 2129 ms | 20883 ms |
+| 100,000 references | 100 MB/s | off | 3 req, 516.1 KiB, 70 ms | 1.25 req, 26 ms | 70 ms | 305 ms | 2662 ms | 26229 ms |
+| 100,000 references | 100 MB/s | whole | 3 req, 828.8 KiB, 75 ms | 1.00 req, 21 ms | 75 ms | 262 ms | 2137 ms | 20878 ms |
+| 100,000 references | 12.5 MB/s | off | 3 req, 516.1 KiB, 106 ms | 1.25 req, 26 ms | 106 ms | 342 ms | 2699 ms | 26265 ms |
+| 100,000 references | 12.5 MB/s | whole | 3 req, 828.8 KiB, 135 ms | 1.00 req, 21 ms | 135 ms | 322 ms | 2196 ms | 20938 ms |
+| 1,000,000 references | none | off | 3 req, 516.1 KiB, 65 ms | 1.93 req, 40 ms | 65 ms | 427 ms | 4048 ms | 40264 ms |
+| 1,000,000 references | none | whole | 3 req, 8.1 MiB, 75 ms | 1.00 req, 21 ms | 75 ms | 262 ms | 2136 ms | 20868 ms |
+| 1,000,000 references | 100 MB/s | off | 3 req, 516.1 KiB, 70 ms | 1.93 req, 40 ms | 70 ms | 433 ms | 4060 ms | 40327 ms |
+| 1,000,000 references | 100 MB/s | whole | 3 req, 8.1 MiB, 161 ms | 1.00 req, 21 ms | 161 ms | 350 ms | 2237 ms | 21116 ms |
+| 1,000,000 references | 12.5 MB/s | off | 3 req, 516.1 KiB, 109 ms | 1.93 req, 41 ms | 109 ms | 474 ms | 4121 ms | 40591 ms |
+| 1,000,000 references | 12.5 MB/s | whole | 3 req, 8.1 MiB, 759 ms | 1.00 req, 21 ms | 759 ms | 947 ms | 2826 ms | 21612 ms |
+| 100,000 keys of 1 KiB values | none | off | 3 req, 517.1 KiB, 67 ms | 1.34 req, 28 ms | 67 ms | 321 ms | 2860 ms | 28251 ms |
+| 100,000 keys of 1 KiB values | none | whole | 3 req, 960.4 KiB, 68 ms | 1.00 req, 21 ms | 68 ms | 257 ms | 2143 ms | 21008 ms |
+| 100,000 keys of 1 KiB values | 100 MB/s | off | 3 req, 517.1 KiB, 72 ms | 1.34 req, 28 ms | 72 ms | 325 ms | 2854 ms | 28141 ms |
+| 100,000 keys of 1 KiB values | 100 MB/s | whole | 3 req, 960.4 KiB, 78 ms | 1.00 req, 21 ms | 78 ms | 265 ms | 2143 ms | 20918 ms |
+| 100,000 keys of 1 KiB values | 12.5 MB/s | off | 3 req, 517.1 KiB, 111 ms | 1.34 req, 28 ms | 111 ms | 365 ms | 2909 ms | 28348 ms |
+| 100,000 keys of 1 KiB values | 12.5 MB/s | whole | 3 req, 960.4 KiB, 146 ms | 1.00 req, 21 ms | 146 ms | 335 ms | 2222 ms | 21092 ms |
 
 Reading SLOTS at open (8.2 bytes per key, held in memory) makes every lookup one request, the record; with slot
 blocks a later lookup is 1.25 to 1.93. SLOTS is read in the same request as PAGES and PTRHASH, which lie after
@@ -187,31 +193,31 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 
 | format (reader) | 1,000 | 10,000 | 100,000 | 1,000,000 |
 |---|---|---|---|---|
-| vzip (python) | 3 req, 68.0 KiB, 4.37 ms | 3 req, 691.1 KiB, 31 ms | 3 req, 6.8 MiB, 402 ms | 3 req, 69.3 MiB, 4235 ms |
-| vzip, paged (python) | 4 req, 68.3 KiB, 2.54 ms | 4 req, 69.5 KiB, 2.64 ms | 4 req, 81.4 KiB, 11 ms | 4 req, 199.8 KiB, 113 ms |
-| phkv (rust) | 2 req, 36.3 KiB, 0.06 ms | 2 req, 346.5 KiB, 0.11 ms | 3 req, 518.4 KiB, 0.52 ms | 3 req, 516.8 KiB, 1.49 ms |
-| hybrid, read as vzip (python) | 4 req, 68.3 KiB, 1.83 ms | 4 req, 69.5 KiB, 3.03 ms | 4 req, 81.4 KiB, 13 ms | 4 req, 199.8 KiB, 115 ms |
-| hybrid, read as phkv (rust) | 2 req, 152.9 KiB, 0.08 ms | 3 req, 1.0 MiB, 0.19 ms | 5 req, 1.0 MiB, 0.58 ms | 5 req, 1.0 MiB, 1.94 ms |
+| vzip (python) | 3 req, 68.0 KiB, 3.47 ms | 3 req, 691.1 KiB, 34 ms | 3 req, 6.8 MiB, 426 ms | 3 req, 69.3 MiB, 4399 ms |
+| vzip, paged (python) | 4 req, 68.3 KiB, 1.92 ms | 4 req, 69.5 KiB, 2.79 ms | 4 req, 81.4 KiB, 12 ms | 4 req, 199.8 KiB, 118 ms |
+| phkv (rust) | 2 req, 33.4 KiB, 0.11 ms | 2 req, 344.2 KiB, 0.15 ms | 3 req, 516.1 KiB, 0.23 ms | 3 req, 516.1 KiB, 1.45 ms |
+| hybrid, read as vzip (python) | 4 req, 68.3 KiB, 1.93 ms | 4 req, 69.5 KiB, 2.84 ms | 4 req, 81.4 KiB, 13 ms | 4 req, 199.8 KiB, 122 ms |
+| hybrid, read as phkv (rust) | 2 req, 150.0 KiB, 0.07 ms | 3 req, 1.0 MiB, 0.44 ms | 5 req, 1.0 MiB, 0.65 ms | 5 req, 1.0 MiB, 2.01 ms |
 
 **http 0 ms**
 
 | format (reader) | 1,000 | 10,000 | 100,000 | 1,000,000 |
 |---|---|---|---|---|
-| vzip (python) | 3 req, 68.0 KiB, 6.23 ms | 3 req, 691.1 KiB, 36 ms | 3 req, 6.8 MiB, 401 ms | 3 req, 69.3 MiB, 4193 ms |
-| vzip, paged (python) | 4 req, 68.3 KiB, 5.34 ms | 4 req, 69.5 KiB, 6.67 ms | 4 req, 81.4 KiB, 16 ms | 4 req, 199.8 KiB, 116 ms |
-| phkv (rust) | 2 req, 36.3 KiB, 1.46 ms | 2 req, 346.5 KiB, 2.10 ms | 3 req, 518.4 KiB, 3.30 ms | 3 req, 516.8 KiB, 4.15 ms |
-| hybrid, read as vzip (python) | 4 req, 68.3 KiB, 5.35 ms | 4 req, 69.5 KiB, 7.38 ms | 4 req, 81.4 KiB, 21 ms | 4 req, 199.8 KiB, 122 ms |
-| hybrid, read as phkv (rust) | 2 req, 152.9 KiB, 1.86 ms | 3 req, 1.0 MiB, 3.51 ms | 5 req, 1.0 MiB, 3.29 ms | 5 req, 1.0 MiB, 5.99 ms |
+| vzip (python) | 3 req, 68.0 KiB, 6.59 ms | 3 req, 691.1 KiB, 42 ms | 3 req, 6.8 MiB, 377 ms | 3 req, 69.3 MiB, 4245 ms |
+| vzip, paged (python) | 4 req, 68.3 KiB, 5.60 ms | 4 req, 69.5 KiB, 6.29 ms | 4 req, 81.4 KiB, 17 ms | 4 req, 199.8 KiB, 125 ms |
+| phkv (rust) | 2 req, 33.4 KiB, 1.28 ms | 2 req, 344.2 KiB, 2.90 ms | 3 req, 516.1 KiB, 3.17 ms | 3 req, 516.1 KiB, 3.87 ms |
+| hybrid, read as vzip (python) | 4 req, 68.3 KiB, 5.15 ms | 4 req, 69.5 KiB, 5.59 ms | 4 req, 81.4 KiB, 16 ms | 4 req, 199.8 KiB, 120 ms |
+| hybrid, read as phkv (rust) | 2 req, 150.0 KiB, 1.57 ms | 3 req, 1.0 MiB, 3.70 ms | 5 req, 1.0 MiB, 3.36 ms | 5 req, 1.0 MiB, 5.92 ms |
 
 **http 20 ms**
 
 | format (reader) | 1,000 | 10,000 | 100,000 | 1,000,000 |
 |---|---|---|---|---|
-| vzip (python) | 3 req, 68.0 KiB, 68 ms | 3 req, 691.1 KiB, 103 ms | 3 req, 6.8 MiB, 431 ms | 3 req, 69.3 MiB, 4267 ms |
-| vzip, paged (python) | 4 req, 68.3 KiB, 88 ms | 4 req, 69.5 KiB, 88 ms | 4 req, 81.4 KiB, 98 ms | 4 req, 199.8 KiB, 203 ms |
-| phkv (rust) | 2 req, 36.3 KiB, 43 ms | 2 req, 346.5 KiB, 43 ms | 3 req, 518.4 KiB, 64 ms | 3 req, 516.8 KiB, 66 ms |
-| hybrid, read as vzip (python) | 4 req, 68.3 KiB, 89 ms | 4 req, 69.5 KiB, 90 ms | 4 req, 81.4 KiB, 99 ms | 4 req, 199.8 KiB, 205 ms |
-| hybrid, read as phkv (rust) | 2 req, 152.9 KiB, 43 ms | 3 req, 1.0 MiB, 65 ms | 5 req, 1.0 MiB, 106 ms | 5 req, 1.0 MiB, 109 ms |
+| vzip (python) | 3 req, 68.0 KiB, 68 ms | 3 req, 691.1 KiB, 100 ms | 3 req, 6.8 MiB, 458 ms | 3 req, 69.3 MiB, 4531 ms |
+| vzip, paged (python) | 4 req, 68.3 KiB, 89 ms | 4 req, 69.5 KiB, 91 ms | 4 req, 81.4 KiB, 100 ms | 4 req, 199.8 KiB, 222 ms |
+| phkv (rust) | 2 req, 33.4 KiB, 42 ms | 2 req, 344.2 KiB, 43 ms | 3 req, 516.1 KiB, 65 ms | 3 req, 516.1 KiB, 66 ms |
+| hybrid, read as vzip (python) | 4 req, 68.3 KiB, 87 ms | 4 req, 69.5 KiB, 90 ms | 4 req, 81.4 KiB, 100 ms | 4 req, 199.8 KiB, 210 ms |
+| hybrid, read as phkv (rust) | 2 req, 150.0 KiB, 43 ms | 3 req, 1.0 MiB, 65 ms | 5 req, 1.0 MiB, 107 ms | 5 req, 1.0 MiB, 109 ms |
 
 ### Later lookups of random keys in an opened store (per lookup, median)
 
@@ -219,31 +225,31 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 
 | format (reader) | 1,000 | 10,000 | 100,000 | 1,000,000 |
 |---|---|---|---|---|
-| vzip (python) | 1.00 req, 8 B, 0.26 ms | 1.00 req, 8 B, 0.35 ms | 1.00 req, 8 B, 0.32 ms | 1.00 req, 9 B, 0.34 ms |
-| vzip, paged (python) | 1.08 req, 334 B, 0.34 ms | 1.59 req, 2.4 KiB, 1.00 ms | 1.96 req, 3.9 KiB, 1.25 ms | 1.99 req, 4.0 KiB, 1.32 ms |
-| phkv (rust) | 1.00 req, 2.0 KiB, 0.00 ms | 1.00 req, 2.0 KiB, 0.00 ms | 1.25 req, 3.0 KiB, 0.00 ms | 1.93 req, 5.8 KiB, 0.00 ms |
-| hybrid, read as vzip (python) | 1.08 req, 334 B, 0.36 ms | 1.59 req, 2.4 KiB, 0.93 ms | 1.96 req, 3.9 KiB, 1.54 ms | 1.99 req, 4.0 KiB, 1.42 ms |
-| hybrid, read as phkv (rust) | 1.00 req, 2.0 KiB, 0.00 ms | 1.00 req, 2.1 KiB, 0.00 ms | 1.26 req, 3.0 KiB, 0.00 ms | 1.93 req, 5.8 KiB, 0.00 ms |
+| vzip (python) | 1.00 req, 8 B, 0.28 ms | 1.00 req, 8 B, 0.31 ms | 1.00 req, 8 B, 0.31 ms | 1.00 req, 9 B, 0.35 ms |
+| vzip, paged (python) | 1.08 req, 334 B, 0.30 ms | 1.59 req, 2.4 KiB, 1.03 ms | 1.96 req, 3.9 KiB, 1.43 ms | 1.99 req, 4.0 KiB, 1.36 ms |
+| phkv (rust) | 1.00 req, 25 B, 0.00 ms | 1.00 req, 27 B, 0.00 ms | 1.25 req, 1.0 KiB, 0.00 ms | 1.93 req, 3.7 KiB, 0.00 ms |
+| hybrid, read as vzip (python) | 1.08 req, 334 B, 0.37 ms | 1.59 req, 2.4 KiB, 1.04 ms | 1.96 req, 3.9 KiB, 1.20 ms | 1.99 req, 4.0 KiB, 1.34 ms |
+| hybrid, read as phkv (rust) | 1.00 req, 25 B, 0.00 ms | 1.00 req, 27 B, 0.00 ms | 1.26 req, 1.1 KiB, 0.00 ms | 1.93 req, 3.7 KiB, 0.00 ms |
 
 **http 0 ms**
 
 | format (reader) | 1,000 | 10,000 | 100,000 | 1,000,000 |
 |---|---|---|---|---|
-| vzip (python) | 1.00 req, 8 B, 1.04 ms | 1.00 req, 8 B, 0.93 ms | 1.00 req, 8 B, 0.90 ms | 1.00 req, 9 B, 1.50 ms |
-| vzip, paged (python) | 1.08 req, 334 B, 1.23 ms | 1.59 req, 2.4 KiB, 2.58 ms | 1.96 req, 3.9 KiB, 2.76 ms | 1.99 req, 4.0 KiB, 2.79 ms |
-| phkv (rust) | 1.00 req, 2.0 KiB, 0.15 ms | 1.00 req, 2.0 KiB, 0.14 ms | 1.25 req, 3.0 KiB, 0.17 ms | 1.93 req, 5.8 KiB, 0.30 ms |
-| hybrid, read as vzip (python) | 1.08 req, 334 B, 1.10 ms | 1.59 req, 2.4 KiB, 2.37 ms | 1.96 req, 3.9 KiB, 2.87 ms | 1.99 req, 4.0 KiB, 3.09 ms |
-| hybrid, read as phkv (rust) | 1.00 req, 2.0 KiB, 0.23 ms | 1.00 req, 2.1 KiB, 0.15 ms | 1.26 req, 3.0 KiB, 0.18 ms | 1.93 req, 5.8 KiB, 0.29 ms |
+| vzip (python) | 1.00 req, 8 B, 1.09 ms | 1.00 req, 8 B, 1.05 ms | 1.00 req, 8 B, 0.99 ms | 1.00 req, 9 B, 1.10 ms |
+| vzip, paged (python) | 1.08 req, 334 B, 1.01 ms | 1.59 req, 2.4 KiB, 2.40 ms | 1.96 req, 3.9 KiB, 2.92 ms | 1.99 req, 4.0 KiB, 2.88 ms |
+| phkv (rust) | 1.00 req, 25 B, 0.16 ms | 1.00 req, 27 B, 0.18 ms | 1.25 req, 1.0 KiB, 0.16 ms | 1.93 req, 3.7 KiB, 0.29 ms |
+| hybrid, read as vzip (python) | 1.08 req, 334 B, 1.22 ms | 1.59 req, 2.4 KiB, 2.48 ms | 1.96 req, 3.9 KiB, 2.65 ms | 1.99 req, 4.0 KiB, 2.67 ms |
+| hybrid, read as phkv (rust) | 1.00 req, 25 B, 0.17 ms | 1.00 req, 27 B, 0.14 ms | 1.26 req, 1.1 KiB, 0.18 ms | 1.93 req, 3.7 KiB, 0.30 ms |
 
 **http 20 ms**
 
 | format (reader) | 1,000 | 10,000 | 100,000 | 1,000,000 |
 |---|---|---|---|---|
 | vzip (python) | 1.00 req, 8 B, 22 ms | 1.00 req, 8 B, 22 ms | 1.00 req, 8 B, 22 ms | 1.00 req, 9 B, 22 ms |
-| vzip, paged (python) | 1.08 req, 334 B, 22 ms | 1.59 req, 2.4 KiB, 44 ms | 1.96 req, 3.9 KiB, 44 ms | 1.99 req, 4.0 KiB, 44 ms |
-| phkv (rust) | 1.00 req, 2.0 KiB, 21 ms | 1.00 req, 2.0 KiB, 21 ms | 1.25 req, 3.0 KiB, 21 ms | 1.93 req, 5.8 KiB, 42 ms |
+| vzip, paged (python) | 1.08 req, 334 B, 22 ms | 1.59 req, 2.4 KiB, 44 ms | 1.96 req, 3.9 KiB, 45 ms | 1.99 req, 4.0 KiB, 44 ms |
+| phkv (rust) | 1.00 req, 25 B, 21 ms | 1.00 req, 27 B, 21 ms | 1.25 req, 1.0 KiB, 21 ms | 1.93 req, 3.7 KiB, 42 ms |
 | hybrid, read as vzip (python) | 1.08 req, 334 B, 22 ms | 1.59 req, 2.4 KiB, 44 ms | 1.96 req, 3.9 KiB, 44 ms | 1.99 req, 4.0 KiB, 44 ms |
-| hybrid, read as phkv (rust) | 1.00 req, 2.0 KiB, 21 ms | 1.00 req, 2.1 KiB, 21 ms | 1.26 req, 3.0 KiB, 21 ms | 1.93 req, 5.8 KiB, 42 ms |
+| hybrid, read as phkv (rust) | 1.00 req, 25 B, 21 ms | 1.00 req, 27 B, 21 ms | 1.26 req, 1.1 KiB, 21 ms | 1.93 req, 3.7 KiB, 42 ms |
 
 ### `list` of the 100 keys under one prefix, on a store opened cold
 
@@ -251,30 +257,30 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 
 | format (reader) | 1,000 | 10,000 | 100,000 | 1,000,000 |
 |---|---|---|---|---|
-| vzip (python) | 2 req, 67.9 KiB, 3.62 ms | 2 req, 691.1 KiB, 36 ms | 2 req, 6.8 MiB, 342 ms | 2 req, 69.3 MiB, 4146 ms |
-| vzip, paged (python) | 5 req, 76.3 KiB, 4.56 ms | 4 req, 73.5 KiB, 3.17 ms | 5 req, 89.5 KiB, 14 ms | 5 req, 207.9 KiB, 118 ms |
+| vzip (python) | 2 req, 67.9 KiB, 3.20 ms | 2 req, 691.1 KiB, 32 ms | 2 req, 6.8 MiB, 346 ms | 2 req, 69.3 MiB, 4375 ms |
+| vzip, paged (python) | 5 req, 76.3 KiB, 3.04 ms | 4 req, 73.5 KiB, 3.95 ms | 5 req, 89.5 KiB, 14 ms | 5 req, 207.9 KiB, 113 ms |
 | phkv (rust) | 2 req, 8.0 KiB, 0.05 ms | 2 req, 8.0 KiB, 0.05 ms | 2 req, 8.0 KiB, 0.05 ms | 1 req, 4.0 KiB, 0.09 ms |
-| hybrid, read as vzip (python) | 5 req, 76.3 KiB, 2.51 ms | 4 req, 73.5 KiB, 2.95 ms | 5 req, 89.5 KiB, 15 ms | 5 req, 207.9 KiB, 121 ms |
-| hybrid, read as phkv (rust) | 2 req, 8.0 KiB, 0.07 ms | 2 req, 8.0 KiB, 0.05 ms | 2 req, 8.0 KiB, 0.05 ms | 1 req, 4.0 KiB, 0.09 ms |
+| hybrid, read as vzip (python) | 5 req, 76.3 KiB, 2.80 ms | 4 req, 73.5 KiB, 3.39 ms | 5 req, 89.5 KiB, 13 ms | 5 req, 207.9 KiB, 116 ms |
+| hybrid, read as phkv (rust) | 2 req, 8.0 KiB, 0.05 ms | 2 req, 8.0 KiB, 0.05 ms | 2 req, 8.0 KiB, 0.05 ms | 1 req, 4.0 KiB, 0.08 ms |
 
 **http 0 ms**
 
 | format (reader) | 1,000 | 10,000 | 100,000 | 1,000,000 |
 |---|---|---|---|---|
-| vzip (python) | 2 req, 67.9 KiB, 5.24 ms | 2 req, 691.1 KiB, 33 ms | 2 req, 6.8 MiB, 374 ms | 2 req, 69.3 MiB, 4292 ms |
-| vzip, paged (python) | 5 req, 76.3 KiB, 11 ms | 4 req, 73.5 KiB, 7.70 ms | 5 req, 89.5 KiB, 19 ms | 5 req, 207.9 KiB, 125 ms |
-| phkv (rust) | 2 req, 8.0 KiB, 0.75 ms | 2 req, 8.0 KiB, 0.86 ms | 2 req, 8.0 KiB, 0.73 ms | 1 req, 4.0 KiB, 0.58 ms |
-| hybrid, read as vzip (python) | 5 req, 76.3 KiB, 7.03 ms | 4 req, 73.5 KiB, 6.88 ms | 5 req, 89.5 KiB, 18 ms | 5 req, 207.9 KiB, 130 ms |
-| hybrid, read as phkv (rust) | 2 req, 8.0 KiB, 0.88 ms | 2 req, 8.0 KiB, 0.81 ms | 2 req, 8.0 KiB, 0.71 ms | 1 req, 4.0 KiB, 0.45 ms |
+| vzip (python) | 2 req, 67.9 KiB, 5.68 ms | 2 req, 691.1 KiB, 34 ms | 2 req, 6.8 MiB, 398 ms | 2 req, 69.3 MiB, 4203 ms |
+| vzip, paged (python) | 5 req, 76.3 KiB, 8.78 ms | 4 req, 73.5 KiB, 8.87 ms | 5 req, 89.5 KiB, 19 ms | 5 req, 207.9 KiB, 135 ms |
+| phkv (rust) | 2 req, 8.0 KiB, 0.93 ms | 2 req, 8.0 KiB, 0.70 ms | 2 req, 8.0 KiB, 0.75 ms | 1 req, 4.0 KiB, 0.58 ms |
+| hybrid, read as vzip (python) | 5 req, 76.3 KiB, 7.49 ms | 4 req, 73.5 KiB, 6.21 ms | 5 req, 89.5 KiB, 21 ms | 5 req, 207.9 KiB, 119 ms |
+| hybrid, read as phkv (rust) | 2 req, 8.0 KiB, 0.81 ms | 2 req, 8.0 KiB, 0.81 ms | 2 req, 8.0 KiB, 0.77 ms | 1 req, 4.0 KiB, 0.53 ms |
 
 **http 20 ms**
 
 | format (reader) | 1,000 | 10,000 | 100,000 | 1,000,000 |
 |---|---|---|---|---|
-| vzip (python) | 2 req, 67.9 KiB, 50 ms | 2 req, 691.1 KiB, 74 ms | 2 req, 6.8 MiB, 387 ms | 2 req, 69.3 MiB, 4367 ms |
-| vzip, paged (python) | 5 req, 76.3 KiB, 69 ms | 4 req, 73.5 KiB, 68 ms | 5 req, 89.5 KiB, 81 ms | 5 req, 207.9 KiB, 197 ms |
-| phkv (rust) | 2 req, 8.0 KiB, 41 ms | 2 req, 8.0 KiB, 42 ms | 2 req, 8.0 KiB, 42 ms | 1 req, 4.0 KiB, 21 ms |
-| hybrid, read as vzip (python) | 5 req, 76.3 KiB, 71 ms | 4 req, 73.5 KiB, 68 ms | 5 req, 89.5 KiB, 85 ms | 5 req, 207.9 KiB, 199 ms |
+| vzip (python) | 2 req, 67.9 KiB, 47 ms | 2 req, 691.1 KiB, 77 ms | 2 req, 6.8 MiB, 411 ms | 2 req, 69.3 MiB, 4306 ms |
+| vzip, paged (python) | 5 req, 76.3 KiB, 71 ms | 4 req, 73.5 KiB, 71 ms | 5 req, 89.5 KiB, 86 ms | 5 req, 207.9 KiB, 187 ms |
+| phkv (rust) | 2 req, 8.0 KiB, 42 ms | 2 req, 8.0 KiB, 42 ms | 2 req, 8.0 KiB, 42 ms | 1 req, 4.0 KiB, 21 ms |
+| hybrid, read as vzip (python) | 5 req, 76.3 KiB, 71 ms | 4 req, 73.5 KiB, 69 ms | 5 req, 89.5 KiB, 81 ms | 5 req, 207.9 KiB, 212 ms |
 | hybrid, read as phkv (rust) | 2 req, 8.0 KiB, 42 ms | 2 req, 8.0 KiB, 42 ms | 2 req, 8.0 KiB, 42 ms | 1 req, 4.0 KiB, 21 ms |
 
 ## Workload `bytes`
@@ -295,31 +301,31 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 
 | format (reader) | 1,000 | 10,000 | 100,000 |
 |---|---|---|---|
-| vzip (python) | 2 req, 65.0 KiB, 3.63 ms | 3 req, 575.4 KiB, 28 ms | 3 req, 5.6 MiB, 260 ms |
-| vzip, paged (python) | 3 req, 69.0 KiB, 1.75 ms | 4 req, 70.3 KiB, 5.04 ms | 4 req, 80.4 KiB, 12 ms |
-| phkv (rust) | 2 req, 513.1 KiB, 0.12 ms | 2 req, 513.1 KiB, 0.30 ms | 3 req, 517.1 KiB, 1.64 ms |
-| hybrid, read as vzip (python) | 4 req, 69.2 KiB, 2.14 ms | 4 req, 70.3 KiB, 2.65 ms | 4 req, 80.3 KiB, 10 ms |
-| hybrid, read as phkv (rust) | 4 req, 1.0 MiB, 0.55 ms | 4 req, 1.0 MiB, 0.46 ms | 6 req, 1.0 MiB, 0.85 ms |
+| vzip (python) | 2 req, 65.0 KiB, 3.01 ms | 3 req, 575.4 KiB, 22 ms | 3 req, 5.6 MiB, 272 ms |
+| vzip, paged (python) | 3 req, 69.0 KiB, 1.45 ms | 4 req, 70.3 KiB, 2.48 ms | 4 req, 80.4 KiB, 13 ms |
+| phkv (rust) | 2 req, 513.1 KiB, 0.12 ms | 2 req, 513.1 KiB, 0.27 ms | 3 req, 517.1 KiB, 1.64 ms |
+| hybrid, read as vzip (python) | 4 req, 69.2 KiB, 1.82 ms | 4 req, 70.3 KiB, 3.04 ms | 4 req, 80.3 KiB, 11 ms |
+| hybrid, read as phkv (rust) | 4 req, 1.0 MiB, 0.55 ms | 4 req, 1.0 MiB, 0.46 ms | 6 req, 1.0 MiB, 0.65 ms |
 
 **http 0 ms**
 
 | format (reader) | 1,000 | 10,000 | 100,000 |
 |---|---|---|---|
-| vzip (python) | 2 req, 65.0 KiB, 4.84 ms | 3 req, 575.4 KiB, 27 ms | 3 req, 5.6 MiB, 281 ms |
-| vzip, paged (python) | 3 req, 69.0 KiB, 3.86 ms | 4 req, 70.3 KiB, 5.87 ms | 4 req, 80.4 KiB, 13 ms |
-| phkv (rust) | 2 req, 513.1 KiB, 2.48 ms | 2 req, 513.1 KiB, 2.65 ms | 3 req, 517.1 KiB, 4.93 ms |
-| hybrid, read as vzip (python) | 4 req, 69.2 KiB, 5.06 ms | 4 req, 70.3 KiB, 5.96 ms | 4 req, 80.3 KiB, 15 ms |
-| hybrid, read as phkv (rust) | 4 req, 1.0 MiB, 4.25 ms | 4 req, 1.0 MiB, 3.96 ms | 6 req, 1.0 MiB, 3.47 ms |
+| vzip (python) | 2 req, 65.0 KiB, 4.58 ms | 3 req, 575.4 KiB, 33 ms | 3 req, 5.6 MiB, 263 ms |
+| vzip, paged (python) | 3 req, 69.0 KiB, 3.93 ms | 4 req, 70.3 KiB, 6.91 ms | 4 req, 80.4 KiB, 15 ms |
+| phkv (rust) | 2 req, 513.1 KiB, 1.80 ms | 2 req, 513.1 KiB, 2.53 ms | 3 req, 517.1 KiB, 5.80 ms |
+| hybrid, read as vzip (python) | 4 req, 69.2 KiB, 5.18 ms | 4 req, 70.3 KiB, 5.85 ms | 4 req, 80.3 KiB, 15 ms |
+| hybrid, read as phkv (rust) | 4 req, 1.0 MiB, 3.63 ms | 4 req, 1.0 MiB, 5.44 ms | 6 req, 1.0 MiB, 6.50 ms |
 
 **http 20 ms**
 
 | format (reader) | 1,000 | 10,000 | 100,000 |
 |---|---|---|---|
-| vzip (python) | 2 req, 65.0 KiB, 47 ms | 3 req, 575.4 KiB, 93 ms | 3 req, 5.6 MiB, 326 ms |
+| vzip (python) | 2 req, 65.0 KiB, 46 ms | 3 req, 575.4 KiB, 95 ms | 3 req, 5.6 MiB, 353 ms |
 | vzip, paged (python) | 3 req, 69.0 KiB, 66 ms | 4 req, 70.3 KiB, 88 ms | 4 req, 80.4 KiB, 98 ms |
 | phkv (rust) | 2 req, 513.1 KiB, 43 ms | 2 req, 513.1 KiB, 44 ms | 3 req, 517.1 KiB, 66 ms |
-| hybrid, read as vzip (python) | 4 req, 69.2 KiB, 87 ms | 4 req, 70.3 KiB, 88 ms | 4 req, 80.3 KiB, 98 ms |
-| hybrid, read as phkv (rust) | 4 req, 1.0 MiB, 85 ms | 4 req, 1.0 MiB, 86 ms | 6 req, 1.0 MiB, 129 ms |
+| hybrid, read as vzip (python) | 4 req, 69.2 KiB, 87 ms | 4 req, 70.3 KiB, 90 ms | 4 req, 80.3 KiB, 98 ms |
+| hybrid, read as phkv (rust) | 4 req, 1.0 MiB, 86 ms | 4 req, 1.0 MiB, 86 ms | 6 req, 1.0 MiB, 127 ms |
 
 ### Later lookups of random keys in an opened store (per lookup, median)
 
@@ -327,21 +333,21 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 
 | format (reader) | 1,000 | 10,000 | 100,000 |
 |---|---|---|---|
-| vzip (python) | 0.99 req, 1014 B, 0.36 ms | 1.00 req, 1.0 KiB, 0.35 ms | 1.00 req, 1.0 KiB, 0.33 ms |
-| vzip, paged (python) | 1.06 req, 1.3 KiB, 0.33 ms | 1.55 req, 3.2 KiB, 0.99 ms | 1.95 req, 4.8 KiB, 1.35 ms |
-| phkv (rust) | 1.00 req, 2.6 KiB, 0.00 ms | 1.00 req, 2.6 KiB, 0.00 ms | 1.34 req, 4.0 KiB, 0.00 ms |
-| hybrid, read as vzip (python) | 1.07 req, 1.3 KiB, 0.30 ms | 1.54 req, 3.2 KiB, 0.91 ms | 1.95 req, 4.8 KiB, 1.33 ms |
-| hybrid, read as phkv (rust) | 2.00 req, 3.2 KiB, 0.00 ms | 2.00 req, 3.0 KiB, 0.00 ms | 2.27 req, 4.0 KiB, 0.00 ms |
+| vzip (python) | 0.99 req, 1014 B, 0.31 ms | 1.00 req, 1.0 KiB, 0.33 ms | 1.00 req, 1.0 KiB, 0.37 ms |
+| vzip, paged (python) | 1.06 req, 1.3 KiB, 0.33 ms | 1.55 req, 3.2 KiB, 0.93 ms | 1.95 req, 4.8 KiB, 1.46 ms |
+| phkv (rust) | 1.00 req, 1.0 KiB, 0.00 ms | 1.00 req, 1.0 KiB, 0.00 ms | 1.34 req, 2.4 KiB, 0.00 ms |
+| hybrid, read as vzip (python) | 1.07 req, 1.3 KiB, 0.33 ms | 1.54 req, 3.2 KiB, 0.85 ms | 1.95 req, 4.8 KiB, 1.42 ms |
+| hybrid, read as phkv (rust) | 2.00 req, 1.0 KiB, 0.00 ms | 2.00 req, 1.0 KiB, 0.00 ms | 2.27 req, 2.1 KiB, 0.00 ms |
 
 **http 0 ms**
 
 | format (reader) | 1,000 | 10,000 | 100,000 |
 |---|---|---|---|
-| vzip (python) | 0.99 req, 1014 B, 1.26 ms | 1.00 req, 1.0 KiB, 1.15 ms | 1.00 req, 1.0 KiB, 1.01 ms |
-| vzip, paged (python) | 1.06 req, 1.3 KiB, 1.08 ms | 1.55 req, 3.2 KiB, 2.23 ms | 1.95 req, 4.8 KiB, 2.89 ms |
-| phkv (rust) | 1.00 req, 2.6 KiB, 0.14 ms | 1.00 req, 2.6 KiB, 0.14 ms | 1.34 req, 4.0 KiB, 0.19 ms |
-| hybrid, read as vzip (python) | 1.07 req, 1.3 KiB, 1.09 ms | 1.54 req, 3.2 KiB, 2.17 ms | 1.95 req, 4.8 KiB, 2.66 ms |
-| hybrid, read as phkv (rust) | 2.00 req, 3.2 KiB, 0.30 ms | 2.00 req, 3.0 KiB, 0.33 ms | 2.27 req, 4.0 KiB, 0.32 ms |
+| vzip (python) | 0.99 req, 1014 B, 1.32 ms | 1.00 req, 1.0 KiB, 1.04 ms | 1.00 req, 1.0 KiB, 0.88 ms |
+| vzip, paged (python) | 1.06 req, 1.3 KiB, 1.14 ms | 1.55 req, 3.2 KiB, 2.28 ms | 1.95 req, 4.8 KiB, 2.99 ms |
+| phkv (rust) | 1.00 req, 1.0 KiB, 0.16 ms | 1.00 req, 1.0 KiB, 0.16 ms | 1.34 req, 2.4 KiB, 0.20 ms |
+| hybrid, read as vzip (python) | 1.07 req, 1.3 KiB, 0.92 ms | 1.54 req, 3.2 KiB, 2.10 ms | 1.95 req, 4.8 KiB, 3.06 ms |
+| hybrid, read as phkv (rust) | 2.00 req, 1.0 KiB, 0.29 ms | 2.00 req, 1.0 KiB, 0.31 ms | 2.27 req, 2.1 KiB, 0.31 ms |
 
 **http 20 ms**
 
@@ -349,9 +355,9 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 |---|---|---|---|
 | vzip (python) | 0.99 req, 1014 B, 22 ms | 1.00 req, 1.0 KiB, 22 ms | 1.00 req, 1.0 KiB, 22 ms |
 | vzip, paged (python) | 1.06 req, 1.3 KiB, 22 ms | 1.55 req, 3.2 KiB, 44 ms | 1.95 req, 4.8 KiB, 44 ms |
-| phkv (rust) | 1.00 req, 2.6 KiB, 21 ms | 1.00 req, 2.6 KiB, 21 ms | 1.34 req, 4.0 KiB, 21 ms |
+| phkv (rust) | 1.00 req, 1.0 KiB, 21 ms | 1.00 req, 1.0 KiB, 21 ms | 1.34 req, 2.4 KiB, 21 ms |
 | hybrid, read as vzip (python) | 1.07 req, 1.3 KiB, 22 ms | 1.54 req, 3.2 KiB, 43 ms | 1.95 req, 4.8 KiB, 44 ms |
-| hybrid, read as phkv (rust) | 2.00 req, 3.2 KiB, 42 ms | 2.00 req, 3.0 KiB, 42 ms | 2.27 req, 4.0 KiB, 42 ms |
+| hybrid, read as phkv (rust) | 2.00 req, 1.0 KiB, 42 ms | 2.00 req, 1.0 KiB, 42 ms | 2.27 req, 2.1 KiB, 42 ms |
 
 ### `list` of the 100 keys under one prefix, on a store opened cold
 
@@ -359,29 +365,29 @@ What the parameters do not fix: `list` still takes one request per page, only fe
 
 | format (reader) | 1,000 | 10,000 | 100,000 |
 |---|---|---|---|
-| vzip (python) | 1 req, 64.0 KiB, 3.15 ms | 2 req, 574.4 KiB, 22 ms | 2 req, 5.6 MiB, 244 ms |
-| vzip, paged (python) | 4 req, 76.0 KiB, 2.17 ms | 4 req, 73.3 KiB, 3.09 ms | 4 req, 83.4 KiB, 10 ms |
-| phkv (rust) | 26 req, 106.6 KiB, 0.04 ms | 26 req, 106.7 KiB, 0.06 ms | 26 req, 106.8 KiB, 0.20 ms |
-| hybrid, read as vzip (python) | 5 req, 76.3 KiB, 2.56 ms | 4 req, 73.3 KiB, 2.87 ms | 4 req, 83.3 KiB, 14 ms |
+| vzip (python) | 1 req, 64.0 KiB, 2.73 ms | 2 req, 574.4 KiB, 24 ms | 2 req, 5.6 MiB, 277 ms |
+| vzip, paged (python) | 4 req, 76.0 KiB, 2.30 ms | 4 req, 73.3 KiB, 2.66 ms | 4 req, 83.4 KiB, 11 ms |
+| phkv (rust) | 26 req, 106.6 KiB, 0.05 ms | 26 req, 106.7 KiB, 0.06 ms | 26 req, 106.8 KiB, 0.23 ms |
+| hybrid, read as vzip (python) | 5 req, 76.3 KiB, 3.39 ms | 4 req, 73.3 KiB, 3.10 ms | 4 req, 83.3 KiB, 11 ms |
 | hybrid, read as phkv (rust) | 2 req, 8.0 KiB, 0.04 ms | 2 req, 8.0 KiB, 0.04 ms | 2 req, 8.0 KiB, 0.04 ms |
 
 **http 0 ms**
 
 | format (reader) | 1,000 | 10,000 | 100,000 |
 |---|---|---|---|
-| vzip (python) | 1 req, 64.0 KiB, 4.25 ms | 2 req, 574.4 KiB, 30 ms | 2 req, 5.6 MiB, 257 ms |
-| vzip, paged (python) | 4 req, 76.0 KiB, 7.89 ms | 4 req, 73.3 KiB, 6.64 ms | 4 req, 83.4 KiB, 14 ms |
-| phkv (rust) | 26 req, 106.6 KiB, 6.75 ms | 26 req, 106.7 KiB, 5.50 ms | 26 req, 106.8 KiB, 6.46 ms |
-| hybrid, read as vzip (python) | 5 req, 76.3 KiB, 8.18 ms | 4 req, 73.3 KiB, 7.19 ms | 4 req, 83.3 KiB, 15 ms |
-| hybrid, read as phkv (rust) | 2 req, 8.0 KiB, 0.71 ms | 2 req, 8.0 KiB, 0.70 ms | 2 req, 8.0 KiB, 0.69 ms |
+| vzip (python) | 1 req, 64.0 KiB, 4.17 ms | 2 req, 574.4 KiB, 29 ms | 2 req, 5.6 MiB, 292 ms |
+| vzip, paged (python) | 4 req, 76.0 KiB, 5.71 ms | 4 req, 73.3 KiB, 6.05 ms | 4 req, 83.4 KiB, 15 ms |
+| phkv (rust) | 26 req, 106.6 KiB, 8.21 ms | 26 req, 106.7 KiB, 6.88 ms | 26 req, 106.8 KiB, 5.51 ms |
+| hybrid, read as vzip (python) | 5 req, 76.3 KiB, 6.30 ms | 4 req, 73.3 KiB, 6.73 ms | 4 req, 83.3 KiB, 16 ms |
+| hybrid, read as phkv (rust) | 2 req, 8.0 KiB, 0.82 ms | 2 req, 8.0 KiB, 0.71 ms | 2 req, 8.0 KiB, 0.69 ms |
 
 **http 20 ms**
 
 | format (reader) | 1,000 | 10,000 | 100,000 |
 |---|---|---|---|
-| vzip (python) | 1 req, 64.0 KiB, 25 ms | 2 req, 574.4 KiB, 78 ms | 2 req, 5.6 MiB, 324 ms |
-| vzip, paged (python) | 4 req, 76.0 KiB, 49 ms | 4 req, 73.3 KiB, 68 ms | 4 req, 83.4 KiB, 77 ms |
-| phkv (rust) | 26 req, 106.6 KiB, 540 ms | 26 req, 106.7 KiB, 542 ms | 26 req, 106.8 KiB, 544 ms |
-| hybrid, read as vzip (python) | 5 req, 76.3 KiB, 68 ms | 4 req, 73.3 KiB, 69 ms | 4 req, 83.3 KiB, 81 ms |
-| hybrid, read as phkv (rust) | 2 req, 8.0 KiB, 41 ms | 2 req, 8.0 KiB, 42 ms | 2 req, 8.0 KiB, 42 ms |
+| vzip (python) | 1 req, 64.0 KiB, 26 ms | 2 req, 574.4 KiB, 78 ms | 2 req, 5.6 MiB, 314 ms |
+| vzip, paged (python) | 4 req, 76.0 KiB, 48 ms | 4 req, 73.3 KiB, 69 ms | 4 req, 83.4 KiB, 80 ms |
+| phkv (rust) | 26 req, 106.6 KiB, 545 ms | 26 req, 106.7 KiB, 544 ms | 26 req, 106.8 KiB, 542 ms |
+| hybrid, read as vzip (python) | 5 req, 76.3 KiB, 68 ms | 4 req, 73.3 KiB, 70 ms | 4 req, 83.3 KiB, 80 ms |
+| hybrid, read as phkv (rust) | 2 req, 8.0 KiB, 42 ms | 2 req, 8.0 KiB, 42 ms | 2 req, 8.0 KiB, 41 ms |
 

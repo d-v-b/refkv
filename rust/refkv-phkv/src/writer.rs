@@ -233,6 +233,7 @@ pub(crate) fn build_tail(input: TailInput, at: u64, d: u64, region_offset: u64, 
         // RECORDS, and the pages over them
         let records_start = pos(&out);
         let mut offsets = Vec::with_capacity(entries.len());
+        let mut lengths = Vec::with_capacity(entries.len());
         let mut pages: Vec<Page> = Vec::new();
         let mut page_start = records_start;
         let mut rec = Vec::new();
@@ -249,6 +250,7 @@ pub(crate) fn build_tail(input: TailInput, at: u64, d: u64, region_offset: u64, 
             rec.clear();
             Record { key: e.key.as_bytes().to_vec(), rank: rank as u64, hidden: e.hidden, value: e.value.clone() }.encode(&mut rec);
             out.extend_from_slice(&rec);
+            lengths.push(rec.len() as u64);
         }
         let records_end = pos(&out);
         if let Some(p) = pages.last_mut() {
@@ -263,7 +265,11 @@ pub(crate) fn build_tail(input: TailInput, at: u64, d: u64, region_offset: u64, 
         align8(&mut out);
         let mut slots = Vec::with_capacity(built.slots.len() * 8);
         for s in &built.slots {
-            slots.extend_from_slice(&s.map_or(format::EMPTY_SLOT, |i| offsets[i as usize]).to_le_bytes());
+            let slot = match s {
+                None => format::EMPTY_SLOT,
+                Some(i) => format::pack_slot(offsets[*i as usize], lengths[*i as usize]).ok_or_else(|| Error::Invalid("a record lies 256 TiB or more into the file".into()))?,
+            };
+            slots.extend_from_slice(&slot.to_le_bytes());
         }
         push(&mut out, &mut dir, section::SLOTS, Codec::None, &slots);
 

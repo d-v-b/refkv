@@ -13,6 +13,23 @@ pub const DIR_ENTRY_SIZE: u64 = 40;
 pub const FLAG_HYBRID: u16 = 1;
 pub const FLAG_MUST_UNDERSTAND: u8 = 1;
 pub const EMPTY_SLOT: u64 = u64::MAX;
+
+/// The bits of a slot that hold its record's offset; the 16 bits above them hold the record's
+/// length, or 0 for a record of 2^16 bytes or more (spec/bindings/phkv.md §18.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#182-slots-section>).
+pub const SLOT_OFFSET_BITS: u32 = 48;
+
+/// A slot for a record at `offset` of `length` bytes; None if the offset does not fit.
+pub fn pack_slot(offset: u64, length: u64) -> Option<u64> {
+    let length = if length < 1 << (64 - SLOT_OFFSET_BITS) { length } else { 0 };
+    (offset < (1 << SLOT_OFFSET_BITS) - 1).then_some(offset | length << SLOT_OFFSET_BITS)
+}
+
+/// A non-empty slot's record offset and length; the length is None when the slot does not give it.
+pub fn unpack_slot(slot: u64) -> (u64, Option<u64>) {
+    let length = slot >> SLOT_OFFSET_BITS;
+    (slot & ((1 << SLOT_OFFSET_BITS) - 1), (length != 0).then_some(length))
+}
 /// The largest reference payload (spec/bindings/phkv.md §19.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#193-reference-records>).
 pub const MAX_PAYLOAD: u64 = 1 << 24;
