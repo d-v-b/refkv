@@ -173,29 +173,107 @@ fn deterministic() {
     assert_eq!(make(), make());
 }
 
+fn writer() -> Writer<Vec<u8>> {
+    Writer::new(Vec::new(), Options::default())
+}
+
 #[test]
-fn writer_rejects() {
-    let mut w = Writer::new(Vec::new(), Options::default());
+fn refuses_a_duplicate_key() {
+    let mut w = writer();
     w.add_bytes("a", b"x").unwrap();
-    assert!(w.add_bytes("a", b"y").is_err(), "duplicate key");
-    assert!(w.add_bytes("", b"y").is_err(), "empty key");
-    assert!(w.url("not a uri").is_err());
-    assert!(w.add_ranges("r", &[Range::of(7, 0, 1)]).is_err(), "unregistered source");
-    assert!(w.set_property("a", "mtime", Prop::U64(1)).is_err(), "registered type");
-    assert!(w.set_property("a", "unregistered", Prop::U64(1)).is_err(), "unregistered name without ':'");
+    assert!(w.add_bytes("a", b"y").is_err());
+}
+
+#[test]
+fn refuses_an_empty_key() {
+    assert!(writer().add_bytes("", b"y").is_err());
+}
+
+#[test]
+fn refuses_an_invalid_url() {
+    assert!(writer().url("not a uri").is_err());
+}
+
+#[test]
+fn refuses_an_unregistered_source() {
+    assert!(writer().add_ranges("r", &[Range::of(7, 0, 1)]).is_err());
+}
+
+#[test]
+fn refuses_a_registered_property_of_the_wrong_type() {
+    let mut w = writer();
+    w.add_bytes("a", b"x").unwrap();
+    assert!(w.set_property("a", "mtime", Prop::U64(1)).is_err());
+}
+
+#[test]
+fn refuses_an_unregistered_property_name_without_a_colon() {
+    let mut w = writer();
+    w.add_bytes("a", b"x").unwrap();
+    assert!(w.set_property("a", "unregistered", Prop::U64(1)).is_err());
+}
+
+#[test]
+fn refuses_a_range_past_the_end_of_a_data_source() {
+    let mut w = writer();
     let blob = w.blob(b"abc").unwrap();
     w.add_ranges("r", &[Range::of(blob, 2, 2)]).unwrap();
-    assert!(w.close().is_err(), "a range past the end of a data source");
+    assert!(w.close().is_err());
+}
 
-    let mut w = Writer::new(Vec::new(), Options::default());
+#[test]
+fn refuses_a_key_source_naming_a_missing_key() {
+    let mut w = writer();
     let k = w.internal("missing").unwrap();
     w.add_ranges("r", &[Range::of(k, 0, 1)]).unwrap();
-    assert!(w.close().is_err(), "a key source naming a missing key");
+    assert!(w.close().is_err());
+}
 
-    let mut w = Writer::new(Vec::new(), Options::default());
+#[test]
+fn refuses_a_property_of_a_missing_key() {
+    let mut w = writer();
     w.set_property("ghost", "mode", Prop::U64(1)).unwrap();
     w.add_bytes("a", b"x").unwrap();
-    assert!(w.close().is_err(), "a property of a missing key");
+    assert!(w.close().is_err());
+}
+
+#[test]
+fn a_file_that_does_not_open_adds_no_key() {
+    let mut w = writer();
+    w.add_bytes("a", b"x").unwrap();
+    assert!(w.add_file("b", std::path::Path::new("/no/such/file")).is_err());
+    // "b" is not in the store: a property of it fails at close, without a panic
+    w.set_property("b", "mode", Prop::U64(1)).unwrap();
+    assert!(w.close().is_err());
+}
+
+#[test]
+fn a_key_whose_file_does_not_open_can_be_added_again() {
+    let mut w = writer();
+    assert!(w.add_file("b", std::path::Path::new("/no/such/file")).is_err());
+    w.add_bytes("b", b"y").unwrap();
+    let s = Store::open(w.close().unwrap()).unwrap();
+    assert_eq!(whole(&s, "b").unwrap(), b"y");
+}
+
+#[test]
+fn a_reference_with_a_duplicate_key_leaves_no_range_to_check() {
+    let mut w = writer();
+    let blob = w.blob(b"abc").unwrap();
+    w.add_bytes("r", b"x").unwrap();
+    // were its range kept, close would find it past the end of the blob
+    assert!(w.add_ranges("r", &[Range::of(blob, 2, 2)]).is_err());
+    let s = Store::open(w.close().unwrap()).unwrap();
+    assert_eq!(whole(&s, "r").unwrap(), b"x");
+}
+
+#[test]
+fn a_reference_with_too_long_a_payload_leaves_no_range_to_check() {
+    let mut w = writer();
+    let blob = w.blob(b"abc").unwrap();
+    let ranges = [Range::literal(vec![0; 1 << 24]), Range::of(blob, 2, 2)];
+    assert!(w.add_ranges("r", &ranges).is_err());
+    w.close().unwrap();
 }
 
 /// The superblock of a store written with D = 0.
@@ -203,47 +281,58 @@ fn superblock(b: &[u8]) -> Superblock {
     Superblock::matching(&b[b.len() - 64..], 0).unwrap()
 }
 
-#[test]
-fn corruption() {
-    let opts = Options { inline_max: 0, ..Options::default() };
-    let build = || write(opts, |w| {
+/// A store of three values written out of line: "a" stored as is (first, at offset 0), "b"
+/// DEFLATE-compressed and "c" Zstandard-compressed.
+fn three_values() -> Vec<u8> {
+    write(Options { inline_max: 0, ..Options::default() }, |w| {
         w.add_bytes_with("a", b"0123456789", Codec::None).unwrap();
         w.add_bytes_with("b", &[7u8; 1000], Codec::Deflate).unwrap();
         w.add_bytes_with("c", &[9u8; 1000], Codec::Zstd).unwrap();
-    });
+    })
+}
 
-    // not a store at all
+#[test]
+fn not_a_store_is_an_archive_error() {
     assert_eq!(Store::open(vec![0u8; 100]).err().unwrap().class, Class::Archive);
-    // the superblock's checksum
-    let mut b = build();
+}
+
+#[test]
+fn a_damaged_superblock_is_an_archive_error() {
+    let mut b = three_values();
     let n = b.len();
     b[n - 30] ^= 1;
     assert_eq!(Store::open(b).err().unwrap().class, Class::Archive);
-    // the directory's checksum
-    let mut b = build();
+}
+
+#[test]
+fn a_damaged_directory_is_an_archive_error() {
+    let mut b = three_values();
     let sb = superblock(&b);
     b[sb.directory_offset as usize + 10] ^= 1;
     assert_eq!(Store::open(b).err().unwrap().class, Class::Archive);
+}
 
-    // a value's bytes: a codec-0 value fails its CRC-32C when read whole, not in part
-    let mut b = build();
-    b[3] ^= 0xff; // "a" is written first, at offset 0
+#[test]
+fn a_damaged_stored_value_fails_its_crc_when_read_whole() {
+    let mut b = three_values();
+    b[3] ^= 0xff;
     let s = Store::open(b).unwrap();
     assert_eq!(s.get("a", Request::Whole, &NoUrls).unwrap_err().class, Class::Body);
+    // a part of it is not checked
     assert_eq!(s.get("a", Request::Range(5, 7), &NoUrls).unwrap().unwrap(), b"56");
     assert_eq!(s.raw("a").unwrap_err().class, Class::Body);
+}
 
-    // compressed values: a damaged stream is a body error, and so is raw's crc only for codec 0
-    let b = build();
-    let s = Store::open(b.clone()).unwrap();
-    let Some(EntryInfo::Bytes { stored_length, .. }) = s.entry_info("b").unwrap() else { panic!() };
+#[test]
+fn a_damaged_compressed_value_is_a_body_error() {
+    let b = three_values();
+    let Some(EntryInfo::Bytes { stored_length, .. }) = Store::open(b.clone()).unwrap().entry_info("b").unwrap() else { panic!() };
     let mut b2 = b.clone();
-    let at = 10 + stored_length as usize - 1; // the last byte of "b"'s DEFLATE stream
-    b2[at] ^= 0xff;
-    let s2 = Store::open(b2).unwrap();
-    assert_eq!(s2.get("b", Request::Range(0, 1), &NoUrls).unwrap_err().class, Class::Body);
-    assert!(s2.raw("b").is_ok(), "raw does not decode");
-    assert_eq!(whole(&s2, "c").unwrap(), vec![9u8; 1000]);
+    b2[10 + stored_length as usize - 1] ^= 0xff; // the last byte of "b"'s DEFLATE stream
+    let s = Store::open(b2).unwrap();
+    assert_eq!(s.get("b", Request::Range(0, 1), &NoUrls).unwrap_err().class, Class::Body);
+    assert!(s.raw("b").is_ok(), "raw does not decode");
+    assert_eq!(whole(&s, "c").unwrap(), vec![9u8; 1000]);
 }
 
 #[test]

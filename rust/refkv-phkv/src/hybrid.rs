@@ -110,20 +110,14 @@ impl<W: Write> HybridWriter<W> {
     /// Writes the archive, with the container last before the central directory.
     pub fn close(self) -> Result<W, Error> {
         let HybridWriter { zip, opts, crcs, props, .. } = self;
-        let mut failure: Option<Error> = None;
-        let mut build = |layout: &Layout| -> Result<Vec<u8>, refkv_vzip::Error> {
-            container(layout, &opts, &crcs, &props).map_err(|e| {
-                let m = e.to_string();
-                failure = Some(e);
-                refkv_vzip::Error::Invalid(m)
+        // the two error types have the same variants, so the container's error passes through whole
+        let mut build = |layout: &Layout| {
+            container(layout, &opts, &crcs, &props).map_err(|e| match e {
+                Error::Invalid(m) => refkv_vzip::Error::Invalid(m),
+                Error::Io(e) => refkv_vzip::Error::Io(e),
             })
         };
-        let r = zip.close_with_trailer(ENTRY_NAME, &mut build);
-        match (r, failure) {
-            (Ok(w), _) => Ok(w),
-            (Err(_), Some(e)) => Err(e),
-            (Err(e), None) => Err(e.into()),
-        }
+        Ok(zip.close_with_trailer(ENTRY_NAME, &mut build)?)
     }
 }
 

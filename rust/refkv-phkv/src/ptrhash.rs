@@ -162,6 +162,7 @@ fn build_part(params: &Params, hashes: &[u64], members: &[u32], base_b: u64) -> 
     let mut evictions = 0u64;
     let limit = 64 * members.len() as u64 + 4096;
     let mut cand: Vec<usize> = Vec::new();
+    let mut sorted: Vec<usize> = Vec::new();
     while let Some((_, std::cmp::Reverse(b))) = queue.pop() {
         let hs = &buckets[b];
         let mut best: Option<(u64, u8)> = None;
@@ -169,7 +170,8 @@ fn build_part(params: &Params, hashes: &[u64], members: &[u32], base_b: u64) -> 
         for pilot in 0..=255u8 {
             cand.clear();
             cand.extend(hs.iter().map(|&h| params.slot_in_part(h, pilot) as usize));
-            if has_duplicate(&mut cand.clone()) {
+            sorted.clone_from(&cand);
+            if has_duplicate(&mut sorted) {
                 continue;
             }
             if cand.iter().all(|&s| taken[s] == u32::MAX) {

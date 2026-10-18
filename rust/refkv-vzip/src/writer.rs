@@ -72,7 +72,7 @@ pub fn deflate(data: &[u8]) -> Vec<u8> {
 }
 
 /// A central directory record to write: name, local header offset, size, compressed size,
-/// method, CRC-32 and extra field.
+/// method, CRC-32, and a reference entry's extra field header ID and payload.
 struct Rec {
     name: String,
     off: u64,
@@ -80,7 +80,14 @@ struct Rec {
     csize: u64,
     method: u16,
     crc: u32,
-    extra: Vec<u8>,
+    payload: Option<(u16, Vec<u8>)>,
+}
+
+impl Rec {
+    /// The length of the reference's extra field, if any: a 4-byte header and the payload.
+    fn extra_len(&self) -> u64 {
+        self.payload.as_ref().map_or(0, |(_, p)| 4 + p.len() as u64)
+    }
 }
 
 /// A source of the table: one interned, or one of `add_url_refs`' (url, size pin).
@@ -231,7 +238,7 @@ impl<W: Write> Writer<W> {
         self.write(&h)
     }
 
-    fn entry(&mut self, name: &str, body: &[u8], extra: Vec<u8>, compress: bool) -> Result<(), Error> {
+    fn entry(&mut self, name: &str, body: &[u8], payload: Option<(u16, Vec<u8>)>, compress: bool) -> Result<(), Error> {
         self.check_new_key(name)?;
         if compress && body.len() as u64 >= U32 {
             return invalid("entries of 4 GiB or more must be STORED (spec/bindings/vzip.md §10.1 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#101-structure> rule 7)");
@@ -251,7 +258,7 @@ impl<W: Write> Writer<W> {
         let off = self.pos;
         self.local_header(name, method, crc, body.len() as u64, stored.len() as u64)?;
         self.write(stored)?;
-        self.cd.push(Rec { name: name.into(), off, size: body.len() as u64, csize: stored.len() as u64, method, crc, extra });
+        self.cd.push(Rec { name: name.into(), off, size: body.len() as u64, csize: stored.len() as u64, method, crc, payload });
         Ok(())
     }
 
@@ -293,7 +300,7 @@ impl<W: Write> Writer<W> {
         if copied != size {
             return invalid(format!("{} changed while it was being added", path.display()));
         }
-        self.cd.push(Rec { name: key.into(), off, size, csize: size, method: 0, crc, extra: Vec::new() });
+        self.cd.push(Rec { name: key.into(), off, size, csize: size, method: 0, crc, payload: None });
         Ok(())
     }
 
@@ -313,7 +320,7 @@ impl<W: Write> Writer<W> {
         if key.starts_with(RESERVED_PREFIX) {
             return invalid(format!("{RESERVED_PREFIX:?} is reserved"));
         }
-        if late { self.defer(key, data, compress) } else { self.entry(key, data, Vec::new(), compress) }
+        if late { self.defer(key, data, compress) } else { self.entry(key, data, None, compress) }
     }
 
     /// Adds an entry outside the Zarr key space, `__vz__/<name>`, and gives its key.
@@ -325,7 +332,7 @@ impl<W: Write> Writer<W> {
         if late {
             self.defer(&key, data, compress)?;
         } else {
-            self.entry(&key, data, Vec::new(), compress)?;
+            self.entry(&key, data, None, compress)?;
         }
         Ok(key)
     }
@@ -366,12 +373,8 @@ impl<W: Write> Writer<W> {
         if payload.len() > MAX_PAYLOAD {
             return invalid("reference payload too large for a zip extra field (spec/bindings/vzip.md §11.3 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#113-reference-entries>)");
         }
-        let mut extra = Vec::with_capacity(4 + payload.len());
-        extra.extend_from_slice(&id.to_le_bytes());
-        extra.extend_from_slice(&(payload.len() as u16).to_le_bytes());
-        extra.extend_from_slice(&payload);
-        let body = if self.opts.mirror_refs { payload } else { Vec::new() };
-        self.entry(key, &body, extra, false)?;
+        let body = if self.opts.mirror_refs { payload.clone() } else { Vec::new() };
+        self.entry(key, &body, Some((id, payload)), false)?;
         self.ref_names.insert(key.to_string());
         Ok(())
     }
@@ -491,7 +494,11 @@ impl<W: Write> Writer<W> {
             extra.extend_from_slice(&(z64.len() as u16).to_le_bytes());
             extra.extend_from_slice(&z64);
         }
-        extra.extend_from_slice(&r.extra);
+        if let Some((id, payload)) = &r.payload {
+            extra.extend_from_slice(&id.to_le_bytes());
+            extra.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+            extra.extend_from_slice(payload);
+        }
         let mut h = Vec::with_capacity(46 + r.name.len() + extra.len());
         h.extend_from_slice(&SIG_CDH.to_le_bytes());
         h.extend_from_slice(&MADE_BY.to_le_bytes());
@@ -523,7 +530,7 @@ impl<W: Write> Writer<W> {
     /// field, and whether it is large or its offset needs ZIP64 (as [`Self::cd_record`] writes it).
     fn cd_record_len(r: &Rec) -> u64 {
         let z64 = if is_large(r.size, r.csize) { 16 } else { 0 } + if r.off >= U32 { 8 } else { 0 };
-        46 + r.name.len() as u64 + r.extra.len() as u64 + if z64 > 0 { 4 + z64 } else { 0 }
+        46 + r.name.len() as u64 + r.extra_len() + if z64 > 0 { 4 + z64 } else { 0 }
     }
 
     /// The page index over the central directory's body records (every entry's but the format
@@ -574,14 +581,14 @@ impl<W: Write> Writer<W> {
             })
             .collect();
         let table = pb::encode_source_table(&table, Some(SPEC_REVISION));
-        self.entry(SOURCES_KEY, &table, Vec::new(), true)?;
+        self.entry(SOURCES_KEY, &table, None, true)?;
         let mut comment = MAGIC_COMMENT.to_vec();
         let (o, n) = self.last_body();
         comment.extend_from_slice(&o.to_le_bytes());
         comment.extend_from_slice(&n.to_le_bytes());
         let mut pinned = Vec::new();
         for (key, data, compress) in std::mem::take(&mut self.late) {
-            self.entry(&key, &data, Vec::new(), compress)?;
+            self.entry(&key, &data, None, compress)?;
             let r = self.cd.last().unwrap();
             let (size, csize, method) = (r.size, r.csize, r.method);
             pinned.push(Pinned { key, data_offset: self.last_body().0, size, csize, method: method as u32 });
@@ -609,14 +616,14 @@ impl<W: Write> Writer<W> {
                 Rec { off: body_offset - lfh, ..self.trailer_rec(key, len) }
             });
             let index = self.encode_index(page_size, &pinned, extra.as_ref());
-            self.entry(INDEX_KEY, &index, Vec::new(), true)?;
+            self.entry(INDEX_KEY, &index, None, true)?;
             let (o, n) = self.last_body();
             comment.extend_from_slice(&o.to_le_bytes());
             comment.extend_from_slice(&n.to_le_bytes());
         }
         let expected_end = match trailer_entry {
             Some((key, body)) => {
-                self.entry(&key, &body.0, Vec::new(), false)?;
+                self.entry(&key, &body.0, None, false)?;
                 if self.last_body().0 != body.1 {
                     return invalid(format!("{key:?}: its body is at {}, not where it was built for", self.last_body().0));
                 }
@@ -674,7 +681,7 @@ impl<W: Write> Writer<W> {
 
     /// The central directory record a trailer entry of `len` bytes will have, written next.
     fn trailer_rec(&self, key: &str, len: u64) -> Rec {
-        Rec { name: key.into(), off: 0, size: len, csize: len, method: 0, crc: 0, extra: Vec::new() }
+        Rec { name: key.into(), off: 0, size: len, csize: len, method: 0, crc: 0, payload: None }
     }
 
     /// The trailer's body, built for the layout it will have: (body, its offset, the bytes after
@@ -693,7 +700,7 @@ impl<W: Write> Writer<W> {
             if let Some(page_size) = self.opts.page_size {
                 let index = self.encode_index(page_size, pinned, Some(&placeholder));
                 let csize = deflate(&index).len() as u64;
-                let rec = Rec { name: INDEX_KEY.into(), off: at, size: index.len() as u64, csize, method: 8, crc: 0, extra: Vec::new() };
+                let rec = Rec { name: INDEX_KEY.into(), off: at, size: index.len() as u64, csize, method: 8, crc: 0, payload: None };
                 entries.push(layout_of(&rec));
                 at += LFH_SIZE + INDEX_KEY.len() as u64 + csize;
                 index_rec = Some(rec);
@@ -746,10 +753,5 @@ pub struct Layout<'a> {
 
 fn layout_of(r: &Rec) -> EntryLayout {
     let body_offset = r.off + LFH_SIZE + r.name.len() as u64 + if is_large(r.size, r.csize) { 20 } else { 0 };
-    let payload = (r.extra.len() >= 4).then(|| {
-        let id = u16::from_le_bytes([r.extra[0], r.extra[1]]);
-        let n = u16::from_le_bytes([r.extra[2], r.extra[3]]) as usize;
-        (id, r.extra[4..4 + n].to_vec())
-    });
-    EntryLayout { name: r.name.clone(), body_offset, size: r.size, csize: r.csize, method: r.method, payload }
+    EntryLayout { name: r.name.clone(), body_offset, size: r.size, csize: r.csize, method: r.method, payload: r.payload.clone() }
 }

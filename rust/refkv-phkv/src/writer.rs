@@ -97,14 +97,15 @@ impl Sources {
         if ranges.iter().try_fold(0u64, |n, r| n.checked_add(r.size())).is_none() {
             return invalid(format!("the reference {key:?} exceeds 2^64 - 1 bytes"));
         }
+        let (kind, payload) = if ranges.len() == 1 { (format::KIND_RANGE, ranges[0].encode()) } else { (format::KIND_CONCAT, pb::encode_concat(ranges)) };
+        if payload.len() as u64 > format::MAX_PAYLOAD {
+            return invalid(format!("the payload of {key:?} exceeds 2^24 bytes"));
+        }
+        // only a reference the writer takes leaves ranges to check at close
         for r in ranges {
             if r.data.is_none() && self.table[r.source as usize].url_str().is_none() {
                 self.range_checks.push((key.to_string(), r.clone()));
             }
-        }
-        let (kind, payload) = if ranges.len() == 1 { (format::KIND_RANGE, ranges[0].encode()) } else { (format::KIND_CONCAT, pb::encode_concat(ranges)) };
-        if payload.len() as u64 > format::MAX_PAYLOAD {
-            return invalid(format!("the payload of {key:?} exceeds 2^24 bytes"));
         }
         Ok((kind, payload))
     }
@@ -358,15 +359,21 @@ impl<W: Write> Writer<W> {
         Ok(())
     }
 
-    fn new_key(&mut self, key: &str) -> Result<(), Error> {
+    /// Fails for a key the store cannot take. A key is registered only by `push`, once its value
+    /// is written, so a failed add leaves no key behind.
+    fn check_key(&self, key: &str) -> Result<(), Error> {
         if key.is_empty() {
             return invalid("empty key");
         }
         if self.names.contains_key(key) {
             return invalid(format!("duplicate key {key:?}"));
         }
-        self.names.insert(key.to_string(), self.entries.len());
         Ok(())
+    }
+
+    fn push(&mut self, entry: Entry) {
+        self.names.insert(entry.key.clone(), self.entries.len());
+        self.entries.push(entry);
     }
 
     /// Adds a bytes value, stored with the options' codec.
@@ -376,7 +383,7 @@ impl<W: Write> Writer<W> {
 
     /// Adds a bytes value, stored with `codec`: inline if short enough, else written now.
     pub fn add_bytes_with(&mut self, key: &str, data: &[u8], codec: Codec) -> Result<(), Error> {
-        self.new_key(key)?;
+        self.check_key(key)?;
         let stored = format::encode(codec, data);
         let crc = self.opts.crc32c.then(|| format::crc32c(data));
         let stored_length = stored.len() as u64;
@@ -387,15 +394,16 @@ impl<W: Write> Writer<W> {
             self.write(&stored)?;
             Stored::At(at)
         };
-        self.entries.push(Entry { key: key.into(), hidden: false, value: Value::Bytes { codec, stored: at, stored_length, size: data.len() as u64, crc32c: crc } });
+        self.push(Entry { key: key.into(), hidden: false, value: Value::Bytes { codec, stored: at, stored_length, size: data.len() as u64, crc32c: crc } });
         Ok(())
     }
 
-    /// Adds the bytes of the file at `path`, uncompressed, streaming it.
+    /// Adds the bytes of the file at `path`, uncompressed, streaming it. If reading fails partway,
+    /// the bytes already written stay in the output, and no key refers to them.
     pub fn add_file(&mut self, key: &str, path: &Path) -> Result<(), Error> {
-        self.new_key(key)?;
-        let at = self.pos;
+        self.check_key(key)?;
         let mut f = std::fs::File::open(path)?;
+        let at = self.pos;
         let mut buf = vec![0u8; 1 << 24];
         let mut crc = 0u32;
         loop {
@@ -408,15 +416,15 @@ impl<W: Write> Writer<W> {
         }
         let size = self.pos - at;
         let crc = self.opts.crc32c.then_some(crc);
-        self.entries.push(Entry { key: key.into(), hidden: false, value: Value::Bytes { codec: Codec::None, stored: Stored::At(at), stored_length: size, size, crc32c: crc } });
+        self.push(Entry { key: key.into(), hidden: false, value: Value::Bytes { codec: Codec::None, stored: Stored::At(at), stored_length: size, size, crc32c: crc } });
         Ok(())
     }
 
     /// Adds a reference whose value is the concatenation of `ranges`.
     pub fn add_ranges(&mut self, key: &str, ranges: &[Range]) -> Result<(), Error> {
+        self.check_key(key)?;
         let (kind, payload) = self.sources.reference(key, ranges)?;
-        self.new_key(key)?;
-        self.entries.push(Entry { key: key.into(), hidden: false, value: Value::Reference { kind, payload } });
+        self.push(Entry { key: key.into(), hidden: false, value: Value::Reference { kind, payload } });
         Ok(())
     }
 
@@ -454,7 +462,13 @@ impl<W: Write> Writer<W> {
             0,
         )?;
         self.write(&tail.bytes)?;
-        self.write(&vec![0u8; self.opts.distance as usize])?;
+        let zeros = [0u8; 1 << 16];
+        let mut left = self.opts.distance;
+        while left > 0 {
+            let n = left.min(zeros.len() as u64) as usize;
+            self.write(&zeros[..n])?;
+            left -= n as u64;
+        }
         self.w.flush()?;
         Ok(self.w)
     }

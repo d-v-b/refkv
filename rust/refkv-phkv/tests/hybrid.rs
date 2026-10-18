@@ -139,14 +139,22 @@ fn deterministic() {
 }
 
 #[test]
-fn refuses() {
+fn refuses_reference_bodies_without_payloads() {
     let zip = refkv_vzip::Options { mirror_refs: false, page_size: None };
-    assert!(HybridWriter::new(Vec::new(), zip, Options::default()).is_err(), "mirror_refs");
-    let zip = refkv_vzip::Options::default();
-    let mut w = HybridWriter::new(Vec::new(), zip, Options::default()).unwrap();
+    assert!(HybridWriter::new(Vec::new(), zip, Options::default()).is_err());
+}
+
+#[test]
+fn refuses_the_containers_own_hidden_name() {
+    let mut w = HybridWriter::new(Vec::new(), refkv_vzip::Options::default(), Options::default()).unwrap();
     assert!(w.add_hidden("phkv", b"x", false, false).is_err());
+}
+
+#[test]
+fn refuses_a_property_of_a_missing_key() {
+    let mut w = HybridWriter::new(Vec::new(), refkv_vzip::Options::default(), Options::default()).unwrap();
     w.set_property("ghost", "mode", Prop::U64(1)).unwrap();
-    assert!(w.close().is_err(), "a property of a missing key");
+    assert!(w.close().is_err());
 }
 
 #[test]

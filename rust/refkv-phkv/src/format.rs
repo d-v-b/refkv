@@ -194,13 +194,7 @@ pub fn crc32c(b: &[u8]) -> u32 {
 
 // ---------------------------------------------------------------- varints
 
-pub fn put_varint(out: &mut Vec<u8>, mut v: u64) {
-    while v >= 0x80 {
-        out.push((v as u8) | 0x80);
-        v >>= 7;
-    }
-    out.push(v as u8);
-}
+pub use refkv_vzip::pb::put_varint;
 
 /// A cursor over bytes being decoded; every read fails with a message on truncation.
 pub struct Cur<'a> {
@@ -218,19 +212,7 @@ impl<'a> Cur<'a> {
     }
 
     pub fn varint(&mut self) -> Result<u64, String> {
-        let mut v: u64 = 0;
-        for i in 0..10 {
-            let byte = *self.b.get(self.pos).ok_or("truncated varint")?;
-            self.pos += 1;
-            if i == 9 && byte > 1 {
-                return Err("varint exceeds 2^64 - 1".into());
-            }
-            v |= ((byte & 0x7f) as u64) << (7 * i);
-            if byte < 0x80 {
-                return Ok(v);
-            }
-        }
-        Err("varint longer than 10 bytes".into())
+        refkv_vzip::pb::get_varint(self.b, &mut self.pos).map_err(|e| e.0)
     }
 
     pub fn u8(&mut self) -> Result<u8, String> {
@@ -773,17 +755,6 @@ pub fn decode_metadata(b: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn varints() {
-        for v in [0, 1, 127, 128, 300, u32::MAX as u64, u64::MAX] {
-            let mut b = Vec::new();
-            put_varint(&mut b, v);
-            assert_eq!(Cur::new(&b).varint().unwrap(), v);
-        }
-        assert!(Cur::new(&[0xff; 10]).varint().is_err());
-        assert!(Cur::new(&[0x80]).varint().is_err());
-    }
 
     #[test]
     fn records_round_trip() {

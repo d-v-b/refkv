@@ -145,9 +145,6 @@ fn origin(url: &str) -> Option<&str> {
     Some(&url[..end])
 }
 
-/// Writes the archive at `path` (`ReferenceStore.save`), after checking every url source, resolved
-/// against the archive's own URI, against the reader policy: a source a reader under it could not
-/// read refuses the whole archive, and nothing is written.
 /// What `convert` writes: a vzip archive, a standalone phkv store, or a vzip archive with a phkv
 /// container in `__vz__/phkv` (spec/bindings/phkv.md §16.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#162-profiles>).
@@ -170,6 +167,9 @@ impl Container {
     }
 }
 
+/// Writes the archive at `path` (`ReferenceStore.save`), after checking every url source, resolved
+/// against the archive's own URI, against the reader policy: a source a reader under it could not
+/// read refuses the whole archive, and nothing is written.
 pub fn save(a: &Archive, path: &str, policy: &Policy, container: Container) -> Result<(), Fail> {
     let base = refkv_vzip::uri::file_uri(std::path::Path::new(path)).map_err(Fail::Other)?;
     let mut by_origin: HashMap<String, Option<String>> = HashMap::new();
@@ -434,6 +434,74 @@ mod tests {
         let path = dir.join("a.vzip").to_string_lossy().into_owned();
         let a = Archive { sources: vec![], refs: vec![("k".into(), vec![Range::literal(vec![1])])], entries: vec![("k".into(), vec![], false)] };
         assert!(matches!(save(&a, &path, &Policy::default(), Container::Vzip), Err(Fail::Other(_))));
+        assert!(!std::path::Path::new(&path).exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The archive the container tests write: a reference to a url source, a value written
+    /// compressed, and a late document.
+    fn small_archive() -> Archive {
+        Archive {
+            sources: vec![Source { size: Some(100), ..Source::url("https://example.org/o.bin") }],
+            refs: vec![("c/0".into(), vec![Range::of(0, 10, 20)])],
+            entries: vec![("c/1".into(), vec![7; 1000], false), ("zarr.json".into(), b"{}".to_vec(), true)],
+        }
+    }
+
+    /// Saves `a` as `container` in a new directory, and gives the directory and the file's path.
+    fn save_in_dir(name: &str, a: &Archive, container: Container) -> (std::path::PathBuf, String, Result<(), Fail>) {
+        let dir = std::env::temp_dir().join(format!("refkv-cli-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.out").to_string_lossy().into_owned();
+        let r = save(a, &path, &Policy::default(), container);
+        (dir, path, r)
+    }
+
+    /// Reads `path` back with the phkv reader, and checks it holds `small_archive`, the values
+    /// with `codec`, and the late document as it is.
+    fn check_phkv(path: &str, codec: refkv_phkv::Codec) {
+        let s = refkv_phkv::Store::open(File::open(path).unwrap()).unwrap();
+        assert_eq!(s.list("").unwrap(), ["c/0", "c/1", "zarr.json"]);
+        assert_eq!(s.classify("c/0").unwrap(), Some(refkv_phkv::Kind::Reference));
+        assert_eq!(s.sources()[0], Source { size: Some(100), ..Source::url("https://example.org/o.bin") });
+        let get = |k| s.get(k, refkv_phkv::Request::Whole, &refkv_phkv::NoUrls).unwrap().unwrap();
+        assert_eq!(get("c/1"), vec![7; 1000]);
+        assert_eq!(get("zarr.json"), b"{}");
+        let info = |k| match s.entry_info(k).unwrap() {
+            Some(refkv_phkv::EntryInfo::Bytes { codec, .. }) => codec,
+            _ => panic!("{k} is not a bytes entry"),
+        };
+        assert_eq!(info("c/1"), codec);
+        assert_eq!(info("zarr.json"), refkv_phkv::Codec::None);
+    }
+
+    #[test]
+    fn saves_a_standalone_phkv_store() {
+        let (dir, path, r) = save_in_dir("phkv", &small_archive(), Container::Phkv);
+        r.unwrap();
+        check_phkv(&path, refkv_phkv::Codec::Zstd);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn saves_a_hybrid_store() {
+        let mut a = small_archive();
+        a.entries.push((format!("{RESERVED_PREFIX}extra"), b"x".to_vec(), false));
+        let (dir, path, r) = save_in_dir("hybrid", &a, Container::Hybrid);
+        r.unwrap();
+        check_phkv(&path, refkv_phkv::Codec::Deflate);
+        // the hidden entry is in the archive, but not in the store's mapping
+        let s = refkv_phkv::Store::open(File::open(&path).unwrap()).unwrap();
+        assert_eq!(s.classify(&format!("{RESERVED_PREFIX}extra")).unwrap(), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn refuses_a_hidden_entry_in_a_standalone_phkv_store() {
+        let mut a = small_archive();
+        a.entries.push((format!("{RESERVED_PREFIX}extra"), b"x".to_vec(), false));
+        let (dir, path, r) = save_in_dir("phkv-hidden", &a, Container::Phkv);
+        assert!(matches!(r, Err(Fail::Other(_))));
         assert!(!std::path::Path::new(&path).exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
