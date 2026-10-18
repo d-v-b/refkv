@@ -17,7 +17,8 @@
 
 use crate::format::{self, section, Codec, DirEntry, Page, Prop, Record, Stored, Superblock, Value};
 use crate::{ptrhash, Error};
-use refkv_vzip::pb::{self, Range, Source, SourceKind};
+use refkv_vzip::pb::{self, Range, Source};
+use refkv_vzip::sources::{Keys, SourceTable};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
 use std::path::Path;
@@ -51,94 +52,33 @@ impl Default for Options {
     }
 }
 
-/// Interns sources, and checks the requirements of spec/refkv.md §7
-/// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing> that concern them.
-#[derive(Default)]
-pub(crate) struct Sources {
-    pub table: Vec<Source>,
-    interned: HashMap<Source, u32>,
-    /// (key, range) of every source range of a `key` or `data` source, checked at close
-    range_checks: Vec<(String, Range)>,
+/// The store's keys, as the source table's checks see them: a `key` source must name a bytes value,
+/// whose ranges are checked against its size.
+struct StoreKeys<'a> {
+    entries: &'a [Entry],
+    names: &'a HashMap<String, usize>,
 }
 
-impl Sources {
-    pub fn add(&mut self, src: Source) -> Result<u32, Error> {
-        if let Some(&i) = self.interned.get(&src) {
-            return Ok(i);
-        }
-        src.check().map_err(Error::Invalid)?;
-        if let Some(u) = src.url_str()
-            && (u.is_empty() || !refkv_vzip::uri::is_uri_reference(u))
-        {
-            return invalid(format!("empty or invalid url source {u:?}"));
-        }
-        if matches!(&src.kind, SourceKind::Key(k) if k.is_empty()) {
-            return invalid("empty key source");
-        }
-        let i = u32::try_from(self.table.len()).or_else(|_| invalid("more than 2^32 sources"))?;
-        self.interned.insert(src.clone(), i);
-        self.table.push(src);
-        Ok(i)
+impl StoreKeys<'_> {
+    fn value(&self, key: &str) -> Option<&Value> {
+        self.names.get(key).map(|&i| &self.entries[i].value)
+    }
+}
+
+impl Keys for StoreKeys<'_> {
+    fn has(&self, key: &str) -> bool {
+        self.names.contains_key(key)
     }
 
-    /// The payload of a reference made of `ranges`, and its kind (1: a Range, 2: a Concat).
-    pub fn reference(&mut self, key: &str, ranges: &[Range]) -> Result<(u8, Vec<u8>), Error> {
-        for r in ranges {
-            if r.data.is_none() && r.source as usize >= self.table.len() {
-                return invalid(format!("range of {key:?} uses unregistered source {}", r.source));
-            }
-            if r.data.is_some() && r.crc32c.is_some() {
-                return invalid(format!("literal range of {key:?} with a crc32c"));
-            }
-            if r.offset.checked_add(r.length).is_none() {
-                return invalid(format!("a range of {key:?}: offset + length exceeds 2^64 - 1"));
-            }
-        }
-        if ranges.iter().try_fold(0u64, |n, r| n.checked_add(r.size())).is_none() {
-            return invalid(format!("the reference {key:?} exceeds 2^64 - 1 bytes"));
-        }
-        let (kind, payload) = if ranges.len() == 1 { (format::KIND_RANGE, ranges[0].encode()) } else { (format::KIND_CONCAT, pb::encode_concat(ranges)) };
-        if payload.len() as u64 > format::MAX_PAYLOAD {
-            return invalid(format!("the payload of {key:?} exceeds 2^24 bytes"));
-        }
-        // only a reference the writer takes leaves ranges to check at close
-        for r in ranges {
-            if r.data.is_none() && self.table[r.source as usize].url_str().is_none() {
-                self.range_checks.push((key.to_string(), r.clone()));
-            }
-        }
-        Ok((kind, payload))
+    fn is_ref(&self, key: &str) -> bool {
+        matches!(self.value(key), Some(Value::Reference { .. }))
     }
 
-    /// The checks that need every key: `key` sources name present bytes keys, and ranges of `key`
-    /// and `data` sources lie within them. `bytes` gives each bytes key's size; `refs` says which
-    /// keys are references.
-    pub fn check(&self, bytes: &HashMap<&str, u64>, is_ref: impl Fn(&str) -> bool) -> Result<(), Error> {
-        for s in &self.table {
-            if let SourceKind::Key(k) = &s.kind {
-                if is_ref(k) {
-                    return invalid(format!("key source {k:?} names a reference"));
-                }
-                if !bytes.contains_key(k.as_str()) {
-                    return invalid(format!("key source {k:?} names a missing key"));
-                }
-            }
+    fn size(&self, key: &str) -> Option<u64> {
+        match self.value(key) {
+            Some(Value::Bytes { size, .. }) => Some(*size),
+            _ => None,
         }
-        for (key, r) in &self.range_checks {
-            let n = match &self.table[r.source as usize].kind {
-                SourceKind::Data(d) => d.len() as u64,
-                SourceKind::Key(k) => bytes[k.as_str()],
-                SourceKind::Url(_) => continue,
-            };
-            if r.offset.checked_add(r.length).is_none_or(|e| e > n) {
-                return invalid(format!("{key:?}: range [{}, {}) is past the end of source {} ({n} bytes)", r.offset, r.offset as u128 + r.length as u128, r.source));
-            }
-        }
-        Ok(())
-    }
-
-    pub fn encode(&self) -> Vec<u8> {
-        pb::encode_source_table(&self.table, Some(refkv_vzip::SPEC_REVISION))
     }
 }
 
@@ -203,7 +143,7 @@ pub(crate) struct Tail {
 
 pub(crate) struct TailInput<'a> {
     pub entries: &'a mut Vec<Entry>,
-    pub sources: &'a Sources,
+    pub sources: &'a SourceTable,
     pub sources_section: Option<DirEntry>,
     pub props: &'a Props,
     pub opts: &'a Options,
@@ -327,18 +267,18 @@ pub struct Writer<W: Write> {
     opts: Options,
     entries: Vec<Entry>,
     names: HashMap<String, usize>,
-    sources: Sources,
+    sources: SourceTable,
     props: Props,
 }
 
 impl<W: Write> Writer<W> {
     pub fn new(w: W, opts: Options) -> Writer<W> {
-        Writer { w, pos: 0, opts, entries: Vec::new(), names: HashMap::new(), sources: Sources::default(), props: Props::default() }
+        Writer { w, pos: 0, opts, entries: Vec::new(), names: HashMap::new(), sources: SourceTable::default(), props: Props::default() }
     }
 
     /// Interns `src` into the source table, and gives its index for `Range::source`.
     pub fn source(&mut self, src: Source) -> Result<u32, Error> {
-        self.sources.add(src)
+        Ok(self.sources.add(src)?)
     }
 
     pub fn url(&mut self, url: &str) -> Result<u32, Error> {
@@ -423,7 +363,13 @@ impl<W: Write> Writer<W> {
     /// Adds a reference whose value is the concatenation of `ranges`.
     pub fn add_ranges(&mut self, key: &str, ranges: &[Range]) -> Result<(), Error> {
         self.check_key(key)?;
-        let (kind, payload) = self.sources.reference(key, ranges)?;
+        self.sources.check_ranges(key, ranges)?;
+        let (kind, payload) = if ranges.len() == 1 { (format::KIND_RANGE, ranges[0].encode()) } else { (format::KIND_CONCAT, pb::encode_concat(ranges)) };
+        if payload.len() as u64 > format::MAX_PAYLOAD {
+            return invalid(format!("the payload of {key:?} exceeds 2^24 bytes"));
+        }
+        // only a reference the writer takes leaves ranges to check at close
+        self.sources.keep(key, ranges);
         self.push(Entry { key: key.into(), hidden: false, value: Value::Reference { kind, payload } });
         Ok(())
     }
@@ -443,15 +389,8 @@ impl<W: Write> Writer<W> {
         if !format::probe_distances().any(|d| d == self.opts.distance) {
             return invalid(format!("{} is not a probe distance", self.opts.distance));
         }
-        let bytes: HashMap<&str, u64> = self
-            .entries
-            .iter()
-            .filter_map(|e| match &e.value {
-                Value::Bytes { size, .. } => Some((e.key.as_str(), *size)),
-                _ => None,
-            })
-            .collect();
-        self.sources.check(&bytes, |k| self.names.get(k).is_some_and(|&i| matches!(self.entries[i].value, Value::Reference { .. })))?;
+        // a standalone store reserves no names
+        self.sources.check(&StoreKeys { entries: &self.entries, names: &self.names }, &[])?;
         self.props.check_keys(|k| self.names.contains_key(k))?;
         let at = self.pos;
         let tail = build_tail(

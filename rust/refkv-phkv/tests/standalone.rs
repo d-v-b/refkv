@@ -191,7 +191,37 @@ fn refuses_an_empty_key() {
 
 #[test]
 fn refuses_an_invalid_url() {
-    assert!(writer().url("not a uri").is_err());
+    let mut w = writer();
+    w.url("not a uri").unwrap(); // checked at close, as the vzip writer does
+    assert!(w.close().is_err());
+}
+
+#[test]
+fn refuses_an_empty_key_source() {
+    let mut w = writer();
+    w.internal("").unwrap();
+    assert!(w.close().is_err());
+}
+
+#[test]
+fn refuses_a_key_source_naming_a_reference() {
+    let mut w = writer();
+    let blob = w.blob(b"abc").unwrap();
+    w.add_ranges("r", &[Range::of(blob, 0, 1)]).unwrap();
+    let r = w.internal("r").unwrap();
+    w.add_ranges("s", &[Range::of(r, 0, 1)]).unwrap();
+    assert!(w.close().is_err());
+}
+
+#[test]
+fn takes_a_key_source_named_like_a_vzip_format_entry() {
+    // a standalone store reserves no names
+    let mut w = writer();
+    w.add_bytes("__vz__/sources", b"abc").unwrap();
+    let k = w.internal("__vz__/sources").unwrap();
+    w.add_ranges("r", &[Range::of(k, 1, 2)]).unwrap();
+    let s = Store::open(w.close().unwrap()).unwrap();
+    assert_eq!(whole(&s, "r").unwrap(), b"bc");
 }
 
 #[test]
