@@ -413,6 +413,7 @@ impl<R: ReadAt> Store<R> {
         };
         let (mut records, mut slots, mut hash, mut pages) = ((0, 0), 0, None, Vec::new());
         let mut slots_buf = None;
+        let mut slot_blocks = HashMap::new();
         if n > 0 {
             let rec = one[section::RECORDS as usize].unwrap();
             records = (rec.offset, rec.offset + rec.length);
@@ -437,11 +438,27 @@ impl<R: ReadAt> Store<R> {
             slots = sl.offset;
             if slots_whole {
                 slots_buf = Some(read(sl.offset, sl.length)?);
+            } else if limits.slot_block > 8 {
+                // the whole blocks of SLOTS that the first read, or the window before a hybrid
+                // superblock, already holds are kept, as if a lookup had read them
+                let block = limits.slot_block & !7;
+                let w = window.borrow();
+                for (at, held) in [(tail_at, &tail[..]), (w.0, &w.1[..])] {
+                    let held_end = at + held.len() as u64;
+                    let first = at.saturating_sub(sl.offset).div_ceil(block);
+                    for i in first..sl.length.div_ceil(block) {
+                        let (start, len) = (sl.offset + i * block, block.min(sl.length - i * block));
+                        if start < at || start + len > held_end {
+                            break;
+                        }
+                        slot_blocks.entry(i).or_insert_with(|| held[(start - at) as usize..(start - at + len) as usize].to_vec());
+                    }
+                }
             }
             hash = Some((params, pilots));
             pages = format::decode_pages(&whole(&one[section::PAGES as usize].unwrap())?, records.0, records.1).map_err(|m| archive(format!("PAGES: {m}")))?;
         }
-        Ok(Store { r, file_size, sb, limits, sources, revision, metadata, records, slots, slots_buf, slot_blocks: Mutex::default(), hash, pages, property_entries, properties: OnceLock::new() })
+        Ok(Store { r, file_size, sb, limits, sources, revision, metadata, records, slots, slots_buf, slot_blocks: Mutex::new(slot_blocks), hash, pages, property_entries, properties: OnceLock::new() })
     }
 
     /// The store's file.
@@ -494,7 +511,13 @@ impl<R: ReadAt> Store<R> {
         if off < start || off >= end {
             return err(Class::Entry, format!("a slot points at {off}, outside RECORDS [{start}, {end})"));
         }
-        let mut b = self.read(off, self.limits.record_read.min(end - off), Class::Entry)?;
+        // a page holds whole records, so a record ends at the end of its page or before
+        let page_end = match self.pages.partition_point(|p| p.offset <= off) {
+            0 => end,
+            i => (self.pages[i - 1].offset + self.pages[i - 1].length).min(end),
+        };
+        let first = self.limits.record_read.min(if off < page_end { page_end - off } else { end - off });
+        let mut b = self.read(off, first, Class::Entry)?;
         loop {
             let len = b.len() as u64;
             match format::parse_record(&b, self.sb.hybrid()).map_err(|m| ReadError { class: Class::Entry, message: format!("record at {off}: {m}") })? {

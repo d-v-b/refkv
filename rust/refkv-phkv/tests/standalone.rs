@@ -370,7 +370,8 @@ fn slots_read_in_blocks() {
         }
     });
     // 3,000 keys have a little over 3,000 slots: 24 KiB, six blocks of 4 KiB
-    let limits = refkv_phkv::Limits { slot_block: 4096, record_read: 512, ..Default::default() };
+    // a first read too short to hold any of SLOTS, so lookups read every block
+    let limits = refkv_phkv::Limits { slot_block: 4096, record_read: 512, tail: 4096, ..Default::default() };
     let s = Store::open_with(Logging(b, Default::default()), limits).unwrap();
     s.reader().1.borrow_mut().clear();
     for i in 0..3000 {
@@ -384,4 +385,48 @@ fn slots_read_in_blocks() {
     assert_eq!(blocks.len(), 6, "{blocks:?}");
     assert!(blocks.iter().all(|r| r.1 <= 4096));
     assert_eq!(reads.len(), 3000 + 6);
+}
+
+#[test]
+fn the_first_read_supplies_slot_blocks() {
+    // 20,000 keys have about 160 KiB of slots, followed by PAGES and PTRHASH: a first read of 128 KiB
+    // holds the end of SLOTS
+    let b = write(Options::default(), |w| {
+        for i in 0..20_000 {
+            w.add_bytes(&format!("k/{i:05}"), b"v").unwrap();
+        }
+    });
+    let limits = refkv_phkv::Limits { tail: 128 << 10, record_read: 512, ..Default::default() };
+    let s = Store::open_with(Logging(b, Default::default()), limits).unwrap();
+    let opened = s.reader().1.borrow().clone();
+    s.reader().1.borrow_mut().clear();
+    for i in 0..20_000 {
+        assert_eq!(whole_in(&s, &format!("k/{i:05}")).unwrap(), b"v");
+    }
+    let reads = s.reader().1.borrow().clone();
+    let blocks = reads.iter().filter(|r| r.1 == 4096 || (r.1 > 512 && r.1 < 4096)).count();
+    let slot_blocks = 160_000u64.div_ceil(4096) as usize;
+    // a record read per key; the blocks the first read did not hold, each once
+    assert_eq!(reads.len(), 20_000 + blocks, "opened with {opened:?}");
+    assert!(blocks > 0 && blocks < slot_blocks, "{blocks} blocks read of about {slot_blocks}");
+}
+
+#[test]
+fn a_record_read_stops_at_the_end_of_its_page() {
+    let b = write(Options { page_size: 1024, ..Options::default() }, |w| {
+        for i in 0..5000 {
+            w.add_bytes(&format!("k/{i:05}"), &[i as u8; 200]).unwrap();
+        }
+    });
+    // a first read of a record far longer than a page
+    let limits = refkv_phkv::Limits { record_read: 1 << 20, slot_block: 0, ..Default::default() };
+    let s = Store::open_with(Logging(b, Default::default()), limits).unwrap();
+    s.reader().1.borrow_mut().clear();
+    for i in (0..5000).step_by(13) {
+        assert_eq!(whole_in(&s, &format!("k/{i:05}")).unwrap(), vec![i as u8; 200]);
+    }
+    let reads = s.reader().1.borrow().clone();
+    // a slot read (8 bytes) and one record read, no longer than a page and its last record, per key
+    assert_eq!(reads.len(), 2 * 5000usize.div_ceil(13));
+    assert!(reads.iter().all(|r| r.1 == 8 || r.1 <= 1024 + 300), "{:?}", reads.iter().map(|r| r.1).max());
 }
