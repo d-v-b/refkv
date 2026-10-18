@@ -127,8 +127,9 @@ impl<W: Write> HybridWriter<W> {
     }
 }
 
-/// The body of `__vz__/phkv` for the archive's layout: the container, then zero bytes up to the
-/// probe distance its superblock is at.
+/// The body of `__vz__/phkv` for the archive's layout: the container, ending with the superblock,
+/// which is where the central directory starts (spec/bindings/phkv.md §21
+/// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#21-hybrid-profile>).
 fn container(layout: &Layout, opts: &Options, crcs: &HashMap<String, u32>, props: &Props) -> Result<Vec<u8>, Error> {
     let mut entries: Vec<Entry> = Vec::with_capacity(layout.entries.len());
     let mut sources_section = None;
@@ -162,8 +163,7 @@ fn container(layout: &Layout, opts: &Options, crcs: &HashMap<String, u32>, props
     }
     let names: HashSet<&str> = layout.entries.iter().map(|e| e.name.as_str()).collect();
     props.check_keys(|k| names.contains(k))?;
-    let d = format::probe_distance_at_least(layout.tail_len).ok_or_else(|| Error::Invalid("the central directory exceeds the largest probe distance".into()))?;
-    let padding = d - layout.tail_len;
+    let d = layout.tail_len;
     // the source table is already the body of __vz__/sources: the container only points at it
     let sources = crate::writer::Sources::default();
     let tail = build_tail(
@@ -171,10 +171,8 @@ fn container(layout: &Layout, opts: &Options, crcs: &HashMap<String, u32>, props
         layout.body_offset,
         d,
         layout.body_offset,
-        padding,
+        0,
     )?;
     debug_assert_eq!(tail.superblock_end, layout.body_offset + tail.bytes.len() as u64);
-    let mut body = tail.bytes;
-    body.resize(body.len() + padding as usize, 0);
-    Ok(body)
+    Ok(tail.bytes)
 }

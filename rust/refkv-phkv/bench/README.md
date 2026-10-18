@@ -9,7 +9,8 @@ uv run python rust/refkv-phkv/bench/bench.py            # writes the files and r
 uv run python rust/refkv-phkv/bench/report.py rust/refkv-phkv/bench/data > tables.md
 ```
 
-`just phkv-bench` does the first two. `bench.py --sizes 1000 10000 --bytes-sizes 10000 --rtt-ms 20 --reps 3`
+`just phkv-bench` does the first two. `sweep.py --data DIR` then sweeps the reader's `Limits::tail` and
+`record_read` and the writer's `page_size` and `inline_max` over HTTP, on those files (about 5 minutes). `bench.py --sizes 1000 10000 --bytes-sizes 10000 --rtt-ms 20 --reps 3`
 runs a smaller matrix; the default one (up to 10^6 keys) takes about 15 minutes.
 
 ## What is measured

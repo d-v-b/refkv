@@ -11,7 +11,7 @@ mod writer;
 
 pub use format::{Codec, Prop};
 pub use hybrid::HybridWriter;
-pub use reader::{Class, EntryInfo, Kind, Limits, NoUrls, ReadAt, ReadError, Request, Resolver, Store};
+pub use reader::{DEFAULT_TAIL, Class, EntryInfo, Kind, Limits, NoUrls, ReadAt, ReadError, Request, Resolver, Store};
 pub use writer::{Options, Writer};
 
 /// A writer's failure: what it was asked to write breaks a writer requirement (spec/refkv.md §7

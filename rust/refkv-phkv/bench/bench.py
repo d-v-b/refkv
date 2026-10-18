@@ -143,8 +143,9 @@ def read_python(url: str, workload: str, n: int, reps: int) -> dict:
     }
 
 
-def read_rust(target: str, workload: str, n: int, reps: int) -> dict:
-    out = subprocess.run([str(BENCH), "read", target, workload, str(n), str(reps)], check=True, capture_output=True, text=True).stdout
+def read_rust(target: str, workload: str, n: int, reps: int, *limits: int) -> dict:
+    """`limits`: the reader's tail and record_read, if not the defaults."""
+    out = subprocess.run([str(BENCH), "read", target, workload, str(n), str(reps), *map(str, limits)], check=True, capture_output=True, text=True).stdout
     d = json.loads(out)
     # the Rust reader opens and then looks up; the Python one does both in its first lookup
     d["first_get_ms"] += d["open_ms"]

@@ -10,6 +10,7 @@
 use crate::format::{self, section, Codec, DirEntry, Page, Parsed, Prop, Record, Stored, Superblock, Value};
 use crate::ptrhash::{self, Params};
 use refkv_vzip::pb::{self, Range, Source, SourceKind};
+use std::cell::RefCell;
 use std::io;
 use std::sync::OnceLock;
 
@@ -138,11 +139,14 @@ pub struct Limits {
     pub request_bytes: u64,
     /// the bytes read at a record's offset at first
     pub record_read: u64,
+    /// the bytes at the end of the file read first, which hold the superblock and whatever
+    /// else of the store lies in them
+    pub tail: u64,
 }
 
 impl Default for Limits {
     fn default() -> Limits {
-        Limits { sources: 1 << 22, url_reads: 1024, open_bytes: 256 << 20, request_bytes: 1 << 32, record_read: 512 }
+        Limits { sources: 1 << 22, url_reads: 1024, open_bytes: 256 << 20, request_bytes: 1 << 32, record_read: 512, tail: DEFAULT_TAIL }
     }
 }
 
@@ -209,8 +213,30 @@ pub struct Store<R: ReadAt> {
     properties: OnceLock<Result<Vec<PropertySection>, String>>,
 }
 
-/// How many bytes of the end of the file a reader reads first.
-const TAIL: u64 = (64 << 10) + format::SUPERBLOCK_SIZE;
+/// How many bytes of the end of the file a reader reads first, by default: 64 KiB and a superblock.
+pub const DEFAULT_TAIL: u64 = (64 << 10) + format::SUPERBLOCK_SIZE;
+
+/// Where the central directory starts, from the vzip end of central directory record at the end
+/// of `tail` (spec/bindings/vzip.md §10.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#104-end-of-central-directory-record-and-archive-comment>), if there is one: the record is 22 + 22 or 22 + 38
+/// bytes from the end, and a zip64 offset is in the record the locator before it points at.
+fn central_directory_offset(tail: &[u8], tail_at: u64) -> Option<u64> {
+    let n = tail.len();
+    let eocd = [(60, 38u16), (44, 22)].into_iter().find_map(|(back, comment)| {
+        let at = n.checked_sub(back)?;
+        (format::le_u32(tail, at) == 0x0605_4b50 && u16::from_le_bytes([tail[at + 20], tail[at + 21]]) == comment).then_some(at)
+    })?;
+    let offset = format::le_u32(tail, eocd + 16);
+    if offset != u32::MAX {
+        return Some(offset as u64);
+    }
+    let loc = eocd.checked_sub(20)?;
+    if format::le_u32(tail, loc) != 0x0706_4b50 {
+        return None;
+    }
+    let record = usize::try_from(format::le_u64(tail, loc + 8).checked_sub(tail_at)?).ok()?;
+    (record + 56 <= loc && format::le_u32(tail, record) == 0x0606_4b50).then(|| format::le_u64(tail, record + 48))
+}
 
 impl<R: ReadAt> Store<R> {
     pub fn open(r: R) -> Result<Store<R>, ReadError> {
@@ -223,11 +249,13 @@ impl<R: ReadAt> Store<R> {
     pub fn open_with(r: R, limits: Limits) -> Result<Store<R>, ReadError> {
         let archive = |m: String| ReadError { class: Class::Archive, message: m };
         let file_size = r.size().map_err(|e| archive(e.to_string()))?;
-        let tail_len = file_size.min(TAIL);
+        let tail_len = file_size.min(limits.tail.max(format::SUPERBLOCK_SIZE + 60));
         let tail_at = file_size - tail_len;
         let mut tail = vec![0u8; tail_len as usize];
         r.read_at(tail_at, &mut tail).map_err(|e| archive(e.to_string()))?;
-        // a read of [off, off + len), from the tail when it holds it
+        // a read of [off, off + len), from the tail, or the window before a hybrid store's superblock,
+        // when it holds it
+        let window: RefCell<(u64, Vec<u8>)> = RefCell::new((0, Vec::new()));
         let read = |off: u64, len: u64| -> Result<Vec<u8>, ReadError> {
             if off.checked_add(len).is_none_or(|e| e > file_size) {
                 return Err(archive(format!("[{off}, {off} + {len}) lies outside the file")));
@@ -236,14 +264,33 @@ impl<R: ReadAt> Store<R> {
                 let s = (off - tail_at) as usize;
                 return Ok(tail[s..s + len as usize].to_vec());
             }
+            let w = window.borrow();
+            if off >= w.0 && off + len <= w.0 + w.1.len() as u64 {
+                let s = (off - w.0) as usize;
+                return Ok(w.1[s..s + len as usize].to_vec());
+            }
+            drop(w);
             let mut b = vec![0u8; usize::try_from(len).map_err(|_| archive("too large".into()))?];
             r.read_at(off, &mut b).map_err(|e| archive(e.to_string()))?;
             Ok(b)
         };
 
-        // the superblock (spec/bindings/phkv.md §17.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#172-finding-the-superblock>)
+        // the superblock (spec/bindings/phkv.md §17.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#172-finding-the-superblock>):
+        // at the start of the central directory of a hybrid store, else at a probe distance
         let mut found = None;
-        for d in format::probe_distances() {
+        if let Some(cd) = central_directory_offset(&tail, tail_at).filter(|&cd| cd >= format::SUPERBLOCK_SIZE && cd <= file_size) {
+            // the superblock ends the container, so the bytes before it are likely its directory and
+            // sections: one read of as many as the tail holds, for the superblock and what follows it
+            let start = cd.saturating_sub(tail_len);
+            if start < tail_at {
+                let mut b = vec![0u8; (cd - start) as usize];
+                r.read_at(start, &mut b).map_err(|e| archive(e.to_string()))?;
+                *window.borrow_mut() = (start, b);
+            }
+            let b = read(cd - format::SUPERBLOCK_SIZE, format::SUPERBLOCK_SIZE)?;
+            found = Superblock::matching(&b, file_size - cd).filter(Superblock::hybrid);
+        }
+        for d in format::probe_distances().filter(|_| found.is_none()) {
             if d + format::SUPERBLOCK_SIZE > file_size {
                 break;
             }
@@ -352,6 +399,11 @@ impl<R: ReadAt> Store<R> {
             pages = format::decode_pages(&whole(&one[section::PAGES as usize].unwrap())?, records.0, records.1).map_err(|m| archive(format!("PAGES: {m}")))?;
         }
         Ok(Store { r, file_size, sb, limits, sources, revision, metadata, records, slots, hash, pages, property_entries, properties: OnceLock::new() })
+    }
+
+    /// The store's file, and what it was opened with.
+    pub fn into_reader(self) -> (Limits, R) {
+        (self.limits, self.r)
     }
 
     pub fn superblock(&self) -> &Superblock {

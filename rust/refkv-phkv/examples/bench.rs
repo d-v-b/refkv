@@ -2,10 +2,13 @@
 //! reader on them, over a local file and over HTTP, counting the reads it makes.
 //!
 //! ```text
-//! bench build <dir> <n> <refs|bytes> <value_bytes>   writes n.phkv, n.hybrid, n.vzip, n.paged.vzip
-//! bench read <path-or-url> <refs|bytes> <n> <reps>   times the reader, prints one JSON object
+//! bench build <dir> <n> <refs|bytes> <value_bytes>                  writes n.phkv, n.hybrid, n.vzip, n.paged.vzip
+//! bench build <dir> <n> <refs|bytes> <value_bytes> <tag> <page_size> <inline_max>
+//!                                                                    writes only n.<tag>.phkv and n.<tag>.hybrid
+//! bench read <path-or-url> <refs|bytes> <n> <reps> [<tail> <record_read>]
+//!                                                                    times the reader, prints one JSON object
 //! ```
-use refkv_phkv::{HybridWriter, NoUrls, Options, Request, Store, Writer};
+use refkv_phkv::{HybridWriter, Limits, NoUrls, Options, Request, Store, Writer, DEFAULT_TAIL};
 use refkv_vzip::pb::Range;
 use std::cell::OnceCell;
 use std::fs::File;
@@ -13,7 +16,6 @@ use std::io::{self, BufWriter};
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::time::Instant;
 
-const TAIL: u64 = (64 << 10) + 64;
 const CHUNK: u64 = 4096;
 
 /// `arr/c/a/b/c`: the chunk keys of a 3-D array, 100 keys under each `arr/c/a/b/`.
@@ -34,19 +36,21 @@ fn value(i: u64, n: usize) -> Vec<u8> {
         .collect()
 }
 
-fn build(dir: &str, n: u64, workload: &str, vsize: usize) {
+fn build(dir: &str, n: u64, workload: &str, vsize: usize, variant: Option<(&str, u64, u64)>) {
     std::fs::create_dir_all(dir).unwrap();
-    let out = |name: &str| BufWriter::with_capacity(1 << 20, File::create(format!("{dir}/{n}.{name}")).unwrap());
+    let tag = variant.map_or(String::new(), |v| format!("{}.", v.0));
+    let out = |name: &str| BufWriter::with_capacity(1 << 20, File::create(format!("{dir}/{n}.{tag}{name}")).unwrap());
+    let opts = variant.map_or(Options::default(), |(_, page_size, inline_max)| Options { page_size, inline_max, ..Options::default() });
     let refs = workload == "refs";
     let zopts = |page_size| refkv_vzip::Options { mirror_refs: true, page_size };
-    let mut vzips = [(out("vzip"), None), (out("paged.vzip"), Some(4096))].map(|(w, ps)| {
+    let mut vzips: Vec<_> = [(out("vzip"), None), (out("paged.vzip"), Some(4096))].into_iter().filter(|_| variant.is_none()).map(|(w, ps)| {
         let mut z = refkv_vzip::Writer::new(w, zopts(ps));
         let s = z.url("data.nc").unwrap();
         (z, s)
-    });
-    let mut p = Writer::new(out("phkv"), Options::default());
+    }).collect();
+    let mut p = Writer::new(out("phkv"), opts);
     let ps = p.url("data.nc").unwrap();
-    let mut h = HybridWriter::new(out("hybrid"), zopts(Some(4096)), Options::default()).unwrap();
+    let mut h = HybridWriter::new(out("hybrid"), zopts(Some(4096)), opts).unwrap();
     let hs = h.url("data.nc").unwrap();
     for i in 0..n {
         let k = key(i);
@@ -109,6 +113,8 @@ struct Http<'a> {
     url: &'a str,
     counts: &'a Counts,
     tail: OnceCell<(u64, Vec<u8>)>,
+    /// the bytes of the end of the object the first request asks for
+    prime: u64,
 }
 
 impl Http<'_> {
@@ -128,7 +134,7 @@ impl refkv_phkv::ReadAt for Http<'_> {
         if let Some((n, _)) = self.tail.get() {
             return Ok(*n);
         }
-        let (body, total) = self.fetch(format!("-{TAIL}"))?;
+        let (body, total) = self.fetch(format!("-{}", self.prime))?;
         let n = total.ok_or_else(|| io::Error::other("no Content-Range"))?;
         Ok(self.tail.get_or_init(|| (n, body)).0)
     }
@@ -154,8 +160,8 @@ trait Open {
     fn open(&self) -> Store<Dyn<'_>>;
 }
 
-struct LocalOpen(String, Counts);
-struct HttpOpen(String, Counts);
+struct LocalOpen(String, Counts, Limits);
+struct HttpOpen(String, Counts, Limits);
 
 /// A transport behind a pointer.
 struct Dyn<'a>(Box<dyn refkv_phkv::ReadAt + 'a>);
@@ -176,7 +182,7 @@ impl Open for LocalOpen {
     }
 
     fn open(&self) -> Store<Dyn<'_>> {
-        Store::open(Dyn(Box::new(Local(File::open(&self.0).unwrap(), &self.1)))).unwrap()
+        Store::open_with(Dyn(Box::new(Local(File::open(&self.0).unwrap(), &self.1))), self.2).unwrap()
     }
 }
 
@@ -187,7 +193,7 @@ impl Open for HttpOpen {
 
     fn open(&self) -> Store<Dyn<'_>> {
         let agent: ureq::Agent = ureq::Agent::config_builder().http_status_as_error(true).proxy(None).build().into();
-        Store::open(Dyn(Box::new(Http { agent, url: &self.0, counts: &self.1, tail: OnceCell::new() }))).unwrap()
+        Store::open_with(Dyn(Box::new(Http { agent, url: &self.0, counts: &self.1, tail: OnceCell::new(), prime: self.2.tail })), self.2).unwrap()
     }
 }
 
@@ -276,11 +282,16 @@ fn read(t: &dyn Open, refs: bool, n: u64, reps: usize) {
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     match a.get(1).map(String::as_str) {
-        Some("build") => build(&a[2], a[3].parse().unwrap(), &a[4], a[5].parse().unwrap()),
+        Some("build") => {
+            let variant = a.get(6).map(|tag| (tag.as_str(), a[7].parse().unwrap(), a[8].parse().unwrap()));
+            build(&a[2], a[3].parse().unwrap(), &a[4], a[5].parse().unwrap(), variant)
+        }
         Some("read") => {
-            let t: Box<dyn Open> = if a[2].starts_with("http://") { Box::new(HttpOpen(a[2].clone(), Counts::default())) } else { Box::new(LocalOpen(a[2].clone(), Counts::default())) };
+            let defaults = Limits::default();
+            let limits = Limits { tail: a.get(6).map_or(DEFAULT_TAIL, |v| v.parse().unwrap()), record_read: a.get(7).map_or(defaults.record_read, |v| v.parse().unwrap()), ..defaults };
+            let t: Box<dyn Open> = if a[2].starts_with("http://") { Box::new(HttpOpen(a[2].clone(), Counts::default(), limits)) } else { Box::new(LocalOpen(a[2].clone(), Counts::default(), limits)) };
             read(&*t, a[3] == "refs", a[4].parse().unwrap(), a[5].parse().unwrap());
         }
-        _ => eprintln!("usage: bench build <dir> <n> <refs|bytes> <value_bytes> | bench read <path-or-url> <refs|bytes> <n> <reps>"),
+        _ => eprintln!("usage: see the top of this file"),
     }
 }
