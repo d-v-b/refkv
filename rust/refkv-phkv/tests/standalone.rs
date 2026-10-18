@@ -282,3 +282,45 @@ fn reads_from_a_file() {
     assert_eq!(s.get("big", Request::Whole, &NoUrls).unwrap().unwrap().len(), 1 << 20);
     assert_eq!(s.get("small", Request::Whole, &NoUrls).unwrap().unwrap(), b"s");
 }
+
+/// A file that logs each read's offset and length.
+struct Logging(Vec<u8>, std::cell::RefCell<Vec<(u64, u64)>>);
+
+impl refkv_phkv::ReadAt for Logging {
+    fn size(&self) -> std::io::Result<u64> {
+        self.0.size()
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
+        self.1.borrow_mut().push((offset, buf.len() as u64));
+        self.0.read_at(offset, buf)
+    }
+}
+
+#[test]
+fn no_byte_is_read_twice() {
+    // 1,500-byte values inline: a record is longer than the first read of it, and the sections are
+    // longer than the tail
+    let value = vec![7u8; 1500];
+    // a page for each record, uncompressed, so that PAGES is longer than the tail
+    let opts = Options { inline_max: 4096, page_size: 1, section_codec: Codec::None, ..Options::default() };
+    let b = write(opts, |w| {
+        for i in 0..5000 {
+            w.add_bytes(&format!("k/{i:05}"), &value).unwrap();
+        }
+    });
+    let s = Store::open(Logging(b, Default::default())).unwrap();
+    assert_eq!(s.get("k/02500", Request::Whole, &NoUrls).unwrap().unwrap(), value);
+    let (_, file) = s.into_reader();
+    // the first read is the tail; a lookup's slot may lie inside it, since the tail is not kept after
+    // open, but no other read overlaps it, or another read
+    let all = file.1.borrow().clone();
+    let tail = all[0];
+    let mut reads: Vec<_> = all[1..].iter().copied().filter(|r| r.0 < tail.0 || r.0 + r.1 > tail.0 + tail.1).collect();
+    assert!(reads.len() >= 3, "a section outside the tail, a slot and a record: {all:?}");
+    reads.push(tail);
+    reads.sort_unstable();
+    for w in reads.windows(2) {
+        assert!(w[0].0 + w[0].1 <= w[1].0, "reads overlap: {all:?}");
+    }
+}

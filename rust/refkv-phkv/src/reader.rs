@@ -269,9 +269,13 @@ impl<R: ReadAt> Store<R> {
                 let s = (off - w.0) as usize;
                 return Ok(w.1[s..s + len as usize].to_vec());
             }
-            drop(w);
-            let mut b = vec![0u8; usize::try_from(len).map_err(|_| archive("too large".into()))?];
+            // a read that ends inside the window or the tail: only the part before it is read
+            let held = [(tail_at, &tail[..]), (w.0, &w.1[..])];
+            let (end, mut b) = (off + len, Vec::new());
+            let (rest_at, rest) = held.iter().filter(|(at, held)| *at > off && *at < end && end <= at + held.len() as u64).min_by_key(|(at, _)| *at).map_or((end, &[][..]), |(at, held)| (*at, &held[..(end - at) as usize]));
+            b.resize(usize::try_from(rest_at - off).map_err(|_| archive("too large".into()))?, 0);
             r.read_at(off, &mut b).map_err(|e| archive(e.to_string()))?;
+            b.extend_from_slice(rest);
             Ok(b)
         };
 
@@ -446,14 +450,15 @@ impl<R: ReadAt> Store<R> {
         if off < start || off >= end {
             return err(Class::Entry, format!("a slot points at {off}, outside RECORDS [{start}, {end})"));
         }
-        let mut len = self.limits.record_read.min(end - off);
+        let mut b = self.read(off, self.limits.record_read.min(end - off), Class::Entry)?;
         loop {
-            let b = self.read(off, len, Class::Entry)?;
+            let len = b.len() as u64;
             match format::parse_record(&b, self.sb.hybrid()).map_err(|m| ReadError { class: Class::Entry, message: format!("record at {off}: {m}") })? {
                 Parsed::Whole(rec, _) => return Ok(rec),
                 Parsed::Needs(n) if n > end - off => return err(Class::Entry, format!("record at {off} extends past the end of RECORDS")),
                 Parsed::Needs(n) if n <= len => return err(Class::Entry, format!("record at {off} is malformed")),
-                Parsed::Needs(n) => len = n,
+                // only the bytes still missing
+                Parsed::Needs(n) => b.extend(self.read(off + len, n - len, Class::Entry)?),
             }
         }
     }
