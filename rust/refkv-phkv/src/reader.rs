@@ -10,8 +10,10 @@
 use crate::format::{self, section, Codec, DirEntry, Page, Parsed, Prop, Record, Stored, Superblock, Value};
 use crate::ptrhash::{self, Params};
 use refkv_vzip::pb::{self, Range, Source, SourceKind};
+use std::cell::RefCell;
 use std::io;
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 /// Random access to the bytes of a store.
 pub trait ReadAt {
@@ -136,13 +138,26 @@ pub struct Limits {
     pub open_bytes: u64,
     /// the bytes one get or raw may hold in memory, a value decoded whole included
     pub request_bytes: u64,
-    /// the bytes read at a record's offset at first
+    /// the bytes read at a record's offset at first, by default enough for a record whose value is
+    /// inline at the writer's default `inline_max` (4 KiB), its key and header: a longer record takes
+    /// a second read
     pub record_read: u64,
+    /// the bytes at the end of the file read first, which hold the superblock and whatever
+    /// else of the store lies in them
+    pub tail: u64,
+    /// the longest SLOTS section that is read whole at open and kept (8 bytes per slot, a little
+    /// over 8 per key), so that a lookup reads no slot: 0 reads none, as a lookup then reads its
+    /// slot from the file
+    pub slots_at_open: u64,
+    /// the bytes of SLOTS a lookup reads at once, and keeps for later lookups, when SLOTS was not
+    /// read at open: blocks of this many bytes from the start of the section, by default 4 KiB (512
+    /// slots), the size of a vzip page. 8 or less reads only the lookup's own slot, and keeps nothing.
+    pub slot_block: u64,
 }
 
 impl Default for Limits {
     fn default() -> Limits {
-        Limits { sources: 1 << 22, url_reads: 1024, open_bytes: 256 << 20, request_bytes: 1 << 32, record_read: 512 }
+        Limits { sources: 1 << 22, url_reads: 1024, open_bytes: 256 << 20, request_bytes: 1 << 32, record_read: DEFAULT_RECORD_READ, tail: DEFAULT_TAIL, slots_at_open: 0, slot_block: DEFAULT_SLOT_BLOCK }
     }
 }
 
@@ -203,14 +218,47 @@ pub struct Store<R: ReadAt> {
     /// `[start, end)` of RECORDS, the SLOTS section's offset, the perfect hash and the pages
     records: (u64, u64),
     slots: u64,
+    /// the SLOTS section, if it was read at open
+    slots_buf: Option<Vec<u8>>,
+    /// the blocks of SLOTS read so far, by index, when the section is read in blocks
+    slot_blocks: Mutex<HashMap<u64, Vec<u8>>>,
     hash: Option<(Params, Vec<u8>)>,
     pages: Vec<Page>,
     property_entries: Vec<DirEntry>,
     properties: OnceLock<Result<Vec<PropertySection>, String>>,
 }
 
-/// How many bytes of the end of the file a reader reads first.
-const TAIL: u64 = (64 << 10) + format::SUPERBLOCK_SIZE;
+/// How many bytes of SLOTS a lookup reads at once, by default (`Limits::slot_block`).
+pub const DEFAULT_SLOT_BLOCK: u64 = 4096;
+
+/// How many bytes of the end of the file a reader reads first, by default: 512 KiB and a
+/// superblock, which holds the perfect hash and page index of about 10^6 keys.
+pub const DEFAULT_TAIL: u64 = (512 << 10) + format::SUPERBLOCK_SIZE;
+
+/// How many bytes of a record a lookup reads first, by default (`Limits::record_read`).
+pub const DEFAULT_RECORD_READ: u64 = 4608;
+
+/// Where the central directory starts, from the vzip end of central directory record at the end
+/// of `tail` (spec/bindings/vzip.md §10.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#104-end-of-central-directory-record-and-archive-comment>), if there is one: the record is 22 + 22 or 22 + 38
+/// bytes from the end, and a zip64 offset is in the record the locator before it points at.
+fn central_directory_offset(tail: &[u8], tail_at: u64) -> Option<u64> {
+    let n = tail.len();
+    let eocd = [(60, 38u16), (44, 22)].into_iter().find_map(|(back, comment)| {
+        let at = n.checked_sub(back)?;
+        (format::le_u32(tail, at) == 0x0605_4b50 && u16::from_le_bytes([tail[at + 20], tail[at + 21]]) == comment).then_some(at)
+    })?;
+    let offset = format::le_u32(tail, eocd + 16);
+    if offset != u32::MAX {
+        return Some(offset as u64);
+    }
+    let loc = eocd.checked_sub(20)?;
+    if format::le_u32(tail, loc) != 0x0706_4b50 {
+        return None;
+    }
+    let record = usize::try_from(format::le_u64(tail, loc + 8).checked_sub(tail_at)?).ok()?;
+    (record + 56 <= loc && format::le_u32(tail, record) == 0x0606_4b50).then(|| format::le_u64(tail, record + 48))
+}
 
 impl<R: ReadAt> Store<R> {
     pub fn open(r: R) -> Result<Store<R>, ReadError> {
@@ -223,11 +271,13 @@ impl<R: ReadAt> Store<R> {
     pub fn open_with(r: R, limits: Limits) -> Result<Store<R>, ReadError> {
         let archive = |m: String| ReadError { class: Class::Archive, message: m };
         let file_size = r.size().map_err(|e| archive(e.to_string()))?;
-        let tail_len = file_size.min(TAIL);
+        let tail_len = file_size.min(limits.tail.max(format::SUPERBLOCK_SIZE + 60));
         let tail_at = file_size - tail_len;
         let mut tail = vec![0u8; tail_len as usize];
         r.read_at(tail_at, &mut tail).map_err(|e| archive(e.to_string()))?;
-        // a read of [off, off + len), from the tail when it holds it
+        // a read of [off, off + len), from the tail, or the window before a hybrid store's superblock,
+        // when it holds it
+        let window: RefCell<(u64, Vec<u8>)> = RefCell::new((0, Vec::new()));
         let read = |off: u64, len: u64| -> Result<Vec<u8>, ReadError> {
             if off.checked_add(len).is_none_or(|e| e > file_size) {
                 return Err(archive(format!("[{off}, {off} + {len}) lies outside the file")));
@@ -236,14 +286,37 @@ impl<R: ReadAt> Store<R> {
                 let s = (off - tail_at) as usize;
                 return Ok(tail[s..s + len as usize].to_vec());
             }
-            let mut b = vec![0u8; usize::try_from(len).map_err(|_| archive("too large".into()))?];
+            let w = window.borrow();
+            if off >= w.0 && off + len <= w.0 + w.1.len() as u64 {
+                let s = (off - w.0) as usize;
+                return Ok(w.1[s..s + len as usize].to_vec());
+            }
+            // a read that ends inside the window or the tail: only the part before it is read
+            let held = [(tail_at, &tail[..]), (w.0, &w.1[..])];
+            let (end, mut b) = (off + len, Vec::new());
+            let (rest_at, rest) = held.iter().filter(|(at, held)| *at > off && *at < end && end <= at + held.len() as u64).min_by_key(|(at, _)| *at).map_or((end, &[][..]), |(at, held)| (*at, &held[..(end - at) as usize]));
+            b.resize(usize::try_from(rest_at - off).map_err(|_| archive("too large".into()))?, 0);
             r.read_at(off, &mut b).map_err(|e| archive(e.to_string()))?;
+            b.extend_from_slice(rest);
             Ok(b)
         };
 
-        // the superblock (spec/bindings/phkv.md §17.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#172-finding-the-superblock>)
+        // the superblock (spec/bindings/phkv.md §17.2 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#172-finding-the-superblock>):
+        // at the start of the central directory of a hybrid store, else at a probe distance
         let mut found = None;
-        for d in format::probe_distances() {
+        if let Some(cd) = central_directory_offset(&tail, tail_at).filter(|&cd| cd >= format::SUPERBLOCK_SIZE && cd <= file_size) {
+            // the superblock ends the container, so the bytes before it are likely its directory and
+            // sections: one read of as many as the tail holds, for the superblock and what follows it
+            let start = cd.saturating_sub(tail_len);
+            if start < tail_at {
+                let mut b = vec![0u8; (cd - start) as usize];
+                r.read_at(start, &mut b).map_err(|e| archive(e.to_string()))?;
+                *window.borrow_mut() = (start, b);
+            }
+            let b = read(cd - format::SUPERBLOCK_SIZE, format::SUPERBLOCK_SIZE)?;
+            found = Superblock::matching(&b, file_size - cd).filter(Superblock::hybrid);
+        }
+        for d in format::probe_distances().filter(|_| found.is_none()) {
             if d + format::SUPERBLOCK_SIZE > file_size {
                 break;
             }
@@ -339,19 +412,63 @@ impl<R: ReadAt> Store<R> {
             None => Vec::new(),
         };
         let (mut records, mut slots, mut hash, mut pages) = ((0, 0), 0, None, Vec::new());
+        let mut slots_buf = None;
+        let mut slot_blocks = HashMap::new();
         if n > 0 {
             let rec = one[section::RECORDS as usize].unwrap();
             records = (rec.offset, rec.offset + rec.length);
-            let (params, pilots) = format::decode_ptrhash(whole(&one[section::PTRHASH as usize].unwrap())?, n).map_err(|m| archive(format!("PTRHASH: {m}")))?;
+            // SLOTS is read whole, if it is short enough, with what follows it, in one read: that
+            // read and the bytes already read hold everything from SLOTS to the end of the file
             let sl = one[section::SLOTS as usize].unwrap();
+            let slots_whole = sl.length <= limits.slots_at_open.min(limits.open_bytes);
+            if slots_whole {
+                let have = window.borrow().clone();
+                let (at, b) = if have.1.is_empty() { (tail_at, tail.clone()) } else { have };
+                if sl.offset < at {
+                    let mut head = vec![0u8; (at - sl.offset) as usize];
+                    r.read_at(sl.offset, &mut head).map_err(|e| archive(e.to_string()))?;
+                    head.extend_from_slice(&b);
+                    *window.borrow_mut() = (sl.offset, head);
+                }
+            }
+            let (params, pilots) = format::decode_ptrhash(whole(&one[section::PTRHASH as usize].unwrap())?, n).map_err(|m| archive(format!("PTRHASH: {m}")))?;
             if params.total_slots().checked_mul(8) != Some(sl.length) {
                 return err(Class::Archive, format!("SLOTS of {} bytes for {} slots", sl.length, params.total_slots()));
             }
             slots = sl.offset;
+            if slots_whole {
+                slots_buf = Some(read(sl.offset, sl.length)?);
+            } else if limits.slot_block > 8 {
+                // the whole blocks of SLOTS that the first read, or the window before a hybrid
+                // superblock, already holds are kept, as if a lookup had read them
+                let block = limits.slot_block & !7;
+                let w = window.borrow();
+                for (at, held) in [(tail_at, &tail[..]), (w.0, &w.1[..])] {
+                    let held_end = at + held.len() as u64;
+                    let first = at.saturating_sub(sl.offset).div_ceil(block);
+                    for i in first..sl.length.div_ceil(block) {
+                        let (start, len) = (sl.offset + i * block, block.min(sl.length - i * block));
+                        if start < at || start + len > held_end {
+                            break;
+                        }
+                        slot_blocks.entry(i).or_insert_with(|| held[(start - at) as usize..(start - at + len) as usize].to_vec());
+                    }
+                }
+            }
             hash = Some((params, pilots));
             pages = format::decode_pages(&whole(&one[section::PAGES as usize].unwrap())?, records.0, records.1).map_err(|m| archive(format!("PAGES: {m}")))?;
         }
-        Ok(Store { r, file_size, sb, limits, sources, revision, metadata, records, slots, hash, pages, property_entries, properties: OnceLock::new() })
+        Ok(Store { r, file_size, sb, limits, sources, revision, metadata, records, slots, slots_buf, slot_blocks: Mutex::new(slot_blocks), hash, pages, property_entries, properties: OnceLock::new() })
+    }
+
+    /// The store's file.
+    pub fn reader(&self) -> &R {
+        &self.r
+    }
+
+    /// The store's file, and what it was opened with.
+    pub fn into_reader(self) -> (Limits, R) {
+        (self.limits, self.r)
     }
 
     pub fn superblock(&self) -> &Superblock {
@@ -389,19 +506,38 @@ impl<R: ReadAt> Store<R> {
     }
 
     /// The record at `off` in RECORDS: an entry error if it is outside or malformed.
-    fn record_at(&self, off: u64) -> Result<Record, ReadError> {
+    /// `length`, if the slot gives it, is the record's length: the record is read in one read of
+    /// exactly that many bytes.
+    fn record_at(&self, off: u64, length: Option<u64>) -> Result<Record, ReadError> {
         let (start, end) = self.records;
         if off < start || off >= end {
             return err(Class::Entry, format!("a slot points at {off}, outside RECORDS [{start}, {end})"));
         }
-        let mut len = self.limits.record_read.min(end - off);
+        if let Some(n) = length {
+            if n > end - off {
+                return err(Class::Entry, format!("the record at {off} of {n} bytes extends past the end of RECORDS"));
+            }
+            let b = self.read(off, n, Class::Entry)?;
+            return match format::parse_record(&b, self.sb.hybrid()).map_err(|m| ReadError { class: Class::Entry, message: format!("record at {off}: {m}") })? {
+                Parsed::Whole(rec, len) if len as u64 == n => Ok(rec),
+                _ => err(Class::Entry, format!("the record at {off} is not the {n} bytes its slot gives")),
+            };
+        }
+        // a page holds whole records, so a record ends at the end of its page or before
+        let page_end = match self.pages.partition_point(|p| p.offset <= off) {
+            0 => end,
+            i => (self.pages[i - 1].offset + self.pages[i - 1].length).min(end),
+        };
+        let first = self.limits.record_read.min(if off < page_end { page_end - off } else { end - off });
+        let mut b = self.read(off, first, Class::Entry)?;
         loop {
-            let b = self.read(off, len, Class::Entry)?;
+            let len = b.len() as u64;
             match format::parse_record(&b, self.sb.hybrid()).map_err(|m| ReadError { class: Class::Entry, message: format!("record at {off}: {m}") })? {
                 Parsed::Whole(rec, _) => return Ok(rec),
                 Parsed::Needs(n) if n > end - off => return err(Class::Entry, format!("record at {off} extends past the end of RECORDS")),
                 Parsed::Needs(n) if n <= len => return err(Class::Entry, format!("record at {off} is malformed")),
-                Parsed::Needs(n) => len = n,
+                // only the bytes still missing
+                Parsed::Needs(n) => b.extend(self.read(off + len, n - len, Class::Entry)?),
             }
         }
     }
@@ -413,12 +549,25 @@ impl<R: ReadAt> Store<R> {
             return Ok(None);
         };
         let s = ptrhash::slot(params, pilots, ptrhash::hash(key.as_bytes(), params.seed));
-        let b = self.read(self.slots + 8 * s, 8, Class::Entry)?;
-        let off = format::le_u64(&b, 0);
+        let off = match &self.slots_buf {
+            Some(b) => format::le_u64(b, 8 * s as usize),
+            None if self.limits.slot_block > 8 => {
+                let block = self.limits.slot_block & !7;
+                let (i, at) = (8 * s / block, (8 * s % block) as usize);
+                let mut blocks = self.slot_blocks.lock().unwrap_or_else(|e| e.into_inner());
+                if !blocks.contains_key(&i) {
+                    let len = block.min(8 * params.total_slots() - i * block);
+                    blocks.insert(i, self.read(self.slots + i * block, len, Class::Entry)?);
+                }
+                format::le_u64(&blocks[&i], at)
+            }
+            None => format::le_u64(&self.read(self.slots + 8 * s, 8, Class::Entry)?, 0),
+        };
         if off == format::EMPTY_SLOT {
             return Ok(None);
         }
-        let rec = self.record_at(off)?;
+        let (rel, length) = format::unpack_slot(off, format::slot_offset_bits(self.records.1 - self.records.0));
+        let rec = self.record_at(self.records.0.saturating_add(rel), length)?;
         Ok((rec.key == key.as_bytes()).then_some(rec))
     }
 

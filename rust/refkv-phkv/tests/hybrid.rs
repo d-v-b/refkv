@@ -2,7 +2,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#21-hybrid-profile>).
 
 use refkv_phkv::format::{self, Superblock};
-use refkv_phkv::{Codec, EntryInfo, HybridWriter, Kind, NoUrls, Options, Prop, Request, Store};
+use refkv_phkv::{Codec, EntryInfo, HybridWriter, Kind, NoUrls, Options, Prop, ReadAt, Request, Store};
 use refkv_vzip::pb::Range;
 
 fn build(page_size: Option<u64>, n: usize) -> Vec<u8> {
@@ -28,6 +28,10 @@ fn build(page_size: Option<u64>, n: usize) -> Vec<u8> {
     w.close().unwrap()
 }
 
+fn b_at(b: &[u8], at: u64, n: usize) -> Vec<u8> {
+    b[at as usize..at as usize + n].to_vec()
+}
+
 fn check(b: Vec<u8>, n: usize) {
     // still a vzip archive: its end of central directory record and comment are last
     let len = b.len();
@@ -36,6 +40,7 @@ fn check(b: Vec<u8>, n: usize) {
     assert_eq!(&b[comment_at - 22..comment_at - 18], &0x0605_4b50u32.to_le_bytes());
 
     let file_size = b.len() as u64;
+    let file = b.clone();
     let s = Store::open(b).unwrap();
     let sb: Superblock = *s.superblock();
     assert!(sb.hybrid());
@@ -64,13 +69,12 @@ fn check(b: Vec<u8>, n: usize) {
     assert_eq!(s.raw("__vz__/extra").unwrap().unwrap(), b"hidden bytes");
     let region = s.raw(format::HYBRID_KEY).unwrap().unwrap();
     assert_eq!(region.len() as u64, sb.region_length);
-    // the region holds the superblock, then zero bytes up to the central directory, which ends the
-    // file `distance` bytes after the superblock
+    // the region ends with the superblock, and the central directory starts right after it and
+    // ends the file, `distance` bytes long
     let sb_at = file_size - sb.distance - format::SUPERBLOCK_SIZE;
-    assert!(sb.region_offset <= sb_at && sb_at + format::SUPERBLOCK_SIZE <= sb.region_offset + sb.region_length);
-    let after = (sb_at + format::SUPERBLOCK_SIZE - sb.region_offset) as usize;
-    assert!(region[after..].iter().all(|&b| b == 0));
-    assert_eq!(&region[after - 64..after - 60], format::MAGIC);
+    assert_eq!(sb.region_offset + sb.region_length, sb_at + format::SUPERBLOCK_SIZE);
+    assert_eq!(&region[region.len() - 64..region.len() - 60], format::MAGIC);
+    assert_eq!(&b_at(&file, sb_at + 64, 4), b"PK\x01\x02", "the central directory");
     assert!(s.raw("__vz__/sources").unwrap().is_some(), "the source table, inflated");
 
     // raw follows vzip: decoded values, and a reference's body (its payload)
@@ -101,11 +105,31 @@ fn paged() {
     check(build(Some(512), 10), 10);
 }
 
+/// A file that counts the reads made of it.
+struct Counting(Vec<u8>, std::cell::Cell<usize>);
+
+impl ReadAt for Counting {
+    fn size(&self) -> std::io::Result<u64> {
+        self.0.size()
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
+        self.1.set(self.1.get() + 1);
+        self.0.read_at(offset, buf)
+    }
+}
+
 #[test]
-fn many_entries_push_the_superblock_further() {
+fn a_long_central_directory_does_not_make_opening_probe() {
     let b = build(Some(4096), 20_000);
-    let s = Store::open(b.clone()).unwrap();
+    let c = Counting(b.clone(), Default::default());
+    let s = Store::open(c).unwrap();
     assert!(s.superblock().distance >= 1 << 20, "a central directory of 20,000 records is over 1 MiB");
+    // the tail, and one read of the window before the superblock, which holds the superblock, the
+    // directory and the sections; one more for a section that starts before the window. Probing
+    // would add a read for each probe distance from 128 KiB to 2 MiB, which is 5 more.
+    let reads = s.into_reader().1 .1.get();
+    assert!(reads <= 3, "{reads} reads");
     check(b, 20_000);
 }
 
@@ -123,4 +147,19 @@ fn refuses() {
     assert!(w.add_hidden("phkv", b"x", false, false).is_err());
     w.set_property("ghost", "mode", Prop::U64(1)).unwrap();
     assert!(w.close().is_err(), "a property of a missing key");
+}
+
+#[test]
+fn slots_read_at_open_in_a_hybrid_store() {
+    let b = build(Some(4096), 20_000);
+    let limits = refkv_phkv::Limits { slots_at_open: 1 << 22, ..Default::default() };
+    let c = Counting(b.clone(), Default::default());
+    let s = Store::open_with(c, limits).unwrap();
+    let opened = s.reader().1.get();
+    assert!(opened <= 4, "{opened} reads");
+    for i in (0..20_000).step_by(997) {
+        assert_eq!(s.get(&format!("m/{i:06}"), Request::Whole, &NoUrls).unwrap().unwrap(), (i as u64).to_le_bytes());
+    }
+    assert_eq!(s.get("m/absent", Request::Whole, &NoUrls).unwrap(), None);
+    assert_eq!(s.list("m/0000").unwrap().len(), 100);
 }

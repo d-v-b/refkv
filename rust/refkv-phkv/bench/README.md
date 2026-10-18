@@ -1,0 +1,57 @@
+# phkv benchmarks
+
+Request counts, bytes and latency of phkv and vzip, on a local file system and over HTTP.
+[RESULTS.md](RESULTS.md) has the numbers and what they show.
+
+```text
+cargo build --release --example bench --manifest-path rust/refkv-phkv/Cargo.toml
+uv run python rust/refkv-phkv/bench/bench.py            # writes the files and results.json under bench/data
+uv run python rust/refkv-phkv/bench/report.py rust/refkv-phkv/bench/data > tables.md
+```
+
+`just phkv-bench` does the first two. `sweep.py --data DIR` then sweeps the reader's `Limits::tail`, `record_read` and
+`slots_at_open` (with a bandwidth cap on the test server) and the writer's `page_size` and `inline_max` over HTTP, on those files (about 8 minutes). `bench.py --sizes 1000 10000 --bytes-sizes 10000 --rtt-ms 20 --reps 3`
+runs a smaller matrix; the default one (up to 10^6 keys) takes about 15 minutes.
+
+`trace.py DIR N` prints the requests of a cold open and two lookups, paged vzip and phkv side by side, and
+what each reads (a section, a page, an entry's bytes): `uv run python rust/refkv-phkv/bench/trace.py rust/refkv-phkv/bench/data 100000`.
+
+`versus.py --data DIR` puts paged vzip beside phkv with its slots read one at a time and in 4 KiB blocks
+(`Limits::slot_block`, the size of a vzip page), counting later lookups over 200 and 5,000 lookups.
+
+## What is measured
+
+- **Files.** The same keys written five ways by `examples/bench.rs build`: vzip without and with a
+  page index (4 KiB pages), standalone phkv, and a hybrid archive. A hybrid archive is read both as vzip
+  (by the Python reader) and as phkv (by the Rust reader), so those two rows are the same bytes.
+  Keys are `arr/c/a/b/c`, 100 under each `arr/c/a/b/`.
+- **Workloads.** `refs`: each key is a reference, one 4 KiB range of one URL; the lookup is `raw`, so
+  no source is read. `bytes`: each key holds 1 KiB of incompressible bytes in the store; the lookup
+  is `get`.
+- **Operations.** (1) *First lookup*: a fresh store, then one lookup of a random key (open plus
+  lookup; median of `reps` runs). (2) *Later lookups*: 200 random keys on one opened store, per
+  lookup. (3) *List*: a fresh store, then `list` of the 100 keys under one prefix.
+- **Counts.** A request is one read of the archive: a `Range` request over HTTP, a `pread` on a file.
+  The Python reader's counts are its `Stats.archive_requests` and `archive_bytes`; the Rust
+  harness counts in its `ReadAt` implementations. The harness's HTTP server counts requests too
+  (`server_requests` in `results.json`).
+- **HTTP.** A server on 127.0.0.1 (`bench.py`) answers each `Range` request after a fixed delay, 0 or
+  20 ms, which stands for the round trip to a remote object store. It keeps connections alive and
+  sends headers and body in one write (two writes cost 40 ms each, from Nagle's algorithm and delayed ACKs).
+
+## Caveats
+
+- **Two readers, two languages.** vzip has no Rust reader, so vzip rows are the Python reader and
+  phkv rows the Rust one. Request and byte counts do not depend on that. Milliseconds do:
+  on a local file the Rust reader's sub-millisecond times are mostly the language, and the
+  comparison that means something is over HTTP with a delay, where requests dominate.
+- **The Rust HTTP `ReadAt` is the harness's.** The crate gives only the trait. This one asks for the
+  reader's first read (`Limits::tail`, 512 KiB + 64 B by default) with one suffix request, whose
+  `Content-Range` gives the size, and serves the open's later reads inside those bytes from them. Once the
+  store is open it no longer does, so a lookup's reads are all counted, as the store makes them. A
+  `ReadAt` that asked for the size with `HEAD` would add a request to every open.
+- **Caches.** Each store keeps what it has read: vzip's pages, and phkv's blocks of slots
+  (`Limits::slot_block`, 4 KiB). *First lookup* is the cold cost of one lookup; *later lookups* warm the
+  caches, the more of them the more.
+- **One machine, loopback, one run.** The delay is added, not measured on a network. Times under
+  10 ms vary by a fraction of a millisecond between runs; request counts do not vary.

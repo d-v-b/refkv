@@ -282,3 +282,229 @@ fn reads_from_a_file() {
     assert_eq!(s.get("big", Request::Whole, &NoUrls).unwrap().unwrap().len(), 1 << 20);
     assert_eq!(s.get("small", Request::Whole, &NoUrls).unwrap().unwrap(), b"s");
 }
+
+/// A file that logs each read's offset and length.
+struct Logging(Vec<u8>, std::cell::RefCell<Vec<(u64, u64)>>);
+
+impl refkv_phkv::ReadAt for Logging {
+    fn size(&self) -> std::io::Result<u64> {
+        self.0.size()
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
+        self.1.borrow_mut().push((offset, buf.len() as u64));
+        self.0.read_at(offset, buf)
+    }
+}
+
+#[test]
+fn no_byte_is_read_twice() {
+    // 1,500-byte values inline: a record is longer than the first read of it, and the sections are
+    // longer than the tail
+    let value = vec![7u8; 1500];
+    // a page for each record, uncompressed, so that PAGES is longer than the tail
+    let opts = Options { inline_max: 4096, page_size: 1, section_codec: Codec::None, ..Options::default() };
+    let b = write(opts, |w| {
+        for i in 0..5000 {
+            w.add_bytes(&format!("k/{i:05}"), &value).unwrap();
+        }
+    });
+    // a first read of the file and of a record shorter than the section and the record
+    let limits = refkv_phkv::Limits { tail: (64 << 10) + 64, record_read: 512, ..Default::default() };
+    let s = Store::open_with(Logging(b, Default::default()), limits).unwrap();
+    assert_eq!(s.get("k/02500", Request::Whole, &NoUrls).unwrap().unwrap(), value);
+    let (_, file) = s.into_reader();
+    // the first read is the tail; a lookup's slot may lie inside it, since the tail is not kept after
+    // open, but no other read overlaps it, or another read
+    let all = file.1.borrow().clone();
+    let tail = all[0];
+    let mut reads: Vec<_> = all[1..].iter().copied().filter(|r| r.0 < tail.0 || r.0 + r.1 > tail.0 + tail.1).collect();
+    assert!(reads.len() >= 3, "a section outside the tail, a slot and a record: {all:?}");
+    reads.push(tail);
+    reads.sort_unstable();
+    for w in reads.windows(2) {
+        assert!(w[0].0 + w[0].1 <= w[1].0, "reads overlap: {all:?}");
+    }
+}
+
+#[test]
+fn slots_read_at_open() {
+    let b = write(Options::default(), |w| {
+        for i in 0..3000 {
+            w.add_bytes(&format!("k/{i:05}"), format!("value {i}").as_bytes()).unwrap();
+        }
+    });
+    // slots one at a time, as the comparison
+    let one = refkv_phkv::Limits { slot_block: 0, ..Default::default() };
+    let plain = Store::open_with(Logging(b.clone(), Default::default()), one).unwrap();
+    let limits = refkv_phkv::Limits { slots_at_open: 1 << 20, tail: 4096, ..Default::default() };
+    let kept = Store::open_with(Logging(b.clone(), Default::default()), limits).unwrap();
+    let lookups = |s: &Store<Logging>| {
+        s.reader().1.borrow_mut().clear();
+        for i in (0..3000).step_by(7) {
+            assert_eq!(whole_in(s, &format!("k/{i:05}")).unwrap(), format!("value {i}").as_bytes());
+        }
+        assert_eq!(whole_in(s, "k/99999"), None);
+        let n = s.reader().1.borrow().len();
+        n
+    };
+    let (a, c) = (lookups(&plain), lookups(&kept));
+    // 429 hits and a miss: a slot read and a record read each without the slots, only the record with them
+    assert_eq!(a, 429 * 2 + 1, "a slot read and a record read per hit, a slot read for the miss");
+    assert_eq!(c, 429, "a record read per hit, and none for the miss");
+    // a limit below the section's size leaves them in the file
+    let limits = refkv_phkv::Limits { slots_at_open: 100, ..one };
+    let small = Store::open_with(Logging(b, Default::default()), limits).unwrap();
+    assert_eq!(lookups(&small), a);
+}
+
+fn whole_in(s: &Store<Logging>, key: &str) -> Option<Vec<u8>> {
+    s.get(key, Request::Whole, &NoUrls).unwrap()
+}
+
+#[test]
+fn slots_read_in_blocks() {
+    let b = write(Options::default(), |w| {
+        for i in 0..3000 {
+            w.add_bytes(&format!("k/{i:05}"), format!("value {i}").as_bytes()).unwrap();
+        }
+    });
+    // 3,000 keys have a little over 3,000 slots: 24 KiB, six blocks of 4 KiB
+    // a first read too short to hold any of SLOTS, so lookups read every block
+    let limits = refkv_phkv::Limits { slot_block: 4096, record_read: 512, tail: 4096, ..Default::default() };
+    let s = Store::open_with(Logging(b, Default::default()), limits).unwrap();
+    s.reader().1.borrow_mut().clear();
+    for i in 0..3000 {
+        assert_eq!(whole_in(&s, &format!("k/{i:05}")).unwrap(), format!("value {i}").as_bytes());
+    }
+    assert_eq!(whole_in(&s, "k/99999"), None);
+    let reads = s.reader().1.borrow().clone();
+    // records are read 512 bytes at a time or less, blocks are longer: a record read per key, and each
+    // of the six blocks once, the miss included
+    let blocks: Vec<_> = reads.iter().filter(|r| r.1 > 512).collect();
+    assert_eq!(blocks.len(), 6, "{blocks:?}");
+    assert!(blocks.iter().all(|r| r.1 <= 4096));
+    assert_eq!(reads.len(), 3000 + 6);
+}
+
+#[test]
+fn the_first_read_supplies_slot_blocks() {
+    // 20,000 keys have about 160 KiB of slots, followed by PAGES and PTRHASH: a first read of 128 KiB
+    // holds the end of SLOTS
+    let b = write(Options::default(), |w| {
+        for i in 0..20_000 {
+            w.add_bytes(&format!("k/{i:05}"), b"v").unwrap();
+        }
+    });
+    let limits = refkv_phkv::Limits { tail: 128 << 10, record_read: 512, ..Default::default() };
+    let s = Store::open_with(Logging(b, Default::default()), limits).unwrap();
+    let opened = s.reader().1.borrow().clone();
+    s.reader().1.borrow_mut().clear();
+    for i in 0..20_000 {
+        assert_eq!(whole_in(&s, &format!("k/{i:05}")).unwrap(), b"v");
+    }
+    let reads = s.reader().1.borrow().clone();
+    let blocks = reads.iter().filter(|r| r.1 == 4096 || (r.1 > 512 && r.1 < 4096)).count();
+    let slot_blocks = 160_000u64.div_ceil(4096) as usize;
+    // a record read per key; the blocks the first read did not hold, each once
+    assert_eq!(reads.len(), 20_000 + blocks, "opened with {opened:?}");
+    assert!(blocks > 0 && blocks < slot_blocks, "{blocks} blocks read of about {slot_blocks}");
+}
+
+#[test]
+fn a_record_read_stops_at_the_end_of_its_page() {
+    let b = write(Options { page_size: 1024, ..Options::default() }, |w| {
+        for i in 0..5000 {
+            w.add_bytes(&format!("k/{i:05}"), &[i as u8; 200]).unwrap();
+        }
+    });
+    // a first read of a record far longer than a page
+    let limits = refkv_phkv::Limits { record_read: 1 << 20, slot_block: 0, ..Default::default() };
+    let s = Store::open_with(Logging(b, Default::default()), limits).unwrap();
+    s.reader().1.borrow_mut().clear();
+    for i in (0..5000).step_by(13) {
+        assert_eq!(whole_in(&s, &format!("k/{i:05}")).unwrap(), vec![i as u8; 200]);
+    }
+    let reads = s.reader().1.borrow().clone();
+    // a slot read (8 bytes) and one record read, no longer than a page and its last record, per key
+    assert_eq!(reads.len(), 2 * 5000usize.div_ceil(13));
+    assert!(reads.iter().all(|r| r.1 == 8 || r.1 <= 1024 + 300), "{:?}", reads.iter().map(|r| r.1).max());
+}
+
+#[test]
+fn a_slot_gives_its_record_length() {
+    // records of 3 sizes, one longer than 64 KiB
+    let big = vec![5u8; 70_000];
+    let b = write(Options { inline_max: 1 << 20, ..Options::default() }, |w| {
+        w.add_bytes("small", b"v").unwrap();
+        w.add_bytes("medium", &[1u8; 3000]).unwrap();
+        w.add_bytes("big", &big).unwrap();
+    });
+    let limits = refkv_phkv::Limits { slots_at_open: 1 << 20, ..Default::default() };
+    let s = Store::open_with(Logging(b.clone(), Default::default()), limits).unwrap();
+    s.reader().1.borrow_mut().clear();
+    assert_eq!(whole_in(&s, "small").unwrap(), b"v");
+    assert_eq!(whole_in(&s, "medium").unwrap(), vec![1u8; 3000]);
+    assert_eq!(whole_in(&s, "big").unwrap(), big);
+    let reads = s.reader().1.borrow().clone();
+    // one read for each, exactly as long as the record: a RECORDS section of 73 KB takes 17 bits of
+    // offset, and leaves 47 for the length
+    assert_eq!(reads.len(), 3, "{reads:?}");
+    assert!(reads[0].1 < 40 && reads[1].1 > 3000 && reads[1].1 < 3050 && reads[2].1 > 70_000 && reads[2].1 < 70_050, "{reads:?}");
+
+    // a slot whose length is wrong is an entry error
+    let sb = superblock(&b);
+    let dir = format::DirEntry::decode_all(&b[sb.directory_offset as usize..(sb.directory_offset + sb.directory_length) as usize]).unwrap();
+    let slots = dir.iter().find(|e| e.kind == format::section::SLOTS).unwrap();
+    let records = dir.iter().find(|e| e.kind == format::section::RECORDS).unwrap();
+    let bits = format::slot_offset_bits(records.length);
+    let mut b2 = b.clone();
+    for i in 0..slots.length / 8 {
+        let at = (slots.offset + 8 * i) as usize;
+        let v = format::le_u64(&b2, at);
+        if v != format::EMPTY_SLOT {
+            let (off, len) = format::unpack_slot(v, bits);
+            if let Some(len) = len {
+                b2[at..at + 8].copy_from_slice(&format::pack_slot(off, len + 1, bits).to_le_bytes());
+            }
+        }
+    }
+    let s2 = Store::open(b2).unwrap();
+    assert_eq!(s2.classify("small").unwrap_err().class, Class::Entry);
+
+    // a slot that gives no length (0) is read as before: a first read, then the rest
+    let mut b3 = b.clone();
+    for i in 0..slots.length / 8 {
+        let at = (slots.offset + 8 * i) as usize;
+        let v = format::le_u64(&b3, at);
+        if v != format::EMPTY_SLOT {
+            let (off, _) = format::unpack_slot(v, bits);
+            b3[at..at + 8].copy_from_slice(&format::pack_slot(off, 0, bits).to_le_bytes());
+        }
+    }
+    let s3 = Store::open_with(Logging(b3, Default::default()), refkv_phkv::Limits { record_read: 512, ..Default::default() }).unwrap();
+    s3.reader().1.borrow_mut().clear();
+    assert_eq!(whole_in(&s3, "big").unwrap(), big);
+    assert_eq!(whole_in(&s3, "medium").unwrap(), vec![1u8; 3000]);
+    let reads = s3.reader().1.borrow().clone();
+    assert!(reads.iter().any(|r| r.1 == 512), "a first read of 512 bytes: {reads:?}");
+}
+
+#[test]
+fn the_slot_split_follows_the_records_length() {
+    // the offset takes the bits RECORDS' length needs, the length the rest
+    assert_eq!(format::slot_offset_bits(1), 1);
+    assert_eq!(format::slot_offset_bits(30_000_000), 25);
+    assert_eq!(format::slot_offset_bits(1 << 40), 41);
+    let bits = format::slot_offset_bits(30_000_000);
+    let slot = format::pack_slot(29_999_999, 29, bits);
+    assert_eq!(format::unpack_slot(slot, bits), (29_999_999, Some(29)));
+    assert_ne!(slot, format::EMPTY_SLOT);
+    // a 1 TiB RECORDS leaves 23 bits of length: a record of 8 MiB or more gives none
+    let bits = format::slot_offset_bits(1 << 40);
+    assert_eq!(format::unpack_slot(format::pack_slot(5, (1 << 23) - 1, bits), bits), (5, Some((1 << 23) - 1)));
+    assert_eq!(format::unpack_slot(format::pack_slot(5, 1 << 23, bits), bits), (5, None));
+    // the largest offset of the largest RECORDS a slot can hold is never the empty slot
+    let bits = format::slot_offset_bits(u64::MAX >> 1);
+    assert_ne!(format::pack_slot((u64::MAX >> 1) - 1, 0, bits), format::EMPTY_SLOT);
+}

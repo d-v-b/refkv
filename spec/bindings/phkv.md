@@ -38,8 +38,8 @@ its keys. The phkv binding answers the three questions of
 What a phkv store adds over the ZIP binding:
 
 - **One-hop lookup.** A reader holds the perfect hash's pilots in memory. To
-  find a key it computes a slot, reads that slot's 8-byte record offset from
-  the slot table, and reads the record, whose key it compares with the one
+  find a key it computes a slot, reads that slot's 8 bytes (the record's
+  offset and length) from the slot table, and reads the record, whose key it compares with the one
   asked for ([§19.5](#195-lookup)).
 - **Sorted keys.** Records are stored in UTF-8 order with a page index, so
   `list(prefix)` and binary search work as in a paged vzip archive
@@ -93,19 +93,19 @@ references with keys of about 11 bytes; the vzip archive has a page index with
 | read by ZIP tools | yes | no | yes; `__vz__/phkv` is one more hidden entry |
 | read by vzip readers | yes | no | yes, unchanged |
 | read by phkv readers | no | yes | yes, through the container alone |
-| found at open by | the end of central directory record, at one of two fixed offsets from the end | a superblock at a probe distance from the end ([§17.2](#172-finding-the-superblock)) | both |
+| found at open by | the end of central directory record, at one of two fixed offsets from the end | a superblock at a probe distance from the end ([§17.2](#172-finding-the-superblock)) | the end of central directory record, which gives the superblock's place ([§17.2](#172-finding-the-superblock)) |
 | read at open | the end records, the source table, and the page index or the whole central directory | the superblock, directory, source table, page index and perfect hash ([§22.1](#221-opening)) | per reader, as in its own column |
 | finding a key | without a page index: a map of the central directory built at open; with one: bisect the index, read one page (about 64 KiB here), scan it | compute a slot, read 8 bytes, read one record (one hop, [§19.5](#195-lookup)) | per reader |
 | `list(prefix)` | the page index, or the central directory | the page index ([§19.4](#194-page-index)) | per reader |
 | per-key cost | a 30-byte local header and a 46-byte central directory record, each with the key; a reference's payload in the record's extra field, and again in the body when mirrored | a record (about 6 bytes plus the key and payload), an 8-byte slot, about 0.34 bytes of pilot, and the page index's share | the vzip archive's, plus the container's records and slots |
-| measured size | 122 bytes per key | 37 bytes per key | 172 bytes per key |
+| measured size | 122 bytes per key | 37 bytes per key | 159 bytes per key |
 | bytes values | STORED or DEFLATE | none, DEFLATE or Zstandard, optionally inline in the record | STORED or DEFLATE (ZIP methods 0 and 8) |
 | value checksum | the CRC-32 of every entry (readers need not check it) | an optional CRC-32C per value, which readers check whenever they have the whole value ([§19.2](#192-bytes-records)) | both |
 | per-key properties | none (readers ignore ZIP timestamps and attributes) | typed, optional columns ([§20](#20-properties)) | as standalone, for phkv readers |
 | reserved names | `__vz__/` | none | `__vz__/` |
 | reference payload limit | 65,519 bytes | 2^24 bytes | 65,519 bytes (the ZIP side's) |
 | `raw(key)` of a compressed value | the inflated body | the stored bytes, with `entry_info` to interpret them | the inflated body, as vzip |
-| a writer must | sort the central directory, if it writes a page index | sort the records, build the perfect hash | both, and size the container's padding to the central directory |
+| a writer must | sort the central directory, if it writes a page index | sort the records, build the perfect hash | both |
 | status | provisional; the conformance suite tests it | draft | draft |
 
 Which to write:
@@ -130,7 +130,7 @@ The superblock is 64 bytes:
 | 0 | `magic` | 4 bytes | ASCII `PHKV` |
 | 4 | `version` | `u16` | the format version ([§1.3](../refkv.md#13-versioning)): 0 |
 | 6 | `flags` | `u16` | bit 0: `hybrid`. Other bits are 0. |
-| 8 | `distance` | `u64` | `D`, the superblock's distance from the end of the file ([§17.2](#172-finding-the-superblock)) |
+| 8 | `distance` | `u64` | `D`, the superblock's distance from the end of the file: the bytes after it ([§17.2](#172-finding-the-superblock)) |
 | 16 | `key_count` | `u64` | `n`, the number of records ([§19](#19-records)) |
 | 24 | `directory_offset` | `u64` | the offset of the section directory |
 | 32 | `directory_length` | `u64` | its length in bytes, a multiple of 40 |
@@ -144,7 +144,7 @@ All offsets in a phkv store are absolute file offsets.
 The **container region** is the bytes the container occupies:
 
 - in a hybrid store, the body of the entry `__vz__/phkv`
-  ([§21](#21-hybrid-profile)), padding included;
+  ([§21](#21-hybrid-profile));
 - in a standalone store, from `region_offset` (0, unless the writer placed the
   store after other data) to the end of the superblock.
 
@@ -154,34 +154,55 @@ Readers use it only for `raw("__vz__/phkv")` in a hybrid store
 ### 17.2 Finding the superblock
 
 The superblock ends `D` bytes before the end of the file: it occupies
-`[file_size − D − 64, file_size − D)`. `D` is one of the **probe distances**:
-0, and 2^k for each k from 10 to 30 (1 KiB, 2 KiB, 4 KiB, …, 1 GiB). The bytes
-after the superblock do not belong to the store, and readers do not read them;
-in a hybrid store they are padding and the ZIP central directory and end
-records ([§21](#21-hybrid-profile)). In the manner of HDF5's user block,
-this lets a store live where its last bytes are not its own. A standalone
-writer usually writes the superblock last (`D` = 0), but may reserve `D` bytes
-after it for data that is not the store's, such as a signature added later.
+`[file_size − D − 64, file_size − D)`. The bytes after it do not belong to
+the store, and readers do not read them. `D` is the superblock's `distance`,
+and a store is one of two kinds:
 
-A reader finds the superblock as follows. For each probe distance `D`, in
-increasing order, with `D + 64 ≤ file_size`, the 64 bytes at
-`file_size − D − 64` are a **match** if:
+- **A hybrid store** ([§21](#21-hybrid-profile)) has the `hybrid` flag, and
+  its superblock ends where the ZIP central directory starts. `D` is the size
+  of the central directory and the end records, so it is any number.
+- **A standalone store** has `D` at one of the **probe distances**: 0, and
+  2^k for each k from 10 to 30 (1 KiB, 2 KiB, 4 KiB, …, 1 GiB). A writer
+  usually writes the superblock last (`D` = 0), but may reserve `D` bytes
+  after it for data that is not the store's, such as a signature added later.
+  In the manner of HDF5's user block, this lets a store live where its last
+  bytes are not its own.
 
-1. they start with the magic `PHKV`;
-2. bytes 60–63 hold the CRC-32C of bytes 0–59; and
-3. `distance` equals `D`.
+A reader finds the superblock as follows. A candidate at distance `D` is a
+**match** if the 64 bytes at `file_size − D − 64`:
+
+1. start with the magic `PHKV`;
+2. hold in bytes 60–63 the CRC-32C of bytes 0–59; and
+3. have a `distance` equal to `D`.
+
+Step 1 is for hybrid stores. If the file ends with a vzip end of central
+directory record ([vzip §10.4](vzip.md#104-end-of-central-directory-record-and-archive-comment):
+it is 44 or 60 bytes from the end, and its comment starts with
+`vzip/`), let `C` be the central directory's offset: the record's own
+offset field, or the offset in the zip64 end of central directory record when
+that field is `0xFFFFFFFF` ([vzip §10.2](vzip.md#102-zip64)). The candidate at
+`D = file_size − C` is a match if it has the `hybrid` flag too. If there is
+no such record, or the candidate is not a match, go to step 2.
+
+Step 2 is for standalone stores. For each probe distance `D`, in increasing
+order, with `D + 64 ≤ file_size`, test the candidate at `D`.
 
 The first match is the superblock. If none matches, the file is not a phkv
-store. Once a match is found, a reader does not probe further: if its
+store. Once a match is found, a reader does not look further: if its
 `version` is not one the reader implements, or `flags` has a bit set other
 than bit 0, the store is of an unsupported version. Either way, opening fails
 with an archive error ([§6.4](../refkv.md#64-errors)).
 
 The three conditions together make a false match vanishingly rare: random
 bytes match with probability about 2^-64 per candidate, and a superblock
-written for another distance does not match at this one. A reader reads the
-last 64 KiB + 64 bytes first, which holds every candidate up to 64 KiB, and
-reads 64 bytes per larger candidate.
+written for another distance does not match at this one. A reader reads at
+least the last 64 KiB + 64 bytes first, which holds the end records and every
+probe candidate up to 64 KiB, and reads 64 bytes per larger candidate. (The
+reference reader reads 512 KiB + 64 bytes, which holds the PTRHASH and PAGES
+sections of about 10^6 keys as well.) A hybrid
+store's superblock takes one such read when the central directory is larger
+than that, however large it is; a standalone store's takes one per probe
+distance beyond the tail it needs to reach.
 
 ### 17.3 Section directory
 
@@ -287,10 +308,23 @@ The section is **malformed**, an archive error, if:
 
 ### 18.2 SLOTS section
 
-The SLOTS section is `P × S` slots of 8 bytes. Slot `i` holds either a
-`u64` offset of a record ([§19.1](#191-record-encoding)), or 2^64 − 1 for an
-empty slot. Its length MUST be `8 × P × S`, else it is an archive error. The
-offset SHOULD be a multiple of 8, for readers that map the file.
+The SLOTS section is `P × S` slots of 8 bytes. Slot `i` is a `u64` that is
+either 2^64 − 1, for an empty slot, or a record's place
+([§19.1](#191-record-encoding)). Let `R` be the length of the RECORDS section,
+and `O` the number of bits `R` takes: the least `O` with `R < 2^O`. Then:
+
+- bits 0 to `O − 1`: the record's offset from the start of the RECORDS
+  section;
+- bits `O` to 63: the record's length in bytes, if it is less than
+  `2^(64 − O)`, else 0.
+
+An offset is at most `R − 1`, so a record's slot is never 2^64 − 1. Both the
+writer and the reader derive `O` from `R`, so the store does not record it.
+For example, a RECORDS section of 30,000,000 bytes takes 25 bits of offset,
+which leaves 39 bits of length: a record 28 bytes long and 1,234 bytes into
+RECORDS has the slot `1234 + 28 × 2^25` (0x380004D2). The section's length MUST be
+`8 × P × S`, else it is an archive error. The
+section's offset SHOULD be a multiple of 8, for readers that map the file.
 
 ### 18.3 Query
 
@@ -434,10 +468,12 @@ A reader determines whether a key `k` has a record as follows:
 1. If `n = 0`, `k` has none.
 2. Compute `k`'s slot ([§18.3](#183-query)) and read the slot's 8 bytes. If
    the slot is empty (2^64 − 1), `k` has no record.
-3. The slot's offset MUST lie within the RECORDS section, and the record
-   there MUST be well-formed ([§19.1](#191-record-encoding)); otherwise it is
-   an entry error for `k`, since the reader cannot tell whether `k` is
-   present.
+3. The slot's offset, from the start of the RECORDS section, MUST lie within
+   it, and the record there MUST be well-formed ([§19.1](#191-record-encoding)) and, if the slot
+   gives a length, exactly that long; otherwise it is an entry error for `k`,
+   since the reader cannot tell whether `k` is present. A reader can read a
+   record whose slot gives its length in one read of that many bytes; it
+   reads a record whose slot does not (length 0) as its encoding says.
 4. If the record's key is `k`, that is `k`'s record. Otherwise `k` has none.
 
 A reader MAY instead find `k` through the page index, by selecting the last
@@ -509,13 +545,14 @@ store:
 1. **The entry.** The archive has a hidden STORED entry `__vz__/phkv`, the
    last entry before the central directory. Its body is the container
    region: the phkv sections that are not other entries' bodies, the
-   directory and the superblock, followed by zero bytes. `region_offset` and
+   directory and the superblock, which ends the region. `region_offset` and
    `region_length` are its body offset and size.
-2. **Distance.** The zero bytes make the superblock end at a probe distance
-   `D` from the end of the file ([§17.2](#172-finding-the-superblock)): `D`
-   is the zero bytes, the central directory and the end records. A writer
-   picks the smallest probe distance at least as large as the central
-   directory and end records, and pads to it.
+2. **Distance.** The superblock ends where the central directory starts, so
+   `D` is the size of the central directory and the end records, and has the
+   `hybrid` flag. A phkv reader finds the superblock from the end of central
+   directory record ([§17.2](#172-finding-the-superblock)), which is the one
+   place where it reads a ZIP structure; the container is otherwise read
+   alone.
 3. **Records.** The store has one record for every entry of the archive
    except `__vz__/phkv`, so its `n` counts hidden entries too. A record has
    `hidden` set if and only if its key starts with `__vz__/`.
@@ -533,7 +570,7 @@ store:
    same results as vzip's ([§13.2](vzip.md#132-operations)) for every key.
 
 A reader that knows only vzip sees `__vz__/phkv` as one more hidden entry,
-and reads the archive as before. A phkv reader never reads the ZIP structures.
+and reads the archive as before. A phkv reader reads no ZIP structure but the end of central directory record.
 
 Bytes values cannot use codec 2 (Zstandard) in a hybrid store, since a vzip
 archive allows only methods 0 and 8 ([§10.1](vzip.md#101-structure)).
@@ -564,7 +601,9 @@ following. Any failure is an archive error:
 
 A reader MAY read more, but MUST NOT report an error at open that this
 section and [§6.1](../refkv.md#61-opening) do not list. In particular,
-records, slots and PROPERTY sections are not read at open.
+records and PROPERTY sections are not read at open. A reader MAY read
+the SLOTS section whole and keep it, which saves a read per lookup at the cost
+of about 8 bytes per key read at open and held.
 
 ### 22.2 Operations
 
@@ -678,9 +717,11 @@ key; a writer that finds no seed and pilots for its keys fails.
 ```
 
 With this layout, what a reader reads at open is at the end of the file. It
-reads the last 64 KiB, which holds the superblock and directory, and then the
-range from PAGES to the directory, if the first read did not cover it. Each
-`get` then reads one slot and one record, plus the value if it is not inline.
+reads the last bytes of the file (64 KiB or more), which hold the superblock
+and directory, and then the range from PAGES to the directory, if the first
+read did not cover it. Each `get` then reads one slot and one record, plus the
+value if it is not inline. A reader that keeps the slots it reads, a block at
+a time, reads no slot for a later `get` whose slot is in a block it has.
 
 ### 23.3 File names
 
@@ -716,6 +757,7 @@ name.
 | hash_id XXH64 | 1 | phkv binding |
 | pilot multiplier | 0x517CC1B727220A95 | phkv binding |
 | empty slot | 2^64 − 1 | phkv binding |
+| slot | the low `O` bits the record's offset into RECORDS, the others its length (0 if it does not fit), where `O` is the bit length of the RECORDS section's length | phkv binding |
 | payload limit | 2^24 | phkv binding |
 | hybrid entry | `__vz__/phkv` | phkv binding |
 
