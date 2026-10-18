@@ -310,7 +310,7 @@ fn main() {
         }
         Some("read") => {
             let defaults = Limits::default();
-            let limits = Limits { tail: a.get(6).map_or(DEFAULT_TAIL, |v| v.parse().unwrap()), record_read: a.get(7).map_or(defaults.record_read, |v| v.parse().unwrap()), slots_at_open: a.get(8).map_or(0, |v| v.parse().unwrap()), slot_block: a.get(9).map_or(0, |v| v.parse().unwrap()), ..defaults };
+            let limits = Limits { tail: a.get(6).map_or(DEFAULT_TAIL, |v| v.parse().unwrap()), record_read: a.get(7).map_or(defaults.record_read, |v| v.parse().unwrap()), slots_at_open: a.get(8).map_or(0, |v| v.parse().unwrap()), slot_block: a.get(9).map_or(defaults.slot_block, |v| v.parse().unwrap()), ..defaults };
             let t: Box<dyn Open> = if a[2].starts_with("http://") { Box::new(HttpOpen(a[2].clone(), Counts::default(), limits)) } else { Box::new(LocalOpen(a[2].clone(), Counts::default(), limits)) };
             read(&*t, a[3] == "refs", a[4].parse().unwrap(), a[5].parse().unwrap(), a.get(10).map_or(200, |v| v.parse().unwrap()));
         }

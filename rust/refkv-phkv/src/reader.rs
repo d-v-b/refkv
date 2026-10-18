@@ -148,14 +148,14 @@ pub struct Limits {
     /// slot from the file
     pub slots_at_open: u64,
     /// the bytes of SLOTS a lookup reads at once, and keeps for later lookups, when SLOTS was not
-    /// read at open: blocks of this many bytes from the start of the section. 8 or less reads only
-    /// the lookup's own slot, and keeps nothing.
+    /// read at open: blocks of this many bytes from the start of the section, by default 4 KiB (512
+    /// slots), the size of a vzip page. 8 or less reads only the lookup's own slot, and keeps nothing.
     pub slot_block: u64,
 }
 
 impl Default for Limits {
     fn default() -> Limits {
-        Limits { sources: 1 << 22, url_reads: 1024, open_bytes: 256 << 20, request_bytes: 1 << 32, record_read: 512, tail: DEFAULT_TAIL, slots_at_open: 0, slot_block: 0 }
+        Limits { sources: 1 << 22, url_reads: 1024, open_bytes: 256 << 20, request_bytes: 1 << 32, record_read: 512, tail: DEFAULT_TAIL, slots_at_open: 0, slot_block: DEFAULT_SLOT_BLOCK }
     }
 }
 
@@ -225,6 +225,9 @@ pub struct Store<R: ReadAt> {
     property_entries: Vec<DirEntry>,
     properties: OnceLock<Result<Vec<PropertySection>, String>>,
 }
+
+/// How many bytes of SLOTS a lookup reads at once, by default (`Limits::slot_block`).
+pub const DEFAULT_SLOT_BLOCK: u64 = 4096;
 
 /// How many bytes of the end of the file a reader reads first, by default: 64 KiB and a superblock.
 pub const DEFAULT_TAIL: u64 = (64 << 10) + format::SUPERBLOCK_SIZE;

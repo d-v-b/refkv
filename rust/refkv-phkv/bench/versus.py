@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Paged vzip against phkv, over HTTP: the open and first lookup, and later lookups, with phkv's
-slots read one at a time (the default) or in blocks the size of a vzip page (Limits::slot_block).
+slots read one at a time, in blocks the size of a vzip page (Limits::slot_block, the default), and
+with a longer first read and record read as well.
 
     uv run python rust/refkv-phkv/bench/versus.py --data DIR
 
@@ -38,9 +39,8 @@ def main():
     rows = []
     for workload, n in cases:
         readers = [("vzip, paged", "paged.vzip", None)]
-        readers += [("phkv, slots one at a time", "phkv", (512, 0)), ("phkv, 4 KiB slot blocks", "phkv", (512, PAGE))]
-        if workload == "bytes":
-            readers += [("phkv, 4 KiB slot blocks, record_read 2 KiB", "phkv", (2048, PAGE))]
+        readers += [("phkv, slots one at a time", "phkv", (DEFAULT_TAIL, 512, 0)), ("phkv, defaults (4 KiB slot blocks)", "phkv", (DEFAULT_TAIL, 512, PAGE))]
+        readers += [("phkv, + record_read 2 KiB, tail 512 KiB", "phkv", (512 << 10, 2048, PAGE))]
         print(f"\n### {n:,} keys, `{workload}`: over HTTP, {args.rtt_ms:g} ms per request\n")
         print(f"| reader | open + first lookup | later lookup ({args.short} lookups) | later lookup ({args.long:,} lookups, counted) |\n|---|---|---|---|")
         for label, suffix, limits in readers:
@@ -51,8 +51,8 @@ def main():
                 if limits is None:
                     res.append(read_python(url, workload, n, args.reps, lookups))
                 else:
-                    record_read, block = limits
-                    res.append(read_rust(url, workload, n, args.reps, DEFAULT_TAIL, record_read, 0, block, lookups))
+                    tail, record_read, block = limits
+                    res.append(read_rust(url, workload, n, args.reps, tail, record_read, 0, block, lookups))
             a, b = res
             rows.append({"workload": workload, "n": n, "reader": label, "short": a, "long": b})
             print(f"| {label} | {a['first_get_requests']} req, {human(a['first_get_bytes'])}, {a['first_get_ms']:.0f} ms "

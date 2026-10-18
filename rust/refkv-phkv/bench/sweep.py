@@ -83,7 +83,7 @@ def main():
             server.bandwidth = mbps * 1e6
             for slots in (0, 1 << 30):
                 r = run(workload, n, f"{n}.phkv", DEFAULT_TAIL, rr, slots, sweep="slots_at_open", slots_at_open=slots, mbps=mbps)
-                first, later = r["first_get_ms"], r["warm_ms_median"]
+                first, later = r["first_get_ms"], r["warm_ms_mean"]
                 tot = lambda k: f"{first + (k - 1) * later:.0f} ms"
                 print(f"| {label} | {'none' if not mbps else f'{mbps:g} MB/s'} | {'off' if not slots else 'whole'} | {cold(r)} | {r['warm_requests_per_get']:.2f} req, {later:.0f} ms | {tot(1)} | {tot(10)} | {tot(100)} | {tot(1000)} |")
     server.bandwidth = 0

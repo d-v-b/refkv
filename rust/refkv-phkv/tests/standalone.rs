@@ -332,7 +332,9 @@ fn slots_read_at_open() {
             w.add_bytes(&format!("k/{i:05}"), format!("value {i}").as_bytes()).unwrap();
         }
     });
-    let plain = Store::open(Logging(b.clone(), Default::default())).unwrap();
+    // slots one at a time, as the comparison
+    let one = refkv_phkv::Limits { slot_block: 0, ..Default::default() };
+    let plain = Store::open_with(Logging(b.clone(), Default::default()), one).unwrap();
     let limits = refkv_phkv::Limits { slots_at_open: 1 << 20, tail: 4096, ..Default::default() };
     let kept = Store::open_with(Logging(b.clone(), Default::default()), limits).unwrap();
     let lookups = |s: &Store<Logging>| {
@@ -349,7 +351,7 @@ fn slots_read_at_open() {
     assert_eq!(a, 429 * 2 + 1, "a slot read and a record read per hit, a slot read for the miss");
     assert_eq!(c, 429, "a record read per hit, and none for the miss");
     // a limit below the section's size leaves them in the file
-    let limits = refkv_phkv::Limits { slots_at_open: 100, ..Default::default() };
+    let limits = refkv_phkv::Limits { slots_at_open: 100, ..one };
     let small = Store::open_with(Logging(b, Default::default()), limits).unwrap();
     assert_eq!(lookups(&small), a);
 }
