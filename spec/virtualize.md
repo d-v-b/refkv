@@ -1,11 +1,11 @@
 # Virtualizing image files and stores as OME-Zarr in refkv
 
-Profiles version: 0 (**draft**) · Revision: 27
+Profiles version: 0 (**draft**) · Revision: 28
 
 ## 1. Introduction
 
 A **virtualizer** reads the structure of an image file (TIFF, Hamamatsu NDPI,
-Nikon ND2, DICOM, NIfTI, Imaris IMS or Zeiss CZI), of a chunked array store (N5 or
+Nikon ND2, DICOM, NIfTI, Imaris IMS, Zeiss CZI or MRC), of a chunked array store (N5 or
 Zarr v2, including OME-Zarr 0.4), or of a Sentinel-2 SAFE product (a
 directory or a zip file of JPEG 2000 bands and XML metadata), and writes a
 vzip archive ([spec/bindings/vzip.md](bindings/vzip.md)) that presents the pixels as an OME-Zarr
@@ -34,9 +34,10 @@ is a document of its own, numbered as a section of this one:
 | 11 | [OME-Zarr](virtualize/ome-zarr.md#part-2-the-profile) | OME-Zarr 0.4 hierarchies on Zarr v2 (store input), migrated to OME-Zarr 0.5 |
 | 12 | [SAFE](virtualize/safe.md#part-2-the-profile) | Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (store input) or a `.SAFE.zip` file (file input) |
 | 13 | [CZI](virtualize/czi.md#part-2-the-profile) | Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids |
+| 14 | [MRC](virtualize/mrc.md#part-2-the-profile) | MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks) |
 
-[§3](virtualize/tiff.md#3-tiff-profile)–[§8](virtualize/ims.md#8-ims-profile) and [§13](virtualize/czi.md#13-czi-profile) read a single file (a **file input**); [§9](virtualize/n5.md#9-n5-profile)–[§11](virtualize/ome-zarr.md#11-ome-zarr-profile) read a store of many
-objects (a **store input**, [§1.4](#14-store-inputs)); [§12](virtualize/safe.md#12-safe-profile) reads either. [§14](#14-conformance) is informative:
+[§3](virtualize/tiff.md#3-tiff-profile)–[§8](virtualize/ims.md#8-ims-profile), [§13](virtualize/czi.md#13-czi-profile) and [§14](virtualize/mrc.md#14-mrc-profile) read a single file (a **file input**); [§9](virtualize/n5.md#9-n5-profile)–[§11](virtualize/ome-zarr.md#11-ome-zarr-profile) read a store of many
+objects (a **store input**, [§1.4](#14-store-inputs)); [§12](virtualize/safe.md#12-safe-profile) reads either. [§15](#15-conformance) is informative:
 the implementations and how they are compared.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be
@@ -80,7 +81,7 @@ sources with identical bytes), the same set of keys, and for every key:
   `18446744073709552000`, an integer literal of another value;
 - **other bytes entries:** identical bytes.
 
-**IR mirrors.** For the TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE profiles, `refkv_source` is the
+**IR mirrors.** For the TIFF, NDPI, ND2, CZI, DICOM, NIfTI, MRC, IMS and SAFE profiles, `refkv_source` is the
 source's IR mirror ([conventions §8](conventions.md#8-the-ir-mirror)); for
 a SAFE directory and the Zarr v2, N5 and OME-Zarr profiles, the store's ([conventions §8.9](conventions.md#89-stores),
 whose limits replace those below).
@@ -155,7 +156,8 @@ a test that needs a byte beyond `H` does not match.
 | bytes 0–3 are the 32-bit integer 540 in either byte order, and bytes 4–11 are `6E 2B 32 00 0D 0A 1A 0A` (`n+2`) | NIfTI profile ([§7](virtualize/nifti.md#7-nifti-profile)), NIfTI-2 |
 | bytes 0–3 are `50 4B 03 04` (a ZIP local file header) | SAFE profile ([§12](virtualize/safe.md#12-safe-profile)), zip form |
 | bytes 0–15 are `5A 49 53 52 41 57 46 49 4C 45` (`ZISRAWFILE`) and six `00` bytes | CZI profile ([§13](virtualize/czi.md#13-czi-profile)) |
-| anything else, including the JPEG 2000 signature box `00 00 00 0C 6A 50 20 20 0D 0A 87 0A` that starts legacy ND2 files, and NIfTI header-and-image pairs (`ni1`, `ni2`) | rejected |
+| bytes 208–210 are `4D 41 50` (`MAP`) | MRC profile ([§14](virtualize/mrc.md#14-mrc-profile)) |
+| anything else, including the JPEG 2000 signature box `00 00 00 0C 6A 50 20 20 0D 0A 87 0A` that starts legacy ND2 files, NIfTI header-and-image pairs (`ni1`, `ni2`) and pre-2000 MRC files without `MAP` | rejected |
 
 A DICOM file is read by the DICOM profile even when its 128-byte preamble
 holds a TIFF header, as dual-personality files and some writers' preambles
@@ -168,7 +170,7 @@ that is truncated or inconsistent, a value of the wrong type or out of range,
 an offset or length above 2^53 − 1. Being unable to read the input (a
 network error) is not a rejection; the virtualizer fails instead. An
 implementation MAY also fail, rather than reject, when an input exceeds a
-resource limit that it states ([§14](#14-conformance)); a failure is not an output, so it does
+resource limit that it states ([§15](#15-conformance)); a failure is not an output, so it does
 not affect equivalence.
 
 **Reader policy.** A virtualizer reads a remote input under a reader policy
@@ -526,9 +528,10 @@ is the format's Zarr convention:
 - [§10](virtualize/zarr2.md#10-zarr-v2-profile), the Zarr v2 profile: [spec/virtualize/zarr2.md](virtualize/zarr2.md#part-2-the-profile);
 - [§11](virtualize/ome-zarr.md#11-ome-zarr-profile), the OME-Zarr profile: [spec/virtualize/ome-zarr.md](virtualize/ome-zarr.md#part-2-the-profile);
 - [§12](virtualize/safe.md#12-safe-profile), the SAFE profile: [spec/virtualize/safe.md](virtualize/safe.md#part-2-the-profile);
-- [§13](virtualize/czi.md#13-czi-profile), the CZI profile: [spec/virtualize/czi.md](virtualize/czi.md#part-2-the-profile).
+- [§13](virtualize/czi.md#13-czi-profile), the CZI profile: [spec/virtualize/czi.md](virtualize/czi.md#part-2-the-profile);
+- [§14](virtualize/mrc.md#14-mrc-profile), the MRC profile: [spec/virtualize/mrc.md](virtualize/mrc.md#part-2-the-profile).
 
-## 14. Conformance
+## 15. Conformance
 
 This section is informative. There are two maintained implementations:
 - the Python reference, `python -m refkv.virtualize <url> <out.vzip>`
@@ -540,7 +543,7 @@ Both are organized by profile: `tiff/`, `ndpi/`, `nd2/`, `dicom/`, `nifti/`,
 `ims/`, `n5/`, `safe/` and `czi/`, next to the parts they share (`common`, and `store`
 for store inputs: the listing, the object reader and the JSON reader of
 [§1.4](#14-store-inputs)–[§1.6](#16-json-documents)). The Zarr v2 and OME-Zarr profiles are the Rust
-core's (its `zarr2` store format and its OME layer), as TIFF, ND2 and CZI are.
+core's (its `zarr2` store format and its OME layer), as TIFF, ND2, CZI and MRC are.
 
 **Resource limit.** The browser implementation fails (it does not reject)
 a store whose listing has more than 100000 objects (counting every listed
@@ -567,7 +570,8 @@ describes the command an implementation provides). The corpus has:
   `fixtures/n5/`, `fixtures/zarr2/` and
   `fixtures/ome-zarr/` (one directory each), and the synthetic
   SAFE products in `fixtures/safe/` (directories and zip files),
-  and the synthetic CZI files in `fixtures/czi/`;
+  the synthetic CZI files in `fixtures/czi/`, and the synthetic MRC files
+  in `fixtures/mrc/`;
 - the 205 OME-TIFFs of IDR idr0096;
 - public files and stores of every profile, listed in
   `conformance/virtualize/corpus_*.txt`: TIFF, SVS and NDPI
@@ -576,8 +580,9 @@ describes the command an implementation provides). The corpus has:
   OpenOrganelle (`corpus_n5.txt`, `corpus_zarr2.txt`), and OME-Zarr 0.4
   images, label images and plates from the IDR (`corpus_ome_zarr.txt`),
   Sentinel-2 products from the Google Cloud mirror and ESA zips
-  published on Mendeley Data (`corpus_safe.txt`), and CZI files from the
-  OME sample images and Zenodo (`corpus_czi.txt`).
+  published on Mendeley Data (`corpus_safe.txt`), CZI files from the
+  OME sample images and Zenodo (`corpus_czi.txt`), and MRC files from
+  mrcfile's test data (`corpus_mrc.txt`).
 
 The harness's proxy (`conformance/virtualize/proxy.py`) serves the synthetic
 stores, and forwards remote ones, with the listing operation of [§1.5](#15-listing-a-store).
@@ -595,7 +600,8 @@ and SENTINEL2 drivers), which also checks the georeferencing, and with
 every file of each product rebuilt from the hierarchy, and CZI against
 czifile (every subblock's pixels, in its level or tile array, with the
 segments, attachments, metadata and directory entries rebuilt from the
-hierarchy) and libCZI (pylibCZIrw: the stitched planes of regular levels).
+hierarchy) and libCZI (pylibCZIrw: the stitched planes of regular levels),
+and MRC against mrcfile (the values, and every header field).
 
 The conventions of [conventions §2](conventions.md#2-attributes) are checked by `python/tests/test_virtualize_conventions.py`:
 it runs every synthetic file and store through both implementations,
@@ -609,7 +615,8 @@ version 1 on; at version 0 the URLs name `main` itself ([conventions §1](conven
 The DICOM, NIfTI and IMS profiles (revision 11), the N5 and Zarr v2
 profiles (revision 12), the OME-Zarr profile (revision 13), the data
 sources of the TIFF and NDPI profiles (revision 14), the SAFE profile
-(revision 17) and the CZI profile (revision 18) have not yet been
+(revision 17), the CZI profile (revision 18) and the MRC profile (revision
+28) have not yet been
 through an independent implementation round; the round implementations in
 `conformance/impls/virtualize/` still write JPEG headers as literals and ranges of the
 file, and predate the conventions (revisions 15 and 16).

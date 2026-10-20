@@ -542,13 +542,14 @@ CONVENTION_KEY = "refkv_virtualized"
 # convention is at version 0 and the root property records it (conventions §1
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>, §2
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>).
-REVISION = 27
+REVISION = 28
 PROFILES = {
     "tiff": ("48e9ac4e-1156-4a62-955e-20467d9c2700", 0, "TIFF"),
     "ndpi": ("6cac71ef-dbb2-4acd-b60c-00389aa4238a", 0, "NDPI"),
     "nd2": ("59612f14-e314-4207-ba00-8f422ba71490", 0, "ND2"),
     "dicom": ("acf17198-e5a5-48d3-8187-22ec4bb40ea5", 0, "DICOM"),
     "nifti": ("06e5809d-4d54-4b72-afd0-6bf61a7b4c85", 0, "NIfTI"),
+    "mrc": ("2aacd010-2ed1-4748-bc3c-5dd5e840bbce", 0, "MRC"),
     "ims": ("5067a535-8261-4b25-a93c-1985ed333bde", 0, "IMS"),
     "n5": ("ad5d4c39-c69e-48f7-a3ef-4cc8c607d416", 0, "N5"),
     "zarr2": ("8e792619-d671-4687-ab51-752885dd3ee6", 0, "Zarr v2"),

@@ -8,6 +8,7 @@ use crate::ims::Ims;
 use crate::ir::Ir;
 use crate::nd2::{Nd2, Step};
 use crate::plan::{Planner, Request};
+use crate::mrc::Mrc;
 use crate::nifti::Nifti;
 use crate::safe::Safe;
 use crate::tiff::Tiff;
@@ -28,6 +29,8 @@ pub enum Format {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), so
     /// hosts never test for NDPI themselves.
     Ndpi,
+    /// an MRC2014 file (a CCP4 map, an image stack, a volume or a volume stack)
+    Mrc,
 }
 
 impl Format {
@@ -41,6 +44,7 @@ impl Format {
             5 => Some(Format::Ims),
             6 => Some(Format::Safe),
             7 => Some(Format::Ndpi),
+            8 => Some(Format::Mrc),
             _ => None,
         }
     }
@@ -54,11 +58,12 @@ impl Format {
             Format::Ims => "ims",
             Format::Safe => "safe",
             Format::Ndpi => "ndpi",
+            Format::Mrc => "mrc",
         }
     }
-    /// The format of a name ("nd2", "tiff", "czi", "dicom", "nifti", "ims", "safe", "ndpi").
+    /// The format of a name ("nd2", "tiff", "czi", "dicom", "nifti", "ims", "safe", "ndpi", "mrc").
     pub fn from_name(s: &str) -> Option<Format> {
-        [Format::Nd2, Format::Tiff, Format::Czi, Format::Dicom, Format::Nifti, Format::Ims, Format::Safe, Format::Ndpi].into_iter().find(|f| f.name() == s)
+        [Format::Nd2, Format::Tiff, Format::Czi, Format::Dicom, Format::Nifti, Format::Ims, Format::Safe, Format::Ndpi, Format::Mrc].into_iter().find(|f| f.name() == s)
     }
     /// The format a file's first bytes give, if one of these: a hint, the format of its
     /// signature (any zip file is taken for a SAFE product's zip form, which then rejects one
@@ -87,6 +92,9 @@ impl Format {
         if head.len() >= 4 && &head[..4] == b"PK\x03\x04" {
             return Some(Format::Safe);
         }
+        if crate::mrc::detect(head) {
+            return Some(Format::Mrc);
+        }
         None
     }
 }
@@ -99,6 +107,7 @@ pub enum AnyParser {
     Nifti(Nifti),
     Ims(Ims),
     Safe(Box<Safe>),
+    Mrc(Mrc),
 }
 
 impl AnyParser {
@@ -111,6 +120,7 @@ impl AnyParser {
             Format::Nifti => AnyParser::Nifti(Nifti::new(size)),
             Format::Ims => AnyParser::Ims(Ims::new(size)),
             Format::Safe => AnyParser::Safe(Box::new(Safe::new(size))),
+            Format::Mrc => AnyParser::Mrc(Mrc::new(size)),
         }
     }
     pub fn step(&mut self) -> Result<Step, String> {
@@ -122,6 +132,7 @@ impl AnyParser {
             AnyParser::Nifti(x) => x.step(),
             AnyParser::Ims(x) => x.step(),
             AnyParser::Safe(x) => x.step(),
+            AnyParser::Mrc(x) => x.step(),
         }
     }
     pub fn feed(&mut self, o: u64, b: Vec<u8>) {
@@ -133,6 +144,7 @@ impl AnyParser {
             AnyParser::Nifti(x) => x.feed(o, b),
             AnyParser::Ims(x) => x.feed(o, b),
             AnyParser::Safe(x) => x.feed(o, b),
+            AnyParser::Mrc(x) => x.feed(o, b),
         }
     }
     pub fn finish(self) -> Result<(Ir, serde_json::Value), String> {
@@ -144,6 +156,7 @@ impl AnyParser {
             AnyParser::Nifti(x) => Parser::finish(x),
             AnyParser::Ims(x) => Parser::finish(x),
             AnyParser::Safe(x) => Parser::finish(*x),
+            AnyParser::Mrc(x) => Parser::finish(x),
         }
     }
 }

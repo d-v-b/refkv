@@ -1614,3 +1614,34 @@ revisions it records, from
 those revisions wrote, byte for byte; `compare.py` reads those names as the
 current ones
 ([conformance/virtualize/HARNESS.md](../../../conformance/virtualize/HARNESS.md)).
+
+## Revision 28: the MRC profile
+
+**What prompted it.** Cryo-EM maps, micrographs, particle stacks and
+tomograms are MRC2014 files: a 1024-byte header, an optional extended
+header, and one block of values, like NIfTI a format whose whole structure
+is in its header. Revision 27 is kept as `VIRTUALIZE.r27.md`.
+
+**The changes.**
+- **[§14](../../virtualize/mrc.md#14-mrc-profile), the MRC profile**
+  ([spec/virtualize/mrc.md](../../virtualize/mrc.md)): an MRC2014 file is
+  chosen by `MAP` at byte 208 ([§1.2](../../virtualize.md#12-input)), its byte
+  order by the machine stamp's first byte; images, image stacks, volumes
+  and volume stacks (`ispg ≥ 401`) become one array, `z`, `y`, `x` (an
+  image `y`, `x`; a volume stack `t`, `z`, `y`, `x`), named by the axis map
+  when it is a permutation; modes 0, 1, 2, 4, 6 and 12; the voxel size in
+  angstroms as scale, the origin as translation, `dmin` and `dmax` as the
+  display window; chunks of contiguous values with a limit of 1 MiB; the
+  header on the root, and the file's IR mirror on `refkv_source`.
+- **Conformance** is [§15](../../virtualize.md#15-conformance) (was §14).
+- **Conventions:** the root property records `"revision": 28`; the schemas
+  were regenerated, with the MRC convention's.
+
+**Output.** Every other profile's output changes only in the recorded
+revision.
+
+**Implementations.** The Rust core (`rust/refkv-ir/src/mrc.rs`, the source
+model `schema/mrc.json`, the projection `project/mrc.rs`), through both
+hosts. There is no frozen reference: `compare.py` compares `py` with `web`
+on MRC inputs, and `js/test/mrc/verify.py` and `python/tests/ir/test_mrc.py`
+check both against mrcfile.

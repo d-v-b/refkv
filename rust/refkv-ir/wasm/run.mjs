@@ -22,6 +22,7 @@ function format(fd) {
   if (String.fromCharCode(...head.subarray(344, 348)) === "n+1\0" || s.slice(4, 12) === "n+2\0\r\n\x1a\n") return 4;
   if (s.startsWith("\x89HDF\r\n\x1a\n")) return 5;
   if (s.startsWith("PK\x03\x04")) return 6; // a SAFE product's zip form
+  if (String.fromCharCode(...head.subarray(208, 211)) === "MAP") return 8;
   return 2;
 }
 

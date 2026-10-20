@@ -1,10 +1,10 @@
 // Virtualizing an image file by the profile its first bytes select
 // (spec/virtualize.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>):
-// TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or a SAFE zip, or a
+// TIFF, NDPI, ND2, DICOM, NIfTI, MRC, IMS, CZI or a SAFE zip, or a
 // store by the profile its root keys select (§1.4
 // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>): N5, Zarr v2,
 // OME-Zarr 0.4 or a SAFE directory. TIFF (NDPI included: the core's TIFF parser finds it), ND2,
-// CZI, DICOM, NIfTI, IMS and SAFE files, and SAFE directories and Zarr v2, N5 and OME-Zarr
+// CZI, DICOM, NIfTI, MRC, IMS and SAFE files, and SAFE directories and Zarr v2, N5 and OME-Zarr
 // stores, are virtualized by the Rust core (ir/, rust/refkv-ir); each other profile is in its
 // own directory; store.ts holds the store machinery.
 
@@ -51,7 +51,7 @@ export async function addChecksums(
   }
 }
 
-const NOT_SUPPORTED = "not a TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file";
+const NOT_SUPPORTED = "not a TIFF, NDPI, ND2, DICOM, NIfTI, MRC, IMS, CZI or SAFE zip file";
 
 /**
  * True if `head` starts with a TIFF or BigTIFF header, in either byte order (§1.2
@@ -72,11 +72,11 @@ export function isDicom(head: Uint8Array): boolean {
 
 const HDF5 = [0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a];
 
-type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe"; summary: object };
+type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc"; summary: object };
 
 /** `exact`, when given, reads exactly the ranges asked for, past `read`'s block cache: the
  * SAFE profile's tile-part headers, scattered through a zip file, are read with it, and the
- * Rust core's requests (TIFF and NDPI, ND2, CZI, DICOM, NIfTI, IMS), which it plans itself.
+ * Rust core's requests (TIFF and NDPI, ND2, CZI, DICOM, NIfTI, MRC, IMS), which it plans itself.
  * Source 0 pins the file's size, and its ETag when `pins.etag` gives one (§1.2
  * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>); with
  * `pins.checksums`, the ranges of source 0 carry the CRC-32C of their bytes. */
@@ -147,6 +147,9 @@ export function irFormat(head: Uint8Array): IrFormat | undefined {
   if (head.length >= 4 && head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04) return "safe";
   if (niftiVersion(head) !== undefined) return "nifti";
   if (HDF5.every((b, i) => head[i] === b)) return "ims";
+  // `MAP` at 208: an MRC2014 file (spec/virtualize/mrc.md §14.1
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#141-header>)
+  if (head.length >= 212 && head[208] === 0x4d && head[209] === 0x41 && head[210] === 0x50) return "mrc";
   return undefined;
 }
 
@@ -155,7 +158,7 @@ async function virtualizeFile(url: string, { read, size: fileSize, exact, source
   if (isDicom(head)) return virtualizeIr("dicom", url, source);
   const ir = irFormat(head);
   if (ir === "tiff" || ir === "nd2") return virtualizeIr(ir, url, source);
-  if (ir === "nifti" || ir === "ims" || ir === "czi" || ir === "safe") return virtualizeIr(ir, url, source);
+  if (ir === "nifti" || ir === "ims" || ir === "czi" || ir === "safe" || ir === "mrc") return virtualizeIr(ir, url, source);
   throw new ImageError(NOT_SUPPORTED);
 }
 

@@ -8,7 +8,7 @@ a reference store in one ordinary ZIP file
 ([its binding](https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md)).
 
 This package holds reference stores in memory, reads and writes vzip archives,
-and virtualizes TIFF, NDPI, ND2, CZI, DICOM, NIfTI and Imaris files, N5,
+and virtualizes TIFF, NDPI, ND2, CZI, DICOM, NIfTI, MRC and Imaris files, N5,
 Zarr v2 and OME-Zarr stores, and Sentinel-2 SAFE products through its Rust
 core, without copying their pixels ([docs](https://github.com/d-v-b/refkv/blob/main/docs/README.md)).
 

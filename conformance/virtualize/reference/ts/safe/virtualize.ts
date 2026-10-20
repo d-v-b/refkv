@@ -19,8 +19,8 @@ export { SafeError };
 const PROFILE = "safe";
 const WORKERS = 16;
 /**
- * The browser implementation's limit on a zip file's entries (§14
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-conformance>), as on a store's
+ * The browser implementation's limit on a zip file's entries (§15
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-conformance>), as on a store's
  * listing.
  */
 const MAX_ENTRIES = 100000;

@@ -36,7 +36,8 @@ def nifti_version(head: bytes) -> int | None:
 
 def sniff(head: bytes) -> str | None:
     """The IR format a file's first bytes give, if any (132 of them for DICOM, 348 for
-    NIfTI-1; DICOM first: a dual-personality file's preamble may hold a TIFF header)."""
+    NIfTI-1, 212 for MRC; DICOM first: a dual-personality file's preamble may hold a TIFF
+    header)."""
     if head[128:132] == b"DICM":
         return "dicom"
     if head[:4] == ND2_MAGIC:
@@ -51,6 +52,8 @@ def sniff(head: bytes) -> str | None:
         return "ims"
     if head[:4] == ZIP_MAGIC:
         return "safe"
+    if len(head) >= 212 and head[208:211] == b"MAP":
+        return "mrc"
     return None
 
 
@@ -89,7 +92,7 @@ def virtualize(location: str, url: str | None = None, mirror: bool = True, polic
     head = held[:want] if len(held) >= want else transport.get(0, want)
     fmt = sniff(head)
     if fmt is None:
-        raise Rejected("not a TIFF, CZI, ND2, DICOM, NIfTI or IMS file or SAFE zip file")
+        raise Rejected("not a TIFF, CZI, ND2, DICOM, NIfTI, MRC or IMS file or SAFE zip file")
     run = new_run(fmt, transport, connections, byte_cost)
     drive(run, transport, connections)
     fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"

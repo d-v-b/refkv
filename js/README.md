@@ -6,7 +6,7 @@ its single-file binding. This package reads and writes vzip archives
 ([spec/bindings/vzip.md](../spec/bindings/vzip.md)) in the browser and in Node.
 
 A service worker that turns a remote image file (TIFF, NDPI, ND2, CZI,
-DICOM, NIfTI or IMS), a Sentinel-2 SAFE product (a `.SAFE.zip` file, or a
+DICOM, NIfTI, MRC or IMS), a Sentinel-2 SAFE product (a `.SAFE.zip` file, or a
 `.SAFE` directory), an N5, Zarr v2 or OME-Zarr 0.4 store (a URL ending in `/`),
 or a `.vzip` archive into a plain HTTP Zarr store, without a server and
 without copying pixel data:
@@ -14,7 +14,7 @@ without copying pixel data:
 1. A page asks for `<scope>vz/image/<id>/zarr.json`, where `<id>` is the
    base64url encoding of the file's or store's URL.
 2. The service worker reads the file's structure with a few range requests
-   (for TIFF, ND2, CZI, DICOM, NIfTI, IMS and SAFE, batched by the Rust core's read planner) and
+   (for TIFF, ND2, CZI, DICOM, NIfTI, MRC, IMS and SAFE, batched by the Rust core's read planner) and
    writes a vzip archive in memory by [spec/virtualize.md](../spec/virtualize.md): an
    OME-NGFF 0.5 dataset (or, for a store, its Zarr v3 hierarchy; for SAFE,
    a GeoZarr hierarchy) whose chunks are references to the source's tiles,
@@ -73,8 +73,8 @@ The rules are [spec/virtualize.md](../spec/virtualize.md)'s profiles:
 [ND2](../spec/virtualize/nd2.md#part-2-the-profile), [DICOM](../spec/virtualize/dicom.md#part-2-the-profile),
 [NIfTI](../spec/virtualize/nifti.md#part-2-the-profile), [IMS](../spec/virtualize/ims.md#part-2-the-profile),
 [N5](../spec/virtualize/n5.md#part-2-the-profile), [Zarr v2](../spec/virtualize/zarr2.md#part-2-the-profile),
-[OME-Zarr](../spec/virtualize/ome-zarr.md#part-2-the-profile), [SAFE](../spec/virtualize/safe.md#part-2-the-profile) and
-[CZI](../spec/virtualize/czi.md#part-2-the-profile). TIFF, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr are virtualized by the
+[OME-Zarr](../spec/virtualize/ome-zarr.md#part-2-the-profile), [SAFE](../spec/virtualize/safe.md#part-2-the-profile),
+[CZI](../spec/virtualize/czi.md#part-2-the-profile) and [MRC](../spec/virtualize/mrc.md#part-2-the-profile). TIFF, ND2, CZI, DICOM, NIfTI, MRC, IMS, SAFE, Zarr v2, N5 and OME-Zarr are virtualized by the
 Rust core (`rust/refkv-ir`) built for wasm32: `src/virtualize/ir/` performs the
 requests its read planner asks for (several at once, multi-range ones under
 Node), under the reader policy, and writes its output. `just js::wasm` builds
@@ -180,6 +180,17 @@ NIfTI (NIfTI-1 and NIfTI-2 single files):
 Not supported, and refused with HTTP 422: gzipped files (`.nii.gz`),
 header-and-image pairs, complex types, and dimensions 6 and 7 (CIFTI).
 
+MRC (MRC2014 files):
+
+- Images, image stacks, volumes and volume stacks (`t`, `z`, `y`, `x`),
+  either byte order, modes 0, 1, 2, 4, 6 and 12.
+- Chunks of at most 1 MiB: blocks of sections, or blocks of rows.
+- The voxel size (angstroms) as scale, the origin as translation, the whole
+  header under `refkv_virtualized`.
+
+Not supported, and refused with HTTP 422: gzipped maps (`.map.gz`), pre-2000
+files without `MAP` at byte 208, and modes 3 and 101.
+
 Imaris IMS (HDF5):
 
 - Files from Imaris 5.5 to 10 and its converters: every resolution level,
@@ -211,7 +222,7 @@ web server), N5 lz4, xz, bzip2 and jpeg blocks, Zarr v2 filters, lz4 and other
 compressors, string, object, structured, complex and date-time types, and
 OME-Zarr 0.4 stores that break a rule of OME-NGFF 0.4 that 0.5 also has.
 A store that lists more than 100000 objects is refused with HTTP 507 (a
-limit of this implementation, [spec/virtualize.md §14](../spec/virtualize.md#14-conformance)).
+limit of this implementation, [spec/virtualize.md §15](../spec/virtualize.md#15-conformance)).
 
 ## Limits
 
@@ -239,6 +250,7 @@ uv run python js/test/ndpi/verify.py                        # NDPI fixtures vs t
 uv run python js/test/nd2/verify.py                         # synthetic ND2 fixtures vs their pixels
 uv run python js/test/dicom/verify.py                       # DICOM fixtures vs pydicom
 uv run python js/test/nifti/verify.py                       # NIfTI fixtures vs nibabel
+uv run python js/test/mrc/verify.py                         # MRC fixtures vs mrcfile
 uv run python js/test/ims/verify.py                         # IMS fixtures vs h5py
 uv run python js/test/czi/verify.py                         # CZI fixtures vs czifile (and libCZI)
 uv run python js/test/safe/verify.py                        # SAFE fixtures vs GDAL
@@ -260,8 +272,8 @@ node demo/e2e_examples.mjs <out dir> [example id …]      # every demo example,
   disabled positions, missing frames, float data, and inputs to reject),
   comparing every chunk with the pixels the generator wrote. The `nd2` package
   reads the generator's files too.
-- `dicom/verify.py`, `nifti/verify.py` and `ims/verify.py` do the same for
-  their synthetic files, against pydicom, nibabel (unscaled data) and h5py
+- `dicom/verify.py`, `nifti/verify.py`, `mrc/verify.py` and `ims/verify.py` do the same for
+  their synthetic files, against pydicom, nibabel (unscaled data), mrcfile and h5py
   (cropped to the image size).
 - `compare.py` runs three virtualizers (`ref`, the frozen reference for
   TIFF, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr and the shipped Python code for the rest; `py`, the

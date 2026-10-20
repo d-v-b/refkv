@@ -32,6 +32,23 @@ pub enum Part {
 }
 
 pub const MAX_PAYLOAD: usize = 65519;
+
+/// The largest reference payload of a chunk, past which a projection of contiguous values
+/// copies an edge chunk (conventions §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>):
+/// MAX_PAYLOAD, but in tests (`set_copy_threshold`). Each run reads it once, into its facts.
+static COPY_THRESHOLD: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(MAX_PAYLOAD);
+
+/// For tests: the payload past which an edge chunk is copied (None: MAX_PAYLOAD), so that
+/// small files reach the copy.
+pub fn set_copy_threshold(n: Option<usize>) {
+    COPY_THRESHOLD.store(n.unwrap_or(MAX_PAYLOAD), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The payload past which an edge chunk is copied, for a run's facts.
+pub fn copy_threshold() -> usize {
+    COPY_THRESHOLD.load(std::sync::atomic::Ordering::Relaxed)
+}
 pub const SOURCE_NODE: &str = "refkv_source";
 
 #[derive(Default)]
@@ -215,7 +232,7 @@ pub fn payload_size(ranges: &[Part]) -> usize {
 
 pub const CONVENTION_KEY: &str = "refkv_virtualized";
 /// The revision of spec/virtualize.md the projections follow (`common.REVISION` in Python).
-pub const REVISION: u64 = 27;
+pub const REVISION: u64 = 28;
 
 /// (uuid, version, title) of a profile's convention.
 pub fn profile(p: &str) -> (&'static str, u64, &'static str) {
@@ -225,6 +242,7 @@ pub fn profile(p: &str) -> (&'static str, u64, &'static str) {
         "czi" => ("7a0733c7-d4be-4482-a64f-6904d9354ea5", 0, "CZI"),
         "dicom" => ("acf17198-e5a5-48d3-8187-22ec4bb40ea5", 0, "DICOM"),
         "nifti" => ("06e5809d-4d54-4b72-afd0-6bf61a7b4c85", 0, "NIfTI"),
+        "mrc" => ("2aacd010-2ed1-4748-bc3c-5dd5e840bbce", 0, "MRC"),
         "ims" => ("5067a535-8261-4b25-a93c-1985ed333bde", 0, "IMS"),
         "ndpi" => ("6cac71ef-dbb2-4acd-b60c-00389aa4238a", 0, "NDPI"),
         // the store conventions, whose sources a store IR describes (conventions §8.9

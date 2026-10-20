@@ -5,7 +5,7 @@
 //! IR: the header is the IR's `header` value, and the array's chunks are cut from its
 //! `voxels` element.
 
-use super::{json_text, n, Copied};
+use super::{float_json, json_text, n, Copied};
 use crate::ir::Ir;
 use crate::nifti::{Header, Num};
 use crate::out::{array_json, grid_chunks, image_ome, root_json, Chunk, Out, MAX_PAYLOAD};
@@ -35,17 +35,7 @@ fn value_json(h: &Header, at: usize, kind: &str) -> J {
             if h.little {
                 raw.reverse();
             }
-            let bits = raw.iter().fold(0u64, |a, &b| a << 8 | b as u64);
-            let canonical = if w == 4 { 0x7fc0_0000 } else { 0x7ff8_0000_0000_0000 };
-            if (v == 0.0 && v.is_sign_negative()) || (v.is_nan() && bits != canonical) {
-                json!({"bits": format!("{bits:0width$x}", width = 2 * w)})
-            } else if v.is_nan() {
-                json!("NaN")
-            } else if v.is_infinite() {
-                json!(if v > 0.0 { "Infinity" } else { "-Infinity" })
-            } else {
-                json!(v)
-            }
+            float_json(raw.iter().fold(0u64, |a, &b| a << 8 | b as u64), w, v)
         }
     }
 }

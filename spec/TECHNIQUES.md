@@ -1,12 +1,12 @@
 # Mapping image formats to Zarr: techniques
 
-refkv maps eleven source formats to Zarr v3 without copying their data:
-- seven file formats: TIFF, NDPI, ND2, DICOM, NIfTI, IMS and CZI;
+refkv maps twelve source formats to Zarr v3 without copying their data:
+- eight file formats: TIFF, NDPI, ND2, DICOM, NIfTI, MRC, IMS and CZI;
 - three store formats: N5, Zarr v2 and OME-Zarr 0.4;
 - Sentinel-2 SAFE products, a directory or a zip file of JPEG 2000 bands
   and XML metadata.
 
-Doing the same thing eleven times shows which problems recur, and which
+Doing the same thing twelve times shows which problems recur, and which
 techniques solve them for any format. This document collects those
 techniques. It then proposes, from them, how the conventions should
 treat a source's metadata. It is a design note: the conventions in this
@@ -186,6 +186,7 @@ From [§1](#1-three-kinds-of-information), [§4](#4-numeric-metadata-as-arrays) 
 | ND2 | the file-level lite-variant chunks: attributes, experiment, text info, calibration, picture metadata of frame 0 | events, the per-frame `ImageMetadataSeqLV\|n!` | the known `CustomData` streams (frame times, X/Y/Z, PFS, exposure), reshaped to the frame grid; frame timestamps inline when `AcqTimesCache` is absent; other binary chunks omitted |
 | DICOM | the dataset without Per-frame Functional Groups and without binary-VR values | Per-frame Functional Groups | `OF`/`OD`/`OL`/`OV` values; optionally derived per-frame position and time arrays |
 | NIfTI | the header; text extensions (comment, AFNI and CIFTI XML, JSON) as text; a derived orientation (which affine, whether it is applied) | none | none |
+| MRC | the header; the kind of file, the data type, whether the axis map is applied, the voxel size; the extended header by reference | none | none |
 | IMS | none | the whole HDF5 tree, mirrored under `refkv_source/hdf5`: each group's attributes, links and named datatypes on its own group | every dataset but the image's (histograms, thumbnail, `DataSetTimes`, `Scene8` tables), by reference, typed when its elements are numbers; large attributes, copied |
 | N5 | each node's `attributes.json` without its layout members (`dimensions`, `blockSize`, `dataType`, `compression`, `n5`) | none | none |
 | Zarr v2, OME-Zarr | each node's `.zattrs` | none | none |

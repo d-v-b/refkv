@@ -70,8 +70,8 @@ LEFT_ALONE = (
 # Written by spec/generate_schemas.py.
 GENERATED = ("spec/virtualize/*/schema.json",)
 
-FORMATS = ("tiff", "ndpi", "nd2", "dicom", "nifti", "ims", "n5", "zarr2", "ome-zarr", "safe", "czi")
-# spec/virtualize.md's §3-§13 are the profiles, Part 2 of the formats' documents.
+FORMATS = ("tiff", "ndpi", "nd2", "dicom", "nifti", "ims", "n5", "zarr2", "ome-zarr", "safe", "czi", "mrc")
+# spec/virtualize.md's §3-§14 are the profiles, Part 2 of the formats' documents.
 PROFILE_NUMBERS = {f: n for n, f in enumerate(FORMATS, start=3)}
 
 # Old names of the documents, from before the repository was reorganized.
@@ -627,15 +627,16 @@ FORMAT_WORDS = {
     "ome-zarr": "ome-zarr",
     "safe": "safe",
     "czi": "czi",
+    "mrc": "mrc",
 }
-_FMT = r"(?:the\s+)?(?:(tiff|ndpi|nd2|dicom|nifti|ims|n5|zarr v2|ome-zarr|safe|czi)\s+)?"
+_FMT = r"(?:the\s+)?(?:(tiff|ndpi|nd2|dicom|nifti|ims|n5|zarr v2|ome-zarr|safe|czi|mrc)\s+)?"
 Q_PATH = re.compile(r"(?<![\w/.\-\[])(\[?((?:\.{1,2}/)*[\w.\-]+(?:/[\w.\-]+)*\.md)(?:\]\([^()\s]*\))?)(?:'s)?,?\s*$")
 Q_OLD = re.compile(r"(?<![\w/])(SPEC|VIRTUALIZE)(?:'s)?\s*$")
 Q_CONVENTIONS = re.compile(r"(?<![\w/\-])(conventions)(?:'s?)?\s*$", re.I)
 Q_CONVENTION = re.compile(r"(?<![\w/\-])(" + _FMT + r"convention)(?:'s)?\s*$", re.I)
 Q_PROFILE = re.compile(r"(?<![\w/\-])(" + _FMT + r"profile)(?:'s)?\s*$", re.I)
 # A format's name alone ("TIFF §3"): its convention.
-Q_FORMAT = re.compile(r"(?<![\w/\-])(TIFF|NDPI|ND2|DICOM|NIfTI|IMS|N5|Zarr v2|OME-Zarr|SAFE|CZI)\s*$")
+Q_FORMAT = re.compile(r"(?<![\w/\-])(TIFF|NDPI|ND2|DICOM|NIfTI|IMS|N5|Zarr v2|OME-Zarr|SAFE|CZI|MRC)\s*$")
 Q_SPEC = re.compile(r"(?<![\w/\-])((?:the\s+)?(?:archive\s+)?spec)(?:'s)?\s*$")
 
 

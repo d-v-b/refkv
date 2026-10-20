@@ -1,0 +1,247 @@
+"""The MRC IR: the Rust parser and its schema, the image projection (spec/virtualize/mrc.md)
+against mrcfile's reading of every synthetic file, the mirror's rebuild, the inputs the
+profile rejects, and the edge chunks it copies. MRC has no frozen Python reference: mrcfile
+is the independent reader."""
+
+import base64
+import io
+import json
+import warnings
+
+import mrcfile
+import numpy as np
+import pytest
+import zarr
+
+import refkv.zarr
+from ir_helpers import FIXTURES
+from refkv import _core
+from refkv.ir import virtualize as via_ir
+from refkv.ir.cmirror import rebuild_from_archive
+from refkv.virtualize import Rejected
+
+MRCS = sorted((FIXTURES / "mrc").glob("*.mrc"))
+A = "angstrom"
+CANONICAL_NAN = 0x7FC00000
+
+
+def as_json(v):
+    """A header value as spec/virtualize/mrc.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#5-source-metadata> writes it,
+    from mrcfile's numpy value: a negative zero, or a NaN other than the canonical one, as
+    {"bits": hex}; opaque bytes as base64; text up to its first NUL."""
+    if isinstance(v, np.ndarray) and v.ndim == 0:
+        return as_json(v[()])
+    if isinstance(v, np.void) and v.dtype.names:
+        return [as_json(v[name]) for name in v.dtype.names]
+    if isinstance(v, np.void):
+        return base64.b64encode(bytes(v)).decode()
+    if isinstance(v, np.ndarray):
+        return [as_json(x) for x in v]
+    if isinstance(v, np.floating):
+        bits = int(np.asarray(v).astype(v.dtype.newbyteorder("=")).view("=u4"))
+        if bits == 1 << 31 or (v != v and bits != CANONICAL_NAN):
+            return {"bits": f"{bits:08x}"}
+    if isinstance(v, (bytes, np.bytes_)):
+        b = bytes(v).split(b"\0", 1)[0]
+        try:
+            return b.decode("utf-8")
+        except UnicodeDecodeError:
+            return {"latin1": b.decode("latin-1")}
+    v = v.item() if hasattr(v, "item") else v
+    if isinstance(v, float):
+        return "NaN" if v != v else "Infinity" if v == float("inf") else "-Infinity" if v == float("-inf") else v
+    return v
+
+
+def load(path):
+    """mrcfile's reading (its warnings, such as a zero grid size, are not failures)."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with mrcfile.open(path, permissive=False) as f:
+            return f.header.copy(), np.array(f.data)
+
+
+def virtualized(path, tmp_path):
+    """(the output, the hierarchy's root group, read in memory from the file); the archive
+    rebuilds the file."""
+    data = path.read_bytes()
+    fmt, out, ir = via_ir(str(path))
+    assert fmt == "mrc"
+    ir.check()
+    out.write(str(tmp_path / "a.vzip"))
+    buf = io.BytesIO()
+    rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
+    assert buf.getvalue() == data
+    root = zarr.open_group(refkv.zarr.store(out.to_store()), mode="r", zarr_format=3)
+    return out, root
+
+
+@pytest.mark.parametrize("path", [p for p in MRCS if not p.name.startswith("mrc_reject")], ids=lambda p: p.name)
+def test_matches_mrcfile_and_rebuilds(path, tmp_path):
+    """The array is mrcfile's data, in its shape and type; every header field is mrcfile's
+    reading of it (spec/virtualize/mrc.md §5.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#51-the-root>); the file is
+    rebuilt from the mirror."""
+    header, want = load(path)
+    out, root = virtualized(path, tmp_path)
+    arr = root["0"]
+    got = arr[...]
+    assert got.shape == want.shape
+    assert got.dtype == want.dtype.newbyteorder("=")
+    assert np.array_equal(got, want, equal_nan=got.dtype.kind in "fc")
+    meta = root.attrs["refkv_virtualized"]["mrc"]
+    assert list(meta["header"]) == list(header.dtype.names)
+    for name in header.dtype.names:
+        assert meta["header"][name] == as_json(header[name]), name
+    assert meta["byte_order"] == ("little" if header.mode.dtype.byteorder in "<=" else "big")
+    assert meta["data_type"] == str(want.dtype.newbyteorder("="))
+    kind = {2: "image", 4: "volume_stack"}.get(want.ndim, "image_stack" if header.ispg == 0 else "volume")
+    assert meta["kind"] == kind
+    assert out.summary["kind"] == kind and out.summary["extendedHeader"] == int(header.nsymbt)
+    # the extended header is never read: the run reads the header alone
+    assert out.summary["planner"]["bytes"] == 1024
+
+
+# fixture: (summary members, [(axis, unit)], scale, translation, members of the `mrc` attribute, the
+#           display window (... for one from mrcfile's statistics), (key, ranges) of one chunk)
+CASES = {
+    "mrc_volume_float32_le": (
+        {"kind": "volume", "byteOrder": "little", "mode": 2, "dataType": "float32", "sizes": {"z": 2, "y": 3, "x": 4},
+         "voxelSize": [1.5, 1.5, 1.5], "translation": True, "axisMap": True, "extendedHeader": 0, "extendedType": ""},
+        [("z", A), ("y", A), ("x", A)], [1.5, 1.5, 1.5], [7.25, 2, -1.5],
+        {"voxel_size": {"x": 1.5, "y": 1.5, "z": 1.5}, "axis_map": {"applied": True}},
+        {"min": -100, "max": 150, "start": -100, "end": 150}, ("0/c/0/0/0", [(1024, 96)])),
+    "mrc_volume_int16_be": ({"byteOrder": "big", "dataType": "int16", "voxelSize": [0.5, 0.5, 0.5]}, None, [0.5, 0.5, 0.5], None,
+                            None, {"min": -100, "max": 100, "start": -100, "end": 100}, ("0/c/0/0/0", [(1024, 48)])),
+    "mrc_image_int8": ({"kind": "image", "sizes": {"y": 3, "x": 5}, "chunkShape": [3, 5]}, [("y", A), ("x", A)], [2, 2], None,
+                       {"kind": "image"}, {"min": -100, "max": 100, "start": -100, "end": 100}, ("0/c/0/0", [(1024, 15)])),
+    "mrc_image_stack_uint16": ({"kind": "image_stack", "sizes": {"z": 5, "y": 3, "x": 4}, "dataType": "uint16"},
+                               [("z", A), ("y", A), ("x", A)], [1, 1, 1], None, None, None, None),
+    "mrc_volume_stack_float16": ({"kind": "volume_stack", "sizes": {"t": 2, "z": 3, "y": 2, "x": 3}, "dataType": "float16",
+                                  "chunkShape": [2, 3, 2, 3]}, [("t", None), ("z", A), ("y", A), ("x", A)], [1, 1, 1, 1], None,
+                                 None, {"min": -100, "max": 100, "start": -100, "end": 100}, ("0/c/0/0/0/0", [(1024, 72)])),
+    # a complex array has no display window
+    "mrc_volume_complex64": ({"dataType": "complex64", "mode": 4}, None, None, None, None, None, ("0/c/0/0/0", [(1024, 96)])),
+    # the axis map: sections along x, columns along z
+    "mrc_axis_map_permuted": ({"sizes": {"x": 2, "y": 3, "z": 4}, "axisMap": True}, [("x", A), ("y", A), ("z", A)], [2, 2, 2],
+                              [1, 2, 3], {"axis_map": {"applied": True}}, None, None),
+    "mrc_axis_map_permuted_image": ({"sizes": {"x": 3, "y": 4}}, [("x", A), ("y", A)], [2, 2], None, None, None, None),
+    "mrc_axis_map_zero": ({"sizes": {"z": 2, "y": 3, "x": 4}, "axisMap": False}, [("z", A), ("y", A), ("x", A)], None, None,
+                          {"axis_map": {"applied": False}}, None, None),
+    "mrc_axis_map_duplicate": ({"axisMap": False}, [("z", A), ("y", A), ("x", A)], None, None, None, None, None),
+    "mrc_axis_map_out_of_range": ({"axisMap": False}, [("z", A), ("y", A), ("x", A)], None, None, None, None, None),
+    # windows, cell sizes and origins that give no window, scale or translation
+    "mrc_edge_window_reversed": ({}, None, None, None, None, None, None),
+    "mrc_edge_window_nan": ({}, None, None, None, None, None, None),
+    "mrc_edge_window_inf": ({}, None, None, None, None, None, None),
+    "mrc_edge_cella_zero": ({"voxelSize": None}, [("z", A), ("y", A), ("x", None)], [1, 1, 1], None, {"voxel_size": None}, None, None),
+    "mrc_edge_cella_negative": ({"voxelSize": None}, [("z", A), ("y", None), ("x", A)], [1, 1, 1], None, None, None, None),
+    "mrc_edge_cella_nan": ({"voxelSize": None}, [("z", None), ("y", A), ("x", A)], [1, 1, 1], None, None, None, None),
+    "mrc_edge_m_zero": ({"voxelSize": None}, [("z", A), ("y", A), ("x", None)], [1, 1, 1], None, None, None, None),
+    "mrc_edge_m_negative": ({"voxelSize": None}, [("z", A), ("y", None), ("x", A)], [1, 1, 1], None, None, None, None),
+    "mrc_edge_m_larger": ({"voxelSize": [0.5, 0.5, 0.5]}, None, [0.5, 0.5, 0.5], None, None, None, None),
+    "mrc_edge_origin_nan": ({"translation": False}, None, None, None, None, None, None),
+    "mrc_edge_origin_inf": ({"translation": False}, None, None, None, None, None, None),
+    "mrc_edge_origin_one": ({"translation": True}, None, None, [-2.5, 0, 0], None, None, None),
+    "mrc_edge_volume_stack_one": ({"kind": "volume_stack", "sizes": {"t": 1, "z": 3, "y": 2, "x": 3}}, None, None, None, None, None, None),
+    "mrc_edge_ispg_230": ({"kind": "volume"}, None, None, None, None, None, None),
+    "mrc_edge_ispg_negative": ({"kind": "volume"}, None, None, None, None, None, None),
+    "mrc_edge_nz_one_volume": ({"kind": "volume", "sizes": {"z": 1, "y": 2, "x": 3}}, None, None, None, None, None, None),
+    # extended headers: described, never read
+    "mrc_extended_ccp4": ({"extendedHeader": 160, "extendedType": "CCP4"}, None, None, None, None, None, ("0/c/0/0/0", [(1184, 48)])),
+    "mrc_extended_fei1": ({"extendedHeader": 768, "extendedType": "FEI1"}, None, None, None, None, None, ("0/c/0/0/0", [(1792, 48)])),
+    "mrc_extended_large": ({"extendedHeader": 5000, "extendedType": "SERI"}, None, None, None, None, None, None),
+    # chunks (spec/virtualize/mrc.md §4.1
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#41-the-array>): blocks of sections,
+    # blocks of rows, and an edge chunk padded with a literal zero byte
+    "mrc_chunk_sections": ({"chunkShape": [10, 128, 256], "chunks": 2}, None, None, None, None, None,
+                           ("0/c/1/0/0", [(1024 + 655360, 655360)])),
+    "mrc_chunk_rows": ({"chunkShape": [550, 1000], "chunks": 2}, None, None, None, None, None,
+                       ("0/c/1/0", [(1024 + 550000, 550000)])),
+    "mrc_chunk_edge_literal": ({"chunkShape": [1, 524289], "chunks": 2}, None, None, None, None, None,
+                               ("0/c/0/1", [(1024 + 524289, 524288), b"\0"])),
+    "mrc_mrcfile_volume": ({"kind": "volume", "voxelSize": [1.25, 1.25, 1.25], "translation": True}, None, [1.25, 1.25, 1.25],
+                           [10, 2.5, -3], None, ..., None),
+    "mrc_mrcfile_stack": ({"kind": "image_stack", "voxelSize": [0.5, 0.5, 1]}, None, [1, 0.5, 0.5], None, None, ..., None),
+    "mrc_mrcfile_image": ({"kind": "image", "dataType": "uint16"}, None, [2, 2], None, None, ..., None),
+}
+
+
+def test_virtualizes_the_synthetic_files(tmp_path):
+    for name, (summary, axes, scale, translation, members, window, chunk) in CASES.items():
+        out, root = virtualized(FIXTURES / "mrc" / f"{name}.mrc", tmp_path)
+        assert {**out.summary, **summary} == out.summary, name
+        attributes = json.loads(out.bytes_entries["zarr.json"])["attributes"]
+        ms = attributes["ome"]["multiscales"][0]
+        transforms = ms["datasets"][0]["coordinateTransformations"]
+        if axes is not None:
+            assert [(a["name"], a.get("unit")) for a in ms["axes"]] == axes, name
+        if scale is not None:
+            assert transforms[0]["scale"] == scale, name
+        assert (transforms[1]["translation"] if len(transforms) > 1 else None) == translation, name
+        assert set(attributes) == {"ome", "zarr_conventions", "refkv_virtualized"}, name
+        meta = attributes["refkv_virtualized"]["mrc"]
+        assert list(meta) == ["byte_order", "kind", "data_type", "header", "axis_map"] + (["voxel_size"] if "voxel_size" in meta else []), name
+        for k, v in (members or {}).items():
+            assert meta.get(k) == v, (name, k)
+        omero = attributes["ome"].get("omero")
+        if window is not ...:
+            assert (omero["channels"][0]["window"] if omero else None) == window, name
+        if omero:
+            assert len(omero["channels"]) == 1, name
+        if chunk is not None:
+            assert out.refs[chunk[0]] == chunk[1], name
+        assert out.data == {}, name  # no data sources
+        codecs = json.loads(out.bytes_entries["0/zarr.json"])["codecs"]
+        assert [c["name"] for c in codecs] == ["bytes"], name
+
+
+@pytest.mark.parametrize("name,message", [
+    ("mrc_reject_short_header", "file too short for a 1024-byte MRC header"),
+    ("mrc_reject_machst", "machine stamp 00 00 00 00 is neither 44 (little-endian) nor 11 (big-endian)"),
+    ("mrc_reject_machst_swapped", "machine stamp 41 44 00 00 is neither"),
+    ("mrc_reject_nx_zero", "nx = 0 is not positive"),
+    ("mrc_reject_ny_negative", "ny = -2 is not positive"),
+    ("mrc_reject_nz_zero", "nz = 0 is not positive"),
+    ("mrc_reject_mode_complex_int16", "unsupported MRC mode 3 (COMPLEX_INT16)"),
+    ("mrc_reject_mode_int4", "unsupported MRC mode 101 (INT4)"),
+    ("mrc_reject_mode_unknown", "unknown MRC mode 7"),
+    ("mrc_reject_mode_negative", "unknown MRC mode -1"),
+    ("mrc_reject_nsymbt_negative", "nsymbt -80 is negative"),
+    ("mrc_reject_extended_outside", "the 1000-byte extended header at 1024 is outside the 1072-byte file"),
+    ("mrc_reject_volume_stack_mz", "a volume stack (ispg 401) of 5 sections, which mz = 2 does not divide"),
+    ("mrc_reject_volume_stack_mz_zero", "a volume stack (ispg 401) of 4 sections, which mz = 0 does not divide"),
+    ("mrc_reject_truncated", "the 48-byte data at 1024 is outside the 1071-byte file"),
+    ("mrc_reject_data_overflow", "the 4951760157141521099596496896-byte data at 1024 is outside the 1072-byte file"),
+    ("mrc_reject_data_outside", "the 48-byte data at 1040 is outside the 1087-byte file"),
+])
+def test_rejects(name, message):
+    path = FIXTURES / "mrc" / f"{name}.mrc"
+    with pytest.raises(Rejected) as e:
+        via_ir(str(path), f"https://data.test/{name}.mrc")
+    assert str(e.value).startswith(message)
+
+
+def test_every_reject_fixture_has_a_test():
+    assert {p.stem for p in MRCS if p.name.startswith("mrc_reject")} == {
+        name for name, _ in test_rejects.pytestmark[0].args[1]}
+
+
+def test_edge_chunks_past_the_payload_are_copied(tmp_path):
+    """An edge chunk whose reference (its range and its zero padding) does not fit in a
+    payload is copied into the archive, padding included (spec/virtualize/mrc.md §14.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#142-chunks>). With the
+    chunk limit no file reaches it in practice, so the core takes a payload limit of 8
+    bytes here: the padded edge chunk is copied, by the run's last batch, and the array
+    is still mrcfile's."""
+    path = FIXTURES / "mrc" / "mrc_chunk_edge_literal.mrc"
+    _core._set_copy_threshold(8)
+    try:
+        out, root = virtualized(path, tmp_path)
+    finally:
+        _core._set_copy_threshold(None)
+    assert "0/c/0/1" in out.bytes_entries and "0/c/0/1" not in out.refs
+    assert len(out.bytes_entries["0/c/0/1"]) == 524289
+    _, want = load(path)
+    assert np.array_equal(root["0"][...], want)

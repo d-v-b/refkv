@@ -1,6 +1,6 @@
 """Compares virtualizers (spec/virtualize.md §1.1
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>, §14
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-conformance>; HARNESS.md).
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>, §15
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-conformance>; HARNESS.md).
 
 Every implementation runs on every input of the corpus, which the caching
 proxy (proxy.py) serves over local HTTP: the synthetic files in
@@ -16,8 +16,8 @@ outputs; outputs are compared with the reference implementation's (the first
 one).
 
 Corpus lines are `url|name`, or `url|name|py-only` for an input larger than
-the browser implementation's limit (spec/virtualize.md §14
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-conformance>): such inputs are
+the browser implementation's limit (spec/virtualize.md §15
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-conformance>): such inputs are
 skipped unless `--large` is given, and then every implementation but `web` runs on them.
 Store URLs end in `/`. A line may end with the input's fingerprint, which
 corpus_hash.py records and checks.
@@ -25,11 +25,12 @@ corpus_hash.py records and checks.
 Implementations are `name=command`, where the command is run as
 `command <url> <out>`. The built-in ones write vzip archives: `ref` (the
 reference, the frozen Python profiles of conformance/virtualize/reference/ for
-TIFF, ND2, CZI, DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2, N5 and OME-Zarr and the shipped ones
+TIFF, ND2, CZI, DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2, N5 and OME-Zarr and the shipped ones (MRC has no
+reference: its inputs compare `py` with `web` alone)
 for the others), `py` (`python -m refkv.virtualize`) and `web` (the browser code under Node).
 Others write HARNESS.md's JSON description; give them as `--impl name=command`.
 
-`py` and `web` virtualize TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE files, and
+`py` and `web` virtualize TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC, IMS and SAFE files, and
 SAFE directories and Zarr v2, N5 and OME-Zarr stores, through one Rust core (rust/refkv-ir,
 natively and as wasm32), and write its mirror under `refkv_source`, which the frozen reference
 does not: for those profiles an implementation is compared with the reference outside
@@ -100,7 +101,7 @@ BUILTIN = {
     "web": ("vzip", ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"]),
 }
 # The profiles whose shipped implementations write the IR's mirror under refkv_source.
-IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ims", "ndpi", "safe", "zarr2", "n5",
+IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "mrc", "ims", "ndpi", "safe", "zarr2", "n5",
                "ome-zarr")
 SOURCE = SOURCE_NODE + "/"
 # The names the frozen reference writes, of the revisions it implements, and their translation.
@@ -444,6 +445,8 @@ def check(item: tuple, impls: dict, out_dir: Path) -> dict:
     name, url = item[:2]
     if len(item) > 2 and item[2] == "py-only":  # past the browser's limit: every implementation but web
         impls = {k: v for k, v in impls.items() if k != "web"}
+    if len(item) > 2 and item[2] == "no-ref":  # a profile the frozen reference never had (MRC): py and web alone
+        impls = {k: v for k, v in impls.items() if k != "ref"}
     results = {n: run(impl, url, out_dir / f"{name}.{n}.out") for n, impl in impls.items()}
     ref_name = next(iter(impls))
     ref = results[ref_name]
@@ -546,10 +549,12 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
            idr_listing: str | None = None) -> list[tuple]:
     stores = store_fixtures(fixtures)
     files = [p for p in sorted([*fixtures.rglob("*.tif"), *fixtures.rglob("*.ndpi"), *fixtures.rglob("*.nd2"),
-                                *fixtures.rglob("*.dcm"), *fixtures.rglob("*.nii"), *fixtures.rglob("*.ims"),
-                                *fixtures.rglob("*.zip"), *fixtures.rglob("*.czi")])
+                                *fixtures.rglob("*.dcm"), *fixtures.rglob("*.nii"), *fixtures.rglob("*.mrc"),
+                                *fixtures.rglob("*.ims"), *fixtures.rglob("*.zip"), *fixtures.rglob("*.czi")])
              if not any(p.is_relative_to(s) for s in stores)]
-    items = [(f"fixture-{p.stem}", proxy.local(p.relative_to(fixtures).as_posix())) for p in files]
+    # the frozen reference has no MRC profile: its files compare py with web alone
+    items = [(f"fixture-{p.stem}", proxy.local(p.relative_to(fixtures).as_posix()), *(["no-ref"] if p.suffix == ".mrc" else []))
+             for p in files]
     items += [(f"fixture-{s.name}", proxy.local_store(s.relative_to(fixtures).as_posix())) for s in stores]
     if local_only:
         return items
@@ -558,7 +563,7 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
     tiffs = sorted(set(re.findall(r'href="([^"?/][^"]*\.ome\.tiff)"', listing)))
     items += [(f"idr-{i:03d}", proxy.remote(IDR + n)) for i, n in enumerate(tiffs[:3] if quick else tiffs)]
     for corpus_file, prefix in (("corpus_nd2.txt", "nd2-"), ("corpus_tiff.txt", ""), ("corpus_dicom.txt", "dicom-"),
-                                ("corpus_nifti.txt", "nifti-"), ("corpus_ims.txt", "ims-"), ("corpus_n5.txt", "n5-"),
+                                ("corpus_nifti.txt", "nifti-"), ("corpus_mrc.txt", "mrc-"), ("corpus_ims.txt", "ims-"), ("corpus_n5.txt", "n5-"),
                                 ("corpus_zarr2.txt", "zarr2-"), ("corpus_ome_zarr.txt", "ome-zarr-"),
                                 ("corpus_safe.txt", "safe-"), ("corpus_czi.txt", "czi-")):
         listed = [(url, name, *flags) for url, name, flags, _ in corpus_entries(HERE / corpus_file)]
@@ -607,7 +612,8 @@ def main(argv: list[str]) -> int:
     for n in impls:
         counts: dict[str, int] = {}
         for r in results:
-            counts[r["verdicts"][n][0]] = counts.get(r["verdicts"][n][0], 0) + 1
+            if n in r["verdicts"]:  # an input this implementation did not run (py-only, no-ref)
+                counts[r["verdicts"][n][0]] = counts.get(r["verdicts"][n][0], 0) + 1
         print(f"{n:10s} " + ", ".join(f"{v} {k}" for k, v in sorted(counts.items())))
     bad = [r for r in results if any(v[0] not in ("equivalent", "rejects") for v in r["verdicts"].values())]
     print(f"\n{len(results)} inputs, {len(bad)} with a divergence or crash")
