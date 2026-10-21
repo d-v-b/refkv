@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from refkv.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
-from refkv.virtualize.common import CONVENTION_KEY, REVISION
+from refkv.virtualize.common import CONVENTION_KEY
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "virtualize" / "reference"))
 from refkv_reference import virtualize as reference  # noqa: E402
@@ -43,7 +43,7 @@ def reference_hierarchy(out) -> dict:
     is vzip_source)."""
     docs = current_names({k: json.loads(json.dumps(v)) for k, v in out.docs.items()
                           if not k.startswith(LEGACY_NODE + "/")})
-    docs["zarr.json"]["attributes"][CONVENTION_KEY]["revision"] = REVISION
+    del docs["zarr.json"]["attributes"][CONVENTION_KEY]["revision"]
     current = lambda k: "refkv_source" + k[len(LEGACY_NODE):] if k.startswith(LEGACY_NODE + "/") else k  # noqa: E731
     return {"docs": docs, "refs": {current(k): out.origins.get(k, k) for k, _ in out.chunks}}
 

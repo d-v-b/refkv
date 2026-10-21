@@ -7,7 +7,8 @@ declares the convention (spec/virtualize/<profile>.md): the convention's
 metadata object in `zarr_conventions`, the property `refkv_virtualized`, and no
 other attribute besides `ome`. The root carries the property's provenance
 members; any other node (store profiles only) carries only the profile's
-source-metadata member. SOURCE_METADATA holds each profile's member schema.
+source-metadata member. SOURCE_METADATA holds each profile's member schema, by
+name; the profiles are the registry's (spec/virtualize/profiles.json).
 """
 
 from __future__ import annotations
@@ -15,10 +16,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from refkv.virtualize.common import CONVENTION_KEY, PROFILES, REVISION, convention
+from refkv.virtualize.common import CONVENTION_KEY, PROFILES, convention
+from refkv.virtualize.profiles import REGISTRY
 
 HERE = Path(__file__).parent
-STORES = {"n5", "zarr2", "ome-zarr"}
+STORES = {e["name"] for e in REGISTRY if e["kind"] == "store"}
 
 # The schema of each profile's source-metadata member (README "Source metadata").
 SOURCE_METADATA: dict[str, dict] = {
@@ -559,15 +561,14 @@ SOURCE_METADATA["mrc-dataset"] = {"anyOf": [{
 }]}
 
 # The IR mirror (spec/conventions.md §8
-# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2,
-# CZI, DICOM, NIfTI, MRC, IMS, NDPI, SAFE, Zarr v2, N5, OME-Zarr and VSI conventions: refkv_source's
-# source metadata, and the view documents of the groups under refkv_source/tree.
-IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "mrc", "ims", "ndpi", "safe", "zarr2", "n5",
-               "ome-zarr", "vsi")
+# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>) of every
+# profile's convention (a dataset layout has none): refkv_source's source metadata, and the view
+# documents of the groups under refkv_source/tree.
+IR_PROFILES = tuple(e["name"] for e in REGISTRY if e["kind"] != "layout")
 # The store conventions, whose refkv_source holds, beside the mirror's description, members of
 # their own (`storeMirror`; spec/conventions.md §8.9
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>).
-IR_STORES = ("safe", "zarr2", "n5", "ome-zarr")
+IR_STORES = tuple(e["name"] for e in REGISTRY if e["kind"] in ("store", "both"))
 MIRROR_DEFS = {
     "mirror": {
         "type": "object",
@@ -671,9 +672,6 @@ def schema(profile: str) -> dict:
         "properties": {
             "profile": {"type": "string", "const": profile},
             "version": {"type": "integer", "const": PROFILES[profile][1]},
-            **({"revision": {"type": "integer", "const": REVISION,
-                             "description": "The spec/virtualize.md revision that produced the hierarchy (version 0 only)"}}
-               if PROFILES[profile][1] == 0 else {}),
             "source": {"type": "object", "properties": {"url": {"type": "string", **url}}, "required": ["url"],
                        "additionalProperties": False},
             "layouts": {"type": "object", "minProperties": 1,
@@ -681,7 +679,7 @@ def schema(profile: str) -> dict:
                         "description": "The other layouts of the source in this hierarchy, by name, each the path of its node below the root (spec/conventions.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)"},
             profile: {"$ref": "#/$defs/sourceMetadata"},
         },
-        "required": ["profile", "version", *(["revision"] if PROFILES[profile][1] == 0 else []), "source"],
+        "required": ["profile", "version", "source"],
         "additionalProperties": False,
     }
     node = {

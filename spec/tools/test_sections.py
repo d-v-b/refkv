@@ -122,7 +122,7 @@ def test_headings(repo):
         # a record of a past round cites the snapshot of its revision
         ("design/conformance/archive/r1/x.md", "SPEC.md §1.1\n", "ok", "spec/history/archive/SPEC.r1.md#11-old"),
         ("js/src/x.ts", "// conventions §3\n", "ok", "spec/conventions.md#3-arrays"),
-        # spec/virtualize.md's §3-§13 are the profiles
+        # spec/virtualize.md's §3 and on are the profiles (the registry's numbers)
         ("python/src/refkv/virtualize/x.py", "# spec/virtualize.md §3.1\n", "ok", "spec/virtualize/tiff.md#31-reading"),
         # a format's document by its path, or by its name, is its convention
         ("rust/refkv-ir/src/xml.rs", "// spec/virtualize/tiff.md §3\n", "ok", "spec/virtualize/tiff.md#3-ome-xml"),

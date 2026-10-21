@@ -33,8 +33,8 @@ export class StoreError extends Error {
 
 /**
  * A resource limit of this implementation was exceeded: a failure, not a rejection (§1.2
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>, §16
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-conformance>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>, Appendix A
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#appendix-a-conformance>).
  */
 export class StoreLimitError extends Error {}
 
@@ -52,8 +52,8 @@ export const MAX_SAFE = Number.MAX_SAFE_INTEGER;
 export const MAX_DOCUMENT = 1 << 24;
 const MAX_DEPTH = 256;
 /**
- * The browser implementation's limit on listed objects (§16
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-conformance>).
+ * The browser implementation's limit on listed objects (Appendix A
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#appendix-a-conformance>).
  */
 export const MAX_OBJECTS = 100000;
 

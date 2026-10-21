@@ -9,7 +9,7 @@ use super::{base64, float_json, json_text, n, Copied};
 use crate::ir::Ir;
 use crate::mrc::{Header, FIELDS};
 use crate::nifti::Num;
-use crate::out::{array_json, declare, grid_chunks, group_doc, image_ome, root_json, Chunk, Out, MAX_PAYLOAD};
+use crate::out::{array_json, declare, grid_chunks, group_doc, image_ome, omero_channel, omero_json, omero_window, root_json, Chunk, Out, MAX_PAYLOAD};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -199,8 +199,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let (lo, hi) = (f("dmin"), f("dmax"));
     let window = mode != 4 && lo.is_finite() && hi.is_finite() && hi > lo;
     if window {
-        ome["omero"] = json!({"channels": [{"label": "C0", "color": "FFFFFF", "active": true,
-                                            "window": {"min": lo, "max": hi, "start": lo, "end": hi}}]});
+        let window = omero_window(json!(lo), json!(hi), json!(lo), json!(hi));
+        ome["omero"] = omero_json(vec![omero_channel("C0", "FFFFFF", Some(&window))]);
     }
 
     let endian = if h.little { "little" } else { "big" };

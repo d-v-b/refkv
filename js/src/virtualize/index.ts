@@ -1,12 +1,11 @@
 // Virtualizing an image file by the profile its first bytes select
-// (spec/virtualize.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>):
-// TIFF, NDPI, ND2, DICOM, NIfTI, MRC, IMS, CZI or a SAFE zip, or a
-// store by the profile its root keys select (§1.4
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>): N5, Zarr v2,
-// OME-Zarr 0.4 or a SAFE directory. TIFF (NDPI included: the core's TIFF parser finds it), ND2,
-// CZI, DICOM, NIfTI, MRC, IMS and SAFE files, and SAFE directories and Zarr v2, N5 and OME-Zarr
-// stores, are virtualized by the Rust core (ir/, rust/refkv-ir); each other profile is in its
-// own directory; store.ts holds the store machinery.
+// (spec/virtualize.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>),
+// or a store by the profile its root keys select (§1.4
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>); the formats are
+// those of docs/virtualize/README.md (the registry, spec/virtualize/profiles.json). Every one is
+// virtualized by the Rust core (ir/, rust/refkv-ir), which may decide the profile itself (its
+// TIFF parser finds NDPI; its Zarr v2 store format finds OME-Zarr 0.4); store.ts holds the store
+// machinery.
 
 import { blockReader, type ByteReader, ImageError } from "./common.ts";
 import { type IrFormat, virtualizeIr } from "./ir/run.ts";
@@ -33,7 +32,7 @@ export interface PinOptions {
   checksums?: boolean;
   /** For a VSI input: opens the file `key` beside the `.vsi` file (`key` relative to its
    * directory), or undefined when it does not exist (ir/vsi.ts); by default the files are read
-   * at the input URL's directory over http(s). */
+   * at the input URL's directory over http(s), with the `.vsi` file's options. */
   open?: (key: string) => Promise<RangeSource | undefined>;
 }
 
@@ -56,7 +55,7 @@ export async function addChecksums(
   }
 }
 
-const NOT_SUPPORTED = "not a TIFF, NDPI, ND2, DICOM, NIfTI, MRC, IMS, CZI, VSI or SAFE zip file";
+const NOT_SUPPORTED = "not a file of any supported format";
 
 /**
  * True if `head` starts with a TIFF or BigTIFF header, in either byte order (§1.2
@@ -80,8 +79,7 @@ const HDF5 = [0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a];
 type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc" | "vsi"; summary: object };
 
 /** `exact`, when given, reads exactly the ranges asked for, past `read`'s block cache: the
- * SAFE profile's tile-part headers, scattered through a zip file, are read with it, and the
- * Rust core's requests (TIFF and NDPI, ND2, CZI, DICOM, NIfTI, MRC, IMS), which it plans itself.
+ * Rust core's requests, which it plans itself, are read with it.
  * Source 0 pins the file's size, and its ETag when `pins.etag` gives one (§1.2
  * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>); with
  * `pins.checksums`, the ranges of source 0 carry the CRC-32C of their bytes. */

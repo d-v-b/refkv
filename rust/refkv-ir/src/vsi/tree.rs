@@ -208,7 +208,7 @@ pub fn parse(rules: &Rules, b: &[u8], fp: u64, end: u64, depth: u32) -> Res<Cont
         let mut f = Field { offset: p, header, ftype, real, tag, tag2, next, size, kind, data: (q, data_end), end: region_end, container: None };
         match kind {
             Kind::Volume => {
-                // one container fills the volume's data (§2.1)
+                // one container fills the volume's data (§2.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#21-containers-and-fields>)
                 f.container = Some(Box::new(parse(rules, b, q, data_end, depth + 1)?));
             }
             Kind::PropertySet | Kind::MdimVolume => {

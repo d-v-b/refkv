@@ -8,7 +8,7 @@ use refkv_ir::run::{Format, Run};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The rejection of a file no format's signature matches.
-pub const NOT_SUPPORTED: &str = "not a TIFF, NDPI, ND2, DICOM, NIfTI, MRC, IMS, CZI, VSI or SAFE zip file";
+pub const NOT_SUPPORTED: &str = "not a file of any supported format";
 
 /// Requests at a time to a remote host, by default (a browser has 6).
 const CONNECTIONS: usize = 8;

@@ -1656,50 +1656,38 @@ hosts. There is no frozen reference: `compare.py` compares `py` with `web`
 on MRC inputs, and `js/test/mrc/verify.py` and `python/tests/ir/test_mrc.py`
 check both against mrcfile.
 
-## Revision 29: the VSI profile
+## Revision 29: no recorded revision; the profile registry
 
-**What prompted it.** Olympus cellSens whole-slide images are a `.vsi` file
-(a TIFF whose body is a tree of metadata containers, with the macro image
-and thumbnails as IFDs inside it) and, beside it, a directory of tile files
-(`_<name>_/stack<N>/frame_t.ets`) holding the pixels as JPEG, JPEG 2000 or
-uncompressed tiles with a tile directory: a format whose pixels are already
-tiled and compressed, like NDPI and CZI, but spread over several files that a
-plain web server cannot list. Revision 28 is kept as `VIRTUALIZE.r28.md`.
+The last numbered revision. From here on, a change to a profile is recorded
+in that profile's document (a dated note), not in one sequence for all of
+them: two profiles can change at once without serializing on a number.
 
-**The changes.**
-- **[§15](../../virtualize/vsi.md#15-vsi-profile), the VSI profile**
-  ([spec/virtualize/vsi.md](../../virtualize/vsi.md)): a VSI file is chosen
-  by `II*\0` and a container header (`18 00 49 53`) at byte 8
-  ([§1.2](../../virtualize.md#12-input)), before the TIFF test; the input is
-  named by its `.vsi` file and read as a store whose URL is the file's
-  directory, whose objects are **probed** by key rather than listed (two
-  candidate names per stack, the first found being the stack's tile file; a
-  stack with none is rejected), and whose objects are all described in place
-  in the mirror; one OME-Zarr 0.5 image per stack with pixels in a
-  bioformats2raw layout, each level's chunks the tile file's tiles (JPEG,
-  JPEG 2000 or uncompressed, interleaved samples through `transpose`), the
-  level sizes as Bio-Formats computes them, the pixel size and origin in the
-  tree's unit, the channel names, colors and display limits as `omero`; the
-  macro image and a stack stored as an IFD (a focus map) from the `.vsi`
-  file's strips, with the JPEG tables as a shared prefix; the metadata tree
-  as JSON on the root, each stack's properties and its tile file's headers
-  on its image.
-- **Store runs** can ask the host for objects by key: the core's store
-  protocol gained a probe step (`StoreStep::Probe`; `probes` and `found` in
-  the Python, TypeScript and Rust bindings), answered with each key's size
-  or its absence.
-- **Conformance** is [§16](../../virtualize.md#16-conformance) (was §15).
-- **Conventions:** the root property records `"revision": 29`; the schemas
-  were regenerated, with the VSI convention's.
+- **Conventions:** the root property no longer records a `revision`
+  ([conventions §1](../../conventions.md#1-conventions), [§2](../../conventions.md#2-attributes)):
+  `{"profile", "version", "source", ...}`. Each convention has its own
+  `version`, which is what tells two layouts apart from the release on; at
+  version 0 nothing is promised, as before. The schemas were regenerated
+  without the member. The frozen reference twins still record the revision
+  they implement (20 or 25); `compare.py` and the twins' tests drop it before
+  comparing.
+- **The profile registry:** [spec/virtualize/profiles.json](../../virtualize/profiles.json)
+  is the one place a profile's identity is written (name, section number,
+  title, UUID, version, kind, fixture suffixes, frozen reference, the phrases
+  the tables use). `spec/tools/profiles.py` derives the hosts' tables
+  (`python/src/refkv/virtualize/profiles.py`, `js/src/virtualize/profiles.ts`),
+  the Rust core's copy (`rust/refkv-ir/profiles.json`) and the profile tables
+  of spec/virtualize.md, spec/conventions.md, docs/virtualize/README.md and
+  the demo page; `just sections` checks they are current.
+- **Numbering:** Conformance is [Appendix A](../../virtualize.md#appendix-a-conformance)
+  of spec/virtualize.md, no longer the section after the last profile, so a
+  new profile takes the next number and moves nothing. The profiles' numbers
+  are the registry's.
+- **Hosts:** the Rust core's file runs take the format's name
+  (`vz_run_new`, `vz_new`, `vz_test_mirror`), as the store runs did; the
+  integer codes are gone.
+- **Shared projection helpers:** `rust/refkv-ir/src/out.rs` holds the
+  rectilinear array document, the `omero` channel builders and the codec
+  chain of a TIFF compression, which the projections call.
 
-**Output.** Every other profile's output changes only in the recorded
-revision.
-
-**Implementations.** The Rust core (`rust/refkv-ir/src/vsi/`, the source
-model `schema/vsi.json`, the projection `project/vsi.rs`), through both
-hosts (`python/src/refkv/virtualize/vsi.py`, `js/src/virtualize/ir/vsi.ts`)
-and the CLI (`rust/refkv-cli/src/vsi.rs`). There is no frozen reference:
-`compare.py` compares `py` with `web` on VSI inputs, and `js/test/vsi/verify.py`
-and `python/tests/ir/test_vsi.py` check both against the synthetic slides'
-known pixels and, when a JVM can be started, against Bio-Formats
-(bioio-bioformats) on the synthetic slides and the public samples.
+**Output.** Every profile's output changes only by losing the `revision`
+member of its root property.

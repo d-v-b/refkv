@@ -25,6 +25,7 @@ from ir_helpers import FIXTURES, ROOT
 from refkv import _core
 from refkv.ir.store import StoreIrOutput
 from refkv.policy import Policy
+from refkv.uri import path_reference
 from refkv.virtualize import Rejected, _virtualize as virtualize
 from refkv.virtualize.store import object_url
 from refkv.virtualize.vsi import VsiFiles, split_input
@@ -227,7 +228,9 @@ def test_a_local_input_without_a_url_names_its_files_by_path(tmp_path):
     sources are the files' paths, which the reader opens."""
     out, root = virtualized(VSI / "vsi_raw_bgr.vsi")
     urls = out.table()[0]
-    assert urls == [str(VSI / "_vsi_raw_bgr_" / "stack10000" / "frame_t.ets"), str(VSI / "vsi_raw_bgr.vsi")]
+    d = path_reference(str(VSI))  # the path itself on POSIX, a file: URI on Windows
+    d = d if d.endswith("/") else d + "/"
+    assert urls == [object_url(d, "_vsi_raw_bgr_/stack10000/frame_t.ets"), object_url(d, "vsi_raw_bgr.vsi")]
     out.write(str(tmp_path / "a.vzip"))
     g = zarr.open_group(refkv.zarr.open(str(tmp_path / "a.vzip")), mode="r", zarr_format=3)
     want = expected_array("vsi_raw_bgr", 10000)[0, 0, 0]

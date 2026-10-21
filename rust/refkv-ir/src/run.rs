@@ -39,21 +39,8 @@ pub enum Format {
 }
 
 impl Format {
-    pub fn from_code(c: u32) -> Option<Format> {
-        match c {
-            0 => Some(Format::Nd2),
-            1 => Some(Format::Tiff),
-            2 => Some(Format::Czi),
-            3 => Some(Format::Dicom),
-            4 => Some(Format::Nifti),
-            5 => Some(Format::Ims),
-            6 => Some(Format::Safe),
-            7 => Some(Format::Ndpi),
-            8 => Some(Format::Mrc),
-            9 => Some(Format::Vsi),
-            _ => None,
-        }
-    }
+    /// The format's name: its profile's in the registry (spec/virtualize/profiles.json), which
+    /// hosts pass across every boundary (there are no numbers).
     pub fn name(self) -> &'static str {
         match self {
             Format::Nd2 => "nd2",
@@ -68,6 +55,13 @@ impl Format {
             Format::Vsi => "vsi",
         }
     }
+    /// Whether the format's input, a file, is virtualized by a store run rather than a file
+    /// run: VSI, whose `.vsi` file is read with the tile files beside it (`StoreFormat::Vsi`); a
+    /// file run of it only rejects, so a host hands it to its `vsi` module.
+    pub fn store_run(self) -> bool {
+        matches!(self, Format::Vsi)
+    }
+
     /// The format of a name ("nd2", "tiff", "czi", "dicom", "nifti", "ims", "safe", "ndpi", "mrc", "vsi").
     pub fn from_name(s: &str) -> Option<Format> {
         [Format::Nd2, Format::Tiff, Format::Czi, Format::Dicom, Format::Nifti, Format::Ims, Format::Safe, Format::Ndpi, Format::Mrc, Format::Vsi].into_iter().find(|f| f.name() == s)

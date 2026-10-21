@@ -15,7 +15,7 @@
 
 import {
   convention as currentConvention, CONVENTION_KEY as CURRENT_KEY, planEntries, type Plan, PROFILES,
-  type Profile, REVISION, rootProperty, SOURCE_NODE as CURRENT_NODE, stringifyJson,
+  type Profile, rootProperty, SOURCE_NODE as CURRENT_NODE, stringifyJson,
 } from "../../../../js/src/virtualize/common.ts";
 import type { Range } from "../../../../js/src/protobuf.ts";
 import {
@@ -58,7 +58,7 @@ export function declare(
   profile: Profile,
   url: string | undefined,
   own?: object,
-  revision = REVISION,
+  revision?: number,
 ): { [k: string]: unknown } {
   const value: { [k: string]: unknown } = url === undefined
     ? {}

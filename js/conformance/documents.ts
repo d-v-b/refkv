@@ -8,6 +8,7 @@
 // Used by python/tests/test_virtualize_conventions.py.
 
 import fs from "node:fs";
+import nodePath from "node:path";
 import { blockReader } from "../src/virtualize/common.ts";
 import { virtualizeImage, virtualizeStore } from "../src/virtualize/index.ts";
 import { readerSource } from "../src/virtualize/ir/source.ts";
@@ -38,7 +39,7 @@ for (const [path, url] of inputs) {
       const bytes = new Uint8Array(fs.readFileSync(path));
       // a VSI file's tile files lie beside it: opened from the directory as the run asks
       const open = async (key: string) => {
-        const p = `${path.slice(0, path.lastIndexOf("/") + 1)}${key}`;
+        const p = nodePath.join(nodePath.dirname(path), ...key.split("/"));  // a key's segments, as the platform joins them
         if (!fs.existsSync(p)) return undefined;
         const b = new Uint8Array(fs.readFileSync(p));
         return readerSource(async (o, n) => b.subarray(o, o + n), b.length);

@@ -1,7 +1,8 @@
 """refkv's intermediate representation (design/ARCHITECTURE.md §3
 <https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
 the path `refkv.virtualize`
-takes for TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE (a `.SAFE.zip` here; a `.SAFE` directory through `store.py`) files, and Zarr v2, N5 and OME-Zarr stores (`store.py`): the Rust core (rust/refkv-ir, the `refkv._core` module)
+takes for every format (a file here, a `.SAFE.zip` included; a store, a `.SAFE` directory
+included, through `store.py`): the Rust core (rust/refkv-ir, the `refkv._core` module)
 parses, checking each format's source model schema, plans the reads, projects the
 convention's hierarchy and mirrors the IR under `refkv_source`; this package is the
 host: the I/O (`planner.py`), the archive writer (`output.py` into `Output`), and
@@ -94,7 +95,7 @@ def virtualize(location: str, url: str | None = None, mirror: bool = True, polic
     head = held[:want] if len(held) >= want else transport.get(0, want)
     fmt = sniff(head)
     if fmt is None:
-        raise Rejected("not a TIFF, CZI, ND2, DICOM, NIfTI, MRC or IMS file or SAFE zip file")
+        raise Rejected("not a file of any supported format")
     run = new_run(fmt, transport, connections, byte_cost)
     drive(run, transport, connections)
     fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"

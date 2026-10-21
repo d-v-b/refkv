@@ -7,6 +7,7 @@ in, and everything the source's own header or metadata says. There is one
 convention per source format, each specified in `virtualize/<format>.md` next to
 its JSON Schema `virtualize/<format>/schema.json`:
 
+<!-- profiles:conventions-table -->
 | format | convention | UUID |
 |---|---|---|
 | TIFF, OME-TIFF, Aperio SVS | [tiff](virtualize/tiff.md) | `48e9ac4e-1156-4a62-955e-20467d9c2700` |
@@ -16,13 +17,14 @@ its JSON Schema `virtualize/<format>/schema.json`:
 | NIfTI-1 and NIfTI-2 | [nifti](virtualize/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
 | MRC2014 | [mrc](virtualize/mrc.md) | `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` |
 | MRC2014, as a dataset ([§9](#9-dataset-layouts)) | [mrc-dataset](virtualize/mrc-dataset.md) | `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` |
-| Olympus VSI (cellSens whole-slide images: a `.vsi` file and its tile files) | [vsi](virtualize/vsi.md) | `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` |
 | Imaris IMS | [ims](virtualize/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
 | N5 | [n5](virtualize/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
 | Zarr v2 | [zarr2](virtualize/zarr2.md) | `8e792619-d671-4687-ab51-752885dd3ee6` |
 | OME-Zarr 0.4 | [ome-zarr](virtualize/ome-zarr.md) | `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` |
 | Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](virtualize/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
 | Zeiss CZI | [czi](virtualize/czi.md) | `7a0733c7-d4be-4482-a64f-6904d9354ea5` |
+| Olympus VSI | [vsi](virtualize/vsi.md) | `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` |
+<!-- /profiles -->
 
 A format's convention specifies the hierarchy's whole **Zarr layout**: which
 groups and arrays it has and where, each array's metadata (shape, data
@@ -69,11 +71,9 @@ framework](https://github.com/zarr-conventions/zarr-conventions-spec).
 **Versions.** Each convention has a **version**, an integer stated in its
 document's header.
 
-- **Until refkv's first release**, every convention is at version **0**, and
-  hierarchies also record the **revision** of
-  [spec/virtualize.md](virtualize.md) (the number in its header) that
-  produced them ([§2](#2-attributes)). Version 0 promises nothing: any revision may change a
-  layout, and the revision is what tells two layouts apart.
+- **Until refkv's first release**, every convention is at version **0**.
+  Version 0 promises nothing: any change may change a layout; a convention's
+  document records its changes.
 - **At the release**, every convention becomes version 1, tagged
   `virtualize-<p>-v1` in the refkv repository. From then on a convention's
   version increases by 1 whenever the layout it specifies, or the reference
@@ -81,7 +81,7 @@ document's header.
   source, including whether the source is accepted (a **breaking change**);
   an editorial change, or a change to another format, leaves it as it is.
   Version `N` of the convention for format `p` is tagged
-  `virtualize-<p>-v<N>`, and hierarchies no longer record a revision.
+  `virtualize-<p>-v<N>`.
 - A reader that relies on a convention MUST reject a hierarchy whose
   version it does not know, as each convention's JSON Schema does.
 
@@ -100,10 +100,10 @@ the Convention Metadata Object (CMO)
 
 with no other members. At version 0, which has no tag, the URLs name the
 development branch instead: `.../refs/heads/main/spec/virtualize/<p>/schema.json`
-and `.../blob/main/spec/virtualize/<p>.md`. `T` is the format's title (`TIFF`, `NDPI`,
-`ND2`, `DICOM`, `NIfTI`, `MRC`, `IMS`, `N5`, `Zarr v2`, `OME-Zarr`, `Sentinel-2
-SAFE`, `CZI`, `VSI`). The UUID is the same for every version; the version is in the
-URLs. All thirteen conventions nest their property under one key, `refkv_virtualized`, which is
+and `.../blob/main/spec/virtualize/<p>.md`. `T` is the format's title, the `title` of its
+entry in the profile registry ([virtualize/profiles.json](virtualize/profiles.json): `TIFF`,
+`Zarr v2`, `Sentinel-2 SAFE`, ...). The UUID is the same for every version; the version is in
+the URLs. All conventions nest their property under one key, `refkv_virtualized`, which is
 also their `name`: the framework asks a nesting convention's `name` to be
 its key, and a key without a colon is not mistaken for a namespace prefix.
 
@@ -120,14 +120,12 @@ the CMOs of the GeoZarr conventions the node uses), and the member
 **The property.** On the root, `refkv_virtualized` is the object
 
 ```json
-{"profile": "<p>", "version": N, "revision": R, "source": {"url": "<U>"}, "<p>": S}
+{"profile": "<p>", "version": N, "source": {"url": "<U>"}, "<p>": S}
 ```
 
 and on any other node `{"<p>": S}`, where:
 
 - `p` and `N` are the format and its convention's version;
-- `R` is the revision of spec/virtualize.md that produced the hierarchy, an
-  integer, present at version 0 only ([§1](#1-conventions));
 - `U` is the URL of the source: of the file for a file, and of the store,
   ending in `/`, for a store;
 - `S` is the node's **source metadata**, an object whose content the
@@ -153,10 +151,9 @@ it opens the node (refkv writes them with the chunks, not with the documents
 read when an archive is opened). The node exists only when it has
 source metadata or arrays, or, for the store conventions, other objects of
 the store, which it holds whole under `refkv_source/objects/`, or the
-recorded ignored keys. For the
-TIFF, NDPI, ND2, CZI, DICOM, NIfTI, MRC, IMS and SAFE conventions,
+recorded ignored keys. For a file's convention,
 `refkv_source` is the source's IR mirror ([§8](#8-the-ir-mirror)), from which the source is
-rebuilt byte for byte; for the Zarr v2, N5, OME-Zarr and VSI conventions, the store's
+rebuilt byte for byte; for a store's, the store's
 ([§8.9](#89-stores)), from which the listing and the documents read are rebuilt: always
 present (under a root array, as plain keys of the archive).
 
@@ -413,7 +410,7 @@ another, such as a TIFF's contiguous strips, are referenced, not copied.
 
 ## 8. The IR mirror
 
-The TIFF, NDPI, ND2, CZI, DICOM, NIfTI, MRC, IMS, SAFE, VSI, Zarr v2, N5 and OME-Zarr conventions keep the source's metadata as one
+Every format's convention keeps the source's metadata as one
 format-free structure on `refkv_source`: the source's **IR** (intermediate
 representation), a tree of **elements** whose leaves partition the source's
 bytes, stored as a table (the **mirror**) and shown as JSON (the **view**).
@@ -471,9 +468,8 @@ key, an XML tag), which may be empty, repeat, or hold `/`, names those
 elements so that this holds; [ND2 §5.3](virtualize/nd2.md#53-elements) gives one
 rule for that, which any format may adopt.
 
-These rules are those of every single-file profile's IR: TIFF, NDPI, ND2, CZI,
-DICOM, NIfTI, MRC, IMS and SAFE (a `.SAFE.zip`) today, and any format whose source model a later revision
-moves onto the IR, without restating them. A format's convention
+These rules are those of every file profile's IR (a `.SAFE.zip` included), and of any
+format added later, without restating them. A format's convention
 lists its elements by their paths below the root.
 
 The **leaves** are the elements of kinds 1, 2, 3 and 5 with a length, in
@@ -595,7 +591,7 @@ canonical mirror (8.8: runs expanded, derived spaces left out) would have more
 than `N = 2^22 + floor(Z / 4)` rows, with the message
 `budget: the mirror would have more than N rows` (N in decimal), and may do so
 before expanding when the elements outside derived spaces, every run expanded,
-are already more than `N`. (No source the TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC, IMS, SAFE, VSI, Zarr v2 and N5 parsers accept
+are already more than `N`. (No source any parser accepts
 comes near it today: they describe fewer than one element per four bytes of
 the source; the limit bounds what a reader must expand.) So is one whose columns' lengths
 differ, whose column refers to values past `column_values` or entries past
@@ -832,7 +828,7 @@ compares mirrors entry for entry. In order:
    |---|---|---|---|---|
    | TIFF | layout tables | the start or length of a column run of at least 16 members of one data row each, with a name index, in a struct `tiles` (or `strips`) with no index | the first child `value` (no index) of the first struct child `tags/` with index 324 for starts and 325 for lengths (273 and 279 for `strips`) of that struct's parent: TileOffsets and TileByteCounts (StripOffsets, StripByteCounts) | member 0's name index |
 
-   NDPI, ND2, CZI, DICOM, NIfTI, MRC, IMS, SAFE, VSI, Zarr v2, N5 and OME-Zarr have none. A format adds a rule by a revision of this
+   The other profiles have none. A format adds a rule by a change of this
    section and its convention: a new row in this table, whose conditions
    depend only on the canonical IR (so that every producer finds the same
    columns), and whose array a reader can read from source 0.
@@ -1051,7 +1047,7 @@ holds what every dataset layout shares.
 dataset convention gives (`dataset` unless it says otherwise). The root
 names it in `layouts` ([§2](#2-attributes)). The group declares the dataset
 convention as a root declares its format's ([§2](#2-attributes)): its
-`refkv_virtualized` has `profile` (`<p>-dataset`), `version`, `revision`,
+`refkv_virtualized` has `profile` (`<p>-dataset`), `version`,
 `source` and the source metadata member `"<p>-dataset"`, so that the group
 describes itself when it is copied out of the hierarchy. OME-NGFF readers
 ignore it, as they do `refkv_source`. The group has no source metadata

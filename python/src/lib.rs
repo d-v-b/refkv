@@ -744,7 +744,7 @@ fn out_py<'py>(py: Python<'py>, o: &refkv_ir::out::Out) -> PyResult<Bound<'py, P
     Ok(t.into_pyobject(py)?.into_any())
 }
 
-/// The image projection of an IR (format "nd2", "tiff", "czi", "dicom", "nifti", "ims", "ndpi" or "mrc"; facts as JSON) as
+/// The image projection of an IR (`format` a name of `Format::from_name`; facts as JSON) as
 /// Python objects (`out_py`), or Rejected.
 #[pyfunction]
 fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str) -> PyResult<Bound<'py, PyAny>> {
@@ -826,7 +826,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(mirror, m)?)?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;
     m.add_function(wrap_pyfunction!(view_problem, m)?)?;
-    m.add("REVISION", refkv_ir::out::REVISION)?;
     m.add_function(wrap_pyfunction!(synthetic, m)?)?;
     m.add_function(wrap_pyfunction!(schema_text, m)?)?;
     m.add_function(wrap_pyfunction!(czi_xml_values, m)?)?;

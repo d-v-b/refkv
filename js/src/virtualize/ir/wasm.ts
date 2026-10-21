@@ -11,7 +11,7 @@ export interface IrExports {
   memory: WebAssembly.Memory;
   vz_alloc(n: number): number;
   vz_out(): number;
-  vz_run_new(format: number, size: bigint, remote: number, concurrency: number): number;
+  vz_run_new(format: number, nf: number, size: bigint, remote: number, concurrency: number): bigint;
   vz_run_seed(p: number, offset: bigint, data: number, n: number): void;
   vz_run_observe(p: number, n: bigint, seconds: number): void;
   vz_run_multirange(p: number, v: number): void;

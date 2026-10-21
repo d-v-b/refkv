@@ -20,7 +20,7 @@ of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "mrc"`, `"version": 0`, `"revision": 29` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
+with `"profile": "mrc"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
 and the root's source metadata of [§5.1](#51-the-root) as the member `"mrc"`. Its CMO is:
 
 ```json
@@ -304,7 +304,6 @@ with the origin `(-1.5, 2, 7.25)` and the values from −100 to 150. Its root
   "refkv_virtualized": {
     "profile": "mrc",
     "version": 0,
-    "revision": 29,
     "source": {"url": "https://example.org/map.mrc"},
     "mrc": {
       "byte_order": "little",
@@ -385,7 +384,7 @@ reader that needs them must read them there.
 
 # Part 2. The profile
 
-The MRC profile of [spec/virtualize.md](../virtualize.md) (revision 29), numbered
+The MRC profile of [spec/virtualize.md](../virtualize.md) (revision 28), numbered
 as its [§14](#14-mrc-profile). [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here.
 
 The output has the convention's layout for the input

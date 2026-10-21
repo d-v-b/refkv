@@ -264,7 +264,7 @@ impl Vsi {
                 s.creation_time = tree::number_of(rules, b, pc, CREATION_TIME).map(|v| v as i64);
                 s.magnification = find_number(rules, b, pc, OBJECTIVE_MAG);
             }
-            // the dimensions (§2.2): the description volumes, by their second tag
+            // the dimensions (§2.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#22-stacks>): the description volumes, by their second tag
             for d in sc.fields.iter().filter(|x| x.tag == DIMENSION_DESCRIPTION_VOLUME && x.kind == Kind::Volume) {
                 let Some(dc) = d.child() else { continue };
                 let index = d.tag2.unwrap_or(0) as usize;

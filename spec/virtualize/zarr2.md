@@ -40,7 +40,7 @@ consolidated metadata, is kept whole ([§5](#5-other-objects)).
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "zarr2"`, `"version": 0`, `"revision": 29` ([conventions §1](../conventions.md#1-conventions)), the store's URL (ending in `/`)
+with `"profile": "zarr2"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)), the store's URL (ending in `/`)
 as `source.url`, and the root's source metadata ([§4](#4-source-metadata)), if it has any, as
 the member `"zarr2"`. Every other node that has source metadata declares it
 with `{"zarr2": S}`. Its CMO is:

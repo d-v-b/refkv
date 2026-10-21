@@ -1,6 +1,7 @@
-//! The TIFF (NDPI included), CZI, DICOM, NIfTI, MRC and IMS parsers: every fixture they accept is a valid IR that rebuilds
-//! its source; one test per rejected fixture (each the role the schema names); and
-//! the round-3 probes built here (IFD loops, huge counts, too many IFDs).
+//! The file parsers (every file profile of the registry, spec/virtualize/profiles.json): every
+//! fixture they accept is a valid IR that rebuilds its source, and the fixtures named as rejected
+//! are; one test per rejected fixture (each the role the schema names); and the round-3 probes
+//! built here (IFD loops, huge counts, too many IFDs).
 
 use std::path::Path;
 use refkv_ir::check;
@@ -10,6 +11,7 @@ use refkv_ir::nifti::Nifti;
 use refkv_ir::ims::Ims;
 use refkv_ir::mrc::Mrc;
 use refkv_ir::parse_bytes;
+use refkv_ir::run::{run_bytes, Format};
 use refkv_ir::tiff::Tiff;
 
 fn fixtures() -> std::path::PathBuf {
@@ -24,33 +26,50 @@ fn rebuilt(ir: &refkv_ir::ir::Ir, data: &[u8]) -> Vec<u8> {
     out
 }
 
-fn accepted<P: refkv_ir::Parser>(dir: &str) -> usize {
-    let mut n = 0;
-    for e in std::fs::read_dir(fixtures().join(dir)).unwrap() {
+/// The files under `dir` (its subdirectories' too) with one of `suffixes`, sorted.
+fn files(dir: &Path, suffixes: &[&str]) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(dir).unwrap() {
         let path = e.unwrap().path();
         if path.is_dir() {
-            continue;
-        }
-        let data = std::fs::read(&path).unwrap();
-        if let Ok((ir, _)) = parse_bytes::<P>(&data) {
-            check::check(&ir).unwrap_or_else(|m| panic!("{path:?}: {m}"));
-            assert!(rebuilt(&ir, &data) == data, "{path:?} does not rebuild");
-            n += 1;
+            out.extend(files(&path, suffixes));
+        } else if suffixes.iter().any(|s| path.to_string_lossy().ends_with(s)) {
+            out.push(path);
         }
     }
-    n
+    out.sort();
+    out
 }
 
+/// Every file profile's fixtures (fixtures/<p>, the files of the registry's suffixes): one
+/// named as rejected (`unsupported_*`, `*_reject_*`; conformance/virtualize/HARNESS.md) is
+/// rejected, and every other is accepted as a valid IR that rebuilds its source.
 #[test]
 fn accepted_fixtures_are_valid_irs_that_rebuild() {
-    assert_eq!(accepted::<Tiff>("tiff"), 33);
-    assert_eq!(accepted::<Czi>("czi"), 32);
-    assert_eq!(accepted::<Tiff>("ndpi"), 3);
-    assert_eq!(accepted::<Dicom>("dicom"), 43);
-    assert_eq!(accepted::<Nifti>("nifti"), 66);
-    assert_eq!(accepted::<Mrc>("mrc"), 55);
-    assert_eq!(accepted::<Ims>("ims"), 26);
-    assert_eq!(accepted::<Ims>("ims/exact"), 1);
+    for e in refkv_ir::out::registry().iter().filter(|e| e["kind"] == "file") {
+        let name = e["name"].as_str().unwrap();
+        let f = Format::from_name(name).unwrap_or_else(|| panic!("{name}: no parser"));
+        if f.store_run() {
+            continue; // a file input read as a store run (VSI): tests/vsi.rs drives it with its tile files
+        }
+        let suffixes: Vec<&str> = e["suffixes"].as_array().unwrap().iter().map(|s| s.as_str().unwrap()).collect();
+        let mut accepted = 0;
+        for path in files(&fixtures().join(name), &suffixes) {
+            let file = path.file_name().unwrap().to_string_lossy().into_owned();
+            let rejected = file.contains("reject") || file.starts_with("unsupported");
+            let data = std::fs::read(&path).unwrap();
+            match run_bytes(f, &data) {
+                Ok((ir, _, _)) => {
+                    assert!(!rejected, "{path:?} was accepted");
+                    check::check(&ir).unwrap_or_else(|m| panic!("{path:?}: {m}"));
+                    assert!(rebuilt(&ir, &data) == data, "{path:?} does not rebuild");
+                    accepted += 1;
+                }
+                Err(m) => assert!(rejected, "{path:?} was rejected: {m}"),
+            }
+        }
+        assert!(accepted > 0, "{name}: no fixture accepted");
+    }
 }
 
 /// The TIFF parser reads an NDPI as NDPI (spec/virtualize/ndpi.md §4

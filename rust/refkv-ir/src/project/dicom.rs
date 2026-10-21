@@ -8,7 +8,7 @@
 use super::{arr, n, obj, strs};
 use crate::dicom::ADOBE;
 use crate::ir::Ir;
-use crate::out::{array_json, image_ome, root_json, transpose_codec, Out, Part};
+use crate::out::{array_json, image_ome, omero_channel, omero_json, root_json, transpose_codec, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Value as J};
 
@@ -31,18 +31,15 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let window = facts["window"].clone();
     let photometric = facts["photometric"].as_str().unwrap_or("");
     let channels: Vec<J> = if spp == 1 {
-        let mut c = json!({"label": "gray", "color": "FFFFFF", "active": true, "window": window});
+        let mut c = omero_channel("gray", "FFFFFF", Some(&window));
         if photometric == "MONOCHROME1" {
             c["inverted"] = json!(true);
         }
         vec![c]
     } else {
-        [("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF")]
-            .iter()
-            .map(|(l, c)| json!({"label": l, "color": c, "active": true, "window": window}))
-            .collect()
+        [("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF")].iter().map(|(l, c)| omero_channel(l, *c, Some(&window))).collect()
     };
-    ome["omero"] = json!({"channels": channels});
+    ome["omero"] = omero_json(channels);
 
     let mut refs = Refs::new(ir, Out::new(url));
     refs.out.json("zarr.json", &root_json(ome, "dicom", url, Some(facts["root"].clone())));

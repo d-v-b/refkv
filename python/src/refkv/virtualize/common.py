@@ -18,6 +18,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Callable
 
+from refkv.virtualize.profiles import REGISTRY
 from refkv.vzip.archive import VZipWriter
 from refkv.errors import ResolutionError
 from refkv.pb import Range, Source
@@ -536,29 +537,10 @@ def group_json(ome: dict) -> dict:
 
 # The virtualization conventions (conventions §2
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>): one per profile, each
-# with its fixed UUID, its current version and its name in the description.
+# with its fixed UUID, its current version and its name in the description, from the profile
+# registry (spec/virtualize/profiles.json; `refkv.virtualize.profiles` is its generated copy).
 CONVENTION_KEY = "refkv_virtualized"
-# The revision of spec/virtualize.md this implementation follows. Until the release, every
-# convention is at version 0 and the root property records it (conventions §1
-# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>, §2
-# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>).
-REVISION = 29
-PROFILES = {
-    "tiff": ("48e9ac4e-1156-4a62-955e-20467d9c2700", 0, "TIFF"),
-    "ndpi": ("6cac71ef-dbb2-4acd-b60c-00389aa4238a", 0, "NDPI"),
-    "nd2": ("59612f14-e314-4207-ba00-8f422ba71490", 0, "ND2"),
-    "dicom": ("acf17198-e5a5-48d3-8187-22ec4bb40ea5", 0, "DICOM"),
-    "nifti": ("06e5809d-4d54-4b72-afd0-6bf61a7b4c85", 0, "NIfTI"),
-    "mrc": ("2aacd010-2ed1-4748-bc3c-5dd5e840bbce", 0, "MRC"),
-    "mrc-dataset": ("f139bf4e-7bab-4c3c-9b2d-66ba747f9b93", 0, "MRC dataset"),
-    "ims": ("5067a535-8261-4b25-a93c-1985ed333bde", 0, "IMS"),
-    "n5": ("ad5d4c39-c69e-48f7-a3ef-4cc8c607d416", 0, "N5"),
-    "zarr2": ("8e792619-d671-4687-ab51-752885dd3ee6", 0, "Zarr v2"),
-    "ome-zarr": ("b74ea302-65bb-49ae-b81f-f9bb52cd4eed", 0, "OME-Zarr"),
-    "safe": ("ef81346c-19e8-42ad-93b0-a279ccaf44c1", 0, "Sentinel-2 SAFE"),
-    "czi": ("7a0733c7-d4be-4482-a64f-6904d9354ea5", 0, "CZI"),
-    "vsi": ("c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45", 0, "VSI"),
-}
+PROFILES = {e["name"]: (e["uuid"], e["version"], e["title"]) for e in REGISTRY}
 UUIDS = frozenset(uuid for uuid, _, _ in PROFILES.values())
 
 
@@ -578,18 +560,19 @@ def convention(profile: str) -> dict:
     }
 
 
-def root_property(profile: str, url: str, revision: int = REVISION) -> dict:
+def root_property(profile: str, url: str, revision: int | None = None) -> dict:
     """The root's property without its source metadata (conventions §2
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>): the profile, its
-    convention's version, the revision while that version is 0 (`revision`: the one the
-    implementation follows; the frozen reference records its own), and the source URL."""
+    convention's version and the source URL. `revision` is only for the frozen reference twins'
+    tests: those record the spec/virtualize.md revision they implement; the shipped code records
+    none."""
     version = PROFILES[profile][1]
-    return {"profile": profile, "version": version, **({"revision": revision} if version == 0 else {}),
+    return {"profile": profile, "version": version, **({"revision": revision} if revision is not None else {}),
             "source": {"url": url}}
 
 
 def declare(attributes: dict, profile: str, url: str | None, own: dict | None = None,
-            revision: int = REVISION) -> dict:
+            revision: int | None = None) -> dict:
     """A node's attributes (conventions §2
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>): `attributes`, the
     members the target formats
@@ -608,7 +591,7 @@ def declare(attributes: dict, profile: str, url: str | None, own: dict | None = 
     return {**attributes, "zarr_conventions": [convention(profile)], CONVENTION_KEY: value}
 
 
-def root_json(ome: dict, profile: str, url: str, own: dict | None = None, revision: int = REVISION) -> dict:
+def root_json(ome: dict, profile: str, url: str, own: dict | None = None, revision: int | None = None) -> dict:
     """The root image group of a file profile (conventions §4
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#4-images>, conventions §2
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), with the

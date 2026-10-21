@@ -51,7 +51,7 @@ names.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "safe"`, `"version": 0`, `"revision": 29` ([conventions §1](../conventions.md#1-conventions)), the input's URL as `source.url`
+with `"profile": "safe"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)), the input's URL as `source.url`
 (the store URL, ending in `/`, of a directory, or the URL of a zip file),
 and the root's source metadata ([§6.1](#61-values)) as the member `"safe"`. Each band
 array and `refkv_source` declare it with their own source metadata ([§6.2](#62-band-arrays),
@@ -796,7 +796,7 @@ are 370 × 370, and its tiles 1, 2 and 3 hold empty packets.
 # Part 2. The profile
 
 The SAFE profile of [spec/virtualize.md](../virtualize.md) (revision 26, draft),
-numbered as its [§12](#12-safe-profile). (Conformance is spec/virtualize.md's [§16](../virtualize.md#16-conformance).)
+numbered as its [§12](#12-safe-profile). (Conformance is spec/virtualize.md's [Appendix A](../virtualize.md#appendix-a-conformance).)
 [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here, with the changes this
 document states.
 
@@ -1041,7 +1041,7 @@ so 48 empty tiles), and a band's are at most 4.3 kB in all, for band files
 of 0.2–160 MB. An output key MUST be at most 65535 bytes and
 MUST NOT start with `__vz__/` ([§1.4](../virtualize.md#14-store-inputs)). The browser implementation fails, as
 for the other store profiles, on a listing of more than 100000 objects
-([§16](../virtualize.md#16-conformance)). A product has 60–1000 objects.
+([Appendix A](../virtualize.md#appendix-a-conformance)). A product has 60–1000 objects.
 
 ### 12.6 Chunks
 

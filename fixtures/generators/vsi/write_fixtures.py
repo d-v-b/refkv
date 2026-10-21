@@ -117,7 +117,7 @@ def f64s(*v) -> bytes:
 
 
 class Builder:
-    """Lays a container out at an absolute offset, as the real files do (§2.1)."""
+    """Lays a container out at an absolute offset, as the real files do (§2.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#21-containers-and-fields>)."""
 
     def __init__(self):
         self.ifds: list[tuple[int, int]] = []  # (chain index, absolute offset) of each IFD written

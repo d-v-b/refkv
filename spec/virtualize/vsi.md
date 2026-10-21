@@ -8,7 +8,9 @@ store, which files it reads and which inputs it rejects, is the VSI profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` ·
-Schema: [schema.json](vsi/schema.json)
+Schema: [schema.json](vsi/schema.json) · Added 2026-10-21, after
+[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
+(a profile's changes are recorded here, dated, from then on)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the VSI
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
@@ -21,7 +23,7 @@ of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "vsi"`, `"version": 0`, `"revision": 29` ([conventions §1](../conventions.md#1-conventions)),
+with `"profile": "vsi"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)),
 the `.vsi` file's URL as `source.url` (the object URL of its key in the
 store, [spec/virtualize.md §1.4](../virtualize.md#14-store-inputs)), and the
 root's source metadata of [§6.1](#61-the-root) as the member `"vsi"`. Its CMO
@@ -38,8 +40,8 @@ is:
 ```
 
 Each image's group ([§4](#4-the-images)) declares it too, with the image's
-source metadata ([§6.1](#61-the-root)) as `"vsi"` and no `profile`, `version`,
-`revision` or `source` (a node property, [conventions §2](../conventions.md#2-attributes)).
+source metadata ([§6.1](#61-the-root)) as `"vsi"` and no `profile`, `version`
+or `source` (a node property, [conventions §2](../conventions.md#2-attributes)).
 `refkv_source` declares it with the IR mirror's description ([§6.2](#62-the-ir-mirror),
 [conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
 the mirror's view that has a member; the arrays, the `OME` group and the
@@ -516,7 +518,6 @@ the 12-bit background 4095; and the macro image, a 40 × 30 JPEG. Its root
   "refkv_virtualized": {
     "profile": "vsi",
     "version": 0,
-    "revision": 29,
     "source": {"url": "https://example.org/slides/vsi_raw_tzc.vsi"},
     "vsi": {
       "file": {"key": "vsi_raw_tzc.vsi", "size": 6822, "ifds": 2},
@@ -622,7 +623,7 @@ or in the mirror.
 
 # Part 2. The profile
 
-The VSI profile of [spec/virtualize.md](../virtualize.md) (revision 29),
+The VSI profile of [spec/virtualize.md](../virtualize.md),
 numbered as its [§15](#15-vsi-profile). [§1](../virtualize.md#1-introduction)
 and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and
 apply here.

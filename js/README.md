@@ -5,17 +5,15 @@ byte ranges of other objects ([spec/refkv.md](../spec/refkv.md)), and vzip is
 its single-file binding. This package reads and writes vzip archives
 ([spec/bindings/vzip.md](../spec/bindings/vzip.md)) in the browser and in Node.
 
-A service worker that turns a remote image file (TIFF, NDPI, ND2, CZI,
-DICOM, NIfTI, MRC or IMS), an Olympus VSI slide (a `.vsi` file, with its
-tile files beside it), a Sentinel-2 SAFE product (a `.SAFE.zip` file, or a
-`.SAFE` directory), an N5, Zarr v2 or OME-Zarr 0.4 store (a URL ending in `/`),
-or a `.vzip` archive into a plain HTTP Zarr store, without a server and
-without copying pixel data:
+A service worker that turns a remote image file or store of any format of
+[docs/virtualize/README.md](../docs/virtualize/README.md#formats) (a store: a
+URL ending in `/`), or a `.vzip` archive, into a plain HTTP Zarr store,
+without a server and without copying pixel data:
 
 1. A page asks for `<scope>vz/image/<id>/zarr.json`, where `<id>` is the
    base64url encoding of the file's or store's URL.
 2. The service worker reads the file's structure with a few range requests
-   (for TIFF, ND2, CZI, DICOM, NIfTI, MRC, IMS, VSI and SAFE, batched by the Rust core's read planner) and
+   (batched by the Rust core's read planner) and
    writes a vzip archive in memory by [spec/virtualize.md](../spec/virtualize.md): an
    OME-NGFF 0.5 dataset (or, for a store, its Zarr v3 hierarchy; for SAFE,
    a GeoZarr hierarchy) whose chunks are references to the source's tiles,
@@ -69,22 +67,17 @@ in a directory and lists them at https://d-v-b.github.io/vzip-demo/).
 
 ## What is supported
 
-The rules are [spec/virtualize.md](../spec/virtualize.md)'s profiles:
-[TIFF](../spec/virtualize/tiff.md#part-2-the-profile), [NDPI](../spec/virtualize/ndpi.md#part-2-the-profile),
-[ND2](../spec/virtualize/nd2.md#part-2-the-profile), [DICOM](../spec/virtualize/dicom.md#part-2-the-profile),
-[NIfTI](../spec/virtualize/nifti.md#part-2-the-profile), [IMS](../spec/virtualize/ims.md#part-2-the-profile),
-[N5](../spec/virtualize/n5.md#part-2-the-profile), [Zarr v2](../spec/virtualize/zarr2.md#part-2-the-profile),
-[OME-Zarr](../spec/virtualize/ome-zarr.md#part-2-the-profile), [SAFE](../spec/virtualize/safe.md#part-2-the-profile),
-[CZI](../spec/virtualize/czi.md#part-2-the-profile), [MRC](../spec/virtualize/mrc.md#part-2-the-profile) and [VSI](../spec/virtualize/vsi.md#part-2-the-profile). TIFF, ND2, CZI, DICOM, NIfTI, MRC, IMS, VSI, SAFE, Zarr v2, N5 and OME-Zarr are virtualized by the
+The rules are [spec/virtualize.md](../spec/virtualize.md)'s profiles, one per
+format (the table in [docs/virtualize/README.md](../docs/virtualize/README.md#formats)
+links each). Every format is virtualized by the
 Rust core (`rust/refkv-ir`) built for wasm32: `src/virtualize/ir/` performs the
 requests its read planner asks for (several at once, multi-range ones under
 Node), under the reader policy, and writes its output. `just js::wasm` builds
 the module, which `just js::build` copies to `dist/refkv_ir.wasm` (beside the
 service worker, which fetches it) and which the Node tests and CLIs read from
-cargo's target directory (or `$REFKV_IR_WASM`). The other profiles are each
-implemented in their own directory of `src/virtualize/` (`store.ts` holds what
-the store profiles share). The TypeScript TIFF, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr virtualizers the
-core replaced are kept, frozen, in `conformance/virtualize/reference/ts/` (with CLIs
+cargo's target directory (or `$REFKV_IR_WASM`). `src/virtualize/store.ts` holds
+the store machinery (the listing, the object and JSON readers). The TypeScript
+virtualizers the core replaced are kept, frozen, in `conformance/virtualize/reference/ts/` (with CLIs
 `conformance/virtualize/reference/ts/virtualize.ts` and `virtualize_file.ts`), for
 comparisons. The Python implementation (`python -m refkv.virtualize`)
 produces equivalent archives; `conformance/virtualize/compare.py` checks that.
@@ -239,7 +232,7 @@ web server), N5 lz4, xz, bzip2 and jpeg blocks, Zarr v2 filters, lz4 and other
 compressors, string, object, structured, complex and date-time types, and
 OME-Zarr 0.4 stores that break a rule of OME-NGFF 0.4 that 0.5 also has.
 A store that lists more than 100000 objects is refused with HTTP 507 (a
-limit of this implementation, [spec/virtualize.md §16](../spec/virtualize.md#16-conformance)).
+limit of this implementation, [spec/virtualize.md Appendix A](../spec/virtualize.md#appendix-a-conformance)).
 
 ## Limits
 
@@ -295,8 +288,8 @@ node demo/e2e_examples.mjs <out dir> [example id …]      # every demo example,
   (cropped to the image size); `vsi/verify.py` serves each synthetic slide with its
   tile files, compares every stack with the pixels the generator wrote and, when a
   JVM can be started, every level with Bio-Formats (bioio-bioformats).
-- `compare.py` runs three virtualizers (`ref`, the frozen reference for
-  TIFF, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr and the shipped Python code for the rest; `py`, the
+- `compare.py` runs three virtualizers (`ref`, the frozen reference, which
+  a format added since the core, such as MRC, does not have; `py`, the
   Python command; `web`, this code under Node) on the synthetic files, every
   OME-TIFF of IDR idr0096 and the public files of every format
   (`conformance/virtualize/corpus_*.txt`), and compares their outputs
