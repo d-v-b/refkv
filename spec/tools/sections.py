@@ -70,9 +70,12 @@ LEFT_ALONE = (
 # Written by spec/generate_schemas.py.
 GENERATED = ("spec/virtualize/*/schema.json",)
 
-FORMATS = ("tiff", "ndpi", "nd2", "dicom", "nifti", "ims", "n5", "zarr2", "ome-zarr", "safe", "czi")
-# spec/virtualize.md's §3-§13 are the profiles, Part 2 of the formats' documents.
+FORMATS = ("tiff", "ndpi", "nd2", "dicom", "nifti", "ims", "n5", "zarr2", "ome-zarr", "safe", "czi", "mrc")
+# spec/virtualize.md's §3-§14 are the profiles, Part 2 of the formats' documents.
 PROFILE_NUMBERS = {f: n for n, f in enumerate(FORMATS, start=3)}
+# The dataset layouts' conventions (spec/conventions.md §9): a document each, no profile number.
+LAYOUTS = ("mrc-dataset",)
+DOCS = FORMATS + LAYOUTS
 
 # Old names of the documents, from before the repository was reorganized.
 OLD_NAMES = {
@@ -170,7 +173,7 @@ def anchors(doc: str) -> frozenset[str]:
 
 def format_of_doc(doc: str) -> str | None:
     m = re.fullmatch(r"spec/virtualize/([\w-]+)\.md", doc)
-    return m.group(1) if m and m.group(1) in FORMATS else None
+    return m.group(1) if m and m.group(1) in DOCS else None
 
 
 def numbered(doc: str, number: str, part: int | None = None) -> list[Heading]:
@@ -464,7 +467,7 @@ def preceding(text: str, start: int, back: int = 120) -> str:
 def fmt_of_path(path: str) -> str | None:
     """The format whose code (or tests, fixtures, schema) a file is, if any."""
     p = path.replace("ome_zarr", "ome-zarr")
-    for f in sorted(FORMATS, key=len, reverse=True):
+    for f in sorted(DOCS, key=len, reverse=True):
         if re.search(rf"(?:^|/){re.escape(f)}(?:/|\.rs$|\.json$)", p):
             return f
         if re.search(rf"(?:^|/)test_virtualize_{re.escape(f)}\.py$", p):
@@ -600,7 +603,7 @@ def doc_for_name(name: str, path: str) -> str | None:
     m = re.fullmatch(r"(?:\.\./)*conventions/([\w-]+)/README\.md", name)
     if m:
         f = m.group(1).replace("_", "-")
-        return f"spec/virtualize/{f}.md" if f in FORMATS else None
+        return f"spec/virtualize/{f}.md" if f in DOCS else None
     if re.fullmatch(r"(?:\.\./)*profiles/([\w-]+)\.md", name):
         return "spec/virtualize.md"
     here = PurePosixPath(path).parent
@@ -627,15 +630,17 @@ FORMAT_WORDS = {
     "ome-zarr": "ome-zarr",
     "safe": "safe",
     "czi": "czi",
+    "mrc": "mrc",
+    "mrc-dataset": "mrc-dataset",
 }
-_FMT = r"(?:the\s+)?(?:(tiff|ndpi|nd2|dicom|nifti|ims|n5|zarr v2|ome-zarr|safe|czi)\s+)?"
+_FMT = r"(?:the\s+)?(?:(tiff|ndpi|nd2|dicom|nifti|ims|n5|zarr v2|ome-zarr|safe|czi|mrc-dataset|mrc)\s+)?"
 Q_PATH = re.compile(r"(?<![\w/.\-\[])(\[?((?:\.{1,2}/)*[\w.\-]+(?:/[\w.\-]+)*\.md)(?:\]\([^()\s]*\))?)(?:'s)?,?\s*$")
 Q_OLD = re.compile(r"(?<![\w/])(SPEC|VIRTUALIZE)(?:'s)?\s*$")
 Q_CONVENTIONS = re.compile(r"(?<![\w/\-])(conventions)(?:'s?)?\s*$", re.I)
 Q_CONVENTION = re.compile(r"(?<![\w/\-])(" + _FMT + r"convention)(?:'s)?\s*$", re.I)
 Q_PROFILE = re.compile(r"(?<![\w/\-])(" + _FMT + r"profile)(?:'s)?\s*$", re.I)
 # A format's name alone ("TIFF §3"): its convention.
-Q_FORMAT = re.compile(r"(?<![\w/\-])(TIFF|NDPI|ND2|DICOM|NIfTI|IMS|N5|Zarr v2|OME-Zarr|SAFE|CZI)\s*$")
+Q_FORMAT = re.compile(r"(?<![\w/\-])(TIFF|NDPI|ND2|DICOM|NIfTI|IMS|N5|Zarr v2|OME-Zarr|SAFE|CZI|MRC)\s*$")
 Q_SPEC = re.compile(r"(?<![\w/\-])((?:the\s+)?(?:archive\s+)?spec)(?:'s)?\s*$")
 
 

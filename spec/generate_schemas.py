@@ -125,6 +125,50 @@ SOURCE_METADATA: dict[str, dict] = {
         {"$ref": "#/$defs/mirror"},
         {"$ref": "#/$defs/mirrorView"},
     ]},
+    "mrc": {"anyOf": [{
+        "type": "object",
+        "description": "The root's: the byte order, the kind of file, the data type, the header, and what the layout derives from it (spec/virtualize/mrc.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#5-source-metadata>)",
+        "properties": {
+            "byte_order": {"enum": ["little", "big"]},
+            "kind": {"enum": ["image", "image_stack", "volume", "volume_stack"]},
+            "data_type": {"enum": ["int8", "uint8", "int16", "float32", "complex64", "uint16", "float16"]},
+            "header": {
+                "type": "object",
+                "description": "Every header field, by its MRC2014 name, in the standard's order; the extra space as base64, the labels as an array of ten texts",
+                "additionalProperties": {"anyOf": [
+                    {"$ref": "#/$defs/headerValue"},
+                    {"type": "object", "properties": {"bits": {"type": "string", "pattern": "^[0-9a-f]{8}$"}},
+                     "required": ["bits"], "additionalProperties": False,
+                     "description": "A float's IEEE 754 bits, most significant first: a negative zero, or a NaN "
+                                    "other than the canonical one"},
+                    {"type": "array", "items": {"anyOf": [{"type": "number"}, {"$ref": "#/$defs/text"},
+                                                          {"type": "object", "properties": {"bits": {"type": "string", "pattern": "^[0-9a-f]{8}$"}},
+                                                           "required": ["bits"], "additionalProperties": False,
+                                                           "description": "A float's IEEE 754 bits, most significant first: a negative zero, or a NaN "
+                                                                          "other than the canonical one"}]}},
+                ]},
+            },
+            "axis_map": {
+                "type": "object",
+                "description": "Whether mapc, mapr and maps named the axes",
+                "properties": {"applied": {"type": "boolean"}},
+                "required": ["applied"],
+                "additionalProperties": False,
+            },
+            "voxel_size": {
+                "type": "object",
+                "description": "The voxel size in angstroms, when the cell and grid give one along every axis",
+                "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "z": {"type": "number"}},
+                "required": ["x", "y", "z"],
+                "additionalProperties": False,
+            },
+        },
+        "required": ["byte_order", "kind", "data_type", "header", "axis_map"],
+        "additionalProperties": False,
+    },
+        {"$ref": "#/$defs/mirror"},
+        {"$ref": "#/$defs/mirrorView"},
+    ]},
     "ims": {"anyOf": [
         {"$ref": "#/$defs/mirror"},
         {"$ref": "#/$defs/mirrorView"},
@@ -361,11 +405,19 @@ SOURCE_METADATA["czi"] = {"anyOf": [
     {"$ref": "#/$defs/mirror"},
     {"$ref": "#/$defs/mirrorView"},
 ]}
+# The dataset layout of an MRC file (spec/virtualize/mrc-dataset.md §4
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc-dataset.md#4-source-metadata>): the
+# MRC convention's root metadata, member for member, on the group `dataset`.
+SOURCE_METADATA["mrc-dataset"] = {"anyOf": [{
+    **SOURCE_METADATA["mrc"]["anyOf"][0],
+    "description": "The dataset group's: the MRC convention's root source metadata, member for member (spec/virtualize/mrc-dataset.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc-dataset.md#4-source-metadata>)",
+}]}
+
 # The IR mirror (spec/conventions.md §8
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2,
-# CZI, DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2, N5 and OME-Zarr conventions: refkv_source's
+# CZI, DICOM, NIfTI, MRC, IMS, NDPI, SAFE, Zarr v2, N5 and OME-Zarr conventions: refkv_source's
 # source metadata, and the view documents of the groups under refkv_source/tree.
-IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ims", "ndpi", "safe", "zarr2", "n5",
+IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "mrc", "ims", "ndpi", "safe", "zarr2", "n5",
                "ome-zarr")
 # The store conventions, whose refkv_source holds, beside the mirror's description, members of
 # their own (`storeMirror`; spec/conventions.md §8.9
@@ -461,6 +513,8 @@ GEOZARR = {
 def schema(profile: str) -> dict:
     cmo = convention(profile)
     title = PROFILES[profile][2]
+    if profile.endswith("-dataset"):
+        url = {"description": "The URL of the source file"}
     url = ({"pattern": "^[Hh][Tt][Tt][Pp][Ss]?://[^?#]*/$",
             "description": "The store URL: http or https, its path ending in /, no query or fragment"}
            if profile in STORES else {"description": "The URL of the source: a .SAFE directory's store URL, or a zip file's"}
@@ -477,6 +531,9 @@ def schema(profile: str) -> dict:
                if PROFILES[profile][1] == 0 else {}),
             "source": {"type": "object", "properties": {"url": {"type": "string", **url}}, "required": ["url"],
                        "additionalProperties": False},
+            "layouts": {"type": "object", "minProperties": 1,
+                        "additionalProperties": {"type": "string", "pattern": "^[^/]+(/[^/]+)*$"},
+                        "description": "The other layouts of the source in this hierarchy, by name, each the path of its node below the root (spec/conventions.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)"},
             profile: {"$ref": "#/$defs/sourceMetadata"},
         },
         "required": ["profile", "version", *(["revision"] if PROFILES[profile][1] == 0 else []), "source"],

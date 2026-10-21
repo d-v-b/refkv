@@ -6,7 +6,7 @@
 //!     [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]
 //! ```
 //!
-//! TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE zip files, and Zarr v2, OME-Zarr, N5
+//! TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC, IMS and SAFE zip files, and Zarr v2, OME-Zarr, N5
 //! and SAFE stores (an http(s) URL ending in `/`, listed by S3 `ListObjectsV2`, or a local
 //! directory, which needs `--url`, the store URL it is served from), go through the Rust core
 //! (rust/refkv-ir). An input at an http(s) URL is read under the reader policy (spec/refkv.md

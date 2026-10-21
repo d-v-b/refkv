@@ -733,6 +733,18 @@ wheels = [
 ]
 
 [[package]]
+name = "mrcfile"
+version = "1.5.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/56/22/8834f44c2455291e241fb2543c2d5d4f0fe58fd63ad0f42e86570f0b1161/mrcfile-1.5.4.tar.gz", hash = "sha256:8fa9eb2e237d87d99b301c61bf02854dd85a451db25eefcbe142c09b36d8d601", size = 52052606, upload-time = "2025-01-22T12:36:10.924Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6f/cb/3f4ee8233f30c7926f1ed4885ff32b79ec7ce3210370f43e1cb2b385bed6/mrcfile-1.5.4-py2.py3-none-any.whl", hash = "sha256:195370a13db5ce19600499f9bdf90fd9888979bf39de19a17c19024436c6f4c2", size = 45012, upload-time = "2025-01-22T12:02:38.502Z" },
+]
+
+[[package]]
 name = "msgspec"
 version = "0.22.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1853,6 +1865,7 @@ dev = [
     { name = "h5netcdf" },
     { name = "h5py" },
     { name = "jsonschema" },
+    { name = "mrcfile" },
     { name = "nd2" },
     { name = "nibabel" },
     { name = "ome-zarr-models" },
@@ -1884,6 +1897,7 @@ dev = [
     { name = "h5netcdf", specifier = ">=1.8.1" },
     { name = "h5py", specifier = ">=3.16.0" },
     { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "mrcfile", specifier = ">=1.5.0" },
     { name = "nd2", specifier = ">=0.12.0" },
     { name = "nibabel", specifier = ">=5.4.2" },
     { name = "ome-zarr-models", specifier = ">=1.8.1" },

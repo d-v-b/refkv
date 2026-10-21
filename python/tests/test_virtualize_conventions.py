@@ -8,7 +8,7 @@ node that declares the profile's convention validates against its JSON Schema
 (spec/virtualize/<profile>/schema.json): the root always declares it, with the
 provenance members, and another node only when it has source metadata, with
 only that member. No node has any other attribute besides `ome`. (For TIFF (NDPI included), ND2,
-CZI, DICOM, NIfTI, IMS and SAFE, `refkv_source` and the groups of its view are the IR mirror of
+CZI, DICOM, NIfTI, MRC, IMS and SAFE, `refkv_source` and the groups of its view are the IR mirror of
 conventions §8 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>,
 validated by the same schemas.) """
 
@@ -25,13 +25,17 @@ from refkv.virtualize.common import CONVENTION_KEY, PROFILES, REVISION, UUIDS, c
 
 ROOT = Path(__file__).parents[2]
 FIXTURES = ROOT / "fixtures"
-FILES = {"tiff": "*.tif", "ndpi": "*.ndpi", "nd2": "*.nd2", "dicom": "*.dcm", "nifti": "*.nii", "ims": "*.ims",
-         "safe": "*.zip", "czi": "*.czi"}
+FILES = {"tiff": "*.tif", "ndpi": "*.ndpi", "nd2": "*.nd2", "dicom": "*.dcm", "nifti": "*.nii", "mrc": "*.mrc",
+         "ims": "*.ims", "safe": "*.zip", "czi": "*.czi"}
 STORES = ("n5", "zarr2", "ome-zarr", "safe")
 # The GeoZarr members a SAFE node may hold (spec/virtualize/safe.md §5
 # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>), each
 # validated by its own convention's schema (spec/virtualize/safe/geozarr/).
 GEOZARR = {"proj:": "proj", "spatial:": "spatial", "multiscales": "multiscales"}
+# The CF attributes a dataset layout's variables may carry (spec/conventions.md §9
+# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>), on the nodes
+# below the layouts the root names.
+DATASET_ATTRS = {"units", "long_name", "actual_range", "scale_factor", "add_offset"}
 
 
 def geozarr_schema(name: str) -> Draft202012Validator:
@@ -98,9 +102,12 @@ def test_every_output_declares_its_profile_where_the_convention_says():
         validator = schema(fmt)
         for impl, d in (("py", docs), ("web", w["docs"])):
             assert d["zarr.json"]["attributes"][CONVENTION_KEY]["source"] == {"url": url}, (impl, path.name)
+            layouts = tuple(f"{p}/" for p in d["zarr.json"]["attributes"][CONVENTION_KEY].get("layouts", {}).values())
             for key, doc in d.items():
                 attrs = doc.get("attributes", {})
                 geo = {m for m in attrs if m.startswith(tuple(GEOZARR))} if fmt == "safe" else set()
+                if layouts and key.startswith(layouts) and doc["node_type"] == "array":
+                    geo |= set(attrs) & DATASET_ATTRS
                 assert set(attrs) - geo <= {"ome", "zarr_conventions", CONVENTION_KEY}, (impl, path.name, key)
                 for name in {n for p, n in GEOZARR.items() for m in geo if m.startswith(p)}:
                     errors = [e.message for e in geozarr_schema(name).iter_errors(doc)]
@@ -109,11 +116,15 @@ def test_every_output_declares_its_profile_where_the_convention_says():
                 if key == "zarr.json":
                     assert declares(doc), (impl, path.name)
                 if declares(doc):
-                    errors = [e.message for e in validator.iter_errors(doc)]
+                    # a dataset layout's node declares its own convention, as a root does
+                    own = attrs[CONVENTION_KEY].get("profile", fmt)
+                    errors = [e.message for e in schema(own).iter_errors(doc)]
                     assert not errors, (impl, path.name, key, errors)
-                    assert ("profile" in attrs[CONVENTION_KEY]) == (key == "zarr.json"), (impl, path.name, key)
+                    is_root = key == "zarr.json" or key.removesuffix("/zarr.json") in [p[:-1] for p in layouts]
+                    assert ("profile" in attrs[CONVENTION_KEY]) == is_root, (impl, path.name, key)
+                    if impl == "py":
+                        accepted[own] = accepted.get(own, 0) + 1
         assert same(docs, w["docs"]), path.name
-        accepted[fmt] = accepted.get(fmt, 0) + 1
     assert set(accepted) == set(PROFILES), accepted
     print(f"schema-validated roots: {sum(accepted.values())} of {len(cases)} inputs, {accepted}")
 

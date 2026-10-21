@@ -41,8 +41,8 @@ class ListingFailed(OSError):
 
 class StoreLimit(OSError):
     """An implementation's resource limit (§1.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>, §14
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-conformance>): a failure, not a
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>, §15
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-conformance>): a failure, not a
     rejection."""
 
 

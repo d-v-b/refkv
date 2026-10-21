@@ -38,6 +38,7 @@ pub type Res<T> = Result<T, String>;
 pub static TIFF_SCHEMA: &str = include_str!("../schema/tiff.json");
 pub static CZI_SCHEMA: &str = include_str!("../schema/czi.json");
 pub static NIFTI_SCHEMA: &str = include_str!("../schema/nifti.json");
+pub static MRC_SCHEMA: &str = include_str!("../schema/mrc.json");
 pub static IMS_SCHEMA: &str = include_str!("../schema/ims.json");
 pub static SAFE_SCHEMA: &str = include_str!("../schema/safe.json");
 pub static NDPI_SCHEMA: &str = include_str!("../schema/ndpi.json");
@@ -76,6 +77,11 @@ pub fn czi() -> &'static Rules {
 pub fn nifti() -> &'static Rules {
     static S: OnceLock<Rules> = OnceLock::new();
     S.get_or_init(|| Rules::new(NIFTI_SCHEMA).expect("the NIfTI schema is valid"))
+}
+
+pub fn mrc() -> &'static Rules {
+    static S: OnceLock<Rules> = OnceLock::new();
+    S.get_or_init(|| Rules::new(MRC_SCHEMA).expect("the MRC schema is valid"))
 }
 
 pub fn safe() -> &'static Rules {

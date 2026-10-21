@@ -13,7 +13,7 @@ idr_tiff := "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant
 default:
     @just --list --list-submodules
 
-# Test the Python package (python/src/refkv; it virtualizes TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2, N5 and OME-Zarr stores, with the Rust core, built first)
+# Test the Python package (python/src/refkv; it virtualizes TIFF, NDPI, ND2, CZI, DICOM, NIfTI, MRC, IMS and SAFE, and Zarr v2, N5 and OME-Zarr stores, with the Rust core, built first)
 test *args: ir-build
     uv run pytest -q python/tests {{args}}
 
@@ -26,11 +26,11 @@ ir-build:
     uv sync -q --locked
 
 # Build the IR core for the browser (wasm32, without the Python bindings) and run its ND2,
-# TIFF, CZI, DICOM, NIfTI and IMS parsers, and its Zarr v2 and N5 store formats, from Node on fixtures
+# TIFF, CZI, DICOM, NIfTI, MRC and IMS parsers, and its Zarr v2 and N5 store formats, from Node on fixtures
 ir-wasm:
     rust/refkv-ir/wasm/build.sh
     node rust/refkv-ir/wasm/nd2.mjs fixtures/nd2/nd2_tz_uint16.nd2
-    node rust/refkv-ir/wasm/run.mjs fixtures/tiff/jpeg_gray.tif fixtures/czi/czi_zstd.czi fixtures/dicom/dicom_jpeg_mono_bot.dcm fixtures/nifti/nifti_dims_2d.nii fixtures/ims/ims_latest_dense_links.ims
+    node rust/refkv-ir/wasm/run.mjs fixtures/tiff/jpeg_gray.tif fixtures/czi/czi_zstd.czi fixtures/dicom/dicom_jpeg_mono_bot.dcm fixtures/nifti/nifti_dims_2d.nii fixtures/mrc/mrc_volume_float32_le.mrc fixtures/ims/ims_latest_dense_links.ims
     node rust/refkv-ir/wasm/store.mjs fixtures/zarr2/zarr2_hierarchy > /dev/null
     node rust/refkv-ir/wasm/store.mjs --format n5 fixtures/n5/n5_cosem > /dev/null
 
@@ -87,7 +87,7 @@ conformance out="conformance/results/latest": impls::build
         --impl rust=conformance/impls/rust/vzip --impl typescript=conformance/impls/typescript/vzip --impl python=conformance/impls/python/vzip
 
 # Regenerate the synthetic files in fixtures/<format> (all but NDPI, which needs the network)
-fixtures: fixtures-tiff fixtures-nd2 fixtures-dicom fixtures-nifti fixtures-ims fixtures-n5 fixtures-zarr2 fixtures-ome-zarr fixtures-safe fixtures-czi
+fixtures: fixtures-tiff fixtures-nd2 fixtures-dicom fixtures-nifti fixtures-mrc fixtures-ims fixtures-n5 fixtures-zarr2 fixtures-ome-zarr fixtures-safe fixtures-czi
 
 # Regenerate the fixtures twice and check that both runs give the same bytes, and the committed ones
 fixtures-check:
@@ -132,6 +132,10 @@ fixtures-dicom:
 fixtures-nifti:
     uv run python fixtures/generators/nifti/write_fixtures.py
 
+# Regenerate the synthetic MRC files
+fixtures-mrc:
+    uv run python fixtures/generators/mrc/write_fixtures.py
+
 # Regenerate the synthetic Imaris IMS files
 fixtures-ims:
     uv run python fixtures/generators/ims/write_fixtures.py
@@ -157,7 +161,7 @@ fixtures-czi:
     uv run python fixtures/generators/czi/write_fixtures.py
 
 # Check the browser virtualizer's pixels for every format
-verify: verify-tiff verify-ndpi verify-nd2 verify-dicom verify-nifti verify-ims verify-n5 verify-zarr2 verify-ome-zarr
+verify: verify-tiff verify-ndpi verify-nd2 verify-dicom verify-nifti verify-mrc verify-ims verify-n5 verify-zarr2 verify-ome-zarr
 
 # Check the browser virtualizer's TIFF pixels against tifffile
 verify-tiff:
@@ -178,6 +182,10 @@ verify-dicom:
 # Check the browser virtualizer's NIfTI pixels against nibabel
 verify-nifti:
     uv run python js/test/nifti/verify.py
+
+# Check the browser virtualizer's MRC values against mrcfile
+verify-mrc:
+    uv run python js/test/mrc/verify.py
 
 # Check the browser virtualizer's IMS pixels against h5py
 verify-ims:
@@ -238,7 +246,7 @@ tag-conventions:
     done
     echo "push them with: git push origin --tags"
 
-# Virtualize an image file (TIFF, NDPI, ND2, DICOM, NIfTI or IMS; a URL or a path), or an N5,
+# Virtualize an image file (TIFF, NDPI, ND2, DICOM, NIfTI, MRC or IMS; a URL or a path), or an N5,
 # Zarr v2 or OME-Zarr 0.4 store (a URL ending in "/"), into a vzip archive
 virtualize src out:
     uv run python -m refkv.virtualize {{quote(src)}} {{quote(out)}}

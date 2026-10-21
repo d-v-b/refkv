@@ -20,7 +20,7 @@ of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "nifti"`, `"version": 0`, `"revision": 27` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
+with `"profile": "nifti"`, `"version": 0`, `"revision": 28` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
 and the root's source metadata of [§5.1](#51-the-root) as the member `"nifti"`. Its CMO is:
 
 ```json
@@ -399,7 +399,7 @@ root `zarr.json` has these attributes (`M` elided):
   "refkv_virtualized": {
     "profile": "nifti",
     "version": 0,
-    "revision": 27,
+    "revision": 28,
     "source": {"url": "https://example.org/brain.nii"},
     "nifti": {
       "nifti_version": 1,

@@ -1,6 +1,6 @@
 """Virtualizing image files and N5 / Zarr v2 stores in vzip archives (spec/virtualize.md).
 
-TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and IMS files, Sentinel-2 SAFE products
+TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC and IMS files, Sentinel-2 SAFE products
 (spec/virtualize/safe.md: a `.SAFE.zip` file, or a `.SAFE` directory, a store input), and
 Zarr v2, N5 and OME-Zarr stores go through the IR (`refkv.ir`): the Rust core's sans-IO parser
 of the format, driven by its read planner (a file) or by the store's reads (`refkv.ir.store`),
@@ -55,7 +55,7 @@ from refkv.virtualize.common import Output, Rejected
 from refkv.virtualize.store import WORKERS, choose_profile, object_url, open_store
 from refkv.ir.store import StoreIrOutput
 
-NOT_SUPPORTED = "not a TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file"
+NOT_SUPPORTED = "not a TIFF, NDPI, ND2, DICOM, NIfTI, MRC, IMS, CZI or SAFE zip file"
 
 __all__ = ["Rejected", "virtualize", "virtualize_store"]
 
@@ -113,7 +113,7 @@ def _virtualize(location: str, url: str | None = None, *, checksums: bool = Fals
     which reads them. `policy` is the reader policy a file
     or store at an http(s) URL is read under (default: `Policy()`, private hosts
     refused).
-    For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and IMS files and SAFE zip files, `connections` is how many requests run at a time to a
+    For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC and IMS files and SAFE zip files, `connections` is how many requests run at a time to a
     remote source (default 8), and `byte_cost` the seconds of wall time the read
     planner charges a byte fetched beyond those asked (default 0.1 s per MB).
     A store's documents are read by up to `workers` requests at a time."""
