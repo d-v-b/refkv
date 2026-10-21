@@ -6,10 +6,10 @@
 //!     [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]
 //! ```
 //!
-//! TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC, IMS and SAFE zip files, and Zarr v2, OME-Zarr, N5
-//! and SAFE stores (an http(s) URL ending in `/`, listed by S3 `ListObjectsV2`, or a local
-//! directory, which needs `--url`, the store URL it is served from), go through the Rust core
-//! (rust/refkv-ir). An input at an http(s) URL is read under the reader policy (spec/refkv.md
+//! Every format of docs/virtualize/README.md goes through the Rust core (rust/refkv-ir): a
+//! file (a URL or a path), or a store (an http(s) URL ending in `/`, listed by S3
+//! `ListObjectsV2`, or a local directory, which needs `--url`, the store URL it is served
+//! from). An input at an http(s) URL is read under the reader policy (spec/refkv.md
 //! §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>): a host that is,
 //! or resolves to, a loopback, private, link-local or special address is refused unless
 //! `--allow-private-hosts` (UNSAFE) is given. The archive's sources are checked against the same

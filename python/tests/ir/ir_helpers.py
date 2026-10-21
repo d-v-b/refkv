@@ -21,10 +21,9 @@ def same_hierarchy(a, b) -> None:
     the source metadata node: documents, references and data sources. The reference
     writes the names of the revision it implements (refkv_reference.legacy), read as the
     current ones, and its root records that revision (refkv_reference.revision: 20, or 25
-    for DICOM, NIfTI, IMS and NDPI), read as the current one."""
+    for DICOM, NIfTI, IMS and NDPI), which is dropped: the shipped code records none."""
     from refkv_reference.legacy import SOURCE_NODE as LEGACY_NODE
     from refkv_reference.legacy import current_names
-    from refkv.virtualize.common import REVISION
     from refkv_reference.revision import DICOM_REVISION, IMS_REVISION, REVISION_25
     from refkv_reference.revision import REVISION as FROZEN
 
@@ -41,7 +40,7 @@ def same_hierarchy(a, b) -> None:
         moved = MIRRORED.get(prop.get("profile"))
         frozen = REVISION_25 if moved else {"dicom": DICOM_REVISION, "ims": IMS_REVISION, "ndpi": 25}.get(prop.get("profile"), FROZEN)
         if o is a and prop.get("revision") == frozen:
-            prop["revision"] = REVISION
+            del prop["revision"]
             for k in moved or ():
                 prop[prop["profile"]].pop(k, None)
         return d

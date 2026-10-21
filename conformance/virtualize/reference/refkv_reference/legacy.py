@@ -25,7 +25,7 @@ from refkv.virtualize import store as _store
 from refkv.virtualize.common import *  # noqa: F403
 from refkv.virtualize.store import *  # noqa: F403
 from refkv.virtualize.store import _NODE_NAME
-from refkv.virtualize.common import PROFILES, REVISION, metadata_array, metadata_group
+from refkv.virtualize.common import PROFILES, metadata_array, metadata_group
 from refkv.virtualize.common import Output as _Output
 from refkv.virtualize.common import root_property
 
@@ -55,7 +55,7 @@ def convention(profile: str) -> dict:
 
 
 def declare(attributes: dict, profile: str, url: str | None, own: dict | None = None,
-            revision: int = REVISION) -> dict:
+            revision: int | None = None) -> dict:
     value: dict = {}
     if url is not None:
         value = root_property(profile, url, revision)
@@ -66,7 +66,7 @@ def declare(attributes: dict, profile: str, url: str | None, own: dict | None = 
     return {**attributes, "zarr_conventions": [convention(profile)], CONVENTION_KEY: value}
 
 
-def root_json(ome: dict, profile: str, url: str, own: dict | None = None, revision: int = REVISION) -> dict:
+def root_json(ome: dict, profile: str, url: str, own: dict | None = None, revision: int | None = None) -> dict:
     return {"zarr_format": 3, "node_type": "group",
             "attributes": declare({"ome": ome}, profile, url, own, revision)}
 

@@ -15,7 +15,7 @@ import { WASM_URL } from "../../src/virtualize/ir/wasm_node.ts";
 
 const TEST_WASM = new URL("../../../rust/refkv-ir/target/web-test/refkv_ir.wasm", import.meta.url);
 
-type TestExports = IrExports & { vz_test_mirror(json: number, n: number, profile: number): bigint };
+type TestExports = IrExports & { vz_test_mirror(json: number, n: number, profile: number, np: number): bigint };
 
 async function load(url: URL): Promise<WebAssembly.Instance> {
   const module = await WebAssembly.compile(fs.readFileSync(url));
@@ -30,7 +30,8 @@ test("a mirror past the row budget is a rejection with the budget's message", as
     start: [0, 0, 0], len: [0, 4, 0], runs: [[2, 4_200_000, 0]],
   };
   const b = new TextEncoder().encode(JSON.stringify(ir));
-  const r = Number(w.vz_test_mirror(put(w, b), b.length, 1));
+  const profile = new TextEncoder().encode("tiff");
+  const r = Number(w.vz_test_mirror(put(w, b), b.length, put(w, profile), profile.length));
   assert.ok(r < 0);
   const e = rejection(w, r);
   assert.ok(e instanceof ImageError);

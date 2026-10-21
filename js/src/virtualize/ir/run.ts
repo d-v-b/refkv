@@ -1,4 +1,5 @@
-// Virtualizing an ND2, TIFF (NDPI included), CZI, DICOM, NIfTI, MRC or IMS file or a SAFE zip file with the Rust core (rust/refkv-ir): its
+// Virtualizing a file with the Rust core (rust/refkv-ir; the file profiles of the formats
+// table, docs/virtualize/README.md, whose names `IrFormat` lists): its
 // parser, read planner, image projection and source mirror run in WebAssembly;
 // this host performs the requests a run asks for (`RangeSource`) and turns its
 // output (`Out::encode`) into the writer's archive description. The twin of
@@ -10,8 +11,8 @@ import { ImageError } from "../common.ts";
 import type { RangeSource, Span } from "./source.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
+/** The formats of the core's file runs (`Format::from_name` in rust/refkv-ir/src/run.rs). */
 export type IrFormat = "nd2" | "tiff" | "czi" | "dicom" | "nifti" | "ims" | "safe" | "ndpi" | "mrc";
-const CODES: Record<IrFormat, number> = { nd2: 0, tiff: 1, czi: 2, dicom: 3, nifti: 4, ims: 5, safe: 6, ndpi: 7, mrc: 8 };
 
 export interface IrOutput extends ArchiveDesc {
   format: IrFormat;
@@ -37,7 +38,10 @@ export async function virtualizeIr(
   options: { mirror?: boolean; signal?: AbortSignal } = {},
 ): Promise<IrOutput> {
   const w = await ir();
-  const p = w.vz_run_new(CODES[format], BigInt(source.size), source.remote ? 1 : 0, source.concurrency);
+  const f = utf8.encode(format);
+  const made = Number(w.vz_run_new(put(w, f), f.length, BigInt(source.size), source.remote ? 1 : 0, source.concurrency));
+  if (made < 0) throw rejection(w, made);
+  const p = made;
   let live = true;
   try {
     if (!source.multirange) w.vz_run_multirange(p, 0);

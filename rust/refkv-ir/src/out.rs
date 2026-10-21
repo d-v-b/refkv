@@ -231,31 +231,20 @@ pub fn payload_size(ranges: &[Part]) -> usize {
 // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>)
 
 pub const CONVENTION_KEY: &str = "refkv_virtualized";
-/// The revision of spec/virtualize.md the projections follow (`common.REVISION` in Python).
-pub const REVISION: u64 = 28;
 
-/// (uuid, version, title) of a profile's convention.
+/// The profile registry, spec/virtualize/profiles.json (the crate's profiles.json is its copy,
+/// which spec/tools/profiles.py writes and checks): one entry per profile and dataset layout,
+/// with its `name`, convention `title`, `uuid` and `version`, `kind` ("file", "store", "both"
+/// or "layout"), fixture `suffixes` and the rest the registry documents. Parsed once.
+pub fn registry() -> &'static [J] {
+    static REGISTRY: std::sync::OnceLock<Vec<J>> = std::sync::OnceLock::new();
+    REGISTRY.get_or_init(|| serde_json::from_str(include_str!("../profiles.json")).expect("profiles.json"))
+}
+
+/// (uuid, version, title) of a profile's convention, from the registry.
 pub fn profile(p: &str) -> (&'static str, u64, &'static str) {
-    match p {
-        "tiff" => ("48e9ac4e-1156-4a62-955e-20467d9c2700", 0, "TIFF"),
-        "nd2" => ("59612f14-e314-4207-ba00-8f422ba71490", 0, "ND2"),
-        "czi" => ("7a0733c7-d4be-4482-a64f-6904d9354ea5", 0, "CZI"),
-        "dicom" => ("acf17198-e5a5-48d3-8187-22ec4bb40ea5", 0, "DICOM"),
-        "nifti" => ("06e5809d-4d54-4b72-afd0-6bf61a7b4c85", 0, "NIfTI"),
-        "mrc" => ("2aacd010-2ed1-4748-bc3c-5dd5e840bbce", 0, "MRC"),
-        // the dataset layout of an MRC file (conventions §9
-        // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)
-        "mrc-dataset" => ("f139bf4e-7bab-4c3c-9b2d-66ba747f9b93", 0, "MRC dataset"),
-        "ims" => ("5067a535-8261-4b25-a93c-1985ed333bde", 0, "IMS"),
-        "ndpi" => ("6cac71ef-dbb2-4acd-b60c-00389aa4238a", 0, "NDPI"),
-        // the store conventions, whose sources a store IR describes (conventions §8.9
-        // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>)
-        "n5" => ("ad5d4c39-c69e-48f7-a3ef-4cc8c607d416", 0, "N5"),
-        "zarr2" => ("8e792619-d671-4687-ab51-752885dd3ee6", 0, "Zarr v2"),
-        "ome-zarr" => ("b74ea302-65bb-49ae-b81f-f9bb52cd4eed", 0, "OME-Zarr"),
-        "safe" => ("ef81346c-19e8-42ad-93b0-a279ccaf44c1", 0, "Sentinel-2 SAFE"),
-        _ => panic!("no profile {p}"),
-    }
+    let e = registry().iter().find(|e| e["name"] == p).unwrap_or_else(|| panic!("no profile {p}"));
+    (e["uuid"].as_str().unwrap(), e["version"].as_u64().unwrap(), e["title"].as_str().unwrap())
 }
 
 pub fn convention(p: &str) -> J {
@@ -280,9 +269,6 @@ pub fn root_property(p: &str, url: &str) -> Map<String, J> {
     let mut m = Map::new();
     m.insert("profile".into(), json!(p));
     m.insert("version".into(), json!(version));
-    if version == 0 {
-        m.insert("revision".into(), json!(REVISION));
-    }
     m.insert("source".into(), json!({"url": url}));
     m
 }
@@ -339,6 +325,67 @@ pub fn array_json(shape: &[u64], data_type: &str, chunk_shape: J, codecs: J, axe
         "dimension_names": axes,
         "attributes": {},
     })
+}
+
+/// An array's zarr.json whose chunk grid is regular when every one of `lengths` (one per axis)
+/// is one integer, and the zarr-extensions `rectilinear` grid otherwise (inline, `lengths` the
+/// chunk shapes along each axis; conventions §3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#3-arrays>); the fill value is 0,
+/// or `[0, 0]` for complex64.
+pub fn rectilinear_array_json(shape: &[u64], data_type: &str, lengths: &J, codecs: J, axes: &[&str]) -> J {
+    let regular = lengths.as_array().is_some_and(|l| l.iter().all(|v| v.is_i64() || v.is_u64()));
+    let mut doc = array_json(shape, data_type, if regular { lengths.clone() } else { json!([]) }, codecs, axes);
+    if !regular {
+        doc["chunk_grid"] = json!({"name": "rectilinear", "configuration": {"kind": "inline", "chunk_shapes": lengths}});
+    }
+    doc["fill_value"] = if data_type == "complex64" { json!([0.0, 0.0]) } else { json!(0) };
+    doc
+}
+
+/// The codecs after `transpose` of a TIFF `compression` (the tag's value: JPEG 2000 and JPEG
+/// as their imagecodecs codecs; else `bytes`, with the byte order for samples of more than 8
+/// bits, then `zlib` for Deflate or `zstd` for Zstandard).
+pub fn tiff_codecs(compression: u64, bits: u64, little: bool) -> Vec<J> {
+    match compression {
+        33003 | 33004 | 33005 | 34712 => return vec![json!({"name": "imagecodecs_jpeg2k"})],
+        7 => return vec![json!({"name": "imagecodecs_jpeg"})],
+        _ => {}
+    }
+    let mut out = vec![if bits > 8 {
+        json!({"name": "bytes", "configuration": {"endian": if little { "little" } else { "big" }}})
+    } else {
+        json!({"name": "bytes"})
+    }];
+    match compression {
+        8 | 32946 => out.push(json!({"name": "zlib", "configuration": {"level": 1}})),
+        50000 => out.push(json!({"name": "zstd", "configuration": {"level": 0, "checksum": false}})),
+        _ => {}
+    }
+    out
+}
+
+/// A channel's display window of `omero` (conventions §4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#4-images>): the data's range
+/// `min`..`max`, shown from `start` to `end`.
+pub fn omero_window(min: J, max: J, start: J, end: J) -> J {
+    json!({"min": min, "max": max, "start": start, "end": end})
+}
+
+/// An `omero` channel: its label, its color (`RRGGBB`), active, and its window when it has one.
+pub fn omero_channel(label: &str, color: impl Into<J>, window: Option<&J>) -> J {
+    let mut m = Map::new();
+    m.insert("label".into(), json!(label));
+    m.insert("color".into(), color.into());
+    m.insert("active".into(), json!(true));
+    if let Some(w) = window {
+        m.insert("window".into(), w.clone());
+    }
+    J::Object(m)
+}
+
+/// The `omero` object of an image: its channels.
+pub fn omero_json(channels: Vec<J>) -> J {
+    json!({"channels": channels})
 }
 
 /// The transpose codec for frames that hold the channel axis last.

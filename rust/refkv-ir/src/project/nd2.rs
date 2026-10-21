@@ -7,7 +7,7 @@
 use super::{arr, json_text, n, truthy};
 use crate::ir::{source_text, Ir, NO_INDEX, STRUCT};
 use crate::lv::{base64, well_formed};
-use crate::out::{array_json, group_json, image_ome, payload_size, root_json, transpose_codec, Out, Part, MAX_PAYLOAD};
+use crate::out::{array_json, group_json, image_ome, omero_channel, omero_json, omero_window, payload_size, root_json, transpose_codec, Out, Part, MAX_PAYLOAD};
 use crate::types::{self, Ty, Val};
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -418,7 +418,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let b = if significant == significant.trunc() && 1.0 <= significant && significant <= bpc as f64 { significant as u64 } else { bpc };
     let window = (data_type != "float32").then(|| {
         let top = (1u64 << b) - 1;
-        json!({"min": 0, "max": top, "start": 0, "end": top})
+        omero_window(json!(0), json!(top), json!(0), json!(top))
     });
     let trs = arr(&pic["translations"]);
     let mut out = Out::new(url);
@@ -442,21 +442,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
             }).collect())])
         };
         let mut ome = image_ome(&axes, &units, &[J::Array(scale.clone())], Some(&json!(format!("position {pi}"))), tr.as_deref())?;
-        let chans: Vec<J> = labels
-            .iter()
-            .zip(&colors)
-            .map(|(label, c)| {
-                let mut m = Map::new();
-                m.insert("label".into(), json!(label));
-                m.insert("color".into(), json!(c));
-                m.insert("active".into(), json!(true));
-                if let Some(w) = &window {
-                    m.insert("window".into(), w.clone());
-                }
-                J::Object(m)
-            })
-            .collect();
-        ome["omero"] = json!({"channels": chans});
+        let chans: Vec<J> = labels.iter().zip(&colors).map(|(label, c)| omero_channel(label, c.as_str(), window.as_ref())).collect();
+        ome["omero"] = omero_json(chans);
         out.json(&format!("{pi}/zarr.json"), &group_json(ome));
         out.json(&format!("{pi}/0/zarr.json"), &array_json(&shape, data_type, json!(chunk_shape), codecs.clone(), &axes));
     }

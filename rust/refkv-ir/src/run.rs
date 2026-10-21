@@ -34,20 +34,8 @@ pub enum Format {
 }
 
 impl Format {
-    pub fn from_code(c: u32) -> Option<Format> {
-        match c {
-            0 => Some(Format::Nd2),
-            1 => Some(Format::Tiff),
-            2 => Some(Format::Czi),
-            3 => Some(Format::Dicom),
-            4 => Some(Format::Nifti),
-            5 => Some(Format::Ims),
-            6 => Some(Format::Safe),
-            7 => Some(Format::Ndpi),
-            8 => Some(Format::Mrc),
-            _ => None,
-        }
-    }
+    /// The format's name: its profile's in the registry (spec/virtualize/profiles.json), which
+    /// hosts pass across every boundary (there are no numbers).
     pub fn name(self) -> &'static str {
         match self {
             Format::Nd2 => "nd2",

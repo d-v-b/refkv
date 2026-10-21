@@ -16,6 +16,7 @@
 //! numbered depth first from the root group (a group's hard links in ascending byte order of
 //! their names), then the global heap collections.
 
+use crate::out::{omero_channel, omero_json, omero_window};
 use crate::check;
 use crate::hdf5::{self, address, le, Acc, Fail, Header, Links, R, Target, H5};
 use crate::ir::{Ir, NO_INDEX};
@@ -784,25 +785,15 @@ impl Ims {
             let mut chs = Vec::new();
             for (k, label) in meta.labels.iter().enumerate() {
                 let rng = meta.ranges.get(k).cloned().flatten();
-                let mut ch = Map::new();
-                ch.insert("label".into(), json!(label));
-                ch.insert("color".into(), json!(meta.colors[k]));
-                ch.insert("active".into(), json!(true));
-                match (data_type.2, rng) {
-                    (Some((lo, hi)), Some(r)) => {
-                        ch.insert("window".into(), json!({"min": lo, "max": hi, "start": jf(r[0]), "end": jf(r[1])}));
-                    }
-                    (Some((lo, hi)), None) => {
-                        ch.insert("window".into(), json!({"min": lo, "max": hi, "start": lo, "end": hi}));
-                    }
-                    (None, Some(r)) => {
-                        ch.insert("window".into(), json!({"min": jf(r[0]), "max": jf(r[1]), "start": jf(r[0]), "end": jf(r[1])}));
-                    }
-                    (None, None) => {}
-                }
-                chs.push(J::Object(ch));
+                let window = match (data_type.2, rng) {
+                    (Some((lo, hi)), Some(r)) => Some(omero_window(json!(lo), json!(hi), jf(r[0]), jf(r[1]))),
+                    (Some((lo, hi)), None) => Some(omero_window(json!(lo), json!(hi), json!(lo), json!(hi))),
+                    (None, Some(r)) => Some(omero_window(jf(r[0]), jf(r[1]), jf(r[0]), jf(r[1]))),
+                    (None, None) => None,
+                };
+                chs.push(omero_channel(label, meta.colors[k].as_str(), window.as_ref()));
             }
-            omero = json!({"channels": chs});
+            omero = omero_json(chs);
         }
         let name = meta.name.filter(|n| !n.is_empty()).map_or(J::Null, |n| json!(n));
         Ok(json!({

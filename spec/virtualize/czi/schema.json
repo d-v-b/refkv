@@ -97,11 +97,6 @@
           "type": "integer",
           "const": 0
         },
-        "revision": {
-          "type": "integer",
-          "const": 28,
-          "description": "The spec/virtualize.md revision that produced the hierarchy (version 0 only)"
-        },
         "source": {
           "type": "object",
           "properties": {
@@ -131,7 +126,6 @@
       "required": [
         "profile",
         "version",
-        "revision",
         "source"
       ],
       "additionalProperties": false
