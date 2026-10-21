@@ -19,6 +19,7 @@ pub mod ir;
 pub mod json;
 pub mod lv;
 pub mod mirror;
+pub mod mp3;
 pub mod mrc;
 pub mod n5;
 pub mod nd2;
@@ -77,6 +78,7 @@ parser!(czi::Czi);
 parser!(dicom::Dicom);
 parser!(nifti::Nifti);
 parser!(mrc::Mrc);
+parser!(mp3::Mp3);
 parser!(ims::Ims);
 parser!(safe::Safe);
 

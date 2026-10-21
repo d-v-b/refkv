@@ -200,5 +200,20 @@
     "source": "Olympus VSI",
     "inputs": "Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG and JPEG 2000 tiles)",
     "for": "Olympus cellSens whole-slide images (`.vsi` with its tile files)"
+  },
+  {
+    "name": "mp3",
+    "section": 16,
+    "title": "MP3",
+    "uuid": "b6cb0047-9448-4fdc-b03e-10dd3d6aa829",
+    "version": 0,
+    "kind": "file",
+    "suffixes": [
+      ".mp3"
+    ],
+    "reference": null,
+    "source": "MP3 (MPEG Layer III audio)",
+    "inputs": "MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio files (`.mp3`), with their ID3v2, ID3v1 and APE tags; one array of samples, not an image",
+    "for": "MP3 audio files, as an array of samples (`.mp3`)"
   }
 ]

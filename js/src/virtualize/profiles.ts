@@ -1,6 +1,6 @@
 // The profile registry: generated from spec/virtualize/profiles.json by spec/tools/profiles.py; edit the registry, not this.
 
-export type Profile = "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "mrc" | "mrc-dataset" | "ims" | "n5" | "zarr2" | "ome-zarr" | "safe" | "czi" | "vsi";
+export type Profile = "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "mrc" | "mrc-dataset" | "ims" | "n5" | "zarr2" | "ome-zarr" | "safe" | "czi" | "vsi" | "mp3";
 
 export interface ProfileEntry {
   name: Profile;
@@ -31,4 +31,5 @@ export const REGISTRY: ProfileEntry[] = [
   {"name": "safe", "section": 12, "title": "Sentinel-2 SAFE", "uuid": "ef81346c-19e8-42ad-93b0-a279ccaf44c1", "version": 0, "kind": "both", "suffixes": [".zip"], "reference": 25, "source": "Sentinel-2 SAFE (Level-1C, Level-2A)", "inputs": "Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (a store) or a `.SAFE.zip` file", "for": "Sentinel-2 Level-1C and Level-2A products, as a `.SAFE` directory or a `.SAFE.zip`"},
   {"name": "czi", "section": 13, "title": "CZI", "uuid": "7a0733c7-d4be-4482-a64f-6904d9354ea5", "version": 0, "kind": "file", "suffixes": [".czi"], "reference": 20, "source": "Zeiss CZI", "inputs": "Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids", "for": "Zeiss CZI files"},
   {"name": "vsi", "section": 15, "title": "VSI", "uuid": "c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45", "version": 0, "kind": "file", "suffixes": [".vsi"], "reference": null, "source": "Olympus VSI", "inputs": "Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG and JPEG 2000 tiles)", "for": "Olympus cellSens whole-slide images (`.vsi` with its tile files)"},
+  {"name": "mp3", "section": 16, "title": "MP3", "uuid": "b6cb0047-9448-4fdc-b03e-10dd3d6aa829", "version": 0, "kind": "file", "suffixes": [".mp3"], "reference": null, "source": "MP3 (MPEG Layer III audio)", "inputs": "MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio files (`.mp3`), with their ID3v2, ID3v1 and APE tags; one array of samples, not an image", "for": "MP3 audio files, as an array of samples (`.mp3`)"},
 ];

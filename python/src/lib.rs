@@ -754,7 +754,7 @@ fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str
     out_py(py, &o)
 }
 
-/// The mirror of an IR (for the profile "nd2", "tiff", "czi", "dicom", "nifti", "ims", "ndpi" or "mrc"): its entries and
+/// The mirror of an IR (for the profile "nd2", "tiff", "czi", "dicom", "nifti", "ims", "ndpi", "mrc" or "mp3"): its entries and
 /// references under `refkv_source` (`out_py`'s form, the url empty), and what the
 /// table folded (JSON).
 #[pyfunction]
@@ -810,6 +810,15 @@ fn _set_copy_threshold(n: Option<usize>) {
     refkv_ir::out::set_copy_threshold(n);
 }
 
+/// For tests: the frames of an MP3 chunk (None: 256), so that small files have several chunks,
+/// each with its lead-in (spec/virtualize/mp3.md §16.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#162-chunks>).
+#[pyfunction]
+#[pyo3(signature = (n=None))]
+fn _set_chunk_frames(n: Option<usize>) {
+    refkv_ir::mp3::set_chunk_frames(n);
+}
+
 #[pymodule]
 #[pyo3(name = "_core")]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -822,6 +831,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rebuild_store, m)?)?;
     m.add_function(wrap_pyfunction!(plan_spans, m)?)?;
     m.add_function(wrap_pyfunction!(_set_copy_threshold, m)?)?;
+    m.add_function(wrap_pyfunction!(_set_chunk_frames, m)?)?;
     m.add_function(wrap_pyfunction!(project, m)?)?;
     m.add_function(wrap_pyfunction!(mirror, m)?)?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;

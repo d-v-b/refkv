@@ -32,6 +32,7 @@ who each one is for, what you get, and how to run it.
 | CZI | Zeiss CZI files | [convention](../../spec/virtualize/czi.md) | [§13](../../spec/virtualize/czi.md#part-2-the-profile) |
 | MRC | MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`) | [mrc](mrc/README.md) | [§14](../../spec/virtualize/mrc.md#part-2-the-profile) |
 | VSI | Olympus cellSens whole-slide images (`.vsi` with its tile files) | [vsi](vsi/README.md) | [§15](../../spec/virtualize/vsi.md#part-2-the-profile) |
+| MP3 | MP3 audio files, as an array of samples (`.mp3`) | [mp3](mp3/README.md) | [§16](../../spec/virtualize/mp3.md#part-2-the-profile) |
 <!-- /profiles -->
 
 A format that reads a file takes a URL, or a local path. One that reads a
@@ -39,7 +40,9 @@ store takes a URL ending in `/` that answers the S3 `ListObjectsV2` operation
 anonymously, such as a public S3 bucket. SAFE reads either: a product's
 `.SAFE` directory as a store, or its `.SAFE.zip` as a file. VSI is named by
 its `.vsi` file and reads the tile files beside it by name, without listing
-the directory.
+the directory. MP3 is the one format that is not an image: its archive holds
+a plain Zarr array of audio samples, decoded from the file's frames when a
+chunk is read ([mp3](mp3/README.md)).
 
 SAFE and CZI have no user-story page yet; their conventions describe the
 output. A Sentinel-2 product becomes a GeoZarr hierarchy (one group per
@@ -234,6 +237,11 @@ each format's metadata is:
   metadata tree as JSON, the list of stacks and the file's size; each
   image keeps its stack's properties (scale, origin, channels, creation
   time, magnification) and its tile file's headers.
+- **MP3:** the IR mirror on `refkv_source`: the ID3v2 tags, the Xing or
+  Info frame, every audio frame, and the ID3v1 and APE tags, so that the
+  file is rebuilt from the archive. The root keeps the stream's parameters
+  (version, sample rate, channels, frames, bitrate), the info frame's
+  counts and LAME fields, and the ID3v1 tag's fields.
 - **N5, Zarr v2 and OME-Zarr:** each node's own attributes and the layout
   members its `zarr.json` does not reproduce, on the node, as
   `{"attributes": ..., "metadata": ...}` (with `"unversioned"` for an

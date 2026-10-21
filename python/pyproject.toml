@@ -56,6 +56,11 @@ images = [
     "refkv[zarr]",
     "imagecodecs>=2026.8.16",
 ]
+# the MP3 decoder (miniaudio) of refkv.zarr's mp3 codec, which reads virtualized MP3 files
+audio = [
+    "refkv[zarr]",
+    "miniaudio>=1.59",
+]
 # obstore's stores, such as S3Store, to pass as registry= for s3://, gs:// and az:// sources
 # (refkv takes any obspec store, and does not import obstore itself)
 obstore = [
@@ -92,4 +97,5 @@ cache-keys = [
     { file = "../rust/refkv-ir/Cargo.toml" },
     { file = "../rust/refkv-ir/src/**/*.rs" },
     { file = "../rust/refkv-ir/schema/*.json" },
+    { file = "../rust/refkv-ir/profiles.json" },
 ]

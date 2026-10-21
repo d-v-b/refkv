@@ -76,7 +76,7 @@ export function isDicom(head: Uint8Array): boolean {
 
 const HDF5 = [0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a];
 
-type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc" | "vsi"; summary: object };
+type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc" | "vsi" | "mp3"; summary: object };
 
 /** `exact`, when given, reads exactly the ranges asked for, past `read`'s block cache: the
  * Rust core's requests, which it plans itself, are read with it.
@@ -168,7 +168,20 @@ export function irFormat(head: Uint8Array): IrFormat | undefined {
   // `MAP` at 208: an MRC2014 file (spec/virtualize/mrc.md §14.1
   // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#141-header>)
   if (head.length >= 212 && head[208] === 0x4d && head[209] === 0x41 && head[210] === 0x50) return "mrc";
+  // `ID3` at 0, or a valid MPEG audio frame header: an MP3 file (spec/virtualize/mp3.md §16.1
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#161-the-stream>)
+  if ((head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33) || isMpegHeader(head)) return "mp3";
   return undefined;
+}
+
+/** Whether `head` starts with an MPEG audio frame header (§1.2
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>): the 11-bit sync, a
+ * version and a layer that are not reserved, and a sample rate index from 0 to 2, of any layer
+ * and bitrate index (the MP3 profile rejects Layers I and II, and a free-format bitrate, by name). */
+export function isMpegHeader(head: Uint8Array): boolean {
+  if (head.length < 4 || head[0] !== 0xff || (head[1] & 0xe0) !== 0xe0) return false;
+  const version = (head[1] >> 3) & 3, layer = (head[1] >> 1) & 3, rate = (head[2] >> 2) & 3;
+  return version !== 1 && layer !== 0 && rate !== 3;
 }
 
 async function virtualizeFile(url: string, { read, size: fileSize, exact, source }: Input): Promise<ImageDesc> {
@@ -176,7 +189,7 @@ async function virtualizeFile(url: string, { read, size: fileSize, exact, source
   if (isDicom(head)) return virtualizeIr("dicom", url, source);
   const ir = irFormat(head);
   if (ir === "tiff" || ir === "nd2") return virtualizeIr(ir, url, source);
-  if (ir === "nifti" || ir === "ims" || ir === "czi" || ir === "safe" || ir === "mrc") return virtualizeIr(ir, url, source);
+  if (ir === "nifti" || ir === "ims" || ir === "czi" || ir === "safe" || ir === "mrc" || ir === "mp3") return virtualizeIr(ir, url, source);
   throw new ImageError(NOT_SUPPORTED);
 }
 

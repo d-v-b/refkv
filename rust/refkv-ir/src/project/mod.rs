@@ -16,6 +16,7 @@ mod czi;
 mod dicom;
 mod ims;
 pub mod n5;
+mod mp3;
 mod mrc;
 mod nd2;
 mod ndpi;
@@ -45,6 +46,7 @@ pub fn project(format: Format, ir: &Ir, facts: &J, url: &str, copied: &Copied) -
         Format::Dicom => dicom::project(ir, facts, url),
         Format::Nifti => nifti::project(ir, facts, url, copied),
         Format::Mrc => mrc::project(ir, facts, url, copied),
+        Format::Mp3 => mp3::project(ir, facts, url, copied),
         Format::Ims => ims::project(ir, facts, url),
         Format::Safe => safe::project(ir, facts, url),
         Format::Ndpi => ndpi::project(ir, facts, url),

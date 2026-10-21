@@ -24,6 +24,7 @@ its JSON Schema `virtualize/<format>/schema.json`:
 | Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](virtualize/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
 | Zeiss CZI | [czi](virtualize/czi.md) | `7a0733c7-d4be-4482-a64f-6904d9354ea5` |
 | Olympus VSI | [vsi](virtualize/vsi.md) | `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` |
+| MP3 (MPEG Layer III audio) | [mp3](virtualize/mp3.md) | `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` |
 <!-- /profiles -->
 
 A format's convention specifies the hierarchy's whole **Zarr layout**: which
@@ -176,7 +177,8 @@ nests its own record.
 Unless the format's convention says otherwise (the store conventions, N5,
 Zarr v2 and OME-Zarr, define their arrays themselves; the CZI convention
 gives clipped levels the zarr-extensions `rectilinear` chunk grid and adds
-the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle`), every array's
+the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle`; the MP3 convention
+defines the codec `mp3` and its own dimension names), every array's
 `zarr.json` is the JSON object:
 
 ```json
