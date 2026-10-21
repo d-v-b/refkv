@@ -161,7 +161,7 @@ nothing else.
 ### 4.1 The array
 
 The **audio frames** are the stream's frames in file order, numbered from 0,
-without the info frame ([§2](#2-frames)); `N` is their count ([spec/virtualize.md §16.1](#161-the-stream)
+without the info frame ([§2](#2-frames)); `N` is their count ([spec/virtualize.md §17.1](#171-the-stream)
 says which frames those are). Every audio frame has the stream's `S`
 and `C`.
 
@@ -187,7 +187,7 @@ The array's `zarr.json` is otherwise [conventions §3](../conventions.md#3-array
    the file holds between two frames is left out): the chunk's
    **lead-in**, the frames before its first frame that a decoder needs to
    have decoded so that it decodes the chunk's frames as a decoder of the
-   whole stream does ([spec/virtualize.md §16.2](#162-chunks) says which);
+   whole stream does ([spec/virtualize.md §17.2](#172-chunks) says which);
    then the chunk's frames.
 
 Decoding a chunk is decoding the frames of 2 in one pass as a Layer III
@@ -404,7 +404,7 @@ This section is informative.
 # Part 2. The profile
 
 The MP3 profile of [spec/virtualize.md](../virtualize.md), numbered as its
-[§16](#16-mp3-profile). [§1](../virtualize.md#1-introduction) and
+[§17](#17-mp3-profile). [§1](../virtualize.md#1-introduction) and
 [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply
 here.
 
@@ -413,9 +413,9 @@ The output has the convention's layout for the input
 which inputs are accepted and how each chunk references the file. "The
 convention §n" below is a section of Part 1.
 
-## 16. MP3 profile
+## 17. MP3 profile
 
-### 16.1 The stream
+### 17.1 The stream
 
 The input is an MP3 file, which [§1.2](../virtualize.md#12-input) chose by
 `ID3` at offset 0, or a frame header at offset 0 whose sync, version, layer
@@ -487,7 +487,7 @@ each other; and trailing junk, a truncated last frame and a tag the
 convention does not know are bytes between or after frames, kept as gaps
 ([the convention §5.3](#53-elements)).
 
-### 16.2 Chunks
+### 17.2 Chunks
 
 The array has `ceil(N / F)` chunks, `F = 256`, chunk `q` holding the audio
 frames `a = q × F` to `b − 1`, `b = min(N, a + F)`
@@ -526,7 +526,7 @@ output has no data sources: its source table is source 0 alone.
 has no other entries than the root's and the array's `zarr.json`, the
 array's chunks, and the mirror's.
 
-### 16.3 Summary
+### 17.3 Summary
 
 This section is informative. Both implementations print a one-line JSON
 summary: `version`, `sampleRate`, `channels`, `frames` (the audio frames),

@@ -24,6 +24,7 @@ its JSON Schema `virtualize/<format>/schema.json`:
 | Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](virtualize/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
 | Zeiss CZI | [czi](virtualize/czi.md) | `7a0733c7-d4be-4482-a64f-6904d9354ea5` |
 | Olympus VSI | [vsi](virtualize/vsi.md) | `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` |
+| Akoya QPTIFF | [qptiff](virtualize/qptiff.md) | `329ea136-2f55-4c27-b6f4-8e60ca2109b8` |
 | MP3 (MPEG Layer III audio) | [mp3](virtualize/mp3.md) | `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` |
 <!-- /profiles -->
 

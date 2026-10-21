@@ -1,10 +1,10 @@
 //! The MP3 projection (spec/virtualize/mp3.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#4-the-array>, and the root's
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#4-the-layout>, and the root's
 //! source metadata of §5
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#5-source-metadata>) from a valid
 //! IR: one array of samples whose chunks are runs of frames, each referenced with the frames
-//! before it that a decoder needs (the lead-in, §16.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#162-chunks>).
+//! before it that a decoder needs (the lead-in, §17.2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#172-chunks>).
 
 use super::{arr, json_text, n, Copied};
 use crate::ir::Ir;
@@ -16,8 +16,8 @@ use serde_json::{json, Map, Value as J};
 /// The array's path.
 pub const ARRAY: &str = "samples";
 
-/// The first frame of the lead-in of the chunk that starts at frame `a` (§16.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#162-chunks>): none for the
+/// The first frame of the lead-in of the chunk that starts at frame `a` (§17.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#172-chunks>): none for the
 /// first chunk; else the two frames before the chunk, and before them the fewest frames whose
 /// main data (`main`, per frame) holds at least `reservoir` bytes, or every frame from the
 /// first when they do not.

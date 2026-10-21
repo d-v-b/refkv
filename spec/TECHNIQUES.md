@@ -59,6 +59,8 @@ own with a standard codec. The same few techniques recur:
 | units carry a few header bytes before a standard stream | a range that starts after them; the header's one meaningful bit becomes a codec | CZI (the Zstd1 header, whose hi-lo flag is `numcodecs.shuffle`) |
 | the unit's bytes are a transform of the pixels a standard codec undoes (16-bit values split into low and high bytes) | that codec in the chain, before the compressor | CZI (`bytes`, `numcodecs.shuffle`, `zstd`) |
 | the last column or row of units is narrower (a region clipped by the scan) | the zarr-extensions `rectilinear` chunk grid, a run of full chunks and one short one per axis | CZI pyramid levels |
+| the last strip of an image is short | pad it to the chunk: a zero data source after an uncompressed strip, or a literal tail (a Clear code, a run of zeros, an end code) spliced into an LZW stream where its output reaches the strip's size, so the grid stays regular | QPTIFF levels in strips |
+| a unit's stream runs past the unit (an encoder's malformed end code) | a codec that decodes into the chunk's size and stops there, as the format's own readers do | QPTIFF LZW tiles (`imagecodecs_lzw`) |
 | units lie at arbitrary positions, overlapping (stage tile scans) | one array per position, holding all its planes, and recording where it lies; repeated planes at one position in further arrays | CZI tiles |
 | samples are interleaved, or the order is Fortran | a `transpose` codec | TIFF, ND2, NIfTI RGB, Zarr v2 `order: F` |
 | byte order | the `bytes` codec's `endian` | everywhere |
@@ -66,9 +68,10 @@ own with a standard codec. The same few techniques recur:
 | units are missing | no entry: the chunk reads as the fill value | ND2 missing frames, HDF5 unallocated chunks, sparse Zarr |
 | the source's key scheme | a chunk key encoding that reproduces it | Zarr v2 and N5 via the `v2` encoding |
 
-A format whose units can't be made to decode independently (LZW strips,
-predictors, multi-file series, TILED_SPARSE) is rejected rather than
-approximated.
+A format whose units can't be made to decode independently (predictors,
+multi-file series, TILED_SPARSE) is rejected rather than approximated. (LZW
+tiles and strips do decode independently, each its own stream: QPTIFF reads
+them with an `imagecodecs_lzw` codec.)
 
 ## 3. Axes, grids and coordinates
 

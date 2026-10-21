@@ -76,7 +76,7 @@ export function isDicom(head: Uint8Array): boolean {
 
 const HDF5 = [0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a];
 
-type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc" | "vsi" | "mp3"; summary: object };
+type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc" | "vsi" | "qptiff" | "mp3"; summary: object };
 
 /** `exact`, when given, reads exactly the ranges asked for, past `read`'s block cache: the
  * Rust core's requests, which it plans itself, are read with it.
@@ -168,8 +168,8 @@ export function irFormat(head: Uint8Array): IrFormat | undefined {
   // `MAP` at 208: an MRC2014 file (spec/virtualize/mrc.md §14.1
   // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#141-header>)
   if (head.length >= 212 && head[208] === 0x4d && head[209] === 0x41 && head[210] === 0x50) return "mrc";
-  // `ID3` at 0, or a valid MPEG audio frame header: an MP3 file (spec/virtualize/mp3.md §16.1
-  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#161-the-stream>)
+  // `ID3` at 0, or a valid MPEG audio frame header: an MP3 file (spec/virtualize/mp3.md §17.1
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#171-the-stream>)
   if ((head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33) || isMpegHeader(head)) return "mp3";
   return undefined;
 }

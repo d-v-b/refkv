@@ -202,8 +202,23 @@
     "for": "Olympus cellSens whole-slide images (`.vsi` with its tile files)"
   },
   {
-    "name": "mp3",
+    "name": "qptiff",
     "section": 16,
+    "title": "QPTIFF",
+    "uuid": "329ea136-2f55-4c27-b6f4-8e60ca2109b8",
+    "version": 0,
+    "kind": "file",
+    "suffixes": [
+      ".qptiff"
+    ],
+    "reference": null,
+    "source": "Akoya QPTIFF",
+    "inputs": "Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips",
+    "for": "Akoya (PerkinElmer) Vectra multiplex scans and inForm component data"
+  },
+  {
+    "name": "mp3",
+    "section": 17,
     "title": "MP3",
     "uuid": "b6cb0047-9448-4fdc-b03e-10dd3d6aa829",
     "version": 0,

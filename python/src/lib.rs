@@ -811,8 +811,8 @@ fn _set_copy_threshold(n: Option<usize>) {
 }
 
 /// For tests: the frames of an MP3 chunk (None: 256), so that small files have several chunks,
-/// each with its lead-in (spec/virtualize/mp3.md §16.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#162-chunks>).
+/// each with its lead-in (spec/virtualize/mp3.md §17.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#172-chunks>).
 #[pyfunction]
 #[pyo3(signature = (n=None))]
 fn _set_chunk_frames(n: Option<usize>) {

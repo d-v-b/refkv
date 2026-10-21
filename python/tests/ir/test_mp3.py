@@ -48,8 +48,8 @@ def virtualized(path, tmp_path, chunk_frames=None):
 
 def chunk_parts(out, q):
     """(keep, [(offset, length), ...]) of chunk q's reference: its literal and its ranges of
-    source 0 (spec/virtualize/mp3.md §16.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#162-chunks>)."""
+    source 0 (spec/virtualize/mp3.md §17.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#172-chunks>)."""
     lit, *ranges = out.refs[f"samples/c/{q}/0"]
     assert isinstance(lit, bytes) and len(lit) == 4
     assert all(len(r) == 2 for r in ranges)
@@ -86,8 +86,8 @@ def test_chunks_decode_as_the_stream_does(path, tmp_path):
     """With 4 frames a chunk (so that every file has several chunks, each with its lead-in),
     the array read through the mp3 codec is miniaudio's decoding of the audio frames in one
     pass, sample for sample (spec/virtualize/mp3.md §4.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#41-the-array>, §16.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#162-chunks>); the root's
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#41-the-array>, §17.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#172-chunks>); the root's
     metadata and the summary agree with the array; the file is rebuilt from the mirror."""
     out, root, ir = virtualized(path, tmp_path, chunk_frames=4)
     meta = root.attrs["refkv_virtualized"]["mp3"]
@@ -235,8 +235,9 @@ def test_the_info_frame_is_read_and_not_audio(tmp_path):
 ])
 def test_rejects(name, message):
     """Each rejected input, with its message (a parameter change names the frame's offset
-    before the message checked here; a file no row of spec/virtualize.md §1.2 matches is
-    rejected by the host before the parser)."""
+    before the message checked here; a file no row of spec/virtualize.md §1.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input> matches is rejected by
+    the host before the parser)."""
     path = FIXTURES / "mp3" / f"{name}.mp3"
     with pytest.raises(Rejected) as e:
         via_ir(str(path), f"https://data.test/{name}.mp3")

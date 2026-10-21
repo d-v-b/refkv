@@ -1,6 +1,6 @@
 //! A sans-IO parser of MP3 files (MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio) into the IR
-//! (spec/virtualize/mp3.md §16
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#16-mp3-profile>, and the
+//! (spec/virtualize/mp3.md §17
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#17-mp3-profile>, and the
 //! source model of §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#53-elements>).
 //!
 //! One round: the whole file (an MP3 has no index; each frame's header gives the next). The
@@ -40,8 +40,8 @@ const BITRATES: [[[u32; 15]; 3]; 2] = [
 ];
 /// The most bytes of earlier frames a frame's main data may begin in (`main_data_begin`, 9
 /// bits in MPEG-1 and 8 in MPEG-2 and 2.5), by version: the bit reservoir a decoder must hold
-/// before a frame to decode it as the stream does (spec/virtualize/mp3.md §16.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#162-chunks>).
+/// before a frame to decode it as the stream does (spec/virtualize/mp3.md §17.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#172-chunks>).
 pub const RESERVOIR: [u64; 4] = [255, 0, 255, 511];
 
 /// The frames of a chunk (spec/virtualize/mp3.md §4.1
@@ -298,8 +298,8 @@ impl Mp3 {
         }
     }
 
-    /// The whole file (spec/virtualize/mp3.md §16.1
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#161-the-stream>): the ID3v2
+    /// The whole file (spec/virtualize/mp3.md §17.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#171-the-stream>): the ID3v2
     /// tags, the trailing tags, then the frames between them, and the elements of each.
     fn scan(&mut self) -> Res<()> {
         let n = self.size;

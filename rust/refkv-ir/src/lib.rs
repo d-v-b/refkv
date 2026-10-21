@@ -18,6 +18,7 @@ pub mod ims;
 pub mod ir;
 pub mod json;
 pub mod lv;
+pub mod lzw;
 pub mod mirror;
 pub mod mp3;
 pub mod mrc;

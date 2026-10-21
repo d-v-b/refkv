@@ -1,6 +1,6 @@
 """Writes synthetic MP3 files to fixtures/mp3/, covering the rules of the MP3 profile
-(spec/virtualize/mp3.md §16
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#16-mp3-profile>): MPEG-1, MPEG-2
+(spec/virtualize/mp3.md §17
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#17-mp3-profile>): MPEG-1, MPEG-2
 and MPEG-2.5 streams, mono and stereo, constant and variable bitrates, CRC protection, the bit
 reservoir on and off, Xing, Info and LAME tags, ID3v2, ID3v1 and APE tags, junk between and
 around frames, a truncated last frame, and the inputs the profile rejects (`mp3_reject_*`).
@@ -90,7 +90,8 @@ def frames_of(data: bytes) -> list[tuple[int, int, dict]]:
 
 
 def is_info(data: bytes, offset: int, h: dict) -> bool:
-    """Whether the frame at `offset` is a Xing, Info or VBRI frame (§2)."""
+    """Whether the frame at `offset` is a Xing, Info or VBRI frame (spec/virtualize/mp3.md §2
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#2-frames>)."""
     tag = offset + 4 + (2 if h["crc"] else 0) + h["side"]
     return data[tag:tag + 4] in (b"Xing", b"Info") or data[offset + 36:offset + 40] == b"VBRI"
 

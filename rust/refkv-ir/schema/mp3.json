@@ -1,7 +1,7 @@
 {
   "source_model": "mp3",
   "version": 1,
-  "about": "The source model of an MP3 file (spec/virtualize/mp3.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#53-elements>): the elements a parser emits, and the roles the file, each ID3v2 tag, the stream's first frame, a frame of another stream and the audio play, each with the constraints a file must meet to have the MP3 convention's layout (spec/virtualize/mp3.md §16.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#161-the-stream>). The parser checks them in this order; projections read a valid IR and check nothing.",
+  "about": "The source model of an MP3 file (spec/virtualize/mp3.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#53-elements>): the elements a parser emits, and the roles the file, each ID3v2 tag, the stream's first frame, a frame of another stream and the audio play, each with the constraints a file must meet to have the MP3 convention's layout (spec/virtualize/mp3.md §17.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#171-the-stream>). The parser checks them in this order; projections read a valid IR and check nothing.",
   "limits": {
     "chunk_frames": 256,
     "reservoir_mpeg1": 511,
