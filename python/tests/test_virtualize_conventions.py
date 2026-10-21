@@ -32,6 +32,10 @@ STORES = ("n5", "zarr2", "ome-zarr", "safe")
 # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>), each
 # validated by its own convention's schema (spec/virtualize/safe/geozarr/).
 GEOZARR = {"proj:": "proj", "spatial:": "spatial", "multiscales": "multiscales"}
+# The CF attributes a dataset layout's variables may carry (spec/conventions.md §9
+# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>), on the nodes
+# below the layouts the root names.
+DATASET_ATTRS = {"units", "long_name", "actual_range"}
 
 
 def geozarr_schema(name: str) -> Draft202012Validator:
@@ -98,9 +102,12 @@ def test_every_output_declares_its_profile_where_the_convention_says():
         validator = schema(fmt)
         for impl, d in (("py", docs), ("web", w["docs"])):
             assert d["zarr.json"]["attributes"][CONVENTION_KEY]["source"] == {"url": url}, (impl, path.name)
+            layouts = tuple(f"{p}/" for p in d["zarr.json"]["attributes"][CONVENTION_KEY].get("layouts", {}).values())
             for key, doc in d.items():
                 attrs = doc.get("attributes", {})
                 geo = {m for m in attrs if m.startswith(tuple(GEOZARR))} if fmt == "safe" else set()
+                if layouts and key.startswith(layouts) and doc["node_type"] == "array":
+                    geo |= set(attrs) & DATASET_ATTRS
                 assert set(attrs) - geo <= {"ome", "zarr_conventions", CONVENTION_KEY}, (impl, path.name, key)
                 for name in {n for p, n in GEOZARR.items() for m in geo if m.startswith(p)}:
                     errors = [e.message for e in geozarr_schema(name).iter_errors(doc)]
@@ -109,11 +116,15 @@ def test_every_output_declares_its_profile_where_the_convention_says():
                 if key == "zarr.json":
                     assert declares(doc), (impl, path.name)
                 if declares(doc):
-                    errors = [e.message for e in validator.iter_errors(doc)]
+                    # a dataset layout's node declares its own convention, as a root does
+                    own = attrs[CONVENTION_KEY].get("profile", fmt)
+                    errors = [e.message for e in schema(own).iter_errors(doc)]
                     assert not errors, (impl, path.name, key, errors)
-                    assert ("profile" in attrs[CONVENTION_KEY]) == (key == "zarr.json"), (impl, path.name, key)
+                    is_root = key == "zarr.json" or key.removesuffix("/zarr.json") in [p[:-1] for p in layouts]
+                    assert ("profile" in attrs[CONVENTION_KEY]) == is_root, (impl, path.name, key)
+                    if impl == "py":
+                        accepted[own] = accepted.get(own, 0) + 1
         assert same(docs, w["docs"]), path.name
-        accepted[fmt] = accepted.get(fmt, 0) + 1
     assert set(accepted) == set(PROFILES), accepted
     print(f"schema-validated roots: {sum(accepted.values())} of {len(cases)} inputs, {accepted}")
 

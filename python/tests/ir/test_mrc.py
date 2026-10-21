@@ -12,6 +12,7 @@ import warnings
 import mrcfile
 import numpy as np
 import pytest
+import xarray as xr
 import zarr
 
 import refkv.zarr
@@ -114,6 +115,46 @@ def test_matches_mrcfile_and_rebuilds(path, tmp_path):
     assert out.summary["kind"] == kind and out.summary["extendedHeader"] == int(header.nsymbt)
     # the extended header is never read: the run reads the header alone
     assert out.summary["planner"]["bytes"] == 1024
+    dataset_is_the_file(out, root, header, want, kind, meta)
+
+
+def dataset_is_the_file(out, root, header, want, kind, meta):
+    """The dataset layout (spec/virtualize/mrc-dataset.md): the root names it, its group
+    declares the mrc-dataset convention with the root's source metadata, xarray opens it with
+    the kind's dimensions and the file's values, and each spatial dimension with a voxel size
+    has the coordinate o + i * s in angstroms, o the origin of a placed volume."""
+    assert root.attrs["refkv_virtualized"]["layouts"] == {"dataset": "dataset"}
+    group = json.loads(out.bytes_entries["dataset/zarr.json"])["attributes"]
+    assert group["refkv_virtualized"]["profile"] == "mrc-dataset"
+    assert group["refkv_virtualized"]["mrc-dataset"] == meta
+    assert set(group) == {"zarr_conventions", "refkv_virtualized"}
+    ds = xr.open_zarr(refkv.zarr.store(out.to_store()), group="dataset", consolidated=False)
+    names = {1: "x", 2: "y", 3: "z"}
+    m = [int(header.maps), int(header.mapr), int(header.mapc)]
+    spatial = [names[v] for v in m] if sorted(m) == [1, 2, 3] else ["z", "y", "x"]
+    dims = {"image": spatial[1:], "image_stack": ["section", *spatial[1:]], "volume": spatial,
+            "volume_stack": ["volume", *spatial]}[kind]
+    assert list(ds["data"].dims) == dims
+    assert np.array_equal(ds["data"].values, want, equal_nan=want.dtype.kind in "fc")
+    assert out.refs.get("dataset/data/c/" + "0/" * (want.ndim - 1) + "0") == out.refs.get("0/c/" + "0/" * (want.ndim - 1) + "0")
+    for axis in "xyz":
+        cella = float(header.cella[axis])
+        grid = int(header[f"m{axis}"])
+        voxel = cella / grid if grid >= 1 and np.isfinite(cella) and cella > 0 else None
+        if voxel is not None and not (np.isfinite(voxel) and voxel > 0):
+            voxel = None
+        if axis not in dims or voxel is None:
+            assert axis not in ds.coords, axis
+            continue
+        origin = [float(header.origin[a]) for a in "xyz"]
+        placed = int(header.ispg) != 0 and all(np.isfinite(origin)) and any(o != 0 for o in origin)
+        o = origin["xyz".index(axis)] if placed else 0.0
+        n = ds.sizes[axis]
+        assert np.array_equal(ds[axis].values, o + np.arange(n, dtype=np.float64) * voxel), axis
+        assert ds[axis].attrs == {"units": "angstrom"}, axis
+        assert ds[axis].dtype == np.float64
+    omero = root.attrs["ome"].get("omero")
+    assert ds["data"].attrs == ({"actual_range": [float(header.dmin), float(header.dmax)]} if omero else {})
 
 
 # fixture: (summary members, [(axis, unit)], scale, translation, members of the `mrc` attribute, the
@@ -266,5 +307,6 @@ def test_edge_chunks_past_the_payload_are_copied(tmp_path):
         _core._set_copy_threshold(None)
     assert "0/c/0/1" in out.bytes_entries and "0/c/0/1" not in out.refs
     assert len(out.bytes_entries["0/c/0/1"]) == 524289
+    assert out.bytes_entries["dataset/data/c/0/1"] == out.bytes_entries["0/c/0/1"]
     _, want = load(path)
     assert np.array_equal(root["0"][...], want)

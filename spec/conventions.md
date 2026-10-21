@@ -15,6 +15,7 @@ its JSON Schema `virtualize/<format>/schema.json`:
 | DICOM | [dicom](virtualize/dicom.md) | `acf17198-e5a5-48d3-8187-22ec4bb40ea5` |
 | NIfTI-1 and NIfTI-2 | [nifti](virtualize/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
 | MRC2014 | [mrc](virtualize/mrc.md) | `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` |
+| MRC2014, as a dataset ([§9](#9-dataset-layouts)) | [mrc-dataset](virtualize/mrc-dataset.md) | `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` |
 | Imaris IMS | [ims](virtualize/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
 | N5 | [n5](virtualize/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
 | Zarr v2 | [zarr2](virtualize/zarr2.md) | `8e792619-d671-4687-ab51-752885dd3ee6` |
@@ -133,9 +134,13 @@ and on any other node `{"<p>": S}`, where:
   source's header or metadata holds for that node, translated by [§6](#6-source-metadata-as-json). The
   member `"<p>"` is present only when `S` has at least one member.
 
-There are no other members. The property holds no time and nothing about
-the program that made the hierarchy, so that two conforming producers make
-equivalent hierarchies from the same source.
+A root whose archive also holds the source under another layout
+([§9](#9-dataset-layouts)) has, after `source`, the member `layouts`: an object
+whose keys name the layouts (`"dataset"`) and whose values are the paths of
+their nodes below the root, without a trailing `/`. There are no other
+members. The property holds no time and nothing about the program that
+made the hierarchy, so that two conforming producers make equivalent
+hierarchies from the same source.
 
 **The source metadata node.** A file format's metadata that grows with the
 data (one item per frame, plane or channel), and the source's values kept as
@@ -160,6 +165,7 @@ convention places them: `ome` (OME-NGFF 0.5, §4), the GeoZarr members of
 the zarr-conventions `proj`, `spatial` and `multiscales` conventions
 (`proj:code`, `proj:wkt2`, `spatial:*` and `multiscales`, for the SAFE
 convention, which lists their CMOs in `zarr_conventions` after its own),
+the CF attributes of a dataset layout's variables ([§9](#9-dataset-layouts)),
 and `zarr_conventions`. Everything
 taken from the source goes under the key, on the node it belongs to,
 including attributes a source store had (and the conventions they
@@ -1025,3 +1031,60 @@ names, whole, in as few rounds as the format's structure allows: a round is the
 documents whose keys the listing and the documents read so far name (every
 `.zarray`, `.zgroup` and `.zattrs` of a Zarr v2 store is one round), read
 concurrently, each read once. A held object is an object it read whole.
+
+## 9. Dataset layouts
+
+A source whose image layout ([§4](#4-images)) serves viewers can also be
+presented, in the same hierarchy, as a **dataset**: a group that xarray and
+other labeled-array readers open as a dataset, whose arrays are its data
+variables and coordinate variables, with dimensions named by
+`dimension_names` and coordinates that give each index a position. The two
+layouts reference the same bytes of the source; neither copies the other's
+chunks. A format has a dataset layout when its dataset convention exists:
+a convention of its own, named `<p>-dataset` for the format `p`, with its
+own UUID, schema and document (`virtualize/<p>-dataset.md`), which
+specifies the layout's variables and where each comes from. This section
+holds what every dataset layout shares.
+
+**The node.** The dataset is a child group of the root, at the path the
+dataset convention gives (`dataset` unless it says otherwise). The root
+names it in `layouts` ([§2](#2-attributes)). The group declares the dataset
+convention as a root declares its format's ([§2](#2-attributes)): its
+`refkv_virtualized` has `profile` (`<p>-dataset`), `version`, `revision`,
+`source` and the source metadata member `"<p>-dataset"`, so that the group
+describes itself when it is copied out of the hierarchy. OME-NGFF readers
+ignore it, as they do `refkv_source`. The group has no source metadata
+node of its own: the source's mirror ([§8](#8-the-ir-mirror)) is the root's
+`refkv_source`, which a copied-out group no longer has.
+
+**Variables.** Every array of the group is as in [§3](#3-arrays), with
+`dimension_names`, and is a data variable or a coordinate variable:
+
+- A **data variable** holds the source's values. Its shape, data type,
+  chunk grid and codecs are those of the image layout's array for the same
+  values, its dimensions are named as the dataset convention says (a
+  stack's index dimension by what it indexes, `section` or `volume`, not
+  by an image axis type), and its chunks are the same references as that
+  array's chunks, range for range (an edge chunk's copy is copied again).
+  A data variable's attributes hold, when the convention gives them, the
+  CF attributes `long_name` and `actual_range` (`[min, max]`, two numbers).
+- A **coordinate variable** gives the positions along one dimension: a
+  1-D array named as the dimension, of that dimension's length, of
+  `float64` values in little-endian byte order (`[{"name": "bytes",
+  "configuration": {"endian": "little"}}]`), with the attribute `units`,
+  a UDUNITS symbol or name (`angstrom`, `micrometer`, `second`). Its chunk
+  shape is `[min(n, 2^17)]`, and its chunks are literal bytes entries (the
+  values are derived from the source's header; the source holds no such
+  bytes), the last padded with zero bytes to the whole chunk. A dimension
+  without a coordinate variable is allowed, and is how a dataset convention
+  leaves out a position it cannot give (an axis with no valid voxel size,
+  a stack's index).
+
+Variables have no other attributes, and the group's attributes are
+`zarr_conventions` and `refkv_virtualized` alone.
+
+**Equivalence.** A dataset layout is compared entry for entry with the rest
+of the hierarchy ([spec/virtualize.md §1.1](virtualize.md#11-output-and-equivalence)): its
+coordinate values are the numbers its convention computes, in binary64,
+from the header's values, with the operations it gives in their order, so
+that every producer writes the same bytes.

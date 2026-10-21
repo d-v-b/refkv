@@ -1633,6 +1633,15 @@ is in its header. Revision 27 is kept as `VIRTUALIZE.r27.md`.
   angstroms as scale, the origin as translation, `dmin` and `dmax` as the
   display window; chunks of contiguous values with a limit of 1 MiB; the
   header on the root, and the file's IR mirror on `refkv_source`.
+- **Dataset layouts** ([conventions §9](../../conventions.md#9-dataset-layouts)):
+  a source can also be presented, in the same hierarchy, as a group xarray
+  opens as a dataset, declared by a convention of its own (`<p>-dataset`),
+  its data variables the image layout's chunks again and its coordinate
+  variables literals; the root names such layouts in `layouts`
+  ([conventions §2](../../conventions.md#2-attributes)). The MRC hierarchy
+  has one, `dataset` ([spec/virtualize/mrc-dataset.md](../../virtualize/mrc-dataset.md)):
+  `data` with the dimensions `z`, `y`, `x` (`section`, `volume` for a
+  stack's index) and `float64` coordinates in angstroms.
 - **Conformance** is [§15](../../virtualize.md#15-conformance) (was §14).
 - **Conventions:** the root property records `"revision": 28`; the schemas
   were regenerated, with the MRC convention's.

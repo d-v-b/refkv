@@ -38,6 +38,13 @@ and the root's source metadata of [§5.1](#51-the-root) as the member `"mrc"`. I
 the mirror's view that has a member; the array and the mirror's arrays have no
 attributes.
 
+The hierarchy also holds the file as a **dataset**: the group `dataset`,
+which declares the MRC dataset convention
+([mrc-dataset.md](mrc-dataset.md), [conventions §9](../conventions.md#9-dataset-layouts))
+and which xarray opens with named dimensions and coordinates in angstroms.
+The root's property names it: `"layouts": {"dataset": "dataset"}`, after
+`source`.
+
 ## 2. The header
 
 The file's **header** is its first 1024 bytes, in the file's byte order
@@ -439,8 +446,11 @@ lie within the file (by the data size check). The output has no data
 sources: its source table is source 0 alone.
 
 `refkv_source` is the IR mirror ([the convention §5.2](#52-the-ir-mirror)). The
-archive has no other entries than the root's and the array's `zarr.json`, the
-array's chunks, and the mirror's.
+dataset layout ([mrc-dataset.md](mrc-dataset.md)) is written from the same
+read: its data variable's chunks are these chunks again, entry for entry,
+and its coordinates are literals. The archive has no other entries than the
+root's and the array's `zarr.json`, the array's chunks, the dataset's
+documents and chunks, and the mirror's.
 
 ### 14.3 Summary
 
@@ -450,5 +460,5 @@ summary: `kind` (`"image"`, `"image_stack"`, `"volume"` or `"volume_stack"`),
 axis's size), `chunkShape` (the array's chunk shape, in its axis order),
 `chunks` (the array's), `voxelSize` (`[sx, sy, sz]` when every axis has
 one, else `null`), `translation` (whether the image has one), `axisMap`
-(whether the map was applied), `extendedHeader` (`nsymbt`) and
-`extendedType` (`exttyp` as text).
+(whether the map was applied), `extendedHeader` (`nsymbt`), `extendedType`
+(`exttyp` as text) and `layouts` (`["dataset"]`).

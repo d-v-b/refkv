@@ -25,6 +25,7 @@ from pathlib import Path
 
 import mrcfile
 import numpy as np
+import xarray as xr
 import zarr
 
 HERE = Path(__file__).parent
@@ -116,6 +117,25 @@ def problems_of(path: Path, out: Path) -> list[str]:
     kind = {2: "image", 4: "volume_stack"}.get(want.ndim, "image_stack" if header.ispg == 0 else "volume")
     if meta["kind"] != kind:
         problems.append(f"kind {meta['kind']} != {kind}")
+    # the dataset layout (spec/virtualize/mrc-dataset.md): xarray opens it with the file's values
+    # and coordinates in angstroms
+    if root.attrs["refkv_virtualized"].get("layouts") != {"dataset": "dataset"}:
+        problems.append("the root does not name the dataset layout")
+    ds = xr.open_zarr(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), group="dataset", consolidated=False)
+    if ds.attrs["refkv_virtualized"]["mrc-dataset"] != meta:
+        problems.append("the dataset's source metadata is not the root's")
+    if not np.array_equal(ds["data"].values, want, equal_nan=want.dtype.kind in "fc"):
+        problems.append("the dataset's values differ")
+    for axis in "xyz":
+        if axis not in ds.coords:
+            continue
+        cella, grid = float(header.cella[axis]), int(header[f"m{axis}"])
+        origin = [float(header.origin[a]) for a in "xyz"]
+        placed = int(header.ispg) != 0 and all(np.isfinite(origin)) and any(o != 0 for o in origin)
+        o = origin["xyz".index(axis)] if placed else 0.0
+        expected = o + np.arange(ds.sizes[axis], dtype=np.float64) * (cella / grid)
+        if not np.array_equal(ds[axis].values, expected) or ds[axis].attrs != {"units": "angstrom"}:
+            problems.append(f"coordinate {axis} is not {expected[:3]}...")
     return problems + mirror_problems(out, path)
 
 

@@ -185,7 +185,7 @@ export function toRange(p: Part): Range {
  */
 export const CONVENTION_KEY = "refkv_virtualized";
 
-export type Profile = "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "mrc" | "ims" | "n5" | "zarr2" | "ome-zarr" | "safe" | "czi";
+export type Profile = "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "mrc" | "mrc-dataset" | "ims" | "n5" | "zarr2" | "ome-zarr" | "safe" | "czi";
 
 /** Each profile's convention: its fixed UUID, its current version and its name in the description. */
 /** The revision of spec/virtualize.md this implementation follows. Until the release, every
@@ -200,6 +200,7 @@ export const PROFILES: Record<Profile, [uuid: string, version: number, title: st
   dicom: ["acf17198-e5a5-48d3-8187-22ec4bb40ea5", 0, "DICOM"],
   nifti: ["06e5809d-4d54-4b72-afd0-6bf61a7b4c85", 0, "NIfTI"],
   mrc: ["2aacd010-2ed1-4748-bc3c-5dd5e840bbce", 0, "MRC"],
+  "mrc-dataset": ["f139bf4e-7bab-4c3c-9b2d-66ba747f9b93", 0, "MRC dataset"],
   ims: ["5067a535-8261-4b25-a93c-1985ed333bde", 0, "IMS"],
   n5: ["ad5d4c39-c69e-48f7-a3ef-4cc8c607d416", 0, "N5"],
   zarr2: ["8e792619-d671-4687-ab51-752885dd3ee6", 0, "Zarr v2"],

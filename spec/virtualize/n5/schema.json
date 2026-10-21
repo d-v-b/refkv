@@ -116,6 +116,15 @@
           ],
           "additionalProperties": false
         },
+        "layouts": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[^/]+(/[^/]+)*$"
+          },
+          "description": "The other layouts of the source in this hierarchy, by name, each the path of its node below the root (spec/conventions.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)"
+        },
         "n5": {
           "$ref": "#/$defs/sourceMetadata"
         }

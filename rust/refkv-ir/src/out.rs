@@ -243,6 +243,9 @@ pub fn profile(p: &str) -> (&'static str, u64, &'static str) {
         "dicom" => ("acf17198-e5a5-48d3-8187-22ec4bb40ea5", 0, "DICOM"),
         "nifti" => ("06e5809d-4d54-4b72-afd0-6bf61a7b4c85", 0, "NIfTI"),
         "mrc" => ("2aacd010-2ed1-4748-bc3c-5dd5e840bbce", 0, "MRC"),
+        // the dataset layout of an MRC file (conventions §9
+        // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)
+        "mrc-dataset" => ("f139bf4e-7bab-4c3c-9b2d-66ba747f9b93", 0, "MRC dataset"),
         "ims" => ("5067a535-8261-4b25-a93c-1985ed333bde", 0, "IMS"),
         "ndpi" => ("6cac71ef-dbb2-4acd-b60c-00389aa4238a", 0, "NDPI"),
         // the store conventions, whose sources a store IR describes (conventions §8.9

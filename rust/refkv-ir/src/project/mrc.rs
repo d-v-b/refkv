@@ -9,7 +9,7 @@ use super::{base64, float_json, json_text, n, Copied};
 use crate::ir::Ir;
 use crate::mrc::{Header, FIELDS};
 use crate::nifti::Num;
-use crate::out::{array_json, grid_chunks, image_ome, root_json, Chunk, Out, MAX_PAYLOAD};
+use crate::out::{array_json, declare, grid_chunks, group_doc, image_ome, root_json, Chunk, Out, MAX_PAYLOAD};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -19,6 +19,12 @@ const CHUNK_BYTES: u64 = 1 << 20;
 const MAX_SAFE: i64 = (1 << 53) - 1;
 /// The space group from which a file is a volume stack (MRC2014).
 const VOLUME_STACK: i64 = 401;
+/// The dataset layout's node (spec/virtualize/mrc-dataset.md §1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc-dataset.md#1-declaration>), and
+/// the most values of a chunk of its coordinate variables (conventions §9
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>).
+const DATASET: &str = "dataset";
+const COORD_CHUNK: u64 = 1 << 17;
 
 /// A header value as the root's source metadata writes it (spec/virtualize/mrc.md §5
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#5-source-metadata>): an
@@ -77,6 +83,8 @@ fn kind(ispg: i64, nz: i64) -> &'static str {
 struct Cut {
     kind: &'static str,
     axes: Vec<&'static str>,
+    /// the sections', the rows' and the columns' axis names
+    names: Vec<&'static str>,
     mapped: bool,
     shape: Vec<u64>,
     item: u64,
@@ -109,7 +117,7 @@ fn cut(h: &Header, offset: u64, facts: &J) -> Result<Cut, String> {
     };
     let threshold = facts["copy_threshold"].as_u64().map_or(MAX_PAYLOAD, |t| t as usize);
     let (grid, chunks) = grid_chunks(offset, &shape, item, CHUNK_BYTES, threshold).ok_or("internal: the data cannot be cut into chunks")?;
-    Ok(Cut { kind, axes, mapped, shape, item, grid, chunks })
+    Ok(Cut { kind, axes, names: named, mapped, shape, item, grid, chunks })
 }
 
 /// The header and the data's element.
@@ -163,7 +171,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     };
 
     // the array (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#41-the-array>)
-    let Cut { kind, axes, mapped, shape, item, grid, chunks } = cut(&h, offset, facts)?;
+    let Cut { kind, axes, names, mapped, shape, item, grid, chunks } = cut(&h, offset, facts)?;
     let mut units: Map<String, J> = Map::new();
     let scales: Vec<J> = axes
         .iter()
@@ -204,7 +212,11 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         own.insert("voxel_size".into(), json!({"x": voxel[0], "y": voxel[1], "z": voxel[2]}));
     }
     let mut out = Out::new(url);
-    out.json("zarr.json", &root_json(ome, "mrc", url, Some(J::Object(own))));
+    let mut root = root_json(ome, "mrc", url, Some(J::Object(own.clone())));
+    // the root names the dataset layout (conventions §2
+    // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), after `source`
+    root["attributes"]["refkv_virtualized"] = insert_after(&root["attributes"]["refkv_virtualized"], "source", "layouts", json!({DATASET: DATASET}));
+    out.json("zarr.json", &root);
     let codecs = vec![if item > 1 { json!({"name": "bytes", "configuration": {"endian": endian}}) } else { json!({"name": "bytes"}) }];
     let mut array = array_json(&shape, data_type, json!(grid), J::Array(codecs), &axes);
     if data_type == "complex64" {
@@ -212,12 +224,33 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         array["fill_value"] = json!([0, 0]);
     }
     out.json("0/zarr.json", &array);
+    // the dataset layout's data variable: the same array under the dataset's dimension names
+    // (spec/virtualize/mrc-dataset.md §2
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc-dataset.md#2-the-data-variable>)
+    let dims: Vec<&str> = match kind {
+        "image" => names[1..].to_vec(),
+        "image_stack" => std::iter::once("section").chain(names[1..].iter().copied()).collect(),
+        "volume_stack" => std::iter::once("volume").chain(names.iter().copied()).collect(),
+        _ => names.clone(),
+    };
+    let mut data = array.clone();
+    data["dimension_names"] = json!(dims);
+    if window {
+        data["attributes"]["actual_range"] = json!([lo, hi]);
+    }
+    out.json(&format!("{DATASET}/zarr.json"), &group_doc(declare(Map::new(), "mrc-dataset", Some(url), Some(J::Object(own)))));
+    out.json(&format!("{DATASET}/data/zarr.json"), &data);
     let count = chunks.len();
     let mut refs = Refs::new(ir, out);
     for (piece, (coords, chunk)) in chunks.into_iter().enumerate() {
-        let key = format!("0/c/{}", coords.iter().map(|c| c.to_string()).collect::<Vec<_>>().join("/"));
+        let coords = coords.iter().map(|c| c.to_string()).collect::<Vec<_>>().join("/");
+        let (key, dkey) = (format!("0/c/{coords}"), format!("{DATASET}/data/c/{coords}"));
         match chunk {
-            Chunk::Ranges(parts) => refs.chunk(key, offset, length, form, Some(parts), piece as u64)?,
+            Chunk::Ranges(parts) => {
+                let same = parts.clone();
+                refs.chunk(key, offset, length, form, Some(parts), piece as u64)?;
+                refs.out.refs(&dkey, same);
+            }
             // an edge chunk whose padding does not fit in a reference: its bytes, then the padding
             Chunk::Copy(o, len, pad) => {
                 let mut b = copied
@@ -225,19 +258,61 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
                     .ok_or("a copied chunk's bytes were not read: project a run's IR with the bytes its last batch read")?
                     .clone();
                 b.resize(b.len() + pad as usize, 0);
-                refs.out.bytes(&key, b);
+                refs.out.bytes(&key, b.clone());
+                refs.out.bytes(&dkey, b);
             }
-            Chunk::Bytes(b) => refs.out.bytes(&key, b),
+            Chunk::Bytes(b) => {
+                refs.out.bytes(&key, b.clone());
+                refs.out.bytes(&dkey, b);
+            }
         }
     }
     let mut out = refs.out;
+    // the coordinates (spec/virtualize/mrc-dataset.md §3
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc-dataset.md#3-coordinates>): o + i * s
+    // along each spatial dimension with a voxel size
+    for (k, a) in dims.iter().enumerate() {
+        let Some(s) = ["x", "y", "z"].contains(a).then(|| voxel[index(a)]).flatten() else { continue };
+        let o = if placed { origin[index(a)] } else { 0.0 };
+        let n = shape[k];
+        let c = n.min(COORD_CHUNK);
+        let mut doc = array_json(&[n], "float64", json!([c]), json!([{"name": "bytes", "configuration": {"endian": "little"}}]), &[a]);
+        doc["attributes"] = json!({"units": "angstrom"});
+        out.json(&format!("{DATASET}/{a}/zarr.json"), &doc);
+        for q in 0..n.div_ceil(c) {
+            let mut b = Vec::with_capacity((c * 8) as usize);
+            for i in q * c..(q + 1) * c {
+                let v = if i < n { o + (i as f64) * s } else { 0.0 };
+                b.extend_from_slice(&v.to_le_bytes());
+            }
+            out.bytes(&format!("{DATASET}/{a}/c/{q}"), b);
+        }
+    }
     let sizes: Map<String, J> = axes.iter().zip(&shape).map(|(a, s)| (a.to_string(), json!(s))).collect();
     out.summary = json!({
         "kind": kind, "byteOrder": endian, "mode": mode, "dataType": data_type, "sizes": sizes,
         "chunkShape": grid, "chunks": count,
         "voxelSize": if voxel.iter().all(|v| v.is_some()) { json!(voxel) } else { J::Null },
         "translation": placed, "axisMap": mapped, "extendedHeader": nsymbt,
-        "extendedType": json_text(h.bytes("exttyp")),
+        "extendedType": json_text(h.bytes("exttyp")), "layouts": [DATASET],
     });
     Ok(out)
+}
+
+/// `object` with the member `key: value` inserted after the member `after` (at the end when
+/// there is none), in order: the hosts write documents' members in insertion order.
+fn insert_after(object: &J, after: &str, key: &str, value: J) -> J {
+    let mut out = Map::new();
+    let mut done = false;
+    for (k, v) in object.as_object().into_iter().flatten() {
+        out.insert(k.clone(), v.clone());
+        if k == after {
+            out.insert(key.into(), value.clone());
+            done = true;
+        }
+    }
+    if !done {
+        out.insert(key.into(), value);
+    }
+    J::Object(out)
 }

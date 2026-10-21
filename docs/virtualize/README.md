@@ -221,7 +221,9 @@ each format's metadata is:
   the scaling and the affine.
 - **MRC:** the IR mirror on `refkv_source`: the header, the extended header
   and the data. The root keeps the header, field by field, the kind of file,
-  the data type, the axis map and the voxel size.
+  the data type, the axis map and the voxel size. The archive also holds the
+  file as a dataset for xarray under `dataset/`, declared by its own
+  convention ([conventions §9](../../spec/conventions.md#9-dataset-layouts)).
 - **N5, Zarr v2 and OME-Zarr:** each node's own attributes and the layout
   members its `zarr.json` does not reproduce, on the node, as
   `{"attributes": ..., "metadata": ...}` (with `"unversioned"` for an

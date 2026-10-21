@@ -405,6 +405,14 @@ SOURCE_METADATA["czi"] = {"anyOf": [
     {"$ref": "#/$defs/mirror"},
     {"$ref": "#/$defs/mirrorView"},
 ]}
+# The dataset layout of an MRC file (spec/virtualize/mrc-dataset.md §4
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc-dataset.md#4-source-metadata>): the
+# MRC convention's root metadata, member for member, on the group `dataset`.
+SOURCE_METADATA["mrc-dataset"] = {"anyOf": [{
+    **SOURCE_METADATA["mrc"]["anyOf"][0],
+    "description": "The dataset group's: the MRC convention's root source metadata, member for member (spec/virtualize/mrc-dataset.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc-dataset.md#4-source-metadata>)",
+}]}
+
 # The IR mirror (spec/conventions.md §8
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2,
 # CZI, DICOM, NIfTI, MRC, IMS, NDPI, SAFE, Zarr v2, N5 and OME-Zarr conventions: refkv_source's
@@ -505,6 +513,8 @@ GEOZARR = {
 def schema(profile: str) -> dict:
     cmo = convention(profile)
     title = PROFILES[profile][2]
+    if profile.endswith("-dataset"):
+        url = {"description": "The URL of the source file"}
     url = ({"pattern": "^[Hh][Tt][Tt][Pp][Ss]?://[^?#]*/$",
             "description": "The store URL: http or https, its path ending in /, no query or fragment"}
            if profile in STORES else {"description": "The URL of the source: a .SAFE directory's store URL, or a zip file's"}
@@ -521,6 +531,9 @@ def schema(profile: str) -> dict:
                if PROFILES[profile][1] == 0 else {}),
             "source": {"type": "object", "properties": {"url": {"type": "string", **url}}, "required": ["url"],
                        "additionalProperties": False},
+            "layouts": {"type": "object", "minProperties": 1,
+                        "additionalProperties": {"type": "string", "pattern": "^[^/]+(/[^/]+)*$"},
+                        "description": "The other layouts of the source in this hierarchy, by name, each the path of its node below the root (spec/conventions.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)"},
             profile: {"$ref": "#/$defs/sourceMetadata"},
         },
         "required": ["profile", "version", *(["revision"] if PROFILES[profile][1] == 0 else []), "source"],

@@ -47,6 +47,11 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
   them) is described on `refkv_source` by the Rust core's IR mirror, from
   which it is rebuilt byte for byte.
 - **omero:** a display window from `dmin` and `dmax`.
+- **A dataset for xarray:** the same values again under `dataset/`, as a
+  group xarray opens directly: the data variable `data` with the
+  dimensions `z`, `y`, `x` (`section` or `volume` for a stack's index) and
+  `float64` coordinates in angstroms along each axis with a voxel size.
+  Its chunks are the same references; only the coordinates are stored.
 
 **What is not expressed.** OME-Zarr places an image by a scale and a
 translation and has no crystallography, so the cell angles (a skewed grid
@@ -71,7 +76,7 @@ uv run python -m refkv.virtualize https://raw.githubusercontent.com/ccpem/mrcfil
 {"format": "mrc", "kind": "volume", "byteOrder": "little", "mode": 2, "dataType": "float32", "sizes": {"z": 20, "y": 20, "x": 20}, "chunkShape": [20, 20, 20], "chunks": 1, "voxelSize": [11.4, 11.4, 11.4], "translation": false, "axisMap": true, "extendedHeader": 0, "extendedType": "", ...}
 ```
 
-The archive is 6.4 KB. Read it:
+The archive is 11 KB, both layouts included. Read the image:
 
 ```python
 import zarr
@@ -95,7 +100,33 @@ print(a[10, 10, 8:12])
 ```
 
 These are mrcfile's values (`mrcfile.open(path).data[10, 10, 8:12]`), in the
-same axis order (sections, rows, columns).
+same axis order (sections, rows, columns). The same archive as a dataset:
+
+```python
+import xarray as xr
+
+ds = xr.open_zarr(refkv.zarr.open("emd_3197.vzip"), group="dataset", consolidated=False)
+print(ds)
+print(ds["data"].sel(z=114.0, y=114.0, x=91.2).values)
+```
+
+```
+<xarray.Dataset> Size: 32kB
+Dimensions:  (z: 20, y: 20, x: 20)
+Coordinates:
+  * z        (z) float64 160B 0.0 11.4 22.8 34.2 ... 182.4 193.8 205.2 216.6
+  * y        (y) float64 160B 0.0 11.4 22.8 34.2 ... 182.4 193.8 205.2 216.6
+  * x        (x) float64 160B 0.0 11.4 22.8 34.2 ... 182.4 193.8 205.2 216.6
+Data variables:
+    data     (z, y, x) float32 32kB dask.array<chunksize=(20, 20, 20), meta=np.ndarray>
+Attributes:
+    zarr_conventions:   [{'uuid': 'f139bf4e-7bab-4c3c-9b2d-66ba747f9b93', 'sc...
+    refkv_virtualized:  {'profile': 'mrc-dataset', 'version': 0, 'revision': ...
+0.1251585
+```
+
+The positions are angstroms, so `sel` takes them; the value is
+`data[10, 10, 8]` above. The archive with both layouts is 11 KB.
 
 **In the browser.** Not on the live demo yet (it virtualizes TIFF, NDPI and
 ND2 only). A local build of the demo (see the [overview](../README.md))
