@@ -36,6 +36,10 @@ pub enum Format {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#152-the-tile-files>), never
     /// as a file run: `sniff` names it so that a host sends the file to [`crate::store::StoreRun`].
     Vsi,
+    /// A TIFF the TIFF parser found to be an Akoya QPTIFF (spec/virtualize/qptiff.md §16
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#16-qptiff-profile>), as
+    /// `Ndpi`: a run of `Tiff` becomes one of `Qptiff`.
+    Qptiff,
 }
 
 impl Format {
@@ -53,6 +57,7 @@ impl Format {
             Format::Ndpi => "ndpi",
             Format::Mrc => "mrc",
             Format::Vsi => "vsi",
+            Format::Qptiff => "qptiff",
         }
     }
     /// Whether the format's input, a file, is virtualized by a store run rather than a file
@@ -62,9 +67,9 @@ impl Format {
         matches!(self, Format::Vsi)
     }
 
-    /// The format of a name ("nd2", "tiff", "czi", "dicom", "nifti", "ims", "safe", "ndpi", "mrc", "vsi").
+    /// The format of a name ("nd2", "tiff", "czi", "dicom", "nifti", "ims", "safe", "ndpi", "mrc", "vsi", "qptiff").
     pub fn from_name(s: &str) -> Option<Format> {
-        [Format::Nd2, Format::Tiff, Format::Czi, Format::Dicom, Format::Nifti, Format::Ims, Format::Safe, Format::Ndpi, Format::Mrc, Format::Vsi].into_iter().find(|f| f.name() == s)
+        [Format::Nd2, Format::Tiff, Format::Czi, Format::Dicom, Format::Nifti, Format::Ims, Format::Safe, Format::Ndpi, Format::Mrc, Format::Vsi, Format::Qptiff].into_iter().find(|f| f.name() == s)
     }
     /// The format a file's first bytes give, if one of these: a hint, the format of its
     /// signature (any zip file is taken for a SAFE product's zip form, which then rejects one
@@ -122,7 +127,7 @@ impl AnyParser {
     pub fn new(f: Format, size: u64) -> Self {
         match f {
             Format::Nd2 => AnyParser::Nd2(Nd2::new(size)),
-            Format::Tiff | Format::Ndpi => AnyParser::Tiff(Tiff::new(size)),
+            Format::Tiff | Format::Ndpi | Format::Qptiff => AnyParser::Tiff(Tiff::new(size)),
             Format::Czi => AnyParser::Czi(Czi::new(size)),
             Format::Dicom => AnyParser::Dicom(Dicom::new(size)),
             Format::Nifti => AnyParser::Nifti(Nifti::new(size)),
@@ -261,7 +266,13 @@ impl Run {
                 Step::Done => {
                     let p = self.parser.take().unwrap();
                     if let AnyParser::Tiff(t) = &p {
-                        self.format = if t.ndpi { Format::Ndpi } else { Format::Tiff };
+                        self.format = if t.ndpi {
+                            Format::Ndpi
+                        } else if t.qptiff {
+                            Format::Qptiff
+                        } else {
+                            Format::Tiff
+                        };
                     }
                     let (ir, facts) = p.finish()?;
                     self.fill = unread_shown(&ir, self.format.name());

@@ -76,7 +76,7 @@ export function isDicom(head: Uint8Array): boolean {
 
 const HDF5 = [0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a];
 
-type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc" | "vsi"; summary: object };
+type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc" | "vsi" | "qptiff"; summary: object };
 
 /** `exact`, when given, reads exactly the ranges asked for, past `read`'s block cache: the
  * Rust core's requests, which it plans itself, are read with it.

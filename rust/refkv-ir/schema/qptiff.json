@@ -1,0 +1,369 @@
+{
+  "source_model": "qptiff",
+  "version": 1,
+  "about": "The source model of an Akoya (PerkinElmer) QPTIFF file (spec/virtualize/qptiff.md <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md>, spec/virtualize.md §16 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#16-qptiff-profile>): a TIFF or BigTIFF whose main chain holds the channels as FullResolution images, a Thumbnail, the ReducedResolution images of each pyramid level, and an Overview and a Label, each IFD described by a PerkinElmer-QPI-ImageDescription XML in its ImageDescription. The TIFF parser reads it in its QPTIFF variant (rust/refkv-ir/src/tiff.rs) and checks this schema where the profile meets each role; projections read a valid IR and check nothing. The TIFF source model's elements (schema/tiff.json) are this one's.",
+  "limits": {
+    "max_safe": 9007199254740991,
+    "max_ifds": 100000,
+    "max_depth": 4,
+    "max_tries": 10000,
+    "max_decode": 65536,
+    "eager_decode": 16777216
+  },
+  "tables": {
+    "kinds": {
+      "about": "the field types a tag of each kind may have (TIFF 6.0 §2, BigTIFF)",
+      "integer": [1, 3, 4, 13, 16, 18],
+      "rational": [5],
+      "bytes": [1, 7],
+      "any": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 16, 17, 18]
+    },
+    "type_sizes": {
+      "1": 1,
+      "2": 1,
+      "3": 2,
+      "4": 4,
+      "5": 8,
+      "6": 1,
+      "7": 1,
+      "8": 2,
+      "9": 4,
+      "10": 8,
+      "11": 4,
+      "12": 8,
+      "13": 4,
+      "16": 8,
+      "17": 8,
+      "18": 8
+    },
+    "tags": {
+      "about": "The tags of the table (spec/virtualize/qptiff.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#2-the-source>): kind (the field types allowed), scalar (the first value is read, and there must be one), used (read for every main-chain IFD; ImageDescription for every main-chain IFD, SubIFDs where followed).",
+      "256": {"name": "ImageWidth", "kind": "integer", "scalar": true, "used": true},
+      "257": {"name": "ImageLength", "kind": "integer", "scalar": true, "used": true},
+      "258": {"name": "BitsPerSample", "kind": "integer", "scalar": false, "used": true},
+      "259": {"name": "Compression", "kind": "integer", "scalar": true, "used": true},
+      "262": {"name": "PhotometricInterpretation", "kind": "integer", "scalar": true, "used": true},
+      "266": {"name": "FillOrder", "kind": "integer", "scalar": true, "used": true},
+      "270": {"name": "ImageDescription", "kind": "any", "scalar": false, "used": false},
+      "273": {"name": "StripOffsets", "kind": "integer", "scalar": false, "used": true, "tiles": true},
+      "277": {"name": "SamplesPerPixel", "kind": "integer", "scalar": true, "used": true},
+      "278": {"name": "RowsPerStrip", "kind": "integer", "scalar": true, "used": true},
+      "279": {"name": "StripByteCounts", "kind": "integer", "scalar": false, "used": true, "tiles": true},
+      "282": {"name": "XResolution", "kind": "rational", "scalar": true, "used": true},
+      "283": {"name": "YResolution", "kind": "rational", "scalar": true, "used": true},
+      "284": {"name": "PlanarConfiguration", "kind": "integer", "scalar": true, "used": true},
+      "286": {"name": "XPosition", "kind": "rational", "scalar": true, "used": true},
+      "287": {"name": "YPosition", "kind": "rational", "scalar": true, "used": true},
+      "296": {"name": "ResolutionUnit", "kind": "integer", "scalar": true, "used": true},
+      "317": {"name": "Predictor", "kind": "integer", "scalar": true, "used": true},
+      "322": {"name": "TileWidth", "kind": "integer", "scalar": true, "used": true},
+      "323": {"name": "TileLength", "kind": "integer", "scalar": true, "used": true},
+      "324": {"name": "TileOffsets", "kind": "integer", "scalar": false, "used": true, "tiles": true},
+      "325": {"name": "TileByteCounts", "kind": "integer", "scalar": false, "used": true, "tiles": true},
+      "330": {"name": "SubIFDs", "kind": "integer", "scalar": false, "used": false},
+      "339": {"name": "SampleFormat", "kind": "integer", "scalar": false, "used": true},
+      "347": {"name": "JPEGTables", "kind": "bytes", "scalar": false, "used": true},
+      "530": {"name": "YCbCrSubSampling", "kind": "integer", "scalar": false, "used": true}
+    },
+    "layout_tags": [273, 279, 288, 289, 324, 325, 513, 514, 519, 520, 521],
+    "pointers": {"330": "subifds", "34665": "exif", "34853": "gps", "40965": "interoperability"},
+    "jpeg2000": [33003, 33004, 33005, 34712],
+    "compressions": [1, 5, 7, 8, 32946, 50000, 33003, 33004, 33005, 34712],
+    "zlib": [8, 32946],
+    "sample_kinds": {"1": "uint", "2": "int", "3": "float"},
+    "image_types": ["FullResolution", "ReducedResolution", "Thumbnail", "Overview", "Label"],
+    "resolution_units": {"2": 25400.0, "3": 10000.0}
+  },
+  "elements": {
+    "about": "The IR of a QPTIFF file: the TIFF source model's (schema/tiff.json), without `ome/planes/<p>`. Names in angle brackets are variables; `run` marks where a parser folds consecutive identically shaped siblings into one run.",
+    "header": {
+      "kind": "struct",
+      "children": {
+        "byte_order": "ascii[2]",
+        "magic": "u2",
+        "offset_size": "u2 (BigTIFF)",
+        "reserved": "u2 (BigTIFF)",
+        "first_ifd": "u4 or u8"
+      }
+    },
+    "ifds/<i>": {
+      "kind": "struct",
+      "about": "the main chain; each IFD's SubIFDs are subifds/<j> (to depth 4), and the IFDs other pointer tags lead to are exif, gps, interoperability or ifd_<tag> (/<j> when the tag has several values; an IFD read before is an alias)",
+      "children": {
+        "entry_count": "u2 or u8",
+        "tags/<tag>": "struct of entry {tag,type,count[,offset][,field]} and value (in the value field, or at its offset: decoded when the profile reads it, or when small); a duplicate tag is tags/<tag>~<k>",
+        "next_ifd": "u4 or u8",
+        "tiles/<k>": "data (run): a tile of TileOffsets and TileByteCounts with a byte count above 0 within the file; geometry, codec and recipe (a JPEG tile's recipe puts the IFD's JPEG prefix, a shared data source, after its first 2 bytes); an IFD whose tile tables are an earlier IFD's names its tiles by alias",
+        "strips/<k>": "data (run): the same, for StripOffsets and StripByteCounts; a level in strips references them as its chunks"
+      }
+    },
+    "gaps/<offset>": {"kind": "gap"}
+  },
+  "roles": {
+    "header": {
+      "about": "the file's first 16 bytes",
+      "given": {
+        "length": "the bytes read (at most 16)",
+        "order": "'II', 'MM' or another",
+        "magic": "u2 at 2",
+        "offset_size": "u2 at 4",
+        "reserved": "u2 at 6"
+      },
+      "constraints": [
+        {"require": "length >= 8", "message": "file too short for a TIFF header"},
+        {"require": "in(order, ['II', 'MM'])", "message": "not a TIFF file"},
+        {
+          "require": "magic != 43 || (length >= 16 && offset_size == 8 && reserved == 0)",
+          "message": "invalid BigTIFF header"
+        },
+        {"require": "in(magic, [42, 43])", "message": "not a TIFF file"}
+      ]
+    },
+    "ifd_offset": {
+      "about": "an IFD the image's tree reads: in the main chain (chain), or a SubIFD; checked before its entries are read",
+      "given": {
+        "offset": "",
+        "chain": "",
+        "header_size": "",
+        "seen": "read before",
+        "read": "IFDs read so far",
+        "count_within": "its entry count is within the file",
+        "within": "its entries and next offset are within the file (known after the count)"
+      },
+      "constraints": [
+        {"require": "!chain || offset <= max_safe", "message": "IFD offset too large"},
+        {"require": "offset >= header_size", "message": "IFD offset {offset} is inside the header"},
+        {"require": "!seen", "message": "IFD offset {offset} read twice"},
+        {"require": "read < max_ifds", "message": "too many IFDs"},
+        {"require": "count_within", "message": "the IFD at {offset} is not within the file"},
+        {"require": "within", "message": "the IFD at {offset} is not within the file"}
+      ]
+    },
+    "field": {
+      "about": "the first entry of a tag of the table, in every IFD the tree reads",
+      "given": {"tag": "", "type": "", "count": "", "outside": "out of line, and its bytes do not end within the file"},
+      "derive": {"spec": "at(tags, tag)", "allowed": "at(kinds, spec.kind)"},
+      "constraints": [
+        {"require": "in(type, allowed)", "message": "tag {tag} has field type {type}"},
+        {"require": "!spec.scalar || count > 0", "message": "tag {tag} has no value"},
+        {"require": "!outside", "message": "the value of tag {tag} is outside the file"}
+      ]
+    },
+    "values": {
+      "about": "a tag's values as the profile reads them (an integer tag: its first value if scalar, else all; SubIFDs: all)",
+      "given": {"tag": "", "type": "", "largest": "the largest value read"},
+      "constraints": [
+        {
+          "require": "!in(type, [16, 18]) || largest <= max_safe",
+          "message": "a value of tag {tag} is more than 2^53 - 1"
+        }
+      ]
+    },
+    "required": {
+      "about": "a tag the profile needs a value of, in an IFD at offset",
+      "given": {"offset": "", "tag": "", "present": "the IFD has the tag with at least one value"},
+      "constraints": [{"require": "present", "message": "IFD at {offset} has no tag {tag}"}]
+    },
+    "format": {
+      "about": "an IFD's sample format (spec/virtualize/tiff.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#2-the-source>): BitsPerSample, SampleFormat, SamplesPerPixel, PlanarConfiguration",
+      "given": {
+        "bits": "BitsPerSample's values",
+        "formats": "SampleFormat's values (default [1])",
+        "spp": "SamplesPerPixel (default 1)",
+        "planar": "PlanarConfiguration (default 1; 1 when spp is 1)"
+      },
+      "constraints": [
+        {
+          "require": "len(bits) >= 1 && distinct(bits) == 1 && first(bits) >= 1",
+          "message": "BitsPerSample values are missing, differ or are 0"
+        },
+        {
+          "require": "len(formats) >= 1 && distinct(formats) == 1",
+          "message": "SampleFormat values are missing or differ"
+        },
+        {"require": "spp >= 1", "message": "SamplesPerPixel is 0"},
+        {"require": "in(planar, [1, 2])", "message": "PlanarConfiguration {planar}"}
+      ]
+    },
+    "predictor": {
+      "about": "IFD 0's Predictor",
+      "given": {"compression": "", "predictor": ""},
+      "constraints": [
+        {
+          "require": "in(compression, jpeg2000) || predictor == 1",
+          "message": "unsupported predictor {predictor}"
+        }
+      ]
+    },
+    "baseline": {
+      "about": "the main chain's images by their ImageType (spec/virtualize/qptiff.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#3-images-and-channels>): the channels are the FullResolution images at its start",
+      "given": {
+        "described": "IFD 0 has a PerkinElmer-QPI-ImageDescription",
+        "baseline": "IFD 0's ImageType is FullResolution",
+        "channels": "FullResolution images at the start of the chain",
+        "later": "a FullResolution image follows them",
+        "spp": "IFD 0's SamplesPerPixel"
+      },
+      "constraints": [
+        {"require": "described", "message": "IFD 0 of a QPTIFF has no PerkinElmer-QPI image description"},
+        {"require": "baseline", "message": "IFD 0 of a QPTIFF is not a FullResolution image"},
+        {"require": "!later", "message": "a QPTIFF FullResolution image follows the baseline images"},
+        {"require": "channels == 1 || spp == 1", "message": "QPTIFF channels have {spp} samples per pixel"}
+      ]
+    },
+    "reduced": {
+      "about": "the ReducedResolution images of the main chain, in order: each run of as many as there are channels is a level (spec/virtualize/qptiff.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#3-images-and-channels>)",
+      "given": {"channels": "", "reduced": "ReducedResolution images", "remainder": "reduced mod channels"},
+      "constraints": [
+        {
+          "require": "remainder == 0",
+          "message": "a QPTIFF with {channels} channels has {reduced} ReducedResolution images, not a multiple of {channels}"
+        }
+      ]
+    },
+    "size": {
+      "about": "an IFD a level uses (spec/virtualize/tiff.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#2-the-source>)",
+      "given": {
+        "offset": "",
+        "width": "",
+        "height": "",
+        "tiled": "TileWidth and TileOffsets present",
+        "has_counts": "TileByteCounts present",
+        "tile_width": "",
+        "tile_height": ""
+      },
+      "constraints": [
+        {"require": "width >= 1 && height >= 1", "message": "the image at {offset} is empty"},
+        {"require": "!tiled || has_counts", "message": "IFD at {offset} has no tag 325"},
+        {
+          "require": "!tiled || (tile_width >= 1 && tile_height >= 1)",
+          "message": "the image at {offset} has an empty tile size"
+        }
+      ]
+    },
+    "strips": {
+      "about": "an IFD a level uses that is not tiled: its strips (spec/virtualize/qptiff.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#42-tiles-and-strips>)",
+      "given": {
+        "offset": "",
+        "has_offsets": "StripOffsets present",
+        "has_counts": "StripByteCounts present",
+        "rows": "RowsPerStrip (default 2^32 - 1)"
+      },
+      "constraints": [
+        {"require": "has_offsets", "message": "the image at {offset} has neither tiles nor strips"},
+        {"require": "has_counts", "message": "IFD at {offset} has no tag 279"},
+        {"require": "rows >= 1", "message": "the image at {offset} has RowsPerStrip 0"}
+      ]
+    },
+    "samples": {
+      "about": "how an image's bytes hold its samples (spec/virtualize/tiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#43-data-types-and-codecs>)",
+      "given": {
+        "offset": "",
+        "compression": "",
+        "fill_order": "",
+        "photometric": "(default 0)",
+        "subsampling": "YCbCrSubSampling (default [2, 2])"
+      },
+      "constraints": [
+        {
+          "require": "!in(compression, [1, 5, 8, 32946, 50000]) || fill_order == 1",
+          "message": "the image at {offset} has FillOrder {fill_order}"
+        },
+        {
+          "require": "compression == 7 || in(compression, jpeg2000) || photometric != 6 || subsampling == [1, 1]",
+          "message": "the image at {offset} is YCbCr with subsampling {subsampling}"
+        }
+      ]
+    },
+    "level": {
+      "about": "an IFD of a level, after its size and samples (spec/virtualize/qptiff.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#3-images-and-channels>)",
+      "given": {
+        "offset": "",
+        "level": "the level's index",
+        "previous": "the level before's index",
+        "same": "its size, tiling (tile size, or rows per strip) and format are the level's first IFD's",
+        "format": "its format is IFD 0's",
+        "smaller": "the level is strictly smaller than the level before in both sizes (true for level 0)"
+      },
+      "constraints": [
+        {"require": "same", "message": "the images of QPTIFF level {level} differ in size, tiling or format"},
+        {"require": "format", "message": "QPTIFF level {level} does not have IFD 0's sample format or compression"},
+        {"require": "smaller", "message": "QPTIFF level {level} is not smaller than level {previous}"}
+      ]
+    },
+    "image": {
+      "about": "the image's sample type and codecs (spec/virtualize/qptiff.md §4.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#41-data-types-and-codecs>: the TIFF convention's, and LZW)",
+      "given": {
+        "bits": "",
+        "sample_format": "",
+        "spp": "",
+        "planar": "",
+        "compression": "",
+        "photometric": "(JPEG only)"
+      },
+      "derive": {"kind": "at(sample_kinds, sample_format)"},
+      "constraints": [
+        {
+          "require": "present(kind) && in(bits, [8, 16, 32, 64]) && (kind != 'float' || bits >= 32)",
+          "message": "unsupported sample type: {bits}-bit, SampleFormat {sample_format}"
+        },
+        {
+          "require": "in(compression, jpeg2000) || compression != 7 || (bits == 8 && sample_format == 1 && (spp == 1 || (spp == 3 && planar == 1 && in(photometric, [2, 6]))))",
+          "message": "unsupported JPEG: {bits}-bit, {spp} samples, planar {planar}, photometric {photometric}"
+        },
+        {"require": "in(compression, compressions)", "message": "unsupported compression {compression}"}
+      ]
+    },
+    "plane": {
+      "about": "an IFD of a level, as its tiles or strips are referenced",
+      "given": {
+        "offset": "",
+        "jpeg": "",
+        "has_tables": "JPEGTables present",
+        "tables_ok": "JPEGTables start with SOI and end with EOI, at least 4 bytes",
+        "tiles": "TileOffsets' (StripOffsets') count",
+        "counts": "TileByteCounts' (StripByteCounts') count",
+        "expected": "samples × tiles across × tiles down, or samples × strips"
+      },
+      "constraints": [
+        {
+          "require": "!jpeg || !has_tables || tables_ok",
+          "message": "the IFD at {offset} has malformed JPEGTables"
+        },
+        {
+          "require": "tiles == expected && counts == expected",
+          "message": "IFD at {offset} has {tiles} tiles or strips, expected {expected}"
+        }
+      ]
+    },
+    "tile": {
+      "about": "a tile or strip with a byte count above 0",
+      "given": {"k": "", "offset": "the IFD's", "within": "its bytes end within the file", "count": "", "jpeg": ""},
+      "constraints": [
+        {"require": "within", "message": "tile or strip {k} of the IFD at {offset} is outside the file"},
+        {"require": "!jpeg || count > 2", "message": "JPEG tile or strip {k} of the IFD at {offset} is too short"}
+      ]
+    },
+    "strip_tail": {
+      "about": "the last strip of a level in LZW strips, when it is short (spec/virtualize/qptiff.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#42-tiles-and-strips>): its stream, read to where its output reaches the strip's size, so that a tail of zeros can continue it",
+      "given": {"offset": "the IFD's", "strip": "the strip's index", "decodes": "the stream reaches the strip's size", "problem": "why not"},
+      "constraints": [{"require": "decodes", "message": "strip {strip} of the IFD at {offset} does not decode to its size: {problem}"}]
+    },
+    "padding": {
+      "about": "a level in strips whose last strip is short, after it is padded (uncompressed, LZW) or found unpaddable (another compression): level 0 must be a level",
+      "given": {"level": "", "compression": "", "kept": "the level is padded, and kept"},
+      "constraints": [{"require": "kept || level > 0", "message": "the channels are strips of compression {compression} whose last strip is short, which cannot be padded"}]
+    },
+    "images": {
+      "about": "the file",
+      "given": {"ifds": "main-chain IFDs"},
+      "constraints": [{"require": "ifds >= 1", "message": "no images"}]
+    },
+    "translation": {
+      "about": "the image's translation (spec/virtualize/qptiff.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#43-arrays>: XPosition and YPosition), when it has one",
+      "given": {"x": "", "y": ""},
+      "constraints": [{"require": "finite(x) && finite(y)", "message": "a translation is not finite"}]
+    }
+  },
+  "about_builtins": "What the parser's code computes and the roles above check: detection (spec/virtualize/qptiff.md §16 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#16-qptiff-profile>: the first IFD's Software tag, ASCII, starting with `PerkinElmer-QPI`; it never rejects); the main chain (each next offset until 0) and the SubIFDs depth first to max_depth; each main-chain IFD's PerkinElmer-QPI-ImageDescription (ASCII, up to its first NUL, valid UTF-8, the root element's direct children ImageType, Name, Color and SlideID); the channels (the FullResolution images at the start of the chain) and the levels (runs of as many ReducedResolution images, in chain order); the format tuple (bits, samples, sample format, planar, compression, predictor, and photometric for JPEG); each level's tiling (tiled, or strips of RowsPerStrip rows); the JPEG prefix (an Adobe APP14 marker for 3 samples, then JPEGTables without its SOI and EOI)."
+}
