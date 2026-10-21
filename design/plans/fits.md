@@ -214,8 +214,8 @@ By its kind, an HDU's node is:
 
 | kind | test | node |
 |---|---|---|
-| **empty** | `NAXIS = 0`, or some `NAXISn = 0` and not random groups | a group with no children: metadata only (the empty primary; STIS placeholders) |
-| **image** | primary with `NAXIS ≥ 1`, or `XTENSION = 'IMAGE'` | an array ([§2.3](#23-images)) |
+| **empty** | `NAXIS = 0` | a group with no children: metadata only (the empty primary; STIS placeholders) |
+| **image** | primary with `NAXIS ≥ 1`, or `XTENSION = 'IMAGE'` | an array ([§2.3](#23-images)); one with no chunks when some `NAXISn = 0` |
 | **compressed image** | `XTENSION = 'BINTABLE'` with `ZIMAGE = T` | an array ([§2.4](#24-tile-compressed-images)) |
 | **table** | `XTENSION = 'BINTABLE'` or `'TABLE'` otherwise | a group with the arrays `rows` and, when the heap is not empty, `heap` ([§2.5](#25-tables)) |
 
