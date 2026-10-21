@@ -16,10 +16,11 @@ is the FITS profile: how refkv reads the source, which inputs it rejects, and ho
 each chunk references the source. The profile keeps its numbering as a section
 of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
 
-**Draft.** This revision covers uncompressed images, multi-extension files and
-tables. Tile-compressed images (`ZIMAGE = T`, the `.fz` files `fpack` writes)
-are rejected by the profile ([§16.3](#163-checks)) until the design of
-[design/plans/fits.md](../../design/plans/fits.md) lands.
+**Draft.** This revision covers uncompressed images, multi-extension files,
+tables and tile-compressed images (`ZIMAGE = T`, the `.fz` files `fpack`
+writes) with the `RICE_1`, `GZIP_1`, `GZIP_2` and `NOCOMPRESS` algorithms;
+`HCOMPRESS_1` and `PLIO_1` are rejected ([§16.3](#163-checks)). The design is
+[design/plans/fits.md](../../design/plans/fits.md).
 
 # Part 1. The convention
 
@@ -74,12 +75,11 @@ An HDU's **kind**, by its mandatory cards ([§16.3](#163-checks)):
 | kind | when | the node |
 |---|---|---|
 | **empty** | `NAXIS = 0` | a group with no children: the HDU's metadata alone (the empty primary of a multi-extension file; placeholder extensions with a full header, as HST's STIS writes `ERR` and `DQ`) |
-| **image** | the primary with `NAXIS ≥ 1`, or `XTENSION = 'IMAGE'` | an array ([§3](#3-images)); an array with no chunks when some `NAXISn` is 0 |
-| **table** | `XTENSION = 'BINTABLE'` or `'TABLE'` | a group with the arrays `rows` and, when the heap is not empty, `heap` ([§4](#4-tables)) |
+| **image** | the primary with `NAXIS ≥ 1`, or `XTENSION = 'IMAGE'`, or `XTENSION = 'BINTABLE'` with `ZIMAGE = T` (a tile-compressed image, [§3.3](#33-tile-compressed-images)) | an array ([§3](#3-images)); an array with no chunks when some `NAXISn` (`ZNAXISn`) is 0 |
+| **table** | `XTENSION = 'BINTABLE'` or `'TABLE'` otherwise | a group with the arrays `rows` and, when the heap is not empty, `heap` ([§4](#4-tables)) |
 
-Random groups (`GROUPS = T`), tile-compressed tables (`ZTABLE = T`),
-tile-compressed images (`ZIMAGE = T`) and extensions of any other
-`XTENSION` are rejected by the profile.
+Random groups (`GROUPS = T`), tile-compressed tables (`ZTABLE = T`) and
+extensions of any other `XTENSION` are rejected by the profile.
 
 ## 3. Images
 
@@ -122,6 +122,81 @@ source metadata ([§5.2](#52-an-hdus-node)). That includes the unsigned
 convention: a `BITPIX = 16` image with `BZERO = 32768` and `BSCALE = 1` is
 `uint16` data stored as `int16`, and its array is `int16`.
 
+### 3.3 Tile-compressed images
+
+A tile-compressed image (the FITS tiled image compression convention, FITS
+Standard 4.0 section 10) is a `BINTABLE` with `ZIMAGE = T` whose rows are the
+**tiles** of an image of shape `[ZNAXISn, …, ZNAXIS1]` and `ZBITPIX`, each
+tile of shape `[ZTILEn, …, ZTILE1]` (`ZTILE1 = ZNAXIS1` and the others 1 when
+absent: a row per tile), numbered in storage order (the tile index along
+axis 1 fastest). A row's `COMPRESSED_DATA` descriptor gives the tile's
+stream in the heap, coded with `ZCMPTYPE`, or its `GZIP_COMPRESSED_DATA`
+descriptor a gzip member of the tile's raw values instead (the writer's
+fallback); a row with both null has no tile. A float image (`ZBITPIX < 0`)
+whose table has `ZSCALE` and `ZZERO` columns is **quantized**: each tile's
+stream codes 32-bit integers `I`, and its values are `(I − R + 0.5) × ZSCALE
++ ZZERO` for the subtractive dithers (`ZQUANTIZ`), `I × ZSCALE + ZZERO`
+without one, in binary64 with each operation rounded
+([spec/virtualize.md §1.3](../virtualize.md#13-arithmetic)), then the
+array's type; `R` is the dither's random value, from cfitsio's table of
+10,000 values (the Park–Miller generator from seed 1, each value as a
+binary32), which tile `t` enters at `((t + ZDITHER0 − 1) mod 10000)` and
+walks as cfitsio does (`unquantize.c`: the start `int(R_0 × 500)`, one
+value per pixel, NaN pixels included, the index wrapping at 10,000); an
+integer equal to `ZBLANK` (the row's, or the header's) is NaN, and
+`−2147483646` is 0 under `SUBTRACTIVE_DITHER_2`. The tiles of an integer
+image, and a float image's fallback tiles, are the values as stored.
+
+The HDU's array has the shape `[ZNAXISn, …, ZNAXIS1]`, the data type of
+`ZBITPIX` ([§3.1](#31-the-array)), the fill value 0, the dimension names of
+[§3.1](#31-the-array), and:
+
+- **Chunk grid.** The tile grid `[g_n, …, g_1]`, `g_j = ceil(ZNAXIS_j /
+  ZTILE_j)`, is cut into chunks of consecutive tiles: with `b` the decoded
+  bytes of a tile (`ZTILE1 × … × ZTILEn × |ZBITPIX| / 8`), `s_j = b × g_{j−1}
+  × … × g_1` the bytes of one index along axis `j`, and the limit `L =
+  2^20`, the cut axis `a` is the slowest axis with `s_a ≤ L`, or axis 1 if
+  none; a chunk holds `c` indexes along `a`, `c = ceil(g_a / k)` with `k =
+  ceil(g_a / max(1, floor(L / s_a)))`, one tile along each slower axis, and
+  every tile along each faster axis. The chunk shape is `ZTILE_j` along the
+  slower axes, `c × ZTILE_a` along `a`, and `ZNAXIS_j` along the faster
+  axes; the grid is `g_j`, `ceil(g_a / c)` and 1. A chunk's tiles are then
+  consecutive in storage order. A DECam chip (4094 row tiles of 8184 bytes)
+  has chunks of 128 rows, 32 of them; a Legacy Surveys brick (`100 × 100`
+  float32 tiles on `3600 × 3600`, a tile row of 1.44 MB) has chunks of 18
+  tiles, `[100, 1800]`, 72 of them.
+- **Codecs:** `[{"name": "fits_tiles", "configuration": C}]`, `C` the object
+  `{"compression": ZCMPTYPE (`RICE_ONE` written `RICE_1`), "parameters":
+  {"BLOCKSIZE": b, "BYTEPIX": p} (the `ZNAMEi`/`ZVALi` pairs; 32 and 4 when
+  absent), "zbitpix": ZBITPIX, "shape": [ZNAXISn, …, ZNAXIS1], "tile_shape":
+  [ZTILEn, …, ZTILE1], "quantize": ZQUANTIZ (`NO_DITHER` when absent),
+  "dither_seed": ZDITHER0 (0 when absent)}`.
+- **Chunks.** A chunk with at least one tile is present; its bytes are a
+  **prefix** followed by its tiles' streams in storage order, and its
+  reference is the prefix as a literal range followed by the ranges of the
+  streams ([§16.4](#164-chunks)). The prefix is little-endian: `u32` the
+  chunk's tile count `N`, `u32` the storage index of its first tile, then
+  `N` records of 32 bytes: `u32` the stream's length (0: no tile), `u32`
+  its kind (0: `COMPRESSED_DATA`; 1: `GZIP_COMPRESSED_DATA`), `i32` the
+  tile's `ZBLANK` (its row's, else the header's, else 0), `u32` flags (bit
+  0: the table has `ZSCALE` and `ZZERO`; bit 1: a `ZBLANK` was given),
+  `f64` `ZSCALE`, `f64` `ZZERO` (the row's; 0 without the columns). A chunk
+  whose tiles are all absent has no entry and reads as the fill value.
+- **Decoding** (the codec): each tile's stream by its kind and
+  `compression` (`RICE_1` as cfitsio's `fits_rdecomp`, `_short` and `_byte`
+  for `BYTEPIX` 4, 2 and 1; `GZIP_1` a gzip member of big-endian values;
+  `GZIP_2` the same with the values' bytes shuffled, the first bytes of
+  every value first; `NOCOMPRESS` the big-endian values), dequantized as
+  above when quantized, then placed at the tile's position in the chunk
+  (the tile's coords less the first tile's, times the tile shape); an edge
+  tile is smaller than the tile shape; the chunk's other pixels are 0.
+- **Attributes:** as an image's ([§5.2](#52-an-hdus-node)); the table's
+  cards (the image's, copied by the writer, among them).
+
+The main table (the descriptors) is in the mirror ([§6.1](#61-elements)) and
+is not an array; the columns are in the root's table of HDUs
+([§5.1](#51-the-root)).
+
 ## 4. Tables
 
 A binary table is rows of `NAXIS1` bytes, `NAXIS2` of them, each a
@@ -163,7 +238,11 @@ The root's source metadata `fits` is an object with the members `hdus` and
   (`EXTVER`'s integer, or `null`), `bitpix`, `naxis` (`[NAXIS1, …, NAXISn]`,
   in FITS order), `pcount` and `gcount` (0 and 1 for the primary), `offset`
   (the HDU's first byte), `header_bytes` (its header's blocks), `data_offset`
-  and `data_bytes` (`D` of [§16.3](#163-checks));
+  and `data_bytes` (`D` of [§16.3](#163-checks)), and `compression`: `null`,
+  or for a tile-compressed image ([§3.3](#33-tile-compressed-images)) the
+  object `{"type", "parameters", "zbitpix", "tile", "quantize",
+  "dither_seed", "zblank", "tiles"}` (the codec's values, `tile` in the
+  array's order, `zblank` the header's or `null`, `tiles` the tile count);
 - `cards`: the primary header's cards ([§5.3](#53-cards)).
 
 ### 5.2 An HDU's node
@@ -233,8 +312,10 @@ length ([§4](#4-tables)):
 | `hdus/<i>/rows` | data | | a table's `N1 × N2` bytes, when not 0: geometry `{"rows": N2, "row_bytes": N1}`, recipe `[["src", 0, null]]` |
 | `hdus/<i>/gap` | value | `bytes[g]` | the `g` bytes between the rows and the heap, when `g > 0` |
 | `hdus/<i>/heap` | data | | a table's heap, when `H > 0`: geometry `{"bytes": H}`, recipe `[["src", 0, null]]` |
+| `hdus/<i>/table` | value | record `[N2]` | a tile-compressed image's main table, one record per tile typed from its columns in row order (`COMPRESSED_DATA:{n:>i4,o:>i4}` for a `P` descriptor, `>i8` for `Q`; `ZSCALE:>f8`, `ZZERO:>f8`, `ZBLANK:>i4`), held by the parser |
+| `hdus/<i>/heap/<j>` | data | | chunk `j` of a tile-compressed image ([§3.3](#33-tile-compressed-images)): from its first present tile's start to its last's end, geometry `{"tiles": [first, N]}`, recipe `[["src", 0, null]]` when the tiles are adjacent, else one `["src", o, n]` per tile; a chunk without a tile has none |
 | `hdus/<i>/pad` | value | `bytes[p]` | the data's padding, when `p > 0` |
-| `gaps/<offset>` | gap | | bytes after the last HDU (the standard's special records) |
+| `gaps/<offset>` | gap | | bytes after the last HDU (the standard's special records); heap bytes no tile uses |
 
 ### 6.2 Equivalence
 
@@ -309,12 +390,15 @@ reaches, are rejected there.
 
 ### 16.2 Reading
 
-The profile reads headers only, never data. For each HDU in turn, from its
-first byte: a window of at most 2^16 bytes, extended by such windows until
-the header's `END` card is in it; the bytes of the window past the header
-are the next HDU's first bytes when they reach them. A header MUST end
-within 2^24 bytes of its first byte, else the input is rejected
-([§16.3](#163-checks)).
+The profile reads headers and the main tables of tile-compressed images,
+never data. For each HDU in turn, from its first byte: a window of at most
+2^16 bytes, extended by such windows until the header's `END` card is in
+it; the bytes of the window past the header are the next HDU's first bytes
+when they reach them. A header MUST end within 2^24 bytes of its first
+byte, else the input is rejected ([§16.3](#163-checks)). A tile-compressed
+image's main table (`NAXIS1 × NAXIS2` bytes at its data offset, at most 2^26
+bytes) is read in one range, requested with the next HDU's window when the
+current window does not reach it.
 
 ### 16.3 Checks
 
@@ -346,8 +430,25 @@ the HDU by its number.
   rejection with the extension's type); a card `TFORMn` exists for each `n`
   in `1 … TFIELDS`; `THEAP` (an integer when present; `NAXIS1 × NAXIS2`
   when absent) is at least `NAXIS1 × NAXIS2` and at most `NAXIS1 × NAXIS2 +
-  PCOUNT`; a card `ZTABLE = T` (a tile-compressed table) is rejected, and,
-  in this revision, a card `ZIMAGE = T` (a tile-compressed image) too.
+  PCOUNT`; a card `ZTABLE = T` (a tile-compressed table) is rejected.
+- **Tile-compressed images** (`BINTABLE` with `ZIMAGE = T`), in this order:
+  the table is at most 2^26 bytes; `ZCMPTYPE` is `RICE_1`, `RICE_ONE`,
+  `GZIP_1`, `GZIP_2` or `NOCOMPRESS` (`HCOMPRESS_1` and `PLIO_1` are
+  rejected and named; any other is rejected); `ZBITPIX` is a `BITPIX` value;
+  `ZNAXIS` in 1 … 999; each `ZNAXISn` at least 0 and `ZTILEn` (defaulted)
+  in `1 … ZNAXISn` (1 when `ZNAXISn` is 0); for `RICE_1`, `BLOCKSIZE` is 16
+  or 32 and `BYTEPIX` 1, 2 or 4; `ZQUANTIZ` (when present) is `NO_DITHER`,
+  `SUBTRACTIVE_DITHER_1` or `SUBTRACTIVE_DITHER_2`, and a dither has
+  `ZDITHER0` in 1 … 10000; every column is `COMPRESSED_DATA` (`1PB` or
+  `1QB`), `GZIP_COMPRESSED_DATA` (`1PB` or `1QB`), `ZSCALE` (`1D`), `ZZERO`
+  (`1D`) or `ZBLANK` (`1J`) with that `TFORM` (`UNCOMPRESSED_DATA` and
+  `NULL_PIXEL_MASK` are rejected and named; any other column is rejected);
+  `COMPRESSED_DATA` is a column, and `ZSCALE` and `ZZERO` both or neither;
+  the row count is the tile count. Then, from the table: no tile has both
+  descriptors non-null; each tile's stream lies within the heap; the
+  present tiles are in storage order in the heap (a tile starting before
+  the previous present tile ends is rejected). Every integer card named
+  here is an integer.
 - **Count:** at most 65536 HDUs.
 
 After an HDU, if the next block boundary is within the file and the file
@@ -369,7 +470,14 @@ source 0, followed for an edge chunk by its zero padding as a literal
 range; when that reference does not fit in a payload
 ([spec/virtualize.md §1.2](../virtualize.md#12-input)), the chunk is copied,
 with its padding. A table's `rows` are cut the same way, with an element
-of one byte and rows as the array's rows; its `heap` as bytes. The ranges
+of one byte and rows as the array's rows; its `heap` as bytes.
+
+A tile-compressed image's chunk ([the convention §3.3](#33-tile-compressed-images))
+is referenced as its prefix, a literal range, followed by its tiles'
+streams: one range of source 0 from the first present tile's start to the
+last's end when every present tile starts where the one before it ends
+(as `fpack` and astropy write them), else one range per present tile, in
+storage order. The prefix is built from the main table's rows. The ranges
 lie within the file (by the data size check). The output has no data
 sources: its source table is source 0 alone. `refkv_source` is the IR
 mirror ([the convention §6](#6-the-ir-mirror)). The archive has no other

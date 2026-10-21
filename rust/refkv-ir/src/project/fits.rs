@@ -7,8 +7,9 @@
 
 use super::Copied;
 use crate::fits::{card, parse_cards, Card, Value};
+use crate::fits_tiles::{prefix, TileRecord};
 use crate::ir::Ir;
-use crate::out::{array_json, blob_chunks, declare, grid_chunks, group_doc, json_size, Chunk, Out, MAX_PAYLOAD};
+use crate::out::{array_json, blob_chunks, declare, grid_chunks, group_doc, json_size, Chunk, Out, Part, MAX_PAYLOAD};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -103,7 +104,9 @@ fn own_json(h: &J, cards: &[Card]) -> J {
 }
 
 /// The arrays of HDU `h` with their chunks: (path, data type, shape, dimension names, element
-/// id, chunk shape, chunks), cut as conventions §7 cuts contiguous values.
+/// id, chunk shape, chunks), cut as conventions §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
+/// contiguous values.
 fn arrays(ir: &Ir, h: &J, threshold: usize) -> Result<Vec<(String, String, Vec<u64>, Vec<String>, Option<u32>, Vec<u64>, Vec<(Vec<u64>, Chunk)>)>, String> {
     let index = h["index"].as_u64().unwrap_or(0);
     let mut out = Vec::new();
@@ -155,12 +158,14 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let threshold = facts["copy_threshold"].as_u64().map_or(MAX_PAYLOAD, |t| t as usize);
     let hdus = facts["hdus"].as_array().cloned().unwrap_or_default();
     let mut out = Out::new(url);
-    // the root: the table of HDUs and the primary header's cards (§2.6)
+    // the root: the table of HDUs and the primary header's cards (§5.1
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#51-the-root>)
     let mut table = Vec::with_capacity(hdus.len());
     let mut kinds: Map<String, J> = Map::new();
     let (mut cards_total, mut tables) = (0u64, 0u64);
     let mut docs: Vec<(String, J)> = Vec::new();
     let mut all_arrays = Vec::new();
+    let mut tiled: Vec<(J, J)> = Vec::new();
     let mut primary_cards = J::Null;
     for h in &hdus {
         let cards = cards_of(ir, h)?;
@@ -179,9 +184,14 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
             "index": h["index"], "type": h["type"], "kind": kind, "name": h["name"], "version": h["version"],
             "bitpix": h["bitpix"], "naxis": h["naxis"], "pcount": h["pcount"], "gcount": h["gcount"],
             "offset": h["offset"], "header_bytes": h["header_bytes"], "data_offset": h["data_offset"], "data_bytes": h["data_bytes"],
+            "compression": compression_json(&h["compression"]),
         }));
         let own = own_json(h, &cards);
         let index = h["index"].as_u64().unwrap_or(0);
+        if !h["compression"].is_null() {
+            tiled.push((h.clone(), own));
+            continue;
+        }
         let node_arrays = arrays(ir, h, threshold)?;
         if kind == "image" {
             // the array is the node itself: its document gets the declaration
@@ -227,7 +237,106 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
             }
         }
     }
+    // the tile-compressed images (§3.3
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>):
+    // the array's chunks are a literal prefix of the tiles' records, then the heap element's
+    // ranges; the `fits_tiles` codec decodes them
+    for (h, own) in tiled {
+        let c = &h["compression"];
+        let index = h["index"].as_u64().unwrap_or(0);
+        let path = index.to_string();
+        let shape: Vec<u64> = c["shape"].as_array().unwrap_or(&Vec::new()).iter().map(|v| v.as_u64().unwrap_or(0)).collect();
+        let dims: Vec<String> = (1..=shape.len()).rev().map(|n| format!("axis{n}")).collect();
+        let dim_refs: Vec<&str> = dims.iter().map(|s| s.as_str()).collect();
+        let data_type = c["data_type"].as_str().unwrap_or("uint8").to_string();
+        let config = json!({
+            "compression": c["type"], "parameters": c["parameters"], "zbitpix": c["zbitpix"],
+            "shape": c["shape"], "tile_shape": c["tile"], "quantize": c["quantize"],
+            "dither_seed": c["dither_seed"].as_i64().unwrap_or(0),
+        });
+        let codecs = json!([{"name": "fits_tiles", "configuration": config}]);
+        let mut doc = array_json(&shape, &data_type, c["chunk_shape"].clone(), codecs, &dim_refs);
+        doc["attributes"] = J::Object(declare(Map::new(), PROFILE, None, Some(own)));
+        refs.out.json(&format!("{path}/zarr.json"), &doc);
+        summary_arrays.push(json!({"path": path, "shape": shape, "dataType": data_type, "chunkShape": c["chunk_shape"], "compression": c["type"]}));
+        let table = h["elements"]["table"].as_u64().and_then(|t| ir.value_bytes(t as u32)).unwrap_or(&[]);
+        let records = tile_records(c, table)?;
+        for (piece, ch) in c["chunks"].as_array().into_iter().flatten().enumerate() {
+            let Some(e) = ch["element"].as_u64() else { continue };
+            let (first, n) = (ch["first"].as_u64().unwrap_or(0) as usize, ch["count"].as_u64().unwrap_or(0) as usize);
+            let (start, length, form) = (ir.start[e as usize], ir.len[e as usize], ir.form_id(e as u32).ok_or("internal: a heap chunk has no form")?);
+            let mut parts = refs.parts(start, length, form)?;
+            parts.insert(0, Part::Lit(prefix(first as u64, &records[first..first + n])));
+            let coords: Vec<String> = ch["coords"].as_array().into_iter().flatten().map(|v| v.to_string()).collect();
+            count += 1;
+            refs.chunk(format!("{path}/c/{}", coords.join("/")), start, length, form, Some(parts), piece as u64)?;
+        }
+    }
     let mut out = refs.out;
     out.summary = json!({"hdus": hdus.len(), "kinds": kinds, "arrays": summary_arrays, "chunks": count, "cards": cards_total, "tables": tables});
+    Ok(out)
+}
+
+/// The root table's `compression` member of a tile-compressed image (§5.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#51-the-root>): null for
+/// any other HDU.
+fn compression_json(c: &J) -> J {
+    if c.is_null() {
+        return J::Null;
+    }
+    json!({"type": c["type"], "parameters": c["parameters"], "zbitpix": c["zbitpix"], "tile": c["tile"],
+           "quantize": c["quantize"], "dither_seed": c["dither_seed"], "zblank": c["zblank"], "tiles": c["tiles"]})
+}
+
+/// Every tile's record for the chunks' prefixes (§3.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>),
+/// from the main table's rows: its
+/// stream's length and column, its quantization.
+fn tile_records(c: &J, table: &[u8]) -> Result<Vec<TileRecord>, String> {
+    let cols = &c["columns"];
+    let row_bytes = c["row_bytes"].as_u64().unwrap_or(0) as usize;
+    let rows = c["rows"].as_u64().unwrap_or(0) as usize;
+    if table.len() < rows * row_bytes {
+        return Err("internal: the tile table is not held".into());
+    }
+    let descriptor = |col: &J, r: usize| -> (u64, u64) {
+        let Some(at) = col["offset"].as_u64() else { return (0, 0) };
+        let o = r * row_bytes + at as usize;
+        if col["q"].as_bool().unwrap_or(false) {
+            (i64::from_be_bytes(table[o..o + 8].try_into().unwrap()) as u64, i64::from_be_bytes(table[o + 8..o + 16].try_into().unwrap()) as u64)
+        } else {
+            (i32::from_be_bytes(table[o..o + 4].try_into().unwrap()) as u64, i32::from_be_bytes(table[o + 4..o + 8].try_into().unwrap()) as u64)
+        }
+    };
+    let f64_at = |col: &J, r: usize| -> Option<f64> {
+        let at = col.as_u64()? as usize;
+        let o = r * row_bytes + at;
+        Some(f64::from_be_bytes(table[o..o + 8].try_into().unwrap()))
+    };
+    let scaled = cols["ZSCALE"].is_u64() && cols["ZZERO"].is_u64();
+    let zblank_keyword = c["zblank"].as_i64();
+    let mut out = Vec::with_capacity(rows);
+    for r in 0..rows {
+        let (n, _) = descriptor(&cols["COMPRESSED_DATA"], r);
+        let (gn, _) = descriptor(&cols["GZIP_COMPRESSED_DATA"], r);
+        let (length, kind) = if n != 0 { (n, 0) } else { (gn, 1) };
+        let zblank_column = cols["ZBLANK"].as_u64().map(|at| {
+            let o = r * row_bytes + at as usize;
+            i32::from_be_bytes(table[o..o + 4].try_into().unwrap())
+        });
+        let (zblank, has_blank) = match (zblank_column, zblank_keyword) {
+            (Some(b), _) => (b, true),
+            (None, Some(b)) => (b as i32, true),
+            _ => (0, false),
+        };
+        out.push(TileRecord {
+            length: length as u32,
+            kind,
+            zblank,
+            flags: (scaled as u32) | ((has_blank as u32) << 1),
+            zscale: if scaled { f64_at(&cols["ZSCALE"], r).unwrap_or(0.0) } else { 0.0 },
+            zzero: if scaled { f64_at(&cols["ZZERO"], r).unwrap_or(0.0) } else { 0.0 },
+        });
+    }
     Ok(out)
 }

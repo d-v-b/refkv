@@ -21,6 +21,9 @@ FILES = sorted(p for p in (FIXTURES / "fits").iterdir() if p.name.endswith((".fi
 ACCEPTED = [p for p in FILES if "reject" not in p.name]
 REJECTED = [p for p in FILES if "reject" in p.name]
 MAX_SAFE = (1 << 53) - 1
+# hand-built fixtures astropy cannot read (an absent tile; no ZTILEn cards): the fixture whose
+# image theirs is, read by astropy, with the rows an absent tile leaves at 0
+SAME_IMAGE = {"fits_comp_hand_absent_tile": ("fits_comp_hand_one_column", slice(3, 6)), "fits_comp_hand_no_ztile": ("fits_comp_hand_one_column", None)}
 COMMENTARY = ("COMMENT", "HISTORY", "")
 
 
@@ -39,8 +42,8 @@ def virtualized(path, tmp_path):
 
 
 def card_value(v):
-    """astropy's card value as the convention writes it (spec/virtualize/fits.md §2.6
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#26-source-metadata>)."""
+    """astropy's card value as the convention writes it (spec/virtualize/fits.md §5.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#53-cards>)."""
     if isinstance(v, fits.card.Undefined):
         return None
     if isinstance(v, bool):
@@ -71,6 +74,22 @@ def same_cards(ours, theirs):
             assert (comment or "") == card.comment, (keyword, comment, card.comment)
 
 
+def same_pixels(ours, theirs, what, table=None):
+    """Integers equal, and unquantized floats; quantized floats equal within the rounding of
+    `(I - R + 0.5) * scale + zero`, NaNs in the same places: the convention computes it in
+    binary64 with each operation rounded (spec/virtualize.md §1.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#13-arithmetic>), while astropy's
+    build may fuse the multiply and the add; the two differ by a few units in the last place of
+    the intermediate `I * scale`, which SUBTRACTIVE_DITHER_2 (integers near -2^31, a zero of
+    the same size) makes about 1e-6 absolute after the cancellation, and the cast to the
+    array's type can then move its last bit (one ulp of the value, relative)."""
+    if theirs.dtype.kind != "f" or table is None or "ZSCALE" not in table.dtype.names:
+        assert np.array_equal(ours, theirs, equal_nan=theirs.dtype.kind == "f"), what
+        return
+    bound = 8 * np.finfo(np.float64).eps * (np.max(np.abs(table["ZZERO"])) + 2.0**31 * np.max(np.abs(table["ZSCALE"])))
+    assert np.allclose(ours, theirs, rtol=np.finfo(theirs.dtype).eps, atol=bound, equal_nan=True), what
+
+
 @pytest.mark.parametrize("path", ACCEPTED, ids=lambda p: p.name)
 def test_matches_astropy_and_rebuilds(path, tmp_path):
     """Every HDU is a node of its index: an image's array is astropy's data (stored values),
@@ -79,7 +98,9 @@ def test_matches_astropy_and_rebuilds(path, tmp_path):
     out, root = virtualized(path, tmp_path)
     raw = path.read_bytes()
     meta = root.attrs["refkv_virtualized"]["fits"]
-    with warnings.catch_warnings(), fits.open(path, do_not_scale_image_data=True) as hdul:
+    same = SAME_IMAGE.get(path.stem)
+    with warnings.catch_warnings(), fits.open(path, do_not_scale_image_data=True, disable_image_compression=True) as hdul, \
+            fits.open(path, do_not_scale_image_data=True) as decoded:
         warnings.simplefilter("ignore")  # astropy's warnings about the odd fixtures (truncated, trailing bytes)
         assert len(meta["hdus"]) == len(hdul)
         if meta["cards"] is None:
@@ -98,6 +119,22 @@ def test_matches_astropy_and_rebuilds(path, tmp_path):
                 same_cards(own["cards"], hdu.header.cards)
             else:
                 assert len(hdu.header) > 700
+            if hdu.header.get("ZIMAGE"):
+                # a tile-compressed image: the table's cards above, astropy's decoded pixels here
+                assert entry["kind"] == "image" and entry["compression"]["type"] == hdu.header["ZCMPTYPE"].replace("RICE_ONE", "RICE_1")
+                if same is not None:
+                    ref, absent = same
+                    with fits.open(FIXTURES / "fits" / f"{ref}.fits", do_not_scale_image_data=True) as other:
+                        want = other[1].data.copy()
+                    if absent is not None:
+                        want[absent] = 0
+                else:
+                    want = decoded[i].data
+                assert node.shape == want.shape and node.dtype == want.dtype.newbyteorder("=")
+                same_pixels(node[...], want, path.stem, hdu.data if same is None else None)
+                codec = json.loads(out.bytes_entries[f"{i}/zarr.json"])["codecs"][0]
+                assert codec["name"] == "fits_tiles" and codec["configuration"]["compression"] == entry["compression"]["type"]
+                continue
             if isinstance(hdu, (fits.BinTableHDU, fits.TableHDU)):
                 assert entry["kind"] == "table"
                 n1, n2 = hdu.header["NAXIS1"], hdu.header["NAXIS2"]
@@ -130,6 +167,11 @@ CHUNKS = {
     "fits_chunk_edge_literal": ("0", [1, (1 << 19) + 1], 2, ("0/c/0/1", 2)),
     "fits_primary_uint16": ("0", [6, 8], 1, ("0/c/0/0", 1)),
     "fits_bintable_heap": ("1/rows", [3, 12], 1, ("1/rows/c/0/0", 1)),
+    # tile-compressed: 1100 row tiles of 2000 bytes, 367 per chunk; 3 x 4 tiles of 100 x 100 in one
+    # chunk; a chunk's reference is its prefix (a literal) and one range per run of adjacent tiles
+    "fits_comp_chunk_rows": ("1", [367, 1000], 3, ("1/c/1/0", 2)),
+    "fits_comp_tiles_square": ("1", [300, 350], 1, ("1/c/0/0", 2)),
+    "fits_comp_hand_heap_gaps": ("1", [12, 20], 1, ("1/c/0/0", 5)),
 }
 
 

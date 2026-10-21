@@ -79,6 +79,8 @@
     - dcm_qa_philips by Chris Rorden (BSD-2-Clause), https://github.com/neurolabusc/dcm_qa_philips.
     - mrcfile's test data (BSD-3-Clause), https://github.com/ccpem/mrcfile: an EPU micrograph with an FEI2
       extended header, and EMDB entry EMD-3197 (CC0).
+    - astropy's test data (BSD-3-Clause), https://github.com/astropy/astropy: a WFPC2 multi-extension file and
+      a RICE tile-compressed image.
     - OpenOrganelle jrc_hela-21 and jrc_hela-2 (Janelia COSEM, CC BY 4.0).
     - Sentinel-2 L2A tile T32UPU of 2019-05-24, from Mendeley Data doi:10.17632/ckcxh6jskz.1 by Lukas Graf
       (CC BY 4.0); contains modified Copernicus Sentinel data 2019. The URL is Mendeley's own S3 object,
@@ -105,6 +107,9 @@
     <dt><span class="fmt" style="--fmt: #7b5e2a">MRC</span> <a class="spec" href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md" title="how refkv virtualizes MRC">spec</a></dt>
     <dd><a href="#" id="example-mrc" data-url="https://raw.githubusercontent.com/ccpem/mrcfile/64b0fb9ce0d921b902a06fe94d43e8d642b33d7d/tests/test_data/epu2.9_example.mrc">EPU cryo-EM micrograph, 4096 × 4096 (34 MB)</a>
       <a href="#" id="example-mrc-map" data-url="https://raw.githubusercontent.com/ccpem/mrcfile/64b0fb9ce0d921b902a06fe94d43e8d642b33d7d/tests/test_data/EMD-3197.map">EMDB EMD-3197, 20 × 20 × 20 density map (33 KB)</a></dd>
+    <dt><span class="fmt" style="--fmt: #8a4f1d">FITS</span> <a class="spec" href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md" title="how refkv virtualizes FITS">spec</a></dt>
+    <dd><a href="#" id="example-fits" data-url="https://raw.githubusercontent.com/astropy/astropy/7d7cf6d2d3e8b1e381e980278d071067b4b25241/astropy/io/fits/tests/data/test0.fits">astropy test0.fits, WFPC2 chips as four SCI extensions (58 KB)</a>
+      <a href="#" id="example-fits-rice" data-url="https://raw.githubusercontent.com/astropy/astropy/7d7cf6d2d3e8b1e381e980278d071067b4b25241/astropy/io/fits/tests/data/comp.fits">astropy comp.fits, a RICE tile-compressed image (86 KB)</a></dd>
     <dt><span class="fmt" style="--fmt: #5c6a12">N5</span> <a class="spec" href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md" title="how refkv virtualizes N5">spec</a></dt>
     <dd><a href="#" id="example-n5" data-url="https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-21/jrc_hela-21.n5/em/fibsem-uint8/">OpenOrganelle jrc_hela-21, FIB-SEM multiscale (10 GB)</a></dd>
     <dt><span class="fmt" style="--fmt: #006d77">Zarr v2</span> <a class="spec" href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md" title="how refkv virtualizes Zarr v2">spec</a></dt>
@@ -134,7 +139,7 @@
     contrast with the fork's JPEG 2000 (hayro-jpeg2000, Apache-2.0 OR MIT) and JPEG XR (jxrlib, BSD-2-Clause) decoders.
     The examples' data are their authors' (see each source): IDR, the BioImage Archive, the NCI Imaging Data
     Commons and TCIA, OpenOrganelle and Zenodo records under CC BY 4.0 or CC0; dcm_qa_philips under
-    BSD-2-Clause; mrcfile's test data under BSD-3-Clause, with EMD-3197 from the EMDB (CC0); the Sentinel-2 example contains modified Copernicus Sentinel data 2019 (Mendeley Data,
+    BSD-2-Clause; mrcfile's and astropy's test data under BSD-3-Clause, with EMD-3197 from the EMDB (CC0); the Sentinel-2 example contains modified Copernicus Sentinel data 2019 (Mendeley Data,
     doi:10.17632/ckcxh6jskz.1, CC BY 4.0).</footer>
 </main>
 <script type="module" src="demo.js"></script>

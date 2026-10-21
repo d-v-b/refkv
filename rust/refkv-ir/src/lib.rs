@@ -21,6 +21,7 @@ pub mod lv;
 pub mod mirror;
 pub mod mrc;
 pub mod fits;
+pub mod fits_tiles;
 pub mod n5;
 pub mod nd2;
 pub mod nifti;

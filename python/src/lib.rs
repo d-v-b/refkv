@@ -799,6 +799,18 @@ fn plan_spans(ranges: Vec<(u64, u64)>, threshold: u64, cap: f64, concurrency: us
     refkv_ir::plan::plan_spans(&ranges, threshold, cap, concurrency)
 }
 
+/// The `fits_tiles` codec (spec/virtualize/fits.md §3.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>): a
+/// chunk's pixels, as little-endian bytes of the array's data type in C order over
+/// `chunk_shape`, from the chunk's bytes and the codec's configuration (JSON).
+#[pyfunction]
+fn fits_tiles_decode<'py>(py: Python<'py>, chunk: &[u8], config: &str, chunk_shape: Vec<u64>) -> PyResult<Bound<'py, PyBytes>> {
+    let cfg: serde_json::Value = serde_json::from_str(config).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let cfg = refkv_ir::fits_tiles::Config::from_json(&cfg).map_err(PyValueError::new_err)?;
+    let out = py.detach(|| refkv_ir::fits_tiles::decode(chunk, &cfg, &chunk_shape)).map_err(PyValueError::new_err)?;
+    Ok(PyBytes::new(py, &out))
+}
+
 /// For tests: the reference payload past which a NIfTI or MRC edge chunk is copied (None:
 /// the payload limit), so that small files reach the copy (spec/virtualize/nifti.md §7.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>,
@@ -821,6 +833,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyStoreRun>()?;
     m.add_function(wrap_pyfunction!(rebuild_store, m)?)?;
     m.add_function(wrap_pyfunction!(plan_spans, m)?)?;
+    m.add_function(wrap_pyfunction!(fits_tiles_decode, m)?)?;
     m.add_function(wrap_pyfunction!(_set_copy_threshold, m)?)?;
     m.add_function(wrap_pyfunction!(project, m)?)?;
     m.add_function(wrap_pyfunction!(mirror, m)?)?;
