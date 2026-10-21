@@ -11,6 +11,7 @@ import { blockReader, type ByteReader, ImageError } from "./common.ts";
 import { type IrFormat, virtualizeIr } from "./ir/run.ts";
 import { type RangeSource, readerSource } from "./ir/source.ts";
 import { virtualizeStoreIr } from "./ir/store.ts";
+import { virtualizeVsi } from "./ir/vsi.ts";
 import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store } from "./store.ts";
 import type { Policy } from "../archive.ts";
 import { crc32c } from "../deflate.ts";
@@ -29,6 +30,10 @@ export interface PinOptions {
    * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>), reading its bytes.
    */
   checksums?: boolean;
+  /** For a VSI input: opens the file `key` beside the `.vsi` file (`key` relative to its
+   * directory), or undefined when it does not exist (ir/vsi.ts); by default the files are read
+   * at the input URL's directory over http(s), with the `.vsi` file's options. */
+  open?: (key: string) => Promise<RangeSource | undefined>;
 }
 
 /**
@@ -71,7 +76,7 @@ export function isDicom(head: Uint8Array): boolean {
 
 const HDF5 = [0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a];
 
-type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc" | "qptiff"; summary: object };
+type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc" | "vsi" | "qptiff"; summary: object };
 
 /** `exact`, when given, reads exactly the ranges asked for, past `read`'s block cache: the
  * Rust core's requests, which it plans itself, are read with it.
@@ -108,6 +113,17 @@ interface Input {
 }
 
 async function virtualizeWith(url: string, input: Input, pins: PinOptions): Promise<ImageDesc> {
+  // a VSI file is read with its tile files, as a store (ir/vsi.ts): its sources are the files
+  // some reference uses, their sizes pinned, not source 0 alone
+  const head = await input.read(0, Math.min(552, input.size));
+  if (irFormat(head) === "vsi") {
+    const { store, ...desc } = await virtualizeVsi(url, input.source, pins.open ? { open: pins.open } : {});
+    if (pins.checksums) {
+      const keys = new Map([...store.objects.keys()].map((k) => [objectUrl(store.url, k), k]));
+      await addChecksums(desc, (u, o, n) => store.readRange!(keys.get(u)!, o, n));
+    }
+    return { format: "vsi", ...desc };
+  }
   const desc = await virtualizeFile(url, input);
   const etag = pins.etag?.();
   desc.sources[0] = { ...desc.sources[0], size: BigInt(input.size), ...(etag !== undefined ? { etag } : {}) };
@@ -137,6 +153,10 @@ export function niftiVersion(head: Uint8Array): 1 | 2 | undefined {
 export function irFormat(head: Uint8Array): IrFormat | undefined {
   // DICOM first: a dual-personality file's preamble may hold a TIFF header
   if (isDicom(head)) return "dicom";
+  // a VSI file: a little-endian classic TIFF whose byte 8 starts its metadata tree
+  // (spec/virtualize/vsi.md §15.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#151-the-vsi-file>)
+  if (head.length >= 12 && head[0] === 0x49 && head[1] === 0x49 && head[2] === 0x2a && head[3] === 0 &&
+    head[8] === 0x18 && head[9] === 0 && head[10] === 0x49 && head[11] === 0x53) return "vsi";
   if (isTiffMagic(head)) return "tiff";
   if (head.length >= 4 && head[0] === 0xda && head[1] === 0xce && head[2] === 0xbe && head[3] === 0x0a) return "nd2";
   if (head.length >= 16 && String.fromCharCode(...head.subarray(0, 16)) === "ZISRAWFILE\0\0\0\0\0\0") return "czi";

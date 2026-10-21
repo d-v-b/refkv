@@ -196,6 +196,22 @@ MRC (MRC2014 files):
 Not supported, and refused with HTTP 422: gzipped maps (`.map.gz`), pre-2000
 files without `MAP` at byte 208, and modes 3 and 101.
 
+Olympus VSI (cellSens slides):
+
+- The `.vsi` file's URL names the slide; the tile files beside it
+  (`_<name>_/stack<N>/frame_t.ets`) are probed by URL, not listed, so a
+  plain web server that allows cross-origin reads serves a slide as it is.
+- One OME-Zarr image per stack in a bioformats2raw layout: every pyramid
+  level, with time, channel and z dimensions; JPEG, JPEG 2000 and
+  uncompressed tiles as chunks; the macro image and focus maps from the
+  `.vsi` file; pixel sizes in micrometers, stage origins as translations,
+  channel names and colors.
+- The whole metadata tree under `refkv_virtualized` on the root.
+
+Not supported, and refused with HTTP 422: lossless JPEG, PNG and BMP
+tiles, dimensions other than t, c and z with more than one value, and a
+stack whose tile file is missing.
+
 Imaris IMS (HDF5):
 
 - Files from Imaris 5.5 to 10 and its converters: every resolution level,
@@ -257,6 +273,7 @@ uv run python js/test/nd2/verify.py                         # synthetic ND2 fixt
 uv run python js/test/dicom/verify.py                       # DICOM fixtures vs pydicom
 uv run python js/test/nifti/verify.py                       # NIfTI fixtures vs nibabel
 uv run python js/test/mrc/verify.py                         # MRC fixtures vs mrcfile
+uv run python js/test/vsi/verify.py                         # VSI fixtures vs their pixels (and Bio-Formats)
 uv run python js/test/ims/verify.py                         # IMS fixtures vs h5py
 uv run python js/test/czi/verify.py                         # CZI fixtures vs czifile (and libCZI)
 uv run python js/test/safe/verify.py                        # SAFE fixtures vs GDAL
@@ -281,7 +298,9 @@ node demo/e2e_examples.mjs <out dir> [example id …]      # every demo example,
   reads the generator's files too.
 - `dicom/verify.py`, `nifti/verify.py`, `mrc/verify.py` and `ims/verify.py` do the same for
   their synthetic files, against pydicom, nibabel (unscaled data), mrcfile and h5py
-  (cropped to the image size).
+  (cropped to the image size); `vsi/verify.py` serves each synthetic slide with its
+  tile files, compares every stack with the pixels the generator wrote and, when a
+  JVM can be started, every level with Bio-Formats (bioio-bioformats).
 - `compare.py` runs three virtualizers (`ref`, the frozen reference, which
   a format added since the core, such as MRC, does not have; `py`, the
   Python command; `web`, this code under Node) on the synthetic files, every

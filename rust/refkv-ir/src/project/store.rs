@@ -72,6 +72,7 @@ pub fn kept(profile: &str) -> &'static [&'static str] {
     match profile {
         "zarr2" | "ome-zarr" | "n5" => &["ignored"],
         "safe" => &["empty_dirs", "ignored"],
+        "vsi" => &[],
         _ => &[],
     }
 }

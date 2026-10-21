@@ -56,7 +56,7 @@ attributes.
 
 The file is a TIFF (magic 42) or BigTIFF (magic 43), in either byte order,
 whose first IFD's Software tag (305) is ASCII text starting with
-`PerkinElmer-QPI` ([spec/virtualize.md §15](#15-qptiff-profile) says how
+`PerkinElmer-QPI` ([spec/virtualize.md §16](#16-qptiff-profile) says how
 that is tested). Its **IFDs** are the image file directories of its **main
 chain**, which starts at the header's first-IFD offset and ends at a
 next-IFD offset of 0, and MUST have at least one IFD; **IFD 0** is its
@@ -343,7 +343,7 @@ and label, which the layout leaves out.
 # Part 2. The profile
 
 The QPTIFF profile of [spec/virtualize.md](../virtualize.md), numbered as
-its [§15](#15-qptiff-profile) (the number is the registry's,
+its [§16](#16-qptiff-profile) (the number is the registry's,
 [profiles.json](profiles.json)). It builds on the TIFF profile
 ([§3](tiff.md#3-tiff-profile), [tiff.md](tiff.md#part-2-the-profile)).
 [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout)
@@ -354,7 +354,7 @@ The output has the convention's layout for the input
 how the file is read, which inputs are rejected, and how each chunk
 references the file. "The convention §n" below is a section of Part 1.
 
-## 15. QPTIFF profile
+## 16. QPTIFF profile
 
 Akoya QPTIFF files are TIFFs or BigTIFFs, in either byte order, whose
 images each carry a QPI description. They are read by [§3.1](tiff.md#31-reading)

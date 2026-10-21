@@ -187,8 +187,23 @@
     "for": "Zeiss CZI files"
   },
   {
-    "name": "qptiff",
+    "name": "vsi",
     "section": 15,
+    "title": "VSI",
+    "uuid": "c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45",
+    "version": 0,
+    "kind": "file",
+    "suffixes": [
+      ".vsi"
+    ],
+    "reference": null,
+    "source": "Olympus VSI",
+    "inputs": "Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG and JPEG 2000 tiles)",
+    "for": "Olympus cellSens whole-slide images (`.vsi` with its tile files)"
+  },
+  {
+    "name": "qptiff",
+    "section": 16,
     "title": "QPTIFF",
     "uuid": "329ea136-2f55-4c27-b6f4-8e60ca2109b8",
     "version": 0,

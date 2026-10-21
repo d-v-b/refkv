@@ -16,8 +16,8 @@
 //! **The QPTIFF variant** (spec/virtualize/qptiff.md
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md>). After the header (and
 //! the NDPI test), the first IFD's Software tag decides whether the file is an Akoya QPTIFF
-//! (`detect_qptiff`, spec/virtualize.md §15
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#15-qptiff-profile>, which
+//! (`detect_qptiff`, spec/virtualize.md §16
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#16-qptiff-profile>, which
 //! never rejects). A QPTIFF is read as a TIFF, with the table of `QPTIFF_TABLE` (the strip
 //! tables, RowsPerStrip and the position tags added), the schema `schema/qptiff.json`, and its
 //! own layout (`derive_qptiff`: the channels are the FullResolution images, the levels the runs
@@ -85,8 +85,8 @@ const QPTIFF_TABLE: [u16; 26] = [
     530,
 ];
 const QPTIFF_SCALARS: [u16; 16] = [256, 257, 259, 262, 266, 277, 278, 282, 283, 284, 286, 287, 296, 317, 322, 323];
-/// What a QPTIFF's Software tag starts with (spec/virtualize.md §15
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#15-qptiff-profile>).
+/// What a QPTIFF's Software tag starts with (spec/virtualize.md §16
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#16-qptiff-profile>).
 const QPI_SOFTWARE: &[u8] = b"PerkinElmer-QPI";
 const MAX_SAFE: u64 = (1 << 53) - 1;
 
@@ -704,8 +704,8 @@ impl Tiff {
         Ok(())
     }
 
-    /// The QPTIFF test (spec/virtualize.md §15
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#15-qptiff-profile>): the
+    /// The QPTIFF test (spec/virtualize.md §16
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#16-qptiff-profile>): the
     /// first IFD's Software tag (305), ASCII, whose value starts with `PerkinElmer-QPI`. Asks for
     /// the bytes it needs (the IFD's count and entries, then the value's first 15 bytes); a file
     /// that fails any part of the test is a TIFF, so the test never rejects.

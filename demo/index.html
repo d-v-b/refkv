@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Image files to Zarr in the browser</title>
-<meta name="description" content="Paste the URL of a remote image file or store, such as an OME-TIFF, an Akoya QPTIFF, a Zeiss CZI, a DICOM, an N5 or a Sentinel-2 SAFE product: a service worker virtualizes it into a vzip archive in the browser and serves it as plain Zarr, opened here in Neuroglancer or on a map.">
+<meta name="description" content="Paste the URL of a remote image file or store, such as an OME-TIFF, a Zeiss CZI, a DICOM, an N5 or a Sentinel-2 SAFE product: a service worker virtualizes it into a vzip archive in the browser and serves it as plain Zarr, opened here in Neuroglancer or on a map.">
 <style>
   :root {
     --bg: #fafaf8; --fg: #1d1d1b; --muted: #6b6b66; --line: #deddd8;
@@ -58,7 +58,7 @@
   <h1>Image files to Zarr in the browser</h1>
   <p class="lede">Paste the URL of an image file, a Zarr or N5 store, or a .vzip archive.
     <!-- profiles:demo-lede -->
-    TIFF, OME-TIFF, Aperio SVS, Hamamatsu NDPI, Nikon ND2, DICOM, NIfTI-1 and NIfTI-2, Imaris IMS, Zeiss CZI, MRC2014 and Akoya QPTIFF files, N5, Zarr v2 and OME-Zarr 0.4 stores, and Sentinel-2 SAFE (Level-1C, Level-2A) products are supported;
+    TIFF, OME-TIFF, Aperio SVS, Hamamatsu NDPI, Nikon ND2, DICOM, NIfTI-1 and NIfTI-2, Imaris IMS, Zeiss CZI, MRC2014, Olympus VSI and Akoya QPTIFF files, N5, Zarr v2 and OME-Zarr 0.4 stores, and Sentinel-2 SAFE (Level-1C, Level-2A) products are supported;
     <!-- /profiles -->
     the format is detected from the file's
     first bytes, or the store's metadata. A service worker reads the input's structure with a few range
@@ -74,8 +74,7 @@
     - IDR idr0096 (CC BY 4.0), BioImage Archive S-BIAD3015, S-BIAD2077, S-BIAD1759, S-BIAD3625 (EMBL-EBI
       BioImage Archive; S-BIAD1759 CC BY 4.0, S-BIAD3625 CC0), IDR idr0011 and idr0047 (CC BY 4.0).
     - TCGA-CM-4752 (Zenodo 7189465, CC BY 4.0); QuPath's Ki67 lymphoma tutorial slide (Zenodo 18302140,
-      CC BY 4.0); a Vectra Polaris fluorescence slide from a QuPath rendering report (Zenodo 16569043,
-      CDLA-Sharing-1.0). Zenodo can be slow to serve range requests.
+      CC BY 4.0). Zenodo can be slow to serve range requests.
     - Prostate-MRI-US-Biopsy, via the NCI Imaging Data Commons (CC BY 4.0; TCIA, doi:10.7937/TCIA.2020.A61IOC1A).
     - dcm_qa_philips by Chris Rorden (BSD-2-Clause), https://github.com/neurolabusc/dcm_qa_philips.
     - mrcfile's test data (BSD-3-Clause), https://github.com/ccpem/mrcfile: an EPU micrograph with an FEI2
@@ -91,8 +90,6 @@
       <a href="#" id="example-svs" data-url="https://zenodo.org/api/records/7189465/files/TCGA-CM-4752.svs/content">TCGA colon H&amp;E (Aperio SVS, JPEG 2000, 538 MB)</a></dd>
     <dt><span class="fmt" style="--fmt: #7a4aa0">NDPI</span> <a class="spec" href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md" title="how refkv virtualizes NDPI">spec</a></dt>
     <dd><a href="#" id="example-ndpi" data-url="https://zenodo.org/api/records/18302140/files/ki67_lymphoma.ndpi/content">QuPath Ki67 lymphoma (Hamamatsu, 221 MB)</a></dd>
-    <dt><span class="fmt" style="--fmt: #2a7f62">QPTIFF</span> <a class="spec" href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md" title="how refkv virtualizes QPTIFF">spec</a></dt>
-    <dd><a href="#" id="example-qptiff" data-url="https://zenodo.org/api/records/16569043/files/2025-07-15_13_13_34.qptiff/content">Vectra Polaris 3-channel fluorescence slide (Akoya, JPEG, 362 MB)</a></dd>
     <dt><span class="fmt" style="--fmt: #b0422c">ND2</span> <a class="spec" href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md" title="how refkv virtualizes ND2">spec</a></dt>
     <dd><a href="#" id="example-nd2" data-url="https://ftp.ebi.ac.uk/biostudies/fire/S-BIAD/015/S-BIAD3015/Files/1-SR_1_9_6hPre-C_MC1.nd2">S-BIAD3015, E. coli time-lapse (Nikon, 4.6 GB)</a>
       <a href="#" id="example-nd2-zstack" data-url="https://ftp.ebi.ac.uk/biostudies/fire/S-BIAD/077/S-BIAD2077/Files/373_230614_A1_Blk_Reg2_40x.nd2">S-BIAD2077, 5-channel z-stack (Nikon, 263 MB)</a></dd>
@@ -136,8 +133,8 @@
     more Zarr codecs, and <a href="https://openlayers.org/">OpenLayers</a> (BSD-2-Clause); the page samples
     contrast with the fork's JPEG 2000 (hayro-jpeg2000, Apache-2.0 OR MIT) and JPEG XR (jxrlib, BSD-2-Clause) decoders.
     The examples' data are their authors' (see each source): IDR, the BioImage Archive, the NCI Imaging Data
-    Commons and TCIA, OpenOrganelle and Zenodo records under CC BY 4.0 or CC0 (the Vectra Polaris slide,
-    Zenodo 16569043, under CDLA-Sharing-1.0); dcm_qa_philips under BSD-2-Clause; mrcfile's test data under BSD-3-Clause, with EMD-3197 from the EMDB (CC0); the Sentinel-2 example contains modified Copernicus Sentinel data 2019 (Mendeley Data,
+    Commons and TCIA, OpenOrganelle and Zenodo records under CC BY 4.0 or CC0; dcm_qa_philips under
+    BSD-2-Clause; mrcfile's test data under BSD-3-Clause, with EMD-3197 from the EMDB (CC0); the Sentinel-2 example contains modified Copernicus Sentinel data 2019 (Mendeley Data,
     doi:10.17632/ckcxh6jskz.1, CC BY 4.0).</footer>
 </main>
 <script type="module" src="demo.js"></script>

@@ -43,6 +43,8 @@ def sniff(head: bytes) -> str | None:
         return "dicom"
     if head[:4] == ND2_MAGIC:
         return "nd2"
+    if head[:4] == b"II*\0" and head[8:12] == b"\x18\x00IS":
+        return "vsi"  # a VSI file: a TIFF whose byte 8 starts the metadata tree
     if head[:4] in TIFF_MAGIC:
         return "tiff"
     if head[:16] == CZI_MAGIC:

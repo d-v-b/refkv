@@ -22,8 +22,13 @@ directory), and drives the run:
 
 The core's store formats: `zarr2` (rust/refkv-ir/src/zarr2.rs, spec/virtualize/zarr2.md), which
 `refkv.virtualize` sends Zarr v2 stores to (deciding which are OME-Zarr 0.4's,
-spec/virtualize/ome-zarr.md), and `safe` (rust/refkv-ir/src/safe/,
-spec/virtualize/safe.md), a SAFE product's directory form.
+spec/virtualize/ome-zarr.md), `safe` (rust/refkv-ir/src/safe/,
+spec/virtualize/safe.md), a SAFE product's directory form, `n5`, and `vsi`
+(rust/refkv-ir/src/vsi/, spec/virtualize/vsi.md), whose run starts from the `.vsi` file alone
+and **probes** for its tile files: a `poll()` that gives an empty list is a batch of probes,
+each key of `run.probes()` answered by `run.found(size)` with the key's size, or None when it
+does not exist (`Store.probe`; `refkv.virtualize.vsi.VsiFiles` opens the files beside the
+`.vsi`).
 """
 
 from __future__ import annotations
@@ -82,6 +87,16 @@ def drive_store(run, store: Store, workers: int | None = None, fmt: str | None =
                 raise Rejected(str(e), format=fmt) from None
             if reqs is None:
                 return
+            if not reqs:
+                # a batch of probes (a VSI input's tile files, spec/virtualize/vsi.md §15.2
+                # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#152-the-tile-files>):
+                # each key answered with its size, or None when it does not exist
+                for key in run.probes():
+                    try:
+                        run.found(store.probe(key))
+                    except _core.Rejected as e:
+                        raise Rejected(str(e), format=fmt) from None
+                continue
             if pool is None or len(reqs) == 1:
                 results = [_fetch(store, key, spans) for _, key, spans in reqs]
             else:
@@ -286,7 +301,8 @@ def run_store(store: Store, fmt: str = "zarr2", mirror: bool = True):
         t, ir = run.output(store.url, mirror)
     except _core.Rejected as e:
         raise Rejected(str(e), format=profile) from None
-    out = from_rust(t, store.objects)
+    # the objects' sizes, from the IR: the listing's, and a VSI input's files probed into it
+    out = from_rust(t, {k: n for k, _, n in ir.object_bases()})
     out.summary["listingRequests"] = getattr(store, "requests", 0)
     return out, ir, stats
 

@@ -570,6 +570,10 @@ export interface Store {
    * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#122-objects-and-reading>).
    */
   readRange?(key: string, offset: number, length: number): Promise<Uint8Array>;
+  /** The size of the object `key` when the store has it, else undefined: the answer to a run's
+   * probe (ir/store.ts), for a store whose objects are not listed (a VSI input's files,
+   * ir/vsi.ts). A listed store has the objects it listed. */
+  probe?(key: string): Promise<number | undefined>;
   /** Documents read at a time by `prefetchDocuments`; read one at a time if absent or 1. */
   concurrency?: number;
   /** Bytes read ahead and not yet taken, at most (but always one document). */

@@ -49,6 +49,9 @@ fn accepted_fixtures_are_valid_irs_that_rebuild() {
     for e in refkv_ir::out::registry().iter().filter(|e| e["kind"] == "file") {
         let name = e["name"].as_str().unwrap();
         let f = Format::from_name(name).unwrap_or_else(|| panic!("{name}: no parser"));
+        if f.store_run() {
+            continue; // a file input read as a store run (VSI): tests/vsi.rs drives it with its tile files
+        }
         let suffixes: Vec<&str> = e["suffixes"].as_array().unwrap().iter().map(|s| s.as_str().unwrap()).collect();
         let mut accepted = 0;
         for path in files(&fixtures().join(name), &suffixes) {
@@ -81,8 +84,8 @@ fn the_tiff_parser_finds_ndpi() {
     }
 }
 
-/// The TIFF parser reads a QPTIFF as QPTIFF (spec/virtualize/qptiff.md §15
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#15-qptiff-profile>): each
+/// The TIFF parser reads a QPTIFF as QPTIFF (spec/virtualize/qptiff.md §16
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#16-qptiff-profile>): each
 /// accepted QPTIFF fixture's facts name the profile, its channels and levels; a TIFF's and an
 /// NDPI's do not.
 #[test]

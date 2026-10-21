@@ -1,0 +1,9 @@
+# url|name|no-ref of the public Olympus VSI slides in the corpus (the frozen reference has no VSI
+# profile, so each compares py with web alone): the OME sample images' CellSens sets (Evident's
+# Image_V4.1 slides: brightfield, fluorescence 2D and 3D, (c) Evident), and the Zenodo record
+# 17590655 (CC-BY-4.0, (c) Aafke Gros). Each .vsi reads its tile files beside it: the harness
+# proxy forwards those too, under the same directory.
+https://downloads.openmicroscopy.org/images/CellSens/evident/Image_V4.1_BF.vsi|evident_bf|no-ref
+https://downloads.openmicroscopy.org/images/CellSens/evident/Image_V4.1_FL_2D.vsi|evident_fl_2d|no-ref
+https://downloads.openmicroscopy.org/images/CellSens/evident/Image_V4.1_FL_3D.vsi|evident_fl_3d|no-ref
+https://downloads.openmicroscopy.org/images/CellSens/zenodo-17590655/metadataTest_01.vsi|zenodo_metadata_test|no-ref

@@ -70,7 +70,7 @@ pub fn check_store_url(url: &str) -> Result<(String, String, String), Fail> {
     Ok((p.scheme.unwrap().to_string(), authority.to_string(), p.path.to_string()))
 }
 
-fn percent_decode(s: &str) -> Vec<u8> {
+pub fn percent_decode(s: &str) -> Vec<u8> {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;

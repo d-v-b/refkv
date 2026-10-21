@@ -154,7 +154,7 @@ Supported:
 Rejected:
 
 - Gzipped maps (`.map.gz`), the way the EMDB distributes them: `not a
-  TIFF, NDPI, ND2, DICOM, NIfTI, MRC, IMS, CZI or SAFE zip file`. A gzip
+  TIFF, NDPI, ND2, DICOM, NIfTI, MRC, IMS, CZI, VSI or SAFE zip file`. A gzip
   stream has no byte ranges to reference; decompress the map first.
 - Files without `MAP` at byte 208 (the pre-2000 format), and a machine
   stamp that is neither little- nor big-endian.

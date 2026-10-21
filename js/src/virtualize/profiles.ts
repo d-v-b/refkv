@@ -1,6 +1,6 @@
 // The profile registry: generated from spec/virtualize/profiles.json by spec/tools/profiles.py; edit the registry, not this.
 
-export type Profile = "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "mrc" | "mrc-dataset" | "ims" | "n5" | "zarr2" | "ome-zarr" | "safe" | "czi" | "qptiff";
+export type Profile = "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "mrc" | "mrc-dataset" | "ims" | "n5" | "zarr2" | "ome-zarr" | "safe" | "czi" | "vsi" | "qptiff";
 
 export interface ProfileEntry {
   name: Profile;
@@ -30,5 +30,6 @@ export const REGISTRY: ProfileEntry[] = [
   {"name": "ome-zarr", "section": 11, "title": "OME-Zarr", "uuid": "b74ea302-65bb-49ae-b81f-f9bb52cd4eed", "version": 0, "kind": "store", "suffixes": [], "reference": 25, "source": "OME-Zarr 0.4", "inputs": "OME-Zarr 0.4 hierarchies on Zarr v2, migrated to OME-Zarr 0.5", "for": "OME-Zarr 0.4 hierarchies, migrated to OME-Zarr 0.5 in place"},
   {"name": "safe", "section": 12, "title": "Sentinel-2 SAFE", "uuid": "ef81346c-19e8-42ad-93b0-a279ccaf44c1", "version": 0, "kind": "both", "suffixes": [".zip"], "reference": 25, "source": "Sentinel-2 SAFE (Level-1C, Level-2A)", "inputs": "Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (a store) or a `.SAFE.zip` file", "for": "Sentinel-2 Level-1C and Level-2A products, as a `.SAFE` directory or a `.SAFE.zip`"},
   {"name": "czi", "section": 13, "title": "CZI", "uuid": "7a0733c7-d4be-4482-a64f-6904d9354ea5", "version": 0, "kind": "file", "suffixes": [".czi"], "reference": 20, "source": "Zeiss CZI", "inputs": "Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids", "for": "Zeiss CZI files"},
-  {"name": "qptiff", "section": 15, "title": "QPTIFF", "uuid": "329ea136-2f55-4c27-b6f4-8e60ca2109b8", "version": 0, "kind": "file", "suffixes": [".qptiff"], "reference": null, "source": "Akoya QPTIFF", "inputs": "Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips", "for": "Akoya (PerkinElmer) Vectra multiplex scans and inForm component data"},
+  {"name": "vsi", "section": 15, "title": "VSI", "uuid": "c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45", "version": 0, "kind": "file", "suffixes": [".vsi"], "reference": null, "source": "Olympus VSI", "inputs": "Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG and JPEG 2000 tiles)", "for": "Olympus cellSens whole-slide images (`.vsi` with its tile files)"},
+  {"name": "qptiff", "section": 16, "title": "QPTIFF", "uuid": "329ea136-2f55-4c27-b6f4-8e60ca2109b8", "version": 0, "kind": "file", "suffixes": [".qptiff"], "reference": null, "source": "Akoya QPTIFF", "inputs": "Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips", "for": "Akoya (PerkinElmer) Vectra multiplex scans and inForm component data"},
 ];
