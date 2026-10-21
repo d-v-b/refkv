@@ -124,7 +124,7 @@ Supported:
 Rejected:
 
 - Gzipped files (`.nii.gz`), the usual way NIfTI is distributed: `not a
-  TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file`. A gzip stream has no byte
+  TIFF, NDPI, ND2, DICOM, NIfTI, MRC, IMS, CZI, VSI or SAFE zip file`. A gzip stream has no byte
   ranges to reference; decompress the file first (and host the `.nii`).
 - Header-and-image pairs (`.hdr`/`.img`, magic `ni1`, `ni2`).
 - Complex, binary and 128-bit types.

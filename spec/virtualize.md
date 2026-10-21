@@ -34,10 +34,11 @@ is a document of its own, numbered as a section of this one:
 | 12 | [Sentinel-2 SAFE](virtualize/safe.md#part-2-the-profile) | file or store | Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (a store) or a `.SAFE.zip` file |
 | 13 | [CZI](virtualize/czi.md#part-2-the-profile) | file | Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids |
 | 14 | [MRC](virtualize/mrc.md#part-2-the-profile) | file | MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks) |
+| 15 | [VSI](virtualize/vsi.md#part-2-the-profile) | file | Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG and JPEG 2000 tiles) |
 <!-- /profiles -->
 
 The table says which profiles read a single file (a **file input**), which a store of many
-objects (a **store input**, [§1.4](#14-store-inputs)), and which either. [Appendix A](#appendix-a-conformance) is informative:
+objects (a **store input**, [§1.4](#14-store-inputs)), and which either; VSI ([§15](virtualize/vsi.md#15-vsi-profile)) is named by a file, its `.vsi`, and reads it and the tile files beside it as a store it probes rather than lists. [Appendix A](#appendix-a-conformance) is informative:
 the implementations and how they are compared.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be
@@ -159,6 +160,7 @@ a test that needs a byte beyond `H` does not match.
 | bytes 0–3 are `50 4B 03 04` (a ZIP local file header) | SAFE profile ([§12](virtualize/safe.md#12-safe-profile)), zip form |
 | bytes 0–15 are `5A 49 53 52 41 57 46 49 4C 45` (`ZISRAWFILE`) and six `00` bytes | CZI profile ([§13](virtualize/czi.md#13-czi-profile)) |
 | bytes 208–210 are `4D 41 50` (`MAP`) | MRC profile ([§14](virtualize/mrc.md#14-mrc-profile)) |
+| bytes 0–3 are `49 49 2A 00` and bytes 8–11 are `18 00 49 53` (a cellSens container header) | VSI profile ([§15](virtualize/vsi.md#15-vsi-profile)), tested before the TIFF row |
 | anything else, including the JPEG 2000 signature box `00 00 00 0C 6A 50 20 20 0D 0A 87 0A` that starts legacy ND2 files, NIfTI header-and-image pairs (`ni1`, `ni2`) and pre-2000 MRC files without `MAP` | rejected |
 
 A DICOM file is read by the DICOM profile even when its 128-byte preamble
@@ -534,7 +536,8 @@ other section:
 - [§11](virtualize/ome-zarr.md#11-ome-zarr-profile), the OME-Zarr profile: [spec/virtualize/ome-zarr.md](virtualize/ome-zarr.md#part-2-the-profile);
 - [§12](virtualize/safe.md#12-safe-profile), the SAFE profile: [spec/virtualize/safe.md](virtualize/safe.md#part-2-the-profile);
 - [§13](virtualize/czi.md#13-czi-profile), the CZI profile: [spec/virtualize/czi.md](virtualize/czi.md#part-2-the-profile);
-- [§14](virtualize/mrc.md#14-mrc-profile), the MRC profile: [spec/virtualize/mrc.md](virtualize/mrc.md#part-2-the-profile).
+- [§14](virtualize/mrc.md#14-mrc-profile), the MRC profile: [spec/virtualize/mrc.md](virtualize/mrc.md#part-2-the-profile);
+- [§15](virtualize/vsi.md#15-vsi-profile), the VSI profile: [spec/virtualize/vsi.md](virtualize/vsi.md#part-2-the-profile).
 <!-- /profiles -->
 
 ## Appendix A. Conformance

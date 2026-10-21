@@ -31,12 +31,15 @@ who each one is for, what you get, and how to run it.
 | Sentinel-2 SAFE | Sentinel-2 Level-1C and Level-2A products, as a `.SAFE` directory or a `.SAFE.zip` | [convention](../../spec/virtualize/safe.md) | [§12](../../spec/virtualize/safe.md#part-2-the-profile) |
 | CZI | Zeiss CZI files | [convention](../../spec/virtualize/czi.md) | [§13](../../spec/virtualize/czi.md#part-2-the-profile) |
 | MRC | MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`) | [mrc](mrc/README.md) | [§14](../../spec/virtualize/mrc.md#part-2-the-profile) |
+| VSI | Olympus cellSens whole-slide images (`.vsi` with its tile files) | [vsi](vsi/README.md) | [§15](../../spec/virtualize/vsi.md#part-2-the-profile) |
 <!-- /profiles -->
 
 A format that reads a file takes a URL, or a local path. One that reads a
 store takes a URL ending in `/` that answers the S3 `ListObjectsV2` operation
 anonymously, such as a public S3 bucket. SAFE reads either: a product's
-`.SAFE` directory as a store, or its `.SAFE.zip` as a file.
+`.SAFE` directory as a store, or its `.SAFE.zip` as a file. VSI is named by
+its `.vsi` file and reads the tile files beside it by name, without listing
+the directory.
 
 SAFE and CZI have no user-story page yet; their conventions describe the
 output. A Sentinel-2 product becomes a GeoZarr hierarchy (one group per
@@ -84,7 +87,9 @@ host (below); it then writes no archive. The format is chosen by the file's firs
 store by the objects at its root. Options:
 
 - `--url <url>`: the URL to record as the source, for a local file or
-  directory that will be served from that URL (a local directory needs it);
+  directory that will be served from that URL (a local directory needs it;
+  for a VSI slide, the `.vsi` file's URL, whose directory the tile files are
+  named under);
 - `--checksums`: also record the CRC-32C of every referenced range
   ([spec/refkv.md §4.2](../../spec/refkv.md#42-range)), which reads every byte the
   archive references (off by default);
@@ -222,6 +227,13 @@ each format's metadata is:
   the data type, the axis map and the voxel size. The archive also holds the
   file as a dataset for xarray under `dataset/`, declared by its own
   convention ([conventions §9](../../spec/conventions.md#9-dataset-layouts)).
+- **VSI:** the IR mirror on `refkv_source`: the `.vsi` file (its metadata
+  tree field by field, and the IFDs inside it) and every tile file (its
+  headers, tile directory and tiles), each described in place, so that the
+  mirror rebuilds each file from the slide's own bytes. The root keeps the
+  metadata tree as JSON, the list of stacks and the file's size; each
+  image keeps its stack's properties (scale, origin, channels, creation
+  time, magnification) and its tile file's headers.
 - **N5, Zarr v2 and OME-Zarr:** each node's own attributes and the layout
   members its `zarr.json` does not reproduce, on the node, as
   `{"attributes": ..., "metadata": ...}` (with `"unversioned"` for an

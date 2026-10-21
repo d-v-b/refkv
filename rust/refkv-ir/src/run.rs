@@ -31,6 +31,11 @@ pub enum Format {
     Ndpi,
     /// an MRC2014 file (a CCP4 map, an image stack, a volume or a volume stack)
     Mrc,
+    /// An Olympus VSI slide: a `.vsi` file whose tile files lie beside it, virtualized as a
+    /// store run of the `vsi` store format (spec/virtualize/vsi.md §15.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#152-the-tile-files>), never
+    /// as a file run: `sniff` names it so that a host sends the file to [`crate::store::StoreRun`].
+    Vsi,
 }
 
 impl Format {
@@ -47,11 +52,19 @@ impl Format {
             Format::Safe => "safe",
             Format::Ndpi => "ndpi",
             Format::Mrc => "mrc",
+            Format::Vsi => "vsi",
         }
     }
-    /// The format of a name ("nd2", "tiff", "czi", "dicom", "nifti", "ims", "safe", "ndpi", "mrc").
+    /// Whether the format's input, a file, is virtualized by a store run rather than a file
+    /// run: VSI, whose `.vsi` file is read with the tile files beside it (`StoreFormat::Vsi`); a
+    /// file run of it only rejects, so a host hands it to its `vsi` module.
+    pub fn store_run(self) -> bool {
+        matches!(self, Format::Vsi)
+    }
+
+    /// The format of a name ("nd2", "tiff", "czi", "dicom", "nifti", "ims", "safe", "ndpi", "mrc", "vsi").
     pub fn from_name(s: &str) -> Option<Format> {
-        [Format::Nd2, Format::Tiff, Format::Czi, Format::Dicom, Format::Nifti, Format::Ims, Format::Safe, Format::Ndpi, Format::Mrc].into_iter().find(|f| f.name() == s)
+        [Format::Nd2, Format::Tiff, Format::Czi, Format::Dicom, Format::Nifti, Format::Ims, Format::Safe, Format::Ndpi, Format::Mrc, Format::Vsi].into_iter().find(|f| f.name() == s)
     }
     /// The format a file's first bytes give, if one of these: a hint, the format of its
     /// signature (any zip file is taken for a SAFE product's zip form, which then rejects one
@@ -64,6 +77,11 @@ impl Format {
         }
         if head.len() >= 4 && head[..4] == [0xda, 0xce, 0xbe, 0x0a] {
             return Some(Format::Nd2);
+        }
+        // a VSI file is a TIFF whose byte 8 starts its metadata tree (spec/virtualize/vsi.md §15.1
+        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#151-the-vsi-file>)
+        if crate::vsi::detect(head) {
+            return Some(Format::Vsi);
         }
         if head.len() >= 4 && [b"II*\0", b"MM\0*", b"II+\0", b"MM\0+"].iter().any(|m| head[..4] == m[..]) {
             return Some(Format::Tiff);
@@ -96,6 +114,8 @@ pub enum AnyParser {
     Ims(Ims),
     Safe(Box<Safe>),
     Mrc(Mrc),
+    /// a VSI file, which no file run reads (its parser is a store parser)
+    Vsi,
 }
 
 impl AnyParser {
@@ -109,6 +129,7 @@ impl AnyParser {
             Format::Ims => AnyParser::Ims(Ims::new(size)),
             Format::Safe => AnyParser::Safe(Box::new(Safe::new(size))),
             Format::Mrc => AnyParser::Mrc(Mrc::new(size)),
+            Format::Vsi => AnyParser::Vsi,
         }
     }
     pub fn step(&mut self) -> Result<Step, String> {
@@ -121,6 +142,7 @@ impl AnyParser {
             AnyParser::Ims(x) => x.step(),
             AnyParser::Safe(x) => x.step(),
             AnyParser::Mrc(x) => x.step(),
+            AnyParser::Vsi => Err("a VSI file is virtualized as a store run, with its tile files".into()),
         }
     }
     pub fn feed(&mut self, o: u64, b: Vec<u8>) {
@@ -133,6 +155,7 @@ impl AnyParser {
             AnyParser::Ims(x) => x.feed(o, b),
             AnyParser::Safe(x) => x.feed(o, b),
             AnyParser::Mrc(x) => x.feed(o, b),
+            AnyParser::Vsi => {}
         }
     }
     pub fn finish(self) -> Result<(Ir, serde_json::Value), String> {
@@ -145,6 +168,7 @@ impl AnyParser {
             AnyParser::Ims(x) => Parser::finish(x),
             AnyParser::Safe(x) => Parser::finish(*x),
             AnyParser::Mrc(x) => Parser::finish(x),
+            AnyParser::Vsi => Err("a VSI file is virtualized as a store run, with its tile files".into()),
         }
     }
 }
