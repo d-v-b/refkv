@@ -11,8 +11,8 @@
 // CRC-32C of every range of a url source (spec/refkv.md §4.2
 // <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>), reading its bytes.
 // Prints a JSON summary; exits 3 (writing nothing) if the input is rejected.
-// A store over the browser limit (§15
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-conformance>) is a failure (exit
+// A store over the browser limit (§16
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-conformance>) is a failure (exit
 // 1), not a rejection.
 
 import fs from "node:fs";

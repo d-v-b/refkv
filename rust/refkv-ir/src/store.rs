@@ -31,6 +31,12 @@ use std::collections::HashMap;
 pub enum StoreStep {
     /// (object, offset, length): `object` indexes the listing.
     Read(Vec<(usize, u64, u64)>),
+    /// Keys the parser needs to know about, which the listing does not have (a VSI input's
+    /// tile files, spec/virtualize/vsi.md §15.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#152-the-tile-files>): the
+    /// host tells which exist, and their sizes ([`StoreRun::found`]), each found one becoming an
+    /// object of the run and of the IR ([`StoreParser::found`]).
+    Probe(Vec<String>),
     Done,
 }
 
@@ -52,6 +58,13 @@ pub trait StoreParser: Send + Sync {
     fn profile(&self) -> Option<&'static str> {
         None
     }
+    /// A probed key (`StoreStep::Probe`), in the order asked: `index` is its listing index when
+    /// it exists (`size` its size), and the parser adds it to the IR as an object, whose element
+    /// it returns; None for a key that does not exist.
+    fn found(&mut self, key: &str, index: usize, size: Option<u64>) -> Res<Option<u32>> {
+        let _ = (key, index, size);
+        Err("internal: this store format probes no keys".into())
+    }
 }
 
 /// The store formats the core reads (the store profiles move onto the IR one by one).
@@ -66,6 +79,10 @@ pub enum StoreFormat {
     /// An N5 container (`n5.rs`; spec/virtualize/n5.md
     /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md>).
     N5,
+    /// An Olympus VSI slide (`vsi/`; spec/virtualize/vsi.md
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md>): the `.vsi` file, listed
+    /// alone, and the tile files the run probes for.
+    Vsi,
 }
 
 impl StoreFormat {
@@ -74,6 +91,7 @@ impl StoreFormat {
             "zarr2" => Some(StoreFormat::Zarr2),
             "safe" => Some(StoreFormat::Safe),
             "n5" => Some(StoreFormat::N5),
+            "vsi" => Some(StoreFormat::Vsi),
             _ => None,
         }
     }
@@ -82,6 +100,7 @@ impl StoreFormat {
             StoreFormat::Zarr2 => "zarr2",
             StoreFormat::Safe => "safe",
             StoreFormat::N5 => "n5",
+            StoreFormat::Vsi => "vsi",
         }
     }
     /// The convention the mirror declares.
@@ -90,6 +109,7 @@ impl StoreFormat {
             StoreFormat::Zarr2 => "zarr2",
             StoreFormat::Safe => "safe",
             StoreFormat::N5 => "n5",
+            StoreFormat::Vsi => "vsi",
         }
     }
     fn parser(self, ir: Ir, objects: Vec<u32>, keys: &[(String, u64)]) -> Res<Box<dyn StoreParser>> {
@@ -97,6 +117,7 @@ impl StoreFormat {
             StoreFormat::Zarr2 => Ok(Box::new(crate::zarr2::Zarr2::new(ir, objects, keys)?)),
             StoreFormat::Safe => Ok(Box::new(crate::safe::Safe::new_store(ir, objects, keys))),
             StoreFormat::N5 => Ok(Box::new(crate::n5::N5::new(ir, objects, keys))),
+            StoreFormat::Vsi => Ok(Box::new(crate::vsi::Vsi::new(ir, objects, keys)?)),
         }
     }
 }
@@ -140,6 +161,9 @@ pub struct StoreRun {
     pub stats: StoreStats,
     done: bool,
     ignored: Vec<String>,
+    /// the keys the parser asked the host to probe, not yet answered (`found`)
+    probes: Vec<String>,
+    answered: usize,
 }
 
 impl StoreRun {
@@ -173,6 +197,8 @@ impl StoreRun {
             stats: StoreStats::default(),
             done: false,
             ignored: Vec::new(),
+            probes: Vec::new(),
+            answered: 0,
         })
     }
 
@@ -203,11 +229,18 @@ impl StoreRun {
         self.parser.as_ref().and_then(|p| p.profile()).unwrap_or(self.format.profile())
     }
 
-    /// The requests to make now, concurrently; None when the parser is done.
+    /// The requests to make now, concurrently; None when the parser is done. An empty list is
+    /// a batch of probes ([`StoreRun::probes`]): the host answers each with [`StoreRun::found`],
+    /// then polls again.
     pub fn poll(&mut self) -> Res<Option<Vec<ObjectRequest>>> {
         if self.done {
             return Ok(None);
         }
+        if self.answered < self.probes.len() {
+            return Err("poll before every probe of the batch was answered".into());
+        }
+        self.probes.clear();
+        self.answered = 0;
         // a batch is pending until served, even one of empty ranges only (no request)
         if !self.round.is_empty() || !self.asked.is_empty() {
             if self.got.iter().any(|g| g.is_none()) {
@@ -225,7 +258,50 @@ impl StoreRun {
                 self.begin(ranges)?;
                 Ok(Some(self.round.clone()))
             }
+            StoreStep::Probe(keys) => {
+                if keys.is_empty() {
+                    return Err("internal: a batch of no probes".into());
+                }
+                let mut seen: std::collections::HashSet<&str> = self.keys.iter().map(|k| k.0.as_str()).collect();
+                for k in &keys {
+                    if k.is_empty() || k.split('/').any(|s| s.is_empty() || s == "." || s == "..") || !seen.insert(k.as_str()) {
+                        return Err(format!("internal: the probed key {k:?} is listed already, or is not a key"));
+                    }
+                }
+                self.stats.batches += 1;
+                self.probes = keys;
+                self.answered = 0;
+                Ok(Some(Vec::new()))
+            }
         }
+    }
+
+    /// The keys of the pending batch of probes, in the order the host answers them.
+    pub fn probes(&self) -> &[String] {
+        &self.probes
+    }
+
+    /// The answer to the next probe of the batch (in order): the key's size when it exists,
+    /// None when it does not. A found key becomes an object of the run, its reads budgeted
+    /// like a listed one's.
+    pub fn found(&mut self, size: Option<u64>) -> Res<()> {
+        let k = self.answered;
+        if k >= self.probes.len() {
+            return Err("a probe answered that was not asked".into());
+        }
+        let key = self.probes[k].clone();
+        self.answered += 1;
+        let index = self.keys.len();
+        let p = self.parser.as_mut().ok_or("internal: no parser")?;
+        let e = p.found(&key, index, size)?;
+        if let (Some(size), Some(e)) = (size, e) {
+            self.keys.push((key, size));
+            self.objects.push(e);
+            self.read_any.push(false);
+            self.reads_limit += 4;
+            self.bytes_limit = self.bytes_limit.saturating_add(size.saturating_mul(2));
+        }
+        Ok(())
     }
 
     fn begin(&mut self, ranges: Vec<(usize, u64, u64)>) -> Res<()> {
@@ -367,6 +443,7 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         StoreFormat::Zarr2 => crate::project::zarr2::project(ir, facts, url)?,
         StoreFormat::Safe => crate::project::safe::project(ir, facts, url)?,
         StoreFormat::N5 => crate::project::n5::project(ir, facts, url)?,
+        StoreFormat::Vsi => crate::project::vsi::project(ir, facts, url, &Default::default())?,
     };
     let mut summary = std::mem::take(&mut out.summary);
     if let Some(m) = summary.as_object_mut() {

@@ -1,4 +1,5 @@
-// Virtualizing an ND2, TIFF (NDPI included), CZI, DICOM, NIfTI, MRC or IMS file or a SAFE zip file with the Rust core (rust/refkv-ir): its
+// Virtualizing an ND2, TIFF (NDPI included), CZI, DICOM, NIfTI, MRC or IMS file or a SAFE zip file with the Rust core (rust/refkv-ir; a VSI
+// file goes through the store run of vsi.ts instead): its
 // parser, read planner, image projection and source mirror run in WebAssembly;
 // this host performs the requests a run asks for (`RangeSource`) and turns its
 // output (`Out::encode`) into the writer's archive description. The twin of
@@ -10,8 +11,8 @@ import { ImageError } from "../common.ts";
 import type { RangeSource, Span } from "./source.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
-export type IrFormat = "nd2" | "tiff" | "czi" | "dicom" | "nifti" | "ims" | "safe" | "ndpi" | "mrc";
-const CODES: Record<IrFormat, number> = { nd2: 0, tiff: 1, czi: 2, dicom: 3, nifti: 4, ims: 5, safe: 6, ndpi: 7, mrc: 8 };
+export type IrFormat = "nd2" | "tiff" | "czi" | "dicom" | "nifti" | "ims" | "safe" | "ndpi" | "mrc" | "vsi";
+const CODES: Record<IrFormat, number> = { nd2: 0, tiff: 1, czi: 2, dicom: 3, nifti: 4, ims: 5, safe: 6, ndpi: 7, mrc: 8, vsi: 9 };
 
 export interface IrOutput extends ArchiveDesc {
   format: IrFormat;

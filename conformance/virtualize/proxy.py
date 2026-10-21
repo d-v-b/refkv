@@ -198,11 +198,15 @@ def make_handler(fixtures: Path, upstream: Upstream, page_size: int = 100):
                 return len(data), lambda a, b: data[a:b]
             if len(parts) >= 3 and parts[1] == "u":
                 url = decode_id(parts[2])
+                key = "/".join(parts[3:])
                 if url.endswith("/"):  # a remote store: the object under it
-                    key = "/".join(parts[3:])
                     if not key:
                         return None
                     url += key
+                elif key and key != url.split("?")[0].rsplit("/", 1)[-1]:
+                    # a file beside the remote file (a VSI slide's tile files, probed by the
+                    # virtualizers at the slide's directory)
+                    url = url.rsplit("/", 1)[0] + "/" + key
                 return upstream.size(url), lambda a, b: upstream.read(url, a, b)
             return None
 

@@ -13,7 +13,7 @@ idr_tiff := "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant
 default:
     @just --list --list-submodules
 
-# Test the Python package (python/src/refkv; it virtualizes TIFF, NDPI, ND2, CZI, DICOM, NIfTI, MRC, IMS and SAFE, and Zarr v2, N5 and OME-Zarr stores, with the Rust core, built first)
+# Test the Python package (python/src/refkv; it virtualizes TIFF, NDPI, ND2, CZI, DICOM, NIfTI, MRC, IMS, VSI and SAFE, and Zarr v2, N5 and OME-Zarr stores, with the Rust core, built first)
 test *args: ir-build
     uv run pytest -q python/tests {{args}}
 
@@ -87,7 +87,7 @@ conformance out="conformance/results/latest": impls::build
         --impl rust=conformance/impls/rust/vzip --impl typescript=conformance/impls/typescript/vzip --impl python=conformance/impls/python/vzip
 
 # Regenerate the synthetic files in fixtures/<format> (all but NDPI, which needs the network)
-fixtures: fixtures-tiff fixtures-nd2 fixtures-dicom fixtures-nifti fixtures-mrc fixtures-ims fixtures-n5 fixtures-zarr2 fixtures-ome-zarr fixtures-safe fixtures-czi
+fixtures: fixtures-tiff fixtures-nd2 fixtures-dicom fixtures-nifti fixtures-mrc fixtures-ims fixtures-n5 fixtures-zarr2 fixtures-ome-zarr fixtures-safe fixtures-czi fixtures-vsi
 
 # Regenerate the fixtures twice and check that both runs give the same bytes, and the committed ones
 fixtures-check:
@@ -160,8 +160,12 @@ fixtures-safe:
 fixtures-czi:
     uv run python fixtures/generators/czi/write_fixtures.py
 
+# Regenerate the synthetic Olympus VSI slides (each a .vsi file and its tile files beside it)
+fixtures-vsi:
+    uv run python fixtures/generators/vsi/write_fixtures.py
+
 # Check the browser virtualizer's pixels for every format
-verify: verify-tiff verify-ndpi verify-nd2 verify-dicom verify-nifti verify-mrc verify-ims verify-n5 verify-zarr2 verify-ome-zarr
+verify: verify-tiff verify-ndpi verify-nd2 verify-dicom verify-nifti verify-mrc verify-ims verify-vsi verify-n5 verify-zarr2 verify-ome-zarr
 
 # Check the browser virtualizer's TIFF pixels against tifffile
 verify-tiff:
@@ -190,6 +194,10 @@ verify-mrc:
 # Check the browser virtualizer's IMS pixels against h5py
 verify-ims:
     uv run python js/test/ims/verify.py
+
+# Check the browser virtualizer's VSI pixels against the synthetic slides' known pixels, and against Bio-Formats when a JVM is at hand
+verify-vsi:
+    uv run python js/test/vsi/verify.py
 
 # Check the browser virtualizer's N5 arrays against an independent block reader and zarr-n5
 verify-n5:
@@ -246,7 +254,7 @@ tag-conventions:
     done
     echo "push them with: git push origin --tags"
 
-# Virtualize an image file (TIFF, NDPI, ND2, DICOM, NIfTI, MRC or IMS; a URL or a path), or an N5,
+# Virtualize an image file (TIFF, NDPI, ND2, DICOM, NIfTI, MRC, IMS or VSI; a URL or a path), or an N5,
 # Zarr v2 or OME-Zarr 0.4 store (a URL ending in "/"), into a vzip archive
 virtualize src out:
     uv run python -m refkv.virtualize {{quote(src)}} {{quote(out)}}

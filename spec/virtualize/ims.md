@@ -25,7 +25,7 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "ims"`, `"version": 0`, `"revision": 28` ([conventions §1](../conventions.md#1-conventions)) and the file's URL as `source.url`.
+with `"profile": "ims"`, `"version": 0`, `"revision": 29` ([conventions §1](../conventions.md#1-conventions)) and the file's URL as `source.url`.
 The root has no source metadata of its own: the whole HDF5 file is described
 by `refkv_source`, its IR mirror ([§5](#5-source-metadata)). Its CMO is:
 
@@ -405,7 +405,7 @@ The root of a file at `https://example.org/a.ims`:
 "refkv_virtualized": {
   "profile": "ims",
   "version": 0,
-  "revision": 28,
+  "revision": 29,
   "source": {
     "url": "https://example.org/a.ims"
   }

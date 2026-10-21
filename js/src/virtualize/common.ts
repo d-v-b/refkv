@@ -185,14 +185,14 @@ export function toRange(p: Part): Range {
  */
 export const CONVENTION_KEY = "refkv_virtualized";
 
-export type Profile = "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "mrc" | "mrc-dataset" | "ims" | "n5" | "zarr2" | "ome-zarr" | "safe" | "czi";
+export type Profile = "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "mrc" | "mrc-dataset" | "ims" | "n5" | "zarr2" | "ome-zarr" | "safe" | "czi" | "vsi";
 
 /** Each profile's convention: its fixed UUID, its current version and its name in the description. */
 /** The revision of spec/virtualize.md this implementation follows. Until the release, every
  * convention is at version 0 and the root property records it (conventions §1
  * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>, §2
  * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>). */
-export const REVISION = 28;
+export const REVISION = 29;
 export const PROFILES: Record<Profile, [uuid: string, version: number, title: string]> = {
   tiff: ["48e9ac4e-1156-4a62-955e-20467d9c2700", 0, "TIFF"],
   ndpi: ["6cac71ef-dbb2-4acd-b60c-00389aa4238a", 0, "NDPI"],
@@ -207,6 +207,7 @@ export const PROFILES: Record<Profile, [uuid: string, version: number, title: st
   "ome-zarr": ["b74ea302-65bb-49ae-b81f-f9bb52cd4eed", 0, "OME-Zarr"],
   safe: ["ef81346c-19e8-42ad-93b0-a279ccaf44c1", 0, "Sentinel-2 SAFE"],
   czi: ["7a0733c7-d4be-4482-a64f-6904d9354ea5", 0, "CZI"],
+  vsi: ["c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45", 0, "VSI"],
 };
 export const UUIDS = new Set(Object.values(PROFILES).map(([uuid]) => uuid));
 

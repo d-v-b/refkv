@@ -41,8 +41,8 @@ class ListingFailed(OSError):
 
 class StoreLimit(OSError):
     """An implementation's resource limit (§1.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>, §15
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-conformance>): a failure, not a
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>, §16
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-conformance>): a failure, not a
     rejection."""
 
 
@@ -601,6 +601,11 @@ class Store:
         """The bytes [offset, offset + length) of the object `key` (spec/virtualize.md §12.2
         <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#122-objects-and-reading>)."""
         raise NotImplementedError
+
+    def probe(self, key: str) -> int | None:
+        """The size of the object `key` when the store has it, else None: the answer to a run's
+        probe (`refkv.ir.store.drive_store`). A listed store has the objects it listed."""
+        return self.objects.get(key)
 
     def prefetch(self, keys, wanted: Callable[[str], bool | None] | None = None) -> None:
         """Starts reading the documents `keys`, in that order (the order the

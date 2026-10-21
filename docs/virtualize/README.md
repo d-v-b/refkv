@@ -24,6 +24,7 @@ who each one is for, what you get, and how to run it.
 | DICOM | DICOM files, including whole-slide images | [dicom](dicom/README.md) | [§6](../../spec/virtualize/dicom.md#part-2-the-profile) |
 | NIfTI | NIfTI-1 and NIfTI-2 volumes (`.nii`) | [nifti](nifti/README.md) | [§7](../../spec/virtualize/nifti.md#part-2-the-profile) |
 | MRC | MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`) | [mrc](mrc/README.md) | [§14](../../spec/virtualize/mrc.md#part-2-the-profile) |
+| VSI | Olympus cellSens whole-slide images (`.vsi` with its tile files) | [vsi](vsi/README.md) | [§15](../../spec/virtualize/vsi.md#part-2-the-profile) |
 | IMS | Imaris `.ims` files | [ims](ims/README.md) | [§8](../../spec/virtualize/ims.md#part-2-the-profile) |
 | N5 | N5 containers on S3 | [n5](n5/README.md) | [§9](../../spec/virtualize/n5.md#part-2-the-profile) |
 | Zarr v2 | Zarr v2 hierarchies on S3 | [zarr2](zarr2/README.md) | [§10](../../spec/virtualize/zarr2.md#part-2-the-profile) |
@@ -32,7 +33,8 @@ who each one is for, what you get, and how to run it.
 | CZI | Zeiss CZI files | [convention](../../spec/virtualize/czi.md) | [§13](../../spec/virtualize/czi.md#part-2-the-profile) |
 
 TIFF, NDPI, ND2, DICOM, NIfTI, MRC, IMS and CZI read one file (a URL, or a local
-path). N5, Zarr v2 and OME-Zarr read a store: a URL ending in `/` that
+path). VSI is named by its `.vsi` file and reads the tile files beside it
+by name, without listing the directory. N5, Zarr v2 and OME-Zarr read a store: a URL ending in `/` that
 answers the S3 `ListObjectsV2` operation anonymously, such as a public S3
 bucket. SAFE reads either: a product's `.SAFE` directory as a store, or its
 `.SAFE.zip` as a file.
@@ -68,7 +70,7 @@ uv run python -m refkv.virtualize <url or path> out.vzip
 just virtualize <url or path> out.vzip
 ```
 
-TIFF (and SVS and NDPI), ND2, CZI, DICOM, NIfTI, MRC, IMS and SAFE, and Zarr v2, N5 and OME-Zarr stores, are virtualized by refkv's Rust core,
+TIFF (and SVS and NDPI), ND2, CZI, DICOM, NIfTI, MRC, IMS, VSI and SAFE, and Zarr v2, N5 and OME-Zarr stores, are virtualized by refkv's Rust core,
 [rust/refkv-ir](../../rust/refkv-ir/), part of the refkv
 distribution: installing refkv (`pip install`, or `uv sync` in a clone) builds
 it into the Python module `refkv._core`, which needs a Rust toolchain. The core parses the file into an intermediate representation (IR),
@@ -83,7 +85,9 @@ host (below); it then writes no archive. The format is chosen by the file's firs
 store by the objects at its root. Options:
 
 - `--url <url>`: the URL to record as the source, for a local file or
-  directory that will be served from that URL (a local directory needs it);
+  directory that will be served from that URL (a local directory needs it;
+  for a VSI slide, the `.vsi` file's URL, whose directory the tile files are
+  named under);
 - `--checksums`: also record the CRC-32C of every referenced range
   ([spec/refkv.md §4.2](../../spec/refkv.md#42-range)), which reads every byte the
   archive references (off by default);
@@ -153,7 +157,7 @@ that one too: `store.save(path, policy=policy)`.
 
 **The browser.** The same virtualizers run in a service worker
 ([js/](../../js/README.md)): the Rust core, built for WebAssembly, for
-TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC, IMS, SAFE, Zarr v2, N5 and OME-Zarr, and TypeScript implementations of the other formats. The
+TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC, IMS, VSI, SAFE, Zarr v2, N5 and OME-Zarr, and TypeScript implementations of the other formats. The
 service worker serves the
 result to any Zarr reader on the page's origin as a plain HTTP Zarr store. The
 live demo, <https://d-v-b.github.io/vzip-demo/image-to-zarr/>, takes a URL
@@ -162,7 +166,7 @@ live demo, <https://d-v-b.github.io/vzip-demo/image-to-zarr/>, takes a URL
 archive for download. Two limits apply:
 
 - The live demo currently virtualizes TIFF, NDPI and ND2 files only. CZI,
-  DICOM, NIfTI, MRC, IMS, SAFE and the store formats work in a local build of the
+  DICOM, NIfTI, MRC, IMS, VSI, SAFE and the store formats work in a local build of the
   demo (`just js::build && node demo/serve.mjs 8080`; the build compiles the
   Rust core to WebAssembly first, `dist/refkv_ir.wasm`, so it needs a Rust
   toolchain with the `wasm32` target), which is not yet deployed.
@@ -175,7 +179,7 @@ archive for download. Two limits apply:
 The browser code also runs under Node:
 `node js/conformance/virtualize.ts <url> out.vzip [--checksums]
 [--allow-private-hosts]` writes an archive equivalent to the Python one. For
-TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC, IMS, SAFE, Zarr v2, N5 and OME-Zarr it runs the same Rust core as Python, built for wasm32
+TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC, IMS, VSI, SAFE, Zarr v2, N5 and OME-Zarr it runs the same Rust core as Python, built for wasm32
 (`just js::wasm`).
 
 **Store reads.** Listing a store is sequential (S3 returns 1000 keys per
@@ -224,6 +228,13 @@ each format's metadata is:
   the data type, the axis map and the voxel size. The archive also holds the
   file as a dataset for xarray under `dataset/`, declared by its own
   convention ([conventions §9](../../spec/conventions.md#9-dataset-layouts)).
+- **VSI:** the IR mirror on `refkv_source`: the `.vsi` file (its metadata
+  tree field by field, and the IFDs inside it) and every tile file (its
+  headers, tile directory and tiles), each described in place, so that the
+  mirror rebuilds each file from the slide's own bytes. The root keeps the
+  metadata tree as JSON, the list of stacks and the file's size; each
+  image keeps its stack's properties (scale, origin, channels, creation
+  time, magnification) and its tile file's headers.
 - **N5, Zarr v2 and OME-Zarr:** each node's own attributes and the layout
   members its `zarr.json` does not reproduce, on the node, as
   `{"attributes": ..., "metadata": ...}` (with `"unversioned"` for an
@@ -270,11 +281,12 @@ and checks that their outputs are equivalent ([spec/virtualize.md §1.1](../../s
 - `ref`, the reference (`conformance/virtualize/reference/cli.py`): for
   TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr, the Python profiles refkv shipped before these formats
   moved to the Rust core, frozen; for every other format, the shipped code
-  (MRC, which was never implemented outside the core, has no reference);
+  (MRC and VSI, which were never implemented outside the core, have no
+  reference);
 - `py`, `python -m refkv.virtualize`;
 - `web`, the browser code under Node.
 
-For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC, IMS, SAFE, Zarr v2, N5 and OME-Zarr, `py` and `web` run one core, so the independent check
+For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC, IMS, VSI, SAFE, Zarr v2, N5 and OME-Zarr, `py` and `web` run one core, so the independent check
 is `ref`, compared with both everywhere but `refkv_source`. `py` and `web` are
 compared entirely, the mirror included, which shows that the two hosts drive
 the core alike. The mirror has no second implementation. Instead,

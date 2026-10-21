@@ -17,7 +17,7 @@ Schema: [schema.json](mrc-dataset/schema.json)
 
 The group `dataset`, a child of the root, declares the convention by
 [conventions §2](../conventions.md#2-attributes) and [§9](../conventions.md#9-dataset-layouts),
-with `"profile": "mrc-dataset"`, `"version": 0`, `"revision": 28`, the
+with `"profile": "mrc-dataset"`, `"version": 0`, `"revision": 29`, the
 file's URL as `source.url`, and the source metadata of [§4](#4-source-metadata)
 as the member `"mrc-dataset"`. Its CMO is:
 

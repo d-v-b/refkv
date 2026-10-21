@@ -6,7 +6,8 @@
 //!     [--connections N] [--byte-cost SECONDS_PER_MB] [--workers N]
 //! ```
 //!
-//! TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC, IMS and SAFE zip files, and Zarr v2, OME-Zarr, N5
+//! TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC, IMS and SAFE zip files, VSI slides (a `.vsi` file,
+//! read with the tile files beside it), and Zarr v2, OME-Zarr, N5
 //! and SAFE stores (an http(s) URL ending in `/`, listed by S3 `ListObjectsV2`, or a local
 //! directory, which needs `--url`, the store URL it is served from), go through the Rust core
 //! (rust/refkv-ir). An input at an http(s) URL is read under the reader policy (spec/refkv.md
@@ -31,6 +32,7 @@ mod pyjson;
 mod run;
 mod store;
 mod transport;
+mod vsi;
 mod xml;
 
 use std::process::ExitCode;
@@ -130,6 +132,18 @@ fn convert(a: &Args) -> Result<serde_json::Value, Fail> {
             output::checksums(&mut archive, s.listing().workers, |i, o, n| s.read_range(&objects[i], o, n))?;
         }
         (fmt, summary, archive)
+    } else if run::is_vsi(&transport::Transport::open(&a.input, &client)?)? {
+        // a VSI file is read with its tile files, as a store (vsi.rs): its sources are the files
+        // some reference uses, their sizes pinned
+        let t = transport::Transport::open(&a.input, &client)?;
+        let (out, files) = vsi::virtualize_vsi(&a.input, a.url.as_deref(), t, &client, a.connections)?;
+        let summary = out.summary.clone();
+        let (mut archive, objects) = output::store_archive(out, &files.sizes)?;
+        if a.checksums {
+            let conc = if files.remote() { a.connections.filter(|&c| c > 0).unwrap_or(8) } else { 1 };
+            output::checksums(&mut archive, conc, |i, o, n| files.read_range(&objects[i], o, n))?;
+        }
+        ("vsi".to_string(), summary, archive)
     } else {
         let t = transport::Transport::open(&a.input, &client)?;
         let (fmt, out) = run::virtualize_file(&a.input, a.url.as_deref(), &t, a.connections, a.byte_cost)?;

@@ -3,7 +3,7 @@ every input of the fixture corpus, and must give the same exit status and, on su
 archive, byte for byte, and the same summary.
 
 The corpus is conformance/virtualize/compare.py's synthetic one: every file under fixtures/
-(TIFF, NDPI, ND2, CZI, DICOM, NIfTI, MRC, IMS, SAFE zip), and every store directory under
+(TIFF, NDPI, ND2, CZI, DICOM, NIfTI, MRC, IMS, SAFE zip, VSI with its tile files), and every store directory under
 fixtures/{n5,zarr2,ome-zarr,safe} (the rejected inputs included: both must reject them). Each
 input is converted:
 
@@ -49,7 +49,7 @@ sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
 from proxy import Upstream, make_handler  # noqa: E402
 
 STORE_FORMATS = ("n5", "zarr2", "ome-zarr", "safe")
-SUFFIXES = (".tif", ".ndpi", ".nd2", ".dcm", ".nii", ".mrc", ".ims", ".zip", ".czi")
+SUFFIXES = (".tif", ".ndpi", ".nd2", ".dcm", ".nii", ".mrc", ".ims", ".zip", ".czi", ".vsi")
 PAGE = 7  # keys a listing page holds
 
 

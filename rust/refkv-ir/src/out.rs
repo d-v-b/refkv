@@ -232,7 +232,7 @@ pub fn payload_size(ranges: &[Part]) -> usize {
 
 pub const CONVENTION_KEY: &str = "refkv_virtualized";
 /// The revision of spec/virtualize.md the projections follow (`common.REVISION` in Python).
-pub const REVISION: u64 = 28;
+pub const REVISION: u64 = 29;
 
 /// (uuid, version, title) of a profile's convention.
 pub fn profile(p: &str) -> (&'static str, u64, &'static str) {
@@ -254,6 +254,8 @@ pub fn profile(p: &str) -> (&'static str, u64, &'static str) {
         "zarr2" => ("8e792619-d671-4687-ab51-752885dd3ee6", 0, "Zarr v2"),
         "ome-zarr" => ("b74ea302-65bb-49ae-b81f-f9bb52cd4eed", 0, "OME-Zarr"),
         "safe" => ("ef81346c-19e8-42ad-93b0-a279ccaf44c1", 0, "Sentinel-2 SAFE"),
+        // an Olympus VSI slide: the .vsi file and its tile files, a store IR (spec/virtualize/vsi.md)
+        "vsi" => ("c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45", 0, "VSI"),
         _ => panic!("no profile {p}"),
     }
 }

@@ -662,6 +662,17 @@ impl PyStoreRun {
     fn stats(&mut self) -> PyResult<String> {
         Ok(self.get()?.stats_json().to_string())
     }
+    /// The keys of a pending batch of probes (`StoreRun::probes`): `poll()` gave an empty
+    /// list, and the host answers each key, in order, with `found(size)` (None: it does not
+    /// exist) before polling again.
+    fn probes(&mut self) -> PyResult<Vec<String>> {
+        Ok(self.get()?.probes().to_vec())
+    }
+    /// The answer to the next probe of the batch: the key's size, or None when it does not exist.
+    #[pyo3(signature = (size))]
+    fn found(&mut self, size: Option<u64>) -> PyResult<()> {
+        self.get()?.found(size).map_err(Rejected::new_err)
+    }
     /// The keys the listing ignores, before the first poll (`StoreRun::ignore`): `keys`, the
     /// relative keys the store reader ignored and recorded (`Store.ignored`), which the
     /// projection records as its convention says, and `folders`, its empty `d/` keys

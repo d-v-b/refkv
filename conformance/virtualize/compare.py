@@ -1,6 +1,6 @@
 """Compares virtualizers (spec/virtualize.md §1.1
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>, §15
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-conformance>; HARNESS.md).
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>, §16
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-conformance>; HARNESS.md).
 
 Every implementation runs on every input of the corpus, which the caching
 proxy (proxy.py) serves over local HTTP: the synthetic files in
@@ -16,8 +16,8 @@ outputs; outputs are compared with the reference implementation's (the first
 one).
 
 Corpus lines are `url|name`, or `url|name|py-only` for an input larger than
-the browser implementation's limit (spec/virtualize.md §15
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-conformance>): such inputs are
+the browser implementation's limit (spec/virtualize.md §16
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-conformance>): such inputs are
 skipped unless `--large` is given, and then every implementation but `web` runs on them.
 Store URLs end in `/`. A line may end with the input's fingerprint, which
 corpus_hash.py records and checks.
@@ -101,7 +101,7 @@ BUILTIN = {
     "web": ("vzip", ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"]),
 }
 # The profiles whose shipped implementations write the IR's mirror under refkv_source.
-IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "mrc", "ims", "ndpi", "safe", "zarr2", "n5",
+IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "mrc", "vsi", "ims", "ndpi", "safe", "zarr2", "n5",
                "ome-zarr")
 SOURCE = SOURCE_NODE + "/"
 # The names the frozen reference writes, of the revisions it implements, and their translation.
@@ -390,6 +390,10 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     url = prop.get("source", {}).get("url") if isinstance(prop, dict) else None
     if not isinstance(url, str):
         return "no store URL on the root"
+    if prop.get("profile") == "vsi":
+        # a VSI root names the .vsi file; the store's URL is its directory (spec/virtualize/vsi.md
+        # §15 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#15-vsi-profile>)
+        url = url[:url.rfind("/") + 1]
     pins = {s.url: s.size for s in decode_source_table(zipfile.ZipFile(path).read("__vz__/sources"))
             if s.url is not None}
     listed = {object_url(url, key): (key, size) for key, size, _ in rebuilt}
@@ -445,7 +449,7 @@ def check(item: tuple, impls: dict, out_dir: Path) -> dict:
     name, url = item[:2]
     if len(item) > 2 and item[2] == "py-only":  # past the browser's limit: every implementation but web
         impls = {k: v for k, v in impls.items() if k != "web"}
-    if len(item) > 2 and item[2] == "no-ref":  # a profile the frozen reference never had (MRC): py and web alone
+    if len(item) > 2 and item[2] == "no-ref":  # a profile the frozen reference never had (MRC, VSI): py and web alone
         impls = {k: v for k, v in impls.items() if k != "ref"}
     results = {n: run(impl, url, out_dir / f"{name}.{n}.out") for n, impl in impls.items()}
     ref_name = next(iter(impls))
@@ -550,10 +554,11 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
     stores = store_fixtures(fixtures)
     files = [p for p in sorted([*fixtures.rglob("*.tif"), *fixtures.rglob("*.ndpi"), *fixtures.rglob("*.nd2"),
                                 *fixtures.rglob("*.dcm"), *fixtures.rglob("*.nii"), *fixtures.rglob("*.mrc"),
-                                *fixtures.rglob("*.ims"), *fixtures.rglob("*.zip"), *fixtures.rglob("*.czi")])
+                                *fixtures.rglob("*.ims"), *fixtures.rglob("*.zip"), *fixtures.rglob("*.czi"),
+                                *fixtures.rglob("*.vsi")])
              if not any(p.is_relative_to(s) for s in stores)]
-    # the frozen reference has no MRC profile: its files compare py with web alone
-    items = [(f"fixture-{p.stem}", proxy.local(p.relative_to(fixtures).as_posix()), *(["no-ref"] if p.suffix == ".mrc" else []))
+    # the frozen reference has no MRC or VSI profile: their files compare py with web alone
+    items = [(f"fixture-{p.stem}", proxy.local(p.relative_to(fixtures).as_posix()), *(["no-ref"] if p.suffix in (".mrc", ".vsi") else []))
              for p in files]
     items += [(f"fixture-{s.name}", proxy.local_store(s.relative_to(fixtures).as_posix())) for s in stores]
     if local_only:
@@ -563,7 +568,7 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
     tiffs = sorted(set(re.findall(r'href="([^"?/][^"]*\.ome\.tiff)"', listing)))
     items += [(f"idr-{i:03d}", proxy.remote(IDR + n)) for i, n in enumerate(tiffs[:3] if quick else tiffs)]
     for corpus_file, prefix in (("corpus_nd2.txt", "nd2-"), ("corpus_tiff.txt", ""), ("corpus_dicom.txt", "dicom-"),
-                                ("corpus_nifti.txt", "nifti-"), ("corpus_mrc.txt", "mrc-"), ("corpus_ims.txt", "ims-"), ("corpus_n5.txt", "n5-"),
+                                ("corpus_nifti.txt", "nifti-"), ("corpus_mrc.txt", "mrc-"), ("corpus_vsi.txt", "vsi-"), ("corpus_ims.txt", "ims-"), ("corpus_n5.txt", "n5-"),
                                 ("corpus_zarr2.txt", "zarr2-"), ("corpus_ome_zarr.txt", "ome-zarr-"),
                                 ("corpus_safe.txt", "safe-"), ("corpus_czi.txt", "czi-")):
         listed = [(url, name, *flags) for url, name, flags, _ in corpus_entries(HERE / corpus_file)]

@@ -542,7 +542,7 @@ CONVENTION_KEY = "refkv_virtualized"
 # convention is at version 0 and the root property records it (conventions §1
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>, §2
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>).
-REVISION = 28
+REVISION = 29
 PROFILES = {
     "tiff": ("48e9ac4e-1156-4a62-955e-20467d9c2700", 0, "TIFF"),
     "ndpi": ("6cac71ef-dbb2-4acd-b60c-00389aa4238a", 0, "NDPI"),
@@ -557,6 +557,7 @@ PROFILES = {
     "ome-zarr": ("b74ea302-65bb-49ae-b81f-f9bb52cd4eed", 0, "OME-Zarr"),
     "safe": ("ef81346c-19e8-42ad-93b0-a279ccaf44c1", 0, "Sentinel-2 SAFE"),
     "czi": ("7a0733c7-d4be-4482-a64f-6904d9354ea5", 0, "CZI"),
+    "vsi": ("c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45", 0, "VSI"),
 }
 UUIDS = frozenset(uuid for uuid, _, _ in PROFILES.values())
 

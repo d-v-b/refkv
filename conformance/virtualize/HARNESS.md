@@ -101,7 +101,8 @@ implementation that wrote it.
 ## Test inputs
 
 The synthetic files in `fixtures/`, one directory per format
-(`tiff/`, `ndpi/`, `nd2/`, `dicom/`, `nifti/`, `mrc/`, `ims/`), and the synthetic
+(`tiff/`, `ndpi/`, `nd2/`, `dicom/`, `nifti/`, `mrc/`, `ims/`, `vsi/`, the last with
+each slide's tile files beside its `.vsi` file), and the synthetic
 stores in `fixtures/n5/`, `fixtures/zarr2/` and
 `fixtures/ome-zarr/` (one directory per store), are good first inputs. Their names say what they
 exercise, and `unsupported_*`, `edge_reject_*` and `<profile>_reject_*`
@@ -147,14 +148,14 @@ with the first's:
   files, and SAFE directories and Zarr v2, OME-Zarr and N5 stores, it runs the frozen Python profiles in
   `conformance/virtualize/reference/refkv_reference/` (what `refkv.virtualize`
   shipped before these formats moved to the IR, unchanged but for their import
-  paths); for every other profile, the shipped code. MRC was never implemented
-  outside the core, so it has no reference: its inputs (`no-ref` in the corpus)
-  compare `py` with `web` alone.
+  paths); for every other profile, the shipped code. MRC and VSI were never
+  implemented outside the core, so they have no reference: their inputs
+  (`no-ref` in the corpus) compare `py` with `web` alone.
 - `py`: `python -m refkv.virtualize --allow-private-hosts`.
 - `web`: the browser code under Node, `js/conformance/virtualize.ts
   --allow-private-hosts`.
 
-For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC, IMS and SAFE files, and SAFE directories and Zarr v2, OME-Zarr and N5 stores, `py` and `web` are one implementation: the Rust core
+For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC, IMS, VSI and SAFE files, and SAFE directories and Zarr v2, OME-Zarr and N5 stores, `py` and `web` are one implementation: the Rust core
 `rust/refkv-ir` (its parsers, schemas, read planner, projections and mirror),
 built natively for Python and as wasm32 for the browser, each with a thin host
 (the I/O, and the archive writer). Their `refkv_source` is the IR's mirror,

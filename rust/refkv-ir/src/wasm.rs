@@ -191,7 +191,8 @@ fn err_out(e: String) -> i64 {
     -(set_out(e.into_bytes()) as i64)
 }
 
-/// A run of `format` (0 ND2, 1 TIFF, 2 CZI, 3 DICOM, 4 NIfTI, 5 IMS, 6 a SAFE zip, 7 NDPI, 8 MRC; a TIFF run becomes an NDPI one when its
+/// A run of `format` (0 ND2, 1 TIFF, 2 CZI, 3 DICOM, 4 NIfTI, 5 IMS, 6 a SAFE zip, 7 NDPI, 8 MRC, 9 VSI, whose
+/// file run only rejects: a VSI input is a store run of the `vsi` format; a TIFF run becomes an NDPI one when its
 /// parser finds the file is NDPI: the output's summary names the format) over a source of `size` bytes, remote
 /// or not, read by the host at most `concurrency` requests at a time.
 #[unsafe(no_mangle)]
@@ -458,6 +459,31 @@ pub unsafe extern "C" fn vz_store_ignore(p: *mut StoreRun, json: *mut u8, n: usi
     let got = serde_json::from_slice::<(Vec<String>, Vec<String>)>(&b).map_err(|e| format!("the ignored keys: {e}"))
         .and_then(|(keys, folders)| r.ignore(keys, folders));
     match got {
+        Ok(()) => 0,
+        Err(e) => err_out(e),
+    }
+}
+
+/// The keys of a pending batch of probes (`StoreRun::probes`; `vz_store_poll` gave a count of
+/// 0): a JSON array of keys at `vz_out()`, its length. The host answers each, in order, with
+/// `vz_store_found`, then polls again.
+///
+/// # Safety
+/// `p` from `vz_store_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_store_probes(p: *mut StoreRun) -> i64 {
+    let keys: Vec<String> = unsafe { &*p }.probes().to_vec();
+    set_out(serde_json::to_string(&keys).unwrap_or_default().into_bytes()) as i64
+}
+
+/// The answer to the next probe of the batch: the key's size, or −1 when it does not exist. 0,
+/// or minus the length of a rejection's message.
+///
+/// # Safety
+/// `p` from `vz_store_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_store_found(p: *mut StoreRun, size: i64) -> i64 {
+    match unsafe { &mut *p }.found(if size < 0 { None } else { Some(size as u64) }) {
         Ok(()) => 0,
         Err(e) => err_out(e),
     }

@@ -25,7 +25,7 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "nd2"`, `"version": 0`, `"revision": 28` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`, and
+with `"profile": "nd2"`, `"version": 0`, `"revision": 29` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`, and
 the source metadata of [§5](#5-source-metadata) as the member `"nd2"`. Its CMO is:
 
 ```json
@@ -567,7 +567,7 @@ channels:
 "refkv_virtualized": {
   "profile": "nd2",
   "version": 0,
-  "revision": 28,
+  "revision": 29,
   "source": {
     "url": "https://example.org/a.nd2"
   },

@@ -131,7 +131,7 @@ Supported:
 Rejected:
 
 - Legacy ND2 files (JPEG 2000 containers from NIS-Elements before version
-  3): `not a TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file`.
+  3): `not a TIFF, NDPI, ND2, DICOM, NIfTI, MRC, IMS, CZI, VSI or SAFE zip file`.
 - Uncompressed files whose frame headers differ in name length, or whose
   frame data is shorter than the frame.
 - More than 65536 stage positions.
