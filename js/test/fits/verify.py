@@ -145,7 +145,7 @@ def main(fixtures: Path) -> int:
     server = Server(fixtures)
     failures = 0
     with tempfile.TemporaryDirectory() as tmp:
-        for path in sorted(p for p in fixtures.iterdir() if p.name.endswith((".fits", ".fits.gz", ".fits.bz2"))):
+        for path in sorted(p for p in fixtures.iterdir() if p.name.endswith((".fits", ".fz"))):
             out = Path(tmp) / f"{path.stem}.vzip"
             p = subprocess.run(["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts",
                                 server.base + path.name, str(out)], capture_output=True, text=True)

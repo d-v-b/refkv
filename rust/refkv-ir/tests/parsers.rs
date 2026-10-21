@@ -210,8 +210,8 @@ reject!(fits_reject_short, Fits, "fits/fits_reject_short.fits", "file too short 
 reject!(fits_reject_simple_false, Fits, "fits/fits_reject_simple_false.fits", "not a FITS file");
 reject!(fits_reject_not_fits, Fits, "fits/fits_reject_not_fits.fits", "not a FITS file");
 reject!(fits_reject_extension_first, Fits, "fits/fits_reject_extension_first.fits", "not a FITS file");
-reject!(fits_reject_gzip_file, Fits, "fits/fits_reject_gzip_file.fits.gz", "not a FITS file");
-reject!(fits_reject_bzip2_file, Fits, "fits/fits_reject_bzip2_file.fits.bz2", "not a FITS file");
+reject!(fits_reject_gzip_file, Fits, "fits/fits_reject_gzip_file.fits", "not a FITS file");
+reject!(fits_reject_bzip2_file, Fits, "fits/fits_reject_bzip2_file.fits", "not a FITS file");
 reject!(fits_reject_no_end, Fits, "fits/fits_reject_no_end.fits", "HDU 0: no END card in the 5760 bytes from 0");
 reject!(fits_reject_header_nul, Fits, "fits/fits_reject_header_nul.fits", "HDU 0: byte 10 of card 4 is 0x00, not printable ASCII");
 reject!(fits_reject_mandatory_order, Fits, "fits/fits_reject_mandatory_order.fits", "HDU 0: card 1 is NAXIS, not BITPIX");

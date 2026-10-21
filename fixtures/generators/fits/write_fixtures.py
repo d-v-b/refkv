@@ -304,8 +304,8 @@ def rejected() -> None:
     out("tform_missing", patch_card(tabdata, 1, "TFORM1", "TFORMX  = 'J       '"))
     out("theap_small", _with_theap(tabdata, 4))
     out("ztable", _append_card(tabdata, 1, "ZTABLE  =                    T"))
-    (OUT / "fits_reject_gzip_file.fits.gz").write_bytes(gzip.compress(data, mtime=0))
-    (OUT / "fits_reject_bzip2_file.fits.bz2").write_bytes(bz2.compress(data))
+    (OUT / "fits_reject_gzip_file.fits").write_bytes(gzip.compress(data, mtime=0))  # a .fits name: rejected by its bytes
+    (OUT / "fits_reject_bzip2_file.fits").write_bytes(bz2.compress(data))
 
 
 def remove_card(data: bytes, hdu: int, keyword: str) -> bytes:
@@ -562,7 +562,7 @@ def compressed() -> None:
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    for p in list(OUT.glob("*.fits")) + list(OUT.glob("*.fits.*")):
+    for p in list(OUT.glob("*.fits")) + list(OUT.glob("*.fz")):
         p.unlink()
     accepted()
     rejected()

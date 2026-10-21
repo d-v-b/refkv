@@ -17,7 +17,7 @@ from refkv.ir import virtualize as via_ir
 from refkv.ir.cmirror import rebuild_from_archive
 from refkv.virtualize import Rejected
 
-FILES = sorted(p for p in (FIXTURES / "fits").iterdir() if p.name.endswith((".fits", ".fits.gz", ".fits.bz2")))
+FILES = sorted(p for p in (FIXTURES / "fits").iterdir() if p.name.endswith((".fits", ".fz")))
 ACCEPTED = [p for p in FILES if "reject" not in p.name]
 REJECTED = [p for p in FILES if "reject" in p.name]
 MAX_SAFE = (1 << 53) - 1
