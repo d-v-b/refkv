@@ -31,6 +31,7 @@ who each one is for, what you get, and how to run it.
 | Sentinel-2 SAFE | Sentinel-2 Level-1C and Level-2A products, as a `.SAFE` directory or a `.SAFE.zip` | [convention](../../spec/virtualize/safe.md) | [§12](../../spec/virtualize/safe.md#part-2-the-profile) |
 | CZI | Zeiss CZI files | [convention](../../spec/virtualize/czi.md) | [§13](../../spec/virtualize/czi.md#part-2-the-profile) |
 | MRC | MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`) | [mrc](mrc/README.md) | [§14](../../spec/virtualize/mrc.md#part-2-the-profile) |
+| QPTIFF | Akoya (PerkinElmer) Vectra multiplex scans and inForm component data | [qptiff](qptiff/README.md) | [§15](../../spec/virtualize/qptiff.md#part-2-the-profile) |
 <!-- /profiles -->
 
 A format that reads a file takes a URL, or a local path. One that reads a
@@ -161,7 +162,7 @@ live demo, <https://d-v-b.github.io/vzip-demo/image-to-zarr/>, takes a URL
 (<https://github.com/d-v-b/neuroglancer>, branch `vzip`) and offers the
 archive for download. Two limits apply:
 
-- The live demo currently virtualizes TIFF, NDPI and ND2 files only. The
+- The live demo currently virtualizes TIFF, NDPI, QPTIFF and ND2 files only. The
   other formats work in a local build of the
   demo (`just js::build && node demo/serve.mjs 8080`; the build compiles the
   Rust core to WebAssembly first, `dist/refkv_ir.wasm`, so it needs a Rust
@@ -209,6 +210,9 @@ each format's metadata is:
   fit its budget, and a CZI file's header.
 - **NDPI:** the IR mirror on `refkv_source`, as for TIFF: every IFD, tag,
   high word and strip.
+- **QPTIFF:** the IR mirror on `refkv_source`, as for TIFF (every image's
+  XML description included); the root keeps the byte order and BigTIFF flag,
+  and the channel names and colors are in the image's `omero`.
 - **DICOM:** the IR mirror on `refkv_source`, as for TIFF: the file's data
   elements themselves, layout, padding and dead space included. The root
   keeps the File Meta Information and the dataset in the DICOM JSON Model,

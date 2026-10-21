@@ -23,6 +23,7 @@ its JSON Schema `virtualize/<format>/schema.json`:
 | OME-Zarr 0.4 | [ome-zarr](virtualize/ome-zarr.md) | `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` |
 | Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](virtualize/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
 | Zeiss CZI | [czi](virtualize/czi.md) | `7a0733c7-d4be-4482-a64f-6904d9354ea5` |
+| Akoya QPTIFF | [qptiff](virtualize/qptiff.md) | `329ea136-2f55-4c27-b6f4-8e60ca2109b8` |
 <!-- /profiles -->
 
 A format's convention specifies the hierarchy's whole **Zarr layout**: which
@@ -827,7 +828,7 @@ compares mirrors entry for entry. In order:
    |---|---|---|---|---|
    | TIFF | layout tables | the start or length of a column run of at least 16 members of one data row each, with a name index, in a struct `tiles` (or `strips`) with no index | the first child `value` (no index) of the first struct child `tags/` with index 324 for starts and 325 for lengths (273 and 279 for `strips`) of that struct's parent: TileOffsets and TileByteCounts (StripOffsets, StripByteCounts) | member 0's name index |
 
-   The other profiles have none. A format adds a rule by a change of this
+   QPTIFF, a TIFF, has the TIFF rule; the other profiles have none. A format adds a rule by a change of this
    section and its convention: a new row in this table, whose conditions
    depend only on the canonical IR (so that every producer finds the same
    columns), and whose array a reader can read from source 0.

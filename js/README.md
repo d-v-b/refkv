@@ -116,6 +116,17 @@ Hamamatsu NDPI:
 
 Not supported, and refused with HTTP 422: NDPI focal planes.
 
+Akoya QPTIFF (Vectra scans, inForm component data; found by the Software tag):
+
+- The FullResolution images as channels and the runs of ReducedResolution
+  images as levels, named and colored in `omero` from each image's XML
+  description; tiles, or strips for the smallest levels and inForm fields
+  (a rectilinear chunk grid when the last strip is short).
+- Compression: none, LZW (`imagecodecs_lzw`), JPEG, DEFLATE, zstd, JPEG 2000.
+
+Not supported, and refused with HTTP 422: predictors, several RGB channels,
+and images that do not follow the format's arrangement.
+
 ND2 (format version 3 and later):
 
 - Time (including multi-phase), stage-position and Z loops; positions become
@@ -241,6 +252,7 @@ node --test js/test/                                        # unit tests
 uv run python js/conformance/run_write.py /tmp/vzip-write   # the kit's write cases
 uv run python js/test/tiff/verify.py                        # TIFF fixtures vs tifffile
 uv run python js/test/ndpi/verify.py                        # NDPI fixtures vs tifffile
+uv run python js/test/qptiff/verify.py                      # QPTIFF fixtures vs tifffile
 uv run python js/test/nd2/verify.py                         # synthetic ND2 fixtures vs their pixels
 uv run python js/test/dicom/verify.py                       # DICOM fixtures vs pydicom
 uv run python js/test/nifti/verify.py                       # NIfTI fixtures vs nibabel
@@ -260,7 +272,8 @@ node demo/e2e_examples.mjs <out dir> [example id …]      # every demo example,
   reads every level through the reference implementation (`python/src/refkv`) and
   zarr-python and compares it with tifffile, and rebuilds the file from the
   archive's IR mirror, byte for byte. `ndpi/verify.py` does the same for the
-  NDPI files (which have no IR mirror).
+  NDPI files, and `qptiff/verify.py` for the QPTIFF files, whose levels are
+  compared with the channel pages tifffile decodes.
 - `nd2/verify.py` does the same for the synthetic ND2 files written by
   `nd2/write_fixtures.py` (compressed frames, padded rows, multi-phase time loops,
   disabled positions, missing frames, float data, and inputs to reject),

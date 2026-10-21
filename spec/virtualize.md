@@ -34,6 +34,7 @@ is a document of its own, numbered as a section of this one:
 | 12 | [Sentinel-2 SAFE](virtualize/safe.md#part-2-the-profile) | file or store | Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (a store) or a `.SAFE.zip` file |
 | 13 | [CZI](virtualize/czi.md#part-2-the-profile) | file | Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids |
 | 14 | [MRC](virtualize/mrc.md#part-2-the-profile) | file | MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks) |
+| 15 | [QPTIFF](virtualize/qptiff.md#part-2-the-profile) | file | Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips |
 <!-- /profiles -->
 
 The table says which profiles read a single file (a **file input**), which a store of many
@@ -534,7 +535,8 @@ other section:
 - [§11](virtualize/ome-zarr.md#11-ome-zarr-profile), the OME-Zarr profile: [spec/virtualize/ome-zarr.md](virtualize/ome-zarr.md#part-2-the-profile);
 - [§12](virtualize/safe.md#12-safe-profile), the SAFE profile: [spec/virtualize/safe.md](virtualize/safe.md#part-2-the-profile);
 - [§13](virtualize/czi.md#13-czi-profile), the CZI profile: [spec/virtualize/czi.md](virtualize/czi.md#part-2-the-profile);
-- [§14](virtualize/mrc.md#14-mrc-profile), the MRC profile: [spec/virtualize/mrc.md](virtualize/mrc.md#part-2-the-profile).
+- [§14](virtualize/mrc.md#14-mrc-profile), the MRC profile: [spec/virtualize/mrc.md](virtualize/mrc.md#part-2-the-profile);
+- [§15](virtualize/qptiff.md#15-qptiff-profile), the QPTIFF profile: [spec/virtualize/qptiff.md](virtualize/qptiff.md#part-2-the-profile).
 <!-- /profiles -->
 
 ## Appendix A. Conformance

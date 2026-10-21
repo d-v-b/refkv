@@ -10,7 +10,7 @@ binding: a vzip archive keeps such a store in one ordinary ZIP file
 
 ## Demos
 
-Live demos are at https://d-v-b.github.io/vzip-demo/. For example, [image files to zarr](https://d-v-b.github.io/vzip-demo/image-to-zarr/) virtualizes a remote TIFF (including OME-TIFF and Aperio SVS), Hamamatsu NDPI or Nikon ND2 file into a vzip archive in the browser and opens it in Neuroglancer. The demo's code is in [demo/](../demo/), and [js/README.md](../js/README.md) says how to build and serve it.
+Live demos are at https://d-v-b.github.io/vzip-demo/. For example, [image files to zarr](https://d-v-b.github.io/vzip-demo/image-to-zarr/) virtualizes a remote TIFF (including OME-TIFF and Aperio SVS), Hamamatsu NDPI, Akoya QPTIFF or Nikon ND2 file into a vzip archive in the browser and opens it in Neuroglancer. The demo's code is in [demo/](../demo/), and [js/README.md](../js/README.md) says how to build and serve it.
 
 ## Virtualizing image files and stores
 
