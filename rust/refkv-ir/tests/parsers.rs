@@ -49,6 +49,9 @@ fn accepted_fixtures_are_valid_irs_that_rebuild() {
     for e in refkv_ir::out::registry().iter().filter(|e| e["kind"] == "file") {
         let name = e["name"].as_str().unwrap();
         let f = Format::from_name(name).unwrap_or_else(|| panic!("{name}: no parser"));
+        if f.store_run() {
+            continue; // a file input read as a store run (VSI): tests/vsi.rs drives it with its tile files
+        }
         let suffixes: Vec<&str> = e["suffixes"].as_array().unwrap().iter().map(|s| s.as_str().unwrap()).collect();
         let mut accepted = 0;
         for path in files(&fixtures().join(name), &suffixes) {

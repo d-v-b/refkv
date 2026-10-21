@@ -36,6 +36,7 @@ pub mod schema;
 pub mod store;
 pub mod tiff;
 pub mod types;
+pub mod vsi;
 pub mod xml;
 pub mod zarr2;
 
