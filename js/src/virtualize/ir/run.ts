@@ -12,7 +12,7 @@ import type { RangeSource, Span } from "./source.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
 /** The formats of the core's file runs (`Format::from_name` in rust/refkv-ir/src/run.rs). */
-export type IrFormat = "nd2" | "tiff" | "czi" | "dicom" | "nifti" | "ims" | "safe" | "ndpi" | "mrc";
+export type IrFormat = "nd2" | "tiff" | "czi" | "dicom" | "nifti" | "ims" | "safe" | "ndpi" | "mrc" | "fits";
 
 export interface IrOutput extends ArchiveDesc {
   format: IrFormat;

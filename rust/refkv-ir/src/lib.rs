@@ -20,6 +20,7 @@ pub mod json;
 pub mod lv;
 pub mod mirror;
 pub mod mrc;
+pub mod fits;
 pub mod n5;
 pub mod nd2;
 pub mod nifti;
@@ -76,6 +77,7 @@ parser!(czi::Czi);
 parser!(dicom::Dicom);
 parser!(nifti::Nifti);
 parser!(mrc::Mrc);
+parser!(fits::Fits);
 parser!(ims::Ims);
 parser!(safe::Safe);
 

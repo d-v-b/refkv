@@ -31,6 +31,7 @@ who each one is for, what you get, and how to run it.
 | Sentinel-2 SAFE | Sentinel-2 Level-1C and Level-2A products, as a `.SAFE` directory or a `.SAFE.zip` | [convention](../../spec/virtualize/safe.md) | [§12](../../spec/virtualize/safe.md#part-2-the-profile) |
 | CZI | Zeiss CZI files | [convention](../../spec/virtualize/czi.md) | [§13](../../spec/virtualize/czi.md#part-2-the-profile) |
 | MRC | MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`) | [mrc](mrc/README.md) | [§14](../../spec/virtualize/mrc.md#part-2-the-profile) |
+| FITS | FITS images and tables (`.fits`, `.fz`) | [convention](../../spec/virtualize/fits.md) | [§15](../../spec/virtualize/fits.md#part-2-the-profile) |
 <!-- /profiles -->
 
 A format that reads a file takes a URL, or a local path. One that reads a

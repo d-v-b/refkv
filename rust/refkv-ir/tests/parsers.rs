@@ -7,6 +7,7 @@ use std::path::Path;
 use refkv_ir::check;
 use refkv_ir::czi::Czi;
 use refkv_ir::dicom::Dicom;
+use refkv_ir::fits::Fits;
 use refkv_ir::nifti::Nifti;
 use refkv_ir::ims::Ims;
 use refkv_ir::mrc::Mrc;
@@ -198,6 +199,37 @@ reject!(mrc_reject_volume_stack_mz_zero, Mrc, "mrc/mrc_reject_volume_stack_mz_ze
 reject!(mrc_reject_truncated, Mrc, "mrc/mrc_reject_truncated.mrc", "the 48-byte data at 1024 is outside the 1071-byte file");
 reject!(mrc_reject_data_overflow, Mrc, "mrc/mrc_reject_data_overflow.mrc", "the 4951760157141521099596496896-byte data at 1024 is outside the 1072-byte file");
 reject!(mrc_reject_data_outside, Mrc, "mrc/mrc_reject_data_outside.mrc", "the 48-byte data at 1040 is outside the 1087-byte file");
+
+// FITS (spec/virtualize/fits.md §15.3
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#153-checks>): one per rejected
+// fixture, each the message its check gives.
+reject!(fits_reject_short, Fits, "fits/fits_reject_short.fits", "file too short for a 2880-byte FITS block");
+reject!(fits_reject_simple_false, Fits, "fits/fits_reject_simple_false.fits", "not a FITS file");
+reject!(fits_reject_not_fits, Fits, "fits/fits_reject_not_fits.fits", "not a FITS file");
+reject!(fits_reject_extension_first, Fits, "fits/fits_reject_extension_first.fits", "not a FITS file");
+reject!(fits_reject_gzip_file, Fits, "fits/fits_reject_gzip_file.fits.gz", "not a FITS file");
+reject!(fits_reject_bzip2_file, Fits, "fits/fits_reject_bzip2_file.fits.bz2", "not a FITS file");
+reject!(fits_reject_no_end, Fits, "fits/fits_reject_no_end.fits", "HDU 0: no END card in the 5760 bytes from 0");
+reject!(fits_reject_header_nul, Fits, "fits/fits_reject_header_nul.fits", "HDU 0: byte 10 of card 4 is 0x00, not printable ASCII");
+reject!(fits_reject_mandatory_order, Fits, "fits/fits_reject_mandatory_order.fits", "HDU 0: card 1 is NAXIS, not BITPIX");
+reject!(fits_reject_bitpix, Fits, "fits/fits_reject_bitpix.fits", "HDU 0: BITPIX 12 is not one of 8, 16, 32, 64, -32, -64");
+reject!(fits_reject_bitpix_text, Fits, "fits/fits_reject_bitpix_text.fits", "HDU 0: BITPIX 'sixteen' is not an integer");
+reject!(fits_reject_naxis_negative, Fits, "fits/fits_reject_naxis_negative.fits", "HDU 0: NAXIS -1 is not in 0..999");
+reject!(fits_reject_naxis_1000, Fits, "fits/fits_reject_naxis_1000.fits", "HDU 0: NAXIS 1000 is not in 0..999");
+reject!(fits_reject_naxisn_negative, Fits, "fits/fits_reject_naxisn_negative.fits", "HDU 0: NAXIS1 -4 is negative");
+reject!(fits_reject_naxisn_missing, Fits, "fits/fits_reject_naxisn_missing.fits", "HDU 0: card 4 is NAXIS3, not NAXIS2");
+reject!(fits_reject_pcount_negative, Fits, "fits/fits_reject_pcount_negative.fits", "HDU 1: PCOUNT -1 is negative");
+reject!(fits_reject_gcount_zero, Fits, "fits/fits_reject_gcount_zero.fits", "HDU 1: GCOUNT 0 is not positive");
+reject!(fits_reject_xtension_unknown, Fits, "fits/fits_reject_xtension_unknown.fits", "HDU 1: XTENSION 'FOREIGN' is not IMAGE, TABLE or BINTABLE");
+reject!(fits_reject_groups, Fits, "fits/fits_reject_groups.fits", "HDU 0: random groups (GROUPS = T) are not supported");
+reject!(fits_reject_data_outside, Fits, "fits/fits_reject_data_outside.fits", "HDU 0: the 24-byte data at 2880 is outside the 2903-byte file");
+reject!(fits_reject_data_overflow, Fits, "fits/fits_reject_data_overflow.fits", "HDU 0: the 32000000000000000000000000000000-byte data at 2880 is outside the 5760-byte file");
+reject!(fits_reject_table_bitpix, Fits, "fits/fits_reject_table_bitpix.fits", "HDU 1: a BINTABLE with BITPIX 16, not 8");
+reject!(fits_reject_table_naxis, Fits, "fits/fits_reject_table_naxis.fits", "HDU 1: a BINTABLE with NAXIS 1, not 2");
+reject!(fits_reject_tfields, Fits, "fits/fits_reject_tfields.fits", "HDU 1: TFIELDS 1000 is not in 0..999");
+reject!(fits_reject_tform_missing, Fits, "fits/fits_reject_tform_missing.fits", "HDU 1: no TFORM1 card");
+reject!(fits_reject_theap_small, Fits, "fits/fits_reject_theap_small.fits", "HDU 1: THEAP 4 is less than the rows' 8 bytes");
+reject!(fits_reject_ztable, Fits, "fits/fits_reject_ztable.fits", "HDU 1: tile-compressed tables (ZTABLE = T) are not supported");
 reject!(ndpi_edge_reject_focal_planes, Tiff, "ndpi/edge_reject_ndpi_focal_planes.ndpi", "NDPI focal planes (two levels with one magnification) are not supported");
 reject!(ndpi_edge_reject_growing, Tiff, "ndpi/edge_reject_ndpi_growing.ndpi", "NDPI levels do not decrease in size");
 reject!(ndpi_edge_reject_mcustarts, Tiff, "ndpi/edge_reject_ndpi_mcustarts.ndpi", "McuStarts does not match the strip's intervals");

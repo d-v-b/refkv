@@ -1,6 +1,6 @@
 // The profile registry: generated from spec/virtualize/profiles.json by spec/tools/profiles.py; edit the registry, not this.
 
-export type Profile = "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "mrc" | "mrc-dataset" | "ims" | "n5" | "zarr2" | "ome-zarr" | "safe" | "czi";
+export type Profile = "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "mrc" | "fits" | "mrc-dataset" | "ims" | "n5" | "zarr2" | "ome-zarr" | "safe" | "czi";
 
 export interface ProfileEntry {
   name: Profile;
@@ -23,6 +23,7 @@ export const REGISTRY: ProfileEntry[] = [
   {"name": "dicom", "section": 6, "title": "DICOM", "uuid": "acf17198-e5a5-48d3-8187-22ec4bb40ea5", "version": 0, "kind": "file", "suffixes": [".dcm"], "reference": 25, "source": "DICOM", "inputs": "DICOM Part 10 files with native or JPEG-encapsulated pixel data, including whole-slide images", "for": "DICOM files, including whole-slide images"},
   {"name": "nifti", "section": 7, "title": "NIfTI", "uuid": "06e5809d-4d54-4b72-afd0-6bf61a7b4c85", "version": 0, "kind": "file", "suffixes": [".nii"], "reference": 25, "source": "NIfTI-1 and NIfTI-2", "inputs": "NIfTI-1 and NIfTI-2 single files (`.nii`)", "for": "NIfTI-1 and NIfTI-2 volumes (`.nii`)"},
   {"name": "mrc", "section": 14, "title": "MRC", "uuid": "2aacd010-2ed1-4748-bc3c-5dd5e840bbce", "version": 0, "kind": "file", "suffixes": [".mrc"], "reference": null, "source": "MRC2014", "inputs": "MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks)", "for": "MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`)"},
+  {"name": "fits", "section": 15, "title": "FITS", "uuid": "4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93", "version": 0, "kind": "file", "suffixes": [".fits", ".fz", ".fits.gz", ".fits.bz2"], "reference": null, "source": "FITS", "inputs": "FITS files: images, multi-extension files, binary and ASCII tables", "for": "FITS images and tables (`.fits`, `.fz`)"},
   {"name": "mrc-dataset", "section": null, "title": "MRC dataset", "uuid": "f139bf4e-7bab-4c3c-9b2d-66ba747f9b93", "version": 0, "kind": "layout", "suffixes": [], "reference": null, "source": "MRC2014, as a dataset", "inputs": "", "for": ""},
   {"name": "ims", "section": 8, "title": "IMS", "uuid": "5067a535-8261-4b25-a93c-1985ed333bde", "version": 0, "kind": "file", "suffixes": [".ims"], "reference": 25, "source": "Imaris IMS", "inputs": "Imaris IMS files (HDF5)", "for": "Imaris `.ims` files"},
   {"name": "n5", "section": 9, "title": "N5", "uuid": "ad5d4c39-c69e-48f7-a3ef-4cc8c607d416", "version": 0, "kind": "store", "suffixes": [], "reference": 25, "source": "N5", "inputs": "N5 containers, default-mode blocks", "for": "N5 containers on S3"},

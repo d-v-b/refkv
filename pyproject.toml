@@ -34,6 +34,7 @@ dev = [
     "tifffile>=2026.9.20",
     "xarray>=2026.9.0",
     "zarr-n5>=0.3.1",
+    "astropy>=8.0",
 ]
 # the comparison with kerchunk and Icechunk (design/comparison, design/experiments)
 bench = [

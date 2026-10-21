@@ -1,0 +1,162 @@
+{
+  "source_model": "fits",
+  "version": 1,
+  "about": "The source model of a FITS file (spec/virtualize/fits.md §6.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#61-elements>): the elements a parser emits, the tables of data types and extension types, and the roles the file, each HDU's header, its mandatory cards, its data and its table play, each with the constraints a file must meet to have the FITS convention's layout (spec/virtualize/fits.md §15.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#153-checks>). The parser checks them in this order, HDU by HDU; projections read a valid IR and check nothing.",
+  "limits": {
+    "max_safe": 9007199254740991,
+    "block": 2880,
+    "max_header": 16777216,
+    "max_naxis": 999,
+    "max_hdus": 65536,
+    "max_table": 67108864
+  },
+  "tables": {
+    "data_types": {
+      "about": "BITPIX: Zarr data type, bytes per value (FITS Standard 4.0 §4.4.1.1)",
+      "8": {"dtype": "uint8", "bytes": 1},
+      "16": {"dtype": "int16", "bytes": 2},
+      "32": {"dtype": "int32", "bytes": 4},
+      "64": {"dtype": "int64", "bytes": 8},
+      "-32": {"dtype": "float32", "bytes": 4},
+      "-64": {"dtype": "float64", "bytes": 8}
+    },
+    "xtensions": {
+      "about": "XTENSION: the kind of extension (FITS Standard 4.0 §7)",
+      "IMAGE": "image",
+      "TABLE": "table",
+      "BINTABLE": "bintable"
+    }
+  },
+  "elements": {
+    "about": "The IR of a FITS file: one struct per HDU, in file order. k is the HDU's header blocks, D its data bytes, p its padding to the block boundary (shorter at a truncated end of file), N1 and N2 a table's NAXIS1 and NAXIS2, g the bytes between the rows and the heap (THEAP - N1 * N2), H the heap's bytes.",
+    "hdus/<i>": {"kind": "struct", "extent": "the HDU's blocks: from its first header byte to the end of its padding"},
+    "hdus/<i>/header": {"kind": "value", "type": "{card:ascii[80]}[36k]", "extent": "(offset, 2880k): the header's blocks, END and blank padding cards included"},
+    "hdus/<i>/data": {"kind": "data", "form": "{geometry: {data_type, shape: [NAXISn, ..., NAXIS1]}, codec: {endian: big}, recipe: [[src, 0, null]]}", "extent": "an image's D bytes, when D > 0"},
+    "hdus/<i>/rows": {"kind": "data", "form": "{geometry: {rows: N2, row_bytes: N1}, recipe: [[src, 0, null]]}", "extent": "a table's N1 * N2 bytes, when not 0"},
+    "hdus/<i>/gap": {"kind": "value", "type": "bytes[g]", "extent": "the g bytes before the heap, when g > 0"},
+    "hdus/<i>/heap": {"kind": "data", "form": "{geometry: {bytes: H}, recipe: [[src, 0, null]]}", "extent": "a table's heap, when H > 0"},
+    "hdus/<i>/pad": {"kind": "value", "type": "bytes[p]", "extent": "the data's padding to the block boundary, when p > 0"},
+    "gaps/<offset>": {"kind": "gap", "about": "bytes after the last HDU (special records)"}
+  },
+  "roles": {
+    "file": {
+      "given": {"size": "the file's size"},
+      "constraints": [
+        {"require": "size >= block", "message": "file too short for a 2880-byte FITS block"}
+      ]
+    },
+    "header_end": {
+      "given": {"hdu": "the HDU's index", "offset": "its first byte", "scanned": "the bytes scanned for an END card: to the end of the file, or max_header", "found": "whether an END card was found"},
+      "constraints": [
+        {"require": "found", "message": "HDU {hdu}: no END card in the {scanned} bytes from {offset}"}
+      ]
+    },
+    "card_text": {
+      "given": {"hdu": "the HDU's index", "card": "the card's index in the header", "byte": "the byte's index in the card", "value": "the byte", "shown": "the byte as 0x.."},
+      "constraints": [
+        {"require": "value >= 32 && value <= 126", "message": "HDU {hdu}: byte {byte} of card {card} is {shown}, not printable ASCII"}
+      ]
+    },
+    "mandatory": {
+      "given": {"hdu": "the HDU's index", "position": "the card's index", "keyword": "the card's keyword", "expected": "the keyword the standard requires there"},
+      "constraints": [
+        {"require": "keyword == expected", "message": "HDU {hdu}: card {position} is {keyword}, not {expected}"}
+      ]
+    },
+    "integer_card": {
+      "given": {"hdu": "the HDU's index", "keyword": "the card's keyword", "value": "the value's text", "is_int": "whether it is an integer"},
+      "constraints": [
+        {"require": "is_int", "message": "HDU {hdu}: {keyword} '{value}' is not an integer"}
+      ]
+    },
+    "bitpix": {
+      "given": {"hdu": "the HDU's index", "value": "BITPIX"},
+      "derive": {"spec": "at(data_types, value)"},
+      "constraints": [
+        {"require": "present(spec)", "message": "HDU {hdu}: BITPIX {value} is not one of 8, 16, 32, 64, -32, -64"}
+      ]
+    },
+    "naxis": {
+      "given": {"hdu": "the HDU's index", "value": "NAXIS"},
+      "constraints": [
+        {"require": "value >= 0 && value <= max_naxis", "message": "HDU {hdu}: NAXIS {value} is not in 0..999"}
+      ]
+    },
+    "naxisn": {
+      "given": {"hdu": "the HDU's index", "n": "the axis", "value": "NAXISn"},
+      "constraints": [
+        {"require": "value >= 0", "message": "HDU {hdu}: NAXIS{n} {value} is negative"}
+      ]
+    },
+    "pcount": {
+      "given": {"hdu": "the HDU's index", "value": "PCOUNT"},
+      "constraints": [
+        {"require": "value >= 0", "message": "HDU {hdu}: PCOUNT {value} is negative"}
+      ]
+    },
+    "gcount": {
+      "given": {"hdu": "the HDU's index", "value": "GCOUNT"},
+      "constraints": [
+        {"require": "value >= 1", "message": "HDU {hdu}: GCOUNT {value} is not positive"}
+      ]
+    },
+    "xtension": {
+      "given": {"hdu": "the HDU's index", "name": "XTENSION, trimmed"},
+      "derive": {"kind": "at(xtensions, name)"},
+      "constraints": [
+        {"require": "present(kind)", "message": "HDU {hdu}: XTENSION '{name}' is not IMAGE, TABLE or BINTABLE"}
+      ]
+    },
+    "groups": {
+      "given": {"hdu": "the HDU's index", "groups": "whether GROUPS = T"},
+      "constraints": [
+        {"require": "!groups", "message": "HDU {hdu}: random groups (GROUPS = T) are not supported"}
+      ]
+    },
+    "data_size": {
+      "given": {"hdu": "the HDU's index", "total": "D = |BITPIX| / 8 * GCOUNT * (PCOUNT + NAXIS1 * ... * NAXISn), exactly", "total_shown": "D in decimal", "offset": "the data's first byte", "size": "the file's size"},
+      "constraints": [
+        {"require": "total <= max_safe && offset + total <= size", "message": "HDU {hdu}: the {total_shown}-byte data at {offset} is outside the {size}-byte file"}
+      ]
+    },
+    "table": {
+      "given": {"hdu": "the HDU's index", "xtension": "TABLE or BINTABLE", "bitpix": "BITPIX", "naxis": "NAXIS", "tfields": "TFIELDS"},
+      "constraints": [
+        {"require": "bitpix == 8", "message": "HDU {hdu}: a {xtension} with BITPIX {bitpix}, not 8"},
+        {"require": "naxis == 2", "message": "HDU {hdu}: a {xtension} with NAXIS {naxis}, not 2"},
+        {"require": "tfields >= 0 && tfields <= max_naxis", "message": "HDU {hdu}: TFIELDS {tfields} is not in 0..999"}
+      ]
+    },
+    "tform": {
+      "given": {"hdu": "the HDU's index", "n": "the column", "found": "whether TFORMn is a card"},
+      "constraints": [
+        {"require": "found", "message": "HDU {hdu}: no TFORM{n} card"}
+      ]
+    },
+    "heap": {
+      "given": {"hdu": "the HDU's index", "theap": "THEAP, or NAXIS1 * NAXIS2 when absent", "rows": "NAXIS1 * NAXIS2", "pcount": "PCOUNT"},
+      "constraints": [
+        {"require": "theap >= rows", "message": "HDU {hdu}: THEAP {theap} is less than the rows' {rows} bytes"},
+        {"require": "theap - rows <= pcount", "message": "HDU {hdu}: THEAP {theap} puts the heap past the {pcount}-byte supplement"}
+      ]
+    },
+    "ztable": {
+      "given": {"hdu": "the HDU's index", "ztable": "whether ZTABLE = T"},
+      "constraints": [
+        {"require": "!ztable", "message": "HDU {hdu}: tile-compressed tables (ZTABLE = T) are not supported"}
+      ]
+    },
+    "zimage": {
+      "given": {"hdu": "the HDU's index", "zimage": "whether ZIMAGE = T"},
+      "constraints": [
+        {"require": "!zimage", "message": "HDU {hdu}: tile-compressed images (ZIMAGE = T) are not supported yet"}
+      ]
+    },
+    "hdu_count": {
+      "given": {"count": "the HDUs so far"},
+      "constraints": [
+        {"require": "count <= max_hdus", "message": "more than {max_hdus} HDUs"}
+      ]
+    }
+  }
+}

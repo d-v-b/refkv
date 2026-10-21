@@ -17,6 +17,7 @@ mod dicom;
 mod ims;
 pub mod n5;
 mod mrc;
+mod fits;
 mod nd2;
 mod ndpi;
 pub mod store;
@@ -47,6 +48,7 @@ pub fn project(format: Format, ir: &Ir, facts: &J, url: &str, copied: &Copied) -
         Format::Ims => ims::project(ir, facts, url),
         Format::Safe => safe::project(ir, facts, url),
         Format::Ndpi => ndpi::project(ir, facts, url),
+        Format::Fits => fits::project(ir, facts, url, copied),
     }
 }
 
@@ -57,6 +59,7 @@ pub fn reads(format: Format, ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, Stri
     match format {
         Format::Nifti => nifti::reads(ir, facts),
         Format::Mrc => mrc::reads(ir, facts),
+        Format::Fits => fits::reads(ir, facts),
         _ => Ok(Vec::new()),
     }
 }

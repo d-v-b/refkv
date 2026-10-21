@@ -24,6 +24,7 @@ function format(fd) {
   if (s.startsWith("\x89HDF\r\n\x1a\n")) return "ims";
   if (s.startsWith("PK\x03\x04")) return "safe"; // a SAFE product's zip form
   if (String.fromCharCode(...head.subarray(208, 211)) === "MAP") return "mrc";
+  if (s.startsWith("SIMPLE  =") && head[29] === 0x54) return "fits";
   return "czi";
 }
 

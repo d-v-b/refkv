@@ -37,7 +37,7 @@ def nifti_version(head: bytes) -> int | None:
 
 def sniff(head: bytes) -> str | None:
     """The IR format a file's first bytes give, if any (132 of them for DICOM, 348 for
-    NIfTI-1, 212 for MRC; DICOM first: a dual-personality file's preamble may hold a TIFF
+    NIfTI-1, 212 for MRC, 30 for FITS; DICOM first: a dual-personality file's preamble may hold a TIFF
     header)."""
     if head[128:132] == b"DICM":
         return "dicom"
@@ -55,6 +55,10 @@ def sniff(head: bytes) -> str | None:
         return "safe"
     if len(head) >= 212 and head[208:211] == b"MAP":
         return "mrc"
+    # `SIMPLE  =` and a fixed-format T in column 30: a FITS file (spec/virtualize/fits.md §15.1
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#151-choosing-the-profile>)
+    if len(head) >= 30 and head[:9] == b"SIMPLE  =" and head[29:30] == b"T":
+        return "fits"
     return None
 
 
