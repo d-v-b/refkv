@@ -40,8 +40,6 @@ spec/virtualize/nd2.md	701	§3	1	spec/virtualize/nd2.md#3-metadata
 spec/virtualize/nd2.md	701	§4	0	spec/virtualize/nd2.md#4-the-image	
 spec/virtualize/safe.md	803	§6.3	0	spec/virtualize/safe.md#63-the-source-metadata-node	
 spec/virtualize/ome-zarr.md	358	§5	0	spec/virtualize/zarr2.md#5-other-objects	
-spec/virtualize.md	481	§3	0	spec/virtualize.md#313-profiles	
-spec/virtualize.md	481	§13	0	spec/virtualize.md#313-profiles	
 spec/virtualize.md	484	§1	0	spec/conventions.md#1-conventions	
 spec/virtualize.md	485	§2	0	spec/conventions.md#2-attributes	
 spec/virtualize.md	485	§3	0	spec/conventions.md#3-arrays	

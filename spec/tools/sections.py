@@ -31,6 +31,7 @@ import argparse
 import bisect
 import csv
 import io
+import json
 import re
 import subprocess
 import sys
@@ -70,11 +71,13 @@ LEFT_ALONE = (
 # Written by spec/generate_schemas.py.
 GENERATED = ("spec/virtualize/*/schema.json",)
 
-FORMATS = ("tiff", "ndpi", "nd2", "dicom", "nifti", "ims", "n5", "zarr2", "ome-zarr", "safe", "czi", "mrc")
-# spec/virtualize.md's §3-§14 are the profiles, Part 2 of the formats' documents.
-PROFILE_NUMBERS = {f: n for n, f in enumerate(FORMATS, start=3)}
-# The dataset layouts' conventions (spec/conventions.md §9): a document each, no profile number.
-LAYOUTS = ("mrc-dataset",)
+# The profile registry (spec/virtualize/profiles.json): the format documents, each a profile
+# numbered as a section of spec/virtualize.md (Part 2 of the format's document), and the dataset
+# layouts' conventions (spec/conventions.md §9): a document each, no profile number.
+REGISTRY: list[dict] = json.loads((ROOT / "spec" / "virtualize" / "profiles.json").read_text(encoding="utf-8"))
+FORMATS = tuple(e["name"] for e in REGISTRY if e["section"] is not None)
+PROFILE_NUMBERS = {e["name"]: e["section"] for e in REGISTRY if e["section"] is not None}
+LAYOUTS = tuple(e["name"] for e in REGISTRY if e["section"] is None)
 DOCS = FORMATS + LAYOUTS
 
 # Old names of the documents, from before the repository was reorganized.
@@ -618,29 +621,23 @@ def doc_for_name(name: str, path: str) -> str | None:
     return hits[0] if len(hits) == 1 else None
 
 
-FORMAT_WORDS = {
-    "tiff": "tiff",
-    "ndpi": "ndpi",
-    "nd2": "nd2",
-    "dicom": "dicom",
-    "nifti": "nifti",
-    "ims": "ims",
-    "n5": "n5",
-    "zarr v2": "zarr2",
-    "ome-zarr": "ome-zarr",
-    "safe": "safe",
-    "czi": "czi",
-    "mrc": "mrc",
-    "mrc-dataset": "mrc-dataset",
-}
-_FMT = r"(?:the\s+)?(?:(tiff|ndpi|nd2|dicom|nifti|ims|n5|zarr v2|ome-zarr|safe|czi|mrc-dataset|mrc)\s+)?"
+# The words that name a format's document: its name and its title, lowercase (the registry's).
+FORMAT_WORDS = {w: e["name"] for e in REGISTRY for w in (e["name"], e["title"].lower())}
+# A format's words, the longest first (so that "mrc-dataset" is not read as "mrc").
+_FMT_WORDS = "|".join(re.escape(w) for w in sorted(FORMAT_WORDS, key=len, reverse=True))
+_FMT = r"(?:the\s+)?(?:(" + _FMT_WORDS + r")\s+)?"
+# A format's title as written ("TIFF", "Zarr v2"), or its name in capitals where its title holds
+# it ("SAFE" of "Sentinel-2 SAFE").
+_FORMAT_NAMES = sorted({e["title"] for e in REGISTRY}
+                       | {e["name"].upper() for e in REGISTRY if re.search(rf"\b{e['name'].upper()}\b", e["title"])},
+                       key=len, reverse=True)
 Q_PATH = re.compile(r"(?<![\w/.\-\[])(\[?((?:\.{1,2}/)*[\w.\-]+(?:/[\w.\-]+)*\.md)(?:\]\([^()\s]*\))?)(?:'s)?,?\s*$")
 Q_OLD = re.compile(r"(?<![\w/])(SPEC|VIRTUALIZE)(?:'s)?\s*$")
 Q_CONVENTIONS = re.compile(r"(?<![\w/\-])(conventions)(?:'s?)?\s*$", re.I)
 Q_CONVENTION = re.compile(r"(?<![\w/\-])(" + _FMT + r"convention)(?:'s)?\s*$", re.I)
 Q_PROFILE = re.compile(r"(?<![\w/\-])(" + _FMT + r"profile)(?:'s)?\s*$", re.I)
 # A format's name alone ("TIFF §3"): its convention.
-Q_FORMAT = re.compile(r"(?<![\w/\-])(TIFF|NDPI|ND2|DICOM|NIfTI|IMS|N5|Zarr v2|OME-Zarr|SAFE|CZI|MRC)\s*$")
+Q_FORMAT = re.compile(r"(?<![\w/\-])(" + "|".join(re.escape(w) for w in _FORMAT_NAMES) + r")\s*$")
 Q_SPEC = re.compile(r"(?<![\w/\-])((?:the\s+)?(?:archive\s+)?spec)(?:'s)?\s*$")
 
 

@@ -52,7 +52,7 @@ whose keys are exactly Zarr v2's for either separator, and its `transpose`,
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "ome-zarr"`, `"version": 0`, `"revision": 28` ([conventions §1](../conventions.md#1-conventions)), the store's URL (ending in
+with `"profile": "ome-zarr"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)), the store's URL (ending in
 `/`) as `source.url`, and the root's source metadata ([§8](#8-source-metadata)), if it has any,
 as the member `"ome-zarr"`. Every other node that has source metadata
 declares it with `{"ome-zarr": S}`. Its CMO is:
@@ -486,7 +486,6 @@ metadata:
     "refkv_virtualized": {
       "profile": "ome-zarr",
       "version": 0,
-      "revision": 28,
       "source": {
         "url": "https://example.org/i.zarr/"
       }

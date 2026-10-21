@@ -1,6 +1,6 @@
 """Compares virtualizers (spec/virtualize.md §1.1
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>, §15
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-conformance>; HARNESS.md).
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>, Appendix A
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#appendix-a-conformance>; HARNESS.md).
 
 Every implementation runs on every input of the corpus, which the caching
 proxy (proxy.py) serves over local HTTP: the synthetic files in
@@ -16,8 +16,8 @@ outputs; outputs are compared with the reference implementation's (the first
 one).
 
 Corpus lines are `url|name`, or `url|name|py-only` for an input larger than
-the browser implementation's limit (spec/virtualize.md §15
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-conformance>): such inputs are
+the browser implementation's limit (spec/virtualize.md Appendix A
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#appendix-a-conformance>): such inputs are
 skipped unless `--large` is given, and then every implementation but `web` runs on them.
 Store URLs end in `/`. A line may end with the input's fingerprint, which
 corpus_hash.py records and checks.
@@ -89,7 +89,8 @@ from vzip_impl.errors import VzError  # noqa: E402
 from refkv_reference import legacy  # noqa: E402
 
 from refkv.pb import Concat, Range, Source, decode_source_table  # noqa: E402
-from refkv.virtualize.common import CONVENTION_KEY, REVISION, SOURCE_NODE, same  # noqa: E402
+from refkv.virtualize.common import CONVENTION_KEY, SOURCE_NODE, same  # noqa: E402
+from refkv.virtualize.profiles import REGISTRY  # noqa: E402
 
 IDR = "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant/20210609-ftp-ome-tiffs/"
 BUILTIN = {
@@ -100,18 +101,18 @@ BUILTIN = {
     "py": ("vzip", ["uv", "run", "python", "-m", "refkv.virtualize", "--allow-private-hosts"]),
     "web": ("vzip", ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"]),
 }
-# The profiles whose shipped implementations write the IR's mirror under refkv_source.
-IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "mrc", "ims", "ndpi", "safe", "zarr2", "n5",
-               "ome-zarr")
+# The profiles whose shipped implementations write the IR's mirror under refkv_source: every
+# profile of the registry (spec/virtualize/profiles.json; a dataset layout is no profile).
+IR_PROFILES = tuple(e["name"] for e in REGISTRY if e["kind"] != "layout")
 SOURCE = SOURCE_NODE + "/"
 # The names the frozen reference writes, of the revisions it implements, and their translation.
 LEGACY_SOURCE = legacy.SOURCE_NODE + "/"
 LEGACY_KEY = legacy.CONVENTION_KEY
 current_names = legacy.current_names
 # The revision each frozen profile's reference roots record (HARNESS.md): the last before
-# the profile moved to the IR.
-REFERENCE_REVISIONS = {"tiff": 20, "nd2": 20, "czi": 20, "dicom": 25, "nifti": 25, "ims": 25, "ndpi": 25,
-                       "safe": 25, "zarr2": 25, "n5": 25, "ome-zarr": 25}
+# the profile moved to the IR (the registry's `reference`; a profile the frozen reference never
+# had, such as MRC, has none).
+REFERENCE_REVISIONS = {e["name"]: e["reference"] for e in REGISTRY if e["reference"] is not None}
 # The members of a frozen reference root's source metadata that the IR's mirror holds
 # instead (they named arrays of the reference's vzip_source, or held raw bytes).
 MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_truncated", "unparsed", "trailing")}
@@ -487,9 +488,9 @@ def at_revision(output: dict) -> dict:
     two: when its root has the frozen reference's names (LEGACY_KEY), its source metadata
     node's keys under `refkv_source/`, and every document outside it with the current
     names (`current_names`); and when its root records the revision the reference
-    implements (REFERENCE_REVISIONS), that revision the current one, without the members
-    of its source metadata that the IR's mirror holds instead (MIRRORED). Any other
-    output is unchanged."""
+    implements (REFERENCE_REVISIONS), without that revision (the shipped code records none)
+    and without the members of its source metadata that the IR's mirror holds instead
+    (MIRRORED). Any other output is unchanged."""
     root = output["entries"].get("zarr.json")
     attrs = root[1].get("attributes", {}) if root and root[0] == "json" else {}
     if LEGACY_KEY in attrs:
@@ -502,7 +503,7 @@ def at_revision(output: dict) -> dict:
     p = prop.get("profile") if isinstance(prop, dict) else None
     if p not in REFERENCE_REVISIONS or prop.get("revision") != REFERENCE_REVISIONS[p]:
         return output
-    prop = {**prop, "revision": REVISION}
+    prop = {k: v for k, v in prop.items() if k != "revision"}
     if isinstance(prop.get(p), dict) and p in MIRRORED:
         prop[p] = {k: v for k, v in prop[p].items() if k not in MIRRORED[p]}
     attrs = {**root[1]["attributes"], CONVENTION_KEY: prop}
@@ -537,23 +538,24 @@ def without_source(output: dict) -> dict:
     return {"sources": used, "entries": entries}
 
 
-STORE_FORMATS = ("n5", "zarr2", "ome-zarr", "safe")
+STORE_FORMATS = tuple(e["name"] for e in REGISTRY if e["kind"] in ("store", "both"))
+# The fixture files, by suffix: their profile's registry entry.
+FILE_SUFFIXES = {s: e for e in REGISTRY for s in e["suffixes"]}
 
 
 def store_fixtures(fixtures: Path) -> list[Path]:
-    """The synthetic stores: each directory directly under <fixtures>/n5, zarr2 and ome-zarr."""
+    """The synthetic stores: each directory directly under a store profile's <fixtures>/<p>."""
     return sorted(d for f in STORE_FORMATS if (fixtures / f).is_dir() for d in (fixtures / f).iterdir() if d.is_dir())
 
 
 def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: bool = False,
            idr_listing: str | None = None) -> list[tuple]:
     stores = store_fixtures(fixtures)
-    files = [p for p in sorted([*fixtures.rglob("*.tif"), *fixtures.rglob("*.ndpi"), *fixtures.rglob("*.nd2"),
-                                *fixtures.rglob("*.dcm"), *fixtures.rglob("*.nii"), *fixtures.rglob("*.mrc"),
-                                *fixtures.rglob("*.ims"), *fixtures.rglob("*.zip"), *fixtures.rglob("*.czi")])
+    files = [p for p in sorted(p for s in FILE_SUFFIXES for p in fixtures.rglob(f"*{s}"))
              if not any(p.is_relative_to(s) for s in stores)]
-    # the frozen reference has no MRC profile: its files compare py with web alone
-    items = [(f"fixture-{p.stem}", proxy.local(p.relative_to(fixtures).as_posix()), *(["no-ref"] if p.suffix == ".mrc" else []))
+    # a profile the frozen reference never had (MRC): its files compare py with web alone
+    items = [(f"fixture-{p.stem}", proxy.local(p.relative_to(fixtures).as_posix()),
+              *(["no-ref"] if FILE_SUFFIXES[p.suffix]["reference"] is None else []))
              for p in files]
     items += [(f"fixture-{s.name}", proxy.local_store(s.relative_to(fixtures).as_posix())) for s in stores]
     if local_only:
@@ -562,11 +564,13 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
                urllib.request.urlopen(IDR, timeout=60).read().decode())
     tiffs = sorted(set(re.findall(r'href="([^"?/][^"]*\.ome\.tiff)"', listing)))
     items += [(f"idr-{i:03d}", proxy.remote(IDR + n)) for i, n in enumerate(tiffs[:3] if quick else tiffs)]
-    for corpus_file, prefix in (("corpus_nd2.txt", "nd2-"), ("corpus_tiff.txt", ""), ("corpus_dicom.txt", "dicom-"),
-                                ("corpus_nifti.txt", "nifti-"), ("corpus_mrc.txt", "mrc-"), ("corpus_ims.txt", "ims-"), ("corpus_n5.txt", "n5-"),
-                                ("corpus_zarr2.txt", "zarr2-"), ("corpus_ome_zarr.txt", "ome-zarr-"),
-                                ("corpus_safe.txt", "safe-"), ("corpus_czi.txt", "czi-")):
-        listed = [(url, name, *flags) for url, name, flags, _ in corpus_entries(HERE / corpus_file)]
+    # each profile's public inputs, corpus_<p>.txt (NDPI's are in TIFF's), named <p>-<name>
+    for e in REGISTRY:
+        corpus_file = HERE / f"corpus_{e['name'].replace('-', '_')}.txt"
+        if not corpus_file.is_file():
+            continue
+        prefix = f"{e['name']}-"
+        listed = [(url, name, *flags) for url, name, flags, _ in corpus_entries(corpus_file)]
         listed = [x for x in listed if large or x[2:] != ("py-only",)]
         for url, name, *flags in (listed[:3] if quick else listed):
             target = proxy.remote_store(url) if url.endswith("/") else proxy.remote(url)

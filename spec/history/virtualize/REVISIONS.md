@@ -1655,3 +1655,39 @@ model `schema/mrc.json`, the projection `project/mrc.rs`), through both
 hosts. There is no frozen reference: `compare.py` compares `py` with `web`
 on MRC inputs, and `js/test/mrc/verify.py` and `python/tests/ir/test_mrc.py`
 check both against mrcfile.
+
+## Revision 29: no recorded revision; the profile registry
+
+The last numbered revision. From here on, a change to a profile is recorded
+in that profile's document (a dated note), not in one sequence for all of
+them: two profiles can change at once without serializing on a number.
+
+- **Conventions:** the root property no longer records a `revision`
+  ([conventions §1](../../conventions.md#1-conventions), [§2](../../conventions.md#2-attributes)):
+  `{"profile", "version", "source", ...}`. Each convention has its own
+  `version`, which is what tells two layouts apart from the release on; at
+  version 0 nothing is promised, as before. The schemas were regenerated
+  without the member. The frozen reference twins still record the revision
+  they implement (20 or 25); `compare.py` and the twins' tests drop it before
+  comparing.
+- **The profile registry:** [spec/virtualize/profiles.json](../../virtualize/profiles.json)
+  is the one place a profile's identity is written (name, section number,
+  title, UUID, version, kind, fixture suffixes, frozen reference, the phrases
+  the tables use). `spec/tools/profiles.py` derives the hosts' tables
+  (`python/src/refkv/virtualize/profiles.py`, `js/src/virtualize/profiles.ts`),
+  the Rust core's copy (`rust/refkv-ir/profiles.json`) and the profile tables
+  of spec/virtualize.md, spec/conventions.md, docs/virtualize/README.md and
+  the demo page; `just sections` checks they are current.
+- **Numbering:** Conformance is [Appendix A](../../virtualize.md#appendix-a-conformance)
+  of spec/virtualize.md, no longer the section after the last profile, so a
+  new profile takes the next number and moves nothing. The profiles' numbers
+  are the registry's.
+- **Hosts:** the Rust core's file runs take the format's name
+  (`vz_run_new`, `vz_new`, `vz_test_mirror`), as the store runs did; the
+  integer codes are gone.
+- **Shared projection helpers:** `rust/refkv-ir/src/out.rs` holds the
+  rectilinear array document, the `omero` channel builders and the codec
+  chain of a TIFF compression, which the projections call.
+
+**Output.** Every profile's output changes only by losing the `revision`
+member of its root property.

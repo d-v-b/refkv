@@ -16,7 +16,7 @@ import pytest
 from refkv import _core
 from refkv.ir.store import StoreIrOutput, virtualize_store
 from refkv.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
-from refkv.virtualize.common import REVISION, same
+from refkv.virtualize.common import same
 from refkv_reference.revision import STORES_REVISION
 
 from ir_helpers import LEGACY_SOURCE, as_current, current_names
@@ -43,8 +43,7 @@ def test_accepted_stores_have_the_reference_hierarchy_and_a_store_mirror():
         assert fmt == "n5" and isinstance(out, StoreIrOutput), root.name
         docs = {k: json.loads(v) for k, v in out.entries.items() if not k.startswith("refkv_source/")}
         want = current_names({k: v for k, v in ref.docs.items() if not k.startswith(LEGACY_SOURCE)})
-        assert want["zarr.json"]["attributes"]["refkv_virtualized"]["revision"] == STORES_REVISION
-        want["zarr.json"]["attributes"]["refkv_virtualized"]["revision"] = REVISION
+        assert want["zarr.json"]["attributes"]["refkv_virtualized"].pop("revision") == STORES_REVISION
         assert same(docs, want), root.name
         assert out.refs == {as_current(k): [("object", ref.origins.get(k, k), 0, n)] for k, n in ref.chunks}, root.name
         assert out.sources == ref.sources, root.name
@@ -147,7 +146,7 @@ def test_hostile_stores_are_refused_or_virtualized_as_the_reference_does(n5_prob
             continue
         docs = {k: json.loads(v) for k, v in out.entries.items() if not k.startswith("refkv_source/")}
         want = current_names({k: v for k, v in ref.docs.items() if not k.startswith(LEGACY_SOURCE)})
-        want["zarr.json"]["attributes"]["refkv_virtualized"]["revision"] = REVISION
+        del want["zarr.json"]["attributes"]["refkv_virtualized"]["revision"]
         assert same(docs, want), root.name
         assert out.refs == {as_current(k): [("object", ref.origins.get(k, k), 0, n)] for k, n in ref.chunks}, root.name
         stored = files(root)

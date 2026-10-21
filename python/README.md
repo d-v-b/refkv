@@ -8,9 +8,10 @@ a reference store in one ordinary ZIP file
 ([its binding](https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md)).
 
 This package holds reference stores in memory, reads and writes vzip archives,
-and virtualizes TIFF, NDPI, ND2, CZI, DICOM, NIfTI, MRC and Imaris files, N5,
-Zarr v2 and OME-Zarr stores, and Sentinel-2 SAFE products through its Rust
-core, without copying their pixels ([docs](https://github.com/d-v-b/refkv/blob/main/docs/README.md)).
+and virtualizes image files and chunked array stores
+([the formats](https://github.com/d-v-b/refkv/blob/main/docs/virtualize/README.md#formats))
+through its Rust core, without copying their pixels
+([docs](https://github.com/d-v-b/refkv/blob/main/docs/README.md)).
 
 ```python
 from refkv.virtualize import virtualize

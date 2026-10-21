@@ -26,7 +26,7 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "ndpi"`, `"version": 0`, `"revision": 28` ([conventions §1](../conventions.md#1-conventions)) and the file's URL as `source.url`;
+with `"profile": "ndpi"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)) and the file's URL as `source.url`;
 it has no source metadata member ([§5](#5-source-metadata)). Its CMO is:
 
 ```json
@@ -206,7 +206,6 @@ two have McuStarts. The root's property:
 {
   "profile": "ndpi",
   "version": 0,
-  "revision": 28,
   "source": {
     "url": "https://example.org/slide.ndpi"
   }

@@ -1,12 +1,10 @@
 # Mapping image formats to Zarr: techniques
 
-refkv maps twelve source formats to Zarr v3 without copying their data:
-- eight file formats: TIFF, NDPI, ND2, DICOM, NIfTI, MRC, IMS and CZI;
-- three store formats: N5, Zarr v2 and OME-Zarr 0.4;
-- Sentinel-2 SAFE products, a directory or a zip file of JPEG 2000 bands
-  and XML metadata.
+refkv maps a dozen source formats ([the formats table](../docs/virtualize/README.md#formats):
+image files, chunked array stores, and Sentinel-2 SAFE products, a directory or a zip file
+of JPEG 2000 bands and XML metadata) to Zarr v3 without copying their data.
 
-Doing the same thing twelve times shows which problems recur, and which
+Doing the same thing a dozen times shows which problems recur, and which
 techniques solve them for any format. This document collects those
 techniques. It then proposes, from them, how the conventions should
 treat a source's metadata. It is a design note: the conventions in this

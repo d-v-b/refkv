@@ -13,7 +13,6 @@ import { directoryStore } from "../../conformance/directory_store.ts";
 import { virtualizeStore as referenceStore } from "../../../conformance/virtualize/reference/ts/index.ts";
 import { STORES_REVISION as FROZEN } from "../../../conformance/virtualize/reference/ts/revision.ts";
 import { currentNames, SOURCE_NODE as LEGACY_NODE } from "../../../conformance/virtualize/reference/ts/legacy.ts";
-import { REVISION } from "../../src/virtualize/common.ts";
 import { virtualizeStore } from "../../src/virtualize/index.ts";
 import { StoreError } from "../../src/virtualize/store.ts";
 import type { ArchiveDesc } from "../../src/writer.ts";
@@ -37,7 +36,7 @@ function hierarchy(desc: ArchiveDesc, legacy = false): Map<string, unknown> {
       const parsed = JSON.parse(new TextDecoder().decode(e.bytes));
       const json = (legacy ? currentNames(parsed) : parsed) as { attributes?: { refkv_virtualized?: { revision?: number } } };
       const prop = json.attributes?.refkv_virtualized;
-      if (e.key === "zarr.json" && prop?.revision === FROZEN) prop.revision = REVISION;
+      if (e.key === "zarr.json" && prop?.revision === FROZEN) delete prop.revision;
       out.set(e.key, json);
     }
   }

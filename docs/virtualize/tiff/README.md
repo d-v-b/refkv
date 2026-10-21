@@ -210,7 +210,7 @@ Rejected:
   resolution).
 
 A file that is none of the formats refkv reads is rejected with
-`not a TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file` (exit status
+`not a file of any supported format` (exit status
 3).
 
 ## Performance

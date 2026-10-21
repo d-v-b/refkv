@@ -5,29 +5,9 @@
 
 use super::{arr, key, n, obj, strs, translations, truthy};
 use crate::ir::Ir;
-use crate::out::{array_json, image_ome, root_json, transpose_codec, Out};
+use crate::out::{array_json, image_ome, root_json, tiff_codecs, transpose_codec, Out};
 use crate::refs::Refs;
 use serde_json::{json, Value as J};
-
-/// The codecs after `transpose` of a compression, for samples of `bits`.
-fn codecs_of(compression: u64, bits: u64, little: bool) -> Vec<J> {
-    match compression {
-        33003 | 33004 | 33005 | 34712 => return vec![json!({"name": "imagecodecs_jpeg2k"})],
-        7 => return vec![json!({"name": "imagecodecs_jpeg"})],
-        _ => {}
-    }
-    let mut out = vec![if bits > 8 {
-        json!({"name": "bytes", "configuration": {"endian": if little { "little" } else { "big" }}})
-    } else {
-        json!({"name": "bytes"})
-    }];
-    match compression {
-        8 | 32946 => out.push(json!({"name": "zlib", "configuration": {"level": 1}})),
-        50000 => out.push(json!({"name": "zstd", "configuration": {"level": 0, "checksum": false}})),
-        _ => {}
-    }
-    out
-}
 
 /// The TIFF image: one array per level, its chunks the tiles of each plane.
 pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
@@ -46,7 +26,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     };
     let data_type = format!("{kind}{bits}");
     let mut codecs = if contig { vec![transpose_codec(&axes)] } else { vec![] };
-    codecs.extend(codecs_of(n(&facts["compression"]), bits, little));
+    codecs.extend(tiff_codecs(n(&facts["compression"]), bits, little));
     let codecs = J::Array(codecs);
     let mut refs = Refs::new(ir, Out::new(url));
     let levels = arr(&facts["levels"]);
