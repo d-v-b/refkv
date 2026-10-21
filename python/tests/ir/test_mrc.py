@@ -6,6 +6,7 @@ is the independent reader."""
 import base64
 import io
 import json
+import struct
 import warnings
 
 import mrcfile
@@ -54,12 +55,24 @@ def as_json(v):
     return v
 
 
+IMOD = 1146047817
+
+
 def load(path):
-    """mrcfile's reading (its warnings, such as a zero grid size, are not failures)."""
+    """mrcfile's reading (its warnings, such as a zero grid size, are not failures). mrcfile
+    does not read IMOD's unsigned-byte flag (spec/virtualize/mrc.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#3-data-types>): a mode 0
+    file with IMOD's stamp and bit 0 of its flags is its bytes as uint8."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with mrcfile.open(path, permissive=False) as f:
-            return f.header.copy(), np.array(f.data)
+            header, data = f.header.copy(), np.array(f.data)
+    raw = path.read_bytes()
+    order = "<" if header.mode.dtype.byteorder in "<=" else ">"
+    stamp, flags = struct.unpack(order + "ii", raw[152:160])
+    if int(header.mode) == 0 and stamp == IMOD and flags & 1:
+        data = data.view(np.uint8)
+    return header, data
 
 
 def virtualized(path, tmp_path):
@@ -144,6 +157,16 @@ CASES = {
     "mrc_edge_origin_nan": ({"translation": False}, None, None, None, None, None, None),
     "mrc_edge_origin_inf": ({"translation": False}, None, None, None, None, None, None),
     "mrc_edge_origin_one": ({"translation": True}, None, None, [-2.5, 0, 0], None, None, None),
+    # an image's origin is a phase origin in pixels: no translation
+    "mrc_edge_origin_image_stack": ({"kind": "image_stack", "translation": False}, None, None, None, None, None, None),
+    "mrc_edge_origin_image": ({"kind": "image", "translation": False}, None, None, None, None, None, None),
+    # IMOD's unsigned-byte flag: mode 0 as uint8, with the stamp and bit 0 of the flags alone
+    "mrc_imod_uint8": ({"mode": 0, "dataType": "uint8"}, None, None, None, {"data_type": "uint8"},
+                       {"min": 0, "max": 255, "start": 0, "end": 255}, ("0/c/0/0/0", [(1024, 24)])),
+    "mrc_imod_uint8_other_flags": ({"dataType": "uint8"}, None, None, None, None, None, None),
+    "mrc_imod_uint8_be": ({"dataType": "uint8", "byteOrder": "big"}, None, None, None, None, None, None),
+    "mrc_imod_int8": ({"dataType": "int8"}, None, None, None, None, None, None),
+    "mrc_imod_flag_no_stamp": ({"dataType": "int8"}, None, None, None, None, None, None),
     "mrc_edge_volume_stack_one": ({"kind": "volume_stack", "sizes": {"t": 1, "z": 3, "y": 2, "x": 3}}, None, None, None, None, None, None),
     "mrc_edge_ispg_230": ({"kind": "volume"}, None, None, None, None, None, None),
     "mrc_edge_ispg_negative": ({"kind": "volume"}, None, None, None, None, None, None),

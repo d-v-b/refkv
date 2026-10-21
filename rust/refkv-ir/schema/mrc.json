@@ -8,7 +8,7 @@
   },
   "tables": {
     "modes": {
-      "about": "mode: Zarr data type, bytes per voxel",
+      "about": "mode: Zarr data type, bytes per voxel; a mode 0 file with IMOD's stamp (1146047817 at byte 152) and bit 0 of its flags (byte 156) set is uint8 instead",
       "0": {"dtype": "int8", "bytes": 1},
       "1": {"dtype": "int16", "bytes": 2},
       "2": {"dtype": "float32", "bytes": 4},

@@ -48,7 +48,7 @@ fn accepted_fixtures_are_valid_irs_that_rebuild() {
     assert_eq!(accepted::<Tiff>("ndpi"), 3);
     assert_eq!(accepted::<Dicom>("dicom"), 43);
     assert_eq!(accepted::<Nifti>("nifti"), 66);
-    assert_eq!(accepted::<Mrc>("mrc"), 48);
+    assert_eq!(accepted::<Mrc>("mrc"), 55);
     assert_eq!(accepted::<Ims>("ims"), 26);
     assert_eq!(accepted::<Ims>("ims/exact"), 1);
 }

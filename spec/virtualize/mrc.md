@@ -98,9 +98,13 @@ fastest, then the row, then the section.
 | 6 | UINT16 | `uint16` | 2 |
 | 12 | FLOAT16 | `float16` | 2 |
 
-Mode 0 is signed, as the MRC2014 standard says. Some writers (IMOD, with a
-flag in `extra2`) store unsigned bytes in mode 0; the convention does not
-read that flag, and a reader who needs to may find it in `header`.
+Mode 0 is signed, as the MRC2014 standard says, except in a file IMOD
+marks as unsigned: when `mode` is 0, the `i32` at byte 152 (in the file's
+byte order; the 41st byte of `extra2`) is 1146047817 (IMOD's stamp, `IMOD`
+as a little-endian integer) and bit 0 of the `i32` at byte 156 (IMOD's
+flags) is set, the data type is `uint8`, `b = 1`. Reading such a file as
+`int8` would make every value over 127 negative. (The other flag bits, and
+the stamp without the flag or the flag without the stamp, change nothing.)
 A `complex64` value is its real part, then its imaginary part, each a
 binary32 in the file's byte order.
 
@@ -171,13 +175,14 @@ no voxel size.
 it) has its voxel size as its scale, with the unit `angstrom`, or 1 with no
 unit when it has none. `t` has the scale 1 and no unit.
 
-**Translation.** When the three `origin` values are finite and at least one
-is not 0, the image has a translation
-([conventions §5](../conventions.md#5-units)): `origin[0]` for `x`,
-`origin[1]` for `y`, `origin[2]` for `z`, and 0 for `t` (each only for the
-axes present). Otherwise it has none. (`nxstart`, `nystart` and `nzstart`,
-which older writers use to place a map, are not applied; they are in
-`header`.)
+**Translation.** For a volume or a volume stack (`ispg` not 0), when the
+three `origin` values are finite and at least one is not 0, the image has a
+translation ([conventions §5](../conventions.md#5-units)): `origin[0]` for
+`x`, `origin[1]` for `y`, `origin[2]` for `z`, and 0 for `t` (each only for
+the axes present). Otherwise it has none: an image's or an image stack's
+`origin` is a phase origin in pixels, not a position, and `nxstart`,
+`nystart` and `nzstart`, which crystallographic writers use to place a map
+in its unit cell, are not applied ([§7](#7-what-the-layout-does-not-express)); all are in `header`.
 
 ### 4.3 Channels
 
@@ -199,7 +204,7 @@ Everything the file holds is on `refkv_source`, the file's **IR mirror**
 
 - `byte_order`: `"little"` or `"big"`.
 - `kind`: `"image"`, `"image_stack"`, `"volume"` or `"volume_stack"` ([§4.1](#41-the-array)).
-- `data_type`: the Zarr data type of [§3](#3-data-types).
+- `data_type`: the Zarr data type of [§3](#3-data-types) (`uint8` for a mode 0 file IMOD marks as unsigned).
 - `header`: an object with one member per field of [§2](#2-the-header), in
   its order and named as there. A `char[k]` field is text: its bytes up to
   the first NUL, as a text value; `label` is an array of ten such values. A
@@ -327,6 +332,49 @@ A volume whose columns run along `z` and whose sections run along `x`
 (`mapc = 3`, `mapr = 2`, `maps = 1`; the fixture `mrc_axis_map_permuted.mrc`)
 has the axes `x`, `y`, `z`, the shape `[nz, ny, nx]`, and the voxel sizes
 and origin of `x`, `y` and `z` on those axes.
+
+## 7. What the layout does not express
+
+This section is informative. OME-NGFF 0.5 places an image by a scale and a
+translation per axis, names its axes as space, time or channel, and has no
+per-index coordinates, so several things an MRC header or extended header
+says have no expression in the layout. They are all kept in `header`
+([§5.1](#51-the-root)) or in the mirror ([§5.2](#52-the-ir-mirror)), and a
+reader that needs them must read them there.
+
+- **The unit cell's angles** (`cellb`). Angles other than 90° make the grid
+  non-orthogonal: a shear, which a scale and a translation cannot express.
+  The layout uses `cella` and the grid for the scales as if the cell were
+  orthogonal; a map of a monoclinic or triclinic crystal is shown skewed.
+- **The space group** (`ispg` from 1 to 230) and the symmetry operators of a
+  `CCP4` extended header: crystallographic symmetry and the periodicity of
+  the map. The layout has no notion of either; `ispg` serves it only to tell
+  a volume from a stack.
+- **Where a sub-volume sits**. `nxstart`, `nystart` and `nzstart` place the
+  map's first voxel in the unit-cell grid, in grid units, and `origin`
+  places it in angstroms. Writers differ on which they set, and how, and a
+  hierarchy has one translation; the layout applies `origin` for volumes
+  only ([§4.2](#42-scales-units-and-position)), as MRC2014 directs for EM
+  data, and applies the starts never. A map that an older writer placed by
+  its starts alone is shown at the origin.
+- **What a stack's index means**. The sections of an image stack (`ispg`
+  0) are independent images, such as micrographs, a tilt series or
+  particles, and the volumes of a volume stack are independent volumes; the
+  layout names the one `z` (a space axis) and the other `t` (a time axis)
+  because the OME-NGFF axis types offer nothing closer. `kind` says which
+  it is.
+- **Per-section metadata**. `FEI1`, `FEI2`, `SERI` and `AGAR` extended
+  headers hold a record per section (tilt angle, stage position, dose,
+  defocus, the pixel size of each frame); the layout does not decode them,
+  and OME-NGFF has no place for a value per index anyway.
+- **An image's phase origin** (`origin` with `ispg` 0), in pixels: not a
+  position.
+- **The statistics** `dmean` and `rms`, the labels, the format version
+  `nversion`, and the extra space (IMOD's own fields among them, except the
+  unsigned-byte flag, [§3](#3-data-types)).
+- **Half-complex transforms**. A mode 4 file is usually a Fourier transform
+  of a real volume holding half the spectrum (`nx = N / 2 + 1`); the layout
+  gives the data type, `complex64`, not the meaning.
 
 # Part 2. The profile
 

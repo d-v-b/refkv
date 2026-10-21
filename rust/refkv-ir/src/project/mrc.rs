@@ -138,8 +138,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let (offset, form) = (ir.start[data as usize], ir.form_id(data).ok_or("internal: the data has no form")?);
     let length = ir.len[data as usize];
     let mode = h.get("mode").i();
-    let spec = &crate::rules::mrc().table("modes")[mode.to_string()];
-    let data_type = spec["dtype"].as_str().unwrap_or("int8");
+    let data_type = facts["data_type"].as_str().unwrap_or("int8");
     let f = |name: &str| h.get(name).f();
 
     // voxel size and origin (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#42-scales-units-and-position>)
@@ -154,8 +153,9 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
             }
         })
         .collect();
+    // the origin places a volume, in angstroms; an image's is a phase origin in pixels
     let origin: Vec<f64> = h.values("origin").iter().map(|v| v.f()).collect();
-    let placed = origin.iter().all(|v| v.is_finite()) && origin.iter().any(|&v| v != 0.0);
+    let placed = h.get("ispg").i() != 0 && origin.iter().all(|v| v.is_finite()) && origin.iter().any(|&v| v != 0.0);
     let index = |a: &str| match a {
         "x" => 0,
         "y" => 1,

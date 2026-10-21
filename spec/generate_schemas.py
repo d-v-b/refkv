@@ -131,7 +131,7 @@ SOURCE_METADATA: dict[str, dict] = {
         "properties": {
             "byte_order": {"enum": ["little", "big"]},
             "kind": {"enum": ["image", "image_stack", "volume", "volume_stack"]},
-            "data_type": {"enum": ["int8", "int16", "float32", "complex64", "uint16", "float16"]},
+            "data_type": {"enum": ["int8", "uint8", "int16", "float32", "complex64", "uint16", "float16"]},
             "header": {
                 "type": "object",
                 "description": "Every header field, by its MRC2014 name, in the standard's order; the extra space as base64, the labels as an array of ten texts",

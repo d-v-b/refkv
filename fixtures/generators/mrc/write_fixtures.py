@@ -147,6 +147,16 @@ def main() -> None:
     mrc("mrc_edge_origin_nan", (3, 3, 2), 2, origin=[1.0, nan, 0.0])
     mrc("mrc_edge_origin_inf", (3, 3, 2), 2, origin=[inf, 0.0, 0.0])
     mrc("mrc_edge_origin_one", (3, 3, 2), 2, origin=[0.0, 0.0, -2.5])
+    # An image stack's origin is a phase origin in pixels: no translation.
+    mrc("mrc_edge_origin_image_stack", (3, 3, 2), 2, ispg=0, origin=[1.0, 2.0, 0.0])
+    mrc("mrc_edge_origin_image", (3, 3, 1), 2, ispg=0, origin=[1.0, 2.0, 0.0])
+    # IMOD's stamp and flags at bytes 152 and 156: bit 0 makes mode 0 unsigned.
+    imod = lambda flags: bytes(40) + struct.pack("<ii", 1146047817, flags) + bytes(36)
+    mrc("mrc_imod_uint8", (4, 3, 2), 0, extra2=imod(1), dmin=0.0, dmax=255.0)
+    mrc("mrc_imod_uint8_other_flags", (4, 3, 2), 0, extra2=imod(7))
+    mrc("mrc_imod_int8", (4, 3, 2), 0, extra2=imod(2))
+    mrc("mrc_imod_flag_no_stamp", (4, 3, 2), 0, extra2=bytes(44) + struct.pack("<i", 1) + bytes(36))
+    mrc("mrc_imod_uint8_be", (4, 3, 2), 0, order=">", extra2=bytes(40) + struct.pack(">ii", 1146047817, 1) + bytes(36))
     mrc("mrc_edge_volume_stack_one", (3, 2, 3), 2, ispg=401, mz=3)
     mrc("mrc_edge_ispg_230", (3, 2, 2), 2, ispg=230)
     mrc("mrc_edge_ispg_negative", (3, 2, 2), 2, ispg=-1)

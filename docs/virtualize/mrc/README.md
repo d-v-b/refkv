@@ -29,15 +29,17 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
   are named by the header's axis map (`mapc`, `mapr`, `maps`) when it is a
   permutation of x, y and z; the values are never reordered.
 - **Data types:** `int8`, `int16`, `uint16`, `float16`, `float32` and
-  `complex64` (modes 0, 1, 6, 12, 2 and 4).
+  `complex64` (modes 0, 1, 6, 12, 2 and 4); `uint8` for a mode 0 file that
+  IMOD marks as unsigned.
 - **Chunks:** the values as the file stores them, cut into equal runs of at
   most 1 MiB along the outermost axis that allows it.
 - **Codecs:** `bytes` in the file's byte order. No compression: the file
   has none.
 - **Scale:** the voxel size, `cella / mx` and so on, in angstroms, where the
   cell and the grid give a positive finite one.
-- **Translation:** the header's `origin`, when it is finite and not all
-  zero.
+- **Translation:** the header's `origin` (angstroms), for a volume, when it
+  is finite and not all zero. An image's origin is a phase origin in pixels
+  and is not applied.
 - **Header:** every field of the MRC header, under
   `refkv_virtualized.mrc.header`, with the kind of file, the data type,
   whether the axis map was applied and the voxel size beside it. The whole
@@ -45,6 +47,16 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
   them) is described on `refkv_source` by the Rust core's IR mirror, from
   which it is rebuilt byte for byte.
 - **omero:** a display window from `dmin` and `dmax`.
+
+**What is not expressed.** OME-Zarr places an image by a scale and a
+translation and has no crystallography, so the cell angles (a skewed grid
+is shown orthogonal), the space group and symmetry operators, the
+`nxstart` placement of a sub-volume, the per-section records of FEI and
+SerialEM extended headers (tilt angles, doses), and the meaning of a
+stack's index (micrographs or particles, not z-slices; volumes, not time
+points) are recorded in the header or the mirror but not in the layout.
+[spec/virtualize/mrc.md §7](../../../spec/virtualize/mrc.md#7-what-the-layout-does-not-express)
+lists them.
 
 ## Try it
 

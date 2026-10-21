@@ -150,6 +150,7 @@
             "data_type": {
               "enum": [
                 "int8",
+                "uint8",
                 "int16",
                 "float32",
                 "complex64",

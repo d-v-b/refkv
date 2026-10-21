@@ -18,6 +18,11 @@ use serde_json::{Value as J, json};
 
 /// The header's length.
 pub const HEADER: u64 = 1024;
+/// IMOD's stamp (`IMOD` as a little-endian i32) at byte 152 of the header, and its flags at
+/// 156, whose bit 0 says a mode 0 file's bytes are unsigned.
+pub const IMOD_STAMP: usize = 152;
+pub const IMOD_FLAGS: usize = 156;
+pub const IMOD: i64 = 1146047817;
 
 /// A header field: its name, offset, kind (`i4`, `f4`, `u1`, `b` for opaque bytes, `c` for
 /// text, or `l` for the ten 80-byte labels) and count, in the standard's order
@@ -180,6 +185,10 @@ impl Mrc {
         self.check("mode", rules::env([("code", num(code as f64))]))?;
         let spec = &self.rules.table("modes")[code.to_string()];
         let bytes = spec["bytes"].as_u64().unwrap_or(1);
+        // IMOD marks a mode 0 file whose bytes are unsigned (spec/virtualize/mrc.md §3
+        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#3-data-types>)
+        let imod_unsigned = code == 0 && h.number(IMOD_STAMP, "i4").i() == IMOD && h.number(IMOD_FLAGS, "i4").i() & 1 == 1;
+        let dtype = if imod_unsigned { "uint8" } else { spec["dtype"].as_str().unwrap_or("int8") };
         let nsymbt = h.get("nsymbt").i();
         self.check("extended_header", rules::env([("nsymbt", num(nsymbt as f64)), ("size", num(self.size as f64))]))?;
         let (ispg, mz) = (h.get("ispg").i(), h.get("mz").i());
@@ -205,12 +214,11 @@ impl Mrc {
             self.ir.value(0, "extended", NO_INDEX, &format!("bytes[{nsymbt}]"), 0, (HEADER, nsymbt as u64), None)?;
         }
         let endian = if h.little { "little" } else { "big" };
-        let dtype = spec["dtype"].as_str().unwrap_or("int8");
         let form = json!({"geometry": {"data_type": dtype, "samples": 1}, "codec": {"endian": endian},
                           "recipe": [["src", 0, null]]});
         let data = self.ir.data(0, "data", NO_INDEX, 0, (offset, total as u64), &form.to_string())?;
         // the payload past which the projection copies an edge chunk, read once per run
-        self.facts = json!({"header": header, "data": data, "copy_threshold": crate::out::copy_threshold()});
+        self.facts = json!({"header": header, "data": data, "data_type": dtype, "copy_threshold": crate::out::copy_threshold()});
         Ok(())
     }
 

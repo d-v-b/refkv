@@ -16,6 +16,7 @@ Usage: uv run python js/test/mrc/verify.py [<dir of .mrc files>]
 from __future__ import annotations
 
 import base64
+import struct
 import subprocess
 import sys
 import tempfile
@@ -74,12 +75,24 @@ def as_json(v):
     return v
 
 
+IMOD = 1146047817
+
+
 def load(path: Path):
-    """mrcfile's header and data (its warnings, such as a zero grid size, are not failures)."""
+    """mrcfile's header and data (its warnings, such as a zero grid size, are not failures).
+    mrcfile does not read IMOD's unsigned-byte flag (spec/virtualize/mrc.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#3-data-types>): a mode 0
+    file with IMOD's stamp and bit 0 of its flags is its bytes as uint8."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with mrcfile.open(path, permissive=False) as f:
-            return f.header.copy(), np.array(f.data)
+            header, data = f.header.copy(), np.array(f.data)
+    raw = path.read_bytes()
+    order = "<" if header.mode.dtype.byteorder in "<=" else ">"
+    stamp, flags = struct.unpack(order + "ii", raw[152:160])
+    if int(header.mode) == 0 and stamp == IMOD and flags & 1:
+        data = data.view(np.uint8)
+    return header, data
 
 
 def problems_of(path: Path, out: Path) -> list[str]:
@@ -93,6 +106,8 @@ def problems_of(path: Path, out: Path) -> list[str]:
     if got.shape != want.shape or not np.array_equal(got, want, equal_nan=got.dtype.kind in "fc"):
         problems.append(f"values differ ({got.shape} vs {want.shape})")
     meta = root.attrs["refkv_virtualized"]["mrc"]
+    if meta["data_type"] != str(want.dtype.newbyteorder("=")):
+        problems.append(f"data_type {meta['data_type']} != {want.dtype}")
     if list(meta["header"]) != list(header.dtype.names):
         problems.append(f"header fields {list(meta['header'])} != mrcfile's {list(header.dtype.names)}")
     for name in header.dtype.names:
