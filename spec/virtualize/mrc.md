@@ -448,7 +448,7 @@ sources: its source table is source 0 alone.
 `refkv_source` is the IR mirror ([the convention §5.2](#52-the-ir-mirror)). The
 dataset layout ([mrc-dataset.md](mrc-dataset.md)) is written from the same
 read: its data variable's chunks are these chunks again, entry for entry,
-and its coordinates are literals. The archive has no other entries than the
+and its coordinates are deflated index chunks, bytes entries. The archive has no other entries than the
 root's and the array's `zarr.json`, the array's chunks, the dataset's
 documents and chunks, and the mirror's.
 

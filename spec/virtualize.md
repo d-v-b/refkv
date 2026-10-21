@@ -79,7 +79,9 @@ sources with identical bytes), the same set of keys, and for every key:
   must therefore write it with its exact digits, or with a fraction or an
   exponent: JavaScript's `JSON.stringify` writes 2^64 as
   `18446744073709552000`, an integer literal of another value;
-- **other bytes entries:** identical bytes.
+- **other bytes entries:** identical bytes, except a deflated coordinate
+  chunk of a dataset layout ([conventions §9](conventions.md#9-dataset-layouts)),
+  compared by the values it decodes to.
 
 **IR mirrors.** For the TIFF, NDPI, ND2, CZI, DICOM, NIfTI, MRC, IMS and SAFE profiles, `refkv_source` is the
 source's IR mirror ([conventions §8](conventions.md#8-the-ir-mirror)); for

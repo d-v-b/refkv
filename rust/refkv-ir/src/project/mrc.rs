@@ -25,6 +25,9 @@ const VOLUME_STACK: i64 = 401;
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>).
 const DATASET: &str = "dataset";
 const COORD_CHUNK: u64 = 1 << 17;
+/// The gzip level of a coordinate chunk (conventions §9
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>).
+const GZIP_LEVEL: u8 = 6;
 
 /// A header value as the root's source metadata writes it (spec/virtualize/mrc.md §5
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#5-source-metadata>): an
@@ -269,23 +272,23 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     }
     let mut out = refs.out;
     // the coordinates (spec/virtualize/mrc-dataset.md §3
-    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc-dataset.md#3-coordinates>): o + i * s
-    // along each spatial dimension with a voxel size
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc-dataset.md#3-coordinates>): the
+    // index along each spatial dimension with a voxel size, which CF's scale_factor and
+    // add_offset make o + i * s; delta-coded and deflated (conventions §9
+    // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)
     for (k, a) in dims.iter().enumerate() {
         let Some(s) = ["x", "y", "z"].contains(a).then(|| voxel[index(a)]).flatten() else { continue };
         let o = if placed { origin[index(a)] } else { 0.0 };
         let n = shape[k];
         let c = n.min(COORD_CHUNK);
-        let mut doc = array_json(&[n], "float64", json!([c]), json!([{"name": "bytes", "configuration": {"endian": "little"}}]), &[a]);
-        doc["attributes"] = json!({"units": "angstrom"});
+        let codecs = json!([{"name": "numcodecs.delta", "configuration": {"dtype": "<u4"}},
+                            {"name": "bytes", "configuration": {"endian": "little"}},
+                            {"name": "gzip", "configuration": {"level": GZIP_LEVEL}}]);
+        let mut doc = array_json(&[n], "uint32", json!([c]), codecs, &[a]);
+        doc["attributes"] = json!({"units": "angstrom", "scale_factor": s, "add_offset": o});
         out.json(&format!("{DATASET}/{a}/zarr.json"), &doc);
         for q in 0..n.div_ceil(c) {
-            let mut b = Vec::with_capacity((c * 8) as usize);
-            for i in q * c..(q + 1) * c {
-                let v = if i < n { o + (i as f64) * s } else { 0.0 };
-                b.extend_from_slice(&v.to_le_bytes());
-            }
-            out.bytes(&format!("{DATASET}/{a}/c/{q}"), b);
+            out.bytes(&format!("{DATASET}/{a}/c/{q}"), index_chunk(q * c, c));
         }
     }
     let sizes: Map<String, J> = axes.iter().zip(&shape).map(|(a, s)| (a.to_string(), json!(s))).collect();
@@ -297,6 +300,30 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         "extendedType": json_text(h.bytes("exttyp")), "layouts": [DATASET],
     });
     Ok(out)
+}
+
+/// A chunk of an index coordinate (conventions §9
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>): the indexes
+/// `first .. first + count` (the ramp goes on past the array's end, into the padding), as
+/// numcodecs' delta codes them (the first as it is, then each less the one before), as
+/// little-endian u32, then gzip at level 6.
+fn index_chunk(first: u64, count: u64) -> Vec<u8> {
+    let mut raw = Vec::with_capacity((count * 4) as usize);
+    raw.extend_from_slice(&(first as u32).to_le_bytes());
+    for _ in 1..count {
+        raw.extend_from_slice(&1u32.to_le_bytes());
+    }
+    gzip(&raw)
+}
+
+/// `raw` as a gzip member (RFC 1952): a header with no name, time or extra field, the
+/// deflate stream, the CRC-32 and the length.
+fn gzip(raw: &[u8]) -> Vec<u8> {
+    let mut out = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255];
+    out.extend(miniz_oxide::deflate::compress_to_vec(raw, GZIP_LEVEL));
+    out.extend_from_slice(&crate::safe::zip::crc32(raw).to_le_bytes());
+    out.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+    out
 }
 
 /// `object` with the member `key: value` inserted after the member `after` (at the end when

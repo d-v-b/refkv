@@ -1637,7 +1637,8 @@ is in its header. Revision 27 is kept as `VIRTUALIZE.r27.md`.
   a source can also be presented, in the same hierarchy, as a group xarray
   opens as a dataset, declared by a convention of its own (`<p>-dataset`),
   its data variables the image layout's chunks again and its coordinate
-  variables literals; the root names such layouts in `layouts`
+  variables bytes entries (regular steps as a delta-coded, deflated index
+  with CF `scale_factor` and `add_offset`); the root names such layouts in `layouts`
   ([conventions §2](../../conventions.md#2-attributes)). The MRC hierarchy
   has one, `dataset` ([spec/virtualize/mrc-dataset.md](../../virtualize/mrc-dataset.md)):
   `data` with the dimensions `z`, `y`, `x` (`section`, `volume` for a

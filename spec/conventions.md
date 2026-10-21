@@ -1069,22 +1069,39 @@ node of its own: the source's mirror ([§8](#8-the-ir-mirror)) is the root's
   A data variable's attributes hold, when the convention gives them, the
   CF attributes `long_name` and `actual_range` (`[min, max]`, two numbers).
 - A **coordinate variable** gives the positions along one dimension: a
-  1-D array named as the dimension, of that dimension's length, of
-  `float64` values in little-endian byte order (`[{"name": "bytes",
-  "configuration": {"endian": "little"}}]`), with the attribute `units`,
-  a UDUNITS symbol or name (`angstrom`, `micrometer`, `second`). Its chunk
-  shape is `[min(n, 2^17)]`, and its chunks are literal bytes entries (the
-  values are derived from the source's header; the source holds no such
-  bytes), the last padded with zero bytes to the whole chunk. A dimension
-  without a coordinate variable is allowed, and is how a dataset convention
-  leaves out a position it cannot give (an axis with no valid voxel size,
-  a stack's index).
+  1-D array named as the dimension, of that dimension's length `n`, with
+  the attribute `units`, a UDUNITS symbol or name (`angstrom`,
+  `micrometer`, `second`), and the chunk shape `[min(n, 2^17)]`. Its
+  values are derived from the source's header (the source holds no such
+  bytes), so its chunks are bytes entries, in one of two forms:
+  - **regular steps** `o + i × s`, the common case, are stored as the
+    **index**: a `uint32` array of the values `0 … n − 1` with the CF
+    attributes `scale_factor` (`s`) and `add_offset` (`o`), both binary64,
+    which a CF-decoding reader (xarray) turns into `i × s + o` in binary64
+    (the product first), and the codecs `[{"name": "numcodecs.delta",
+    "configuration": {"dtype": "<u4"}}, {"name": "bytes", "configuration":
+    {"endian": "little"}}, {"name": "gzip", "configuration": {"level": 6}}]`.
+    A chunk's bytes are its indexes delta-coded (the first as it is, each
+    other less the one before: `q × c, 1, 1, …`, the ramp going on past
+    `n` into the last chunk's padding), as little-endian `uint32`, then one
+    gzip member (RFC 1952, no name, time or extra field) of a deflate stream
+    at level 6. A ramp of a million positions is then a few kilobytes.
+  - **irregular positions** are stored as they are: `float64` values in
+    little-endian byte order (`[{"name": "bytes", "configuration":
+    {"endian": "little"}}]`), the last chunk padded with zero bytes.
+
+  A dimension without a coordinate variable is allowed, and is how a
+  dataset convention leaves out a position it cannot give (an axis with no
+  valid voxel size, a stack's index).
 
 Variables have no other attributes, and the group's attributes are
 `zarr_conventions` and `refkv_virtualized` alone.
 
 **Equivalence.** A dataset layout is compared entry for entry with the rest
-of the hierarchy ([spec/virtualize.md §1.1](virtualize.md#11-output-and-equivalence)): its
-coordinate values are the numbers its convention computes, in binary64,
+of the hierarchy ([spec/virtualize.md §1.1](virtualize.md#11-output-and-equivalence)):
+its coordinate values are the numbers its convention computes, in binary64,
 from the header's values, with the operations it gives in their order, so
-that every producer writes the same bytes.
+that every producer writes the same values. A deflated coordinate chunk is
+the one place a producer compresses bytes it computed, and deflate streams
+differ between encoders, so such chunks are compared by the indexes they
+decode to, not byte for byte.

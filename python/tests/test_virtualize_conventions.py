@@ -35,7 +35,7 @@ GEOZARR = {"proj:": "proj", "spatial:": "spatial", "multiscales": "multiscales"}
 # The CF attributes a dataset layout's variables may carry (spec/conventions.md §9
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>), on the nodes
 # below the layouts the root names.
-DATASET_ATTRS = {"units", "long_name", "actual_range"}
+DATASET_ATTRS = {"units", "long_name", "actual_range", "scale_factor", "add_offset"}
 
 
 def geozarr_schema(name: str) -> Draft202012Validator:

@@ -4,6 +4,7 @@ profile rejects, and the edge chunks it copies. MRC has no frozen Python referen
 is the independent reader."""
 
 import base64
+import gzip
 import io
 import json
 import struct
@@ -153,6 +154,16 @@ def dataset_is_the_file(out, root, header, want, kind, meta):
         assert np.array_equal(ds[axis].values, o + np.arange(n, dtype=np.float64) * voxel), axis
         assert ds[axis].attrs == {"units": "angstrom"}, axis
         assert ds[axis].dtype == np.float64
+        # stored as the delta-coded, deflated index with CF scale and offset (conventions §9
+        # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)
+        doc = json.loads(out.bytes_entries[f"dataset/{axis}/zarr.json"])
+        assert doc["data_type"] == "uint32" and doc["attributes"] == {"units": "angstrom", "scale_factor": voxel, "add_offset": o}, axis
+        assert [c["name"] for c in doc["codecs"]] == ["numcodecs.delta", "bytes", "gzip"], axis
+        c = min(n, 1 << 17)
+        for q in range(-(-n // c)):
+            raw = gzip.decompress(out.bytes_entries[f"dataset/{axis}/c/{q}"])
+            assert np.array_equal(np.frombuffer(raw, "<u4"), [q * c] + [1] * (c - 1)), (axis, q)
+        assert len(out.bytes_entries[f"dataset/{axis}/c/0"]) < 64 + c // 200, axis  # a few bytes per thousand
     omero = root.attrs["ome"].get("omero")
     assert ds["data"].attrs == ({"actual_range": [float(header.dmin), float(header.dmax)]} if omero else {})
 

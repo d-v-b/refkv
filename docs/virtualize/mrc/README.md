@@ -50,8 +50,10 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
 - **A dataset for xarray:** the same values again under `dataset/`, as a
   group xarray opens directly: the data variable `data` with the
   dimensions `z`, `y`, `x` (`section` or `volume` for a stack's index) and
-  `float64` coordinates in angstroms along each axis with a voxel size.
-  Its chunks are the same references; only the coordinates are stored.
+  coordinates in angstroms along each axis with a voxel size. Its chunks
+  are the same references; only the coordinates are stored, as a
+  compressed index (a few bytes per thousand positions) that xarray's CF
+  decoding turns into `float64` positions.
 
 **What is not expressed.** OME-Zarr places an image by a scale and a
 translation and has no crystallography, so the cell angles (a skewed grid
@@ -76,7 +78,7 @@ uv run python -m refkv.virtualize https://raw.githubusercontent.com/ccpem/mrcfil
 {"format": "mrc", "kind": "volume", "byteOrder": "little", "mode": 2, "dataType": "float32", "sizes": {"z": 20, "y": 20, "x": 20}, "chunkShape": [20, 20, 20], "chunks": 1, "voxelSize": [11.4, 11.4, 11.4], "translation": false, "axisMap": true, "extendedHeader": 0, "extendedType": "", ...}
 ```
 
-The archive is 11 KB, both layouts included. Read the image:
+The archive is 12 KB, both layouts included. Read the image:
 
 ```python
 import zarr
@@ -126,7 +128,7 @@ Attributes:
 ```
 
 The positions are angstroms, so `sel` takes them; the value is
-`data[10, 10, 8]` above. The archive with both layouts is 11 KB.
+`data[10, 10, 8]` above.
 
 **In the browser.** Not on the live demo yet (it virtualizes TIFF, NDPI and
 ND2 only). A local build of the demo (see the [overview](../README.md))

@@ -136,6 +136,8 @@ def problems_of(path: Path, out: Path) -> list[str]:
         expected = o + np.arange(ds.sizes[axis], dtype=np.float64) * (cella / grid)
         if not np.array_equal(ds[axis].values, expected) or ds[axis].attrs != {"units": "angstrom"}:
             problems.append(f"coordinate {axis} is not {expected[:3]}...")
+        if ds[axis].encoding.get("dtype") != np.dtype("uint32") or ds[axis].encoding.get("scale_factor") != cella / grid:
+            problems.append(f"coordinate {axis} is not the index with a scale factor: {ds[axis].encoding}")
     return problems + mirror_problems(out, path)
 
 

@@ -69,15 +69,19 @@ case in which the image layout has a display window,
 Each of the dimensions `x`, `y` and `z` that the data variable has, and
 along which the file has a **voxel size** `s`
 ([the MRC convention §4.2](mrc.md#42-scales-units-and-position)), has the
-coordinate variable `dataset/<a>`: a 1-D `float64` array of the
-dimension's length `n`, little-endian, chunk shape `[min(n, 2^17)]`, with
-the attribute `{"units": "angstrom"}` ([conventions §9](../conventions.md#9-dataset-layouts)).
-Its value at index `i` is `o + i × s` in binary64 (the product first,
-then the sum), where `o` is the origin along that axis when the image
-layout has a translation ([the MRC convention §4.2](mrc.md#42-scales-units-and-position):
-a volume or a volume stack whose `origin` is finite and not all 0), and 0
-otherwise. A dimension without a voxel size, and the index dimensions
-`section` and `volume`, have no coordinate variable.
+coordinate variable `dataset/<a>`, of the dimension's length `n`, whose
+position at index `i` is `o + i × s`, where `o` is the origin along that
+axis when the image layout has a translation
+([the MRC convention §4.2](mrc.md#42-scales-units-and-position): a volume
+or a volume stack whose `origin` is finite and not all 0), and 0
+otherwise. These are regular steps, stored as the index
+([conventions §9](../conventions.md#9-dataset-layouts)): a `uint32` array of
+`0 … n − 1`, chunk shape `[min(n, 2^17)]`, with the attributes `{"units":
+"angstrom", "scale_factor": s, "add_offset": o}` in that order, the codecs
+`numcodecs.delta` (`<u4`), `bytes` (little-endian) and `gzip` (level 6),
+and each chunk's bytes as [conventions §9](../conventions.md#9-dataset-layouts) gives them. A CF-decoding reader
+sees `i × s + o` in binary64. A dimension without a voxel size, and the
+index dimensions `section` and `volume`, have no coordinate variable.
 
 ## 4. Source metadata
 
@@ -95,7 +99,8 @@ The volume of [the MRC convention §6](mrc.md#6-example) (the fixture
 1.5 angstroms, origin `(-1.5, 2, 7.25)`) has, beside its image layout, the
 group `dataset` with the arrays `data` (`[2, 3, 4]`, dimensions `z`, `y`,
 `x`, the chunk `dataset/data/c/0/0/0` the range `(1024, 96)` of source 0,
-as `0/c/0/0/0` is), `z` (`[7.25, 8.75]`), `y` (`[2, 3.5, 5]`) and `x` (`[-1.5, 0, 1.5, 3]`), each with `{"units": "angstrom"}`, and in xarray:
+as `0/c/0/0/0` is), `z` (`[7.25, 8.75]`), `y` (`[2, 3.5, 5]`) and `x` (`[-1.5, 0, 1.5, 3]`), each stored as the index `0 … n − 1` with `scale_factor` 1.5 and its
+`add_offset`, with `{"units": "angstrom"}`, and in xarray:
 
 ```
 <xarray.Dataset>
