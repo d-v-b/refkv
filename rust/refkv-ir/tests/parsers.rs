@@ -50,6 +50,9 @@ fn accepted_fixtures_are_valid_irs_that_rebuild() {
     for e in refkv_ir::out::registry().iter().filter(|e| e["kind"] == "file") {
         let name = e["name"].as_str().unwrap();
         let f = Format::from_name(name).unwrap_or_else(|| panic!("{name}: no parser"));
+        if f.store_run() {
+            continue; // a file input read as a store run (VSI): tests/vsi.rs drives it with its tile files
+        }
         let suffixes: Vec<&str> = e["suffixes"].as_array().unwrap().iter().map(|s| s.as_str().unwrap()).collect();
         let mut accepted = 0;
         for path in files(&fixtures().join(name), &suffixes) {
@@ -200,8 +203,8 @@ reject!(mrc_reject_truncated, Mrc, "mrc/mrc_reject_truncated.mrc", "the 48-byte 
 reject!(mrc_reject_data_overflow, Mrc, "mrc/mrc_reject_data_overflow.mrc", "the 4951760157141521099596496896-byte data at 1024 is outside the 1072-byte file");
 reject!(mrc_reject_data_outside, Mrc, "mrc/mrc_reject_data_outside.mrc", "the 48-byte data at 1040 is outside the 1087-byte file");
 
-// FITS (spec/virtualize/fits.md §15.3
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#153-checks>): one per rejected
+// FITS (spec/virtualize/fits.md §16.3
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#163-checks>): one per rejected
 // fixture, each the message its check gives.
 reject!(fits_reject_short, Fits, "fits/fits_reject_short.fits", "file too short for a 2880-byte FITS block");
 reject!(fits_reject_simple_false, Fits, "fits/fits_reject_simple_false.fits", "not a FITS file");

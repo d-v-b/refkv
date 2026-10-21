@@ -1,6 +1,6 @@
 //! A sans-IO parser of FITS files (images, multi-extension files, binary and ASCII tables)
-//! into the IR (spec/virtualize/fits.md §15
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#15-fits-profile>, and the
+//! into the IR (spec/virtualize/fits.md §16
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#16-fits-profile>, and the
 //! source model of §6.1
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#61-elements>).
 //!
@@ -325,8 +325,8 @@ impl Fits {
     }
 
     /// The records of the header in `buf` up to and including END, when END is there; each
-    /// scanned record is checked to be printable ASCII (§15.3
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#153-checks>).
+    /// scanned record is checked to be printable ASCII (§16.3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#163-checks>).
     fn scan(&self) -> Res<Option<usize>> {
         let mut k = 0;
         while (k + 1) * CARD <= self.buf.len() {
@@ -385,7 +385,7 @@ impl Fits {
     }
 
     /// The HDU whose header is the first `records` records of `buf` (END included), with its
-    /// checks (§15.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#153-checks>),
+    /// checks (§16.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#163-checks>),
     /// then its elements (§6.1
     /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#61-elements>).
     fn hdu(&mut self, records: usize, header_bytes: u64) -> Res<()> {
@@ -450,7 +450,7 @@ impl Fits {
             ]),
         )?;
         let total = total as u64;
-        // tables (§15.3): BITPIX 8, NAXIS 2, TFIELDS and a TFORMn per column, the heap's place
+        // tables (§16.3): BITPIX 8, NAXIS 2, TFIELDS and a TFORMn per column, the heap's place
         let mut table = J::Null;
         if kind == "table" {
             let tfields = self.mandatory_int(&cards, after + 2, "TFIELDS")?;

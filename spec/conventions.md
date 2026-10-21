@@ -24,6 +24,7 @@ its JSON Schema `virtualize/<format>/schema.json`:
 | OME-Zarr 0.4 | [ome-zarr](virtualize/ome-zarr.md) | `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` |
 | Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](virtualize/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
 | Zeiss CZI | [czi](virtualize/czi.md) | `7a0733c7-d4be-4482-a64f-6904d9354ea5` |
+| Olympus VSI | [vsi](virtualize/vsi.md) | `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` |
 <!-- /profiles -->
 
 A format's convention specifies the hierarchy's whole **Zarr layout**: which

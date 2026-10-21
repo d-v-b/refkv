@@ -391,6 +391,10 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     url = prop.get("source", {}).get("url") if isinstance(prop, dict) else None
     if not isinstance(url, str):
         return "no store URL on the root"
+    if prop.get("profile") == "vsi":
+        # a VSI root names the .vsi file; the store's URL is its directory (spec/virtualize/vsi.md
+        # §15 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#15-vsi-profile>)
+        url = url[:url.rfind("/") + 1]
     pins = {s.url: s.size for s in decode_source_table(zipfile.ZipFile(path).read("__vz__/sources"))
             if s.url is not None}
     listed = {object_url(url, key): (key, size) for key, size, _ in rebuilt}
@@ -446,7 +450,7 @@ def check(item: tuple, impls: dict, out_dir: Path) -> dict:
     name, url = item[:2]
     if len(item) > 2 and item[2] == "py-only":  # past the browser's limit: every implementation but web
         impls = {k: v for k, v in impls.items() if k != "web"}
-    if len(item) > 2 and item[2] == "no-ref":  # a profile the frozen reference never had (MRC): py and web alone
+    if len(item) > 2 and item[2] == "no-ref":  # a profile the frozen reference never had (MRC, VSI): py and web alone
         impls = {k: v for k, v in impls.items() if k != "ref"}
     results = {n: run(impl, url, out_dir / f"{name}.{n}.out") for n, impl in impls.items()}
     ref_name = next(iter(impls))

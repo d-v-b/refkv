@@ -602,6 +602,11 @@ class Store:
         <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#122-objects-and-reading>)."""
         raise NotImplementedError
 
+    def probe(self, key: str) -> int | None:
+        """The size of the object `key` when the store has it, else None: the answer to a run's
+        probe (`refkv.ir.store.drive_store`). A listed store has the objects it listed."""
+        return self.objects.get(key)
+
     def prefetch(self, keys, wanted: Callable[[str], bool | None] | None = None) -> None:
         """Starts reading the documents `keys`, in that order (the order the
         profile reads them), concurrently if `workers` > 1; once per store.

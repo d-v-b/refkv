@@ -398,7 +398,7 @@ a library's job), `BSCALE`/`BZERO` (recorded), the ASDF tree and Rubin's
 JSON (bytes of a table), checksums (cards), table columns (bytes), random
 groups and tile-compressed tables (rejected).
 
-## 3. The profile (Part 2: §15 of spec/virtualize.md)
+## 3. The profile (Part 2: §16 of spec/virtualize.md)
 
 ### 3.1 Choosing the profile
 
@@ -652,7 +652,7 @@ stress cases for `--quick`-less runs, readable by header walk alone.
 
 ## 9. Shared changes
 
-- `spec/virtualize/profiles.json`: the entry `fits` (section 15, title
+- `spec/virtualize/profiles.json`: the entry `fits` (section 16, title
   `FITS`, kind `file`, suffixes `[".fits", ".fz"]`, reference `null`,
   phrases); `just profiles` regenerates the hosts' tables, the core's copy
   and the profile tables of the spec, the docs and the demo.

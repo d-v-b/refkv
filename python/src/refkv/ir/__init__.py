@@ -43,6 +43,8 @@ def sniff(head: bytes) -> str | None:
         return "dicom"
     if head[:4] == ND2_MAGIC:
         return "nd2"
+    if head[:4] == b"II*\0" and head[8:12] == b"\x18\x00IS":
+        return "vsi"  # a VSI file: a TIFF whose byte 8 starts the metadata tree
     if head[:4] in TIFF_MAGIC:
         return "tiff"
     if head[:16] == CZI_MAGIC:
@@ -55,8 +57,8 @@ def sniff(head: bytes) -> str | None:
         return "safe"
     if len(head) >= 212 and head[208:211] == b"MAP":
         return "mrc"
-    # `SIMPLE  =` and a fixed-format T in column 30: a FITS file (spec/virtualize/fits.md §15.1
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#151-choosing-the-profile>)
+    # `SIMPLE  =` and a fixed-format T in column 30: a FITS file (spec/virtualize/fits.md §16.1
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#161-choosing-the-profile>)
     if len(head) >= 30 and head[:9] == b"SIMPLE  =" and head[29:30] == b"T":
         return "fits"
     return None

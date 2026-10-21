@@ -18,7 +18,7 @@ of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §
 
 **Draft.** This revision covers uncompressed images, multi-extension files and
 tables. Tile-compressed images (`ZIMAGE = T`, the `.fz` files `fpack` writes)
-are rejected by the profile ([§15.3](#153-checks)) until the design of
+are rejected by the profile ([§16.3](#163-checks)) until the design of
 [design/plans/fits.md](../../design/plans/fits.md) lands.
 
 # Part 1. The convention
@@ -69,7 +69,7 @@ four times in a WFPC2 file, 144 times in a Euclid frame, with `EXTVER` or
 a dotted name telling them apart), so a reader finds `SCI,2` in the root's
 table of HDUs ([§5.1](#51-the-root)).
 
-An HDU's **kind**, by its mandatory cards ([§15.3](#153-checks)):
+An HDU's **kind**, by its mandatory cards ([§16.3](#163-checks)):
 
 | kind | when | the node |
 |---|---|---|
@@ -163,7 +163,7 @@ The root's source metadata `fits` is an object with the members `hdus` and
   (`EXTVER`'s integer, or `null`), `bitpix`, `naxis` (`[NAXIS1, …, NAXISn]`,
   in FITS order), `pcount` and `gcount` (0 and 1 for the primary), `offset`
   (the HDU's first byte), `header_bytes` (its header's blocks), `data_offset`
-  and `data_bytes` (`D` of [§15.3](#153-checks));
+  and `data_bytes` (`D` of [§16.3](#163-checks));
 - `cards`: the primary header's cards ([§5.3](#53-cards)).
 
 ### 5.2 An HDU's node
@@ -219,7 +219,7 @@ shown value may have); its cards are in the nodes' source metadata.
 Paths are relative to the IR's root, whose path is `""`
 ([conventions §8.1](../conventions.md#81-elements)). Types are those of
 [conventions §8.6](../conventions.md#86-types). For HDU `i`, with `k` its
-header's blocks, `D` its data bytes ([§15.3](#153-checks)), `p` its padding
+header's blocks, `D` its data bytes ([§16.3](#163-checks)), `p` its padding
 to the block boundary (shorter at a truncated end of file), `N1` and `N2` a
 table's `NAXIS1` and `NAXIS2`, `g = THEAP − N1 × N2` and `H` its heap's
 length ([§4](#4-tables)):
@@ -295,9 +295,9 @@ gives some of it no Zarr expression:
 
 # Part 2. The profile
 
-## 15. FITS profile
+## 16. FITS profile
 
-### 15.1 Choosing the profile
+### 16.1 Choosing the profile
 
 The input is a FITS file, which [spec/virtualize.md §1.2](../virtualize.md#12-input)
 chose by its first bytes: bytes 0–8 are `SIMPLE  =` and byte 29 is `T` (the
@@ -307,16 +307,16 @@ is `SIMPLE = F` (a non-conforming file), a file whose first card is
 (`BZh`) compressed file (`.fits.gz`, `.fits.bz2`), into which no byte range
 reaches, are rejected there.
 
-### 15.2 Reading
+### 16.2 Reading
 
 The profile reads headers only, never data. For each HDU in turn, from its
 first byte: a window of at most 2^16 bytes, extended by such windows until
 the header's `END` card is in it; the bytes of the window past the header
 are the next HDU's first bytes when they reach them. A header MUST end
 within 2^24 bytes of its first byte, else the input is rejected
-([§15.3](#153-checks)).
+([§16.3](#163-checks)).
 
-### 15.3 Checks
+### 16.3 Checks
 
 The input is rejected unless all of these hold, checked in this order, HDU by
 HDU, every check applying whatever the other cards hold. A rejection names
@@ -357,7 +357,7 @@ HDU; otherwise the remaining bytes are special records
 other card is checked: the values the layout uses change the output only as
 the convention says, and never reject the input.
 
-### 15.4 Chunks
+### 16.4 Chunks
 
 An image's data is `D` contiguous bytes at `data_offset`, `NAXIS1` varying
 fastest: the array `V` of [the convention §3.1](#31-the-array), row-major
@@ -376,7 +376,7 @@ mirror ([the convention §6](#6-the-ir-mirror)). The archive has no other
 entries than the root's and the nodes' `zarr.json`, the arrays' chunks and
 the mirror's.
 
-### 15.5 Summary
+### 16.5 Summary
 
 This section is informative. Both implementations print a one-line JSON
 summary: `hdus` (the count), `kinds` (the count of each kind), `arrays`
