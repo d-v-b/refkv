@@ -22,12 +22,11 @@ from typing import Callable
 
 from refkv.policy import Policy
 from refkv.uri import is_uri_reference
-from refkv.virtualize.common import CONVENTION_KEY, Rejected, _ThreadConnections, _retry, declare, follow
+from refkv.virtualize.common import CONVENTION_KEY, UA, Rejected, _ThreadConnections, _retry, declare, follow
 
 MAX_SAFE = 2**53 - 1
 MAX_DOCUMENT = 1 << 24
 MAX_DEPTH = 256
-UA = "refkv-virtualize"
 
 _SPLIT = re.compile(r"^(?:([^:/?#]+):)?(?://([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:#(.*))?\Z")
 _UNRESERVED = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")

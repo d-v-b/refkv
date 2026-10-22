@@ -62,8 +62,9 @@ def server(no_proxy):
     """Serves `state["files"]` (path -> bytes) with range requests (`a-b` and `-n`) and
     `state["etag"]`. A first path segment changes that: `/norange/...` ignores Range
     (200, the whole object), `/status/<code>/...` answers that status, and `/moved/...`
-    redirects to `state["location"]`. Counts requests, and records their paths."""
-    state = {"files": {}, "etag": '"v1"', "location": "/", "paths": []}
+    redirects to `state["location"]`. Counts requests, and records their paths and
+    User-Agents."""
+    state = {"files": {}, "etag": '"v1"', "location": "/", "paths": [], "agents": []}
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -81,6 +82,7 @@ def server(no_proxy):
 
         def do_GET(self):
             state["paths"].append(self.path)
+            state["agents"].append(self.headers.get("User-Agent"))
             path, ranged = self.path, True
             etag = [("ETag", state["etag"])] if state["etag"] else []
             if path.startswith("/moved/"):
@@ -152,6 +154,18 @@ def test_reads_an_archive_over_http(server, tmp_path, page_size, route):
     assert all(p.split("?")[0].endswith(("a.vzip", "blob.bin")) for p in state["paths"])
     if "?" in route:
         assert route in state["paths"]
+
+
+def test_sends_a_user_agent_with_every_request(server, tmp_path):
+    """Every request of the reader, for the archive and for a source, carries refkv's
+    User-Agent (some hosts refuse a client without one), through a redirect too."""
+    from refkv.reader import USER_AGENT
+
+    base, state = server
+    _serve_archive(base, state, tmp_path)
+    state["location"] = "/a.vzip"
+    _everything(refkv.open(base + "/moved/a.vzip", policy=SERVED))
+    assert len(state["agents"]) >= 3 and set(state["agents"]) == {USER_AGENT}
 
 
 def test_http_objects_reads_ranges_and_suffixes(server):
