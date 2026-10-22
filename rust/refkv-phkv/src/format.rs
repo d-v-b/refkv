@@ -12,35 +12,39 @@ pub const SUPERBLOCK_SIZE: u64 = 64;
 pub const DIR_ENTRY_SIZE: u64 = 40;
 pub const FLAG_HYBRID: u16 = 1;
 pub const FLAG_MUST_UNDERSTAND: u8 = 1;
-pub const EMPTY_SLOT: u64 = u64::MAX;
-
-/// The bits of a slot that hold its record's offset from the start of RECORDS, for a RECORDS section
-/// of `records_length` bytes: as many as `records_length` needs, so that an offset, at most
-/// `records_length − 1`, is never all ones. The bits above them hold the record's length, or 0 for a
-/// record too long for them (spec/bindings/phkv.md §18.2
+/// The size of a slot: a `u64` offset, then a `u32` length (spec/bindings/phkv.md §18.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#182-slots-section>).
-pub fn slot_offset_bits(records_length: u64) -> u32 {
-    64 - records_length.leading_zeros()
+pub const SLOT_SIZE: u64 = 12;
+/// The length of a slot that gives none: the record is this long or longer.
+pub const SLOT_LENGTH_MAX: u32 = u32::MAX;
+/// The size of the smallest record: a one-byte key, an empty `Concat` payload, and a one-byte
+/// `key_length`, `kind`, `flags`, `rank` and `payload_length` (spec/bindings/phkv.md §19.1).
+pub const MIN_RECORD: u64 = 6;
+
+/// The slot of a record `offset` bytes into RECORDS and `length` bytes long. A length of
+/// `SLOT_LENGTH_MAX` or more is stored as `SLOT_LENGTH_MAX`.
+pub fn pack_slot(offset: u64, length: u64) -> [u8; 12] {
+    let mut s = [0u8; 12];
+    s[..8].copy_from_slice(&offset.to_le_bytes());
+    s[8..].copy_from_slice(&u32::try_from(length).unwrap_or(SLOT_LENGTH_MAX).to_le_bytes());
+    s
 }
 
-/// A slot for a record `offset` bytes into RECORDS and `length` bytes long, its offset in the low
-/// `offset_bits` bits.
-pub fn pack_slot(offset: u64, length: u64, offset_bits: u32) -> u64 {
-    if offset_bits >= 64 {
-        return offset;
-    }
-    let length = if length < 1 << (64 - offset_bits) { length } else { 0 };
-    offset | length << offset_bits
-}
+/// The empty slot: no record.
+pub const EMPTY_SLOT: [u8; 12] = [0; 12];
 
-/// A non-empty slot's record offset into RECORDS, and its length; the length is None when the slot
-/// does not give it.
-pub fn unpack_slot(slot: u64, offset_bits: u32) -> (u64, Option<u64>) {
-    if offset_bits >= 64 {
-        return (slot, None);
+/// What a slot says: no record, or a record at an offset into RECORDS, and its length, which is
+/// None when the slot gives only that it is `SLOT_LENGTH_MAX` or longer.
+pub fn unpack_slot(slot: &[u8]) -> Result<Option<(u64, Option<u64>)>, String> {
+    let offset = le_u64(slot, 0);
+    let length = u32::from_le_bytes(slot[8..12].try_into().unwrap());
+    match length {
+        0 if offset == 0 => Ok(None),
+        0 => Err(format!("an empty slot with offset {offset}")),
+        SLOT_LENGTH_MAX => Ok(Some((offset, None))),
+        n if (n as u64) < MIN_RECORD => Err(format!("a slot gives a record length of {n}, below the smallest record, {MIN_RECORD}")),
+        n => Ok(Some((offset, Some(n as u64)))),
     }
-    let length = slot >> offset_bits;
-    (slot & ((1 << offset_bits) - 1), (length != 0).then_some(length))
 }
 /// The largest reference payload (spec/bindings/phkv.md §19.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#193-reference-records>).
