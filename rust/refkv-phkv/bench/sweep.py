@@ -77,7 +77,7 @@ def main():
         b = run("bytes", n, name, DEFAULT_TAIL, DEFAULT_RECORD_READ, sweep="writer", page_size=page, inline_max=inline)
         print(f"| {human(page)}, {human(inline) if inline else 'none'} | {human(a['file_bytes'])} | {cell(a)} | {cell(b)} | {a['list_requests']} req, {human(a['list_bytes'])}, {a['list_ms']:.0f} ms |")
     print("\n### `slots_at_open`: SLOTS read whole at open, over HTTP with a bandwidth per connection\n")
-    print("Total time for k lookups of random keys on a cold store: the first lookup (open included) and k − 1 later ones. SLOTS is 8.2 bytes per key.\n")
+    print("Total time for k lookups of random keys on a cold store: the first lookup (open included) and k − 1 later ones. SLOTS is 12.3 bytes per key.\n")
     print("| keys, workload | bandwidth | slots_at_open | open + first lookup | later lookup | k = 1 | k = 10 | k = 100 | k = 1,000 |\n|---|---|---|---|---|---|---|---|---|")
     cases = [("refs", 100_000, DEFAULT_RECORD_READ, "100,000 references"), ("refs", args.big, DEFAULT_RECORD_READ, f"{args.big:,} references"), ("bytes", args.bytes_keys, DEFAULT_RECORD_READ, f"{args.bytes_keys:,} keys of 1 KiB values")]
     for workload, n, rr, label in cases:

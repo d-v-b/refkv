@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """The cost of reading a store's SLOTS section in blocks of B slots, and the block size that minimises it.
 
-A lookup reads the 8-byte slot of its key. The hash scatters keys, so which slot a lookup wants is
+A lookup reads the 12-byte slot of its key. The hash scatters keys, so which slot a lookup wants is
 uniform over the N slots, with no locality. With the slots in M = N/B blocks of B slots, read when a lookup
 needs one and kept, the expected number of blocks read by k lookups is M (1 − (1 − 1/M)^k), and each read
-costs one request: the round trip R plus 8B bytes at bandwidth W. So
+costs one request: the round trip R plus 12B bytes at bandwidth W. So
 
-    T(k, B) = M (1 − (1 − 1/M)^k) (R + 8B / W),   M = ceil(N / B).
+    T(k, B) = M (1 − (1 − 1/M)^k) (R + 12B / W),   M = ceil(N / B).
 
 B = 1 is a slot at a time and B = N is the whole section at open (Limits::slots_at_open).
 
@@ -14,6 +14,8 @@ B = 1 is a slot at a time and B = N is the whole section at open (Limits::slots_
 """
 import math
 import sys
+
+SLOT = 12  # the bytes of a slot (spec/bindings/phkv.md §18.2)
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 1_028_992  # the slots of 10^6 keys
 R = (float(sys.argv[2]) if len(sys.argv) > 2 else 20) / 1e3
@@ -23,11 +25,11 @@ WS = {"unlimited": math.inf, "100 MB/s": 100e6, "12.5 MB/s": 12.5e6}
 
 def cost(k, B, W):
     M = math.ceil(N / B)
-    return M * (-math.expm1(k * math.log1p(-1 / M))) * (R + 8 * B / W) if M > 1 else R + 8 * B / W
+    return M * (-math.expm1(k * math.log1p(-1 / M))) * (R + SLOT * B / W) if M > 1 else R + SLOT * B / W
 
 
 def human(slots):
-    b = 8 * slots
+    b = SLOT * slots
     return f"{b} B" if b < 1024 else f"{b / 1024:.0f} KiB" if b < 1 << 20 else f"{b / (1 << 20):.1f} MiB"
 
 
