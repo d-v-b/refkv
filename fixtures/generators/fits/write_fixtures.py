@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import bz2
 import gzip
+import itertools
 import re
 import struct
+import zlib
 from pathlib import Path
 
 import numpy as np
@@ -304,7 +306,7 @@ def rejected() -> None:
     out("tform_missing", patch_card(tabdata, 1, "TFORM1", "TFORMX  = 'J       '"))
     out("theap_small", _with_theap(tabdata, 4))
     out("ztable", _append_card(tabdata, 1, "ZTABLE  =                    T"))
-    (OUT / "fits_reject_gzip_file.fits").write_bytes(gzip.compress(data, mtime=0))  # a .fits name: rejected by its bytes
+    (OUT / "fits_reject_gzip_file.fits").write_bytes(gzip_stored(data))  # a .fits name: rejected by its bytes
     (OUT / "fits_reject_bzip2_file.fits").write_bytes(bz2.compress(data))
 
 
@@ -413,6 +415,67 @@ def zero_gzip_mtimes(path: Path) -> None:
     path.write_bytes(bytes(data))
 
 
+def gzip_stored(data: bytes) -> bytes:
+    """A gzip member whose deflate stream is stored blocks: the same bytes on every platform
+    (Python's zlib differs between builds, so `gzip.compress` does not reproduce)."""
+    out = bytearray(b"\x1f\x8b\x08\x00" + bytes(4) + b"\x00\xff")
+    pos = 0
+    while True:
+        chunk = data[pos : pos + 65535]
+        pos += len(chunk)
+        final = pos >= len(data)
+        out += bytes([1 if final else 0]) + struct.pack("<HH", len(chunk), 0xFFFF ^ len(chunk)) + chunk
+        if final:
+            break
+    out += struct.pack("<II", zlib.crc32(data) & 0xFFFFFFFF, len(data) & 0xFFFFFFFF)
+    return bytes(out)
+
+
+def tiles_of(shape, tile):
+    """The slices of each tile of an image of `shape` cut by `tile`, in storage order (the
+    last axis fastest; edge tiles smaller)."""
+    grids = [-(-s // t) for s, t in zip(shape, tile)]
+    for idx in itertools.product(*[range(g) for g in grids]):
+        yield tuple(slice(i * t, min((i + 1) * t, s)) for i, t, s in zip(idx, tile, shape))
+
+
+def quantized(shape, tile, *, method: int, seed: int = 0, zbitpix: int = -32, codec: str = "RICE_1", blank: bool = False,
+              zero_value: bool = False, near_min: bool = False, blank_column: bool = False, extname: str = "COMPRESSED_IMAGE",
+              extra_cards=()) -> bytes:
+    """A quantized float image built by hand: random 32-bit integers per tile (RICE_1 with
+    BYTEPIX 4, or GZIP_1 stored members), per-tile ZSCALE and ZZERO, ZQUANTIZ and ZDITHER0, a
+    ZBLANK card or column. astropy's quantization is not used: its noise estimate depends on
+    the build's floating-point arithmetic, so its files do not reproduce across platforms."""
+    low, high = (-(2**31) + 1000, -(2**31) + 200000) if near_min else (-50000, 50000)
+    ints = RNG.integers(low, high, shape, dtype=np.int32)
+    cards = list(extra_cards)
+    quant = {1: "SUBTRACTIVE_DITHER_1", 2: "SUBTRACTIVE_DITHER_2", -1: "NO_DITHER"}[method]
+    cards.append(f"ZQUANTIZ= '{quant}'")
+    if method > 0:
+        cards.append(f"ZDITHER0= {seed:>20}")
+    if blank or blank_column:
+        ints[0, 0] = -2147483648
+        ints[-1, -1] = -2147483648
+    if blank:
+        cards.append("ZBLANK  =          -2147483648")
+    if zero_value:
+        ints[1, 2] = -2147483646
+        ints[2, 3] = -2147483646
+    tiles = []
+    for k, sl in enumerate(tiles_of(shape, tile)):
+        t = np.ascontiguousarray(ints[sl])
+        if codec == "RICE_1":
+            stream = tile_bytes(t, "RICE_1", blocksize=32, bytepix=4, tilesize=int(t.size))
+        else:
+            stream = gzip_stored(t.astype(">i4").tobytes())
+        tiles.append((0, stream, (0.01 + 0.0001 * k, 100.0 - 0.5 * k), -2147483648))
+    columns = [("COMPRESSED_DATA", "1PB"), ("GZIP_COMPRESSED_DATA", "1PB"), ("ZSCALE", "1D"), ("ZZERO", "1D")]
+    if blank_column:
+        columns.append(("ZBLANK", "1J"))
+    return hand_comp(ints, tile, tiles, zcmptype=codec, columns=tuple(columns), zvals=(("BLOCKSIZE", 32), ("BYTEPIX", 4)),
+                     extra_cards=cards, zbitpix=zbitpix, extname=extname)
+
+
 def comp(name: str, data: np.ndarray, *, hdus=None, extname: str = "COMPRESSED_IMAGE", **kw) -> Path:
     """An empty primary and one (or `hdus`) tile-compressed image, as astropy writes it."""
     hdu = fits.CompImageHDU(data, name=extname, **kw)
@@ -482,31 +545,27 @@ def compressed() -> None:
     comp("fits_comp_rice_uint8", noisy((20, 37), "u1", 20.0), compression_type="RICE_1")
     comp("fits_comp_rice_uint16", noisy((12, 50), "u2", 500.0), compression_type="RICE_1")
     comp("fits_comp_rice_1d", noisy((300,), "i2"), compression_type="RICE_1", tile_shape=(64,))
-    # quantized floats: each ZQUANTIZ, a NaN in two tiles (ZBLANK), float64
-    f = noisy((24, 40), "f4", 10.0)
-    f[3, 5] = np.nan
-    f[20, 1] = np.nan
-    comp("fits_comp_rice_float_dither1", f, compression_type="RICE_1", quantize_level=4, quantize_method=1, dither_seed=1234)
-    comp("fits_comp_rice_float_dither2", f, compression_type="RICE_1", quantize_level=4, quantize_method=2, dither_seed=4321)
-    comp("fits_comp_rice_float_nodither", f, compression_type="RICE_1", quantize_level=4, quantize_method=-1)
-    comp("fits_comp_rice_float64", noisy((10, 30), "f8", 10.0), compression_type="RICE_1", quantize_level=8, quantize_method=1, dither_seed=77)
-    # tiles that are not rows: square tiles with edge tiles, a cube tiled by plane and by sub-cube
-    comp("fits_comp_tiles_square", noisy((230, 350), "f4", 10.0), compression_type="RICE_1", tile_shape=(100, 100), quantize_level=4, quantize_method=1, dither_seed=9)
+    # quantized floats, by hand: each ZQUANTIZ, blanks (a ZBLANK card, or a column), dither 2's
+    # zero value with integers near -2^31 as cfitsio writes them, float64, GZIP_1 streams
+    pr = header_of(["SIMPLE  =                    T", "BITPIX  =                    8", "NAXIS   =                    0", "EXTEND  =                    T"])
+    hand = lambda name, body: (OUT / f"{name}.fits").write_bytes(pr + body)
+    hand("fits_comp_rice_float_dither1", quantized((24, 40), (1, 40), method=1, seed=1234, blank=True))
+    hand("fits_comp_rice_float_dither2", quantized((24, 40), (1, 40), method=2, seed=4321, blank=True, zero_value=True, near_min=True))
+    hand("fits_comp_rice_float_nodither", quantized((24, 40), (1, 40), method=-1, blank=True))
+    hand("fits_comp_rice_float64", quantized((10, 30), (1, 30), method=1, seed=77, zbitpix=-64))
+    hand("fits_comp_zblank_column", quantized((12, 40), (2, 40), method=1, seed=31, blank_column=True))
+    hand("fits_comp_gzip1_float", quantized((10, 30), (1, 30), method=1, seed=5, codec="GZIP_1"))
+    # tiles that are not rows: square tiles with edge tiles (quantized), a cube tiled by plane and by sub-cube
+    hand("fits_comp_tiles_square", quantized((230, 350), (100, 100), method=1, seed=9))
     comp("fits_comp_tiles_3d", noisy((6, 20, 30), "i2"), compression_type="RICE_1", tile_shape=(1, 20, 30))
     comp("fits_comp_tiles_3d_sub", noisy((6, 20, 30), "i2"), compression_type="RICE_1", tile_shape=(2, 10, 30))
     # the other compressions
     comp("fits_comp_gzip1", noisy((20, 30), "i2"), compression_type="GZIP_1")
     comp("fits_comp_gzip2", noisy((20, 30), "i4", 3000.0), compression_type="GZIP_2")
-    comp("fits_comp_gzip1_float", noisy((10, 30), "f4", 10.0), compression_type="GZIP_1", quantize_level=4, quantize_method=1, dither_seed=5)
     comp("fits_comp_nocompress", noisy((20, 30), "i2"), compression_type="NOCOMPRESS")
     # many compressed HDUs with distinct dither seeds, as a DECam exposure's chips
-    hdus = []
-    for k in range(1, 7):
-        hdu = fits.CompImageHDU(noisy((8, 40), "f4", 10.0), name="S", compression_type="RICE_1", quantize_level=4,
-                                quantize_method=1, dither_seed=1000 + 7 * k)
-        hdu.header["EXTVER"] = k
-        hdus.append(hdu)
-    comp("fits_comp_many", None, hdus=hdus)
+    many = b"".join(quantized((8, 40), (1, 40), method=1, seed=1000 + 7 * k, extname="S", extra_cards=[f"EXTVER  = {k:>20}"]) for k in range(1, 7))
+    hand("fits_comp_many", many)
     # a large compressed image: 1100 x 1000 int16 row tiles, chunks of 476 rows (limit 2^20 / 2000)
     comp("fits_comp_chunk_rows", noisy((1100, 1000), "i2"), compression_type="RICE_1")
     # RICE_ONE, the alias Legacy Surveys files use
@@ -516,8 +575,7 @@ def compressed() -> None:
     # By hand: a 12 x 20 int16 image in 4 row-band tiles of 3 rows.
     img = noisy((12, 20), "i2")
     rice = lambda k, blocksize=32: tile_bytes(img[3 * k : 3 * k + 3], "RICE_1", blocksize=blocksize, bytepix=2, tilesize=60)
-    gz = lambda k: gzip.compress(img[3 * k : 3 * k + 3].astype(">i2").tobytes(), mtime=0)
-    hand = lambda name, body: (OUT / f"{name}.fits").write_bytes(header_of(["SIMPLE  =                    T", "BITPIX  =                    8", "NAXIS   =                    0", "EXTEND  =                    T"]) + body)
+    gz = lambda k: gzip_stored(img[3 * k : 3 * k + 3].astype(">i2").tobytes())
     hand("fits_comp_hand_gzip_fallback", hand_comp(img, (3, 20), [(0, rice(0)), (1, gz(1)), (0, rice(2)), (0, rice(3))]))
     hand("fits_comp_hand_absent_tile", hand_comp(img, (3, 20), [(0, rice(0)), (None, b""), (0, rice(2)), (0, rice(3))]))
     hand("fits_comp_hand_heap_gaps", hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)], gap=16))
