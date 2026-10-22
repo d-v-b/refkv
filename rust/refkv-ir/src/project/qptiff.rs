@@ -7,7 +7,7 @@
 
 use super::{arr, key, n, obj, strs, translations, truthy};
 use crate::ir::Ir;
-use crate::out::{array_json, image_ome, omero_channel, omero_json, root_json, tiff_codecs, transpose_codec, Out, Part};
+use crate::out::{array_json, image_ome, omero_channel, omero_json, root_json, sample_channels, tiff_codecs, transpose_codec, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Value as J};
 use std::collections::HashMap;
@@ -37,21 +37,14 @@ fn label(v: &J) -> Option<&str> {
 /// channel image, or, for an RGB image, one per sample; no window, since the file records no
 /// display range (a reader samples one).
 fn omero(channels: &[J], spp: u64) -> J {
-    let mut out = Vec::new();
     if spp > 1 {
         let base = channels.first().and_then(|c| label(&c["name"])).map(|s| format!("{s} ")).unwrap_or_default();
-        let letters: &[(&str, &str)] = if spp == 3 { &[("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF")] } else { &[] };
-        for s in 0..spp {
-            match letters.get(s as usize) {
-                Some((l, c)) => out.push(omero_channel(&format!("{base}{l}"), *c, None)),
-                None => out.push(omero_channel(&format!("{base}S{s}"), "FFFFFF", None)),
-            }
-        }
-    } else {
-        for (i, c) in channels.iter().enumerate() {
-            let l = label(&c["name"]).map(str::to_string).unwrap_or_else(|| format!("C{i}"));
-            out.push(omero_channel(&l, color(&c["color"]), None));
-        }
+        return omero_json(sample_channels(&base, spp, spp == 3));
+    }
+    let mut out = Vec::new();
+    for (i, c) in channels.iter().enumerate() {
+        let l = label(&c["name"]).map(str::to_string).unwrap_or_else(|| format!("C{i}"));
+        out.push(omero_channel(&l, color(&c["color"]), None));
     }
     omero_json(out)
 }

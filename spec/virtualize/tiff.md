@@ -7,7 +7,10 @@ cited here as "conventions §n". How refkv produces this layout as a reference
 store is the TIFF profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `48e9ac4e-1156-4a62-955e-20467d9c2700` ·
-Schema: [schema.json](tiff/schema.json)
+Schema: [schema.json](tiff/schema.json) · Changed 2026-10-22: the image has an `omero` member
+([§4.4](#44-arrays)), with the OME-XML's channel names and colors ([§3](#3-ome-xml)), after
+[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
+(a profile's changes are recorded here, dated, from then on)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the TIFF
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
@@ -160,6 +163,10 @@ From `X` the virtualizer uses:
   first `Pixels` end tag after it whose `TheZ`, `TheC` and `TheT` are each
   absent or `0` (as integer attributes): its `PositionX`, `PositionY`,
   `PositionXUnit` and `PositionYUnit` (the stage position of the plane);
+- the `Channel` start tags after that `Pixels` start tag and before the
+  first `Pixels` end tag after it (or the end of `X`), in order: the
+  `Name` and `Color` attributes of the first 64 (the channel names and
+  colors of `omero`, [§4.4](#44-arrays));
 - the `TiffData` start tags after that `Pixels` start tag and before the
   first `Pixels` end tag after it (or the end of `X`), in order:
   - with attributes `IFD`, `FirstZ`, `FirstC`, `FirstT` and `PlaneCount`;
@@ -345,6 +352,30 @@ path `"<level>"`.
   `y = PY × (H0 / HL)`, `x = PX × (W0 / WL)`, `z = PZ`, `t = c = 1`. (The
   division is computed first.)
 - **Name:** the OME `Image` name, if present and not empty.
+- **omero.** When the channel count (`SizeC` after [§4.1](#41-planes), or `spp`
+  without OME-XML) is at most 64, `M` has `"omero": {"channels": [...]}` next
+  to `multiscales`, one object per channel (one object when there is no `c`
+  axis); with more, `M` has no `"omero"` member, so that the root does not
+  grow with the channel count. Let channel `c`'s **name** be the `Name` of
+  the `c`-th `Channel` ([§3](#3-ome-xml)) when present, not empty and at most
+  256 bytes.
+  - With `spp > 1` (the channels are the samples), `spp` channels: when the
+    samples decode to RGB (PhotometricInterpretation 2, or 6 with
+    Compression 7, whose stream the codec decodes to RGB), samples 0, 1 and
+    2 are labeled `R`, `G` and `B`, with colors `FF0000`, `00FF00`,
+    `0000FF`; every other sample `s` is labeled `S<s>`, with color `FFFFFF`.
+    Each label follows channel 0's name and a space, when it has one.
+  - With `spp = 1`, channel `c`'s **label** is its name, else `C<c>`; its
+    **color** is the `c`-th `Channel`'s `Color` when that is an integer
+    from −2^31 to 2^31 − 1 (an optional `+` or `-` sign and digits,
+    whitespace around allowed), OME's signed 32-bit `RRGGBBAA`: its top 24
+    bits as six uppercase hex digits `RRGGBB`. Otherwise `FFFFFF`.
+  - Every channel has `"active": true` and no `window`: a TIFF records no
+    display range (SMinSampleValue and SMaxSampleValue, when present, are
+    the data's extremes, not a display setting), and a reader that needs
+    one samples it from the data.
+
+  The members are written in the order label, color, active.
 - **Chunks:** for each plane (t, c, z) of a level, its IFD's tiles are numbered
   `k = s × T + j`, where `T` is the number of tiles per sample plane
   (`ceil(H/TileLength) × ceil(W/TileWidth)`), `j` runs row-major over the

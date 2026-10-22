@@ -51,6 +51,11 @@ level, `0` the full resolution.
 - **Translation:** the stage position of the first plane (OME-XML), or the
   slide position of an Aperio scan (`Left`, `Top`).
 - **Name:** the OME `Image` name.
+- **Channels:** `omero.channels` labels RGB samples (an SVS slide's, for
+  example) `R`, `G`, `B` in red, green and blue, and an OME-TIFF's channels
+  by their OME-XML `Channel` names and colors (else `C0`, `C1`, ..., in
+  white). There is no display window: the file records none. An image with
+  more than 64 channels has no `omero`.
 - **Metadata:** the root's `refkv_virtualized.tiff` holds the byte order and
   whether the file is BigTIFF. Everything else is on `refkv_source`, the
   file's IR mirror ([conventions §8](../../../spec/conventions.md#8-the-ir-mirror)):

@@ -8,7 +8,10 @@ How refkv produces this layout as a reference store is the NDPI profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `6cac71ef-dbb2-4acd-b60c-00389aa4238a` ·
-Schema: [schema.json](ndpi/schema.json)
+Schema: [schema.json](ndpi/schema.json) · Changed 2026-10-22: the image has an `omero` member
+([§4](#4-the-image)), after
+[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
+(a profile's changes are recorded here, dated, from then on)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the NDPI
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
@@ -96,6 +99,13 @@ in [the TIFF convention §4.4](tiff.md#44-arrays).
 XOffsetFromSlideCenter (65422) and YOffsetFromSlideCenter (65423), in
 nanometres, the image's centre is at `(X / 1000, Y / 1000)` micrometres,
 which gives its translation ([conventions §5](../conventions.md#5-units)).
+
+**omero.** The strips are JPEG streams, which decode to RGB, so `M` has
+`"omero": {"channels": [...]}` next to `multiscales`, the three samples
+labeled `R`, `G` and `B`, with colors `FF0000`, `00FF00` and `0000FF`, each
+`"active": true` and without a `window`, as in [the TIFF convention
+§4.4](tiff.md#44-arrays). The members are written in the order label,
+color, active.
 
 **Chunks.** A level's strip is a JPEG stream. Without McuStarts, the
 level is one chunk, the whole image (chunk shape `[3, H, W]`), which holds

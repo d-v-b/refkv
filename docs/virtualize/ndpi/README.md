@@ -41,6 +41,8 @@ One OME-Zarr 0.5 image at the archive root, with one array per level.
 - **Scale:** from the TIFF resolution tags, in micrometers, when they give a
   pixel under 25.4 µm.
 - **Translation:** from the slide-center offsets the scanner records.
+- **Channels:** `omero.channels` labels the samples `R`, `G`, `B`, in red,
+  green and blue, without a display window.
 - **Metadata:** the file's IR mirror on `refkv_source` (since revision 26):
   every IFD, tag, high word and strip, from which the file is rebuilt byte
   for byte, shown as JSON under `refkv_source/tree`; the root holds none.

@@ -2,6 +2,7 @@
 today's profile, the compact mirror, and the amplification probes."""
 
 import io
+import json
 
 import pytest
 
@@ -32,6 +33,32 @@ def test_projects_as_today_and_rebuilds(path, tmp_path):
     buf = io.BytesIO()
     rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
     assert buf.getvalue() == data
+
+
+def channels(*spec):
+    return {"channels": [{"label": l, "color": c, "active": True} for l, c in spec]}
+
+
+RGB = channels(("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF"))
+
+
+@pytest.mark.parametrize(("name", "omero"), [
+    ("jpeg_aperio_rgb.tif", RGB),  # an Aperio SVS's JPEG tiles, RGB
+    ("jpeg_ycbcr.tif", RGB),  # JPEG decodes YCbCr to RGB
+    ("rgb_contig_zstd.ome.tif", RGB),
+    ("edge_ycbcr_unsubsampled.tif", channels(("S0", "FFFFFF"), ("S1", "FFFFFF"), ("S2", "FFFFFF"))),
+    ("jpeg_gray.tif", channels(("C0", "FFFFFF"))),
+    ("tczyx_uint16_deflate.ome.tif", channels(("C0", "FFFFFF"), ("C1", "FFFFFF"))),
+    ("edge_ome_channels.tif", channels(("DAPI", "0000FF"), ("C1", "00FF00"), ("<GFP>", "FF0000"), ("C3", "FFFFFF"),
+                                       ("C4", "FFFFFF"))),
+])
+def test_omero(name, omero):
+    """§4.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>: the
+    samples, R, G, B when they decode to RGB; else the OME-XML Channels' names and colors."""
+    _, out, _ = via_ir(str(FIXTURES / "tiff" / name), "u", mirror=False)
+    ome = json.loads(out.bytes_entries["zarr.json"])["attributes"]["ome"]
+    assert list(ome) == ["version", "multiscales", "omero"]
+    assert ome["omero"] == omero
 
 
 def test_probes_decide_as_today(probes):

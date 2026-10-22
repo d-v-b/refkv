@@ -392,6 +392,19 @@ pub fn omero_json(channels: Vec<J>) -> J {
     json!({"channels": channels})
 }
 
+/// The `omero` channels of an image whose channels are a pixel's `spp` samples: with `rgb`, the
+/// first three `R`, `G` and `B`, colored so, and any other `S<s>`, white; each label after
+/// `base`. No window.
+pub fn sample_channels(base: &str, spp: u64, rgb: bool) -> Vec<J> {
+    let letters: &[(&str, &str)] = if rgb { &[("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF")] } else { &[] };
+    (0..spp)
+        .map(|s| match letters.get(s as usize) {
+            Some((l, c)) => omero_channel(&format!("{base}{l}"), *c, None),
+            None => omero_channel(&format!("{base}S{s}"), "FFFFFF", None),
+        })
+        .collect()
+}
+
 /// The transpose codec for frames that hold the channel axis last.
 pub fn transpose_codec(axes: &[&str]) -> J {
     let stored: Vec<&str> = axes.iter().copied().filter(|a| *a != "c").chain(["c"]).collect();

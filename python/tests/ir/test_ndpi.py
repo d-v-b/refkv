@@ -3,6 +3,7 @@ NDPI projection against the frozen profile, the mirror, the header's data source
 the hostile probes (gen_probes.py)."""
 
 import io
+import json
 
 import pytest
 
@@ -33,6 +34,15 @@ def test_projects_as_today_and_rebuilds(path, tmp_path):
     buf = io.BytesIO()
     rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
     assert buf.getvalue() == data
+
+
+def test_omero_is_rgb():
+    """§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>: the
+    JPEG strips decode to RGB, so `omero` has R, G and B."""
+    _, out, _ = via_ir(str(FIXTURES / "ndpi" / "ndpi_levels.ndpi"), "u", mirror=False)
+    ome = json.loads(out.bytes_entries["zarr.json"])["attributes"]["ome"]
+    assert ome["omero"] == {"channels": [{"label": l, "color": c, "active": True}
+                                         for l, c in (("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF"))]}
 
 
 def test_header_pieces_are_data_sources():

@@ -1104,14 +1104,21 @@ type Vals = HashMap<u16, Loaded>;
 
 /// The OME-XML of spec/virtualize/tiff.md §3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-ome-xml>: the first image's
-/// name, its Pixels' attributes, its TiffData elements, and its first Plane at (0, 0, 0).
+/// name, its Pixels' attributes, its TiffData elements, its first Plane at (0, 0, 0), and the
+/// attributes of its first `MAX_OMERO` Channels.
 #[derive(Default, Debug)]
 struct Ome {
     name: Option<String>,
     pixels: Vec<(String, String)>,
     tiff_data: Vec<(Vec<(String, String)>, Option<String>)>,
     plane: Option<Vec<(String, String)>>,
+    channels: Vec<Vec<(String, String)>>,
 }
+
+/// The most channels an image's `omero` lists (spec/virtualize/tiff.md §4.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>), so that the root
+/// does not grow with the channel count.
+pub const MAX_OMERO: u64 = 64;
 
 fn get<'a>(attrs: &'a [(String, String)], k: &str) -> Option<&'a str> {
     attrs.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str())
@@ -1197,6 +1204,9 @@ fn read_ome(x: &str, rules: &Rules) -> Res<Option<Ome>> {
                             text_from = Some((k, t.end));
                         }
                     }
+                }
+                if !t.is_end && t.name == "Channel" && (ome.channels.len() as u64) < MAX_OMERO {
+                    ome.channels.push(decoded_attrs(&t, x));
                 }
                 if !t.is_end && t.name == "TiffData" {
                     ome.tiff_data.push((decoded_attrs(&t, x), None));
@@ -1876,7 +1886,9 @@ impl Tiff {
                 "name": o.name,
                 "pixels": o.pixels.iter().map(|(k, v)| (k.clone(), J::String(v.clone()))).collect::<serde_json::Map<_, _>>(),
                 "plane": o.plane.as_ref().map(|p| p.iter().map(|(k, v)| (k.clone(), J::String(v.clone()))).collect::<serde_json::Map<_, _>>()),
+                "channels": o.channels.iter().map(|c| json!({"name": get(c, "Name"), "color": get(c, "Color")})).collect::<Vec<_>>(),
             })),
+            "interpretation": first_int(m0, 262),
             "axes": axes.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
             "units": units.iter().map(|(a, u)| (a.to_string(), J::String(u.clone()))).collect::<serde_json::Map<_, _>>(),
             "scales": scales,
