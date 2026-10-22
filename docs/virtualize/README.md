@@ -32,7 +32,8 @@ who each one is for, what you get, and how to run it.
 | CZI | Zeiss CZI files | [convention](../../spec/virtualize/czi.md) | [§13](../../spec/virtualize/czi.md#part-2-the-profile) |
 | MRC | MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`) | [mrc](mrc/README.md) | [§14](../../spec/virtualize/mrc.md#part-2-the-profile) |
 | VSI | Olympus cellSens whole-slide images (`.vsi` with its tile files) | [vsi](vsi/README.md) | [§15](../../spec/virtualize/vsi.md#part-2-the-profile) |
-| FITS | FITS images and tables (`.fits`, `.fz`) | [fits](fits/README.md) | [§16](../../spec/virtualize/fits.md#part-2-the-profile) |
+| QPTIFF | Akoya (PerkinElmer) Vectra multiplex scans and inForm component data | [qptiff](qptiff/README.md) | [§16](../../spec/virtualize/qptiff.md#part-2-the-profile) |
+| FITS | FITS images and tables (`.fits`, `.fz`) | [fits](fits/README.md) | [§17](../../spec/virtualize/fits.md#part-2-the-profile) |
 <!-- /profiles -->
 
 A format that reads a file takes a URL, or a local path. One that reads a

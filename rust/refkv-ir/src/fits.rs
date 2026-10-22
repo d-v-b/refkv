@@ -1,6 +1,6 @@
 //! A sans-IO parser of FITS files (images, multi-extension files, binary and ASCII tables,
-//! tile-compressed images) into the IR (spec/virtualize/fits.md §16
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#16-fits-profile>, and the
+//! tile-compressed images) into the IR (spec/virtualize/fits.md §17
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#17-fits-profile>, and the
 //! source model of §6.1
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#61-elements>).
 //!
@@ -506,8 +506,8 @@ impl Fits {
     }
 
     /// The records of the header in `buf` up to and including END, when END is there; each
-    /// scanned record is checked to be printable ASCII (§16.3
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#163-checks>).
+    /// scanned record is checked to be printable ASCII (§17.3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#173-checks>).
     fn scan(&self) -> Res<Option<usize>> {
         let mut k = 0;
         while (k + 1) * CARD <= self.buf.len() {
@@ -574,7 +574,7 @@ impl Fits {
     }
 
     /// The HDU whose header is the first `records` records of `buf` (END included), with its
-    /// checks (§16.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#163-checks>),
+    /// checks (§17.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#173-checks>),
     /// then its elements (§6.1
     /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#61-elements>).
     fn hdu(&mut self, records: usize, header_bytes: u64) -> Res<()> {
@@ -636,7 +636,7 @@ impl Fits {
             ]),
         )?;
         let total = total as u64;
-        // tables (§16.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#163-checks>):
+        // tables (§17.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#173-checks>):
         // BITPIX 8, NAXIS 2, TFIELDS and a TFORMn per column, the heap's place
         let mut table = J::Null;
         let mut comp: Option<Comp> = None;
@@ -752,8 +752,8 @@ impl Fits {
         Ok(())
     }
 
-    /// A tile-compressed image's cards and columns, checked (§16.3
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#163-checks>).
+    /// A tile-compressed image's cards and columns, checked (§17.3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#173-checks>).
     fn compressed(&self, cards: &[Card], forms: &[String], rows: u64) -> Res<Comp> {
         let hdu = self.index as f64;
         let name = card(cards, "ZCMPTYPE").map(str_of).unwrap_or_default();

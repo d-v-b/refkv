@@ -1,0 +1,213 @@
+"""QPTIFF on the IR (spec/virtualize/qptiff.md): the Rust TIFF parser's QPTIFF variant and the
+QPTIFF projection on the synthetic fixtures: every accepted file is a valid IR that rebuilds its
+source, its levels read through zarr equal what tifffile decodes, its layout (channels, levels in
+tiles and strips, omero, scale and position) is the convention's, and each input the profile
+rejects is rejected for the convention's reason. QPTIFF has no frozen reference twin: tifffile is
+the independent reader."""
+
+import io
+import json
+import logging
+import re
+
+import numpy as np
+import pytest
+import tifffile
+import zarr
+
+from ir_helpers import FIXTURES
+from refkv.ir import virtualize as via_ir
+from refkv.ir.cmirror import rebuild_from_archive
+from refkv.virtualize import Rejected, virtualize
+from refkv.zarr import ZarrStore
+
+logging.getLogger("tifffile").setLevel(logging.ERROR)  # its warnings on the rejected fixtures
+
+QPTIFFS = sorted((FIXTURES / "qptiff").glob("qptiff_*.qptiff"))
+REJECTED = {
+    "channel_count": "a QPTIFF with 3 channels has 2 ReducedResolution images, not a multiple of 3",
+    "late_full": "a QPTIFF FullResolution image follows the baseline images",
+    "level_grows": "QPTIFF level 1 is not smaller than level 0",
+    "level_mismatch": "the images of QPTIFF level 1 differ in size, tiling or format",
+    "no_description": "IFD 0 of a QPTIFF has no PerkinElmer-QPI image description",
+    "not_baseline": "IFD 0 of a QPTIFF is not a FullResolution image",
+    "predictor": "unsupported predictor 2",
+    "rgb_channels": "QPTIFF channels have 3 samples per pixel",
+    "strip_count": "IFD at 8 has 3 tiles or strips, expected 5",
+}
+
+
+def docs(out) -> dict:
+    return {k: json.loads(v) for k, v in out.bytes_entries.items()
+            if k.endswith("zarr.json") and not k.startswith("refkv_source/")}
+
+
+def tifffile_levels(path) -> list[np.ndarray]:
+    """Each level's pixels as tifffile decodes the pages, grouped by the ImageType of their
+    descriptions (the convention §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#3-images-and-channels>), as
+    `[c, y, x]` arrays: the channels stacked, or an RGB image's samples first. A level in
+    strips whose last strip is short and whose compression is neither none nor LZW is not a
+    level (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#42-tiles-and-strips>)."""
+    with tifffile.TiffFile(path) as tf:
+        kinds = [(re.search(r"<ImageType>([^<]*)</ImageType>", p.description or "") or [None, None])[1]
+                 for p in tf.pages]
+        full = [i for i, k in enumerate(kinds) if k == "FullResolution"]
+        reduced = [i for i, k in enumerate(kinds) if k == "ReducedResolution"]
+        n = len(full)
+        out = []
+        for ks in [full] + [reduced[i:i + n] for i in range(0, len(reduced), n)]:
+            page = tf.pages[ks[0]]
+            if not page.is_tiled and page.compression not in (1, 5):
+                rows = min(page.tags[278].value if 278 in page.tags else page.imagelength, page.imagelength)
+                if page.imagelength > rows and page.imagelength % rows:
+                    continue
+            a = np.stack([tf.pages[k].asarray() for k in ks])
+            # an RGB image's samples first; one gray channel has no channel axis
+            out.append(np.moveaxis(a[0], -1, 0) if a.ndim == 4 else a[0] if n == 1 else a)
+        return out
+
+
+@pytest.mark.parametrize("path", QPTIFFS, ids=lambda p: p.name)
+def test_accepted_fixtures_are_valid_irs_that_rebuild(path, tmp_path):
+    data = path.read_bytes()
+    fmt, out, ir = via_ir(str(path), f"https://data.test/{path.name}")
+    assert fmt == "qptiff"
+    ir.check()
+    root = docs(out)["zarr.json"]["attributes"]["refkv_virtualized"]
+    assert root["profile"] == "qptiff" and root["qptiff"] == {"byte_order": "little", "bigtiff": "bigtiff" in path.name}
+    out.write(str(tmp_path / "a.vzip"))
+    buf = io.BytesIO()
+    rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
+    assert buf.getvalue() == data
+
+
+@pytest.mark.parametrize("path", QPTIFFS, ids=lambda p: p.name)
+def test_levels_read_as_tifffile_decodes_them(path):
+    """Every level, read through zarr-python (the LZW codec, JPEG strips, the rectilinear grid
+    of a short last strip), equals the channels' pages as tifffile decodes them."""
+    zarr.config.set({"array.rectilinear_chunks": True})
+    store = virtualize(str(path))
+    assert store.info["format"] == "qptiff"
+    g = zarr.open_group(ZarrStore(store), mode="r", zarr_format=3)
+    want = tifffile_levels(path)
+    assert [d["path"] for d in g.attrs["ome"]["multiscales"][0]["datasets"]] == [str(i) for i in range(len(want))]
+    for i, level in enumerate(want):
+        got = g[str(i)][...]
+        assert got.dtype == level.dtype and got.shape == level.shape, (path.name, i)
+        assert np.array_equal(got, level), (path.name, i)
+
+
+def test_layout_of_the_fluorescence_scan():
+    """The convention §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#3-images-and-channels>
+    and §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#4-the-image> on
+    qptiff_fl_uint8_lzw.qptiff: three LZW channels with names (an entity decoded, a ScanProfile's
+    Name not taken) and colors in omero, the pixel size from the resolution tags, the position
+    from XPosition and YPosition, two tiled levels and one in strips of 16 rows whose last strip
+    is 8 rows, padded to the chunk with a literal tail spliced into its LZW stream; the
+    thumbnail, overview and label are not levels."""
+    _, out, _ = via_ir(str(FIXTURES / "qptiff" / "qptiff_fl_uint8_lzw.qptiff"), "u")
+    d = docs(out)
+    ome = d["zarr.json"]["attributes"]["ome"]
+    ms = ome["multiscales"][0]
+    assert ms["name"] == "Fixture-Slide"
+    assert [a["name"] for a in ms["axes"]] == ["c", "y", "x"]
+    assert [a.get("unit") for a in ms["axes"]] == [None, "micrometer", "micrometer"]
+    scales = [ds["coordinateTransformations"][0]["scale"] for ds in ms["datasets"]]
+    assert scales[0] == [1, 10000 / 20080, 10000 / 20080] and scales[1][1] == 2 * scales[0][1]
+    assert all(ds["coordinateTransformations"][1] == {"type": "translation", "translation": [0, 484400.0, 88600.0]}
+               for ds in ms["datasets"])
+    assert ome["omero"] == {"channels": [
+        {"label": "DAPI", "color": "0000FF", "active": True},
+        {"label": "Cy3 & TRITC", "color": "FF3C9D", "active": True},
+        {"label": "Opal 520", "color": "00FF00", "active": True},
+    ]}
+    assert d["0/zarr.json"]["shape"] == [3, 96, 128]
+    assert d["0/zarr.json"]["chunk_grid"] == {"name": "regular", "configuration": {"chunk_shape": [1, 32, 32]}}
+    assert d["0/zarr.json"]["codecs"] == [{"name": "bytes"}, {"name": "imagecodecs_lzw"}]
+    assert d["2/zarr.json"]["shape"] == [3, 24, 32]
+    assert d["2/zarr.json"]["chunk_grid"] == {"name": "regular", "configuration": {"chunk_shape": [1, 16, 32]}}
+    chunks = sorted(k for k in out.refs if not k.startswith("refkv_source/"))
+    assert len(chunks) == 3 * (12 + 4 + 2)
+    assert chunks[-1] == "2/c/2/1/0" and len(out.refs["0/c/1/2/3"]) == 1 and len(out.refs["0/c/1/2/3"][0]) == 2  # one range of source 0
+    first, second = out.refs["2/c/0/0/0"], out.refs["2/c/0/1/0"]
+    assert len(first) == 1 and len(second) == 2 and isinstance(second[1], bytes)  # the strip's prefix, then the tail
+    assert second[0][0] == first[0][0] + first[0][1]  # the last strip follows the first
+    assert len(out.data) == 0  # no JPEG, no zeros: no data sources
+
+
+def test_layout_of_an_rgb_scan_and_of_component_data():
+    """An RGB brightfield scan is one channel of 3 interleaved samples (transpose, chunk c of 3,
+    omero per sample with a shared JPEG prefix), and its JPEG level in strips whose last strip
+    is short is not a level; a short last strip of an uncompressed level is padded with a zero
+    data source; inForm's float32 component data in LZW strips has no pyramid."""
+    _, out, _ = via_ir(str(FIXTURES / "qptiff" / "qptiff_bf_rgb_jpeg.qptiff"), "u")
+    d = docs(out)
+    assert d["0/zarr.json"]["codecs"] == [{"name": "transpose", "configuration": {"order": [1, 2, 0]}},
+                                          {"name": "imagecodecs_jpeg"}]
+    assert d["0/zarr.json"]["chunk_grid"]["configuration"]["chunk_shape"] == [3, 32, 32]
+    labels = [c["label"] for c in d["zarr.json"]["attributes"]["ome"]["omero"]["channels"]]
+    assert labels == ["BrightField R", "BrightField G", "BrightField B"]
+    assert len(out.data) == 1 and out.data and len(out.refs["0/c/0/0/0"]) == 3  # SOI, the Adobe marker, the rest
+    assert "2/zarr.json" not in d and not any(k.startswith("2/") for k in out.refs)  # 24 rows in JPEG strips of 16
+    assert out.summary["levels"] == [[3, 96, 128], [3, 48, 64]]
+
+    _, out, _ = via_ir(str(FIXTURES / "qptiff" / "qptiff_bf_rgb_uncompressed.qptiff"), "u")
+    d = docs(out)
+    assert d["1/zarr.json"]["chunk_grid"] == {"name": "regular", "configuration": {"chunk_shape": [3, 24, 32]}}
+    assert sorted(k for k in out.refs if k.startswith("1/")) == ["1/c/0/0/0", "1/c/0/1/0"]
+    whole, last = out.refs["1/c/0/0/0"], out.refs["1/c/0/1/0"]
+    assert len(whole) == 1 and len(last) == 2 and last[0][1] == 8 * 32 * 3 and last[1] == (1, 0, 16 * 32 * 3)
+    assert list(out.data) == [bytes(16 * 32 * 3)]  # the zeros, one data source
+
+    _, out, _ = via_ir(str(FIXTURES / "qptiff" / "qptiff_component_float32_strips.qptiff"), "u")
+    d = docs(out)
+    assert d["0/zarr.json"]["data_type"] == "float32" and "1/zarr.json" not in d
+    assert d["0/zarr.json"]["chunk_grid"] == {"name": "regular", "configuration": {"chunk_shape": [1, 16, 48]}}
+    assert len(out.refs["0/c/1/2/0"]) == 2 and isinstance(out.refs["0/c/1/2/0"][1], bytes)
+    assert d["zarr.json"]["attributes"]["ome"]["multiscales"][0]["name"] == "HnE_3"
+    assert d["zarr.json"]["attributes"]["ome"]["omero"]["channels"] == [
+        {"label": "Eosin", "color": "FF3C9D", "active": True}, {"label": "Hematoxylin", "color": "32459D", "active": True}]
+
+
+def test_unknown_and_undescribed_images_are_ignored_and_96_dpi_is_no_pixel_size():
+    """qptiff_fl_uint16_lzw_bigtiff.qptiff: an IFD of ImageType `Macro` and one without a
+    description are kept in the mirror only; 96 dots per inch gives no unit and no translation."""
+    _, out, ir = via_ir(str(FIXTURES / "qptiff" / "qptiff_fl_uint16_lzw_bigtiff.qptiff"), "u")
+    d = docs(out)
+    ms = d["zarr.json"]["attributes"]["ome"]["multiscales"][0]
+    assert "name" not in ms and [a.get("unit") for a in ms["axes"]] == [None, None, None]
+    assert ms["datasets"][1]["coordinateTransformations"] == [{"type": "scale", "scale": [1, 2.0, 2.0]}]
+    assert out.summary["levels"] == [[2, 64, 80], [2, 32, 40]]
+    paths = {ir.path(i) for i in range(len(ir))}
+    assert "ifds/5/strips" in paths and "ifds/6/strips" in paths  # the ignored images' strips
+
+
+def test_a_stream_past_its_tile_decodes_to_the_tile():
+    """§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#41-data-types-and-codecs>:
+    the first tile of qptiff_fl_lzw_narrow_eoi.qptiff ends with its end code one bit too narrow,
+    as some Vectra scanners write (code 514 to a reader), so a whole-stream decode gives 1026
+    bytes for a 1024-byte tile; the codec decodes into the chunk's size and gives the tile."""
+    import imagecodecs
+
+    path = FIXTURES / "qptiff" / "qptiff_fl_lzw_narrow_eoi.qptiff"
+    _, out, _ = via_ir(str(path), "u")
+    (offset, length), = out.refs["0/c/0/0"]
+    stream = path.read_bytes()[offset:offset + length]
+    assert len(imagecodecs.lzw_decode(stream)) == 1026
+    assert len(imagecodecs.lzw_decode(stream, out=np.empty(1024, np.uint8))) == 1024
+    # test_levels_read_as_tifffile_decodes_them reads it through zarr and compares with tifffile
+
+
+@pytest.mark.parametrize("name", sorted(REJECTED))
+def test_rejects(name):
+    path = FIXTURES / "qptiff" / f"edge_reject_qptiff_{name}.qptiff"
+    with pytest.raises(Rejected) as e:
+        via_ir(str(path), "u")
+    assert str(e.value).startswith(REJECTED[name])
+
+
+def test_a_tiff_and_an_ndpi_are_not_qptiff():
+    for file in ("tiff/jpeg_gray.tif", "ndpi/ndpi_levels.ndpi"):
+        fmt, _, _ = via_ir(str(FIXTURES / file), "u")
+        assert fmt != "qptiff"

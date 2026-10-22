@@ -76,7 +76,7 @@ export function isDicom(head: Uint8Array): boolean {
 
 const HDF5 = [0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a];
 
-type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc" | "vsi" | "fits"; summary: object };
+type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc" | "vsi" | "qptiff" | "fits"; summary: object };
 
 /** `exact`, when given, reads exactly the ranges asked for, past `read`'s block cache: the
  * Rust core's requests, which it plans itself, are read with it.
@@ -168,8 +168,8 @@ export function irFormat(head: Uint8Array): IrFormat | undefined {
   // `MAP` at 208: an MRC2014 file (spec/virtualize/mrc.md §14.1
   // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#141-header>)
   if (head.length >= 212 && head[208] === 0x4d && head[209] === 0x41 && head[210] === 0x50) return "mrc";
-  // `SIMPLE  =` and a fixed-format T in column 30: a FITS file (spec/virtualize/fits.md §16.1
-  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#161-choosing-the-profile>)
+  // `SIMPLE  =` and a fixed-format T in column 30: a FITS file (spec/virtualize/fits.md §17.1
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#171-choosing-the-profile>)
   if (head.length >= 30 && String.fromCharCode(...head.subarray(0, 9)) === "SIMPLE  =" && head[29] === 0x54) return "fits";
   return undefined;
 }

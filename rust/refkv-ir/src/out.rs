@@ -344,7 +344,10 @@ pub fn rectilinear_array_json(shape: &[u64], data_type: &str, lengths: &J, codec
 
 /// The codecs after `transpose` of a TIFF `compression` (the tag's value: JPEG 2000 and JPEG
 /// as their imagecodecs codecs; else `bytes`, with the byte order for samples of more than 8
-/// bits, then `zlib` for Deflate or `zstd` for Zstandard).
+/// bits, then `imagecodecs_lzw` for LZW (which the QPTIFF convention reads,
+/// spec/virtualize/qptiff.md §4.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#41-data-types-and-codecs>),
+/// `zlib` for Deflate or `zstd` for Zstandard).
 pub fn tiff_codecs(compression: u64, bits: u64, little: bool) -> Vec<J> {
     match compression {
         33003 | 33004 | 33005 | 34712 => return vec![json!({"name": "imagecodecs_jpeg2k"})],
@@ -357,6 +360,7 @@ pub fn tiff_codecs(compression: u64, bits: u64, little: bool) -> Vec<J> {
         json!({"name": "bytes"})
     }];
     match compression {
+        5 => out.push(json!({"name": "imagecodecs_lzw"})),
         8 | 32946 => out.push(json!({"name": "zlib", "configuration": {"level": 1}})),
         50000 => out.push(json!({"name": "zstd", "configuration": {"level": 0, "checksum": false}})),
         _ => {}

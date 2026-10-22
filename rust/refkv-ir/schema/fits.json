@@ -1,7 +1,7 @@
 {
   "source_model": "fits",
   "version": 1,
-  "about": "The source model of a FITS file (spec/virtualize/fits.md §6.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#61-elements>): the elements a parser emits, the tables of data types and extension types, and the roles the file, each HDU's header, its mandatory cards, its data and its table play, each with the constraints a file must meet to have the FITS convention's layout (spec/virtualize/fits.md §16.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#163-checks>). The parser checks them in this order, HDU by HDU; projections read a valid IR and check nothing.",
+  "about": "The source model of a FITS file (spec/virtualize/fits.md §6.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#61-elements>): the elements a parser emits, the tables of data types and extension types, and the roles the file, each HDU's header, its mandatory cards, its data and its table play, each with the constraints a file must meet to have the FITS convention's layout (spec/virtualize/fits.md §17.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#173-checks>). The parser checks them in this order, HDU by HDU; projections read a valid IR and check nothing.",
   "limits": {
     "max_safe": 9007199254740991,
     "block": 2880,

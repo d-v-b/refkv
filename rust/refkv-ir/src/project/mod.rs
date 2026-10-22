@@ -22,6 +22,7 @@ mod nd2;
 mod ndpi;
 pub mod store;
 mod nifti;
+mod qptiff;
 pub mod safe;
 mod tiff;
 pub mod vsi;
@@ -50,6 +51,7 @@ pub fn project(format: Format, ir: &Ir, facts: &J, url: &str, copied: &Copied) -
         Format::Safe => safe::project(ir, facts, url),
         Format::Ndpi => ndpi::project(ir, facts, url),
         Format::Vsi => Err("a VSI input is virtualized as a store run".into()),
+        Format::Qptiff => qptiff::project(ir, facts, url),
         Format::Fits => fits::project(ir, facts, url, copied),
     }
 }

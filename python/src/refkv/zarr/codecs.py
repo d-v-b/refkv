@@ -9,6 +9,11 @@ JPEG-in-TIFF tiles are, spec/virtualize.md §3.3
 `imagecodecs_jpegxr`: each chunk is one JPEG XR file (ITU-T T.832, with its
 container), as CZI JpgXr subblocks are (spec/virtualize/czi.md §3.1
 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#31-pixel-types-and-codecs>).
+`imagecodecs_lzw`: a TIFF LZW stream (TIFF 6.0 §13, MSB-first with early change), as
+QPTIFF tiles and strips are (spec/virtualize/qptiff.md §4.1
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#41-data-types-and-codecs>),
+decoded into the chunk's size, as TIFF readers decode a tile: a stream that runs on past it
+(some scanners write the final code one bit too narrow) still gives the chunk.
 `zlib`: a zlib stream (RFC 1950), as Neuroglancer names it (conventions §3
 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#3-arrays>,
 spec/virtualize/n5.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#3-datasets>,
@@ -51,7 +56,7 @@ def _imagecodecs():
     try:
         import imagecodecs
     except ImportError as e:
-        raise missing("images", "Reading JPEG, JPEG 2000 and JPEG XR chunks", e) from e
+        raise missing("images", "Reading JPEG, JPEG 2000, JPEG XR and LZW chunks", e) from e
     return imagecodecs
 
 
@@ -164,6 +169,40 @@ class ZlibCodec(BytesBytesCodec):
 
 
 register_codec("zlib", ZlibCodec)
+
+
+@dataclass(frozen=True)
+class LzwCodec(BytesBytesCodec):
+    """`imagecodecs_lzw`: each chunk is one TIFF LZW stream (compression 5)."""
+
+    is_fixed_size = False
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Self:
+        return cls()
+
+    def to_dict(self) -> dict:
+        return {"name": "imagecodecs_lzw"}
+
+    async def _decode_single(self, chunk_bytes: Buffer, chunk_spec: ArraySpec) -> Buffer:
+        # Into a buffer of the chunk's size: the decoder stops when it is full, so a stream whose
+        # final code is malformed (and reads as one more entry) still decodes to the chunk; a
+        # stream that is short decodes to fewer bytes, which the bytes codec then refuses.
+        size = chunk_spec.dtype.item_size
+        for d in chunk_spec.shape:
+            size *= d
+        out = np.empty(size, dtype=np.uint8)
+        decoded = _imagecodecs().lzw_decode(chunk_bytes.to_bytes(), out=out)
+        return chunk_spec.prototype.buffer.from_bytes(np.ascontiguousarray(decoded).tobytes())
+
+    async def _encode_single(self, chunk_bytes: Buffer, chunk_spec: ArraySpec) -> Buffer:
+        return chunk_spec.prototype.buffer.from_bytes(_imagecodecs().lzw_encode(chunk_bytes.to_bytes()))
+
+    def compute_encoded_size(self, input_byte_length: int, chunk_spec: ArraySpec) -> int:
+        raise NotImplementedError
+
+
+register_codec("imagecodecs_lzw", LzwCodec)
 
 
 class N5BlockError(ValueError):

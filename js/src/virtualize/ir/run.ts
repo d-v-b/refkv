@@ -12,7 +12,7 @@ import type { RangeSource, Span } from "./source.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
 /** The formats of the core's file runs (`Format::from_name` in rust/refkv-ir/src/run.rs). */
-export type IrFormat = "nd2" | "tiff" | "czi" | "dicom" | "nifti" | "ims" | "safe" | "ndpi" | "mrc" | "vsi" | "fits";
+export type IrFormat = "nd2" | "tiff" | "czi" | "dicom" | "nifti" | "ims" | "safe" | "ndpi" | "mrc" | "vsi" | "qptiff" | "fits";
 // (`vsi` is sniffed as a file but virtualized by the store run of vsi.ts; its file run only rejects.)
 
 export interface IrOutput extends ArchiveDesc {
@@ -30,7 +30,7 @@ export function rejection(w: IrExports, r: number): ImageError {
 }
 
 /** Virtualizes `source` (the file at `url`) as `format`; the output's format is the run's
- * (a TIFF the core finds to be NDPI is "ndpi"). A file the core refuses is an
+ * (a TIFF the core finds to be NDPI is "ndpi", or QPTIFF "qptiff"). A file the core refuses is an
  * ImageError; a source that cannot be read, its own error. */
 export async function virtualizeIr(
   format: IrFormat,
