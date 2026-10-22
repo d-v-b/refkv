@@ -38,9 +38,12 @@ pub type Res<T> = Result<T, String>;
 pub static TIFF_SCHEMA: &str = include_str!("../schema/tiff.json");
 pub static CZI_SCHEMA: &str = include_str!("../schema/czi.json");
 pub static NIFTI_SCHEMA: &str = include_str!("../schema/nifti.json");
+pub static MRC_SCHEMA: &str = include_str!("../schema/mrc.json");
 pub static IMS_SCHEMA: &str = include_str!("../schema/ims.json");
 pub static SAFE_SCHEMA: &str = include_str!("../schema/safe.json");
 pub static NDPI_SCHEMA: &str = include_str!("../schema/ndpi.json");
+pub static VSI_SCHEMA: &str = include_str!("../schema/vsi.json");
+pub static QPTIFF_SCHEMA: &str = include_str!("../schema/qptiff.json");
 
 struct Role {
     derive: Vec<(String, E)>,
@@ -68,6 +71,11 @@ pub fn ndpi() -> &'static Rules {
     S.get_or_init(|| Rules::new(NDPI_SCHEMA).expect("the NDPI schema is valid"))
 }
 
+pub fn qptiff() -> &'static Rules {
+    static S: OnceLock<Rules> = OnceLock::new();
+    S.get_or_init(|| Rules::new(QPTIFF_SCHEMA).expect("the QPTIFF schema is valid"))
+}
+
 pub fn czi() -> &'static Rules {
     static S: OnceLock<Rules> = OnceLock::new();
     S.get_or_init(|| Rules::new(CZI_SCHEMA).expect("the CZI schema is valid"))
@@ -76,6 +84,16 @@ pub fn czi() -> &'static Rules {
 pub fn nifti() -> &'static Rules {
     static S: OnceLock<Rules> = OnceLock::new();
     S.get_or_init(|| Rules::new(NIFTI_SCHEMA).expect("the NIfTI schema is valid"))
+}
+
+pub fn mrc() -> &'static Rules {
+    static S: OnceLock<Rules> = OnceLock::new();
+    S.get_or_init(|| Rules::new(MRC_SCHEMA).expect("the MRC schema is valid"))
+}
+
+pub fn vsi() -> &'static Rules {
+    static S: OnceLock<Rules> = OnceLock::new();
+    S.get_or_init(|| Rules::new(VSI_SCHEMA).expect("the VSI schema is valid"))
 }
 
 pub fn safe() -> &'static Rules {

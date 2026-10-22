@@ -5,16 +5,15 @@ byte ranges of other objects ([spec/refkv.md](../spec/refkv.md)), and vzip is
 its single-file binding. This package reads and writes vzip archives
 ([spec/bindings/vzip.md](../spec/bindings/vzip.md)) in the browser and in Node.
 
-A service worker that turns a remote image file (TIFF, NDPI, ND2, CZI,
-DICOM, NIfTI or IMS), a Sentinel-2 SAFE product (a `.SAFE.zip` file, or a
-`.SAFE` directory), an N5, Zarr v2 or OME-Zarr 0.4 store (a URL ending in `/`),
-or a `.vzip` archive into a plain HTTP Zarr store, without a server and
-without copying pixel data:
+A service worker that turns a remote image file or store of any format of
+[docs/virtualize/README.md](../docs/virtualize/README.md#formats) (a store: a
+URL ending in `/`), or a `.vzip` archive, into a plain HTTP Zarr store,
+without a server and without copying pixel data:
 
 1. A page asks for `<scope>vz/image/<id>/zarr.json`, where `<id>` is the
    base64url encoding of the file's or store's URL.
 2. The service worker reads the file's structure with a few range requests
-   (for TIFF, ND2, CZI, DICOM, NIfTI, IMS and SAFE, batched by the Rust core's read planner) and
+   (batched by the Rust core's read planner) and
    writes a vzip archive in memory by [spec/virtualize.md](../spec/virtualize.md): an
    OME-NGFF 0.5 dataset (or, for a store, its Zarr v3 hierarchy; for SAFE,
    a GeoZarr hierarchy) whose chunks are references to the source's tiles,
@@ -68,22 +67,17 @@ in a directory and lists them at https://d-v-b.github.io/vzip-demo/).
 
 ## What is supported
 
-The rules are [spec/virtualize.md](../spec/virtualize.md)'s profiles:
-[TIFF](../spec/virtualize/tiff.md#part-2-the-profile), [NDPI](../spec/virtualize/ndpi.md#part-2-the-profile),
-[ND2](../spec/virtualize/nd2.md#part-2-the-profile), [DICOM](../spec/virtualize/dicom.md#part-2-the-profile),
-[NIfTI](../spec/virtualize/nifti.md#part-2-the-profile), [IMS](../spec/virtualize/ims.md#part-2-the-profile),
-[N5](../spec/virtualize/n5.md#part-2-the-profile), [Zarr v2](../spec/virtualize/zarr2.md#part-2-the-profile),
-[OME-Zarr](../spec/virtualize/ome-zarr.md#part-2-the-profile), [SAFE](../spec/virtualize/safe.md#part-2-the-profile) and
-[CZI](../spec/virtualize/czi.md#part-2-the-profile). TIFF, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr are virtualized by the
+The rules are [spec/virtualize.md](../spec/virtualize.md)'s profiles, one per
+format (the table in [docs/virtualize/README.md](../docs/virtualize/README.md#formats)
+links each). Every format is virtualized by the
 Rust core (`rust/refkv-ir`) built for wasm32: `src/virtualize/ir/` performs the
 requests its read planner asks for (several at once, multi-range ones under
 Node), under the reader policy, and writes its output. `just js::wasm` builds
 the module, which `just js::build` copies to `dist/refkv_ir.wasm` (beside the
 service worker, which fetches it) and which the Node tests and CLIs read from
-cargo's target directory (or `$REFKV_IR_WASM`). The other profiles are each
-implemented in their own directory of `src/virtualize/` (`store.ts` holds what
-the store profiles share). The TypeScript TIFF, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr virtualizers the
-core replaced are kept, frozen, in `conformance/virtualize/reference/ts/` (with CLIs
+cargo's target directory (or `$REFKV_IR_WASM`). `src/virtualize/store.ts` holds
+the store machinery (the listing, the object and JSON readers). The TypeScript
+virtualizers the core replaced are kept, frozen, in `conformance/virtualize/reference/ts/` (with CLIs
 `conformance/virtualize/reference/ts/virtualize.ts` and `virtualize_file.ts`), for
 comparisons. The Python implementation (`python -m refkv.virtualize`)
 produces equivalent archives; `conformance/virtualize/compare.py` checks that.
@@ -121,6 +115,17 @@ Hamamatsu NDPI:
   archive as `data` sources.
 
 Not supported, and refused with HTTP 422: NDPI focal planes.
+
+Akoya QPTIFF (Vectra scans, inForm component data; found by the Software tag):
+
+- The FullResolution images as channels and the runs of ReducedResolution
+  images as levels, named and colored in `omero` from each image's XML
+  description; tiles, or strips for the smallest levels and inForm fields
+  (a rectilinear chunk grid when the last strip is short).
+- Compression: none, LZW (`imagecodecs_lzw`), JPEG, DEFLATE, zstd, JPEG 2000.
+
+Not supported, and refused with HTTP 422: predictors, several RGB channels,
+and images that do not follow the format's arrangement.
 
 ND2 (format version 3 and later):
 
@@ -180,6 +185,33 @@ NIfTI (NIfTI-1 and NIfTI-2 single files):
 Not supported, and refused with HTTP 422: gzipped files (`.nii.gz`),
 header-and-image pairs, complex types, and dimensions 6 and 7 (CIFTI).
 
+MRC (MRC2014 files):
+
+- Images, image stacks, volumes and volume stacks (`t`, `z`, `y`, `x`),
+  either byte order, modes 0, 1, 2, 4, 6 and 12.
+- Chunks of at most 1 MiB: blocks of sections, or blocks of rows.
+- The voxel size (angstroms) as scale, the origin as translation, the whole
+  header under `refkv_virtualized`.
+
+Not supported, and refused with HTTP 422: gzipped maps (`.map.gz`), pre-2000
+files without `MAP` at byte 208, and modes 3 and 101.
+
+Olympus VSI (cellSens slides):
+
+- The `.vsi` file's URL names the slide; the tile files beside it
+  (`_<name>_/stack<N>/frame_t.ets`) are probed by URL, not listed, so a
+  plain web server that allows cross-origin reads serves a slide as it is.
+- One OME-Zarr image per stack in a bioformats2raw layout: every pyramid
+  level, with time, channel and z dimensions; JPEG, JPEG 2000 and
+  uncompressed tiles as chunks; the macro image and focus maps from the
+  `.vsi` file; pixel sizes in micrometers, stage origins as translations,
+  channel names and colors.
+- The whole metadata tree under `refkv_virtualized` on the root.
+
+Not supported, and refused with HTTP 422: lossless JPEG, PNG and BMP
+tiles, dimensions other than t, c and z with more than one value, and a
+stack whose tile file is missing.
+
 Imaris IMS (HDF5):
 
 - Files from Imaris 5.5 to 10 and its converters: every resolution level,
@@ -211,7 +243,7 @@ web server), N5 lz4, xz, bzip2 and jpeg blocks, Zarr v2 filters, lz4 and other
 compressors, string, object, structured, complex and date-time types, and
 OME-Zarr 0.4 stores that break a rule of OME-NGFF 0.4 that 0.5 also has.
 A store that lists more than 100000 objects is refused with HTTP 507 (a
-limit of this implementation, [spec/virtualize.md §14](../spec/virtualize.md#14-conformance)).
+limit of this implementation, [spec/virtualize.md Appendix A](../spec/virtualize.md#appendix-a-conformance)).
 
 ## Limits
 
@@ -236,9 +268,12 @@ node --test js/test/                                        # unit tests
 uv run python js/conformance/run_write.py /tmp/vzip-write   # the kit's write cases
 uv run python js/test/tiff/verify.py                        # TIFF fixtures vs tifffile
 uv run python js/test/ndpi/verify.py                        # NDPI fixtures vs tifffile
+uv run python js/test/qptiff/verify.py                      # QPTIFF fixtures vs tifffile
 uv run python js/test/nd2/verify.py                         # synthetic ND2 fixtures vs their pixels
 uv run python js/test/dicom/verify.py                       # DICOM fixtures vs pydicom
 uv run python js/test/nifti/verify.py                       # NIfTI fixtures vs nibabel
+uv run python js/test/mrc/verify.py                         # MRC fixtures vs mrcfile
+uv run python js/test/vsi/verify.py                         # VSI fixtures vs their pixels (and Bio-Formats)
 uv run python js/test/ims/verify.py                         # IMS fixtures vs h5py
 uv run python js/test/czi/verify.py                         # CZI fixtures vs czifile (and libCZI)
 uv run python js/test/safe/verify.py                        # SAFE fixtures vs GDAL
@@ -254,17 +289,20 @@ node demo/e2e_examples.mjs <out dir> [example id …]      # every demo example,
   reads every level through the reference implementation (`python/src/refkv`) and
   zarr-python and compares it with tifffile, and rebuilds the file from the
   archive's IR mirror, byte for byte. `ndpi/verify.py` does the same for the
-  NDPI files (which have no IR mirror).
+  NDPI files, and `qptiff/verify.py` for the QPTIFF files, whose levels are
+  compared with the channel pages tifffile decodes.
 - `nd2/verify.py` does the same for the synthetic ND2 files written by
   `nd2/write_fixtures.py` (compressed frames, padded rows, multi-phase time loops,
   disabled positions, missing frames, float data, and inputs to reject),
   comparing every chunk with the pixels the generator wrote. The `nd2` package
   reads the generator's files too.
-- `dicom/verify.py`, `nifti/verify.py` and `ims/verify.py` do the same for
-  their synthetic files, against pydicom, nibabel (unscaled data) and h5py
-  (cropped to the image size).
-- `compare.py` runs three virtualizers (`ref`, the frozen reference for
-  TIFF, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr and the shipped Python code for the rest; `py`, the
+- `dicom/verify.py`, `nifti/verify.py`, `mrc/verify.py` and `ims/verify.py` do the same for
+  their synthetic files, against pydicom, nibabel (unscaled data), mrcfile and h5py
+  (cropped to the image size); `vsi/verify.py` serves each synthetic slide with its
+  tile files, compares every stack with the pixels the generator wrote and, when a
+  JVM can be started, every level with Bio-Formats (bioio-bioformats).
+- `compare.py` runs three virtualizers (`ref`, the frozen reference, which
+  a format added since the core, such as MRC, does not have; `py`, the
   Python command; `web`, this code under Node) on the synthetic files, every
   OME-TIFF of IDR idr0096 and the public files of every format
   (`conformance/virtualize/corpus_*.txt`), and compares their outputs

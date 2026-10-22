@@ -16,6 +16,7 @@ who each one is for, what you get, and how to run it.
 
 ## Formats
 
+<!-- profiles:docs-table -->
 | format | for | README | profile |
 |---|---|---|---|
 | TIFF | OME-TIFF, plain tiled TIFF, and JPEG-tiled slides such as Aperio SVS | [tiff](tiff/README.md) | [§3](../../spec/virtualize/tiff.md#part-2-the-profile) |
@@ -27,14 +28,19 @@ who each one is for, what you get, and how to run it.
 | N5 | N5 containers on S3 | [n5](n5/README.md) | [§9](../../spec/virtualize/n5.md#part-2-the-profile) |
 | Zarr v2 | Zarr v2 hierarchies on S3 | [zarr2](zarr2/README.md) | [§10](../../spec/virtualize/zarr2.md#part-2-the-profile) |
 | OME-Zarr | OME-Zarr 0.4 hierarchies, migrated to OME-Zarr 0.5 in place | [ome-zarr](ome-zarr/README.md) | [§11](../../spec/virtualize/ome-zarr.md#part-2-the-profile) |
-| SAFE | Sentinel-2 Level-1C and Level-2A products, as a `.SAFE` directory or a `.SAFE.zip` | [convention](../../spec/virtualize/safe.md) | [§12](../../spec/virtualize/safe.md#part-2-the-profile) |
+| Sentinel-2 SAFE | Sentinel-2 Level-1C and Level-2A products, as a `.SAFE` directory or a `.SAFE.zip` | [convention](../../spec/virtualize/safe.md) | [§12](../../spec/virtualize/safe.md#part-2-the-profile) |
 | CZI | Zeiss CZI files | [convention](../../spec/virtualize/czi.md) | [§13](../../spec/virtualize/czi.md#part-2-the-profile) |
+| MRC | MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`) | [mrc](mrc/README.md) | [§14](../../spec/virtualize/mrc.md#part-2-the-profile) |
+| VSI | Olympus cellSens whole-slide images (`.vsi` with its tile files) | [vsi](vsi/README.md) | [§15](../../spec/virtualize/vsi.md#part-2-the-profile) |
+| QPTIFF | Akoya (PerkinElmer) Vectra multiplex scans and inForm component data | [qptiff](qptiff/README.md) | [§16](../../spec/virtualize/qptiff.md#part-2-the-profile) |
+<!-- /profiles -->
 
-TIFF, NDPI, ND2, DICOM, NIfTI, IMS and CZI read one file (a URL, or a local
-path). N5, Zarr v2 and OME-Zarr read a store: a URL ending in `/` that
-answers the S3 `ListObjectsV2` operation anonymously, such as a public S3
-bucket. SAFE reads either: a product's `.SAFE` directory as a store, or its
-`.SAFE.zip` as a file.
+A format that reads a file takes a URL, or a local path. One that reads a
+store takes a URL ending in `/` that answers the S3 `ListObjectsV2` operation
+anonymously, such as a public S3 bucket. SAFE reads either: a product's
+`.SAFE` directory as a store, or its `.SAFE.zip` as a file. VSI is named by
+its `.vsi` file and reads the tile files beside it by name, without listing
+the directory.
 
 SAFE and CZI have no user-story page yet; their conventions describe the
 output. A Sentinel-2 product becomes a GeoZarr hierarchy (one group per
@@ -48,8 +54,9 @@ Their public test inputs are listed in [corpus_safe.txt](../../conformance/virtu
 [corpus_czi.txt](../../conformance/virtualize/corpus_czi.txt).
 
 **Numbers in these pages.** The outputs, timings, request counts and archive
-sizes quoted in the format pages were measured at spec/virtualize.md revision 16.
-The current revision is 26. Since revision 16, the archives also keep the
+sizes quoted in the format pages were measured at spec/virtualize.md revision 16
+([spec/history/virtualize/REVISIONS.md](../../spec/history/virtualize/REVISIONS.md)).
+Since then, the archives also keep the
 source's whole metadata (below), so they are larger than the sizes quoted.
 TIFF and ND2 are now read through a read planner, so their request counts
 differ too. Where a summary line or an attribute path has changed since
@@ -67,13 +74,12 @@ uv run python -m refkv.virtualize <url or path> out.vzip
 just virtualize <url or path> out.vzip
 ```
 
-TIFF (and SVS and NDPI), ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2, N5 and OME-Zarr stores, are virtualized by refkv's Rust core,
+Every format is virtualized by refkv's Rust core,
 [rust/refkv-ir](../../rust/refkv-ir/), part of the refkv
 distribution: installing refkv (`pip install`, or `uv sync` in a clone) builds
 it into the Python module `refkv._core`, which needs a Rust toolchain. The core parses the file into an intermediate representation (IR),
 plans the range requests, projects the IR onto the format's convention, and
 writes the source's IR mirror ([below](#the-sources-metadata-and-where-it-came-from-refkv_virtualized)).
-The other formats are implemented in Python and do not need it.
 
 The command prints a one-line JSON summary. It exits with status 3 if the
 profile rejects the input, and with status 1 if the reader policy refuses the
@@ -82,14 +88,16 @@ host (below); it then writes no archive. The format is chosen by the file's firs
 store by the objects at its root. Options:
 
 - `--url <url>`: the URL to record as the source, for a local file or
-  directory that will be served from that URL (a local directory needs it);
+  directory that will be served from that URL (a local directory needs it;
+  for a VSI slide, the `.vsi` file's URL, whose directory the tile files are
+  named under);
 - `--checksums`: also record the CRC-32C of every referenced range
   ([spec/refkv.md §4.2](../../spec/refkv.md#42-range)), which reads every byte the
   archive references (off by default);
 - `--allow-private-hosts`: let a file or store at an http(s) URL be read
   from a loopback, private or link-local host (below; unsafe);
-- `--connections N` and `--byte-cost SECONDS_PER_MB`: for TIFF (NDPI included), ND2, CZI, DICOM,
-  NIfTI and IMS files and SAFE zip files, how many requests the read planner runs at a time (default 8), and how
+- `--connections N` and `--byte-cost SECONDS_PER_MB`: for a file input,
+  how many requests the read planner runs at a time (default 8), and how
   much wall time it charges for a megabyte read beyond those asked (default
   0.1 s);
 - `--workers N`: how many of a store's metadata documents are read at a time
@@ -151,8 +159,7 @@ use, `Policy()` unless it is given one, so for sources on a private host pass
 that one too: `store.save(path, policy=policy)`.
 
 **The browser.** The same virtualizers run in a service worker
-([js/](../../js/README.md)): the Rust core, built for WebAssembly, for
-TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr, and TypeScript implementations of the other formats. The
+([js/](../../js/README.md)): the Rust core, built for WebAssembly. The
 service worker serves the
 result to any Zarr reader on the page's origin as a plain HTTP Zarr store. The
 live demo, <https://d-v-b.github.io/vzip-demo/image-to-zarr/>, takes a URL
@@ -160,8 +167,8 @@ live demo, <https://d-v-b.github.io/vzip-demo/image-to-zarr/>, takes a URL
 (<https://github.com/d-v-b/neuroglancer>, branch `vzip`) and offers the
 archive for download. Two limits apply:
 
-- The live demo currently virtualizes TIFF, NDPI and ND2 files only. CZI,
-  DICOM, NIfTI, IMS, SAFE and the store formats work in a local build of the
+- The live demo currently virtualizes TIFF, NDPI and ND2 files only. The
+  other formats work in a local build of the
   demo (`just js::build && node demo/serve.mjs 8080`; the build compiles the
   Rust core to WebAssembly first, `dist/refkv_ir.wasm`, so it needs a Rust
   toolchain with the `wasm32` target), which is not yet deployed.
@@ -173,9 +180,8 @@ archive for download. Two limits apply:
 
 The browser code also runs under Node:
 `node js/conformance/virtualize.ts <url> out.vzip [--checksums]
-[--allow-private-hosts]` writes an archive equivalent to the Python one. For
-TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr it runs the same Rust core as Python, built for wasm32
-(`just js::wasm`).
+[--allow-private-hosts]` writes an archive equivalent to the Python one. It
+runs the same Rust core as Python, built for wasm32 (`just js::wasm`).
 
 **Store reads.** Listing a store is sequential (S3 returns 1000 keys per
 request). Its metadata documents (`attributes.json`, `.zgroup`, `.zarray`,
@@ -190,14 +196,13 @@ format has a [Zarr convention](https://github.com/zarr-conventions/zarr-conventi
 of its own, specified in [spec/conventions.md](../../spec/conventions.md): the
 hierarchy's whole Zarr layout, and the translation of the source's header
 into JSON. Every output's root records, under the key `refkv_virtualized`,
-the format, the convention's version, the revision of spec/virtualize.md that
-produced it, and the source. The nodes also hold what the source says about
+the format, the convention's version and the source. The nodes also hold what the source says about
 them, under the same key. Metadata that is large, or that grows with the
 data, is on the group `refkv_source`, a child of the root that OME-NGFF
 readers ignore and whose documents are fetched only when it is opened. Where
 each format's metadata is:
 
-- **TIFF (and SVS), ND2, CZI, DICOM and IMS:** `refkv_source` is the source's **IR
+- **Every file format:** `refkv_source` is the source's **IR
   mirror** ([conventions §8](../../spec/conventions.md#8-the-ir-mirror)).
   It is a table under `refkv_source/ir/` that accounts for every byte of the
   file, so that, with the source's bytes, the file is rebuilt byte for byte
@@ -218,6 +223,18 @@ each format's metadata is:
 - **NIfTI:** the IR mirror on `refkv_source`: the header, the extender, each
   extension and the voxel data. The root keeps the header, field by field,
   the scaling and the affine.
+- **MRC:** the IR mirror on `refkv_source`: the header, the extended header
+  and the data. The root keeps the header, field by field, the kind of file,
+  the data type, the axis map and the voxel size. The archive also holds the
+  file as a dataset for xarray under `dataset/`, declared by its own
+  convention ([conventions §9](../../spec/conventions.md#9-dataset-layouts)).
+- **VSI:** the IR mirror on `refkv_source`: the `.vsi` file (its metadata
+  tree field by field, and the IFDs inside it) and every tile file (its
+  headers, tile directory and tiles), each described in place, so that the
+  mirror rebuilds each file from the slide's own bytes. The root keeps the
+  metadata tree as JSON, the list of stacks and the file's size; each
+  image keeps its stack's properties (scale, origin, channels, creation
+  time, magnification) and its tile file's headers.
 - **N5, Zarr v2 and OME-Zarr:** each node's own attributes and the layout
   members its `zarr.json` does not reproduce, on the node, as
   `{"attributes": ..., "metadata": ...}` (with `"unversioned"` for an
@@ -232,23 +249,23 @@ in [nifti/](nifti/README.md):
 
 ```python
 v = g.attrs["refkv_virtualized"]
-print({k: v[k] for k in ("profile", "version", "revision", "source")})
+print({k: v[k] for k in ("profile", "version", "source")})
 print(v["nifti"]["header"]["descrip"], v["nifti"]["scaling"])
 ```
 
 ```
-{'profile': 'nifti', 'version': 0, 'revision': 26, 'source': {'url': 'https://raw.githubusercontent.com/spm/spm/main/canonical/avg152T1.nii'}}
+{'profile': 'nifti', 'version': 0, 'source': {'url': 'https://raw.githubusercontent.com/spm/spm/main/canonical/avg152T1.nii'}}
 NIFTI-1 Image {'slope': 0.003921568859368563, 'inter': 0.0}
 ```
 
 The record stays with the hierarchy if it is copied out of the archive. The
-format, version and revision name the exact rules that produced it, so it
+format and version name the rules that produced it, so it
 can be regenerated from the source and checked. Until refkv's first release,
-every convention is at version 0 and promises nothing: any revision may
-change a layout, and the recorded revision tells two layouts apart. From the
-release, conventions start at version 1, a convention's version increases
-only when its layout changes for some source, and hierarchies no longer
-record a revision ([conventions §1](../../spec/conventions.md#1-conventions)).
+every convention is at version 0 and promises nothing: any change may
+change a layout. From the
+release, conventions start at version 1, and a convention's version increases
+only when its layout changes for some source
+([conventions §1](../../spec/conventions.md#1-conventions)).
 The record names the source by its URL only; the archive's source table
 pins the sources (above). Each convention has a JSON Schema next to it,
 `spec/virtualize/<format>/schema.json`.
@@ -261,13 +278,14 @@ files and stores listed in
 [conformance/virtualize/](../../conformance/virtualize/) (`corpus_*.txt`),
 and checks that their outputs are equivalent ([spec/virtualize.md §1.1](../../spec/virtualize.md#11-output-and-equivalence)):
 
-- `ref`, the reference (`conformance/virtualize/reference/cli.py`): for
-  TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr, the Python profiles refkv shipped before these formats
-  moved to the Rust core, frozen; for every other format, the shipped code;
+- `ref`, the reference (`conformance/virtualize/reference/cli.py`): the
+  Python profiles refkv shipped before the formats moved to the Rust core,
+  frozen (a format added since, such as MRC, has none, and compares `py`
+  with `web` alone; the registry's `reference` says which);
 - `py`, `python -m refkv.virtualize`;
 - `web`, the browser code under Node.
 
-For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr, `py` and `web` run one core, so the independent check
+`py` and `web` run one core, so the independent check
 is `ref`, compared with both everywhere but `refkv_source`. `py` and `web` are
 compared entirely, the mirror included, which shows that the two hosts drive
 the core alike. The mirror has no second implementation. Instead,
@@ -275,7 +293,6 @@ the core alike. The mirror has no second implementation. Instead,
 invariants, it describes a source of the size the archive pins, and it is
 canonical. The
 verify scripts check that the source rebuilt from it is the file, byte for
-byte. For the other formats, `py` and `web` are still two hand-written
-implementations ([HARNESS.md](../../conformance/virtualize/HARNESS.md)). The
+byte ([HARNESS.md](../../conformance/virtualize/HARNESS.md)). The
 pixels are checked separately, per format, against an independent reader;
 each README says which.

@@ -1,17 +1,17 @@
 // Virtualizing an image file by the profile its first bytes select
-// (spec/virtualize.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>):
-// TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or a SAFE zip, or a
-// store by the profile its root keys select (§1.4
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>): N5, Zarr v2,
-// OME-Zarr 0.4 or a SAFE directory. TIFF (NDPI included: the core's TIFF parser finds it), ND2,
-// CZI, DICOM, NIfTI, IMS and SAFE files, and SAFE directories and Zarr v2, N5 and OME-Zarr
-// stores, are virtualized by the Rust core (ir/, rust/refkv-ir); each other profile is in its
-// own directory; store.ts holds the store machinery.
+// (spec/virtualize.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>),
+// or a store by the profile its root keys select (§1.4
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>); the formats are
+// those of docs/virtualize/README.md (the registry, spec/virtualize/profiles.json). Every one is
+// virtualized by the Rust core (ir/, rust/refkv-ir), which may decide the profile itself (its
+// TIFF parser finds NDPI; its Zarr v2 store format finds OME-Zarr 0.4); store.ts holds the store
+// machinery.
 
 import { blockReader, type ByteReader, ImageError } from "./common.ts";
 import { type IrFormat, virtualizeIr } from "./ir/run.ts";
 import { type RangeSource, readerSource } from "./ir/source.ts";
 import { virtualizeStoreIr } from "./ir/store.ts";
+import { virtualizeVsi } from "./ir/vsi.ts";
 import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store } from "./store.ts";
 import type { Policy } from "../archive.ts";
 import { crc32c } from "../deflate.ts";
@@ -30,6 +30,10 @@ export interface PinOptions {
    * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>), reading its bytes.
    */
   checksums?: boolean;
+  /** For a VSI input: opens the file `key` beside the `.vsi` file (`key` relative to its
+   * directory), or undefined when it does not exist (ir/vsi.ts); by default the files are read
+   * at the input URL's directory over http(s), with the `.vsi` file's options. */
+  open?: (key: string) => Promise<RangeSource | undefined>;
 }
 
 /**
@@ -51,7 +55,7 @@ export async function addChecksums(
   }
 }
 
-const NOT_SUPPORTED = "not a TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file";
+const NOT_SUPPORTED = "not a file of any supported format";
 
 /**
  * True if `head` starts with a TIFF or BigTIFF header, in either byte order (§1.2
@@ -72,11 +76,10 @@ export function isDicom(head: Uint8Array): boolean {
 
 const HDF5 = [0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a];
 
-type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe"; summary: object };
+type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc" | "vsi" | "qptiff"; summary: object };
 
 /** `exact`, when given, reads exactly the ranges asked for, past `read`'s block cache: the
- * SAFE profile's tile-part headers, scattered through a zip file, are read with it, and the
- * Rust core's requests (TIFF and NDPI, ND2, CZI, DICOM, NIfTI, IMS), which it plans itself.
+ * Rust core's requests, which it plans itself, are read with it.
  * Source 0 pins the file's size, and its ETag when `pins.etag` gives one (§1.2
  * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>); with
  * `pins.checksums`, the ranges of source 0 carry the CRC-32C of their bytes. */
@@ -110,6 +113,17 @@ interface Input {
 }
 
 async function virtualizeWith(url: string, input: Input, pins: PinOptions): Promise<ImageDesc> {
+  // a VSI file is read with its tile files, as a store (ir/vsi.ts): its sources are the files
+  // some reference uses, their sizes pinned, not source 0 alone
+  const head = await input.read(0, Math.min(552, input.size));
+  if (irFormat(head) === "vsi") {
+    const { store, ...desc } = await virtualizeVsi(url, input.source, pins.open ? { open: pins.open } : {});
+    if (pins.checksums) {
+      const keys = new Map([...store.objects.keys()].map((k) => [objectUrl(store.url, k), k]));
+      await addChecksums(desc, (u, o, n) => store.readRange!(keys.get(u)!, o, n));
+    }
+    return { format: "vsi", ...desc };
+  }
   const desc = await virtualizeFile(url, input);
   const etag = pins.etag?.();
   desc.sources[0] = { ...desc.sources[0], size: BigInt(input.size), ...(etag !== undefined ? { etag } : {}) };
@@ -139,6 +153,10 @@ export function niftiVersion(head: Uint8Array): 1 | 2 | undefined {
 export function irFormat(head: Uint8Array): IrFormat | undefined {
   // DICOM first: a dual-personality file's preamble may hold a TIFF header
   if (isDicom(head)) return "dicom";
+  // a VSI file: a little-endian classic TIFF whose byte 8 starts its metadata tree
+  // (spec/virtualize/vsi.md §15.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#151-the-vsi-file>)
+  if (head.length >= 12 && head[0] === 0x49 && head[1] === 0x49 && head[2] === 0x2a && head[3] === 0 &&
+    head[8] === 0x18 && head[9] === 0 && head[10] === 0x49 && head[11] === 0x53) return "vsi";
   if (isTiffMagic(head)) return "tiff";
   if (head.length >= 4 && head[0] === 0xda && head[1] === 0xce && head[2] === 0xbe && head[3] === 0x0a) return "nd2";
   if (head.length >= 16 && String.fromCharCode(...head.subarray(0, 16)) === "ZISRAWFILE\0\0\0\0\0\0") return "czi";
@@ -147,6 +165,9 @@ export function irFormat(head: Uint8Array): IrFormat | undefined {
   if (head.length >= 4 && head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04) return "safe";
   if (niftiVersion(head) !== undefined) return "nifti";
   if (HDF5.every((b, i) => head[i] === b)) return "ims";
+  // `MAP` at 208: an MRC2014 file (spec/virtualize/mrc.md §14.1
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#141-header>)
+  if (head.length >= 212 && head[208] === 0x4d && head[209] === 0x41 && head[210] === 0x50) return "mrc";
   return undefined;
 }
 
@@ -155,7 +176,7 @@ async function virtualizeFile(url: string, { read, size: fileSize, exact, source
   if (isDicom(head)) return virtualizeIr("dicom", url, source);
   const ir = irFormat(head);
   if (ir === "tiff" || ir === "nd2") return virtualizeIr(ir, url, source);
-  if (ir === "nifti" || ir === "ims" || ir === "czi" || ir === "safe") return virtualizeIr(ir, url, source);
+  if (ir === "nifti" || ir === "ims" || ir === "czi" || ir === "safe" || ir === "mrc") return virtualizeIr(ir, url, source);
   throw new ImageError(NOT_SUPPORTED);
 }
 

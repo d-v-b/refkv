@@ -7,10 +7,11 @@ Node, through js/conformance/documents.ts). In each accepted output, every
 node that declares the profile's convention validates against its JSON Schema
 (spec/virtualize/<profile>/schema.json): the root always declares it, with the
 provenance members, and another node only when it has source metadata, with
-only that member. No node has any other attribute besides `ome`. (For TIFF (NDPI included), ND2,
-CZI, DICOM, NIfTI, IMS and SAFE, `refkv_source` and the groups of its view are the IR mirror of
-conventions §8 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>,
-validated by the same schemas.) """
+only that member. No node has any other attribute besides `ome`. (For the file profiles,
+`refkv_source` and the groups of its view are the IR mirror of conventions §8
+<https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>, validated by the
+same schemas.) The inputs are every fixture of every profile of the registry
+(spec/virtualize/profiles.json): the files of its suffixes, and a store profile's directories."""
 
 import json
 import shutil
@@ -21,17 +22,21 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from refkv.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
-from refkv.virtualize.common import CONVENTION_KEY, PROFILES, REVISION, UUIDS, convention, declare, same
+from refkv.virtualize.common import CONVENTION_KEY, PROFILES, UUIDS, convention, declare, same
+from refkv.virtualize.profiles import REGISTRY
 
 ROOT = Path(__file__).parents[2]
 FIXTURES = ROOT / "fixtures"
-FILES = {"tiff": "*.tif", "ndpi": "*.ndpi", "nd2": "*.nd2", "dicom": "*.dcm", "nifti": "*.nii", "ims": "*.ims",
-         "safe": "*.zip", "czi": "*.czi"}
-STORES = ("n5", "zarr2", "ome-zarr", "safe")
+FILES = {e["name"]: [f"*{s}" for s in e["suffixes"]] for e in REGISTRY if e["suffixes"]}
+STORES = tuple(e["name"] for e in REGISTRY if e["kind"] in ("store", "both"))
 # The GeoZarr members a SAFE node may hold (spec/virtualize/safe.md §5
 # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>), each
 # validated by its own convention's schema (spec/virtualize/safe/geozarr/).
 GEOZARR = {"proj:": "proj", "spatial:": "spatial", "multiscales": "multiscales"}
+# The CF attributes a dataset layout's variables may carry (spec/conventions.md §9
+# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>), on the nodes
+# below the layouts the root names.
+DATASET_ATTRS = {"units", "long_name", "actual_range", "scale_factor", "add_offset"}
 
 
 def geozarr_schema(name: str) -> Draft202012Validator:
@@ -46,8 +51,8 @@ def schema(profile: str) -> Draft202012Validator:
 
 def inputs() -> list[tuple[Path, str]]:
     out = []
-    for d, pattern in FILES.items():
-        out += [(p, f"https://data.test/{d}/{p.name}") for p in sorted((FIXTURES / d).glob(pattern))]
+    for d, patterns in FILES.items():
+        out += [(p, f"https://data.test/{d}/{p.name}") for p in sorted(q for pattern in patterns for q in (FIXTURES / d).glob(pattern))]
     for d in STORES:
         out += [(p, f"https://data.test/{d}/{p.name}/") for p in sorted((FIXTURES / d).iterdir()) if p.is_dir()]
     return out
@@ -98,9 +103,12 @@ def test_every_output_declares_its_profile_where_the_convention_says():
         validator = schema(fmt)
         for impl, d in (("py", docs), ("web", w["docs"])):
             assert d["zarr.json"]["attributes"][CONVENTION_KEY]["source"] == {"url": url}, (impl, path.name)
+            layouts = tuple(f"{p}/" for p in d["zarr.json"]["attributes"][CONVENTION_KEY].get("layouts", {}).values())
             for key, doc in d.items():
                 attrs = doc.get("attributes", {})
                 geo = {m for m in attrs if m.startswith(tuple(GEOZARR))} if fmt == "safe" else set()
+                if layouts and key.startswith(layouts) and doc["node_type"] == "array":
+                    geo |= set(attrs) & DATASET_ATTRS
                 assert set(attrs) - geo <= {"ome", "zarr_conventions", CONVENTION_KEY}, (impl, path.name, key)
                 for name in {n for p, n in GEOZARR.items() for m in geo if m.startswith(p)}:
                     errors = [e.message for e in geozarr_schema(name).iter_errors(doc)]
@@ -109,18 +117,22 @@ def test_every_output_declares_its_profile_where_the_convention_says():
                 if key == "zarr.json":
                     assert declares(doc), (impl, path.name)
                 if declares(doc):
-                    errors = [e.message for e in validator.iter_errors(doc)]
+                    # a dataset layout's node declares its own convention, as a root does
+                    own = attrs[CONVENTION_KEY].get("profile", fmt)
+                    errors = [e.message for e in schema(own).iter_errors(doc)]
                     assert not errors, (impl, path.name, key, errors)
-                    assert ("profile" in attrs[CONVENTION_KEY]) == (key == "zarr.json"), (impl, path.name, key)
+                    is_root = key == "zarr.json" or key.removesuffix("/zarr.json") in [p[:-1] for p in layouts]
+                    assert ("profile" in attrs[CONVENTION_KEY]) == is_root, (impl, path.name, key)
+                    if impl == "py":
+                        accepted[own] = accepted.get(own, 0) + 1
         assert same(docs, w["docs"]), path.name
-        accepted[fmt] = accepted.get(fmt, 0) + 1
     assert set(accepted) == set(PROFILES), accepted
     print(f"schema-validated roots: {sum(accepted.values())} of {len(cases)} inputs, {accepted}")
 
 
 def test_declare():
     url = "https://data.test/x/"
-    root = {"profile": "zarr2", "version": 0, "revision": REVISION, "source": {"url": url}}
+    root = {"profile": "zarr2", "version": 0, "source": {"url": url}}
     copied = {"zarr_conventions": [{"name": "proj:"}], "proj:code": "EPSG:4326"}
     for attrs, url_, own, expected in [
         # the root, with and without source metadata
@@ -153,7 +165,7 @@ def test_schemas_reject_an_unknown_version():
     """spec/conventions.md §1
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>: a reader that
     relies on a convention rejects a version it
-    does not know; the schemas do, and require the revision at version 0."""
+    does not know; the schemas do."""
     for profile in PROFILES:
         doc = {"zarr_format": 3, "node_type": "group", "attributes": declare({}, profile, "https://data.test/x/")}
         validator = schema(profile)
@@ -161,9 +173,8 @@ def test_schemas_reject_an_unknown_version():
         assert not list(validator.iter_errors(doc)), profile
         assert convention(profile)["schema_url"].startswith(
             "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/"), profile
-        for bad in ({**root, "version": 1}, {k: v for k, v in root.items() if k != "revision"}):
-            doc["attributes"][CONVENTION_KEY] = bad
-            assert list(validator.iter_errors(doc)), (profile, bad)
+        doc["attributes"][CONVENTION_KEY] = {**root, "version": 1}
+        assert list(validator.iter_errors(doc)), profile
 
 
 def test_the_safe_schema_tells_view_documents_from_source_metadata():

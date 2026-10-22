@@ -16,12 +16,15 @@ mod czi;
 mod dicom;
 mod ims;
 pub mod n5;
+mod mrc;
 mod nd2;
 mod ndpi;
 pub mod store;
 mod nifti;
+mod qptiff;
 pub mod safe;
 mod tiff;
+pub mod vsi;
 pub mod zarr2;
 
 use crate::ir::Ir;
@@ -42,18 +45,22 @@ pub fn project(format: Format, ir: &Ir, facts: &J, url: &str, copied: &Copied) -
         Format::Nd2 => nd2::project(ir, facts, url),
         Format::Dicom => dicom::project(ir, facts, url),
         Format::Nifti => nifti::project(ir, facts, url, copied),
+        Format::Mrc => mrc::project(ir, facts, url, copied),
         Format::Ims => ims::project(ir, facts, url),
         Format::Safe => safe::project(ir, facts, url),
         Format::Ndpi => ndpi::project(ir, facts, url),
+        Format::Vsi => Err("a VSI input is virtualized as a store run".into()),
+        Format::Qptiff => qptiff::project(ir, facts, url),
     }
 }
 
-/// The source's ranges the projection of `format` copies into the archive (NIfTI's edge
-/// chunks whose padding does not fit in a reference), which the run reads after the
-/// parser: a projection reads nothing itself.
+/// The source's ranges the projection of `format` copies into the archive (NIfTI's and
+/// MRC's edge chunks whose padding does not fit in a reference), which the run reads after
+/// the parser: a projection reads nothing itself.
 pub fn reads(format: Format, ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
     match format {
         Format::Nifti => nifti::reads(ir, facts),
+        Format::Mrc => mrc::reads(ir, facts),
         _ => Ok(Vec::new()),
     }
 }
@@ -69,6 +76,31 @@ fn json_text(b: &[u8]) -> J {
     match std::str::from_utf8(b) {
         Ok(s) => J::String(s.to_string()),
         Err(_) => serde_json::json!({"latin1": b.iter().map(|&c| c as char).collect::<String>()}),
+    }
+}
+
+/// Opaque bytes as a source metadata member (conventions §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>):
+/// their base64 encoding.
+fn base64(b: &[u8]) -> String {
+    crate::mirror::base64(b)
+}
+
+/// A float header value as the source metadata writes it (conventions §6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>):
+/// a number, "NaN", "Infinity" or "-Infinity", or {"bits": hex} (its IEEE 754 bits, most
+/// significant first, as 2 * `width` lowercase hexadecimal digits) for a negative zero or
+/// a NaN other than the canonical one, whose bits a JSON number or "NaN" does not keep.
+fn float_json(bits: u64, width: usize, v: f64) -> J {
+    let canonical = if width == 4 { 0x7fc0_0000 } else { 0x7ff8_0000_0000_0000 };
+    if (v == 0.0 && v.is_sign_negative()) || (v.is_nan() && bits != canonical) {
+        serde_json::json!({"bits": format!("{bits:0w$x}", w = 2 * width)})
+    } else if v.is_nan() {
+        J::String("NaN".into())
+    } else if v.is_infinite() {
+        J::String(if v > 0.0 { "Infinity".into() } else { "-Infinity".into() })
+    } else {
+        serde_json::json!(v)
     }
 }
 

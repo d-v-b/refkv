@@ -199,7 +199,8 @@ Supported:
 Rejected:
 
 - Images in strips rather than tiles.
-- LZW, old-style JPEG (compression 6), and any predictor.
+- LZW (read for [QPTIFF](../qptiff/README.md) files only), old-style JPEG
+  (compression 6), and any predictor.
 - Multi-file OME-TIFF (`TiffData` naming other files).
 - An OME-TIFF with several RGB channels (`SizeC` other than 1 or the
   samples per pixel).
@@ -210,7 +211,7 @@ Rejected:
   resolution).
 
 A file that is none of the formats refkv reads is rejected with
-`not a TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file` (exit status
+`not a file of any supported format` (exit status
 3).
 
 ## Performance

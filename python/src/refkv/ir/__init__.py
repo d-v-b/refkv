@@ -1,7 +1,8 @@
 """refkv's intermediate representation (design/ARCHITECTURE.md §3
 <https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
 the path `refkv.virtualize`
-takes for TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS and SAFE (a `.SAFE.zip` here; a `.SAFE` directory through `store.py`) files, and Zarr v2, N5 and OME-Zarr stores (`store.py`): the Rust core (rust/refkv-ir, the `refkv._core` module)
+takes for every format (a file here, a `.SAFE.zip` included; a store, a `.SAFE` directory
+included, through `store.py`): the Rust core (rust/refkv-ir, the `refkv._core` module)
 parses, checking each format's source model schema, plans the reads, projects the
 convention's hierarchy and mirrors the IR under `refkv_source`; this package is the
 host: the I/O (`planner.py`), the archive writer (`output.py` into `Output`), and
@@ -36,11 +37,14 @@ def nifti_version(head: bytes) -> int | None:
 
 def sniff(head: bytes) -> str | None:
     """The IR format a file's first bytes give, if any (132 of them for DICOM, 348 for
-    NIfTI-1; DICOM first: a dual-personality file's preamble may hold a TIFF header)."""
+    NIfTI-1, 212 for MRC; DICOM first: a dual-personality file's preamble may hold a TIFF
+    header)."""
     if head[128:132] == b"DICM":
         return "dicom"
     if head[:4] == ND2_MAGIC:
         return "nd2"
+    if head[:4] == b"II*\0" and head[8:12] == b"\x18\x00IS":
+        return "vsi"  # a VSI file: a TIFF whose byte 8 starts the metadata tree
     if head[:4] in TIFF_MAGIC:
         return "tiff"
     if head[:16] == CZI_MAGIC:
@@ -51,6 +55,8 @@ def sniff(head: bytes) -> str | None:
         return "ims"
     if head[:4] == ZIP_MAGIC:
         return "safe"
+    if len(head) >= 212 and head[208:211] == b"MAP":
+        return "mrc"
     return None
 
 
@@ -89,7 +95,7 @@ def virtualize(location: str, url: str | None = None, mirror: bool = True, polic
     head = held[:want] if len(held) >= want else transport.get(0, want)
     fmt = sniff(head)
     if fmt is None:
-        raise Rejected("not a TIFF, CZI, ND2, DICOM, NIfTI or IMS file or SAFE zip file")
+        raise Rejected("not a file of any supported format")
     run = new_run(fmt, transport, connections, byte_cost)
     drive(run, transport, connections)
     fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"

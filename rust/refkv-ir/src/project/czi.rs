@@ -9,7 +9,7 @@
 use super::{arr, key, n, obj, strs, translations, truthy};
 use crate::coding::{pixel_type, JPEG, JPEGXR, UNCOMPRESSED, ZSTD0, ZSTD1};
 use crate::ir::Ir;
-use crate::out::{array_json, declare, group_doc, group_json, image_ome, metadata_group, transpose_codec, Out, Part};
+use crate::out::{declare, group_doc, group_json, image_ome, metadata_group, omero_channel, omero_json, omero_window, rectilinear_array_json, transpose_codec, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -70,16 +70,11 @@ fn sample_letters(p: u64, compression: i32) -> &'static [&'static str] {
     }
 }
 
-/// An array's zarr.json, with the rectilinear chunk grid when a length is not one integer.
+/// An array's zarr.json, with the rectilinear chunk grid when a length is not one integer
+/// (`rectilinear_array_json`).
 fn array_doc(shape: &J, data_type: &str, lengths: &J, codecs: J, axes: &[&str]) -> J {
-    let regular = arr(lengths).iter().all(|v| v.is_i64() || v.is_u64());
     let shape: Vec<u64> = arr(shape).iter().map(n).collect();
-    let mut doc = array_json(&shape, data_type, if regular { lengths.clone() } else { json!([]) }, codecs, axes);
-    if !regular {
-        doc["chunk_grid"] = json!({"name": "rectilinear", "configuration": {"kind": "inline", "chunk_shapes": lengths}});
-    }
-    doc["fill_value"] = if data_type == "complex64" { json!([0.0, 0.0]) } else { json!(0) };
-    doc
+    rectilinear_array_json(&shape, data_type, lengths, codecs, axes)
 }
 
 /// A channel's name when it is a nonempty string of at most 256 bytes.
@@ -136,12 +131,9 @@ fn omero(values: &J, form: Form, data_type: &str, p: u64, lo_c: i64, channels: u
             let (top, full) = ((1i64 << bits) - 1, (1i64 << tb) - 1);
             let low = d.map(|d| &d["low"]).filter(|v| !v.is_null());
             let high = d.map(|d| &d["high"]).filter(|v| !v.is_null());
-            json!({"min": 0, "max": top, "start": low.map_or(json!(0), |v| times(v, full)),
-                   "end": high.map_or(json!(top), |v| times(v, full))})
+            omero_window(json!(0), json!(top), low.map_or(json!(0), |v| times(v, full)), high.map_or(json!(top), |v| times(v, full)))
         });
         for letter in letters {
-            let mut ch = Map::new();
-            ch.insert("label".into(), json!(if letter.is_empty() { label.clone() } else { format!("{label} {letter}") }));
             let rgb = match *letter {
                 "B" => Some("0000FF"),
                 "G" => Some("00FF00"),
@@ -149,15 +141,11 @@ fn omero(values: &J, form: Form, data_type: &str, p: u64, lo_c: i64, channels: u
                 "A" => Some("FFFFFF"),
                 _ => None,
             };
-            ch.insert("color".into(), rgb.map_or_else(|| color.clone(), |x| json!(x)));
-            ch.insert("active".into(), json!(true));
-            if let Some(w) = &window {
-                ch.insert("window".into(), w.clone());
-            }
-            out.push(J::Object(ch));
+            let name = if letter.is_empty() { label.clone() } else { format!("{label} {letter}") };
+            out.push(omero_channel(&name, rgb.map_or_else(|| color.clone(), |x| json!(x)), window.as_ref()));
         }
     }
-    Some(json!({"channels": out}))
+    Some(omero_json(out))
 }
 
 /// Each cell's chunks: one per band of `rows` rows, at row × per + k.

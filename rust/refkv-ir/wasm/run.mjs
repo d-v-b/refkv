@@ -12,24 +12,34 @@ const { instance } = await WebAssembly.instantiate(readFileSync(wasmPath), {});
 const w = instance.exports;
 const text = (n) => new TextDecoder().decode(new Uint8Array(w.memory.buffer, w.vz_out(), n));
 
+// The format's name (`Format::from_name` in src/run.rs), by the file's first bytes.
 function format(fd) {
   const head = new Uint8Array(348);
   readSync(fd, head, 0, 348, 0);
   const s = String.fromCharCode(...head.subarray(0, 16));
-  if (String.fromCharCode(...head.subarray(128, 132)) === "DICM") return 3;
-  if (head[0] === 0xda && head[1] === 0xce && head[2] === 0xbe && head[3] === 0x0a) return 0;
-  if (s.startsWith("II*\0") || s.startsWith("MM\0*") || s.startsWith("II+\0") || s.startsWith("MM\0+")) return 1;
-  if (String.fromCharCode(...head.subarray(344, 348)) === "n+1\0" || s.slice(4, 12) === "n+2\0\r\n\x1a\n") return 4;
-  if (s.startsWith("\x89HDF\r\n\x1a\n")) return 5;
-  if (s.startsWith("PK\x03\x04")) return 6; // a SAFE product's zip form
-  return 2;
+  if (String.fromCharCode(...head.subarray(128, 132)) === "DICM") return "dicom";
+  if (head[0] === 0xda && head[1] === 0xce && head[2] === 0xbe && head[3] === 0x0a) return "nd2";
+  if (s.startsWith("II*\0") || s.startsWith("MM\0*") || s.startsWith("II+\0") || s.startsWith("MM\0+")) return "tiff";
+  if (String.fromCharCode(...head.subarray(344, 348)) === "n+1\0" || s.slice(4, 12) === "n+2\0\r\n\x1a\n") return "nifti";
+  if (s.startsWith("\x89HDF\r\n\x1a\n")) return "ims";
+  if (s.startsWith("PK\x03\x04")) return "safe"; // a SAFE product's zip form
+  if (String.fromCharCode(...head.subarray(208, 211)) === "MAP") return "mrc";
+  return "czi";
+}
+
+function put(bytes) {
+  const ptr = w.vz_alloc(bytes.length);
+  new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes);
+  return ptr;
 }
 
 for (const file of args) {
   const fd = openSync(file, "r");
   const size = fstatSync(fd).size;
   const t0 = performance.now();
-  const p = w.vz_new(format(fd), BigInt(size));
+  const name = new TextEncoder().encode(format(fd));
+  const p = w.vz_new(put(name), name.length, BigInt(size));
+  if (p === 0) throw new Error(`${file}: no parser for ${format(fd)}`);
   let rounds = 0, ranges = 0, bytes = 0, out = null;
   for (;;) {
     const r = Number(w.vz_step(p));

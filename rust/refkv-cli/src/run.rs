@@ -8,7 +8,7 @@ use refkv_ir::run::{Format, Run};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The rejection of a file no format's signature matches.
-pub const NOT_SUPPORTED: &str = "not a TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file";
+pub const NOT_SUPPORTED: &str = "not a file of any supported format";
 
 /// Requests at a time to a remote host, by default (a browser has 6).
 const CONNECTIONS: usize = 8;
@@ -100,6 +100,16 @@ pub fn drive(run: &mut Run, t: &Transport, conc: usize) -> Result<(), Fail> {
         }
     }
     Ok(())
+}
+
+/// Whether the file `t` opened is a VSI file (spec/virtualize/vsi.md §15.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#151-the-vsi-file>), which is
+/// virtualized with its tile files (vsi.rs) rather than as a file run.
+pub fn is_vsi(t: &Transport) -> Result<bool, Fail> {
+    let want = t.size().min(552);
+    let (held, _) = t.head();
+    let head = if held.len() as u64 >= want { held[..want as usize].to_vec() } else { t.get(0, want)? };
+    Ok(Format::sniff(&head) == Some(Format::Vsi))
 }
 
 /// (format, output) of the file at `location`, read through `t`: the format its first bytes give

@@ -1,16 +1,14 @@
 # Virtualizing image files and stores as OME-Zarr in refkv
 
-Profiles version: 0 (**draft**) · Revision: 27
+Profiles version: 0 (**draft**)
 
 ## 1. Introduction
 
-A **virtualizer** reads the structure of an image file (TIFF, Hamamatsu NDPI,
-Nikon ND2, DICOM, NIfTI, Imaris IMS or Zeiss CZI), of a chunked array store (N5 or
-Zarr v2, including OME-Zarr 0.4), or of a Sentinel-2 SAFE product (a
-directory or a zip file of JPEG 2000 bands and XML metadata), and writes a
+A **virtualizer** reads the structure of an image file or of a chunked array
+store (the formats of the table below), and writes a
 vzip archive ([spec/bindings/vzip.md](bindings/vzip.md)) that presents the pixels as an OME-Zarr
 dataset, or for a store as a Zarr v3 hierarchy (for an OME-Zarr 0.4 store,
-an OME-Zarr 0.5 one; for a SAFE product, a GeoZarr one). The
+an OME-Zarr 0.5 one; for a Sentinel-2 SAFE product, a GeoZarr one). The
 pixels stay where they are: each Zarr chunk is a reference to byte ranges of
 the file, or to a whole object of the store. This document specifies, for
 each supported input format (a **profile**), exactly which archive a
@@ -21,22 +19,27 @@ This document holds what every profile shares: the input, the output and how
 outputs compare ([§1](#1-introduction)), and the common parts of the output ([§2](#2-the-zarr-layout)). Each profile
 is a document of its own, numbered as a section of this one:
 
-| § | profile | inputs |
-|---|---|---|
-| 3 | [TIFF](virtualize/tiff.md#part-2-the-profile) | TIFF and BigTIFF, including OME-TIFF and JPEG-tiled slides such as Aperio SVS |
-| 4 | [NDPI](virtualize/ndpi.md#part-2-the-profile) | Hamamatsu NDPI slides, a TIFF variant with 64-bit offsets |
-| 5 | [ND2](virtualize/nd2.md#part-2-the-profile) | Nikon ND2, format version 3 and later |
-| 6 | [DICOM](virtualize/dicom.md#part-2-the-profile) | DICOM Part 10 files with native or JPEG-encapsulated pixel data, including whole-slide images |
-| 7 | [NIfTI](virtualize/nifti.md#part-2-the-profile) | NIfTI-1 and NIfTI-2 single files (`.nii`) |
-| 8 | [IMS](virtualize/ims.md#part-2-the-profile) | Imaris IMS files (HDF5) |
-| 9 | [N5](virtualize/n5.md#part-2-the-profile) | N5 containers (store input), default-mode blocks |
-| 10 | [Zarr v2](virtualize/zarr2.md#part-2-the-profile) | Zarr v2 hierarchies (store input) |
-| 11 | [OME-Zarr](virtualize/ome-zarr.md#part-2-the-profile) | OME-Zarr 0.4 hierarchies on Zarr v2 (store input), migrated to OME-Zarr 0.5 |
-| 12 | [SAFE](virtualize/safe.md#part-2-the-profile) | Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (store input) or a `.SAFE.zip` file (file input) |
-| 13 | [CZI](virtualize/czi.md#part-2-the-profile) | Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids |
+<!-- profiles:spec-table -->
+| § | profile | input | inputs |
+|---|---|---|---|
+| 3 | [TIFF](virtualize/tiff.md#part-2-the-profile) | file | TIFF and BigTIFF, including OME-TIFF and JPEG-tiled slides such as Aperio SVS |
+| 4 | [NDPI](virtualize/ndpi.md#part-2-the-profile) | file | Hamamatsu NDPI slides, a TIFF variant with 64-bit offsets |
+| 5 | [ND2](virtualize/nd2.md#part-2-the-profile) | file | Nikon ND2, format version 3 and later |
+| 6 | [DICOM](virtualize/dicom.md#part-2-the-profile) | file | DICOM Part 10 files with native or JPEG-encapsulated pixel data, including whole-slide images |
+| 7 | [NIfTI](virtualize/nifti.md#part-2-the-profile) | file | NIfTI-1 and NIfTI-2 single files (`.nii`) |
+| 8 | [IMS](virtualize/ims.md#part-2-the-profile) | file | Imaris IMS files (HDF5) |
+| 9 | [N5](virtualize/n5.md#part-2-the-profile) | store | N5 containers, default-mode blocks |
+| 10 | [Zarr v2](virtualize/zarr2.md#part-2-the-profile) | store | Zarr v2 hierarchies |
+| 11 | [OME-Zarr](virtualize/ome-zarr.md#part-2-the-profile) | store | OME-Zarr 0.4 hierarchies on Zarr v2, migrated to OME-Zarr 0.5 |
+| 12 | [Sentinel-2 SAFE](virtualize/safe.md#part-2-the-profile) | file or store | Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (a store) or a `.SAFE.zip` file |
+| 13 | [CZI](virtualize/czi.md#part-2-the-profile) | file | Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids |
+| 14 | [MRC](virtualize/mrc.md#part-2-the-profile) | file | MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks) |
+| 15 | [VSI](virtualize/vsi.md#part-2-the-profile) | file | Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG and JPEG 2000 tiles) |
+| 16 | [QPTIFF](virtualize/qptiff.md#part-2-the-profile) | file | Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips |
+<!-- /profiles -->
 
-[§3](virtualize/tiff.md#3-tiff-profile)–[§8](virtualize/ims.md#8-ims-profile) and [§13](virtualize/czi.md#13-czi-profile) read a single file (a **file input**); [§9](virtualize/n5.md#9-n5-profile)–[§11](virtualize/ome-zarr.md#11-ome-zarr-profile) read a store of many
-objects (a **store input**, [§1.4](#14-store-inputs)); [§12](virtualize/safe.md#12-safe-profile) reads either. [§14](#14-conformance) is informative:
+The table says which profiles read a single file (a **file input**), which a store of many
+objects (a **store input**, [§1.4](#14-store-inputs)), and which either; VSI ([§15](virtualize/vsi.md#15-vsi-profile)) is named by a file, its `.vsi`, and reads it and the tile files beside it as a store it probes rather than lists. [Appendix A](#appendix-a-conformance) is informative:
 the implementations and how they are compared.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be
@@ -78,11 +81,13 @@ sources with identical bytes), the same set of keys, and for every key:
   must therefore write it with its exact digits, or with a fraction or an
   exponent: JavaScript's `JSON.stringify` writes 2^64 as
   `18446744073709552000`, an integer literal of another value;
-- **other bytes entries:** identical bytes.
+- **other bytes entries:** identical bytes, except a deflated coordinate
+  chunk of a dataset layout ([conventions §9](conventions.md#9-dataset-layouts)),
+  compared by the values it decodes to.
 
-**IR mirrors.** For the TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE profiles, `refkv_source` is the
+**IR mirrors.** For a file input, `refkv_source` is the
 source's IR mirror ([conventions §8](conventions.md#8-the-ir-mirror)); for
-a SAFE directory and the Zarr v2, N5 and OME-Zarr profiles, the store's ([conventions §8.9](conventions.md#89-stores),
+a store input (a SAFE directory included), the store's ([conventions §8.9](conventions.md#89-stores),
 whose limits replace those below).
 Its table and view are canonical: a function of the source's IR, folded and
 encoded one way only ([conventions §8.8](conventions.md#88-canonical-form)).
@@ -155,7 +160,9 @@ a test that needs a byte beyond `H` does not match.
 | bytes 0–3 are the 32-bit integer 540 in either byte order, and bytes 4–11 are `6E 2B 32 00 0D 0A 1A 0A` (`n+2`) | NIfTI profile ([§7](virtualize/nifti.md#7-nifti-profile)), NIfTI-2 |
 | bytes 0–3 are `50 4B 03 04` (a ZIP local file header) | SAFE profile ([§12](virtualize/safe.md#12-safe-profile)), zip form |
 | bytes 0–15 are `5A 49 53 52 41 57 46 49 4C 45` (`ZISRAWFILE`) and six `00` bytes | CZI profile ([§13](virtualize/czi.md#13-czi-profile)) |
-| anything else, including the JPEG 2000 signature box `00 00 00 0C 6A 50 20 20 0D 0A 87 0A` that starts legacy ND2 files, and NIfTI header-and-image pairs (`ni1`, `ni2`) | rejected |
+| bytes 208–210 are `4D 41 50` (`MAP`) | MRC profile ([§14](virtualize/mrc.md#14-mrc-profile)) |
+| bytes 0–3 are `49 49 2A 00` and bytes 8–11 are `18 00 49 53` (a cellSens container header) | VSI profile ([§15](virtualize/vsi.md#15-vsi-profile)), tested before the TIFF row |
+| anything else, including the JPEG 2000 signature box `00 00 00 0C 6A 50 20 20 0D 0A 87 0A` that starts legacy ND2 files, NIfTI header-and-image pairs (`ni1`, `ni2`) and pre-2000 MRC files without `MAP` | rejected |
 
 A DICOM file is read by the DICOM profile even when its 128-byte preamble
 holds a TIFF header, as dual-personality files and some writers' preambles
@@ -168,7 +175,7 @@ that is truncated or inconsistent, a value of the wrong type or out of range,
 an offset or length above 2^53 − 1. Being unable to read the input (a
 network error) is not a rejection; the virtualizer fails instead. An
 implementation MAY also fail, rather than reject, when an input exceeds a
-resource limit that it states ([§14](#14-conformance)); a failure is not an output, so it does
+resource limit that it states ([Appendix A](#appendix-a-conformance)); a failure is not an output, so it does
 not affect equivalence.
 
 **Reader policy.** A virtualizer reads a remote input under a reader policy
@@ -493,7 +500,7 @@ is specified by the input format's **convention**, in
 [conventions.md](conventions.md): the groups and arrays and their
 metadata, the OME-NGFF metadata, and the attributes under the key
 `refkv_virtualized`, including the translation of the input's header. The
-profiles ([§3](#313-profiles)–[§13](#313-profiles)) specify how to read and check the input, and how each
+profiles ([Profiles](#profiles)) specify how to read and check the input, and how each
 chunk of that layout becomes a reference to the input's bytes; for the
 layout itself they refer to the convention, which builds on what all
 conventions share ([spec/conventions.md](conventions.md): [§1](conventions.md#1-conventions) the
@@ -511,11 +518,14 @@ states, with:
 - the documents as JSON (`zarr.json`, compared by [§1.1](#11-output-and-equivalence)), and no other
   entries than those the profile names.
 
-## 3–13. Profiles
+## Profiles
 
 Each profile is Part 2 of its format's document in [virtualize/](virtualize/), whose Part 1
-is the format's Zarr convention:
+is the format's Zarr convention. A profile keeps the number the registry
+([virtualize/profiles.json](virtualize/profiles.json)) gives it, so adding a profile moves no
+other section:
 
+<!-- profiles:spec-list -->
 - [§3](virtualize/tiff.md#3-tiff-profile), the TIFF profile: [spec/virtualize/tiff.md](virtualize/tiff.md#part-2-the-profile);
 - [§4](virtualize/ndpi.md#4-ndpi-profile), the NDPI profile: [spec/virtualize/ndpi.md](virtualize/ndpi.md#part-2-the-profile);
 - [§5](virtualize/nd2.md#5-nd2-profile), the ND2 profile: [spec/virtualize/nd2.md](virtualize/nd2.md#part-2-the-profile);
@@ -526,9 +536,13 @@ is the format's Zarr convention:
 - [§10](virtualize/zarr2.md#10-zarr-v2-profile), the Zarr v2 profile: [spec/virtualize/zarr2.md](virtualize/zarr2.md#part-2-the-profile);
 - [§11](virtualize/ome-zarr.md#11-ome-zarr-profile), the OME-Zarr profile: [spec/virtualize/ome-zarr.md](virtualize/ome-zarr.md#part-2-the-profile);
 - [§12](virtualize/safe.md#12-safe-profile), the SAFE profile: [spec/virtualize/safe.md](virtualize/safe.md#part-2-the-profile);
-- [§13](virtualize/czi.md#13-czi-profile), the CZI profile: [spec/virtualize/czi.md](virtualize/czi.md#part-2-the-profile).
+- [§13](virtualize/czi.md#13-czi-profile), the CZI profile: [spec/virtualize/czi.md](virtualize/czi.md#part-2-the-profile);
+- [§14](virtualize/mrc.md#14-mrc-profile), the MRC profile: [spec/virtualize/mrc.md](virtualize/mrc.md#part-2-the-profile);
+- [§15](virtualize/vsi.md#15-vsi-profile), the VSI profile: [spec/virtualize/vsi.md](virtualize/vsi.md#part-2-the-profile);
+- [§16](virtualize/qptiff.md#16-qptiff-profile), the QPTIFF profile: [spec/virtualize/qptiff.md](virtualize/qptiff.md#part-2-the-profile).
+<!-- /profiles -->
 
-## 14. Conformance
+## Appendix A. Conformance
 
 This section is informative. There are two maintained implementations:
 - the Python reference, `python -m refkv.virtualize <url> <out.vzip>`
@@ -536,11 +550,11 @@ This section is informative. There are two maintained implementations:
 - the browser one, `js/src/virtualize/`, run under Node by
   `js/conformance/virtualize.ts`.
 
-Both are organized by profile: `tiff/`, `ndpi/`, `nd2/`, `dicom/`, `nifti/`,
-`ims/`, `n5/`, `safe/` and `czi/`, next to the parts they share (`common`, and `store`
-for store inputs: the listing, the object reader and the JSON reader of
-[§1.4](#14-store-inputs)–[§1.6](#16-json-documents)). The Zarr v2 and OME-Zarr profiles are the Rust
-core's (its `zarr2` store format and its OME layer), as TIFF, ND2 and CZI are.
+Every profile is the Rust core's (`rust/refkv-ir`: its parser or store
+format, its projection and the mirror), which both implementations drive;
+each host holds what it shares across profiles (`common`, and `store` for
+store inputs: the listing, the object reader and the JSON reader of
+[§1.4](#14-store-inputs)–[§1.6](#16-json-documents)).
 
 **Resource limit.** The browser implementation fails (it does not reject)
 a store whose listing has more than 100000 objects (counting every listed
@@ -554,7 +568,8 @@ OpenOrganelle level is recorded in `spec/history/virtualize/REVISIONS.md`
 
 Implementations written from this document alone, round by round, are in
 `conformance/impls/virtualize/`; `spec/history/virtualize/REVISIONS.md` records what each
-round found and how this document changed.
+round found and how this document changed, up to revision 29; since then each
+profile's document records its own changes.
 
 Both write the pins of [§1.2](#12-input) and [§1.4](#14-store-inputs), and record checksums when asked to
 (`--checksums`, after the two arguments, in either command).
@@ -562,40 +577,22 @@ Both write the pins of [§1.2](#12-input) and [§1.4](#14-store-inputs), and rec
 `conformance/virtualize/compare.py` runs implementations on a corpus and
 compares their outputs by [§1.1](#11-output-and-equivalence) (`conformance/virtualize/HARNESS.md`
 describes the command an implementation provides). The corpus has:
-- the synthetic files in `fixtures/<profile>/`, including inputs
-  each profile rejects, and the synthetic stores in
-  `fixtures/n5/`, `fixtures/zarr2/` and
-  `fixtures/ome-zarr/` (one directory each), and the synthetic
-  SAFE products in `fixtures/safe/` (directories and zip files),
-  and the synthetic CZI files in `fixtures/czi/`;
+- the synthetic files and stores in `fixtures/<profile>/`, including inputs
+  each profile rejects (the files of the suffixes the registry,
+  [virtualize/profiles.json](virtualize/profiles.json), gives the profile;
+  a store profile's one directory per store);
 - the 205 OME-TIFFs of IDR idr0096;
 - public files and stores of every profile, listed in
-  `conformance/virtualize/corpus_*.txt`: TIFF, SVS and NDPI
-  (`corpus_tiff.txt`), ND2, DICOM (including whole-slide levels from the NCI
-  Imaging Data Commons), NIfTI, IMS, N5 and Zarr v2 stores from
-  OpenOrganelle (`corpus_n5.txt`, `corpus_zarr2.txt`), and OME-Zarr 0.4
-  images, label images and plates from the IDR (`corpus_ome_zarr.txt`),
-  Sentinel-2 products from the Google Cloud mirror and ESA zips
-  published on Mendeley Data (`corpus_safe.txt`), and CZI files from the
-  OME sample images and Zenodo (`corpus_czi.txt`).
+  `conformance/virtualize/corpus_<profile>.txt` (NDPI's in TIFF's), each
+  file saying where its inputs come from.
 
 The harness's proxy (`conformance/virtualize/proxy.py`) serves the synthetic
 stores, and forwards remote ones, with the listing operation of [§1.5](#15-listing-a-store).
 
-Pixel correctness is checked separately, against independent readers, by
-`js/test/<profile>/verify.py`: TIFF and NDPI against tifffile, ND2 against
-the synthetic files' known pixels (and `design/experiments/verify_nd2_vzip.py`
-against the `nd2` package on public files), DICOM against pydicom, NIfTI
-against nibabel, IMS against h5py, N5 against an independent block reader in
-the script (and `zarr-n5`), Zarr v2 against zarr-python's own Zarr v2
-reader, and OME-Zarr against zarr-python's Zarr v2 reader and the
-`ome-zarr-models` package (every output group validated as OME-Zarr 0.5,
-every accepted input as 0.4), and SAFE against GDAL (rasterio's JP2OpenJPEG
-and SENTINEL2 drivers), which also checks the georeferencing, and with
-every file of each product rebuilt from the hierarchy, and CZI against
-czifile (every subblock's pixels, in its level or tile array, with the
-segments, attachments, metadata and directory entries rebuilt from the
-hierarchy) and libCZI (pylibCZIrw: the stitched planes of regular levels).
+Pixel correctness is checked separately, against an independent reader of
+the format, by `js/test/<profile>/verify.py`, whose docstring names the
+reader and what it compares (the format's README in `docs/virtualize/` says
+so too).
 
 The conventions of [conventions §2](conventions.md#2-attributes) are checked by `python/tests/test_virtualize_conventions.py`:
 it runs every synthetic file and store through both implementations,
@@ -606,10 +603,9 @@ metadata declares it. `just tag-conventions` creates the
 `virtualize-<p>-v<N>` tags that the convention URLs name, on `main`, from
 version 1 on; at version 0 the URLs name `main` itself ([conventions §1](conventions.md#1-conventions)).
 
-The DICOM, NIfTI and IMS profiles (revision 11), the N5 and Zarr v2
-profiles (revision 12), the OME-Zarr profile (revision 13), the data
-sources of the TIFF and NDPI profiles (revision 14), the SAFE profile
-(revision 17) and the CZI profile (revision 18) have not yet been
-through an independent implementation round; the round implementations in
-`conformance/impls/virtualize/` still write JPEG headers as literals and ranges of the
-file, and predate the conventions (revisions 15 and 16).
+Only the TIFF and ND2 profiles have been through the independent
+implementation rounds (revisions 1 to 4); every profile added since
+(`spec/history/virtualize/REVISIONS.md` says when) has not, and the round
+implementations in `conformance/impls/virtualize/` still write JPEG headers
+as literals and ranges of the file, and predate the conventions (revisions
+15 and 16).

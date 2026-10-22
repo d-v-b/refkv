@@ -2,9 +2,9 @@
 every input of the fixture corpus, and must give the same exit status and, on success, the same
 archive, byte for byte, and the same summary.
 
-The corpus is conformance/virtualize/compare.py's synthetic one: every file under fixtures/
-(TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE zip), and every store directory under
-fixtures/{n5,zarr2,ome-zarr,safe} (the rejected inputs included: both must reject them). Each
+The corpus is conformance/virtualize/compare.py's synthetic one: every file under fixtures/ with
+the suffix of a profile of the registry (spec/virtualize/profiles.json), and every store directory
+under a store profile's fixtures/<p> (the rejected inputs included: both must reject them). Each
 input is converted:
 
 - `local`: from its path (a store with `--url`, the URL it would be served from);
@@ -47,9 +47,10 @@ FIXTURES = ROOT / "fixtures"
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
 
 from proxy import Upstream, make_handler  # noqa: E402
+from refkv.virtualize.profiles import REGISTRY  # noqa: E402
 
-STORE_FORMATS = ("n5", "zarr2", "ome-zarr", "safe")
-SUFFIXES = (".tif", ".ndpi", ".nd2", ".dcm", ".nii", ".ims", ".zip", ".czi")
+STORE_FORMATS = tuple(e["name"] for e in REGISTRY if e["kind"] in ("store", "both"))
+SUFFIXES = tuple(s for e in REGISTRY for s in e["suffixes"])
 PAGE = 7  # keys a listing page holds
 
 

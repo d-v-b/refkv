@@ -3,7 +3,7 @@
 // metadata node, whose mirror differs by design.
 
 import type { Range, Source } from "../../src/protobuf.ts";
-import { CONVENTION_KEY, REVISION, SOURCE_NODE } from "../../src/virtualize/common.ts";
+import { CONVENTION_KEY, SOURCE_NODE } from "../../src/virtualize/common.ts";
 import { currentNames, SOURCE_NODE as LEGACY_NODE } from "../../../conformance/virtualize/reference/ts/legacy.ts";
 import type { ArchiveDesc } from "../../src/writer.ts";
 import { REVISION_25 } from "../../../conformance/virtualize/reference/ts/revision.ts";
@@ -27,8 +27,8 @@ function resolve(r: Range, sources: Source[]): unknown {
 /** The entries outside the source metadata node (`refkv_source/`, or, in the frozen
  * reference's output, `vzip_source/`): documents parsed, other bytes as hex, ranges resolved.
  * Given `frozen` (the frozen reference's revision; 25 for the profiles of FROZEN_25),
- * the documents read with the current names, and a root that records it reads as
- * recording the current revision, without the members the mirror holds instead. */
+ * the documents read with the current names, and a root that records it reads without it
+ * (the shipped code records no revision) and without the members the mirror holds instead. */
 export function hierarchy(desc: ArchiveDesc, frozen?: number): Map<string, unknown> {
   const out = new Map<string, unknown>();
   const named = (json: unknown) => (frozen === undefined ? json : currentNames(json)) as Record<string, any>;
@@ -40,7 +40,7 @@ export function hierarchy(desc: ArchiveDesc, frozen?: number): Map<string, unkno
       const prop = json.attributes?.[CONVENTION_KEY];
       const moved = FROZEN_25[prop?.profile];
       if (frozen !== undefined && prop?.revision === (moved ? REVISION_25 : frozen)) {
-        prop.revision = REVISION;
+        delete prop.revision;
         for (const k of moved ?? []) delete prop[prop.profile]?.[k];
       }
       out.set(e.key, { json, compress: !!e.compress });

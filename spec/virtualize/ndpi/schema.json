@@ -97,11 +97,6 @@
           "type": "integer",
           "const": 0
         },
-        "revision": {
-          "type": "integer",
-          "const": 27,
-          "description": "The spec/virtualize.md revision that produced the hierarchy (version 0 only)"
-        },
         "source": {
           "type": "object",
           "properties": {
@@ -115,6 +110,15 @@
           ],
           "additionalProperties": false
         },
+        "layouts": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[^/]+(/[^/]+)*$"
+          },
+          "description": "The other layouts of the source in this hierarchy, by name, each the path of its node below the root (spec/conventions.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)"
+        },
         "ndpi": {
           "$ref": "#/$defs/sourceMetadata"
         }
@@ -122,7 +126,6 @@
       "required": [
         "profile",
         "version",
-        "revision",
         "source"
       ],
       "additionalProperties": false

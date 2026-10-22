@@ -33,8 +33,8 @@ export class StoreError extends Error {
 
 /**
  * A resource limit of this implementation was exceeded: a failure, not a rejection (§1.2
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>, §14
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-conformance>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>, Appendix A
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#appendix-a-conformance>).
  */
 export class StoreLimitError extends Error {}
 
@@ -52,8 +52,8 @@ export const MAX_SAFE = Number.MAX_SAFE_INTEGER;
 export const MAX_DOCUMENT = 1 << 24;
 const MAX_DEPTH = 256;
 /**
- * The browser implementation's limit on listed objects (§14
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-conformance>).
+ * The browser implementation's limit on listed objects (Appendix A
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#appendix-a-conformance>).
  */
 export const MAX_OBJECTS = 100000;
 
@@ -570,6 +570,10 @@ export interface Store {
    * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#122-objects-and-reading>).
    */
   readRange?(key: string, offset: number, length: number): Promise<Uint8Array>;
+  /** The size of the object `key` when the store has it, else undefined: the answer to a run's
+   * probe (ir/store.ts), for a store whose objects are not listed (a VSI input's files,
+   * ir/vsi.ts). A listed store has the objects it listed. */
+  probe?(key: string): Promise<number | undefined>;
   /** Documents read at a time by `prefetchDocuments`; read one at a time if absent or 1. */
   concurrency?: number;
   /** Bytes read ahead and not yet taken, at most (but always one document). */

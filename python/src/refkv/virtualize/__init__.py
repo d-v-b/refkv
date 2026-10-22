@@ -1,12 +1,12 @@
-"""Virtualizing image files and N5 / Zarr v2 stores in vzip archives (spec/virtualize.md).
+"""Virtualizing image files and stores in vzip archives (spec/virtualize.md).
 
-TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and IMS files, Sentinel-2 SAFE products
-(spec/virtualize/safe.md: a `.SAFE.zip` file, or a `.SAFE` directory, a store input), and
-Zarr v2, N5 and OME-Zarr stores go through the IR (`refkv.ir`): the Rust core's sans-IO parser
-of the format, driven by its read planner (a file) or by the store's reads (`refkv.ir.store`),
-projected to the convention's hierarchy and mirrored under `refkv_source` by the Rust core,
-whose TIFF parser finds NDPI itself (spec/virtualize/ndpi.md §4
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), and whose
+Every format (the profiles of spec/virtualize/profiles.json; docs/virtualize/README.md lists
+them) goes through the IR (`refkv.ir`): the Rust core's sans-IO parser of the format, driven by
+its read planner (a file) or by the store's reads (`refkv.ir.store`; a Sentinel-2 SAFE product
+is either, a `.SAFE.zip` file or a `.SAFE` directory), projected to the convention's hierarchy
+and mirrored under `refkv_source` by the Rust core. A run may decide the profile itself: the
+core's TIFF parser finds NDPI (spec/virtualize/ndpi.md §4
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), and its
 Zarr v2 parser decides between Zarr v2 (spec/virtualize/zarr2.md) and OME-Zarr 0.4
 (spec/virtualize/ome-zarr.md).
 common holds what the profiles share, and store the store
@@ -55,7 +55,7 @@ from refkv.virtualize.common import Output, Rejected
 from refkv.virtualize.store import WORKERS, choose_profile, object_url, open_store
 from refkv.ir.store import StoreIrOutput
 
-NOT_SUPPORTED = "not a TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file"
+NOT_SUPPORTED = "not a file of any supported format"
 
 __all__ = ["Rejected", "virtualize", "virtualize_store"]
 
@@ -91,6 +91,28 @@ def _virtualize_store(location: str, url: str | None = None, *, max_objects: int
     return fmt, out
 
 
+def _virtualize_vsi(location: str, url: str | None, transport, *, checksums: bool = False,
+                    policy: Policy | None = None, connections: int | None = None) -> tuple[str, StoreIrOutput]:
+    """(format, output) for the VSI input at `location`, a `.vsi` file (opened as `transport`)
+    whose tile files lie beside it (spec/virtualize/vsi.md §15.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#152-the-tile-files>): a store
+    run of the core's `vsi` format over the files, probed as the run asks for them
+    (`refkv.virtualize.vsi.VsiFiles`). `url`, when given, is the URL of the `.vsi` file's
+    directory (ending in `/`), the store URL the output's object URLs are made from."""
+    from refkv.ir.store import run_store
+    from refkv.virtualize.vsi import VsiFiles
+
+    store = VsiFiles(location, url, policy=policy, workers=connections, transport=transport)
+    try:
+        out = run_store(store, "vsi")[0]
+    finally:
+        store.close()
+    if checksums:
+        keys = {object_url(store.url, k): k for k in store.objects}
+        out.checksum = lambda u, offset, length: crc32c(store.read_range(keys[u], offset, length))
+    return "vsi", out
+
+
 def is_store(location: str) -> bool:
     if location.startswith(("http://", "https://")):
         return location.split("?", 1)[0].split("#", 1)[0].endswith("/")
@@ -113,7 +135,7 @@ def _virtualize(location: str, url: str | None = None, *, checksums: bool = Fals
     which reads them. `policy` is the reader policy a file
     or store at an http(s) URL is read under (default: `Policy()`, private hosts
     refused).
-    For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI and IMS files and SAFE zip files, `connections` is how many requests run at a time to a
+    For a file input, `connections` is how many requests run at a time to a
     remote source (default 8), and `byte_cost` the seconds of wall time the read
     planner charges a byte fetched beyond those asked (default 0.1 s per MB).
     A store's documents are read by up to `workers` requests at a time."""
@@ -137,6 +159,8 @@ def _virtualize(location: str, url: str | None = None, *, checksums: bool = Fals
     ir_format = sniff(first(0, min(552, size)))
     if ir_format is None:
         raise Rejected(NOT_SUPPORTED)
+    if ir_format == "vsi":
+        return _virtualize_vsi(location, url, transport, checksums=checksums, policy=policy, connections=connections)
     from refkv.ir import virtualize as via_ir
 
     fmt, out, _ = via_ir(location, url, transport=transport, connections=connections, byte_cost=byte_cost)

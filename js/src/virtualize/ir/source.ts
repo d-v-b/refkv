@@ -126,9 +126,13 @@ export class HttpSource implements RangeSource {
   private readonly signal?: AbortSignal;
 
   readonly url: string;
+  /** The options this source was opened with: a file beside it (a VSI slide's tile files,
+   * ir/vsi.ts) is opened with the same policy, headers and limits. */
+  readonly options: HttpSourceOptions;
 
   constructor(url: string, options: HttpSourceOptions = {}) {
     this.url = url;
+    this.options = options;
     const policy = options.policy ?? {};
     this.at = url;
     this.concurrency = options.concurrency ?? 6;

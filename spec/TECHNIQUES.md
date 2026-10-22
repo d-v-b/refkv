@@ -1,12 +1,10 @@
 # Mapping image formats to Zarr: techniques
 
-refkv maps eleven source formats to Zarr v3 without copying their data:
-- seven file formats: TIFF, NDPI, ND2, DICOM, NIfTI, IMS and CZI;
-- three store formats: N5, Zarr v2 and OME-Zarr 0.4;
-- Sentinel-2 SAFE products, a directory or a zip file of JPEG 2000 bands
-  and XML metadata.
+refkv maps a dozen source formats ([the formats table](../docs/virtualize/README.md#formats):
+image files, chunked array stores, and Sentinel-2 SAFE products, a directory or a zip file
+of JPEG 2000 bands and XML metadata) to Zarr v3 without copying their data.
 
-Doing the same thing eleven times shows which problems recur, and which
+Doing the same thing a dozen times shows which problems recur, and which
 techniques solve them for any format. This document collects those
 techniques. It then proposes, from them, how the conventions should
 treat a source's metadata. It is a design note: the conventions in this
@@ -61,6 +59,8 @@ own with a standard codec. The same few techniques recur:
 | units carry a few header bytes before a standard stream | a range that starts after them; the header's one meaningful bit becomes a codec | CZI (the Zstd1 header, whose hi-lo flag is `numcodecs.shuffle`) |
 | the unit's bytes are a transform of the pixels a standard codec undoes (16-bit values split into low and high bytes) | that codec in the chain, before the compressor | CZI (`bytes`, `numcodecs.shuffle`, `zstd`) |
 | the last column or row of units is narrower (a region clipped by the scan) | the zarr-extensions `rectilinear` chunk grid, a run of full chunks and one short one per axis | CZI pyramid levels |
+| the last strip of an image is short | pad it to the chunk: a zero data source after an uncompressed strip, or a literal tail (a Clear code, a run of zeros, an end code) spliced into an LZW stream where its output reaches the strip's size, so the grid stays regular | QPTIFF levels in strips |
+| a unit's stream runs past the unit (an encoder's malformed end code) | a codec that decodes into the chunk's size and stops there, as the format's own readers do | QPTIFF LZW tiles (`imagecodecs_lzw`) |
 | units lie at arbitrary positions, overlapping (stage tile scans) | one array per position, holding all its planes, and recording where it lies; repeated planes at one position in further arrays | CZI tiles |
 | samples are interleaved, or the order is Fortran | a `transpose` codec | TIFF, ND2, NIfTI RGB, Zarr v2 `order: F` |
 | byte order | the `bytes` codec's `endian` | everywhere |
@@ -68,9 +68,10 @@ own with a standard codec. The same few techniques recur:
 | units are missing | no entry: the chunk reads as the fill value | ND2 missing frames, HDF5 unallocated chunks, sparse Zarr |
 | the source's key scheme | a chunk key encoding that reproduces it | Zarr v2 and N5 via the `v2` encoding |
 
-A format whose units can't be made to decode independently (LZW strips,
-predictors, multi-file series, TILED_SPARSE) is rejected rather than
-approximated.
+A format whose units can't be made to decode independently (predictors,
+multi-file series, TILED_SPARSE) is rejected rather than approximated. (LZW
+tiles and strips do decode independently, each its own stream: QPTIFF reads
+them with an `imagecodecs_lzw` codec.)
 
 ## 3. Axes, grids and coordinates
 
@@ -186,6 +187,7 @@ From [§1](#1-three-kinds-of-information), [§4](#4-numeric-metadata-as-arrays) 
 | ND2 | the file-level lite-variant chunks: attributes, experiment, text info, calibration, picture metadata of frame 0 | events, the per-frame `ImageMetadataSeqLV\|n!` | the known `CustomData` streams (frame times, X/Y/Z, PFS, exposure), reshaped to the frame grid; frame timestamps inline when `AcqTimesCache` is absent; other binary chunks omitted |
 | DICOM | the dataset without Per-frame Functional Groups and without binary-VR values | Per-frame Functional Groups | `OF`/`OD`/`OL`/`OV` values; optionally derived per-frame position and time arrays |
 | NIfTI | the header; text extensions (comment, AFNI and CIFTI XML, JSON) as text; a derived orientation (which affine, whether it is applied) | none | none |
+| MRC | the header; the kind of file, the data type, whether the axis map is applied, the voxel size; the extended header by reference | none | none |
 | IMS | none | the whole HDF5 tree, mirrored under `refkv_source/hdf5`: each group's attributes, links and named datatypes on its own group | every dataset but the image's (histograms, thumbnail, `DataSetTimes`, `Scene8` tables), by reference, typed when its elements are numbers; large attributes, copied |
 | N5 | each node's `attributes.json` without its layout members (`dimensions`, `blockSize`, `dataType`, `compression`, `n5`) | none | none |
 | Zarr v2, OME-Zarr | each node's `.zattrs` | none | none |

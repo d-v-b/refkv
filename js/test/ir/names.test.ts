@@ -15,7 +15,7 @@ import { type IrExports, put } from "../../src/virtualize/ir/wasm.ts";
 
 const TEST_WASM = new URL("../../../rust/refkv-ir/target/web-test/refkv_ir.wasm", import.meta.url);
 
-type TestExports = IrExports & { vz_test_mirror(json: number, n: number, profile: number): bigint };
+type TestExports = IrExports & { vz_test_mirror(json: number, n: number, profile: number, np: number): bigint };
 
 async function exports(): Promise<TestExports> {
   const module = await WebAssembly.compile(fs.readFileSync(TEST_WASM));
@@ -34,7 +34,8 @@ function ir(edit: Record<string, unknown> = {}): Record<string, unknown> {
 async function mirrored(table: Record<string, unknown>): Promise<number | ImageError> {
   const w = await exports();
   const b = new TextEncoder().encode(JSON.stringify(table));
-  const r = Number(w.vz_test_mirror(put(w, b), b.length, 1));
+  const profile = new TextEncoder().encode("tiff");
+  const r = Number(w.vz_test_mirror(put(w, b), b.length, put(w, profile), profile.length));
   return r < 0 ? rejection(w, r) : r;
 }
 

@@ -662,6 +662,17 @@ impl PyStoreRun {
     fn stats(&mut self) -> PyResult<String> {
         Ok(self.get()?.stats_json().to_string())
     }
+    /// The keys of a pending batch of probes (`StoreRun::probes`): `poll()` gave an empty
+    /// list, and the host answers each key, in order, with `found(size)` (None: it does not
+    /// exist) before polling again.
+    fn probes(&mut self) -> PyResult<Vec<String>> {
+        Ok(self.get()?.probes().to_vec())
+    }
+    /// The answer to the next probe of the batch: the key's size, or None when it does not exist.
+    #[pyo3(signature = (size))]
+    fn found(&mut self, size: Option<u64>) -> PyResult<()> {
+        self.get()?.found(size).map_err(Rejected::new_err)
+    }
     /// The keys the listing ignores, before the first poll (`StoreRun::ignore`): `keys`, the
     /// relative keys the store reader ignored and recorded (`Store.ignored`), which the
     /// projection records as its convention says, and `folders`, its empty `d/` keys
@@ -733,7 +744,7 @@ fn out_py<'py>(py: Python<'py>, o: &refkv_ir::out::Out) -> PyResult<Bound<'py, P
     Ok(t.into_pyobject(py)?.into_any())
 }
 
-/// The image projection of an IR (format "nd2", "tiff", "czi", "dicom", "nifti", "ims" or "ndpi"; facts as JSON) as
+/// The image projection of an IR (`format` a name of `Format::from_name`; facts as JSON) as
 /// Python objects (`out_py`), or Rejected.
 #[pyfunction]
 fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str) -> PyResult<Bound<'py, PyAny>> {
@@ -743,7 +754,7 @@ fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str
     out_py(py, &o)
 }
 
-/// The mirror of an IR (for the profile "nd2", "tiff", "czi", "dicom", "nifti", "ims" or "ndpi"): its entries and
+/// The mirror of an IR (for the profile "nd2", "tiff", "czi", "dicom", "nifti", "ims", "ndpi" or "mrc"): its entries and
 /// references under `refkv_source` (`out_py`'s form, the url empty), and what the
 /// table folded (JSON).
 #[pyfunction]
@@ -788,13 +799,15 @@ fn plan_spans(ranges: Vec<(u64, u64)>, threshold: u64, cap: f64, concurrency: us
     refkv_ir::plan::plan_spans(&ranges, threshold, cap, concurrency)
 }
 
-/// For tests: the reference payload past which a NIfTI edge chunk is copied (None: the
-/// payload limit), so that small files reach the copy (spec/virtualize/nifti.md §7.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>).
+/// For tests: the reference payload past which a NIfTI or MRC edge chunk is copied (None:
+/// the payload limit), so that small files reach the copy (spec/virtualize/nifti.md §7.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>,
+/// spec/virtualize/mrc.md §14.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#142-chunks>).
 #[pyfunction]
 #[pyo3(signature = (n=None))]
-fn _set_nifti_copy_threshold(n: Option<usize>) {
-    refkv_ir::nifti::set_copy_threshold(n);
+fn _set_copy_threshold(n: Option<usize>) {
+    refkv_ir::out::set_copy_threshold(n);
 }
 
 #[pymodule]
@@ -808,12 +821,11 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyStoreRun>()?;
     m.add_function(wrap_pyfunction!(rebuild_store, m)?)?;
     m.add_function(wrap_pyfunction!(plan_spans, m)?)?;
-    m.add_function(wrap_pyfunction!(_set_nifti_copy_threshold, m)?)?;
+    m.add_function(wrap_pyfunction!(_set_copy_threshold, m)?)?;
     m.add_function(wrap_pyfunction!(project, m)?)?;
     m.add_function(wrap_pyfunction!(mirror, m)?)?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;
     m.add_function(wrap_pyfunction!(view_problem, m)?)?;
-    m.add("REVISION", refkv_ir::out::REVISION)?;
     m.add_function(wrap_pyfunction!(synthetic, m)?)?;
     m.add_function(wrap_pyfunction!(schema_text, m)?)?;
     m.add_function(wrap_pyfunction!(czi_xml_values, m)?)?;

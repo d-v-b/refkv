@@ -51,7 +51,7 @@ def test_edge_chunks_past_the_payload_are_copied_as_the_reference_copies_them(tm
     from refkv.virtualize import common
 
     monkeypatch.setattr(common, "MAX_PAYLOAD", 8)
-    _core._set_nifti_copy_threshold(8)
+    _core._set_copy_threshold(8)
     copied = 0
     try:
         for path in NIIS:
@@ -69,7 +69,7 @@ def test_edge_chunks_past_the_payload_are_copied_as_the_reference_copies_them(tm
             rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
             assert buf.getvalue() == data
     finally:
-        _core._set_nifti_copy_threshold(None)
+        _core._set_copy_threshold(None)
     assert copied >= 1  # nifti_chunk_edge_literal.nii's edge chunk
 
 

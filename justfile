@@ -13,7 +13,7 @@ idr_tiff := "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant
 default:
     @just --list --list-submodules
 
-# Test the Python package (python/src/refkv; it virtualizes TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE, and Zarr v2, N5 and OME-Zarr stores, with the Rust core, built first)
+# Test the Python package (python/src/refkv; it virtualizes every format of docs/virtualize/README.md with the Rust core, built first)
 test *args: ir-build
     uv run pytest -q python/tests {{args}}
 
@@ -25,12 +25,13 @@ test *args: ir-build
 ir-build:
     uv sync -q --locked
 
-# Build the IR core for the browser (wasm32, without the Python bindings) and run its ND2,
-# TIFF, CZI, DICOM, NIfTI and IMS parsers, and its Zarr v2 and N5 store formats, from Node on fixtures
+# Build the IR core for the browser (wasm32, without the Python bindings) and run its file
+# parsers, on one fixture of each file profile of the registry (spec/tools/profiles.py sample),
+# and its Zarr v2 and N5 store formats, from Node
 ir-wasm:
     rust/refkv-ir/wasm/build.sh
     node rust/refkv-ir/wasm/nd2.mjs fixtures/nd2/nd2_tz_uint16.nd2
-    node rust/refkv-ir/wasm/run.mjs fixtures/tiff/jpeg_gray.tif fixtures/czi/czi_zstd.czi fixtures/dicom/dicom_jpeg_mono_bot.dcm fixtures/nifti/nifti_dims_2d.nii fixtures/ims/ims_latest_dense_links.ims
+    node rust/refkv-ir/wasm/run.mjs $(uv run python spec/tools/profiles.py sample)
     node rust/refkv-ir/wasm/store.mjs fixtures/zarr2/zarr2_hierarchy > /dev/null
     node rust/refkv-ir/wasm/store.mjs --format n5 fixtures/n5/n5_cosem > /dev/null
 
@@ -84,18 +85,37 @@ base-install-check python="" mode="":
 example-oisst:
     cd "$(mktemp -d)" && uv run --project "{{justfile_directory()}}" python "{{justfile_directory()}}/docs/examples/oisst.py"
 
-# Check that every section reference ("§n") is a link to a heading that exists, and test the check
+# Check that every section reference ("§n") is a link to a heading that exists, and test the check;
+# and that what derives from the profile registry (spec/virtualize/profiles.json) is current
 sections:
     uv run pytest -q spec/tools
     uv run python spec/tools/sections.py check
+    uv run python spec/tools/profiles.py check
+
+# Regenerate what derives from the profile registry, spec/virtualize/profiles.json (the one place a
+# profile's identity is written): the hosts' copies, the Rust core's, and the profile tables of
+# spec/virtualize.md, spec/conventions.md, docs/virtualize/README.md and demo/index.html
+profiles:
+    uv run python spec/tools/profiles.py
 
 # Run the spec/bindings/vzip.md conformance suite against the three independent implementations
 conformance out="conformance/results/latest": impls::build
     uv run python conformance/vzip/run.py --out {{out}} \
         --impl rust=conformance/impls/rust/vzip --impl typescript=conformance/impls/typescript/vzip --impl python=conformance/impls/python/vzip
 
-# Regenerate the synthetic files in fixtures/<format> (all but NDPI, which needs the network)
-fixtures: fixtures-tiff fixtures-nd2 fixtures-dicom fixtures-nifti fixtures-ims fixtures-n5 fixtures-zarr2 fixtures-ome-zarr fixtures-safe fixtures-czi
+# Regenerate the synthetic files and stores in fixtures/<format>: every generator
+# fixtures/generators/<format>/write_*.py (all but NDPI's, which needs the network: `just fixtures-of ndpi`)
+fixtures:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for g in fixtures/generators/*/write_*.py; do
+        case "$g" in fixtures/generators/ndpi/*) continue ;; esac
+        uv run python "$g"
+    done
+
+# Regenerate one format's fixtures: fixtures/generators/<format>/write_*.py
+fixtures-of format:
+    for g in fixtures/generators/{{format}}/write_*.py; do uv run python "$g"; done
 
 # Regenerate the fixtures twice and check that both runs give the same bytes, and the committed ones
 fixtures-check:
@@ -118,90 +138,16 @@ fixtures-check:
         exit 1
     fi
 
-# Regenerate the synthetic TIFFs (including JPEG-tiled, SVS-like ones)
-fixtures-tiff:
-    uv run python fixtures/generators/tiff/write_fixtures.py
-    uv run python fixtures/generators/tiff/write_edge_fixtures.py
-    uv run python fixtures/generators/tiff/write_jpeg_fixtures.py
+# Check the browser virtualizer's pixels against an independent reader, for every format that has
+# one: every js/test/<format>/verify.py (each says which reader it needs)
+verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for v in js/test/*/verify.py; do uv run python "$v"; done
 
-# Regenerate the NDPI files, cut from OpenSlide's CMU-1.ndpi (network, once)
-fixtures-ndpi:
-    uv run python fixtures/generators/ndpi/write_fixtures.py
-
-# Regenerate the synthetic ND2 files and their expected pixels
-fixtures-nd2:
-    uv run python fixtures/generators/nd2/write_fixtures.py
-
-# Regenerate the synthetic DICOM files
-fixtures-dicom:
-    uv run python fixtures/generators/dicom/write_fixtures.py
-
-# Regenerate the synthetic NIfTI files
-fixtures-nifti:
-    uv run python fixtures/generators/nifti/write_fixtures.py
-
-# Regenerate the synthetic Imaris IMS files
-fixtures-ims:
-    uv run python fixtures/generators/ims/write_fixtures.py
-
-# Regenerate the synthetic N5 stores (one directory each)
-fixtures-n5:
-    uv run python fixtures/generators/n5/write_fixtures.py
-
-# Regenerate the synthetic Zarr v2 stores (one directory each)
-fixtures-zarr2:
-    uv run python fixtures/generators/zarr2/write_fixtures.py
-
-# Regenerate the synthetic OME-Zarr 0.4 stores (one directory each)
-fixtures-ome-zarr:
-    uv run python fixtures/generators/ome-zarr/write_fixtures.py
-
-# Regenerate the synthetic Sentinel-2 SAFE products (directories and .SAFE.zip files)
-fixtures-safe:
-    uv run python fixtures/generators/safe/write_fixtures.py
-
-# Regenerate the synthetic CZI files
-fixtures-czi:
-    uv run python fixtures/generators/czi/write_fixtures.py
-
-# Check the browser virtualizer's pixels for every format
-verify: verify-tiff verify-ndpi verify-nd2 verify-dicom verify-nifti verify-ims verify-n5 verify-zarr2 verify-ome-zarr
-
-# Check the browser virtualizer's TIFF pixels against tifffile
-verify-tiff:
-    uv run python js/test/tiff/verify.py
-
-# Check the browser virtualizer's NDPI pixels against tifffile
-verify-ndpi:
-    uv run python js/test/ndpi/verify.py
-
-# Check the browser virtualizer's ND2 pixels against the synthetic files' pixels
-verify-nd2:
-    uv run python js/test/nd2/verify.py
-
-# Check the browser virtualizer's DICOM pixels against pydicom
-verify-dicom:
-    uv run python js/test/dicom/verify.py
-
-# Check the browser virtualizer's NIfTI pixels against nibabel
-verify-nifti:
-    uv run python js/test/nifti/verify.py
-
-# Check the browser virtualizer's IMS pixels against h5py
-verify-ims:
-    uv run python js/test/ims/verify.py
-
-# Check the browser virtualizer's N5 arrays against an independent block reader and zarr-n5
-verify-n5:
-    uv run python js/test/n5/verify.py
-
-# Check the browser virtualizer's Zarr v2 arrays against zarr-python's Zarr v2 reader
-verify-zarr2:
-    uv run python js/test/zarr2/verify.py
-
-# Check the browser virtualizer's OME-Zarr 0.5 output against ome-zarr-models and zarr-python's Zarr v2 reader
-verify-ome-zarr:
-    uv run python js/test/ome-zarr/verify.py
+# Check one format's pixels: js/test/<format>/verify.py
+verify-of format:
+    uv run python js/test/{{format}}/verify.py
 
 # Store one virtual dataset as kerchunk JSON, kerchunk Parquet, Icechunk and vzip, and read each over HTTP (see design/comparison/README.md)
 compare-formats *args:
@@ -246,8 +192,8 @@ tag-conventions:
     done
     echo "push them with: git push origin --tags"
 
-# Virtualize an image file (TIFF, NDPI, ND2, DICOM, NIfTI or IMS; a URL or a path), or an N5,
-# Zarr v2 or OME-Zarr 0.4 store (a URL ending in "/"), into a vzip archive
+# Virtualize an image file (a URL or a path) or a store (a URL ending in "/") of any format of
+# docs/virtualize/README.md into a vzip archive
 virtualize src out:
     uv run python -m refkv.virtualize {{quote(src)}} {{quote(out)}}
 

@@ -88,9 +88,9 @@ fn accepted_fixtures_mirror_their_documents_and_listing() {
         assert_eq!(canonical_problem(&entry(&out), &mut no_source), None, "{name}");
         let keys: Vec<String> = out.entries.iter().map(|e| e.0.clone()).collect();
         assert_eq!(view_problem(&keys, &entry(&out), &mut no_source), None, "{name}");
-        // refkv_source is the mirror; the root declares revision 27
+        // refkv_source is the mirror; the root records no revision
         let root = doc(&out, "zarr.json");
-        assert_eq!(root["attributes"]["refkv_virtualized"]["revision"], 27, "{name}");
+        assert!(root["attributes"]["refkv_virtualized"].get("revision").is_none(), "{name}");
         let own = &doc(&out, "refkv_source/zarr.json")["attributes"]["refkv_virtualized"]["n5"];
         assert!(own["ir"]["objects"].as_u64() == Some(files.len() as u64), "{name}");
         // chunks at their keys, other objects under refkv_source/objects/, each whole

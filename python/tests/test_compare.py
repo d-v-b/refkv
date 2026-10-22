@@ -166,7 +166,7 @@ def test_mirror_problem_finds_a_table_that_is_not_canonical(tmp_path):
 
 def test_at_revision():
     """A frozen reference's root (revision 20 for TIFF, ND2 and CZI, 25 for DICOM, NIfTI, IMS,
-    NDPI, SAFE, Zarr v2, N5 and OME-Zarr) reads at the current revision, without the members of its source
+    NDPI, SAFE, Zarr v2, N5 and OME-Zarr) reads without its revision, without the members of its source
     metadata the mirror holds instead, and its names (vzip_virtualized, the convention metadata of
     d-v-b/vzip, paths under vzip_source) as the current ones; any other root (another revision,
     another profile's frozen one, no revision, a profile with no twin), or an output without one,
@@ -187,7 +187,8 @@ def test_at_revision():
             cmo = {**cmo, "name": key, "schema_url": cmo["schema_url"].replace("/refkv/", "/vzip/"),
                    "spec_url": cmo["spec_url"].replace("/refkv/", "/vzip/"),
                    "description": cmo["description"].replace("by refkv", "by vzip")}
-        prop = {"profile": profile, "version": 0, "revision": revision, "source": {"url": "u"},
+        prop = {"profile": profile, "version": 0, **({} if revision is None else {"revision": revision}),
+                "source": {"url": "u"},
                 profile: {"at": f"{node}/x", "list": [f"{node}/y", "z"], **{m: f"{node}/{m}" for m in mirrored}}}
         return {"sources": [], "entries": {
             "zarr.json": ("json", {"attributes": {"zarr_conventions": [cmo, {"uuid": "other"}], key: prop}}),
@@ -196,14 +197,14 @@ def test_at_revision():
             "a": ("bytes", b"x")}}
 
     for profile, frozen in compare.REFERENCE_REVISIONS.items():
-        assert compare.at_revision(root(frozen, profile)) == root(compare.REVISION, profile), profile
+        assert compare.at_revision(root(frozen, profile)) == root(None, profile), profile
         # the old names read as the current ones, and the members the mirror holds dropped
         legacy = compare.at_revision(named(frozen, profile, True, compare.MIRRORED.get(profile, ())))
-        assert compare.without_source(legacy) == compare.without_source(named(compare.REVISION, profile, False))
+        assert compare.without_source(legacy) == compare.without_source(named(None, profile, False))
     kept = {"nifti_version": 1, "header": {}, "scaling": {"slope": 2, "inter": 0}}
     frozen = {**kept, "extender": "AQAAAA==", "extensions": [], "unparsed": "refkv_source/unparsed"}
-    assert compare.at_revision(root(25, "nifti", frozen)) == root(compare.REVISION, "nifti", kept)
-    for other in (root(compare.REVISION), root(19), root(25), root(20, "zarr2"), root(20, "dicom"),
+    assert compare.at_revision(root(25, "nifti", frozen)) == root(None, "nifti", kept)
+    for other in (root(28), root(19), root(25), root(20, "zarr2"), root(20, "dicom"),
                   root(20, "ims"), root(20, "nifti", frozen), root(None), root(None, "n5"), root(20, "n5"),
                   {"sources": [], "entries": {}}):
         assert compare.at_revision(other) == other

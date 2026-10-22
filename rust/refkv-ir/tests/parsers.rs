@@ -1,6 +1,7 @@
-//! The TIFF (NDPI included), CZI, DICOM, NIfTI and IMS parsers: every fixture they accept is a valid IR that rebuilds
-//! its source; one test per rejected fixture (each the role the schema names); and
-//! the round-3 probes built here (IFD loops, huge counts, too many IFDs).
+//! The file parsers (every file profile of the registry, spec/virtualize/profiles.json): every
+//! fixture they accept is a valid IR that rebuilds its source, and the fixtures named as rejected
+//! are; one test per rejected fixture (each the role the schema names); and the round-3 probes
+//! built here (IFD loops, huge counts, too many IFDs).
 
 use std::path::Path;
 use refkv_ir::check;
@@ -8,7 +9,9 @@ use refkv_ir::czi::Czi;
 use refkv_ir::dicom::Dicom;
 use refkv_ir::nifti::Nifti;
 use refkv_ir::ims::Ims;
+use refkv_ir::mrc::Mrc;
 use refkv_ir::parse_bytes;
+use refkv_ir::run::{run_bytes, Format};
 use refkv_ir::tiff::Tiff;
 
 fn fixtures() -> std::path::PathBuf {
@@ -23,32 +26,50 @@ fn rebuilt(ir: &refkv_ir::ir::Ir, data: &[u8]) -> Vec<u8> {
     out
 }
 
-fn accepted<P: refkv_ir::Parser>(dir: &str) -> usize {
-    let mut n = 0;
-    for e in std::fs::read_dir(fixtures().join(dir)).unwrap() {
+/// The files under `dir` (its subdirectories' too) with one of `suffixes`, sorted.
+fn files(dir: &Path, suffixes: &[&str]) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(dir).unwrap() {
         let path = e.unwrap().path();
         if path.is_dir() {
-            continue;
-        }
-        let data = std::fs::read(&path).unwrap();
-        if let Ok((ir, _)) = parse_bytes::<P>(&data) {
-            check::check(&ir).unwrap_or_else(|m| panic!("{path:?}: {m}"));
-            assert!(rebuilt(&ir, &data) == data, "{path:?} does not rebuild");
-            n += 1;
+            out.extend(files(&path, suffixes));
+        } else if suffixes.iter().any(|s| path.to_string_lossy().ends_with(s)) {
+            out.push(path);
         }
     }
-    n
+    out.sort();
+    out
 }
 
+/// Every file profile's fixtures (fixtures/<p>, the files of the registry's suffixes): one
+/// named as rejected (`unsupported_*`, `*_reject_*`; conformance/virtualize/HARNESS.md) is
+/// rejected, and every other is accepted as a valid IR that rebuilds its source.
 #[test]
 fn accepted_fixtures_are_valid_irs_that_rebuild() {
-    assert_eq!(accepted::<Tiff>("tiff"), 33);
-    assert_eq!(accepted::<Czi>("czi"), 32);
-    assert_eq!(accepted::<Tiff>("ndpi"), 3);
-    assert_eq!(accepted::<Dicom>("dicom"), 43);
-    assert_eq!(accepted::<Nifti>("nifti"), 66);
-    assert_eq!(accepted::<Ims>("ims"), 26);
-    assert_eq!(accepted::<Ims>("ims/exact"), 1);
+    for e in refkv_ir::out::registry().iter().filter(|e| e["kind"] == "file") {
+        let name = e["name"].as_str().unwrap();
+        let f = Format::from_name(name).unwrap_or_else(|| panic!("{name}: no parser"));
+        if f.store_run() {
+            continue; // a file input read as a store run (VSI): tests/vsi.rs drives it with its tile files
+        }
+        let suffixes: Vec<&str> = e["suffixes"].as_array().unwrap().iter().map(|s| s.as_str().unwrap()).collect();
+        let mut accepted = 0;
+        for path in files(&fixtures().join(name), &suffixes) {
+            let file = path.file_name().unwrap().to_string_lossy().into_owned();
+            let rejected = file.contains("reject") || file.starts_with("unsupported");
+            let data = std::fs::read(&path).unwrap();
+            match run_bytes(f, &data) {
+                Ok((ir, _, _)) => {
+                    assert!(!rejected, "{path:?} was accepted");
+                    check::check(&ir).unwrap_or_else(|m| panic!("{path:?}: {m}"));
+                    assert!(rebuilt(&ir, &data) == data, "{path:?} does not rebuild");
+                    accepted += 1;
+                }
+                Err(m) => assert!(rejected, "{path:?} was rejected: {m}"),
+            }
+        }
+        assert!(accepted > 0, "{name}: no fixture accepted");
+    }
 }
 
 /// The TIFF parser reads an NDPI as NDPI (spec/virtualize/ndpi.md §4
@@ -61,6 +82,57 @@ fn the_tiff_parser_finds_ndpi() {
         let (_, facts) = parse_bytes::<Tiff>(&data).unwrap();
         assert_eq!(facts["profile"] == "ndpi", ndpi, "{file}");
     }
+}
+
+/// The TIFF parser reads a QPTIFF as QPTIFF (spec/virtualize/qptiff.md §16
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#16-qptiff-profile>): each
+/// accepted QPTIFF fixture's facts name the profile, its channels and levels; a TIFF's and an
+/// NDPI's do not.
+#[test]
+fn the_tiff_parser_finds_qptiff() {
+    for (file, channels, levels) in [
+        ("qptiff/qptiff_fl_uint8_lzw.qptiff", 3, 3),
+        ("qptiff/qptiff_fl_uint16_lzw_bigtiff.qptiff", 2, 2),
+        ("qptiff/qptiff_bf_rgb_jpeg.qptiff", 1, 2), // its JPEG level in strips, short at the end, is no level
+        ("qptiff/qptiff_bf_rgb_uncompressed.qptiff", 1, 2),
+        ("qptiff/qptiff_component_float32_strips.qptiff", 2, 1),
+        ("qptiff/qptiff_fl_lzw_narrow_eoi.qptiff", 1, 1),
+    ] {
+        let data = std::fs::read(fixtures().join(file)).unwrap();
+        let (_, facts) = parse_bytes::<Tiff>(&data).unwrap();
+        assert_eq!(facts["profile"], "qptiff", "{file}");
+        assert_eq!(facts["channels"].as_array().unwrap().len(), channels, "{file}");
+        assert_eq!(facts["levels"].as_array().unwrap().len(), levels, "{file}");
+    }
+    for file in ["tiff/jpeg_gray.tif", "ndpi/ndpi_levels.ndpi"] {
+        let data = std::fs::read(fixtures().join(file)).unwrap();
+        let (_, facts) = parse_bytes::<Tiff>(&data).unwrap();
+        assert_ne!(facts["profile"], "qptiff", "{file}");
+    }
+}
+
+/// The channels' names and colors, the image name and the levels' tiling, as the layout reads
+/// them (spec/virtualize/qptiff.md §3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#3-images-and-channels>): an
+/// entity reference decoded, a Name nested in the ScanProfile not taken, the smallest level in
+/// strips.
+#[test]
+fn qptiff_facts_read_the_descriptions() {
+    let data = std::fs::read(fixtures().join("qptiff/qptiff_fl_uint8_lzw.qptiff")).unwrap();
+    let (_, facts) = parse_bytes::<Tiff>(&data).unwrap();
+    let names: Vec<&str> = facts["channels"].as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["DAPI", "Cy3 & TRITC", "Opal 520"]);
+    assert_eq!(facts["channels"][1]["color"], "255, 60, 157");
+    assert_eq!(facts["name"], "Fixture-Slide");
+    assert_eq!(facts["axes"], serde_json::json!(["c", "y", "x"]));
+    let strips: Vec<bool> = facts["levels"].as_array().unwrap().iter().map(|l| l["strips"].as_bool().unwrap()).collect();
+    assert_eq!(strips, [false, false, true]);
+    assert_eq!(facts["levels"][2]["th"], 16);
+    // the last strip (8 rows of 16) is padded by a literal tail spliced into its LZW stream
+    let pads = facts["levels"][2]["pad"]["lzw"].as_array().unwrap();
+    assert_eq!(pads.len(), 3);
+    assert!(pads.iter().all(|p| p["k"] == 1 && p["prefix"].as_u64().unwrap() > 0 && !p["tail"].as_array().unwrap().is_empty()));
+    assert_eq!(facts["translation"], serde_json::json!([0, 484400.0, 88600.0]));
 }
 
 macro_rules! reject {
@@ -114,6 +186,15 @@ reject!(tiff_edge_reject_ycbcr_default, Tiff, "tiff/edge_reject_ycbcr_default.ti
 reject!(tiff_edge_reject_ycbcr_subsampled, Tiff, "tiff/edge_reject_ycbcr_subsampled.tif", "the image at 12334 is YCbCr with subsampling [2,");
 reject!(tiff_edge_reject_zero_tile, Tiff, "tiff/edge_reject_zero_tile.tif", "the image at 8 has an empty tile size");
 reject!(tiff_unsupported_lzw, Tiff, "tiff/unsupported_lzw.tif", "unsupported compression 5");
+reject!(qptiff_edge_reject_channel_count, Tiff, "qptiff/edge_reject_qptiff_channel_count.qptiff", "a QPTIFF with 3 channels has 2 ReducedResolution images, not a multiple of 3");
+reject!(qptiff_edge_reject_rgb_channels, Tiff, "qptiff/edge_reject_qptiff_rgb_channels.qptiff", "QPTIFF channels have 3 samples per pixel");
+reject!(qptiff_edge_reject_not_baseline, Tiff, "qptiff/edge_reject_qptiff_not_baseline.qptiff", "IFD 0 of a QPTIFF is not a FullResolution image");
+reject!(qptiff_edge_reject_no_description, Tiff, "qptiff/edge_reject_qptiff_no_description.qptiff", "IFD 0 of a QPTIFF has no PerkinElmer-QPI image description");
+reject!(qptiff_edge_reject_level_grows, Tiff, "qptiff/edge_reject_qptiff_level_grows.qptiff", "QPTIFF level 1 is not smaller than level 0");
+reject!(qptiff_edge_reject_late_full, Tiff, "qptiff/edge_reject_qptiff_late_full.qptiff", "a QPTIFF FullResolution image follows the baseline images");
+reject!(qptiff_edge_reject_level_mismatch, Tiff, "qptiff/edge_reject_qptiff_level_mismatch.qptiff", "the images of QPTIFF level 1 differ in size, tiling or format");
+reject!(qptiff_edge_reject_predictor, Tiff, "qptiff/edge_reject_qptiff_predictor.qptiff", "unsupported predictor 2");
+reject!(qptiff_edge_reject_strip_count, Tiff, "qptiff/edge_reject_qptiff_strip_count.qptiff", "IFD at 8 has 3 tiles or strips, expected 5");
 reject!(tiff_unsupported_predictor, Tiff, "tiff/unsupported_predictor.tif", "unsupported predictor 2");
 reject!(tiff_unsupported_strips, Tiff, "tiff/unsupported_strips.tif", "only tiled TIFFs are supported; the image at 8 i");
 reject!(dicom_reject_bigendian_ow8, Dicom, "dicom/dicom_reject_bigendian_ow8.dcm", "8-bit Pixel Data of VR OW in big endian");
@@ -163,6 +244,23 @@ reject!(nifti_reject_vox_offset_fraction, Nifti, "nifti/nifti_reject_vox_offset_
 reject!(nifti_reject_vox_offset_in_extender, Nifti, "nifti/nifti_reject_vox_offset_in_extender.nii", "vox_offset 348 is not from 352 to 2^53 - 1");
 reject!(nifti_reject_vox_offset_nan, Nifti, "nifti/nifti_reject_vox_offset_nan.nii", "vox_offset nan is not an integer");
 reject!(nifti_reject_vox_offset_zero, Nifti, "nifti/nifti_reject_vox_offset_zero.nii", "vox_offset 0 is not from 352 to 2^53 - 1");
+reject!(mrc_reject_short_header, Mrc, "mrc/mrc_reject_short_header.mrc", "file too short for a 1024-byte MRC header");
+reject!(mrc_reject_machst, Mrc, "mrc/mrc_reject_machst.mrc", "machine stamp 00 00 00 00 is neither 44 (little-endian) nor 11 (big-endian)");
+reject!(mrc_reject_machst_swapped, Mrc, "mrc/mrc_reject_machst_swapped.mrc", "machine stamp 41 44 00 00 is neither 44 (little-endian) nor 11 (big-endian)");
+reject!(mrc_reject_nx_zero, Mrc, "mrc/mrc_reject_nx_zero.mrc", "nx = 0 is not positive");
+reject!(mrc_reject_ny_negative, Mrc, "mrc/mrc_reject_ny_negative.mrc", "ny = -2 is not positive");
+reject!(mrc_reject_nz_zero, Mrc, "mrc/mrc_reject_nz_zero.mrc", "nz = 0 is not positive");
+reject!(mrc_reject_mode_complex_int16, Mrc, "mrc/mrc_reject_mode_complex_int16.mrc", "unsupported MRC mode 3 (COMPLEX_INT16)");
+reject!(mrc_reject_mode_int4, Mrc, "mrc/mrc_reject_mode_int4.mrc", "unsupported MRC mode 101 (INT4)");
+reject!(mrc_reject_mode_unknown, Mrc, "mrc/mrc_reject_mode_unknown.mrc", "unknown MRC mode 7");
+reject!(mrc_reject_mode_negative, Mrc, "mrc/mrc_reject_mode_negative.mrc", "unknown MRC mode -1");
+reject!(mrc_reject_nsymbt_negative, Mrc, "mrc/mrc_reject_nsymbt_negative.mrc", "nsymbt -80 is negative");
+reject!(mrc_reject_extended_outside, Mrc, "mrc/mrc_reject_extended_outside.mrc", "the 1000-byte extended header at 1024 is outside the 1072-byte file");
+reject!(mrc_reject_volume_stack_mz, Mrc, "mrc/mrc_reject_volume_stack_mz.mrc", "a volume stack (ispg 401) of 5 sections, which mz = 2 does not divide");
+reject!(mrc_reject_volume_stack_mz_zero, Mrc, "mrc/mrc_reject_volume_stack_mz_zero.mrc", "a volume stack (ispg 401) of 4 sections, which mz = 0 does not divide");
+reject!(mrc_reject_truncated, Mrc, "mrc/mrc_reject_truncated.mrc", "the 48-byte data at 1024 is outside the 1071-byte file");
+reject!(mrc_reject_data_overflow, Mrc, "mrc/mrc_reject_data_overflow.mrc", "the 4951760157141521099596496896-byte data at 1024 is outside the 1072-byte file");
+reject!(mrc_reject_data_outside, Mrc, "mrc/mrc_reject_data_outside.mrc", "the 48-byte data at 1040 is outside the 1087-byte file");
 reject!(ndpi_edge_reject_focal_planes, Tiff, "ndpi/edge_reject_ndpi_focal_planes.ndpi", "NDPI focal planes (two levels with one magnification) are not supported");
 reject!(ndpi_edge_reject_growing, Tiff, "ndpi/edge_reject_ndpi_growing.ndpi", "NDPI levels do not decrease in size");
 reject!(ndpi_edge_reject_mcustarts, Tiff, "ndpi/edge_reject_ndpi_mcustarts.ndpi", "McuStarts does not match the strip's intervals");

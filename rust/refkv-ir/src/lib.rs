@@ -18,7 +18,9 @@ pub mod ims;
 pub mod ir;
 pub mod json;
 pub mod lv;
+pub mod lzw;
 pub mod mirror;
+pub mod mrc;
 pub mod n5;
 pub mod nd2;
 pub mod nifti;
@@ -35,6 +37,7 @@ pub mod schema;
 pub mod store;
 pub mod tiff;
 pub mod types;
+pub mod vsi;
 pub mod xml;
 pub mod zarr2;
 
@@ -74,6 +77,7 @@ parser!(tiff::Tiff);
 parser!(czi::Czi);
 parser!(dicom::Dicom);
 parser!(nifti::Nifti);
+parser!(mrc::Mrc);
 parser!(ims::Ims);
 parser!(safe::Safe);
 

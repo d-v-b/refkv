@@ -25,7 +25,7 @@ convention, and the profile rejects it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "tiff"`, `"version": 0`, `"revision": 27` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
+with `"profile": "tiff"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
 and the source metadata of [§5](#5-source-metadata) as the member `"tiff"`. Its CMO is:
 
 ```json
@@ -443,7 +443,6 @@ property:
 {
   "profile": "tiff",
   "version": 0,
-  "revision": 27,
   "source": {
     "url": "https://example.org/image.ome.tif"
   },

@@ -11,7 +11,7 @@ export interface IrExports {
   memory: WebAssembly.Memory;
   vz_alloc(n: number): number;
   vz_out(): number;
-  vz_run_new(format: number, size: bigint, remote: number, concurrency: number): number;
+  vz_run_new(format: number, nf: number, size: bigint, remote: number, concurrency: number): bigint;
   vz_run_seed(p: number, offset: bigint, data: number, n: number): void;
   vz_run_observe(p: number, n: bigint, seconds: number): void;
   vz_run_multirange(p: number, v: number): void;
@@ -25,6 +25,8 @@ export interface IrExports {
   vz_store_ignore(p: number, json: number, n: number): bigint;
   vz_store_profile(p: number): bigint;
   vz_store_poll(p: number): bigint;
+  vz_store_probes(p: number): bigint;
+  vz_store_found(p: number, size: bigint): bigint;
   vz_store_complete(p: number, k: number, data: number, n: number): bigint;
   vz_store_output(p: number, url: number, n: number, mirror: number): bigint;
   vz_store_free(p: number): void;

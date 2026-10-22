@@ -22,12 +22,11 @@ from typing import Callable
 
 from refkv.policy import Policy
 from refkv.uri import is_uri_reference
-from refkv.virtualize.common import CONVENTION_KEY, Rejected, _ThreadConnections, _retry, declare, follow
+from refkv.virtualize.common import CONVENTION_KEY, UA, Rejected, _ThreadConnections, _retry, declare, follow
 
 MAX_SAFE = 2**53 - 1
 MAX_DOCUMENT = 1 << 24
 MAX_DEPTH = 256
-UA = "refkv-virtualize"
 
 _SPLIT = re.compile(r"^(?:([^:/?#]+):)?(?://([^/?#]*))?([^?#]*)(?:\?([^#]*))?(?:#(.*))?\Z")
 _UNRESERVED = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
@@ -41,8 +40,8 @@ class ListingFailed(OSError):
 
 class StoreLimit(OSError):
     """An implementation's resource limit (§1.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>, §14
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-conformance>): a failure, not a
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>, Appendix A
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#appendix-a-conformance>): a failure, not a
     rejection."""
 
 
@@ -601,6 +600,11 @@ class Store:
         """The bytes [offset, offset + length) of the object `key` (spec/virtualize.md §12.2
         <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#122-objects-and-reading>)."""
         raise NotImplementedError
+
+    def probe(self, key: str) -> int | None:
+        """The size of the object `key` when the store has it, else None: the answer to a run's
+        probe (`refkv.ir.store.drive_store`). A listed store has the objects it listed."""
+        return self.objects.get(key)
 
     def prefetch(self, keys, wanted: Callable[[str], bool | None] | None = None) -> None:
         """Starts reading the documents `keys`, in that order (the order the

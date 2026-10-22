@@ -36,7 +36,7 @@ file is in an array, referenced where the file holds it.
 ## 1. Declaration
 
 The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "czi"`, `"version": 0`, `"revision": 27` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`, and
+with `"profile": "czi"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`, and
 the source metadata of [§5.1](#51-the-root) as the member `"czi"`. Its CMO is:
 
 ```json
@@ -670,7 +670,6 @@ JPEG XR, overlapping layer-0 tiles and five pyramid levels; this is
     "refkv_virtualized": {
       "profile": "czi",
       "version": 0,
-      "revision": 27,
       "source": {"url": "https://example.org/a.czi"},
       "czi": {
         "version": [1, 0],
@@ -725,7 +724,7 @@ finds (`segments/<k>`). (The display channel's `High` is 0.25: the window ends a
 # Part 2. The profile
 
 The CZI profile of [spec/virtualize.md](../virtualize.md) (revision 18), numbered
-as its [§13](#13-czi-profile). (Conformance is spec/virtualize.md's [§14](../virtualize.md#14-conformance).) [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in
+as its [§13](#13-czi-profile). (Conformance is spec/virtualize.md's [Appendix A](../virtualize.md#appendix-a-conformance).) [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in
 spec/virtualize.md and apply here.
 
 The output has the convention's layout for the input

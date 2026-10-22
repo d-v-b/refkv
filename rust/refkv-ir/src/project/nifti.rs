@@ -5,10 +5,10 @@
 //! IR: the header is the IR's `header` value, and the array's chunks are cut from its
 //! `voxels` element.
 
-use super::{json_text, n, Copied};
+use super::{float_json, json_text, n, Copied};
 use crate::ir::Ir;
 use crate::nifti::{Header, Num};
-use crate::out::{array_json, grid_chunks, image_ome, root_json, Chunk, Out, MAX_PAYLOAD};
+use crate::out::{array_json, grid_chunks, image_ome, omero_channel, omero_json, omero_window, root_json, Chunk, Out, MAX_PAYLOAD};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -35,17 +35,7 @@ fn value_json(h: &Header, at: usize, kind: &str) -> J {
             if h.little {
                 raw.reverse();
             }
-            let bits = raw.iter().fold(0u64, |a, &b| a << 8 | b as u64);
-            let canonical = if w == 4 { 0x7fc0_0000 } else { 0x7ff8_0000_0000_0000 };
-            if (v == 0.0 && v.is_sign_negative()) || (v.is_nan() && bits != canonical) {
-                json!({"bits": format!("{bits:0width$x}", width = 2 * w)})
-            } else if v.is_nan() {
-                json!("NaN")
-            } else if v.is_infinite() {
-                json!(if v > 0.0 { "Infinity" } else { "-Infinity" })
-            } else {
-                json!(v)
-            }
+            float_json(raw.iter().fold(0u64, |a, &b| a << 8 | b as u64), w, v)
         }
     }
 }
@@ -215,12 +205,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     // channels (§4.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#44-channels>)
     let mut channels = None;
     if color {
-        channels = Some(
-            COLORS[..samples as usize]
-                .iter()
-                .map(|(l, k)| json!({"label": l, "color": k, "active": true, "window": {"min": 0, "max": 255, "start": 0, "end": 255}}))
-                .collect::<Vec<J>>(),
-        );
+        let window = omero_window(json!(0), json!(255), json!(0), json!(255));
+        channels = Some(COLORS[..samples as usize].iter().map(|(l, k)| omero_channel(l, *k, Some(&window))).collect::<Vec<J>>());
     } else {
         let (mut lo, mut hi) = (f("cal_min"), f("cal_max"));
         if lo.is_finite() && hi.is_finite() && hi > lo && (c as i64) <= MAX_CHANNELS {
@@ -229,12 +215,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
                 (lo, hi) = if b < a { (b, a) } else { (a, b) };
             }
             if lo.is_finite() && hi.is_finite() {
-                channels = Some(
-                    (0..c)
-                        .map(|k| json!({"label": format!("C{k}"), "color": "FFFFFF", "active": true,
-                                        "window": {"min": lo, "max": hi, "start": lo, "end": hi}}))
-                        .collect(),
-                );
+                let window = omero_window(json!(lo), json!(hi), json!(lo), json!(hi));
+                channels = Some((0..c).map(|k| omero_channel(&format!("C{k}"), "FFFFFF", Some(&window))).collect());
             }
         }
     }
@@ -257,7 +239,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let trs = translation.clone().map(|t| vec![t]);
     let mut ome = image_ome(&axes, &units, &[scales], None, trs.as_deref())?;
     if let Some(ch) = channels {
-        ome["omero"] = json!({"channels": ch});
+        ome["omero"] = omero_json(ch);
     }
     let endian = if h.little { "little" } else { "big" };
     let mut own = Map::new();
