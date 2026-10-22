@@ -18,7 +18,8 @@ pub const SLOT_SIZE: u64 = 12;
 /// The length of a slot that gives none: the record is this long or longer.
 pub const SLOT_LENGTH_MAX: u32 = u32::MAX;
 /// The size of the smallest record: a one-byte key, an empty `Concat` payload, and a one-byte
-/// `key_length`, `kind`, `flags`, `rank` and `payload_length` (spec/bindings/phkv.md §19.1).
+/// `key_length`, `kind`, `flags`, `rank` and `payload_length` (spec/bindings/phkv.md §19.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#191-record-encoding>).
 pub const MIN_RECORD: u64 = 6;
 
 /// The slot of a record `offset` bytes into RECORDS and `length` bytes long. A length of

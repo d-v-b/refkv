@@ -15,7 +15,9 @@ B = 1 is a slot at a time and B = N is the whole section at open (Limits::slots_
 import math
 import sys
 
-SLOT = 12  # the bytes of a slot (spec/bindings/phkv.md §18.2)
+# the bytes of a slot (spec/bindings/phkv.md §18.2
+# <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#182-slots-section>)
+SLOT = 12
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 1_028_992  # the slots of 10^6 keys
 R = (float(sys.argv[2]) if len(sys.argv) > 2 else 20) / 1e3
