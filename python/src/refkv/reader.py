@@ -444,10 +444,16 @@ def _proxy(url: str) -> str | None:
     return proxy
 
 
+# The User-Agent every request of the reader carries unless `headers` gives one (the
+# virtualizer's say `refkv-virtualize`): some hosts, Wikimedia Commons among them, refuse a
+# client that sends none or urllib's default.
+USER_AGENT = "refkv"
+
+
 def _send(url: str, headers: dict[str, str], check: Check | None = None,
           unchecked_proxy: bool = False, pool=None, method: str = "GET") -> tuple[int, Message, bytes]:
     """One request of `url` (a GET, or `method`), without following redirects:
-    (status, headers, body).
+    (status, headers, body), with `USER_AGENT` unless `headers` names one.
 
     `check` is applied to the address the request is sent to: when a new
     connection is opened, and again to a reused one's peer. A request that
@@ -457,6 +463,7 @@ def _send(url: str, headers: dict[str, str], check: Check | None = None,
     the connections alive (default: the reader's, shared by its threads); it
     has `_Pool`'s `get` and `put`."""
     pool = _POOL if pool is None else pool
+    headers = {"User-Agent": USER_AGENT, **headers}
     pu = urlparse(url)
     proxy = _proxy(url)
     if proxy is not None:
