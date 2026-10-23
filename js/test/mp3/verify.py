@@ -1,9 +1,10 @@
-"""Checks the browser MP3 virtualizer's output against miniaudio and ffmpeg.
+"""Checks the browser MP3 virtualizer's output against two decodings of its frames.
 
 Each fixtures/mp3/*.mp3 is served over local HTTP and virtualized by
 js/conformance/virtualize.ts (the browser code, run under Node). The array is read
-through the reference reader, zarr-python and the `mp3` codec, and must equal miniaudio's
-decoding of the audio frames in one pass, sample for sample (spec/virtualize/mp3.md §4.1
+through the reference reader, zarr-python and the `refkv.stream` codec, and must equal
+ffmpeg's float decoder (through PyAV, the codec's own) decoding the audio frames in one
+pass, sample for sample (spec/virtualize/mp3.md §4.1
 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#41-the-array>), and ffmpeg's
 (fixtures/mp3/expected, written by the generator) within a few units where the generator
 stored it. The root's metadata must agree with the array, and the file must be rebuilt byte
@@ -21,7 +22,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-import miniaudio
+import av
 import numpy as np
 import zarr
 
@@ -30,6 +31,7 @@ ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 from http_server import Server  # noqa: E402
 
+from refkv.ir.cmirror import Archive, load  # noqa: E402
 from refkv.policy import Policy  # noqa: E402
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
 
@@ -40,15 +42,13 @@ from ir_mirror import mirror_problems  # noqa: E402
 # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3 refuses by
 # default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
-FFMPEG_MAX, FFMPEG_MEAN = 8, 1.0
+FFMPEG_MAX, FFMPEG_MEAN = 1, 0.6
 
 
-def audio_frames(path: Path, out: Path) -> bytes:
-    """The audio frames' bytes, one after the other, from the archive's mirror: its data
+def audio_frames(path: Path, out: Path) -> list[bytes]:
+    """The audio frames' bytes, in order, from the archive's mirror: its data
     elements (spec/virtualize/mp3.md §5.3
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#53-elements>)."""
-    from refkv.ir.cmirror import Archive, load
-
     data = path.read_bytes()
     ir = load(Archive(str(out), lambda o, n: data[o:o + n]))
     cols = ir.columns()
@@ -56,7 +56,7 @@ def audio_frames(path: Path, out: Path) -> bytes:
     start, length = np.frombuffer(cols["start"], "<u8"), np.frombuffer(cols["len"], "<u8")
     data_elements = np.flatnonzero(kind == 2)
     frames = sorted(zip(start[data_elements].tolist(), length[data_elements].tolist()))
-    return b"".join(data[o:o + n] for o, n in frames)
+    return [data[o:o + n] for o, n in frames]
 
 
 def problems_of(path: Path, out: Path) -> list[str]:
@@ -64,21 +64,22 @@ def problems_of(path: Path, out: Path) -> list[str]:
     meta = root.attrs["refkv_virtualized"]["mp3"]
     got = root["samples"][...]
     problems = []
-    if got.dtype != np.int16 or got.shape != (meta["samples"], meta["channels"]):
-        problems.append(f"shape {got.shape} {got.dtype} is not {meta['samples']} x {meta['channels']} int16")
+    if got.dtype != np.float32 or got.shape != (meta["samples"], meta["channels"]):
+        problems.append(f"shape {got.shape} {got.dtype} is not {meta['samples']} x {meta['channels']} float32")
         return problems
-    audio = audio_frames(path, out)
-    info = miniaudio.mp3_get_info(audio)
-    d = miniaudio.decode(audio, miniaudio.SampleFormat.SIGNED16, nchannels=meta["channels"], sample_rate=info.sample_rate)
-    want = np.frombuffer(d.samples, dtype=np.int16).reshape(-1, meta["channels"])
-    if info.sample_rate != meta["sample_rate"]:
-        problems.append(f"sample rate {meta['sample_rate']} is not miniaudio's {info.sample_rate}")
+    ctx = av.CodecContext.create("mp3float", "r")
+    decoded = [d for p in audio_frames(path, out) for d in ctx.decode(av.Packet(p))] + ctx.decode(None)
+    if {f.sample_rate for f in decoded} != {meta["sample_rate"]}:
+        problems.append(f"sample rate {meta['sample_rate']} is not the decoder's {sorted({f.sample_rate for f in decoded})}")
+    want = np.concatenate([f.to_ndarray().T if f.format.is_planar else f.to_ndarray().reshape(f.samples, -1)
+                           for f in decoded]).astype(np.float32)
     if want.shape != got.shape or not np.array_equal(got, want):
-        problems.append(f"samples differ from miniaudio's ({got.shape} vs {want.shape})")
+        problems.append(f"samples differ from the decoder's ({got.shape} vs {want.shape})")
     expected = path.parent / "expected" / f"{path.stem}.npy"
     if expected.exists():
         w = np.load(expected).astype(np.int32)
-        diff = np.abs(got.astype(np.int32) - w) if w.shape == got.shape else None
+        scaled = np.clip(np.rint(got * 32768.0), -32768, 32767).astype(np.int32)
+        diff = np.abs(scaled - w) if w.shape == got.shape else None
         if diff is None or diff.max() > FFMPEG_MAX or diff.mean() > FFMPEG_MEAN:
             problems.append(f"samples differ from ffmpeg's ({'shape' if diff is None else (diff.max(), diff.mean())})")
     return problems + mirror_problems(out, path)

@@ -34,6 +34,7 @@ who each one is for, what you get, and how to run it.
 | VSI | Olympus cellSens whole-slide images (`.vsi` with its tile files) | [vsi](vsi/README.md) | [§15](../../spec/virtualize/vsi.md#part-2-the-profile) |
 | QPTIFF | Akoya (PerkinElmer) Vectra multiplex scans and inForm component data | [qptiff](qptiff/README.md) | [§16](../../spec/virtualize/qptiff.md#part-2-the-profile) |
 | MP3 | MP3 audio files, as an array of samples (`.mp3`) | [mp3](mp3/README.md) | [§17](../../spec/virtualize/mp3.md#part-2-the-profile) |
+| MP4 | MP4 and QuickTime video and audio, as arrays of planes and samples (`.mp4`, `.mov`) | [mp4](mp4/README.md) | [§18](../../spec/virtualize/mp4.md#part-2-the-profile) |
 <!-- /profiles -->
 
 A format that reads a file takes a URL, or a local path. One that reads a
@@ -41,9 +42,9 @@ store takes a URL ending in `/` that answers the S3 `ListObjectsV2` operation
 anonymously, such as a public S3 bucket. SAFE reads either: a product's
 `.SAFE` directory as a store, or its `.SAFE.zip` as a file. VSI is named by
 its `.vsi` file and reads the tile files beside it by name, without listing
-the directory. MP3 is the one format that is not an image: its archive holds
-a plain Zarr array of audio samples, decoded from the file's frames when a
-chunk is read ([mp3](mp3/README.md)).
+the directory. MP3 and MP4 are not images: their archives hold plain Zarr
+arrays of audio samples and video planes, decoded from the file's coded
+frames when a chunk is read ([mp3](mp3/README.md), [mp4](mp4/README.md)).
 
 SAFE and CZI have no user-story page yet; their conventions describe the
 output. A Sentinel-2 product becomes a GeoZarr hierarchy (one group per
@@ -243,6 +244,11 @@ each format's metadata is:
   file is rebuilt from the archive. The root keeps the stream's parameters
   (version, sample rate, channels, frames, bitrate), the info frame's
   counts and LAME fields, and the ID3v1 tag's fields.
+- **MP4:** the IR mirror on `refkv_source`: every box, field by field, with
+  its sample tables, and every sample. The root keeps the brands, the
+  movie's timescale and duration, and every track with its path or the
+  reason it is not virtualized; each track's group keeps its timescale,
+  edit list, size or sample rate, and the H.264 profile and level.
 - **N5, Zarr v2 and OME-Zarr:** each node's own attributes and the layout
   members its `zarr.json` does not reproduce, on the node, as
   `{"attributes": ..., "metadata": ...}` (with `"unversioned"` for an

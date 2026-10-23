@@ -198,15 +198,27 @@ files without `MAP` at byte 208, and modes 3 and 101.
 
 MP3 (MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio):
 
-- The one format that is not an image: one array `samples` of int16,
-  `[time, channel]`, in chunks of 256 frames, each referencing the frames a
-  decoder needs before it (the bit reservoir); the `mp3` codec decodes a
-  chunk when it is read (in Python, with miniaudio).
+- Not an image: one array `samples` of float32, `[time, channel]`, in
+  chunks of 256 frames, each referencing the frames a decoder needs before
+  it (the bit reservoir); the `refkv.stream` codec decodes a chunk when it
+  is read (in Python, with ffmpeg's decoders through PyAV).
 - The stream's parameters, the Xing or Info frame's fields and the ID3v1
   tag under `refkv_virtualized`; the ID3v2 and APE tags in the mirror.
 
 Not supported, and refused with HTTP 422: Layer I and II streams, free-format
 bitrates, and files whose frames change sample rate, version or channel count.
+
+MP4 and QuickTime (H.264 video, AAC and MP3 audio):
+
+- Not an image: a group per track, `tracks/<id>`; an H.264 track's Y, U
+  and V planes (uint8, `[time, y, x]`) and presentation times, an audio
+  track's float32 samples; each chunk the frames back to the keyframe
+  before it, decoded by `refkv.stream`.
+- Every track listed under `refkv_virtualized`, with why it is not
+  virtualized when it is not (HEVC, 10-bit H.264, other audio codecs).
+
+Not supported, and refused with HTTP 422: fragmented MP4, files without a
+moov box, and files with no H.264, AAC or MP3 track.
 
 Olympus VSI (cellSens slides):
 
@@ -286,7 +298,8 @@ uv run python js/test/dicom/verify.py                       # DICOM fixtures vs 
 uv run python js/test/nifti/verify.py                       # NIfTI fixtures vs nibabel
 uv run python js/test/mrc/verify.py                         # MRC fixtures vs mrcfile
 uv run python js/test/vsi/verify.py                         # VSI fixtures vs their pixels (and Bio-Formats)
-uv run python js/test/mp3/verify.py                         # MP3 fixtures vs miniaudio and ffmpeg
+uv run python js/test/mp3/verify.py                         # MP3 fixtures vs ffmpeg's decoders
+uv run python js/test/mp4/verify.py                         # MP4 fixtures vs ffmpeg's decoding
 uv run python js/test/ims/verify.py                         # IMS fixtures vs h5py
 uv run python js/test/czi/verify.py                         # CZI fixtures vs czifile (and libCZI)
 uv run python js/test/safe/verify.py                        # SAFE fixtures vs GDAL
@@ -314,8 +327,9 @@ node demo/e2e_examples.mjs <out dir> [example id …]      # every demo example,
   (cropped to the image size); `vsi/verify.py` serves each synthetic slide with its
   tile files, compares every stack with the pixels the generator wrote and, when a
   JVM can be started, every level with Bio-Formats (bioio-bioformats); `mp3/verify.py`
-  reads each file's samples through the `mp3` codec and compares them with miniaudio's
-  decoding of the whole stream, and with ffmpeg's where the generator stored it.
+  reads each file's samples through the `refkv.stream` codec and compares them with its
+  decoder's decoding of the whole stream, and with ffmpeg's where the generator stored it;
+  `mp4/verify.py` reads every track and compares it with ffmpeg's decoding of the file.
 - `compare.py` runs three virtualizers (`ref`, the frozen reference, which
   a format added since the core, such as MRC, does not have; `py`, the
   Python command; `web`, this code under Node) on the synthetic files, every

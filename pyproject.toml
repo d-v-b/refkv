@@ -14,7 +14,7 @@ dependencies = []
 # HDF5 parser (h5py), and xarray reading netCDF files over HTTPS (h5netcdf, fsspec, aiohttp)
 dev = [
     # the package (python/, a member of this workspace), built from this checkout, with its extras
-    "refkv[zarr,images,audio,virtualizarr,obstore]",
+    "refkv[zarr,images,media,virtualizarr,obstore]",
     "aiohttp>=3.14.3",
     "czifile>=2026.8.16",
     "fsspec>=2026.9.0",

@@ -456,7 +456,7 @@ def check(item: tuple, impls: dict, out_dir: Path) -> dict:
     name, url = item[:2]
     if len(item) > 2 and item[2] == "py-only":  # past the browser's limit: every implementation but web
         impls = {k: v for k, v in impls.items() if k != "web"}
-    if len(item) > 2 and item[2] == "no-ref":  # a profile the frozen reference never had (MRC, VSI, MP3): py and web alone
+    if len(item) > 2 and item[2] == "no-ref":  # a profile the frozen reference never had (MRC, VSI, MP3, MP4): py and web alone
         impls = {k: v for k, v in impls.items() if k != "ref"}
     results = {n: run(impl, url, out_dir / f"{name}.{n}.out") for n, impl in impls.items()}
     ref_name = next(iter(impls))
@@ -575,7 +575,7 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
     stores = store_fixtures(fixtures)
     files = [p for p in sorted(p for s in FILE_SUFFIXES for p in fixtures.rglob(f"*{s}"))
              if not any(p.is_relative_to(s) for s in stores)]
-    # a profile the frozen reference never had (MRC, VSI, MP3): its files compare py with web alone
+    # a profile the frozen reference never had (MRC, VSI, MP3, MP4): its files compare py with web alone
     items = [(f"fixture-{p.stem}", proxy.local(p.relative_to(fixtures).as_posix()),
               *(["no-ref"] if FILE_SUFFIXES[p.suffix]["reference"] is None else []))
              for p in files]

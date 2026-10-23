@@ -12,7 +12,7 @@ import type { RangeSource, Span } from "./source.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
 /** The formats of the core's file runs (`Format::from_name` in rust/refkv-ir/src/run.rs). */
-export type IrFormat = "nd2" | "tiff" | "czi" | "dicom" | "nifti" | "ims" | "safe" | "ndpi" | "mrc" | "vsi" | "qptiff" | "mp3";
+export type IrFormat = "nd2" | "tiff" | "czi" | "dicom" | "nifti" | "ims" | "safe" | "ndpi" | "mrc" | "vsi" | "qptiff" | "mp3" | "mp4";
 // (`vsi` is sniffed as a file but virtualized by the store run of vsi.ts; its file run only rejects.)
 
 export interface IrOutput extends ArchiveDesc {

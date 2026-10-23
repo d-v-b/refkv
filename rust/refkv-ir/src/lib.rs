@@ -21,6 +21,7 @@ pub mod lv;
 pub mod lzw;
 pub mod mirror;
 pub mod mp3;
+pub mod mp4;
 pub mod mrc;
 pub mod n5;
 pub mod nd2;
@@ -80,6 +81,7 @@ parser!(dicom::Dicom);
 parser!(nifti::Nifti);
 parser!(mrc::Mrc);
 parser!(mp3::Mp3);
+parser!(mp4::Mp4);
 parser!(ims::Ims);
 parser!(safe::Safe);
 

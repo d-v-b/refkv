@@ -20,8 +20,8 @@ samples per channel, with tags before and after them. refkv reads the file
 once, finds every frame, and writes an archive in which every Zarr chunk is
 a run of 256 frames, referenced together with the few frames before it that
 a decoder needs (MP3 frames borrow bits from their predecessors). The
-archive's `mp3` codec decodes a chunk when it is read, so the samples are
-never stored: they stay in the file as MPEG frames.
+archive's `refkv.stream` codec decodes a chunk when it is read, so the
+samples are never stored: they stay in the file as MPEG frames.
 
 ## What you get
 
@@ -29,7 +29,7 @@ A group at the archive root with one array, `samples`.
 
 - **Shape:** `[samples, channels]`, with the dimension names `time` and
   `channel`: one row per sample, one column per channel (1 or 2).
-- **Data type:** `int16`, the decoder's 16-bit output. The array holds
+- **Data type:** `float32`, the decoder's own output. The array holds
   every sample the frames decode to, the encoder's delay and padding
   included (their counts are in the metadata, for a reader that wants to
   trim them, as players do).
@@ -37,8 +37,9 @@ A group at the archive root with one array, `samples`.
   MPEG-2 and 2.5; 6.7 seconds at 44.1 kHz, 6.7 at 22.05), the last one
   shorter. Reading a chunk reads its frames and a few before them (the
   bit reservoir) in one request, and decodes them in one pass.
-- **Codecs:** `mp3`, which refkv's `zarr` module registers and which
-  decodes with miniaudio (the `audio` extra). No other codec.
+- **Codecs:** `refkv.stream`, which refkv's `zarr` module registers and
+  which decodes with ffmpeg's float MP3 decoder through PyAV (the `media`
+  extra); MP4 tracks use it too. No other codec.
 - **Metadata:** under `refkv_virtualized.mp3` on the root: the stream's
   version, sample rate, channel count and mode, frame and sample counts,
   duration and bitrate (constant or variable), whether frames carry CRCs;
@@ -74,8 +75,10 @@ uv run python -m refkv.virtualize https://archive.org/download/public_opinion_13
 {"format": "mp3", "version": "MPEG-2", "sampleRate": 22050, "channels": 1, "frames": 18576, "samples": 10699776, "duration": 485.250612244898, "bitrate": 64, "chunkFrames": 256, "chunks": 73, "info": "Info", "tags": ["id3v2", "id3v1"], "strayBytes": 0, ...}
 ```
 
-The archive is 17 KB: 73 chunk references and the mirror's table of 18576
-frames. Read the recording:
+The archive is 167 KB: 73 chunk references, each with a header of about 4
+bytes a frame that gives the codec each frame's size and place (the
+archive stores it twice, in the reference and in its entry), and the
+mirror's table of 18576 frames. Read the recording:
 
 ```python
 import zarr
@@ -95,8 +98,8 @@ print(a[22050 * 60:22050 * 60 + 8, 0])
 {'version': 'MPEG-2', 'sample_rate': 22050, 'channels': 1, 'duration': 485.250612244898}
 {'tag': 'Info', 'frames': 18576, 'bytes': 3882212, 'quality': 57, 'encoder': 'LAME3.99r', 'delay': 576, 'padding': 1128}
 {'title': '20 - A New Image', 'artist': 'Walter Lippmann', 'album': 'Public Opinion', 'year': '', 'comment': 'http://archive.org/details/p', 'track': 20, 'genre': 101}
-(10699776, 1) int16 (147456, 1)
-[11 -2  6  2  1 15 20 19]
+(10699776, 1) float32 (147456, 1)
+[ 0.000338 -0.000075  0.000176  0.000071  0.000034  0.000458  ...]
 ```
 
 The last line reads the samples one minute in: one request for the chunk's
@@ -140,15 +143,17 @@ Rejected:
   chunk), then decoding them.
 - The archive has one entry per chunk, and the mirror's table has a row
   per frame, folded into one run when the frames are all of one length
-  (the file above: 17 KB in all), a few bytes per frame otherwise.
+  (the file above: 167 KB in all, most of it the chunks' headers, about 4
+  bytes a frame), a few bytes per frame more otherwise.
 
 ## How it's verified
 
 `js/test/mp3/verify.py` virtualizes the synthetic MP3 files (including
 inputs to reject) with the browser code, reads them back through
-`python/src/refkv`, zarr-python and the `mp3` codec, and compares every
-sample with miniaudio's decoding of the whole stream (exactly) and with
-ffmpeg's (within a few units, where the generator stored it).
+`python/src/refkv`, zarr-python and the `refkv.stream` codec, and compares
+every sample with its decoder's decoding of the whole stream (exactly) and
+with the ffmpeg command line's 16-bit output (within one unit, where the
+generator stored it).
 `python/tests/ir/test_mp3.py` does the same through Python, with chunks of
 4 frames so that every file has several chunks and lead-ins. `compare.py`
 checks that the Python and browser outputs are equivalent on those files

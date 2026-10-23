@@ -532,6 +532,42 @@ pub fn metadata_array(out: &mut Out, path: &str, data_type: &str, shape: &[u64],
     }
 }
 
+/// `v` as a protobuf varint: 7 bits a byte, least significant first, the high bit set on every
+/// byte but the last.
+pub fn varint(out: &mut Vec<u8>, mut v: u64) {
+    while v >= 0x80 {
+        out.push((v as u8) | 0x80);
+        v >>= 7;
+    }
+    out.push(v as u8);
+}
+
+/// A `refkv.stream` chunk (conventions §10
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#10-coded-streams>) of the coded
+/// frames `units`, in decode order, each (offset, length, position): the literal header (the
+/// count, then each frame's length and its position less the previous frame's, the first's less
+/// -1, as a varint and a zigzag varint), then the frames as ranges of source 0, a frame that
+/// starts where the one before it ends extending its range.
+pub fn stream_parts(units: &[(u64, u64, i64)]) -> Vec<Part> {
+    let mut head = Vec::with_capacity(2 + 4 * units.len());
+    varint(&mut head, units.len() as u64);
+    let mut prev = -1i64;
+    for &(_, n, position) in units {
+        let d = position - prev;
+        varint(&mut head, n);
+        varint(&mut head, ((d << 1) ^ (d >> 63)) as u64);
+        prev = position;
+    }
+    let mut parts = vec![Part::Lit(head)];
+    for &(o, n, _) in units {
+        match parts.last_mut() {
+            Some(Part::Src(po, pn)) if *po + *pn == o => *pn += n,
+            _ => parts.push(Part::Src(o, n)),
+        }
+    }
+    parts
+}
+
 pub const MAX_CHUNK: u64 = 1 << 24;
 const MAX_PADDING: u64 = (1 << 16) - (1 << 10);
 const SMALL_PADDING: u64 = 1 << 10;
@@ -699,6 +735,16 @@ mod tests {
 
     /// Three 1-byte elements, at most 2 a chunk: the edge chunk is its byte and one byte
     /// of padding, a reference of 11 bytes, copied past a payload of 4.
+    /// Three frames, the first a lead-in and the last two consecutive: the header, then two
+    /// ranges.
+    #[test]
+    fn a_stream_chunk_is_its_header_and_the_frames_ranges() {
+        // the positions' steps -1 - -1 = 0, 0 - -1 = 1, 576 - 0 = 576: zigzag 0, 2, 1152
+        let parts = stream_parts(&[(10, 4, -1), (20, 5, 0), (25, 300, 576)]);
+        let head = vec![3, 4, 0, 5, 2, 0xAC, 0x02, 0x80, 0x09];
+        assert_eq!(parts, vec![Part::Lit(head), Part::Src(10, 4), Part::Src(20, 305)]);
+    }
+
     #[test]
     fn grid_chunks_copies_an_edge_chunk_past_the_payload() {
         let (shape, chunks) = grid_chunks(0, &[3], 1, 2, 4).unwrap();
