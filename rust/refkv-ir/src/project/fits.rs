@@ -240,7 +240,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     // the tile-compressed images (§3.3
     // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>):
     // the array's chunks are a literal prefix of the tiles' records, then the heap element's
-    // ranges; the `fits_tiles` codec decodes them
+    // ranges; the `refkv.fits_tiles` codec decodes them
     for (h, own) in tiled {
         let c = &h["compression"];
         let index = h["index"].as_u64().unwrap_or(0);
@@ -254,7 +254,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
             "shape": c["shape"], "tile_shape": c["tile"], "quantize": c["quantize"],
             "dither_seed": c["dither_seed"].as_i64().unwrap_or(0),
         });
-        let codecs = json!([{"name": "fits_tiles", "configuration": config}]);
+        let codecs = json!([{"name": "refkv.fits_tiles", "configuration": config}]);
         let mut doc = array_json(&shape, &data_type, c["chunk_shape"].clone(), codecs, &dim_refs);
         doc["attributes"] = J::Object(declare(Map::new(), PROFILE, None, Some(own)));
         refs.out.json(&format!("{path}/zarr.json"), &doc);

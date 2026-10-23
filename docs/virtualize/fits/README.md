@@ -20,7 +20,7 @@ refkv reads the headers (and, for a tile-compressed image, its table of
 tile descriptors), never the data, and writes an archive in which every HDU
 is a node: an image is an array whose chunks are byte ranges of the file,
 a tile-compressed image an array whose chunks are runs of its compressed
-tiles, decoded by the `fits_tiles` codec, and a table its rows and heap as
+tiles, decoded by the `refkv.fits_tiles` codec, and a table its rows and heap as
 bytes. Every header's cards come along.
 
 ## What you get
@@ -40,7 +40,7 @@ system cards describe for astropy and the viewers.
 - **Tile-compressed images** (`BINTABLE` with `ZIMAGE = T`): an array of
   the image's shape and type, chunked by runs of tiles up to 1 MiB
   decoded (128 rows of a DECam chip, 18 tiles of a Legacy Surveys brick),
-  with the `fits_tiles` codec: `RICE_1`, `GZIP_1`, `GZIP_2` and
+  with the `refkv.fits_tiles` codec: `RICE_1`, `GZIP_1`, `GZIP_2` and
   `NOCOMPRESS` tiles, quantized floats dequantized with cfitsio's dither.
   Each chunk is one byte range of the heap (tiles are stored one after the
   other) behind a small prefix that carries every tile's length, scale and
@@ -111,7 +111,7 @@ three rows fetched one 1 MiB chunk: 18 tiles, one range of the heap.
 
 **In the browser.** The demo page virtualizes a FITS file and serves it as
 Zarr; the Neuroglancer fork displays uncompressed images, and
-tile-compressed ones once it has the `fits_tiles` codec (the Rust core
+tile-compressed ones once it has the `refkv.fits_tiles` codec (the Rust core
 exports it to wasm as `vz_fits_tiles_decode`).
 
 ## Supported and not supported

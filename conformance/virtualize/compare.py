@@ -42,7 +42,8 @@ code records the current one, and writes the names those revisions used (`vzip_s
 `vzip_virtualized`, the convention's URLs under d-v-b/vzip), which revision 27 renamed:
 compared with it, the reference's output is read with the current names, at the current
 revision, and without the members of its source metadata that the mirror holds instead
-(NIfTI's extensions and raw bytes; `at_revision`). Each mirror is also checked on its own
+(NIfTI's extensions and raw bytes; `at_revision`), and the shipped code's without the members
+of its root image added since (TIFF's and NDPI's `omero`; `without_added`). Each mirror is also checked on its own
 (`mirror_problem`): it reads, it rebuilds a source of source 0's size (a store's: its listing,
 the sizes its sources pin, and every held object byte for byte, read from the store), it is
 canonical, and its view is the one its table and the source give.
@@ -116,6 +117,11 @@ REFERENCE_REVISIONS = {e["name"]: e["reference"] for e in REGISTRY if e["referen
 # The members of a frozen reference root's source metadata that the IR's mirror holds
 # instead (they named arrays of the reference's vzip_source, or held raw bytes).
 MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_truncated", "unparsed", "trailing")}
+# The members of the root image's `ome` the shipped code writes and the frozen reference does
+# not, by profile: TIFF's and NDPI's `omero`, added after the freeze (spec/virtualize/tiff.md §4.4
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>, spec/virtualize/ndpi.md §4
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>).
+ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
 
 
 class Unreadable(Exception):
@@ -450,7 +456,7 @@ def check(item: tuple, impls: dict, out_dir: Path) -> dict:
     name, url = item[:2]
     if len(item) > 2 and item[2] == "py-only":  # past the browser's limit: every implementation but web
         impls = {k: v for k, v in impls.items() if k != "web"}
-    if len(item) > 2 and item[2] == "no-ref":  # a profile the frozen reference never had (MRC, VSI): py and web alone
+    if len(item) > 2 and item[2] == "no-ref":  # a profile the frozen reference never had (MRC, VSI, MP3): py and web alone
         impls = {k: v for k, v in impls.items() if k != "ref"}
     results = {n: run(impl, url, out_dir / f"{name}.{n}.out") for n, impl in impls.items()}
     ref_name = next(iter(impls))
@@ -466,7 +472,7 @@ def check(item: tuple, impls: dict, out_dir: Path) -> dict:
         elif status == "rejected":
             verdicts[n] = ("rejects", [])
         else:
-            diffs = differences(without_source(at_revision(ref[1])), without_source(value)) \
+            diffs = differences(without_source(at_revision(ref[1])), without_source(without_added(value))) \
                 if mirror and n != ref_name else differences(ref[1], value)
             verdicts[n] = ("DIVERGES", diffs) if diffs else ("equivalent", [])
     # one core, two hosts: py and web give the same archive contents, the mirror included
@@ -514,6 +520,18 @@ def at_revision(output: dict) -> dict:
     return {**output, "entries": {**output["entries"], "zarr.json": (root[0], {**root[1], "attributes": attrs})}}
 
 
+def without_added(output: dict) -> dict:
+    """An output of the shipped code without the members of its root image that the frozen
+    reference does not write (ADDED), for comparing the two."""
+    root = output["entries"].get("zarr.json")
+    drop = ADDED.get(profile(output) or "", ())
+    if not drop or root[0] != "json" or not isinstance(root[1].get("attributes", {}).get("ome"), dict):
+        return output
+    attrs = root[1]["attributes"]
+    ome = {k: v for k, v in attrs["ome"].items() if k not in drop}
+    return {**output, "entries": {**output["entries"], "zarr.json": (root[0], {**root[1], "attributes": {**attrs, "ome": ome}})}}
+
+
 def without_source(output: dict) -> dict:
     """An output without the entries under refkv_source, its sources those the other entries
     use, in order of first use (the entries in order of their keys' UTF-8 bytes, each one's
@@ -557,7 +575,7 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
     stores = store_fixtures(fixtures)
     files = [p for p in sorted(p for s in FILE_SUFFIXES for p in fixtures.rglob(f"*{s}"))
              if not any(p.is_relative_to(s) for s in stores)]
-    # a profile the frozen reference never had (MRC): its files compare py with web alone
+    # a profile the frozen reference never had (MRC, VSI, MP3): its files compare py with web alone
     items = [(f"fixture-{p.stem}", proxy.local(p.relative_to(fixtures).as_posix()),
               *(["no-ref"] if FILE_SUFFIXES[p.suffix]["reference"] is None else []))
              for p in files]

@@ -1,0 +1,66 @@
+{
+  "source_model": "mp3",
+  "version": 1,
+  "about": "The source model of an MP3 file (spec/virtualize/mp3.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#53-elements>): the elements a parser emits, and the roles the file, each ID3v2 tag, the stream's first frame, a frame of another stream and the audio play, each with the constraints a file must meet to have the MP3 convention's layout (spec/virtualize/mp3.md §17.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#171-the-stream>). The parser checks them in this order; projections read a valid IR and check nothing.",
+  "limits": {
+    "chunk_frames": 256,
+    "reservoir_mpeg1": 511,
+    "reservoir_mpeg2": 255
+  },
+  "tables": {
+    "layers": {
+      "about": "the layer bits of a frame header: its name",
+      "1": "III",
+      "2": "II",
+      "3": "I"
+    }
+  },
+  "elements": {
+    "about": "The IR of an MP3 file. n is a tag's size, L a frame's length, S the samples per channel of a frame (1152 for MPEG-1, 576 for MPEG-2 and 2.5), C the channel count.",
+    "id3v2/<k>": {"kind": "struct", "about": "the k-th ID3v2 tag at the front of the file, k from 0; its extent the whole tag"},
+    "id3v2/<k>/header": {"kind": "value", "type": "{id:ascii[3],version:u1[2],flags:u1,size:u1[4]}", "extent": "(at, 10): the tag's header"},
+    "id3v2/<k>/data": {"kind": "value", "type": "bytes[n]", "extent": "(at + 10, n), when n > 0: the tag's frames and padding, opaque"},
+    "id3v2/<k>/footer": {"kind": "value", "type": "bytes[10]", "extent": "(at + 10 + n, 10), when the header's footer flag (0x10) is set"},
+    "info": {"kind": "value", "type": "bytes[L]", "extent": "the stream's first frame, when it holds a Xing, Info or VBRI tag: not an audio frame"},
+    "frames": {"kind": "struct", "about": "the audio frames; its extent from the first frame's start to the last frame's end"},
+    "frames/<j>": {"kind": "data", "form": "{geometry: {samples: S, channels: C, data_type: int16}, codec: {name: mp3, version, sample_rate}, recipe: [[src, 0, null]]}", "extent": "(offset, L): audio frame j, j from 0, header included"},
+    "id3v1": {"kind": "value", "type": "{tag:ascii[3],title:cstr[30],artist:cstr[30],album:cstr[30],year:ascii[4],comment:cstr[30],genre:u1}", "extent": "(size - 128, 128), when the file ends with TAG there"},
+    "ape": {"kind": "value", "type": "bytes[n]", "extent": "the APE tag before the ID3v1 tag (or at the end), footer and header included, opaque"},
+    "gaps/<offset>": {"kind": "gap", "about": "bytes no frame or tag holds: junk between frames, a truncated last frame, bytes after the last frame"}
+  },
+  "roles": {
+    "file": {
+      "given": {"size": "the file's size"},
+      "constraints": [
+        {"require": "size >= 4", "message": "file too short for an MPEG audio frame header"}
+      ]
+    },
+    "id3v2": {
+      "given": {"at": "the tag's offset", "size": "the file's size", "have": "size - at", "total": "10 + the size field + 10 for a footer", "syncsafe": "whether every size byte is below 0x80", "byte": "the first size byte that is not, when one is"},
+      "constraints": [
+        {"require": "have >= 10", "message": "the ID3v2 tag at {at} has no 10-byte header: the file ends at {size}"},
+        {"require": "syncsafe", "message": "the ID3v2 tag at {at} has a size byte that is not syncsafe ({byte})"},
+        {"require": "at + total <= size", "message": "the {total}-byte ID3v2 tag at {at} is outside the {size}-byte file"}
+      ]
+    },
+    "stream": {
+      "given": {"at": "the first confirmed frame's offset", "version": "its version's name", "layer": "its layer bits (1: Layer III)", "layer_name": "its layer's name"},
+      "constraints": [
+        {"require": "layer == 1", "message": "{version} Layer {layer_name} (the frame at {at}) is not supported: only Layer III is"}
+      ]
+    },
+    "frame": {
+      "given": {"at": "a confirmed frame's offset", "what": "the first parameter it changes: version, layer, sample rate or channel count", "from": "the stream's value", "to": "the frame's", "same": "false"},
+      "constraints": [
+        {"require": "same", "message": "the frame at {at} changes the {what} from {from} to {to}"}
+      ]
+    },
+    "audio": {
+      "given": {"frames": "the audio frames found", "free": "the offset of the first free-format header met, when one was"},
+      "constraints": [
+        {"require": "frames >= 1 || !present(free)", "message": "free-format bitrate (the frame header at {free}) is not supported"},
+        {"require": "frames >= 1", "message": "no MPEG audio frames"}
+      ]
+    }
+  }
+}

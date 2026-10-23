@@ -39,6 +39,7 @@ pub static TIFF_SCHEMA: &str = include_str!("../schema/tiff.json");
 pub static CZI_SCHEMA: &str = include_str!("../schema/czi.json");
 pub static NIFTI_SCHEMA: &str = include_str!("../schema/nifti.json");
 pub static MRC_SCHEMA: &str = include_str!("../schema/mrc.json");
+pub static MP3_SCHEMA: &str = include_str!("../schema/mp3.json");
 pub static FITS_SCHEMA: &str = include_str!("../schema/fits.json");
 pub static IMS_SCHEMA: &str = include_str!("../schema/ims.json");
 pub static SAFE_SCHEMA: &str = include_str!("../schema/safe.json");
@@ -90,6 +91,11 @@ pub fn nifti() -> &'static Rules {
 pub fn mrc() -> &'static Rules {
     static S: OnceLock<Rules> = OnceLock::new();
     S.get_or_init(|| Rules::new(MRC_SCHEMA).expect("the MRC schema is valid"))
+}
+
+pub fn mp3() -> &'static Rules {
+    static S: OnceLock<Rules> = OnceLock::new();
+    S.get_or_init(|| Rules::new(MP3_SCHEMA).expect("the MP3 schema is valid"))
 }
 
 pub fn vsi() -> &'static Rules {

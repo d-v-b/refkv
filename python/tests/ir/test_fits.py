@@ -133,7 +133,7 @@ def test_matches_astropy_and_rebuilds(path, tmp_path):
                 assert node.shape == want.shape and node.dtype == want.dtype.newbyteorder("=")
                 same_pixels(node[...], want, path.stem, hdu.data if same is None else None)
                 codec = json.loads(out.bytes_entries[f"{i}/zarr.json"])["codecs"][0]
-                assert codec["name"] == "fits_tiles" and codec["configuration"]["compression"] == entry["compression"]["type"]
+                assert codec["name"] == "refkv.fits_tiles" and codec["configuration"]["compression"] == entry["compression"]["type"]
                 continue
             if isinstance(hdu, (fits.BinTableHDU, fits.TableHDU)):
                 assert entry["kind"] == "table"

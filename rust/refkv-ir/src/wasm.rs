@@ -40,7 +40,7 @@ pub extern "C" fn vz_out() -> *const u8 {
     OUT.with(|o| o.borrow().as_ptr())
 }
 
-/// The `fits_tiles` codec (spec/virtualize/fits.md §3.3
+/// The `refkv.fits_tiles` codec (spec/virtualize/fits.md §3.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>):
 /// decodes the chunk at `chunk` (`n` bytes) with the configuration JSON at `config` (`nc`
 /// bytes) into the pixels of the chunk shape at `shape` (`rank` little-endian u64), in

@@ -15,7 +15,7 @@ import pytest
 import tifffile
 import zarr
 
-from ir_helpers import FIXTURES
+from ir_helpers import FIXTURES, omero_and_expected_windows
 from refkv.ir import virtualize as via_ir
 from refkv.ir.cmirror import rebuild_from_archive
 from refkv.virtualize import Rejected, virtualize
@@ -117,11 +117,11 @@ def test_layout_of_the_fluorescence_scan():
     assert scales[0] == [1, 10000 / 20080, 10000 / 20080] and scales[1][1] == 2 * scales[0][1]
     assert all(ds["coordinateTransformations"][1] == {"type": "translation", "translation": [0, 484400.0, 88600.0]}
                for ds in ms["datasets"])
-    assert ome["omero"] == {"channels": [
+    assert [{k: v for k, v in c.items() if k != "window"} for c in ome["omero"]["channels"]] == [
         {"label": "DAPI", "color": "0000FF", "active": True},
         {"label": "Cy3 & TRITC", "color": "FF3C9D", "active": True},
         {"label": "Opal 520", "color": "00FF00", "active": True},
-    ]}
+    ]  # their windows sampled (test_omero_windows_sample_the_coarsest_level)
     assert d["0/zarr.json"]["shape"] == [3, 96, 128]
     assert d["0/zarr.json"]["chunk_grid"] == {"name": "regular", "configuration": {"chunk_shape": [1, 32, 32]}}
     assert d["0/zarr.json"]["codecs"] == [{"name": "bytes"}, {"name": "imagecodecs_lzw"}]
@@ -166,8 +166,54 @@ def test_layout_of_an_rgb_scan_and_of_component_data():
     assert d["0/zarr.json"]["chunk_grid"] == {"name": "regular", "configuration": {"chunk_shape": [1, 16, 48]}}
     assert len(out.refs["0/c/1/2/0"]) == 2 and isinstance(out.refs["0/c/1/2/0"][1], bytes)
     assert d["zarr.json"]["attributes"]["ome"]["multiscales"][0]["name"] == "HnE_3"
-    assert d["zarr.json"]["attributes"]["ome"]["omero"]["channels"] == [
+    assert [{k: v for k, v in c.items() if k != "window"} for c in d["zarr.json"]["attributes"]["ome"]["omero"]["channels"]] == [
         {"label": "Eosin", "color": "FF3C9D", "active": True}, {"label": "Hematoxylin", "color": "32459D", "active": True}]
+
+
+@pytest.mark.parametrize("path", QPTIFFS, ids=lambda p: p.name)
+def test_omero_windows_sample_the_coarsest_level(path):
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#43-arrays>: each
+    channel's window is the one numpy computes from the coarsest level read through zarr-python
+    (ir_helpers.omero_and_expected_windows), and a float channel without one has none."""
+    omero, want = omero_and_expected_windows(path, "qptiff")
+    assert [c.get("window") for c in omero["channels"]] == want
+
+
+def test_windows_of_rgb_samples_are_the_type_range():
+    """The uncompressed RGB scan's samples, which the core decodes, keep the type's range: a
+    window per sample would tint them."""
+    _, out, _ = via_ir(str(FIXTURES / "qptiff" / "qptiff_bf_rgb_uncompressed.qptiff"), "u", mirror=False)
+    full = {"min": 0, "max": 255, "start": 0, "end": 255}
+    assert [c["window"] for c in docs(out)["zarr.json"]["attributes"]["ome"]["omero"]["channels"]] == [full] * 3
+
+
+def broken(tmp_path, name: str, key: str):
+    """A copy of the fixture `name` whose chunk `key` (one range of the source, not a padded
+    last strip) is overwritten with 0xFF bytes, which no LZW stream starts with: the IR
+    output of the copy."""
+    path = FIXTURES / "qptiff" / name
+    _, out, _ = via_ir(str(path), "u", mirror=False)
+    (offset, length), = out.refs[key]
+    b = bytearray(path.read_bytes())
+    b[offset:offset + length] = b"\xff" * length
+    (tmp_path / name).write_bytes(b)
+    _, out, _ = via_ir(str(tmp_path / name), "u", mirror=False)
+    return [c.get("window") for c in docs(out)["zarr.json"]["attributes"]["ome"]["omero"]["channels"]]
+
+
+def test_a_chunk_that_does_not_decode_gives_the_type_range(tmp_path):
+    """Channel 1's sampled strip of the coarsest level (level 2, 24 rows in strips of 16: strip 0)
+    not decoding gives that channel uint8's range; the others are sampled."""
+    windows = broken(tmp_path, "qptiff_fl_uint8_lzw.qptiff", "2/c/1/0/0")
+    assert windows[1] == {"min": 0, "max": 255, "start": 0, "end": 255}
+    assert windows[0]["start"] > 0 and windows[2]["start"] > 0
+
+
+def test_a_float_chunk_that_does_not_decode_gives_no_window(tmp_path):
+    """Channel 0's sampled strip of the float32 component data (40 rows in strips of 16: strip 1)
+    not decoding leaves that channel without a window, which a float type has no range for."""
+    windows = broken(tmp_path, "qptiff_component_float32_strips.qptiff", "0/c/0/1/0")
+    assert windows[0] is None and windows[1] is not None
 
 
 def test_unknown_and_undescribed_images_are_ignored_and_96_dpi_is_no_pixel_size():

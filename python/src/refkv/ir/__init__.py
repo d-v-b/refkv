@@ -35,10 +35,22 @@ def nifti_version(head: bytes) -> int | None:
     return None
 
 
+def mpeg_header(head: bytes) -> bool:
+    """Whether `head` starts with an MPEG audio frame header (spec/virtualize.md §1.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>): the 11-bit sync, a
+    version and a layer that are not reserved, and a sample rate index from 0 to 2, of any layer
+    and bitrate index (the MP3 profile rejects Layers I and II, and a free-format bitrate, by
+    name)."""
+    if len(head) < 4 or head[0] != 0xFF or head[1] & 0xE0 != 0xE0:
+        return False
+    version, layer, rate = (head[1] >> 3) & 3, (head[1] >> 1) & 3, (head[2] >> 2) & 3
+    return version != 1 and layer != 0 and rate != 3
+
+
 def sniff(head: bytes) -> str | None:
     """The IR format a file's first bytes give, if any (132 of them for DICOM, 348 for
-    NIfTI-1, 212 for MRC, 30 for FITS; DICOM first: a dual-personality file's preamble may hold a TIFF
-    header)."""
+    NIfTI-1, 212 for MRC, 4 for MP3, 30 for FITS; DICOM first: a dual-personality file's preamble may hold
+    a TIFF header)."""
     if head[128:132] == b"DICM":
         return "dicom"
     if head[:4] == ND2_MAGIC:
@@ -57,8 +69,10 @@ def sniff(head: bytes) -> str | None:
         return "safe"
     if len(head) >= 212 and head[208:211] == b"MAP":
         return "mrc"
-    # `SIMPLE  =` and a fixed-format T in column 30: a FITS file (spec/virtualize/fits.md §17.1
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#171-choosing-the-profile>)
+    if head[:3] == b"ID3" or mpeg_header(head):
+        return "mp3"
+    # `SIMPLE  =` and a fixed-format T in column 30: a FITS file (spec/virtualize/fits.md §18.1
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#181-choosing-the-profile>)
     if len(head) >= 30 and head[:9] == b"SIMPLE  =" and head[29:30] == b"T":
         return "fits"
     return None

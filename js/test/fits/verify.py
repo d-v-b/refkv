@@ -3,7 +3,7 @@
 Each fixtures/fits/*.fits is served over local HTTP and virtualized by
 js/conformance/virtualize.ts (the browser code, run under Node). Every HDU's node is read
 through the reference reader and zarr-python: an image's array (a tile-compressed one
-decoded by the `fits_tiles` codec) must equal astropy's data, a table's rows and heap the
+decoded by the `refkv.fits_tiles` codec) must equal astropy's data, a table's rows and heap the
 file's bytes, and every node's cards astropy's reading of the header
 (spec/virtualize/fits.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#5-source-metadata>).
 The file must be rebuilt byte for byte from the archive's IR mirror (refkv_source, §6
@@ -31,7 +31,7 @@ sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 from http_server import Server  # noqa: E402
 
 from refkv.policy import Policy  # noqa: E402
-import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store, with the fits_tiles codec)
+import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store, with the refkv.fits_tiles codec)
 
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import mirror_problems  # noqa: E402

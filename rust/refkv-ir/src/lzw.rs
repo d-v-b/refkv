@@ -5,7 +5,9 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#42-tiles-and-strips>): a
 //! scan that decodes a strip's stream only to find where its output reaches the strip's size,
 //! and the tail that continues such a stream with zero bytes, so that a short last strip
-//! decodes to a whole chunk. The bytes decoded are not kept.
+//! decodes to a whole chunk; and a decoder of a chunk's stream, for the `omero` windows sampled
+//! from the data (spec/virtualize/qptiff.md §4.3
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#43-arrays>).
 
 const CLEAR: u32 = 256;
 const EOI: u32 = 257;
@@ -115,6 +117,51 @@ pub fn scan(data: &[u8], size: u64) -> Result<Cut, String> {
             return Ok(Cut { bit, width: s.width, next: s.next, has_prev: s.prev.is_some() });
         }
     }
+}
+
+/// Decodes `data` until its output reaches `size` bytes, as `scan` reads it (what follows is
+/// not read): the output. A stream that ends before `size`, or whose code crosses it, is an
+/// error.
+pub fn decode(data: &[u8], size: u64) -> Result<Vec<u8>, String> {
+    let size = usize::try_from(size).map_err(|_| "a chunk too large to decode")?;
+    let mut s = State::new();
+    // each entry's string is its prefix entry's string and its last byte; `head` its first
+    let mut prefix = vec![0u32; MAX_CODE as usize];
+    let mut last: Vec<u8> = (0..MAX_CODE).map(|i| i as u8).collect();
+    let mut head = last.clone();
+    let mut out = Vec::with_capacity(size);
+    let mut bit = 0usize;
+    while out.len() < size {
+        let code = read(data, bit, s.width).ok_or("the LZW stream ends before the chunk's size")?;
+        bit += s.width as usize;
+        if code == CLEAR {
+            s.clear();
+            continue;
+        }
+        if code == EOI {
+            return Err("the LZW stream ends before the chunk's size".into());
+        }
+        let (next, prev) = (s.next, s.prev);
+        let n = s.take(code)? as usize;
+        if let Some(p) = prev.filter(|_| next < MAX_CODE) {
+            // the previous string and the first byte of this one (itself, when it is the new entry)
+            let p = p as usize;
+            prefix[next as usize] = p as u32;
+            last[next as usize] = if code < next { head[code as usize] } else { head[p] };
+            head[next as usize] = head[p];
+        }
+        let at = out.len();
+        if at + n > size {
+            return Err("an LZW code crosses the chunk's size".into());
+        }
+        out.resize(at + n, 0);
+        let mut c = code;
+        for b in out[at..].iter_mut().rev() {
+            *b = last[c as usize];
+            c = prefix[c as usize];
+        }
+    }
+    Ok(out)
 }
 
 /// Appends the `width` low bits of `code` to `bits`, most significant first.
@@ -235,78 +282,6 @@ mod tests {
         bits
     }
 
-    /// A plain decoder, for the tests: the whole output.
-    fn decode(data: &[u8]) -> Result<Vec<u8>, String> {
-        let mut prefix = vec![-1i32; MAX_CODE as usize];
-        let mut suffix = vec![0u8; MAX_CODE as usize];
-        let mut first = vec![0u8; MAX_CODE as usize];
-        let mut length = vec![0u32; MAX_CODE as usize];
-        for i in 0..256 {
-            suffix[i] = i as u8;
-            first[i] = i as u8;
-            length[i] = 1;
-        }
-        let (mut width, mut next, mut prev) = (9u32, FIRST, None::<u32>);
-        let mut out = Vec::new();
-        let mut bit = 0;
-        loop {
-            let code = read(data, bit, width).ok_or("ends")?;
-            bit += width as usize;
-            if code == CLEAR {
-                width = 9;
-                next = FIRST;
-                prev = None;
-                continue;
-            }
-            if code == EOI {
-                return Ok(out);
-            }
-            let f;
-            if code < next {
-                f = first[code as usize];
-                let n = length[code as usize] as usize;
-                let at = out.len();
-                out.resize(at + n, 0);
-                let mut p = at + n - 1;
-                let mut c = code as i32;
-                while c >= 0 {
-                    out[p] = suffix[c as usize];
-                    c = prefix[c as usize];
-                    p = p.wrapping_sub(1);
-                }
-            } else if code == next && prev.is_some() {
-                let p = prev.unwrap();
-                f = first[p as usize];
-                let n = length[p as usize] as usize;
-                let at = out.len();
-                out.resize(at + n + 1, 0);
-                let mut q = at + n - 1;
-                let mut c = p as i32;
-                while c >= 0 {
-                    out[q] = suffix[c as usize];
-                    c = prefix[c as usize];
-                    q = q.wrapping_sub(1);
-                }
-                out[at + n] = f;
-            } else {
-                return Err(format!("invalid code {code}"));
-            }
-            if let Some(p) = prev {
-                if next < MAX_CODE {
-                    prefix[next as usize] = p as i32;
-                    suffix[next as usize] = f;
-                    first[next as usize] = first[p as usize];
-                    length[next as usize] = length[p as usize] + 1;
-                    next += 1;
-                    if next + 1 == 1 << width && width < 12 {
-                        width += 1;
-                    }
-                }
-            }
-            prev = Some(code);
-        }
-    }
-
     fn sample(n: usize) -> Vec<u8> {
         (0..n).map(|i| ((i * 7 + (i >> 5)) % 251) as u8).collect()
     }
@@ -315,7 +290,7 @@ mod tests {
     fn the_test_codec_round_trips() {
         for n in [1, 300, 5000, 70000] {
             let d = sample(n);
-            assert_eq!(decode(&encode(&d)).unwrap(), d, "{n}");
+            assert_eq!(decode(&encode(&d), n as u64).unwrap(), d, "{n}");
         }
     }
 
@@ -331,7 +306,7 @@ mod tests {
             padded.extend_from_slice(&lit);
             let mut want = d.clone();
             want.extend(std::iter::repeat_n(0u8, zeros as usize));
-            assert_eq!(decode(&padded).unwrap(), want, "{n} + {zeros}");
+            assert_eq!(decode(&padded, want.len() as u64).unwrap(), want, "{n} + {zeros}");
         }
     }
 
@@ -342,7 +317,7 @@ mod tests {
         let (prefix, lit) = tail(&e, scan(&e, 300).unwrap(), 0);
         let mut padded = e[..prefix as usize].to_vec();
         padded.extend_from_slice(&lit);
-        assert_eq!(decode(&padded).unwrap(), d);
+        assert_eq!(decode(&padded, 300).unwrap(), d);
     }
 
     #[test]
@@ -360,7 +335,31 @@ mod tests {
         padded.extend_from_slice(&lit);
         let mut want = d.clone();
         want.extend([0u8; 10]);
-        assert_eq!(decode(&padded).unwrap(), want);
+        assert_eq!(decode(&padded, 310).unwrap(), want);
+    }
+
+    #[test]
+    fn the_decoder_stops_at_the_size() {
+        let d = sample(300);
+        let mut e = encode(&d);
+        let cut = scan(&e, 300).unwrap();
+        e.truncate(cut.bit.div_ceil(8));
+        e.extend_from_slice(&[0xff, 0xff, 0xff]);
+        assert_eq!(decode(&e, 300).unwrap(), d);
+        assert_eq!(decode(&e, 0).unwrap(), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn the_decoder_rejects_a_stream_shorter_than_the_size() {
+        let e = encode(&sample(300));
+        assert!(decode(&e, 400).unwrap_err().contains("ends before"));
+        assert!(decode(&e[..20], 300).unwrap_err().contains("ends before"));
+    }
+
+    #[test]
+    fn the_decoder_rejects_a_code_that_crosses_the_size() {
+        let e = encode(&std::iter::repeat_n(7u8, 1000).collect::<Vec<u8>>());
+        assert!(decode(&e, 999).unwrap_err().contains("crosses"));
     }
 
     #[test]
