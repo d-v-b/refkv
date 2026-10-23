@@ -48,9 +48,10 @@ level, `0` the full resolution.
   uncompressed data; interleaved RGB behind a `transpose` codec. Integer and
   float32 samples (inForm's component data).
 - **Channels:** `omero.channels` carries each channel's name and color from
-  its description (`DAPI`, `0,0,255`), without a contrast window (the file
-  records none; the demo samples one from the data); an RGB scan gets `R`,
-  `G` and `B` channels.
+  its description (`DAPI`, `0,0,255`), with its data type's whole range as
+  the window (the file records no display range; the demo samples one from
+  the data), and no window for float32; an RGB scan gets `R`, `G` and `B`
+  channels.
 - **Scale:** from the TIFF resolution tags (pixels per centimeter), in
   micrometers; each level's scale grows with its downsampling.
 - **Translation:** the stage position of the image's upper-left corner,

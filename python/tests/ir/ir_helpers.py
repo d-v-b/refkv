@@ -14,6 +14,12 @@ sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
 # The members of a frozen root's source metadata the IR's mirror holds instead, for the
 # profiles frozen at revision 25 (conformance/virtualize/compare.py's MIRRORED).
 MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_truncated", "unparsed", "trailing")}
+# The members of the root image's `ome` the IR writes and the frozen reference does not, by
+# profile (conformance/virtualize/compare.py's ADDED): TIFF's and NDPI's `omero`, added after
+# the freeze (spec/virtualize/tiff.md §4.4
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>, spec/virtualize/ndpi.md §4
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>).
+ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
 
 
 def same_hierarchy(a, b) -> None:
@@ -21,7 +27,8 @@ def same_hierarchy(a, b) -> None:
     the source metadata node: documents, references and data sources. The reference
     writes the names of the revision it implements (refkv_reference.legacy), read as the
     current ones, and its root records that revision (refkv_reference.revision: 20, or 25
-    for DICOM, NIfTI, IMS and NDPI), which is dropped: the shipped code records none."""
+    for DICOM, NIfTI, IMS and NDPI), which is dropped: the shipped code records none.
+    The members of `b`'s root image the reference does not write (ADDED) are dropped."""
     from refkv_reference.legacy import SOURCE_NODE as LEGACY_NODE
     from refkv_reference.legacy import current_names
     from refkv_reference.revision import DICOM_REVISION, IMS_REVISION, REVISION_25
@@ -43,6 +50,9 @@ def same_hierarchy(a, b) -> None:
             del prop["revision"]
             for k in moved or ():
                 prop[prop["profile"]].pop(k, None)
+        if o is b:
+            for k in ADDED.get(prop.get("profile"), ()):
+                d["zarr.json"]["attributes"].get("ome", {}).pop(k, None)
         return d
 
     def refs(o):

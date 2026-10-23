@@ -11,7 +11,10 @@ How refkv produces this layout as a reference store is the QPTIFF profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `329ea136-2f55-4c27-b6f4-8e60ca2109b8` ·
-Schema: [schema.json](qptiff/schema.json)
+Schema: [schema.json](qptiff/schema.json) · Changed 2026-10-23: each `omero` channel of an
+integer type has the type's range as its window ([§4.3](#43-arrays)), after
+[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
+(a profile's changes are recorded here, dated, from then on)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the QPTIFF
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
@@ -259,12 +262,15 @@ SamplesPerPixel.
     that letter alone, with colors `FF0000`, `00FF00`, `0000FF`; with any
     other `spp > 1`, `spp` channels labeled likewise with `S<s>` and
     colored `FFFFFF`;
-  - every channel has `"active": true` and no `window`: a QPTIFF records no
-    display range (SMinSampleValue and SMaxSampleValue, when present, are
-    the data's extremes, not a display setting), and a reader that needs
-    one samples it from the data, as refkv's demo does.
+  - every channel has `"active": true`; with an integer data type, the
+    **window** of the type's whole range, as in [the TIFF convention
+    §4.4](tiff.md#44-arrays) (0 to 255 for `uint8`), and with `float32` no
+    window, which has no such range: a QPTIFF records no display range
+    (SMinSampleValue and SMaxSampleValue, when present, are the data's
+    extremes, not a display setting), and a reader that needs contrast
+    samples it from the data, as refkv's demo does.
 
-  The members are written in the order label, color, active.
+  The members are written in the order label, color, active, window.
 
 ## 5. Source metadata
 
@@ -323,9 +329,9 @@ OME metadata:
     ]
   }],
   "omero": {"channels": [
-    {"label": "DAPI", "color": "0000FF", "active": true},
-    {"label": "Cy3 & TRITC", "color": "FF3C9D", "active": true},
-    {"label": "Opal 520", "color": "00FF00", "active": true}
+    {"label": "DAPI", "color": "0000FF", "active": true, "window": {"min": 0, "max": 255, "start": 0, "end": 255}},
+    {"label": "Cy3 & TRITC", "color": "FF3C9D", "active": true, "window": {"min": 0, "max": 255, "start": 0, "end": 255}},
+    {"label": "Opal 520", "color": "00FF00", "active": true, "window": {"min": 0, "max": 255, "start": 0, "end": 255}}
   ]}
 }
 ```

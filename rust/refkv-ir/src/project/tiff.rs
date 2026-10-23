@@ -1,13 +1,52 @@
 //! The TIFF image projection (spec/virtualize/tiff.md §4
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#4-the-image>) from a valid IR:
-//! each level's planes name the IR's tiles; the facts hold the format, sizes, scales and
-//! translation.
+//! each level's planes name the IR's tiles; the facts hold the format, sizes, scales,
+//! translation, and the OME-XML's channel names and colors (its `omero`).
 
 use super::{arr, key, n, obj, strs, translations, truthy};
 use crate::ir::Ir;
-use crate::out::{array_json, image_ome, root_json, tiff_codecs, transpose_codec, Out};
+use crate::out::{array_json, image_ome, omero_channel, omero_json, root_json, sample_channels, tiff_codecs, transpose_codec, type_window, Out};
 use crate::refs::Refs;
+use crate::tiff::MAX_OMERO;
 use serde_json::{json, Value as J};
+
+/// The longest channel name taken for a label.
+const MAX_NAME: usize = 256;
+
+/// A channel's omero color from its OME-XML `Color` (a signed 32-bit integer, `RRGGBBAA`), else
+/// white.
+fn color(v: &J) -> String {
+    match v.as_str().and_then(|s| s.trim_matches([' ', '\t', '\r', '\n']).parse::<i32>().ok()) {
+        Some(c) => format!("{:06X}", (c as u32) >> 8),
+        None => "FFFFFF".into(),
+    }
+}
+
+/// The `omero` member (spec/virtualize/tiff.md §4.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>), when the data
+/// type is an integer type and there are at most 64 channels: the samples, `R`, `G`, `B` when
+/// they decode to RGB; else one per channel, named and colored by the OME-XML's Channels. Each
+/// channel's window is the type's whole range, since a TIFF records no display range.
+fn omero(facts: &J, size_c: u64, data_type: &str) -> Option<J> {
+    let window = type_window(data_type)?;
+    if size_c > MAX_OMERO {
+        return None;
+    }
+    let ome = arr(&facts["ome"]["channels"]);
+    let name = |c: u64| ome.get(c as usize).and_then(|o| o["name"].as_str()).filter(|s| !s.is_empty() && s.len() <= MAX_NAME);
+    let spp = n(&facts["spp"]);
+    if spp > 1 {
+        let (interpretation, compression) = (n(&facts["interpretation"]), n(&facts["compression"]));
+        let rgb = interpretation == 2 || (interpretation == 6 && compression == 7);
+        let base = name(0).map(|s| format!("{s} ")).unwrap_or_default();
+        return Some(omero_json(sample_channels(&base, spp, rgb, Some(&window))));
+    }
+    let channels = (0..size_c).map(|c| {
+        let label = name(c).map(str::to_string).unwrap_or_else(|| format!("C{c}"));
+        omero_channel(&label, color(ome.get(c as usize).map_or(&J::Null, |o| &o["color"])), Some(&window))
+    });
+    Some(omero_json(channels.collect()))
+}
 
 /// The TIFF image: one array per level, its chunks the tiles of each plane.
 pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
@@ -76,9 +115,29 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let mut out = refs.out;
     let tr = &facts["translation"];
     let trs = J::Array(if truthy(tr) { vec![tr.clone(); levels.len()] } else { vec![] });
-    let ome = image_ome(&axes, &obj(&facts["units"]), arr(&facts["scales"]), Some(&facts["name"]), translations(&trs))?;
+    let mut ome = image_ome(&axes, &obj(&facts["units"]), arr(&facts["scales"]), Some(&facts["name"]), translations(&trs))?;
+    if let Some(omero) = omero(facts, size_c, &data_type) {
+        ome["omero"] = omero;
+    }
     let own = json!({"byte_order": if little { "little" } else { "big" }, "bigtiff": facts["bigtiff"]});
     out.json("zarr.json", &root_json(ome, "tiff", url, Some(own)));
     out.summary = json!({"axes": axes, "levels": shapes, "references": out.refs.len()});
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn omero_lists_at_most_64_channels() {
+        let facts = json!({"spp": 1});
+        assert_eq!(arr(&omero(&facts, 64, "uint8").unwrap()["channels"]).len(), 64);
+        assert_eq!(omero(&facts, 65, "uint8"), None);
+    }
+
+    #[test]
+    fn omero_needs_an_integer_type() {
+        assert_eq!(omero(&json!({"spp": 1}), 1, "float32"), None);
+    }
 }
