@@ -8,6 +8,8 @@ virtualizes image files and stores, without Zarr. The extras add:
   archives of virtualized image files and stores use (`refkv.zarr.codecs`);
 - `images`: the JPEG, JPEG 2000 and JPEG XR decoders of those codecs
   (imagecodecs), with the `zarr` extra;
+- `audio`: the MP3 decoder (miniaudio) of the `mp3` codec, which reads virtualized
+  MP3 files, with the `zarr` extra;
 - `obstore`: obstore, whose stores (`S3Store`, `GCSStore`, `AzureStore`, ...)
   an application passes as `registry=` to read `s3://`, `gs://` or `az://`
   sources. refkv does not import it: a registry takes any obspec store, and

@@ -563,6 +563,85 @@ SOURCE_METADATA["vsi"] = {"anyOf": [
 ]}
 VSI_DEFS = {"vsiField": _VSI_FIELD}
 
+SOURCE_METADATA["mp3"] = {"anyOf": [
+    {
+        "type": "object",
+        "description": "The root's: the stream's parameters, derived from its frames, and the fields of its info frame and tags (spec/virtualize/mp3.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#51-the-root>)",
+        "properties": {
+            "version": {"enum": ["MPEG-1", "MPEG-2", "MPEG-2.5"]},
+            "layer": {"const": 3},
+            "sample_rate": {"enum": [8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000]},
+            "channels": {"enum": [1, 2]},
+            "channel_mode": {"enum": ["stereo", "joint_stereo", "dual_channel", "mono"],
+                             "description": "The first audio frame's channel mode"},
+            "samples_per_frame": {"enum": [576, 1152]},
+            "frames": {"type": "integer", "minimum": 1, "description": "The audio frames (the info frame is not one)"},
+            "samples": {"type": "integer", "minimum": 1, "description": "frames * samples_per_frame"},
+            "duration": {"type": "number", "exclusiveMinimum": 0, "description": "samples / sample_rate, in seconds"},
+            "bitrate_mode": {"enum": ["constant", "variable"]},
+            "bitrate_kbps": {"type": ["integer", "null"], "description": "The bitrate of every audio frame, or null when they differ"},
+            "crc_frames": {"type": "integer", "minimum": 0, "description": "The audio frames with a CRC"},
+            "info": {
+                "type": "object",
+                "description": "The info frame's fields: a Xing, Info or VBRI tag, and a LAME tag after a Xing or Info one",
+                "properties": {
+                    "tag": {"enum": ["Xing", "Info", "VBRI"]},
+                    "frames": {"type": ["integer", "null"]},
+                    "bytes": {"type": ["integer", "null"]},
+                    "quality": {"type": ["integer", "null"]},
+                    "encoder": {"type": ["string", "null"], "description": "The LAME tag's 9-byte encoder version, when printable"},
+                    "delay": {"type": ["integer", "null"], "description": "The encoder delay in samples (a LAME tag's, or a VBRI tag's)"},
+                    "padding": {"type": ["integer", "null"], "description": "The encoder padding in samples (a LAME tag's)"},
+                },
+                "required": ["tag", "frames", "bytes", "quality", "encoder", "delay", "padding"],
+                "additionalProperties": False,
+            },
+            "id3v2": {
+                "type": "array", "minItems": 1,
+                "description": "The ID3v2 tags at the start, in order: each header's version, flags and size, and whether it has a footer",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "version": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 255}, "minItems": 2, "maxItems": 2},
+                        "flags": {"type": "integer", "minimum": 0, "maximum": 255},
+                        "size": {"type": "integer", "minimum": 0},
+                        "footer": {"type": "boolean"},
+                    },
+                    "required": ["version", "flags", "size", "footer"],
+                    "additionalProperties": False,
+                },
+            },
+            "id3v1": {
+                "type": "object",
+                "description": "The ID3v1 tag's fields: each text up to its first NUL",
+                "properties": {
+                    "title": {"$ref": "#/$defs/text"}, "artist": {"$ref": "#/$defs/text"}, "album": {"$ref": "#/$defs/text"},
+                    "year": {"$ref": "#/$defs/text"}, "comment": {"$ref": "#/$defs/text"},
+                    "track": {"type": ["integer", "null"], "description": "An ID3v1.1 tag's track number"},
+                    "genre": {"type": "integer", "minimum": 0, "maximum": 255},
+                },
+                "required": ["title", "artist", "album", "year", "comment", "track", "genre"],
+                "additionalProperties": False,
+            },
+            "ape": {
+                "type": "object",
+                "description": "The APE tag's footer fields, and the tag's whole size",
+                "properties": {"version": {"type": "integer", "minimum": 0}, "size": {"type": "integer", "minimum": 32},
+                               "items": {"type": "integer", "minimum": 0}},
+                "required": ["version", "size", "items"],
+                "additionalProperties": False,
+            },
+            "stray_bytes": {"type": "integer", "minimum": 0,
+                            "description": "The bytes between the tags that are in no frame"},
+        },
+        "required": ["version", "layer", "sample_rate", "channels", "channel_mode", "samples_per_frame", "frames",
+                     "samples", "duration", "bitrate_mode", "bitrate_kbps", "crc_frames", "stray_bytes"],
+        "additionalProperties": False,
+    },
+    {"$ref": "#/$defs/mirror"},
+    {"$ref": "#/$defs/mirrorView"},
+]}
+
 # The dataset layout of an MRC file (spec/virtualize/mrc-dataset.md §4
 # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc-dataset.md#4-source-metadata>): the
 # MRC convention's root metadata, member for member, on the group `dataset`.

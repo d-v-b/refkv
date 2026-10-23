@@ -10,9 +10,10 @@ module wraps one as a `zarr.abc.store.Store`:
     ds = xr.open_zarr(refkv.zarr.open("data.vzip"))  # a saved archive
     ds = xr.open_zarr(refkv.zarr.store(store))      # a refkv.ReferenceStore
 
-Importing it also registers the codecs that archives of virtualized image files
-and stores use (`refkv.zarr.codecs`): JPEG, JPEG 2000 and JPEG XR (whose decoders
-need the `images` extra), zlib, and `n5_default`.
+Importing it also registers the codecs that archives of virtualized files and
+stores use (`refkv.zarr.codecs`): JPEG, JPEG 2000 and JPEG XR (whose decoders
+need the `images` extra), `mp3` (whose decoder needs the `audio` extra), zlib, and
+`n5_default`.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 // The profile registry: generated from spec/virtualize/profiles.json by spec/tools/profiles.py; edit the registry, not this.
 
-export type Profile = "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "mrc" | "mrc-dataset" | "ims" | "n5" | "zarr2" | "ome-zarr" | "safe" | "czi" | "vsi" | "qptiff";
+export type Profile = "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "mrc" | "mrc-dataset" | "ims" | "n5" | "zarr2" | "ome-zarr" | "safe" | "czi" | "vsi" | "qptiff" | "mp3";
 
 export interface ProfileEntry {
   name: Profile;
@@ -32,4 +32,5 @@ export const REGISTRY: ProfileEntry[] = [
   {"name": "czi", "section": 13, "title": "CZI", "uuid": "7a0733c7-d4be-4482-a64f-6904d9354ea5", "version": 0, "kind": "file", "suffixes": [".czi"], "reference": 20, "source": "Zeiss CZI", "inputs": "Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids", "for": "Zeiss CZI files"},
   {"name": "vsi", "section": 15, "title": "VSI", "uuid": "c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45", "version": 0, "kind": "file", "suffixes": [".vsi"], "reference": null, "source": "Olympus VSI", "inputs": "Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG and JPEG 2000 tiles)", "for": "Olympus cellSens whole-slide images (`.vsi` with its tile files)"},
   {"name": "qptiff", "section": 16, "title": "QPTIFF", "uuid": "329ea136-2f55-4c27-b6f4-8e60ca2109b8", "version": 0, "kind": "file", "suffixes": [".qptiff"], "reference": null, "source": "Akoya QPTIFF", "inputs": "Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips", "for": "Akoya (PerkinElmer) Vectra multiplex scans and inForm component data"},
+  {"name": "mp3", "section": 17, "title": "MP3", "uuid": "b6cb0047-9448-4fdc-b03e-10dd3d6aa829", "version": 0, "kind": "file", "suffixes": [".mp3"], "reference": null, "source": "MP3 (MPEG Layer III audio)", "inputs": "MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio files (`.mp3`), with their ID3v2, ID3v1 and APE tags; one array of samples, not an image", "for": "MP3 audio files, as an array of samples (`.mp3`)"},
 ];
