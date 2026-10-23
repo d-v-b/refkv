@@ -7,7 +7,11 @@ cited here as "conventions §n". How refkv produces this layout as a reference
 store is the TIFF profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `48e9ac4e-1156-4a62-955e-20467d9c2700` ·
-Schema: [schema.json](tiff/schema.json) · Changed 2026-10-22: an image of an integer type has
+Schema: [schema.json](tiff/schema.json) · Changed 2026-10-23: each `omero` channel's window
+is sampled from the coarsest level's data when refkv decodes its compression and the samples are
+not RGB, and an image of a float type has an `omero` when every channel's window is sampled
+([§4.4](#44-arrays)); the profile reads the sampled chunks
+([§3.1](#31-reading)) · Changed 2026-10-22: an image of an integer type has
 an `omero` member ([§4.4](#44-arrays)), with the OME-XML's channel names and colors
 ([§3](#3-ome-xml)) and the type's range as each channel's window, after
 [revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
@@ -353,12 +357,13 @@ path `"<level>"`.
   `y = PY × (H0 / HL)`, `x = PX × (W0 / WL)`, `z = PZ`, `t = c = 1`. (The
   division is computed first.)
 - **Name:** the OME `Image` name, if present and not empty.
-- **omero.** When the data type ([§4.3](#43-data-types-and-codecs)) is `uint` or `int` and
-  the channel count (`SizeC` after [§4.1](#41-planes), or `spp` without
-  OME-XML) is at most 64, `M` has `"omero": {"channels": [...]}` next to
-  `multiscales`, one object per channel (one object when there is no `c`
-  axis). Otherwise `M` has no `"omero"` member: with more channels, so that
-  the root does not grow with the channel count; with `float`, because a
+- **omero.** When the channel count (`SizeC` after [§4.1](#41-planes), or
+  `spp` without OME-XML) is at most 64 and every channel has a window
+  (below), `M` has `"omero": {"channels": [...]}` next to `multiscales`, one
+  object per channel (one object when there is no `c` axis). Otherwise `M`
+  has no `"omero"` member: with more channels, so that the root does not
+  grow with the channel count; with a channel of a `float` data type
+  ([§4.3](#43-data-types-and-codecs)) whose window is not sampled, because a
   channel's `window` is required and a float type has no range to give it. Let channel `c`'s **name** be the `Name` of
   the `c`-th `Channel` ([§3](#3-ome-xml)) when present, not empty and at most
   256 bytes.
@@ -373,13 +378,42 @@ path `"<level>"`.
     from −2^31 to 2^31 − 1 (an optional `+` or `-` sign and digits,
     whitespace around allowed), OME's signed 32-bit `RRGGBBAA`: its top 24
     bits as six uppercase hex digits `RRGGBB`. Otherwise `FFFFFF`.
-  - Every channel has `"active": true` and the **window** of the data
-    type's whole range, `{"min": lo, "max": hi, "start": lo, "end": hi}`
-    with `lo` and `hi` the type's least and greatest values (0 and 255 for
-    `uint8`, −32768 and 32767 for `int16`), as JSON integers: a TIFF
-    records no display range (SMinSampleValue and SMaxSampleValue, when
-    present, are the data's extremes, not a display setting), so a reader
-    that needs contrast samples it from the data.
+  - Every channel has `"active": true` and a **window**. A TIFF records
+    no display range (SMinSampleValue and SMaxSampleValue, when present,
+    are the data's extremes, not a display setting), so the window is
+    sampled from the data, as refkv's demo samples a contrast range, when
+    the samples do not decode to RGB (above) and Compression is 1, 8 or
+    32946, whose chunks refkv decodes (it does not decode JPEG, JPEG 2000 or
+    zstd):
+    1. Channel `c`'s **sampled chunk** is the chunk of the last level (the
+       coarsest) with coords: along `t`, 0; along `c`, the chunk holding
+       channel `c` (`c`, or 0 when interleaved); along `z`, `y` and `x`, the
+       chunk holding index `floor(n / 2)`, `n` the axis' length. A chunk
+       that is absent, or whose bytes, encoded or decoded, are more than
+       2^26, is not sampled.
+    2. Its **values** are the chunk's bytes decoded by the codecs, which
+       MUST give exactly the chunk's size (else the chunk is not sampled),
+       as values of the data type: channel `c`'s (of each pixel's `spp`
+       values, the `c`-th, when interleaved), at the rows and columns inside
+       the array (an edge tile's padding past the image is left out),
+       leaving out those equal to the fill value 0 (in a coarse level they
+       are mostly the area outside the acquired region) and, of a float
+       type, those that are not finite.
+    3. Of the `m` values in ascending order, `start` is the one at index
+       `floor(m × 5 / 100)` and `end` the one at
+       `min(m − 1, floor(m × 999 / 1000))`, the 5th and 99.9th percentiles;
+       `min` and `max` are the type's least and greatest values for `uint`
+       and `int`, and the least and greatest of the values for `float`.
+       When `m` is 0 or `start` equals `end`, there is no sampled window.
+
+    A channel without a sampled window (RGB samples, which a window per
+    sample would tint; another compression; no sampled chunk or window)
+    has, for `uint` and `int`, the window of the type's whole range,
+    `{"min": lo, "max": hi, "start": lo, "end": hi}` with `lo` and `hi` the
+    type's least and greatest values (0 and 255 for `uint8`, −32768 and
+    32767 for `int16`), and for `float` none. An integer type's values are
+    JSON integers; a float type's are JSON numbers, a `float32` value
+    converted exactly to a double.
 
   The members are written in the order label, color, active, window, and
   the window's in the order min, max, start, end.
@@ -621,6 +655,12 @@ Each value read of an integer type MUST be at most 2^53 − 1 (only a LONG8
 or IFD8 value can exceed it). The values of the other IFDs are not read:
 for an IFD that is not used, only the field type, count and place of each
 tag of the table are checked.
+
+**Sampled chunks.** After the IFDs, the virtualizer reads the bytes of
+each sampled chunk of the `omero` windows ([the convention §4.4](#44-arrays)),
+the source ranges its reference names, and decodes them. These reads and
+their decoding never reject the input: a chunk that does not decode is not
+sampled.
 
 ### 3.2 Rejection
 

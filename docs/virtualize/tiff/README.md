@@ -54,9 +54,13 @@ level, `0` the full resolution.
 - **Channels:** `omero.channels` labels RGB samples (an SVS slide's, for
   example) `R`, `G`, `B` in red, green and blue, and an OME-TIFF's channels
   by their OME-XML `Channel` names and colors (else `C0`, `C1`, ..., in
-  white). Each channel's window is its data type's whole range (0 to 255 for
-  8-bit data), since the file records no display range. A float image, or
-  one with more than 64 channels, has no `omero`.
+  white). The file records no display range, so each channel's window is
+  sampled from the middle chunk of the coarsest level: the 5th to 99.9th
+  percentile of its values, leaving out zeros, for uncompressed and Deflate
+  tiles. RGB samples, and tiles refkv does not decode (JPEG, JPEG 2000,
+  zstd), get the data type's whole range (0 to 255 for 8-bit data). A float
+  image whose windows cannot be sampled, or one with more than 64 channels,
+  has no `omero`.
 - **Metadata:** the root's `refkv_virtualized.tiff` holds the byte order and
   whether the file is BigTIFF. Everything else is on `refkv_source`, the
   file's IR mirror ([conventions §8](../../../spec/conventions.md#8-the-ir-mirror)):

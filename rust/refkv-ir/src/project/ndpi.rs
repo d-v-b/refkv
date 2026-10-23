@@ -55,7 +55,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let tr = &facts["translation"];
     let trs = J::Array(if truthy(tr) { vec![tr.clone(); levels.len()] } else { vec![] });
     let mut ome = image_ome(&axes, &obj(&facts["units"]), arr(&facts["scales"]), None, translations(&trs))?;
-    ome["omero"] = omero_json(sample_channels("", 3, true, type_window("uint8").as_ref()));
+    ome["omero"] = omero_json(sample_channels("", 3, true, &vec![type_window("uint8"); 3]));
     out.json("zarr.json", &root_json(ome, "ndpi", url, None));
     let references = out.refs.len();
     out.summary = json!({"axes": axes, "levels": shapes, "references": references, "codec": "imagecodecs_jpeg"});
