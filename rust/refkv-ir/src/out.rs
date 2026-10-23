@@ -102,6 +102,11 @@ impl Out {
         self.entry_at.contains_key(key)
     }
 
+    /// The parts of the reference `key`, if there is one.
+    pub fn reference(&self, key: &str) -> Option<&[Part]> {
+        self.ref_at.get(key).map(|&k| self.refs[k].1.as_slice())
+    }
+
     pub fn refs(&mut self, key: &str, parts: Vec<Part>) {
         match self.ref_at.get(key) {
             Some(&k) => self.refs[k].1 = parts,
@@ -393,8 +398,8 @@ pub fn omero_json(channels: Vec<J>) -> J {
 }
 
 /// The `omero` window of a channel of an integer data type (`uint<n>`, `int<n>`) whose file
-/// records no display range: the type's whole range, shown whole (a reader that needs contrast
-/// samples it from the data); none for any other type, which has no such range.
+/// records no display range and whose data is not sampled: the type's whole range, shown whole;
+/// none for any other type, which has no such range.
 pub fn type_window(data_type: &str) -> Option<J> {
     let (lo, hi) = match data_type {
         "uint8" => (json!(0), json!(u8::MAX)),
@@ -412,13 +417,16 @@ pub fn type_window(data_type: &str) -> Option<J> {
 
 /// The `omero` channels of an image whose channels are a pixel's `spp` samples: with `rgb`, the
 /// first three `R`, `G` and `B`, colored so, and any other `S<s>`, white; each label after
-/// `base`, each with `window` when there is one.
-pub fn sample_channels(base: &str, spp: u64, rgb: bool, window: Option<&J>) -> Vec<J> {
+/// `base`, sample `s` with `windows[s]` when there is one.
+pub fn sample_channels(base: &str, spp: u64, rgb: bool, windows: &[Option<J>]) -> Vec<J> {
     let letters: &[(&str, &str)] = if rgb { &[("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF")] } else { &[] };
     (0..spp)
-        .map(|s| match letters.get(s as usize) {
-            Some((l, c)) => omero_channel(&format!("{base}{l}"), *c, window),
-            None => omero_channel(&format!("{base}S{s}"), "FFFFFF", window),
+        .map(|s| {
+            let window = windows.get(s as usize).and_then(Option::as_ref);
+            match letters.get(s as usize) {
+                Some((l, c)) => omero_channel(&format!("{base}{l}"), *c, window),
+                None => omero_channel(&format!("{base}S{s}"), "FFFFFF", window),
+            }
         })
         .collect()
 }
