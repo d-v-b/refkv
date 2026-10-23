@@ -144,6 +144,16 @@ fn refuses_a_literal_range_with_a_checksum() {
 }
 
 #[test]
+fn a_refused_reference_leaves_no_range_to_check() {
+    let mut w = writer();
+    let blob = w.blob(b"abc").unwrap();
+    w.add_bytes("k", b"x", false, false).unwrap();
+    // were its range kept, close would find it past the end of the blob
+    refused(w.add_ranges("k", vec![Range::of(blob, 2, 2)]));
+    w.close().unwrap();
+}
+
+#[test]
 fn refuses_a_range_past_2_64() {
     let mut w = writer();
     let s = w.url("a").unwrap();

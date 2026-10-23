@@ -18,7 +18,8 @@
 //! Every entry has the fixed DOS date 1980-01-01, and DEFLATE bodies are zlib's at level 9, so
 //! that the same input gives the same archive.
 
-use crate::pb::{self, CdIndex, Page, Pinned, Range, Source, SourceKind};
+use crate::pb::{self, CdIndex, Page, Pinned, Range, Source};
+use crate::sources::{Keys, SourceTable};
 use crate::{Error, CONCAT_EXTRA_ID, INDEX_KEY, RANGE_EXTRA_ID, RESERVED_PREFIX, SOURCES_KEY};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
@@ -54,7 +55,7 @@ fn is_large(size: u64, csize: u64) -> bool {
     size >= U32 || csize >= U32
 }
 
-fn invalid<T>(m: impl Into<String>) -> Result<T, Error> {
+pub(crate) fn invalid<T>(m: impl Into<String>) -> Result<T, Error> {
     Err(Error::Invalid(m.into()))
 }
 
@@ -90,18 +91,24 @@ impl Rec {
     }
 }
 
-/// A source of the table: one interned, or one of `add_url_refs`' (url, size pin).
-enum Slot {
-    Source(Source),
-    Bulk(String, Option<u64>),
+/// The archive's keys, as the source table's checks see them: a `key` source's ranges are checked
+/// against the entry's body, whatever its kind.
+struct ArchiveKeys<'a> {
+    sizes: &'a HashMap<&'a str, u64>,
+    refs: &'a HashSet<String>,
 }
 
-impl Slot {
-    fn url(&self) -> Option<&str> {
-        match self {
-            Slot::Source(s) => s.url_str(),
-            Slot::Bulk(u, _) => Some(u),
-        }
+impl Keys for ArchiveKeys<'_> {
+    fn has(&self, key: &str) -> bool {
+        self.sizes.contains_key(key)
+    }
+
+    fn is_ref(&self, key: &str) -> bool {
+        self.refs.contains(key)
+    }
+
+    fn size(&self, key: &str) -> Option<u64> {
+        self.sizes.get(key).copied()
     }
 }
 
@@ -129,11 +136,7 @@ pub struct Writer<W: Write> {
     cd: Vec<Rec>,
     names: HashSet<String>,
     ref_names: HashSet<String>,
-    /// the ranges of the sources that are not url sources, for the bounds checks of spec/refkv.md
-    /// §7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>
-    range_checks: Vec<(String, Range)>,
-    interned: HashMap<Source, u32>,
-    sources: Vec<Slot>,
+    sources: SourceTable,
     late: Vec<(String, Vec<u8>, bool)>,
     late_keys: HashSet<String>,
 }
@@ -147,9 +150,7 @@ impl<W: Write> Writer<W> {
             cd: Vec::new(),
             names: HashSet::new(),
             ref_names: HashSet::new(),
-            range_checks: Vec::new(),
-            interned: HashMap::new(),
-            sources: Vec::new(),
+            sources: SourceTable::default(),
             late: Vec::new(),
             late_keys: HashSet::new(),
         }
@@ -158,18 +159,7 @@ impl<W: Write> Writer<W> {
     /// Interns `src` into the source table, and gives its index for `Range::source`: equal
     /// sources share one. Index 0 is free on the wire, so register the most used source first.
     pub fn source(&mut self, src: Source) -> Result<u32, Error> {
-        if let Some(&i) = self.interned.get(&src) {
-            return Ok(i);
-        }
-        src.check().map_err(Error::Invalid)?;
-        let i = self.next_index()?;
-        self.interned.insert(src.clone(), i);
-        self.sources.push(Slot::Source(src));
-        Ok(i)
-    }
-
-    fn next_index(&self) -> Result<u32, Error> {
-        u32::try_from(self.sources.len()).or_else(|_| invalid("more than 2^32 sources"))
+        self.sources.add(src)
     }
 
     /// The source index of an external object (absolute, or relative to the archive).
@@ -344,29 +334,11 @@ impl<W: Write> Writer<W> {
         if key.starts_with(RESERVED_PREFIX) {
             return invalid(format!("{RESERVED_PREFIX:?} is reserved"));
         }
-        for r in &ranges {
-            if r.data.is_none() && r.source as usize >= self.sources.len() {
-                return invalid(format!("range of {key:?} uses unregistered source {}", r.source));
-            }
-            if r.data.is_some() && r.crc32c.is_some() {
-                return invalid(format!("literal range of {key:?} with a crc32c (spec/refkv.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>)"));
-            }
-            if r.offset.checked_add(r.length).is_none() {
-                return invalid(format!("a range of {key:?}: offset + length exceeds 2^64 - 1"));
-            }
-        }
-        // spec/refkv.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing> (which python/src/refkv/vzip/archive.py does not check)
-        if ranges.iter().try_fold(0u64, |n, r| n.checked_add(r.size())).is_none() {
-            return invalid(format!("the reference {key:?} exceeds 2^64 - 1 bytes"));
-        }
-        // url sources are not bounds-checked (spec/refkv.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>): only the others are kept
-        for r in &ranges {
-            if r.data.is_none() && self.sources[r.source as usize].url().is_none() {
-                self.range_checks.push((key.to_string(), r.clone()));
-            }
-        }
+        self.sources.check_ranges(key, &ranges)?;
         let (id, payload) = if ranges.len() == 1 { (RANGE_EXTRA_ID, ranges[0].encode()) } else { (CONCAT_EXTRA_ID, pb::encode_concat(&ranges)) };
-        self.reference(key, id, payload)
+        self.reference(key, id, payload)?;
+        self.sources.keep(key, &ranges);
+        Ok(())
     }
 
     fn reference(&mut self, key: &str, id: u16, payload: Vec<u8>) -> Result<(), Error> {
@@ -389,8 +361,7 @@ impl<W: Write> Writer<W> {
             if key.starts_with(RESERVED_PREFIX) {
                 return invalid(format!("{RESERVED_PREFIX:?} is reserved"));
             }
-            let i = self.next_index()?;
-            self.sources.push(Slot::Bulk(url, if pin_size { Some(size) } else { None }));
+            let i = self.sources.add_bulk(url, if pin_size { Some(size) } else { None })?;
             let r = Range { crc32c: crc, ..Range::of(i, 0, size) };
             self.reference(&key, RANGE_EXTRA_ID, r.encode())?;
         }
@@ -400,76 +371,9 @@ impl<W: Write> Writer<W> {
     /// The writer's requirements on the source table (spec/refkv.md §7
     /// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>).
     fn check_sources(&self) -> Result<(), Error> {
-        let bad: Vec<&str> = self
-            .sources
-            .iter()
-            .filter_map(|s| match s {
-                Slot::Bulk(u, _) if u.is_empty() || !crate::uri::is_uri_reference(u) => Some(u.as_str()),
-                _ => None,
-            })
-            .take(5)
-            .collect();
-        if !bad.is_empty() {
-            return invalid(format!("empty or invalid url sources: {bad:?}"));
-        }
-        let source = |i: usize| match &self.sources[i] {
-            Slot::Source(s) => Some(s),
-            Slot::Bulk(..) => None, // a url source
-        };
-        if self.sources.iter().any(|s| matches!(s, Slot::Source(Source { kind: SourceKind::Key(k), .. }) if k.is_empty())) {
-            return invalid("empty key source");
-        }
         // the late entries are written by now
         let sizes: HashMap<&str, u64> = self.cd.iter().map(|r| (r.name.as_str(), r.size)).collect();
-        for (key, r) in &self.range_checks {
-            let n = match source(r.source as usize).map(|s| &s.kind) {
-                Some(SourceKind::Data(d)) => Some(d.len() as u64),
-                Some(SourceKind::Key(k)) => sizes.get(k.as_str()).copied(),
-                _ => None,
-            };
-            if let Some(n) = n
-                && r.offset.checked_add(r.length).is_none_or(|e| e > n) {
-                    return invalid(format!(
-                        "{key:?}: range [{}, {}) is past the end of source {} ({n} bytes)",
-                        r.offset,
-                        r.offset as u128 + r.length as u128,
-                        r.source
-                    ));
-                }
-        }
-        let keys = || {
-            self.sources.iter().filter_map(|s| match s {
-                Slot::Source(Source { kind: SourceKind::Key(k), .. }) => Some(k.as_str()),
-                _ => None,
-            })
-        };
-        let mut missing: Vec<&str> = keys().filter(|k| !self.names.contains(*k)).collect();
-        missing.sort_unstable();
-        if !missing.is_empty() {
-            return invalid(format!("internal references to missing entries: {missing:?}"));
-        }
-        let mut format: Vec<&str> = keys().filter(|k| *k == SOURCES_KEY || *k == INDEX_KEY).collect();
-        format.sort_unstable();
-        if !format.is_empty() {
-            return invalid(format!("key sources naming format entries: {format:?}"));
-        }
-        let bad: Vec<&str> = self
-            .sources
-            .iter()
-            .filter_map(|s| match s {
-                Slot::Source(s) => s.url_str().filter(|u| u.is_empty() || !crate::uri::is_uri_reference(u)),
-                Slot::Bulk(..) => None,
-            })
-            .collect();
-        if !bad.is_empty() {
-            return invalid(format!("empty or invalid url sources: {bad:?}"));
-        }
-        let mut to_refs: Vec<&str> = keys().filter(|k| self.ref_names.contains(*k)).collect();
-        to_refs.sort_unstable();
-        if !to_refs.is_empty() {
-            return invalid(format!("internal references to reference entries: {to_refs:?}"));
-        }
-        Ok(())
+        self.sources.check(&ArchiveKeys { sizes: &sizes, refs: &self.ref_names }, &[SOURCES_KEY, INDEX_KEY])
     }
 
     /// A central directory record. The ZIP64 block (spec/bindings/vzip.md §10.2
@@ -572,15 +476,7 @@ impl<W: Write> Writer<W> {
     }
 
     fn finish(mut self, trailer: Option<(&str, &mut dyn FnMut(&Layout) -> Result<Vec<u8>, Error>)>) -> Result<W, Error> {
-        let table: Vec<Source> = self
-            .sources
-            .iter()
-            .map(|s| match s {
-                Slot::Source(s) => s.clone(),
-                Slot::Bulk(u, size) => Source { size: *size, ..Source::url(u.as_str()) },
-            })
-            .collect();
-        let table = pb::encode_source_table(&table, Some(SPEC_REVISION));
+        let table = self.sources.encode();
         self.entry(SOURCES_KEY, &table, None, true)?;
         let mut comment = MAGIC_COMMENT.to_vec();
         let (o, n) = self.last_body();
