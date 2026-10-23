@@ -103,9 +103,9 @@ which gives its translation ([conventions §5](../conventions.md#5-units)).
 **omero.** The strips are JPEG streams, which decode to RGB, so `M` has
 `"omero": {"channels": [...]}` next to `multiscales`, the three samples
 labeled `R`, `G` and `B`, with colors `FF0000`, `00FF00` and `0000FF`, each
-`"active": true` and without a `window`, as in [the TIFF convention
-§4.4](tiff.md#44-arrays). The members are written in the order label,
-color, active.
+`"active": true` with the window of `uint8`'s whole range,
+`{"min": 0, "max": 255, "start": 0, "end": 255}`, as in [the TIFF
+convention §4.4](tiff.md#44-arrays), whose member order this follows.
 
 **Chunks.** A level's strip is a JPEG stream. Without McuStarts, the
 level is one chunk, the whole image (chunk shape `[3, H, W]`), which holds

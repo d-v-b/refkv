@@ -7,7 +7,7 @@
 
 use super::{arr, key, n, obj, strs, translations, truthy};
 use crate::ir::Ir;
-use crate::out::{array_json, image_ome, omero_channel, omero_json, root_json, sample_channels, tiff_codecs, transpose_codec, Out, Part};
+use crate::out::{array_json, image_ome, omero_channel, omero_json, root_json, sample_channels, tiff_codecs, transpose_codec, type_window, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Value as J};
 use std::collections::HashMap;
@@ -34,17 +34,17 @@ fn label(v: &J) -> Option<&str> {
 
 /// The `omero` member (spec/virtualize/qptiff.md §4.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#43-arrays>): one channel per
-/// channel image, or, for an RGB image, one per sample; no window, since the file records no
-/// display range (a reader samples one).
-fn omero(channels: &[J], spp: u64) -> J {
+/// channel image, or, for an RGB image, one per sample; the window of an integer type's whole
+/// range, since the file records no display range (a reader samples one), and none for float.
+fn omero(channels: &[J], spp: u64, window: Option<&J>) -> J {
     if spp > 1 {
         let base = channels.first().and_then(|c| label(&c["name"])).map(|s| format!("{s} ")).unwrap_or_default();
-        return omero_json(sample_channels(&base, spp, spp == 3));
+        return omero_json(sample_channels(&base, spp, spp == 3, window));
     }
     let mut out = Vec::new();
     for (i, c) in channels.iter().enumerate() {
         let l = label(&c["name"]).map(str::to_string).unwrap_or_else(|| format!("C{i}"));
-        out.push(omero_channel(&l, color(&c["color"]), None));
+        out.push(omero_channel(&l, color(&c["color"]), window));
     }
     omero_json(out)
 }
@@ -125,7 +125,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let tr = &facts["translation"];
     let trs = J::Array(if truthy(tr) { vec![tr.clone(); levels.len()] } else { vec![] });
     let mut ome = image_ome(&axes, &obj(&facts["units"]), arr(&facts["scales"]), Some(&facts["name"]), translations(&trs))?;
-    ome["omero"] = omero(channels, spp);
+    ome["omero"] = omero(channels, spp, type_window(&data_type).as_ref());
     let own = json!({"byte_order": if little { "little" } else { "big" }, "bigtiff": facts["bigtiff"]});
     out.json("zarr.json", &root_json(ome, "qptiff", url, Some(own)));
     out.summary = json!({"axes": axes, "levels": shapes, "channels": channels.len(), "references": out.refs.len()});

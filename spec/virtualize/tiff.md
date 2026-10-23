@@ -7,8 +7,9 @@ cited here as "conventions §n". How refkv produces this layout as a reference
 store is the TIFF profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `48e9ac4e-1156-4a62-955e-20467d9c2700` ·
-Schema: [schema.json](tiff/schema.json) · Changed 2026-10-22: the image has an `omero` member
-([§4.4](#44-arrays)), with the OME-XML's channel names and colors ([§3](#3-ome-xml)), after
+Schema: [schema.json](tiff/schema.json) · Changed 2026-10-22: an image of an integer type has
+an `omero` member ([§4.4](#44-arrays)), with the OME-XML's channel names and colors
+([§3](#3-ome-xml)) and the type's range as each channel's window, after
 [revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
 (a profile's changes are recorded here, dated, from then on)
 
@@ -352,11 +353,13 @@ path `"<level>"`.
   `y = PY × (H0 / HL)`, `x = PX × (W0 / WL)`, `z = PZ`, `t = c = 1`. (The
   division is computed first.)
 - **Name:** the OME `Image` name, if present and not empty.
-- **omero.** When the channel count (`SizeC` after [§4.1](#41-planes), or `spp`
-  without OME-XML) is at most 64, `M` has `"omero": {"channels": [...]}` next
-  to `multiscales`, one object per channel (one object when there is no `c`
-  axis); with more, `M` has no `"omero"` member, so that the root does not
-  grow with the channel count. Let channel `c`'s **name** be the `Name` of
+- **omero.** When the data type ([§4.3](#43-data-types-and-codecs)) is `uint` or `int` and
+  the channel count (`SizeC` after [§4.1](#41-planes), or `spp` without
+  OME-XML) is at most 64, `M` has `"omero": {"channels": [...]}` next to
+  `multiscales`, one object per channel (one object when there is no `c`
+  axis). Otherwise `M` has no `"omero"` member: with more channels, so that
+  the root does not grow with the channel count; with `float`, because a
+  channel's `window` is required and a float type has no range to give it. Let channel `c`'s **name** be the `Name` of
   the `c`-th `Channel` ([§3](#3-ome-xml)) when present, not empty and at most
   256 bytes.
   - With `spp > 1` (the channels are the samples), `spp` channels: when the
@@ -370,12 +373,16 @@ path `"<level>"`.
     from −2^31 to 2^31 − 1 (an optional `+` or `-` sign and digits,
     whitespace around allowed), OME's signed 32-bit `RRGGBBAA`: its top 24
     bits as six uppercase hex digits `RRGGBB`. Otherwise `FFFFFF`.
-  - Every channel has `"active": true` and no `window`: a TIFF records no
-    display range (SMinSampleValue and SMaxSampleValue, when present, are
-    the data's extremes, not a display setting), and a reader that needs
-    one samples it from the data.
+  - Every channel has `"active": true` and the **window** of the data
+    type's whole range, `{"min": lo, "max": hi, "start": lo, "end": hi}`
+    with `lo` and `hi` the type's least and greatest values (0 and 255 for
+    `uint8`, −32768 and 32767 for `int16`), as JSON integers: a TIFF
+    records no display range (SMinSampleValue and SMaxSampleValue, when
+    present, are the data's extremes, not a display setting), so a reader
+    that needs contrast samples it from the data.
 
-  The members are written in the order label, color, active.
+  The members are written in the order label, color, active, window, and
+  the window's in the order min, max, start, end.
 - **Chunks:** for each plane (t, c, z) of a level, its IFD's tiles are numbered
   `k = s × T + j`, where `T` is the number of tiles per sample plane
   (`ceil(H/TileLength) × ceil(W/TileWidth)`), `j` runs row-major over the

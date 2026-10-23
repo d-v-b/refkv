@@ -5,7 +5,7 @@
 
 use super::{arr, key, n, obj, strs, translations, truthy};
 use crate::ir::Ir;
-use crate::out::{array_json, image_ome, omero_channel, omero_json, root_json, sample_channels, tiff_codecs, transpose_codec, Out};
+use crate::out::{array_json, image_ome, omero_channel, omero_json, root_json, sample_channels, tiff_codecs, transpose_codec, type_window, Out};
 use crate::refs::Refs;
 use crate::tiff::MAX_OMERO;
 use serde_json::{json, Value as J};
@@ -23,10 +23,12 @@ fn color(v: &J) -> String {
 }
 
 /// The `omero` member (spec/virtualize/tiff.md §4.4
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>), when there are at
-/// most 64 channels: the samples, `R`, `G`, `B` when they decode to RGB; else one per channel,
-/// named and colored by the OME-XML's Channels. No window, since a TIFF records no display range.
-fn omero(facts: &J, size_c: u64) -> Option<J> {
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>), when the data
+/// type is an integer type and there are at most 64 channels: the samples, `R`, `G`, `B` when
+/// they decode to RGB; else one per channel, named and colored by the OME-XML's Channels. Each
+/// channel's window is the type's whole range, since a TIFF records no display range.
+fn omero(facts: &J, size_c: u64, data_type: &str) -> Option<J> {
+    let window = type_window(data_type)?;
     if size_c > MAX_OMERO {
         return None;
     }
@@ -37,11 +39,11 @@ fn omero(facts: &J, size_c: u64) -> Option<J> {
         let (interpretation, compression) = (n(&facts["interpretation"]), n(&facts["compression"]));
         let rgb = interpretation == 2 || (interpretation == 6 && compression == 7);
         let base = name(0).map(|s| format!("{s} ")).unwrap_or_default();
-        return Some(omero_json(sample_channels(&base, spp, rgb)));
+        return Some(omero_json(sample_channels(&base, spp, rgb, Some(&window))));
     }
     let channels = (0..size_c).map(|c| {
         let label = name(c).map(str::to_string).unwrap_or_else(|| format!("C{c}"));
-        omero_channel(&label, color(ome.get(c as usize).map_or(&J::Null, |o| &o["color"])), None)
+        omero_channel(&label, color(ome.get(c as usize).map_or(&J::Null, |o| &o["color"])), Some(&window))
     });
     Some(omero_json(channels.collect()))
 }
@@ -114,7 +116,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let tr = &facts["translation"];
     let trs = J::Array(if truthy(tr) { vec![tr.clone(); levels.len()] } else { vec![] });
     let mut ome = image_ome(&axes, &obj(&facts["units"]), arr(&facts["scales"]), Some(&facts["name"]), translations(&trs))?;
-    if let Some(omero) = omero(facts, size_c) {
+    if let Some(omero) = omero(facts, size_c, &data_type) {
         ome["omero"] = omero;
     }
     let own = json!({"byte_order": if little { "little" } else { "big" }, "bigtiff": facts["bigtiff"]});
@@ -130,7 +132,12 @@ mod tests {
     #[test]
     fn omero_lists_at_most_64_channels() {
         let facts = json!({"spp": 1});
-        assert_eq!(arr(&omero(&facts, 64).unwrap()["channels"]).len(), 64);
-        assert_eq!(omero(&facts, 65), None);
+        assert_eq!(arr(&omero(&facts, 64, "uint8").unwrap()["channels"]).len(), 64);
+        assert_eq!(omero(&facts, 65, "uint8"), None);
+    }
+
+    #[test]
+    fn omero_needs_an_integer_type() {
+        assert_eq!(omero(&json!({"spp": 1}), 1, "float32"), None);
     }
 }

@@ -392,15 +392,33 @@ pub fn omero_json(channels: Vec<J>) -> J {
     json!({"channels": channels})
 }
 
+/// The `omero` window of a channel of an integer data type (`uint<n>`, `int<n>`) whose file
+/// records no display range: the type's whole range, shown whole (a reader that needs contrast
+/// samples it from the data); none for any other type, which has no such range.
+pub fn type_window(data_type: &str) -> Option<J> {
+    let (lo, hi) = match data_type {
+        "uint8" => (json!(0), json!(u8::MAX)),
+        "uint16" => (json!(0), json!(u16::MAX)),
+        "uint32" => (json!(0), json!(u32::MAX)),
+        "uint64" => (json!(0), json!(u64::MAX)),
+        "int8" => (json!(i8::MIN), json!(i8::MAX)),
+        "int16" => (json!(i16::MIN), json!(i16::MAX)),
+        "int32" => (json!(i32::MIN), json!(i32::MAX)),
+        "int64" => (json!(i64::MIN), json!(i64::MAX)),
+        _ => return None,
+    };
+    Some(omero_window(lo.clone(), hi.clone(), lo, hi))
+}
+
 /// The `omero` channels of an image whose channels are a pixel's `spp` samples: with `rgb`, the
 /// first three `R`, `G` and `B`, colored so, and any other `S<s>`, white; each label after
-/// `base`. No window.
-pub fn sample_channels(base: &str, spp: u64, rgb: bool) -> Vec<J> {
+/// `base`, each with `window` when there is one.
+pub fn sample_channels(base: &str, spp: u64, rgb: bool, window: Option<&J>) -> Vec<J> {
     let letters: &[(&str, &str)] = if rgb { &[("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF")] } else { &[] };
     (0..spp)
         .map(|s| match letters.get(s as usize) {
-            Some((l, c)) => omero_channel(&format!("{base}{l}"), *c, None),
-            None => omero_channel(&format!("{base}S{s}"), "FFFFFF", None),
+            Some((l, c)) => omero_channel(&format!("{base}{l}"), *c, window),
+            None => omero_channel(&format!("{base}S{s}"), "FFFFFF", window),
         })
         .collect()
 }

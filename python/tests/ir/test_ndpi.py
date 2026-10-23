@@ -38,10 +38,11 @@ def test_projects_as_today_and_rebuilds(path, tmp_path):
 
 def test_omero_is_rgb():
     """§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>: the
-    JPEG strips decode to RGB, so `omero` has R, G and B."""
+    JPEG strips decode to RGB, so `omero` has R, G and B, each with uint8's range as its window."""
     _, out, _ = via_ir(str(FIXTURES / "ndpi" / "ndpi_levels.ndpi"), "u", mirror=False)
     ome = json.loads(out.bytes_entries["zarr.json"])["attributes"]["ome"]
-    assert ome["omero"] == {"channels": [{"label": l, "color": c, "active": True}
+    window = {"min": 0, "max": 255, "start": 0, "end": 255}
+    assert ome["omero"] == {"channels": [{"label": l, "color": c, "active": True, "window": window}
                                          for l, c in (("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF"))]}
 
 

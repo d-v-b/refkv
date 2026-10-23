@@ -117,10 +117,11 @@ def test_layout_of_the_fluorescence_scan():
     assert scales[0] == [1, 10000 / 20080, 10000 / 20080] and scales[1][1] == 2 * scales[0][1]
     assert all(ds["coordinateTransformations"][1] == {"type": "translation", "translation": [0, 484400.0, 88600.0]}
                for ds in ms["datasets"])
+    window = {"min": 0, "max": 255, "start": 0, "end": 255}
     assert ome["omero"] == {"channels": [
-        {"label": "DAPI", "color": "0000FF", "active": True},
-        {"label": "Cy3 & TRITC", "color": "FF3C9D", "active": True},
-        {"label": "Opal 520", "color": "00FF00", "active": True},
+        {"label": "DAPI", "color": "0000FF", "active": True, "window": window},
+        {"label": "Cy3 & TRITC", "color": "FF3C9D", "active": True, "window": window},
+        {"label": "Opal 520", "color": "00FF00", "active": True, "window": window},
     ]}
     assert d["0/zarr.json"]["shape"] == [3, 96, 128]
     assert d["0/zarr.json"]["chunk_grid"] == {"name": "regular", "configuration": {"chunk_shape": [1, 32, 32]}}
