@@ -199,7 +199,7 @@ pub struct Run {
     fill: Vec<(u32, u64, u64)>,
     /// the fill batch's ranges, and the planner's (requests, bytes) before and after it
     fill_counts: (u64, (u64, u64), (u64, u64)),
-    /// the source's ranges the projection copies (`project::reads`), read after the fill,
+    /// the source's ranges the projection copies or samples (`project::reads`), read after the fill,
     /// and their bytes
     copies: Vec<(u64, u64)>,
     copied: crate::project::Copied,

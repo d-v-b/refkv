@@ -356,6 +356,16 @@ def main() -> None:
     values = [empties] * 100 + [empties + 2 * i for i in range(1, 9999)] + [valid[0], empties + 2 * 9999, valid[1]]
     t.chain([image(t, extra=[(50001, 13, values)])])
     t.write("edge_pointer_tries.tif")
+    # omero (spec/virtualize/tiff.md §4.4
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>): the Pixels' Channels name and color the channels in
+    # order (one commented out); an empty or over-long name gives C<c>, a Color outside a signed
+    # 32-bit integer white, and the channel without a Channel C4 and white.
+    planes("edge_ome_channels.tif", ome(
+        'SizeZ="1" SizeC="5" SizeT="1" DimensionOrder="XYCZT"',
+        '<!-- <Channel Name="no"/> --><Channel ID="Channel:0:0" Name="DAPI" Color="65535"/>'
+        '<Channel ID="Channel:0:1" Name="" Color=" +16711935 "><LightPath/></Channel>'
+        '<Channel ID="Channel:0:2" Name="&lt;GFP&gt;" Color="-16776961"/>'
+        f'<Channel ID="Channel:0:3" Name="{"x" * 257}" Color="4294967295"/>'), 5)
     for p in sorted(OUT.glob("edge_*.tif")):
         print(p.name, p.stat().st_size)
 

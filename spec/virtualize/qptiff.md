@@ -11,7 +11,13 @@ How refkv produces this layout as a reference store is the QPTIFF profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `329ea136-2f55-4c27-b6f4-8e60ca2109b8` ·
-Schema: [schema.json](qptiff/schema.json)
+Schema: [schema.json](qptiff/schema.json) · Changed 2026-10-23: each `omero` channel's
+window is sampled from the coarsest level's data, as in the TIFF convention, when refkv decodes
+its compression (none, LZW, Deflate) and the image is not RGB, so that a `float32` channel has a
+window too, and an integer channel without a sampled window has the type's range
+([§4.3](#43-arrays)); the profile reads the sampled chunks ([§16](#16-qptiff-profile)), after
+[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
+(a profile's changes are recorded here, dated, from then on)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the QPTIFF
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
@@ -259,12 +265,22 @@ SamplesPerPixel.
     that letter alone, with colors `FF0000`, `00FF00`, `0000FF`; with any
     other `spp > 1`, `spp` channels labeled likewise with `S<s>` and
     colored `FFFFFF`;
-  - every channel has `"active": true` and no `window`: a QPTIFF records no
-    display range (SMinSampleValue and SMaxSampleValue, when present, are
-    the data's extremes, not a display setting), and a reader that needs
-    one samples it from the data, as refkv's demo does.
+  - every channel has `"active": true` and, but for a `float32` channel
+    without a sampled window, a **window**, as in [the TIFF convention
+    §4.4](tiff.md#44-arrays): a QPTIFF records no display range
+    (SMinSampleValue and SMaxSampleValue, when present, are the data's
+    extremes, not a display setting), so the window is sampled from the
+    middle chunk of each channel of the last level, there in steps 1 to 3,
+    when `spp` is not 3 (an RGB image, whose samples keep the type's range)
+    and Compression is 1, 5 (LZW, decoded as [§4.1](#41-data-types-and-codecs)
+    says, into the chunk's size) or 8 or 32946 (Deflate); a level in strips
+    has the chunk shape above, and a padded last strip's rows past the image
+    are not values. A channel without a sampled window has, with an integer
+    data type, the window of the type's whole range (0 to 255 for `uint8`),
+    and with `float32` none, which has no such range.
 
-  The members are written in the order label, color, active.
+  The members are written in the order label, color, active, window, and
+  the window's in the order min, max, start, end.
 
 ## 5. Source metadata
 
@@ -323,9 +339,9 @@ OME metadata:
     ]
   }],
   "omero": {"channels": [
-    {"label": "DAPI", "color": "0000FF", "active": true},
-    {"label": "Cy3 & TRITC", "color": "FF3C9D", "active": true},
-    {"label": "Opal 520", "color": "00FF00", "active": true}
+    {"label": "DAPI", "color": "0000FF", "active": true, "window": {"min": 0, "max": 255, "start": 0, "end": 255}},
+    {"label": "Cy3 & TRITC", "color": "FF3C9D", "active": true, "window": {"min": 0, "max": 255, "start": 0, "end": 255}},
+    {"label": "Opal 520", "color": "00FF00", "active": true, "window": {"min": 0, "max": 255, "start": 0, "end": 255}}
   ]}
 }
 ```
@@ -386,7 +402,11 @@ XPosition and YPosition RATIONAL ones). These values are read
 - of every IFD of every level: its tile tables, or its strip tables;
 - of every IFD of a level in LZW strips whose last strip is short: the
   bytes of its last strip (of each sample plane), for the tail of
-  [the convention §4.2](#42-tiles-and-strips).
+  [the convention §4.2](#42-tiles-and-strips);
+- after them, the bytes of each sampled chunk of the `omero` windows
+  ([the convention §4.3](#43-arrays)), the source ranges its reference
+  names. These reads and their decoding never reject the input: a chunk
+  that does not decode is not sampled.
 
 Each value read of an integer type MUST be at most 2^53 − 1. Nothing else
 is read for the layout.

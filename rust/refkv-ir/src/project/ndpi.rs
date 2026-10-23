@@ -3,12 +3,13 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>) from a valid IR:
 //! one array per level, whose chunk is the level's strip, or, with McuStarts, `a × b` of the
 //! strip's restart intervals as a JPEG stream of their own (`ndpi::Grid`); the facts hold the
-//! sizes, the grids, scales and translation, and the IR the McuStarts values.
+//! sizes, the grids, scales and translation, and the IR the McuStarts values. Its `omero` is the
+//! three RGB samples the JPEG streams decode to, each with the window 0 to 255.
 
 use super::{arr, n, obj, strs, translations, truthy};
 use crate::ir::Ir;
 use crate::ndpi::{combine, tag_values, Grid};
-use crate::out::{array_json, image_ome, root_json, transpose_codec, Out, Part};
+use crate::out::{array_json, image_ome, omero_json, root_json, sample_channels, transpose_codec, type_window, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Value as J};
 
@@ -53,7 +54,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let mut out = refs.out;
     let tr = &facts["translation"];
     let trs = J::Array(if truthy(tr) { vec![tr.clone(); levels.len()] } else { vec![] });
-    let ome = image_ome(&axes, &obj(&facts["units"]), arr(&facts["scales"]), None, translations(&trs))?;
+    let mut ome = image_ome(&axes, &obj(&facts["units"]), arr(&facts["scales"]), None, translations(&trs))?;
+    ome["omero"] = omero_json(sample_channels("", 3, true, &vec![type_window("uint8"); 3]));
     out.json("zarr.json", &root_json(ome, "ndpi", url, None));
     let references = out.refs.len();
     out.summary = json!({"axes": axes, "levels": shapes, "references": references, "codec": "imagecodecs_jpeg"});

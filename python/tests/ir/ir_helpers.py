@@ -5,6 +5,13 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
+import tifffile
+import zarr
+
+from refkv.virtualize import virtualize
+from refkv.zarr import ZarrStore
+
 FIXTURES = Path(__file__).parents[3] / "fixtures"
 ROOT = Path(__file__).parents[3]
 # the frozen reference twins the IR is compared against (refkv_reference)
@@ -14,6 +21,12 @@ sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
 # The members of a frozen root's source metadata the IR's mirror holds instead, for the
 # profiles frozen at revision 25 (conformance/virtualize/compare.py's MIRRORED).
 MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_truncated", "unparsed", "trailing")}
+# The members of the root image's `ome` the IR writes and the frozen reference does not, by
+# profile (conformance/virtualize/compare.py's ADDED): TIFF's and NDPI's `omero`, added after
+# the freeze (spec/virtualize/tiff.md §4.4
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>, spec/virtualize/ndpi.md §4
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>).
+ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
 
 
 def same_hierarchy(a, b) -> None:
@@ -21,7 +34,8 @@ def same_hierarchy(a, b) -> None:
     the source metadata node: documents, references and data sources. The reference
     writes the names of the revision it implements (refkv_reference.legacy), read as the
     current ones, and its root records that revision (refkv_reference.revision: 20, or 25
-    for DICOM, NIfTI, IMS and NDPI), which is dropped: the shipped code records none."""
+    for DICOM, NIfTI, IMS and NDPI), which is dropped: the shipped code records none.
+    The members of `b`'s root image the reference does not write (ADDED) are dropped."""
     from refkv_reference.legacy import SOURCE_NODE as LEGACY_NODE
     from refkv_reference.legacy import current_names
     from refkv_reference.revision import DICOM_REVISION, IMS_REVISION, REVISION_25
@@ -43,6 +57,9 @@ def same_hierarchy(a, b) -> None:
             del prop["revision"]
             for k in moved or ():
                 prop[prop["profile"]].pop(k, None)
+        if o is b:
+            for k in ADDED.get(prop.get("profile"), ()):
+                d["zarr.json"]["attributes"].get("ome", {}).pop(k, None)
         return d
 
     def refs(o):
@@ -67,3 +84,53 @@ def current_names(value):
     from refkv_reference.legacy import current_names
 
     return current_names(value)
+
+
+# The codecs whose chunks the TIFF and QPTIFF profiles decode to sample their `omero` windows:
+# uncompressed, Deflate and LZW tiles or strips, with or without interleaved samples.
+DECODED = {"transpose", "bytes", "zlib", "imagecodecs_lzw"}
+
+
+def omero_and_expected_windows(path, profile: str) -> tuple[dict | None, list]:
+    """The `omero` of the file at `path` virtualized, and each channel's window as the TIFF and
+    QPTIFF profiles give it (spec/virtualize/tiff.md §4.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>,
+    spec/virtualize/qptiff.md §4.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#43-arrays>), computed here
+    with numpy from the coarsest level read through zarr-python: for a channel of a decoded codec
+    whose samples are not RGB, the 5th and 99.9th percentiles of the middle chunk's values inside
+    the array, without the fill value 0 (and values that are not finite), when they differ;
+    `min`, `max` an integer type's range or the float values' extremes. Otherwise an integer
+    type's range, else None."""
+    g = zarr.open_group(ZarrStore(virtualize(str(path))), mode="r", zarr_format=3)
+    ms = g.attrs["ome"]["multiscales"][0]
+    a = g[ms["datasets"][-1]["path"]]
+    axes = [x["name"] for x in ms["axes"]]
+    count = a.shape[axes.index("c")] if "c" in axes else 1
+    with tifffile.TiffFile(path) as tf:
+        page = tf.pages[0]
+        spp, pi, comp = page.samplesperpixel, page.photometric, page.compression
+    rgb = spp == 3 if profile == "qptiff" else spp > 1 and (pi == 2 or (pi == 6 and comp == 7))
+    decoded = {c["name"] for c in a.metadata.to_dict()["codecs"]} <= DECODED
+    integer = np.issubdtype(a.dtype, np.integer)
+    windows = []
+    for ch in range(count):
+        window = None
+        if decoded and not rgb:
+            at = []
+            for name, n, k in zip(axes, a.shape, a.chunks):
+                start = 0 if name == "t" else ch if name == "c" else n // 2 // k * k
+                at.append(slice(start, start + (1 if name in "tc" else k)))
+            v = np.sort(a[tuple(at)].ravel())
+            v = v[v != 0] if integer else v[np.isfinite(v) & (v != 0)]
+            n = len(v)
+            if n and v[n * 5 // 100] < v[min(n - 1, n * 999 // 1000)]:
+                lo, hi = v[n * 5 // 100].item(), v[min(n - 1, n * 999 // 1000)].item()
+                extremes = [np.iinfo(a.dtype).min, np.iinfo(a.dtype).max] if integer else [v[0].item(), v[-1].item()]
+                window = {"min": int(extremes[0]) if integer else extremes[0],
+                          "max": int(extremes[1]) if integer else extremes[1], "start": lo, "end": hi}
+        if window is None and integer:
+            info = np.iinfo(a.dtype)
+            window = {"min": int(info.min), "max": int(info.max), "start": int(info.min), "end": int(info.max)}
+        windows.append(window)
+    return g.attrs["ome"].get("omero"), windows
