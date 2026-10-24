@@ -27,6 +27,11 @@ MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_trunc
 # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>, spec/virtualize/ndpi.md §4
 # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>).
 ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
+# The fixtures whose layout the profile changed after the freeze, which the frozen reference
+# does not give (conformance/virtualize/compare.py's REVISED): NDPI's frames that are not their
+# level's size (spec/virtualize/ndpi.md §4
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>).
+REVISED = {"edge_ndpi_frames.ndpi", "edge_reject_ndpi_frame.ndpi"}
 
 
 def same_hierarchy(a, b) -> None:

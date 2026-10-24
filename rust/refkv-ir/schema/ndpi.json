@@ -138,6 +138,13 @@
         {"require": "length >= 4", "message": "an NDPI strip of {length} bytes is shorter than 4"}
       ]
     },
+    "frame": {
+      "about": "a level's strip without McuStarts whose frame header (SOF0) is not the level's size",
+      "given": {"level": "the level's index (0 for the first)", "covers": "the level's size needs as many MCU rows and columns as the frame's, and is at most 65535 by 65535", "frame_height": "the SOF0's height", "frame_width": "the SOF0's width", "height": "ImageLength", "width": "ImageWidth"},
+      "constraints": [
+        {"require": "level > 0 || covers", "message": "NDPI level 0's JPEG frame of {frame_width} × {frame_height} pixels has other MCU rows or columns than its {width} × {height}"}
+      ]
+    },
     "mcu_starts": {
       "about": "a level's McuStarts (and McuStartsHighBytes), before its header is read",
       "given": {"same_length": "McuStartsHighBytes is absent or has as many values", "first": "M[0] (absent when McuStarts has no value)", "length": "len(S)"},

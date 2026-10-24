@@ -1,7 +1,8 @@
 //! The NDPI image projection (spec/virtualize/ndpi.md §3
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#3-levels>, §4
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>) from a valid IR:
-//! one array per level, whose chunk is the level's strip, or, with McuStarts, `a × b` of the
+//! one array per level, whose chunk is the level's strip (with the level's size in its SOF0 when
+//! the frame's differs), or, with McuStarts, `a × b` of the
 //! strip's restart intervals as a JPEG stream of their own (`ndpi::Grid`); the facts hold the
 //! sizes, the grids, scales and translation, and the IR the McuStarts values. Its `omero` is the
 //! three RGB samples the JPEG streams decode to, each with the window 0 to 255.
@@ -29,7 +30,18 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     for (li, lv) in levels.iter().enumerate() {
         let (w, h, strip, length) = (n(&lv["w"]), n(&lv["h"]), n(&lv["strip"]), n(&lv["length"]));
         let chunk = if lv["grid"].is_null() {
-            refs.chunk(format!("{li}/c/0/0/0"), strip, length, 0, Some(vec![Part::Src(strip, length)]), 0)?;
+            // the strip, or, when its frame header is not the level's size, the strip with the
+            // level's height and width in its SOF0 (spec/virtualize/ndpi.md §4
+            // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>)
+            let parts = match lv["frame"].as_u64() {
+                Some(at) => {
+                    let mut size = (h as u16).to_be_bytes().to_vec();
+                    size.extend((w as u16).to_be_bytes());
+                    vec![Part::Src(strip, at), Part::Lit(size), Part::Src(strip + at + 4, length - at - 4)]
+                }
+                None => vec![Part::Src(strip, length)],
+            };
+            refs.chunk(format!("{li}/c/0/0/0"), strip, length, 0, Some(parts), 0)?;
             [3, h, w]
         } else {
             let starts = values(ir, &lv["starts"]).ok_or("internal: no McuStarts in the IR")?;
