@@ -1,5 +1,5 @@
 """Writes synthetic NIfTI files to fixtures/nifti/, covering the rules of
-the NIfTI profile (spec/virtualize.md §7
+the NIfTI profile (spec/virtualize/nifti.md §7
 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#7-nifti-profile>): NIfTI-1 and
 NIfTI-2 in both byte orders, 1 to 7 dimensions, every data type, color, units, value scaling,
 representable and oblique affines, extensions, chunking, and the inputs the
@@ -182,7 +182,7 @@ def main() -> None:
     # Row blocks: slices of 140000 bytes split into 2 blocks of 350 rows.
     nifti("nifti_rowblock_split", [3, 200, 700, 1], 2)
 
-    # Rejected, one per rule of spec/virtualize.md §7.1
+    # Rejected, one per rule of spec/virtualize/nifti.md §7.1
     # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#71-header> (and the profile
     # choice of §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>).
     nifti("nifti_reject_dim0", [0, 3, 2, 2], 2)

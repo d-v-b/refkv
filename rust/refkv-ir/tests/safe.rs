@@ -234,7 +234,7 @@ fn a_band_file_whose_main_header_passes_64_kib_is_refused_near_the_bound() {
     }
     f.extend_from_slice(&[0xFF, 0x90]);
     let mut r = BandReader::new(f.len() as u64);
-    let rules = refkv_ir::rules::safe();
+    let rules = refkv_ir::rules::of("safe");
     let e = loop {
         match r.step(rules) {
             Ok(Some((o, n))) => r.feed(o, f[o as usize..(o + n) as usize].to_vec()),

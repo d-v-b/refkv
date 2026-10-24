@@ -13,8 +13,8 @@ Schema: [schema.json](safe/schema.json)
 This document has two parts. [Part 1](#part-1-the-convention) is the SAFE
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
 is the SAFE profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The profile keeps its numbering as a section
-of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
+each chunk references the source. The document is
+numbered on its own, Part 2 after Part 1, and other documents cite it by name.
 
 # Part 1. The convention
 
@@ -199,7 +199,7 @@ Other children of `Tile_Geocoding` (`HORIZONTAL_CS_NAME`) are not checked.
 ### 2.5 Band files
 
 Each band file is a JP2 file whose codestream the profile reads and checks
-([spec/virtualize.md §12.3](#123-band-files)). It gives:
+([§8.3](#83-band-files)). It gives:
 
 - its **image size** `W × H` (the SIZ marker's `Xsiz` and `Ysiz`), its
   **tile size** `T × U` (`XTsiz` and `YTsiz`), and its number of tiles,
@@ -286,7 +286,7 @@ only tile with data:
 
 The profile says how these codestreams are made of byte ranges of the band
 file and a few bytes of their own
-([spec/virtualize.md §12.6](#126-chunks)).
+([§8.6](#86-chunks)).
 
 The band file's other bytes are kept in the source metadata: its JP2 boxes,
 main header and tile-part headers are elements of the IR mirror
@@ -617,7 +617,7 @@ and each other member is present only when it is not empty:
   final `/`;
 - `ignored`: the keys of the objects that the listing recorded but did
   not use ([spec/virtualize.md §1.4](../virtualize.md#14-store-inputs), and for a zip file its directory entries
-  that are recorded likewise, [spec/virtualize.md §12.4](#124-the-zip-form)),
+  that are recorded likewise, [§8.4](#84-the-zip-form)),
   ascending.
 
 (Neither is an object of the product, so the IR has neither: a listing's
@@ -630,13 +630,13 @@ The IR is the product's in each form:
   ([conventions §8.9](../conventions.md#89-stores)): every listed object is an
   object of the IR, its key its path, folder markers and empty objects
   included. Of these objects:
-  - the **XML documents read whole** ([spec/virtualize.md §12.2](#122-objects-and-reading)): the product
+  - the **XML documents read whole** ([§8.2](#82-objects-and-reading)): the product
     metadata, the tile metadata, and every other XML document of at most
     65536 bytes, are **held**: each has one child, a value `xml` of type
     `ascii[n]` spanning it, and the table holds its bytes;
   - the **band files** are **described in place**: each has the band file's
     elements below, its leaves partitioning it, and its bytes are its own
-    (it is the url source its chunks reference, [spec/virtualize.md §12.8](#128-the-source-table));
+    (it is the url source its chunks reference, [§8.8](#88-the-source-table));
   - every **other object** (the other XML documents, such as the datastrip
     metadata, 15–25 MB, and the other objects of [§2.1](#21-objects)) is **referenced**:
     it has no children, and the hierarchy references it whole at the
@@ -670,7 +670,7 @@ entry, at offsets in the zip file. Types are those of
 | `<directory>` | struct | | directory form: a directory of the listing, no extent |
 | `<key>` | object | | directory form: the object of that key, `(0, size)` (held, described in place, or referenced, above) |
 | `<key>/xml` | value | `ascii[n]` | an XML document read whole: all of it |
-| `…/boxes/<i>` | struct | | a band file's box `i` ([spec/virtualize.md §12.3](#123-band-files)), from offset 0, the `jp2c` box last |
+| `…/boxes/<i>` | struct | | a band file's box `i` ([§8.3](#83-band-files)), from offset 0, the `jp2c` box last |
 | `…/boxes/<i>/header` | value | `{lbox:>u4,tbox:ascii[4]}`, or `{lbox:>u4,tbox:ascii[4],xlbox:>u8}` | its `LBox`, `TBox` and `XLBox` |
 | `…/boxes/<i>/contents` | value | `bytes[n]` | the contents of a box other than `jp2c` (when not empty) |
 | `…/boxes/<i>/codestream` | struct | | the `jp2c` box's contents: the codestream `[c0, n)` |
@@ -795,8 +795,7 @@ are 370 × 370, and its tiles 1, 2 and 3 hold empty packets.
 
 # Part 2. The profile
 
-The SAFE profile of [spec/virtualize.md](../virtualize.md) (revision 26, draft),
-numbered as its [§12](#12-safe-profile). (Conformance is spec/virtualize.md's [Appendix A](../virtualize.md#appendix-a-conformance).)
+The SAFE profile of [spec/virtualize.md](../virtualize.md) (revision 26, draft) is [§8](#8-safe-profile) of this document. (Conformance is spec/virtualize.md's [Appendix A](../virtualize.md#appendix-a-conformance).)
 [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here, with the changes this
 document states.
 
@@ -805,44 +804,42 @@ The output has the convention's layout for the input
 how the product is read, which inputs are rejected, and how each chunk
 references the product. "The convention §n" below is a section of Part 1.
 
-## 12. SAFE profile
+## 8. SAFE profile
 
 A Sentinel-2 Level-1C or Level-2A product in the SAFE format is read in one
 of two forms:
 
 - **the directory form**, a store input ([§1.4](../virtualize.md#14-store-inputs)): `U` is the URL of the
   `.SAFE` directory, ending in `/`. It is listed as [§1.5](../virtualize.md#15-listing-a-store) says, and the
-  profile is chosen there ([§12.1](#121-choosing-the-profile));
+  profile is chosen there ([§8.1](#81-choosing-the-profile));
 - **the zip form**, a file input ([§1.2](../virtualize.md#12-input)): `U` is the URL of a `.SAFE.zip`
-  file, and its entries are the product's objects ([§12.4](#124-the-zip-form)).
+  file, and its entries are the product's objects ([§8.4](#84-the-zip-form)).
 
 The two forms give the same hierarchy for the same product, but for
 `source.url`, the source table and `refkv_source` (the IR mirror of a store
 or of a file, [the convention §6.3](#63-the-source-metadata-node)): every other document is the same,
 and every chunk holds the same bytes.
 
-### 12.1 Choosing the profile
+### 8.1 Choosing the profile
 
 **Directory form.** [spec/virtualize.md §1.4](../virtualize.md#14-store-inputs)'s table gains a row, after the N5
 row:
 
 | root keys | |
 |---|---|
-| `manifest.safe` | SAFE profile ([§12](#12-safe-profile)) |
+| `manifest.safe` | SAFE profile ([§8](#8-safe-profile)) |
 
-**Zip form.** [spec/virtualize.md §1.2](../virtualize.md#12-input)'s table gains a row, before the last:
+**Zip form.** The zip form's **signature** ([spec/virtualize.md §1.2](../virtualize.md#12-input), tested at the precedence of
+[profiles/safe.json](profiles/safe.json)): bytes 0–3 of `H` are
+`50 4B 03 04`, a ZIP local file header.
 
-| test on `H` | |
-|---|---|
-| bytes 0–3 are `50 4B 03 04` (a ZIP local file header) | SAFE profile ([§12](#12-safe-profile)), zip form |
-
-A zip file that is not a SAFE product is rejected by [§12.4](#124-the-zip-form) or by the
+A zip file that is not a SAFE product is rejected by [§8.4](#84-the-zip-form) or by the
 convention.
 
-### 12.2 Objects and reading
+### 8.2 Objects and reading
 
 The product's objects are, in the directory form, the store's objects
-([§1.4](../virtualize.md#14-store-inputs)), and in the zip form its entries ([§12.4](#124-the-zip-form)). The profile reads:
+([§1.4](../virtualize.md#14-store-inputs)), and in the zip form its entries ([§8.4](#84-the-zip-form)). The profile reads:
 
 - the product metadata and the tile metadata
   ([the convention §2](#2-the-source)), whole;
@@ -850,15 +847,15 @@ The product's objects are, in the directory form, the store's objects
   whole: these and the product and tile metadata are the IR's held objects
   ([the convention §6.3](#63-the-source-metadata-node));
 - in the zip form, every other deflated XML document, whole, to inflate
-  and check it ([§12.4](#124-the-zip-form));
-- of each band file, its boxes and codestream main header ([§12.3](#123-band-files)) and the
+  and check it ([§8.4](#84-the-zip-form));
+- of each band file, its boxes and codestream main header ([§8.3](#83-band-files)) and the
   first 12 bytes of each tile-part (its SOT marker segment), as the walk of
-  [§12.3](#123-band-files) reaches them: from offset 0, in blocks of 64 KiB (each block from
+  [§8.3](#83-band-files) reaches them: from offset 0, in blocks of 64 KiB (each block from
   the first byte the walk needs that the blocks read so far lack); then each SOT segment, the first in a block of 64 KiB (unless a block read for the main header holds it), each later one in 12 bytes, or in a block of 64 KiB after a tile-part of at most 16384 bytes; then the 2 bytes of EOC. The band files are walked
   together: each round reads the next range of every band file whose walk
   is not done.
 
-It reads no other bytes (but, in the zip form, those of [§12.4](#124-the-zip-form), and
+It reads no other bytes (but, in the zip form, those of [§8.4](#84-the-zip-form), and
 the values the view shows that the walk did not read, [conventions §8.7](../conventions.md#87-the-view)).
 It does not read the folder markers
 ([the convention §2.1](#21-objects)), the other objects, or the other XML
@@ -870,7 +867,7 @@ read whole, and the listing's empty objects whose keys end in `/` (which
 [§2.1](#21-objects)): a band file is read in ranges, with HTTP range requests. A
 response that is not of the requested length is a failure.
 
-### 12.3 Band files
+### 8.3 Band files
 
 A band file of `n` bytes is read as a JP2 file (ISO/IEC 15444-1, Annex I).
 All integers are big-endian.
@@ -912,7 +909,7 @@ input is rejected.
   moves the packet headers out of the tiles. The bytes from the end of the
   SIZ segment to the first SOT are the **main header rest** `R`, which is
   at least the COD and QCD segments, and MUST be at most 65536 bytes (it is
-  a data source, [§12.6](#126-chunks), copied into the output; Kakadu's is 148 bytes).
+  a data source, [§8.6](#86-chunks), copied into the output; Kakadu's is 148 bytes).
 - **COD**: `Scod` (`u8`), which MUST be 0 or 1 (no SOP or EPH markers, and
   default precinct anchors), the progression order (`u8`), the number of
   layers `Lay` (`u16`, at least 1), the multiple component transform
@@ -939,7 +936,7 @@ tile-part of tile `k` is the bytes `[s_k, s_k + Psot)`. Its body (the rest
 of its header, its PLT markers among them, and its packets) is
 `[s_k + 12, s_k + Psot)`.
 
-### 12.4 The zip form
+### 8.4 The zip form
 
 The file is a ZIP archive (PKWARE APPNOTE 6.3), read from its end. All
 integers are little-endian.
@@ -1003,13 +1000,13 @@ integers are little-endian.
   zips store every entry.)
 
 The local headers and the deflated XML documents are read, and the reads of
-[§12.2](#122-objects-and-reading) apply to the stored XML documents and band files, at their data
+[§8.2](#82-objects-and-reading) apply to the stored XML documents and band files, at their data
 start.
 
-### 12.5 Rejection and limits
+### 8.5 Rejection and limits
 
 The input is rejected when a check of [§1.2](../virtualize.md#12-input) (zip form) or [§1.4](../virtualize.md#14-store-inputs)–[§1.6](../virtualize.md#16-json-documents)
-(directory form), [§12.3](#123-band-files) or [§12.4](#124-the-zip-form) fails, and when the convention gives it no
+(directory form), [§8.3](#83-band-files) or [§8.4](#84-the-zip-form) fails, and when the convention gives it no
 layout: wherever it says that the input is rejected, or that something MUST
 hold and it does not. In particular:
 
@@ -1022,7 +1019,7 @@ hold and it does not. In particular:
   that is signed, subsampled or of more than 16 bits;
 - a band file whose size matches no resolution of the tile geocoding;
 - a band file whose chunks would need empty tiles of more than 4096 bytes
-  in one chunk, or more than the band file's size in all ([§12.6](#126-chunks));
+  in one chunk, or more than the band file's size in all ([§8.6](#86-chunks));
 - an XML document that the convention reads whose elements nest more than
   256 deep ([§1.5](../virtualize.md#15-listing-a-store));
 - in the zip form, an encrypted entry, a band file or other object that is
@@ -1032,7 +1029,7 @@ hold and it does not. In particular:
 
 **Limits.** Every reference entry's payload MUST be at most 65519 bytes
 ([§1.2](../virtualize.md#12-input)). A chunk's payload is about 100 bytes for an interior tile, and
-grows with the empty tiles of an edge chunk ([§12.6](#126-chunks)), which are bounded
+grows with the empty tiles of an edge chunk ([§8.6](#86-chunks)), which are bounded
 there: at most 4096 bytes per chunk, and at most the band file's size for
 all its chunks, before they are made. Every Sentinel-2 tiling is well
 within these: the most measured is 1439 bytes, the corner chunk of a
@@ -1043,7 +1040,7 @@ MUST NOT start with `__vz__/` ([§1.4](../virtualize.md#14-store-inputs)). The b
 for the other store profiles, on a listing of more than 100000 objects
 ([Appendix A](../virtualize.md#appendix-a-conformance)). A product has 60–1000 objects.
 
-### 12.6 Chunks
+### 8.6 Chunks
 
 The chunk of band array `<group>/<band>` at tile `t = v × nx + u`
 ([the convention §4](#4-arrays)), with
@@ -1084,7 +1081,7 @@ within the input's size.)
 `ey1` likewise from `y0`, `j`, `h` and `U`. Its `e_k` empty packets, each
 the single byte `00` (a packet header whose first bit says the packet is
 empty), are one per layer, component, resolution and precinct. With
-`N_c` and `PPx_r`, `PPy_r` those of component `c` ([§12.3](#123-band-files)):
+`N_c` and `PPx_r`, `PPy_r` those of component `c` ([§8.3](#83-band-files)):
 
 ```
 e_k = Lay × Σ_c Σ_{r=0}^{N_c} nprec(ex0, ex1, N_c − r, PPx_r) × nprec(ey0, ey1, N_c − r, PPy_r)
@@ -1122,7 +1119,7 @@ header rests and edge tails, numbered as [§1.2](../virtualize.md#12-input) says
 COM marker segments (coding parameters and the encoder's comments), and
 empty tile-parts, not pixel data ([§1.2](../virtualize.md#12-input), **Structure only**).
 
-### 12.7 Other objects
+### 8.7 Other objects
 
 In the directory form, each object that the IR references
 ([the convention §6.3](#63-the-source-metadata-node): an XML document
@@ -1136,7 +1133,7 @@ The documents under `refkv_source/` are deflated and, like the chunks, not
 among the documents a reader fetches when it opens the archive
 ([conventions §2](../conventions.md#2-attributes)).
 
-### 12.8 The source table
+### 8.8 The source table
 
 References are listed in ascending order of their entries' keys (as UTF-8
 byte strings), and within a reference in order of its ranges. This order
@@ -1146,7 +1143,7 @@ numbers the sources ([§1.2](../virtualize.md#12-input)'s order of first use).
   1.
 - **Directory form.** The sources are first one `url` source per object
   that some reference uses (every band file, and every object
-  [§12.7](#127-other-objects) references), with a `size` pin, the object's listed size,
+  [§8.7](#87-other-objects) references), with a `size` pin, the object's listed size,
   and the object's URL ([§1.4](../virtualize.md#14-store-inputs)), in order of first use, numbered
   from 0. The data sources follow, numbered from the count `m` of url sources
   in order of first use ([§1.2](../virtualize.md#12-input)'s rule, starting at `m` rather than 1). This
@@ -1154,7 +1151,7 @@ numbers the sources ([§1.2](../virtualize.md#12-input)'s order of first use).
   that it has no data sources: a band file is used by many chunks, and by
   nothing else.
 
-### 12.9 Summary
+### 8.9 Summary
 
 This section is informative. Both implementations print a one-line JSON
 summary: `level` (`"L1C"` or `"L2A"`), `form` (`"store"` or `"zip"`),
@@ -1168,7 +1165,7 @@ parser's rounds of reads), the run's or the read planner's counts, the IR's
 element count and what the mirror's table folded, and, in the directory
 form, `listingRequests`.
 
-### 12.10 Cost
+### 8.10 Cost
 
 This section is informative. With no TLM marker in the band files (Kakadu
 writes none for Sentinel-2), the tile-parts are found by following each

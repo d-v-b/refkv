@@ -10,23 +10,23 @@ its JSON Schema `virtualize/<format>/schema.json`:
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
 |---|---|---|
-| TIFF, OME-TIFF, Aperio SVS | [tiff](virtualize/tiff.md) | `48e9ac4e-1156-4a62-955e-20467d9c2700` |
-| Hamamatsu NDPI | [ndpi](virtualize/ndpi.md) | `6cac71ef-dbb2-4acd-b60c-00389aa4238a` |
-| Nikon ND2 | [nd2](virtualize/nd2.md) | `59612f14-e314-4207-ba00-8f422ba71490` |
-| DICOM | [dicom](virtualize/dicom.md) | `acf17198-e5a5-48d3-8187-22ec4bb40ea5` |
-| NIfTI-1 and NIfTI-2 | [nifti](virtualize/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
-| MRC2014 | [mrc](virtualize/mrc.md) | `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` |
-| FITS | [fits](virtualize/fits.md) | `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` |
-| MRC2014, as a dataset ([§9](#9-dataset-layouts)) | [mrc-dataset](virtualize/mrc-dataset.md) | `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` |
-| Imaris IMS | [ims](virtualize/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
-| N5 | [n5](virtualize/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
-| Zarr v2 | [zarr2](virtualize/zarr2.md) | `8e792619-d671-4687-ab51-752885dd3ee6` |
-| OME-Zarr 0.4 | [ome-zarr](virtualize/ome-zarr.md) | `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` |
-| Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](virtualize/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
 | Zeiss CZI | [czi](virtualize/czi.md) | `7a0733c7-d4be-4482-a64f-6904d9354ea5` |
-| Olympus VSI | [vsi](virtualize/vsi.md) | `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` |
-| Akoya QPTIFF | [qptiff](virtualize/qptiff.md) | `329ea136-2f55-4c27-b6f4-8e60ca2109b8` |
+| DICOM | [dicom](virtualize/dicom.md) | `acf17198-e5a5-48d3-8187-22ec4bb40ea5` |
+| FITS | [fits](virtualize/fits.md) | `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` |
+| Imaris IMS | [ims](virtualize/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
 | MP3 (MPEG Layer III audio) | [mp3](virtualize/mp3.md) | `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` |
+| MRC2014 | [mrc](virtualize/mrc.md) | `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` |
+| MRC2014, as a dataset ([§9](#9-dataset-layouts)) | [mrc-dataset](virtualize/mrc-dataset.md) | `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` |
+| N5 | [n5](virtualize/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
+| Nikon ND2 | [nd2](virtualize/nd2.md) | `59612f14-e314-4207-ba00-8f422ba71490` |
+| Hamamatsu NDPI | [ndpi](virtualize/ndpi.md) | `6cac71ef-dbb2-4acd-b60c-00389aa4238a` |
+| NIfTI-1 and NIfTI-2 | [nifti](virtualize/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
+| OME-Zarr 0.4 | [ome-zarr](virtualize/ome-zarr.md) | `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` |
+| Akoya QPTIFF | [qptiff](virtualize/qptiff.md) | `329ea136-2f55-4c27-b6f4-8e60ca2109b8` |
+| Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](virtualize/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
+| TIFF, OME-TIFF, Aperio SVS | [tiff](virtualize/tiff.md) | `48e9ac4e-1156-4a62-955e-20467d9c2700` |
+| Olympus VSI | [vsi](virtualize/vsi.md) | `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` |
+| Zarr v2 | [zarr2](virtualize/zarr2.md) | `8e792619-d671-4687-ab51-752885dd3ee6` |
 <!-- /profiles -->
 
 A format's convention specifies the hierarchy's whole **Zarr layout**: which
@@ -104,7 +104,7 @@ the Convention Metadata Object (CMO)
 with no other members. At version 0, which has no tag, the URLs name the
 development branch instead: `.../refs/heads/main/spec/virtualize/<p>/schema.json`
 and `.../blob/main/spec/virtualize/<p>.md`. `T` is the format's title, the `title` of its
-entry in the profile registry ([virtualize/profiles.json](virtualize/profiles.json): `TIFF`,
+entry in the profile registry ([virtualize/profiles/](virtualize/profiles/)`<p>.json`: `TIFF`,
 `Zarr v2`, `Sentinel-2 SAFE`, ...). The UUID is the same for every version; the version is in
 the URLs. All conventions nest their property under one key, `refkv_virtualized`, which is
 also their `name`: the framework asks a nesting convention's `name` to be

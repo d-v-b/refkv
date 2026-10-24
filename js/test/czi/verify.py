@@ -244,8 +244,8 @@ def czi_pixels(sb_data: np.ndarray, pixel_type: int) -> np.ndarray:
 
 
 def walk(data: bytes) -> tuple[list[tuple[int, bytes, int, int]], int]:
-    """The segments in file order (spec/virtualize.md §13.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#132-structures-and-the-walk>
+    """The segments in file order (spec/virtualize/czi.md §7.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#72-structures-and-the-walk>
     step 6), as the verifier reads them."""
     out, o = [], 0
     while o < len(data) and len(out) < 1 << 23:

@@ -138,6 +138,21 @@ Rejected:
 - Lossy compression and tiled frames.
 - Other loop types, and two loops of the same kind.
 
+### In the browser
+
+The browser code ([js/](../../../js/README.md)) reads ND2 (format version 3 and later):
+
+- Time (including multi-phase), stage-position and Z loops; positions become
+  a bioformats2raw layout with one image per position, placed at its stage
+  coordinates.
+- Channels and RGB components, with names, colors and contrast windows in
+  `omero`; pixel size, Z step and time step as scales.
+- Uncompressed frames (padded rows become one range per row, dropping the
+  padding) and losslessly compressed (zlib) frames.
+
+Not supported, and refused with HTTP 422: legacy (JPEG 2000) ND2 files,
+lossy compression, tiled frames, and other loop types.
+
 ## Performance
 
 - Virtualizing reads the chunk map, the metadata chunks and the header of

@@ -469,7 +469,7 @@ one of 8, 16, 32, 64, -32, -64`.
 
 Images: [conventions §7](../../spec/conventions.md#7-source-values-as-arrays)
 with the 2^20 limit, one range of source 0 per chunk plus a literal padding
-or a copy, as [mrc.md §14.2](../../spec/virtualize/mrc.md#142-chunks).
+or a copy, as [mrc.md §8.2](../../spec/virtualize/mrc.md#82-chunks).
 Compressed images: a literal prefix then the ranges of
 [§2.4](#24-tile-compressed-images). Tables: ranges of whole rows and heap
 blocks. The output has no data sources: the source table is source 0 alone.

@@ -71,13 +71,15 @@ LEFT_ALONE = (
 # Written by spec/generate_schemas.py.
 GENERATED = ("spec/virtualize/*/schema.json",)
 
-# The profile registry (spec/virtualize/profiles.json): the format documents, each a profile
-# numbered as a section of spec/virtualize.md (Part 2 of the format's document), and the dataset
-# layouts' conventions (spec/conventions.md §9): a document each, no profile number.
-REGISTRY: list[dict] = json.loads((ROOT / "spec" / "virtualize" / "profiles.json").read_text(encoding="utf-8"))
-FORMATS = tuple(e["name"] for e in REGISTRY if e["section"] is not None)
-PROFILE_NUMBERS = {e["name"]: e["section"] for e in REGISTRY if e["section"] is not None}
-LAYOUTS = tuple(e["name"] for e in REGISTRY if e["section"] is None)
+# The profile registry (spec/virtualize/profiles/<name>.json, one file per profile): the format
+# documents, each numbered on its own (its profile is its Part 2, numbered after its Part 1), and
+# the dataset layouts' conventions (spec/conventions.md §9), a document each without a profile.
+REGISTRY: list[dict] = sorted(
+    (json.loads(p.read_text(encoding="utf-8")) for p in (ROOT / "spec" / "virtualize" / "profiles").glob("*.json")),
+    key=lambda e: e["name"],
+)
+FORMATS = tuple(e["name"] for e in REGISTRY if e["kind"] != "layout")
+LAYOUTS = tuple(e["name"] for e in REGISTRY if e["kind"] == "layout")
 DOCS = FORMATS + LAYOUTS
 
 # Old names of the documents, from before the repository was reorganized.
@@ -181,11 +183,6 @@ def format_of_doc(doc: str) -> str | None:
 
 def numbered(doc: str, number: str, part: int | None = None) -> list[Heading]:
     """The headings of `doc` numbered `number` (in `part`, if given)."""
-    if doc == "spec/virtualize.md" and number[0].isdigit():
-        top = int(number.split(".")[0])
-        for f, n in PROFILE_NUMBERS.items():
-            if top == n:
-                return numbered(f"spec/virtualize/{f}.md", number, 2)
     return [h for h in headings(doc) if h.number == number and (part is None or h.part == part)]
 
 

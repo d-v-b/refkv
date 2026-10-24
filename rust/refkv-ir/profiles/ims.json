@@ -1,0 +1,15 @@
+{
+  "name": "ims",
+  "title": "IMS",
+  "uuid": "5067a535-8261-4b25-a93c-1985ed333bde",
+  "version": 0,
+  "kind": "file",
+  "sniff": 70,
+  "suffixes": [
+    ".ims"
+  ],
+  "reference": 25,
+  "source": "Imaris IMS",
+  "inputs": "Imaris IMS files (HDF5)",
+  "for": "Imaris `.ims` files"
+}

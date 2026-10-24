@@ -98,7 +98,7 @@ struct Cut {
 fn cut(h: &Header, offset: u64, facts: &J) -> Result<Cut, String> {
     let (nx, ny, nz) = (h.get("nx").i() as u64, h.get("ny").i() as u64, h.get("nz").i() as u64);
     let (ispg, mz) = (h.get("ispg").i(), h.get("mz").i());
-    let spec = &crate::rules::mrc().table("modes")[h.get("mode").i().to_string()];
+    let spec = &crate::rules::of("mrc").table("modes")[h.get("mode").i().to_string()];
     let item = n(&spec["bytes"]);
     let kind = kind(ispg, nz as i64);
     // the axis map: which of x, y and z the sections, rows and columns run along
@@ -129,8 +129,8 @@ fn parts<'a>(ir: &'a Ir, facts: &J) -> Result<(Header<'a>, u32), String> {
     Ok((Header::new(raw), n(&facts["data"]) as u32))
 }
 
-/// The source's ranges of the edge chunks the projection copies (§14.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#142-chunks>).
+/// The source's ranges of the edge chunks the projection copies (§8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#82-chunks>).
 pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
     let (h, data) = parts(ir, facts)?;
     let c = cut(&h, ir.start[data as usize], facts)?;

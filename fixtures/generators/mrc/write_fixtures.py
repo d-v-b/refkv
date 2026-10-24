@@ -1,6 +1,6 @@
 """Writes synthetic MRC2014 files to fixtures/mrc/, covering the rules of the MRC profile
-(spec/virtualize/mrc.md §14
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#14-mrc-profile>): both byte
+(spec/virtualize/mrc.md §8
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#8-mrc-profile>): both byte
 orders, every mode, images, image stacks, volumes and volume stacks, the axis map, voxel
 sizes, origins, display windows, extended headers, chunking, and the inputs the profile
 rejects (`mrc_reject_*`).
@@ -187,8 +187,8 @@ def main() -> None:
     mrc("mrc_chunk_rows", (1000, 1100, 1), 0, ispg=0)
     mrc("mrc_chunk_edge_literal", (2**20 + 1, 1, 1), 0, ispg=0)
 
-    # Rejected, one per rule of spec/virtualize/mrc.md §14.1
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#141-header>.
+    # Rejected, one per rule of spec/virtualize/mrc.md §8.1
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#81-header>.
     mrc("mrc_reject_short_header", (3, 2, 2), 2, data=b"", truncate=1024 - 500)
     mrc("mrc_reject_machst", (3, 2, 2), 2, machst=b"\0\0\0\0")
     mrc("mrc_reject_machst_swapped", (3, 2, 2), 2, machst=b"\x41\x44\0\0")

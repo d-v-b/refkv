@@ -1,5 +1,5 @@
 // Virtualizing a NIfTI-1 or NIfTI-2 single file (.nii) by the NIfTI profile
-// (spec/virtualize.md, §7
+// (spec/virtualize/nifti.md, §7
 // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#7-nifti-profile>): the voxel
 // data is one contiguous block, cut into
 // Zarr chunks of at most 128 KiB as conventions §7
@@ -606,7 +606,7 @@ export async function virtualizeNifti(
   if (affine !== null) meta.affine = { form: affine, applied: diagonal !== undefined };
   const attributes = declare({ ome }, "nifti", url, meta, REVISION_25);
   const entries: EntryDesc[] = [];
-  for (const [coords, parts] of voxelChunks) { // spec/virtualize.md §7.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>
+  for (const [coords, parts] of voxelChunks) { // spec/virtualize/nifti.md §7.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>
     const at = coords.split("/");
     const key = `0/c/${axes.map((a) => at[stored.indexOf(a)]).join("/")}`;
     entries.push(parts instanceof Uint8Array ? { key, bytes: parts, compress: true } : { key, ranges: parts.map(toRange) });

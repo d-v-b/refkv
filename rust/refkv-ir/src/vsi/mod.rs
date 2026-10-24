@@ -1,11 +1,11 @@
-//! A sans-IO parser of Olympus VSI slides (spec/virtualize/vsi.md, the profile's §15
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#15-vsi-profile>) as a store
+//! A sans-IO parser of Olympus VSI slides (spec/virtualize/vsi.md, the profile's §9
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#9-vsi-profile>) as a store
 //! run ([`crate::store::StoreParser`]) whose objects are the `.vsi` file and the tile files
 //! beside it, every one described in place (conventions §8.9
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>).
 //!
-//! **Batches.** The `.vsi` file, whole; then the tile files are **probed** (§15.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#152-the-tile-files>): for each
+//! **Batches.** The `.vsi` file, whole; then the tile files are **probed** (§9.2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>): for each
 //! stack the tree says has one, `_<name>_/stack<N>/frame_t.ets`, then `frame_t_0.ets`, and the
 //! first that exists is the stack's tile file; then every tile file's 64-byte SIS header, in
 //! one batch; then every one's ETS header and tile directory, in one batch. The schema
@@ -169,7 +169,7 @@ impl Vsi {
             return Err(format!("the key {key:?} is not the name of a .vsi file"));
         }
         Ok(Vsi {
-            rules: rules::vsi(),
+            rules: rules::of("vsi"),
             phase: Phase::Start,
             ir: Some(ir),
             keys: keys.to_vec(),
@@ -202,7 +202,7 @@ impl Vsi {
         self.got.remove(&k).ok_or_else(|| format!("internal: the read {k:?} was not fed"))
     }
 
-    // ---- the .vsi file (§15.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#151-the-vsi-file>)
+    // ---- the .vsi file (§9.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#91-the-vsi-file>)
 
     fn read_vsi(&mut self) -> Res<Vec<String>> {
         let size = self.keys[self.vsi].1;
@@ -217,7 +217,7 @@ impl Vsi {
         self.file = b;
         self.stacks = self.find_stacks(&root)?;
         self.tree = Some(root);
-        // the tile files to probe (§15.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#152-the-tile-files>)
+        // the tile files to probe (§9.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>)
         let dir = format!("_{}_", self.base());
         let mut keys = Vec::new();
         for (k, s) in self.stacks.iter_mut().enumerate() {
@@ -312,7 +312,7 @@ impl Vsi {
         Ok(out)
     }
 
-    // ---- the tile files (§15.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#152-the-tile-files>)
+    // ---- the tile files (§9.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>)
 
     /// After the probes: each stack's tile file, and the reads of their SIS headers.
     fn resolve(&mut self) -> Res<()> {
@@ -376,7 +376,7 @@ impl Vsi {
 
     /// The sizes of a stack's coordinates beyond x and y (the ETS header's dimension sizes; 1
     /// past them), the level coordinate when the file has a pyramid, and each tile checked
-    /// (§15.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#153-tiles-and-levels>).
+    /// (§9.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#93-tiles-and-levels>).
     fn check_tiles(&self, f: usize) -> Res<()> {
         let file = &self.files[f];
         let s = &self.stacks[file.stack];
@@ -648,7 +648,7 @@ impl StoreParser for Vsi {
     fn found(&mut self, key: &str, index: usize, size: Option<u64>) -> Res<Option<u32>> {
         let Some(size) = size else { return Ok(None) };
         // the first candidate found is the stack's tile file: a later one is not read, nor an
-        // object of the input (§15.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#152-the-tile-files>)
+        // object of the input (§9.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>)
         if let Some(&(stack, c, _)) = self.probes.iter().find(|p| p.2 == key)
             && c > 0
             && self.probes.iter().any(|p| p.0 == stack && p.1 < c && self.found.contains_key(&p.2))
@@ -730,4 +730,27 @@ fn find_number(rules: &Rules, b: &[u8], c: &Container, tag: u32) -> Option<f64> 
         return Some(v);
     }
     c.fields.iter().filter_map(|f| f.child()).find_map(|child| find_number(rules, b, child, tag))
+}
+
+/// An Olympus VSI slide's file run: a `.vsi` file whose tile files lie beside it, virtualized as a
+/// store run of the `vsi` store format (spec/virtualize/vsi.md §9.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>), never
+/// as a file run: `Format::sniff` names it so that a host sends the file to
+/// [`crate::store::StoreRun`].
+pub struct Profile;
+
+impl crate::run::FileProfile for Profile {
+    /// A TIFF whose byte 8 starts its metadata tree (`detect`), tested before TIFF.
+    fn detect(&self, head: &[u8]) -> bool {
+        detect(head)
+    }
+    fn parser(&self, _size: u64) -> crate::run::AnyParser {
+        crate::run::AnyParser::refused("a VSI file is virtualized as a store run, with its tile files")
+    }
+    fn store_run(&self) -> bool {
+        true
+    }
+    fn project(&self, _: &crate::ir::Ir, _: &serde_json::Value, _: &str, _: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        Err("a VSI input is virtualized as a store run".into())
+    }
 }

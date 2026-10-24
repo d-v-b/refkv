@@ -1,5 +1,5 @@
-"""The zip form of a SAFE product (spec/virtualize.md §12.4
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>): the ZIP
+"""The zip form of a SAFE product (spec/virtualize/safe.md §8.4
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>): the ZIP
 archive's end records, its central directory, its local headers, and its deflated XML
 documents."""
 
@@ -20,8 +20,8 @@ MAX_INFLATED = 1 << 27  # the most bytes of all the deflated XML documents toget
 
 @dataclass
 class Entry:
-    """A central directory file header, as §12.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form> reads it."""
+    """A central directory file header, as §8.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form> reads it."""
 
     name: str
     flags: int
@@ -55,8 +55,8 @@ def _zip64(extra: bytes, wanted: int) -> list[int]:
 
 
 def central_directory(read: Reader, n: int) -> Directory:
-    """The entries of the zip file of `n` bytes (§12.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>: end of
+    """The entries of the zip file of `n` bytes (§8.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>: end of
     central directory, ZIP64, central directory)."""
     tail_len = min(n, MAX_TAIL)
     tail = read(n - tail_len, tail_len)
@@ -128,8 +128,8 @@ def central_directory(read: Reader, n: int) -> Directory:
 
 def product_entries(d: Directory) -> tuple[str, dict[str, Entry], list[str], list[str]]:
     """The product's root directory `D`, its objects by key, the recorded keys of the
-    directory entries, and the keys of every directory entry but `D`'s (§12.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>)."""
+    directory entries, and the keys of every directory entry but `D`'s (§8.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>)."""
     names = set()
     root = None
     objects: dict[str, Entry] = {}
@@ -161,8 +161,8 @@ def product_entries(d: Directory) -> tuple[str, dict[str, Entry], list[str], lis
 
 
 def locate(read: Reader, d: Directory, objects: dict[str, Entry]) -> None:
-    """Each nonempty object's data start, from its local header (§12.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>)."""
+    """Each nonempty object's data start, from its local header (§8.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>)."""
     todo = [e for e in objects.values() if e.us]
     prefetch = getattr(read, "prefetch", None)
     if prefetch is not None:
@@ -187,8 +187,8 @@ def locate(read: Reader, d: Directory, objects: dict[str, Entry]) -> None:
 
 
 def inflate(data: bytes, e: Entry) -> bytes:
-    """A deflated entry's bytes (§12.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>): the raw
+    """A deflated entry's bytes (§8.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>): the raw
     deflate stream must end exactly at
     its compressed size and give exactly its size, with its CRC-32."""
     d = zlib.decompressobj(-15)

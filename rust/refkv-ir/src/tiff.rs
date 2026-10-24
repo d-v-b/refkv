@@ -1,6 +1,6 @@
 //! A sans-IO parser of TIFF, BigTIFF and OME-TIFF files into the IR
-//! (spec/virtualize.md §3
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-tiff-profile>,
+//! (spec/virtualize/tiff.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#7-tiff-profile>,
 //! spec/virtualize/tiff.md): it never reads; it asks for batches
 //! of ranges (`step`), is given their bytes (`feed`), and holds them only until
 //! the step that uses them.
@@ -16,8 +16,8 @@
 //! **The QPTIFF variant** (spec/virtualize/qptiff.md
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md>). After the header (and
 //! the NDPI test), the first IFD's Software tag decides whether the file is an Akoya QPTIFF
-//! (`detect_qptiff`, spec/virtualize.md §16
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#16-qptiff-profile>, which
+//! (`detect_qptiff`, spec/virtualize/qptiff.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#7-qptiff-profile>, which
 //! never rejects). A QPTIFF is read as a TIFF, with the table of `QPTIFF_TABLE` (the strip
 //! tables, RowsPerStrip and the position tags added), the schema `schema/qptiff.json`, and its
 //! own layout (`derive_qptiff`: the channels are the FullResolution images, the levels the runs
@@ -26,8 +26,8 @@
 //!
 //! **The NDPI variant** (spec/virtualize/ndpi.md
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md>). After the header, the
-//! parser tests the file for NDPI (§4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>, which never
+//! parser tests the file for NDPI (§7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>, which never
 //! rejects): a little-endian magic-42 TIFF whose IFD at the u64 at bytes 4–11 has tag 65420. An
 //! NDPI is read by the same rounds with these extension points, each a method that asks
 //! `self.ndpi`:
@@ -85,8 +85,8 @@ const QPTIFF_TABLE: [u16; 26] = [
     530,
 ];
 const QPTIFF_SCALARS: [u16; 16] = [256, 257, 259, 262, 266, 277, 278, 282, 283, 284, 286, 287, 296, 317, 322, 323];
-/// What a QPTIFF's Software tag starts with (spec/virtualize.md §16
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#16-qptiff-profile>).
+/// What a QPTIFF's Software tag starts with (spec/virtualize/qptiff.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#7-qptiff-profile>).
 const QPI_SOFTWARE: &[u8] = b"PerkinElmer-QPI";
 const MAX_SAFE: u64 = (1 << 53) - 1;
 
@@ -317,7 +317,7 @@ impl Tiff {
             phase: Phase::Start,
             fed: Fed::default(),
             ir: Ir::new(size),
-            rules: rules::tiff(),
+            rules: rules::of("tiff"),
             le: true,
             big: false,
             hs: 8,
@@ -440,8 +440,8 @@ impl Tiff {
                     let n = 16.min(self.size);
                     let h = self.fed.get(0, n).ok_or("internal: no header")?.to_vec();
                     self.fed.clear();
-                    // the NDPI test (spec/virtualize/ndpi.md §4
-                    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>):
+                    // the NDPI test (spec/virtualize/ndpi.md §7
+                    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>):
                     // the IFD at V, the u64 at bytes 4–11, of a little-endian classic TIFF
                     if h.len() >= 12 && h[..4] == *b"II*\0" {
                         let v = u64_at(&h, 4, true);
@@ -689,7 +689,7 @@ impl Tiff {
             && self.fed.get(v + 2, 12 * n).is_some_and(|e| (0..n as usize).any(|i| u16_at(e, 12 * i, true) == 65420));
         if ndpi {
             self.ndpi = true;
-            self.rules = rules::ndpi();
+            self.rules = rules::of("ndpi");
             self.hs = 16;
             let s = self.ir.struct_(0, "header", NO_INDEX, 0, Some((0, 12)))?;
             self.ir.value(s, "byte_order", NO_INDEX, "ascii[2]", 0, (0, 2), Some(&h[..2]))?;
@@ -704,8 +704,8 @@ impl Tiff {
         Ok(())
     }
 
-    /// The QPTIFF test (spec/virtualize.md §16
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#16-qptiff-profile>): the
+    /// The QPTIFF test (spec/virtualize/qptiff.md §7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#7-qptiff-profile>): the
     /// first IFD's Software tag (305), ASCII, whose value starts with `PerkinElmer-QPI`. Asks for
     /// the bytes it needs (the IFD's count and entries, then the value's first 15 bytes); a file
     /// that fails any part of the test is a TIFF, so the test never rejects.
@@ -744,7 +744,7 @@ impl Tiff {
         };
         if b == QPI_SOFTWARE {
             self.qptiff = true;
-            self.rules = rules::qptiff();
+            self.rules = rules::of("qptiff");
         }
         Ok(None)
     }
@@ -1300,8 +1300,8 @@ fn aperio_fields(d: &str) -> Option<Vec<(String, String)>> {
     Some(out)
 }
 
-/// An IFD's JPEG prefix (spec/virtualize/tiff.md §3.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#33-chunks>): the Adobe marker
+/// An IFD's JPEG prefix (spec/virtualize/tiff.md §7.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#73-chunks>): the Adobe marker
 /// for 3 samples, then JPEGTables without its SOI and EOI; whether the IFD has JPEGTables, and
 /// whether they are well formed (the `plane` role). Empty when the compression is not JPEG.
 fn jpeg_prefix(m: &Vals, jpeg: bool, spp: u64, photometric: Option<u64>) -> (Vec<u8>, bool, bool) {
@@ -2474,8 +2474,8 @@ impl Tiff {
                 )?;
             }
             // a strip without McuStarts whose frame is not the level's size, but has its MCU rows
-            // and columns, is spliced the level's (spec/virtualize/ndpi.md §4
-            // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>); with
+            // and columns, is spliced the level's (spec/virtualize/ndpi.md §7
+            // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>); with
             // others, the level is not a level
             let mut frame = J::Null;
             if head.is_none() {
@@ -2955,5 +2955,49 @@ impl Tiff {
             "name": name,
         });
         Ok(Layout { facts, prefixes, levels, planes: None })
+    }
+}
+
+impl crate::Parser for Tiff {
+    fn new(size: u64) -> Self {
+        Tiff::new(size)
+    }
+    fn step(&mut self) -> Result<crate::nd2::Step, String> {
+        Tiff::step(self)
+    }
+    fn feed(&mut self, offset: u64, data: Vec<u8>) {
+        Tiff::feed(self, offset, data)
+    }
+    fn finish(self) -> Result<(crate::ir::Ir, serde_json::Value), String> {
+        Tiff::finish(self)
+    }
+    fn found(&self) -> Option<&'static str> {
+        Some(if self.ndpi {
+            "ndpi"
+        } else if self.qptiff {
+            "qptiff"
+        } else {
+            "tiff"
+        })
+    }
+}
+
+/// The TIFF profile's file run (spec/virtualize/tiff.md); a run of it becomes one of NDPI or
+/// QPTIFF when its parser finds the file is one (`Parser::found`).
+pub struct Profile;
+
+impl crate::run::FileProfile for Profile {
+    /// A TIFF or BigTIFF header, in either byte order.
+    fn detect(&self, head: &[u8]) -> bool {
+        head.len() >= 4 && [b"II*\0", b"MM\0*", b"II+\0", b"MM\0+"].iter().any(|m| head[..4] == m[..])
+    }
+    fn parser(&self, size: u64) -> crate::run::AnyParser {
+        crate::run::AnyParser::of::<Tiff>(size)
+    }
+    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::tiff::project(ir, facts, url, copied)
+    }
+    fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+        crate::project::tiff::reads(ir, facts)
     }
 }

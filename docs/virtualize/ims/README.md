@@ -132,6 +132,18 @@ Rejected, with the message the command prints:
   those above.
 - More than 64 resolution levels, or more than 100000 datasets.
 
+### In the browser
+
+The browser code ([js/](../../../js/README.md)) reads Imaris IMS (HDF5):
+
+- Files from Imaris 5.5 to 10 and its converters: every resolution level,
+  time point and channel, with extents, units, time step, channel names,
+  colors and contrast ranges.
+- Chunks as stored, uncompressed or deflate (`zlib`).
+
+Not supported, and refused with HTTP 422: LZ4 or shuffle compression (as
+Imaris 10 can write), and HDF5 features Imaris files do not use.
+
 ## Performance
 
 - Virtualizing reads the HDF5 metadata only (groups, attributes and chunk

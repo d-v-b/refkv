@@ -2,7 +2,7 @@
 //! §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#2-nodes>,
 //! §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#3-arrays>,
 //! §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
-//! §10.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#102-chunks-and-other-objects>):
+//! §7.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#72-chunks-and-other-objects>):
 //! a valid store IR and the facts of `zarr2.rs` into the hierarchy. A `zarr.json` per node (the
 //! convention declared on the root and on every node with source metadata), an entry per
 //! present chunk referencing its whole object, and every other object of a length referenced

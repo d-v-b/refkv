@@ -1,7 +1,7 @@
 {
   "source_model": "zarr2",
   "version": 1,
-  "about": "The source model of a Zarr v2 store (spec/virtualize/zarr2.md, spec/virtualize.md §10 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>): the data types and compressors the Zarr v2 convention reads, and the roles a node's .zarray, its compressor and fill value, a .zgroup and a .zattrs play, each with the constraints a store must meet to have the convention's layout. The parser reads the listing and the documents (JSON by spec/virtualize.md §1.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-json-documents>) and checks this schema for each node, in path order; the projection reads a valid IR and checks nothing.",
+  "about": "The source model of a Zarr v2 store (spec/virtualize/zarr2.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#7-zarr-v2-profile>): the data types and compressors the Zarr v2 convention reads, and the roles a node's .zarray, its compressor and fill value, a .zgroup and a .zattrs play, each with the constraints a store must meet to have the convention's layout. The parser reads the listing and the documents (JSON by spec/virtualize.md §1.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-json-documents>) and checks this schema for each node, in path order; the projection reads a valid IR and checks nothing.",
   "limits": {
     "max_safe": 9007199254740991,
     "max_dims": 32,

@@ -125,6 +125,17 @@ Rejected:
 - A strip header without exactly one SOF0 segment and a restart interval, or
   restart offsets that do not match the strip.
 
+### In the browser
+
+The browser code ([js/](../../../js/README.md)) reads Hamamatsu NDPI:
+
+- Pyramids of single JPEG strips, including in files over 4 GB: each level's
+  strip is cut at its restart markers into chunks of about 1024 × 1024 pixels, each a JPEG stream rebuilt
+  from byte ranges of the file and the strip's header, held once in the
+  archive as `data` sources.
+
+Not supported, and refused with HTTP 422: NDPI focal planes.
+
 ## Performance
 
 The layout makes reading costly, and nothing in the archive can fix that.

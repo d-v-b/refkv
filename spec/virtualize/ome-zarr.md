@@ -13,8 +13,8 @@ Schema: [schema.json](ome-zarr/schema.json)
 This document has two parts. [Part 1](#part-1-the-convention) is the OME-Zarr
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
 is the OME-Zarr profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The profile keeps its numbering as a section
-of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
+each chunk references the source. The document is
+numbered on its own, Part 2 after Part 1, and other documents cite it by name.
 
 # Part 1. The convention
 
@@ -561,10 +561,9 @@ and the source metadata names it rather than copying it:
 
 # Part 2. The profile
 
-The OME-Zarr profile of [spec/virtualize.md](../virtualize.md) (revision 16),
-numbered as its [§11](#11-ome-zarr-profile). [§1](../virtualize.md#1-introduction) is in spec/virtualize.md and applies here, in particular
+The OME-Zarr profile of [spec/virtualize.md](../virtualize.md) (revision 16) is [§11](#11-ome-zarr-profile) of this document. [§1](../virtualize.md#1-introduction) is in spec/virtualize.md and applies here, in particular
 the store input rules of [§1.4](../virtualize.md#14-store-inputs)–[§1.6](../virtualize.md#16-json-documents), and so does [§2](../virtualize.md#2-the-zarr-layout). The profile builds on
-the Zarr v2 profile ([zarr2.md](zarr2.md#part-2-the-profile), [§10](zarr2.md#10-zarr-v2-profile)).
+the Zarr v2 profile ([zarr2.md](zarr2.md#part-2-the-profile), [zarr2.md §7](zarr2.md#7-zarr-v2-profile)).
 
 The output has the convention's layout for the input
 ([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
@@ -575,28 +574,28 @@ references the store. "The convention §n" below is a section of Part 1.
 
 The profile was chosen because the store's root has a `.zarray` or a
 `.zgroup` and the store declares OME-NGFF 0.4 ([§1.4](../virtualize.md#14-store-inputs)). The store is read
-as [§10](zarr2.md#10-zarr-v2-profile) reads it, integer literals included: its node documents in one
+as [zarr2.md §7](zarr2.md#7-zarr-v2-profile) reads it, integer literals included: its node documents in one
 round; then each document the test of OME-NGFF 0.4 names that the round did not read (one
 inside an array, say), one round each, a document the test cannot parse rejecting the input,
-and one that cannot be read failing the virtualizer, as in [§10.2](zarr2.md#102-chunks-and-other-objects).
-The choice between this profile and [§10](zarr2.md#10-zarr-v2-profile) reads the same rounds.
+and one that cannot be read failing the virtualizer, as in [zarr2.md §7.2](zarr2.md#72-chunks-and-other-objects).
+The choice between this profile and [zarr2.md §7](zarr2.md#7-zarr-v2-profile) reads the same rounds.
 
 ### 11.1 Rejection
 
-The input is rejected when a rule of [§10](zarr2.md#10-zarr-v2-profile) rejects it, and when the
+The input is rejected when a rule of [zarr2.md §7](zarr2.md#7-zarr-v2-profile) rejects it, and when the
 convention gives it no layout: wherever it says that the input is
 rejected, or that something MUST hold and it does not (in particular, a
 rule of [its §4](#4-validation)).
 
 ### 11.2 Chunks and OME-XML
 
-Chunks are [§10](zarr2.md#10-zarr-v2-profile)'s: each nonempty chunk object is an entry under its own key,
+Chunks are [zarr2.md §7](zarr2.md#7-zarr-v2-profile)'s: each nonempty chunk object is an entry under its own key,
 referencing the whole object through its own `url` source ([§1.4](../virtualize.md#14-store-inputs)). Each
 OME-XML object of [the convention §7](#7-chunks-and-ome-xml)
 is referenced whole in the same way: an entry under its key, with its own
 source, in the order of [§1.4](../virtualize.md#14-store-inputs) among the chunk entries (an object of size 0
 has no entry; it is an empty object, which the mirror lists, as an empty chunk object is).
-Every other object is as [§10.2](zarr2.md#102-chunks-and-other-objects) says; the ignored keys are
+Every other object is as [zarr2.md §7.2](zarr2.md#72-chunks-and-other-objects) says; the ignored keys are
 `refkv_source`'s source metadata ([the convention §8.2](#82-the-store-ir)).
 
 ### 11.3 Summary
@@ -608,5 +607,5 @@ objects), `images`, `labels` (label images), `droppedLabelLevels` (the
 datasets L7 drops, over all label images), `plates`, `wells`, `fields`
 (the images wells list), `omeXml` (OME-XML entries), `otherObjects` (the
 entries under `refkv_source/objects/`) and `listingRequests`, and the Rust core's counts
-([§10.3](zarr2.md#103-summary)).
+([zarr2.md §7.3](zarr2.md#73-summary)).
 

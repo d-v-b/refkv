@@ -129,6 +129,20 @@ Rejected:
 - A file with no audio frames, and an ID3v2 tag that runs past the file
   or whose size is not syncsafe.
 
+### In the browser
+
+The browser code ([js/](../../../js/README.md)) reads MP3 (MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio):
+
+- The one format that is not an image: one array `samples` of int16,
+  `[time, channel]`, in chunks of 256 frames, each referencing the frames a
+  decoder needs before it (the bit reservoir); the `mp3` codec decodes a
+  chunk when it is read (in Python, with miniaudio).
+- The stream's parameters, the Xing or Info frame's fields and the ID3v1
+  tag under `refkv_virtualized`; the ID3v2 and APE tags in the mirror.
+
+Not supported, and refused with HTTP 422: Layer I and II streams, free-format
+bitrates, and files whose frames change sample rate, version or channel count.
+
 ## Performance
 
 - Virtualizing reads the whole file (an MP3 has no index), in one or a few
@@ -157,5 +171,5 @@ and on the public file of
 
 - Profile: [spec/virtualize/mp3.md](../../../spec/virtualize/mp3.md#part-2-the-profile)
 - Rust core: [rust/refkv-ir/src/mp3.rs](../../../rust/refkv-ir/src/mp3.rs)
-- Codec: [python/src/refkv/zarr/codecs.py](../../../python/src/refkv/zarr/codecs.py)
+- Codec: [python/src/refkv/zarr/codecs/mp3.py](../../../python/src/refkv/zarr/codecs/mp3.py)
 - Fixtures: [fixtures/mp3/](../../../fixtures/mp3/)

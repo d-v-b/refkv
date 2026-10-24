@@ -1,24 +1,33 @@
-"""The profile registry, spec/virtualize/profiles.json, and what derives from it.
+"""The profile registry, spec/virtualize/profiles/<name>.json (one file per profile), and what
+derives from it.
 
     uv run python spec/tools/profiles.py          # write the derived files
     uv run python spec/tools/profiles.py check    # fail if any derived file is stale
     uv run python spec/tools/profiles.py sample   # one accepted fixture of each file profile
 
-The registry is the one place a profile's identity is written: its name, its number as a
-section of spec/virtualize.md, its convention's title, UUID and version, its kind (a file
-input, a store input, both, or a dataset layout, which is a convention but no profile), the
-suffixes of its fixture files, the revision its frozen reference twin records (null: none),
-and the phrases the tables describe it by. Everything else is derived from it here:
+The registry is the one place a profile's identity is written, one file per profile so that
+two profiles added at once never touch the same file: its name (the file's), its convention's
+title, UUID and version, its kind (a file input, a store input, both, or a dataset layout,
+which is a convention but no profile), the precedence of its signature among the file
+profiles' (`sniff`, lower first, ties by name; null for none), the suffixes of its fixture
+files, the revision its frozen reference twin records (null: none), and the phrases the
+indexes describe it by. Everything else is derived from it:
 
-- `python/src/refkv/virtualize/profiles.py` and `js/src/virtualize/profiles.ts`, the hosts'
-  copies (a package cannot read the spec), and `rust/refkv-ir/profiles.json`, the Rust
-  core's (`include_str!`: the crate cannot include a file outside itself in its package);
-- the profile tables of spec/virtualize.md, spec/conventions.md and docs/virtualize/README.md,
-  and the formats sentence of demo/index.html, each between a pair of marker comments
-  (`<!-- profiles:<block> -->` and `<!-- /profiles -->`).
+- at build or load time, by each host, from the files themselves: the Rust core's
+  `build.rs` (from its copies, `rust/refkv-ir/profiles/<name>.json`, which this writes: the
+  crate cannot include a file outside itself in its package), which the Python host reads
+  through `refkv._core.registry`; the browser code's `#profiles` (js/src/virtualize/); and the
+  demo page's formats sentence, examples and credits (js/build.mjs, from each profile's
+  demo/examples/<name>.html);
+- here, the index pages of the documents, where the profiles' own documents come together:
+  the profile tables of spec/virtualize.md, spec/conventions.md and docs/virtualize/README.md,
+  each between a pair of marker comments (`<!-- profiles:<block> -->` and `<!-- /profiles -->`),
+  one row per profile, by name, so that two profiles added at once conflict only when their
+  names sort next to each other.
 
-Adding a format is one entry here, and its own files. `spec/tools/test_profiles.py` checks
-that the derived files are current (`just sections` runs it).
+Adding a format is its registry file and its own files; `just profiles` then regenerates the
+indexes. `spec/tools/test_profiles.py` checks that the derived files are current (`just
+sections` runs it).
 """
 
 from __future__ import annotations
@@ -29,15 +38,21 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-REGISTRY_FILE = ROOT / "spec" / "virtualize" / "profiles.json"
+REGISTRY_DIR = ROOT / "spec" / "virtualize" / "profiles"
+COPY_DIR = ROOT / "rust" / "refkv-ir" / "profiles"
 KINDS = ("file", "store", "both", "layout")
-FIELDS = ("name", "section", "title", "uuid", "version", "kind", "suffixes", "reference", "source", "inputs", "for")
-NOTE = "generated from spec/virtualize/profiles.json by spec/tools/profiles.py; edit the registry, not this"
+FIELDS = ("name", "title", "uuid", "version", "kind", "sniff", "suffixes", "reference", "source", "inputs", "for")
 
 
 def load() -> list[dict]:
-    """The registry's entries, in its order, validated."""
-    return validate(json.loads(REGISTRY_FILE.read_text(encoding="utf-8")))
+    """The registry's entries, by name, validated."""
+    entries = []
+    for path in sorted(REGISTRY_DIR.glob("*.json")):
+        e = json.loads(path.read_text(encoding="utf-8"))
+        if e.get("name") != path.stem:
+            raise ValueError(f"{path.name}: the file is not named for its profile {e.get('name')!r}")
+        entries.append(e)
+    return validate(sorted(entries, key=lambda e: e["name"]))
 
 
 def validate(entries: list[dict]) -> list[dict]:
@@ -48,57 +63,22 @@ def validate(entries: list[dict]) -> list[dict]:
             raise ValueError(f"{e['name']!r}: not a profile name")
         if e["kind"] not in KINDS:
             raise ValueError(f"{e['name']}: kind {e['kind']!r} is not one of {KINDS}")
-        if (e["section"] is None) != (e["kind"] == "layout"):
-            raise ValueError(f"{e['name']}: a profile has a section number, a layout none")
+        if e["sniff"] is not None and (type(e["sniff"]) is not int or e["kind"] not in ("file", "both")):
+            raise ValueError(f"{e['name']}: only a file profile has a signature, whose precedence is an integer")
         if bool(e["suffixes"]) != (e["kind"] in ("file", "both")):
             raise ValueError(f"{e['name']}: a file input has suffixes, a store or layout none")
         if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", e["uuid"]):
             raise ValueError(f"{e['name']}: {e['uuid']!r} is not a UUID")
-    for key in ("name", "uuid", "section"):
-        values = [e[key] for e in entries if e[key] is not None]
+    for key in ("name", "uuid"):
+        values = [e[key] for e in entries]
         if len(set(values)) != len(values):
             raise ValueError(f"two entries share a {key}")
     return entries
 
 
 def profiles(entries: list[dict]) -> list[dict]:
-    """The profiles (the entries with a section number), by number."""
-    return sorted((e for e in entries if e["section"] is not None), key=lambda e: e["section"])
-
-
-def python_module(entries: list[dict]) -> str:
-    lines = [f'"""The profile registry: {NOTE}."""', "", "REGISTRY: tuple[dict, ...] = ("]
-    lines += [f"    {e!r}," for e in entries]
-    lines += [")", ""]
-    return "\n".join(lines)
-
-
-def ts_module(entries: list[dict]) -> str:
-    names = " | ".join(json.dumps(e["name"]) for e in entries)
-    lines = [
-        f"// The profile registry: {NOTE}.",
-        "",
-        f"export type Profile = {names};",
-        "",
-        "export interface ProfileEntry {",
-        "  name: Profile;",
-        "  section: number | null;",
-        "  title: string;",
-        "  uuid: string;",
-        "  version: number;",
-        '  kind: "file" | "store" | "both" | "layout";',
-        "  suffixes: string[];",
-        "  reference: number | null;",
-        "  source: string;",
-        "  inputs: string;",
-        "  for: string;",
-        "}",
-        "",
-        "export const REGISTRY: ProfileEntry[] = [",
-    ]
-    lines += [f"  {json.dumps(e, ensure_ascii=False)}," for e in entries]
-    lines += ["];", ""]
-    return "\n".join(lines)
+    """The profiles (the entries that are not dataset layouts), by name."""
+    return [e for e in entries if e["kind"] != "layout"]
 
 
 def input_kind(e: dict) -> str:
@@ -106,28 +86,43 @@ def input_kind(e: dict) -> str:
 
 
 def spec_table(entries: list[dict]) -> str:
-    rows = ["| § | profile | input | inputs |", "|---|---|---|---|"]
+    rows = ["| profile | input | inputs |", "|---|---|---|"]
     for e in profiles(entries):
-        rows.append(f"| {e['section']} | [{e['title']}](virtualize/{e['name']}.md#part-2-the-profile) | {input_kind(e)} | {e['inputs']} |")
+        rows.append(f"| [{e['title']}](virtualize/{e['name']}.md#part-2-the-profile) | {input_kind(e)} | {e['inputs']} |")
     return "\n".join(rows)
 
 
-def profile_heading(e: dict) -> str:
-    """The text of the profile's heading in its document (`## <n>. <T> profile`)."""
+def profile_heading(e: dict) -> tuple[str, str]:
+    """The number and text of the profile's heading in its document (`## <n>. <T> profile`, the
+    first heading of its Part 2)."""
     text = (ROOT / "spec" / "virtualize" / f"{e['name']}.md").read_text(encoding="utf-8")
     part2 = text.find("\n# Part 2")
-    m = re.search(rf"^## {e['section']}\. (.*)$", text[part2:], re.M) if part2 >= 0 else None
+    m = re.search(r"^## (\d+)\. (.* profile)$", text[part2:], re.M) if part2 >= 0 else None
     if m is None:
-        raise ValueError(f"{e['name']}: spec/virtualize/{e['name']}.md has no Part 2 heading numbered {e['section']}")
-    return m.group(1)
+        raise ValueError(f"{e['name']}: spec/virtualize/{e['name']}.md has no Part 2 heading `## <n>. <T> profile`")
+    return m.group(1), m.group(2)
+
+
+def profile_link(e: dict, base: str) -> str:
+    """A link to the profile's heading, from a document at `base` (the path to spec/virtualize/)."""
+    n, heading = profile_heading(e)
+    return f"[{e['name']}.md §{n}]({base}{e['name']}.md#{n}-{slug(heading)})"
 
 
 def spec_list(entries: list[dict]) -> str:
     items = []
     for e in profiles(entries):
-        n, f, heading = e["section"], e["name"], profile_heading(e)
-        items.append(f"- [§{n}](virtualize/{f}.md#{n}-{slug(heading)}), the {heading}: [spec/virtualize/{f}.md](virtualize/{f}.md#part-2-the-profile)")
+        n, heading = profile_heading(e)
+        items.append(f"- the {heading}: [spec/virtualize/{e['name']}.md §{n}](virtualize/{e['name']}.md#{n}-{slug(heading)})")
     return ";\n".join(items) + "."
+
+
+def sniff_table(entries: list[dict]) -> str:
+    rows = ["| profile | `sniff` |", "|---|---|"]
+    for e in entries:
+        if e["sniff"] is not None:
+            rows.append(f"| {e['title']} ({profile_link(e, 'virtualize/')}) | {e['sniff']} |")
+    return "\n".join(rows)
 
 
 def slug(text: str) -> str:
@@ -147,34 +142,14 @@ def docs_table(entries: list[dict]) -> str:
     for e in profiles(entries):
         f = e["name"]
         readme = f"[{f}]({f}/README.md)" if (ROOT / "docs" / "virtualize" / f / "README.md").is_file() else f"[convention](../../spec/virtualize/{f}.md)"
-        rows.append(f"| {e['title']} | {e['for']} | {readme} | [§{e['section']}](../../spec/virtualize/{f}.md#part-2-the-profile) |")
+        rows.append(f"| {e['title']} | {e['for']} | {readme} | {profile_link(e, '../../spec/virtualize/')} |")
     return "\n".join(rows)
 
 
-def prose_list(items: list[str]) -> str:
-    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
-
-
-def demo_lede(entries: list[dict]) -> str:
-    files = prose_list([e["source"] for e in profiles(entries) if e["kind"] == "file"])
-    stores = prose_list([e["source"] for e in profiles(entries) if e["kind"] == "store"])
-    both = [e["source"] for e in profiles(entries) if e["kind"] == "both"]
-    text = f"{files} files, {stores} stores"
-    if both:
-        text += f", and {prose_list(both)} products"
-    return f"    {text} are supported;"
-
-
 BLOCKS = {
-    "spec/virtualize.md": {"spec-table": spec_table, "spec-list": spec_list},
+    "spec/virtualize.md": {"spec-table": spec_table, "sniff-table": sniff_table, "spec-list": spec_list},
     "spec/conventions.md": {"conventions-table": conventions_table},
     "docs/virtualize/README.md": {"docs-table": docs_table},
-    "demo/index.html": {"demo-lede": demo_lede},
-}
-COPIES = {
-    "python/src/refkv/virtualize/profiles.py": python_module,
-    "js/src/virtualize/profiles.ts": ts_module,
-    "rust/refkv-ir/profiles.json": lambda entries: REGISTRY_FILE.read_text(encoding="utf-8"),
 }
 
 
@@ -188,18 +163,23 @@ def with_blocks(text: str, blocks: dict, entries: list[dict]) -> str:
     return text
 
 
+def copies() -> dict[Path, str]:
+    """The Rust core's copies of the registry's files: each file's path and content."""
+    return {COPY_DIR / p.name: p.read_text(encoding="utf-8") for p in sorted(REGISTRY_DIR.glob("*.json"))}
+
+
 def derived(entries: list[dict]) -> dict[str, str]:
-    """Each derived file's path and content."""
-    out = {path: make(entries) for path, make in COPIES.items()}
-    for path, blocks in BLOCKS.items():
-        out[path] = with_blocks((ROOT / path).read_text(encoding="utf-8"), blocks, entries)
-    return out
+    """Each derived index page's path and content."""
+    return {path: with_blocks((ROOT / path).read_text(encoding="utf-8"), blocks, entries) for path, blocks in BLOCKS.items()}
 
 
 def stale() -> list[str]:
-    """The derived files whose content is not the registry's."""
-    return [path for path, text in derived(load()).items()
-            if not (ROOT / path).is_file() or (ROOT / path).read_text(encoding="utf-8") != text]
+    """The derived files whose content is not the registry's, and the copies of no profile."""
+    out = [path for path, text in derived(load()).items() if (ROOT / path).read_text(encoding="utf-8") != text]
+    want = copies()
+    out += [p.relative_to(ROOT).as_posix() for p, text in want.items() if not p.is_file() or p.read_text(encoding="utf-8") != text]
+    out += [p.relative_to(ROOT).as_posix() for p in sorted(COPY_DIR.glob("*.json")) if p not in want]
+    return out
 
 
 def sample(entries: list[dict]) -> list[str]:
@@ -224,9 +204,17 @@ def main(argv: list[str]) -> int:
         for p in paths:
             print(f"{p}: stale (run `uv run python spec/tools/profiles.py`)", file=sys.stderr)
         return 1 if paths else 0
-    for path, text in derived(load()).items():
-        (ROOT / path).write_text(text, encoding="utf-8")
-    print(f"wrote {len(COPIES) + len(BLOCKS)} files from {len(load())} entries")
+    entries = load()
+    want = {ROOT / path: text for path, text in derived(entries).items()} | copies()
+    COPY_DIR.mkdir(exist_ok=True)
+    for p in COPY_DIR.glob("*.json"):
+        if p not in want:
+            p.unlink()
+    for p, text in want.items():
+        # unchanged files keep their times, so that nothing rebuilds for them
+        if not p.is_file() or p.read_text(encoding="utf-8") != text:
+            p.write_text(text, encoding="utf-8")
+    print(f"wrote {len(BLOCKS)} index pages and {len(copies())} copies from {len(entries)} entries")
     return 0
 
 

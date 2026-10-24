@@ -792,6 +792,20 @@ fn view_problem(keys: Vec<String>, get: Bound<'_, PyAny>, read: Bound<'_, PyAny>
     refkv_ir::mirror::view_problem(&keys, &g, &mut rd)
 }
 
+/// The format a file's first bytes (up to 552 of them) give (`Format::sniff`), if any: its
+/// profile's name.
+#[pyfunction]
+fn sniff(head: &[u8]) -> Option<&'static str> {
+    refkv_ir::run::Format::sniff(head).map(|f| f.name())
+}
+
+/// The profile registry (spec/virtualize/profiles/, as the core holds it): its entries, by
+/// name, as a JSON array.
+#[pyfunction]
+fn registry() -> String {
+    serde_json::Value::Array(refkv_ir::out::registry().to_vec()).to_string()
+}
+
 /// The planner's merge of ranges (offset, length) into requests (start, end), for a
 /// gap threshold, an amplification cap and a concurrency (the policy's core, for tests).
 #[pyfunction]
@@ -814,8 +828,8 @@ fn fits_tiles_decode<'py>(py: Python<'py>, chunk: &[u8], config: &str, chunk_sha
 /// For tests: the reference payload past which a NIfTI or MRC edge chunk is copied (None:
 /// the payload limit), so that small files reach the copy (spec/virtualize/nifti.md §7.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>,
-/// spec/virtualize/mrc.md §14.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#142-chunks>).
+/// spec/virtualize/mrc.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#82-chunks>).
 #[pyfunction]
 #[pyo3(signature = (n=None))]
 fn _set_copy_threshold(n: Option<usize>) {
@@ -823,8 +837,8 @@ fn _set_copy_threshold(n: Option<usize>) {
 }
 
 /// For tests: the frames of an MP3 chunk (None: 256), so that small files have several chunks,
-/// each with its lead-in (spec/virtualize/mp3.md §17.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#172-chunks>).
+/// each with its lead-in (spec/virtualize/mp3.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#82-chunks>).
 #[pyfunction]
 #[pyo3(signature = (n=None))]
 fn _set_chunk_frames(n: Option<usize>) {
@@ -842,6 +856,8 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyStoreRun>()?;
     m.add_function(wrap_pyfunction!(rebuild_store, m)?)?;
     m.add_function(wrap_pyfunction!(plan_spans, m)?)?;
+    m.add_function(wrap_pyfunction!(sniff, m)?)?;
+    m.add_function(wrap_pyfunction!(registry, m)?)?;
     m.add_function(wrap_pyfunction!(fits_tiles_decode, m)?)?;
     m.add_function(wrap_pyfunction!(_set_copy_threshold, m)?)?;
     m.add_function(wrap_pyfunction!(_set_chunk_frames, m)?)?;

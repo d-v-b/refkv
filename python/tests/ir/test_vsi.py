@@ -191,8 +191,8 @@ def test_raw_pixel_types():
 
 
 def test_the_second_tile_file_name_is_read_when_the_first_is_absent_and_the_first_wins():
-    """`frame_t.ets`, else `frame_t_0.ets` (spec/virtualize/vsi.md §15.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#152-the-tile-files>): the
+    """`frame_t.ets`, else `frame_t_0.ets` (spec/virtualize/vsi.md §9.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>): the
     Zenodo-like fixture has the second alone; the metadata fixture has both, and the second
     (which is not an ETS file) is never read."""
     out, _ = virtualized(VSI / "vsi_raw_tzc.vsi")

@@ -31,8 +31,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         let (w, h, strip, length) = (n(&lv["w"]), n(&lv["h"]), n(&lv["strip"]), n(&lv["length"]));
         let chunk = if lv["grid"].is_null() {
             // the strip, or, when its frame header is not the level's size, the strip with the
-            // level's height and width in its SOF0 (spec/virtualize/ndpi.md §4
-            // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>)
+            // level's height and width in its SOF0 (spec/virtualize/ndpi.md §7
+            // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>)
             let parts = match lv["frame"].as_u64() {
                 Some(at) => {
                     let mut size = (h as u16).to_be_bytes().to_vec();

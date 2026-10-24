@@ -189,8 +189,7 @@ export const CONVENTION_KEY = "refkv_virtualized";
 export type { Profile };
 
 /** Each profile's convention: its fixed UUID, its current version and its name in the
- * description, from the profile registry (spec/virtualize/profiles.json; profiles.ts is its
- * generated copy). */
+ * description, from the profile registry (spec/virtualize/profiles/, as profiles.ts reads it). */
 export const PROFILES = Object.fromEntries(
   REGISTRY.map((e) => [e.name, [e.uuid, e.version, e.title]]),
 ) as Record<Profile, [uuid: string, version: number, title: string]>;
