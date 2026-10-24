@@ -2,7 +2,6 @@
 NDPI projection against the frozen profile, the mirror, the header's data sources, and
 the hostile probes (gen_probes.py)."""
 
-import io
 import json
 import struct
 
@@ -11,9 +10,8 @@ import numpy as np
 import pytest
 import zarr
 
-from ir_helpers import FIXTURES, REVISED, same_hierarchy
+from ir_helpers import FIXTURES, REVISED, as_the_reference, assert_rebuilds, same_hierarchy
 from refkv.ir import virtualize as via_ir
-from refkv.ir.cmirror import rebuild_from_archive
 from refkv.virtualize import Rejected
 from refkv.virtualize import virtualize as shipped
 from refkv.zarr import ZarrStore
@@ -24,22 +22,7 @@ NDPIS = sorted((FIXTURES / "ndpi").iterdir())
 
 @pytest.mark.parametrize("path", [p for p in NDPIS if p.name not in REVISED], ids=lambda p: p.name)
 def test_projects_as_today_and_rebuilds(path, tmp_path):
-    data = path.read_bytes()
-    url = f"https://data.test/{path.name}"
-    try:
-        _, today = virtualize(str(path), url)
-    except Rejected:
-        with pytest.raises(Rejected):
-            via_ir(str(path), url)
-        return
-    fmt, out, ir = via_ir(str(path), url)
-    assert fmt == "ndpi"
-    ir.check()
-    same_hierarchy(today, out)
-    out.write(str(tmp_path / "a.vzip"))
-    buf = io.BytesIO()
-    rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
-    assert buf.getvalue() == data
+    as_the_reference(path, tmp_path, "ndpi")
 
 
 def test_omero_is_rgb():
@@ -127,10 +110,7 @@ def test_a_frame_not_the_level_size_gets_the_level_size(tmp_path):
         assert want.shape == (h, w, 3)
         got = g[str(level)][...]
         assert np.array_equal(got, np.moveaxis(want, -1, 0))
-    out.write(str(tmp_path / "a.vzip"))
-    buf = io.BytesIO()
-    rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
-    assert buf.getvalue() == data
+    assert_rebuilds(out, data, tmp_path)
 
 
 def test_a_level_0_frame_with_other_mcu_rows_is_rejected():

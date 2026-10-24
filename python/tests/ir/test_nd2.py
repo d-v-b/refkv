@@ -1,21 +1,17 @@
 """The ND2 IR (round 2): the Rust parser and its schema, the image projection
 against today's profile, the compact mirror, and the read planner."""
 
-import io
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from ir_helpers import FIXTURES, same_hierarchy
+from ir_helpers import FIXTURES, as_the_reference
 from refkv.ir import virtualize as via_ir
-from refkv.ir.cmirror import rebuild_from_archive
 from refkv.errors import ResolutionError
 from refkv.ir import parse
 from refkv.ir.planner import FileTransport, HttpTransport
 from refkv.policy import Policy
-from refkv.virtualize import Rejected
-from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
 LOOPBACK = Policy(allow_private_hosts=True)  # the test servers are on 127.0.0.1
 ND2S = sorted((FIXTURES / "nd2").glob("*.nd2"))
@@ -23,22 +19,7 @@ ND2S = sorted((FIXTURES / "nd2").glob("*.nd2"))
 
 @pytest.mark.parametrize("path", ND2S, ids=lambda p: p.name)
 def test_projects_as_today_and_rebuilds(path, tmp_path):
-    data = path.read_bytes()
-    url = f"https://data.test/{path.name}"
-    try:
-        _, today = virtualize(str(path), url)
-    except Rejected:
-        with pytest.raises(Rejected):
-            via_ir(str(path), url)
-        return
-    fmt, out, ir = via_ir(str(path), url)
-    assert fmt == "nd2"
-    ir.check()
-    same_hierarchy(today, out)
-    out.write(str(tmp_path / "a.vzip"))
-    buf = io.BytesIO()
-    rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
-    assert buf.getvalue() == data
+    as_the_reference(path, tmp_path, "nd2")
 
 
 def test_frames_fold_into_one_run():

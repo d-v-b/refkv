@@ -5,7 +5,6 @@ tiles and strips, omero, scale and position) is the convention's, and each input
 rejects is rejected for the convention's reason. QPTIFF has no frozen reference twin: tifffile is
 the independent reader."""
 
-import io
 import json
 import logging
 import re
@@ -15,9 +14,8 @@ import pytest
 import tifffile
 import zarr
 
-from ir_helpers import FIXTURES, omero_and_expected_windows
+from ir_helpers import FIXTURES, assert_rebuilds, omero_and_expected_windows
 from refkv.ir import virtualize as via_ir
-from refkv.ir.cmirror import rebuild_from_archive
 from refkv.virtualize import Rejected, virtualize
 from refkv.zarr import ZarrStore
 
@@ -76,10 +74,7 @@ def test_accepted_fixtures_are_valid_irs_that_rebuild(path, tmp_path):
     ir.check()
     root = docs(out)["zarr.json"]["attributes"]["refkv_virtualized"]
     assert root["profile"] == "qptiff" and root["qptiff"] == {"byte_order": "little", "bigtiff": "bigtiff" in path.name}
-    out.write(str(tmp_path / "a.vzip"))
-    buf = io.BytesIO()
-    rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
-    assert buf.getvalue() == data
+    assert_rebuilds(out, data, tmp_path)
 
 
 @pytest.mark.parametrize("path", QPTIFFS, ids=lambda p: p.name)

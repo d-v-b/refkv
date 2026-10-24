@@ -51,13 +51,10 @@ FIXTURES = ROOT / "fixtures"
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
 from proxy import Proxy  # noqa: E402
 
-from refkv.policy import Policy  # noqa: E402
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers n5_default and zlib)
 
-# The sources are served on 127.0.0.1, which spec §6.7
-# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3 refuses by
-# default.
-LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
+from verify_common import LOOPBACK_SOURCES, run  # noqa: E402
 
 # The other objects' check is the Zarr v2 verifier's (spec/virtualize/n5.md §6
 # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects> is
@@ -232,28 +229,16 @@ def main(argv: list[str]) -> int:
         return remote(argv[1], argv[2])
     stores = [Path(a) for a in argv] or sorted(d for d in (FIXTURES / "n5").iterdir() if d.is_dir())
     proxy = Proxy(FIXTURES, Path(tempfile.mkdtemp()))
-    failures = 0
-    with tempfile.TemporaryDirectory() as tmp:
-        for store_dir in stores:
-            out = Path(tmp) / f"{store_dir.name}.vzip"
-            p = virtualize(proxy.local_store(store_dir.resolve().relative_to(FIXTURES.resolve()).as_posix()), out)
-            if store_dir.name.startswith("n5_reject"):
-                ok = p.returncode == 3 and not out.exists()
-                failures += not ok
-                print(f"{store_dir.name:40s} {'rejected: ' + p.stderr.strip()[-90:] if ok else 'NOT REJECTED ' + p.stderr[-200:]}")
-                continue
-            if p.returncode:
-                failures += 1
-                print(f"{store_dir.name:40s} FAILED: {p.stderr.strip()[-300:]}")
-                continue
-            # objects_problems checks a store mirror's listing and held bytes too; mirror_problems
-            # that it holds exactly the nodes' documents
-            objects = zarr2_verify.objects_problems(store_dir, out)
-            problems = check_store(store_dir, out) + objects + mirror_problems(store_dir, out)
-            failures += bool(problems)
-            print(f"{store_dir.name:40s} {problems[:3] if problems else 'ok'} ({len(arrays_of(out))} arrays)")
-    print(f"\n{failures} failures")
-    return 1 if failures else 0
+
+    def check(store_dir: Path, out: Path, _) -> tuple[list, str]:
+        # objects_problems checks a store mirror's listing and held bytes too; mirror_problems
+        # that it holds exactly the nodes' documents
+        objects = zarr2_verify.objects_problems(store_dir, out)
+        problems = check_store(store_dir, out) + objects + mirror_problems(store_dir, out)
+        return problems[:3], f"({len(arrays_of(out))} arrays)"
+
+    return run(stores, check, url=lambda d: proxy.local_store(d.resolve().relative_to(FIXTURES.resolve()).as_posix()),
+               width=40)
 
 
 if __name__ == "__main__":

@@ -251,61 +251,13 @@ macro_rules! reject {
     };
 }
 
-reject!(reject_short, "vsi_reject_short.vsi", "the .vsi file of 20 bytes is too short");
-reject!(reject_first_ifd_outside, "vsi_reject_first_ifd_outside.vsi", "the first IFD at");
-reject!(reject_container_header_size, "vsi_reject_container_header_size.vsi", "the bytes at 48 are not a container (header size 23");
-reject!(reject_container_version, "vsi_reject_container_version.vsi", "the bytes at 48 are not a container (header size 24, version 21322)");
-reject!(reject_container_count, "vsi_reject_container_count.vsi", "the container at 8 declares 1048577 fields, more than 1048576");
-reject!(reject_container_fields_fit, "vsi_reject_container_fields_fit.vsi", "the container at 8 declares 100000 fields, which do not fit");
-reject!(reject_container_data_offset, "vsi_reject_container_data_offset.vsi", "the container at 8 has the data offset 32, not 24");
-reject!(reject_container_depth, "vsi_reject_container_depth.vsi", "containers nested more than 64 deep");
-reject!(reject_field_header, "vsi_reject_field_header.vsi", "field 0 of the container at");
-reject!(reject_field_next_zero, "vsi_reject_field_next_zero.vsi", "field 1 (tag 99) of the container at 8 has next 0, but it is not the last of 3 fields");
-reject!(reject_field_last_next, "vsi_reject_field_last_next.vsi", "field 1 (tag 2000) of the container at 8 has next 24, but it is the last of 2 fields");
-reject!(reject_field_next_outside, "vsi_reject_field_next_outside.vsi", "field 1 (tag 99) of the container at 8 has next 1073741824, outside its container");
-reject!(reject_field_data_outside, "vsi_reject_field_data_outside.vsi", "field 1 (tag 99, type 5) of the container at 8: its data (1048576 bytes) runs past its region");
-reject!(reject_field_extended_type, "vsi_reject_field_extended_type.vsi", "field 1 (tag 99) of the container at 8 is an extended field of type 5, which is unknown");
-reject!(reject_field_pset_size, "vsi_reject_field_pset_size.vsi", "field 1 (tag 99) of the container at 8 is a property set of size 4");
-reject!(reject_ifd_outside, "vsi_reject_ifd_outside.vsi", "the IFD at");
-reject!(reject_ifd_loop, "vsi_reject_ifd_loop.vsi", "the IFD chain of the .vsi file returns to the IFD at");
-reject!(reject_ifd_count, "vsi_reject_ifd_count.vsi", "more than 65536 IFDs");
-reject!(reject_stack_no_size, "vsi_reject_stack_no_size.vsi", "stack 10002 (s) has a tile file but no image size");
-reject!(reject_missing_tile_file, "vsi_reject_missing_tile_file.vsi", "stack 10002 (s) has no tile file: neither _vsi_reject_missing_tile_file_/stack10002/frame_t.ets nor");
-reject!(reject_sis_magic, "vsi_reject_sis_magic.vsi", "_vsi_reject_sis_magic_/stack10002/frame_t.ets is not an ETS file (magic SOS)");
-reject!(reject_sis_header_size, "vsi_reject_sis_header_size.vsi", "_vsi_reject_sis_header_size_/stack10002/frame_t.ets: SIS header size 48, not 64");
-reject!(reject_sis_coordinates, "vsi_reject_sis_coordinates.vsi", "_vsi_reject_sis_coordinates_/stack10002/frame_t.ets: 1 coordinates per tile");
-reject!(reject_sis_ets_outside, "vsi_reject_sis_ets_outside.vsi", "_vsi_reject_sis_ets_outside_/stack10002/frame_t.ets: the ETS header (228 bytes at 1073741824) is outside");
-reject!(reject_sis_tiles_negative, "vsi_reject_sis_tiles_negative.vsi", "_vsi_reject_sis_tiles_negative_/stack10002/frame_t.ets: -1 tiles");
-reject!(reject_sis_directory_outside, "vsi_reject_sis_directory_outside.vsi", "_vsi_reject_sis_directory_outside_/stack10002/frame_t.ets: the tile directory (8 tiles at 1073741824) is outside");
-reject!(reject_ets_short, "vsi_reject_ets_short.vsi", "_vsi_reject_ets_short_/stack10002/frame_t.ets (24 bytes) is too short for an ETS file");
-reject!(reject_ets_magic, "vsi_reject_ets_magic.vsi", "_vsi_reject_ets_magic_/stack10002/frame_t.ets: the ETS header's magic is ETX");
-reject!(reject_ets_pixel_type, "vsi_reject_ets_pixel_type.vsi", "_vsi_reject_ets_pixel_type_/stack10002/frame_t.ets: unsupported pixel type 11");
-reject!(reject_ets_samples, "vsi_reject_ets_samples.vsi", "_vsi_reject_ets_samples_/stack10002/frame_t.ets: 2 samples per pixel");
-reject!(reject_ets_compression_png, "vsi_reject_ets_compression_png.vsi", "_vsi_reject_ets_compression_png_/stack10002/frame_t.ets: unsupported ETS compression 8 (PNG)");
-reject!(reject_ets_compression_unknown, "vsi_reject_ets_compression_unknown.vsi", "_vsi_reject_ets_compression_unknown_/stack10002/frame_t.ets: unknown ETS compression 7");
-reject!(reject_ets_tile_size, "vsi_reject_ets_tile_size.vsi", "_vsi_reject_ets_tile_size_/stack10002/frame_t.ets: tiles of 0 × 8 pixels");
-reject!(reject_ets_tile_depth, "vsi_reject_ets_tile_depth.vsi", "_vsi_reject_ets_tile_depth_/stack10002/frame_t.ets: tiles of depth 2");
-reject!(reject_ets_dimensions, "vsi_reject_ets_dimensions.vsi", "_vsi_reject_ets_dimensions_/stack10002/frame_t.ets: 1 dimensions for 3 coordinates per tile");
-reject!(reject_dimension_size, "vsi_reject_dimension_size.vsi", "stack 10002: coordinate 2 has the size 0");
-reject!(reject_dimension_unknown, "vsi_reject_dimension_unknown.vsi", "stack 10002: coordinate 2 (phase) has 2 values, which the layout cannot place");
-reject!(reject_samples_channels, "vsi_reject_samples_channels.vsi", "stack 10002: 3 samples per pixel and 2 channels");
-reject!(reject_tile_outside, "vsi_reject_tile_outside.vsi", "_vsi_reject_tile_outside_/stack10002/frame_t.ets: tile 3 (64 bytes at 1073741824) is outside");
-reject!(reject_tile_coordinate, "vsi_reject_tile_coordinate.vsi", "_vsi_reject_tile_coordinate_/stack10002/frame_t.ets: tile 6 has a coordinate outside the dimension sizes");
-reject!(reject_tile_duplicate, "vsi_reject_tile_duplicate.vsi", "_vsi_reject_tile_duplicate_/stack10002/frame_t.ets: tile 8 repeats the coordinates of an earlier tile");
-reject!(reject_tile_raw_size, "vsi_reject_tile_raw_size.vsi", "_vsi_reject_tile_raw_size_/stack10002/frame_t.ets: raw tile 2 has 63 bytes, not 64");
-reject!(reject_ifd_image_size, "vsi_reject_ifd_image_size.vsi", "IFD 0 (macro image) is 0 × 8");
-reject!(reject_ifd_image_compression, "vsi_reject_ifd_image_compression.vsi", "IFD 0 (macro image) has compression 5");
-reject!(reject_ifd_image_samples, "vsi_reject_ifd_image_samples.vsi", "IFD 0 (macro image) has 2 samples per pixel");
-reject!(reject_ifd_image_bits, "vsi_reject_ifd_image_bits.vsi", "IFD 0 (macro image) has 16 bits per sample");
-reject!(reject_ifd_image_planar, "vsi_reject_ifd_image_planar.vsi", "IFD 0 (macro image) has PlanarConfiguration 2");
-reject!(reject_ifd_image_format, "vsi_reject_ifd_image_format.vsi", "IFD 0 (macro image) has SampleFormat 3");
-reject!(reject_ifd_image_strips, "vsi_reject_ifd_image_strips.vsi", "IFD 0 (macro image) has 2 strips");
-reject!(reject_ifd_strip_outside, "vsi_reject_ifd_strip_outside.vsi", "IFD 0 (macro image): a strip");
+// one test per case of conformance/virtualize/rejects/vsi.json (build.rs)
+include!(concat!(env!("OUT_DIR"), "/rejects_vsi.rs"));
 
 /// Every `vsi_reject_*` fixture has a test above.
 #[test]
 fn every_reject_fixture_has_a_test() {
-    let src = include_str!("vsi.rs");
+    let src = include_str!(concat!(env!("OUT_DIR"), "/rejects_vsi.rs"));
     for e in std::fs::read_dir(fixtures()).unwrap() {
         let path = e.unwrap().path();
         let name = path.file_name().unwrap().to_str().unwrap().to_string();

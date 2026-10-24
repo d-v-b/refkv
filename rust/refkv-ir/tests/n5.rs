@@ -4,6 +4,9 @@
 //! view it rebuilds; one test per rejected fixture (each the role or rule that rejects it), and
 //! one per other way a store is rejected.
 
+mod common;
+
+use common::{drive, listing, walk};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use refkv_ir::check::check;
@@ -15,36 +18,13 @@ fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/n5")
 }
 
-/// A directory's regular files, by key.
-fn walk(root: &Path) -> BTreeMap<String, Vec<u8>> {
-    let mut out = BTreeMap::new();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(d) = stack.pop() {
-        for e in std::fs::read_dir(&d).unwrap() {
-            let e = e.unwrap();
-            if e.file_type().unwrap().is_dir() {
-                stack.push(e.path());
-            } else {
-                let k = e.path().strip_prefix(root).unwrap().to_str().unwrap().replace('\\', "/");
-                out.insert(k, std::fs::read(e.path()).unwrap());
-            }
-        }
-    }
-    out
-}
-
 /// The output of the N5 format over a store in memory, with the recorded ignored keys.
 fn virtualize(files: &BTreeMap<String, Vec<u8>>, ignored: &[&str]) -> Result<(Out, refkv_ir::ir::Ir), String> {
-    let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
+    let keys = listing(&files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let mut r = refkv_ir::store::StoreRun::new(StoreFormat::N5, keys, 4)?;
     r.ignore(ignored.iter().map(|s| s.to_string()).collect(), Vec::new())?;
-    while let Some(reqs) = r.poll()? {
-        for (k, q) in reqs.iter().enumerate() {
-            let b = bytes[q.object];
-            r.complete(k, q.spans.iter().map(|&(a, e)| b[a as usize..e as usize].to_vec()).collect())?;
-        }
-    }
+    drive(&mut r, &bytes)?;
     let (ir, facts, stats) = r.finish()?;
     Ok((store_output(StoreFormat::N5, &ir, &facts, stats, "https://example.org/c.n5/", true)?, ir))
 }
@@ -128,47 +108,17 @@ fn rejected(store: &str) -> String {
 }
 
 macro_rules! reject {
-    ($name:ident, $msg:expr) => {
+    ($name:ident, $input:literal, $msg:expr) => {
         #[test]
         fn $name() {
-            let e = rejected(stringify!($name));
+            let e = rejected($input);
             assert!(e.contains($msg), "{}: {e}", stringify!($name));
         }
     };
 }
 
-reject!(n5_reject_attributes_not_object, "attributes.json is not a JSON object");
-reject!(n5_reject_blocksize_huge, "blockSize [2, 2147483648] is not 2 block sizes");
-reject!(n5_reject_blocksize_mismatch, "blockSize [2] is not 2 block sizes");
-reject!(n5_reject_blocksize_zero, "blockSize [2, 0] is not 2 block sizes");
-reject!(n5_reject_blosc_clevel, "blosc clevel 10 is not an integer from 0 to 9");
-reject!(n5_reject_blosc_cname, "blosc cname lz5 is not supported");
-reject!(n5_reject_blosc_shuffle_missing, "blosc shuffle none is not supported");
-reject!(n5_reject_compression_bzip2, "N5 compression bzip2 is not supported");
-reject!(n5_reject_compression_jpeg, "N5 compression jpeg is not supported");
-reject!(n5_reject_compression_lz4, "N5 compression lz4 is not supported");
-reject!(n5_reject_compression_no_type, "compression is not an object with a string type");
-reject!(n5_reject_compression_xz, "N5 compression xz is not supported");
-reject!(n5_reject_datatype_object, "dataType object is not supported");
-reject!(n5_reject_datatype_string, "dataType string is not supported");
-reject!(n5_reject_dimensions_empty, "dimensions [] is not 1 to 32 sizes");
-reject!(n5_reject_dimensions_fraction, "dimensions [4, 2.5] is not 1 to 32 sizes");
-reject!(n5_reject_dimensions_huge, "dimensions [9007199254740992, 4] is not 1 to 32 sizes");
-reject!(n5_reject_dimensions_negative, "dimensions [4, -1] is not 1 to 32 sizes");
-reject!(n5_reject_gzip_level, "gzip level 10 is not an integer from -1 to 9");
-reject!(n5_reject_gzip_usezlib_string, "gzip useZlib true is not a boolean");
-reject!(n5_reject_json_bom, "JSON document starts with a byte order mark");
-reject!(n5_reject_json_empty_object, "invalid JSON: the document is empty");
-reject!(n5_reject_json_nan, "JSON literal NaN is not allowed");
-reject!(n5_reject_json_not_utf8, "JSON document is not UTF-8");
-reject!(n5_reject_json_overflow, "JSON number 1e400 is not finite in binary64");
-reject!(n5_reject_json_too_deep, "JSON nests more than 256 deep");
-reject!(n5_reject_json_trailing_comma, "invalid JSON: expecting a property name");
-reject!(n5_reject_no_compression, "no compression");
-reject!(n5_reject_no_root_attributes, "the root has no attributes.json");
-reject!(n5_reject_objects_collision, "the node refkv_source is where the store's other objects go");
-reject!(n5_reject_reserved_key, "output key \"__vz__/zarr.json\" is in the reserved __vz__/ space");
-reject!(n5_reject_zstd_level, "zstd level 2.5 is not an integer from -131072 to 22");
+// one test per case of conformance/virtualize/rejects/n5.json (build.rs)
+include!(concat!(env!("OUT_DIR"), "/rejects_n5.rs"));
 
 #[test]
 fn a_document_over_16_mib_is_refused_before_it_is_read() {

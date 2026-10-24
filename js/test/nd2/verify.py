@@ -12,14 +12,11 @@ Usage: uv run python js/test/nd2/verify.py
 
 from __future__ import annotations
 
-import base64
 import json
 import math
 import re
 import struct
-import subprocess
 import sys
-import tempfile
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,15 +29,11 @@ from zarr.registry import register_codec
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
-from http_server import Server  # noqa: E402
 
-from refkv.policy import Policy  # noqa: E402
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
 
-# The sources are served on 127.0.0.1, which spec §6.7
-# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3 refuses by
-# default.
-LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
+from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import is_mirror, mirror_problems  # noqa: E402
 
@@ -288,55 +281,39 @@ def chunk_problems(path: Path, root) -> list[str]:
     return problems + frame_problems(root, loops, placed_frames, attrs)
 
 
+def check(nd2: Path, out: Path, _) -> tuple[list, str]:
+    """A virtualized file's problems: its chunks' metadata, then every chunk against the values the generator
+    wrote; and its chunk count and axes."""
+    root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
+    meta = mirror_chunk_problems(nd2, root, out) if is_mirror(out) else chunk_problems(nd2, root)
+    expected = {k.replace("|", "/"): v for k, v in np.load(nd2.with_suffix(".npz")).items()}
+    root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
+    problems, chunks = [], 0
+    for series in root["OME"].attrs["ome"]["series"]:
+        arr = root[f"{series}/0"]
+        grid = [s // c for s, c in zip(arr.shape, arr.chunks)]
+        # Every chunk, or for a large grid the chunks with data and the first ones.
+        indices = list(np.ndindex(*grid)) if math.prod(grid) <= 100_000 else sorted(
+            {tuple(map(int, k.split("/")[3:])) for k in expected if k.startswith(f"{series}/")}
+            | {i for i, _ in zip(np.ndindex(*grid), range(10))})
+        for index in indices:
+            key = f"{series}/0/c/" + "/".join(map(str, index))
+            sel = tuple(slice(i * c, (i + 1) * c) for i, c in zip(index, arr.chunks))
+            got = np.squeeze(arr[sel], axis=tuple(d for d, c in enumerate(arr.chunks) if c == 1 and d < arr.ndim - 2))
+            want = expected.get(key)
+            chunks += 1
+            if want is None:
+                if np.any(got != 0):
+                    problems.append(f"{key}: expected the fill value")
+            elif got.dtype != want.dtype or not np.array_equal(got, want):
+                problems.append(f"{key}: differs ({got.dtype} {got.shape} vs {want.dtype} {want.shape})")
+    axes = root[root["OME"].attrs["ome"]["series"][0] + "/0"].metadata.dimension_names
+    return [f"CHUNKS: {x}" for x in meta[:3]] + problems[:3], f"({chunks} chunks, {len(expected)} with data, axes {axes})"
+
+
 def main() -> int:
-    fixtures = ROOT / "fixtures" / "nd2"
-    server = Server(fixtures)
-    failures = 0
-    with tempfile.TemporaryDirectory() as tmp:
-        for nd2 in sorted(fixtures.glob("nd2_*.nd2")):
-            out = Path(tmp) / f"{nd2.stem}.vzip"
-            p = subprocess.run(["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts",
-                                server.base + nd2.name, str(out)], capture_output=True, text=True)
-            if nd2.stem.startswith("nd2_reject"):
-                ok = p.returncode == 3 and not out.exists()
-                failures += not ok
-                print(f"{nd2.name:34s} {'rejected: ' + p.stderr.strip()[-90:] if ok else 'NOT REJECTED ' + p.stderr[-200:]}")
-                continue
-            if p.returncode:
-                failures += 1
-                print(f"{nd2.name:34s} FAILED: {p.stderr.strip()[-1500:]}")
-                continue
-            root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
-            meta = mirror_chunk_problems(nd2, root, out) if is_mirror(out) else chunk_problems(nd2, root)
-            if meta:
-                failures += 1
-                print(f"{nd2.name:34s} CHUNKS: {meta[:3]}")
-            expected = {k.replace("|", "/"): v for k, v in np.load(nd2.with_suffix(".npz")).items()}
-            root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
-            problems, chunks = [], 0
-            for series in root["OME"].attrs["ome"]["series"]:
-                arr = root[f"{series}/0"]
-                grid = [s // c for s, c in zip(arr.shape, arr.chunks)]
-                # Every chunk, or for a large grid the chunks with data and the first ones.
-                indices = list(np.ndindex(*grid)) if math.prod(grid) <= 100_000 else sorted(
-                    {tuple(map(int, k.split("/")[3:])) for k in expected if k.startswith(f"{series}/")}
-                    | {i for i, _ in zip(np.ndindex(*grid), range(10))})
-                for index in indices:
-                    key = f"{series}/0/c/" + "/".join(map(str, index))
-                    sel = tuple(slice(i * c, (i + 1) * c) for i, c in zip(index, arr.chunks))
-                    got = np.squeeze(arr[sel], axis=tuple(d for d, c in enumerate(arr.chunks) if c == 1 and d < arr.ndim - 2))
-                    want = expected.get(key)
-                    chunks += 1
-                    if want is None:
-                        if np.any(got != 0):
-                            problems.append(f"{key}: expected the fill value")
-                    elif got.dtype != want.dtype or not np.array_equal(got, want):
-                        problems.append(f"{key}: differs ({got.dtype} {got.shape} vs {want.dtype} {want.shape})")
-            failures += bool(problems)
-            print(f"{nd2.name:34s} {'ok' if not problems else problems[:3]} ({chunks} chunks, "
-                  f"{len(expected)} with data, axes {root[root['OME'].attrs['ome']['series'][0] + '/0'].metadata.dimension_names})")
-    print(f"\n{failures} failures")
-    return 1 if failures else 0
+    paths = sorted((ROOT / "fixtures" / "nd2").glob("nd2_*.nd2"))
+    return run(paths, check, url=serve(paths), width=34, failure_tail=1500)
 
 
 if __name__ == "__main__":

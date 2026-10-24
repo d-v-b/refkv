@@ -23,7 +23,6 @@ import os
 import struct
 import subprocess
 import sys
-import tempfile
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,15 +37,11 @@ from zarr.registry import register_codec
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
-from http_server import Server  # noqa: E402
 
-from refkv.policy import Policy  # noqa: E402
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
 
-# The sources are served on 127.0.0.1, which spec §6.7
-# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3 refuses by
-# default.
-LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
+from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import is_mirror, mirror_problems  # noqa: E402
 
@@ -756,30 +751,11 @@ def check(path: Path, out: Path, url: str) -> list[str]:
 
 def main(paths: list[str]) -> int:
     files = [Path(p) for p in paths] or sorted((ROOT / "fixtures" / "ims").rglob("ims_*.ims"))
-    failures = 0
-    with tempfile.TemporaryDirectory() as tmp:
-        servers: dict[Path, Server] = {}
-        for path in files:
-            server = servers.setdefault(path.parent, Server(path.parent))
-            out = Path(tmp) / f"{path.stem}.vzip"
-            # VERIFY_PY=1 runs the reference implementation instead of the browser code.
-            command = ([sys.executable, "-m", "refkv.virtualize", "--allow-private-hosts"] if os.environ.get("VERIFY_PY")
-                       else ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"])
-            p = subprocess.run([*command, server.base + path.name, str(out)], capture_output=True, text=True)
-            if path.stem.startswith("ims_reject"):
-                ok = p.returncode == 3 and not out.exists()
-                failures += not ok
-                print(f"{path.name:36s} {'rejected: ' + p.stderr.strip()[-90:] if ok else 'NOT REJECTED ' + p.stderr[-200:]}")
-                continue
-            if p.returncode:
-                failures += 1
-                print(f"{path.name:36s} FAILED: {p.stderr.strip()[-300:]}")
-                continue
-            problems = check(path, out, server.base + path.name)
-            failures += bool(problems)
-            print(f"{path.name:36s} {problems[:3] if problems else 'ok'} {p.stdout.strip()[:160]}")
-    print(f"\n{failures} failures")
-    return 1 if failures else 0
+    url = serve(files)
+    # VERIFY_PY=1 runs the reference implementation instead of the browser code.
+    command = [sys.executable, "-m", "refkv.virtualize", "--allow-private-hosts"] if os.environ.get("VERIFY_PY") else None
+    return run(files, lambda path, out, p: (check(path, out, url(path))[:3], p.stdout.strip()[:160]), url=url,
+               command=command, width=36)
 
 
 if __name__ == "__main__":

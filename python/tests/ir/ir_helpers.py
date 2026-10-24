@@ -1,21 +1,78 @@
 """Helpers shared by the IR test modules (a plain module, named apart from python/tests/helpers.py:
 both directories are on sys.path)."""
 
+import io
 import json
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
+import pytest
 import tifffile
 import zarr
 
-from refkv.virtualize import virtualize
+import refkv.zarr
+from refkv.ir import virtualize as via_ir
+from refkv.ir.cmirror import rebuild_from_archive
+from refkv.virtualize import Rejected, virtualize
 from refkv.zarr import ZarrStore
 
 FIXTURES = Path(__file__).parents[3] / "fixtures"
 ROOT = Path(__file__).parents[3]
 # the frozen reference twins the IR is compared against (refkv_reference)
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
+from refkv_reference import virtualize as reference  # noqa: E402  (the frozen reference)
+
+
+def assert_rebuilds(out, data: bytes, tmp_path, name: str = "a.vzip") -> None:
+    """The archive of `out`, written to `tmp_path / name`, rebuilds `data` from its IR mirror
+    alone (conventions §8.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#84-reading-the-source-back>)."""
+    out.write(str(tmp_path / name))
+    buf = io.BytesIO()
+    rebuild_from_archive(str(tmp_path / name), lambda o, n: data[o:o + n], buf.write)
+    assert buf.getvalue() == data
+
+
+def virtualized(path, tmp_path, fmt: str, url: str | None = None):
+    """(the output, the hierarchy's root group, read in memory from the output, the IR) of the
+    file at `path`, which the IR reads as `fmt`; the IR is valid and the archive rebuilds the
+    file."""
+    fmt_read, out, ir = via_ir(str(path), url)
+    assert fmt_read == fmt
+    ir.check()
+    assert_rebuilds(out, path.read_bytes(), tmp_path)
+    return out, zarr.open_group(refkv.zarr.store(out.to_store()), mode="r", zarr_format=3), ir
+
+
+def as_the_reference(path, tmp_path, fmt: str, *, same_message: bool = False):
+    """The IR's output of the file at `path` is the frozen reference's but `refkv_source`, its IR
+    is valid and its archive rebuilds the file; or both reject it (with the same message, when
+    `same_message`). The IR's output, or None when rejected."""
+    url = f"https://data.test/{path.name}"
+    try:
+        _, ref = reference(str(path), url)
+    except Rejected as e:
+        with pytest.raises(Rejected) as got:
+            via_ir(str(path), url)
+        if same_message:
+            assert str(got.value) == str(e)
+        return None
+    out, _, _ = virtualized(path, tmp_path, fmt, url)
+    same_hierarchy(ref, out)
+    return out
+
+
+@contextmanager
+def core_setting(setter, value):
+    """The core's test setting `setter` (`_core._set_chunk_frames`, `_core._set_copy_threshold`)
+    at `value` within the block, and at its default (None) after it."""
+    setter(value)
+    try:
+        yield
+    finally:
+        setter(None)
 
 
 # The members of a frozen root's source metadata the IR's mirror holds instead, for the

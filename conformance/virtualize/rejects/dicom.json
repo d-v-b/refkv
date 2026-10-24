@@ -1,0 +1,130 @@
+{
+  "about": "The inputs the dicom profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/dicom.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "dicom_reject_bigendian_ow8",
+      "input": "dicom_reject_bigendian_ow8.dcm",
+      "message": "8-bit Pixel Data of VR OW in big endian"
+    },
+    {
+      "test": "dicom_reject_bits_allocated",
+      "input": "dicom_reject_bits_allocated.dcm",
+      "message": "unsupported Bits Allocated 12"
+    },
+    {
+      "test": "dicom_reject_bot_offset",
+      "input": "dicom_reject_bot_offset.dcm",
+      "message": "a Basic Offset Table offset is not a fragment's"
+    },
+    {
+      "test": "dicom_reject_depth",
+      "input": "dicom_reject_depth.dcm",
+      "message": "items nested more than 64 deep"
+    },
+    {
+      "test": "dicom_reject_eot_overlap",
+      "input": "dicom_reject_eot_overlap.dcm",
+      "message": "the Extended Offset Table's frames overlap"
+    },
+    {
+      "test": "dicom_reject_eot_with_bot",
+      "input": "dicom_reject_eot_with_bot.dcm",
+      "message": "an Extended Offset Table with a Basic Offset Table"
+    },
+    {
+      "test": "dicom_reject_focal_planes",
+      "input": "dicom_reject_focal_planes.dcm",
+      "message": "2 focal planes"
+    },
+    {
+      "test": "dicom_reject_fragments_without_offsets",
+      "input": "dicom_reject_fragments_without_offsets.dcm",
+      "message": "4 fragments for 2 frames without an offset table"
+    },
+    {
+      "test": "dicom_reject_high_bit",
+      "input": "dicom_reject_high_bit.dcm",
+      "message": "High Bit 3 is not Bits Stored - 1"
+    },
+    {
+      "test": "dicom_reject_increment_length",
+      "input": "dicom_reject_increment_length.dcm",
+      "message": "(0028,0009) has a length that is not a multiple of 4"
+    },
+    {
+      "test": "dicom_reject_jpeg_soi",
+      "input": "dicom_reject_jpeg_soi.dcm",
+      "message": "frame 0's first fragment does not start with a JPEG SOI marker (FF D8)"
+    },
+    {
+      "test": "dicom_reject_jpegls",
+      "input": "dicom_reject_jpegls.dcm",
+      "message": "unsupported transfer syntax 1.2.840.10008.1.2.4.80"
+    },
+    {
+      "test": "dicom_reject_misplaced_delimiter",
+      "input": "dicom_reject_misplaced_delimiter.dcm",
+      "message": "expected an item at 498, found (FFFE,E00D)"
+    },
+    {
+      "test": "dicom_reject_native_ybr",
+      "input": "dicom_reject_native_ybr.dcm",
+      "message": "unsupported Photometric Interpretation 'YBR_FULL' with 3 samples per pixel"
+    },
+    {
+      "test": "dicom_reject_no_pixel_data",
+      "input": "dicom_reject_no_pixel_data.dcm",
+      "message": "no Pixel Data element"
+    },
+    {
+      "test": "dicom_reject_palette",
+      "input": "dicom_reject_palette.dcm",
+      "message": "unsupported Photometric Interpretation 'PALETTE COLOR' with 1 samples per pixel"
+    },
+    {
+      "test": "dicom_reject_pixel_past_eof",
+      "input": "dicom_reject_pixel_past_eof.dcm",
+      "message": "Pixel Data's 104 bytes run past the end of the 514-byte file"
+    },
+    {
+      "test": "dicom_reject_rle",
+      "input": "dicom_reject_rle.dcm",
+      "message": "unsupported transfer syntax 1.2.840.10008.1.2.5"
+    },
+    {
+      "test": "dicom_reject_rows_vr",
+      "input": "dicom_reject_rows_vr.dcm",
+      "message": "(0028,0010) has VR SS, not US"
+    },
+    {
+      "test": "dicom_reject_short_pixel_data",
+      "input": "dicom_reject_short_pixel_data.dcm",
+      "message": "Pixel Data has 32 bytes, less than 3 frames of 16"
+    },
+    {
+      "test": "dicom_reject_tiled_sparse",
+      "input": "dicom_reject_tiled_sparse.dcm",
+      "message": "a whole-slide image whose Dimension Organization Type is not TILED_FULL"
+    },
+    {
+      "test": "dicom_reject_truncated_sequence",
+      "input": "dicom_reject_truncated_sequence.dcm",
+      "message": "(0008,1150) at 526 runs past its container"
+    },
+    {
+      "test": "dicom_reject_unknown_vr",
+      "input": "dicom_reject_unknown_vr.dcm",
+      "message": "unknown VR 'ZZ' at 496"
+    },
+    {
+      "test": "dicom_reject_wsi_frames",
+      "input": "dicom_reject_wsi_frames.dcm",
+      "message": "3 frames for 2 by 2 tiles"
+    },
+    {
+      "test": "dicom_reject_zero_frames",
+      "input": "dicom_reject_zero_frames.dcm",
+      "message": "Number of Frames 0 is not from 1 to 2^53 - 1"
+    }
+  ]
+}
