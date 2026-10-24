@@ -6,7 +6,7 @@
 
 import { compileIr } from "#irwasm";
 
-/** The C-ABI of rust/refkv-ir/src/wasm.rs that the runs use. */
+/** The C-ABI of rust/refkv-ir/src/wasm.rs that the runs, and the `refkv.fits_tiles` codec, use. */
 export interface IrExports {
   memory: WebAssembly.Memory;
   vz_alloc(n: number): number;
@@ -31,6 +31,8 @@ export interface IrExports {
   vz_store_complete(p: number, k: number, data: number, n: number): bigint;
   vz_store_output(p: number, url: number, n: number, mirror: number): bigint;
   vz_store_free(p: number): void;
+  vz_free(p: number, n: number): void;
+  vz_fits_tiles_decode(chunk: number, n: number, config: number, nc: number, shape: number, rank: number): bigint;
 }
 
 let instance: Promise<IrExports> | undefined;

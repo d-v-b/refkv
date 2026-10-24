@@ -48,7 +48,7 @@ async function transform(
   stream: TransformStream<BufferSource, Uint8Array>,
 ): Promise<Uint8Array> {
   const out = new Response(
-    new Blob([data as BlobPart]).stream().pipeThrough(stream),
+    new Response(data as BodyInit).body!.pipeThrough(stream),
   );
   return new Uint8Array(await out.arrayBuffer());
 }
@@ -65,7 +65,7 @@ export function deflateRaw(data: Uint8Array): Promise<Uint8Array> {
  */
 export async function inflateRaw(data: Uint8Array, limit?: number): Promise<Uint8Array> {
   if (limit === undefined) return transform(data, new DecompressionStream("deflate-raw"));
-  const reader = new Blob([data as BlobPart]).stream()
+  const reader = new Response(data as BodyInit).body!
     .pipeThrough(new DecompressionStream("deflate-raw")).getReader();
   const chunks: Uint8Array[] = [];
   let n = 0;
