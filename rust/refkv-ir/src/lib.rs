@@ -23,6 +23,8 @@ pub mod mirror;
 pub mod mp3;
 pub mod mp4;
 pub mod mrc;
+pub mod fits;
+pub mod fits_tiles;
 pub mod n5;
 pub mod nd2;
 pub mod nifti;
@@ -82,6 +84,7 @@ parser!(nifti::Nifti);
 parser!(mrc::Mrc);
 parser!(mp3::Mp3);
 parser!(mp4::Mp4);
+parser!(fits::Fits);
 parser!(ims::Ims);
 parser!(safe::Safe);
 

@@ -1,6 +1,6 @@
 //! A sans-IO parser of MP4 and QuickTime files (ISO/IEC 14496-12 and 14496-14, and Apple's
-//! QuickTime file format) into the IR (spec/virtualize/mp4.md §18
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#18-mp4-profile>, and the source
+//! QuickTime file format) into the IR (spec/virtualize/mp4.md §19
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#19-mp4-profile>, and the source
 //! model of §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#53-elements>).
 //!
 //! The rounds: the file's first 64 KiB, then each top-level box header the first read does not
@@ -196,8 +196,8 @@ impl Mp4 {
         }
     }
 
-    /// The top-level boxes (spec/virtualize/mp4.md §18.1
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#181-boxes>): the range to read
+    /// The top-level boxes (spec/virtualize/mp4.md §19.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#191-boxes>): the range to read
     /// next, or None when every one is known and the moov box (and the ftyp box) read.
     fn walk(&mut self) -> Res<Option<(u64, u64)>> {
         while self.p + 8 <= self.size {
@@ -544,8 +544,8 @@ impl Mp4 {
         Ok(())
     }
 
-    /// Each track's samples, from its tables (spec/virtualize/mp4.md §18.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#182-tracks>), as `data`
+    /// Each track's samples, from its tables (spec/virtualize/mp4.md §19.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#192-tracks>), as `data`
     /// elements; whether the profile virtualizes it, and the facts its projection reads.
     fn samples(&mut self) -> Res<()> {
         let tracks = std::mem::take(&mut self.tracks);
@@ -665,8 +665,8 @@ impl Mp4 {
     }
 
     /// Whether the profile virtualizes the track, and the facts its projection reads
-    /// (spec/virtualize/mp4.md §18.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#182-tracks>): `reason` is
+    /// (spec/virtualize/mp4.md §19.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#192-tracks>): `reason` is
     /// null for a track it virtualizes, else why it does not.
     fn classify(&self, t: &Track, offsets: &[u64]) -> J {
         let entry = t.entries.first();
@@ -817,8 +817,8 @@ fn presentation(t: &Track) -> Vec<i64> {
     out
 }
 
-/// Whether the groups of pictures are closed (spec/virtualize/mp4.md §18.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#182-tracks>): the first sample
+/// Whether the groups of pictures are closed (spec/virtualize/mp4.md §19.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#192-tracks>): the first sample
 /// is a sync sample, no two samples share a presentation time, no group is longer than
 /// `max_group` samples, and every sample before a sync sample in decode order is presented
 /// before it and every sample after it is presented after it.

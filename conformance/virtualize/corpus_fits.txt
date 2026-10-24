@@ -1,0 +1,15 @@
+# url|name|no-ref of the public FITS files in the corpus (the frozen reference has no FITS profile, so each
+# compares py with web alone): astropy's test data (BSD-3-Clause) on GitHub, which serves ranges; an SDSS
+# spectrum (three binary tables); a HiPS tile (CDS); a Legacy Surveys brick (RICE_ONE, 100 x 100 tiles,
+# SUBTRACTIVE_DITHER_2); a Pan-STARRS skycell (RICE int16 row tiles); a ZTF science image (plain float32)
+https://raw.githubusercontent.com/astropy/astropy/7d7cf6d2d3e8b1e381e980278d071067b4b25241/astropy/io/fits/tests/data/comp.fits|astropy_comp_rice|no-ref
+https://raw.githubusercontent.com/astropy/astropy/7d7cf6d2d3e8b1e381e980278d071067b4b25241/astropy/io/fits/tests/data/test0.fits|astropy_test0_mef|no-ref
+https://raw.githubusercontent.com/astropy/astropy/7d7cf6d2d3e8b1e381e980278d071067b4b25241/astropy/io/fits/tests/data/o4sp040b0_raw.fits|astropy_stis_raw|no-ref
+https://raw.githubusercontent.com/astropy/astropy/7d7cf6d2d3e8b1e381e980278d071067b4b25241/astropy/io/fits/tests/data/tb.fits|astropy_bintable|no-ref
+https://raw.githubusercontent.com/astropy/astropy/7d7cf6d2d3e8b1e381e980278d071067b4b25241/astropy/io/fits/tests/data/variable_length_table.fits|astropy_vla_table|no-ref
+https://raw.githubusercontent.com/astropy/astropy/7d7cf6d2d3e8b1e381e980278d071067b4b25241/astropy/io/fits/tests/data/checksum.fits|astropy_checksum|no-ref
+https://data.sdss.org/sas/dr17/sdss/spectro/redux/26/spectra/lite/0266/spec-0266-51602-0001.fits|sdss_spec_lite|no-ref
+https://alasky.cds.unistra.fr/Pan-STARRS/DR1/g/Norder3/Dir0/Npix0.fits|hips_ps1_g_tile|no-ref
+https://portal.nersc.gov/cfs/cosmo/data/legacysurvey/dr10/south/coadd/000/0001m002/legacysurvey-0001m002-image-g.fits.fz|legacysurvey_brick_g|no-ref
+https://ps1images.stsci.edu/rings.v3.skycell/1405/053/rings.v3.skycell.1405.053.stk.g.unconv.fits|ps1_skycell_g|no-ref
+https://irsa.ipac.caltech.edu/ibe/data/ztf/products/sci/2018/0411/467847/ztf_20180411467847_000535_zr_c11_o_q3_sciimg.fits|ztf_sciimg|no-ref

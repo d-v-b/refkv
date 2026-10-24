@@ -1,6 +1,6 @@
 """Writes synthetic MP4 and MOV files to fixtures/mp4/, covering the rules of the MP4 profile
-(spec/virtualize/mp4.md §18
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#18-mp4-profile>): H.264 video with
+(spec/virtualize/mp4.md §19
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#19-mp4-profile>): H.264 video with
 and without B-frames, intra-only, odd sizes, a variable frame rate, long enough for several
 chunks, two video tracks; AAC and MP3 audio, alone and beside video; the moov box before and
 after the media data, a 64-bit mdat size and an mdat that runs to the end of the file; tracks

@@ -76,7 +76,7 @@ export function isDicom(head: Uint8Array): boolean {
 
 const HDF5 = [0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a];
 
-type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc" | "vsi" | "qptiff" | "mp3" | "mp4"; summary: object };
+type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc" | "vsi" | "qptiff" | "mp3" | "mp4" | "fits"; summary: object };
 
 /** `exact`, when given, reads exactly the ranges asked for, past `read`'s block cache: the
  * Rust core's requests, which it plans itself, are read with it.
@@ -165,8 +165,8 @@ export function irFormat(head: Uint8Array): IrFormat | undefined {
   if (head.length >= 4 && head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04) return "safe";
   if (niftiVersion(head) !== undefined) return "nifti";
   if (HDF5.every((b, i) => head[i] === b)) return "ims";
-  // an MP4 or QuickTime box at 0 (spec/virtualize/mp4.md §18.1
-  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#181-boxes>), before MRC's `MAP` at 208
+  // an MP4 or QuickTime box at 0 (spec/virtualize/mp4.md §19.1
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#191-boxes>), before MRC's `MAP` at 208
   if (isMp4Box(head)) return "mp4";
   // `MAP` at 208: an MRC2014 file (spec/virtualize/mrc.md §14.1
   // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#141-header>)
@@ -174,6 +174,9 @@ export function irFormat(head: Uint8Array): IrFormat | undefined {
   // `ID3` at 0, or a valid MPEG audio frame header: an MP3 file (spec/virtualize/mp3.md §17.1
   // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#171-the-stream>)
   if ((head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33) || isMpegHeader(head)) return "mp3";
+  // `SIMPLE  =` and a fixed-format T in column 30: a FITS file (spec/virtualize/fits.md §18.1
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#181-choosing-the-profile>)
+  if (head.length >= 30 && String.fromCharCode(...head.subarray(0, 9)) === "SIMPLE  =" && head[29] === 0x54) return "fits";
   return undefined;
 }
 
@@ -202,7 +205,7 @@ async function virtualizeFile(url: string, { read, size: fileSize, exact, source
   if (isDicom(head)) return virtualizeIr("dicom", url, source);
   const ir = irFormat(head);
   if (ir === "tiff" || ir === "nd2") return virtualizeIr(ir, url, source);
-  if (ir === "nifti" || ir === "ims" || ir === "czi" || ir === "safe" || ir === "mrc" || ir === "mp3" || ir === "mp4") return virtualizeIr(ir, url, source);
+  if (ir === "nifti" || ir === "ims" || ir === "czi" || ir === "safe" || ir === "mrc" || ir === "mp3" || ir === "mp4" || ir === "fits") return virtualizeIr(ir, url, source);
   throw new ImageError(NOT_SUPPORTED);
 }
 

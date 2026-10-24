@@ -3,8 +3,8 @@
 //! metadata of §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#5-source-metadata>)
 //! from a valid IR: a group per track the profile virtualizes, with the planes of an H.264
 //! track's pictures and their presentation times, or an audio track's samples, each chunk a
-//! `refkv.stream` chunk of the track's samples (spec/virtualize/mp4.md §18.3
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#183-chunks>).
+//! `refkv.stream` chunk of the track's samples (spec/virtualize/mp4.md §19.3
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#193-chunks>).
 
 use super::mrc::gzip;
 use super::{arr, n, Copied};
@@ -29,7 +29,7 @@ pub fn video_chunk(limit: u64, width: u64, height: u64) -> u64 {
 }
 
 /// The samples of a video chunk of the presented frames `[a, b)` (§18.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#183-chunks>): in decode order,
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#193-chunks>): in decode order,
 /// from the last sync sample at or before the first of them in decode order to the last of
 /// them, each with its position (its presentation index less `a`, or -1 when it is not in
 /// the chunk). `order` is the decode index of each presented frame, `rank` the presentation

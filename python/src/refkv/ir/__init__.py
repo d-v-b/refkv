@@ -63,7 +63,7 @@ def mp4_box(head: bytes) -> bool:
 
 def sniff(head: bytes) -> str | None:
     """The IR format a file's first bytes give, if any (132 of them for DICOM, 348 for
-    NIfTI-1, 212 for MRC, 4 for MP3; DICOM first: a dual-personality file's preamble may hold
+    NIfTI-1, 212 for MRC, 4 for MP3, 30 for FITS; DICOM first: a dual-personality file's preamble may hold
     a TIFF header)."""
     if head[128:132] == b"DICM":
         return "dicom"
@@ -87,6 +87,10 @@ def sniff(head: bytes) -> str | None:
         return "mrc"
     if head[:3] == b"ID3" or mpeg_header(head):
         return "mp3"
+    # `SIMPLE  =` and a fixed-format T in column 30: a FITS file (spec/virtualize/fits.md §18.1
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#181-choosing-the-profile>)
+    if len(head) >= 30 and head[:9] == b"SIMPLE  =" and head[29:30] == b"T":
+        return "fits"
     return None
 
 

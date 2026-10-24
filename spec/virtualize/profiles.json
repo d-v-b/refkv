@@ -90,6 +90,22 @@
     "for": "MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`)"
   },
   {
+    "name": "fits",
+    "section": 18,
+    "title": "FITS",
+    "uuid": "4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93",
+    "version": 0,
+    "kind": "file",
+    "suffixes": [
+      ".fits",
+      ".fz"
+    ],
+    "reference": null,
+    "source": "FITS",
+    "inputs": "FITS files: images, multi-extension files, binary and ASCII tables",
+    "for": "FITS images and tables (`.fits`, `.fz`)"
+  },
+  {
     "name": "mrc-dataset",
     "section": null,
     "title": "MRC dataset",
@@ -233,7 +249,7 @@
   },
   {
     "name": "mp4",
-    "section": 18,
+    "section": 19,
     "title": "MP4",
     "uuid": "bbe3f6b9-488d-4d8d-85ce-60a1649dd27e",
     "version": 0,

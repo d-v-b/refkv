@@ -40,7 +40,8 @@ is a document of its own, numbered as a section of this one:
 | 15 | [VSI](virtualize/vsi.md#part-2-the-profile) | file | Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG and JPEG 2000 tiles) |
 | 16 | [QPTIFF](virtualize/qptiff.md#part-2-the-profile) | file | Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips |
 | 17 | [MP3](virtualize/mp3.md#part-2-the-profile) | file | MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio files (`.mp3`), with their ID3v2, ID3v1 and APE tags; one array of samples, not an image |
-| 18 | [MP4](virtualize/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.mov`) with H.264 video and AAC or MP3 audio tracks; a group per track, not an image |
+| 18 | [FITS](virtualize/fits.md#part-2-the-profile) | file | FITS files: images, multi-extension files, binary and ASCII tables |
+| 19 | [MP4](virtualize/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.mov`) with H.264 video and AAC or MP3 audio tracks; a group per track, not an image |
 <!-- /profiles -->
 
 The table says which profiles read a single file (a **file input**), which a store of many
@@ -165,11 +166,12 @@ a test that needs a byte beyond `H` does not match.
 | bytes 0–3 are the 32-bit integer 540 in either byte order, and bytes 4–11 are `6E 2B 32 00 0D 0A 1A 0A` (`n+2`) | NIfTI profile ([§7](virtualize/nifti.md#7-nifti-profile)), NIfTI-2 |
 | bytes 0–3 are `50 4B 03 04` (a ZIP local file header) | SAFE profile ([§12](virtualize/safe.md#12-safe-profile)), zip form |
 | bytes 0–15 are `5A 49 53 52 41 57 46 49 4C 45` (`ZISRAWFILE`) and six `00` bytes | CZI profile ([§13](virtualize/czi.md#13-czi-profile)) |
-| bytes 0–3 are a 32-bit big-endian size of at least 8, or 1, and bytes 4–7 are `ftyp`, `moov`, `mdat`, `wide`, `free` or `skip` (an MP4 or QuickTime box) | MP4 profile ([§18](virtualize/mp4.md#18-mp4-profile)), tested before the MRC row |
+| bytes 0–3 are a 32-bit big-endian size of at least 8, or 1, and bytes 4–7 are `ftyp`, `moov`, `mdat`, `wide`, `free` or `skip` (an MP4 or QuickTime box) | MP4 profile ([§19](virtualize/mp4.md#19-mp4-profile)), tested before the MRC row |
 | bytes 208–210 are `4D 41 50` (`MAP`) | MRC profile ([§14](virtualize/mrc.md#14-mrc-profile)) |
 | bytes 0–3 are `49 49 2A 00` and bytes 8–11 are `18 00 49 53` (a cellSens container header) | VSI profile ([§15](virtualize/vsi.md#15-vsi-profile)), tested before the TIFF row |
 | bytes 0–2 are `49 44 33` (`ID3`), or bytes 0–3 are an MPEG audio frame header: bits 31–21 all ones, bits 20–19 not `01`, bits 18–17 not `00`, bits 11–10 not `11` ([spec/virtualize/mp3.md §2](virtualize/mp3.md#2-frames); any layer and bitrate index) | MP3 profile ([§17](virtualize/mp3.md#17-mp3-profile)) |
-| anything else, including the JPEG 2000 signature box `00 00 00 0C 6A 50 20 20 0D 0A 87 0A` that starts legacy ND2 files, NIfTI header-and-image pairs (`ni1`, `ni2`) and pre-2000 MRC files without `MAP` | rejected |
+| bytes 0–8 are `SIMPLE  =` and byte 29 is `T` | FITS profile ([§18](virtualize/fits.md#18-fits-profile)) |
+| anything else, including the JPEG 2000 signature box `00 00 00 0C 6A 50 20 20 0D 0A 87 0A` that starts legacy ND2 files, NIfTI header-and-image pairs (`ni1`, `ni2`), pre-2000 MRC files without `MAP`, non-conforming FITS files (`SIMPLE = F`) and gzip or bzip2 compressed FITS files | rejected |
 
 A DICOM file is read by the DICOM profile even when its 128-byte preamble
 holds a TIFF header, as dual-personality files and some writers' preambles
@@ -548,7 +550,8 @@ other section:
 - [§15](virtualize/vsi.md#15-vsi-profile), the VSI profile: [spec/virtualize/vsi.md](virtualize/vsi.md#part-2-the-profile);
 - [§16](virtualize/qptiff.md#16-qptiff-profile), the QPTIFF profile: [spec/virtualize/qptiff.md](virtualize/qptiff.md#part-2-the-profile);
 - [§17](virtualize/mp3.md#17-mp3-profile), the MP3 profile: [spec/virtualize/mp3.md](virtualize/mp3.md#part-2-the-profile);
-- [§18](virtualize/mp4.md#18-mp4-profile), the MP4 profile: [spec/virtualize/mp4.md](virtualize/mp4.md#part-2-the-profile).
+- [§18](virtualize/fits.md#18-fits-profile), the FITS profile: [spec/virtualize/fits.md](virtualize/fits.md#part-2-the-profile);
+- [§19](virtualize/mp4.md#19-mp4-profile), the MP4 profile: [spec/virtualize/mp4.md](virtualize/mp4.md#part-2-the-profile).
 <!-- /profiles -->
 
 ## Appendix A. Conformance
