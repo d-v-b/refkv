@@ -1,5 +1,5 @@
-"""The host's side of a VSI input (spec/virtualize/vsi.md §15.2
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#152-the-tile-files>): the `.vsi`
+"""The host's side of a VSI input (spec/virtualize/vsi.md §9.2
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>): the `.vsi`
 file named by the input, and the tile files beside it, which the Rust core's `vsi` store
 format asks for by key (`refkv.ir.store.drive_store`'s probes) rather than from a listing,
 since a plain web server cannot list a directory. The files are the objects of a store whose

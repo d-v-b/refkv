@@ -1,5 +1,5 @@
-"""The SAFE profile (spec/virtualize.md, §12
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#12-safe-profile>): the output of a
+"""The SAFE profile (spec/virtualize/safe.md, §8
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#8-safe-profile>): the output of a
 Sentinel-2 product, in the directory form (a store input) or the zip form (a file input)."""
 
 from __future__ import annotations
@@ -26,9 +26,9 @@ PROFILE = "safe"
 WORKERS = 16
 
 
-# ---------------------------------------------------------------- the product's objects (§12.2
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#122-objects-and-reading>, §12.4
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>)
+# ---------------------------------------------------------------- the product's objects (§8.2
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#82-objects-and-reading>, §8.4
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>)
 
 
 class Objects:
@@ -154,8 +154,8 @@ class ZipObjects(Objects):
         return self._whole[key] if key in self._whole else self._inflate(key)
 
 
-# ---------------------------------------------------------------- the output (§12.8
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#128-the-source-table>)
+# ---------------------------------------------------------------- the output (§8.8
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#88-the-source-table>)
 
 
 @dataclass
@@ -190,8 +190,8 @@ class SafeOutput:
     checksum: Callable[[str, int, int], int] | None = None
 
     def table(self) -> tuple[list[str], list[bytes], dict[str, list]]:
-        """The url sources, the data sources, and the references with numbered sources (§12.8
-        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#128-the-source-table>)."""
+        """The url sources, the data sources, and the references with numbered sources (§8.8
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#88-the-source-table>)."""
         keys = sorted(self.refs)
         if self.form == "zip":
             urls = [self.url]
@@ -420,15 +420,15 @@ def virtualize_product(url: str, objects: Objects) -> SafeOutput:
 
 
 def virtualize_safe_store(store: Store) -> SafeOutput:
-    """The directory form (§12
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#12-safe-profile>): a listed
+    """The directory form (§8
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#8-safe-profile>): a listed
     `.SAFE` directory."""
     return virtualize_product(store.url, StoreObjects(store))
 
 
 def virtualize_safe_zip(url: str, read: Reader, size: int) -> SafeOutput:
-    """The zip form (§12.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>): a
+    """The zip form (§8.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>): a
     `.SAFE.zip` file."""
     objects = ZipObjects(read, size)
     out = virtualize_product(url, objects)
@@ -441,6 +441,6 @@ def virtualize_safe_zip(url: str, read: Reader, size: int) -> SafeOutput:
 
 
 def is_zip(head: bytes) -> bool:
-    """A ZIP local file header's signature (§12.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#121-choosing-the-profile>)."""
+    """A ZIP local file header's signature (§8.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#81-choosing-the-profile>)."""
     return head[:4] == zipdir.LOCAL

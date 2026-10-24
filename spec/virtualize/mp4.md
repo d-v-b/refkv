@@ -18,9 +18,8 @@ Added 2026-10-23, after
 This document has two parts. [Part 1](#part-1-the-convention) is the MP4
 convention: the Zarr layout, cited as "the convention §n".
 [Part 2](#part-2-the-profile) is the MP4 profile: how refkv reads the source,
-which inputs it rejects, and how each chunk references the source. The
-profile keeps its numbering as a section of [spec/virtualize.md](../virtualize.md),
-and is cited as spec/virtualize.md §n.
+which inputs it rejects, and how each chunk references the source. The document is
+numbered on its own, Part 2 after Part 1, and other documents cite it by name.
 
 An MP4 file is not an image. The hierarchy holds each track it virtualizes
 as a group: an H.264 video track as the Y, U and V planes of its pictures
@@ -123,7 +122,7 @@ The hierarchy is a group at the root, `{"zarr_format": 3, "node_type":
 "group", "attributes": A}`, where `A` has `zarr_conventions` and
 `refkv_virtualized` ([§1](#1-declaration)) and nothing else; a group
 `tracks`, with no attributes; and, for each track the profile virtualizes
-([spec/virtualize.md §19.2](#192-tracks)), a group `tracks/<id>`, `<id>`
+([spec/virtualize.md §8.2](#82-tracks)), a group `tracks/<id>`, `<id>`
 the track's ID, which declares the convention with the track's source
 metadata, and its arrays below. Every array's `zarr.json` is
 [conventions §3](../conventions.md#3-arrays)'s, with the fill value 0.
@@ -193,7 +192,7 @@ the file holds is on `refkv_source`, the file's **IR mirror**
   `{"id": n, "handler": H, "codec": E, "path": P, "reason": R}`: its ID, its
   handler, its sample entry's type (`""` without one), and `P` its group's
   path and `R` null when the profile virtualizes it, else `P` null and `R`
-  why not ([spec/virtualize.md §19.2](#192-tracks)).
+  why not ([spec/virtualize.md §8.2](#82-tracks)).
 
 ### 5.2 The tracks
 
@@ -308,8 +307,7 @@ This section is informative.
 
 # Part 2. The profile
 
-The MP4 profile of [spec/virtualize.md](../virtualize.md), numbered as its
-[§19](#19-mp4-profile). [§1](../virtualize.md#1-introduction) and
+The MP4 profile of [spec/virtualize.md](../virtualize.md) is [§8](#8-mp4-profile) of this document. [§1](../virtualize.md#1-introduction) and
 [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply
 here.
 
@@ -319,13 +317,14 @@ says which inputs are accepted, which tracks are virtualized, and how each
 chunk references the file. "The convention §n" below is a section of
 Part 1.
 
-## 19. MP4 profile
+## 8. MP4 profile
 
-### 19.1 Boxes
+### 8.1 Boxes
 
-The input is an MP4 or QuickTime file, which [§1.2](../virtualize.md#12-input)
-chose by a box at offset 0: a 32-bit size of at least 8, or 1, and the type
-`ftyp`, `moov`, `mdat`, `wide`, `free` or `skip`. A virtualizer reads the
+The input is an MP4 or QuickTime file, which its **signature** ([spec/virtualize.md §1.2](../virtualize.md#12-input), tested at the precedence of
+[profiles/mp4.json](profiles/mp4.json), before MRC's) chose: bytes 0–3 of `H` are a
+32-bit big-endian size of at least 8, or 1, and bytes 4–7 are `ftyp`, `moov`,
+`mdat`, `wide`, `free` or `skip`. A virtualizer reads the
 top-level boxes' headers, then the whole `moov` box (and the `ftyp` box); it
 never reads the media data.
 
@@ -354,7 +353,7 @@ that fails.
   empty (when it has samples), starts at chunk 1, its `first_chunk`s
   increase and are at most the chunk count, and no entry has 0 samples per
   chunk; and every sample ends within the file.
-- **A track:** the profile virtualizes at least one track ([§19.2](#192-tracks)).
+- **A track:** the profile virtualizes at least one track ([§8.2](#82-tracks)).
   Without one, the input is rejected with each track's reason: `no track can
   be virtualized: track 1 (hev1): hev1 video is not supported: only H.264
   (avc1) is`.
@@ -362,7 +361,7 @@ that fails.
 A box that is not well formed but within a box the profile does not parse
 is not checked: its payload is opaque.
 
-### 19.2 Tracks
+### 8.2 Tracks
 
 A track is virtualized unless one of these holds, checked in this order;
 the first that holds is its **reason** ([the convention §5.1](#51-the-root)),
@@ -398,7 +397,7 @@ The open-group and spacing rules make every chunk decodable from a sync
 sample before it, with a header of at most a few thousand frames, so its
 reference fits in a payload ([§1.2](../virtualize.md#12-input)).
 
-### 19.3 Chunks
+### 8.3 Chunks
 
 Every chunk of every array of a virtualized track is present, and is the
 `refkv.stream` chunk ([conventions §10](../conventions.md#10-coded-streams))
@@ -422,7 +421,7 @@ each other in the file:
   `a − 3` hold at least 511 bytes of main data, counting each frame's size
   less 38 bytes (its header, CRC and side information are at most that), or
   0 when none does: the MP3 profile's rule
-  ([virtualize/mp3.md §17.2](mp3.md#172-chunks)) with MPEG-1's reservoir and
+  ([virtualize/mp3.md §8.2](mp3.md#82-chunks)) with MPEG-1's reservoir and
   a bound in place of each frame's side information, which a virtualizer
   does not read.
 
@@ -432,7 +431,7 @@ sources: its source table is source 0 alone. `refkv_source` is the IR mirror
 the root's, `tracks`' and each track group's `zarr.json`, the arrays' and
 their chunks, and the mirror's.
 
-### 19.4 Summary
+### 8.4 Summary
 
 This section is informative. Both implementations print a one-line JSON
 summary: `brand` (the major brand, or `null`), `tracks` (for each track

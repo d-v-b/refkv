@@ -13,13 +13,13 @@ Schema: [schema.json](fits/schema.json)
 This document has two parts. [Part 1](#part-1-the-convention) is the FITS
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
 is the FITS profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The profile keeps its numbering as a section
-of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
+each chunk references the source. The document is
+numbered on its own, Part 2 after Part 1, and other documents cite it by name.
 
 **Draft.** This revision covers uncompressed images, multi-extension files,
 tables and tile-compressed images (`ZIMAGE = T`, the `.fz` files `fpack`
 writes) with the `RICE_1`, `GZIP_1`, `GZIP_2` and `NOCOMPRESS` algorithms;
-`HCOMPRESS_1` and `PLIO_1` are rejected ([§18.3](#183-checks)). The design is
+`HCOMPRESS_1` and `PLIO_1` are rejected ([§9.3](#93-checks)). The design is
 [design/plans/fits.md](../../design/plans/fits.md).
 
 # Part 1. The convention
@@ -70,7 +70,7 @@ four times in a WFPC2 file, 144 times in a Euclid frame, with `EXTVER` or
 a dotted name telling them apart), so a reader finds `SCI,2` in the root's
 table of HDUs ([§5.1](#51-the-root)).
 
-An HDU's **kind**, by its mandatory cards ([§18.3](#183-checks)):
+An HDU's **kind**, by its mandatory cards ([§9.3](#93-checks)):
 
 | kind | when | the node |
 |---|---|---|
@@ -174,7 +174,7 @@ The HDU's array has the shape `[ZNAXISn, …, ZNAXIS1]`, the data type of
 - **Chunks.** A chunk with at least one tile is present; its bytes are a
   **prefix** followed by its tiles' streams in storage order, and its
   reference is the prefix as a literal range followed by the ranges of the
-  streams ([§18.4](#184-chunks)). The prefix is little-endian: `u32` the
+  streams ([§9.4](#94-chunks)). The prefix is little-endian: `u32` the
   chunk's tile count `N`, `u32` the storage index of its first tile, then
   `N` records of 32 bytes: `u32` the stream's length (0: no tile), `u32`
   its kind (0: `COMPRESSED_DATA`; 1: `GZIP_COMPRESSED_DATA`), `i32` the
@@ -238,7 +238,7 @@ The root's source metadata `fits` is an object with the members `hdus` and
   (`EXTVER`'s integer, or `null`), `bitpix`, `naxis` (`[NAXIS1, …, NAXISn]`,
   in FITS order), `pcount` and `gcount` (0 and 1 for the primary), `offset`
   (the HDU's first byte), `header_bytes` (its header's blocks), `data_offset`
-  and `data_bytes` (`D` of [§18.3](#183-checks)), and `compression`: `null`,
+  and `data_bytes` (`D` of [§9.3](#93-checks)), and `compression`: `null`,
   or for a tile-compressed image ([§3.3](#33-tile-compressed-images)) the
   object `{"type", "parameters", "zbitpix", "tile", "quantize",
   "dither_seed", "zblank", "tiles"}` (the codec's values, `tile` in the
@@ -298,7 +298,7 @@ shown value may have); its cards are in the nodes' source metadata.
 Paths are relative to the IR's root, whose path is `""`
 ([conventions §8.1](../conventions.md#81-elements)). Types are those of
 [conventions §8.6](../conventions.md#86-types). For HDU `i`, with `k` its
-header's blocks, `D` its data bytes ([§18.3](#183-checks)), `p` its padding
+header's blocks, `D` its data bytes ([§9.3](#93-checks)), `p` its padding
 to the block boundary (shorter at a truncated end of file), `N1` and `N2` a
 table's `NAXIS1` and `NAXIS2`, `g = THEAP − N1 × N2` and `H` its heap's
 length ([§4](#4-tables)):
@@ -376,31 +376,31 @@ gives some of it no Zarr expression:
 
 # Part 2. The profile
 
-## 18. FITS profile
+## 9. FITS profile
 
-### 18.1 Choosing the profile
+### 9.1 Choosing the profile
 
-The input is a FITS file, which [spec/virtualize.md §1.2](../virtualize.md#12-input)
-chose by its first bytes: bytes 0–8 are `SIMPLE  =` and byte 29 is `T` (the
+The input is a FITS file, which its **signature** ([spec/virtualize.md §1.2](../virtualize.md#12-input), tested at the
+precedence of [profiles/fits.json](profiles/fits.json)) chose: bytes 0–8 of `H` are `SIMPLE  =` and byte 29 is `T` (the
 fixed-format logical of the standard's first card). A file whose first card
 is `SIMPLE = F` (a non-conforming file), a file whose first card is
 `XTENSION` (an extension written alone), and a gzip (`1F 8B`) or bzip2
 (`BZh`) compressed file (`.fits.gz`, `.fits.bz2`), into which no byte range
-reaches, are rejected there.
+reaches, match no profile's signature and are rejected.
 
-### 18.2 Reading
+### 9.2 Reading
 
 The profile reads headers and the main tables of tile-compressed images,
 never data. For each HDU in turn, from its first byte: a window of at most
 2^16 bytes, extended by such windows until the header's `END` card is in
 it; the bytes of the window past the header are the next HDU's first bytes
 when they reach them. A header MUST end within 2^24 bytes of its first
-byte, else the input is rejected ([§18.3](#183-checks)). A tile-compressed
+byte, else the input is rejected ([§9.3](#93-checks)). A tile-compressed
 image's main table (`NAXIS1 × NAXIS2` bytes at its data offset, at most 2^26
 bytes) is read in one range, requested with the next HDU's window when the
 current window does not reach it.
 
-### 18.3 Checks
+### 9.3 Checks
 
 The input is rejected unless all of these hold, checked in this order, HDU by
 HDU, every check applying whatever the other cards hold. A rejection names
@@ -458,7 +458,7 @@ HDU; otherwise the remaining bytes are special records
 other card is checked: the values the layout uses change the output only as
 the convention says, and never reject the input.
 
-### 18.4 Chunks
+### 9.4 Chunks
 
 An image's data is `D` contiguous bytes at `data_offset`, `NAXIS1` varying
 fastest: the array `V` of [the convention §3.1](#31-the-array), row-major
@@ -484,7 +484,7 @@ mirror ([the convention §6](#6-the-ir-mirror)). The archive has no other
 entries than the root's and the nodes' `zarr.json`, the arrays' chunks and
 the mirror's.
 
-### 18.5 Summary
+### 9.5 Summary
 
 This section is informative. Both implementations print a one-line JSON
 summary: `hdus` (the count), `kinds` (the count of each kind), `arrays`

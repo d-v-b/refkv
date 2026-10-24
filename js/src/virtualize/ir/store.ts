@@ -65,8 +65,8 @@ export async function virtualizeStoreIr(
       if (n === 0) break;
       const reqs = decodeRequests(out(w, n - 1));
       if (reqs.length === 0) {
-        // a batch of probes (a VSI input's tile files, spec/virtualize/vsi.md §15.2
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#152-the-tile-files>): each
+        // a batch of probes (a VSI input's tile files, spec/virtualize/vsi.md §9.2
+        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>): each
         // key answered with its size, or -1 when it does not exist; a found one joins the listing
         const keys = JSON.parse(text(out(w, Number(w.vz_store_probes(p))))) as string[];
         for (const key of keys) {

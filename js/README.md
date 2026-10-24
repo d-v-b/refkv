@@ -89,162 +89,9 @@ opts in (`allowPrivateHosts`, given to `openHttpSource`, `openHttpStore` or
 `virtualizeStore`; `--allow-private-hosts` in the Node CLIs). Each source pins its size, and the input file's its ETag when every
 response exposed the same strong one.
 
-TIFF:
-
-- Tiled TIFF and BigTIFF, either byte order.
-- Pyramids as SubIFDs (OME-TIFF), or, without OME-XML, as later tiled images of
-  decreasing size (as in SVS).
-- OME-TIFF planes over Z, C and T in any `DimensionOrder`, with physical pixel
-  sizes and units.
-- Samples per pixel stored planar (one chunk per channel) or interleaved
-  (through a `transpose` codec).
-- Compression: none, DEFLATE (`zlib`), zstd, JPEG 2000 (`imagecodecs_jpeg2k`),
-  and JPEG (`imagecodecs_jpeg`), without a predictor. JPEG tiles that keep
-  their tables in `JPEGTables`, as in Aperio SVS, become complete JPEG streams
-  through references that prepend the tables and a color marker, held once
-  in the archive as a `data` source.
-
-Not supported, and refused with HTTP 422: images in strips, LZW, old-style
-JPEG, predictors, and multi-file OME-TIFF.
-
-Hamamatsu NDPI:
-
-- Pyramids of single JPEG strips, including in files over 4 GB: each level's
-  strip is cut at its restart markers into chunks of about 1024 × 1024 pixels, each a JPEG stream rebuilt
-  from byte ranges of the file and the strip's header, held once in the
-  archive as `data` sources.
-
-Not supported, and refused with HTTP 422: NDPI focal planes.
-
-Akoya QPTIFF (Vectra scans, inForm component data; found by the Software tag):
-
-- The FullResolution images as channels and the runs of ReducedResolution
-  images as levels, named and colored in `omero` from each image's XML
-  description; tiles, or strips for the smallest levels and inForm fields
-  (a rectilinear chunk grid when the last strip is short).
-- Compression: none, LZW (`imagecodecs_lzw`), JPEG, DEFLATE, zstd, JPEG 2000.
-
-Not supported, and refused with HTTP 422: predictors, several RGB channels,
-and images that do not follow the format's arrangement.
-
-ND2 (format version 3 and later):
-
-- Time (including multi-phase), stage-position and Z loops; positions become
-  a bioformats2raw layout with one image per position, placed at its stage
-  coordinates.
-- Channels and RGB components, with names, colors and contrast windows in
-  `omero`; pixel size, Z step and time step as scales.
-- Uncompressed frames (padded rows become one range per row, dropping the
-  padding) and losslessly compressed (zlib) frames.
-
-Not supported, and refused with HTTP 422: legacy (JPEG 2000) ND2 files,
-lossy compression, tiled frames, and other loop types.
-
-Zeiss CZI (file version 1, one file):
-
-- Every series (scene, block, ...) as an image of a bioformats2raw layout,
-  its pyramid levels found from the subblocks; subblocks in no level kept as
-  tile arrays under `tiles/`.
-- Subblocks uncompressed, JPEG, JPEG XR or zstd (`imagecodecs_jpegxr`,
-  `numcodecs.shuffle` and `zstd` codecs as needed), of every ZISRAW pixel
-  type: gray, BGR and BGRA; integer, float and complex.
-
-Not supported, and refused with HTTP 422: LZW, lossless JPEG and camera raw
-subblocks, and CZI files split over several files.
-
-Sentinel-2 SAFE (Level-1C and Level-2A, a `.SAFE.zip` file or a `.SAFE`
-directory listed with S3 ListObjectsV2):
-
-- One group per resolution (`r10m`, `r20m`, `r60m`) and one array per band,
-  one chunk per JPEG 2000 tile, with the zarr-conventions `proj` and
-  `spatial` metadata; the radiometric offsets and quantification values on
-  each band, and every file of the product kept on `refkv_source`.
-
-DICOM (Part 10 files):
-
-- Native pixel data in implicit or explicit VR, little or big endian, and
-  JPEG Baseline or JPEG 2000 frames, including frames split over several
-  fragments, with or without a Basic or Extended Offset Table.
-- Multi-frame images along `z`; whole-slide images (TILED_FULL) as one
-  pyramid level per file, with frames as tiles.
-- Pixel spacing as scale; window center and width in `omero`.
-
-Not supported, and refused with HTTP 422: other transfer syntaxes (JPEG-LS,
-lossless JPEG, RLE, deflate, HTJ2K), palette color, TILED_SPARSE slides, and
-slides with several focal planes or optical paths.
-
-NIfTI (NIfTI-1 and NIfTI-2 single files):
-
-- Up to five dimensions (`t`, `c`, `z`, `y`, `x`), either byte order, all
-  integer and float types, and RGB/RGBA voxels.
-- One chunk per z-slice, split into row blocks when a slice is over 128 KiB.
-- Pixel size and units as scale; an axis-aligned qform or sform as
-  translation; the whole header, and its intensity scaling, recorded under
-  `refkv_virtualized`.
-
-Not supported, and refused with HTTP 422: gzipped files (`.nii.gz`),
-header-and-image pairs, complex types, and dimensions 6 and 7 (CIFTI).
-
-MRC (MRC2014 files):
-
-- Images, image stacks, volumes and volume stacks (`t`, `z`, `y`, `x`),
-  either byte order, modes 0, 1, 2, 4, 6 and 12.
-- Chunks of at most 1 MiB: blocks of sections, or blocks of rows.
-- The voxel size (angstroms) as scale, the origin as translation, the whole
-  header under `refkv_virtualized`.
-
-Not supported, and refused with HTTP 422: gzipped maps (`.map.gz`), pre-2000
-files without `MAP` at byte 208, and modes 3 and 101.
-
-MP3 (MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio):
-
-- Not an image: one array `samples` of float32, `[time, channel]`, in
-  chunks of 256 frames, each referencing the frames a decoder needs before
-  it (the bit reservoir); the `refkv.stream` codec decodes a chunk when it
-  is read (in Python, with ffmpeg's decoders through PyAV).
-- The stream's parameters, the Xing or Info frame's fields and the ID3v1
-  tag under `refkv_virtualized`; the ID3v2 and APE tags in the mirror.
-
-Not supported, and refused with HTTP 422: Layer I and II streams, free-format
-bitrates, and files whose frames change sample rate, version or channel count.
-
-MP4 and QuickTime (H.264 video, AAC and MP3 audio):
-
-- Not an image: a group per track, `tracks/<id>`; an H.264 track's Y, U
-  and V planes (uint8, `[time, y, x]`) and presentation times, an audio
-  track's float32 samples; each chunk the frames back to the keyframe
-  before it, decoded by `refkv.stream`.
-- Every track listed under `refkv_virtualized`, with why it is not
-  virtualized when it is not (HEVC, 10-bit H.264, other audio codecs).
-
-Not supported, and refused with HTTP 422: fragmented MP4, files without a
-moov box, and files with no H.264, AAC or MP3 track.
-
-Olympus VSI (cellSens slides):
-
-- The `.vsi` file's URL names the slide; the tile files beside it
-  (`_<name>_/stack<N>/frame_t.ets`) are probed by URL, not listed, so a
-  plain web server that allows cross-origin reads serves a slide as it is.
-- One OME-Zarr image per stack in a bioformats2raw layout: every pyramid
-  level, with time, channel and z dimensions; JPEG, JPEG 2000 and
-  uncompressed tiles as chunks; the macro image and focus maps from the
-  `.vsi` file; pixel sizes in micrometers, stage origins as translations,
-  channel names and colors.
-- The whole metadata tree under `refkv_virtualized` on the root.
-
-Not supported, and refused with HTTP 422: lossless JPEG, PNG and BMP
-tiles, dimensions other than t, c and z with more than one value, and a
-stack whose tile file is missing.
-
-Imaris IMS (HDF5):
-
-- Files from Imaris 5.5 to 10 and its converters: every resolution level,
-  time point and channel, with extents, units, time step, channel names,
-  colors and contrast ranges.
-- Chunks as stored, uncompressed or deflate (`zlib`).
-
-Not supported, and refused with HTTP 422: LZ4 or shuffle compression (as
-Imaris 10 can write), and HDF5 features Imaris files do not use.
+What each file format gives in the browser, and what it refuses with HTTP 422, is in the
+format's own page, `docs/virtualize/<format>/README.md` ("In the browser"; the index is
+[docs/virtualize/README.md](../docs/virtualize/README.md#formats)).
 
 N5, Zarr v2 and OME-Zarr 0.4 stores (a URL ending in `/`, listed with S3 ListObjectsV2):
 
@@ -290,19 +137,8 @@ limit of this implementation, [spec/virtualize.md Appendix A](../spec/virtualize
 ```bash
 node --test js/test/                                        # unit tests
 uv run python js/conformance/run_write.py /tmp/vzip-write   # the kit's write cases
-uv run python js/test/tiff/verify.py                        # TIFF fixtures vs tifffile
-uv run python js/test/ndpi/verify.py                        # NDPI fixtures vs tifffile
-uv run python js/test/qptiff/verify.py                      # QPTIFF fixtures vs tifffile
-uv run python js/test/nd2/verify.py                         # synthetic ND2 fixtures vs their pixels
-uv run python js/test/dicom/verify.py                       # DICOM fixtures vs pydicom
-uv run python js/test/nifti/verify.py                       # NIfTI fixtures vs nibabel
-uv run python js/test/mrc/verify.py                         # MRC fixtures vs mrcfile
-uv run python js/test/vsi/verify.py                         # VSI fixtures vs their pixels (and Bio-Formats)
-uv run python js/test/mp3/verify.py                         # MP3 fixtures vs ffmpeg's decoders
-uv run python js/test/mp4/verify.py                         # MP4 fixtures vs ffmpeg's decoding
-uv run python js/test/ims/verify.py                         # IMS fixtures vs h5py
-uv run python js/test/czi/verify.py                         # CZI fixtures vs czifile (and libCZI)
-uv run python js/test/safe/verify.py                        # SAFE fixtures vs GDAL
+just verify                                                 # every format's fixtures vs an independent reader
+uv run python js/test/<format>/verify.py                    # one format's (`just verify-of <format>`)
 uv run python conformance/virtualize/compare.py /tmp/vcmp    # reference vs Python vs browser virtualizer
 node demo/e2e.mjs <image file url> <out dir>             # demo + Neuroglancer in Chromium
 node demo/e2e_examples.mjs <out dir> [example id …]      # every demo example, with its viewer
@@ -311,25 +147,10 @@ node demo/e2e_examples.mjs <out dir> [example id …]      # every demo example,
 - `run_write.py` checks every unpaged write case with `conformance/vzip/validate.py`
   and the reference reader, plus an unpaged archive of 70,000 entries and every
   invalid description.
-- `tiff/verify.py` virtualizes each fixture with the browser code. It then
-  reads every level through the reference implementation (`python/src/refkv`) and
-  zarr-python and compares it with tifffile, and rebuilds the file from the
-  archive's IR mirror, byte for byte. `ndpi/verify.py` does the same for the
-  NDPI files, and `qptiff/verify.py` for the QPTIFF files, whose levels are
-  compared with the channel pages tifffile decodes.
-- `nd2/verify.py` does the same for the synthetic ND2 files written by
-  `nd2/write_fixtures.py` (compressed frames, padded rows, multi-phase time loops,
-  disabled positions, missing frames, float data, and inputs to reject),
-  comparing every chunk with the pixels the generator wrote. The `nd2` package
-  reads the generator's files too.
-- `dicom/verify.py`, `nifti/verify.py`, `mrc/verify.py` and `ims/verify.py` do the same for
-  their synthetic files, against pydicom, nibabel (unscaled data), mrcfile and h5py
-  (cropped to the image size); `vsi/verify.py` serves each synthetic slide with its
-  tile files, compares every stack with the pixels the generator wrote and, when a
-  JVM can be started, every level with Bio-Formats (bioio-bioformats); `mp3/verify.py`
-  reads each file's samples through the `refkv.stream` codec and compares them with its
-  decoder's decoding of the whole stream, and with ffmpeg's where the generator stored it;
-  `mp4/verify.py` reads every track and compares it with ffmpeg's decoding of the file.
+- `<format>/verify.py` virtualizes each of the format's fixtures with the browser code and
+  compares what zarr-python reads through the reference implementation (`python/src/refkv`)
+  with an independent reader of the format; its docstring says which reader, and what else it
+  checks (such as the rebuild of the file from the archive's IR mirror, byte for byte).
 - `compare.py` runs three virtualizers (`ref`, the frozen reference, which
   a format added since the core, such as MRC, does not have; `py`, the
   Python command; `web`, this code under Node) on the synthetic files, every

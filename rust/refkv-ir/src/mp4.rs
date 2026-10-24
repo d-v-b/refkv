@@ -1,6 +1,6 @@
 //! A sans-IO parser of MP4 and QuickTime files (ISO/IEC 14496-12 and 14496-14, and Apple's
-//! QuickTime file format) into the IR (spec/virtualize/mp4.md §19
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#19-mp4-profile>, and the source
+//! QuickTime file format) into the IR (spec/virtualize/mp4.md §8
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#8-mp4-profile>, and the source
 //! model of §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#53-elements>).
 //!
 //! The rounds: the file's first 64 KiB, then each top-level box header the first read does not
@@ -164,7 +164,7 @@ const FULL: &str = "{version:u1,flags:u1[3],entry_count:>u4}";
 impl Mp4 {
     pub fn new(size: u64) -> Self {
         Mp4 {
-            size, phase: Phase::Start, fed: Fed::default(), ir: Ir::new(size), rules: rules::mp4(), facts: J::Null,
+            size, phase: Phase::Start, fed: Fed::default(), ir: Ir::new(size), rules: rules::of("mp4"), facts: J::Null,
             p: 0, tops: Vec::new(), moov: None, ftyp: None, cur: None, tracks: Vec::new(), movie: (0, 0),
         }
     }
@@ -196,8 +196,8 @@ impl Mp4 {
         }
     }
 
-    /// The top-level boxes (spec/virtualize/mp4.md §19.1
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#191-boxes>): the range to read
+    /// The top-level boxes (spec/virtualize/mp4.md §8.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#81-boxes>): the range to read
     /// next, or None when every one is known and the moov box (and the ftyp box) read.
     fn walk(&mut self) -> Res<Option<(u64, u64)>> {
         while self.p + 8 <= self.size {
@@ -544,8 +544,8 @@ impl Mp4 {
         Ok(())
     }
 
-    /// Each track's samples, from its tables (spec/virtualize/mp4.md §19.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#192-tracks>), as `data`
+    /// Each track's samples, from its tables (spec/virtualize/mp4.md §8.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#82-tracks>), as `data`
     /// elements; whether the profile virtualizes it, and the facts its projection reads.
     fn samples(&mut self) -> Res<()> {
         let tracks = std::mem::take(&mut self.tracks);
@@ -665,8 +665,8 @@ impl Mp4 {
     }
 
     /// Whether the profile virtualizes the track, and the facts its projection reads
-    /// (spec/virtualize/mp4.md §19.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#192-tracks>): `reason` is
+    /// (spec/virtualize/mp4.md §8.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#82-tracks>): `reason` is
     /// null for a track it virtualizes, else why it does not.
     fn classify(&self, t: &Track, offsets: &[u64]) -> J {
         let entry = t.entries.first();
@@ -817,8 +817,8 @@ fn presentation(t: &Track) -> Vec<i64> {
     out
 }
 
-/// Whether the groups of pictures are closed (spec/virtualize/mp4.md §19.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#192-tracks>): the first sample
+/// Whether the groups of pictures are closed (spec/virtualize/mp4.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#82-tracks>): the first sample
 /// is a sync sample, no two samples share a presentation time, no group is longer than
 /// `max_group` samples, and every sample before a sync sample in decode order is presented
 /// before it and every sample after it is presented after it.
@@ -832,7 +832,7 @@ pub fn gops(pts: &[i64], sync: &[u64]) -> Result<(), String> {
     if sorted.windows(2).any(|w| w[0] == w[1]) {
         return Err("two samples share a presentation time".into());
     }
-    let limit = rules::mp4().limit("max_group") as u64;
+    let limit = rules::of("mp4").limit("max_group") as u64;
     let mut prev = 0u64;
     for &s in sync.iter().skip(1).chain(std::iter::once(&(n as u64))) {
         if s > prev + limit {
@@ -998,6 +998,29 @@ pub fn aac_config(asc: &[u8]) -> Option<Asc> {
     let channels = r.bits(4)?;
     let short = if aot == 2 { r.bit()? == 1 } else { false };
     Some(Asc { aot, rate, channels, short })
+}
+
+crate::parser!(Mp4);
+
+/// The MP4 profile's file run (spec/virtualize/mp4.md): the top-level box headers, then the moov
+/// box.
+pub struct Profile;
+
+impl crate::run::FileProfile for Profile {
+    /// A box at offset 0 of one of the top-level types (`detect`).
+    fn detect(&self, head: &[u8]) -> bool {
+        detect(head)
+    }
+    fn parser(&self, size: u64) -> crate::run::AnyParser {
+        crate::run::AnyParser::of::<Mp4>(size)
+    }
+    /// It takes exactly the ranges it asked for.
+    fn whole(&self) -> bool {
+        false
+    }
+    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::mp4::project(ir, facts, url, copied)
+    }
 }
 
 #[cfg(test)]

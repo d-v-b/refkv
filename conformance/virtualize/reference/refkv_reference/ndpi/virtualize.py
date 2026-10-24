@@ -1,5 +1,5 @@
-"""The NDPI profile (spec/virtualize.md, §4
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), a variant of the
+"""The NDPI profile (spec/virtualize/ndpi.md, §7
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>), a variant of the
 TIFF profile.
 
 Hamamatsu NDPI is a little-endian classic TIFF with 64-bit offsets (an 8-byte
@@ -50,8 +50,8 @@ REVISION = 25
 
 
 def detect(read: Reader, size: int) -> int | None:
-    """The first IFD's offset if the file is NDPI (§4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), else None."""
+    """The first IFD's offset if the file is NDPI (§7
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>), else None."""
     head = read(0, min(12, size))
     if len(head) < 12 or head[:4] != b"II*\x00":
         return None
@@ -129,10 +129,10 @@ def values(read: Reader, memo: dict) -> Callable[..., dict[int, list]]:
     """A function that reads the values of an IFD's tags (all of §4
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#2-the-source>'s table, or
     `only`): the
-    first of a scalar, every value of an array (§4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>, and
-    spec/virtualize.md §3.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#31-reading>)."""
+    first of a scalar, every value of an array (§7
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>, and
+    spec/virtualize/tiff.md §7.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#71-reading>)."""
 
     def one(tag: int, f: Field) -> list:
         n = 1 if TAGS[tag][1] else f.count
@@ -157,8 +157,8 @@ def values(read: Reader, memo: dict) -> Callable[..., dict[int, list]]:
 
 
 def _entry(body: bytes, n: int, i: int) -> Entry:
-    """Entry `i` of an IFD of `n` entries whose bytes after the count are `body` (§4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>):
+    """Entry `i` of an IFD of `n` entries whose bytes after the count are `body` (§7
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>):
     its value field is its 4 bytes plus the high word after the next-IFD offset."""
     tag, typ, count = struct.unpack("<HHI", body[12 * i : 12 * i + 8])
     low_field, high_field = body[12 * i + 8 : 12 * i + 12], body[12 * n + 8 + 4 * i : 12 * n + 12 + 4 * i]
@@ -171,8 +171,8 @@ def _entry(body: bytes, n: int, i: int) -> Entry:
 
 def extent(n: int) -> int:
     """The bytes an NDPI IFD of `n` entries occupies: its entry count, entries,
-    next-IFD offset and high words (§4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>)."""
+    next-IFD offset and high words (§7
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>)."""
     return 2 + 16 * n + 8
 
 
@@ -215,8 +215,8 @@ def _one(tags: dict, tag: int, what: str, default=None):
 
 def jpeg_header(header: bytes):
     """(SOF0 start, SOF0 end, MCU width, MCU height, restart interval) of a
-    strip's header, which runs from SOI to the end of SOS (§4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>)."""
+    strip's header, which runs from SOI to the end of SOS (§7
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>)."""
     if header[:2] != b"\xff\xd8":
         raise Rejected("an NDPI strip does not start with a JPEG SOI marker")
     pos, sof, dri = 2, None, None
@@ -264,7 +264,7 @@ def virtualize_ndpi(url: str, read: Reader, size: int, first: int) -> Output:
         mag = _one(load(fields, {65421}), 65421, "Magnification")
         if not mag > 0:
             continue
-        tags = load(fields)  # a level: every tag's values (§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>)
+        tags = load(fields)  # a level: every tag's values (§7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>)
         width, height = _one(tags, 256, "ImageWidth"), _one(tags, 257, "ImageLength")
         bits = tags.get(258)
         if (_one(tags, 259, "Compression", 1) != 7 or _one(tags, 262, "PhotometricInterpretation") != 6
@@ -345,8 +345,8 @@ def virtualize_ndpi(url: str, read: Reader, size: int, first: int) -> Output:
 
 
 def _intervals(out: Output, li: int, read: Reader, tags: dict, starts: list, s0: int, n: int, w: int, h: int):
-    """Writes a McuStarts level's chunk references (§4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>); returns its
+    """Writes a McuStarts level's chunk references (§7
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>); returns its
     chunk shape and the strip's SOF0 segment."""
     high = tags.get(65432)
     if high is not None:
@@ -368,8 +368,8 @@ def _intervals(out: Output, li: int, read: Reader, tags: dict, starts: list, s0:
         raise Rejected(f"an NDPI chunk would be {a * interval * mw} pixels wide, more than {MAX_SIDE}")
     sof = bytearray(header[sof_start:sof_end])
 
-    # The header around SOF0 is the same in every chunk: data sources (§4
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>).
+    # The header around SOF0 is the same in every chunk: data sources (§7
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>).
     before, after = out.shared(header[:sof_start]), out.shared(header[sof_end:])
 
     def chunks(b: int):

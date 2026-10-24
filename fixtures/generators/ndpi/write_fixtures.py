@@ -1,5 +1,5 @@
-"""Writes NDPI files to fixtures/ndpi/ for spec/virtualize.md §4
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>, cut from
+"""Writes NDPI files to fixtures/ndpi/ for spec/virtualize/ndpi.md §7
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>, cut from
 the restart intervals of level 2 of OpenSlide's CMU-1.ndpi (CC0 1.0), which
 is downloaded once into a cache.
 
@@ -8,13 +8,18 @@ is downloaded once into a cache.
   and bottom edges repeat intervals; level 1 is a small McuStarts level;
   level 2 is a single JPEG strip without McuStarts. A macro image (negative
   magnification) is skipped.
-- `edge_reject_ndpi_*.ndpi`: inputs §4
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile> rejects.
+- `edge_ndpi_frames.ndpi`: single strips without McuStarts whose frame header is not the
+  level's size (as some older scanners write, d-v-b/refkv#100): one row short, wider, and,
+  for the last, short by a whole MCU row, which is not a level.
+- `edge_reject_ndpi_*.ndpi`: inputs §7
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile> rejects.
 
 Pixels are checked against tifffile by verify.py.
 
 Usage: uv run python fixtures/generators/ndpi/write_fixtures.py
 """
+
+# fixtures: on demand (it downloads OpenSlide's CMU-1.ndpi; `just fixtures` skips it)
 
 from __future__ import annotations
 
@@ -217,8 +222,29 @@ def main() -> None:
     f.image(small, 64, 48, 1.25)
     f.image(macro, 48, 16, -1.0, extra={65426: (16, [2**60, 1])})
     f.write("ndpi_unused_values.ndpi")
+    frames()
     for p in sorted(OUT.glob("*ndpi*")):
         print(p.name, p.stat().st_size)
+
+
+def frames() -> None:
+    """The levels without McuStarts whose frame header (SOF0) is not the level's size, which
+    need no CMU-1 intervals: `edge_ndpi_frames.ndpi` and `edge_reject_ndpi_frame.ndpi`."""
+    rng = np.random.default_rng(100)
+
+    def jpeg(height: int, width: int, subsampling: str = "420") -> bytes:
+        return imagecodecs.jpeg8_encode(rng.integers(0, 256, (height, width, 3), dtype=np.uint8), level=90,
+                                        subsampling=subsampling)
+
+    f = Ndpi()
+    f.image(jpeg(48, 64), 64, 48, 1.25)  # the frame is the level's size
+    f.image(jpeg(22, 40), 40, 23, 0.625)  # one row short, in the same 2 MCU rows of 16
+    f.image(jpeg(12, 20), 18, 12, 0.3125)  # 2 columns wider, in the same 2 MCU columns of 16
+    f.image(jpeg(6, 8, "444"), 8, 9, 0.15625)  # 3 rows short: 1 MCU row of 8, the level 2: not a level
+    f.write("edge_ndpi_frames.ndpi")
+    f = Ndpi()  # level 0 short by a whole MCU row
+    f.image(jpeg(16, 64), 64, 17, 1.25)
+    f.write("edge_reject_ndpi_frame.ndpi")
 
 
 if __name__ == "__main__":

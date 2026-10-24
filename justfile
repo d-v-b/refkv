@@ -78,15 +78,15 @@ example-oisst:
     cd "$(mktemp -d)" && uv run --project "{{justfile_directory()}}" python "{{justfile_directory()}}/docs/examples/oisst.py"
 
 # Check that every section reference ("§n") is a link to a heading that exists, and test the check;
-# and that what derives from the profile registry (spec/virtualize/profiles.json) is current
+# and that what derives from the profile registry (spec/virtualize/profiles/) is current
 sections:
     uv run pytest -q spec/tools
     uv run python spec/tools/sections.py check
     uv run python spec/tools/profiles.py check
 
-# Regenerate what derives from the profile registry, spec/virtualize/profiles.json (the one place a
-# profile's identity is written): the hosts' copies, the Rust core's, and the profile tables of
-# spec/virtualize.md, spec/conventions.md, docs/virtualize/README.md and demo/index.html
+# Regenerate what derives from the profile registry, spec/virtualize/profiles/<name>.json (the one
+# place a profile's identity is written, one file per profile): the Rust core's copies, and the
+# index tables of spec/virtualize.md, spec/conventions.md and docs/virtualize/README.md
 profiles:
     uv run python spec/tools/profiles.py
 
@@ -96,13 +96,13 @@ conformance out="conformance/results/latest": impls::build
         --impl rust=conformance/impls/rust/vzip --impl typescript=conformance/impls/typescript/vzip --impl python=conformance/impls/python/vzip
 
 # Regenerate the synthetic files and stores in fixtures/<format>: every generator
-# fixtures/generators/<format>/write_*.py (all but NDPI's, which needs the network, and MP3's and
-# MP4's, which need lame and ffmpeg: `just fixtures-of ndpi`, `just fixtures-of mp3`, `just fixtures-of mp4`)
+# fixtures/generators/<format>/write_*.py but those with a line `# fixtures: on demand`, which need
+# the network or other tools (the line says which): `just fixtures-of <format>` runs those
 fixtures:
     #!/usr/bin/env bash
     set -euo pipefail
     for g in fixtures/generators/*/write_*.py; do
-        case "$g" in fixtures/generators/ndpi/*|fixtures/generators/mp3/*|fixtures/generators/mp4/*) continue ;; esac
+        if grep -q '^# fixtures: on demand' "$g"; then continue; fi
         uv run python "$g"
     done
 

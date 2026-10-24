@@ -1,8 +1,8 @@
 """Writes synthetic Sentinel-2 SAFE products to fixtures/safe/: each a
 directory `<name>/` (the directory form, a store input), and some also as a
 zip file `<name>.SAFE.zip` (the zip form), covering the SAFE profile
-(spec/virtualize.md §12
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#12-safe-profile>) and its
+(spec/virtualize/safe.md §8
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#8-safe-profile>) and its
 convention (spec/virtualize/safe.md).
 
 The products mimic real ones, scaled down. Band files are JPEG 2000 files
@@ -829,8 +829,8 @@ def rejections() -> dict[str, dict[str, bytes]]:
 
 
 def zip_rejections() -> dict[str, dict]:
-    """Zip files that the profile rejects (§12.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>): name ->
+    """Zip files that the profile rejects (§8.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>): name ->
     write_zip keywords."""
     base = mini()
     root = PRODUCT_L1C + ".SAFE"

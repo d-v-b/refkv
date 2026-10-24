@@ -1,5 +1,5 @@
-//! A sans-IO parser of Zeiss CZI files into the IR (spec/virtualize.md §13
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#13-czi-profile>,
+//! A sans-IO parser of Zeiss CZI files into the IR (spec/virtualize/czi.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#7-czi-profile>,
 //! spec/virtualize/czi.md): it never reads; it asks for batches of ranges (`step`), is
 //! given their bytes (`feed`), and holds them only until the step that uses them.
 //!
@@ -226,7 +226,7 @@ impl Czi {
             phase: Phase::Start,
             fed: Fed::default(),
             ir: Ir::new(size),
-            rules: rules::czi(),
+            rules: rules::of("czi"),
             fields: None,
             segs: HashMap::new(),
             dir: None,
@@ -1028,8 +1028,8 @@ impl Czi {
         Ok(true)
     }
 
-    // ---- the walk (spec/virtualize.md §13.2
-    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#132-structures-and-the-walk>
+    // ---- the walk (spec/virtualize/czi.md §7.2
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#72-structures-and-the-walk>
     // step 6)
 
     /// The segments nothing references, in file order, from windows read ahead;
@@ -1520,5 +1520,23 @@ impl Czi {
         facts["rounds"] = json!(self.rounds);
         facts["held_max"] = json!(self.held_max);
         Ok((self.ir, facts))
+    }
+}
+
+crate::parser!(Czi);
+
+/// The CZI profile's file run (spec/virtualize/czi.md).
+pub struct Profile;
+
+impl crate::run::FileProfile for Profile {
+    /// `ZISRAWFILE` and six NULs.
+    fn detect(&self, head: &[u8]) -> bool {
+        head.len() >= 16 && &head[..16] == b"ZISRAWFILE\0\0\0\0\0\0"
+    }
+    fn parser(&self, size: u64) -> crate::run::AnyParser {
+        crate::run::AnyParser::of::<Czi>(size)
+    }
+    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::czi::project(ir, facts, url)
     }
 }

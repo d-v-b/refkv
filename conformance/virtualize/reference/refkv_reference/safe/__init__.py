@@ -1,5 +1,5 @@
-"""The Sentinel-2 SAFE profile (spec/virtualize.md, §12
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#12-safe-profile>)."""
+"""The Sentinel-2 SAFE profile (spec/virtualize/safe.md, §8
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#8-safe-profile>)."""
 
 from refkv_reference.safe.virtualize import SafeOutput, is_zip, virtualize_safe_store, virtualize_safe_zip
 

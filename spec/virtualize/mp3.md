@@ -18,14 +18,13 @@ Added 2026-10-21, after
 ([conventions §10](../conventions.md#10-coded-streams)), which MP4 tracks share, in place
 of this convention's own `mp3`; its data type is `float32`, the decoder's own samples, in
 place of `int16`; a chunk's header gives each frame's size and output position, in place
-of the count of samples to keep ([§4.1](#41-the-array), [§17.2](#172-chunks)).
+of the count of samples to keep ([§4.1](#41-the-array), [§8.2](#82-chunks)).
 
 This document has two parts. [Part 1](#part-1-the-convention) is the MP3
 convention: the Zarr layout, cited as "the convention §n".
 [Part 2](#part-2-the-profile) is the MP3 profile: how refkv reads the source,
-which inputs it rejects, and how each chunk references the source. The profile
-keeps its numbering as a section of [spec/virtualize.md](../virtualize.md),
-and is cited as spec/virtualize.md §n.
+which inputs it rejects, and how each chunk references the source. The document is
+numbered on its own, Part 2 after Part 1, and other documents cite it by name.
 
 MP3 is the one format among refkv's conventions whose source is not an
 image: the hierarchy holds the decoded audio as one array of samples, with no
@@ -167,7 +166,7 @@ nothing else.
 ### 4.1 The array
 
 The **audio frames** are the stream's frames in file order, numbered from 0,
-without the info frame ([§2](#2-frames)); `N` is their count ([spec/virtualize.md §17.1](#171-the-stream)
+without the info frame ([§2](#2-frames)); `N` is their count ([§8.1](#81-the-stream)
 says which frames those are). Every audio frame has the stream's `S`
 and `C`.
 
@@ -189,7 +188,7 @@ A chunk is a `refkv.stream` chunk of MP3 frames: its own frames, each
 placed at its `S` samples from the chunk's start, after its **lead-in**,
 the frames before its first frame that a decoder needs to have decoded so
 that it decodes the chunk's frames as a decoder of the whole stream does
-([spec/virtualize.md §17.2](#172-chunks) says which). The lead-in's frames
+([§8.2](#82-chunks) says which). The lead-in's frames
 supply the bit reservoir and the overlap state of the filter bank for the
 chunk's frames, and their own output is dropped.
 
@@ -398,8 +397,7 @@ This section is informative.
 
 # Part 2. The profile
 
-The MP3 profile of [spec/virtualize.md](../virtualize.md), numbered as its
-[§17](#17-mp3-profile). [§1](../virtualize.md#1-introduction) and
+The MP3 profile of [spec/virtualize.md](../virtualize.md) is [§8](#8-mp3-profile) of this document. [§1](../virtualize.md#1-introduction) and
 [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply
 here.
 
@@ -408,14 +406,15 @@ The output has the convention's layout for the input
 which inputs are accepted and how each chunk references the file. "The
 convention §n" below is a section of Part 1.
 
-## 17. MP3 profile
+## 8. MP3 profile
 
-### 17.1 The stream
+### 8.1 The stream
 
-The input is an MP3 file, which [§1.2](../virtualize.md#12-input) chose by
-`ID3` at offset 0, or a frame header at offset 0 whose sync, version, layer
-and sample rate index are valid, of any layer and bitrate index
-([the convention §2](#2-frames)). The whole file is read: an MP3 file has
+The input is an MP3 file, which its **signature** ([spec/virtualize.md §1.2](../virtualize.md#12-input), tested at the precedence of
+[profiles/mp3.json](profiles/mp3.json)) chose: bytes
+0–2 of `H` are `49 44 33` (`ID3`), or bytes 0–3 are an MPEG audio frame header: bits 31–21 all
+ones, bits 20–19 not `01`, bits 18–17 not `00`, bits 11–10 not `11` ([the convention
+§2](#2-frames); any layer and bitrate index). The whole file is read: an MP3 file has
 no index, and each frame's header gives the next.
 
 **Checks.** The input is rejected unless all of these hold, checked in this
@@ -482,7 +481,7 @@ each other; and trailing junk, a truncated last frame and a tag the
 convention does not know are bytes between or after frames, kept as gaps
 ([the convention §5.3](#53-elements)).
 
-### 17.2 Chunks
+### 8.2 Chunks
 
 The array has `ceil(N / F)` chunks, `F = 256`, chunk `q` holding the audio
 frames `a = q × F` to `b − 1`, `b = min(N, a + F)`
@@ -515,7 +514,7 @@ output has no data sources: its source table is source 0 alone.
 has no other entries than the root's and the array's `zarr.json`, the
 array's chunks, and the mirror's.
 
-### 17.3 Summary
+### 8.3 Summary
 
 This section is informative. Both implementations print a one-line JSON
 summary: `version`, `sampleRate`, `channels`, `frames` (the audio frames),

@@ -1,6 +1,6 @@
 """Writes synthetic MP4 and MOV files to fixtures/mp4/, covering the rules of the MP4 profile
-(spec/virtualize/mp4.md §19
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#19-mp4-profile>): H.264 video with
+(spec/virtualize/mp4.md §8
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#8-mp4-profile>): H.264 video with
 and without B-frames, intra-only, odd sizes, a variable frame rate, long enough for several
 chunks, two video tracks; AAC and MP3 audio, alone and beside video; the moov box before and
 after the media data, a 64-bit mdat size and an mdat that runs to the end of the file; tracks
@@ -12,11 +12,10 @@ libmp3lame), with the bit-exact flags so that a build writes no version strings;
 are then edited box by box. ffmpeg must be on PATH. The tests compare each virtualized track
 with ffmpeg's own decoding of the file (through PyAV), so no expected values are stored.
 
-`just fixtures` does not run this generator (it needs ffmpeg, as MP3's needs lame and
-ffmpeg): `just fixtures-of mp4` does.
-
 Usage: uv run python fixtures/generators/mp4/write_fixtures.py
 """
+
+# fixtures: on demand (it needs ffmpeg; `just fixtures` skips it)
 
 from __future__ import annotations
 

@@ -101,7 +101,7 @@ def expected(ds: pydicom.Dataset) -> np.ndarray:
 
 
 LAYOUT = {"7FE00001", "7FE00002", "FFFCFFFC"}  # offset tables and padding: recorded only where they are not layout
-ADOBE = 18  # the bytes of the SOI and Adobe marker that replace an RGB JPEG frame's SOI (spec/virtualize.md §6.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#65-frames>)
+ADOBE = 18  # the bytes of the SOI and Adobe marker that replace an RGB JPEG frame's SOI (spec/virtualize/dicom.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#75-frames>)
 BINARY = {"OB", "OD", "OF", "OL", "OV", "OW", "UN"}
 SIZES = {"AT": 4, "FL": 4, "FD": 8, "SL": 4, "SS": 2, "UL": 4, "US": 2, "SV": 8, "UV": 8}
 pydicom.config.convert_wrong_length_to_UN = True  # numeric values whose length is not a multiple of the size

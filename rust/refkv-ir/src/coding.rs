@@ -1,8 +1,8 @@
 //! CZI codec headers (spec/virtualize/czi.md §3.1
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#31-pixel-types-and-codecs>–§3.2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#32-conforming-and-unplaced-subblocks>,
-//! spec/virtualize.md §13.4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#134-codec-headers>): a
+//! spec/virtualize/czi.md §7.4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#74-codec-headers>): a
 //! subblock's coded size from the first 2^16 bytes of its data at most. The
 //! readers are given the bytes read so far; one that needs more says how many
 //! (`Err(n)`), and is run again with them.

@@ -83,7 +83,7 @@ fn cut(h: &Header, vox: u64, facts: &J) -> Result<Cut, String> {
     let dim: Vec<i64> = h.values("dim").iter().map(|x| x.i()).collect();
     let nd = dim[0];
     let size = |i: usize| if (i as i64) <= nd { dim[i] as u64 } else { 1 };
-    let spec = &crate::rules::nifti().table("datatypes")[h.get("datatype").i().to_string()];
+    let spec = &crate::rules::of("nifti").table("datatypes")[h.get("datatype").i().to_string()];
     let (bits, samples) = (n(&spec["bits"]), n(&spec["samples"]));
     let color = samples > 1;
     let mut axes: Vec<&'static str> = Vec::new();
@@ -141,7 +141,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let length = ir.len[voxels as usize];
     let dim: Vec<i64> = h.values("dim").iter().map(|x| x.i()).collect();
     let c = if dim[0] >= 5 { dim[5] as u64 } else { 1 };
-    let spec = &crate::rules::nifti().table("datatypes")[h.get("datatype").i().to_string()];
+    let spec = &crate::rules::of("nifti").table("datatypes")[h.get("datatype").i().to_string()];
     let (data_type, samples) = (spec["dtype"].as_str().unwrap_or("uint8"), n(&spec["samples"]));
     let color = samples > 1;
     let f = |name: &str| h.get(name).f();

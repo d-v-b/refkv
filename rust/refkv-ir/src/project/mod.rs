@@ -12,24 +12,11 @@
 //! projection checks nothing (the parser checked the schema)
 //! and reads nothing (the IR holds what it needs).
 
-mod czi;
-mod dicom;
-mod ims;
-pub mod n5;
-mod mp3;
-mod mp4;
-mod mrc;
-mod fits;
-mod nd2;
-mod ndpi;
 pub mod store;
-mod nifti;
-mod qptiff;
-pub mod safe;
-mod tiff;
 mod window;
-pub mod vsi;
-pub mod zarr2;
+
+// Every profile's projection (src/project/<profile>.rs), by the registry (profiles/; build.rs)
+include!(concat!(env!("OUT_DIR"), "/projections.rs"));
 
 use crate::ir::Ir;
 use crate::out::Out;
@@ -43,22 +30,7 @@ pub type Copied = std::collections::HashMap<(u64, u64), Vec<u8>>;
 /// The image projection of `format`: today's hierarchy, without `refkv_source`. `copied`
 /// holds the bytes of the ranges `reads` gives.
 pub fn project(format: Format, ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    match format {
-        Format::Tiff => tiff::project(ir, facts, url, copied),
-        Format::Czi => czi::project(ir, facts, url),
-        Format::Nd2 => nd2::project(ir, facts, url),
-        Format::Dicom => dicom::project(ir, facts, url),
-        Format::Nifti => nifti::project(ir, facts, url, copied),
-        Format::Mrc => mrc::project(ir, facts, url, copied),
-        Format::Mp3 => mp3::project(ir, facts, url, copied),
-        Format::Mp4 => mp4::project(ir, facts, url, copied),
-        Format::Ims => ims::project(ir, facts, url),
-        Format::Safe => safe::project(ir, facts, url),
-        Format::Ndpi => ndpi::project(ir, facts, url),
-        Format::Vsi => Err("a VSI input is virtualized as a store run".into()),
-        Format::Qptiff => qptiff::project(ir, facts, url, copied),
-        Format::Fits => fits::project(ir, facts, url, copied),
-    }
+    format.profile().project(ir, facts, url, copied)
 }
 
 /// The source's ranges the projection of `format` copies into the archive (NIfTI's and
@@ -66,14 +38,7 @@ pub fn project(format: Format, ir: &Ir, facts: &J, url: &str, copied: &Copied) -
 /// QPTIFF chunks their `omero` windows sample), which the run reads after the parser: a
 /// projection reads nothing itself.
 pub fn reads(format: Format, ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
-    match format {
-        Format::Nifti => nifti::reads(ir, facts),
-        Format::Mrc => mrc::reads(ir, facts),
-        Format::Tiff => tiff::reads(ir, facts),
-        Format::Qptiff => qptiff::reads(ir, facts),
-        Format::Fits => fits::reads(ir, facts),
-        _ => Ok(Vec::new()),
-    }
+    format.profile().reads(ir, facts)
 }
 
 // ---- reading the facts (JSON the parsers wrote)

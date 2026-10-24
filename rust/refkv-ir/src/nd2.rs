@@ -1021,3 +1021,25 @@ fn emit_xml(ir: &mut Ir, parent: u32, space: u32, el: &xml::El, name: &str, nidx
     }
     Ok(())
 }
+
+crate::parser!(Nd2);
+
+/// The ND2 profile's file run (spec/virtualize/nd2.md).
+pub struct Profile;
+
+impl crate::run::FileProfile for Profile {
+    /// The chunk magic `DA CE BE 0A`.
+    fn detect(&self, head: &[u8]) -> bool {
+        head.len() >= 4 && head[..4] == [0xda, 0xce, 0xbe, 0x0a]
+    }
+    fn parser(&self, size: u64) -> crate::run::AnyParser {
+        crate::run::AnyParser::of::<Nd2>(size)
+    }
+    /// It takes exactly the ranges it asked for.
+    fn whole(&self) -> bool {
+        false
+    }
+    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::nd2::project(ir, facts, url)
+    }
+}

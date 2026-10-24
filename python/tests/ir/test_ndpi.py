@@ -4,19 +4,25 @@ the hostile probes (gen_probes.py)."""
 
 import io
 import json
+import struct
 
+import imagecodecs
+import numpy as np
 import pytest
+import zarr
 
-from ir_helpers import FIXTURES, same_hierarchy
+from ir_helpers import FIXTURES, REVISED, same_hierarchy
 from refkv.ir import virtualize as via_ir
 from refkv.ir.cmirror import rebuild_from_archive
 from refkv.virtualize import Rejected
+from refkv.virtualize import virtualize as shipped
+from refkv.zarr import ZarrStore
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
 NDPIS = sorted((FIXTURES / "ndpi").iterdir())
 
 
-@pytest.mark.parametrize("path", NDPIS, ids=lambda p: p.name)
+@pytest.mark.parametrize("path", [p for p in NDPIS if p.name not in REVISED], ids=lambda p: p.name)
 def test_projects_as_today_and_rebuilds(path, tmp_path):
     data = path.read_bytes()
     url = f"https://data.test/{path.name}"
@@ -47,7 +53,7 @@ def test_omero_is_rgb():
 
 
 def test_header_pieces_are_data_sources():
-    """§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: the
+    """§7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>: the
     header before and after SOF0 are data sources, one per distinct byte string in order of
     first use, shared by every chunk and level; the strip's own SOF0, which each chunk
     replaces, is in the mirror (the strip is an element, rebuilt byte for byte)."""
@@ -86,11 +92,52 @@ def test_every_ifd_and_high_word_is_an_element():
 
 
 def test_reads_only_the_values_it_uses():
-    """§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: the
+    """§7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>: the
     values of an IFD that is not a level are not checked, so the macro image's McuStarts
     (LONG8, above 2^53 - 1) does not reject."""
     _, out, _ = via_ir(str(FIXTURES / "ndpi" / "ndpi_unused_values.ndpi"), "u")
     assert out.summary["levels"] == [[3, 48, 64]]
+
+
+def test_a_frame_not_the_level_size_gets_the_level_size(tmp_path):
+    """§7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>
+    (d-v-b/refkv#100): of edge_ndpi_frames.ndpi's strips without McuStarts, level 0's frame is its
+    size, and its chunk the strip; level 1's is one row short and level 2's two columns wider,
+    in the same MCU rows and columns, so their chunks are the strip with the level's height and
+    width in its SOF0, and read through zarr as that stream decodes, at the level's size. The
+    last IFD's frame is short by a whole MCU row: it is not a level. The mirror still rebuilds
+    the file."""
+    path = FIXTURES / "ndpi" / "edge_ndpi_frames.ndpi"
+    data = path.read_bytes()
+    _, out, _ = via_ir(str(path), "u")
+    assert out.summary["levels"] == [[3, 48, 64], [3, 23, 40], [3, 12, 18]]
+    g = zarr.open_group(ZarrStore(shipped(str(path))), mode="r", zarr_format=3)
+    for level, (h, w) in enumerate([(48, 64), (23, 40), (12, 18)]):
+        parts = out.refs[f"{level}/c/0/0/0"]
+        if level == 0:
+            (offset, length), = parts
+            strip = data[offset:offset + length]
+            want = imagecodecs.jpeg_decode(strip)
+        else:
+            (offset, at), size, (rest, length) = parts
+            assert size == struct.pack(">HH", h, w) and rest == offset + at + 4
+            strip = data[offset:rest + length]
+            assert strip[at - 5:at - 3] == b"\xff\xc0"  # the strip's own SOF0
+            want = imagecodecs.jpeg_decode(strip[:at] + size + strip[at + 4:])
+        assert want.shape == (h, w, 3)
+        got = g[str(level)][...]
+        assert np.array_equal(got, np.moveaxis(want, -1, 0))
+    out.write(str(tmp_path / "a.vzip"))
+    buf = io.BytesIO()
+    rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
+    assert buf.getvalue() == data
+
+
+def test_a_level_0_frame_with_other_mcu_rows_is_rejected():
+    """§7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>: a
+    level 0 whose frame needs other MCU rows than its size is rejected."""
+    with pytest.raises(Rejected, match="NDPI level 0's JPEG frame of 64 × 16 pixels has other MCU rows"):
+        via_ir(str(FIXTURES / "ndpi" / "edge_reject_ndpi_frame.ndpi"), "u")
 
 
 def test_a_tiff_is_not_ndpi():

@@ -1,0 +1,15 @@
+{
+  "name": "qptiff",
+  "title": "QPTIFF",
+  "uuid": "329ea136-2f55-4c27-b6f4-8e60ca2109b8",
+  "version": 0,
+  "kind": "file",
+  "sniff": null,
+  "suffixes": [
+    ".qptiff"
+  ],
+  "reference": null,
+  "source": "Akoya QPTIFF",
+  "inputs": "Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips",
+  "for": "Akoya (PerkinElmer) Vectra multiplex scans and inForm component data"
+}

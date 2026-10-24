@@ -18,7 +18,7 @@ from refkv import _core
 from refkv.ir import virtualize as via_ir
 from refkv.ir.cmirror import rebuild_from_archive
 from refkv.virtualize import Rejected
-from refkv.zarr.codecs import stream_units
+from refkv.zarr.codecs.stream import stream_units
 
 FILES = sorted(p for p in (FIXTURES / "mp4").iterdir() if p.suffix in (".mp4", ".mov"))
 ACCEPTED = [p for p in FILES if "reject" not in p.name]

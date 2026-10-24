@@ -11,9 +11,8 @@ module wraps one as a `zarr.abc.store.Store`:
     ds = xr.open_zarr(refkv.zarr.store(store))      # a refkv.ReferenceStore
 
 Importing it also registers the codecs that archives of virtualized files and
-stores use (`refkv.zarr.codecs`): JPEG, JPEG 2000 and JPEG XR (whose decoders
-need the `images` extra), `refkv.stream` (whose decoders need the `media` extra), zlib, and
-`n5_default`.
+stores use (`refkv.zarr.codecs`, one module per codec; the image codecs' decoders
+need the `images` extra, the `refkv.stream` codec's the `media` extra).
 """
 
 from __future__ import annotations

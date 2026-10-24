@@ -1,0 +1,16 @@
+{
+  "name": "mp4",
+  "title": "MP4",
+  "uuid": "bbe3f6b9-488d-4d8d-85ce-60a1649dd27e",
+  "version": 0,
+  "kind": "file",
+  "sniff": 85,
+  "suffixes": [
+    ".mp4",
+    ".mov"
+  ],
+  "reference": null,
+  "source": "MP4 and QuickTime (H.264 video, AAC and MP3 audio)",
+  "inputs": "MP4 and QuickTime files (`.mp4`, `.m4a`, `.mov`) with H.264 video and AAC or MP3 audio tracks; a group per track, not an image",
+  "for": "MP4 and QuickTime video and audio, as arrays of planes and samples (`.mp4`, `.mov`)"
+}

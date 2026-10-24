@@ -144,6 +144,6 @@ generator of its own.
 
 - Profile: [spec/virtualize/mp4.md](../../../spec/virtualize/mp4.md#part-2-the-profile)
 - Codec: [conventions §10](../../../spec/conventions.md#10-coded-streams),
-  [python/src/refkv/zarr/codecs.py](../../../python/src/refkv/zarr/codecs.py)
+  [python/src/refkv/zarr/codecs/stream.py](../../../python/src/refkv/zarr/codecs/stream.py)
 - Rust core: [rust/refkv-ir/src/mp4.rs](../../../rust/refkv-ir/src/mp4.rs)
 - Fixtures: [fixtures/mp4/](../../../fixtures/mp4/)

@@ -1,5 +1,5 @@
 // Virtualizing a DICOM Part 10 file by the DICOM profile (spec/virtualize/dicom.md,
-// §6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#6-dicom-profile>): its
+// §7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#7-dicom-profile>): its
 // frames, native or JPEG/JPEG 2000 encapsulated, become Zarr chunks that reference the file.
 
 import { type ByteReader, declare, emitPlans, MAX_PAYLOAD, payloadSize, stringifyJson } from "../legacy.ts";
@@ -47,7 +47,7 @@ const PHOTOMETRIC: Record<string, string[]> = {
   "jpeg2k 1": MONOCHROME, "jpeg2k 3": ["RGB", "YBR_ICT", "YBR_RCT"],
 };
 // SOI and the Adobe APP14 marker, without its last byte, the color transform (spec/virtualize.md
-// §6.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#65-frames>).
+// §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#75-frames>).
 const ADOBE = [0xff, 0xd8, 0xff, 0xee, 0x00, 0x0e, 0x41, 0x64, 0x6f, 0x62, 0x65, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00];
 const DECIMAL = /^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?$/;
 const INTEGER = /^([+-]?)([0-9]+)$/;
@@ -187,7 +187,7 @@ export async function virtualizeDicom(
   read: ByteReader,
   fileSize: number,
 ): Promise<ArchiveDesc & { summary: DicomSummary }> {
-  // §6.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#62-file>
+  // §7.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#72-file>
   if (fileSize < 132 || latin1(await read(128, 4)) !== "DICM") reject("not a DICOM file");
   const walker = new Walker(read, fileSize);
   const [meta, start] = await walker.meta();
@@ -196,8 +196,8 @@ export async function virtualizeDicom(
   if (known === undefined) return reject(`unsupported transfer syntax ${syntax}`);
   const [encoding, codec] = known;
 
-  // §6.3
-  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#63-datasets-and-sequences>
+  // §7.3
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#73-datasets-and-sequences>
   const [top] = await walker.dataset(start, fileSize, false, encoding, 0, true);
   const pixel = top.get(PIXEL_DATA)!;
 
@@ -293,8 +293,8 @@ export async function virtualizeDicom(
     if (n !== across * down) reject(`${n} frames for ${down} by ${across} tiles`);
   }
 
-  // spec/virtualize.md §6.5
-  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#65-frames>: each frame's
+  // spec/virtualize/dicom.md §7.5
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#75-frames>: each frame's
   // ranges.
   const planarNative = codec === null && spp === 3 && planar === 1;
   const frameSize = rows * columns * spp * (bitsAllocated / 8);
@@ -425,7 +425,7 @@ export async function virtualizeDicom(
 
   // spec/virtualize/dicom.md §4
   // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#4-output>; spec/virtualize.md
-  // §6.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#66-chunk-references>:
+  // §7.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#76-chunk-references>:
   // the chunk references
   // The frames are along t when the Frame Increment Pointer is Frame Time or Frame Time Vector.
   const fa = increment === 0x00181063 || increment === 0x00181065 ? "t" : "z";

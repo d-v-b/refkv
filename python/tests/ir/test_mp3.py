@@ -19,7 +19,7 @@ from refkv import _core
 from refkv.ir import virtualize as via_ir
 from refkv.ir.cmirror import rebuild_from_archive
 from refkv.virtualize import Rejected
-from refkv.zarr.codecs import stream_units
+from refkv.zarr.codecs.stream import stream_units
 
 MP3S = sorted((FIXTURES / "mp3").glob("*.mp3"))
 ACCEPTED = [p for p in MP3S if not p.name.startswith("mp3_reject")]
@@ -54,8 +54,8 @@ def chunk_parts(out, q, data):
     refkv.stream header (conventions §10
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#10-coded-streams>), whose lead-in
     frames have the position -1 and whose own frames are placed one after the other from 0, and
-    its ranges of source 0 (spec/virtualize/mp3.md §17.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#172-chunks>), which hold the
+    its ranges of source 0 (spec/virtualize/mp3.md §8.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#82-chunks>), which hold the
     frames the header sizes."""
     lit, *ranges = out.refs[f"samples/c/{q}/0"]
     assert isinstance(lit, bytes) and all(len(r) == 2 for r in ranges)
@@ -105,7 +105,7 @@ def test_chunks_decode_as_the_stream_does(path, tmp_path):
     the array read through the refkv.stream codec is its decoder's decoding of the audio
     frames in one pass, sample for sample (spec/virtualize/mp3.md §4.1
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#41-the-array>, §17.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#172-chunks>); the root's
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#82-chunks>); the root's
     metadata and the summary agree with the array; the file is rebuilt from the mirror."""
     out, root, ir = virtualized(path, tmp_path, chunk_frames=4)
     meta = root.attrs["refkv_virtualized"]["mp3"]

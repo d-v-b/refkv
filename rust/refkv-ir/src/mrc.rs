@@ -1,6 +1,6 @@
 //! A sans-IO parser of MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks)
-//! into the IR (spec/virtualize/mrc.md §14
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#14-mrc-profile>, and the
+//! into the IR (spec/virtualize/mrc.md §8
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#8-mrc-profile>, and the
 //! source model of §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#53-elements>).
 //!
 //! One round: the 1024-byte header. The schema (`schema/mrc.json`) holds every check, in
@@ -136,7 +136,7 @@ pub struct Mrc {
 
 impl Mrc {
     pub fn new(size: u64) -> Self {
-        Mrc { size, phase: Phase::Start, fed: Fed::default(), ir: Ir::new(size), rules: rules::mrc(), facts: J::Null }
+        Mrc { size, phase: Phase::Start, fed: Fed::default(), ir: Ir::new(size), rules: rules::of("mrc"), facts: J::Null }
     }
 
     pub fn feed(&mut self, offset: u64, data: Vec<u8>) {
@@ -162,8 +162,8 @@ impl Mrc {
         }
     }
 
-    /// The header and its checks (spec/virtualize/mrc.md §14.1
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#141-header>), then the
+    /// The header and its checks (spec/virtualize/mrc.md §8.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#81-header>), then the
     /// elements of the header, the extended header and the data.
     fn head(&mut self) -> Res<()> {
         let got = self.fed.get(0, self.size.min(HEADER)).ok_or("internal: no header")?.to_vec();
@@ -229,5 +229,26 @@ impl Mrc {
         self.ir.sort_values();
         check::finish(&mut self.ir)?;
         Ok((self.ir, self.facts))
+    }
+}
+
+crate::parser!(Mrc);
+
+/// The MRC profile's file run (spec/virtualize/mrc.md).
+pub struct Profile;
+
+impl crate::run::FileProfile for Profile {
+    /// `MAP` at byte 208 (`detect`).
+    fn detect(&self, head: &[u8]) -> bool {
+        detect(head)
+    }
+    fn parser(&self, size: u64) -> crate::run::AnyParser {
+        crate::run::AnyParser::of::<Mrc>(size)
+    }
+    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::mrc::project(ir, facts, url, copied)
+    }
+    fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+        crate::project::mrc::reads(ir, facts)
     }
 }

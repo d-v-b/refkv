@@ -1,0 +1,13 @@
+{
+  "name": "zarr2",
+  "title": "Zarr v2",
+  "uuid": "8e792619-d671-4687-ab51-752885dd3ee6",
+  "version": 0,
+  "kind": "store",
+  "sniff": null,
+  "suffixes": [],
+  "reference": 25,
+  "source": "Zarr v2",
+  "inputs": "Zarr v2 hierarchies",
+  "for": "Zarr v2 hierarchies on S3"
+}

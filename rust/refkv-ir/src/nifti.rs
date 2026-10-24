@@ -217,7 +217,7 @@ impl Nifti {
             phase: Phase::Start,
             fed: Fed::default(),
             ir: Ir::new(size),
-            rules: rules::nifti(),
+            rules: rules::of("nifti"),
             little: true,
             vox: 0,
             q: 0,
@@ -389,5 +389,26 @@ fn py_float(v: f64) -> String {
         if v > 0.0 { "inf".into() } else { "-inf".into() }
     } else {
         format!("{v}")
+    }
+}
+
+crate::parser!(Nifti);
+
+/// The NIfTI profile's file run (spec/virtualize/nifti.md).
+pub struct Profile;
+
+impl crate::run::FileProfile for Profile {
+    /// A NIfTI-1 or NIfTI-2 single-file header (`detect`).
+    fn detect(&self, head: &[u8]) -> bool {
+        detect(head).is_some()
+    }
+    fn parser(&self, size: u64) -> crate::run::AnyParser {
+        crate::run::AnyParser::of::<Nifti>(size)
+    }
+    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::nifti::project(ir, facts, url, copied)
+    }
+    fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+        crate::project::nifti::reads(ir, facts)
     }
 }

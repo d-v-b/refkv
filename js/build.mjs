@@ -30,9 +30,16 @@ const decoders = [
   path.join(neuroglancer, "src/sliceview/jpegxr/jpegxr.wasm"),
 ];
 fs.rmSync(dist, { recursive: true, force: true });
+// The profile registry, spec/virtualize/profiles/<name>.json, inlined as `#profiles`
+// (src/virtualize/profiles_bundled.ts)
+const registryDir = path.join(here, "../spec/virtualize/profiles");
+const registry = fs.readdirSync(registryDir).filter((f) => f.endsWith(".json"))
+  .map((f) => JSON.parse(fs.readFileSync(path.join(registryDir, f), "utf8")))
+  .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 // ../demo is outside this package: its imports resolve to this package's node_modules
 const common = {
   bundle: true, target: "es2022", sourcemap: true, logLevel: "info", nodePaths: [path.join(here, "node_modules")],
+  define: { __REFKV_PROFILES__: JSON.stringify(registry) },
 };
 const build = (entry, outfile, options = {}) =>
   esbuild.build({ ...common, entryPoints: [path.join(here, entry)], outfile: path.join(dist, outfile), ...options });
@@ -46,7 +53,37 @@ await esbuild.build({
   format: "esm", minify: true, splitting: true, chunkNames: "map-chunks/[name]-[hash]",
 });
 await build("../demo/map/jpeg2k_worker.ts", "jpeg2k_worker.js", { format: "iife", minify: true });
-fs.copyFileSync(path.join(here, "../demo/index.html"), path.join(dist, "index.html"));
+// The demo page, its profile blocks filled from the registry and each profile's
+// demo/examples/<name>.html (so that adding a format edits no shared file): the formats
+// sentence, the examples, and their credits
+const prose = (items) => (items.length === 1 ? items[0] : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
+const formats = registry.filter((e) => e.kind !== "layout");
+const sources = (kind) => formats.filter((e) => e.kind === kind).map((e) => e.source);
+const both = sources("both");
+const examples = [];
+const credits = [];
+for (const e of registry) {
+  const file = path.join(here, "../demo/examples", `${e.name}.html`);
+  if (!fs.existsSync(file)) continue;
+  const text = fs.readFileSync(file, "utf8");
+  const credit = text.match(/^<!-- credit: ([\s\S]*?) -->$/m);
+  if (credit) credits.push(`${e.title}: ${credit[1]}`);
+  for (const line of text.split("\n")) {
+    if (line.trim() && !line.startsWith("<!-- credit:")) examples.push(line.startsWith("    ") ? line : `    ${line}`);
+  }
+}
+const blocks = {
+  "demo-lede": `${prose(sources("file"))} files, ${prose(sources("store"))} stores${both.length ? `, and ${prose(both)} products` : ""} are supported;`,
+  "demo-examples": examples.join("\n").trimStart(),
+  "demo-credits": `${credits.join("; ")}.`,
+};
+let page = fs.readFileSync(path.join(here, "../demo/index.html"), "utf8");
+for (const [name, text] of Object.entries(blocks)) {
+  const marker = new RegExp(`<!-- profiles:${name} -->[\\s\\S]*?<!-- /profiles -->`);
+  if (!marker.test(page)) throw new Error(`demo/index.html has no block ${name}`);
+  page = page.replace(marker, () => text);
+}
+fs.writeFileSync(path.join(dist, "index.html"), page);
 fs.copyFileSync(path.join(here, "../demo/map/map.html"), path.join(dist, "map.html"));
 fs.copyFileSync(wasm, path.join(dist, "refkv_ir.wasm"));
 for (const decoder of decoders) {

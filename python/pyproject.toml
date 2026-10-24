@@ -98,5 +98,6 @@ cache-keys = [
     { file = "../rust/refkv-ir/Cargo.toml" },
     { file = "../rust/refkv-ir/src/**/*.rs" },
     { file = "../rust/refkv-ir/schema/*.json" },
-    { file = "../rust/refkv-ir/profiles.json" },
+    { file = "../rust/refkv-ir/build.rs" },
+    { file = "../rust/refkv-ir/profiles/*.json" },
 ]
