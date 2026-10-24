@@ -9,7 +9,7 @@
 use super::{arr, key, n, obj, strs, translations, truthy};
 use crate::coding::{pixel_type, JPEG, JPEGXR, UNCOMPRESSED, ZSTD0, ZSTD1};
 use crate::ir::Ir;
-use crate::out::{declare, group_doc, group_json, image_ome, metadata_group, omero_channel, omero_json, omero_window, rectilinear_array_json, transpose_codec, Out, Part};
+use crate::out::{bytes_codec, declare, group_doc, group_json, image_ome, item_size, metadata_group, omero_channel, omero_json, omero_window, rectilinear_array_json, transpose_codec, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -30,14 +30,6 @@ fn form_of(v: &J) -> Result<(Form, &'static str, u64, u64), String> {
     Ok((f, dt, p, q))
 }
 
-fn bytes_codec(data_type: &str) -> J {
-    if data_type == "uint8" || data_type == "int8" {
-        json!({"name": "bytes"})
-    } else {
-        json!({"name": "bytes", "configuration": {"endian": "little"}})
-    }
-}
-
 /// The codecs of a form (spec/virtualize/czi.md §3.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#31-pixel-types-and-codecs>):
 /// `transpose` for samples, then the compression's.
@@ -47,13 +39,13 @@ fn codecs(form: Form, data_type: &str, p: u64, axes: &[&str]) -> J {
         JPEG => out.push(json!({"name": "imagecodecs_jpeg"})),
         JPEGXR => out.push(json!({"name": "imagecodecs_jpegxr"})),
         ZSTD0 | ZSTD1 => {
-            out.push(bytes_codec(data_type));
+            out.push(bytes_codec(item_size(data_type), "little"));
             if form.2 {
                 out.push(json!({"name": "numcodecs.shuffle", "configuration": {"elementsize": 2}}));
             }
             out.push(json!({"name": "zstd", "configuration": {"level": 0, "checksum": false}}));
         }
-        _ => out.push(bytes_codec(data_type)),
+        _ => out.push(bytes_codec(item_size(data_type), "little")),
     }
     J::Array(out)
 }

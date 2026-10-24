@@ -8,7 +8,7 @@
 use super::{arr, n, obj, strs};
 use crate::dicom::ADOBE;
 use crate::ir::Ir;
-use crate::out::{array_json, image_ome, omero_channel, omero_json, root_json, transpose_codec, Out, Part};
+use crate::out::{array_json, bytes_codec, item_size, image_ome, omero_channel, omero_json, root_json, transpose_codec, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Value as J};
 
@@ -23,8 +23,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let fa = facts["frame_axis"].as_str().unwrap_or("z");
     let mut codecs = if spp == 3 && !planar { vec![transpose_codec(&axes)] } else { vec![] };
     codecs.push(match codec {
-        "native" if data_type.ends_with("int8") => json!({"name": "bytes"}),
-        "native" => json!({"name": "bytes", "configuration": {"endian": if facts["little"].as_bool().unwrap_or(true) { "little" } else { "big" }}}),
+        "native" => bytes_codec(item_size(data_type), if facts["little"].as_bool().unwrap_or(true) { "little" } else { "big" }),
         c => json!({"name": format!("imagecodecs_{c}")}),
     });
     let mut ome = image_ome(&axes, &obj(&facts["units"]), &[facts["scale"].clone()], None, None)?;

@@ -351,6 +351,23 @@ pub fn rectilinear_array_json(shape: &[u64], data_type: &str, lengths: &J, codec
     doc
 }
 
+/// The `bytes` codec of elements of `item` bytes: with the byte order `endian` ("little" or
+/// "big") for more than one byte, and without one for a single byte (Zarr v3).
+pub fn bytes_codec(item: u64, endian: &str) -> J {
+    if item > 1 {
+        json!({"name": "bytes", "configuration": {"endian": endian}})
+    } else {
+        json!({"name": "bytes"})
+    }
+}
+
+/// The bytes of an element of a numeric data type, from the bits its name ends with (`uint8`
+/// 1, `int16` 2, `complex64` 8); 0 for a name without them.
+pub fn item_size(data_type: &str) -> u64 {
+    let bits = data_type.trim_start_matches(|c: char| !c.is_ascii_digit());
+    bits.parse::<u64>().map_or(0, |b| b.div_ceil(8))
+}
+
 /// The codecs after `transpose` of a TIFF `compression` (the tag's value: JPEG 2000 and JPEG
 /// as their imagecodecs codecs; else `bytes`, with the byte order for samples of more than 8
 /// bits, then `imagecodecs_lzw` for LZW (which the QPTIFF convention reads,
@@ -363,11 +380,7 @@ pub fn tiff_codecs(compression: u64, bits: u64, little: bool) -> Vec<J> {
         7 => return vec![json!({"name": "imagecodecs_jpeg"})],
         _ => {}
     }
-    let mut out = vec![if bits > 8 {
-        json!({"name": "bytes", "configuration": {"endian": if little { "little" } else { "big" }}})
-    } else {
-        json!({"name": "bytes"})
-    }];
+    let mut out = vec![bytes_codec(bits.div_ceil(8), if little { "little" } else { "big" })];
     match compression {
         5 => out.push(json!({"name": "imagecodecs_lzw"})),
         8 | 32946 => out.push(json!({"name": "zlib", "configuration": {"level": 1}})),
@@ -513,11 +526,7 @@ pub fn metadata_group(out: &mut Out, path: &str, attributes: Option<Map<String, 
 #[allow(clippy::too_many_arguments)]
 pub fn metadata_array(out: &mut Out, path: &str, data_type: &str, shape: &[u64], chunk_shape: &[u64], dims: Option<&[&str]>,
                       chunks: Vec<(Vec<u64>, Chunk)>, endian: &str, compressor: Option<J>) {
-    let mut codecs = if data_type == "uint8" || data_type == "int8" {
-        vec![json!({"name": "bytes"})]
-    } else {
-        vec![json!({"name": "bytes", "configuration": {"endian": endian}})]
-    };
+    let mut codecs = vec![bytes_codec(item_size(data_type), endian)];
     if let Some(c) = compressor {
         codecs.push(c);
     }
@@ -560,7 +569,7 @@ pub fn gzip_array(out: &mut Out, path: &str, data_type: &str, n: u64, limit: u64
                   raw: impl Fn(u64, u64) -> Vec<u8>) {
     let c = n.min(limit);
     let mut codecs = filters;
-    codecs.push(json!({"name": "bytes", "configuration": {"endian": "little"}}));
+    codecs.push(bytes_codec(item_size(data_type), "little"));
     codecs.push(json!({"name": "gzip", "configuration": {"level": GZIP_LEVEL}}));
     let mut doc = array_json(&[n], data_type, json!([c]), J::Array(codecs), &[dim]);
     doc["attributes"] = attributes;
@@ -781,6 +790,14 @@ mod tests {
         let parts = stream_parts(&[(10, 4, -1), (20, 5, 0), (25, 300, 576)]);
         let head = vec![3, 4, 0, 5, 2, 0xAC, 0x02, 0x80, 0x09];
         assert_eq!(parts, vec![Part::Lit(head), Part::Src(10, 4), Part::Src(20, 305)]);
+    }
+
+    #[test]
+    fn the_bytes_codec_has_a_byte_order_past_one_byte() {
+        assert_eq!(bytes_codec(1, "big"), json!({"name": "bytes"}));
+        assert_eq!(bytes_codec(2, "big"), json!({"name": "bytes", "configuration": {"endian": "big"}}));
+        let sizes: Vec<u64> = ["uint8", "int8", "int16", "uint32", "float32", "int64", "float64", "complex64", "bool"].iter().map(|t| item_size(t)).collect();
+        assert_eq!(sizes, vec![1, 1, 2, 4, 4, 8, 8, 8, 0]);
     }
 
     #[test]

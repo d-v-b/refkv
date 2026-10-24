@@ -9,7 +9,7 @@ use super::{contiguous, Copied};
 use crate::fits::{card, parse_cards, Card, Value};
 use crate::fits_tiles::{prefix, TileRecord};
 use crate::ir::Ir;
-use crate::out::{array_json, blob_chunks, declare, grid_chunks, group_doc, json_size, Chunk, Out, Part};
+use crate::out::{array_json, blob_chunks, bytes_codec, item_size, declare, grid_chunks, group_doc, json_size, Chunk, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -207,7 +207,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let mut refs = Refs::new(ir, out);
     for (is_image, own, node_arrays) in all_arrays {
         for (path, data_type, shape, dims, element, grid, chunks) in node_arrays {
-            let codecs = if data_type == "uint8" { json!([{"name": "bytes"}]) } else { json!([{"name": "bytes", "configuration": {"endian": "big"}}]) };
+            let codecs = json!([bytes_codec(item_size(&data_type), "big")]);
             let dim_refs: Vec<&str> = dims.iter().map(|s| s.as_str()).collect();
             let mut doc = array_json(&shape, &data_type, json!(grid), codecs, &dim_refs);
             if is_image {

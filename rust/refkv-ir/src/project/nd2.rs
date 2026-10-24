@@ -7,7 +7,7 @@
 use super::{arr, json_text, n, truthy};
 use crate::ir::{source_text, Ir, NO_INDEX, STRUCT};
 use crate::lv::{base64, well_formed};
-use crate::out::{array_json, group_json, image_ome, omero_channel, omero_json, omero_window, payload_size, root_json, transpose_codec, Out, Part, MAX_PAYLOAD};
+use crate::out::{array_json, bytes_codec, group_json, image_ome, omero_channel, omero_json, omero_window, payload_size, root_json, transpose_codec, Out, Part, MAX_PAYLOAD};
 use crate::types::{self, Ty, Val};
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -410,7 +410,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     units.insert("y".into(), unit(calibrated, "micrometer"));
     units.insert("x".into(), unit(calibrated, "micrometer"));
     let mut codecs = if comp > 1 { vec![transpose_codec(&axes)] } else { vec![] };
-    codecs.push(if bpc > 8 { json!({"name": "bytes", "configuration": {"endian": "little"}}) } else { json!({"name": "bytes"}) });
+    codecs.push(bytes_codec(bpc.div_ceil(8), "little"));
     if compressed {
         codecs.push(json!({"name": "zlib", "configuration": {"level": 1}}));
     }

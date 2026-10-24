@@ -8,7 +8,7 @@
 use super::{contiguous, float_json, json_text, n, Copied};
 use crate::ir::Ir;
 use crate::nifti::{Header, Num};
-use crate::out::{array_json, grid_chunks, image_ome, omero_channel, omero_json, omero_window, root_json, Chunk, Out};
+use crate::out::{array_json, bytes_codec, grid_chunks, image_ome, omero_channel, omero_json, omero_window, root_json, Chunk, Out};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -257,7 +257,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         let order: Vec<usize> = stored.iter().map(|a| axes.iter().position(|b| b == a).unwrap()).collect();
         codecs.push(json!({"name": "transpose", "configuration": {"order": order}}));
     }
-    codecs.push(if item > 1 { json!({"name": "bytes", "configuration": {"endian": endian}}) } else { json!({"name": "bytes"}) });
+    codecs.push(bytes_codec(item, endian));
     out.json("0/zarr.json", &array_json(&shape, data_type, json!(chunk_shape), J::Array(codecs), &axes));
     let count = chunks.len();
     let mut refs = Refs::new(ir, out);

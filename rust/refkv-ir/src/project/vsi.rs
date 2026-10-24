@@ -9,7 +9,7 @@
 
 use super::{arr, key, n, Copied};
 use crate::ir::Ir;
-use crate::out::{array_json, declare, group_doc, group_json, image_ome, transpose_codec, Out, Part};
+use crate::out::{array_json, bytes_codec, declare, group_doc, group_json, image_ome, transpose_codec, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -30,24 +30,15 @@ pub fn object_url(store_url: &str, key: &str) -> String {
     s
 }
 
-fn bytes_codec(data_type: &str, bytes: u64) -> J {
-    if bytes > 1 {
-        json!({"name": "bytes", "configuration": {"endian": "little"}})
-    } else {
-        let _ = data_type;
-        json!({"name": "bytes"})
-    }
-}
-
 /// The codecs of a tile file's arrays (§4.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#41-the-pyramid>): `transpose`
 /// for samples, then the compression's.
-fn codecs(codec: &str, data_type: &str, bytes: u64, samples: u64, axes: &[&str]) -> J {
+fn codecs(codec: &str, bytes: u64, samples: u64, axes: &[&str]) -> J {
     let mut out = if samples > 1 { vec![transpose_codec(axes)] } else { vec![] };
     match codec {
         "jpeg" => out.push(json!({"name": "imagecodecs_jpeg"})),
         "jpeg2000" => out.push(json!({"name": "imagecodecs_jpeg2k"})),
-        _ => out.push(bytes_codec(data_type, bytes)),
+        _ => out.push(bytes_codec(bytes, "little")),
     }
     J::Array(out)
 }
@@ -184,7 +175,7 @@ fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> 
         own.insert("levels".into(), json!(levels));
         own.insert("tiles_outside".into(), ets["tiles_outside"].clone());
         refs.out.json(&format!("{path}/zarr.json"), &group_doc(declare(a, PROFILE, None, Some(J::Object(own)))));
-        let codecs = codecs(codec, &data_type, bytes, samples, &axes);
+        let codecs = codecs(codec, bytes, samples, &axes);
         let of = |a: &str, t: u64, c: u64, z: u64, y: u64, x: u64| match a {
             "t" => t,
             "c" => c,
@@ -249,7 +240,7 @@ fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> 
         if compression == 7 {
             codecs.push(json!({"name": "imagecodecs_jpeg"}));
         } else {
-            codecs.push(bytes_codec(data_type, bits / 8));
+            codecs.push(bytes_codec(bits / 8, "little"));
         }
         let doc = array_json(&shape, data_type, json!(shape), J::Array(codecs), &axes);
         refs.out.json(&format!("{path}/0/zarr.json"), &doc);

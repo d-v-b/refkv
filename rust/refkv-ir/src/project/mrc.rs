@@ -9,7 +9,7 @@ use super::{base64, contiguous, float_json, json_text, n, Copied};
 use crate::ir::Ir;
 use crate::mrc::{Header, FIELDS};
 use crate::nifti::Num;
-use crate::out::{array_json, declare, grid_chunks, group_doc, gzip_array, image_ome, omero_channel, omero_json, omero_window, root_json, Chunk, Out};
+use crate::out::{array_json, bytes_codec, declare, grid_chunks, group_doc, gzip_array, image_ome, omero_channel, omero_json, omero_window, root_json, Chunk, Out};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -213,7 +213,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), after `source`
     root["attributes"]["refkv_virtualized"] = insert_after(&root["attributes"]["refkv_virtualized"], "source", "layouts", json!({DATASET: DATASET}));
     out.json("zarr.json", &root);
-    let codecs = vec![if item > 1 { json!({"name": "bytes", "configuration": {"endian": endian}}) } else { json!({"name": "bytes"}) }];
+    let codecs = vec![bytes_codec(item, endian)];
     let mut array = array_json(&shape, data_type, json!(grid), J::Array(codecs), &axes);
     if data_type == "complex64" {
         // a complex fill value is its real and imaginary parts (Zarr v3)
