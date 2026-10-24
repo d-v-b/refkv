@@ -2,6 +2,7 @@
 // reads, rejecting it, and sizing reference payloads.
 
 import type { Range, Source } from "../protobuf.ts";
+import { type Profile, REGISTRY } from "./profiles.ts";
 
 /**
  * The input is rejected for a reason no single profile owns (§1.2
@@ -185,27 +186,13 @@ export function toRange(p: Part): Range {
  */
 export const CONVENTION_KEY = "refkv_virtualized";
 
-export type Profile = "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "n5" | "zarr2" | "ome-zarr" | "safe" | "czi";
+export type { Profile };
 
-/** Each profile's convention: its fixed UUID, its current version and its name in the description. */
-/** The revision of spec/virtualize.md this implementation follows. Until the release, every
- * convention is at version 0 and the root property records it (conventions §1
- * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>, §2
- * <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>). */
-export const REVISION = 27;
-export const PROFILES: Record<Profile, [uuid: string, version: number, title: string]> = {
-  tiff: ["48e9ac4e-1156-4a62-955e-20467d9c2700", 0, "TIFF"],
-  ndpi: ["6cac71ef-dbb2-4acd-b60c-00389aa4238a", 0, "NDPI"],
-  nd2: ["59612f14-e314-4207-ba00-8f422ba71490", 0, "ND2"],
-  dicom: ["acf17198-e5a5-48d3-8187-22ec4bb40ea5", 0, "DICOM"],
-  nifti: ["06e5809d-4d54-4b72-afd0-6bf61a7b4c85", 0, "NIfTI"],
-  ims: ["5067a535-8261-4b25-a93c-1985ed333bde", 0, "IMS"],
-  n5: ["ad5d4c39-c69e-48f7-a3ef-4cc8c607d416", 0, "N5"],
-  zarr2: ["8e792619-d671-4687-ab51-752885dd3ee6", 0, "Zarr v2"],
-  "ome-zarr": ["b74ea302-65bb-49ae-b81f-f9bb52cd4eed", 0, "OME-Zarr"],
-  safe: ["ef81346c-19e8-42ad-93b0-a279ccaf44c1", 0, "Sentinel-2 SAFE"],
-  czi: ["7a0733c7-d4be-4482-a64f-6904d9354ea5", 0, "CZI"],
-};
+/** Each profile's convention: its fixed UUID, its current version and its name in the
+ * description, from the profile registry (spec/virtualize/profiles/, as profiles.ts reads it). */
+export const PROFILES = Object.fromEntries(
+  REGISTRY.map((e) => [e.name, [e.uuid, e.version, e.title]]),
+) as Record<Profile, [uuid: string, version: number, title: string]>;
 export const UUIDS = new Set(Object.values(PROFILES).map(([uuid]) => uuid));
 
 /** The Convention Metadata Object of a profile's convention. */
@@ -225,11 +212,12 @@ export function convention(profile: Profile): { [k: string]: string } {
 }
 
 /** The root's property without its source metadata (conventions §2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>): the profile, its
- * convention's version, the revision while that version is 0 (`revision`: the one the
- * implementation follows; the frozen reference records its own), and the source URL. */
-export function rootProperty(profile: Profile, url: string, revision = REVISION): { [k: string]: unknown } {
+ * convention's version and the source URL. `revision` is only for the frozen reference twins'
+ * tests: those record the spec/virtualize.md revision they implement; the shipped code records
+ * none. */
+export function rootProperty(profile: Profile, url: string, revision?: number): { [k: string]: unknown } {
   const version = PROFILES[profile][1];
-  return { profile, version, ...(version === 0 ? { revision } : {}), source: { url } };
+  return { profile, version, ...(revision === undefined ? {} : { revision }), source: { url } };
 }
 
 /** A node's attributes (conventions §2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>): `attributes`, the members the target formats
@@ -243,7 +231,7 @@ export function declare(
   profile: Profile,
   url: string | undefined,
   own?: object,
-  revision = REVISION,
+  revision?: number,
 ): { [k: string]: unknown } {
   const value: { [k: string]: unknown } = url === undefined
     ? {}

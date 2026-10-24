@@ -357,8 +357,8 @@ def exact_fill(base: dict | None, fill: bytes):
 
 
 def ref_address(b: bytes) -> int | None:
-    """The object header address of an object reference, or None (§8.9
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)."""
+    """The object header address of an object reference, or None (§7.9
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#79-source-metadata-structures>)."""
     v = le(b, 0, 8)
     return v if 0 < v <= MAX_SAFE else None
 
@@ -668,8 +668,8 @@ class Tree:
 
     def region(self, b: bytes) -> tuple[int | None, dict] | None:
         """A region reference's (object header address, selection), or None for
-        the null reference (§8.9
-        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
+        the null reference (§7.9
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#79-source-metadata-structures>).
         Each reference counts the size of its global
         heap object against the budget of selections; each object is read once."""
         at = address(le(b, 0, 8))
@@ -1073,8 +1073,8 @@ class Tree:
         return make, self.attribute_items(at)
 
     def external_files(self, d: bytes) -> list[dict]:
-        """The files of an external data files message (§8.9
-        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)."""
+        """The files of an external data files message (§7.9
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#79-source-metadata-structures>)."""
         if le(d, 0, 1) != 1:
             raise Rejected("unsupported external data files message version")
         used, heap = le(d, 6, 2), address(le(d, 8, 8))

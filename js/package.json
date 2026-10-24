@@ -11,6 +11,10 @@
     "#irwasm": {
       "node": "./src/virtualize/ir/wasm_node.ts",
       "default": "./src/virtualize/ir/wasm_browser.ts"
+    },
+    "#profiles": {
+      "node": "./src/virtualize/profiles_node.ts",
+      "default": "./src/virtualize/profiles_bundled.ts"
     }
   },
   "license": "MIT OR Apache-2.0",

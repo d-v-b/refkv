@@ -21,8 +21,8 @@ the experiment has found; [COMPARISON.md](design/COMPARISON.md) measures vzip
 against kerchunk and Icechunk.
 
 The code in this repository exercises the model by writing vzip archives. A
-Rust core reads TIFF, NDPI, ND2, CZI, DICOM, NIfTI and Imaris files, N5,
-Zarr v2 and OME-Zarr stores, and Sentinel-2 SAFE products, and presents each
+Rust core reads image files and chunked array stores in
+[a dozen formats](docs/virtualize/README.md#formats), and presents each
 as a Zarr hierarchy whose chunks are references to the original bytes,
 without copying them. It runs natively from Python and as WebAssembly in the
 browser.

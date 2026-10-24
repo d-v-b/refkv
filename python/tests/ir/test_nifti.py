@@ -2,7 +2,6 @@
 profile (revision 25), the mirror's rebuild, and hostile probes (huge extension counts,
 an esize past the voxel data, a negative esize, dimensions past the file)."""
 
-import io
 import json
 import os
 import struct
@@ -10,9 +9,8 @@ import time
 
 import pytest
 
-from ir_helpers import FIXTURES, same_hierarchy
+from ir_helpers import FIXTURES, as_the_reference, assert_rebuilds, same_hierarchy
 from refkv.ir import virtualize as via_ir
-from refkv.ir.cmirror import rebuild_from_archive
 from refkv.virtualize import Rejected
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
@@ -21,22 +19,7 @@ NIIS = sorted((FIXTURES / "nifti").glob("*.nii"))
 
 @pytest.mark.parametrize("path", NIIS, ids=lambda p: p.name)
 def test_projects_as_the_reference_and_rebuilds(path, tmp_path):
-    data = path.read_bytes()
-    url = f"https://data.test/{path.name}"
-    try:
-        _, ref = virtualize(str(path), url)
-    except Rejected:
-        with pytest.raises(Rejected):
-            via_ir(str(path), url)
-        return
-    fmt, out, ir = via_ir(str(path), url)
-    assert fmt == "nifti"
-    ir.check()
-    same_hierarchy(ref, out)
-    out.write(str(tmp_path / "a.vzip"))
-    buf = io.BytesIO()
-    rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
-    assert buf.getvalue() == data
+    as_the_reference(path, tmp_path, "nifti")
 
 
 def test_edge_chunks_past_the_payload_are_copied_as_the_reference_copies_them(tmp_path, monkeypatch):
@@ -51,7 +34,7 @@ def test_edge_chunks_past_the_payload_are_copied_as_the_reference_copies_them(tm
     from refkv.virtualize import common
 
     monkeypatch.setattr(common, "MAX_PAYLOAD", 8)
-    _core._set_nifti_copy_threshold(8)
+    _core._set_copy_threshold(8)
     copied = 0
     try:
         for path in NIIS:
@@ -64,12 +47,9 @@ def test_edge_chunks_past_the_payload_are_copied_as_the_reference_copies_them(tm
             same_hierarchy(ref, out)  # the copied chunks' bytes included
             copied += sum(k.startswith("0/c/") for k in out.bytes_entries)
             data = path.read_bytes()
-            out.write(str(tmp_path / "a.vzip"))
-            buf = io.BytesIO()
-            rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
-            assert buf.getvalue() == data
+            assert_rebuilds(out, data, tmp_path)
     finally:
-        _core._set_nifti_copy_threshold(None)
+        _core._set_copy_threshold(None)
     assert copied >= 1  # nifti_chunk_edge_literal.nii's edge chunk
 
 
@@ -96,10 +76,7 @@ def probe(tmp_path, data: bytes):
     _, out, ir = via_ir(str(path), "https://data.test/p.nii")
     seconds = time.perf_counter() - t
     ir.check()
-    out.write(str(tmp_path / "p.vzip"))
-    buf = io.BytesIO()
-    rebuild_from_archive(str(tmp_path / "p.vzip"), lambda o, n: data[o:o + n], buf.write)
-    assert buf.getvalue() == data
+    assert_rebuilds(out, data, tmp_path, "p.vzip")
     return out, seconds
 
 

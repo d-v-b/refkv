@@ -164,7 +164,7 @@ else:
     import refkv.zarr.codecs
 
     expect_import_error("images", lambda: asyncio.run(
-        refkv.zarr.codecs.JpegCodec()._decode_single(None, None)))
+        refkv.zarr.codecs.imagecodecs_jpeg.JpegCodec()._decode_single(None, None)))
 expect_import_error("virtualizarr", lambda: refkv.ReferenceStore.from_virtualizarr(None))
 expect_import_error("virtualizarr", lambda: importlib.import_module("refkv.shards"))
 expect_import_error("virtualizarr", lambda: importlib.import_module("refkv.convert"))

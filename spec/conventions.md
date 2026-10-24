@@ -7,19 +7,28 @@ in, and everything the source's own header or metadata says. There is one
 convention per source format, each specified in `virtualize/<format>.md` next to
 its JSON Schema `virtualize/<format>/schema.json`:
 
+<!-- profiles:conventions-table -->
 | format | convention | UUID |
 |---|---|---|
-| TIFF, OME-TIFF, Aperio SVS | [tiff](virtualize/tiff.md) | `48e9ac4e-1156-4a62-955e-20467d9c2700` |
-| Hamamatsu NDPI | [ndpi](virtualize/ndpi.md) | `6cac71ef-dbb2-4acd-b60c-00389aa4238a` |
-| Nikon ND2 | [nd2](virtualize/nd2.md) | `59612f14-e314-4207-ba00-8f422ba71490` |
-| DICOM | [dicom](virtualize/dicom.md) | `acf17198-e5a5-48d3-8187-22ec4bb40ea5` |
-| NIfTI-1 and NIfTI-2 | [nifti](virtualize/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
-| Imaris IMS | [ims](virtualize/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
-| N5 | [n5](virtualize/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
-| Zarr v2 | [zarr2](virtualize/zarr2.md) | `8e792619-d671-4687-ab51-752885dd3ee6` |
-| OME-Zarr 0.4 | [ome-zarr](virtualize/ome-zarr.md) | `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` |
-| Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](virtualize/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
 | Zeiss CZI | [czi](virtualize/czi.md) | `7a0733c7-d4be-4482-a64f-6904d9354ea5` |
+| DICOM | [dicom](virtualize/dicom.md) | `acf17198-e5a5-48d3-8187-22ec4bb40ea5` |
+| FITS | [fits](virtualize/fits.md) | `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` |
+| Imaris IMS | [ims](virtualize/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
+| MP3 (MPEG Layer III audio) | [mp3](virtualize/mp3.md) | `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` |
+| MP4 and QuickTime (H.264 video, AAC and MP3 audio) | [mp4](virtualize/mp4.md) | `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` |
+| MRC2014 | [mrc](virtualize/mrc.md) | `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` |
+| MRC2014, as a dataset ([§9](#9-dataset-layouts)) | [mrc-dataset](virtualize/mrc-dataset.md) | `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` |
+| N5 | [n5](virtualize/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
+| Nikon ND2 | [nd2](virtualize/nd2.md) | `59612f14-e314-4207-ba00-8f422ba71490` |
+| Hamamatsu NDPI | [ndpi](virtualize/ndpi.md) | `6cac71ef-dbb2-4acd-b60c-00389aa4238a` |
+| NIfTI-1 and NIfTI-2 | [nifti](virtualize/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
+| OME-Zarr 0.4 | [ome-zarr](virtualize/ome-zarr.md) | `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` |
+| Akoya QPTIFF | [qptiff](virtualize/qptiff.md) | `329ea136-2f55-4c27-b6f4-8e60ca2109b8` |
+| Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](virtualize/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
+| TIFF, OME-TIFF, Aperio SVS | [tiff](virtualize/tiff.md) | `48e9ac4e-1156-4a62-955e-20467d9c2700` |
+| Olympus VSI | [vsi](virtualize/vsi.md) | `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` |
+| Zarr v2 | [zarr2](virtualize/zarr2.md) | `8e792619-d671-4687-ab51-752885dd3ee6` |
+<!-- /profiles -->
 
 A format's convention specifies the hierarchy's whole **Zarr layout**: which
 groups and arrays it has and where, each array's metadata (shape, data
@@ -66,11 +75,9 @@ framework](https://github.com/zarr-conventions/zarr-conventions-spec).
 **Versions.** Each convention has a **version**, an integer stated in its
 document's header.
 
-- **Until refkv's first release**, every convention is at version **0**, and
-  hierarchies also record the **revision** of
-  [spec/virtualize.md](virtualize.md) (the number in its header) that
-  produced them ([§2](#2-attributes)). Version 0 promises nothing: any revision may change a
-  layout, and the revision is what tells two layouts apart.
+- **Until refkv's first release**, every convention is at version **0**.
+  Version 0 promises nothing: any change may change a layout; a convention's
+  document records its changes.
 - **At the release**, every convention becomes version 1, tagged
   `virtualize-<p>-v1` in the refkv repository. From then on a convention's
   version increases by 1 whenever the layout it specifies, or the reference
@@ -78,7 +85,7 @@ document's header.
   source, including whether the source is accepted (a **breaking change**);
   an editorial change, or a change to another format, leaves it as it is.
   Version `N` of the convention for format `p` is tagged
-  `virtualize-<p>-v<N>`, and hierarchies no longer record a revision.
+  `virtualize-<p>-v<N>`.
 - A reader that relies on a convention MUST reject a hierarchy whose
   version it does not know, as each convention's JSON Schema does.
 
@@ -97,10 +104,10 @@ the Convention Metadata Object (CMO)
 
 with no other members. At version 0, which has no tag, the URLs name the
 development branch instead: `.../refs/heads/main/spec/virtualize/<p>/schema.json`
-and `.../blob/main/spec/virtualize/<p>.md`. `T` is the format's title (`TIFF`, `NDPI`,
-`ND2`, `DICOM`, `NIfTI`, `IMS`, `N5`, `Zarr v2`, `OME-Zarr`, `Sentinel-2
-SAFE`, `CZI`). The UUID is the same for every version; the version is in the
-URLs. All eleven conventions nest their property under one key, `refkv_virtualized`, which is
+and `.../blob/main/spec/virtualize/<p>.md`. `T` is the format's title, the `title` of its
+entry in the profile registry ([virtualize/profiles/](virtualize/profiles/)`<p>.json`: `TIFF`,
+`Zarr v2`, `Sentinel-2 SAFE`, ...). The UUID is the same for every version; the version is in
+the URLs. All conventions nest their property under one key, `refkv_virtualized`, which is
 also their `name`: the framework asks a nesting convention's `name` to be
 its key, and a key without a colon is not mistaken for a namespace prefix.
 
@@ -117,14 +124,12 @@ the CMOs of the GeoZarr conventions the node uses), and the member
 **The property.** On the root, `refkv_virtualized` is the object
 
 ```json
-{"profile": "<p>", "version": N, "revision": R, "source": {"url": "<U>"}, "<p>": S}
+{"profile": "<p>", "version": N, "source": {"url": "<U>"}, "<p>": S}
 ```
 
 and on any other node `{"<p>": S}`, where:
 
 - `p` and `N` are the format and its convention's version;
-- `R` is the revision of spec/virtualize.md that produced the hierarchy, an
-  integer, present at version 0 only ([§1](#1-conventions));
 - `U` is the URL of the source: of the file for a file, and of the store,
   ending in `/`, for a store;
 - `S` is the node's **source metadata**, an object whose content the
@@ -132,9 +137,13 @@ and on any other node `{"<p>": S}`, where:
   source's header or metadata holds for that node, translated by [§6](#6-source-metadata-as-json). The
   member `"<p>"` is present only when `S` has at least one member.
 
-There are no other members. The property holds no time and nothing about
-the program that made the hierarchy, so that two conforming producers make
-equivalent hierarchies from the same source.
+A root whose archive also holds the source under another layout
+([§9](#9-dataset-layouts)) has, after `source`, the member `layouts`: an object
+whose keys name the layouts (`"dataset"`) and whose values are the paths of
+their nodes below the root, without a trailing `/`. There are no other
+members. The property holds no time and nothing about the program that
+made the hierarchy, so that two conforming producers make equivalent
+hierarchies from the same source.
 
 **The source metadata node.** A file format's metadata that grows with the
 data (one item per frame, plane or channel), and the source's values kept as
@@ -146,10 +155,9 @@ it opens the node (refkv writes them with the chunks, not with the documents
 read when an archive is opened). The node exists only when it has
 source metadata or arrays, or, for the store conventions, other objects of
 the store, which it holds whole under `refkv_source/objects/`, or the
-recorded ignored keys. For the
-TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS and SAFE conventions,
+recorded ignored keys. For a file's convention,
 `refkv_source` is the source's IR mirror ([§8](#8-the-ir-mirror)), from which the source is
-rebuilt byte for byte; for the Zarr v2, N5 and OME-Zarr conventions, the store's
+rebuilt byte for byte; for a store's, the store's
 ([§8.9](#89-stores)), from which the listing and the documents read are rebuilt: always
 present (under a root array, as plain keys of the archive).
 
@@ -159,6 +167,7 @@ convention places them: `ome` (OME-NGFF 0.5, §4), the GeoZarr members of
 the zarr-conventions `proj`, `spatial` and `multiscales` conventions
 (`proj:code`, `proj:wkt2`, `spatial:*` and `multiscales`, for the SAFE
 convention, which lists their CMOs in `zarr_conventions` after its own),
+the CF attributes of a dataset layout's variables ([§9](#9-dataset-layouts)),
 and `zarr_conventions`. Everything
 taken from the source goes under the key, on the node it belongs to,
 including attributes a source store had (and the conventions they
@@ -171,7 +180,10 @@ nests its own record.
 Unless the format's convention says otherwise (the store conventions, N5,
 Zarr v2 and OME-Zarr, define their arrays themselves; the CZI convention
 gives clipped levels the zarr-extensions `rectilinear` chunk grid and adds
-the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle`), every array's
+the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle`; the MP3 and MP4
+conventions give their arrays the codec `refkv.stream` of [§10](#10-coded-streams) and dimension
+names of their own, and the MP4 convention gives video planes whose chunks differ in length the
+`rectilinear` chunk grid), every array's
 `zarr.json` is the JSON object:
 
 ```json
@@ -405,7 +417,7 @@ another, such as a TIFF's contiguous strips, are referenced, not copied.
 
 ## 8. The IR mirror
 
-The TIFF, NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr conventions keep the source's metadata as one
+Every format's convention keeps the source's metadata as one
 format-free structure on `refkv_source`: the source's **IR** (intermediate
 representation), a tree of **elements** whose leaves partition the source's
 bytes, stored as a table (the **mirror**) and shown as JSON (the **view**).
@@ -463,9 +475,8 @@ key, an XML tag), which may be empty, repeat, or hold `/`, names those
 elements so that this holds; [ND2 §5.3](virtualize/nd2.md#53-elements) gives one
 rule for that, which any format may adopt.
 
-These rules are those of every single-file profile's IR: TIFF, NDPI, ND2, CZI,
-DICOM, NIfTI, IMS and SAFE (a `.SAFE.zip`) today, and any format whose source model a later revision
-moves onto the IR, without restating them. A format's convention
+These rules are those of every file profile's IR (a `.SAFE.zip` included), and of any
+format added later, without restating them. A format's convention
 lists its elements by their paths below the root.
 
 The **leaves** are the elements of kinds 1, 2, 3 and 5 with a length, in
@@ -587,7 +598,7 @@ canonical mirror (8.8: runs expanded, derived spaces left out) would have more
 than `N = 2^22 + floor(Z / 4)` rows, with the message
 `budget: the mirror would have more than N rows` (N in decimal), and may do so
 before expanding when the elements outside derived spaces, every run expanded,
-are already more than `N`. (No source the TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2 and N5 parsers accept
+are already more than `N`. (No source any parser accepts
 comes near it today: they describe fewer than one element per four bytes of
 the source; the limit bounds what a reader must expand.) So is one whose columns' lengths
 differ, whose column refers to values past `column_values` or entries past
@@ -824,7 +835,7 @@ compares mirrors entry for entry. In order:
    |---|---|---|---|---|
    | TIFF | layout tables | the start or length of a column run of at least 16 members of one data row each, with a name index, in a struct `tiles` (or `strips`) with no index | the first child `value` (no index) of the first struct child `tags/` with index 324 for starts and 325 for lengths (273 and 279 for `strips`) of that struct's parent: TileOffsets and TileByteCounts (StripOffsets, StripByteCounts) | member 0's name index |
 
-   NDPI, ND2, CZI, DICOM, NIfTI, IMS, SAFE, Zarr v2, N5 and OME-Zarr have none. A format adds a rule by a revision of this
+   The other profiles have none. A format adds a rule by a change of this
    section and its convention: a new row in this table, whose conditions
    depend only on the canonical IR (so that every producer finds the same
    columns), and whose array a reader can read from source 0.
@@ -1024,3 +1035,217 @@ names, whole, in as few rounds as the format's structure allows: a round is the
 documents whose keys the listing and the documents read so far name (every
 `.zarray`, `.zgroup` and `.zattrs` of a Zarr v2 store is one round), read
 concurrently, each read once. A held object is an object it read whole.
+
+## 9. Dataset layouts
+
+A source whose image layout ([§4](#4-images)) serves viewers can also be
+presented, in the same hierarchy, as a **dataset**: a group that xarray and
+other labeled-array readers open as a dataset, whose arrays are its data
+variables and coordinate variables, with dimensions named by
+`dimension_names` and coordinates that give each index a position. The two
+layouts reference the same bytes of the source; neither copies the other's
+chunks. A format has a dataset layout when its dataset convention exists:
+a convention of its own, named `<p>-dataset` for the format `p`, with its
+own UUID, schema and document (`virtualize/<p>-dataset.md`), which
+specifies the layout's variables and where each comes from. This section
+holds what every dataset layout shares.
+
+**The node.** The dataset is a child group of the root, at the path the
+dataset convention gives (`dataset` unless it says otherwise). The root
+names it in `layouts` ([§2](#2-attributes)). The group declares the dataset
+convention as a root declares its format's ([§2](#2-attributes)): its
+`refkv_virtualized` has `profile` (`<p>-dataset`), `version`,
+`source` and the source metadata member `"<p>-dataset"`, so that the group
+describes itself when it is copied out of the hierarchy. OME-NGFF readers
+ignore it, as they do `refkv_source`. The group has no source metadata
+node of its own: the source's mirror ([§8](#8-the-ir-mirror)) is the root's
+`refkv_source`, which a copied-out group no longer has.
+
+**Variables.** Every array of the group is as in [§3](#3-arrays), with
+`dimension_names`, and is a data variable or a coordinate variable:
+
+- A **data variable** holds the source's values. Its shape, data type,
+  chunk grid and codecs are those of the image layout's array for the same
+  values, its dimensions are named as the dataset convention says (a
+  stack's index dimension by what it indexes, `section` or `volume`, not
+  by an image axis type), and its chunks are the same references as that
+  array's chunks, range for range (an edge chunk's copy is copied again).
+  A data variable's attributes hold, when the convention gives them, the
+  CF attributes `long_name` and `actual_range` (`[min, max]`, two numbers).
+- A **coordinate variable** gives the positions along one dimension: a
+  1-D array named as the dimension, of that dimension's length `n`, with
+  the attribute `units`, a UDUNITS symbol or name (`angstrom`,
+  `micrometer`, `second`), and the chunk shape `[min(n, 2^17)]`. Its
+  values are derived from the source's header (the source holds no such
+  bytes), so its chunks are bytes entries, in one of two forms:
+  - **regular steps** `o + i × s`, the common case, are stored as the
+    **index**: a `uint32` array of the values `0 … n − 1` with the CF
+    attributes `scale_factor` (`s`) and `add_offset` (`o`), both binary64,
+    which a CF-decoding reader (xarray) turns into `i × s + o` in binary64
+    (the product first), and the codecs `[{"name": "numcodecs.delta",
+    "configuration": {"dtype": "<u4"}}, {"name": "bytes", "configuration":
+    {"endian": "little"}}, {"name": "gzip", "configuration": {"level": 6}}]`.
+    A chunk's bytes are its indexes delta-coded (the first as it is, each
+    other less the one before: `q × c, 1, 1, …`, the ramp going on past
+    `n` into the last chunk's padding), as little-endian `uint32`, then one
+    gzip member (RFC 1952, no name, time or extra field) of a deflate stream
+    at level 6. A ramp of a million positions is then a few kilobytes.
+  - **irregular positions** are stored as they are: `float64` values in
+    little-endian byte order (`[{"name": "bytes", "configuration":
+    {"endian": "little"}}]`), the last chunk padded with zero bytes.
+
+  A dimension without a coordinate variable is allowed, and is how a
+  dataset convention leaves out a position it cannot give (an axis with no
+  valid voxel size, a stack's index).
+
+Variables have no other attributes, and the group's attributes are
+`zarr_conventions` and `refkv_virtualized` alone.
+
+**Equivalence.** A dataset layout is compared entry for entry with the rest
+of the hierarchy ([spec/virtualize.md §1.1](virtualize.md#11-output-and-equivalence)):
+its coordinate values are the numbers its convention computes, in binary64,
+from the header's values, with the operations it gives in their order, so
+that every producer writes the same values. A deflated coordinate chunk is
+the one place a producer compresses bytes it computed, and deflate streams
+differ between encoders, so such chunks are compared by the indexes they
+decode to, not byte for byte.
+
+## 10. Coded streams
+
+Audio and video formats code each frame (an MP3 or AAC frame, an H.264
+picture) into a run of bytes that a decoder can only decode after the
+frames it depends on: an MP3 frame's bit reservoir reaches into the frames
+before it, an AAC frame overlaps the one before it, and an H.264 picture
+is predicted from other pictures, back to the last keyframe. A chunk of
+such a stream's samples therefore holds the frames it decodes to and the
+frames before them that a decoder must decode first, its **lead-in**. The
+array-to-bytes codec `refkv.stream` decodes such a chunk.
+
+**The codec.** `{"name": "refkv.stream", "configuration": C}`, where `C` has:
+
+- `format`: the coding of the frames: `"mp3"` (MPEG-1, 2 or 2.5 Layer III
+  frames), `"aac"` (raw AAC frames, without ADTS headers) or `"h264"`
+  (H.264 access units as an MP4 file holds them: each NAL unit preceded by
+  its length, in the length's size the setup gives);
+- `setup`, when the format has one: the decoder's configuration, base64
+  ([RFC 4648 §4](https://www.rfc-editor.org/rfc/rfc4648#section-4)): for
+  `"aac"` the AudioSpecificConfig (ISO/IEC 14496-3 §1.6.2.1), for `"h264"`
+  the AVCDecoderConfigurationRecord (an MP4 file's avcC box, ISO/IEC
+  14496-15 §5.3.3.1), which holds the parameter sets;
+- `plane`, for `"h264"`: the plane of a decoded picture the array holds,
+  `"y"`, `"u"` or `"v"`.
+
+There are no other members.
+
+**A chunk's bytes** are a header, then the frames:
+
+1. `n`, the frames' count, as a varint;
+2. for each frame, in the order of the frames, its `size` as a varint,
+   then its `position` less the previous frame's (the first frame's less
+   −1) as a zigzag varint;
+3. the `n` frames, each `size` bytes, one after the other, in decode
+   order.
+
+A **varint** is an unsigned integer as protobuf encodes it, 7 bits a byte,
+the least significant first, the high bit set on every byte but the last;
+a **zigzag varint** is the varint of `2d` for `d ≥ 0` and of `−2d − 1` for
+`d < 0`. So a lead-in frame (−1 after −1) costs one byte for its position,
+and a frame whose output follows the one before it (`s` samples on, or one
+picture on) one or two. A header that ends inside a varint, or whose sizes
+do not add up to the bytes after it, is an error.
+
+**Decoding a chunk.** A decoder of the format, set up with `setup` and in
+its initial state, is given the frames in order, one frame each time. Each
+frame decodes to some outputs: for audio, `s` samples of each channel; for
+video, one picture. The output of frame `k` goes to the chunk's row
+`position[k]` on, along the array's first axis: for audio, the `s` rows
+from `position[k]`, `[s, channels]`; for video, the one row `position[k]`,
+`[1, height, width]` of the plane. A frame of position −1 is decoded and
+its output dropped: it is the chunk's lead-in. Every row no frame fills is
+the fill value: the rows past the array's end in its last chunk, and the
+rows of a frame the decoder gives no output for. An output that does not
+fit its rows, or whose shape is not the array's, is an error. The outputs
+are the decoder's own samples, with no conversion: `float32` for MP3 and
+AAC, and the 8-bit planes of a 4:2:0 picture for H.264 (`u` and `v` half
+the size of `y` along each axis, rounded up).
+
+The outputs are placed by the frame each comes from, whatever order the
+decoder gives them in: an H.264 decoder outputs pictures in presentation
+order, after a delay, and may emit nothing for a frame it cannot decode.
+A decoder that cannot say which frame an output comes from does not decode
+this codec. Nor does one whose output for a frame depends on more than a
+bounded run of the frames before it, such as ffmpeg's fixed-point MP3
+decoder, which carries its rounding error from frame to frame, so a chunk
+it decodes from the lead-in differs from the stream by a unit here and
+there. ffmpeg's float MP3 decoder, its AAC decoder and its H.264 decoder
+(the implementations' decoders, through PyAV) decode it.
+
+**Determinism.** A chunk decodes to the same values every time, and, for
+MP3 and H.264, to the values a decoder of the whole stream gives (H.264
+decoding is exact by its standard). AAC's perceptual noise substitution
+fills a band with noise from a pseudo-random generator whose state runs on
+from frame to frame, so a chunk's noise bands differ from those of a
+decoder of the whole stream; every other value is the same.
+
+**Producing a chunk.** A convention says which frames are a chunk's own,
+where each one's output goes, and which frames before them are its
+lead-in ([virtualize/mp3.md §8.2](virtualize/mp3.md#82-chunks),
+[virtualize/mp4.md §8.3](virtualize/mp4.md#83-chunks)). A virtualizer
+writes the header as a literal range, then the frames as ranges of the
+source, a frame that starts where the one before it ends extending that
+one's range. The bytes between two frames of the source are in no range,
+so a decoder never sees them: one that looked for a run of frames to lock
+onto would drop the frames before them, and one that reset its state would
+decode the frame after them from nothing. The header holds the frames'
+sizes and positions, which are the source's structure, not its samples
+([spec/virtualize.md §1.2](virtualize.md#12-input)).
+
+## 11. Format documents
+
+What every format's document, `virtualize/<p>.md`, would otherwise say in
+the same words is stated here once, and each document cites it.
+
+### 11.1 Parts
+
+A format's document has two parts. Part 1 is the format's convention: the Zarr layout, which Part 2 cites as "the convention §n".
+Part 2 is the format's profile ([spec/virtualize.md, Profiles](virtualize.md#profiles)):
+how refkv reads the source, which inputs it rejects, and how each chunk
+references the source. The document is numbered on its own, Part 2 after
+Part 1, and other documents cite it by name. A dataset layout's document
+([§9](#9-dataset-layouts)) is a convention alone.
+
+### 11.2 Declaration
+
+A format's convention starts with its declaration ([§2](#2-attributes)), its
+section 1, which shows its CMO ([§1](#1-conventions)) at the version its
+header states. Unless the declaration says otherwise:
+
+- the root declares the convention with `"profile": "<p>"`, the convention's
+  version as `version`, and the input's URL as `source.url` (a file's URL,
+  or a store's, ending in `/`);
+- `refkv_source` declares it too, with the IR mirror's description
+  ([§8.2](#82-the-table); a store's, [§8.9](#89-stores)), and so does each
+  group of the mirror's view that has a member ([§8.7](#87-the-view)); the
+  mirror's arrays have no attributes.
+
+The declaration names what is the format's own: the root's source metadata,
+the member `"<p>"`, when the root has any, the other nodes that declare the
+convention, and the other arrays that have no attributes. A dataset layout's
+declaration is [§9](#9-dataset-layouts)'s.
+
+### 11.3 The IR mirror
+
+For a file's convention, `refkv_source` is the file's IR mirror
+([§8](#8-the-ir-mirror)): its table, from which the file is rebuilt byte for
+byte, and its view, `refkv_source/tree`; for a store's, it is the store's
+([§8.9](#89-stores)). The format's convention lists the IR's elements, the
+format's **source model**.
+
+### 11.4 Equivalence
+
+The elements are determined by the source (a file, or a store's listing and
+the documents the profile reads), and the mirror by its elements
+([§8.8](#88-canonical-form): one order, one folding, one encoding):
+hierarchies of one source are compared entry for entry, `refkv_source`
+included ([spec/virtualize.md §1.1](virtualize.md#11-output-and-equivalence)).
+

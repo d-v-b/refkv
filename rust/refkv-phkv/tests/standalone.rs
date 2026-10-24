@@ -375,10 +375,10 @@ fn slot_pointing_outside_records_is_an_entry_error() {
     assert!(s.classify("k").unwrap().is_some());
     // point every non-empty slot at offset 1, inside no record's start but inside the file
     let mut b2 = b.clone();
-    for i in 0..slots.length / 8 {
-        let at = (slots.offset + 8 * i) as usize;
-        if format::le_u64(&b2, at) != format::EMPTY_SLOT {
-            b2[at..at + 8].copy_from_slice(&(u64::MAX - 1).to_le_bytes());
+    for i in 0..slots.length / format::SLOT_SIZE {
+        let at = (slots.offset + format::SLOT_SIZE * i) as usize;
+        if b2[at..at + 12] != format::EMPTY_SLOT {
+            b2[at..at + 12].copy_from_slice(&format::pack_slot(u64::MAX - 1, 28));
         }
     }
     let s2 = Store::open(b2).unwrap();
@@ -488,7 +488,7 @@ fn slots_read_in_blocks() {
             w.add_bytes(&format!("k/{i:05}"), format!("value {i}").as_bytes()).unwrap();
         }
     });
-    // 3,000 keys have a little over 3,000 slots: 24 KiB, six blocks of 4 KiB
+    // 3,000 keys have a little over 3,000 slots: 36 KB, nine blocks of 4,092 bytes (341 whole slots)
     // a first read too short to hold any of SLOTS, so lookups read every block
     let limits = refkv_phkv::Limits { slot_block: 4096, record_read: 512, tail: 4096, ..Default::default() };
     let s = Store::open_with(Logging(b, Default::default()), limits).unwrap();
@@ -499,11 +499,11 @@ fn slots_read_in_blocks() {
     assert_eq!(whole_in(&s, "k/99999"), None);
     let reads = s.reader().1.borrow().clone();
     // records are read 512 bytes at a time or less, blocks are longer: a record read per key, and each
-    // of the six blocks once, the miss included
+    // of the nine blocks once, the miss included
     let blocks: Vec<_> = reads.iter().filter(|r| r.1 > 512).collect();
-    assert_eq!(blocks.len(), 6, "{blocks:?}");
-    assert!(blocks.iter().all(|r| r.1 <= 4096));
-    assert_eq!(reads.len(), 3000 + 6);
+    assert_eq!(blocks.len(), 9, "{blocks:?}");
+    assert!(blocks.iter().all(|r| r.1 <= 4092));
+    assert_eq!(reads.len(), 3000 + 9);
 }
 
 #[test]
@@ -566,8 +566,7 @@ fn a_slot_gives_its_record_length() {
     assert_eq!(whole_in(&s, "medium").unwrap(), vec![1u8; 3000]);
     assert_eq!(whole_in(&s, "big").unwrap(), big);
     let reads = s.reader().1.borrow().clone();
-    // one read for each, exactly as long as the record: a RECORDS section of 73 KB takes 17 bits of
-    // offset, and leaves 47 for the length
+    // one read for each, exactly as long as the record
     assert_eq!(reads.len(), 3, "{reads:?}");
     assert!(reads[0].1 < 40 && reads[1].1 > 3000 && reads[1].1 < 3050 && reads[2].1 > 70_000 && reads[2].1 < 70_050, "{reads:?}");
 
@@ -575,30 +574,22 @@ fn a_slot_gives_its_record_length() {
     let sb = superblock(&b);
     let dir = format::DirEntry::decode_all(&b[sb.directory_offset as usize..(sb.directory_offset + sb.directory_length) as usize]).unwrap();
     let slots = dir.iter().find(|e| e.kind == format::section::SLOTS).unwrap();
-    let records = dir.iter().find(|e| e.kind == format::section::RECORDS).unwrap();
-    let bits = format::slot_offset_bits(records.length);
     let mut b2 = b.clone();
-    for i in 0..slots.length / 8 {
-        let at = (slots.offset + 8 * i) as usize;
-        let v = format::le_u64(&b2, at);
-        if v != format::EMPTY_SLOT {
-            let (off, len) = format::unpack_slot(v, bits);
-            if let Some(len) = len {
-                b2[at..at + 8].copy_from_slice(&format::pack_slot(off, len + 1, bits).to_le_bytes());
-            }
+    for i in 0..slots.length / format::SLOT_SIZE {
+        let at = (slots.offset + format::SLOT_SIZE * i) as usize;
+        if let Some((off, Some(len))) = format::unpack_slot(&b2[at..at + 12]).unwrap() {
+            b2[at..at + 12].copy_from_slice(&format::pack_slot(off, len + 1));
         }
     }
     let s2 = Store::open(b2).unwrap();
     assert_eq!(s2.classify("small").unwrap_err().class, Class::Entry);
 
-    // a slot that gives no length (0) is read as before: a first read, then the rest
+    // a slot that gives no length (4 GiB - 1 or more) is read as before: a first read, then the rest
     let mut b3 = b.clone();
-    for i in 0..slots.length / 8 {
-        let at = (slots.offset + 8 * i) as usize;
-        let v = format::le_u64(&b3, at);
-        if v != format::EMPTY_SLOT {
-            let (off, _) = format::unpack_slot(v, bits);
-            b3[at..at + 8].copy_from_slice(&format::pack_slot(off, 0, bits).to_le_bytes());
+    for i in 0..slots.length / format::SLOT_SIZE {
+        let at = (slots.offset + format::SLOT_SIZE * i) as usize;
+        if let Some((off, _)) = format::unpack_slot(&b3[at..at + 12]).unwrap() {
+            b3[at..at + 12].copy_from_slice(&format::pack_slot(off, u64::from(format::SLOT_LENGTH_MAX)));
         }
     }
     let s3 = Store::open_with(Logging(b3, Default::default()), refkv_phkv::Limits { record_read: 512, ..Default::default() }).unwrap();
@@ -610,20 +601,23 @@ fn a_slot_gives_its_record_length() {
 }
 
 #[test]
-fn the_slot_split_follows_the_records_length() {
-    // the offset takes the bits RECORDS' length needs, the length the rest
-    assert_eq!(format::slot_offset_bits(1), 1);
-    assert_eq!(format::slot_offset_bits(30_000_000), 25);
-    assert_eq!(format::slot_offset_bits(1 << 40), 41);
-    let bits = format::slot_offset_bits(30_000_000);
-    let slot = format::pack_slot(29_999_999, 29, bits);
-    assert_eq!(format::unpack_slot(slot, bits), (29_999_999, Some(29)));
-    assert_ne!(slot, format::EMPTY_SLOT);
-    // a 1 TiB RECORDS leaves 23 bits of length: a record of 8 MiB or more gives none
-    let bits = format::slot_offset_bits(1 << 40);
-    assert_eq!(format::unpack_slot(format::pack_slot(5, (1 << 23) - 1, bits), bits), (5, Some((1 << 23) - 1)));
-    assert_eq!(format::unpack_slot(format::pack_slot(5, 1 << 23, bits), bits), (5, None));
-    // the largest offset of the largest RECORDS a slot can hold is never the empty slot
-    let bits = format::slot_offset_bits(u64::MAX >> 1);
-    assert_ne!(format::pack_slot((u64::MAX >> 1) - 1, 0, bits), format::EMPTY_SLOT);
+fn a_slot_is_a_u64_offset_and_a_u32_length() {
+    let slot = format::pack_slot(29_999_999, 29);
+    assert_eq!(slot[..8], 29_999_999u64.to_le_bytes());
+    assert_eq!(slot[8..], 29u32.to_le_bytes());
+    assert_eq!(format::unpack_slot(&slot).unwrap(), Some((29_999_999, Some(29))));
+    // an offset of 0 is a record, since its length is not 0
+    assert_eq!(format::unpack_slot(&format::pack_slot(0, 28)).unwrap(), Some((0, Some(28))));
+    // 4 GiB - 1 or more is given as 0xFFFFFFFF, and read as no length
+    for n in [u64::from(u32::MAX), 1 << 32, u64::MAX] {
+        assert_eq!(format::pack_slot(5, n)[8..], [0xff; 4]);
+        assert_eq!(format::unpack_slot(&format::pack_slot(5, n)).unwrap(), Some((5, None)));
+    }
+    assert_eq!(format::unpack_slot(&format::pack_slot(5, u64::from(u32::MAX) - 1)).unwrap(), Some((5, Some(u64::from(u32::MAX) - 1))));
+    // all zero is the empty slot; a length of 0 with an offset is not
+    assert_eq!(format::unpack_slot(&format::EMPTY_SLOT).unwrap(), None);
+    assert!(format::unpack_slot(&format::pack_slot(5, 0)).is_err());
+    // no record is shorter than 6 bytes
+    assert!(format::unpack_slot(&format::pack_slot(5, 5)).is_err());
+    assert_eq!(format::unpack_slot(&format::pack_slot(5, 6)).unwrap(), Some((5, Some(6))));
 }

@@ -15,6 +15,8 @@
 //! of a name is lost to the decoding;
 //! `xml` and `xml:<runtype>` are the text of an XML attribute value, as UTF-8.
 
+use crate::fed::Word;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Val {
     Int(i128),
@@ -88,6 +90,19 @@ fn tokens(s: &str) -> Vec<String> {
         }
     }
     out
+}
+
+/// The offset and type of the field `name` of the record type `s`, when it has one.
+pub fn field(s: &str, name: &str) -> Option<(usize, Ty)> {
+    let Ty::Rec { fields, .. } = parse(s).ok()? else { return None };
+    let mut at = 0;
+    for (n, f) in fields {
+        if n == name {
+            return Some((at, f));
+        }
+        at += f.size()?;
+    }
+    None
 }
 
 pub fn parse(s: &str) -> Result<Ty, String> {
@@ -196,15 +211,11 @@ fn one(t: &[String], pos: &mut usize, s: &str) -> Result<Ty, String> {
     Ok(base)
 }
 
-fn num(code: &str, big: bool, b: &[u8]) -> Val {
+/// The number of the numeric type `code` (`u1` ... `f8`) that `b` holds, exactly its size.
+pub fn num(code: &str, big: bool, b: &[u8]) -> Val {
     macro_rules! rd {
         ($t:ty) => {{
-            let a: [u8; std::mem::size_of::<$t>()] = b.try_into().unwrap();
-            if big {
-                <$t>::from_be_bytes(a)
-            } else {
-                <$t>::from_le_bytes(a)
-            }
+            <$t as Word>::of(b, !big)
         }};
     }
     match code {
@@ -260,9 +271,9 @@ pub fn decode(ty: &Ty, raw: &[u8]) -> Result<Val, String> {
         Ty::Text { kind, .. } => match kind.as_str() {
             "bytes" | "utf16" => Val::Bytes(raw.to_vec()),
             "guid" => {
-                let a = u32::from_le_bytes(raw[0..4].try_into().unwrap());
-                let b = u16::from_le_bytes(raw[4..6].try_into().unwrap());
-                let c = u16::from_le_bytes(raw[6..8].try_into().unwrap());
+                let a = u32::le_at(raw, 0);
+                let b = u16::le_at(raw, 4);
+                let c = u16::le_at(raw, 6);
                 let hex = |x: &[u8]| x.iter().map(|v| format!("{v:02x}")).collect::<String>();
                 Val::Str(format!(
                     "{a:08x}-{b:04x}-{c:04x}-{}-{}",
@@ -310,4 +321,18 @@ pub fn decode(ty: &Ty, raw: &[u8]) -> Result<Val, String> {
         }
         Ty::Xml => Val::Str(String::from_utf8_lossy(raw).into_owned()),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn field_gives_offset_and_size() {
+        let s = "{a:<i4,b:bytes[8],c:guid,d:{x:u1,y:>u2}[3],e:<f8}";
+        let got: Vec<Option<(usize, Option<usize>)>> =
+            ["a", "b", "c", "d", "e", "z"].iter().map(|n| field(s, n).map(|(at, t)| (at, t.size()))).collect();
+        assert_eq!(got, [Some((0, Some(4))), Some((4, Some(8))), Some((12, Some(16))), Some((28, Some(9))), Some((37, Some(8))), None]);
+        assert!(field("<i4", "a").is_none());
+    }
 }

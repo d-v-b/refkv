@@ -38,7 +38,7 @@ its keys. The phkv binding answers the three questions of
 What a phkv store adds over the ZIP binding:
 
 - **One-hop lookup.** A reader holds the perfect hash's pilots in memory. To
-  find a key it computes a slot, reads that slot's 8 bytes (the record's
+  find a key it computes a slot, reads that slot's 12 bytes (the record's
   offset and length) from the slot table, and reads the record, whose key it compares with the one
   asked for ([§19.5](#195-lookup)).
 - **Sorted keys.** Records are stored in UTF-8 order with a page index, so
@@ -95,9 +95,9 @@ references with keys of about 11 bytes; the vzip archive has a page index with
 | read by phkv readers | no | yes | yes, through the container alone |
 | found at open by | the end of central directory record, at one of two fixed offsets from the end | a superblock at a probe distance from the end ([§17.2](#172-finding-the-superblock)) | the end of central directory record, which gives the superblock's place ([§17.2](#172-finding-the-superblock)) |
 | read at open | the end records, the source table, and the page index or the whole central directory | the superblock, directory, source table, page index and perfect hash ([§22.1](#221-opening)) | per reader, as in its own column |
-| finding a key | without a page index: a map of the central directory built at open; with one: bisect the index, read one page (about 64 KiB here), scan it | compute a slot, read 8 bytes, read one record (one hop, [§19.5](#195-lookup)) | per reader |
+| finding a key | without a page index: a map of the central directory built at open; with one: bisect the index, read one page (about 64 KiB here), scan it | compute a slot, read 12 bytes, read one record (one hop, [§19.5](#195-lookup)) | per reader |
 | `list(prefix)` | the page index, or the central directory | the page index ([§19.4](#194-page-index)) | per reader |
-| per-key cost | a 30-byte local header and a 46-byte central directory record, each with the key; a reference's payload in the record's extra field, and again in the body when mirrored | a record (about 6 bytes plus the key and payload), an 8-byte slot, about 0.34 bytes of pilot, and the page index's share | the vzip archive's, plus the container's records and slots |
+| per-key cost | a 30-byte local header and a 46-byte central directory record, each with the key; a reference's payload in the record's extra field, and again in the body when mirrored | a record (about 6 bytes plus the key and payload), a 12-byte slot, about 0.34 bytes of pilot, and the page index's share | the vzip archive's, plus the container's records and slots |
 | measured size | 122 bytes per key | 37 bytes per key | 159 bytes per key |
 | bytes values | STORED or DEFLATE | none, DEFLATE or Zstandard, optionally inline in the record | STORED or DEFLATE (ZIP methods 0 and 8) |
 | value checksum | the CRC-32 of every entry (readers need not check it) | an optional CRC-32C per value, which readers check whenever they have the whole value ([§19.2](#192-bytes-records)) | both |
@@ -308,23 +308,26 @@ The section is **malformed**, an archive error, if:
 
 ### 18.2 SLOTS section
 
-The SLOTS section is `P × S` slots of 8 bytes. Slot `i` is a `u64` that is
-either 2^64 − 1, for an empty slot, or a record's place
-([§19.1](#191-record-encoding)). Let `R` be the length of the RECORDS section,
-and `O` the number of bits `R` takes: the least `O` with `R < 2^O`. Then:
+The SLOTS section is `P × S` slots of 12 bytes. Slot `i` is:
 
-- bits 0 to `O − 1`: the record's offset from the start of the RECORDS
-  section;
-- bits `O` to 63: the record's length in bytes, if it is less than
-  `2^(64 − O)`, else 0.
+| offset | field | type | value |
+|---|---|---|---|
+| 0 | `offset` | `u64` | the record's offset from the start of the RECORDS section |
+| 8 | `length` | `u32` | the record's length in bytes ([§19.1](#191-record-encoding)), or 0 or `0xFFFFFFFF` |
 
-An offset is at most `R − 1`, so a record's slot is never 2^64 − 1. Both the
-writer and the reader derive `O` from `R`, so the store does not record it.
-For example, a RECORDS section of 30,000,000 bytes takes 25 bits of offset,
-which leaves 39 bits of length: a record 28 bytes long and 1,234 bytes into
-RECORDS has the slot `1234 + 28 × 2^25` (0x380004D2). The section's length MUST be
-`8 × P × S`, else it is an archive error. The
-section's offset SHOULD be a multiple of 8, for readers that map the file.
+- A `length` of 0 is an **empty slot**: no key has a record here. Its `offset`
+  MUST be 0, so a section of zero bytes is empty.
+- A `length` of `0xFFFFFFFF` says that the record is 2^32 − 1 bytes long or
+  longer, and gives no more.
+- Any other `length` is exactly the record's length. It is at least 6, the
+  size of the smallest record ([§19.1](#191-record-encoding)).
+
+A writer MUST give the exact length of every record shorter than 2^32 − 1
+bytes. An offset of 0 is a record, not an empty slot, since its `length` is
+not 0. For example, a record 28 bytes long and 1,234 bytes into RECORDS has the
+slot `D2 04 00 00 00 00 00 00 1C 00 00 00`. The section's length MUST be
+`12 × P × S`, else it is an archive error. A slot is not 8-byte aligned in
+general, so a reader that maps the file reads it as bytes.
 
 ### 18.3 Query
 
@@ -466,14 +469,17 @@ records that exactly fills it, or its first record's key is not its
 A reader determines whether a key `k` has a record as follows:
 
 1. If `n = 0`, `k` has none.
-2. Compute `k`'s slot ([§18.3](#183-query)) and read the slot's 8 bytes. If
-   the slot is empty (2^64 − 1), `k` has no record.
+2. Compute `k`'s slot ([§18.3](#183-query)) and read the slot's 12 bytes. If
+   the slot is empty (its `length` is 0), `k` has no record.
 3. The slot's offset, from the start of the RECORDS section, MUST lie within
    it, and the record there MUST be well-formed ([§19.1](#191-record-encoding)) and, if the slot
-   gives a length, exactly that long; otherwise it is an entry error for `k`,
-   since the reader cannot tell whether `k` is present. A reader can read a
-   record whose slot gives its length in one read of that many bytes; it
-   reads a record whose slot does not (length 0) as its encoding says.
+   gives a length (any `length` but `0xFFFFFFFF`), exactly that long, and that
+   length MUST be at least 6; otherwise it is an entry error for `k`, since the
+   reader cannot tell whether `k` is present. A reader can read a record whose
+   slot gives its length in one read of that many bytes, but need not: it may
+   read only the start of a long record and the rest of it as it needs it. It
+   reads a record whose slot does not give its length (`0xFFFFFFFF`) as its
+   encoding says.
 4. If the record's key is `k`, that is `k`'s record. Otherwise `k` has none.
 
 A reader MAY instead find `k` through the page index, by selecting the last
@@ -603,7 +609,7 @@ A reader MAY read more, but MUST NOT report an error at open that this
 section and [§6.1](../refkv.md#61-opening) do not list. In particular,
 records and PROPERTY sections are not read at open. A reader MAY read
 the SLOTS section whole and keep it, which saves a read per lookup at the cost
-of about 8 bytes per key read at open and held.
+of about 12 bytes per key read at open and held.
 
 ### 22.2 Operations
 
@@ -756,8 +762,9 @@ name.
 | directory entry size | 40 | phkv binding |
 | hash_id XXH64 | 1 | phkv binding |
 | pilot multiplier | 0x517CC1B727220A95 | phkv binding |
-| empty slot | 2^64 − 1 | phkv binding |
-| slot | the low `O` bits the record's offset into RECORDS, the others its length (0 if it does not fit), where `O` is the bit length of the RECORDS section's length | phkv binding |
+| slot size | 12 | phkv binding |
+| slot | a `u64` offset into RECORDS, then a `u32` length: 0 for an empty slot, `0xFFFFFFFF` for 2^32 − 1 bytes or more | phkv binding |
+| smallest record | 6 | phkv binding |
 | payload limit | 2^24 | phkv binding |
 | hybrid entry | `__vz__/phkv` | phkv binding |
 

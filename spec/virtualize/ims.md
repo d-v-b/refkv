@@ -9,11 +9,7 @@ it reads, is the IMS profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `5067a535-8261-4b25-a93c-1985ed333bde` ·
 Schema: [schema.json](ims/schema.json)
 
-This document has two parts. [Part 1](#part-1-the-convention) is the IMS
-convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the IMS profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The profile keeps its numbering as a section
-of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
+This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 # Part 1. The convention
 
@@ -24,10 +20,10 @@ convention, and the profile rejects it.
 
 ## 1. Declaration
 
-The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "ims"`, `"version": 0`, `"revision": 27` ([conventions §1](../conventions.md#1-conventions)) and the file's URL as `source.url`.
-The root has no source metadata of its own: the whole HDF5 file is described
-by `refkv_source`, its IR mirror ([§5](#5-source-metadata)). Its CMO is:
+The root and `refkv_source` declare the convention
+([conventions §11.2](../conventions.md#112-declaration)). The root has no source
+metadata of its own: the whole HDF5 file is described by `refkv_source`, its IR
+mirror ([§5](#5-source-metadata)). Its CMO is:
 
 ```json
 {
@@ -39,10 +35,6 @@ by `refkv_source`, its IR mirror ([§5](#5-source-metadata)). Its CMO is:
 }
 ```
 
-These other nodes declare it, each with `{"ims": S}`: `refkv_source`, with
-the IR mirror's description ([§5.1](#51-the-ir-mirror)), and each group of the
-mirror's view that has a member.
-
 ## 2. The source
 
 An Imaris file (`.ims`) is an HDF5 file holding a fixed layout of groups and
@@ -50,7 +42,7 @@ datasets ([§2.2](#22-the-imaris-layout)): one chunked 3-D dataset per resolutio
 channel, with text attributes for the sizes and the metadata ([§3](#3-metadata)). The
 virtualizer reads the HDF5 structure itself, by the subset of the HDF5 file
 format (The HDF Group's *HDF5 File Format Specification*, version 3) that
-[spec/virtualize.md §8.1](#81-hdf5-structures)–[spec/virtualize.md §8.6](#86-attributes) describe; whatever falls outside the subset rejects the input. The
+[§7.1](#71-hdf5-structures)–[§7.6](#76-attributes) describe; whatever falls outside the subset rejects the input. The
 image's pixels are never read.
 
 The subset is what real Imaris files use. Files written by Imaris 7 to 9,
@@ -90,7 +82,7 @@ otherwise byte by byte as the code points U+0000 to U+00FF (ISO 8859-1).
 ### 2.2 The Imaris layout
 
 Names below are ASCII; a number in a name is in decimal without leading
-zeros. The virtualizer opens ([spec/virtualize.md §8.3](#83-groups-and-links)) these groups, following each link ([spec/virtualize.md §8.3](#83-groups-and-links))
+zeros. The virtualizer opens ([§7.3](#73-groups-and-links)) these groups, following each link ([§7.3](#73-groups-and-links))
 to reach them:
 
 - The root group. Without a link `DataSet`, the file is not an Imaris file
@@ -109,8 +101,8 @@ to reach them:
   leads to and `Channel c` of the group that leads to MUST exist; each group
   is opened. Other links of these groups (beyond `T` time points or `C`
   channels, `Histogram`, ...) are not followed. The channel group's
-  attributes are read ([spec/virtualize.md §8.6](#86-attributes)), and it MUST have a link `Data`, which leads to
-  the **dataset** `(r, t, c)`, read by [spec/virtualize.md §8.5](#85-datasets-and-chunks) with its allocated chunks.
+  attributes are read ([§7.6](#76-attributes)), and it MUST have a link `Data`, which leads to
+  the **dataset** `(r, t, c)`, read by [§7.5](#75-datasets-and-chunks) with its allocated chunks.
   - The channel group's attributes `ImageSizeZ`, `ImageSizeY` and
     `ImageSizeX`, read as text, MUST be integers from 1 to 2^53 − 1: the
     image's size `(Z, Y, X)`. (Imaris pads the dataset to whole chunks; the
@@ -144,7 +136,7 @@ If the root group has a link `DataSetInfo`, it is followed and the group
 opened. Each of that group's links `Image`, `Channel c` (for `c < C`,
 when `C` is at most 64) and `TimeInfo` that exists is followed, the group opened, and its
 attributes read; a missing group has no attributes. These attributes are
-read as text ([spec/virtualize.md §8.6](#86-attributes)) where present:
+read as text ([§7.6](#76-attributes)) where present:
 
 - of `Image`: `ExtMin0`, `ExtMin1`, `ExtMin2`, `ExtMax0`,
   `ExtMax1`, `ExtMax2` (each a decimal, else absent), `Unit` and
@@ -152,7 +144,7 @@ read as text ([spec/virtualize.md §8.6](#86-attributes)) where present:
 - of `Channel c`: `Name`, `Color` (a list of 3 decimals, else absent)
   and `ColorRange` (a list of 2 decimals, else absent); and `ColorMode`
   and `ColorTableLength`, which never reject the input: each is absent if
-  its value cannot be read ([spec/virtualize.md §8.6](#86-attributes)) or its datatype is not a
+  its value cannot be read ([§7.6](#76-attributes)) or its datatype is not a
   string;
 - of `TimeInfo`, only if `T > 1`: `TimePoint1` and `TimePoint<T>`.
 
@@ -166,9 +158,9 @@ never rejects the input. It is text, or absent:
   string, as above.
 - Otherwise, if `Channel c` has a link `ColorTable` (Imaris writes a table
   too large for an attribute as a dataset of 1-character strings, one per
-  row), the link is followed ([spec/virtualize.md §8.3](#83-groups-and-links)) and the dataset it
-  leads to is read as the source metadata reads one ([spec/virtualize.md §8.5](#85-datasets-and-chunks), with
-  [spec/virtualize.md §8.9](#89-source-metadata-structures)'s datasets of every layout).
+  row), the link is followed ([§7.3](#73-groups-and-links)) and the dataset it
+  leads to is read as the source metadata reads one ([§7.5](#75-datasets-and-chunks), with
+  [§7.9](#79-source-metadata-structures)'s datasets of every layout).
   Its data is the `n` bytes, for `n` the datatype's size times the product
   of the dataspace's sizes, that a compact dataset holds (exactly `n`
   bytes) or that start at a contiguous dataset's address (allocated, and
@@ -177,7 +169,7 @@ never rejects the input. It is text, or absent:
   3), the dataspace is not null, there are no filters, the layout is compact
   or contiguous and `n` is at most 2^18 bytes. Otherwise (a chunked or
   filtered dataset, another datatype, an object that is not a dataset, or a
-  structure that breaks a rule of [spec/virtualize.md §8.1](#81-hdf5-structures)–[spec/virtualize.md §8.6](#86-attributes) or [spec/virtualize.md §8.9](#89-source-metadata-structures)) it is absent.
+  structure that breaks a rule of [§7.1](#71-hdf5-structures)–[§7.6](#76-attributes) or [§7.9](#79-source-metadata-structures)) it is absent.
 - Otherwise it is absent.
 
 - **Extents.** For the axes `x`, `y` and `z` (`i` = 0, 1, 2): if
@@ -287,9 +279,8 @@ whatever else a writer adds) is kept by the file's IR mirror.
 ### 5.1 The IR mirror
 
 `refkv_source` is the file's **IR mirror**
-([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `refkv_source/tree`. The IR's
-elements (the IMS **source model**, below) describe the HDF5 structures the
+([conventions §11.3](../conventions.md#113-the-ir-mirror)).
+The IR's elements (the IMS **source model**, below) describe the HDF5 structures the
 walk ([§5.3](#53-the-walk)) reads; every other byte of the file (free space,
 unused allocations, the padding of blocks and heaps, the data of datasets
 the walk does not reach, and structures outside the subset the profile
@@ -306,24 +297,24 @@ whose type is not given is `bytes[n]`.
 | path | kind | type | what |
 |---|---|---|---|
 | `""` | struct | | the root: the whole file, extent `(0, size)` |
-| `superblock` | value | record | the superblock ([spec/virtualize.md §8.1](#81-hdf5-structures)): versions 2 and 3, its 48 bytes `{signature:bytes[8],version:u1,offset_size:u1,length_size:u1,flags:u1,base:<u8,extension:<u8,eof:<u8,root:<u8,checksum:<u4}`; versions 0 and 1, its 96 or 100 bytes, the root group's symbol table entry included |
+| `superblock` | value | record | the superblock ([§7.1](#71-hdf5-structures)): versions 2 and 3, its 48 bytes `{signature:bytes[8],version:u1,offset_size:u1,length_size:u1,flags:u1,base:<u8,extension:<u8,eof:<u8,root:<u8,checksum:<u4}`; versions 0 and 1, its 96 or 100 bytes, the root group's symbol table entry included |
 | `superblock_extension` | struct | | the superblock extension's object header, as an object's `prefix`, `checksum`, `messages` and `blocks` below |
 | `objects/<i>` | struct | | object `i` of the walk ([§5.3](#53-the-walk)): a group, a dataset or a named datatype |
-| `objects/<i>/prefix` | value | record | the object header's prefix ([spec/virtualize.md §8.2](#82-object-headers)): version 1, `{version:u1,reserved:u1,messages:<u2,references:<u4,size:<u4,padding:bytes[4]}`; version 2, `{signature:ascii[4],version:u1,flags:u1}` with `times:<u4[4]` and `phase:<u2[2]` when its flags hold them and `size`, the first block's size (`u1`, `<u2`, `<u4` or `<u8`) |
+| `objects/<i>/prefix` | value | record | the object header's prefix ([§7.2](#72-object-headers)): version 1, `{version:u1,reserved:u1,messages:<u2,references:<u4,size:<u4,padding:bytes[4]}`; version 2, `{signature:ascii[4],version:u1,flags:u1}` with `times:<u4[4]` and `phase:<u2[2]` when its flags hold them and `size`, the first block's size (`u1`, `<u2`, `<u4` or `<u8`) |
 | `objects/<i>/checksum` | value | `<u4` | version 2: the checksum after the first block |
 | `objects/<i>/blocks/<j>` | struct | | version 2: continuation block `j` (from 1): its `signature` (`ascii[4]`, `OCHK`) and `checksum` (`<u4`) |
 | `objects/<i>/messages/<k>` | struct | | message `k` of the header, in block order, continuation and null messages included |
 | `…/messages/<k>/header` | value | record | version 1, `{type:<u2,size:<u2,flags:u1,reserved:bytes[3]}`; version 2, `{type:u1,size:<u2,flags:u1}` (with `order:<u2` when the header tracks creation order) |
 | `…/messages/<k>/data` | value or struct | | the message's data; an attribute message (type 0x0C, not shared) is the struct of an **attribute** (below), a link message (0x06) the struct of a **link** |
-| `objects/<i>/symbol_table` | struct | | an old-style group's links ([spec/virtualize.md §8.3](#83-groups-and-links)): `heap` (its `header`, `{signature:ascii[4],version:u1,reserved:bytes[3],data_size:<u8,free_list:<u8,data:<u8}`, and `data`, the data segment), `nodes/<k>` (each version 1 B-tree node's `header`, `{signature:ascii[4],type:u1,level:u1,entries:<u2,left:<u8,right:<u8}`, and `entries`, its keys and children) and `snods/<k>` (each symbol table node's `header`, `{signature:ascii[4],version:u1,reserved:u1,entries:<u2}`, and `entries`, `{name:<u8,header:<u8,cache_type:<u4,reserved:<u4,scratch:bytes[16]}[e]`) |
-| `objects/<i>/links` | struct | | a dense group's links ([spec/virtualize.md §8.4](#84-version-2-b-trees-and-fractal-heaps)): `heap` (the fractal heap), `index` (the version 2 B-tree of names) and `items/<j>`, the link of the index's record `j` (a **link**) |
-| `objects/<i>/attributes` | struct | | dense attributes ([spec/virtualize.md §8.6](#86-attributes)): `heap`, `index` and `items/<j>`, the attribute of the index's record `j` (an **attribute**) |
+| `objects/<i>/symbol_table` | struct | | an old-style group's links ([§7.3](#73-groups-and-links)): `heap` (its `header`, `{signature:ascii[4],version:u1,reserved:bytes[3],data_size:<u8,free_list:<u8,data:<u8}`, and `data`, the data segment), `nodes/<k>` (each version 1 B-tree node's `header`, `{signature:ascii[4],type:u1,level:u1,entries:<u2,left:<u8,right:<u8}`, and `entries`, its keys and children) and `snods/<k>` (each symbol table node's `header`, `{signature:ascii[4],version:u1,reserved:u1,entries:<u2}`, and `entries`, `{name:<u8,header:<u8,cache_type:<u4,reserved:<u4,scratch:bytes[16]}[e]`) |
+| `objects/<i>/links` | struct | | a dense group's links ([§7.4](#74-version-2-b-trees-and-fractal-heaps)): `heap` (the fractal heap), `index` (the version 2 B-tree of names) and `items/<j>`, the link of the index's record `j` (a **link**) |
+| `objects/<i>/attributes` | struct | | dense attributes ([§7.6](#76-attributes)): `heap`, `index` and `items/<j>`, the attribute of the index's record `j` (an **attribute**) |
 | `…/heap` | struct | | a fractal heap: its `header` (146 bytes, a record of its fields), `blocks/<k>` (the indirect blocks the walk reads, whole, and the direct blocks' headers, in address order; the objects of a direct block are the items that name them) and `huge_index` (the version 2 B-tree of huge objects, when one was read) |
 | `…/index`, `…/huge_index` | struct | | a version 2 B-tree: its `header` (`{signature:ascii[4],version:u1,type:u1,node_size:<u4,record_size:<u2,depth:<u2,split:u1,merge:u1,root:<u8,root_records:<u2,records:<u8,checksum:<u4}`) and `nodes/<k>`, each node's records, child pointers and checksum |
-| `objects/<i>/index` | struct | | a chunked dataset's chunk index ([spec/virtualize.md §8.5](#85-datasets-and-chunks)): its structures by kind, each in index order: `headers/<k>` (a fixed array's, extensible array's or version 2 B-tree's header), `nodes/<k>` (version 1 or 2 B-tree nodes), `index_blocks/<k>`, `super_blocks/<k>`, `data_blocks/<k>` and `pages/<k>` |
+| `objects/<i>/index` | struct | | a chunked dataset's chunk index ([§7.5](#75-datasets-and-chunks)): its structures by kind, each in index order: `headers/<k>` (a fixed array's, extensible array's or version 2 B-tree's header), `nodes/<k>` (version 1 or 2 B-tree nodes), `index_blocks/<k>`, `super_blocks/<k>`, `data_blocks/<k>` and `pages/<k>` |
 | `objects/<i>/chunks/<n>` | data | | the allocated chunk of grid index `n` (the row-major index of its grid coordinates, the last dimension fastest): form geometry `{"chunk": [...], "size": s}` (the chunk shape and the datatype's size), codec `{"filters": [...]}` (the pipeline's identifiers, and `"mask"` when the chunk's filter mask is not 0), recipe the whole chunk |
-| `objects/<i>/data` | data | | a contiguous dataset's allocated data: form geometry `{"shape": [...], "size": s}`, codec `{"filters": []}`, recipe the whole range; or, for a dataset with an implicit chunk index that is not one of the image's, its chunks as one range from the first to the end of the last: geometry `{"chunk": [...], "size": s, "grid": [...]}`, the maximum grid ([spec/virtualize.md §8.5](#85-datasets-and-chunks)), the chunk at grid coordinates `x` being the bytes `[i × B, (i + 1) × B)` of the range, `i` the row-major index of `x` over the maximum grid and `B` the chunk's byte count (slots of the maximum grid outside the dataset's grid are allocated, unused) |
-| `global_heaps/<k>` | struct | | a global heap collection that an attribute's variable-length or region reference elements name ([spec/virtualize.md §8.9](#89-source-metadata-structures)), in address order: its `header` (`{signature:ascii[4],version:u1,reserved:bytes[3],size:<u8}`), `objects/<p>` (the `p`th object of the collection: its `header`, `{index:<u2,references:<u2,reserved:bytes[4],size:<u8}`, and `data`) and `free` (the free space's `header`) |
+| `objects/<i>/data` | data | | a contiguous dataset's allocated data: form geometry `{"shape": [...], "size": s}`, codec `{"filters": []}`, recipe the whole range; or, for a dataset with an implicit chunk index that is not one of the image's, its chunks as one range from the first to the end of the last: geometry `{"chunk": [...], "size": s, "grid": [...]}`, the maximum grid ([§7.5](#75-datasets-and-chunks)), the chunk at grid coordinates `x` being the bytes `[i × B, (i + 1) × B)` of the range, `i` the row-major index of `x` over the maximum grid and `B` the chunk's byte count (slots of the maximum grid outside the dataset's grid are allocated, unused) |
+| `global_heaps/<k>` | struct | | a global heap collection that an attribute's variable-length or region reference elements name ([§7.9](#79-source-metadata-structures)), in address order: its `header` (`{signature:ascii[4],version:u1,reserved:bytes[3],size:<u8}`), `objects/<p>` (the `p`th object of the collection: its `header`, `{index:<u2,references:<u2,reserved:bytes[4],size:<u8}`, and `data`) and `free` (the free space's `header`) |
 | `gaps/<offset>` | gap | | any byte no element claims |
 
 An **attribute** (a message's `data`, or a dense attribute's item) is the
@@ -350,7 +341,7 @@ references bounds the amplification).
 
 The **walk** reads the objects that hard links reach from the root group,
 by level, and never rejects the input: an object whose header cannot be read
-([spec/virtualize.md §8.2](#82-object-headers)) is an empty `objects/<i>`, and a
+([§7.2](#72-object-headers)) is an empty `objects/<i>`, and a
 structure that cannot be read (its links, its attributes, its dataset
 messages, its chunk index or a global heap collection) is not described.
 
@@ -365,10 +356,9 @@ messages, its chunk index or a global heap collection) is not described.
   The walk stops after level 64, or when a level is empty.
 - Each object read: its header; a group's links (and the structures that
   hold them); its attributes (and, when dense, their heap and index); a
-  dataset's messages ([spec/virtualize.md
-  §8.9](#89-source-metadata-structures)'s datasets of every layout; a
+  dataset's messages ([§7.9](#79-source-metadata-structures)'s datasets of every layout; a
   dataset that reading rejects is read as the layout reads one,
-  [spec/virtualize.md §8.5](#85-datasets-and-chunks)) and, when chunked, its
+  [§7.5](#75-datasets-and-chunks)) and, when chunked, its
   chunk index and allocated chunks (any filters, any filter masks); and the
   global heap collections that its attributes' variable-length (16-byte) or
   region reference (12-byte) elements name, at most 4,096 per object.
@@ -392,10 +382,8 @@ superblock names one, is read as an object's.
 
 ### 5.4 Equivalence
 
-The elements are determined by the file, and the mirror by its elements
-([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
-file are compared entry for entry, `refkv_source` included
-([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
+Hierarchies of one file are compared entry for entry, `refkv_source` included
+([conventions §11.4](../conventions.md#114-equivalence)).
 
 ## 6. Example
 
@@ -405,7 +393,6 @@ The root of a file at `https://example.org/a.ims`:
 "refkv_virtualized": {
   "profile": "ims",
   "version": 0,
-  "revision": 27,
   "source": {
     "url": "https://example.org/a.ims"
   }
@@ -446,22 +433,22 @@ their row in the table):
 
 # Part 2. The profile
 
-The IMS profile of [spec/virtualize.md](../virtualize.md) (revision 16), numbered
-as its [§8](#8-ims-profile). [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here.
+The IMS profile of [spec/virtualize.md](../virtualize.md) (revision 16) is [§7](#7-ims-profile) of this document. What every profile's Part 2 shares is in
+[spec/virtualize.md, Profiles](../virtualize.md#profiles).
 
-The output has the convention's layout for the input
-([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
-how the file is read, which inputs are rejected, and how each chunk
-references the file. "The convention §n" below is a section of Part 1.
+## 7. IMS profile
 
-## 8. IMS profile
+**Signature** ([spec/virtualize.md §1.2](../virtualize.md#12-input), tested at the precedence of
+[profiles/ims.json](profiles/ims.json)): bytes 0–7 of `H` are the HDF5 signature
+`89 48 44 46 0D 0A 1A 0A`. An HDF5 file that is not an Imaris file is rejected by this
+profile.
 
 An Imaris file (`.ims`) is an HDF5 file holding a fixed layout of groups and
 datasets ([the convention §2.2](#22-the-imaris-layout)): one chunked 3-D dataset per resolution level, time point and
 channel, with text attributes for the sizes and the metadata ([the convention §3](#3-metadata)). The
 virtualizer reads the HDF5 structure itself, by the subset of the HDF5 file
 format (The HDF Group's *HDF5 File Format Specification*, version 3) that
-[§8.1](#81-hdf5-structures)–[§8.6](#86-attributes) describe; whatever falls outside the subset rejects the input. The
+[§7.1](#71-hdf5-structures)–[§7.6](#76-attributes) describe; whatever falls outside the subset rejects the input. The
 pixels are never read.
 
 The subset is what real Imaris files use. Files written by Imaris 7 to 9,
@@ -479,7 +466,7 @@ allocated early. Imaris 10 can also compress chunks with LZ4
 (filter 32004), alone or after byte shuffling (filter 2); no codec of [conventions §3](../conventions.md#3-arrays)
 decodes those, so such files are rejected.
 
-### 8.1 HDF5 structures
+### 7.1 HDF5 structures
 
 - **Fields.** Every integer in an HDF5 structure is unsigned and
   little-endian. Addresses and lengths are 8 bytes (the superblock below
@@ -509,7 +496,7 @@ decodes those, so such files are rejected.
 Both sizes MUST be 8, the base address MUST be 0, and the root group's
 address MUST be defined.
 
-### 8.2 Object headers
+### 7.2 Object headers
 
 An object header at address `a` is a list of **blocks** that hold its
 messages.
@@ -543,17 +530,17 @@ that starts where an earlier block of the same header starts, and a header of
 more than 1000 blocks reject the input.
 
 The header's **messages** are the messages of all its blocks other than
-continuation messages, in order. Message types that [§8.3](#83-groups-and-links)–[§8.6](#86-attributes) do not read are
+continuation messages, in order. Message types that [§7.3](#73-groups-and-links)–[§7.6](#76-attributes) do not read are
 ignored, their data not decoded. Where those sections read **the** message of
 a type, the header MUST have at most one message of that type (exactly one
 where it is required), and that message's flag bit 1 (shared) MUST be clear.
 
-### 8.3 Groups and links
+### 7.3 Groups and links
 
 A group's **links** map names (byte strings) to targets: an object header
 address (a **hard** link), a path (a **soft** link), or neither (any other
 kind of link). **Opening** a group reads all its links from its object header
-([§8.2](#82-object-headers)), and every check below applies to every link, whether or not it is
+([§7.2](#72-object-headers)), and every check below applies to every link, whether or not it is
 used.
 
 - The header MUST NOT have both a symbol table message (type 0x11) and a link
@@ -581,8 +568,8 @@ used.
     header's link messages (type 0x06), none of which may have flag bit 1
     (shared) set.
   - **Dense:** otherwise the name index MUST be defined; it is a version 2
-    B-tree of type 5 ([§8.4](#84-version-2-b-trees-and-fractal-heaps)), each of whose records is a 4-byte hash (not read)
-    and a 7-byte heap ID. The links are the fractal heap's objects ([§8.4](#84-version-2-b-trees-and-fractal-heaps)) with
+    B-tree of type 5 ([§7.4](#74-version-2-b-trees-and-fractal-heaps)), each of whose records is a 4-byte hash (not read)
+    and a 7-byte heap ID. The links are the fractal heap's objects ([§7.4](#74-version-2-b-trees-and-fractal-heaps)) with
     those IDs, each a link message. Link messages in the header are not read.
 - **Link message.** Byte 0 (the version) MUST be 1; byte 1 holds flags `G`.
   Then come: the link's type (1 byte) if `G & 8`, else type 0; 8 bytes if
@@ -590,7 +577,7 @@ used.
   `2^(G & 3)` bytes; the name, `n` bytes. A link of type 0 is hard: an
   address follows, which MUST be defined. A link of type 1 is soft: a 2-byte
   length `m` follows, then its path, `m` bytes. For any other type nothing
-  more is read here (the source metadata reads its value, [§8.9](#89-source-metadata-structures)).
+  more is read here (the source metadata reads its value, [§7.9](#79-source-metadata-structures)).
 
 Two links of a group with the same name reject the input.
 
@@ -611,22 +598,22 @@ sibling addresses are not read). Its entries are the `e(K + 8) + K` bytes at
 each child an address, which MUST be defined. The children of a node of level
 `L > 0` are nodes, whose level MUST be `L − 1` (the root's level is not
 checked); the children of a leaf (`L = 0`) are symbol table nodes (type 0)
-or chunks (type 1, [§8.5](#85-datasets-and-chunks)), where key `i` describes child `i`. Within one
+or chunks (type 1, [§7.5](#75-datasets-and-chunks)), where key `i` describes child `i`. Within one
 tree, a node or a symbol table node read twice (at the same address) rejects
 the input.
 
-### 8.4 Version 2 B-trees and fractal heaps
+### 7.4 Version 2 B-trees and fractal heaps
 
 Dense groups and dense attributes keep their links and attribute messages as
 objects of a fractal heap, indexed by a version 2 B-tree; datasets of
-several unlimited dimensions index their chunks by one ([§8.5](#85-datasets-and-chunks)).
+several unlimited dimensions index their chunks by one ([§7.5](#75-datasets-and-chunks)).
 
 **Version 2 B-trees.** A tree of type `T` at `a`: the 38 bytes at `a`
 start with `BTHD`, then version 0 and type `T` (byte 5). Its node size `N`
 is the 4 bytes at 6, its record size `R` the 2 bytes at 10, its depth `D`
 the 2 bytes at 12, the root node's address the 8 bytes at 16 (if undefined,
 the tree has no records) and the root's number of records the 2 bytes at 24.
-`R` MUST be 24, 11 or 17 for type 1, 5 or 8 ([§8.5](#85-datasets-and-chunks) gives the record sizes
+`R` MUST be 24, 11 or 17 for type 1, 5 or 8 ([§7.5](#75-datasets-and-chunks) gives the record sizes
 of types 10 and 11), `N` MUST be at least `10 + R`, and `D` at most 16.
 
 - **Sizes** (exact integer arithmetic): a leaf holds at most
@@ -697,12 +684,12 @@ first byte shifted right by 4 bits gives its kind:
   in bytes at its address.
 - Any other kind (tiny objects, other ID versions) rejects the input.
 
-### 8.5 Datasets and chunks
+### 7.5 Datasets and chunks
 
 A dataset's object header has the dataspace message (type 0x01), the datatype
 message (type 0x03) and the data layout message (type 0x08), all required,
 and may have the fill value message (type 0x05) and the filter pipeline
-message (type 0x0B) ([§8.2](#82-object-headers)).
+message (type 0x0B) ([§7.2](#72-object-headers)).
 
 - **Dataspace.** Byte 0 is the version, byte 1 the rank `k`, byte 2 flags.
   Version 1: the sizes start at byte 8, and rank 0 is a scalar. Version 2:
@@ -741,7 +728,7 @@ message (type 0x0B) ([§8.2](#82-object-headers)).
     of `e` bytes, the index type (1 byte), the index's fields, and the index
     address (8 bytes). The index types are:
     - 1, a **single chunk**: if flag bit 1 is set, the chunk's size (8 bytes,
-      a length) and filter mask (4 bytes, which MUST be 0, [§8.9](#89-source-metadata-structures));
+      a length) and filter mask (4 bytes, which MUST be 0, [§7.9](#79-source-metadata-structures));
     - 2, **implicit**: no fields;
     - 3, a **fixed array**: 1 byte, not read (the page bits of the fixed
       array header are used);
@@ -756,7 +743,7 @@ message (type 0x0B) ([§8.2](#82-object-headers)).
     dimension of size `n` and chunk shape `k` has `(g + 1) × k > n`, is
     stored unfiltered, whatever filter mask the index records: it is read
     as a chunk whose filter mask has the bit of every filter of the
-    pipeline set ([§8.9](#89-source-metadata-structures)), so an image dataset (whose masks MUST be 0) with
+    pipeline set ([§7.9](#79-source-metadata-structures)), so an image dataset (whose masks MUST be 0) with
     such a chunk rejects the input. A single chunk index without flag bit
     1, and an implicit index, with filters reject the input.
   - Other versions reject the input.
@@ -782,7 +769,7 @@ coordinates, an address and a size. No two may have the same coordinates;
 without filters, the size MUST equal the byte count; the size MUST be at least
 1; and the chunk (its size in bytes at its address) MUST lie within the file.
 
-- **Version 1 B-tree:** read ([§8.3](#83-groups-and-links)) with node type 1 and keys of
+- **Version 1 B-tree:** read ([§7.3](#73-groups-and-links)) with node type 1 and keys of
   `8 + 8m` bytes. A leaf's child `i` is a chunk's address, and its key
   `i` holds the chunk's size (4 bytes), its filter mask (4 bytes, which MUST
   be 0) and `m` offsets (8 bytes each). The last offset MUST be 0, and each
@@ -858,7 +845,7 @@ without filters, the size MUST equal the byte count; the size MUST be at least
     later, each of `2^g` elements followed by 4 bytes; a page that is not
     initialized holds no chunk and is not read. A data block of the index
     block MUST NOT be paged.
-- **Version 2 B-tree:** read as [§8.4](#84-version-2-b-trees-and-fractal-heaps) says, of type 10 without filters,
+- **Version 2 B-tree:** read as [§7.4](#74-version-2-b-trees-and-fractal-heaps) says, of type 10 without filters,
   whose records are `8 + 8k` bytes for rank `k`, or of type 11 with,
   whose records are from `13 + 8k` to `20 + 8k` bytes. A record is the
   chunk's address (8 bytes, which MUST be defined); with filters, its size
@@ -866,7 +853,7 @@ without filters, the size MUST equal the byte count; the size MUST be at least
   bytes, which MUST be 0); then its `k` coordinates (8 bytes each), each
   less than the grid's chunk count along its dimension.
 
-### 8.6 Attributes
+### 7.6 Attributes
 
 Reading an object's **attributes** reads its object header's attribute
 messages (type 0x0C), none of which may have flag bit 1 (shared) set, and its
@@ -876,7 +863,7 @@ attribute info message (type 0x15), if any:
   After 2 more bytes if flag bit 0 is set come the address of a fractal heap
   and the address of a name index. If the heap's address is defined (**dense
   attributes**), the name index MUST be defined; it is a version 2 B-tree of
-  type 8 ([§8.4](#84-version-2-b-trees-and-fractal-heaps)), each of whose records is a heap ID (8 bytes), message flags
+  type 8 ([§7.4](#74-version-2-b-trees-and-fractal-heaps)), each of whose records is a heap ID (8 bytes), message flags
   (1 byte, whose bit 1, shared, MUST be clear) and 8 bytes not read. The
   attributes are then also the fractal heap's objects with those IDs, each an
   attribute message.
@@ -892,20 +879,20 @@ attribute info message (type 0x15), if any:
 Every attribute's name is read; two attributes with the same name reject the
 input. An attribute's **value** is read only where the convention reads the
 attribute: its flag bits 0 and 1 (shared datatype or dataspace) MUST be
-clear; its datatype and dataspace ([§8.5](#85-datasets-and-chunks)) MUST lie within the message; the
+clear; its datatype and dataspace ([§7.5](#75-datasets-and-chunks)) MUST lie within the message; the
 dataspace MUST NOT be null; its element count is the product of its sizes (1
 for a scalar); and its data, the next count × datatype size bytes, MUST lie
 within the message.
 
-### 8.7 Rejection
+### 7.7 Rejection
 
-The input is rejected when a rule of [§8.1](#81-hdf5-structures)–[§8.6](#86-attributes) fails for a structure that
+The input is rejected when a rule of [§7.1](#71-hdf5-structures)–[§7.6](#76-attributes) fails for a structure that
 the convention's [§2](#2-the-source)–[§4](#4-output) read, and when the convention gives it no layout:
 wherever it says that the input is rejected, or that something MUST hold
 and it does not. The walk of the source metadata ([the convention §5.3](#53-the-walk)) never rejects the
 input: what it cannot read is not described, and its bytes are gaps.
 
-### 8.8 Chunk references
+### 7.8 Chunk references
 
 Each allocated chunk of dataset `(r, t, c)` at coordinates
 `(i, j, k)` that is not wholly outside the image (that is,
@@ -917,19 +904,19 @@ HDF5 stores edge chunks whole, like Zarr, so a chunk's bytes decode to its
 Zarr chunk. (A single range's payload is at most 21 bytes, within the limit
 of [§1.2](../virtualize.md#12-input).)
 
-### 8.9 Source metadata structures
+### 7.9 Source metadata structures
 
-The walk of the source metadata ([the convention §5.3](#53-the-walk)) reads, besides [§8.1](#81-hdf5-structures)–[§8.6](#86-attributes):
+The walk of the source metadata ([the convention §5.3](#53-the-walk)) reads, besides [§7.1](#71-hdf5-structures)–[§7.6](#76-attributes):
 
 - **Datasets of every layout.** A layout message of version 3, 4 or 5 of
   class 0 (compact: the data's size in 2 bytes at byte 2, the data from
   byte 4), class 1 (contiguous: the address at byte 2, undefined when the
   storage is not allocated, and the size at byte 10) or class 2 (chunked,
-  as [§8.5](#85-datasets-and-chunks)). Class 3 is a **virtual dataset**, whose data is
+  as [§7.5](#75-datasets-and-chunks)). Class 3 is a **virtual dataset**, whose data is
   elsewhere and not read. The fill value message's value is its data (none
   when the message says it has none), which MUST be empty or of the
   datatype's size.
-- **Datatype messages** of versions 1 to 5 ([§8.5](#85-datasets-and-chunks) reads versions 1 to 3 for
+- **Datatype messages** of versions 1 to 5 ([§7.5](#75-datasets-and-chunks) reads versions 1 to 3 for
   the image; later versions keep the same fields).
 - **The global heap.** A collection at address `a` starts with `GCOL`,
   version 1, three reserved bytes and the collection's size (8 bytes),
@@ -942,26 +929,26 @@ The walk of the source metadata ([the convention §5.3](#53-the-walk)) reads, be
   (class 7, kind 1, of 12 bytes) is a collection's address (8 bytes) and an
   object's index (4). The address 0 or the undefined address names no
   collection.
-- **Filter masks.** A chunk's filter mask ([§8.5](#85-datasets-and-chunks): in a version 1 B-tree's
+- **Filter masks.** A chunk's filter mask ([§7.5](#75-datasets-and-chunks): in a version 1 B-tree's
   key, a single chunk's layout message, an array index's entry or a version
   2 B-tree's record) may be any value: bit `i` set means that the pipeline's
   filter `i` (from 0, in pipeline order) was not applied to the chunk. A
-  partial edge chunk of a dataset with layout flag bit 0 ([§8.5](#85-datasets-and-chunks)) has every
+  partial edge chunk of a dataset with layout flag bit 0 ([§7.5](#75-datasets-and-chunks)) has every
   filter's bit set. Any filter pipeline is read; the chunks are not decoded.
 - **Attribute data.** An attribute message lies in the file in one run:
-  in the block of the object header that holds it ([§8.2](#82-object-headers)), or as a fractal
-  heap object ([§8.4](#84-version-2-b-trees-and-fractal-heaps): a managed object within its direct block, a huge object
+  in the block of the object header that holds it ([§7.2](#72-object-headers)), or as a fractal
+  heap object ([§7.4](#74-version-2-b-trees-and-fractal-heaps): a managed object within its direct block, a huge object
   at the address its record gives). Its data is the run's bytes from where
-  [§8.6](#86-attributes) places it.
-- **Null dataspaces.** A dataset's or an attribute's null dataspace ([§8.5](#85-datasets-and-chunks))
+  [§7.6](#76-attributes) places it.
+- **Null dataspaces.** A dataset's or an attribute's null dataspace ([§7.5](#75-datasets-and-chunks))
   is read as such: it has no data.
 - **Shared datatypes.** A dataset's datatype message with flag bit 1
   (shared) set holds a shared message instead of a datatype: byte 0 is its
   version; in version 1 the address is the 8 bytes at byte 8, in version 2,
   and in version 3 when byte 1 (the type) is 2, the 8 bytes at byte 2; any
   other shared message leaves the datatype unread. The address MUST be
-  defined; it is a committed datatype's object header ([§8.2](#82-object-headers)), whose datatype
+  defined; it is a committed datatype's object header ([§7.2](#72-object-headers)), whose datatype
   message (which MUST NOT be shared) is the datatype.
 - **Links of other types.** A link message of a type other than 0 and 1
-  ([§8.3](#83-groups-and-links)) has, after its name, a 2-byte length `m` and its value, `m`
+  ([§7.3](#73-groups-and-links)) has, after its name, a 2-byte length `m` and its value, `m`
   bytes; when they do not lie within the message the link has no value.

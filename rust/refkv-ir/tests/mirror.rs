@@ -11,12 +11,20 @@ use refkv_ir::mirror::{text_json, canonical, canonical_problem, load, mirror, or
 use refkv_ir::out::Out;
 use refkv_ir::run::{run_bytes, Format};
 
+/// Every file profile's fixtures (the registry's, spec/virtualize/profiles/: fixtures/<p>,
+/// the files of its suffixes), with its format.
 fn fixtures() -> Vec<(Format, std::path::PathBuf)> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
     let mut v = Vec::new();
-    for (f, dir, ext) in [(Format::Tiff, "tiff", "tif"), (Format::Czi, "czi", "czi"), (Format::Nd2, "nd2", "nd2"), (Format::Dicom, "dicom", "dcm"), (Format::Nifti, "nifti", "nii"), (Format::Ims, "ims", "ims"), (Format::Ndpi, "ndpi", "ndpi")] {
-        let mut ps: Vec<_> = std::fs::read_dir(root.join(dir)).unwrap().map(|e| e.unwrap().path())
-            .filter(|p| p.extension().is_some_and(|e| e == ext)).collect();
+    for e in refkv_ir::out::registry().iter().filter(|e| e["kind"] == "file") {
+        let name = e["name"].as_str().unwrap();
+        let f = Format::from_name(name).unwrap_or_else(|| panic!("{name}: no parser"));
+        if f.store_run() {
+            continue; // a file input read as a store run (VSI): tests/vsi.rs checks its mirrors
+        }
+        let suffixes: Vec<&str> = e["suffixes"].as_array().unwrap().iter().map(|s| s.as_str().unwrap()).collect();
+        let mut ps: Vec<_> = std::fs::read_dir(root.join(name)).unwrap().map(|e| e.unwrap().path())
+            .filter(|p| p.is_file() && suffixes.iter().any(|s| p.to_string_lossy().ends_with(s))).collect();
         ps.sort();
         v.extend(ps.into_iter().map(|p| (f, p)));
     }

@@ -3,6 +3,7 @@
 //! decoder to a tree of records with their positions, the object reading
 //! the convention defines, and the records' emission as IR elements.
 
+use crate::fed::Word;
 use crate::ir::*;
 
 pub const MAX_DEPTH: u32 = 100;
@@ -171,7 +172,7 @@ impl P<'_> {
             }
             let mut units = Vec::new();
             for c in d[pos..pos + 2 * k as usize].chunks(2) {
-                let u = u16::from_le_bytes([c[0], c[1]]);
+                let u = u16::le_at(c, 0);
                 if u == 0 {
                     break;
                 }
@@ -208,7 +209,7 @@ impl P<'_> {
                 2..=7 => {
                     let r = take(&mut pos, if typ <= 3 { 4 } else { 8 })?;
                     if self.exact && typ == 6 {
-                        let bits = u64::from_le_bytes(d[r.0..r.1].try_into().unwrap());
+                        let bits = u64::le_at(d, r.0);
                         let v = f64::from_bits(bits);
                         if v.is_nan() && bits != QUIET_NAN {
                             return Err(LvErr::Lossy(
@@ -222,7 +223,7 @@ impl P<'_> {
                     let mut units = Vec::new();
                     loop {
                         let r = take(&mut pos, 2)?;
-                        let u = u16::from_le_bytes([d[r.0], d[r.0 + 1]]);
+                        let u = u16::le_at(d, r.0);
                         if u == 0 {
                             break;
                         }
@@ -232,7 +233,7 @@ impl P<'_> {
                 }
                 9 => {
                     let r = take(&mut pos, 8)?;
-                    let n = u64::from_le_bytes(d[r.0..r.1].try_into().unwrap());
+                    let n = u64::le_at(d, r.0);
                     self.spend(n)?;
                     let r = take(&mut pos, n)?;
                     LvVal::Bytes {
@@ -242,8 +243,8 @@ impl P<'_> {
                 }
                 11 => {
                     let r = take(&mut pos, 12)?;
-                    let c = u32::from_le_bytes(d[r.0..r.0 + 4].try_into().unwrap());
-                    let length = u64::from_le_bytes(d[r.0 + 4..r.1].try_into().unwrap());
+                    let c = u32::le_at(d, r.0);
+                    let length = u64::le_at(d, r.0 + 4);
                     let level_end = (start as u64).checked_add(length);
                     let Some(level_end) = level_end.filter(|&e| e <= end as u64 && e >= pos as u64)
                     else {
@@ -259,7 +260,7 @@ impl P<'_> {
                     if self.exact && d[t.0..t.1].iter().any(|&b| b != 0) {
                         let mut offsets: Vec<u64> = d[t.0..t.1]
                             .chunks(8)
-                            .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
+                            .map(|x| u64::le_at(x, 0))
                             .collect();
                         offsets.sort();
                         let mut want: Vec<u64> =

@@ -1,6 +1,6 @@
 //! A sans-IO parser of TIFF, BigTIFF and OME-TIFF files into the IR
-//! (spec/virtualize.md §3
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-tiff-profile>,
+//! (spec/virtualize/tiff.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#7-tiff-profile>,
 //! spec/virtualize/tiff.md): it never reads; it asks for batches
 //! of ranges (`step`), is given their bytes (`feed`), and holds them only until
 //! the step that uses them.
@@ -13,10 +13,21 @@
 //! for the IR only. The schema (`schema/tiff.json`) is checked as the profile
 //! meets each role: a file that fails is rejected there, and nowhere else.
 //!
+//! **The QPTIFF variant** (spec/virtualize/qptiff.md
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md>). After the header (and
+//! the NDPI test), the first IFD's Software tag decides whether the file is an Akoya QPTIFF
+//! (`detect_qptiff`, spec/virtualize/qptiff.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#7-qptiff-profile>, which
+//! never rejects). A QPTIFF is read as a TIFF, with the table of `QPTIFF_TABLE` (the strip
+//! tables, RowsPerStrip and the position tags added), the schema `schema/qptiff.json`, and its
+//! own layout (`derive_qptiff`: the channels are the FullResolution images, the levels the runs
+//! of ReducedResolution images, tiled or in strips), whose facts the QPTIFF projection
+//! (`project/qptiff.rs`) reads; `self.qptiff` marks it.
+//!
 //! **The NDPI variant** (spec/virtualize/ndpi.md
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md>). After the header, the
-//! parser tests the file for NDPI (§4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>, which never
+//! parser tests the file for NDPI (§7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>, which never
 //! rejects): a little-endian magic-42 TIFF whose IFD at the u64 at bytes 4–11 has tag 65420. An
 //! NDPI is read by the same rounds with these extension points, each a method that asks
 //! `self.ndpi`:
@@ -31,14 +42,15 @@
 //!   JPEG headers and restart intervals read by `ndpi.rs`), whose facts the NDPI projection
 //!   (`project/ndpi.rs`) reads.
 
-use crate::check;
 use crate::expr::V;
-use crate::fed::{Fed, u16_at, u32_at, u64_at};
+use crate::fed::{Fed, Word};
 use crate::ir::*;
 use crate::nd2::Step;
+use crate::lzw;
 use crate::ndpi;
 use crate::out::Part;
-use crate::rules::{self, Rules, Vars, flag, int, num, text};
+use crate::rules::{self, Rules, flag, int, num, text};
+use crate::sans;
 use crate::xml::{self, Ev};
 use serde_json::{Value as J, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -48,7 +60,9 @@ const TABLE: [u16; 21] = [
 ];
 const SCALARS: [u16; 13] = [256, 257, 259, 262, 266, 277, 282, 283, 284, 296, 317, 322, 323];
 const LAYOUT: [u16; 11] = [273, 279, 288, 289, 324, 325, 513, 514, 519, 520, 521];
-const ADOBE: [u8; 15] = [
+/// The Adobe APP14 marker that tells a decoder a 3-component stream is RGB (transform 0),
+/// written before a JPEG tile's tables.
+pub const ADOBE: [u8; 15] = [
     0xFF, 0xEE, 0x00, 0x0E, 0x41, 0x64, 0x6F, 0x62, 0x65, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00,
 ];
 const WINDOW: u64 = 4096; // the bytes asked at an IFD, before its entry count is known
@@ -65,6 +79,17 @@ const NDPI_TABLE: [u16; 17] = [
 ];
 const NDPI_SCALARS: [u16; 14] = [256, 257, 259, 262, 273, 277, 279, 282, 283, 296, 65420, 65421, 65422, 65423];
 const NDPI_LAYOUT: [u16; 2] = [65426, 65432];
+/// The tags of QPTIFF's table (spec/virtualize/qptiff.md §2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#2-the-source>): TIFF's, with
+/// the strip tables, RowsPerStrip and the position tags.
+const QPTIFF_TABLE: [u16; 26] = [
+    256, 257, 258, 259, 262, 266, 270, 273, 277, 278, 279, 282, 283, 284, 286, 287, 296, 317, 322, 323, 324, 325, 330, 339, 347,
+    530,
+];
+const QPTIFF_SCALARS: [u16; 16] = [256, 257, 259, 262, 266, 277, 278, 282, 283, 284, 286, 287, 296, 317, 322, 323];
+/// What a QPTIFF's Software tag starts with (spec/virtualize/qptiff.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#7-qptiff-profile>).
+const QPI_SOFTWARE: &[u8] = b"PerkinElmer-QPI";
 const MAX_SAFE: u64 = (1 << 53) - 1;
 
 fn is_used(tag: u16) -> bool {
@@ -100,7 +125,7 @@ fn label(tag: u16) -> String {
     }
 }
 
-fn value_type(le: bool, typ: u16, count: u64) -> String {
+pub fn value_type(le: bool, typ: u16, count: u64) -> String {
     let e = if le { "<" } else { ">" };
     match typ {
         1 => format!("u1[{count}]"),
@@ -173,6 +198,7 @@ enum Phase {
     Header,
     Detect,
     DetectEntries,
+    DetectQpi,
     Chain,
     ChainValues,
     SubPlan,
@@ -249,11 +275,12 @@ pub struct Tiff {
     ptr_state: u8,
     made: Vec<usize>,
     data_keys: HashMap<String, u32>,
-    pub requests: u64,
-    pub requested: u64,
-    pub rounds: u64,
+    /// what the parse asked for
+    pub asked: sans::Asked,
     /// the file is an NDPI (the variant of the module's documentation)
     pub ndpi: bool,
+    /// the file is a QPTIFF (the variant of the module's documentation)
+    pub qptiff: bool,
     /// the header's bytes, kept until the NDPI test decides how to read it
     head: Vec<u8>,
 }
@@ -261,9 +288,17 @@ pub struct Tiff {
 struct Level {
     w: u64,
     h: u64,
+    /// the chunk's width and height: the tile's, or, for a level in strips (QPTIFF), the
+    /// image's width and the rows per strip
     tw: u64,
     th: u64,
     ifds: Vec<usize>,
+    /// the level is in strips (QPTIFF)
+    strips: bool,
+    /// how a short last strip is padded to the chunk (QPTIFF, spec/virtualize/qptiff.md §4.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#42-tiles-and-strips>):
+    /// `{"zeros": n}` (uncompressed) or `{"lzw": [{c, k, prefix, tail}, ...]}`; null when none
+    pad: J,
 }
 
 struct Layout {
@@ -283,7 +318,7 @@ impl Tiff {
             phase: Phase::Start,
             fed: Fed::default(),
             ir: Ir::new(size),
-            rules: rules::tiff(),
+            rules: rules::of("tiff"),
             le: true,
             big: false,
             hs: 8,
@@ -308,10 +343,9 @@ impl Tiff {
             ptr_state: 0,
             made: Vec::new(),
             data_keys: HashMap::new(),
-            requests: 0,
-            requested: 0,
-            rounds: 0,
+            asked: sans::Asked::default(),
             ndpi: false,
+            qptiff: false,
             head: Vec::new(),
         }
     }
@@ -320,7 +354,23 @@ impl Tiff {
 
     /// A tag of the table the variant checks.
     fn table(&self, tag: u16) -> bool {
-        if self.ndpi { NDPI_TABLE.contains(&tag) } else { is_table(tag) }
+        if self.ndpi {
+            NDPI_TABLE.contains(&tag)
+        } else if self.qptiff {
+            QPTIFF_TABLE.contains(&tag)
+        } else {
+            is_table(tag)
+        }
+    }
+
+    /// A tag of the table whose values the layout reads for every IFD it uses.
+    fn used(&self, tag: u16) -> bool {
+        if self.qptiff { QPTIFF_TABLE.contains(&tag) && tag != 270 && tag != 330 } else { is_used(tag) }
+    }
+
+    /// A scalar tag of the table: its first value is read.
+    fn scalar(&self, tag: u16) -> bool {
+        if self.qptiff { QPTIFF_SCALARS.contains(&tag) } else { is_scalar(tag) }
     }
 
     /// A layout tag: its values only locate the file's bytes.
@@ -348,18 +398,8 @@ impl Tiff {
         self.fed.feed(offset, data);
     }
 
-    fn ask(&mut self, mut r: Vec<(u64, u64)>) -> Step {
-        r.retain(|x| x.1 > 0);
-        r.sort_unstable();
-        r.dedup();
-        self.requests += r.len() as u64;
-        self.requested += r.iter().map(|x| x.1).sum::<u64>();
-        self.rounds += 1;
-        Step::Read(r)
-    }
-
-    fn check(&self, role: &str, mut env: Vars<'static>) -> Res<()> {
-        self.rules.check(role, &mut env)
+    fn ask(&mut self, r: Vec<(u64, u64)>) -> Step {
+        self.asked.ask(r)
     }
 
     fn cs(&self) -> u64 {
@@ -372,7 +412,7 @@ impl Tiff {
         if self.big { 8 } else { 4 }
     }
     fn word(&self, b: &[u8], at: usize) -> u64 {
-        if self.big { u64_at(b, at, self.le) } else { u32_at(b, at, self.le) as u64 }
+        if self.big { u64::at(b, at, self.le) } else { u32::at(b, at, self.le) as u64 }
     }
     fn within(&self, o: u64, n: u64) -> bool {
         o.checked_add(n).is_some_and(|e| e <= self.size)
@@ -389,11 +429,11 @@ impl Tiff {
                     let n = 16.min(self.size);
                     let h = self.fed.get(0, n).ok_or("internal: no header")?.to_vec();
                     self.fed.clear();
-                    // the NDPI test (spec/virtualize/ndpi.md §4
-                    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>):
+                    // the NDPI test (spec/virtualize/ndpi.md §7
+                    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>):
                     // the IFD at V, the u64 at bytes 4–11, of a little-endian classic TIFF
                     if h.len() >= 12 && h[..4] == *b"II*\0" {
-                        let v = u64_at(&h, 4, true);
+                        let v = u64::at(&h, 4, true);
                         if v >= 16 && v.checked_add(2).is_some_and(|e| e <= self.size) {
                             self.head = h;
                             self.phase = Phase::Detect;
@@ -401,12 +441,18 @@ impl Tiff {
                         }
                     }
                     self.header(&h)?;
+                    self.phase = Phase::DetectQpi;
+                }
+                Phase::DetectQpi => {
+                    if let Some(s) = self.detect_qptiff()? {
+                        return Ok(s);
+                    }
                     self.phase = Phase::Chain;
                 }
                 Phase::Detect => {
                     let h = std::mem::take(&mut self.head);
-                    let v = u64_at(&h, 4, true);
-                    let n = u16_at(self.fed.get(v, 2).ok_or("internal: no NDPI entry count")?, 0, true) as u64;
+                    let v = u64::at(&h, 4, true);
+                    let n = u16::at(self.fed.get(v, 2).ok_or("internal: no NDPI entry count")?, 0, true) as u64;
                     let end = v + 2 + 12 * n;
                     if end <= self.size && self.fed.get(v + 2, 12 * n).is_none() {
                         self.head = h;
@@ -417,8 +463,8 @@ impl Tiff {
                 }
                 Phase::DetectEntries => {
                     let h = std::mem::take(&mut self.head);
-                    let v = u64_at(&h, 4, true);
-                    let n = u16_at(self.fed.get(v, 2).ok_or("internal: no NDPI entry count")?, 0, true) as u64;
+                    let v = u64::at(&h, 4, true);
+                    let n = u16::at(self.fed.get(v, 2).ok_or("internal: no NDPI entry count")?, 0, true) as u64;
                     self.decide(&h, v, n)?;
                 }
                 Phase::Chain => {
@@ -500,7 +546,14 @@ impl Tiff {
                         }
                         self.fed.clear();
                     }
-                    match if self.ndpi { self.derive_ndpi() } else { self.derive() } {
+                    let derived = if self.ndpi {
+                        self.derive_ndpi()
+                    } else if self.qptiff {
+                        self.derive_qptiff()
+                    } else {
+                        self.derive()
+                    };
+                    match derived {
                         Ok(l) => {
                             self.layout = Some(l);
                             self.emit_data()?;
@@ -543,7 +596,7 @@ impl Tiff {
         for k in at {
             let Some(e) = self.ifds[k].field(330).cloned() else { continue };
             let vals = self.ints(&e, false).ok_or("internal: SubIFDs not read")?;
-            self.check(
+            self.rules.check(
                 "values",
                 rules::env([
                     ("tag", int(330)),
@@ -552,7 +605,7 @@ impl Tiff {
                 ]),
             )?;
             for (j, &o) in vals.iter().enumerate() {
-                self.check(
+                self.rules.check(
                     "ifd_offset",
                     rules::env([
                         ("offset", num(o as f64)),
@@ -588,9 +641,9 @@ impl Tiff {
             _ => "other",
         };
         self.le = order == "II";
-        let magic = if h.len() >= 4 { u16_at(h, 2, self.le) } else { 0 };
-        let (os, rs) = if h.len() >= 8 { (u16_at(h, 4, self.le), u16_at(h, 6, self.le)) } else { (0, 0) };
-        self.check(
+        let magic = if h.len() >= 4 { u16::at(h, 2, self.le) } else { 0 };
+        let (os, rs) = if h.len() >= 8 { (u16::at(h, 4, self.le), u16::at(h, 6, self.le)) } else { (0, 0) };
+        self.rules.check(
             "header",
             rules::env([
                 ("length", int(h.len() as i128)),
@@ -622,27 +675,73 @@ impl Tiff {
     fn decide(&mut self, h: &[u8], v: u64, n: u64) -> Res<()> {
         let within = v + 2 + 12 * n <= self.size;
         let ndpi = within
-            && self.fed.get(v + 2, 12 * n).is_some_and(|e| (0..n as usize).any(|i| u16_at(e, 12 * i, true) == 65420));
+            && self.fed.get(v + 2, 12 * n).is_some_and(|e| (0..n as usize).any(|i| u16::at(e, 12 * i, true) == 65420));
         if ndpi {
             self.ndpi = true;
-            self.rules = rules::ndpi();
+            self.rules = rules::of("ndpi");
             self.hs = 16;
             let s = self.ir.struct_(0, "header", NO_INDEX, 0, Some((0, 12)))?;
             self.ir.value(s, "byte_order", NO_INDEX, "ascii[2]", 0, (0, 2), Some(&h[..2]))?;
             self.ir.value(s, "magic", NO_INDEX, "<u2", 0, (2, 2), Some(&h[2..4]))?;
             self.ir.value(s, "first_ifd", NO_INDEX, "<u8", 0, (4, 8), Some(&h[4..12]))?;
             self.next = v;
+            self.phase = Phase::Chain;
         } else {
             self.header(h)?;
+            self.phase = Phase::DetectQpi;
         }
-        self.phase = Phase::Chain;
         Ok(())
+    }
+
+    /// The QPTIFF test (spec/virtualize/qptiff.md §7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#7-qptiff-profile>): the
+    /// first IFD's Software tag (305), ASCII, whose value starts with `PerkinElmer-QPI`. Asks for
+    /// the bytes it needs (the IFD's count and entries, then the value's first 15 bytes); a file
+    /// that fails any part of the test is a TIFF, so the test never rejects.
+    fn detect_qptiff(&mut self) -> Res<Option<Step>> {
+        let o = self.next;
+        let (cs, es, fs) = (self.cs(), self.es(), self.fs());
+        if !self.within(o, cs) {
+            return Ok(None);
+        }
+        let Some(c) = self.fed.get(o, cs) else {
+            let n = WINDOW.min(self.size - o).max(cs);
+            return Ok(Some(self.ask(vec![(o, n)])));
+        };
+        let count = self.word_n(c);
+        let Some(n) = count.checked_mul(es) else { return Ok(None) };
+        if !self.within(o + cs, n) {
+            return Ok(None);
+        }
+        let Some(body) = self.fed.get(o + cs, n) else {
+            return Ok(Some(self.ask(vec![(o + cs, n)])));
+        };
+        let Some(raw) = body.chunks_exact(es as usize).find(|e| u16::at(e, 0, self.le) == 305).map(|e| e.to_vec()) else {
+            return Ok(None);
+        };
+        let (typ, count) = (u16::at(&raw, 2, self.le), self.word(&raw, 4));
+        let want = QPI_SOFTWARE.len() as u64;
+        if typ != 2 || count < want {
+            return Ok(None); // a longer value than the field holds: never in line
+        }
+        let off = self.word(&raw, 4 + fs as usize);
+        if !self.within(off, want) {
+            return Ok(None);
+        }
+        let Some(b) = self.fed.get(off, want) else {
+            return Ok(Some(self.ask(vec![(off, want)])));
+        };
+        if b == QPI_SOFTWARE {
+            self.qptiff = true;
+            self.rules = rules::of("qptiff");
+        }
+        Ok(None)
     }
 
     /// An NDPI IFD (the `ifd_offset` role of `schema/ndpi.json`): in the file, not read
     /// before, within the IFD limit; its count and its body within the file.
     fn check_ndpi_offset(&self, o: u64, count_within: bool, within: bool) -> Res<()> {
-        self.check(
+        self.rules.check(
             "ifd_offset",
             rules::env([
                 ("offset", num(o as f64)),
@@ -656,7 +755,7 @@ impl Tiff {
     }
 
     fn check_offset(&self, o: u64, chain: bool) -> Res<()> {
-        self.check(
+        self.rules.check(
             "ifd_offset",
             rules::env([
                 ("offset", num(o as f64)),
@@ -729,7 +828,7 @@ impl Tiff {
                     self.check_ndpi_offset(p.offset, true, false)?;
                 }
                 if !within {
-                    self.check(
+                    self.rules.check(
                         "ifd_offset",
                         rules::env([
                             ("offset", num(p.offset as f64)),
@@ -763,7 +862,7 @@ impl Tiff {
             if p.tree && p.depth == 0 {
                 self.chain.push(k);
                 if self.ndpi {
-                    self.next = u64_at(&body, self.next_of(count), true);
+                    self.next = u64::at(&body, self.next_of(count), true);
                 } else {
                     let f = self.fs() as usize;
                     self.next = self.word(&body, body.len() - f);
@@ -780,7 +879,7 @@ impl Tiff {
     }
 
     fn word_n(&self, b: &[u8]) -> u64 {
-        if self.big { u64_at(b, 0, self.le) } else { u16_at(b, 0, self.le) as u64 }
+        if self.big { u64::at(b, 0, self.le) } else { u16::at(b, 0, self.le) as u64 }
     }
 
     /// Emits the IFD at `p.offset` from its bytes, checking its fields (tree IFDs).
@@ -810,15 +909,15 @@ impl Tiff {
         for i in 0..count as usize {
             let at = cs + i * es;
             let raw = &body[at..at + es];
-            let tag = u16_at(raw, 0, self.le);
-            let typ = u16_at(raw, 2, self.le);
+            let tag = u16::at(raw, 0, self.le);
+            let typ = u16::at(raw, 2, self.le);
             let n = self.word(raw, 4);
             let field = raw[4 + fs..4 + 2 * fs].to_vec();
             let nbytes = type_size(typ).and_then(|z| z.checked_mul(n));
             let inline = nbytes.is_some_and(|b| b <= fs as u64);
             // NDPI: the entry's high word, after the next-IFD offset
             let hat = self.next_of(count) + 8 + 4 * i;
-            let high = if self.ndpi { u32_at(body, hat, true) as u64 } else { 0 };
+            let high = if self.ndpi { u32::at(body, hat, true) as u64 } else { 0 };
             let off = if inline { 0 } else { self.word(&field, 0) + (high << 32) };
             let dup = *dups.get(&tag).unwrap_or(&0);
             dups.insert(tag, dup + 1);
@@ -901,16 +1000,16 @@ impl Tiff {
         let n = if first { 1.min(e.count) } else { e.count };
         if self.ndpi && e.inline && e.count == 1 && matches!(e.typ, 4 | 13) {
             // an NDPI LONG or IFD of count 1 in line: its 4 bytes plus its high word
-            return Some(vec![u32_at(&e.field, 0, true) as u64 + (e.high << 32)]);
+            return Some(vec![u32::at(&e.field, 0, true) as u64 + (e.high << 32)]);
         }
         let b = self.bytes_of(e, n * z)?;
         Some(
             b.chunks(z as usize)
                 .map(|c| match e.typ {
                     1 => c[0] as u64,
-                    3 => u16_at(c, 0, self.le) as u64,
-                    4 | 13 => u32_at(c, 0, self.le) as u64,
-                    _ => u64_at(c, 0, self.le),
+                    3 => u16::at(c, 0, self.le) as u64,
+                    4 | 13 => u32::at(c, 0, self.le) as u64,
+                    _ => u64::at(c, 0, self.le),
                 })
                 .collect(),
         )
@@ -994,14 +1093,21 @@ type Vals = HashMap<u16, Loaded>;
 
 /// The OME-XML of spec/virtualize/tiff.md §3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-ome-xml>: the first image's
-/// name, its Pixels' attributes, its TiffData elements, and its first Plane at (0, 0, 0).
+/// name, its Pixels' attributes, its TiffData elements, its first Plane at (0, 0, 0), and the
+/// attributes of its first `MAX_OMERO` Channels.
 #[derive(Default, Debug)]
 struct Ome {
     name: Option<String>,
     pixels: Vec<(String, String)>,
     tiff_data: Vec<(Vec<(String, String)>, Option<String>)>,
     plane: Option<Vec<(String, String)>>,
+    channels: Vec<Vec<(String, String)>>,
 }
+
+/// The most channels an image's `omero` lists (spec/virtualize/tiff.md §4.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>), so that the root
+/// does not grow with the channel count.
+pub const MAX_OMERO: u64 = 64;
 
 fn get<'a>(attrs: &'a [(String, String)], k: &str) -> Option<&'a str> {
     attrs.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str())
@@ -1087,6 +1193,9 @@ fn read_ome(x: &str, rules: &Rules) -> Res<Option<Ome>> {
                             text_from = Some((k, t.end));
                         }
                     }
+                }
+                if !t.is_end && t.name == "Channel" && (ome.channels.len() as u64) < MAX_OMERO {
+                    ome.channels.push(decoded_attrs(&t, x));
                 }
                 if !t.is_end && t.name == "TiffData" {
                     ome.tiff_data.push((decoded_attrs(&t, x), None));
@@ -1180,6 +1289,51 @@ fn aperio_fields(d: &str) -> Option<Vec<(String, String)>> {
     Some(out)
 }
 
+/// An IFD's JPEG prefix (spec/virtualize/tiff.md §7.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#73-chunks>): the Adobe marker
+/// for 3 samples, then JPEGTables without its SOI and EOI; whether the IFD has JPEGTables, and
+/// whether they are well formed (the `plane` role). Empty when the compression is not JPEG.
+fn jpeg_prefix(m: &Vals, jpeg: bool, spp: u64, photometric: Option<u64>) -> (Vec<u8>, bool, bool) {
+    if !jpeg {
+        return (Vec::new(), false, true);
+    }
+    let tables = match m.get(&347) {
+        Some(Loaded::Bytes(t)) => Some(t.as_slice()),
+        _ => None,
+    };
+    let (prefix, tables_ok) = jpeg_frame(spp, photometric == Some(2), tables);
+    (prefix, tables.is_some(), tables_ok)
+}
+
+/// What a JPEG stream of a TIFF image starts with (spec/virtualize/tiff.md §7.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#73-chunks>): the Adobe
+/// marker for 3 samples (transform 0 when the image is RGB, else 1), then the JPEGTables
+/// `tables` without their SOI and EOI; and whether the tables are well formed (tables that are
+/// not are left out).
+pub fn jpeg_frame(samples: u64, rgb: bool, tables: Option<&[u8]>) -> (Vec<u8>, bool) {
+    let mut prefix = Vec::new();
+    if samples == 3 {
+        prefix.extend_from_slice(&ADOBE);
+        prefix.push(if rgb { 0 } else { 1 });
+    }
+    let ok = tables.is_none_or(|t| t.len() >= 4 && t[..2] == [0xFF, 0xD8] && t[t.len() - 2..] == [0xFF, 0xD9]);
+    if let Some(t) = tables.filter(|_| ok) {
+        prefix.extend_from_slice(&t[2..t.len() - 2]);
+    }
+    (prefix, ok)
+}
+
+/// The forms of a strip or tile whose geometry and codec are `base`: read whole, and, when
+/// the image has a shared JPEG prefix, framed by it (the stream's SOI, the prefix, the rest).
+pub fn tile_forms(base: &J, shared: Option<u32>) -> (String, Option<String>) {
+    let form = |recipe: J| {
+        let mut j = base.clone();
+        j["recipe"] = recipe;
+        j.to_string()
+    };
+    (form(json!([["src", 0, null]])), shared.map(|x| form(json!([["src", 0, 2], ["shared", x], ["src", 2, null]]))))
+}
+
 fn first_int(m: &Vals, tag: u16) -> Option<u64> {
     match m.get(&tag) {
         Some(Loaded::Ints(v)) => v.first().copied(),
@@ -1193,9 +1347,9 @@ impl Tiff {
         b.chunks(z)
             .map(|c| match typ {
                 1 => c[0] as u64,
-                3 => u16_at(c, 0, self.le) as u64,
-                4 | 13 => u32_at(c, 0, self.le) as u64,
-                _ => u64_at(c, 0, self.le),
+                3 => u16::at(c, 0, self.le) as u64,
+                4 | 13 => u32::at(c, 0, self.le) as u64,
+                _ => u64::at(c, 0, self.le),
             })
             .collect()
     }
@@ -1213,7 +1367,7 @@ impl Tiff {
             tags.sort_unstable_by_key(|x| x.1);
             for (tag, i) in tags {
                 let e = &f.entries[i];
-                let used = (is_used(tag) && (tiles || !(tag == 324 || tag == 325)))
+                let used = (self.used(tag) && (tiles || !matches!(tag, 324 | 325 | 273 | 279)))
                     || (tag == 270 && description && e.typ == 2);
                 if !used {
                     continue;
@@ -1221,8 +1375,8 @@ impl Tiff {
                 let z = type_size(e.typ).unwrap();
                 let n = match tag {
                     270 | 347 => e.count * z,
-                    282 | 283 => z,
-                    _ if is_scalar(tag) => z,
+                    282 | 283 | 286 | 287 => z,
+                    _ if self.scalar(tag) => z,
                     _ => e.count * z,
                 };
                 let n = if e.count == 0 { 0 } else { n };
@@ -1231,9 +1385,9 @@ impl Tiff {
                     Some(b) => {
                         let v = match tag {
                             270 | 347 => Loaded::Bytes(b),
-                            282 | 283 => Loaded::Pairs(vec![(
-                                u32_at(&b, 0, self.le) as u64,
-                                u32_at(&b, 4, self.le) as u64,
+                            282 | 283 | 286 | 287 => Loaded::Pairs(vec![(
+                                u32::at(&b, 0, self.le) as u64,
+                                u32::at(&b, 4, self.le) as u64,
                             )]),
                             _ => Loaded::Ints(self.view_ints(&b, e.typ)),
                         };
@@ -1263,7 +1417,7 @@ impl Tiff {
         if let Some(d) = default {
             return Ok(d);
         }
-        self.check(
+        self.rules.check(
             "required",
             rules::env([("offset", num(self.ifds[k].offset as f64)), ("tag", int(tag as i128)), ("present", flag(false))]),
         )?;
@@ -1274,7 +1428,7 @@ impl Tiff {
         match m.get(&tag) {
             Some(Loaded::Ints(v)) => Ok(v.clone()),
             _ => {
-                self.check(
+                self.rules.check(
                     "required",
                     rules::env([("offset", num(self.ifds[k].offset as f64)), ("tag", int(tag as i128)), ("present", flag(false))]),
                 )?;
@@ -1292,7 +1446,7 @@ impl Tiff {
         let spp = self.req(k, m, 277, Some(1))?;
         let planar = if spp > 1 { self.req(k, m, 284, Some(1))? } else { 1 };
         let num_list = |v: &[u64]| V::List(v.iter().map(|&x| V::Num(x as f64)).collect());
-        self.check(
+        self.rules.check(
             "format",
             rules::env([
                 ("bits", num_list(&bits)),
@@ -1320,7 +1474,7 @@ impl Tiff {
             tw = self.req(k, m, 322, None)?;
             th = self.req(k, m, 323, None)?;
         }
-        self.check(
+        self.rules.check(
             "size",
             rules::env([
                 ("offset", num(self.ifds[k].offset as f64)),
@@ -1343,7 +1497,7 @@ impl Tiff {
             Some(Loaded::Ints(v)) => v.clone(),
             _ => vec![2, 2],
         };
-        self.check(
+        self.rules.check(
             "samples",
             rules::env([
                 ("offset", num(self.ifds[k].offset as f64)),
@@ -1378,7 +1532,7 @@ impl Tiff {
             self.check_samples(k, m)?;
         }
         for &k in ks {
-            self.check(
+            self.rules.check(
                 "level_ifd",
                 rules::env([("offset", num(self.ifds[k].offset as f64)), ("tiled", flag(self.tiled(k))), ("same", flag(true))]),
             )?;
@@ -1397,16 +1551,16 @@ impl Tiff {
         let f0 = self.fmt(k0, m0)?;
         for &k in ks {
             let same = dims(k, &vals[&k])? == d0 && self.fmt(k, &vals[&k])? == f0;
-            self.check(
+            self.rules.check(
                 "level_ifd",
                 rules::env([("offset", num(self.ifds[k].offset as f64)), ("tiled", flag(true)), ("same", flag(same))]),
             )?;
         }
-        Ok(Level { w: d0.0, h: d0.1, tw: d0.2, th: d0.3, ifds: ks.to_vec() })
+        Ok(Level { w: d0.0, h: d0.1, tw: d0.2, th: d0.3, ifds: ks.to_vec(), strips: false, pad: J::Null })
     }
 
     fn derive(&self) -> Got<Layout> {
-        self.check("images", rules::env([("ifds", num(self.chain.len() as f64))]))?;
+        self.rules.check("images", rules::env([("ifds", num(self.chain.len() as f64))]))?;
         let i0 = self.chain[0];
         let mut vals: HashMap<usize, Vals> = HashMap::new();
         let m0 = self.load(&[i0], false, true)?.pop().unwrap();
@@ -1425,7 +1579,7 @@ impl Tiff {
         }
         let f0 = self.fmt(i0, &m0)?;
         let (bits, spp, sample_format, planar, compression, predictor, photometric) = f0;
-        self.check("predictor", rules::env([("compression", num(compression as f64)), ("predictor", num(predictor as f64))]))?;
+        self.rules.check("predictor", rules::env([("compression", num(compression as f64)), ("predictor", num(predictor as f64))]))?;
         // the planes (spec/virtualize/tiff.md §3
         // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-ome-xml>, §4.1
         // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#41-planes>), in (t, c,
@@ -1437,7 +1591,7 @@ impl Tiff {
         let mut size_c = int_attr(self.rules, px, "SizeC", spp, 1)?;
         let order = get(px, "DimensionOrder").unwrap_or("XYZCT").to_string();
         if ome.is_some() || (spp > 1 && size_c != spp) {
-            self.check(
+            self.rules.check(
                 "ome_pixels",
                 rules::env([("order", text(if ome.is_some() { &order } else { "XYZCT" })), ("spp", num(spp as f64)), ("size_c", num(size_c as f64))]),
             )?;
@@ -1453,14 +1607,14 @@ impl Tiff {
             u.dedup();
             u.len()
         });
-        self.check("ome_planes", rules::env([("planes", num(count as f64)), ("files", num(0.0))]))?;
+        self.rules.check("ome_planes", rules::env([("planes", num(count as f64)), ("files", num(0.0))]))?;
         let count = count as usize;
         let mut plane_ifd: Vec<i128> = vec![-1; count];
         let plane = |t: u64, c: u64, z: u64| ((t * plane_c + c) * size_z + z) as usize;
         match &ome {
             None => plane_ifd[0] = 0,
             Some(o) => {
-                self.check("ome_planes", rules::env([("planes", num(count as f64)), ("files", num(files.unwrap() as f64))]))?;
+                self.rules.check("ome_planes", rules::env([("planes", num(count as f64)), ("files", num(files.unwrap() as f64))]))?;
                 let sizes = |d: u8| match d {
                     b'Z' => size_z,
                     b'C' => plane_c,
@@ -1477,7 +1631,7 @@ impl Tiff {
                     pos[1] = int_attr(self.rules, a, "FirstC", 0, 0)?;
                     pos[2] = int_attr(self.rules, a, "FirstT", 0, 0)?;
                     let inside = pos[0] < size_z && pos[1] < plane_c && pos[2] < size_t;
-                    self.check(
+                    self.rules.check(
                         "tiff_data",
                         rules::env([("inside", flag(inside)), ("total", num(0.0)), ("bound", num(bound as f64))]),
                     )?;
@@ -1494,7 +1648,7 @@ impl Tiff {
                         + sizes(d0) as u128 * (pos[idx(d1)] as u128 + sizes(d1) as u128 * pos[idx(d2)] as u128);
                     let mut n = n.min(count as u128 - first);
                     total += n;
-                    self.check(
+                    self.rules.check(
                         "tiff_data",
                         rules::env([("inside", flag(true)), ("total", num(total as f64)), ("bound", num(bound as f64))]),
                     )?;
@@ -1516,7 +1670,7 @@ impl Tiff {
             }
         }
         let mapped = plane_ifd.iter().all(|&i| i >= 0 && (i as usize) < self.chain.len());
-        self.check("plane_map", rules::env([("mapped", flag(mapped))]))?;
+        self.rules.check("plane_map", rules::env([("mapped", flag(mapped))]))?;
         let planes: Vec<usize> = plane_ifd.iter().map(|&i| self.chain[i as usize]).collect();
         // the levels (spec/virtualize/tiff.md §4.2
         // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#42-pyramid-levels>)
@@ -1525,7 +1679,7 @@ impl Tiff {
         if !subs0.is_empty() {
             let s = subs0.len();
             for &p in &planes {
-                self.check(
+                self.rules.check(
                     "subifd_levels",
                     rules::env([
                         ("offset", num(self.ifds[p].offset as f64)),
@@ -1561,7 +1715,7 @@ impl Tiff {
         for lv in &levels {
             for &k in &lv.ifds {
                 let same = self.fmt(k, &vals[&k])? == f0;
-                self.check("pyramid", rules::env([("same", flag(same))]))?;
+                self.rules.check("pyramid", rules::env([("same", flag(same))]))?;
             }
         }
         // data type and codecs (spec/virtualize/tiff.md §4.3
@@ -1588,22 +1742,8 @@ impl Tiff {
                 let m = &vals[&k];
                 let offsets = self.reqs(k, m, 324)?;
                 let counts = self.reqs(k, m, 325)?;
-                let mut prefix = Vec::new();
-                let (mut has_tables, mut tables_ok) = (false, true);
-                if jpeg {
-                    if spp == 3 {
-                        prefix.extend_from_slice(&ADOBE);
-                        prefix.push(if photometric == Some(2) { 0 } else { 1 });
-                    }
-                    if let Some(Loaded::Bytes(t)) = m.get(&347) {
-                        has_tables = true;
-                        tables_ok = t.len() >= 4 && t[..2] == [0xFF, 0xD8] && t[t.len() - 2..] == [0xFF, 0xD9];
-                        if tables_ok {
-                            prefix.extend_from_slice(&t[2..t.len() - 2]);
-                        }
-                    }
-                }
-                self.check(
+                let (prefix, has_tables, tables_ok) = jpeg_prefix(m, jpeg, spp, photometric);
+                self.rules.check(
                     "plane",
                     rules::env([
                         ("offset", num(self.ifds[k].offset as f64)),
@@ -1623,7 +1763,7 @@ impl Tiff {
                         continue;
                     }
                     let within = (o as u128 + c as u128) <= self.size as u128;
-                    self.check(
+                    self.rules.check(
                         "tile",
                         rules::env([
                             ("k", num(j as f64)),
@@ -1727,7 +1867,7 @@ impl Tiff {
                 corner = Some((cx - bw * sx / 2.0, cy - bh * sy / 2.0));
             }
             if let Some((x, y)) = corner {
-                self.check("translation", rules::env([("x", num(x)), ("y", num(y))]))?;
+                self.rules.check("translation", rules::env([("x", num(x)), ("y", num(y))]))?;
                 translation = J::Array(axes.iter().map(|&a| match a {
                     'x' => json!(x),
                     'y' => json!(y),
@@ -1757,7 +1897,9 @@ impl Tiff {
                 "name": o.name,
                 "pixels": o.pixels.iter().map(|(k, v)| (k.clone(), J::String(v.clone()))).collect::<serde_json::Map<_, _>>(),
                 "plane": o.plane.as_ref().map(|p| p.iter().map(|(k, v)| (k.clone(), J::String(v.clone()))).collect::<serde_json::Map<_, _>>()),
+                "channels": o.channels.iter().map(|c| json!({"name": get(c, "Name"), "color": get(c, "Color")})).collect::<Vec<_>>(),
             })),
+            "interpretation": first_int(m0, 262),
             "axes": axes.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
             "units": units.iter().map(|(a, u)| (a.to_string(), J::String(u.clone()))).collect::<serde_json::Map<_, _>>(),
             "scales": scales,
@@ -1782,27 +1924,18 @@ impl Tiff {
         }
         let f = &self.ifds[k];
         let one = |t: u16| f.field(t).filter(|e| unsigned(e.typ)).and_then(|e| self.ints(e, true)).and_then(|v| v.first().copied());
-        let mut out = Vec::new();
         if one(259).unwrap_or(1) != 7 {
-            return out;
+            return Vec::new();
         }
-        if one(277).unwrap_or(1) == 3 {
-            out.extend_from_slice(&ADOBE);
-            out.push(if one(262) == Some(2) { 0 } else { 1 });
-        }
-        if let Some(t) = f.field(347).and_then(|e| self.bytes_of(e, e.nbytes.unwrap_or(0))) {
-            if t.len() >= 4 && t[..2] == [0xFF, 0xD8] && t[t.len() - 2..] == [0xFF, 0xD9] {
-                out.extend_from_slice(&t[2..t.len() - 2]);
-            }
-        }
-        out
+        let tables = f.field(347).and_then(|e| self.bytes_of(e, e.nbytes.unwrap_or(0)));
+        jpeg_frame(one(277).unwrap_or(1), one(262) == Some(2), tables.as_deref()).0
     }
 
     /// The IFD's strips and tiles as `data` elements, with geometry,
     /// codec and recipe; an IFD whose tables and codec are an earlier IFD's names
-    /// its tiles by alias. Returns the tiles struct (or what its alias names).
-    fn emit_ifd_data(&mut self, k: usize, by_key: &mut HashMap<String, u32>) -> Res<Option<u32>> {
-        let mut tiles = None;
+    /// its tiles by alias. Returns the tiles and strips structs (or what their aliases name).
+    fn emit_ifd_data(&mut self, k: usize, by_key: &mut HashMap<String, u32>) -> Res<(Option<u32>, Option<u32>)> {
+        let (mut tiles, mut strips) = (None, None);
         for (name, ot, ct) in [("tiles", 324u16, 325u16), ("strips", 273, 279)] {
             let f = &self.ifds[k];
             let (Some(eo), Some(ec)) = (f.field(ot).cloned(), f.field(ct).cloned()) else { continue };
@@ -1836,22 +1969,15 @@ impl Tiff {
                 self.ir.alias(parent, name, NO_INDEX, t)?;
                 if name == "tiles" {
                     tiles = Some(t);
+                } else {
+                    strips = Some(t);
                 }
                 continue;
             }
             let s = self.ir.struct_(parent, name, NO_INDEX, 0, None)?;
             by_key.insert(key, s);
             let shared = if prefix.is_empty() { None } else { Some(self.ir.share(&prefix)) };
-            let plain = {
-                let mut j = base.clone();
-                j["recipe"] = json!([["src", 0, null]]);
-                j.to_string()
-            };
-            let framed = shared.map(|x| {
-                let mut j = base.clone();
-                j["recipe"] = json!([["src", 0, 2], ["shared", x], ["src", 2, null]]);
-                j.to_string()
-            });
+            let (plain, framed) = tile_forms(&base, shared);
             // one element a tile, not folded into runs: the mirror folds the tiles of a
             // table into one column run whose extents it reads from the table itself
             for (j, (&o, &c)) in offsets.iter().zip(&counts).enumerate() {
@@ -1866,14 +1992,16 @@ impl Tiff {
             }
             if name == "tiles" {
                 tiles = Some(s);
+            } else {
+                strips = Some(s);
             }
         }
-        Ok(tiles)
+        Ok((tiles, strips))
     }
 
     fn emit_data(&mut self) -> Res<()> {
         let mut by_key = HashMap::new();
-        let mut tiles_of: HashMap<usize, Option<u32>> = HashMap::new();
+        let mut tiles_of: HashMap<usize, (Option<u32>, Option<u32>)> = HashMap::new();
         for k in 0..self.ifds.len() {
             let t = self.emit_ifd_data(k, &mut by_key)?;
             tiles_of.insert(k, t);
@@ -1887,8 +2015,10 @@ impl Tiff {
             .levels
             .iter()
             .map(|lv| {
-                json!({"w": lv.w, "h": lv.h, "tw": lv.tw, "th": lv.th,
-                       "planes": lv.ifds.iter().map(|k| tiles_of.get(k).copied().flatten()).collect::<Vec<_>>()})
+                // a level's chunks are its IFDs' tiles, or (QPTIFF) strips
+                let of = |k: &usize| tiles_of.get(k).copied().and_then(|(t, s)| if lv.strips { s } else { t });
+                json!({"w": lv.w, "h": lv.h, "tw": lv.tw, "th": lv.th, "strips": lv.strips, "pad": lv.pad,
+                       "planes": lv.ifds.iter().map(of).collect::<Vec<_>>()})
             })
             .collect();
         lay.facts["levels"] = J::Array(levels);
@@ -2045,17 +2175,10 @@ impl Tiff {
     }
 
     /// The IR, finished (aliases and gaps), and the facts the projection reads.
-    pub fn finish(mut self) -> Result<(Ir, J), String> {
-        if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
-        }
-        self.ir.sort_values();
-        check::finish(&mut self.ir)?;
-        let mut facts = self.layout.take().map(|l| l.facts).unwrap_or(J::Null);
-        facts["requests"] = json!(self.requests);
-        facts["requested"] = json!(self.requested);
-        facts["rounds"] = json!(self.rounds);
-        Ok((self.ir, facts))
+    pub fn finish(self) -> Result<(Ir, J), String> {
+        let mut facts = self.layout.map(|l| l.facts).unwrap_or(J::Null);
+        self.asked.put(&mut facts);
+        sans::finish(self.phase == Phase::Done, self.ir, facts)
     }
 }
 
@@ -2119,7 +2242,7 @@ impl Tiff {
                 v.truncate(n as usize);
                 if check {
                     let safe = v.iter().all(|&x| x <= MAX_SAFE);
-                    self.check("values", rules::env([("tag", int(tag as i128)), ("safe", flag(safe))]))?;
+                    self.rules.check("values", rules::env([("tag", int(tag as i128)), ("safe", flag(safe))]))?;
                 }
                 Nv::Ints(v)
             } else {
@@ -2129,11 +2252,11 @@ impl Tiff {
                 };
                 let c = b.chunks_exact(z as usize);
                 match e.typ {
-                    8 => Nv::Signed(c.map(|x| i16::from_le_bytes([x[0], x[1]]) as i64).collect()),
-                    9 => Nv::Signed(c.map(|x| i32::from_le_bytes(x.try_into().unwrap()) as i64).collect()),
-                    11 => Nv::Floats(c.map(|x| f32::from_le_bytes(x.try_into().unwrap()) as f64).collect()),
-                    12 => Nv::Floats(c.map(|x| f64::from_le_bytes(x.try_into().unwrap())).collect()),
-                    5 => Nv::Rats(c.map(|x| (u32_at(x, 0, true) as u64, u32_at(x, 4, true) as u64)).collect()),
+                    8 => Nv::Signed(c.map(|x| i16::le_at(x, 0) as i64).collect()),
+                    9 => Nv::Signed(c.map(|x| i32::le_at(x, 0) as i64).collect()),
+                    11 => Nv::Floats(c.map(|x| f32::le_at(x, 0) as f64).collect()),
+                    12 => Nv::Floats(c.map(|x| f64::le_at(x, 0)).collect()),
+                    5 => Nv::Rats(c.map(|x| (u32::at(x, 0, true) as u64, u32::at(x, 4, true) as u64)).collect()),
                     _ => return Err("internal: an NDPI tag of an unexpected type".into()),
                 }
             };
@@ -2147,7 +2270,7 @@ impl Tiff {
         match m.get(&tag).and_then(|v| v.first()) {
             Some(x) => Ok(x),
             None => {
-                self.check("required", rules::env([("what", text(what)), ("present", flag(false))]))?;
+                self.rules.check("required", rules::env([("what", text(what)), ("present", flag(false))]))?;
                 Ok(0.0)
             }
         }
@@ -2162,6 +2285,23 @@ impl Tiff {
         match self.ifds[k].field(tag) {
             Some(e) => json!({"value": e.val, "type": e.typ, "high": if e.inline { e.hi } else { None }}),
             None => J::Null,
+        }
+    }
+
+    /// The frame header of the strip at `s0` of `n` bytes, of a level without McuStarts
+    /// (`ndpi::frame`), from its first bytes read so far: `FRAME_READ` of them, then, while
+    /// the header continues past them, at least twice as many, up to `MAX_FRAME_READ` and the
+    /// strip's end (past which it has none). Err: the first bytes to read next.
+    fn ndpi_frame(&self, s0: u64, n: u64) -> Result<Option<ndpi::Frame>, (u64, u64)> {
+        let cap = n.min(ndpi::MAX_FRAME_READ);
+        let mut have = n.min(ndpi::FRAME_READ);
+        loop {
+            let Some(b) = self.heads.get(&(s0, have)) else { return Err((s0, have)) };
+            match ndpi::frame(b) {
+                ndpi::Scan::Frame(f) => return Ok(Some(f)),
+                ndpi::Scan::Need(k) if k <= cap => have = cap.min(k.max(2 * have)),
+                _ => return Ok(None),
+            }
         }
     }
 
@@ -2202,11 +2342,21 @@ impl Tiff {
             }
             let m = self.nload(k, None, &mut need, false)?;
             let (s0, n) = (Self::nint(&m, 273).unwrap_or(0), Self::nint(&m, 279).unwrap_or(0));
-            if let Some((starts, true)) = starts_of(&m) {
-                let fits = (s0 as u128 + n as u128) <= self.size as u128 && starts.first().is_some_and(|&f| f >= 2 && f <= n);
-                if fits && !self.heads.contains_key(&(s0, starts[0])) {
-                    need.push((s0, starts[0]));
+            let fits = (s0 as u128 + n as u128) <= self.size as u128;
+            match starts_of(&m) {
+                Some((starts, true)) => {
+                    let first = starts.first().is_some_and(|&f| f >= 2 && f <= n);
+                    if fits && first && !self.heads.contains_key(&(s0, starts[0])) {
+                        need.push((s0, starts[0]));
+                    }
                 }
+                // a strip without McuStarts: its first bytes, for its frame header
+                None if fits && n >= 4 => {
+                    if let Err(r) = self.ndpi_frame(s0, n) {
+                        need.push(r);
+                    }
+                }
+                _ => {}
             }
         }
         if !need.is_empty() {
@@ -2234,7 +2384,7 @@ impl Tiff {
             let one_strip = [273u16, 279].iter().all(|&t| f.field(t).is_some_and(|e| e.count == 1));
             let smaller = levels.last().is_none_or(|l| w < l.2 && h < l.3);
             let new_magnification = !levels.iter().any(|l| l.1 == mag);
-            self.check(
+            self.rules.check(
                 "level",
                 rules::env([
                     ("compression", num(compression as f64)),
@@ -2251,7 +2401,7 @@ impl Tiff {
             levels.push((k, mag, w, h));
             tags.push((k, m));
         }
-        self.check("images", rules::env([("levels", num(levels.len() as f64))]))?;
+        self.rules.check("images", rules::env([("levels", num(levels.len() as f64))]))?;
         let vals = |k: usize| &tags.iter().find(|t| t.0 == k).unwrap().1;
         // scale and position (spec/virtualize/ndpi.md §4
         // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>)
@@ -2293,14 +2443,14 @@ impl Tiff {
         };
         let mut out = Vec::new();
         let mut scales = Vec::new();
-        for &(k, _, w, h) in &levels {
+        for (li, &(k, _, w, h)) in levels.iter().enumerate() {
             let m = vals(k);
             let (s0, n) = (Self::nint(m, 273).unwrap_or(0), Self::nint(m, 279).unwrap_or(0));
             let within = (s0 as u128 + n as u128) <= self.size as u128;
-            self.check("strip", rules::env([("within", flag(within)), ("length", num(n as f64))]))?;
+            self.rules.check("strip", rules::env([("within", flag(within)), ("length", num(n as f64))]))?;
             let head = starts_of(m);
             if let Some((starts, same_length)) = &head {
-                self.check(
+                self.rules.check(
                     "mcu_starts",
                     rules::env([
                         ("same_length", flag(*same_length)),
@@ -2308,6 +2458,35 @@ impl Tiff {
                         ("length", num(n as f64)),
                     ]),
                 )?;
+            }
+            // a strip without McuStarts whose frame is not the level's size, but has its MCU rows
+            // and columns, is spliced the level's (spec/virtualize/ndpi.md §7
+            // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>); with
+            // others, the level is not a level
+            let mut frame = J::Null;
+            if head.is_none() {
+                let f = match self.ndpi_frame(s0, n) {
+                    Ok(f) => f,
+                    Err(r) => return Err(Stop::Need(vec![r])),
+                };
+                if let Some(f) = f.filter(|f| (f.height, f.width) != (h, w)) {
+                    let covers = f.covers(h, w);
+                    self.rules.check(
+                        "frame",
+                        rules::env([
+                            ("level", num(li as f64)),
+                            ("covers", flag(covers)),
+                            ("frame_height", num(f.height as f64)),
+                            ("frame_width", num(f.width as f64)),
+                            ("height", num(h as f64)),
+                            ("width", num(w as f64)),
+                        ]),
+                    )?;
+                    if !covers {
+                        continue;
+                    }
+                    frame = json!(f.at);
+                }
             }
             let grid = match head {
                 None => J::Null,
@@ -2326,7 +2505,7 @@ impl Tiff {
             };
             out.push(json!({
                 "w": w, "h": h, "strip": s0, "length": n,
-                "starts": self.ent_facts(k, 65426), "high": self.ent_facts(k, 65432), "grid": grid,
+                "starts": self.ent_facts(k, 65426), "high": self.ent_facts(k, 65432), "grid": grid, "frame": frame,
             }));
             scales.push(json!([1, py.unwrap_or(1.0) * (bh as f64 / h as f64), px.unwrap_or(1.0) * (bw as f64 / w as f64)]));
         }
@@ -2335,7 +2514,7 @@ impl Tiff {
             (px, py, m0.get(&65422).and_then(|v| v.first()), m0.get(&65423).and_then(|v| v.first()))
         {
             let (x, y) = (ox / 1000.0 - bw as f64 * sx / 2.0, oy / 1000.0 - bh as f64 * sy / 2.0);
-            self.check("translation", rules::env([("x", num(x)), ("y", num(y))]))?;
+            self.rules.check("translation", rules::env([("x", num(x)), ("y", num(y))]))?;
             translation = json!([0, y, x]);
         }
         let facts = json!({
@@ -2348,5 +2527,463 @@ impl Tiff {
             "levels": out,
         });
         Ok(Layout { facts, prefixes: HashMap::new(), levels: Vec::new(), planes: None })
+    }
+}
+
+// ---- the QPTIFF layout (spec/virtualize/qptiff.md §3
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#3-images-and-channels>, §4
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#4-the-image>), as the profile
+// reads it
+
+/// What the layout reads of a `PerkinElmer-QPI-ImageDescription`: the root element's direct
+/// children ImageType, Name, Color and SlideID (the first of each), references decoded and
+/// white space trimmed.
+#[derive(Default, Debug, Clone)]
+struct Qpi {
+    image_type: Option<String>,
+    name: Option<String>,
+    color: Option<String>,
+    slide_id: Option<String>,
+}
+
+impl Qpi {
+    fn is(&self, image_type: &str) -> bool {
+        self.image_type.as_deref() == Some(image_type)
+    }
+}
+
+/// The ImageDescription text `x` as a QPI description, or None when it has no
+/// `PerkinElmer-QPI-ImageDescription` start tag. Read with the tag scan of
+/// spec/virtualize/tiff.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-ome-xml>,
+/// tracking depth: an element nested deeper than the root's children (a ScanProfile's `Name`)
+/// is not read. A child's text runs from its start tag to the next tag, skipped sections
+/// removed.
+fn qpi_description(x: &str) -> Option<Qpi> {
+    let mut out: Option<Qpi> = None;
+    let mut depth: i64 = -1;
+    let mut pending: Option<(&str, usize)> = None;
+    let mut skips: Vec<(usize, usize)> = Vec::new();
+    for ev in xml::scan(x) {
+        let t = match ev {
+            Ev::Skip(a, b) => {
+                if pending.is_some() {
+                    skips.push((a, b));
+                }
+                continue;
+            }
+            Ev::Tag(t) => t,
+        };
+        if let Some((name, from)) = pending.take() {
+            let mut s = String::new();
+            let mut pos = from;
+            for &(a, b) in &skips {
+                if a >= pos && b <= t.start {
+                    s.push_str(&x[pos..a]);
+                    pos = b;
+                }
+            }
+            s.push_str(&x[pos..t.start]);
+            skips.clear();
+            let v = xml::decode_refs(&s).trim_matches([' ', '\t', '\r', '\n']).to_string();
+            if let Some(q) = out.as_mut() {
+                let slot = match name {
+                    "ImageType" => &mut q.image_type,
+                    "Name" => &mut q.name,
+                    "Color" => &mut q.color,
+                    _ => &mut q.slide_id,
+                };
+                if slot.is_none() {
+                    *slot = Some(v);
+                }
+            }
+        }
+        if depth < 0 {
+            if !t.is_end && t.name == "PerkinElmer-QPI-ImageDescription" {
+                out = Some(Qpi::default());
+                if t.self_closing {
+                    break;
+                }
+                depth = 0;
+            }
+            continue;
+        }
+        if t.is_end {
+            if depth == 0 {
+                break;
+            }
+            depth -= 1;
+            continue;
+        }
+        if depth == 0 && !t.self_closing && matches!(t.name, "ImageType" | "Name" | "Color" | "SlideID") {
+            pending = Some((t.name, t.end));
+        }
+        if !t.self_closing {
+            depth += 1;
+        }
+    }
+    out
+}
+
+impl Tiff {
+    /// A QPTIFF level of the IFDs `ks` (one per channel), each checked (the `size`, `samples`,
+    /// `strips` and `level` roles): all the same size, tiling and format, IFD 0's format, and
+    /// smaller than the level before. A level in strips has the chunk width `w` and height
+    /// `min(RowsPerStrip, h)`.
+    fn qlevel(&self, index: usize, ks: &[usize], vals: &HashMap<usize, Vals>, f0: &Fmt, prev: Option<&Level>) -> Got<Level> {
+        let mut first: Option<(u64, u64, bool, u64, u64)> = None;
+        for &k in ks {
+            let m = &vals[&k];
+            self.check_size(k, m)?;
+            let f = self.fmt(k, m)?;
+            self.check_samples(k, m)?;
+            let w = self.req(k, m, 256, None)?;
+            let h = self.req(k, m, 257, None)?;
+            let tiled = self.tiled(k);
+            let (tw, th) = if tiled {
+                (self.req(k, m, 322, None)?, self.req(k, m, 323, None)?)
+            } else {
+                let rows = self.req(k, m, 278, Some(u32::MAX as u64))?;
+                self.rules.check(
+                    "strips",
+                    rules::env([
+                        ("offset", num(self.ifds[k].offset as f64)),
+                        ("has_offsets", flag(self.ifds[k].has(273))),
+                        ("has_counts", flag(self.ifds[k].has(279))),
+                        ("rows", num(rows as f64)),
+                    ]),
+                )?;
+                (w, rows.min(h))
+            };
+            let this = (w, h, tiled, tw, th);
+            let same = first.is_none_or(|x| x == this);
+            let smaller = prev.is_none_or(|p| w < p.w && h < p.h);
+            self.rules.check(
+                "level",
+                rules::env([
+                    ("offset", num(self.ifds[k].offset as f64)),
+                    ("level", num(index as f64)),
+                    ("previous", num(index.saturating_sub(1) as f64)),
+                    ("same", flag(same)),
+                    ("format", flag(f == *f0)),
+                    ("smaller", flag(smaller)),
+                ]),
+            )?;
+            first.get_or_insert(this);
+        }
+        let (w, h, tiled, tw, th) = first.ok_or_else(|| Stop::Reject("internal: an empty QPTIFF level".into()))?;
+        Ok(Level { w, h, tw, th, ifds: ks.to_vec(), strips: !tiled, pad: J::Null })
+    }
+
+    /// The QPTIFF layout: the channels (the FullResolution images at the start of the main
+    /// chain), the levels (the runs of ReducedResolution images), the data type and codecs,
+    /// each IFD's tiles or strips, the pixel size, the position and the channels' names and
+    /// colors, as facts for `project/qptiff.rs`. Asks for the values not read yet.
+    fn derive_qptiff(&self) -> Got<Layout> {
+        self.rules.check("images", rules::env([("ifds", num(self.chain.len() as f64))]))?;
+        // every main-chain IFD's values but its tile and strip tables, and its description, in one batch
+        let loaded = self.load(&self.chain, false, true)?;
+        let mut vals: HashMap<usize, Vals> = self.chain.iter().copied().zip(loaded).collect();
+        let desc = |m: &Vals| -> Option<Qpi> {
+            let Some(Loaded::Bytes(d)) = m.get(&270) else { return None };
+            let raw = d.split(|&c| c == 0).next().unwrap_or(&[]);
+            std::str::from_utf8(raw).ok().and_then(qpi_description)
+        };
+        let kinds: Vec<Option<Qpi>> = self.chain.iter().map(|k| desc(&vals[k])).collect();
+        let is = |q: &Option<Qpi>, t: &str| q.as_ref().is_some_and(|q| q.is(t));
+        let n = kinds.iter().take_while(|q| is(q, "FullResolution")).count();
+        let later = kinds[n..].iter().any(|q| is(q, "FullResolution"));
+        let i0 = self.chain[0];
+        let m0 = vals[&i0].clone(); // kept while the tables are loaded below
+        let m0 = &m0;
+        let f0 = self.fmt(i0, m0)?;
+        let (bits, spp, sample_format, planar, compression, predictor, photometric) = f0;
+        self.rules.check(
+            "baseline",
+            rules::env([
+                ("described", flag(kinds[0].is_some())),
+                ("baseline", flag(n >= 1)),
+                ("channels", num(n as f64)),
+                ("later", flag(later)),
+                ("spp", num(spp as f64)),
+            ]),
+        )?;
+        self.rules.check("predictor", rules::env([("compression", num(compression as f64)), ("predictor", num(predictor as f64))]))?;
+        let reduced: Vec<usize> =
+            self.chain.iter().copied().zip(&kinds).filter(|(_, q)| is(q, "ReducedResolution")).map(|(k, _)| k).collect();
+        self.rules.check(
+            "reduced",
+            rules::env([
+                ("channels", num(n as f64)),
+                ("reduced", num(reduced.len() as f64)),
+                ("remainder", num((reduced.len() % n) as f64)),
+            ]),
+        )?;
+        let mut levels = vec![self.qlevel(0, &self.chain[..n], &vals, &f0, None)?];
+        for (i, g) in reduced.chunks(n).enumerate() {
+            let lv = self.qlevel(i + 1, g, &vals, &f0, levels.last())?;
+            levels.push(lv);
+        }
+        // data type and codecs (spec/virtualize/qptiff.md §4.1
+        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#41-data-types-and-codecs>)
+        let mut env = rules::env([
+            ("bits", num(bits as f64)),
+            ("sample_format", num(sample_format as f64)),
+            ("spp", num(spp as f64)),
+            ("planar", num(planar as f64)),
+            ("compression", num(compression as f64)),
+            ("photometric", photometric.map(|p| num(p as f64)).unwrap_or(V::Absent)),
+        ]);
+        self.rules.check("image", &mut env)?;
+        // the tiles or strips of every IFD of every level: their tables, in one batch
+        let used: Vec<usize> = levels.iter().flat_map(|l| l.ifds.iter().copied()).collect();
+        for (k, m) in used.iter().copied().zip(self.load(&used, true, false)?) {
+            let d = vals.get(&k).and_then(|old| old.get(&270).cloned());
+            let mut m = m;
+            if let Some(d) = d {
+                m.insert(270, d);
+            }
+            vals.insert(k, m);
+        }
+        let contig = spp > 1 && planar == 1;
+        let samples = if spp > 1 && !contig { spp } else { 1 };
+        let jpeg = compression == 7;
+        let mut prefixes = HashMap::new();
+        for lv in &levels {
+            let per: u128 = if lv.strips {
+                lv.h.div_ceil(lv.th) as u128
+            } else {
+                lv.w.div_ceil(lv.tw) as u128 * lv.h.div_ceil(lv.th) as u128
+            };
+            let (ot, ct) = if lv.strips { (273, 279) } else { (324, 325) };
+            for &k in &lv.ifds {
+                let m = &vals[&k];
+                let offsets = self.reqs(k, m, ot)?;
+                let counts = self.reqs(k, m, ct)?;
+                let (prefix, has_tables, tables_ok) = jpeg_prefix(m, jpeg, spp, photometric);
+                self.rules.check(
+                    "plane",
+                    rules::env([
+                        ("offset", num(self.ifds[k].offset as f64)),
+                        ("jpeg", flag(jpeg)),
+                        ("has_tables", flag(has_tables)),
+                        ("tables_ok", flag(tables_ok)),
+                        ("tiles", num(offsets.len() as f64)),
+                        ("counts", num(counts.len() as f64)),
+                        ("expected", num((samples as u128 * per) as f64)),
+                    ]),
+                )?;
+                if prefixes.contains_key(&k) {
+                    continue;
+                }
+                for (j, (&o, &c)) in offsets.iter().zip(&counts).enumerate() {
+                    if c == 0 {
+                        continue;
+                    }
+                    let within = (o as u128 + c as u128) <= self.size as u128;
+                    self.rules.check(
+                        "tile",
+                        rules::env([
+                            ("k", num(j as f64)),
+                            ("offset", num(self.ifds[k].offset as f64)),
+                            ("within", flag(within)),
+                            ("count", num(c as f64)),
+                            ("jpeg", flag(jpeg)),
+                        ]),
+                    )?;
+                }
+                prefixes.insert(k, prefix);
+            }
+        }
+        // a level in strips whose last strip is short (spec/virtualize/qptiff.md §4.2
+        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#42-tiles-and-strips>):
+        // padded to the chunk, with zeros when uncompressed, or with a literal tail spliced into
+        // the strip's LZW stream, which is read for that; of another compression, not a level
+        let row_bytes = |lv: &Level| lv.w * (bits / 8) * if contig { spp } else { 1 };
+        let last_strips = |lv: &Level, k: usize, m: &Vals| -> Got<Vec<(usize, u64, u64)>> {
+            let down = lv.h.div_ceil(lv.th);
+            let (offsets, counts) = (self.reqs(k, m, 273)?, self.reqs(k, m, 279)?);
+            Ok((0..samples).map(|s| (s as usize * down as usize + down as usize - 1, 0, 0)).map(|(j, _, _)| (j, offsets[j], counts[j])).collect())
+        };
+        let short_of = |lv: &Level| -> Option<u64> {
+            let down = lv.h.div_ceil(lv.th);
+            let short = lv.h - lv.th * (down - 1);
+            (lv.strips && down > 1 && short != lv.th).then_some(short)
+        };
+        let mut need = Vec::new();
+        if compression == 5 {
+            for lv in &levels {
+                if short_of(lv).is_none() {
+                    continue;
+                }
+                for &k in &lv.ifds {
+                    for (_, o, c) in last_strips(lv, k, &vals[&k])? {
+                        if c > 0 && !self.heads.contains_key(&(o, c)) {
+                            need.push((o, c));
+                        }
+                    }
+                }
+            }
+        }
+        if !need.is_empty() {
+            return Err(Stop::Need(need));
+        }
+        let mut keep = vec![true; levels.len()];
+        for (li, lv) in levels.iter_mut().enumerate() {
+            let Some(short) = short_of(lv) else { continue };
+            let rows = row_bytes(lv);
+            let missing = (lv.th - short) * rows;
+            match compression {
+                1 => lv.pad = json!({"zeros": missing}),
+                5 => {
+                    let mut pads = Vec::new();
+                    for (c, &k) in lv.ifds.iter().enumerate() {
+                        for (j, o, n) in last_strips(lv, k, &vals[&k])? {
+                            if n == 0 {
+                                continue; // an absent strip: an absent chunk
+                            }
+                            let b = self.heads.get(&(o, n)).ok_or_else(|| Stop::Reject("internal: a strip the layout asked for was not fed".into()))?;
+                            let (ok, problem, pad) = match lzw::scan(b, short * rows).map(|cut| lzw::tail(b, cut, missing)) {
+                                Ok((prefix, tail)) => (true, String::new(), json!({"c": c, "k": j, "prefix": prefix, "tail": tail})),
+                                Err(e) => (false, e, J::Null),
+                            };
+                            self.rules.check(
+                                "strip_tail",
+                                rules::env([
+                                    ("offset", num(self.ifds[k].offset as f64)),
+                                    ("strip", num(j as f64)),
+                                    ("decodes", flag(ok)),
+                                    ("problem", text(&problem)),
+                                ]),
+                            )?;
+                            pads.push(pad);
+                        }
+                    }
+                    lv.pad = json!({"lzw": pads});
+                }
+                _ => keep[li] = false,
+            }
+            self.rules.check("padding", rules::env([("level", num(li as f64)), ("compression", num(compression as f64)), ("kept", flag(keep[li]))]))?;
+        }
+        let levels: Vec<Level> = levels.into_iter().zip(keep).filter(|(_, k)| *k).map(|(l, _)| l).collect();
+        // pixel size (the TIFF convention's resolution tags) and position (spec/virtualize/qptiff.md §4.3
+        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#43-arrays>)
+        let per_unit = self
+            .rules
+            .table("resolution_units")
+            .get(first_int(m0, 296).unwrap_or(0).to_string())
+            .and_then(|x| x.as_f64());
+        let rational = |tag: u16| -> Option<(u64, u64)> {
+            let Some(Loaded::Pairs(p)) = m0.get(&tag) else { return None };
+            p.first().copied()
+        };
+        let physical = |tag: u16| -> Option<f64> {
+            let pu = per_unit?;
+            let (a, b) = rational(tag)?;
+            if a == 0 || b == 0 {
+                return None;
+            }
+            let pixel = pu / (a as f64 / b as f64);
+            (pixel < 25.4).then_some(pixel)
+        };
+        let (px, py) = (physical(282), physical(283));
+        let has_c = n > 1 || spp > 1;
+        let axes: Vec<&str> = if has_c { vec!["c", "y", "x"] } else { vec!["y", "x"] };
+        let mut units = serde_json::Map::new();
+        for (a, p) in [("x", px), ("y", py)] {
+            if p.is_some() {
+                units.insert(a.into(), json!("micrometer"));
+            }
+        }
+        let (w0, h0) = (levels[0].w, levels[0].h);
+        let scales: Vec<J> = levels
+            .iter()
+            .map(|lv| {
+                let sy = py.unwrap_or(1.0) * (h0 as f64 / lv.h as f64);
+                let sx = px.unwrap_or(1.0) * (w0 as f64 / lv.w as f64);
+                if has_c { json!([1, sy, sx]) } else { json!([sy, sx]) }
+            })
+            .collect();
+        let mut translation = J::Null;
+        if let (Some(_), Some(_), Some(pu)) = (px, py, per_unit) {
+            let position = |tag: u16| -> Option<f64> {
+                let (a, b) = rational(tag)?;
+                (b != 0).then(|| a as f64 / b as f64 * pu)
+            };
+            if let (Some(x), Some(y)) = (position(286), position(287)) {
+                self.rules.check("translation", rules::env([("x", num(x)), ("y", num(y))]))?;
+                translation = if has_c { json!([0, y, x]) } else { json!([y, x]) };
+            }
+        }
+        let channels: Vec<J> = kinds[..n]
+            .iter()
+            .map(|q| {
+                let q = q.as_ref().expect("a channel is a described FullResolution image");
+                json!({"name": q.name, "color": q.color})
+            })
+            .collect();
+        let name = kinds[0].as_ref().and_then(|q| q.slide_id.clone()).filter(|s| !s.is_empty());
+        let facts = json!({
+            "profile": "qptiff",
+            "little": self.le,
+            "bigtiff": self.big,
+            "ifds": self.chain.len(),
+            "bits": bits,
+            "spp": spp,
+            "sample_format": sample_format,
+            "planar": planar,
+            "compression": compression,
+            "photometric": photometric,
+            "channels": channels,
+            "axes": axes,
+            "units": units,
+            "scales": scales,
+            "translation": translation,
+            "name": name,
+        });
+        Ok(Layout { facts, prefixes, levels, planes: None })
+    }
+}
+
+impl crate::Parser for Tiff {
+    fn new(size: u64) -> Self {
+        Tiff::new(size)
+    }
+    fn step(&mut self) -> Result<crate::nd2::Step, String> {
+        Tiff::step(self)
+    }
+    fn feed(&mut self, offset: u64, data: Vec<u8>) {
+        Tiff::feed(self, offset, data)
+    }
+    fn finish(self) -> Result<(crate::ir::Ir, serde_json::Value), String> {
+        Tiff::finish(self)
+    }
+    fn found(&self) -> Option<&'static str> {
+        Some(if self.ndpi {
+            "ndpi"
+        } else if self.qptiff {
+            "qptiff"
+        } else {
+            "tiff"
+        })
+    }
+}
+
+/// The TIFF profile's file run (spec/virtualize/tiff.md); a run of it becomes one of NDPI or
+/// QPTIFF when its parser finds the file is one (`Parser::found`).
+pub struct Profile;
+
+impl crate::run::FileProfile for Profile {
+    /// A TIFF or BigTIFF header, in either byte order.
+    fn detect(&self, head: &[u8]) -> bool {
+        head.len() >= 4 && [b"II*\0", b"MM\0*", b"II+\0", b"MM\0+"].iter().any(|m| head[..4] == m[..])
+    }
+    fn parser(&self, size: u64) -> crate::run::AnyParser {
+        crate::run::AnyParser::of::<Tiff>(size)
+    }
+    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::tiff::project(ir, facts, url, copied)
+    }
+    fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+        crate::project::tiff::reads(ir, facts)
     }
 }

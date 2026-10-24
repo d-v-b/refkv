@@ -32,6 +32,23 @@ pub enum Part {
 }
 
 pub const MAX_PAYLOAD: usize = 65519;
+
+/// The largest reference payload of a chunk, past which a projection of contiguous values
+/// copies an edge chunk (conventions §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>):
+/// MAX_PAYLOAD, but in tests (`set_copy_threshold`). Each run reads it once, into its facts.
+static COPY_THRESHOLD: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(MAX_PAYLOAD);
+
+/// For tests: the payload past which an edge chunk is copied (None: MAX_PAYLOAD), so that
+/// small files reach the copy.
+pub fn set_copy_threshold(n: Option<usize>) {
+    COPY_THRESHOLD.store(n.unwrap_or(MAX_PAYLOAD), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The payload past which an edge chunk is copied, for a run's facts.
+pub fn copy_threshold() -> usize {
+    COPY_THRESHOLD.load(std::sync::atomic::Ordering::Relaxed)
+}
 pub const SOURCE_NODE: &str = "refkv_source";
 
 #[derive(Default)]
@@ -83,6 +100,11 @@ impl Out {
 
     pub fn has(&self, key: &str) -> bool {
         self.entry_at.contains_key(key)
+    }
+
+    /// The parts of the reference `key`, if there is one.
+    pub fn reference(&self, key: &str) -> Option<&[Part]> {
+        self.ref_at.get(key).map(|&k| self.refs[k].1.as_slice())
     }
 
     pub fn refs(&mut self, key: &str, parts: Vec<Part>) {
@@ -214,27 +236,24 @@ pub fn payload_size(ranges: &[Part]) -> usize {
 // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>)
 
 pub const CONVENTION_KEY: &str = "refkv_virtualized";
-/// The revision of spec/virtualize.md the projections follow (`common.REVISION` in Python).
-pub const REVISION: u64 = 27;
 
-/// (uuid, version, title) of a profile's convention.
+// The registry's entries, by name (build.rs)
+include!(concat!(env!("OUT_DIR"), "/registry.rs"));
+
+/// The profile registry, spec/virtualize/profiles/<name>.json (the crate's profiles/ holds its
+/// copies, which spec/tools/profiles.py writes and checks): one entry per profile and dataset
+/// layout, with its `name`, convention `title`, `uuid` and `version`, `kind` ("file", "store",
+/// "both" or "layout"), `sniff` precedence, fixture `suffixes` and the rest the registry
+/// documents; by name. Parsed once.
+pub fn registry() -> &'static [J] {
+    static REGISTRY: std::sync::OnceLock<Vec<J>> = std::sync::OnceLock::new();
+    REGISTRY.get_or_init(|| REGISTRY_TEXT.iter().map(|t| serde_json::from_str(t).expect("a profile of profiles/")).collect())
+}
+
+/// (uuid, version, title) of a profile's convention, from the registry.
 pub fn profile(p: &str) -> (&'static str, u64, &'static str) {
-    match p {
-        "tiff" => ("48e9ac4e-1156-4a62-955e-20467d9c2700", 0, "TIFF"),
-        "nd2" => ("59612f14-e314-4207-ba00-8f422ba71490", 0, "ND2"),
-        "czi" => ("7a0733c7-d4be-4482-a64f-6904d9354ea5", 0, "CZI"),
-        "dicom" => ("acf17198-e5a5-48d3-8187-22ec4bb40ea5", 0, "DICOM"),
-        "nifti" => ("06e5809d-4d54-4b72-afd0-6bf61a7b4c85", 0, "NIfTI"),
-        "ims" => ("5067a535-8261-4b25-a93c-1985ed333bde", 0, "IMS"),
-        "ndpi" => ("6cac71ef-dbb2-4acd-b60c-00389aa4238a", 0, "NDPI"),
-        // the store conventions, whose sources a store IR describes (conventions §8.9
-        // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>)
-        "n5" => ("ad5d4c39-c69e-48f7-a3ef-4cc8c607d416", 0, "N5"),
-        "zarr2" => ("8e792619-d671-4687-ab51-752885dd3ee6", 0, "Zarr v2"),
-        "ome-zarr" => ("b74ea302-65bb-49ae-b81f-f9bb52cd4eed", 0, "OME-Zarr"),
-        "safe" => ("ef81346c-19e8-42ad-93b0-a279ccaf44c1", 0, "Sentinel-2 SAFE"),
-        _ => panic!("no profile {p}"),
-    }
+    let e = registry().iter().find(|e| e["name"] == p).unwrap_or_else(|| panic!("no profile {p}"));
+    (e["uuid"].as_str().unwrap(), e["version"].as_u64().unwrap(), e["title"].as_str().unwrap())
 }
 
 pub fn convention(p: &str) -> J {
@@ -259,9 +278,6 @@ pub fn root_property(p: &str, url: &str) -> Map<String, J> {
     let mut m = Map::new();
     m.insert("profile".into(), json!(p));
     m.insert("version".into(), json!(version));
-    if version == 0 {
-        m.insert("revision".into(), json!(REVISION));
-    }
     m.insert("source".into(), json!({"url": url}));
     m
 }
@@ -291,6 +307,33 @@ pub fn group_doc(attributes: Map<String, J>) -> J {
     json!({"zarr_format": 3, "node_type": "group", "attributes": attributes})
 }
 
+/// A group's zarr.json whose attributes are `attributes` and the convention of profile `p`
+/// (`declare`).
+pub fn declared_group(attributes: Map<String, J>, p: &str, url: Option<&str>, own: Option<J>) -> J {
+    group_doc(declare(attributes, p, url, own))
+}
+
+/// An array's zarr.json `doc` declaring the convention of profile `p` with its own metadata `own`.
+pub fn declare_array(doc: &mut J, p: &str, own: J) {
+    doc["attributes"] = J::Object(declare(Map::new(), p, None, Some(own)));
+}
+
+/// The root and `OME/zarr.json` of a bioformats2raw layout (conventions §4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#4-images>) of the images 0 to
+/// `images` - 1: the root declares profile `p` for the source `url` with `own`, and, with
+/// `layout`, names the layout, and `OME/zarr.json` lists the images; without, the root alone.
+pub fn bioformats2raw(out: &mut Out, p: &str, url: &str, own: J, images: usize, layout: bool) {
+    let mut root = Map::new();
+    if layout {
+        root.insert("ome".into(), json!({"version": "0.5", "bioformats2raw.layout": 3}));
+    }
+    out.json("zarr.json", &declared_group(root, p, Some(url), Some(own)));
+    if layout {
+        let series: Vec<String> = (0..images).map(|k| k.to_string()).collect();
+        out.json("OME/zarr.json", &group_json(json!({"version": "0.5", "series": series})));
+    }
+}
+
 pub fn group_json(ome: J) -> J {
     let mut a = Map::new();
     a.insert("ome".into(), ome);
@@ -318,6 +361,128 @@ pub fn array_json(shape: &[u64], data_type: &str, chunk_shape: J, codecs: J, axe
         "dimension_names": axes,
         "attributes": {},
     })
+}
+
+/// An array's zarr.json whose chunk grid is regular when every one of `lengths` (one per axis)
+/// is one integer, and the zarr-extensions `rectilinear` grid otherwise (inline, `lengths` the
+/// chunk shapes along each axis; conventions §3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#3-arrays>); the fill value is 0,
+/// or `[0, 0]` for complex64.
+pub fn rectilinear_array_json(shape: &[u64], data_type: &str, lengths: &J, codecs: J, axes: &[&str]) -> J {
+    let regular = lengths.as_array().is_some_and(|l| l.iter().all(|v| v.is_i64() || v.is_u64()));
+    let mut doc = array_json(shape, data_type, if regular { lengths.clone() } else { json!([]) }, codecs, axes);
+    if !regular {
+        doc["chunk_grid"] = json!({"name": "rectilinear", "configuration": {"kind": "inline", "chunk_shapes": lengths}});
+    }
+    doc["fill_value"] = if data_type == "complex64" { json!([0.0, 0.0]) } else { json!(0) };
+    doc
+}
+
+/// The `bytes` codec of elements of `item` bytes: with the byte order `endian` ("little" or
+/// "big") for more than one byte, and without one for a single byte (Zarr v3).
+pub fn bytes_codec(item: u64, endian: &str) -> J {
+    if item > 1 {
+        json!({"name": "bytes", "configuration": {"endian": endian}})
+    } else {
+        json!({"name": "bytes"})
+    }
+}
+
+/// The bytes of an element of a numeric data type, from the bits its name ends with (`uint8`
+/// 1, `int16` 2, `complex64` 8); 0 for a name without them.
+pub fn item_size(data_type: &str) -> u64 {
+    let bits = data_type.trim_start_matches(|c: char| !c.is_ascii_digit());
+    bits.parse::<u64>().map_or(0, |b| b.div_ceil(8))
+}
+
+/// The codecs after `transpose` of a TIFF `compression` (the tag's value: JPEG 2000 and JPEG
+/// as their imagecodecs codecs; else `bytes`, with the byte order for samples of more than 8
+/// bits, then `imagecodecs_lzw` for LZW (which the QPTIFF convention reads,
+/// spec/virtualize/qptiff.md §4.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#41-data-types-and-codecs>),
+/// `zlib` for Deflate or `zstd` for Zstandard).
+pub fn tiff_codecs(compression: u64, bits: u64, little: bool) -> Vec<J> {
+    match compression {
+        33003 | 33004 | 33005 | 34712 => return vec![json!({"name": "imagecodecs_jpeg2k"})],
+        7 => return vec![json!({"name": "imagecodecs_jpeg"})],
+        _ => {}
+    }
+    let mut out = vec![bytes_codec(bits.div_ceil(8), if little { "little" } else { "big" })];
+    match compression {
+        5 => out.push(json!({"name": "imagecodecs_lzw"})),
+        8 | 32946 => out.push(json!({"name": "zlib", "configuration": {"level": 1}})),
+        50000 => out.push(json!({"name": "zstd", "configuration": {"level": 0, "checksum": false}})),
+        _ => {}
+    }
+    out
+}
+
+/// The letters and colors of a pixel's red, green, blue and alpha samples, in that order and
+/// in the order of BGR(A) data.
+pub const RGBA: [(&str, &str); 4] = [("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF"), ("A", "FFFFFF")];
+pub const BGRA: [(&str, &str); 4] = [("B", "0000FF"), ("G", "00FF00"), ("R", "FF0000"), ("A", "FFFFFF")];
+
+/// A channel's display window of `omero` (conventions §4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#4-images>): the data's range
+/// `min`..`max`, shown from `start` to `end`.
+pub fn omero_window(min: J, max: J, start: J, end: J) -> J {
+    json!({"min": min, "max": max, "start": start, "end": end})
+}
+
+/// The window of the range `lo`..`hi` shown whole.
+pub fn full_window(lo: J, hi: J) -> J {
+    omero_window(lo.clone(), hi.clone(), lo, hi)
+}
+
+/// An `omero` channel: its label, its color (`RRGGBB`), active, and its window when it has one.
+pub fn omero_channel(label: &str, color: impl Into<J>, window: Option<&J>) -> J {
+    let mut m = Map::new();
+    m.insert("label".into(), json!(label));
+    m.insert("color".into(), color.into());
+    m.insert("active".into(), json!(true));
+    if let Some(w) = window {
+        m.insert("window".into(), w.clone());
+    }
+    J::Object(m)
+}
+
+/// The `omero` object of an image: its channels.
+pub fn omero_json(channels: Vec<J>) -> J {
+    json!({"channels": channels})
+}
+
+/// The `omero` window of a channel of an integer data type (`uint<n>`, `int<n>`) whose file
+/// records no display range and whose data is not sampled: the type's whole range, shown whole;
+/// none for any other type, which has no such range.
+pub fn type_window(data_type: &str) -> Option<J> {
+    let (lo, hi) = match data_type {
+        "uint8" => (json!(0), json!(u8::MAX)),
+        "uint16" => (json!(0), json!(u16::MAX)),
+        "uint32" => (json!(0), json!(u32::MAX)),
+        "uint64" => (json!(0), json!(u64::MAX)),
+        "int8" => (json!(i8::MIN), json!(i8::MAX)),
+        "int16" => (json!(i16::MIN), json!(i16::MAX)),
+        "int32" => (json!(i32::MIN), json!(i32::MAX)),
+        "int64" => (json!(i64::MIN), json!(i64::MAX)),
+        _ => return None,
+    };
+    Some(full_window(lo, hi))
+}
+
+/// The `omero` channels of an image whose channels are a pixel's `spp` samples: with `rgb`, the
+/// first three `R`, `G` and `B`, colored so, and any other `S<s>`, white; each label after
+/// `base`, sample `s` with `windows[s]` when there is one.
+pub fn sample_channels(base: &str, spp: u64, rgb: bool, windows: &[Option<J>]) -> Vec<J> {
+    let letters: &[(&str, &str)] = if rgb { &RGBA[..3] } else { &[] };
+    (0..spp)
+        .map(|s| {
+            let window = windows.get(s as usize).and_then(Option::as_ref);
+            match letters.get(s as usize) {
+                Some((l, c)) => omero_channel(&format!("{base}{l}"), *c, window),
+                None => omero_channel(&format!("{base}S{s}"), "FFFFFF", window),
+            }
+        })
+        .collect()
 }
 
 /// The transpose codec for frames that hold the channel axis last.
@@ -398,11 +563,7 @@ pub fn metadata_group(out: &mut Out, path: &str, attributes: Option<Map<String, 
 #[allow(clippy::too_many_arguments)]
 pub fn metadata_array(out: &mut Out, path: &str, data_type: &str, shape: &[u64], chunk_shape: &[u64], dims: Option<&[&str]>,
                       chunks: Vec<(Vec<u64>, Chunk)>, endian: &str, compressor: Option<J>) {
-    let mut codecs = if data_type == "uint8" || data_type == "int8" {
-        vec![json!({"name": "bytes"})]
-    } else {
-        vec![json!({"name": "bytes", "configuration": {"endian": endian}})]
-    };
+    let mut codecs = vec![bytes_codec(item_size(data_type), endian)];
     if let Some(c) = compressor {
         codecs.push(c);
     }
@@ -419,6 +580,76 @@ pub fn metadata_array(out: &mut Out, path: &str, data_type: &str, shape: &[u64],
             Chunk::Copy(..) => unreachable!("a metadata array's chunks are ranges or bytes"),
         }
     }
+}
+
+/// The gzip level of the chunks a projection writes deflated (conventions §9
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>).
+pub const GZIP_LEVEL: u8 = 6;
+
+/// `raw` as a gzip member (RFC 1952): a header with no name, time or extra field, the
+/// deflate stream at `GZIP_LEVEL`, the CRC-32 and the length.
+pub fn gzip(raw: &[u8]) -> Vec<u8> {
+    let mut out = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255];
+    out.extend(miniz_oxide::deflate::compress_to_vec(raw, GZIP_LEVEL));
+    out.extend_from_slice(&crate::safe::zip::crc32(raw).to_le_bytes());
+    out.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+    out
+}
+
+/// A 1-D array of `n` (≥ 1) values the archive holds whole (MRC's coordinates, MP4's times;
+/// conventions §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>):
+/// its zarr.json at `path`, with the dimension `dim`, `attributes`, and the codecs `filters`,
+/// then `bytes` (little-endian) and gzip; in chunks of `c` = min(n, `limit`) values, the q-th
+/// `raw(q, c)` (its values, padded to `c` by the caller) as gzip.
+#[allow(clippy::too_many_arguments)]
+pub fn gzip_array(out: &mut Out, path: &str, data_type: &str, n: u64, limit: u64, dim: &str, filters: Vec<J>, attributes: J,
+                  raw: impl Fn(u64, u64) -> Vec<u8>) {
+    let c = n.min(limit);
+    let mut codecs = filters;
+    codecs.push(bytes_codec(item_size(data_type), "little"));
+    codecs.push(json!({"name": "gzip", "configuration": {"level": GZIP_LEVEL}}));
+    let mut doc = array_json(&[n], data_type, json!([c]), J::Array(codecs), &[dim]);
+    doc["attributes"] = attributes;
+    out.json(&format!("{path}/zarr.json"), &doc);
+    for q in 0..n.div_ceil(c) {
+        out.bytes(&format!("{path}/c/{q}"), gzip(&raw(q, c)));
+    }
+}
+
+/// `v` as a protobuf varint: 7 bits a byte, least significant first, the high bit set on every
+/// byte but the last.
+pub fn varint(out: &mut Vec<u8>, mut v: u64) {
+    while v >= 0x80 {
+        out.push((v as u8) | 0x80);
+        v >>= 7;
+    }
+    out.push(v as u8);
+}
+
+/// A `refkv.stream` chunk (conventions §10
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#10-coded-streams>) of the coded
+/// frames `units`, in decode order, each (offset, length, position): the literal header (the
+/// count, then each frame's length and its position less the previous frame's, the first's less
+/// -1, as a varint and a zigzag varint), then the frames as ranges of source 0, a frame that
+/// starts where the one before it ends extending its range.
+pub fn stream_parts(units: &[(u64, u64, i64)]) -> Vec<Part> {
+    let mut head = Vec::with_capacity(2 + 4 * units.len());
+    varint(&mut head, units.len() as u64);
+    let mut prev = -1i64;
+    for &(_, n, position) in units {
+        let d = position - prev;
+        varint(&mut head, n);
+        varint(&mut head, ((d << 1) ^ (d >> 63)) as u64);
+        prev = position;
+    }
+    let mut parts = vec![Part::Lit(head)];
+    for &(o, n, _) in units {
+        match parts.last_mut() {
+            Some(Part::Src(po, pn)) if *po + *pn == o => *pn += n,
+            _ => parts.push(Part::Src(o, n)),
+        }
+    }
+    parts
 }
 
 pub const MAX_CHUNK: u64 = 1 << 24;
@@ -588,6 +819,24 @@ mod tests {
 
     /// Three 1-byte elements, at most 2 a chunk: the edge chunk is its byte and one byte
     /// of padding, a reference of 11 bytes, copied past a payload of 4.
+    /// Three frames, the first a lead-in and the last two consecutive: the header, then two
+    /// ranges.
+    #[test]
+    fn a_stream_chunk_is_its_header_and_the_frames_ranges() {
+        // the positions' steps -1 - -1 = 0, 0 - -1 = 1, 576 - 0 = 576: zigzag 0, 2, 1152
+        let parts = stream_parts(&[(10, 4, -1), (20, 5, 0), (25, 300, 576)]);
+        let head = vec![3, 4, 0, 5, 2, 0xAC, 0x02, 0x80, 0x09];
+        assert_eq!(parts, vec![Part::Lit(head), Part::Src(10, 4), Part::Src(20, 305)]);
+    }
+
+    #[test]
+    fn the_bytes_codec_has_a_byte_order_past_one_byte() {
+        assert_eq!(bytes_codec(1, "big"), json!({"name": "bytes"}));
+        assert_eq!(bytes_codec(2, "big"), json!({"name": "bytes", "configuration": {"endian": "big"}}));
+        let sizes: Vec<u64> = ["uint8", "int8", "int16", "uint32", "float32", "int64", "float64", "complex64", "bool"].iter().map(|t| item_size(t)).collect();
+        assert_eq!(sizes, vec![1, 1, 2, 4, 4, 8, 8, 8, 0]);
+    }
+
     #[test]
     fn grid_chunks_copies_an_edge_chunk_past_the_payload() {
         let (shape, chunks) = grid_chunks(0, &[3], 1, 2, 4).unwrap();

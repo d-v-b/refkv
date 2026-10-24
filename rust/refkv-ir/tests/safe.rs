@@ -4,6 +4,9 @@
 //! byte for byte from its leaves); its band files are described in place; and one test per
 //! rejected fixture (each the role the schema names).
 
+mod common;
+
+use common::{listing, walk};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use refkv_ir::check;
@@ -17,33 +20,13 @@ fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/safe")
 }
 
-/// A directory's regular files, keys in byte order.
-fn walk(root: &Path) -> BTreeMap<String, Vec<u8>> {
-    let mut out = BTreeMap::new();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(d) = stack.pop() {
-        for e in std::fs::read_dir(&d).unwrap() {
-            let e = e.unwrap();
-            if e.file_type().unwrap().is_dir() {
-                stack.push(e.path());
-            } else {
-                // a key is `/`-separated on every system
-                let rel = e.path().strip_prefix(root).unwrap().to_path_buf();
-                let k = rel.iter().map(|c| c.to_str().unwrap()).collect::<Vec<_>>().join("/");
-                out.insert(k, std::fs::read(e.path()).unwrap());
-            }
-        }
-    }
-    out
-}
-
 fn entry(out: &Out) -> impl Fn(&str) -> Option<Vec<u8>> + '_ {
     |k: &str| out.entries.iter().find(|e| e.0 == k).map(|e| e.1.clone())
 }
 
 /// The directory form's output (mirrored), its IR, or the rejection.
 fn directory(files: &BTreeMap<String, Vec<u8>>) -> Result<(Out, Ir), String> {
-    let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
+    let keys = listing(&files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let (ir, facts, stats) = run_store(StoreFormat::Safe, keys, &|k| bytes[k].clone())?;
     Ok((store_output(StoreFormat::Safe, &ir, &facts, stats, "https://example.org/p/", true)?, ir))
@@ -106,7 +89,8 @@ fn accepted_products_are_valid_irs_whose_mirrors_rebuild_them() {
     let mut paths: Vec<PathBuf> = std::fs::read_dir(fixtures()).unwrap().map(|e| e.unwrap().path()).collect();
     paths.sort();
     for path in paths {
-        if path.file_name().unwrap().to_str().unwrap().contains("reject") {
+        let name = path.file_name().unwrap().to_str().unwrap();
+        if name.contains("reject") {
             continue;
         }
         if path.is_dir() {
@@ -142,65 +126,8 @@ macro_rules! reject {
     };
 }
 
-reject!(safe_reject_bad_band_name, "safe_reject_bad_band_name", "the band name \"B-1\" of \"T32TNS_20240103T101329_B-1\" is not ASCII letters and digits");
-reject!(safe_reject_bad_cs_code, "safe_reject_bad_cs_code", "HORIZONTAL_CS_CODE \"WGS84 / UTM 32N\" is not EPSG: and digits");
-reject!(safe_reject_box_beyond_file, "safe_reject_box_beyond_file", "a JP2 box reaches beyond the file");
-reject!(safe_reject_bytes_after_eoc, "safe_reject_bytes_after_eoc", "a band file's codestream does not end with EOC after its last tile-part");
-reject!(safe_reject_duplicate_band_name, "safe_reject_duplicate_band_name", "two band files at 60 m have the band name B01");
-reject!(safe_reject_duplicate_resolution, "safe_reject_duplicate_resolution", "two Sizes have the resolution 60");
-reject!(safe_reject_eph, "safe_reject_eph", "a band file's COD uses SOP or EPH markers, or precinct anchors (Scod)");
-reject!(safe_reject_image_file_form, "safe_reject_image_file_form", "MTD_MSIL1C.xml: IMAGE_FILE 'IMG_DATA/B01' is not GRANULE/<g>/<directory>/<file>");
-reject!(safe_reject_infinite_ulx, "safe_reject_infinite_ulx", "Geoposition ULX \"1e999\" is not a finite decimal number");
-reject!(safe_reject_jp2c_not_last, "safe_reject_jp2c_not_last", "a band file's jp2c box does not end at the end of the file");
-reject!(safe_reject_missing_band_file, "safe_reject_missing_band_file", "the band file GRANULE/L1C_T32TNS_A035655_20240103T101328/IMG_DATA/T32TNS_20240103T101329_B02.jp2 is not in the product");
-reject!(safe_reject_mixed_granule_dirs, "safe_reject_mixed_granule_dirs", "MTD_MSIL1C.xml: the image files are in two granule directories");
-reject!(safe_reject_mixed_precision, "safe_reject_mixed_precision", "a band file's components differ in precision or sign");
-reject!(safe_reject_no_band_file, "safe_reject_no_band_file", "MTD_MSIL1C.xml: no image file is in IMG_DATA");
-reject!(safe_reject_no_eoc, "safe_reject_no_eoc", "a band file's tile-part 15 reaches beyond the codestream");
-reject!(safe_reject_no_geoposition, "safe_reject_no_geoposition", "Geoposition of resolution 60: 0 elements where there must be one");
-reject!(safe_reject_no_image_file, "safe_reject_no_image_file", "MTD_MSIL1C.xml: no granule has an IMAGE_FILE");
-reject!(safe_reject_no_manifest, "safe_reject_no_manifest", "a SAFE product has no manifest.safe");
-reject!(safe_reject_no_tile_metadata, "safe_reject_no_tile_metadata", "the tile metadata GRANULE/L1C_T32TNS_A035655_20240103T101328/MTD_TL.xml is not in the product");
-reject!(safe_reject_not_jp2, "safe_reject_not_jp2", "a band file is not a JP2 file: no JPEG 2000 signature box");
-reject!(safe_reject_old_format, "safe_reject_old_format", "not a SAFE product of the compact format: the root has no MTD_MSIL1C.xml or MTD_MSIL2A.xml (products before December 2016 are not supported)");
-reject!(safe_reject_ppm, "safe_reject_ppm", "a band file's main header has a PPM marker");
-reject!(safe_reject_precision_17, "safe_reject_precision_17", "a band file's components have 17 bits, more than 16");
-reject!(safe_reject_psot_zero, "safe_reject_psot_zero", "a band file's tile-part 15 has Psot 0");
-reject!(safe_reject_signed, "safe_reject_signed", "a band file's components are signed");
-reject!(safe_reject_size_matches_no_resolution, "safe_reject_size_matches_no_resolution", "the band file GRANULE/L1C_T32TNS_A035655_20240103T101328/IMG_DATA/T32TNS_20240103T101329_B01.jp2 (19 × 19) matches no resolution of the tile geocoding");
-reject!(safe_reject_size_matches_two_resolutions, "safe_reject_size_matches_two_resolutions", "the band file GRANULE/L1C_T32TNS_A035655_20240103T101328/IMG_DATA/T32TNS_20240103T101329_B01.jp2 (19 × 19) matches several resolution of the tile geocoding");
-reject!(safe_reject_sop, "safe_reject_sop", "a band file's COD uses SOP or EPH markers, or precinct anchors (Scod)");
-reject!(safe_reject_subsampled, "safe_reject_subsampled", "a band file's components are subsampled");
-reject!(safe_reject_tail_too_long, "safe_reject_tail_too_long", "the empty tiles of a chunk of tile 15 would take more than 4096 bytes");
-reject!(safe_reject_tails_over_band_size, "safe_reject_tails_over_band_size", "the empty tiles of GRANULE/L1C_T32TNS_A035655_20240103T101328/IMG_DATA/T32TNS_20240103T101329_B01.jp2's chunks would take 4342 bytes, more than the band file's 3116");
-reject!(safe_reject_tile_origin, "safe_reject_tile_origin", "a band file's image or tile origin is not 0");
-reject!(safe_reject_tile_parts_out_of_order, "safe_reject_tile_parts_out_of_order", "a band file's tile-parts are not in raster order (tile 1 where 0 is)");
-reject!(safe_reject_tlm, "safe_reject_tlm", "a band file's main header has a TLM marker");
-reject!(safe_reject_two_components, "safe_reject_two_components", "a band file has 2 components, not 1 or 3");
-reject!(safe_reject_two_granules, "safe_reject_two_granules", "MTD_MSIL1C.xml: IMAGE_FILE 'GRANULE/L1C_T32TNS_A035655_20240103T101328/IMG_DATA/T32TNS_20240103T101329_B01' is listed twice");
-reject!(safe_reject_two_mtd, "safe_reject_two_mtd", "not a SAFE product of the compact format: the root has both MTD_MSIL1C.xml and MTD_MSIL2A.xml");
-reject!(safe_reject_two_tile_parts, "safe_reject_two_tile_parts", "a band file's tile 0 has more than one tile-part");
-reject!(safe_reject_wrong_root_element, "safe_reject_wrong_root_element", "MTD_MSIL1C.xml's root element is not Level-1C_User_Product");
-reject!(safe_reject_xml_doctype, "safe_reject_xml_doctype", "MTD_MSIL1C.xml is not well formed: expected a name at 56");
-reject!(safe_reject_xml_not_utf8_metadata, "safe_reject_xml_not_utf8_metadata", "MTD_MSIL1C.xml is not UTF-8");
-reject!(safe_reject_xml_too_deep, "safe_reject_xml_too_deep", "MTD_MSIL1C.xml is not well formed: elements nest more than 256 deep at 12649");
-reject!(safe_reject_xml_unclosed_tile_metadata, "safe_reject_xml_unclosed_tile_metadata", "MTD_TL.xml is not well formed: unterminated element at 4066");
-reject!(safe_reject_zero_xdim, "safe_reject_zero_xdim", "a Geoposition's XDIM or YDIM is 0");
-reject!(safe_reject_zip_bad_crc, "safe_reject_zip_bad_crc.SAFE.zip", "a zip entry's CRC-32 does not match its bytes");
-reject!(safe_reject_zip_bzip2, "safe_reject_zip_bzip2.SAFE.zip", "the zip entry MTD_MSIL1C.xml has the compression method 12");
-reject!(safe_reject_zip_comment_misaligned, "safe_reject_zip_comment_misaligned.SAFE.zip", "not a zip file: no end of central directory record");
-reject!(safe_reject_zip_deflated_band, "safe_reject_zip_deflated_band.SAFE.zip", "the zip entry GRANULE/L1C_T32TNS_A035655_20240103T101328/IMG_DATA/T32TNS_20240103T101329_B01.jp2 is compressed: only XML documents may be");
-reject!(safe_reject_zip_deflated_mask, "safe_reject_zip_deflated_mask.SAFE.zip", "the zip entry GRANULE/L1C_T32TNS_A035655_20240103T101328/QI_DATA/MSK_CLASSI_B00.jp2 is compressed: only XML documents may be");
-reject!(safe_reject_zip_deflated_too_large, "safe_reject_zip_deflated_too_large.SAFE.zip", "the deflated XML document MTD_MSIL1C.xml is larger than 2^26 bytes");
-reject!(safe_reject_zip_dotdot, "safe_reject_zip_dotdot.SAFE.zip", "a zip entry's name \"S2B_MSIL1C_20240103T101329_N0510_R022_T32TNS_20240103T110304.SAFE/GRANULE/../x.txt\" has an empty, . or .. segment, or a backslash");
-reject!(safe_reject_zip_duplicate_name, "safe_reject_zip_duplicate_name.SAFE.zip", "a zip file has two entries named \"S2B_MSIL1C_20240103T101329_N0510_R022_T32TNS_20240103T110304.SAFE/manifest.safe\"");
-reject!(safe_reject_zip_encrypted, "safe_reject_zip_encrypted.SAFE.zip", "a zip entry is encrypted");
-reject!(safe_reject_zip_inflated_total, "safe_reject_zip_inflated_total.SAFE.zip", "the deflated XML documents are larger than 2^27 bytes together");
-reject!(safe_reject_zip_no_eocd, "safe_reject_zip_no_eocd.SAFE.zip", "not a zip file: no end of central directory record");
-reject!(safe_reject_zip_not_safe_root, "safe_reject_zip_not_safe_root.SAFE.zip", "a zip entry \"S2B_MSIL1C_product/\" is not under a .SAFE directory");
-reject!(safe_reject_zip_overlapping_entries, "safe_reject_zip_overlapping_entries.SAFE.zip", "two zip entries' local headers and data overlap");
-reject!(safe_reject_zip_truncated_cd, "safe_reject_zip_truncated_cd.SAFE.zip", "a zip file's central directory has fewer entries than it says");
-reject!(safe_reject_zip_two_roots, "safe_reject_zip_two_roots.SAFE.zip", "a zip file has entries under two root directories");
+// one test per case of conformance/virtualize/rejects/safe.json (build.rs)
+include!(concat!(env!("OUT_DIR"), "/rejects_safe.rs"));
 
 #[test]
 fn a_value_the_view_shows_unread_in_an_object_described_in_place_is_refused() {
@@ -234,7 +161,7 @@ fn a_band_file_whose_main_header_passes_64_kib_is_refused_near_the_bound() {
     }
     f.extend_from_slice(&[0xFF, 0x90]);
     let mut r = BandReader::new(f.len() as u64);
-    let rules = refkv_ir::rules::safe();
+    let rules = refkv_ir::rules::of("safe");
     let e = loop {
         match r.step(rules) {
             Ok(Some((o, n))) => r.feed(o, f[o as usize..(o + n) as usize].to_vec()),

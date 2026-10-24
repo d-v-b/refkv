@@ -42,13 +42,10 @@ from pydicom.tag import BaseTag
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
-from refkv.policy import Policy  # noqa: E402
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg and imagecodecs_jpeg2k)
 
-# The sources are served on 127.0.0.1, which spec §6.7
-# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3 refuses by
-# default.
-LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
+from verify_common import LOOPBACK_SOURCES  # noqa: E402
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
@@ -101,7 +98,7 @@ def expected(ds: pydicom.Dataset) -> np.ndarray:
 
 
 LAYOUT = {"7FE00001", "7FE00002", "FFFCFFFC"}  # offset tables and padding: recorded only where they are not layout
-ADOBE = 18  # the bytes of the SOI and Adobe marker that replace an RGB JPEG frame's SOI (spec/virtualize.md §6.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#65-frames>)
+ADOBE = 18  # the bytes of the SOI and Adobe marker that replace an RGB JPEG frame's SOI (spec/virtualize/dicom.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#75-frames>)
 BINARY = {"OB", "OD", "OF", "OL", "OV", "OW", "UN"}
 SIZES = {"AT": 4, "FL": 4, "FD": 8, "SL": 4, "SS": 2, "UL": 4, "US": 2, "SV": 8, "UV": 8}
 pydicom.config.convert_wrong_length_to_UN = True  # numeric values whose length is not a multiple of the size

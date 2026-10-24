@@ -9,19 +9,15 @@ accepts, is the NIfTI profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` ·
 Schema: [schema.json](nifti/schema.json)
 
-This document has two parts. [Part 1](#part-1-the-convention) is the NIfTI
-convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the NIfTI profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The profile keeps its numbering as a section
-of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
+This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 # Part 1. The convention
 
 ## 1. Declaration
 
-The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "nifti"`, `"version": 0`, `"revision": 27` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
-and the root's source metadata of [§5.1](#51-the-root) as the member `"nifti"`. Its CMO is:
+The root and `refkv_source` declare the convention
+([conventions §11.2](../conventions.md#112-declaration)), the root with its source
+metadata of [§5.1](#51-the-root) as the member `"nifti"`. Its CMO is:
 
 ```json
 {
@@ -33,10 +29,7 @@ and the root's source metadata of [§5.1](#51-the-root) as the member `"nifti"`.
 }
 ```
 
-`refkv_source` declares it too, with the IR mirror's description ([§5.2](#52-the-ir-mirror),
-[conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
-the mirror's view that has a member; the array and the mirror's arrays have no
-attributes.
+The array has no attributes.
 
 ## 2. The header
 
@@ -337,9 +330,8 @@ need not repeat the rules of [§4.2](#42-value-scaling).
 ### 5.2 The IR mirror
 
 `refkv_source` is the file's **IR mirror**
-([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `refkv_source/tree`. The IR's
-elements (the NIfTI **source model**) are below; nothing is left out: the
+([conventions §11.3](../conventions.md#113-the-ir-mirror)).
+The IR's elements (the NIfTI **source model**) are below; nothing is left out: the
 header, the extender, the extensions, the voxel data, and every byte between
 and after them.
 
@@ -373,10 +365,8 @@ on when they are not all NUL.
 
 ### 5.4 Equivalence
 
-The elements are determined by the file, and the mirror by its elements
-([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
-file are compared entry for entry, `refkv_source` included
-([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
+Hierarchies of one file are compared entry for entry, `refkv_source` included
+([conventions §11.4](../conventions.md#114-equivalence)).
 
 ## 6. Example
 
@@ -399,7 +389,6 @@ root `zarr.json` has these attributes (`M` elided):
   "refkv_virtualized": {
     "profile": "nifti",
     "version": 0,
-    "revision": 27,
     "source": {"url": "https://example.org/brain.nii"},
     "nifti": {
       "nifti_version": 1,
@@ -450,19 +439,18 @@ bytes.
 
 # Part 2. The profile
 
-The NIfTI profile of [spec/virtualize.md](../virtualize.md) (revision 16), numbered
-as its [§7](#7-nifti-profile). [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here.
-
-The output has the convention's layout for the input
-([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
-which inputs are accepted and how each chunk references the file. "The convention §n" below is a section of Part 1.
+The NIfTI profile of [spec/virtualize.md](../virtualize.md) (revision 16) is [§7](#7-nifti-profile) of this document. What every profile's Part 2 shares is in
+[spec/virtualize.md, Profiles](../virtualize.md#profiles).
 
 ## 7. NIfTI profile
 
 ### 7.1 Header
 
-The input is a NIfTI-1 or NIfTI-2 single file (`.nii`), which [§1.2](../virtualize.md#12-input) chose by
-its first bytes. Its header is the first `L` bytes of the file
+The input is a NIfTI-1 or NIfTI-2 single file (`.nii`), which its **signature**
+([spec/virtualize.md §1.2](../virtualize.md#12-input), tested at the precedence of
+[profiles/nifti.json](profiles/nifti.json)) chose: bytes 0–3 of `H` are the 32-bit integer 348 in either byte order
+and bytes 344–347 are `6E 2B 31 00` (`n+1`), NIfTI-1; or bytes 0–3 are the 32-bit integer 540
+in either byte order and bytes 4–11 are `6E 2B 32 00 0D 0A 1A 0A` (`n+2`), NIfTI-2. Its header is the first `L` bytes of the file
 ([the convention §2](#2-the-header)); a file
 shorter than `L` bytes is rejected. The file is **little-endian** if bytes
 0–3, read as a little-endian 32-bit integer, are `L`, and **big-endian**

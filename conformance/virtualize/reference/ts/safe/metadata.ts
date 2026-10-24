@@ -276,8 +276,8 @@ const READ_AHEAD = 16;
  * of at most 65536 bytes), `lists` holds the other members of `S` (`empty`, `empty_dirs`,
  * `ignored`), which never move, and `order` compares keys. The candidates are read in the
  * order they are taken, at most READ_AHEAD at a time, and no longer once the next one cannot
- * fit (§12.2
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#122-objects-and-reading>): `S`
+ * fit (§8.2
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#82-objects-and-reading>): `S`
  * with only its texts and `lists`, J bytes of JSON, and a candidate of n
  * bytes as text is more than J + n bytes. */
 export async function chooseTexts(

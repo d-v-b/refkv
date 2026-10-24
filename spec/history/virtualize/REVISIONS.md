@@ -1614,3 +1614,80 @@ revisions it records, from
 those revisions wrote, byte for byte; `compare.py` reads those names as the
 current ones
 ([conformance/virtualize/HARNESS.md](../../../conformance/virtualize/HARNESS.md)).
+
+## Revision 28: the MRC profile
+
+**What prompted it.** Cryo-EM maps, micrographs, particle stacks and
+tomograms are MRC2014 files: a 1024-byte header, an optional extended
+header, and one block of values, like NIfTI a format whose whole structure
+is in its header. Revision 27 is kept as `VIRTUALIZE.r27.md`.
+
+**The changes.**
+- **[§14](../../virtualize/mrc.md#14-mrc-profile), the MRC profile**
+  ([spec/virtualize/mrc.md](../../virtualize/mrc.md)): an MRC2014 file is
+  chosen by `MAP` at byte 208 ([§1.2](../../virtualize.md#12-input)), its byte
+  order by the machine stamp's first byte; images, image stacks, volumes
+  and volume stacks (`ispg ≥ 401`) become one array, `z`, `y`, `x` (an
+  image `y`, `x`; a volume stack `t`, `z`, `y`, `x`), named by the axis map
+  when it is a permutation; modes 0, 1, 2, 4, 6 and 12; the voxel size in
+  angstroms as scale, the origin as translation, `dmin` and `dmax` as the
+  display window; chunks of contiguous values with a limit of 1 MiB; the
+  header on the root, and the file's IR mirror on `refkv_source`.
+- **Dataset layouts** ([conventions §9](../../conventions.md#9-dataset-layouts)):
+  a source can also be presented, in the same hierarchy, as a group xarray
+  opens as a dataset, declared by a convention of its own (`<p>-dataset`),
+  its data variables the image layout's chunks again and its coordinate
+  variables bytes entries (regular steps as a delta-coded, deflated index
+  with CF `scale_factor` and `add_offset`); the root names such layouts in `layouts`
+  ([conventions §2](../../conventions.md#2-attributes)). The MRC hierarchy
+  has one, `dataset` ([spec/virtualize/mrc-dataset.md](../../virtualize/mrc-dataset.md)):
+  `data` with the dimensions `z`, `y`, `x` (`section`, `volume` for a
+  stack's index) and `float64` coordinates in angstroms.
+- **Conformance** is [§15](../../virtualize.md#15-conformance) (was §14).
+- **Conventions:** the root property records `"revision": 28`; the schemas
+  were regenerated, with the MRC convention's.
+
+**Output.** Every other profile's output changes only in the recorded
+revision.
+
+**Implementations.** The Rust core (`rust/refkv-ir/src/mrc.rs`, the source
+model `schema/mrc.json`, the projection `project/mrc.rs`), through both
+hosts. There is no frozen reference: `compare.py` compares `py` with `web`
+on MRC inputs, and `js/test/mrc/verify.py` and `python/tests/ir/test_mrc.py`
+check both against mrcfile.
+
+## Revision 29: no recorded revision; the profile registry
+
+The last numbered revision. From here on, a change to a profile is recorded
+in that profile's document (a dated note), not in one sequence for all of
+them: two profiles can change at once without serializing on a number.
+
+- **Conventions:** the root property no longer records a `revision`
+  ([conventions §1](../../conventions.md#1-conventions), [§2](../../conventions.md#2-attributes)):
+  `{"profile", "version", "source", ...}`. Each convention has its own
+  `version`, which is what tells two layouts apart from the release on; at
+  version 0 nothing is promised, as before. The schemas were regenerated
+  without the member. The frozen reference twins still record the revision
+  they implement (20 or 25); `compare.py` and the twins' tests drop it before
+  comparing.
+- **The profile registry:** [spec/virtualize/profiles.json](../../virtualize/profiles.json)
+  is the one place a profile's identity is written (name, section number,
+  title, UUID, version, kind, fixture suffixes, frozen reference, the phrases
+  the tables use). `spec/tools/profiles.py` derives the hosts' tables
+  (`python/src/refkv/virtualize/profiles.py`, `js/src/virtualize/profiles.ts`),
+  the Rust core's copy (`rust/refkv-ir/profiles.json`) and the profile tables
+  of spec/virtualize.md, spec/conventions.md, docs/virtualize/README.md and
+  the demo page; `just sections` checks they are current.
+- **Numbering:** Conformance is [Appendix A](../../virtualize.md#appendix-a-conformance)
+  of spec/virtualize.md, no longer the section after the last profile, so a
+  new profile takes the next number and moves nothing. The profiles' numbers
+  are the registry's.
+- **Hosts:** the Rust core's file runs take the format's name
+  (`vz_run_new`, `vz_new`, `vz_test_mirror`), as the store runs did; the
+  integer codes are gone.
+- **Shared projection helpers:** `rust/refkv-ir/src/out.rs` holds the
+  rectilinear array document, the `omero` channel builders and the codec
+  chain of a TIFF compression, which the projections call.
+
+**Output.** Every profile's output changes only by losing the `revision`
+member of its root property.

@@ -2,9 +2,9 @@
 // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>–§1.6
 // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-json-documents>): the listing,
 // object reads, the strict JSON reader, and the output of a store profile (one url source per
-// chunk object). Shared by the N5 (§9
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#9-n5-profile>), Zarr v2 (§10
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>) and
+// chunk object). Shared by the N5 (§8
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#8-n5-profile>), Zarr v2 (§7
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#7-zarr-v2-profile>) and
 // OME-Zarr (§11
 // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#11-ome-zarr-profile>)
 // profiles.
@@ -33,8 +33,8 @@ export class StoreError extends Error {
 
 /**
  * A resource limit of this implementation was exceeded: a failure, not a rejection (§1.2
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>, §14
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-conformance>).
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>, Appendix A
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#appendix-a-conformance>).
  */
 export class StoreLimitError extends Error {}
 
@@ -52,8 +52,8 @@ export const MAX_SAFE = Number.MAX_SAFE_INTEGER;
 export const MAX_DOCUMENT = 1 << 24;
 const MAX_DEPTH = 256;
 /**
- * The browser implementation's limit on listed objects (§14
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-conformance>).
+ * The browser implementation's limit on listed objects (Appendix A
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#appendix-a-conformance>).
  */
 export const MAX_OBJECTS = 100000;
 
@@ -566,10 +566,14 @@ export interface Store {
   requests: number;
   read(key: string): Promise<Uint8Array>;
   /**
-   * The bytes [offset, offset + length) of the object `key` (spec/virtualize.md §12.2
-   * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#122-objects-and-reading>).
+   * The bytes [offset, offset + length) of the object `key` (spec/virtualize/safe.md §8.2
+   * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#82-objects-and-reading>).
    */
   readRange?(key: string, offset: number, length: number): Promise<Uint8Array>;
+  /** The size of the object `key` when the store has it, else undefined: the answer to a run's
+   * probe (ir/store.ts), for a store whose objects are not listed (a VSI input's files,
+   * ir/vsi.ts). A listed store has the objects it listed. */
+  probe?(key: string): Promise<number | undefined>;
   /** Documents read at a time by `prefetchDocuments`; read one at a time if absent or 1. */
   concurrency?: number;
   /** Bytes read ahead and not yet taken, at most (but always one document). */
@@ -742,8 +746,8 @@ export async function readDocument(store: Store, key: string, { keep = false } =
 export type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
 /** Throws a resolution error unless the reader policy (spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) lets the store at
- * `base` request `url`: an http(s) URL (§6.2
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#62-file>), allowed by rules 1
+ * `base` request `url`: an http(s) URL (§7.2
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#72-file>), allowed by rules 1
  * and 2, its host as
  * written (an IP literal, or `localhost`) allowed by rule 3. */
 function allowStoreUrl(policy: Policy, base: string, url: string): void {

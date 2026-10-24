@@ -432,16 +432,16 @@ impl<R: ReadAt> Store<R> {
                 }
             }
             let (params, pilots) = format::decode_ptrhash(whole(&one[section::PTRHASH as usize].unwrap())?, n).map_err(|m| archive(format!("PTRHASH: {m}")))?;
-            if params.total_slots().checked_mul(8) != Some(sl.length) {
+            if params.total_slots().checked_mul(format::SLOT_SIZE) != Some(sl.length) {
                 return err(Class::Archive, format!("SLOTS of {} bytes for {} slots", sl.length, params.total_slots()));
             }
             slots = sl.offset;
             if slots_whole {
                 slots_buf = Some(read(sl.offset, sl.length)?);
-            } else if limits.slot_block > 8 {
+            } else if limits.slot_block >= format::SLOT_SIZE {
                 // the whole blocks of SLOTS that the first read, or the window before a hybrid
                 // superblock, already holds are kept, as if a lookup had read them
-                let block = limits.slot_block & !7;
+                let block = limits.slot_block - limits.slot_block % format::SLOT_SIZE;
                 let w = window.borrow();
                 for (at, held) in [(tail_at, &tail[..]), (w.0, &w.1[..])] {
                     let held_end = at + held.len() as u64;
@@ -549,24 +549,25 @@ impl<R: ReadAt> Store<R> {
             return Ok(None);
         };
         let s = ptrhash::slot(params, pilots, ptrhash::hash(key.as_bytes(), params.seed));
-        let off = match &self.slots_buf {
-            Some(b) => format::le_u64(b, 8 * s as usize),
-            None if self.limits.slot_block > 8 => {
-                let block = self.limits.slot_block & !7;
-                let (i, at) = (8 * s / block, (8 * s % block) as usize);
+        let w = format::SLOT_SIZE;
+        let slot: [u8; 12] = match &self.slots_buf {
+            Some(b) => b[(w * s) as usize..(w * (s + 1)) as usize].try_into().unwrap(),
+            None if self.limits.slot_block >= w => {
+                // whole slots only, so a slot is never split between two blocks
+                let block = self.limits.slot_block - self.limits.slot_block % w;
+                let (i, at) = (w * s / block, (w * s % block) as usize);
                 let mut blocks = self.slot_blocks.lock().unwrap_or_else(|e| e.into_inner());
                 if !blocks.contains_key(&i) {
-                    let len = block.min(8 * params.total_slots() - i * block);
+                    let len = block.min(w * params.total_slots() - i * block);
                     blocks.insert(i, self.read(self.slots + i * block, len, Class::Entry)?);
                 }
-                format::le_u64(&blocks[&i], at)
+                blocks[&i][at..at + w as usize].try_into().unwrap()
             }
-            None => format::le_u64(&self.read(self.slots + 8 * s, 8, Class::Entry)?, 0),
+            None => self.read(self.slots + w * s, w, Class::Entry)?[..].try_into().unwrap(),
         };
-        if off == format::EMPTY_SLOT {
+        let Some((rel, length)) = format::unpack_slot(&slot).map_err(|m| ReadError { class: Class::Entry, message: m })? else {
             return Ok(None);
-        }
-        let (rel, length) = format::unpack_slot(off, format::slot_offset_bits(self.records.1 - self.records.0));
+        };
         let rec = self.record_at(self.records.0.saturating_add(rel), length)?;
         Ok((rec.key == key.as_bytes()).then_some(rec))
     }

@@ -6,10 +6,10 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#43-image-arrays>, with the
 //! parser's band floor).
 
-use super::{arr, key, n, obj, strs, translations, truthy};
+use super::{along, arr, key, n, obj, strs, translations, truthy};
 use crate::coding::{pixel_type, JPEG, JPEGXR, UNCOMPRESSED, ZSTD0, ZSTD1};
 use crate::ir::Ir;
-use crate::out::{array_json, declare, group_doc, group_json, image_ome, metadata_group, transpose_codec, Out, Part};
+use crate::out::{bioformats2raw, bytes_codec, declare_array, declared_group, image_ome, item_size, metadata_group, omero_channel, omero_json, omero_window, rectilinear_array_json, transpose_codec, Out, Part, RGBA};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -30,14 +30,6 @@ fn form_of(v: &J) -> Result<(Form, &'static str, u64, u64), String> {
     Ok((f, dt, p, q))
 }
 
-fn bytes_codec(data_type: &str) -> J {
-    if data_type == "uint8" || data_type == "int8" {
-        json!({"name": "bytes"})
-    } else {
-        json!({"name": "bytes", "configuration": {"endian": "little"}})
-    }
-}
-
 /// The codecs of a form (spec/virtualize/czi.md §3.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#31-pixel-types-and-codecs>):
 /// `transpose` for samples, then the compression's.
@@ -47,13 +39,13 @@ fn codecs(form: Form, data_type: &str, p: u64, axes: &[&str]) -> J {
         JPEG => out.push(json!({"name": "imagecodecs_jpeg"})),
         JPEGXR => out.push(json!({"name": "imagecodecs_jpegxr"})),
         ZSTD0 | ZSTD1 => {
-            out.push(bytes_codec(data_type));
+            out.push(bytes_codec(item_size(data_type), "little"));
             if form.2 {
                 out.push(json!({"name": "numcodecs.shuffle", "configuration": {"elementsize": 2}}));
             }
             out.push(json!({"name": "zstd", "configuration": {"level": 0, "checksum": false}}));
         }
-        _ => out.push(bytes_codec(data_type)),
+        _ => out.push(bytes_codec(item_size(data_type), "little")),
     }
     J::Array(out)
 }
@@ -70,16 +62,11 @@ fn sample_letters(p: u64, compression: i32) -> &'static [&'static str] {
     }
 }
 
-/// An array's zarr.json, with the rectilinear chunk grid when a length is not one integer.
+/// An array's zarr.json, with the rectilinear chunk grid when a length is not one integer
+/// (`rectilinear_array_json`).
 fn array_doc(shape: &J, data_type: &str, lengths: &J, codecs: J, axes: &[&str]) -> J {
-    let regular = arr(lengths).iter().all(|v| v.is_i64() || v.is_u64());
     let shape: Vec<u64> = arr(shape).iter().map(n).collect();
-    let mut doc = array_json(&shape, data_type, if regular { lengths.clone() } else { json!([]) }, codecs, axes);
-    if !regular {
-        doc["chunk_grid"] = json!({"name": "rectilinear", "configuration": {"kind": "inline", "chunk_shapes": lengths}});
-    }
-    doc["fill_value"] = if data_type == "complex64" { json!([0.0, 0.0]) } else { json!(0) };
-    doc
+    rectilinear_array_json(&shape, data_type, lengths, codecs, axes)
 }
 
 /// A channel's name when it is a nonempty string of at most 256 bytes.
@@ -136,28 +123,15 @@ fn omero(values: &J, form: Form, data_type: &str, p: u64, lo_c: i64, channels: u
             let (top, full) = ((1i64 << bits) - 1, (1i64 << tb) - 1);
             let low = d.map(|d| &d["low"]).filter(|v| !v.is_null());
             let high = d.map(|d| &d["high"]).filter(|v| !v.is_null());
-            json!({"min": 0, "max": top, "start": low.map_or(json!(0), |v| times(v, full)),
-                   "end": high.map_or(json!(top), |v| times(v, full))})
+            omero_window(json!(0), json!(top), low.map_or(json!(0), |v| times(v, full)), high.map_or(json!(top), |v| times(v, full)))
         });
         for letter in letters {
-            let mut ch = Map::new();
-            ch.insert("label".into(), json!(if letter.is_empty() { label.clone() } else { format!("{label} {letter}") }));
-            let rgb = match *letter {
-                "B" => Some("0000FF"),
-                "G" => Some("00FF00"),
-                "R" => Some("FF0000"),
-                "A" => Some("FFFFFF"),
-                _ => None,
-            };
-            ch.insert("color".into(), rgb.map_or_else(|| color.clone(), |x| json!(x)));
-            ch.insert("active".into(), json!(true));
-            if let Some(w) = &window {
-                ch.insert("window".into(), w.clone());
-            }
-            out.push(J::Object(ch));
+            let rgb = RGBA.iter().find(|(l, _)| l == letter).map(|(_, c)| *c);
+            let name = if letter.is_empty() { label.clone() } else { format!("{label} {letter}") };
+            out.push(omero_channel(&name, rgb.map_or_else(|| color.clone(), |x| json!(x)), window.as_ref()));
         }
     }
-    Some(json!({"channels": out}))
+    Some(omero_json(out))
 }
 
 /// Each cell's chunks: one per band of `rows` rows, at row × per + k.
@@ -183,13 +157,7 @@ fn cell_refs(refs: &mut Refs, path: &str, axes: &[&str], compression: i32, q: u6
         };
         for (k, (o, len)) in pieces.into_iter().enumerate() {
             let y = row * per + k as u64;
-            let coords = axes.iter().map(|a| match *a {
-                "t" => t,
-                "c" => c,
-                "z" => z,
-                "x" => col,
-                _ => y,
-            });
+            let coords = axes.iter().map(|a| along(a, [t, c, z, y, col]));
             refs.chunk(key(&prefix, coords), start, length, 0, Some(vec![Part::Src(o, len)]), k as u64)?;
         }
     }
@@ -204,15 +172,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let tiles = arr(&facts["tiles"]);
     let mut out = Out::new(url);
     out.lazy.push(format!("{TILES}/"));
-    let mut root = Map::new();
-    if !images.is_empty() {
-        root.insert("ome".into(), json!({"version": "0.5", "bioformats2raw.layout": 3}));
-    }
-    out.json("zarr.json", &group_doc(declare(root, "czi", Some(url), Some(facts["root"].clone()))));
-    if !images.is_empty() {
-        let series: Vec<String> = (0..images.len()).map(|k| k.to_string()).collect();
-        out.json("OME/zarr.json", &group_json(json!({"version": "0.5", "series": series})));
-    }
+    bioformats2raw(&mut out, "czi", url, facts["root"].clone(), images.len(), !images.is_empty());
     let mut refs = Refs::new(ir, out);
     for (k, im) in images.iter().enumerate() {
         let axes = strs(&im["axes"]);
@@ -226,7 +186,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         let mut a = Map::new();
         a.insert("ome".into(), ome);
         let own = truthy(dims).then(|| json!({"dimensions": dims}));
-        refs.out.json(&format!("{k}/zarr.json"), &group_doc(declare(a, "czi", None, own)));
+        refs.out.json(&format!("{k}/zarr.json"), &declared_group(a, "czi", None, own));
         for (di, lv) in arr(&im["levels"]).iter().enumerate() {
             let path = format!("{k}/{di}");
             refs.out.json(&format!("{path}/zarr.json"), &array_doc(&lv["shape"], dtype, &lv["chunks"], codecs(form, dtype, p, &axes), &axes));
@@ -248,7 +208,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
             own.insert(m.into(), t[m].clone());
         }
         let mut doc = array_doc(&t["shape"], dtype, &t["chunks"], codecs(form, dtype, p, &axes), &axes);
-        doc["attributes"] = J::Object(declare(Map::new(), "czi", None, Some(J::Object(own))));
+        declare_array(&mut doc, "czi", J::Object(own));
         let path = format!("{TILES}/{k}");
         refs.out.json(&format!("{path}/zarr.json"), &doc);
         cell_refs(&mut refs, &path, &axes, form.1, q, &t["band"], &t["members"])?;

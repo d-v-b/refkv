@@ -30,6 +30,7 @@
 //! its leaves in order. Element ids the facts and the projections use stay those
 //! of the parser's rows: only the mirror renumbers.
 
+use crate::fed::{Word, uint};
 use crate::ir::*;
 use crate::out::{declare, json_size, metadata_array, metadata_group, Chunk, Out, CONVENTION_KEY, SOURCE_NODE};
 use crate::types::{self, Ty, Val};
@@ -311,10 +312,11 @@ fn child(y: &Ir, p: u32, name: &str, nidx: u64) -> Option<u32> {
 /// The array an encoding-2 column reads (conventions §8.8
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>, the named array
 /// rules): for a column run whose member 0 is row `r`, its field `f`, by the profile's rules.
-/// Returns (row, item size, big-endian). TIFF has one rule; the others none.
+/// Returns (row, item size, big-endian). TIFF has one rule, which QPTIFF (a TIFF) shares; the
+/// others none.
 fn array_rule(profile: &str, y: &Ir, r: usize, f: i64) -> Option<(u32, usize, bool)> {
     match profile {
-        "tiff" => tiff_layout(y, r, f),
+        "tiff" | "qptiff" => tiff_layout(y, r, f),
         _ => None,
     }
 }
@@ -672,18 +674,7 @@ pub fn unsigned_array(t: &str) -> Option<(usize, bool)> {
 }
 
 pub fn uints(raw: &[u8], z: usize, big: bool) -> Vec<u64> {
-    raw.chunks(z)
-        .map(|c| {
-            let mut b = [0u8; 8];
-            if big {
-                b[8 - z..].copy_from_slice(c);
-                u64::from_be_bytes(b)
-            } else {
-                b[..z].copy_from_slice(c);
-                u64::from_le_bytes(b)
-            }
-        })
-        .collect()
+    raw.chunks(z).map(|c| uint(c, 0, z, !big)).collect()
 }
 
 /// The most values of a table chunk (1 MiB of int64).
@@ -1020,11 +1011,7 @@ pub fn text_json(kind: &str, raw: &[u8]) -> J {
     } else {
         let n = raw.iter().position(|&c| c == 0).unwrap_or(raw.len());
         let b = &raw[..n];
-        let t = match std::str::from_utf8(b) {
-            Ok(s) => json!(s),
-            Err(_) => json!({"latin1": b.iter().map(|&c| c as char).collect::<String>()}),
-        };
-        (n, t)
+        (n, crate::text::text_json(b))
     };
     if raw[n..].iter().any(|&c| c != 0) {
         json!({"text": text, "after": {"$vz": "bytes", "b64": base64(&raw[n..])}})
@@ -1439,7 +1426,7 @@ pub fn table_from(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Table, String
         }
         Ok(out)
     };
-    let ints = |b: Vec<u8>| -> Vec<i64> { b.chunks(8).map(|c| i64::from_le_bytes(c.try_into().unwrap())).collect() };
+    let ints = |b: Vec<u8>| -> Vec<i64> { b.chunks(8).map(|c| i64::le_at(c, 0)).collect() };
     let node = doc("")?;
     let attrs = node["attributes"]["refkv_virtualized"].as_object().and_then(|m| m.values().next())
         .map(|v| &v["ir"]).ok_or("refkv_source declares no mirror")?;

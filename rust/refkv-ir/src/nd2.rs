@@ -12,8 +12,10 @@ use crate::check;
 use crate::ir::*;
 use crate::lv::{self, Decoded};
 use crate::schema::{self, FrameHead};
+use crate::text::utf8_or_latin1;
 use crate::xml;
-use std::collections::{BTreeMap, HashMap};
+use crate::fed::{Fed, Overlap, Word};
+use std::collections::HashMap;
 
 pub const FILE_SIGNATURE: &[u8] = b"ND2 FILE SIGNATURE CHUNK NAME01!";
 pub const MAP_SIGNATURE: &[u8] = b"ND2 CHUNK MAP SIGNATURE 0000001!";
@@ -64,7 +66,7 @@ pub struct Nd2 {
     size: u64,
     phase: Phase,
     asked: Vec<(u64, u64)>,
-    got: BTreeMap<u64, Vec<u8>>,
+    got: Fed,
     pub ir: Ir,
     map: (u64, u32, u64), // offset, name length, data length
     /// the map's chunks, in map order: (name, offset of its last record)
@@ -81,21 +83,6 @@ pub struct Nd2 {
     declared: Vec<(String, &'static str, usize)>,
     pub requests: u64,
     pub requested: u64,
-}
-
-fn u32le(b: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes(b[at..at + 4].try_into().unwrap())
-}
-
-fn u64le(b: &[u8], at: usize) -> u64 {
-    u64::from_le_bytes(b[at..at + 8].try_into().unwrap())
-}
-
-pub fn decode_text(b: &[u8]) -> String {
-    match std::str::from_utf8(b) {
-        Ok(s) => s.to_string(),
-        Err(_) => b.iter().map(|&c| c as char).collect(),
-    }
 }
 
 /// `ImageDataSeq|<f>!` with f decimal without leading zeros, at most 20 digits: f.
@@ -142,7 +129,7 @@ impl Nd2 {
             size,
             phase: Phase::Start,
             asked: Vec::new(),
-            got: BTreeMap::new(),
+            got: Fed::new(Overlap::Replace),
             ir: {
                 // the records the convention's decode limits allow: its own chunks' and
                 // the source metadata's (each LV record is at least 3 bytes)
@@ -171,16 +158,11 @@ impl Nd2 {
     /// The bytes of a requested range (or of part of one).
     fn bytes(&self, o: u64, n: u64) -> Result<&[u8], String> {
         // the range may lie in a merged response that starts before a smaller one
-        for (&s, b) in self.got.range(..=o).rev().take(64) {
-            if o + n <= s + b.len() as u64 {
-                return Ok(&b[(o - s) as usize..(o - s + n) as usize]);
-            }
-        }
-        Err(format!("internal: bytes [{o}, {}) were not read", o + n))
+        self.got.get(o, n).ok_or_else(|| format!("internal: bytes [{o}, {}) were not read", o + n))
     }
 
     pub fn feed(&mut self, offset: u64, data: Vec<u8>) {
-        self.got.insert(offset, data);
+        self.got.feed(offset, data);
     }
 
     fn ask(&mut self, ranges: Vec<(u64, u64)>) -> Step {
@@ -219,7 +201,7 @@ impl Nd2 {
             }
             Phase::Head => {
                 let h = self.bytes(0, 112)?.to_vec();
-                let (magic, n, d) = (u32le(&h, 0), u32le(&h, 4), u64le(&h, 8));
+                let (magic, n, d) = (u32::le_at(&h, 0), u32::le_at(&h, 4), u64::le_at(&h, 8));
                 if magic != schema::limit("chunk_magic") as u32 {
                     return Err("no ND2 chunk at 0".into());
                 }
@@ -249,7 +231,7 @@ impl Nd2 {
                 if &tail[..32] != MAP_SIGNATURE {
                     return Err("no ND2 chunk map signature".into());
                 }
-                let m = u64le(&tail, 32);
+                let m = u64::le_at(&tail, 32);
                 let ir = &mut self.ir;
                 let s = ir.struct_(0, "signature", NO_INDEX, 0, Some((0, 112)))?;
                 ir.value(s, "header", NO_INDEX, HEADER, 0, (0, 16), Some(&h[..16]))?;
@@ -297,7 +279,7 @@ impl Nd2 {
             Phase::MapHeader | Phase::MapName => {
                 let m = self.map.0;
                 let h = self.bytes(m, 16)?.to_vec();
-                let (magic, n, d) = (u32le(&h, 0), u32le(&h, 4), u64le(&h, 8));
+                let (magic, n, d) = (u32::le_at(&h, 0), u32::le_at(&h, 4), u64::le_at(&h, 8));
                 if magic != schema::limit("chunk_magic") as u32 {
                     return Err(format!("no ND2 chunk at {m}"));
                 }
@@ -357,7 +339,7 @@ impl Nd2 {
             if e + 17 > data.len() {
                 return Err("truncated ND2 chunk map record".into());
             }
-            let offset = u64le(&data, e + 1);
+            let offset = u64::le_at(&data, e + 1);
             match self.index.get(cname) {
                 Some(&k) => self.chunks[k].1 = offset,
                 None => {
@@ -445,7 +427,7 @@ impl Nd2 {
         for (_, o) in &self.chunks {
             heads.push(if *o <= size.saturating_sub(16) {
                 let h = self.bytes(*o, 16)?;
-                Some((u32le(h, 0), u32le(h, 4), u64le(h, 8)))
+                Some((u32::le_at(h, 0), u32::le_at(h, 4), u64::le_at(h, 8)))
             } else {
                 None
             });
@@ -478,7 +460,7 @@ impl Nd2 {
                 return Err("chunk length too large".into());
             }
             if self.outside(o + 16, n as u64) || self.outside(o + 16 + n as u64, d) {
-                return Err(format!("chunk {} lies outside the file", decode_text(name)));
+                return Err(format!("chunk {} lies outside the file", utf8_or_latin1(name)));
             }
             ranges.push((o + 16 + n as u64, d));
         }
@@ -588,7 +570,7 @@ impl Nd2 {
             est += d;
             ranges.push((s, d));
         }
-        self.got.retain(|_, _| false);
+        self.got.clear();
         self.phase = Phase::Meta;
         Ok(self.ask(ranges))
     }
@@ -636,7 +618,7 @@ impl Nd2 {
                 continue;
             };
             let is_frame = name.starts_with(b"ImageDataSeq|");
-            let text = decode_text(name);
+            let text = utf8_or_latin1(name);
             if d == 0
                 || is_frame
                 || texts.contains(&text)
@@ -686,7 +668,7 @@ impl Nd2 {
         }
         let data = self
             .got
-            .remove(&s)
+            .take(s)
             .ok_or_else(|| format!("internal: bytes [{s}, {}) were not read", s + d))?;
         let name = &self.chunks[k].0;
         if name.starts_with(b"CustomDataVar|") {
@@ -720,7 +702,7 @@ impl Nd2 {
         // the chunks' names (spec/virtualize/nd2.md §5.3
         // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#53-elements>): their
         // texts, unique among `chunks`' children
-        let texts: Vec<String> = self.chunks.iter().filter(|c| !is_frame(&c.0)).map(|c| decode_text(&c.0)).collect();
+        let texts: Vec<String> = self.chunks.iter().filter(|c| !is_frame(&c.0)).map(|c| utf8_or_latin1(&c.0)).collect();
         let mut names = source_names(&texts, &[]).into_iter();
         let mut frames: Vec<(u64, usize)> = Vec::new();
         for k in 0..self.chunks.len() {
@@ -1020,4 +1002,26 @@ fn emit_xml(ir: &mut Ir, parent: u32, space: u32, el: &xml::El, name: &str, nidx
         }
     }
     Ok(())
+}
+
+crate::parser!(Nd2);
+
+/// The ND2 profile's file run (spec/virtualize/nd2.md).
+pub struct Profile;
+
+impl crate::run::FileProfile for Profile {
+    /// The chunk magic `DA CE BE 0A`.
+    fn detect(&self, head: &[u8]) -> bool {
+        head.len() >= 4 && head[..4] == [0xda, 0xce, 0xbe, 0x0a]
+    }
+    fn parser(&self, size: u64) -> crate::run::AnyParser {
+        crate::run::AnyParser::of::<Nd2>(size)
+    }
+    /// It takes exactly the ranges it asked for.
+    fn whole(&self) -> bool {
+        false
+    }
+    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::nd2::project(ir, facts, url)
+    }
 }

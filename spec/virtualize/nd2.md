@@ -9,11 +9,7 @@ ND2 profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `59612f14-e314-4207-ba00-8f422ba71490` ·
 Schema: [schema.json](nd2/schema.json)
 
-This document has two parts. [Part 1](#part-1-the-convention) is the ND2
-convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the ND2 profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The profile keeps its numbering as a section
-of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
+This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 # Part 1. The convention
 
@@ -24,9 +20,9 @@ convention, and the profile rejects it.
 
 ## 1. Declaration
 
-The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "nd2"`, `"version": 0`, `"revision": 27` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`, and
-the source metadata of [§5](#5-source-metadata) as the member `"nd2"`. Its CMO is:
+The root and `refkv_source` declare the convention
+([conventions §11.2](../conventions.md#112-declaration)), the root with the source
+metadata of [§5](#5-source-metadata) as the member `"nd2"`. Its CMO is:
 
 ```json
 {
@@ -38,10 +34,6 @@ the source metadata of [§5](#5-source-metadata) as the member `"nd2"`. Its CMO 
 }
 ```
 
-`refkv_source` declares it too, with the IR mirror's description ([§5.2](#52-the-ir-mirror),
-[conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
-the mirror's view that has a member.
-
 ## 2. The source
 
 ### 2.1 Chunks
@@ -51,7 +43,7 @@ An ND2 file is a sequence of **chunks**, each a 16-byte header (`u32` magic
 `n` bytes of name, and `d` bytes of data. The file's **chunk map**, at its
 end, gives each named chunk's offset; of duplicate names, the last is used.
 The profile says how the signature and the map are read
-([spec/virtualize.md §5.1](#51-chunks)). Image frames are
+([§7.1](#71-chunks)). Image frames are
 the chunks named `ImageDataSeq|<f>!`; the others hold metadata.
 
 ### 2.2 Lite variant
@@ -269,7 +261,7 @@ Each array:
   except for uncompressed frames with padded rows (`uiWidthBytes` more than
   a row), which the profile splits into blocks of `h` rows, a divisor of
   `uiHeight` that it chooses to keep each chunk's reference within refkv's
-  limits ([spec/virtualize.md §5.3](#53-frames)).
+  limits ([§7.3](#73-frames)).
 - **Codecs** ([conventions §3](../conventions.md#3-arrays)): transpose when `c` is present (frames are interleaved),
   bytes (with `"endian": "little"` when the data type is larger than 1 byte),
   and zlib if compressed.
@@ -501,9 +493,8 @@ either a `value` attribute or child elements.
 ### 5.2 The IR mirror
 
 `refkv_source` is the file's **IR mirror**
-([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `refkv_source/tree`. The IR's
-elements (the ND2 **source model**) are below; nothing is left out: every
+([conventions §11.3](../conventions.md#113-the-ir-mirror)).
+The IR's elements (the ND2 **source model**) are below; nothing is left out: every
 chunk, the chunk map, frames beyond the image, padding and dead space.
 
 ### 5.3 Elements
@@ -552,10 +543,8 @@ so the rule loses nothing.
 
 ### 5.4 Equivalence
 
-The elements are determined by the file, and the mirror by its elements
-([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
-file are compared entry for entry, `refkv_source` included
-([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
+Hierarchies of one file are compared entry for entry, `refkv_source` included
+([conventions §11.4](../conventions.md#114-equivalence)).
 
 ## 6. Example
 
@@ -567,7 +556,6 @@ channels:
 "refkv_virtualized": {
   "profile": "nd2",
   "version": 0,
-  "revision": 27,
   "source": {
     "url": "https://example.org/a.nd2"
   },
@@ -646,17 +634,17 @@ the frames' timestamps (`frames/<f>/timestamp`) among them.
 
 # Part 2. The profile
 
-The ND2 profile of [spec/virtualize.md](../virtualize.md) (revision 16), numbered
-as its [§5](#5-nd2-profile). [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here.
+The ND2 profile of [spec/virtualize.md](../virtualize.md) (revision 16) is [§7](#7-nd2-profile) of this document. What every profile's Part 2 shares is in
+[spec/virtualize.md, Profiles](../virtualize.md#profiles).
 
-The output has the convention's layout for the input
-([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
-how the file is read, which inputs are rejected, and how each chunk
-references the file. "The convention §n" below is a section of Part 1.
+## 7. ND2 profile
 
-## 5. ND2 profile
+**Signature** ([spec/virtualize.md §1.2](../virtualize.md#12-input), tested at the precedence of
+[profiles/nd2.json](profiles/nd2.json)): bytes 0–3 of `H` are `DA CE BE 0A`, the chunk
+magic ([§7.1](#71-chunks)). A legacy ND2 file, which starts with the JPEG 2000 signature box
+`00 00 00 0C 6A 50 20 20 0D 0A 87 0A`, matches no profile's signature and is rejected.
 
-### 5.1 Chunks
+### 7.1 Chunks
 
 An ND2 file (format version 3 or later) is a sequence of **chunks**. A chunk
 at offset `o` has a 16-byte header: `u32` magic `0x0ABECEDA`, `u32` name
@@ -694,15 +682,15 @@ the file), not its data.
   counts its length too. A file whose three chunks hold more is rejected; a
   virtualizer stops decoding there.
 
-### 5.2 Rejection
+### 7.2 Rejection
 
-The input is rejected when a rule of [§5.1](#51-chunks) or [§5.3](#53-frames) fails, and when the
+The input is rejected when a rule of [§7.1](#71-chunks) or [§7.3](#73-frames) fails, and when the
 convention gives it no layout: wherever its [§2.2](#22-lite-variant) (for the chunks that its
 [§3](#3-metadata) reads), [§3](#3-metadata) or [§4](#4-the-image) says that the input is rejected, or that something
 MUST hold and it does not. The chunks that only the source metadata reads
 ([the convention §5](#5-source-metadata)) never reject the input.
 
-### 5.3 Frames
+### 7.3 Frames
 
 Frame `f` ([the convention §4.1](#41-frames)) is
 the chunk named `ImageDataSeq|<f>!`. A frame's data is an 8-byte timestamp followed by its pixels: `uiHeight`
@@ -715,7 +703,7 @@ then padding. Let `R = uiWidth × uiComp × uiBpcInMemory / 8`;
   frame (a frame `f < N` that the chunk map names), and reject the file if
   their name lengths `n` are not all the same, or if any one's data length
   `d` is less than `8 + uiHeight × uiWidthBytes` (a header without the
-  magic rejects it too, [§5.1](#51-chunks)): the image takes every frame's pixels at the
+  magic rejects it too, [§7.1](#71-chunks)): the image takes every frame's pixels at the
   same distance from its chunk's offset. Frame `f`'s pixels start at
   `start = o + 16 + n + 8`, where `o` is its chunk's offset from the chunk
   map. (A frame's ranges MUST lie within the file, [§1.2](../virtualize.md#12-input); its chunk's data
@@ -741,9 +729,9 @@ any frame is placed at it, and its `omero` lists every component. The number
 of positions `P` (the position loop's count, 1 without one) MUST be at most
 2^16, and `P × uiComp` at most 2^20, else the input is rejected.
 
-### 5.4 Chunk references
+### 7.4 Chunk references
 
 Frame `f` at position `p` (0 without a position loop) is the
-entry `<p>/0/c/<coords>` with its ranges ([§5.3](#53-frames)); coords are its `t`, 0 for
+entry `<p>/0/c/<coords>` with its ranges ([§7.3](#73-frames)); coords are its `t`, 0 for
 `c`, its `z` (each only when its axis is present), then 0, 0. With row
 blocks, block `j` is the entry with coords ..., `j`, 0.

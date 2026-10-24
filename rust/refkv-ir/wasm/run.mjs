@@ -12,24 +12,28 @@ const { instance } = await WebAssembly.instantiate(readFileSync(wasmPath), {});
 const w = instance.exports;
 const text = (n) => new TextDecoder().decode(new Uint8Array(w.memory.buffer, w.vz_out(), n));
 
+// The format's name, by the file's first bytes (`vz_sniff`, the core's `Format::sniff`); a file
+// of no format is tried as CZI, whose parser rejects it.
 function format(fd) {
-  const head = new Uint8Array(348);
-  readSync(fd, head, 0, 348, 0);
-  const s = String.fromCharCode(...head.subarray(0, 16));
-  if (String.fromCharCode(...head.subarray(128, 132)) === "DICM") return 3;
-  if (head[0] === 0xda && head[1] === 0xce && head[2] === 0xbe && head[3] === 0x0a) return 0;
-  if (s.startsWith("II*\0") || s.startsWith("MM\0*") || s.startsWith("II+\0") || s.startsWith("MM\0+")) return 1;
-  if (String.fromCharCode(...head.subarray(344, 348)) === "n+1\0" || s.slice(4, 12) === "n+2\0\r\n\x1a\n") return 4;
-  if (s.startsWith("\x89HDF\r\n\x1a\n")) return 5;
-  if (s.startsWith("PK\x03\x04")) return 6; // a SAFE product's zip form
-  return 2;
+  const head = new Uint8Array(552);
+  const n = readSync(fd, head, 0, 552, 0);
+  const r = Number(w.vz_sniff(put(head.subarray(0, n)), n));
+  return r > 0 ? text(r) : "czi";
+}
+
+function put(bytes) {
+  const ptr = w.vz_alloc(bytes.length);
+  new Uint8Array(w.memory.buffer, ptr, bytes.length).set(bytes);
+  return ptr;
 }
 
 for (const file of args) {
   const fd = openSync(file, "r");
   const size = fstatSync(fd).size;
   const t0 = performance.now();
-  const p = w.vz_new(format(fd), BigInt(size));
+  const name = new TextEncoder().encode(format(fd));
+  const p = w.vz_new(put(name), name.length, BigInt(size));
+  if (p === 0) throw new Error(`${file}: no parser for ${format(fd)}`);
   let rounds = 0, ranges = 0, bytes = 0, out = null;
   for (;;) {
     const r = Number(w.vz_step(p));

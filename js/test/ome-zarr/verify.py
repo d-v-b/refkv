@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import subprocess
 import sys
 import tempfile
 import warnings
@@ -48,13 +47,10 @@ FIXTURES = ROOT / "fixtures"
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
 from proxy import Proxy  # noqa: E402
 
-from refkv.policy import Policy  # noqa: E402
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers zlib)
 
-# The sources are served on 127.0.0.1, which spec §6.7
-# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3 refuses by
-# default.
-LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
+from verify_common import LOOPBACK_SOURCES  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("zarr2_verify", HERE.parent / "zarr2" / "verify.py")
 zarr2_verify = importlib.util.module_from_spec(_spec)

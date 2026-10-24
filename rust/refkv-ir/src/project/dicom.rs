@@ -5,10 +5,10 @@
 //! JPEG with three samples; the facts hold the array, its scales, the window and the root's
 //! source metadata.
 
-use super::{arr, n, obj, strs};
+use super::{arr, key, n, obj, strs};
 use crate::dicom::ADOBE;
 use crate::ir::Ir;
-use crate::out::{array_json, image_ome, root_json, transpose_codec, Out, Part};
+use crate::out::{array_json, bytes_codec, image_ome, item_size, omero_channel, omero_json, root_json, transpose_codec, Out, Part, RGBA};
 use crate::refs::Refs;
 use serde_json::{json, Value as J};
 
@@ -23,26 +23,22 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let fa = facts["frame_axis"].as_str().unwrap_or("z");
     let mut codecs = if spp == 3 && !planar { vec![transpose_codec(&axes)] } else { vec![] };
     codecs.push(match codec {
-        "native" if data_type.ends_with("int8") => json!({"name": "bytes"}),
-        "native" => json!({"name": "bytes", "configuration": {"endian": if facts["little"].as_bool().unwrap_or(true) { "little" } else { "big" }}}),
+        "native" => bytes_codec(item_size(data_type), if facts["little"].as_bool().unwrap_or(true) { "little" } else { "big" }),
         c => json!({"name": format!("imagecodecs_{c}")}),
     });
     let mut ome = image_ome(&axes, &obj(&facts["units"]), &[facts["scale"].clone()], None, None)?;
     let window = facts["window"].clone();
     let photometric = facts["photometric"].as_str().unwrap_or("");
     let channels: Vec<J> = if spp == 1 {
-        let mut c = json!({"label": "gray", "color": "FFFFFF", "active": true, "window": window});
+        let mut c = omero_channel("gray", "FFFFFF", Some(&window));
         if photometric == "MONOCHROME1" {
             c["inverted"] = json!(true);
         }
         vec![c]
     } else {
-        [("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF")]
-            .iter()
-            .map(|(l, c)| json!({"label": l, "color": c, "active": true, "window": window}))
-            .collect()
+        RGBA[..3].iter().map(|(l, c)| omero_channel(l, *c, Some(&window))).collect()
     };
-    ome["omero"] = json!({"channels": channels});
+    ome["omero"] = omero_json(channels);
 
     let mut refs = Refs::new(ir, Out::new(url));
     refs.out.json("zarr.json", &root_json(ome, "dicom", url, Some(facts["root"].clone())));
@@ -83,18 +79,14 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
                 }
                 p
             };
-            let coords: Vec<String> = axes
-                .iter()
-                .map(|a| match *a {
-                    "c" => s,
-                    "y" => row,
-                    "x" => col,
-                    a if a == fa => f,
-                    _ => 0,
-                })
-                .map(|c| c.to_string())
-                .collect();
-            refs.chunk(format!("0/c/{}", coords.join("/")), start, length, form, Some(parts), s)?;
+            let coords = axes.iter().map(|a| match *a {
+                "c" => s,
+                "y" => row,
+                "x" => col,
+                a if a == fa => f,
+                _ => 0,
+            });
+            refs.chunk(key("0/c/", coords), start, length, form, Some(parts), s)?;
         }
     }
     let mut out = refs.out;

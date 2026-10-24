@@ -127,7 +127,7 @@ def test_virtualizes_the_synthetic_files():
         assert (omero["channels"][0]["window"] if omero else None) == window, name
         if chunk is not None:
             assert out.refs[chunk[0]] == chunk[1], name
-        assert out.data == {}, name  # no data sources (spec/virtualize.md §7.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>)
+        assert out.data == {}, name  # no data sources (spec/virtualize/nifti.md §7.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>)
     # The transpose codec puts the axes in the file's order: dimension 5 first, color samples last.
     for name, order in {"nifti_n2_be_float64_5d": [1, 0, 2, 3, 4], "nifti_n1_be_rgb24_4d": [0, 2, 3, 4, 1],
                         "nifti_n1_le_int16_3d_sform": None}.items():

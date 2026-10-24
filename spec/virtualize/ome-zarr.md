@@ -10,11 +10,7 @@ OME-Zarr profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` ·
 Schema: [schema.json](ome-zarr/schema.json)
 
-This document has two parts. [Part 1](#part-1-the-convention) is the OME-Zarr
-convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the OME-Zarr profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The profile keeps its numbering as a section
-of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
+This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 # Part 1. The convention
 
@@ -51,11 +47,11 @@ whose keys are exactly Zarr v2's for either separator, and its `transpose`,
 
 ## 1. Declaration
 
-The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "ome-zarr"`, `"version": 0`, `"revision": 27` ([conventions §1](../conventions.md#1-conventions)), the store's URL (ending in
-`/`) as `source.url`, and the root's source metadata ([§8](#8-source-metadata)), if it has any,
-as the member `"ome-zarr"`. Every other node that has source metadata
-declares it with `{"ome-zarr": S}`. Its CMO is:
+The root and `refkv_source` declare the convention
+([conventions §11.2](../conventions.md#112-declaration)), the root with its source
+metadata ([§8](#8-source-metadata)), if it has any, as the member `"ome-zarr"`, and
+`refkv_source` with that of [§8.2](#82-the-store-ir). Every other node that has source
+metadata declares it with `{"ome-zarr": S}`. Its CMO is:
 
 ```json
 {
@@ -66,11 +62,6 @@ declares it with `{"ome-zarr": S}`. Its CMO is:
   "description": "The Zarr layout of a OME-Zarr source virtualized by refkv, and the source's metadata"
 }
 ```
-
-`refkv_source` declares it too, with the store's IR mirror's description
-([§8.2](#82-the-store-ir), [conventions §8.9](../conventions.md#89-stores)), and so does each group of
-the mirror's view that has a member; the mirror's arrays have no
-attributes.
 
 ## 2. Hierarchy
 
@@ -408,7 +399,7 @@ as a value per top-level member, every other object referenced or empty), and it
 present only when not empty. The OME layer adds no element: what
 it reads is in the node documents the mirror holds. Hierarchies of one store are compared
 entry for entry, `refkv_source` included
-([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
+([conventions §11.4](../conventions.md#114-equivalence)).
 
 ## 9. Not checked
 
@@ -486,7 +477,6 @@ metadata:
     "refkv_virtualized": {
       "profile": "ome-zarr",
       "version": 0,
-      "revision": 27,
       "source": {
         "url": "https://example.org/i.zarr/"
       }
@@ -562,42 +552,36 @@ and the source metadata names it rather than copying it:
 
 # Part 2. The profile
 
-The OME-Zarr profile of [spec/virtualize.md](../virtualize.md) (revision 16),
-numbered as its [§11](#11-ome-zarr-profile). [§1](../virtualize.md#1-introduction) is in spec/virtualize.md and applies here, in particular
-the store input rules of [§1.4](../virtualize.md#14-store-inputs)–[§1.6](../virtualize.md#16-json-documents), and so does [§2](../virtualize.md#2-the-zarr-layout). The profile builds on
-the Zarr v2 profile ([zarr2.md](zarr2.md#part-2-the-profile), [§10](zarr2.md#10-zarr-v2-profile)).
-
-The output has the convention's layout for the input
-([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
-how the store is read, which inputs are rejected, and how each chunk
-references the store. "The convention §n" below is a section of Part 1.
+The OME-Zarr profile of [spec/virtualize.md](../virtualize.md) (revision 16) is [§11](#11-ome-zarr-profile) of this document. What every profile's Part 2 shares is in
+[spec/virtualize.md, Profiles](../virtualize.md#profiles). The profile builds on
+the Zarr v2 profile ([zarr2.md](zarr2.md#part-2-the-profile), [zarr2.md §7](zarr2.md#7-zarr-v2-profile)).
 
 ## 11. OME-Zarr profile
 
 The profile was chosen because the store's root has a `.zarray` or a
 `.zgroup` and the store declares OME-NGFF 0.4 ([§1.4](../virtualize.md#14-store-inputs)). The store is read
-as [§10](zarr2.md#10-zarr-v2-profile) reads it, integer literals included: its node documents in one
+as [zarr2.md §7](zarr2.md#7-zarr-v2-profile) reads it, integer literals included: its node documents in one
 round; then each document the test of OME-NGFF 0.4 names that the round did not read (one
 inside an array, say), one round each, a document the test cannot parse rejecting the input,
-and one that cannot be read failing the virtualizer, as in [§10.2](zarr2.md#102-chunks-and-other-objects).
-The choice between this profile and [§10](zarr2.md#10-zarr-v2-profile) reads the same rounds.
+and one that cannot be read failing the virtualizer, as in [zarr2.md §7.2](zarr2.md#72-chunks-and-other-objects).
+The choice between this profile and [zarr2.md §7](zarr2.md#7-zarr-v2-profile) reads the same rounds.
 
 ### 11.1 Rejection
 
-The input is rejected when a rule of [§10](zarr2.md#10-zarr-v2-profile) rejects it, and when the
+The input is rejected when a rule of [zarr2.md §7](zarr2.md#7-zarr-v2-profile) rejects it, and when the
 convention gives it no layout: wherever it says that the input is
 rejected, or that something MUST hold and it does not (in particular, a
 rule of [its §4](#4-validation)).
 
 ### 11.2 Chunks and OME-XML
 
-Chunks are [§10](zarr2.md#10-zarr-v2-profile)'s: each nonempty chunk object is an entry under its own key,
+Chunks are [zarr2.md §7](zarr2.md#7-zarr-v2-profile)'s: each nonempty chunk object is an entry under its own key,
 referencing the whole object through its own `url` source ([§1.4](../virtualize.md#14-store-inputs)). Each
 OME-XML object of [the convention §7](#7-chunks-and-ome-xml)
 is referenced whole in the same way: an entry under its key, with its own
 source, in the order of [§1.4](../virtualize.md#14-store-inputs) among the chunk entries (an object of size 0
 has no entry; it is an empty object, which the mirror lists, as an empty chunk object is).
-Every other object is as [§10.2](zarr2.md#102-chunks-and-other-objects) says; the ignored keys are
+Every other object is as [zarr2.md §7.2](zarr2.md#72-chunks-and-other-objects) says; the ignored keys are
 `refkv_source`'s source metadata ([the convention §8.2](#82-the-store-ir)).
 
 ### 11.3 Summary
@@ -609,5 +593,5 @@ objects), `images`, `labels` (label images), `droppedLabelLevels` (the
 datasets L7 drops, over all label images), `plates`, `wells`, `fields`
 (the images wells list), `omeXml` (OME-XML entries), `otherObjects` (the
 entries under `refkv_source/objects/`) and `listingRequests`, and the Rust core's counts
-([§10.3](zarr2.md#103-summary)).
+([zarr2.md §7.3](zarr2.md#73-summary)).
 

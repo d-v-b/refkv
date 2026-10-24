@@ -45,7 +45,7 @@ def test_ndpi_jpeg_header_rejects_progressive():
 
 
 def test_ndpi_header_pieces_are_data_sources():
-    # §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: the
+    # §7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>: the
     # header up to SOF0 and after it are ranges of data sources, one
     # per distinct byte string in order of first use, shared by every chunk
     # and level; the bytes are the strip's own.
@@ -115,8 +115,8 @@ def test_ndpi_records_every_ifd_in_its_own_group():
 
 
 def test_ndpi_reads_only_the_values_it_uses():
-    """spec/virtualize.md §4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: the values of
+    """spec/virtualize/ndpi.md §7
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>: the values of
     an IFD that is not a level are not read, so the
     macro image's McuStarts (LONG8, above 2^53 - 1) does not reject; its strip is kept."""
     path = Path(__file__).parents[3] / "fixtures" / "ndpi" / "ndpi_unused_values.ndpi"

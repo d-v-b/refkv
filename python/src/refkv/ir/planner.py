@@ -40,9 +40,8 @@ from urllib.parse import urljoin, urlparse
 
 from refkv.errors import ResolutionError
 from refkv.policy import Policy
-from refkv.virtualize.common import EtagLog, Rejected
+from refkv.virtualize.common import UA, EtagLog, Rejected
 
-UA = "refkv-virtualize"
 RETRY = (429, 500, 502, 503, 504)
 REDIRECTS = (301, 302, 303, 307, 308)
 OPEN = 1 << 16  # the bytes the request that opens a remote source reads

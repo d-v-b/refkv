@@ -16,12 +16,14 @@
 //! numbered depth first from the root group (a group's hard links in ascending byte order of
 //! their names), then the global heap collections.
 
+use crate::out::{omero_channel, omero_json, omero_window};
 use crate::check;
 use crate::hdf5::{self, address, le, Acc, Fail, Header, Links, R, Target, H5};
 use crate::ir::{Ir, NO_INDEX};
 use crate::nd2::Step;
 use crate::rules::{self, flag, num, text, Rules, Vars};
 use crate::expr::V;
+use crate::text::{is_decimal, utf8_or_latin1};
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc as Rc;
@@ -93,50 +95,7 @@ fn lenient<T>(r: R<T>) -> R<Option<T>> {
 
 /// The text of a string's data: up to the first NUL, UTF-8 or else Latin-1.
 pub fn decode_text(data: &[u8]) -> String {
-    let raw = data.split(|&c| c == 0).next().unwrap_or(&[]);
-    match std::str::from_utf8(raw) {
-        Ok(s) => s.to_string(),
-        Err(_) => raw.iter().map(|&c| c as char).collect(),
-    }
-}
-
-fn is_decimal(s: &str) -> bool {
-    let b = s.as_bytes();
-    let mut i = 0;
-    if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
-        i += 1;
-    }
-    let d0 = i;
-    while i < b.len() && b[i].is_ascii_digit() {
-        i += 1;
-    }
-    let int_digits = i - d0;
-    let mut frac_digits = 0;
-    if i < b.len() && b[i] == b'.' {
-        i += 1;
-        let f0 = i;
-        while i < b.len() && b[i].is_ascii_digit() {
-            i += 1;
-        }
-        frac_digits = i - f0;
-    }
-    if int_digits == 0 && frac_digits == 0 {
-        return false;
-    }
-    if i < b.len() && (b[i] == b'e' || b[i] == b'E') {
-        i += 1;
-        if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
-            i += 1;
-        }
-        let e0 = i;
-        while i < b.len() && b[i].is_ascii_digit() {
-            i += 1;
-        }
-        if i == e0 {
-            return false;
-        }
-    }
-    i == b.len()
+    utf8_or_latin1(data.split(|&c| c == 0).next().unwrap_or(&[]))
 }
 
 /// A decimal number, or None if `s` is absent or not one.
@@ -252,7 +211,7 @@ impl Ims {
     pub fn new(size: u64) -> Self {
         Ims {
             h: H5::new(size),
-            rules: rules::ims(),
+            rules: rules::of("ims"),
             phase: Phase::Layout,
             rounds: 0,
             requests: 0,
@@ -784,25 +743,15 @@ impl Ims {
             let mut chs = Vec::new();
             for (k, label) in meta.labels.iter().enumerate() {
                 let rng = meta.ranges.get(k).cloned().flatten();
-                let mut ch = Map::new();
-                ch.insert("label".into(), json!(label));
-                ch.insert("color".into(), json!(meta.colors[k]));
-                ch.insert("active".into(), json!(true));
-                match (data_type.2, rng) {
-                    (Some((lo, hi)), Some(r)) => {
-                        ch.insert("window".into(), json!({"min": lo, "max": hi, "start": jf(r[0]), "end": jf(r[1])}));
-                    }
-                    (Some((lo, hi)), None) => {
-                        ch.insert("window".into(), json!({"min": lo, "max": hi, "start": lo, "end": hi}));
-                    }
-                    (None, Some(r)) => {
-                        ch.insert("window".into(), json!({"min": jf(r[0]), "max": jf(r[1]), "start": jf(r[0]), "end": jf(r[1])}));
-                    }
-                    (None, None) => {}
-                }
-                chs.push(J::Object(ch));
+                let window = match (data_type.2, rng) {
+                    (Some((lo, hi)), Some(r)) => Some(omero_window(json!(lo), json!(hi), jf(r[0]), jf(r[1]))),
+                    (Some((lo, hi)), None) => Some(omero_window(json!(lo), json!(hi), json!(lo), json!(hi))),
+                    (None, Some(r)) => Some(omero_window(jf(r[0]), jf(r[1]), jf(r[0]), jf(r[1]))),
+                    (None, None) => None,
+                };
+                chs.push(omero_channel(label, meta.colors[k].as_str(), window.as_ref()));
             }
-            omero = json!({"channels": chs});
+            omero = omero_json(chs);
         }
         let name = meta.name.filter(|n| !n.is_empty()).map_or(J::Null, |n| json!(n));
         Ok(json!({
@@ -1514,6 +1463,24 @@ impl Emit<'_> {
             self.bytes(x, "data", NO_INDEX, a + 16, n)?;
         }
         Ok(())
+    }
+}
+
+crate::parser!(Ims);
+
+/// The IMS profile's file run (spec/virtualize/ims.md).
+pub struct Profile;
+
+impl crate::run::FileProfile for Profile {
+    /// The HDF5 signature.
+    fn detect(&self, head: &[u8]) -> bool {
+        head.len() >= 8 && &head[..8] == crate::hdf5::SIGNATURE
+    }
+    fn parser(&self, size: u64) -> crate::run::AnyParser {
+        crate::run::AnyParser::of::<Ims>(size)
+    }
+    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::ims::project(ir, facts, url)
     }
 }
 

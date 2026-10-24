@@ -1,0 +1,90 @@
+{
+  "about": "The inputs the mrc profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/mrc.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "mrc_reject_short_header",
+      "input": "mrc_reject_short_header.mrc",
+      "message": "file too short for a 1024-byte MRC header"
+    },
+    {
+      "test": "mrc_reject_machst",
+      "input": "mrc_reject_machst.mrc",
+      "message": "machine stamp 00 00 00 00 is neither 44 (little-endian) nor 11 (big-endian)"
+    },
+    {
+      "test": "mrc_reject_machst_swapped",
+      "input": "mrc_reject_machst_swapped.mrc",
+      "message": "machine stamp 41 44 00 00 is neither 44 (little-endian) nor 11 (big-endian)"
+    },
+    {
+      "test": "mrc_reject_nx_zero",
+      "input": "mrc_reject_nx_zero.mrc",
+      "message": "nx = 0 is not positive"
+    },
+    {
+      "test": "mrc_reject_ny_negative",
+      "input": "mrc_reject_ny_negative.mrc",
+      "message": "ny = -2 is not positive"
+    },
+    {
+      "test": "mrc_reject_nz_zero",
+      "input": "mrc_reject_nz_zero.mrc",
+      "message": "nz = 0 is not positive"
+    },
+    {
+      "test": "mrc_reject_mode_complex_int16",
+      "input": "mrc_reject_mode_complex_int16.mrc",
+      "message": "unsupported MRC mode 3 (COMPLEX_INT16)"
+    },
+    {
+      "test": "mrc_reject_mode_int4",
+      "input": "mrc_reject_mode_int4.mrc",
+      "message": "unsupported MRC mode 101 (INT4)"
+    },
+    {
+      "test": "mrc_reject_mode_unknown",
+      "input": "mrc_reject_mode_unknown.mrc",
+      "message": "unknown MRC mode 7"
+    },
+    {
+      "test": "mrc_reject_mode_negative",
+      "input": "mrc_reject_mode_negative.mrc",
+      "message": "unknown MRC mode -1"
+    },
+    {
+      "test": "mrc_reject_nsymbt_negative",
+      "input": "mrc_reject_nsymbt_negative.mrc",
+      "message": "nsymbt -80 is negative"
+    },
+    {
+      "test": "mrc_reject_extended_outside",
+      "input": "mrc_reject_extended_outside.mrc",
+      "message": "the 1000-byte extended header at 1024 is outside the 1072-byte file"
+    },
+    {
+      "test": "mrc_reject_volume_stack_mz",
+      "input": "mrc_reject_volume_stack_mz.mrc",
+      "message": "a volume stack (ispg 401) of 5 sections, which mz = 2 does not divide"
+    },
+    {
+      "test": "mrc_reject_volume_stack_mz_zero",
+      "input": "mrc_reject_volume_stack_mz_zero.mrc",
+      "message": "a volume stack (ispg 401) of 4 sections, which mz = 0 does not divide"
+    },
+    {
+      "test": "mrc_reject_truncated",
+      "input": "mrc_reject_truncated.mrc",
+      "message": "the 48-byte data at 1024 is outside the 1071-byte file"
+    },
+    {
+      "test": "mrc_reject_data_overflow",
+      "input": "mrc_reject_data_overflow.mrc",
+      "message": "the 4951760157141521099596496896-byte data at 1024 is outside the 1072-byte file"
+    },
+    {
+      "test": "mrc_reject_data_outside",
+      "input": "mrc_reject_data_outside.mrc",
+      "message": "the 48-byte data at 1040 is outside the 1087-byte file"
+    }
+  ]
+}

@@ -1,5 +1,5 @@
-// The zip form of a SAFE product (spec/virtualize.md §12.4
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>): the ZIP
+// The zip form of a SAFE product (spec/virtualize/safe.md §8.4
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>): the ZIP
 // archive's end records, its central directory, its local headers, and its deflated XML documents.
 
 import type { ByteReader } from "../legacy.ts";
@@ -24,8 +24,8 @@ function u64(v: DataView, at: number): number {
 }
 
 /**
- * A central directory file header, as §12.4
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form> reads it.
+ * A central directory file header, as §8.4
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form> reads it.
  */
 export interface Entry {
   name: string;
@@ -58,8 +58,8 @@ function zip64Values(extra: Uint8Array, wanted: number): number[] {
 }
 
 /**
- * The entries of the zip file of `n` bytes (§12.4
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>).
+ * The entries of the zip file of `n` bytes (§8.4
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>).
  */
 export async function centralDirectory(read: ByteReader, n: number): Promise<Directory> {
   const tailLen = Math.min(n, MAX_TAIL);
@@ -134,8 +134,8 @@ export async function centralDirectory(read: ByteReader, n: number): Promise<Dir
 }
 
 /** [the root directory D, the objects by key, the recorded keys of the directory entries, and the
- * keys of every directory entry but D's] (§12.4
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>). */
+ * keys of every directory entry but D's] (§8.4
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>). */
 export function productEntries(d: Directory): [string, Map<string, Entry>, string[], string[]] {
   const names = new Set<string>();
   let root: string | undefined;
@@ -166,8 +166,8 @@ export function productEntries(d: Directory): [string, Map<string, Entry>, strin
 }
 
 /**
- * Each nonempty object's data start, from its local header (§12.4
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>).
+ * Each nonempty object's data start, from its local header (§8.4
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>).
  */
 export async function locate(read: ByteReader, d: Directory, objects: Map<string, Entry>): Promise<void> {
   const todo = [...objects.values()].filter((e) => e.us);
@@ -189,7 +189,7 @@ export async function locate(read: ByteReader, d: Directory, objects: Map<string
   }
 }
 
-/** A deflated entry's bytes (§12.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>): the raw deflate stream must end exactly at its
+/** A deflated entry's bytes (§8.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>): the raw deflate stream must end exactly at its
  * compressed size and give exactly its size, with its CRC-32. */
 export async function inflate(data: Uint8Array, e: Entry): Promise<Uint8Array> {
   const out = new Uint8Array(e.us);

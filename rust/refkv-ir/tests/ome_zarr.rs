@@ -4,6 +4,9 @@
 //! rejected fixture (each the role of `schema/ome-zarr.json`, or the Zarr v2 rule, that
 //! rejects it); and the hostile probes.
 
+mod common;
+
+use common::{drive, listing, walk};
 use std::path::{Path, PathBuf};
 use refkv_ir::store::{run_store, store_output, StoreFormat};
 
@@ -11,26 +14,11 @@ fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures")
 }
 
-fn walk(root: &Path, rel: &str, out: &mut Vec<(String, u64)>) {
-    for e in std::fs::read_dir(root.join(rel)).unwrap() {
-        let e = e.unwrap();
-        let name = e.file_name().into_string().unwrap();
-        let r = if rel.is_empty() { name } else { format!("{rel}/{name}") };
-        if e.file_type().unwrap().is_dir() {
-            walk(root, &r, out);
-        } else {
-            out.push((r, e.metadata().unwrap().len()));
-        }
-    }
-}
-
 /// The output of the store in `dir`, mirrored, or its rejection.
 fn output(dir: &Path) -> Result<refkv_ir::out::Out, String> {
-    let mut keys = Vec::new();
-    walk(dir, "", &mut keys);
-    keys.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
-    let k2 = keys.clone();
-    let (ir, facts, stats) = run_store(StoreFormat::Zarr2, keys, &|k| std::fs::read(dir.join(&k2[k].0)).unwrap())?;
+    let files = walk(dir);
+    let bytes: Vec<&Vec<u8>> = files.values().collect();
+    let (ir, facts, stats) = run_store(StoreFormat::Zarr2, listing(&files), &|k| bytes[k].clone())?;
     store_output(StoreFormat::Zarr2, &ir, &facts, stats, "https://example.org/s/", true)
 }
 
@@ -84,10 +72,10 @@ fn zarr2_stores_stay_zarr2() {
 }
 
 macro_rules! reject {
-    ($name:ident, $msg:expr) => {
+    ($name:ident, $input:literal, $msg:expr) => {
         #[test]
         fn $name() {
-            match output(&fixtures().join("ome-zarr").join(stringify!($name))) {
+            match output(&fixtures().join("ome-zarr").join($input)) {
                 Err(m) => assert!(m.contains($msg), "{m}"),
                 Ok(_) => panic!("{} was accepted", stringify!($name)),
             }
@@ -95,65 +83,16 @@ macro_rules! reject {
     };
 }
 
-reject!(ome_zarr_reject_axes_count, "axes is not 2 to 5 axis objects");
-reject!(ome_zarr_reject_axes_duplicate, "axis names [x, x] are not distinct");
-reject!(ome_zarr_reject_axes_four_space, "axis types [space, space, space, space] are not");
-reject!(ome_zarr_reject_axes_name, "an axis name is not a string");
-reject!(ome_zarr_reject_axes_order, "axis types [space, channel, space] are not");
-reject!(ome_zarr_reject_axes_two_others, "axis types [channel, phase, space, space] are not");
-reject!(ome_zarr_reject_axes_type, "axis type 3 is not a string");
-reject!(ome_zarr_reject_bioformats2raw_layout, "bioformats2raw.layout is not 3");
-reject!(ome_zarr_reject_bioformats2raw_numbering, "the images are not numbered consecutively from 0");
-reject!(ome_zarr_reject_bioformats2raw_series, "OME: series is not an array of image paths");
-reject!(ome_zarr_reject_datasets_empty, "datasets is not a nonempty array of objects");
-reject!(ome_zarr_reject_datasets_missing, "datasets[0]: 9 is not an array");
-reject!(ome_zarr_reject_datasets_path, "path ../1 is not a relative path");
-reject!(ome_zarr_reject_datasets_rank, "r has 3 dimensions, not 2");
-reject!(ome_zarr_reject_has_ome, "the group already has an `ome` attribute");
-reject!(ome_zarr_reject_image_label_color_duplicate, "colors label-values are not unique");
-reject!(ome_zarr_reject_image_label_dtype, "label data type float32 is not an integer type");
-reject!(ome_zarr_reject_image_label_levels, "the label image has 1 levels, fewer than its image /'s 2");
-reject!(ome_zarr_reject_image_label_no_multiscales, "image-label: the group has no multiscales");
-reject!(ome_zarr_reject_image_label_rgba, "rgba [1,2,3,300] is not four integers from 0 to 255");
-reject!(ome_zarr_reject_image_label_source, "source image ../../elsewhere is not an image");
-reject!(ome_zarr_reject_image_label_value, "properties is not an array of objects with an integer label-value");
-reject!(ome_zarr_reject_image_label_version, "image-label: version 0.3 is not 0.4");
-reject!(ome_zarr_reject_labels_not_image, "label missing is not the path of an image");
-reject!(ome_zarr_reject_level_axes_conflict, "p/q/lvl is a level of images with axes [y, x] and [a, b]");
-reject!(ome_zarr_reject_multiscale_transforms, "multiscales[0]: the scale is not 2 numbers");
-reject!(ome_zarr_reject_multiscales_empty, "g: multiscales is not a nonempty array of objects");
-reject!(ome_zarr_reject_omero_channels, "omero: channels is not an array of objects");
-reject!(ome_zarr_reject_omero_color, "channel color red is not 6 hexadecimal digits");
-reject!(ome_zarr_reject_omero_window, "a channel window does not have numbers min, max, start and end");
-reject!(ome_zarr_reject_plate_acquisition_id, "acquisition id -1 is not an integer from 0");
-reject!(ome_zarr_reject_plate_column_name, "a column name is not alphanumeric");
-reject!(ome_zarr_reject_plate_field_count, "field_count 0 is not a positive integer");
-reject!(ome_zarr_reject_plate_row_duplicate, "row names are not unique");
-reject!(ome_zarr_reject_plate_version, "plate: version 0.3 is not 0.4");
-reject!(ome_zarr_reject_plate_well_index, "well rowIndex or columnIndex is not an index of rows or columns");
-reject!(ome_zarr_reject_plate_well_missing, "plate: A/2 is not a well");
-reject!(ome_zarr_reject_plate_well_path, "well path B/2 is not row A/column 2");
-reject!(ome_zarr_reject_scale_length, "datasets[0]: the scale is not 2 numbers");
-reject!(ome_zarr_reject_scale_order, "the scale [0.5, 2] is smaller than the previous level's [1, 1]");
-reject!(ome_zarr_reject_transforms_identity, "the first transformation is not a scale");
-reject!(ome_zarr_reject_transforms_missing, "coordinateTransformations is not one or two transformation objects");
-reject!(ome_zarr_reject_transforms_order, "the first transformation is not a scale");
-reject!(ome_zarr_reject_transforms_path, "the scale is not 2 numbers");
-reject!(ome_zarr_reject_translation_length, "the translation is not 2 numbers");
-reject!(ome_zarr_reject_version, "old: multiscales[0]: version 0.3 is not 0.4");
-reject!(ome_zarr_reject_well_acquisition, "A/1: acquisition 5 is not one of the plate's");
-reject!(ome_zarr_reject_well_acquisition_missing, "an image has no acquisition, and the plate has several");
-reject!(ome_zarr_reject_well_image_duplicate, "well: image paths are not unique");
-reject!(ome_zarr_reject_well_image_missing, "well: A/1/7 is not an image");
-reject!(ome_zarr_reject_well_image_path, "image path f-0 is not alphanumeric");
+// one test per case of conformance/virtualize/rejects/ome-zarr.json (build.rs)
+include!(concat!(env!("OUT_DIR"), "/rejects_ome_zarr.rs"));
 
 #[test]
 fn every_rejection_fixture_has_a_test() {
-    let here = std::fs::read_to_string(file!()).unwrap();
+    let here = include_str!(concat!(env!("OUT_DIR"), "/rejects_ome_zarr.rs"));
     for dir in stores("ome-zarr") {
         let name = dir.file_name().unwrap().to_str().unwrap().to_string();
         if name.contains("_reject_") {
-            assert!(here.contains(&format!("reject!({name},")), "{name} has no test");
+            assert!(here.contains(&format!("{name:?}")), "{name} has no test");
         }
     }
 }
@@ -298,12 +237,8 @@ fn ignored_keys_are_refkv_source_metadata() {
     let keys: Vec<(String, u64)> = objects.iter().map(|(k, b)| (k.clone(), b.len() as u64)).collect();
     let mut r = refkv_ir::store::StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
     r.ignore(vec!["z/./a".into(), "donn\u{e9}es/./x".into()], Vec::new()).unwrap();
-    while let Some(reqs) = r.poll().unwrap() {
-        for (k, q) in reqs.iter().enumerate() {
-            let b = &objects[q.object].1;
-            r.complete(k, q.spans.iter().map(|&(a, e)| b[a as usize..e as usize].to_vec()).collect()).unwrap();
-        }
-    }
+    let bytes: Vec<&[u8]> = objects.iter().map(|o| o.1.as_slice()).collect();
+    drive(&mut r, &bytes).unwrap();
     let out = r.into_output("https://example.org/s/", true).unwrap();
     assert!(!out.entries.iter().any(|e| e.0 == "refkv_source/ignored.json"));
     let doc: serde_json::Value = serde_json::from_slice(&out.entries.iter().find(|e| e.0 == "refkv_source/zarr.json").unwrap().1).unwrap();
@@ -354,12 +289,8 @@ fn a_run_names_the_profile_it_decided() {
     let keys: Vec<(String, u64)> = objects.iter().map(|(k, b)| (k.clone(), b.len() as u64)).collect();
     let mut r = refkv_ir::store::StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
     assert_eq!(r.profile(), "zarr2");
-    while let Some(reqs) = r.poll().unwrap() {
-        for (k, q) in reqs.iter().enumerate() {
-            let b = &objects[q.object].1;
-            r.complete(k, q.spans.iter().map(|&(a, e)| b[a as usize..e as usize].to_vec()).collect()).unwrap();
-        }
-    }
+    let bytes: Vec<&[u8]> = objects.iter().map(|o| o.1.as_slice()).collect();
+    drive(&mut r, &bytes).unwrap();
     assert_eq!(r.profile(), "ome-zarr");
 }
 
@@ -370,11 +301,9 @@ fn a_layout_that_is_not_an_integer_is_not_3() {
         let dir = std::env::temp_dir().join(format!("vzip-ome-layout-{}-{}", std::process::id(), layout.replace('"', "q")));
         let _ = std::fs::remove_dir_all(&dir);
         let src = fixtures().join("ome-zarr/ome_zarr_empty_xml");
-        let mut keys = Vec::new();
-        walk(&src, "", &mut keys);
-        for (k, _) in &keys {
-            std::fs::create_dir_all(dir.join(k).parent().unwrap()).unwrap();
-            std::fs::copy(src.join(k), dir.join(k)).unwrap();
+        for (k, b) in walk(&src) {
+            std::fs::create_dir_all(dir.join(&k).parent().unwrap()).unwrap();
+            std::fs::write(dir.join(&k), b).unwrap();
         }
         std::fs::write(dir.join(".zattrs"), format!("{{\"bioformats2raw.layout\": {layout}}}")).unwrap();
         let r = output(&dir);

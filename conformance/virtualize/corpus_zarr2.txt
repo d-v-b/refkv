@@ -1,12 +1,12 @@
 # url|name[|py-only] of the public Zarr v2 stores in the corpus (store URLs end in "/"), from
 # OpenOrganelle's public bucket janelia-cosem-datasets (CC BY 4.0), listed anonymously with S3
-# ListObjectsV2. Small levels and groups only (below the browser limit, spec/virtualize.md §14
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-conformance>): OME-NGFF
+# ListObjectsV2. Small levels and groups only (below the browser limit, spec/virtualize.md Appendix A
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#appendix-a-conformance>): OME-NGFF
 # 0.4 multiscale groups (blosc, nested "/" keys) and single low-resolution levels. A group whose root
 # declares OME-NGFF 0.4 (crop1/ves) is read by the OME-Zarr profile (§11
 # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#11-ome-zarr-profile>), the
-# others by §10
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>.
+# others by §7
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#7-zarr-v2-profile>.
 https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-2/jrc_hela-2.zarr/recon-1/em/fibsem-uint8/s5/|hela2_fibsem_uint8_s5|listing-sha256=f6770356680c2b65f44b1209910b32c77a21775b978c60268db4c62e0e5694f5
 https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-2/jrc_hela-2.zarr/recon-1/em/fibsem-uint8/s4/|hela2_fibsem_uint8_s4|listing-sha256=cf19a26f45f1511eaeec226189fbcc27b3f710cc07631ff8435c51c871979455
 https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-2/jrc_hela-2.zarr/recon-1/labels/groundtruth/crop1/ves/|hela2_groundtruth_crop1_ves|listing-sha256=7986dbbfe45616dbedb0b29b83c2d80cfd230666b90719d9bffbffa3a16f95a5

@@ -7,370 +7,39 @@ declares the convention (spec/virtualize/<profile>.md): the convention's
 metadata object in `zarr_conventions`, the property `refkv_virtualized`, and no
 other attribute besides `ome`. The root carries the property's provenance
 members; any other node (store profiles only) carries only the profile's
-source-metadata member. SOURCE_METADATA holds each profile's member schema.
+source-metadata member. Each profile's member schema is its module of spec/source_metadata/
+(one per profile, so that adding a profile adds a module); the profiles are the registry's
+(spec/virtualize/profiles/<name>.json).
 """
 
 from __future__ import annotations
 
+import importlib
 import json
+import sys
 from pathlib import Path
 
-from refkv.virtualize.common import CONVENTION_KEY, PROFILES, REVISION, convention
+from refkv.virtualize.common import CONVENTION_KEY, PROFILES, convention
+from refkv.virtualize.profiles import REGISTRY
 
 HERE = Path(__file__).parent
-STORES = {"n5", "zarr2", "ome-zarr"}
+STORES = {e["name"] for e in REGISTRY if e["kind"] == "store"}
 
-# The schema of each profile's source-metadata member (README "Source metadata").
-SOURCE_METADATA: dict[str, dict] = {
-    "tiff": {"anyOf": [
-        {
-            "type": "object",
-            "description": "The root's: the file's byte order and variant",
-            "properties": {"byte_order": {"enum": ["little", "big"]}, "bigtiff": {"type": "boolean"}},
-            "required": ["byte_order", "bigtiff"],
-            "additionalProperties": False,
-        },
-        {"$ref": "#/$defs/mirror"},
-        {"$ref": "#/$defs/mirrorView"},
-    ]},
-    "ndpi": {"anyOf": [{"$ref": "#/$defs/mirror"}, {"$ref": "#/$defs/mirrorView"}]},
-    "nd2": {"anyOf": [
-        {
-            "type": "object",
-            "description": "The root's: the signature and the decoded chunks it keeps (spec/virtualize/nd2.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-source-metadata>)",
-            "properties": {
-                "signature": {"$ref": "#/$defs/text", "description": "The signature chunk's data up to its first NUL"},
-                "chunks": {
-                    "type": "object",
-                    "description": "Each decoded chunk (lite variant or XML variant) the root keeps, by name, as a "
-                                   "JSON tree: an object, or [name, value] pairs when a name repeats, when a name is "
-                                   "an array index (0, 1, ... without leading zeros), or when the object would read "
-                                   "as a tag ({\"utf16\": B}, {\"int\": digits}, {\"float\": "
-                                   "\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}); at most 65536 bytes of JSON in all",
-                    "additionalProperties": {"type": ["object", "array"]},
-                },
-            },
-            "required": ["signature", "chunks"],
-            "additionalProperties": False,
-        },
-        {"$ref": "#/$defs/mirror"},
-        {"$ref": "#/$defs/mirrorView"},
-    ]},
-    "dicom": {"anyOf": [{
-        "type": "object",
-        "description": "The root's (spec/virtualize/dicom.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#51-the-root>); a path refkv_source/<p> names the IR's element at <p>",
-        "properties": {
-            "preamble": {"type": "string", "contentEncoding": "base64",
-                         "description": "The 128-byte preamble, unless all zero"},
-            "meta": {"$ref": "#/$defs/dataset",
-                     "description": "The File Meta Information, without its large attributes (in the mirror only)"},
-            "dataset": {"$ref": "#/$defs/dataset",
-                        "description": "The dataset, without the per-frame groups and the large attributes (in the mirror only)"},
-            "pixel_extra": {"type": "string",
-                            "description": "refkv_source/pixel_extra: the IR's element holding the native pixel data after the frames"},
-            "pixel_unreferenced": {"type": "string",
-                                   "description": "refkv_source/pixel_unreferenced: the IR's struct holding the pixel data the Extended Offset Table skips"},
-            "pixel_unreferenced_headers": {"const": True,
-                                           "description": "Whether pixel_unreferenced also holds the frames' item "
-                                                          "headers"},
-            "pixel_fragments": {"type": "string",
-                                "description": "refkv_source/pixel_fragments, when a frame has more than one fragment "
-                                               "(the fragments are the IR's dataset/7FE00010/fragments/<j>)"},
-            "pixel_offset_table": {"const": True, "description": "Whether the Basic Offset Table is not empty"},
-            "trailing": {"type": "string", "description": "refkv_source/trailing: the IR's element holding the bytes after the last element"},
-        },
-        "additionalProperties": False,
-    },
-        {"$ref": "#/$defs/mirror"},
-        {"$ref": "#/$defs/mirrorView"},
-    ]},
-    "nifti": {"anyOf": [{
-        "type": "object",
-        "description": "The root's: the version, the byte order, the header, and what the layout derives from it (spec/virtualize/nifti.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>)",
-        "properties": {
-            "nifti_version": {"enum": [1, 2]},
-            "byte_order": {"enum": ["little", "big"]},
-            "header": {
-                "type": "object",
-                "description": "Every header field, by its NIfTI-1 or NIfTI-2 name, in the standard's order",
-                "additionalProperties": {"anyOf": [
-                    {"$ref": "#/$defs/headerValue"},
-                    {"type": "object", "properties": {"bits": {"type": "string", "pattern": "^([0-9a-f]{8}|[0-9a-f]{16})$"}},
-                    "required": ["bits"], "additionalProperties": False,
-                    "description": "A float's IEEE 754 bits, most significant first: a negative zero, or a NaN "
-                                   "other than the canonical one"},
-                    {"type": "array", "items": {"anyOf": [{"type": "number"}, {"type": "string"},
-                                                          {"type": "object", "properties": {"bits": {"type": "string", "pattern": "^([0-9a-f]{8}|[0-9a-f]{16})$"}},
-                                                          "required": ["bits"], "additionalProperties": False,
-                                                          "description": "A float's IEEE 754 bits, most significant first: a negative zero, or a NaN "
-                                                                         "other than the canonical one"}]}},
-                ]},
-            },
-            "affine": {
-                "type": "object",
-                "properties": {"form": {"enum": ["sform", "qform"]}, "applied": {"type": "boolean"}},
-                "required": ["form", "applied"],
-                "additionalProperties": False,
-            },
-            "scaling": {
-                "type": "object",
-                "properties": {"slope": {"type": "number"}, "inter": {"type": "number"}},
-                "required": ["slope", "inter"],
-                "additionalProperties": False,
-            },
-        },
-        "required": ["nifti_version", "byte_order", "header"],
-        "additionalProperties": False,
-    },
-        {"$ref": "#/$defs/mirror"},
-        {"$ref": "#/$defs/mirrorView"},
-    ]},
-    "ims": {"anyOf": [
-        {"$ref": "#/$defs/mirror"},
-        {"$ref": "#/$defs/mirrorView"},
-    ]},
-    "n5": {"anyOf": [
-        {
-            "type": "object",
-            "description": "A node's (spec/virtualize/n5.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#5-source-metadata>)",
-            "properties": {
-                "attributes": {"type": "object", "minProperties": 1,
-                               "description": "The node's attributes.json without the layout members"},
-                "metadata": {
-                    "type": "object", "minProperties": 1,
-                    "description": "The layout members the Zarr metadata does not reproduce",
-                    "properties": {"n5": {"description": "The member n5 (the container's version)"},
-                                   "compression": {"type": "object", "minProperties": 1,
-                                                   "description": "The compression's members the codec does not carry"},
-                                   "compressionType": {"description": "compressionType, when compression is present"}},
-                    "additionalProperties": False,
-                },
-            },
-            "minProperties": 1,
-            "additionalProperties": False,
-        },
-        # refkv_source's: a store IR's description, and the recorded ignored keys (§5.1
-        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>)
-        {"allOf": [{"$ref": "#/$defs/storeMirror"},
-                   {"properties": {"ir": {"required": ["objects"]}, "empty_dirs": False}}]},
-        {"$ref": "#/$defs/mirrorView"},
-    ]},
-    "zarr2": {"anyOf": [
-        {
-            "type": "object",
-            "description": "A node's (spec/virtualize/zarr2.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>)",
-            "properties": {
-                "attributes": {"type": "object", "minProperties": 1, "description": "The node's .zattrs, as copied"},
-                "metadata": {"type": "object", "minProperties": 1,
-                             "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"},
-            },
-            "minProperties": 1,
-            "additionalProperties": False,
-        },
-        # refkv_source's: a store IR's description, and the recorded ignored keys (§5
-        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>)
-        {"allOf": [{"$ref": "#/$defs/storeMirror"},
-                   {"properties": {"ir": {"required": ["objects"]}, "empty_dirs": False}}]},
-        {"$ref": "#/$defs/mirrorView"},
-    ]},
-    "ome-zarr": {"anyOf": [
-        {
-            "type": "object",
-            "description": "A node's (spec/virtualize/ome-zarr.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>)",
-            "properties": {
-                "attributes": {"type": "object", "minProperties": 1,
-                               "description": "The node's .zattrs, without the OME members the ome object gives back"},
-                "unversioned": {"type": "array", "minItems": 1, "uniqueItems": True,
-                                "items": {"enum": ["multiscales", "omero", "image-label", "plate", "well"]},
-                                "description": "The OME members that had no version, which ome gives back as they are"},
-                "metadata": {"type": "object", "minProperties": 1,
-                             "description": "The members of .zarray or .zgroup the Zarr metadata does not reproduce"},
-            },
-            "minProperties": 1,
-            "additionalProperties": False,
-        },
-        # refkv_source's: the Zarr v2 store's IR, as zarr2's (spec/virtualize/ome-zarr.md §8.2
-        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#82-the-store-ir>)
-        {"allOf": [{"$ref": "#/$defs/storeMirror"},
-                   {"properties": {"ir": {"required": ["objects"]}, "empty_dirs": False}}]},
-        {"$ref": "#/$defs/mirrorView"},
-    ]},
-}
+# Each profile's source-metadata schema (README "Source metadata"), and what it adds: its module of
+# spec/source_metadata/, named for it.
+sys.path.insert(0, str(HERE))
+MODULES = {e["name"]: importlib.import_module(f"source_metadata.{e['name'].replace('-', '_')}") for e in REGISTRY}
 
-# A dataset in the DICOM JSON Model (PS3.18 §F.2), as spec/virtualize/dicom.md §5
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata> writes it.
-DICOM_DEFS = {
-    "dataset": {
-        "type": "object",
-        "properties": {
-            "duplicates": {
-                "type": "array",
-                "description": "The later elements with a tag already in the dataset, in file order",
-                "items": {
-                    "type": "object",
-                    "patternProperties": {"^[0-9A-F]{8}$": {"$ref": "#/$defs/attribute"}},
-                    "additionalProperties": False,
-                    "minProperties": 1,
-                    "maxProperties": 1,
-                },
-            },
-        },
-        "patternProperties": {"^[0-9A-F]{8}$": {"$ref": "#/$defs/attribute"}},
-        "additionalProperties": False,
-    },
-    "attribute": {
-        "type": "object",
-        "properties": {
-            "vr": {"type": "string", "pattern": "^[A-Z]{2}$"},
-            "Value": {"type": "array"},
-            "InlineBinary": {"type": "string", "contentEncoding": "base64"},
-            "BulkDataURI": {"type": "string",
-                            "description": "refkv_source/<path>: the IR's element at <path>, whose value it is"},
-            "Structures": {"type": "array", "items": {"$ref": "#/$defs/dataset"},
-                           "description": "A gathered sequence's distinct item structures (its items are the IR's "
-                                          "elements <its path>/<index>)"},
-            "Gathered": {"const": True,
-                         "description": "A value in an item of a gathered sequence: the IR's element <the "
-                                        "sequence's path>/<item index>/<path within the item>"},
-            "LittleEndian": {"const": True,
-                             "description": "An explicit UN value in explicit VR big endian, whose bytes are in "
-                                            "little endian"},
-        },
-        "required": ["vr"],
-        "maxProperties": 3,
-        "additionalProperties": False,
-    },
-}
 
-_MEASURE = {"anyOf": [{"type": ["number", "string"]}, {
-    "type": "object", "properties": {"value": {"type": ["number", "string"]}, "unit": {"type": "string"}},
-    "required": ["value", "unit"], "additionalProperties": False}]}
-_VALUE = {"type": ["number", "string"]}
-_RECORDS = {"type": "array", "items": {"type": "object", "additionalProperties": _VALUE}, "minItems": 1}
-SOURCE_METADATA["safe"] = {"oneOf": [
-    {
-        "type": "object",
-        "description": "The root's: the product's identity, from the product and tile metadata (§6.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)",
-        "properties": {
-            **{k: {"type": "string"} for k in ("PRODUCT_URI", "PROCESSING_LEVEL", "PRODUCT_TYPE", "PROCESSING_BASELINE",
-                                               "TILE_ID", "SENSING_TIME", "HORIZONTAL_CS_NAME", "HORIZONTAL_CS_CODE")},
-            "Special_Values": _RECORDS,
-            "U": _VALUE,
-        },
-        "required": ["HORIZONTAL_CS_CODE"],
-        "additionalProperties": False,
-    },
-    {
-        "type": "object",
-        "description": "A band array's: a derived convenience copied from the product metadata (§6.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#62-band-arrays>), and the band "
-                       "file's SIZ segment",
-        "properties": {
-            "IMAGE_FILE": {"type": "string"},
-            "bandId": {"type": "integer", "minimum": 0},
-            "physicalBand": {"type": "string"},
-            "RESOLUTION": _VALUE,
-            "Wavelength": {"type": "object", "properties": {k: _MEASURE for k in ("MIN", "MAX", "CENTRAL")},
-                           "additionalProperties": False, "minProperties": 1},
-            **{k: _VALUE for k in ("PHYSICAL_GAINS", "RADIO_ADD_OFFSET", "BOA_ADD_OFFSET")},
-            **{k: _MEASURE for k in ("SOLAR_IRRADIANCE", "QUANTIFICATION_VALUE", "BOA_QUANTIFICATION_VALUE",
-                                     "AOT_QUANTIFICATION_VALUE", "WVP_QUANTIFICATION_VALUE")},
-            "Scene_Classification_List": _RECORDS,
-            "siz": {"type": "string", "contentEncoding": "base64",
-                    "description": "The band file's SIZ marker segment, which its chunks replace"},
-        },
-        "required": ["IMAGE_FILE", "siz"],
-        "additionalProperties": False,
-    },
-    # refkv_source's: the IR mirror's description, the empty directories and the keys of the
-    # ignored objects (§6.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)
-    {"$ref": "#/$defs/storeMirror"},
-    # a view document, without the members the branches above require (or `refkv_source`'s of
-    # revision 25), which name no SAFE IR element (`siz` and `xml` do: they are not excluded), so
-    # that a document of those branches with a wrong member is invalid (one without any of them,
-    # such as band metadata without IMAGE_FILE, reads as a view document: member names alone
-    # cannot tell those apart)
-    {"allOf": [{"$ref": "#/$defs/mirrorView"}, {"not": {"anyOf": [
-        {"required": [m]} for m in ("ir", "IMAGE_FILE", "HORIZONTAL_CS_CODE", "empty_dirs", "ignored",
-                                     "xml_arrays", "empty")]}}]},
-]}
-_GUID = {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}
-_DIMENSIONS = {"type": "object", "description": "The Start of each of S, B, H, I, R, V the series key has",
-               "properties": {k: {"type": "integer"} for k in "SBHIRV"}, "minProperties": 1,
-               "additionalProperties": False}
-_ATTACHMENT = {"oneOf": [
-    {
-        "type": "object",
-        "description": "An A1 attachment entry, and the form of its data at attachments/<k> (spec/virtualize/czi.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#53-elements>)",
-        "properties": {
-            "name": {"$ref": "#/$defs/text"},
-            "content_file_type": {"$ref": "#/$defs/text"},
-            "content_guid": _GUID,
-            "form": {"enum": ["time_stamps", "focus_positions", "event_list", "bytes", "empty"]},
-            "segment_entry": {"type": "string", "contentEncoding": "base64",
-                              "description": "The attachment segment's copy of the entry, when it differs"},
-        },
-        "required": ["name", "content_file_type", "content_guid", "form"],
-        "additionalProperties": False,
-    },
-    {
-        "type": "object",
-        "description": "An entry of another schema: its 128 bytes",
-        "properties": {"entry": {"type": "string", "contentEncoding": "base64"}},
-        "required": ["entry"],
-        "additionalProperties": False,
-    },
-]}
-SOURCE_METADATA["czi"] = {"anyOf": [
-    {
-        "type": "object",
-        "description": "The root's: the file header (spec/virtualize/czi.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#51-the-root>)",
-        "properties": {
-            "version": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2},
-            "primary_file_guid": _GUID,
-            "file_guid": _GUID,
-            "file_part": {"const": 0},
-            "update_pending": {"type": "integer"},
-        },
-        "required": ["version", "primary_file_guid", "file_guid", "file_part", "update_pending"],
-        "additionalProperties": False,
-    },
-    {
-        "type": "object",
-        "description": "An image's: the dimensions that select its series (spec/virtualize/czi.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#42-images>)",
-        "properties": {"dimensions": _DIMENSIONS},
-        "required": ["dimensions"],
-        "additionalProperties": False,
-    },
-    {
-        "type": "object",
-        "description": "A tile array's: its tile position, the planes at its index 0, and its copy (spec/virtualize/czi.md §4.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#44-tiles>)",
-        "properties": {
-            "dimensions": _DIMENSIONS,
-            "x": {"type": "integer"},
-            "y": {"type": "integer"},
-            "size": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 2, "maxItems": 2},
-            "stored_size": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 2,
-                            "maxItems": 2},
-            "planes": {"type": "object", "properties": {k: {"type": "integer"} for k in "tcz"},
-                       "required": ["t", "c", "z"], "additionalProperties": False},
-            "copy": {"type": "integer", "minimum": 0},
-        },
-        "required": ["x", "y", "size", "stored_size", "planes", "copy"],
-        "additionalProperties": False,
-    },
-    {"$ref": "#/$defs/mirror"},
-    {"$ref": "#/$defs/mirrorView"},
-]}
 # The IR mirror (spec/conventions.md §8
-# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>) of the TIFF, ND2,
-# CZI, DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2, N5 and OME-Zarr conventions: refkv_source's
-# source metadata, and the view documents of the groups under refkv_source/tree.
-IR_PROFILES = ("tiff", "nd2", "czi", "dicom", "nifti", "ims", "ndpi", "safe", "zarr2", "n5",
-               "ome-zarr")
+# <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>) of every
+# profile's convention (a dataset layout has none): refkv_source's source metadata, and the view
+# documents of the groups under refkv_source/tree.
+IR_PROFILES = tuple(e["name"] for e in REGISTRY if e["kind"] != "layout")
 # The store conventions, whose refkv_source holds, beside the mirror's description, members of
 # their own (`storeMirror`; spec/conventions.md §8.9
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>).
-IR_STORES = ("safe", "zarr2", "n5", "ome-zarr")
+IR_STORES = tuple(e["name"] for e in REGISTRY if e["kind"] in ("store", "both"))
 MIRROR_DEFS = {
     "mirror": {
         "type": "object",
@@ -446,25 +115,14 @@ STORE_MIRROR_DEFS = {
     },
 }
 
-# The GeoZarr members a SAFE node may hold besides the convention's (spec/virtualize/safe.md §5
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>); their
-# own schemas (zarr-conventions proj, spatial and multiscales v0.1) validate them.
-GEOZARR = {
-    "proj:code": {"type": "string"},
-    "proj:wkt2": {"type": "string"},
-    **{f"spatial:{k}": {"type": "array"} for k in ("dimensions", "transform", "shape", "bbox")},
-    "spatial:registration": {"type": "string"},
-    "multiscales": {"type": "object"},
-}
-
-
 def schema(profile: str) -> dict:
     cmo = convention(profile)
     title = PROFILES[profile][2]
-    url = ({"pattern": "^[Hh][Tt][Tt][Pp][Ss]?://[^?#]*/$",
-            "description": "The store URL: http or https, its path ending in /, no query or fragment"}
-           if profile in STORES else {"description": "The URL of the source: a .SAFE directory's store URL, or a zip file's"}
-           if profile == "safe" else {"description": "The URL of the source file"})
+    module = MODULES[profile]
+    url = getattr(module, "URL", None) or (
+        {"pattern": "^[Hh][Tt][Tt][Pp][Ss]?://[^?#]*/$",
+         "description": "The store URL: http or https, its path ending in /, no query or fragment"}
+        if profile in STORES else {"description": "The URL of the source file"})
     root = {
         "type": "object",
         "description": "The root's property: the profile and version that produced the hierarchy, its source, "
@@ -472,14 +130,14 @@ def schema(profile: str) -> dict:
         "properties": {
             "profile": {"type": "string", "const": profile},
             "version": {"type": "integer", "const": PROFILES[profile][1]},
-            **({"revision": {"type": "integer", "const": REVISION,
-                             "description": "The spec/virtualize.md revision that produced the hierarchy (version 0 only)"}}
-               if PROFILES[profile][1] == 0 else {}),
             "source": {"type": "object", "properties": {"url": {"type": "string", **url}}, "required": ["url"],
                        "additionalProperties": False},
+            "layouts": {"type": "object", "minProperties": 1,
+                        "additionalProperties": {"type": "string", "pattern": "^[^/]+(/[^/]+)*$"},
+                        "description": "The other layouts of the source in this hierarchy, by name, each the path of its node below the root (spec/conventions.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)"},
             profile: {"$ref": "#/$defs/sourceMetadata"},
         },
-        "required": ["profile", "version", *(["revision"] if PROFILES[profile][1] == 0 else []), "source"],
+        "required": ["profile", "version", "source"],
         "additionalProperties": False,
     }
     node = {
@@ -499,7 +157,7 @@ def schema(profile: str) -> dict:
             "additionalProperties": False,
         },
         "rootProperty": root,
-        "sourceMetadata": SOURCE_METADATA[profile],
+        "sourceMetadata": module.SCHEMA,
         "headerValue": {
             "description": "A translated header value (spec/conventions.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)",
             "anyOf": [{"type": "number"}, {"$ref": "#/$defs/text"},
@@ -515,8 +173,7 @@ def schema(profile: str) -> dict:
         defs.update(MIRROR_DEFS)
     if profile in IR_STORES:
         defs.update(STORE_MIRROR_DEFS)
-    if profile == "dicom":
-        defs.update(DICOM_DEFS)
+    defs.update(getattr(module, "DEFS", {}))
     defs["nodeProperty"] = node
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -538,7 +195,7 @@ def schema(profile: str) -> dict:
                         "maxContains": 1,
                     },
                     CONVENTION_KEY: prop,
-                    **(GEOZARR if profile == "safe" else {}),
+                    **getattr(module, "ATTRIBUTES", {}),
                 },
                 "required": ["zarr_conventions", CONVENTION_KEY],
                 "additionalProperties": False,

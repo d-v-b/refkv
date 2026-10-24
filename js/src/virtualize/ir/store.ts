@@ -15,8 +15,9 @@ import { compareKeys, objectUrl, type Store, StoreError } from "../store.ts";
 import { bytesEntry, decodeRaw, type RawOutput } from "./run.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
-/** The core's store formats: a Zarr v2 store, a SAFE product's directory, an N5 container. */
-export type StoreFormat = "zarr2" | "safe" | "n5";
+/** The core's store formats: a Zarr v2 store, a SAFE product's directory, an N5 container, and
+ * the files of a VSI input (vsi.ts), which the run probes for rather than lists. */
+export type StoreFormat = "zarr2" | "safe" | "n5" | "vsi";
 /** The profiles a store format's run decides between (its rejections name them): a Zarr v2
  * store is OME-Zarr's when its root declares OME-NGFF 0.4. */
 export type StoreProfile = StoreFormat | "ome-zarr";
@@ -62,7 +63,24 @@ export async function virtualizeStoreIr(
       const n = Number(w.vz_store_poll(p));
       if (n < 0) throw rejection(w, n, format);
       if (n === 0) break;
-      await perform(w, p, store, listing, decodeRequests(out(w, n - 1)), concurrency, format);
+      const reqs = decodeRequests(out(w, n - 1));
+      if (reqs.length === 0) {
+        // a batch of probes (a VSI input's tile files, spec/virtualize/vsi.md §9.2
+        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>): each
+        // key answered with its size, or -1 when it does not exist; a found one joins the listing
+        const keys = JSON.parse(text(out(w, Number(w.vz_store_probes(p))))) as string[];
+        for (const key of keys) {
+          const size = store.probe ? await store.probe(key) : store.objects.get(key);
+          const r = Number(w.vz_store_found(p, BigInt(size ?? -1)));
+          if (r < 0) throw rejection(w, r, format);
+          if (size !== undefined) {
+            listing.push([key, size]);
+            store.objects.set(key, size);
+          }
+        }
+        continue;
+      }
+      await perform(w, p, store, listing, reqs, concurrency, format);
     }
     // the output's checks are the decided profile's (OME-Zarr's for a Zarr v2 store whose root
     // declares OME-NGFF 0.4), which its rejection names

@@ -662,6 +662,17 @@ impl PyStoreRun {
     fn stats(&mut self) -> PyResult<String> {
         Ok(self.get()?.stats_json().to_string())
     }
+    /// The keys of a pending batch of probes (`StoreRun::probes`): `poll()` gave an empty
+    /// list, and the host answers each key, in order, with `found(size)` (None: it does not
+    /// exist) before polling again.
+    fn probes(&mut self) -> PyResult<Vec<String>> {
+        Ok(self.get()?.probes().to_vec())
+    }
+    /// The answer to the next probe of the batch: the key's size, or None when it does not exist.
+    #[pyo3(signature = (size))]
+    fn found(&mut self, size: Option<u64>) -> PyResult<()> {
+        self.get()?.found(size).map_err(Rejected::new_err)
+    }
     /// The keys the listing ignores, before the first poll (`StoreRun::ignore`): `keys`, the
     /// relative keys the store reader ignored and recorded (`Store.ignored`), which the
     /// projection records as its convention says, and `folders`, its empty `d/` keys
@@ -733,7 +744,7 @@ fn out_py<'py>(py: Python<'py>, o: &refkv_ir::out::Out) -> PyResult<Bound<'py, P
     Ok(t.into_pyobject(py)?.into_any())
 }
 
-/// The image projection of an IR (format "nd2", "tiff", "czi", "dicom", "nifti", "ims" or "ndpi"; facts as JSON) as
+/// The image projection of an IR (`format` a name of `Format::from_name`; facts as JSON) as
 /// Python objects (`out_py`), or Rejected.
 #[pyfunction]
 fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str) -> PyResult<Bound<'py, PyAny>> {
@@ -743,7 +754,7 @@ fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str
     out_py(py, &o)
 }
 
-/// The mirror of an IR (for the profile "nd2", "tiff", "czi", "dicom", "nifti", "ims" or "ndpi"): its entries and
+/// The mirror of an IR (for the profile "nd2", "tiff", "czi", "dicom", "nifti", "ims", "ndpi", "mrc" or "mp3"): its entries and
 /// references under `refkv_source` (`out_py`'s form, the url empty), and what the
 /// table folded (JSON).
 #[pyfunction]
@@ -781,6 +792,20 @@ fn view_problem(keys: Vec<String>, get: Bound<'_, PyAny>, read: Bound<'_, PyAny>
     refkv_ir::mirror::view_problem(&keys, &g, &mut rd)
 }
 
+/// The format a file's first bytes (up to 552 of them) give (`Format::sniff`), if any: its
+/// profile's name.
+#[pyfunction]
+fn sniff(head: &[u8]) -> Option<&'static str> {
+    refkv_ir::run::Format::sniff(head).map(|f| f.name())
+}
+
+/// The profile registry (spec/virtualize/profiles/, as the core holds it): its entries, by
+/// name, as a JSON array.
+#[pyfunction]
+fn registry() -> String {
+    serde_json::Value::Array(refkv_ir::out::registry().to_vec()).to_string()
+}
+
 /// The planner's merge of ranges (offset, length) into requests (start, end), for a
 /// gap threshold, an amplification cap and a concurrency (the policy's core, for tests).
 #[pyfunction]
@@ -788,13 +813,36 @@ fn plan_spans(ranges: Vec<(u64, u64)>, threshold: u64, cap: f64, concurrency: us
     refkv_ir::plan::plan_spans(&ranges, threshold, cap, concurrency)
 }
 
-/// For tests: the reference payload past which a NIfTI edge chunk is copied (None: the
-/// payload limit), so that small files reach the copy (spec/virtualize/nifti.md §7.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>).
+/// The `refkv.fits_tiles` codec (spec/virtualize/fits.md §3.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>): a
+/// chunk's pixels, as little-endian bytes of the array's data type in C order over
+/// `chunk_shape`, from the chunk's bytes and the codec's configuration (JSON).
+#[pyfunction]
+fn fits_tiles_decode<'py>(py: Python<'py>, chunk: &[u8], config: &str, chunk_shape: Vec<u64>) -> PyResult<Bound<'py, PyBytes>> {
+    let cfg: serde_json::Value = serde_json::from_str(config).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let cfg = refkv_ir::fits_tiles::Config::from_json(&cfg).map_err(PyValueError::new_err)?;
+    let out = py.detach(|| refkv_ir::fits_tiles::decode(chunk, &cfg, &chunk_shape)).map_err(PyValueError::new_err)?;
+    Ok(PyBytes::new(py, &out))
+}
+
+/// For tests: the reference payload past which a NIfTI or MRC edge chunk is copied (None:
+/// the payload limit), so that small files reach the copy (spec/virtualize/nifti.md §7.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>,
+/// spec/virtualize/mrc.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#82-chunks>).
 #[pyfunction]
 #[pyo3(signature = (n=None))]
-fn _set_nifti_copy_threshold(n: Option<usize>) {
-    refkv_ir::nifti::set_copy_threshold(n);
+fn _set_copy_threshold(n: Option<usize>) {
+    refkv_ir::out::set_copy_threshold(n);
+}
+
+/// For tests: the frames of an MP3 chunk (None: 256), so that small files have several chunks,
+/// each with its lead-in (spec/virtualize/mp3.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#82-chunks>).
+#[pyfunction]
+#[pyo3(signature = (n=None))]
+fn _set_chunk_frames(n: Option<usize>) {
+    refkv_ir::mp3::set_chunk_frames(n);
 }
 
 #[pymodule]
@@ -808,12 +856,15 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyStoreRun>()?;
     m.add_function(wrap_pyfunction!(rebuild_store, m)?)?;
     m.add_function(wrap_pyfunction!(plan_spans, m)?)?;
-    m.add_function(wrap_pyfunction!(_set_nifti_copy_threshold, m)?)?;
+    m.add_function(wrap_pyfunction!(sniff, m)?)?;
+    m.add_function(wrap_pyfunction!(registry, m)?)?;
+    m.add_function(wrap_pyfunction!(fits_tiles_decode, m)?)?;
+    m.add_function(wrap_pyfunction!(_set_copy_threshold, m)?)?;
+    m.add_function(wrap_pyfunction!(_set_chunk_frames, m)?)?;
     m.add_function(wrap_pyfunction!(project, m)?)?;
     m.add_function(wrap_pyfunction!(mirror, m)?)?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;
     m.add_function(wrap_pyfunction!(view_problem, m)?)?;
-    m.add("REVISION", refkv_ir::out::REVISION)?;
     m.add_function(wrap_pyfunction!(synthetic, m)?)?;
     m.add_function(wrap_pyfunction!(schema_text, m)?)?;
     m.add_function(wrap_pyfunction!(czi_xml_values, m)?)?;

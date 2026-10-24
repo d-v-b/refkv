@@ -10,11 +10,7 @@ from a listed store is the Zarr v2 profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `8e792619-d671-4687-ab51-752885dd3ee6` ·
 Schema: [schema.json](zarr2/schema.json)
 
-This document has two parts. [Part 1](#part-1-the-convention) is the Zarr v2
-convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the Zarr v2 profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The profile keeps its numbering as a section
-of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
+This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 # Part 1. The convention
 
@@ -39,11 +35,10 @@ consolidated metadata, is kept whole ([§5](#5-other-objects)).
 
 ## 1. Declaration
 
-The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "zarr2"`, `"version": 0`, `"revision": 27` ([conventions §1](../conventions.md#1-conventions)), the store's URL (ending in `/`)
-as `source.url`, and the root's source metadata ([§4](#4-source-metadata)), if it has any, as
-the member `"zarr2"`. Every other node that has source metadata declares it
-with `{"zarr2": S}`. Its CMO is:
+The root and `refkv_source` declare the convention
+([conventions §11.2](../conventions.md#112-declaration)), the root with its source
+metadata ([§4](#4-source-metadata)), if it has any, as the member `"zarr2"`. Every
+other node that has source metadata declares it with `{"zarr2": S}`. Its CMO is:
 
 ```json
 {
@@ -338,11 +333,8 @@ objects included, with its size; the hierarchy references the chunk objects
 and the other objects ([§5](#5-other-objects)), and the mirror rebuilds the
 rest.
 
-**Equivalence.** The elements are determined by the store's listing and
-documents, and the mirror by its elements
-([conventions §8.8](../conventions.md#88-canonical-form)): hierarchies of one
-store are compared entry for entry, `refkv_source` included
-([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
+**Equivalence.** Hierarchies of one store are compared entry for entry,
+`refkv_source` included ([conventions §11.4](../conventions.md#114-equivalence)).
 
 ## 5. Other objects
 
@@ -493,20 +485,14 @@ and whose `.zattrs` is `{"_ARRAY_DIMENSIONS": ["x"]}`:
 
 # Part 2. The profile
 
-The Zarr v2 profile of [spec/virtualize.md](../virtualize.md) (revision 16),
-numbered as its [§10](#10-zarr-v2-profile). [§1](../virtualize.md#1-introduction) is in spec/virtualize.md and applies here, in particular
-the store input rules of [§1.4](../virtualize.md#14-store-inputs)–[§1.6](../virtualize.md#16-json-documents), and so does [§2](../virtualize.md#2-the-zarr-layout).
+The Zarr v2 profile of [spec/virtualize.md](../virtualize.md) (revision 16) is [§7](#7-zarr-v2-profile) of this document. What every profile's Part 2 shares is in
+[spec/virtualize.md, Profiles](../virtualize.md#profiles).
 
-The output has the convention's layout for the input
-([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
-how the store is read, which inputs are rejected, and how each chunk
-references the store. "The convention §n" below is a section of Part 1.
-
-## 10. Zarr v2 profile
+## 7. Zarr v2 profile
 
 The profile was chosen because the store's root has a `.zarray` or a
 `.zgroup` and the store does not declare OME-NGFF 0.4 ([§1.4](../virtualize.md#14-store-inputs)); a store that
-does is read by the OME-Zarr profile ([§11](ome-zarr.md#11-ome-zarr-profile), [ome-zarr.md](ome-zarr.md#part-2-the-profile)),
+does is read by the OME-Zarr profile ([ome-zarr.md §11](ome-zarr.md#11-ome-zarr-profile), [ome-zarr.md](ome-zarr.md#part-2-the-profile)),
 which builds on this one. The store is listed ([§1.5](../virtualize.md#15-listing-a-store)), and the documents
 that [the convention §2](#2-nodes) reads are
 read as JSON ([§1.6](../virtualize.md#16-json-documents)).
@@ -521,13 +507,13 @@ convention copies them ([its §4](#4-source-metadata)),
 beyond 2^53 − 1 too, in place of [§1.6](../virtualize.md#16-json-documents)'s last paragraph; every number the
 convention uses is its binary64 value, as [§1.6](../virtualize.md#16-json-documents) says.
 
-### 10.1 Rejection
+### 7.1 Rejection
 
 The input is rejected when a rule of [§1.4](../virtualize.md#14-store-inputs)–[§1.6](../virtualize.md#16-json-documents) fails, and when the
 convention gives it no layout: wherever it says that the input is
 rejected, or that something MUST hold and it does not.
 
-### 10.2 Chunks and other objects
+### 7.2 Chunks and other objects
 
 Every chunk that the convention says is present
 ([the convention §3.2](#32-chunks)) is an
@@ -555,7 +541,7 @@ once; then the documents are checked in path order. So a document that cannot
 be read is a failure even when another document read in the same round would
 reject the input. No other object is read.
 
-### 10.3 Summary
+### 7.3 Summary
 
 This section is informative. Both implementations print a one-line JSON
 summary: `groups` (explicit and implicit), `arrays`, `chunks` (chunk

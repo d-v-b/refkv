@@ -1,0 +1,344 @@
+{
+  "source_model": "vsi",
+  "version": 1,
+  "about": "The source model of an Olympus VSI slide (spec/virtualize/vsi.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#6-source-metadata>): the elements the parser emits for the .vsi file (a little-endian classic TIFF whose byte 8 starts the metadata tree) and for each .ets tile file beside it, the tables of the formats' codes, and the roles each structure plays, with the constraints an input must meet to have the VSI convention's layout (spec/virtualize/vsi.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#9-vsi-profile>). The parser checks them in this order; the projection reads a valid IR and checks nothing.",
+  "limits": {
+    "max_safe": 9007199254740991,
+    "max_fields": 1048576,
+    "max_depth": 64,
+    "max_tiles": 16777216,
+    "max_ifds": 65536,
+    "max_coordinates": 16,
+    "max_vsi": 268435456,
+    "sis_header": 64,
+    "ets_header": 228
+  },
+  "tables": {
+    "pixel_types": {
+      "about": "the ETS header's pixel type: the Zarr data type and the bytes per sample",
+      "1": {"dtype": "int8", "bytes": 1},
+      "2": {"dtype": "uint8", "bytes": 1},
+      "3": {"dtype": "int16", "bytes": 2},
+      "4": {"dtype": "uint16", "bytes": 2},
+      "5": {"dtype": "int32", "bytes": 4},
+      "6": {"dtype": "uint32", "bytes": 4},
+      "7": {"dtype": "int64", "bytes": 8},
+      "8": {"dtype": "uint64", "bytes": 8},
+      "9": {"dtype": "float32", "bytes": 4},
+      "10": {"dtype": "float64", "bytes": 8}
+    },
+    "compressions": {
+      "about": "the ETS header's compression: the tiles' codec",
+      "0": "raw",
+      "2": "jpeg",
+      "3": "jpeg2000"
+    },
+    "unsupported_compressions": {
+      "about": "compressions the profile names and rejects",
+      "5": "lossless JPEG",
+      "8": "PNG",
+      "9": "BMP"
+    },
+    "field_types": {
+      "about": "the metadata tree's field types (the low 24 bits of a field's type word): the IR type of a value, per element (text and byte types take the field's length), and the type's name",
+      "1": {"name": "CHAR", "type": "i1"},
+      "2": {"name": "UCHAR", "type": "u1"},
+      "3": {"name": "SHORT", "type": "<i2"},
+      "4": {"name": "USHORT", "type": "<u2"},
+      "5": {"name": "INT", "type": "<i4"},
+      "6": {"name": "UINT", "type": "<u4"},
+      "7": {"name": "LONG", "type": "<i8"},
+      "8": {"name": "ULONG", "type": "<u8"},
+      "9": {"name": "FLOAT", "type": "<f4"},
+      "10": {"name": "DOUBLE", "type": "<f8"},
+      "11": {"name": "COMPLEX", "type": "<f8"},
+      "12": {"name": "BOOLEAN", "type": "u1"},
+      "13": {"name": "TCHAR", "type": "utf16"},
+      "14": {"name": "DWORD", "type": "<u4"},
+      "17": {"name": "TIMESTAMP", "type": "<i8"},
+      "18": {"name": "DATE", "type": "<f8"},
+      "256": {"name": "INT_2", "type": "<i4"},
+      "257": {"name": "INT_3", "type": "<i4"},
+      "258": {"name": "INT_4", "type": "<i4"},
+      "259": {"name": "INT_RECT", "type": "<i4"},
+      "260": {"name": "DOUBLE_2", "type": "<f8"},
+      "261": {"name": "DOUBLE_3", "type": "<f8"},
+      "262": {"name": "DOUBLE_4", "type": "<f8"},
+      "263": {"name": "DOUBLE_RECT", "type": "<f8"},
+      "264": {"name": "DOUBLE_2_2", "type": "<f8"},
+      "265": {"name": "DOUBLE_3_3", "type": "<f8"},
+      "266": {"name": "DOUBLE_4_4", "type": "<f8"},
+      "267": {"name": "INT_INTERVAL", "type": "<i4"},
+      "268": {"name": "DOUBLE_INTERVAL", "type": "<f8"},
+      "269": {"name": "RGB", "type": "u1"},
+      "270": {"name": "BGR", "type": "u1"},
+      "271": {"name": "FIELD_TYPE", "type": "<u4"},
+      "272": {"name": "MEM_MODEL", "type": "<u4"},
+      "273": {"name": "COLOR_SPACE", "type": "<u4"},
+      "274": {"name": "INT_ARRAY_2", "type": "<i4"},
+      "275": {"name": "INT_ARRAY_3", "type": "<i4"},
+      "276": {"name": "INT_ARRAY_4", "type": "<i4"},
+      "277": {"name": "INT_ARRAY_5", "type": "<i4"},
+      "279": {"name": "DOUBLE_ARRAY_2", "type": "<f8"},
+      "280": {"name": "DOUBLE_ARRAY_3", "type": "<f8"},
+      "8192": {"name": "UNICODE_TCHAR", "type": "utf16"},
+      "8194": {"name": "UNICODE_TEXT", "type": "utf16"},
+      "8195": {"name": "DIM_INDEX_1", "type": "<i4"},
+      "8199": {"name": "DIM_INDEX_2", "type": "<i4"},
+      "8200": {"name": "VOLUME_INDEX", "type": "<i4"},
+      "8470": {"name": "PIXEL_INFO_TYPE", "type": "<i4"}
+    },
+    "extended_types": {
+      "about": "the types of an extended field (bit 28 of the type word): what its data holds",
+      "0": "volume",
+      "1": "property_set",
+      "2": "mdim_volume",
+      "10": "tiff_ifd"
+    },
+    "dimension_meanings": {
+      "about": "a dimension's meaning (tag 2023): the layout's axis",
+      "1": "z",
+      "2": "t",
+      "3": "lambda",
+      "4": "c",
+      "9": "phase"
+    },
+    "stack_types": {
+      "about": "a stack's type (tag 2074), as Bio-Formats names them",
+      "0": "Default image",
+      "1": "Overview image",
+      "2": "Sample mask",
+      "4": "Focus image",
+      "8": "EFI sharpness map",
+      "16": "EFI height map",
+      "32": "EFI texture map",
+      "64": "EFI stack",
+      "256": "Macro image"
+    },
+    "units": {
+      "about": "the unit texts of a calibration (tag 2020, and an mdim volume's unit), as OME-NGFF unit names",
+      "10^-9m^1": "nanometer",
+      "10^-6m^1": "micrometer",
+      "10^-3m^1": "millimeter",
+      "10^-2m^1": "centimeter",
+      "10^0m^1": "meter",
+      "m": "meter"
+    },
+    "tag_names": {
+      "about": "the tags Bio-Formats names (CellSensReader.getTagName), by number",
+      "11": "Document Name", "13": "Document Note", "14": "Document Creation Time", "15": "Document Author",
+      "16": "Document Company", "17": "Document creator name", "18": "Document creator major version",
+      "19": "Document creator minor version", "20": "Document creator sub version", "21": "Product Build Number",
+      "22": "Document creator package", "23": "Document product", "24": "Document product name",
+      "25": "Document product version", "27": "Document type hint", "28": "Document thumbnail",
+      "34": "Product Name", "35": "Product Version",
+      "2000": "Collection volume", "2001": "Multidimensional image volume", "2002": "Image frame volume",
+      "2003": "Dimension size", "2004": "Image collection properties", "2005": "Multidimensional stack properties",
+      "2006": "Frame properties", "2007": "Dimension description volume", "2008": "Channel properties",
+      "2011": "Plane unit", "2012": "Z stack start", "2013": "Z stack increment", "2014": "Z position",
+      "2015": "Creation time (UTC)", "2016": "Default sample IFD", "2017": "Timestamp", "2018": "Origin",
+      "2019": "Calibration", "2020": "Calibration units", "2021": "Dimension name", "2022": "Coarse pyramid level",
+      "2023": "Dimension description", "2024": "Unknown blobs volume", "2025": "Dimension start ID",
+      "2026": "Dimension increment ID", "2027": "Dimension value ID", "2028": "Extra samples",
+      "2029": "Extra samples properties", "2030": "Layer", "2031": "Channel dimension", "2034": "Default background color",
+      "2035": "Version number", "2039": "Lambda start", "2040": "Lambda increment", "2041": "Lambda value",
+      "2043": "Optical path", "2053": "Image size", "2055": "Specimen", "2057": "Tissue", "2058": "Preparation",
+      "2059": "Staining", "2060": "Slide Info", "2061": "Slide Name", "2062": "Slide properties",
+      "2063": "Image plane rectangle unit (Y dimension)", "2064": "Y dimension unit", "2073": "Channel under/overflow",
+      "2074": "Image Type", "2076": "Live overflow", "2100": "Timelapse start", "2109": "Document properties",
+      "2410": "Origin of tile coordinate system", "2417": "Channel wavelength", "2419": "Channel name",
+      "10000": "Display processor type", "10001": "Render operation ID", "10005": "Displayed stack ID",
+      "10006": "Transparency ID", "10007": "Display third ID", "10008": "Display visible", "10009": "Transparency value",
+      "10013": "Display LUT", "10014": "Display stack index", "10018": "Channel transparency value",
+      "10025": "Channel visible", "10028": "List of selected channels", "10032": "Display gamma correction",
+      "10033": "Channel gamma correction", "10045": "Display contrast and brightness",
+      "10046": "Channel contrast and brightness", "10047": "Contrast and brightness", "10048": "Acquisition properties",
+      "10049": "Active stack dimension", "10050": "Selected frames", "10054": "Displayed LUT ID", "10056": "Hidden layer",
+      "10057": "Layer fixed in XY", "10060": "Active layer vector", "10061": "Active layer index vector",
+      "10062": "Chained layers", "10063": "Layer selection", "10064": "Layer selection index", "10065": "Gradient LUT",
+      "10066": "Canvas background color 1", "10067": "Canvas background color 2", "10069": "Original frame rate (ms)",
+      "10070": "Use original frame rate", "10071": "Active channel",
+      "20004": "Tile system", "20005": "External file present", "20006": "Origin", "20007": "Physical pixel size",
+      "20025": "External file volume", "20035": "IS transmission mask", "20051": "Calibration function",
+      "100002": "Exposure time (microseconds)", "100003": "Camera gain", "100004": "Camera offset", "100005": "Gamma",
+      "100006": "Sharpness", "100007": "Red channel gain", "100008": "Green channel gain", "100009": "Blue channel gain",
+      "100010": "Red channel offset", "100011": "Green channel offset", "100012": "Blue channel offset",
+      "100013": "Shading sub", "100014": "Shading mul", "100015": "Binning (X)", "100016": "Binning (Y)",
+      "100017": "Clipping", "100023": "Mirror (horizontal)", "100024": "Mirror (vertical)", "100025": "Clipping state",
+      "100030": "ICC enabled", "100031": "Brightness", "100032": "Contrast", "100033": "Contrast reference",
+      "100034": "Camera accumulation", "100035": "Camera averaging", "100038": "ISO sensitivity",
+      "100039": "Camera accumulation mode", "100043": "Autoexposure enabled", "100044": "Autoexposure metering mode",
+      "100048": "Camera Maximum Frame Size", "100049": "Camera Actual Bit Depth", "100055": "Camera HDRI Enabled",
+      "100056": "Camera Images per HDRI image", "100057": "Camera HDRI Exposure Ratio", "100058": "Camera HDRI Mapping Mode",
+      "100059": "Camera Custom Grayscale Value", "100060": "Camera Saturation", "100061": "Camera White Balance Preset ID",
+      "100062": "Camera White Balance Preset Name", "100063": "Camera White Balance Mode", "100064": "Camera CCD Sensitivity",
+      "100065": "Camera Enhanced Dynamic Range", "100066": "Camera Pixel Clock (MHz)", "100067": "Camera Colorspace",
+      "100068": "Camera Cooling Enabled", "100069": "Camera Cooling Fan Speed", "100070": "Camera Cooling Temperature Target",
+      "100071": "Camera Gain Unit", "100072": "Camera EM Gain", "100073": "Camera Photon Imaging Mode",
+      "100074": "Camera Frame Transfer Enabled", "100075": "Camera iXon Shift Speed", "100076": "Camera Vertical Clock Amplitude",
+      "100077": "Camera Spurious Noise Removal Enabled", "100078": "Camera Signal Output", "100079": "Camera Baseline Offset Clamp",
+      "100080": "Camera DP80 Frame Centering", "100081": "Camera Hot Pixel Correction Enabled", "100082": "Camera Noise Reduction",
+      "100083": "Camera WiDER", "100084": "Camera Photobleaching Enabled", "100085": "Camera Preamp Gain",
+      "100086": "Camera WiDER Enabled",
+      "120001": "Device Position", "120050": "TV Adapter Magnification", "120060": "Magnification",
+      "120061": "Numerical Aperture", "120062": "Objective Working Distance", "120063": "Objective Name",
+      "120064": "Objective Type", "120065": "Objective Description", "120066": "Objective Subtype",
+      "120069": "Brightness Correction", "120070": "Objective Lens", "120075": "Objective X Shift",
+      "120076": "Objective Y Shift", "120077": "Objective Z Shift", "120078": "Objective Gear Setting",
+      "120079": "Objective Refractive Index", "120116": "Device Name", "120117": "Device Type", "120129": "Device Unit ID",
+      "120130": "Device Subtype", "120132": "Device Model", "120133": "Device Manufacturer",
+      "120210": "Device Configuration Position", "120211": "Device Configuration Index", "120635": "Slide Bar Code",
+      "120637": "Slide No.", "120638": "Tray No.", "121102": "Stage Insert Position", "121131": "Laser/Lamp Intensity",
+      "124000": "Aperture Max Mode", "175208": "Snapshot Count", "175209": "Scanning Time (seconds)",
+      "268435456": "Units", "268435458": "Value", "1073741824": "Original magnification"
+    }
+  },
+  "elements": {
+    "about": "The store IR of a VSI input (conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>): the .vsi file and each tile file read are objects described in place, under the directories of their keys (spec/virtualize/vsi.md §6.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#62-the-ir-mirror>).",
+    "<name>.vsi": {
+      "kind": "object",
+      "about": "the .vsi file, described in place",
+      "children": {
+        "header": "value {byte_order:ascii[2],magic:<u2,first_ifd:<u4}: the TIFF header, (0, 8)",
+        "tree": "struct (8, size - 8): the root container of the metadata tree",
+        "tree/header": "value {header_size:<u2,version:<u2,volume_version:<i4,data_offset:<i8,flags:<u4,reserved:<u4}: a container's 24-byte header",
+        "tree/fields/<k>": "struct: field k of a container, from its header to the next field (or the container's end)",
+        "tree/fields/<k>/header": "value {type:<u4,tag:<u4,next:<u4,size:<u4} or, with a second tag, {type:<u4,tag:<u4,next:<u4,size:<u4,tag2:<u4}",
+        "tree/fields/<k>/value": "value: the field's data, typed by its field type (the table field_types; bytes[n] for a type the table lacks, or a length that is not a multiple of the type's)",
+        "tree/fields/<k>/container": "struct: the container a volume, property set or mdim volume field holds (its header and fields as above)",
+        "tree/fields/<k>/ifds/<j>": "struct: TIFF IFD j of the main chain, where the field's data region or the rest of its region holds it: entry_count (<u2), tags/<tag> ({entry, value}), next_ifd (<u4), strips/<s> (data), and exif (the EXIF IFD tag 34665 names, likewise)",
+        "tree/fields/<k>/gaps/<offset>": "gap: the bytes of a field's region no element claims"
+      }
+    },
+    "_<name>_/stack<N>/frame_t.ets": {
+      "kind": "object",
+      "about": "a tile file (frame_t.ets, or frame_t_0.ets), described in place",
+      "children": {
+        "header": "value {magic:ascii[4],header_size:<i4,version:<i4,coordinates:<i4,ets_offset:<i8,ets_size:<i4,reserved:<i4,tiles_offset:<i8,tiles:<i4,reserved2:<i4,size:<i8,reserved3:bytes[8]}: the 64-byte SIS header",
+        "ets": "value {magic:ascii[4],version:<i4,pixel_type:<i4,channels:<i4,colorspace:<i4,compression:<i4,quality:<i4,tile_width:<i4,tile_height:<i4,tile_depth:<i4,pixel_info_hints:<i4[17],background:bytes[40],component_order:<i4,use_pyramid:<i4,reserved:bytes[28],dimensions:<i4,dimension_sizes:<i4[10]}: the 228-byte ETS header (bytes[n] follow when ets_size is larger)",
+        "directory": "value {coordinates:<i4,coordinate:<i4[d],offset:<i8,size:<i4,index:<i4}[n]: the tile directory, one record per tile",
+        "tiles/<k>": "data: tile k of the directory, its form {geometry: {shape: [tile_height, tile_width], samples, bits}, codec: {compression}, recipe: [[src, 0, null]]}",
+        "gaps/<offset>": "gap: bytes no other element claims"
+      }
+    }
+  },
+  "roles": {
+    "file": {
+      "given": {"size": "the .vsi file's size"},
+      "constraints": [
+        {"require": "size >= 32", "message": "the .vsi file of {size} bytes is too short for a TIFF header and a metadata tree"},
+        {"require": "size <= max_vsi", "message": "the .vsi file of {size} bytes is larger than {max_vsi}"}
+      ]
+    },
+    "tiff_header": {
+      "given": {"order": "the byte-order mark", "magic": "the magic number", "first_ifd": "the first IFD's offset", "size": "the file's size"},
+      "constraints": [
+        {"require": "order == 'II'", "message": "the .vsi file is not little-endian (byte order {order})"},
+        {"require": "magic == 42", "message": "the .vsi file is not a classic TIFF (magic {magic})"},
+        {"require": "first_ifd + 6 <= size", "message": "the first IFD at {first_ifd} is outside the {size}-byte .vsi file"}
+      ]
+    },
+    "container": {
+      "given": {"offset": "the container's offset", "end": "its region's end", "header_size": "header_size", "version": "version", "data_offset": "data_offset", "count": "the field count (the low 28 bits of flags)", "depth": "its depth in the tree"},
+      "constraints": [
+        {"require": "offset + 24 <= end", "message": "the container at {offset} runs past its region's end {end}"},
+        {"require": "header_size == 24 && version == 21321", "message": "the bytes at {offset} are not a container (header size {header_size}, version {version})"},
+        {"require": "depth <= max_depth", "message": "containers nested more than {max_depth} deep at {offset}"},
+        {"require": "count <= max_fields", "message": "the container at {offset} declares {count} fields, more than {max_fields}"},
+        {"require": "(count == 0 && data_offset == 0) || data_offset == 24", "message": "the container at {offset} has the data offset {data_offset}, not 24"},
+        {"require": "offset + 24 + 16 * count <= end", "message": "the container at {offset} declares {count} fields, which do not fit before {end}"}
+      ]
+    },
+    "field": {
+      "given": {"offset": "the field's offset", "container": "its container's offset", "end": "the container's region end", "index": "its index in the container", "count": "the container's field count", "type": "the field type (low 24 bits)", "tag": "tag", "next": "next", "size": "size", "extra": "whether it has a second tag", "extended": "whether it is extended", "inline": "whether its value is inline", "data_end": "where its data ends"},
+      "derive": {"header_end": "offset + 16 + (extra ? 4 : 0)", "region_end": "next == 0 ? end : container + next", "extended_kind": "at(extended_types, type)", "which": "index + 1 == count ? 'the last' : 'not the last'"},
+      "constraints": [
+        {"require": "header_end <= end", "message": "field {index} of the container at {container} runs past {end}"},
+        {"require": "(next == 0) == (index + 1 == count)", "message": "field {index} (tag {tag}) of the container at {container} has next {next}, but it is {which} of {count} fields"},
+        {"require": "region_end >= header_end && region_end <= end", "message": "field {index} (tag {tag}) of the container at {container} has next {next}, outside its container"},
+        {"require": "data_end >= header_end && data_end <= region_end", "message": "field {index} (tag {tag}, type {type}) of the container at {container}: its data ({size} bytes) runs past its region"},
+        {"require": "!extended || present(extended_kind)", "message": "field {index} (tag {tag}) of the container at {container} is an extended field of type {type}, which is unknown"},
+        {"require": "!extended || !(type == 1 || type == 2) || size == 0", "message": "field {index} (tag {tag}) of the container at {container} is a property set of size {size}"}
+      ]
+    },
+    "ifd": {
+      "given": {"offset": "the IFD's offset", "count": "its entry count", "size": "the file's size", "ifds": "IFDs read so far"},
+      "constraints": [
+        {"require": "ifds < max_ifds", "message": "more than {max_ifds} IFDs"},
+        {"require": "offset + 2 + 12 * count + 4 <= size", "message": "the IFD at {offset} ({count} entries) is outside the {size}-byte .vsi file"}
+      ]
+    },
+    "stack": {
+      "given": {"id": "the stack's id (the second tag of its volume)", "name": "its name", "external": "whether it has a tile file", "width": "its width", "height": "its height"},
+      "constraints": [
+        {"require": "!external || (width >= 1 && height >= 1)", "message": "stack {id} ({name}) has a tile file but no image size"}
+      ]
+    },
+    "tile_file": {
+      "given": {"id": "the stack's id", "name": "its name", "dir": "its directory's key", "found": "the candidate keys found"},
+      "constraints": [
+        {"require": "found >= 1", "message": "stack {id} ({name}) has no tile file: neither {dir}/frame_t.ets nor {dir}/frame_t_0.ets exists"}
+      ]
+    },
+    "sis": {
+      "given": {"key": "the tile file's key", "magic": "the SIS magic", "header_size": "header_size", "coordinates": "the coordinates per tile", "ets_offset": "ets_offset", "ets_size": "ets_size", "tiles_offset": "tiles_offset", "tiles": "the tile count", "size": "the file's size"},
+      "derive": {"record": "20 + 4 * coordinates"},
+      "constraints": [
+        {"require": "magic == 'SIS'", "message": "{key} is not an ETS file (magic {magic})"},
+        {"require": "header_size == sis_header", "message": "{key}: SIS header size {header_size}, not {sis_header}"},
+        {"require": "coordinates >= 2 && coordinates <= max_coordinates", "message": "{key}: {coordinates} coordinates per tile"},
+        {"require": "ets_offset >= sis_header && ets_size >= ets_header && ets_offset + ets_size <= size", "message": "{key}: the ETS header ({ets_size} bytes at {ets_offset}) is outside the {size}-byte file, or too short"},
+        {"require": "tiles >= 0 && tiles <= max_tiles", "message": "{key}: {tiles} tiles"},
+        {"require": "tiles_offset >= sis_header && tiles_offset + tiles * record <= size", "message": "{key}: the tile directory ({tiles} tiles at {tiles_offset}) is outside the {size}-byte file"}
+      ]
+    },
+    "ets": {
+      "given": {"key": "the tile file's key", "magic": "the ETS magic", "pixel_type": "pixel_type", "channels": "channels", "compression": "compression", "tile_width": "tile_width", "tile_height": "tile_height", "tile_depth": "tile_depth", "dimensions": "the dimension count", "coordinates": "the coordinates per tile"},
+      "derive": {"pixel": "at(pixel_types, pixel_type)", "codec": "at(compressions, compression)", "named": "at(unsupported_compressions, compression)"},
+      "constraints": [
+        {"require": "magic == 'ETS'", "message": "{key}: the ETS header's magic is {magic}"},
+        {"require": "present(pixel)", "message": "{key}: unsupported pixel type {pixel_type}"},
+        {"require": "channels == 1 || channels == 3 || channels == 4", "message": "{key}: {channels} samples per pixel"},
+        {"require": "!present(named)", "message": "{key}: unsupported ETS compression {compression} ({named})"},
+        {"require": "present(codec)", "message": "{key}: unknown ETS compression {compression}"},
+        {"require": "tile_width >= 1 && tile_height >= 1 && tile_width <= 65535 && tile_height <= 65535", "message": "{key}: tiles of {tile_width} × {tile_height} pixels"},
+        {"require": "tile_depth == 1", "message": "{key}: tiles of depth {tile_depth}"},
+        {"require": "dimensions >= 2 && dimensions <= coordinates", "message": "{key}: {dimensions} dimensions for {coordinates} coordinates per tile"}
+      ]
+    },
+    "dimension": {
+      "given": {"id": "the stack's id", "index": "the coordinate's index", "meaning": "its meaning (the table dimension_meanings, or the code)", "size": "its size"},
+      "constraints": [
+        {"require": "size >= 1", "message": "stack {id}: coordinate {index} has the size {size}"},
+        {"require": "meaning == 'z' || meaning == 't' || meaning == 'c' || size == 1", "message": "stack {id}: coordinate {index} ({meaning}) has {size} values, which the layout cannot place"}
+      ]
+    },
+    "image": {
+      "given": {"id": "the stack's id", "samples": "samples per pixel", "channels": "the channel dimension's size"},
+      "constraints": [
+        {"require": "samples == 1 || channels == 1", "message": "stack {id}: {samples} samples per pixel and {channels} channels"}
+      ]
+    },
+    "tile": {
+      "given": {"key": "the tile file's key", "index": "the tile's index in the directory", "offset": "its offset", "bytes": "its size", "size": "the file's size", "inside": "whether its coordinates are within the dimension sizes (0 or more for x, y and the level)", "duplicate": "whether an earlier tile has its coordinates", "raw": "the bytes of a raw tile (0 when compressed)"},
+      "constraints": [
+        {"require": "bytes >= 1 && offset + bytes <= size", "message": "{key}: tile {index} ({bytes} bytes at {offset}) is outside the {size}-byte file"},
+        {"require": "inside", "message": "{key}: tile {index} has a coordinate outside the dimension sizes"},
+        {"require": "!duplicate", "message": "{key}: tile {index} repeats the coordinates of an earlier tile"},
+        {"require": "raw == 0 || bytes == raw", "message": "{key}: raw tile {index} has {bytes} bytes, not {raw}"}
+      ]
+    },
+    "ifd_image": {
+      "given": {"ifd": "the IFD's index", "what": "what the IFD is (the macro image, or a stack's)", "width": "ImageWidth", "height": "ImageLength", "compression": "Compression", "samples": "SamplesPerPixel", "bits": "BitsPerSample", "planar": "PlanarConfiguration", "strips": "the strip count", "format": "SampleFormat"},
+      "constraints": [
+        {"require": "width >= 1 && height >= 1", "message": "IFD {ifd} ({what}) is {width} × {height}"},
+        {"require": "compression == 1 || compression == 7", "message": "IFD {ifd} ({what}) has compression {compression}"},
+        {"require": "samples == 1 || samples == 3", "message": "IFD {ifd} ({what}) has {samples} samples per pixel"},
+        {"require": "bits == 8 || (bits == 16 && compression == 1)", "message": "IFD {ifd} ({what}) has {bits} bits per sample"},
+        {"require": "planar == 1", "message": "IFD {ifd} ({what}) has PlanarConfiguration {planar}"},
+        {"require": "format == 1", "message": "IFD {ifd} ({what}) has SampleFormat {format}"},
+        {"require": "strips >= 1 && (compression == 1 || strips == 1)", "message": "IFD {ifd} ({what}) has {strips} strips"}
+      ]
+    }
+  }
+}

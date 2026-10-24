@@ -31,7 +31,12 @@ One OME-Zarr 0.5 image at the archive root, with one array per level.
 - **Chunks:** with restart offsets (`McuStarts`), a level is cut into chunks
   of whole restart intervals, about 1024 pixels on a side (2048 × 1024 at
   CMU-1's level 0, where one interval is 2048 pixels wide). A level without
-  them, usually the smallest, is one chunk.
+  them, usually the smallest, is one chunk. Some older scanners write such a
+  level's JPEG a row short of its tagged size; its chunk then carries the
+  tagged size in the JPEG's frame header, which the stream's last row of
+  8 × 8 or 16 × 16 blocks already covers, so it decodes at the level's
+  size. A level whose JPEG would need more blocks is left out (the file is
+  rejected when that is the full-resolution level).
 - **Codecs:** `transpose`, then `imagecodecs_jpeg`. Each chunk is decoded as
   one JPEG stream.
 - **Data sources:** the parts of each level's JPEG header (quantization and
@@ -41,6 +46,8 @@ One OME-Zarr 0.5 image at the archive root, with one array per level.
 - **Scale:** from the TIFF resolution tags, in micrometers, when they give a
   pixel under 25.4 µm.
 - **Translation:** from the slide-center offsets the scanner records.
+- **Channels:** `omero.channels` labels the samples `R`, `G`, `B`, in red,
+  green and blue, each with the window 0 to 255.
 - **Metadata:** the file's IR mirror on `refkv_source` (since revision 26):
   every IFD, tag, high word and strip, from which the file is rebuilt byte
   for byte, shown as JSON under `refkv_source/tree`; the root holds none.
@@ -117,6 +124,17 @@ Rejected:
   get strictly smaller.
 - A strip header without exactly one SOF0 segment and a restart interval, or
   restart offsets that do not match the strip.
+
+### In the browser
+
+The browser code ([js/](../../../js/README.md)) reads Hamamatsu NDPI:
+
+- Pyramids of single JPEG strips, including in files over 4 GB: each level's
+  strip is cut at its restart markers into chunks of about 1024 × 1024 pixels, each a JPEG stream rebuilt
+  from byte ranges of the file and the strip's header, held once in the
+  archive as `data` sources.
+
+Not supported, and refused with HTTP 422: NDPI focal planes.
 
 ## Performance
 

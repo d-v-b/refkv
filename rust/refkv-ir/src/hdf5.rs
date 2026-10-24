@@ -1,6 +1,6 @@
-//! HDF5 metadata, read sans-IO (spec/virtualize/ims.md §8.1
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#81-hdf5-structures>–§8.6
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#86-attributes>): the superblock,
+//! HDF5 metadata, read sans-IO (spec/virtualize/ims.md §7.1
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#71-hdf5-structures>–§7.6
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#76-attributes>): the superblock,
 //! object headers and their messages, the links of groups (symbol tables, compact and dense
 //! links), version 1 and 2 B-trees, local, fractal and global heaps, attributes, datasets and
 //! their chunk indexes (version 1 B-tree, single chunk, implicit, fixed array, extensible array,
@@ -18,13 +18,15 @@
 //! bytes ([`Fail::Bad`]) is final; with misses before it, the round is retried (the outcome
 //! is the one a sequential reading would give).
 
+use crate::fed::{Fed, Overlap, uint};
+use crate::text::latin1;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc as Rc;
 
 pub const SIGNATURE: &[u8; 8] = b"\x89HDF\r\n\x1a\n";
 pub const UNDEFINED: u64 = u64::MAX;
 pub const MAX_SAFE: u64 = (1 << 53) - 1;
-/// Blocks of one object header (§8.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#82-object-headers>).
+/// Blocks of one object header (§7.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#72-object-headers>).
 pub const MAX_BLOCKS: usize = 1000;
 pub const MAX_BTREE2_DEPTH: u64 = 16;
 /// The least a missed read asks for (a window, so that the structure's next bytes come with it).
@@ -35,7 +37,7 @@ pub const HINT_MAX: u64 = 1 << 16;
 /// table node's (leaf), a group node's (internal) and a chunk node's (indexed storage).
 pub const DEFAULT_K: (u64, u64, u64) = (4, 16, 32);
 
-// Message types (§8.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#82-object-headers>).
+// Message types (§7.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#72-object-headers>).
 pub const NIL: u16 = 0x00;
 pub const DATASPACE: u16 = 0x01;
 pub const LINK_INFO: u16 = 0x02;
@@ -101,61 +103,11 @@ impl Acc {
 
 // ---- the bytes fed
 
-/// Fed bytes, ranges that touch merged into one, so that a read finds its bytes in the one
-/// range at or before it.
-#[derive(Default)]
-pub struct Store {
-    got: BTreeMap<u64, Vec<u8>>,
-    pub held: u64,
-}
-
-impl Store {
-    pub fn feed(&mut self, o: u64, data: Vec<u8>) {
-        if data.is_empty() {
-            return;
-        }
-        let end = o + data.len() as u64;
-        let mut lo = o;
-        let mut hi = end;
-        let mut old: Vec<u64> = Vec::new();
-        for (&s, b) in self.got.range(..=end).rev() {
-            let e = s + b.len() as u64;
-            if e < o {
-                break;
-            }
-            lo = lo.min(s);
-            hi = hi.max(e);
-            old.push(s);
-        }
-        if old.len() == 1 && lo == old[0] && hi == old[0] + self.got[&old[0]].len() as u64 {
-            return; // already held
-        }
-        let mut buf = vec![0u8; (hi - lo) as usize];
-        for s in old.iter().rev() {
-            let b = self.got.remove(s).unwrap();
-            self.held -= b.len() as u64;
-            buf[(s - lo) as usize..(s - lo) as usize + b.len()].copy_from_slice(&b);
-        }
-        buf[(o - lo) as usize..(end - lo) as usize].copy_from_slice(&data);
-        self.held += buf.len() as u64;
-        self.got.insert(lo, buf);
-    }
-
-    pub fn get(&self, o: u64, n: u64) -> Option<&[u8]> {
-        let end = o.checked_add(n)?;
-        let (&s, b) = self.got.range(..=o).next_back()?;
-        if end <= s + b.len() as u64 {
-            Some(&b[(o - s) as usize..(end - s) as usize])
-        } else {
-            None
-        }
-    }
-}
-
-/// A file read sans-IO: what was fed, and what a round wants.
+/// A file read sans-IO: what was fed (ranges that touch merged into one, so that a read finds
+/// its bytes in the one range at or before it), and what a round wants.
 pub struct Src {
     pub size: u64,
-    pub store: Store,
+    pub store: Fed,
     pub want: Vec<(u64, u64)>,
 }
 
@@ -174,10 +126,10 @@ impl Src {
     }
 
     pub fn new(size: u64) -> Src {
-        Src { size, store: Store::default(), want: Vec::new() }
+        Src { size, store: Fed::new(Overlap::MergeNew), want: Vec::new() }
     }
 
-    /// The `n` bytes at `at`, which MUST lie within the file (§8.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#81-hdf5-structures>).
+    /// The `n` bytes at `at`, which MUST lie within the file (§7.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#71-hdf5-structures>).
     pub fn read(&mut self, at: u64, n: u64) -> R<Vec<u8>> {
         match at.checked_add(n) {
             Some(e) if e <= self.size => {}
@@ -205,11 +157,7 @@ pub fn le(d: &[u8], at: usize, n: usize) -> R<u64> {
     if at.checked_add(n).is_none_or(|e| e > d.len()) {
         return bad("truncated HDF5 structure");
     }
-    let mut v = 0u64;
-    for k in (0..n.min(8)).rev() {
-        v = (v << 8) | d[at + k] as u64;
-    }
-    Ok(v)
+    Ok(uint(d, at, n.min(8), true))
 }
 
 /// An address: None if undefined (all bits set), else at most 2^53 − 1.
@@ -385,7 +333,7 @@ pub enum Target {
     Other(u8, Option<Vec<u8>>),
 }
 
-/// A link message: (name, target) (§8.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#83-groups-and-links>).
+/// A link message: (name, target) (§7.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#73-groups-and-links>).
 pub fn parse_link(d: &[u8]) -> R<(Vec<u8>, Target)> {
     if le(d, 0, 1)? != 1 {
         return bad("unsupported link message version");
@@ -472,7 +420,7 @@ pub fn attribute_parts_at(d: &[u8]) -> R<AttrParts> {
     Ok(AttrParts { flags, name, datatype: (t, type_size), dataspace: (s, space_size), data })
 }
 
-/// An attribute's (datatype message, dimensions, data) (§8.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#86-attributes>): its flag bits 0 and 1
+/// An attribute's (datatype message, dimensions, data) (§7.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#76-attributes>): its flag bits 0 and 1
 /// clear, its dataspace not null, its data within the message.
 pub fn attribute_parts(d: &[u8]) -> R<(Vec<u8>, Vec<u64>, Vec<u8>)> {
     let (flags, name_size, type_size, space_size, mut p) = attribute_layout(d)?;
@@ -501,7 +449,7 @@ pub fn attribute_parts(d: &[u8]) -> R<(Vec<u8>, Vec<u64>, Vec<u8>)> {
     Ok((d[q as usize..(q + type_size) as usize].to_vec(), dims, d[p as usize..(p as u128 + n) as usize].to_vec()))
 }
 
-/// An attribute's (datatype, element count, data) (§8.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#86-attributes>).
+/// An attribute's (datatype, element count, data) (§7.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#76-attributes>).
 pub fn attribute_value(d: &[u8]) -> R<(Datatype, u128, Vec<u8>)> {
     let (t, dims, data) = attribute_parts(d)?;
     Ok((parse_datatype(&t)?, product(&dims), data))
@@ -520,7 +468,7 @@ pub struct Msg {
     pub data: Vec<u8>,
 }
 
-/// An object header (§8.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#82-object-headers>): its blocks and messages, as the file lays them out.
+/// An object header (§7.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#72-object-headers>): its blocks and messages, as the file lays them out.
 #[derive(Debug, Clone)]
 pub struct Header {
     pub at: u64,
@@ -543,7 +491,7 @@ impl Header {
         self.msgs.iter().filter(|m| m.ty != CONTINUATION)
     }
 
-    /// The data of the one message of type `typ` (§8.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#82-object-headers>).
+    /// The data of the one message of type `typ` (§7.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#72-object-headers>).
     pub fn message(&self, typ: u16, required: bool) -> R<Option<&[u8]>> {
         let found: Vec<&Msg> = self.messages().filter(|m| m.ty == typ).collect();
         if found.len() > 1 {
@@ -697,7 +645,7 @@ pub struct Chunks {
     pub parts: Vec<(&'static str, u64, u64)>,
 }
 
-/// A fractal heap's parameters (§8.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#84-version-2-b-trees-and-fractal-heaps>).
+/// A fractal heap's parameters (§7.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#74-version-2-b-trees-and-fractal-heaps>).
 #[derive(Debug, Clone)]
 pub struct Fheap {
     pub at: u64,
@@ -813,7 +761,7 @@ impl H5 {
         self.src.read(at, n)
     }
 
-    // ---- the superblock (§8.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#81-hdf5-structures>)
+    // ---- the superblock (§7.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#71-hdf5-structures>)
 
     pub fn superblock(&mut self) -> R<Super> {
         if let Some(s) = &self.sb {
@@ -858,7 +806,7 @@ impl H5 {
         Ok(s)
     }
 
-    // ---- object headers (§8.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#82-object-headers>)
+    // ---- object headers (§7.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#72-object-headers>)
 
     pub fn header(&mut self, at: u64) -> R<Rc<Header>> {
         if let Some(r) = memo_get(&self.headers, &at) {
@@ -957,7 +905,7 @@ impl H5 {
     }
 
     /// The datatype message of the committed datatype that a shared datatype message leads
-    /// to, and its object header (§8.9 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
+    /// to, and its object header (§7.9 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#79-source-metadata-structures>).
     pub fn committed(&mut self, shared: &[u8]) -> R<(Vec<u8>, u64)> {
         let version = le(shared, 0, 1)?;
         let at = if version == 1 {
@@ -987,7 +935,7 @@ impl H5 {
         Ok((found[0].data.clone(), None))
     }
 
-    // ---- groups (§8.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#83-groups-and-links>)
+    // ---- groups (§7.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#73-groups-and-links>)
 
     pub fn links(&mut self, at: u64) -> R<Rc<Links>> {
         if let Some(r) = memo_get(&self.links, &at) {
@@ -1118,7 +1066,7 @@ impl H5 {
         Ok(Links { list, by_name, storage })
     }
 
-    /// The object header that the link `name` of a group leads to (§8.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#83-groups-and-links>).
+    /// The object header that the link `name` of a group leads to (§7.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#73-groups-and-links>).
     pub fn follow(&mut self, links: &Links, name: &[u8]) -> R<u64> {
         match links.get(name) {
             Some(Target::Hard(a)) => Ok(*a),
@@ -1190,7 +1138,7 @@ impl H5 {
         memo_put(&mut self.nodes1, (at, key_size), r)
     }
 
-    /// The version 1 B-tree at `at` (§8.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#83-groups-and-links>): its nodes, and its leaves' children with their
+    /// The version 1 B-tree at `at` (§7.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#73-groups-and-links>): its nodes, and its leaves' children with their
     /// keys (symbol table nodes for type 0, chunks for type 1).
     pub fn btree1(&mut self, at: u64, node_type: u8, key_size: u64) -> R<Bt1> {
         let mut out = Bt1::default();
@@ -1244,7 +1192,7 @@ impl H5 {
         acc.done()
     }
 
-    // ---- version 2 B-trees and fractal heaps (§8.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#84-version-2-b-trees-and-fractal-heaps>)
+    // ---- version 2 B-trees and fractal heaps (§7.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#74-version-2-b-trees-and-fractal-heaps>)
 
     /// The records of the version 2 B-tree at `at`, which MUST have type `typ` and a record
     /// size among `sizes`.
@@ -1379,7 +1327,7 @@ impl H5 {
     }
 
     /// The (address, size) of the object of the fractal heap at `heap` with this heap ID: one
-    /// run of the file (§8.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#84-version-2-b-trees-and-fractal-heaps>).
+    /// run of the file (§7.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#74-version-2-b-trees-and-fractal-heaps>).
     pub fn fh_where(&mut self, heap: u64, id: &[u8]) -> R<(u64, u64)> {
         let fh = self.fheap(heap)?;
         if id.len() as u64 != fh.id_length {
@@ -1482,7 +1430,7 @@ impl H5 {
         bad("fractal heap offset outside the heap")
     }
 
-    // ---- attributes (§8.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#86-attributes>)
+    // ---- attributes (§7.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#76-attributes>)
 
     pub fn attributes(&mut self, at: u64) -> R<Rc<Attrs>> {
         if let Some(r) = memo_get(&self.attrs, &at) {
@@ -1553,10 +1501,10 @@ impl H5 {
         Ok(out)
     }
 
-    // ---- datasets (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>, §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)
+    // ---- datasets (§7.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#75-datasets-and-chunks>, §7.9 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#79-source-metadata-structures>)
 
-    /// A dataset: a chunked one with a zero fill value (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>), or, with `any_layout`, one of
-    /// any layout and fill value (§8.9 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
+    /// A dataset: a chunked one with a zero fill value (§7.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#75-datasets-and-chunks>), or, with `any_layout`, one of
+    /// any layout and fill value (§7.9 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#79-source-metadata-structures>).
     pub fn dataset(&mut self, at: u64, any_layout: bool) -> R<Dataset> {
         let h = self.header(at)?;
         let space = parse_dataspace(h.message(DATASPACE, true)?.unwrap())?;
@@ -1726,7 +1674,7 @@ impl H5 {
         product(&ds.chunk).saturating_mul(ds.datatype.size as u128)
     }
 
-    /// The allocated chunks of the chunked dataset whose header is at `at` (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>). A chunk's
+    /// The allocated chunks of the chunked dataset whose header is at `at` (§7.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#75-datasets-and-chunks>). A chunk's
     /// filter mask MUST be 0 unless `masks`; a partial edge chunk stored unfiltered has every
     /// filter's bit set. The index is parsed once, any masks allowed, and memoized by header
     /// (a dataset's two readings, `dataset(at, true)` and `dataset(at, false)`, agree on
@@ -2087,7 +2035,7 @@ impl H5 {
         Ok(())
     }
 
-    // ---- the global heap (§8.9 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>)
+    // ---- the global heap (§7.9 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#79-source-metadata-structures>)
 
     pub fn collection(&mut self, at: u64) -> R<Rc<Collection>> {
         if let Some(r) = memo_get(&self.collections, &at) {
@@ -2129,7 +2077,7 @@ impl H5 {
 pub fn show_bytes(b: &[u8]) -> String {
     match std::str::from_utf8(b) {
         Ok(s) => format!("{s:?}"),
-        Err(_) => format!("{:?}", b.iter().map(|&c| c as char).collect::<String>()),
+        Err(_) => format!("{:?}", latin1(b)),
     }
 }
 
@@ -2139,13 +2087,13 @@ mod tests {
 
     #[test]
     fn store_merges_touching_ranges() {
-        let mut s = Store::default();
+        let mut s = Fed::new(Overlap::MergeNew);
         s.feed(10, vec![1, 2, 3]);
         s.feed(13, vec![4, 5]);
         s.feed(0, vec![9; 4]);
         s.feed(2, vec![7; 9]);
         assert_eq!(s.get(0, 15).unwrap(), &[9, 9, 7, 7, 7, 7, 7, 7, 7, 7, 7, 2, 3, 4, 5]);
-        assert_eq!(s.held, 15);
+        assert_eq!(s.held(), 15);
         assert!(s.get(14, 2).is_none());
     }
 

@@ -5,6 +5,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-ome-xml>), and the `variant`
 //! document as a tree with the positions of its elements and value attributes.
 
+use crate::text::is_decimal;
+
 pub struct Tag {
     pub start: usize,
     pub end: usize,
@@ -414,46 +416,6 @@ pub enum Scalar {
     Tag,
 }
 
-pub(crate) fn decimal(v: &str) -> bool {
-    // [+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?
-    let b = v.as_bytes();
-    let mut i = 0;
-    if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
-        i += 1;
-    }
-    let d0 = i;
-    while i < b.len() && b[i].is_ascii_digit() {
-        i += 1;
-    }
-    let int_digits = i - d0;
-    if i < b.len() && b[i] == b'.' {
-        i += 1;
-        let f0 = i;
-        while i < b.len() && b[i].is_ascii_digit() {
-            i += 1;
-        }
-        if int_digits == 0 && i == f0 {
-            return false;
-        }
-    } else if int_digits == 0 {
-        return false;
-    }
-    if i < b.len() && (b[i] == b'e' || b[i] == b'E') {
-        i += 1;
-        if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
-            i += 1;
-        }
-        let e0 = i;
-        while i < b.len() && b[i].is_ascii_digit() {
-            i += 1;
-        }
-        if i == e0 {
-            return false;
-        }
-    }
-    i == b.len()
-}
-
 const MAX_SAFE: i128 = (1 << 53) - 1;
 
 /// An XML variant value as the convention reads it (its JSON, up to tags).
@@ -498,7 +460,7 @@ pub fn scalar(runtype: Option<&str>, value: &str) -> Scalar {
                 Scalar::Tag
             };
         }
-        if (rt == "double" || rt == "float") && decimal(value) {
+        if (rt == "double" || rt == "float") && is_decimal(value) {
             let f: f64 = value.parse().unwrap_or(f64::NAN);
             return if f.is_finite() && !(f == 0.0 && f.is_sign_negative()) {
                 Scalar::Float(f)
@@ -573,7 +535,7 @@ pub fn declared_streams(doc: &El) -> Vec<(String, &'static str, usize)> {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-ome-xml>), finite (and above
 /// 0 when `positive`), or None.
 pub fn decimal_value(v: &str, positive: bool) -> Option<f64> {
-    if !decimal(v) {
+    if !is_decimal(v) {
         return None;
     }
     let x: f64 = v.parse().ok()?;

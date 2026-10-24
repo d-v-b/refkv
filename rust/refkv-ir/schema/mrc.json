@@ -1,0 +1,79 @@
+{
+  "source_model": "mrc",
+  "version": 1,
+  "about": "The source model of an MRC2014 file (spec/virtualize/mrc.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#53-elements>): the elements a parser emits, the table of modes, and the roles the file, its byte order, its dimensions, its mode, its extended header, a volume stack and its data play, each with the constraints a file must meet to have the MRC convention's layout (spec/virtualize/mrc.md §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#81-header>). The parser checks them in this order; projections read a valid IR and check nothing.",
+  "limits": {
+    "max_safe": 9007199254740991,
+    "header": 1024
+  },
+  "tables": {
+    "modes": {
+      "about": "mode: Zarr data type, bytes per voxel; a mode 0 file with IMOD's stamp (1146047817 at byte 152) and bit 0 of its flags (byte 156) set is uint8 instead",
+      "0": {"dtype": "int8", "bytes": 1},
+      "1": {"dtype": "int16", "bytes": 2},
+      "2": {"dtype": "float32", "bytes": 4},
+      "4": {"dtype": "complex64", "bytes": 8},
+      "6": {"dtype": "uint16", "bytes": 2},
+      "12": {"dtype": "float16", "bytes": 2}
+    },
+    "unsupported": {
+      "about": "modes the profile names and rejects",
+      "3": "COMPLEX_INT16",
+      "101": "INT4"
+    }
+  },
+  "elements": {
+    "about": "The IR of an MRC file. E is the file's byte order (< or >), n the extended header's length (nsymbt), B the data's size.",
+    "header": {"kind": "value", "type": "the 1024-byte header as one record, a field per field of spec/virtualize/mrc.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#2-the-header> in its order: numbers Ei4, Ef4 (arrays for T[k]), u1[4] for machst, bytes[k] for the extra space, cstr[k] for text, and {text:cstr[80]}[10] for the labels", "extent": "(0, 1024)"},
+    "extended": {"kind": "value", "type": "bytes[n]", "extent": "(1024, n), when n > 0: the extended header, opaque"},
+    "data": {"kind": "data", "form": "{geometry: {data_type, samples: 1}, codec: {endian}, recipe: [[src, 0, null]]}", "extent": "(1024 + n, B)"},
+    "gaps/<offset>": {"kind": "gap", "about": "bytes after the data"}
+  },
+  "roles": {
+    "file": {
+      "given": {"size": "the file's size"},
+      "constraints": [
+        {"require": "size >= header", "message": "file too short for a 1024-byte MRC header"}
+      ]
+    },
+    "byte_order": {
+      "given": {"stamp": "machst[0]", "shown": "machst as 4 hexadecimal bytes"},
+      "constraints": [
+        {"require": "stamp == 68 || stamp == 17", "message": "machine stamp {shown} is neither 44 (little-endian) nor 11 (big-endian)"}
+      ]
+    },
+    "dimension": {
+      "given": {"name": "nx, ny or nz", "size": "its value"},
+      "constraints": [
+        {"require": "size >= 1", "message": "{name} = {size} is not positive"}
+      ]
+    },
+    "mode": {
+      "given": {"code": "mode"},
+      "derive": {"spec": "at(modes, code)", "named": "at(unsupported, code)"},
+      "constraints": [
+        {"require": "!present(named)", "message": "unsupported MRC mode {code} ({named})"},
+        {"require": "present(spec)", "message": "unknown MRC mode {code}"}
+      ]
+    },
+    "extended_header": {
+      "given": {"nsymbt": "nsymbt", "size": "the file's size"},
+      "constraints": [
+        {"require": "nsymbt >= 0", "message": "nsymbt {nsymbt} is negative"},
+        {"require": "header + nsymbt <= size", "message": "the {nsymbt}-byte extended header at 1024 is outside the {size}-byte file"}
+      ]
+    },
+    "volume_stack": {
+      "given": {"ispg": "ispg, 401 or more", "nz": "nz", "mz": "mz"},
+      "constraints": [
+        {"require": "mz >= 1 && int(nz / mz)", "message": "a volume stack (ispg {ispg}) of {nz} sections, which mz = {mz} does not divide"}
+      ]
+    },
+    "data_size": {
+      "given": {"total": "B = nx * ny * nz * b, exactly", "total_shown": "B in decimal", "offset": "1024 + nsymbt", "size": "the file's size"},
+      "constraints": [
+        {"require": "total <= max_safe && offset + total <= size", "message": "the {total_shown}-byte data at {offset} is outside the {size}-byte file"}
+      ]
+    }
+  }
+}

@@ -56,9 +56,9 @@
 <body>
 <main>
   <h1>Image files to Zarr in the browser</h1>
-  <p class="lede">Paste the URL of an image file, a Zarr or N5 store, or a .vzip archive. TIFF and OME-TIFF,
-    Aperio SVS, Hamamatsu NDPI, Nikon ND2, Zeiss CZI, DICOM, NIfTI and Imaris IMS files, N5, Zarr v2 and
-    OME-Zarr 0.4 stores, and Sentinel-2 SAFE products are supported; the format is detected from the file's
+  <p class="lede">Paste the URL of an image file, a Zarr or N5 store, or a .vzip archive.
+    <!-- profiles:demo-lede --> <!-- /profiles -->
+    the format is detected from the file's
     first bytes, or the store's metadata. A service worker reads the input's structure with a few range
     requests, writes a vzip archive in memory (by <a href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md">spec/virtualize.md</a>),
     and serves it as plain Zarr at a local URL that any Zarr viewer on this site can open: Neuroglancer, or
@@ -67,45 +67,11 @@
     <input id="url" type="url" required aria-label="image file or refkv URL">
     <button type="submit">Virtualize</button>
   </form>
-  <!--
-    Examples, with their sources and licenses:
-    - IDR idr0096 (CC BY 4.0), BioImage Archive S-BIAD3015, S-BIAD2077, S-BIAD1759, S-BIAD3625 (EMBL-EBI
-      BioImage Archive; S-BIAD1759 CC BY 4.0, S-BIAD3625 CC0), IDR idr0011 and idr0047 (CC BY 4.0).
-    - TCGA-CM-4752 (Zenodo 7189465, CC BY 4.0); QuPath's Ki67 lymphoma tutorial slide (Zenodo 18302140,
-      CC BY 4.0). Zenodo can be slow to serve range requests.
-    - Prostate-MRI-US-Biopsy, via the NCI Imaging Data Commons (CC BY 4.0; TCIA, doi:10.7937/TCIA.2020.A61IOC1A).
-    - dcm_qa_philips by Chris Rorden (BSD-2-Clause), https://github.com/neurolabusc/dcm_qa_philips.
-    - OpenOrganelle jrc_hela-21 and jrc_hela-2 (Janelia COSEM, CC BY 4.0).
-    - Sentinel-2 L2A tile T32UPU of 2019-05-24, from Mendeley Data doi:10.17632/ckcxh6jskz.1 by Lukas Graf
-      (CC BY 4.0); contains modified Copernicus Sentinel data 2019. The URL is Mendeley's own S3 object,
-      which may not stay stable.
-  -->
+  <!-- The blocks between `profiles:` markers are filled by js/build.mjs from the profile registry
+       (spec/virtualize/profiles/) and each format's demo/examples/<format>.html, with its
+       examples' sources and licenses. -->
   <dl class="examples" aria-label="examples, by format">
-    <dt><span class="fmt" style="--fmt: #2b6a9e">TIFF</span> <a class="spec" href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md" title="how refkv virtualizes TIFF">spec</a></dt>
-    <dd><a href="#" id="example" data-url="https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant/20210609-ftp-ome-tiffs/4000_d11_m5_LT_2%20(20x_01).ome.tiff">IDR idr0096, mouse bone marrow (OME-TIFF, JPEG 2000, 487 MB)</a>
-      <a href="#" id="example-svs" data-url="https://zenodo.org/api/records/7189465/files/TCGA-CM-4752.svs/content">TCGA colon H&amp;E (Aperio SVS, JPEG 2000, 538 MB)</a></dd>
-    <dt><span class="fmt" style="--fmt: #7a4aa0">NDPI</span> <a class="spec" href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md" title="how refkv virtualizes NDPI">spec</a></dt>
-    <dd><a href="#" id="example-ndpi" data-url="https://zenodo.org/api/records/18302140/files/ki67_lymphoma.ndpi/content">QuPath Ki67 lymphoma (Hamamatsu, 221 MB)</a></dd>
-    <dt><span class="fmt" style="--fmt: #b0422c">ND2</span> <a class="spec" href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md" title="how refkv virtualizes ND2">spec</a></dt>
-    <dd><a href="#" id="example-nd2" data-url="https://ftp.ebi.ac.uk/biostudies/fire/S-BIAD/015/S-BIAD3015/Files/1-SR_1_9_6hPre-C_MC1.nd2">S-BIAD3015, E. coli time-lapse (Nikon, 4.6 GB)</a>
-      <a href="#" id="example-nd2-zstack" data-url="https://ftp.ebi.ac.uk/biostudies/fire/S-BIAD/077/S-BIAD2077/Files/373_230614_A1_Blk_Reg2_40x.nd2">S-BIAD2077, 5-channel z-stack (Nikon, 263 MB)</a></dd>
-    <dt><span class="fmt" style="--fmt: #1d7350">CZI</span> <a class="spec" href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md" title="how refkv virtualizes CZI">spec</a></dt>
-    <dd><a href="#" id="example-czi" data-url="https://ftp.ebi.ac.uk/pub/databases/IDR/idr0011-ledesmafernandez-dad4/20150826-peter_thorpe/Stinger%20plates-extra%20images%20screen%20T34%20x%20TS-more%20repeats/Plate1-Blue-A_TS-Stinger/Plate1-Blue-A-02-Scene-1-P2-E1-01.czi">IDR idr0011, yeast 3-channel z-stack (Zeiss, 44 MB)</a>
-      <a href="#" id="example-czi-pyramid" data-url="https://ftp.ebi.ac.uk/pub/databases/biostudies/S-BIAD/625/S-BIAD3625/Files/Elena_Kratz_atherosclerosis/ID4.czi">S-BIAD3625, atherosclerotic plaque slide (Zeiss, JPEG XR pyramid, 1.0 GB)</a></dd>
-    <dt><span class="fmt" style="--fmt: #8a5300">IMS</span> <a class="spec" href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md" title="how refkv virtualizes IMS">spec</a></dt>
-    <dd><a href="#" id="example-ims" data-url="https://ftp.ebi.ac.uk/biostudies/fire/S-BIAD/759/S-BIAD1759/Files/BEHAV3D_Tumor_Profiler/DMG/2430F12/2430F12_pos1_CL1_1.ims">S-BIAD1759, 4-channel intravital time-lapse (Imaris, 163 MB)</a></dd>
-    <dt><span class="fmt" style="--fmt: #a12f66">DICOM</span> <a class="spec" href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md" title="how refkv virtualizes DICOM">spec</a></dt>
-    <dd><a href="#" id="example-dicom" data-url="https://idc-open-data.s3.amazonaws.com/d8d93a71-dfc8-43da-90ca-11e9aaf45cfe/8afac71d-a7c8-4ca4-b4c0-2e0261dfa384.dcm">IDC Prostate-MRI-US-Biopsy, 3-D ultrasound (27 MB)</a></dd>
-    <dt><span class="fmt" style="--fmt: #4553b0">NIfTI</span> <a class="spec" href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md" title="how refkv virtualizes NIfTI">spec</a></dt>
-    <dd><a href="#" id="example-nifti" data-url="https://raw.githubusercontent.com/neurolabusc/dcm_qa_philips/74efdbc01eb62540fbb702787c3a7a2c0e22f9eb/Ref/DT_HIGH_32DIR_SENSE_1201.nii">dcm_qa_philips, 33-volume diffusion MRI (65 MB)</a></dd>
-    <dt><span class="fmt" style="--fmt: #5c6a12">N5</span> <a class="spec" href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md" title="how refkv virtualizes N5">spec</a></dt>
-    <dd><a href="#" id="example-n5" data-url="https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-21/jrc_hela-21.n5/em/fibsem-uint8/">OpenOrganelle jrc_hela-21, FIB-SEM multiscale (10 GB)</a></dd>
-    <dt><span class="fmt" style="--fmt: #006d77">Zarr v2</span> <a class="spec" href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md" title="how refkv virtualizes Zarr v2">spec</a></dt>
-    <dd><a href="#" id="example-zarr2" data-url="https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-2/jrc_hela-2.zarr/recon-1/em/fibsem-uint8/s4/">OpenOrganelle jrc_hela-2, FIB-SEM array (16 MB)</a></dd>
-    <dt><span class="fmt" style="--fmt: #00566b">OME-Zarr</span> <a class="spec" href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md" title="how refkv virtualizes OME-Zarr">spec</a></dt>
-    <dd><a href="#" id="example-ome-zarr" data-url="https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0047A/4496763.zarr/">IDR idr0047, yeast smFISH z-stack with labels (OME-Zarr 0.4, 740 MB)</a></dd>
-    <dt><span class="fmt" style="--fmt: #4f5b66">SAFE</span> <a class="spec" href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md" title="how refkv virtualizes SAFE">spec</a></dt>
-    <dd><a href="#" id="example-safe" data-url="https://prod-dcd-datasets-public-files-eu-west-1.s3.eu-west-1.amazonaws.com/4ee3c7fe-7ed9-489f-98d7-708ba7f426f9">Sentinel-2 L2A T32UPU, 2019-05-24 (zip, 945 MB)</a></dd>
+    <!-- profiles:demo-examples --> <!-- /profiles -->
   </dl>
   <div id="status" role="status"></div>
   <section id="result" hidden>
@@ -125,10 +91,8 @@
     Viewers: a fork of <a href="https://github.com/google/neuroglancer">Neuroglancer</a> (Apache-2.0) with
     more Zarr codecs, and <a href="https://openlayers.org/">OpenLayers</a> (BSD-2-Clause); the page samples
     contrast with the fork's JPEG 2000 (hayro-jpeg2000, Apache-2.0 OR MIT) and JPEG XR (jxrlib, BSD-2-Clause) decoders.
-    The examples' data are their authors' (see each source): IDR, the BioImage Archive, the NCI Imaging Data
-    Commons and TCIA, OpenOrganelle and Zenodo records under CC BY 4.0 or CC0; dcm_qa_philips under
-    BSD-2-Clause; the Sentinel-2 example contains modified Copernicus Sentinel data 2019 (Mendeley Data,
-    doi:10.17632/ckcxh6jskz.1, CC BY 4.0).</footer>
+    The examples' data are their authors' (see each source):
+    <!-- profiles:demo-credits --> <!-- /profiles --></footer>
 </main>
 <script type="module" src="demo.js"></script>
 </body>

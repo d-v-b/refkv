@@ -1,5 +1,5 @@
-//! A sans-IO parser of Zeiss CZI files into the IR (spec/virtualize.md §13
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#13-czi-profile>,
+//! A sans-IO parser of Zeiss CZI files into the IR (spec/virtualize/czi.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#7-czi-profile>,
 //! spec/virtualize/czi.md): it never reads; it asks for batches of ranges (`step`), is
 //! given their bytes (`feed`), and holds them only until the step that uses them.
 //!
@@ -14,13 +14,14 @@
 //! fails is rejected there, and nowhere else. The layout (series, levels, tiles,
 //! row bands) is derived at the end, and checked there.
 
-use crate::check;
 use crate::coding::{self, Head};
 use crate::cxml;
-use crate::fed::{Fed, i32le, i64le};
+use crate::fed::{Fed, Word};
 use crate::ir::*;
 use crate::nd2::Step;
-use crate::rules::{self, Rules, Vars, flag, num, text};
+use crate::rules::{self, Rules, flag, num, text};
+use crate::sans;
+use crate::types;
 use serde_json::{Value as J, json};
 use std::collections::{BTreeMap, HashMap};
 
@@ -186,9 +187,8 @@ pub struct Czi {
     facts: Option<J>,
     /// data forms by (pixel type, compression, hi-lo, coded width, coded height)
     forms: HashMap<(i32, i32, bool, u64, u64), String>,
-    pub requests: u64,
-    pub requested: u64,
-    pub rounds: u64,
+    /// what the parse asked for
+    pub asked: sans::Asked,
     pub held_max: u64,
 }
 
@@ -212,9 +212,7 @@ fn walkable_id(id: &[u8]) -> bool {
 }
 
 fn guid(b: &[u8]) -> String {
-    let a = u32::from_le_bytes(b[0..4].try_into().unwrap());
-    let b1 = u16::from_le_bytes(b[4..6].try_into().unwrap());
-    let c = u16::from_le_bytes(b[6..8].try_into().unwrap());
+    let (a, b1, c) = (u32::le_at(b, 0), u16::le_at(b, 4), u16::le_at(b, 6));
     let hex = |x: &[u8]| x.iter().map(|v| format!("{v:02x}")).collect::<String>();
     format!("{a:08x}-{b1:04x}-{c:04x}-{}-{}", hex(&b[8..10]), hex(&b[10..16]))
 }
@@ -226,7 +224,7 @@ impl Czi {
             phase: Phase::Start,
             fed: Fed::default(),
             ir: Ir::new(size),
-            rules: rules::czi(),
+            rules: rules::of("czi"),
             fields: None,
             segs: HashMap::new(),
             dir: None,
@@ -249,9 +247,7 @@ impl Czi {
             window: 1 << 16,
             facts: None,
             forms: HashMap::new(),
-            requests: 0,
-            requested: 0,
-            rounds: 0,
+            asked: sans::Asked::default(),
             held_max: 0,
         }
     }
@@ -261,18 +257,8 @@ impl Czi {
         self.held_max = self.held_max.max(self.fed.held());
     }
 
-    fn ask(&mut self, mut r: Vec<(u64, u64)>) -> Step {
-        r.retain(|x| x.1 > 0);
-        r.sort_unstable();
-        r.dedup();
-        self.requests += r.len() as u64;
-        self.requested += r.iter().map(|x| x.1).sum::<u64>();
-        self.rounds += 1;
-        Step::Read(r)
-    }
-
-    fn check(&self, role: &str, mut env: Vars<'static>) -> Res<()> {
-        self.rules.check(role, &mut env)
+    fn ask(&mut self, r: Vec<(u64, u64)>) -> Step {
+        self.asked.ask(r)
     }
 
     fn within(&self, o: i64, n: i64) -> bool {
@@ -280,7 +266,7 @@ impl Czi {
     }
 
     fn within_check(&self, what: &str, o: i64, n: i64) -> Res<()> {
-        self.check("within", rules::env([("what", text(what)), ("within", flag(self.within(o, n)))]))
+        self.rules.check("within", rules::env([("what", text(what)), ("within", flag(self.within(o, n)))]))
     }
 
     /// The segment at `pos` in the role `what` (an alias when read before): checks
@@ -292,11 +278,11 @@ impl Czi {
             Some(s) => (s.id.clone(), s.allocated, s.used),
             None if pos >= 0 && within => {
                 let h = self.fed.get(pos as u64, 32).ok_or_else(|| format!("internal: no segment header at {pos}"))?;
-                (seg_id(&h[..16]), i64le(h, 16), i64le(h, 24))
+                (seg_id(&h[..16]), i64::le_at(h, 16), i64::le_at(h, 24))
             }
             None => (String::new(), 0, 0),
         };
-        self.check(
+        self.rules.check(
             "segment",
             rules::env([
                 ("what", text(what)),
@@ -333,14 +319,21 @@ impl Czi {
                     self.within_check("the file header", 32, 80)?;
                     let d = self.fed.get(32, 80).unwrap().to_vec();
                     self.ir.value(s, "fields", NO_INDEX, FILE_HEADER, 0, (32, 80), Some(&d))?;
-                    let (major, minor) = (i32le(&d, 0), i32le(&d, 4));
-                    let file_part = i32le(&d, 48);
-                    self.check(
+                    // the fields at their offsets in FILE_HEADER
+                    let field = |name: &str| -> &[u8] {
+                        let (at, ty) = types::field(FILE_HEADER, name).expect("a file header field");
+                        &d[at..at + ty.size().unwrap_or(0)]
+                    };
+                    let (major, minor) = (i32::le_at(field("major"), 0), i32::le_at(field("minor"), 0));
+                    let file_part = i32::le_at(field("file_part"), 0);
+                    self.rules.check(
                         "file_header",
                         rules::env([("major", num(major)), ("minor", num(minor)), ("file_part", num(file_part))]),
                     )?;
-                    let (dir, meta, upd, att) = (i64le(&d, 52), i64le(&d, 60), i32le(&d, 68), i64le(&d, 72));
-                    self.fields = Some((major, minor, d[16..32].to_vec(), d[32..48].to_vec(), file_part, dir, meta, upd, att));
+                    let (dir, meta) = (i64::le_at(field("directory_position"), 0), i64::le_at(field("metadata_position"), 0));
+                    let (upd, att) = (i32::le_at(field("update_pending"), 0), i64::le_at(field("attachment_directory_position"), 0));
+                    let (primary, file) = (field("primary_file_guid").to_vec(), field("file_guid").to_vec());
+                    self.fields = Some((major, minor, primary, file, file_part, dir, meta, upd, att));
                     self.fed.clear();
                     // the directory's, the metadata segment's and the attachment directory's headers
                     let mut r = Vec::new();
@@ -364,8 +357,8 @@ impl Czi {
                     let p = dir as u64;
                     let c = self.fed.get(p + 32, 4).unwrap().to_vec();
                     self.ir.value(s, "entry_count", NO_INDEX, "<i4", 0, (p + 32, 4), Some(&c))?;
-                    let count = i32le(&c, 0) as i64;
-                    self.check(
+                    let count = i32::le_at(&c, 0) as i64;
+                    self.rules.check(
                         "entry_count",
                         rules::env([("what", text("the directory")), ("count", num(count as f64)), ("maximum", num(self.rules.limit("max_entries")))]),
                     )?;
@@ -383,8 +376,8 @@ impl Czi {
                             Some(b) => b.to_vec(),
                             None => return Err("internal: the metadata segment's sizes were not read".into()),
                         };
-                        let (x, ab) = (i32le(&b, 0) as i64, i32le(&b, 4) as i64);
-                        self.check("metadata_sizes", rules::env([("xml", num(x as f64)), ("attachment", num(ab as f64))]))?;
+                        let (x, ab) = (i32::le_at(&b, 0) as i64, i32::le_at(&b, 4) as i64);
+                        self.rules.check("metadata_sizes", rules::env([("xml", num(x as f64)), ("attachment", num(ab as f64))]))?;
                         self.within_check("the metadata segment's parts", meta + 288, x + ab)?;
                         if !alias {
                             self.ir.value(m, "sizes", NO_INDEX, "{xml_size:<i4,attachment_size:<i4}", 0, (mp + 32, 8), Some(&b))?;
@@ -407,8 +400,8 @@ impl Czi {
                         self.within_check("the attachment directory's EntryCount", att + 32, 4)?;
                         let ap = att as u64;
                         let c = self.fed.get(ap + 32, 4).ok_or("internal: no attachment count")?.to_vec();
-                        let k = i32le(&c, 0) as i64;
-                        self.check(
+                        let k = i32::le_at(&c, 0) as i64;
+                        self.rules.check(
                             "entry_count",
                             rules::env([("what", text("the attachment directory")), ("count", num(k as f64)), ("maximum", num(self.rules.limit("max_attachments")))]),
                         )?;
@@ -453,8 +446,8 @@ impl Czi {
                             }
                             if a1 {
                                 let n = e[40..48].iter().position(|&c| c == 0).unwrap_or(8);
-                                self.a1.push((i, i64le(e, 12), e[40..40 + n].to_vec()));
-                                self.check("attachment_entry", rules::env([("k", num(i as f64)), ("file_part", num(i32le(e, 20)))]))?;
+                                self.a1.push((i, i64::le_at(e, 12), e[40..40 + n].to_vec()));
+                                self.rules.check("attachment_entry", rules::env([("k", num(i as f64)), ("file_part", num(i32::le_at(e, 20)))]))?;
                             }
                         }
                     }
@@ -540,14 +533,14 @@ impl Czi {
             ]);
             if let Some(h) = &head {
                 env.insert("schema", text(&String::from_utf8_lossy(&h[..2])));
-                env.insert("file_part", num(i32le(h, 14)));
-                env.insert("pixel_type", num(i32le(h, 2)));
-                env.insert("compression", num(i32le(h, 18)));
-                env.insert("dimension_count", num(i32le(h, 28)));
+                env.insert("file_part", num(i32::le_at(h, 14)));
+                env.insert("pixel_type", num(i32::le_at(h, 2)));
+                env.insert("compression", num(i32::le_at(h, 18)));
+                env.insert("dimension_count", num(i32::le_at(h, 28)));
             }
             self.rules.check("entry", &mut env)?;
             let h = head.unwrap();
-            let d = i32le(&h, 28) as u64;
+            let d = i32::le_at(&h, 28) as u64;
             let body_at = at + 32;
             let bends = body_at + 20 * d <= end;
             let body = self.fed.get(body_at, 20 * d).map(|b| b.to_vec());
@@ -557,7 +550,7 @@ impl Czi {
                 let w = self.dir_window().unwrap();
                 return Ok(Some(self.ask(vec![w])));
             }
-            self.check(
+            self.rules.check(
                 "entry",
                 rules::env([
                     ("i", num(i as f64)),
@@ -565,8 +558,8 @@ impl Czi {
                     ("within", flag(body_at + 20 * d <= self.size)),
                     ("schema", text("DV")),
                     ("file_part", num(0)),
-                    ("pixel_type", num(i32le(&h, 2))),
-                    ("compression", num(i32le(&h, 18))),
+                    ("pixel_type", num(i32::le_at(&h, 2))),
+                    ("compression", num(i32::le_at(&h, 18))),
                     ("dimension_count", num(d as f64)),
                 ]),
             )?;
@@ -580,27 +573,27 @@ impl Czi {
                     None => format!("{:?}", &b[..4]),
                 };
                 let repeated = letter.is_some_and(|l| dims.iter().any(|x: &(u8, i32, i32, i32)| x.0 == l));
-                self.check(
+                self.rules.check(
                     "dimension",
                     rules::env([
                         ("i", num(i as f64)),
                         ("letter", if letter.is_some_and(|l| LETTERS.contains(&l)) { text(&shown) } else { text(&format!("'{shown}'")) }),
                         ("repeated", flag(repeated)),
-                        ("size", num(i32le(b, 8))),
-                        ("stored", num(i32le(b, 16))),
+                        ("size", num(i32::le_at(b, 8))),
+                        ("stored", num(i32::le_at(b, 16))),
                     ]),
                 )?;
-                dims.push((letter.unwrap(), i32le(b, 4), i32le(b, 8), i32le(b, 16)));
+                dims.push((letter.unwrap(), i32::le_at(b, 4), i32::le_at(b, 8), i32::le_at(b, 16)));
             }
             let has = |l: u8| dims.iter().any(|x| x.0 == l);
-            self.check("entry_dimensions", rules::env([("i", num(i as f64)), ("x", flag(has(b'X'))), ("y", flag(has(b'Y')))]))?;
+            self.rules.check("entry_dimensions", rules::env([("i", num(i as f64)), ("x", flag(has(b'X'))), ("y", flag(has(b'Y')))]))?;
             let el = self.ir.value(s, "entries/", i as u64, ENTRY, 0, (at, 32), Some(&h))?;
             let dims_el = if d > 0 {
                 Some(self.ir.value(s, "dimensions/", i as u64, &format!("{DIMENSION}[{d}]"), 0, (body_at, 20 * d), Some(&body))?)
             } else {
                 None
             };
-            self.entries.push(Entry { pos: i64le(&h, 6), pt: i32le(&h, 2), comp: i32le(&h, 18), dims, el, dims_el });
+            self.entries.push(Entry { pos: i64::le_at(&h, 6), pt: i32::le_at(&h, 2), comp: i32::le_at(&h, 18), dims, el, dims_el });
             self.dir_at = body_at + 20 * d;
         }
         self.fed.clear();
@@ -650,9 +643,9 @@ impl Czi {
             } else {
                 self.fed.get(p, 288).ok_or("internal: no subblock header")?.to_vec()
             };
-            let (m, a, n) = (i32le(&h, 32) as i64, i32le(&h, 36) as i64, i64le(&h, 40));
-            let d = i32le(&h, 76) as i64;
-            self.check(
+            let (m, a, n) = (i32::le_at(&h, 32) as i64, i32::le_at(&h, 36) as i64, i64::le_at(&h, 40));
+            let d = i32::le_at(&h, 76) as i64;
+            self.rules.check(
                 "subblock",
                 rules::env([
                     ("i", num(i as f64)),
@@ -719,7 +712,7 @@ impl Czi {
             // an entry whose subblock another entry read first names it again: it is
             // not placed again (its checks were made), so its copy is not compared
             let Some(s) = sub.el else { continue };
-            let d = i32le(self.fed.get(o, 80).ok_or("internal: no subblock header")?, 76) as u64;
+            let d = i32::le_at(self.fed.get(o, 80).ok_or("internal: no subblock header")?, 76) as u64;
             let copy = self.fed.get(o + 48, 32 + 20 * d).ok_or("internal: no subblock copy")?.to_vec();
             let agrees = copy == self.entry_bytes(i);
             self.subs[i].agrees = agrees;
@@ -926,8 +919,8 @@ impl Czi {
             } else {
                 self.fed.get(p, 288).ok_or("internal: no attachment header")?.to_vec()
             };
-            let n = i64le(&h, 32);
-            self.check("attachment", rules::env([("k", num(k as f64)), ("data_size", num(n as f64))]))?;
+            let n = i64::le_at(&h, 32);
+            self.rules.check("attachment", rules::env([("k", num(k as f64)), ("data_size", num(n as f64))]))?;
             self.within_check(&format!("attachment {k}'s data"), pos + 288, n)?;
             if alias {
                 continue;
@@ -965,7 +958,7 @@ impl Czi {
             let b = if read > 0 { self.fed.get(at, read).map(|b| b.to_vec()) } else { None };
             let max_decode = self.rules.limit("max_decode") as u64;
             if let (Some(b), true) = (&b, n >= 8) {
-                let c = i32le(b, 4) as i64;
+                let c = i32::le_at(b, 4) as i64;
                 if (kind == b"CZTIMS" || kind == b"CZFOC") && c >= 0 && n == 8 + 8 * c as u64 {
                     let d = self.ir.struct_(s, "data", NO_INDEX, 0, Some((at, n)))?;
                     self.ir.value(d, "size", NO_INDEX, "<i4", 0, (at, 4), Some(&b[..4]))?;
@@ -999,8 +992,8 @@ impl Czi {
             if pos + 20 > n {
                 return Ok(false);
             }
-            let e = i32le(data, pos) as i64;
-            let u = i32le(data, pos + 16) as i64;
+            let e = i32::le_at(data, pos) as i64;
+            let u = i32::le_at(data, pos + 16) as i64;
             if u < 0 || e != 20 + u || pos + 20 + u as usize > n {
                 return Ok(false);
             }
@@ -1028,8 +1021,8 @@ impl Czi {
         Ok(true)
     }
 
-    // ---- the walk (spec/virtualize.md §13.2
-    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#132-structures-and-the-walk>
+    // ---- the walk (spec/virtualize/czi.md §7.2
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#72-structures-and-the-walk>
     // step 6)
 
     /// The segments nothing references, in file order, from windows read ahead;
@@ -1054,7 +1047,7 @@ impl Czi {
                         self.window = (self.window * 2).min(1 << 24);
                         return Ok(Some(self.ask(vec![(o, n)])));
                     };
-                    let (a, u) = (i64le(&h, 16), i64le(&h, 24));
+                    let (a, u) = (i64::le_at(&h, 16), i64::le_at(&h, 24));
                     if !walkable_id(&h[..16]) || a < 0 || u < 0 || !self.within(o as i64 + 32, a) {
                         break;
                     }
@@ -1274,7 +1267,7 @@ fn plane_axes(planes: &[(i64, i64, i64)], p: u64) -> (Vec<&'static str>, [i64; 3
 
 impl Czi {
     fn extent(&self, v: i128) -> Res<i128> {
-        self.check("extent", rules::env([("extent", num(v as f64))]))?;
+        self.rules.check("extent", rules::env([("extent", num(v as f64))]))?;
         Ok(v)
     }
 
@@ -1348,11 +1341,11 @@ impl Czi {
                 for lv in &other {
                     tiles.extend(lv.cells.iter().map(|c| c.0));
                 }
-                self.check("image", rules::env([("levels", num(kept.len() as f64))]))?;
+                self.rules.check("image", rules::env([("levels", num(kept.len() as f64))]))?;
                 images.push((key.clone(), kept));
             }
         }
-        self.check("images", rules::env([("images", num(images.len() as f64))]))?;
+        self.rules.check("images", rules::env([("images", num(images.len() as f64))]))?;
         // the images (§4.2
         // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#42-images>, §4.3
         // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#43-image-arrays>)
@@ -1401,7 +1394,7 @@ impl Czi {
                 scales.push(axes.iter().map(|&a| json!(one(a))).collect::<Vec<_>>());
                 translations.push(tr.into_iter().map(|t| json!(t)).collect::<Vec<_>>());
             }
-            self.check("translation", rules::env([("all_finite", flag(finite))]))?;
+            self.rules.check("translation", rules::env([("all_finite", flag(finite))]))?;
             let mut lvs = Vec::new();
             for lv in levels {
                 let ((w, h), (w2, h2), (m, r)) = (lv.tile, lv.edge, lv.grid);
@@ -1508,17 +1501,28 @@ impl Czi {
     }
 
     /// The IR, finished (aliases and gaps), and the facts the projection reads.
-    pub fn finish(mut self) -> Result<(Ir, J), String> {
-        if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
-        }
-        self.ir.sort_values();
-        check::finish(&mut self.ir)?;
-        let mut facts = self.facts.take().unwrap_or(J::Null);
-        facts["requests"] = json!(self.requests);
-        facts["requested"] = json!(self.requested);
-        facts["rounds"] = json!(self.rounds);
+    pub fn finish(self) -> Result<(Ir, J), String> {
+        let mut facts = self.facts.unwrap_or(J::Null);
+        self.asked.put(&mut facts);
         facts["held_max"] = json!(self.held_max);
-        Ok((self.ir, facts))
+        sans::finish(self.phase == Phase::Done, self.ir, facts)
+    }
+}
+
+crate::parser!(Czi);
+
+/// The CZI profile's file run (spec/virtualize/czi.md).
+pub struct Profile;
+
+impl crate::run::FileProfile for Profile {
+    /// `ZISRAWFILE` and six NULs.
+    fn detect(&self, head: &[u8]) -> bool {
+        head.len() >= 16 && &head[..16] == b"ZISRAWFILE\0\0\0\0\0\0"
+    }
+    fn parser(&self, size: u64) -> crate::run::AnyParser {
+        crate::run::AnyParser::of::<Czi>(size)
+    }
+    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::czi::project(ir, facts, url)
     }
 }

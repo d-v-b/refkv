@@ -2,15 +2,12 @@
 image projection against the frozen reference (revision 25), the mirror's byte-exact
 rebuild, and the hostile probes (python/tests/ir/gen_ims_probes.py)."""
 
-import io
 import json
 
 import pytest
 
-from ir_helpers import FIXTURES, same_hierarchy
+from ir_helpers import FIXTURES, as_the_reference
 from refkv.ir import virtualize as via_ir
-from refkv.ir.cmirror import rebuild_from_archive
-from refkv.virtualize import Rejected
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
 IMS = sorted((FIXTURES / "ims").rglob("*.ims"))
@@ -19,23 +16,7 @@ IMS = sorted((FIXTURES / "ims").rglob("*.ims"))
 def same_as_reference(path, tmp_path) -> bool:
     """The IR's output equals the reference's but refkv_source, and its archive rebuilds the
     file; or both reject it. True when accepted."""
-    data = path.read_bytes()
-    url = f"https://data.test/{path.name}"
-    try:
-        _, today = virtualize(str(path), url)
-    except Rejected:
-        with pytest.raises(Rejected):
-            via_ir(str(path), url)
-        return False
-    fmt, out, ir = via_ir(str(path), url)
-    assert fmt == "ims"
-    ir.check()
-    same_hierarchy(today, out)
-    out.write(str(tmp_path / "a.vzip"))
-    buf = io.BytesIO()
-    rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
-    assert buf.getvalue() == data
-    return True
+    return as_the_reference(path, tmp_path, "ims") is not None
 
 
 @pytest.mark.parametrize("path", IMS, ids=lambda p: p.name)

@@ -124,12 +124,26 @@ Supported:
 Rejected:
 
 - Gzipped files (`.nii.gz`), the usual way NIfTI is distributed: `not a
-  TIFF, NDPI, ND2, DICOM, NIfTI, IMS, CZI or SAFE zip file`. A gzip stream has no byte
+  file of any supported format`. A gzip stream has no byte
   ranges to reference; decompress the file first (and host the `.nii`).
 - Header-and-image pairs (`.hdr`/`.img`, magic `ni1`, `ni2`).
 - Complex, binary and 128-bit types.
 - Data along dimensions 6 and 7, such as CIFTI-2 files.
 - A `vox_offset` inside the header, or voxel data past the end of the file.
+
+### In the browser
+
+The browser code ([js/](../../../js/README.md)) reads NIfTI (NIfTI-1 and NIfTI-2 single files):
+
+- Up to five dimensions (`t`, `c`, `z`, `y`, `x`), either byte order, all
+  integer and float types, and RGB/RGBA voxels.
+- One chunk per z-slice, split into row blocks when a slice is over 128 KiB.
+- Pixel size and units as scale; an axis-aligned qform or sform as
+  translation; the whole header, and its intensity scaling, recorded under
+  `refkv_virtualized`.
+
+Not supported, and refused with HTTP 422: gzipped files (`.nii.gz`),
+header-and-image pairs, complex types, and dimensions 6 and 7 (CIFTI).
 
 ## Performance
 

@@ -21,7 +21,7 @@ def main(argv: list[str]) -> int:
     if private:
         args.remove("--allow-private-hosts")
     connections = byte_cost = None
-    if "--connections" in args:  # requests at a time to a remote TIFF, ND2 or CZI (default 8)
+    if "--connections" in args:  # requests at a time to a remote file (default 8)
         i = args.index("--connections")
         connections = int(args[i + 1])
         del args[i:i + 2]

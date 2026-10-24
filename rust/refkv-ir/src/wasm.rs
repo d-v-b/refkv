@@ -2,16 +2,12 @@
 //! step/feed/finish over linear memory. The host reads the ranges each step asks
 //! for, writes their bytes into buffers it allocates here, and feeds them.
 //!
-//! `vz_new(format, size)` makes a parser (0 ND2, 1 TIFF, 2 CZI, 3 DICOM, 4 NIfTI, 5 IMS); `vz_step`,
-//! `vz_feed` and `vz_finish` drive it. The `nd2_*` names are round 2's, kept.
+//! `vz_new(format, n, size)` makes a parser of the format named by the UTF-8 `format` (a name of
+//! `Format::from_name`: the profile's in spec/virtualize/profiles/); `vz_step`, `vz_feed`
+//! and `vz_finish` drive it. The `nd2_*` names are round 2's, kept.
 
-use crate::czi::Czi;
-use crate::dicom::Dicom;
-use crate::ims::Ims;
 use crate::nd2::{Nd2, Step};
-use crate::nifti::Nifti;
-use crate::tiff::Tiff;
-use crate::Parser;
+use crate::run::AnyParser;
 use std::cell::RefCell;
 
 thread_local! {
@@ -44,13 +40,29 @@ pub extern "C" fn vz_out() -> *const u8 {
     OUT.with(|o| o.borrow().as_ptr())
 }
 
-pub enum Any {
-    Nd2(Nd2),
-    Tiff(Tiff),
-    Czi(Czi),
-    Dicom(Dicom),
-    Nifti(Nifti),
-    Ims(Ims),
+/// The `refkv.fits_tiles` codec (spec/virtualize/fits.md §3.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>):
+/// decodes the chunk at `chunk` (`n` bytes) with the configuration JSON at `config` (`nc`
+/// bytes) into the pixels of the chunk shape at `shape` (`rank` little-endian u64), in
+/// `vz_out`: the pixels' length, or minus a message's.
+///
+/// # Safety
+/// The pointers come from `vz_alloc` with those lengths.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_fits_tiles_decode(chunk: *const u8, n: usize, config: *const u8, nc: usize, shape: *const u8, rank: usize) -> i64 {
+    let chunk = unsafe { std::slice::from_raw_parts(chunk, n) };
+    let config = unsafe { std::slice::from_raw_parts(config, nc) };
+    let shape = unsafe { std::slice::from_raw_parts(shape, rank * 8) };
+    let shape: Vec<u64> = shape.chunks(8).map(|b| u64::from_le_bytes(b.try_into().unwrap())).collect();
+    let decoded = std::str::from_utf8(config)
+        .map_err(|e| e.to_string())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).map_err(|e| e.to_string()))
+        .and_then(|v| crate::fits_tiles::Config::from_json(&v))
+        .and_then(|cfg| crate::fits_tiles::decode(chunk, &cfg, &shape));
+    match decoded {
+        Ok(b) => set_out(b) as i64,
+        Err(e) => -(set_out(e.into_bytes()) as i64),
+    }
 }
 
 fn step_out(r: Result<Step, String>) -> i64 {
@@ -77,16 +89,32 @@ fn finish_out(r: Result<(crate::ir::Ir, serde_json::Value), String>) -> i64 {
     }
 }
 
+/// The format a file's first bytes give (`Format::sniff`; `head`/`n` from `vz_alloc`, consumed):
+/// its name's length at `vz_out()`, or 0 when they are no format's.
+///
+/// # Safety
+/// `head` and `n` must come from `vz_alloc(n)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn vz_new(format: u32, size: u64) -> *mut Any {
-    Box::into_raw(Box::new(match format {
-        0 => Any::Nd2(Nd2::new(size)),
-        1 => Any::Tiff(Tiff::new(size)),
-        3 => Any::Dicom(Dicom::new(size)),
-        4 => Any::Nifti(Nifti::new(size)),
-        5 => Any::Ims(Ims::new(size)),
-        _ => Any::Czi(Czi::new(size)),
-    }))
+pub unsafe extern "C" fn vz_sniff(head: *mut u8, n: usize) -> i64 {
+    let head = unsafe { Vec::from_raw_parts(head, n, n) };
+    match crate::run::Format::sniff(&head) {
+        Some(f) => set_out(f.name().as_bytes().to_vec()) as i64,
+        None => 0,
+    }
+}
+
+/// A parser of the format named `format` (UTF-8 of `n` bytes, from `vz_alloc`, consumed) over
+/// a source of `size` bytes, or null for a name that is no format's.
+///
+/// # Safety
+/// `format` and `n` must come from `vz_alloc(n)`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_new(format: *mut u8, n: usize, size: u64) -> *mut AnyParser {
+    let name = String::from_utf8(unsafe { Vec::from_raw_parts(format, n, n) }).unwrap_or_default();
+    match Format::from_name(&name) {
+        Some(f) => Box::into_raw(Box::new(AnyParser::new(f, size))),
+        None => std::ptr::null_mut(),
+    }
 }
 
 /// The next batch: 1 + its byte length at `vz_out()` (16 per range; a batch may
@@ -95,30 +123,16 @@ pub extern "C" fn vz_new(format: u32, size: u64) -> *mut Any {
 /// # Safety
 /// `p` must come from `vz_new`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vz_step(p: *mut Any) -> i64 {
-    step_out(match unsafe { &mut *p } {
-        Any::Nd2(x) => x.step(),
-        Any::Tiff(x) => x.step(),
-        Any::Czi(x) => x.step(),
-        Any::Dicom(x) => x.step(),
-        Any::Nifti(x) => x.step(),
-        Any::Ims(x) => x.step(),
-    })
+pub unsafe extern "C" fn vz_step(p: *mut AnyParser) -> i64 {
+    step_out(unsafe { &mut *p }.step())
 }
 
 /// # Safety
 /// `p` from `vz_new`; `data` and `n` from `vz_alloc(n)` (consumed).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vz_feed(p: *mut Any, offset: u64, data: *mut u8, n: usize) {
+pub unsafe extern "C" fn vz_feed(p: *mut AnyParser, offset: u64, data: *mut u8, n: usize) {
     let v = unsafe { Vec::from_raw_parts(data, n, n) };
-    match unsafe { &mut *p } {
-        Any::Nd2(x) => x.feed(offset, v),
-        Any::Tiff(x) => x.feed(offset, v),
-        Any::Czi(x) => x.feed(offset, v),
-        Any::Dicom(x) => x.feed(offset, v),
-        Any::Nifti(x) => x.feed(offset, v),
-        Any::Ims(x) => x.feed(offset, v),
-    }
+    unsafe { &mut *p }.feed(offset, v);
 }
 
 /// Finishes: JSON of the element and run counts, the checker's verdict, the IR's
@@ -128,15 +142,8 @@ pub unsafe extern "C" fn vz_feed(p: *mut Any, offset: u64, data: *mut u8, n: usi
 /// # Safety
 /// `p` from `vz_new` (consumed).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vz_finish(p: *mut Any) -> i64 {
-    finish_out(match *unsafe { Box::from_raw(p) } {
-        Any::Nd2(x) => Parser::finish(x),
-        Any::Tiff(x) => Parser::finish(x),
-        Any::Czi(x) => Parser::finish(x),
-        Any::Dicom(x) => Parser::finish(x),
-        Any::Nifti(x) => Parser::finish(x),
-        Any::Ims(x) => Parser::finish(x),
-    })
+pub unsafe extern "C" fn vz_finish(p: *mut AnyParser) -> i64 {
+    finish_out(unsafe { Box::from_raw(p) }.finish())
 }
 
 #[unsafe(no_mangle)]
@@ -185,13 +192,21 @@ fn err_out(e: String) -> i64 {
     -(set_out(e.into_bytes()) as i64)
 }
 
-/// A run of `format` (0 ND2, 1 TIFF, 2 CZI, 3 DICOM, 4 NIfTI, 5 IMS, 6 a SAFE zip, 7 NDPI; a TIFF run becomes an NDPI one when its
-/// parser finds the file is NDPI: the output's summary names the format) over a source of `size` bytes, remote
-/// or not, read by the host at most `concurrency` requests at a time.
+/// A run of the format named `format` (UTF-8 of `nf` bytes, from `vz_alloc`, consumed: a name of
+/// `Format::from_name`, such as `tiff`; a TIFF run becomes an NDPI one when its parser finds the
+/// file is NDPI: the output's summary names the format) over a source of `size` bytes, remote or
+/// not, read by the host at most `concurrency` requests at a time: the run (a pointer, positive),
+/// or minus the length of a rejection's message at `vz_out()` for a name that is no format's.
+///
+/// # Safety
+/// `format` and `nf` from `vz_alloc(nf)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn vz_run_new(format: u32, size: u64, remote: u32, concurrency: u32) -> *mut Run {
-    let f = Format::from_code(format).unwrap_or(Format::Czi);
-    Box::into_raw(Box::new(Run::new(f, size, remote != 0, concurrency as usize)))
+pub unsafe extern "C" fn vz_run_new(format: *mut u8, nf: usize, size: u64, remote: u32, concurrency: u32) -> i64 {
+    let name = String::from_utf8(unsafe { Vec::from_raw_parts(format, nf, nf) }).unwrap_or_default();
+    match Format::from_name(&name) {
+        Some(f) => Box::into_raw(Box::new(Run::new(f, size, remote != 0, concurrency as usize))) as usize as i64,
+        None => err_out(format!("no format {name:?}")),
+    }
 }
 
 /// Bytes the host holds already (from `offset`; `data`/`n` from `vz_alloc`, consumed).
@@ -457,6 +472,31 @@ pub unsafe extern "C" fn vz_store_ignore(p: *mut StoreRun, json: *mut u8, n: usi
     }
 }
 
+/// The keys of a pending batch of probes (`StoreRun::probes`; `vz_store_poll` gave a count of
+/// 0): a JSON array of keys at `vz_out()`, its length. The host answers each, in order, with
+/// `vz_store_found`, then polls again.
+///
+/// # Safety
+/// `p` from `vz_store_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_store_probes(p: *mut StoreRun) -> i64 {
+    let keys: Vec<String> = unsafe { &*p }.probes().to_vec();
+    set_out(serde_json::to_string(&keys).unwrap_or_default().into_bytes()) as i64
+}
+
+/// The answer to the next probe of the batch: the key's size, or −1 when it does not exist. 0,
+/// or minus the length of a rejection's message.
+///
+/// # Safety
+/// `p` from `vz_store_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_store_found(p: *mut StoreRun, size: i64) -> i64 {
+    match unsafe { &mut *p }.found(if size < 0 { None } else { Some(size as u64) }) {
+        Ok(()) => 0,
+        Err(e) => err_out(e),
+    }
+}
+
 /// The profile the run's store is decided to be so far (`StoreRun::profile`): its UTF-8 at
 /// `vz_out()`, the length returned.
 ///
@@ -482,15 +522,16 @@ pub unsafe extern "C" fn vz_store_free(p: *mut StoreRun) {
 /// The mirror of a crafted IR, for the browser's tests of the mirror's rejections:
 /// `json` (from `vz_alloc`, consumed) is `{"size", "kind", "parent", "name", "nidx",
 /// "start", "len", "runs": [[root, count, stride]]}` (a parent of -1: none; a name
-/// index of -1: none), `profile` 0 ND2, 1 TIFF, 2 CZI, 3 DICOM. The output's length, or minus
-/// the rejection's.
+/// index of -1: none), `profile` (UTF-8 of `np` bytes, from `vz_alloc`, consumed) the name of
+/// a format of `Format::from_name`. The output's length, or minus the rejection's.
 ///
 /// # Safety
-/// `json`/`n` from `vz_alloc`.
+/// `json`/`n` and `profile`/`np` from `vz_alloc`.
 #[cfg(feature = "test-hooks")]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vz_test_mirror(json: *mut u8, n: usize, profile: u32) -> i64 {
+pub unsafe extern "C" fn vz_test_mirror(json: *mut u8, n: usize, profile: *mut u8, np: usize) -> i64 {
     let b = unsafe { Vec::from_raw_parts(json, n, n) };
+    let profile = String::from_utf8(unsafe { Vec::from_raw_parts(profile, np, np) }).unwrap_or_default();
     let built = (|| -> Result<crate::out::Out, String> {
         let v: serde_json::Value = serde_json::from_slice(&b).map_err(|e| e.to_string())?;
         let nums = |k: &str| -> Vec<i64> { v[k].as_array().map(|a| a.iter().filter_map(|x| x.as_i64()).collect()).unwrap_or_default() };
@@ -516,7 +557,7 @@ pub unsafe extern "C" fn vz_test_mirror(json: *mut u8, n: usize, profile: u32) -
         }
         ir.finished = true;
         ir.build_children();
-        let format = Format::from_code(profile).ok_or("no such profile")?;
+        let format = Format::from_name(&profile).ok_or("no such profile")?;
         let mut out = crate::out::Out::new("");
         crate::mirror::mirror(&ir, &mut out, format.name())?;
         Ok(out)
