@@ -100,7 +100,7 @@ function imageState(
   const position = axes.flatMap((a, i) => {
     if (a.name === "c") return [];
     const at = offset(images[0], i);
-    if (a.name === "t") return [at];
+    if (a.name === "t" || a.name === "time") return [at];
     return [at + (a.name === "z" ? Math.floor(shape[i] / 2) : shape[i] / 2)];
   });
   const view = {
@@ -278,6 +278,22 @@ function arrayView(url: string, path: string, meta: ArrayMeta): View {
   };
 }
 
+/**
+ * The views of an MP4 file: each H.264 track's luma (its Y plane), scrolled
+ * over time. Neuroglancer shows one array per layer, and a picture's color
+ * needs all three planes, the chroma at half size; the U and V planes are in
+ * the archive beside Y.
+ */
+async function videoViews(zarrUrl: string, mp4: { tracks?: { path: string | null; handler: string }[] }): Promise<View[]> {
+  const tracks = (mp4.tracks ?? []).filter((t) => t.path !== null && t.handler === "vide");
+  return Promise.all(tracks.map(async (t) => {
+    const url = `${zarrUrl}${t.path}/y/`;
+    const view = arrayView(url, `${t.path}/y`, await getJson(`${url}zarr.json`));
+    view.label = `${t.path} (luma)`;
+    return view;
+  }));
+}
+
 /** The views of a bioformats2raw layout: each series, and all of them together when they can be. */
 async function seriesViews(zarrUrl: string): Promise<View[]> {
   const series: string[] = (await getJson(`${zarrUrl}OME/zarr.json`)).attributes?.ome?.series ?? [];
@@ -343,7 +359,7 @@ function showLevels(rows: Omit<Level, "url">[]) {
       for (const v of [
         path,
         a.shape.join(" × "),
-        chunkShapeOf(a).join(" × ") + (a.chunk_grid.name === "rectilinear" ? " (clipped)" : ""),
+        chunkShapeOf(a).join(" × ") + (a.chunk_grid.name === "rectilinear" ? " (at most; rectilinear)" : ""),
         a.data_type,
         a.codecs.map((c: { name: string }) => c.name).join(", "),
       ]) {
@@ -443,6 +459,9 @@ async function virtualize(url: string) {
     const ms0 = attrs.ome?.multiscales?.[0];
     if (root.node_type === "array") {
       views = [arrayView(zarrUrl, "", root)];
+    } else if (attrs.refkv_virtualized?.profile === "mp4") {
+      views = await videoViews(zarrUrl, attrs.refkv_virtualized.mp4 ?? {});
+      if (views.length === 0) throw new Error("no video track to show (audio is not displayed)");
     } else if (ms0 !== undefined) {
       views = [await omeView(zarrUrl, ms0, ms0.name ?? "image", attrs.refkv_virtualized?.profile === "ome-zarr")];
     } else if (attrs.ome?.["bioformats2raw.layout"] !== undefined) {
