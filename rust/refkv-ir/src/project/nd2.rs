@@ -4,10 +4,10 @@
 //! of §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>) from
 //! a valid IR: the IR holds what it needs.
 
-use super::{arr, json_text, n, truthy};
+use super::{along, arr, image_axes, json_text, n, truthy};
 use crate::ir::{source_text, Ir, NO_INDEX, STRUCT};
 use crate::lv::{base64, well_formed};
-use crate::out::{array_json, group_json, image_ome, omero_channel, omero_json, omero_window, payload_size, root_json, transpose_codec, Out, Part, MAX_PAYLOAD};
+use crate::out::{array_json, bioformats2raw, bytes_codec, full_window, group_json, image_ome, omero_channel, omero_json, payload_size, transpose_codec, Out, Part, MAX_PAYLOAD, RGBA};
 use crate::types::{self, Ty, Val};
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -325,8 +325,10 @@ fn channels(planes: &J, comp: u64) -> (Vec<String>, Vec<String>) {
     {
         for (desc, abgr, k) in ps.values() {
             if *k == 3 {
-                labels.extend([format!("{desc} R"), format!("{desc} G"), format!("{desc} B")]);
-                colors.extend(["FF0000", "00FF00", "0000FF"].map(String::from));
+                for (l, c) in &RGBA[..3] {
+                    labels.push(format!("{desc} {l}"));
+                    colors.push(c.to_string());
+                }
             } else {
                 labels.push(desc.clone());
                 colors.push(format!("{:02X}{:02X}{:02X}", abgr & 255, (abgr >> 8) & 255, (abgr >> 16) & 255));
@@ -371,29 +373,12 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     }
     let lp = |kind: &str| loops.iter().find(|l| l["kind"] == kind);
     let (t, z) = (lp("t"), lp("z"));
-    let mut axes = Vec::new();
-    if t.is_some() {
-        axes.push("t");
-    }
-    if comp > 1 {
-        axes.push("c");
-    }
-    if z.is_some() {
-        axes.push("z");
-    }
-    axes.extend(["y", "x"]);
-    let of = |ax: &str, tv: J, c: J, zv: J, y: J, x: J| match ax {
-        "t" => tv,
-        "c" => c,
-        "z" => zv,
-        "y" => y,
-        _ => x,
-    };
+    let axes = image_axes(t.is_some(), comp > 1, z.is_some());
     let shape: Vec<u64> = axes
         .iter()
-        .map(|ax| n(&of(ax, t.map_or(json!(1), |l| l["count"].clone()), json!(comp), z.map_or(json!(1), |l| l["count"].clone()), json!(height), json!(width))))
+        .map(|ax| n(&along(ax, [t.map_or(json!(1), |l| l["count"].clone()), json!(comp), z.map_or(json!(1), |l| l["count"].clone()), json!(height), json!(width)])))
         .collect();
-    let chunk_shape: Vec<u64> = axes.iter().map(|ax| n(&of(ax, json!(1), json!(comp), json!(1), json!(h), json!(width)))).collect();
+    let chunk_shape: Vec<u64> = axes.iter().map(|ax| n(&along(ax, [json!(1), json!(comp), json!(1), json!(h), json!(width)]))).collect();
     let s = &pic["scales"];
     let calibrated = truthy(&pic["calibrated"]);
     let positive = |l: Option<&J>| l.is_some_and(|l| l["scale"].as_f64().is_some_and(|x| x > 0.0));
@@ -401,7 +386,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let pick = |on: bool, v: &J| if on { v.clone() } else { json!(1) };
     let scale: Vec<J> = axes
         .iter()
-        .map(|ax| of(ax, pick(period, &s["t"]), json!(1), pick(step, &s["z"]), pick(calibrated, &s["y"]), pick(calibrated, &s["x"])))
+        .map(|ax| along(ax, [pick(period, &s["t"]), json!(1), pick(step, &s["z"]), pick(calibrated, &s["y"]), pick(calibrated, &s["x"])]))
         .collect();
     let mut units = Map::new();
     let unit = |on: bool, u: &str| if on { json!(u) } else { J::Null };
@@ -410,7 +395,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     units.insert("y".into(), unit(calibrated, "micrometer"));
     units.insert("x".into(), unit(calibrated, "micrometer"));
     let mut codecs = if comp > 1 { vec![transpose_codec(&axes)] } else { vec![] };
-    codecs.push(if bpc > 8 { json!({"name": "bytes", "configuration": {"endian": "little"}}) } else { json!({"name": "bytes"}) });
+    codecs.push(bytes_codec(bpc.div_ceil(8), "little"));
     if compressed {
         codecs.push(json!({"name": "zlib", "configuration": {"level": 1}}));
     }
@@ -418,7 +403,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let b = if significant == significant.trunc() && 1.0 <= significant && significant <= bpc as f64 { significant as u64 } else { bpc };
     let window = (data_type != "float32").then(|| {
         let top = (1u64 << b) - 1;
-        omero_window(json!(0), json!(top), json!(0), json!(top))
+        full_window(json!(0), json!(top))
     });
     let trs = arr(&pic["translations"]);
     let mut out = Out::new(url);
@@ -428,18 +413,14 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         .and_then(|d| ir.value_bytes(d))
         .ok_or("internal: no signature")?;
     let root_meta = json!({"signature": json_text(sig), "chunks": root_chunks(ir, arr(&facts["decoded"]))?});
-    out.json("zarr.json", &root_json(json!({"version": "0.5", "bioformats2raw.layout": 3}), "nd2", url, Some(root_meta)));
-    let series: Vec<String> = (0..positions).map(|i| i.to_string()).collect();
-    out.json("OME/zarr.json", &group_json(json!({"version": "0.5", "series": series})));
+    // the layout, even of no positions
+    bioformats2raw(&mut out, "nd2", url, root_meta, positions as usize, true);
     for pi in 0..positions {
         let tr = if trs.is_empty() {
             None
         } else {
             let p = trs.get(pi as usize).ok_or("internal: no translation of a position")?;
-            Some(vec![J::Array(axes.iter().map(|&ax| match ax {
-                "x" | "y" => p[ax].clone(),
-                _ => json!(0),
-            }).collect())])
+            Some(vec![super::translation(&axes, [p["x"].clone(), p["y"].clone(), json!(0)])])
         };
         let mut ome = image_ome(&axes, &units, &[J::Array(scale.clone())], Some(&json!(format!("position {pi}"))), tr.as_deref())?;
         let chans: Vec<J> = labels.iter().zip(&colors).map(|(label, c)| omero_channel(label, c.as_str(), window.as_ref())).collect();

@@ -12,7 +12,10 @@
 //! projection checks nothing (the parser checked the schema)
 //! and reads nothing (the IR holds what it needs).
 
+mod audio;
+mod contiguous;
 pub mod store;
+mod tiled;
 mod window;
 
 // Every profile's projection (src/project/<profile>.rs), by the registry (profiles/; build.rs)
@@ -115,6 +118,42 @@ fn truthy(v: &J) -> bool {
 /// `translations` as `image_ome` takes them: None when absent or empty.
 fn translations(v: &J) -> Option<&[J]> {
     v.as_array().filter(|a| !a.is_empty()).map(|a| a.as_slice())
+}
+
+/// The value along axis `a` of the ones along `t`, `c`, `z`, `y` and `x` (any other axis: `x`'s).
+fn along<T>(a: &str, [t, c, z, y, x]: [T; 5]) -> T {
+    match a {
+        "t" => t,
+        "c" => c,
+        "z" => z,
+        "y" => y,
+        _ => x,
+    }
+}
+
+/// An image's axes: `t`, `c` and `z` when present, then `y` and `x`.
+fn image_axes(t: bool, c: bool, z: bool) -> Vec<&'static str> {
+    let mut axes: Vec<&'static str> = [("t", t), ("c", c), ("z", z)].iter().filter(|a| a.1).map(|a| a.0).collect();
+    axes.extend(["y", "x"]);
+    axes
+}
+
+/// A translation along `axes`: `x`, `y` and `z` along those, 0 along any other.
+fn translation(axes: &[&str], [x, y, z]: [J; 3]) -> J {
+    J::Array(axes.iter().map(|a| match *a {
+        "x" => x.clone(),
+        "y" => y.clone(),
+        "z" => z.clone(),
+        _ => serde_json::json!(0),
+    }).collect())
+}
+
+/// A store projection's summary with the facts' `counts` (the parser's) after its own members.
+fn with_counts(mut summary: J, facts: &J) -> J {
+    if let (Some(m), Some(c)) = (summary.as_object_mut(), facts["counts"].as_object()) {
+        m.extend(c.clone());
+    }
+    summary
 }
 
 /// A chunk key: `prefix` and the coordinates, joined by "/".

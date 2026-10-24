@@ -8,9 +8,9 @@
 //! `refkv_source/objects/<k>`. The facts hold what the parser read; the projection checks only
 //! the archive's own limits (reference payloads, output keys).
 
-use super::{arr, n};
+use super::{arr, n, with_counts};
 use crate::ir::Ir;
-use crate::out::{array_json, convention, declare, group_doc, payload_size, root_property, Out, Part, CONVENTION_KEY, MAX_PAYLOAD};
+use crate::out::{array_json, convention, declare_array, group_doc, payload_size, root_property, transpose_codec, Out, Part, CONVENTION_KEY, MAX_PAYLOAD};
 use crate::safe::jp2::{self, Codestream};
 use crate::safe::product::{multiscales_cmo, proj_cmo, spatial_cmo, wkt2};
 use serde_json::{json, Map, Value as J};
@@ -103,15 +103,15 @@ pub fn project(_ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         let path = format!("r{}m/{}", n(&b["resolution"]), b["name"].as_str().unwrap_or(""));
         let three = cs.components == 3;
         let (mut shape, mut chunk) = (vec![cs.height, cs.width], vec![cs.tile_h, cs.tile_w]);
+        let dims: &[&str] = if three { &["c", "y", "x"] } else { &["y", "x"] };
         let mut codecs = vec![json!({"name": "imagecodecs_jpeg2k"})];
         if three {
             shape.insert(0, 3);
             chunk.insert(0, 3);
-            codecs.insert(0, json!({"name": "transpose", "configuration": {"order": [1, 2, 0]}}));
+            codecs.insert(0, transpose_codec(dims));
         }
-        let dims: &[&str] = if three { &["c", "y", "x"] } else { &["y", "x"] };
         let mut doc = array_json(&shape, if cs.precision <= 8 { "uint8" } else { "uint16" }, json!(chunk), J::Array(codecs), dims);
-        doc["attributes"] = J::Object(declare(Map::new(), PROFILE, None, Some(b["meta"].clone())));
+        declare_array(&mut doc, PROFILE, b["meta"].clone());
         out.json(&format!("{path}/zarr.json"), &doc);
         let key = b["key"].as_str().unwrap_or("").to_string();
         let base = n(&b["base"]);
@@ -121,7 +121,7 @@ pub fn project(_ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
             let body = if store { Part::Obj(key.clone(), o, len) } else { Part::Src(base + o, len) };
             let tail = if padded { Pre::Shared(tail) } else { Pre::Part(Part::Lit(tail)) };
             let parts = vec![Pre::Part(Part::Lit(head)), Pre::Shared(cs.rest.clone()), Pre::Part(Part::Lit(sot)), Pre::Part(body), tail];
-            refs.push((format!("{path}/c/{}{}/{}", if three { "0/" } else { "" }, t / nx, t % nx), parts));
+            refs.push((super::key(&format!("{path}/c/"), three.then_some(0).into_iter().chain([t / nx, t % nx])), parts));
             chunks += 1;
             edges += padded as u64;
         }
@@ -154,11 +154,8 @@ pub fn project(_ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
             return Err(format!("output key {short:?} is in the reserved __vz__/ space"));
         }
     }
-    let mut summary = json!({"level": facts["level"], "form": facts["form"], "groups": resolutions.len(), "bands": bands.len(),
-                             "chunks": chunks, "edgeChunks": edges, "dataSources": out.data.len()});
-    if let (Some(m), Some(c)) = (summary.as_object_mut(), facts["counts"].as_object()) {
-        m.extend(c.clone());
-    }
-    out.summary = summary;
+    let summary = json!({"level": facts["level"], "form": facts["form"], "groups": resolutions.len(), "bands": bands.len(),
+                         "chunks": chunks, "edgeChunks": edges, "dataSources": out.data.len()});
+    out.summary = with_counts(summary, facts);
     Ok(out)
 }

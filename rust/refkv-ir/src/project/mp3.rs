@@ -6,33 +6,15 @@
 //! before it that a decoder needs (the lead-in, §8.2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#82-chunks>).
 
-use super::{arr, json_text, n, Copied};
+use super::{arr, audio, json_text, n, Copied};
 use crate::ir::Ir;
 use crate::mp3::{MODES, RESERVOIR, VERSIONS};
-use crate::out::{array_json, declare, group_doc, stream_parts, Out};
+use crate::out::{array_json, declared_group, Out};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
 /// The array's path.
 pub const ARRAY: &str = "samples";
-
-/// The first frame of the lead-in of the chunk that starts at frame `a` (§8.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#82-chunks>): none for the
-/// first chunk; else the two frames before the chunk, and before them the fewest frames whose
-/// main data (`main`, per frame) holds at least `reservoir` bytes, or every frame from the
-/// first when they do not.
-pub fn lead(a: usize, main: &[u64], reservoir: u64) -> usize {
-    if a == 0 {
-        return 0;
-    }
-    let mut l = a.saturating_sub(2);
-    let mut have = 0u64;
-    while l > 0 && have < reservoir {
-        l -= 1;
-        have += main[l];
-    }
-    l
-}
 
 /// The ID3v1 tag's fields as the root's source metadata writes them (§5.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#51-the-root>).
@@ -91,27 +73,19 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
     }
     own.insert("stray_bytes".into(), facts["stray"].clone());
     let mut out = Out::new(url);
-    out.json("zarr.json", &group_doc(declare(Map::new(), "mp3", Some(url), Some(J::Object(own)))));
+    out.json("zarr.json", &declared_group(Map::new(), "mp3", Some(url), Some(J::Object(own))));
 
     // the array (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#41-the-array>)
     let shape = [samples, channels];
     let array = array_json(&shape, "float32", json!([per_chunk as u64 * spf, channels]), json!([{"name": "refkv.stream", "configuration": {"format": "mp3"}}]), &["time", "channel"]);
     out.json(&format!("{ARRAY}/zarr.json"), &array);
     let form = ir.form_id(first as u32).ok_or("internal: a frame has no form")?;
-    let chunks = count.div_ceil(per_chunk);
     let mut refs = Refs::new(ir, out);
-    for q in 0..chunks {
-        let a = q * per_chunk;
-        let b = (a + per_chunk).min(count);
-        let l = lead(a, &main, RESERVOIR[version]);
-        // the frames l to b - 1 (the bytes between frames, which are no frame, are left out: a
-        // decoder resyncs on them), the lead-in's dropped and frame j's samples at (j - a) * S
-        let units: Vec<(u64, u64, i64)> = (l..b)
-            .map(|j| (ir.start[first + j], ir.len[first + j], if j < a { -1 } else { ((j - a) as u64 * spf) as i64 }))
-            .collect();
-        let parts = stream_parts(&units);
-        refs.chunk(format!("{ARRAY}/c/{q}/0"), ir.start[first + a], ir.len[first + a], form, Some(parts), q as u64)?;
-    }
+    let chunks = audio::chunks(&mut refs, ir, ARRAY, first, count, per_chunk, spf, form, |a| {
+        // the lead-in holds the version's reservoir of main data (§8.2
+        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#82-chunks>), by exact sizes
+        audio::reservoir_lead(a, RESERVOIR[version], |l| main[l])
+    })?;
     let mut out = refs.out;
     let mut tags = Vec::new();
     if arr(&facts["id3v2"]).first().is_some() {
@@ -130,24 +104,4 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
         "strayBytes": facts["stray"].clone(),
     });
     Ok(out)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::lead;
-
-    /// Frames of 100 bytes of main data, a reservoir of 511: the first chunk has no lead-in;
-    /// a chunk at frame 8 takes frames 6 and 7, and before them the 6 frames that hold 600
-    /// bytes (frames 0 to 5): all of them; at frame 12, frames 10 and 11 and then frames 4
-    /// to 9 (600 bytes), so the lead-in starts at 4; a small reservoir takes one frame.
-    #[test]
-    fn the_lead_in_holds_the_reservoir_before_the_two_frames_before_the_chunk() {
-        let main = vec![100u64; 20];
-        assert_eq!(lead(0, &main, 511), 0);
-        assert_eq!(lead(1, &main, 511), 0);
-        assert_eq!(lead(8, &main, 511), 0);
-        assert_eq!(lead(12, &main, 511), 4);
-        assert_eq!(lead(12, &main, 50), 9);
-        assert_eq!(lead(12, &main, 0), 10);
-    }
 }

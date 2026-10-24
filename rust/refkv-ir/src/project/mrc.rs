@@ -5,11 +5,11 @@
 //! IR: the header is the IR's `header` value, and the array's chunks are cut from its
 //! `data` element.
 
-use super::{base64, float_json, json_text, n, Copied};
+use super::{base64, contiguous, float_json, json_text, n, Copied};
 use crate::ir::Ir;
 use crate::mrc::{Header, FIELDS};
 use crate::nifti::Num;
-use crate::out::{array_json, declare, grid_chunks, group_doc, image_ome, omero_channel, omero_json, omero_window, root_json, Chunk, Out, MAX_PAYLOAD};
+use crate::out::{array_json, bytes_codec, declared_group, full_window, grid_chunks, gzip_array, image_ome, omero_channel, omero_json, root_json, Chunk, Out};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -25,9 +25,6 @@ const VOLUME_STACK: i64 = 401;
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>).
 const DATASET: &str = "dataset";
 const COORD_CHUNK: u64 = 1 << 17;
-/// The gzip level of a coordinate chunk (conventions §9
-/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>).
-const GZIP_LEVEL: u8 = 6;
 
 /// A header value as the root's source metadata writes it (spec/virtualize/mrc.md §5
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#5-source-metadata>): an
@@ -118,8 +115,7 @@ fn cut(h: &Header, offset: u64, facts: &J) -> Result<Cut, String> {
         ),
         _ => (named.clone(), vec![nz, ny, nx]),
     };
-    let threshold = facts["copy_threshold"].as_u64().map_or(MAX_PAYLOAD, |t| t as usize);
-    let (grid, chunks) = grid_chunks(offset, &shape, item, CHUNK_BYTES, threshold).ok_or("internal: the data cannot be cut into chunks")?;
+    let (grid, chunks) = grid_chunks(offset, &shape, item, CHUNK_BYTES, contiguous::threshold(facts)).ok_or("internal: the data cannot be cut into chunks")?;
     Ok(Cut { kind, axes, names: named, mapped, shape, item, grid, chunks })
 }
 
@@ -134,10 +130,7 @@ fn parts<'a>(ir: &'a Ir, facts: &J) -> Result<(Header<'a>, u32), String> {
 pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
     let (h, data) = parts(ir, facts)?;
     let c = cut(&h, ir.start[data as usize], facts)?;
-    Ok(c.chunks.iter().filter_map(|(_, k)| match k {
-        Chunk::Copy(o, n, _) => Some((*o, *n)),
-        _ => None,
-    }).collect())
+    Ok(contiguous::copy_reads(&c.chunks).collect())
 }
 
 fn valid(v: f64) -> bool {
@@ -189,9 +182,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
             },
         })
         .collect();
-    let translation = placed.then(|| {
-        J::Array(axes.iter().map(|a| if *a == "t" { json!(0) } else { json!(origin[index(a)]) }).collect())
-    });
+    let translation = placed.then(|| super::translation(&axes, [json!(origin[0]), json!(origin[1]), json!(origin[2])]));
     let trs = translation.clone().map(|t| vec![t]);
     let mut ome = image_ome(&axes, &units, &[J::Array(scales)], None, trs.as_deref())?;
 
@@ -199,7 +190,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let (lo, hi) = (f("dmin"), f("dmax"));
     let window = mode != 4 && lo.is_finite() && hi.is_finite() && hi > lo;
     if window {
-        let window = omero_window(json!(lo), json!(hi), json!(lo), json!(hi));
+        let window = full_window(json!(lo), json!(hi));
         ome["omero"] = omero_json(vec![omero_channel("C0", "FFFFFF", Some(&window))]);
     }
 
@@ -220,7 +211,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), after `source`
     root["attributes"]["refkv_virtualized"] = insert_after(&root["attributes"]["refkv_virtualized"], "source", "layouts", json!({DATASET: DATASET}));
     out.json("zarr.json", &root);
-    let codecs = vec![if item > 1 { json!({"name": "bytes", "configuration": {"endian": endian}}) } else { json!({"name": "bytes"}) }];
+    let codecs = vec![bytes_codec(item, endian)];
     let mut array = array_json(&shape, data_type, json!(grid), J::Array(codecs), &axes);
     if data_type == "complex64" {
         // a complex fill value is its real and imaginary parts (Zarr v3)
@@ -241,35 +232,12 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     if window {
         data["attributes"]["actual_range"] = json!([lo, hi]);
     }
-    out.json(&format!("{DATASET}/zarr.json"), &group_doc(declare(Map::new(), "mrc-dataset", Some(url), Some(J::Object(own)))));
+    out.json(&format!("{DATASET}/zarr.json"), &declared_group(Map::new(), "mrc-dataset", Some(url), Some(J::Object(own))));
     out.json(&format!("{DATASET}/data/zarr.json"), &data);
     let count = chunks.len();
     let mut refs = Refs::new(ir, out);
-    for (piece, (coords, chunk)) in chunks.into_iter().enumerate() {
-        let coords = coords.iter().map(|c| c.to_string()).collect::<Vec<_>>().join("/");
-        let (key, dkey) = (format!("0/c/{coords}"), format!("{DATASET}/data/c/{coords}"));
-        match chunk {
-            Chunk::Ranges(parts) => {
-                let same = parts.clone();
-                refs.chunk(key, offset, length, form, Some(parts), piece as u64)?;
-                refs.out.refs(&dkey, same);
-            }
-            // an edge chunk whose padding does not fit in a reference: its bytes, then the padding
-            Chunk::Copy(o, len, pad) => {
-                let mut b = copied
-                    .get(&(o, len))
-                    .ok_or("a copied chunk's bytes were not read: project a run's IR with the bytes its last batch read")?
-                    .clone();
-                b.resize(b.len() + pad as usize, 0);
-                refs.out.bytes(&key, b.clone());
-                refs.out.bytes(&dkey, b);
-            }
-            Chunk::Bytes(b) => {
-                refs.out.bytes(&key, b.clone());
-                refs.out.bytes(&dkey, b);
-            }
-        }
-    }
+    // the data variable's chunks are the image's, not charged again
+    contiguous::emit(&mut refs, chunks, (offset, length, form), copied, &["0/c/", &format!("{DATASET}/data/c/")], |c| c)?;
     let mut out = refs.out;
     // the coordinates (spec/virtualize/mrc-dataset.md §3
     // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc-dataset.md#3-coordinates>): the
@@ -279,17 +247,9 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     for (k, a) in dims.iter().enumerate() {
         let Some(s) = ["x", "y", "z"].contains(a).then(|| voxel[index(a)]).flatten() else { continue };
         let o = if placed { origin[index(a)] } else { 0.0 };
-        let n = shape[k];
-        let c = n.min(COORD_CHUNK);
-        let codecs = json!([{"name": "numcodecs.delta", "configuration": {"dtype": "<u4"}},
-                            {"name": "bytes", "configuration": {"endian": "little"}},
-                            {"name": "gzip", "configuration": {"level": GZIP_LEVEL}}]);
-        let mut doc = array_json(&[n], "uint32", json!([c]), codecs, &[a]);
-        doc["attributes"] = json!({"units": "angstrom", "scale_factor": s, "add_offset": o});
-        out.json(&format!("{DATASET}/{a}/zarr.json"), &doc);
-        for q in 0..n.div_ceil(c) {
-            out.bytes(&format!("{DATASET}/{a}/c/{q}"), index_chunk(q * c, c));
-        }
+        let filters = vec![json!({"name": "numcodecs.delta", "configuration": {"dtype": "<u4"}})];
+        let attributes = json!({"units": "angstrom", "scale_factor": s, "add_offset": o});
+        gzip_array(&mut out, &format!("{DATASET}/{a}"), "uint32", shape[k], COORD_CHUNK, a, filters, attributes, |q, c| index_chunk(q * c, c));
     }
     let sizes: Map<String, J> = axes.iter().zip(&shape).map(|(a, s)| (a.to_string(), json!(s))).collect();
     out.summary = json!({
@@ -302,28 +262,18 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     Ok(out)
 }
 
-/// A chunk of an index coordinate (conventions §9
+/// The values of a chunk of an index coordinate (conventions §9
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>): the indexes
 /// `first .. first + count` (the ramp goes on past the array's end, into the padding), as
 /// numcodecs' delta codes them (the first as it is, then each less the one before), as
-/// little-endian u32, then gzip at level 6.
+/// little-endian u32.
 fn index_chunk(first: u64, count: u64) -> Vec<u8> {
     let mut raw = Vec::with_capacity((count * 4) as usize);
     raw.extend_from_slice(&(first as u32).to_le_bytes());
     for _ in 1..count {
         raw.extend_from_slice(&1u32.to_le_bytes());
     }
-    gzip(&raw)
-}
-
-/// `raw` as a gzip member (RFC 1952): a header with no name, time or extra field, the
-/// deflate stream, the CRC-32 and the length.
-pub(super) fn gzip(raw: &[u8]) -> Vec<u8> {
-    let mut out = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255];
-    out.extend(miniz_oxide::deflate::compress_to_vec(raw, GZIP_LEVEL));
-    out.extend_from_slice(&crate::safe::zip::crc32(raw).to_le_bytes());
-    out.extend_from_slice(&(raw.len() as u32).to_le_bytes());
-    out
+    raw
 }
 
 /// `object` with the member `key: value` inserted after the member `after` (at the end when
