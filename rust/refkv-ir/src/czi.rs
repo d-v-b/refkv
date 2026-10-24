@@ -14,13 +14,13 @@
 //! fails is rejected there, and nowhere else. The layout (series, levels, tiles,
 //! row bands) is derived at the end, and checked there.
 
-use crate::check;
 use crate::coding::{self, Head};
 use crate::cxml;
 use crate::fed::{Fed, Word};
 use crate::ir::*;
 use crate::nd2::Step;
-use crate::rules::{self, Rules, Vars, flag, num, text};
+use crate::rules::{self, Rules, flag, num, text};
+use crate::sans;
 use crate::types;
 use serde_json::{Value as J, json};
 use std::collections::{BTreeMap, HashMap};
@@ -187,9 +187,8 @@ pub struct Czi {
     facts: Option<J>,
     /// data forms by (pixel type, compression, hi-lo, coded width, coded height)
     forms: HashMap<(i32, i32, bool, u64, u64), String>,
-    pub requests: u64,
-    pub requested: u64,
-    pub rounds: u64,
+    /// what the parse asked for
+    pub asked: sans::Asked,
     pub held_max: u64,
 }
 
@@ -248,9 +247,7 @@ impl Czi {
             window: 1 << 16,
             facts: None,
             forms: HashMap::new(),
-            requests: 0,
-            requested: 0,
-            rounds: 0,
+            asked: sans::Asked::default(),
             held_max: 0,
         }
     }
@@ -260,18 +257,8 @@ impl Czi {
         self.held_max = self.held_max.max(self.fed.held());
     }
 
-    fn ask(&mut self, mut r: Vec<(u64, u64)>) -> Step {
-        r.retain(|x| x.1 > 0);
-        r.sort_unstable();
-        r.dedup();
-        self.requests += r.len() as u64;
-        self.requested += r.iter().map(|x| x.1).sum::<u64>();
-        self.rounds += 1;
-        Step::Read(r)
-    }
-
-    fn check(&self, role: &str, mut env: Vars<'static>) -> Res<()> {
-        self.rules.check(role, &mut env)
+    fn ask(&mut self, r: Vec<(u64, u64)>) -> Step {
+        self.asked.ask(r)
     }
 
     fn within(&self, o: i64, n: i64) -> bool {
@@ -279,7 +266,7 @@ impl Czi {
     }
 
     fn within_check(&self, what: &str, o: i64, n: i64) -> Res<()> {
-        self.check("within", rules::env([("what", text(what)), ("within", flag(self.within(o, n)))]))
+        self.rules.check("within", rules::env([("what", text(what)), ("within", flag(self.within(o, n)))]))
     }
 
     /// The segment at `pos` in the role `what` (an alias when read before): checks
@@ -295,7 +282,7 @@ impl Czi {
             }
             None => (String::new(), 0, 0),
         };
-        self.check(
+        self.rules.check(
             "segment",
             rules::env([
                 ("what", text(what)),
@@ -339,7 +326,7 @@ impl Czi {
                     };
                     let (major, minor) = (i32::le_at(field("major"), 0), i32::le_at(field("minor"), 0));
                     let file_part = i32::le_at(field("file_part"), 0);
-                    self.check(
+                    self.rules.check(
                         "file_header",
                         rules::env([("major", num(major)), ("minor", num(minor)), ("file_part", num(file_part))]),
                     )?;
@@ -371,7 +358,7 @@ impl Czi {
                     let c = self.fed.get(p + 32, 4).unwrap().to_vec();
                     self.ir.value(s, "entry_count", NO_INDEX, "<i4", 0, (p + 32, 4), Some(&c))?;
                     let count = i32::le_at(&c, 0) as i64;
-                    self.check(
+                    self.rules.check(
                         "entry_count",
                         rules::env([("what", text("the directory")), ("count", num(count as f64)), ("maximum", num(self.rules.limit("max_entries")))]),
                     )?;
@@ -390,7 +377,7 @@ impl Czi {
                             None => return Err("internal: the metadata segment's sizes were not read".into()),
                         };
                         let (x, ab) = (i32::le_at(&b, 0) as i64, i32::le_at(&b, 4) as i64);
-                        self.check("metadata_sizes", rules::env([("xml", num(x as f64)), ("attachment", num(ab as f64))]))?;
+                        self.rules.check("metadata_sizes", rules::env([("xml", num(x as f64)), ("attachment", num(ab as f64))]))?;
                         self.within_check("the metadata segment's parts", meta + 288, x + ab)?;
                         if !alias {
                             self.ir.value(m, "sizes", NO_INDEX, "{xml_size:<i4,attachment_size:<i4}", 0, (mp + 32, 8), Some(&b))?;
@@ -414,7 +401,7 @@ impl Czi {
                         let ap = att as u64;
                         let c = self.fed.get(ap + 32, 4).ok_or("internal: no attachment count")?.to_vec();
                         let k = i32::le_at(&c, 0) as i64;
-                        self.check(
+                        self.rules.check(
                             "entry_count",
                             rules::env([("what", text("the attachment directory")), ("count", num(k as f64)), ("maximum", num(self.rules.limit("max_attachments")))]),
                         )?;
@@ -460,7 +447,7 @@ impl Czi {
                             if a1 {
                                 let n = e[40..48].iter().position(|&c| c == 0).unwrap_or(8);
                                 self.a1.push((i, i64::le_at(e, 12), e[40..40 + n].to_vec()));
-                                self.check("attachment_entry", rules::env([("k", num(i as f64)), ("file_part", num(i32::le_at(e, 20)))]))?;
+                                self.rules.check("attachment_entry", rules::env([("k", num(i as f64)), ("file_part", num(i32::le_at(e, 20)))]))?;
                             }
                         }
                     }
@@ -563,7 +550,7 @@ impl Czi {
                 let w = self.dir_window().unwrap();
                 return Ok(Some(self.ask(vec![w])));
             }
-            self.check(
+            self.rules.check(
                 "entry",
                 rules::env([
                     ("i", num(i as f64)),
@@ -586,7 +573,7 @@ impl Czi {
                     None => format!("{:?}", &b[..4]),
                 };
                 let repeated = letter.is_some_and(|l| dims.iter().any(|x: &(u8, i32, i32, i32)| x.0 == l));
-                self.check(
+                self.rules.check(
                     "dimension",
                     rules::env([
                         ("i", num(i as f64)),
@@ -599,7 +586,7 @@ impl Czi {
                 dims.push((letter.unwrap(), i32::le_at(b, 4), i32::le_at(b, 8), i32::le_at(b, 16)));
             }
             let has = |l: u8| dims.iter().any(|x| x.0 == l);
-            self.check("entry_dimensions", rules::env([("i", num(i as f64)), ("x", flag(has(b'X'))), ("y", flag(has(b'Y')))]))?;
+            self.rules.check("entry_dimensions", rules::env([("i", num(i as f64)), ("x", flag(has(b'X'))), ("y", flag(has(b'Y')))]))?;
             let el = self.ir.value(s, "entries/", i as u64, ENTRY, 0, (at, 32), Some(&h))?;
             let dims_el = if d > 0 {
                 Some(self.ir.value(s, "dimensions/", i as u64, &format!("{DIMENSION}[{d}]"), 0, (body_at, 20 * d), Some(&body))?)
@@ -658,7 +645,7 @@ impl Czi {
             };
             let (m, a, n) = (i32::le_at(&h, 32) as i64, i32::le_at(&h, 36) as i64, i64::le_at(&h, 40));
             let d = i32::le_at(&h, 76) as i64;
-            self.check(
+            self.rules.check(
                 "subblock",
                 rules::env([
                     ("i", num(i as f64)),
@@ -933,7 +920,7 @@ impl Czi {
                 self.fed.get(p, 288).ok_or("internal: no attachment header")?.to_vec()
             };
             let n = i64::le_at(&h, 32);
-            self.check("attachment", rules::env([("k", num(k as f64)), ("data_size", num(n as f64))]))?;
+            self.rules.check("attachment", rules::env([("k", num(k as f64)), ("data_size", num(n as f64))]))?;
             self.within_check(&format!("attachment {k}'s data"), pos + 288, n)?;
             if alias {
                 continue;
@@ -1280,7 +1267,7 @@ fn plane_axes(planes: &[(i64, i64, i64)], p: u64) -> (Vec<&'static str>, [i64; 3
 
 impl Czi {
     fn extent(&self, v: i128) -> Res<i128> {
-        self.check("extent", rules::env([("extent", num(v as f64))]))?;
+        self.rules.check("extent", rules::env([("extent", num(v as f64))]))?;
         Ok(v)
     }
 
@@ -1354,11 +1341,11 @@ impl Czi {
                 for lv in &other {
                     tiles.extend(lv.cells.iter().map(|c| c.0));
                 }
-                self.check("image", rules::env([("levels", num(kept.len() as f64))]))?;
+                self.rules.check("image", rules::env([("levels", num(kept.len() as f64))]))?;
                 images.push((key.clone(), kept));
             }
         }
-        self.check("images", rules::env([("images", num(images.len() as f64))]))?;
+        self.rules.check("images", rules::env([("images", num(images.len() as f64))]))?;
         // the images (§4.2
         // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#42-images>, §4.3
         // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#43-image-arrays>)
@@ -1407,7 +1394,7 @@ impl Czi {
                 scales.push(axes.iter().map(|&a| json!(one(a))).collect::<Vec<_>>());
                 translations.push(tr.into_iter().map(|t| json!(t)).collect::<Vec<_>>());
             }
-            self.check("translation", rules::env([("all_finite", flag(finite))]))?;
+            self.rules.check("translation", rules::env([("all_finite", flag(finite))]))?;
             let mut lvs = Vec::new();
             for lv in levels {
                 let ((w, h), (w2, h2), (m, r)) = (lv.tile, lv.edge, lv.grid);
@@ -1514,18 +1501,11 @@ impl Czi {
     }
 
     /// The IR, finished (aliases and gaps), and the facts the projection reads.
-    pub fn finish(mut self) -> Result<(Ir, J), String> {
-        if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
-        }
-        self.ir.sort_values();
-        check::finish(&mut self.ir)?;
-        let mut facts = self.facts.take().unwrap_or(J::Null);
-        facts["requests"] = json!(self.requests);
-        facts["requested"] = json!(self.requested);
-        facts["rounds"] = json!(self.rounds);
+    pub fn finish(self) -> Result<(Ir, J), String> {
+        let mut facts = self.facts.unwrap_or(J::Null);
+        self.asked.put(&mut facts);
         facts["held_max"] = json!(self.held_max);
-        Ok((self.ir, facts))
+        sans::finish(self.phase == Phase::Done, self.ir, facts)
     }
 }
 

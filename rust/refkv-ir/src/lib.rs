@@ -25,6 +25,7 @@ pub mod record;
 pub mod refs;
 pub mod rules;
 pub mod run;
+pub mod sans;
 pub mod schema;
 pub mod store;
 pub mod types;

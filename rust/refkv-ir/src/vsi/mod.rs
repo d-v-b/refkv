@@ -195,10 +195,6 @@ impl Vsi {
         &k[..k.len() - 4]
     }
 
-    fn check(&self, role: &str, mut env: rules::Vars<'static>) -> Res<()> {
-        self.rules.check(role, &mut env)
-    }
-
     fn take(&mut self, k: (usize, u64, u64)) -> Res<Vec<u8>> {
         self.got.remove(&k).ok_or_else(|| format!("internal: the read {k:?} was not fed"))
     }
@@ -208,10 +204,10 @@ impl Vsi {
     fn read_vsi(&mut self) -> Res<Vec<String>> {
         let size = self.keys[self.vsi].1;
         let b = self.take((self.vsi, 0, size))?;
-        self.check("file", rules::env([("size", num(size as f64))]))?;
+        self.rules.check("file", rules::env([("size", num(size as f64))]))?;
         let order = String::from_utf8_lossy(&b[..2]).to_string();
         let (magic, first) = (u16::le_at(&b, 2), u32::le_at(&b, 4) as u64);
-        self.check("tiff_header", rules::env([("order", text(&order)), ("magic", num(magic as f64)), ("first_ifd", num(first as f64)), ("size", num(size as f64))]))?;
+        self.rules.check("tiff_header", rules::env([("order", text(&order)), ("magic", num(magic as f64)), ("first_ifd", num(first as f64)), ("size", num(size as f64))]))?;
         let root = tree::parse(self.rules, &b, 8, size, 0)?;
         self.ifds = tiff::chain(self.rules, &b, first)?;
         self.file = b;
@@ -297,7 +293,7 @@ impl Vsi {
                 s.dims.push(Dim { coord: 2 + index, meaning });
             }
             s.dims.sort_by_key(|d| d.coord);
-            self.check(
+            self.rules.check(
                 "stack",
                 rules::env([
                     ("id", num(s.id as f64)),
@@ -328,7 +324,7 @@ impl Vsi {
             }
             found.sort_by_key(|f| f.0);
             let s = &self.stacks[k];
-            self.check("tile_file", rules::env([("id", num(s.id as f64)), ("name", text(&s.name)), ("dir", text(&s.dir)), ("found", num(found.len() as f64))]))?;
+            self.rules.check("tile_file", rules::env([("id", num(s.id as f64)), ("name", text(&s.name)), ("dir", text(&s.dir)), ("found", num(found.len() as f64))]))?;
             let (_, key, index, size) = found.remove(0);
             if size < ets::SIS_HEADER {
                 return Err(format!("{key} ({size} bytes) is too short for an ETS file"));
@@ -386,16 +382,16 @@ impl Vsi {
         let sizes: Vec<i64> = (0..nc).map(|c| if c < 2 || Some(c) == level_coord { i64::MAX } else { coord_size(e, c) }).collect();
         for d in &s.dims {
             let size = if Some(d.coord) == level_coord || d.coord >= nc { 1 } else { sizes[d.coord] };
-            self.check("dimension", rules::env([("id", num(s.id as f64)), ("index", num(d.coord as f64)), ("meaning", text(&d.meaning)), ("size", num(size as f64))]))?;
+            self.rules.check("dimension", rules::env([("id", num(s.id as f64)), ("index", num(d.coord as f64)), ("meaning", text(&d.meaning)), ("size", num(size as f64))]))?;
         }
         let c_size = s.dims.iter().find(|d| d.meaning == "c").map_or(1, |d| sizes.get(d.coord).copied().unwrap_or(1));
-        self.check("image", rules::env([("id", num(s.id as f64)), ("samples", num(e.channels as f64)), ("channels", num(c_size as f64))]))?;
+        self.rules.check("image", rules::env([("id", num(s.id as f64)), ("samples", num(e.channels as f64)), ("channels", num(c_size as f64))]))?;
         let raw = if e.compression == ets::RAW { e.tile_width as u64 * e.tile_height as u64 * e.channels as u64 * e.bytes } else { 0 };
         let mut seen: HashSet<&[i32]> = HashSet::with_capacity(file.tiles.len());
         for (k, t) in file.tiles.iter().enumerate() {
             let inside = t.coords.iter().enumerate().all(|(c, &v)| v >= 0 && (v as i64) < sizes[c]);
             let dup = !seen.insert(&t.coords);
-            self.check(
+            self.rules.check(
                 "tile",
                 rules::env([
                     ("key", text(&file.key)),

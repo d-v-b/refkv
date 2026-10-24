@@ -17,12 +17,12 @@
 pub mod elements;
 pub mod json;
 
-use crate::check;
 use crate::fed::Word;
 use crate::ir::*;
 use crate::nd2::Step;
 use crate::out::{payload_size, Part};
 use crate::rules::{self, Rules, Vars, flag, num, text};
+use crate::sans;
 use elements::*;
 use json::{dictionary_vr, is_decimal, is_integer, is_text, numeric, Pixel, Translator, EOT_TAGS, MAX_TEXT, PADDING};
 use serde_json::{json, Map, Value as J};
@@ -310,9 +310,8 @@ pub struct Dicom {
     retries: u32,
     pub ir: Ir,
     facts: Option<J>,
-    pub requests: u64,
-    pub requested: u64,
-    pub rounds: u64,
+    /// what the parse asked for
+    pub counts: sans::Asked,
     pub held_max: u64,
 }
 
@@ -341,9 +340,7 @@ impl Dicom {
             retries: 0,
             ir: Ir::new(size),
             facts: None,
-            requests: 0,
-            requested: 0,
-            rounds: 0,
+            counts: sans::Asked::default(),
             held_max: 0,
         }
     }
@@ -353,15 +350,12 @@ impl Dicom {
         self.held_max = self.held_max.max(self.b.held());
     }
 
-    fn ask(&mut self, mut r: Vec<(u64, u64)>) -> Step {
-        r.retain(|x| x.1 > 0);
-        r.sort_unstable();
-        r.dedup();
-        self.requests += r.len() as u64;
-        self.requested += r.iter().map(|x| x.1).sum::<u64>();
-        self.rounds += 1;
-        self.asked = r.clone();
-        Step::Read(r)
+    fn ask(&mut self, r: Vec<(u64, u64)>) -> Step {
+        let step = self.counts.ask(r);
+        if let Step::Read(r) = &step {
+            self.asked = r.clone();
+        }
+        step
     }
 
     /// A window at `o` for a walk that missed `n` bytes there: doubling while the walk
@@ -1033,18 +1027,11 @@ impl Dicom {
         Ok(())
     }
 
-    pub fn finish(mut self) -> Result<(Ir, J), String> {
-        if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
-        }
-        self.ir.sort_values();
-        check::finish(&mut self.ir)?;
-        let mut facts = self.facts.take().unwrap_or(J::Null);
-        facts["requests"] = json!(self.requests);
-        facts["requested"] = json!(self.requested);
-        facts["rounds"] = json!(self.rounds);
+    pub fn finish(self) -> Result<(Ir, J), String> {
+        let mut facts = self.facts.unwrap_or(J::Null);
+        self.counts.put(&mut facts);
         facts["held_max"] = json!(self.held_max);
-        Ok((self.ir, facts))
+        sans::finish(self.phase == Phase::Done, self.ir, facts)
     }
 }
 

@@ -8,12 +8,12 @@
 //! (one opaque value, when the file has one; never read), the data (one `data` element)
 //! and a gap for the bytes after it.
 
-use crate::check;
 use crate::fed::Fed;
 use crate::ir::*;
 use crate::nd2::Step;
 use crate::record::{Field, Header};
-use crate::rules::{self, Rules, Vars, num, text};
+use crate::rules::{self, Rules, num, text};
+use crate::sans;
 use serde_json::{Value as J, json};
 
 /// The header's length.
@@ -77,10 +77,6 @@ impl Mrc {
         self.fed.feed(offset, data);
     }
 
-    fn check(&self, role: &str, mut env: Vars<'static>) -> Res<()> {
-        self.rules.check(role, &mut env)
-    }
-
     pub fn step(&mut self) -> Result<Step, String> {
         match self.phase {
             Phase::Start => {
@@ -104,19 +100,19 @@ impl Mrc {
         if !detect(&got) {
             return Err("not an MRC file".into());
         }
-        self.check("file", rules::env([("size", num(self.size as f64))]))?;
+        self.rules.check("file", rules::env([("size", num(self.size as f64))]))?;
         let stamp = &got[212..216];
         let shown = stamp.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
-        self.check("byte_order", rules::env([("stamp", num(stamp[0] as f64)), ("shown", text(&shown))]))?;
+        self.rules.check("byte_order", rules::env([("stamp", num(stamp[0] as f64)), ("shown", text(&shown))]))?;
         let h = header(&got);
         let mut dims = [0i64; 3];
         for (k, name) in ["nx", "ny", "nz"].iter().enumerate() {
             let d = h.get(name).i();
-            self.check("dimension", rules::env([("name", text(name)), ("size", num(d as f64))]))?;
+            self.rules.check("dimension", rules::env([("name", text(name)), ("size", num(d as f64))]))?;
             dims[k] = d;
         }
         let code = h.get("mode").i();
-        self.check("mode", rules::env([("code", num(code as f64))]))?;
+        self.rules.check("mode", rules::env([("code", num(code as f64))]))?;
         let spec = &self.rules.table("modes")[code.to_string()];
         let bytes = spec["bytes"].as_u64().unwrap_or(1);
         // IMOD marks a mode 0 file whose bytes are unsigned (spec/virtualize/mrc.md §3
@@ -124,17 +120,17 @@ impl Mrc {
         let imod_unsigned = code == 0 && h.number(IMOD_STAMP, "i4").i() == IMOD && h.number(IMOD_FLAGS, "i4").i() & 1 == 1;
         let dtype = if imod_unsigned { "uint8" } else { spec["dtype"].as_str().unwrap_or("int8") };
         let nsymbt = h.get("nsymbt").i();
-        self.check("extended_header", rules::env([("nsymbt", num(nsymbt as f64)), ("size", num(self.size as f64))]))?;
+        self.rules.check("extended_header", rules::env([("nsymbt", num(nsymbt as f64)), ("size", num(self.size as f64))]))?;
         let (ispg, mz) = (h.get("ispg").i(), h.get("mz").i());
         if ispg >= 401 {
-            self.check(
+            self.rules.check(
                 "volume_stack",
                 rules::env([("ispg", num(ispg as f64)), ("nz", num(dims[2] as f64)), ("mz", num(mz as f64))]),
             )?;
         }
         let total = dims.iter().fold(bytes as u128, |a, &s| a.saturating_mul(s as u128));
         let offset = HEADER + nsymbt as u64;
-        self.check(
+        self.rules.check(
             "data_size",
             rules::env([
                 ("total", num(total as f64)),
@@ -156,13 +152,8 @@ impl Mrc {
         Ok(())
     }
 
-    pub fn finish(mut self) -> Result<(Ir, J), String> {
-        if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
-        }
-        self.ir.sort_values();
-        check::finish(&mut self.ir)?;
-        Ok((self.ir, self.facts))
+    pub fn finish(self) -> Result<(Ir, J), String> {
+        sans::finish(self.phase == Phase::Done, self.ir, self.facts)
     }
 }
 

@@ -10,12 +10,12 @@
 //! tag (one record value) and the APE tag (one opaque value) at the end, and gaps for the bytes
 //! that are none of these.
 
-use crate::check;
 use crate::expr::V;
 use crate::fed::{Fed, Word};
 use crate::ir::*;
 use crate::nd2::Step;
-use crate::rules::{self, Rules, Vars, flag, num, text};
+use crate::rules::{self, Rules, flag, num, text};
+use crate::sans;
 use serde_json::{json, Value as J};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -267,10 +267,6 @@ impl Mp3 {
         self.fed.feed(offset, data);
     }
 
-    fn check(&self, role: &str, mut env: Vars<'static>) -> Res<()> {
-        self.rules.check(role, &mut env)
-    }
-
     pub fn step(&mut self) -> Result<Step, String> {
         match self.phase {
             Phase::Start => {
@@ -293,7 +289,7 @@ impl Mp3 {
         let n = self.size;
         let d = self.fed.get(0, n).ok_or("internal: the file was not read")?.to_vec();
         self.fed.clear();
-        self.check("file", rules::env([("size", num(n as f64))]))?;
+        self.rules.check("file", rules::env([("size", num(n as f64))]))?;
         // the ID3v2 tags at the front
         let mut p: u64 = 0;
         let mut id3v2 = Vec::new();
@@ -308,7 +304,7 @@ impl Mp3 {
                 (0, false, None)
             };
             let total = 10 + size + if footer { 10 } else { 0 };
-            self.check("id3v2", rules::env([
+            self.rules.check("id3v2", rules::env([
                 ("at", num(p as f64)), ("size", num(n as f64)), ("have", num(have as f64)), ("total", num(total as f64)),
                 ("syncsafe", flag(bad.is_none())), ("byte", bad.map_or(V::Absent, |k| num(d[at + 6 + k] as f64))),
             ]))?;
@@ -363,7 +359,7 @@ impl Mp3 {
                     if confirmed {
                         match stream {
                             None => {
-                                self.check("stream", rules::env([
+                                self.rules.check("stream", rules::env([
                                     ("at", num(p as f64)), ("version", text(VERSIONS[h.version as usize])),
                                     ("layer", num(h.layer as f64)), ("layer_name", text(LAYERS[h.layer as usize])),
                                 ]))?;
@@ -371,7 +367,7 @@ impl Mp3 {
                             }
                             Some(s) if !consistent => {
                                 let (what, from, to) = differs(&s, &h);
-                                self.check("frame", rules::env([
+                                self.rules.check("frame", rules::env([
                                     ("at", num(p as f64)), ("what", text(what)), ("from", text(&from)), ("to", text(&to)), ("same", flag(false)),
                                 ]))?;
                             }
@@ -396,7 +392,7 @@ impl Mp3 {
             p += 1;
             chained = false;
         }
-        self.check("audio", rules::env([("frames", num(frames.len() as f64)), ("free", free.map_or(V::Absent, |o| num(o as f64)))]))?;
+        self.rules.check("audio", rules::env([("frames", num(frames.len() as f64)), ("free", free.map_or(V::Absent, |o| num(o as f64)))]))?;
         let s = stream.ok_or("internal: no stream")?;
         // the elements, in the file's order
         let info_json = match info {
@@ -456,13 +452,8 @@ impl Mp3 {
         Ok(())
     }
 
-    pub fn finish(mut self) -> Result<(Ir, J), String> {
-        if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
-        }
-        self.ir.sort_values();
-        check::finish(&mut self.ir)?;
-        Ok((self.ir, self.facts))
+    pub fn finish(self) -> Result<(Ir, J), String> {
+        sans::finish(self.phase == Phase::Done, self.ir, self.facts)
     }
 }
 

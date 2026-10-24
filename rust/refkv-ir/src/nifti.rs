@@ -10,12 +10,12 @@
 //! `data` element) and gaps for the rest (padding, bytes the chain does not hold,
 //! bytes after the voxels).
 
-use crate::check;
 use crate::fed::{Fed, Word};
 use crate::ir::*;
 use crate::nd2::Step;
 use crate::record::{Field, Header, Num};
-use crate::rules::{self, Rules, Vars, flag, num, text};
+use crate::rules::{self, Rules, flag, num, text};
+use crate::sans;
 use serde_json::{Value as J, json};
 
 /// For tests: the payload past which an edge chunk is copied (None: MAX_PAYLOAD), of
@@ -134,10 +134,6 @@ impl Nifti {
         self.fed.feed(offset, data);
     }
 
-    fn check(&self, role: &str, mut env: Vars<'static>) -> Res<()> {
-        self.rules.check(role, &mut env)
-    }
-
     pub fn step(&mut self) -> Result<Step, String> {
         loop {
             match self.phase {
@@ -175,27 +171,27 @@ impl Nifti {
         let got = self.fed.get(0, self.size.min(552)).ok_or("internal: no header")?.to_vec();
         let version = detect(&got).ok_or("not a NIfTI-1 or NIfTI-2 single file")?;
         let length: u64 = if version == 1 { 348 } else { 540 };
-        self.check(
+        self.rules.check(
             "file",
             rules::env([("version", num(version)), ("length", num(length as f64)), ("size", num(self.size as f64))]),
         )?;
         let h = header(&got, version);
         let dim = h.values("dim");
         let n = dim[0].i();
-        self.check("dimensions", rules::env([("n", num(n as f64))]))?;
+        self.rules.check("dimensions", rules::env([("n", num(n as f64))]))?;
         let mut sizes = [1i64; 8];
         for i in 1..=n as usize {
             let d = dim[i].i();
-            self.check(
+            self.rules.check(
                 "dimension",
                 rules::env([("i", num(i as f64)), ("size", num(d as f64)), ("shown", text(&d.to_string()))]),
             )?;
             sizes[i] = d;
         }
-        self.check("unused_dimensions", rules::env([("d6", num(sizes[6] as f64)), ("d7", num(sizes[7] as f64))]))?;
+        self.rules.check("unused_dimensions", rules::env([("d6", num(sizes[6] as f64)), ("d7", num(sizes[7] as f64))]))?;
         let code = h.get("datatype").i();
         let bitpix = h.get("bitpix").i();
-        self.check("data_type", rules::env([("code", num(code as f64)), ("bitpix", num(bitpix as f64)), ("n", num(n as f64))]))?;
+        self.rules.check("data_type", rules::env([("code", num(code as f64)), ("bitpix", num(bitpix as f64)), ("n", num(n as f64))]))?;
         let spec = &self.rules.table("datatypes")[code.to_string()];
         let (bits, samples) = (spec["bits"].as_u64().unwrap_or(8), spec["samples"].as_u64().unwrap_or(1));
         let (vox, integral, shown) = match h.get("vox_offset") {
@@ -203,13 +199,13 @@ impl Nifti {
             Num::Float(v) => (v, false, py_float(v)),
             Num::Int(v) => (v as f64, true, v.to_string()),
         };
-        self.check(
+        self.rules.check(
             "voxel_offset",
             rules::env([("vox", num(vox)), ("integral", flag(integral)), ("shown", text(&shown)), ("length", num(length as f64))]),
         )?;
         let vox = vox as u64;
         let total = sizes[1..6].iter().fold(bits as u128 / 8, |a, &s| a.saturating_mul(s as u128));
-        self.check(
+        self.rules.check(
             "voxel_data",
             rules::env([
                 ("total", num(total as f64)),
@@ -271,13 +267,8 @@ impl Nifti {
         Ok(())
     }
 
-    pub fn finish(mut self) -> Result<(Ir, J), String> {
-        if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
-        }
-        self.ir.sort_values();
-        check::finish(&mut self.ir)?;
-        Ok((self.ir, self.facts))
+    pub fn finish(self) -> Result<(Ir, J), String> {
+        sans::finish(self.phase == Phase::Done, self.ir, self.facts)
     }
 }
 

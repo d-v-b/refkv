@@ -12,12 +12,12 @@
 //! and the heap in chunks of tiles) and its padding, and a gap for any bytes after the last
 //! HDU (special records).
 
-use crate::check;
 use crate::expr::V;
 use crate::fed::{Fed, Overlap, Word};
 use crate::ir::*;
 use crate::nd2::Step;
-use crate::rules::{self, Rules, Vars, flag, num, text};
+use crate::rules::{self, Rules, flag, num, text};
+use crate::sans;
 use serde_json::{json, Value as J};
 
 /// A FITS block, and a card.
@@ -408,10 +408,6 @@ impl Fits {
         self.fed.feed(offset, data);
     }
 
-    fn check(&self, role: &str, mut env: Vars<'static>) -> Res<()> {
-        self.rules.check(role, &mut env)
-    }
-
     fn limit(&self, name: &str) -> u64 {
         self.rules.limit(name) as u64
     }
@@ -456,7 +452,7 @@ impl Fits {
                         if !detect(self.fed.from(self.offset)) {
                             return Err("not a FITS file".into());
                         }
-                        self.check("file", rules::env([("size", num(self.size as f64))]))?;
+                        self.rules.check("file", rules::env([("size", num(self.size as f64))]))?;
                     } else if &self.fed.from(self.offset)[..9] != b"XTENSION=" {
                         // not an extension: special records, a gap
                         self.phase = Phase::Done;
@@ -476,7 +472,7 @@ impl Fits {
                             if have < limit {
                                 return Ok(Step::Read(vec![(self.offset + have, (limit - have).min(WINDOW))]));
                             }
-                            self.check(
+                            self.rules.check(
                                 "header_end",
                                 rules::env([("hdu", num(self.index as f64)), ("offset", num(self.offset as f64)), ("scanned", num(limit as f64)), ("found", flag(false))]),
                             )?;
@@ -497,7 +493,7 @@ impl Fits {
         while (k + 1) * CARD <= buf.len() {
             let rec = &buf[k * CARD..(k + 1) * CARD];
             if let Some(at) = rec.iter().position(|&b| !(32..=126).contains(&b)) {
-                self.check(
+                self.rules.check(
                     "card_text",
                     rules::env([
                         ("hdu", num(self.index as f64)),
@@ -518,7 +514,7 @@ impl Fits {
 
     fn mandatory(&self, cards: &[Card], position: usize, expected: &str) -> Res<()> {
         let keyword = cards.get(position).map_or("END", |c| c.keyword.as_str());
-        self.check(
+        self.rules.check(
             "mandatory",
             rules::env([("hdu", num(self.index as f64)), ("position", num(position as f64)), ("keyword", text(keyword)), ("expected", text(expected))]),
         )
@@ -535,7 +531,7 @@ impl Fits {
             Value::Int(n) => (true, n.to_string()),
             other => (false, value_text(other)),
         };
-        self.check(
+        self.rules.check(
             "integer_card",
             rules::env([("hdu", num(self.index as f64)), ("keyword", text(&c.keyword)), ("value", text(&shown)), ("is_int", flag(is_int))]),
         )?;
@@ -567,13 +563,13 @@ impl Fits {
         let primary = self.index == 0;
         self.mandatory(&cards, 0, if primary { "SIMPLE" } else { "XTENSION" })?;
         let bitpix = self.mandatory_int(&cards, 1, "BITPIX")?;
-        self.check("bitpix", rules::env([("hdu", num(hdu)), ("value", num(bitpix as f64))]))?;
+        self.rules.check("bitpix", rules::env([("hdu", num(hdu)), ("value", num(bitpix as f64))]))?;
         let naxis = self.mandatory_int(&cards, 2, "NAXIS")?;
-        self.check("naxis", rules::env([("hdu", num(hdu)), ("value", num(naxis as f64))]))?;
+        self.rules.check("naxis", rules::env([("hdu", num(hdu)), ("value", num(naxis as f64))]))?;
         let mut axes = Vec::with_capacity(naxis as usize);
         for n in 1..=naxis as usize {
             let v = self.mandatory_int(&cards, 2 + n, &format!("NAXIS{n}"))?;
-            self.check("naxisn", rules::env([("hdu", num(hdu)), ("n", num(n as f64)), ("value", num(v as f64))]))?;
+            self.rules.check("naxisn", rules::env([("hdu", num(hdu)), ("n", num(n as f64)), ("value", num(v as f64))]))?;
             axes.push(v as u64);
         }
         let (xtension, kind) = if primary {
@@ -593,12 +589,12 @@ impl Fits {
             (0i128, 1i128)
         } else {
             let p = self.mandatory_int(&cards, after, "PCOUNT")?;
-            self.check("pcount", rules::env([("hdu", num(hdu)), ("value", num(p as f64))]))?;
+            self.rules.check("pcount", rules::env([("hdu", num(hdu)), ("value", num(p as f64))]))?;
             let g = self.mandatory_int(&cards, after + 1, "GCOUNT")?;
-            self.check("gcount", rules::env([("hdu", num(hdu)), ("value", num(g as f64))]))?;
+            self.rules.check("gcount", rules::env([("hdu", num(hdu)), ("value", num(g as f64))]))?;
             (p, g)
         };
-        self.check("groups", rules::env([("hdu", num(hdu)), ("groups", flag(Self::is_true(&cards, "GROUPS")))]))?;
+        self.rules.check("groups", rules::env([("hdu", num(hdu)), ("groups", flag(Self::is_true(&cards, "GROUPS")))]))?;
         // the data's size, exactly (FITS Standard 4.0, sections 4.4.1.1 and 7.1.1)
         let spec = &self.rules.table("data_types")[bitpix.to_string()];
         let item = spec["bytes"].as_u64().unwrap_or(1) as u128;
@@ -609,7 +605,7 @@ impl Fits {
             item.saturating_mul(gcount as u128).saturating_mul((pcount as u128).saturating_add(prod))
         };
         let data_offset = self.offset + header_bytes;
-        self.check(
+        self.rules.check(
             "data_size",
             rules::env([
                 ("hdu", num(hdu)),
@@ -626,14 +622,14 @@ impl Fits {
         let mut comp: Option<Comp> = None;
         if kind == "table" {
             let tfields = self.mandatory_int(&cards, after + 2, "TFIELDS")?;
-            self.check(
+            self.rules.check(
                 "table",
                 rules::env([("hdu", num(hdu)), ("xtension", text(&xtension)), ("bitpix", num(bitpix as f64)), ("naxis", num(naxis as f64)), ("tfields", num(tfields as f64))]),
             )?;
             let mut forms = Vec::with_capacity(tfields as usize);
             for n in 1..=tfields {
                 let c = card(&cards, &format!("TFORM{n}"));
-                self.check("tform", rules::env([("hdu", num(hdu)), ("n", num(n as f64)), ("found", flag(c.is_some()))]))?;
+                self.rules.check("tform", rules::env([("hdu", num(hdu)), ("n", num(n as f64)), ("found", flag(c.is_some()))]))?;
                 forms.push(str_of(c.unwrap()));
             }
             let rows = axes[0] * axes[1];
@@ -641,12 +637,12 @@ impl Fits {
                 Some(c) => self.int_of(c)?,
                 None => rows as i128,
             };
-            self.check("heap", rules::env([("hdu", num(hdu)), ("theap", num(theap as f64)), ("rows", num(rows as f64)), ("pcount", num(pcount as f64))]))?;
-            self.check("ztable", rules::env([("hdu", num(hdu)), ("ztable", flag(Self::is_true(&cards, "ZTABLE")))]))?;
+            self.rules.check("heap", rules::env([("hdu", num(hdu)), ("theap", num(theap as f64)), ("rows", num(rows as f64)), ("pcount", num(pcount as f64))]))?;
+            self.rules.check("ztable", rules::env([("hdu", num(hdu)), ("ztable", flag(Self::is_true(&cards, "ZTABLE")))]))?;
             let gap = theap as u64 - rows;
             table = json!({"tfields": tfields, "tform": forms, "row_bytes": axes[0], "rows": axes[1], "theap": theap, "gap": gap, "heap": total - rows - gap});
             if xtension == "BINTABLE" && Self::is_true(&cards, "ZIMAGE") {
-                self.check("table_size", rules::env([("hdu", num(hdu)), ("bytes", num(rows as f64))]))?;
+                self.rules.check("table_size", rules::env([("hdu", num(hdu)), ("bytes", num(rows as f64))]))?;
                 comp = Some(self.compressed(&cards, &forms, axes[1])?);
             }
         }
@@ -731,7 +727,7 @@ impl Fits {
         if padded_end >= self.size && self.pending.is_none() {
             self.phase = Phase::Done;
         } else if padded_end < self.size {
-            self.check("hdu_count", rules::env([("count", num(self.index as f64 + 1.0))]))?;
+            self.rules.check("hdu_count", rules::env([("count", num(self.index as f64 + 1.0))]))?;
         }
         Ok(())
     }
@@ -748,16 +744,16 @@ impl Fits {
             _ => return Err("internal: no codec".into()),
         };
         let zbitpix = self.opt_int(cards, "ZBITPIX")?.unwrap_or(0);
-        self.check("zbitpix", rules::env([("hdu", num(hdu)), ("value", num(zbitpix as f64))]))?;
+        self.rules.check("zbitpix", rules::env([("hdu", num(hdu)), ("value", num(zbitpix as f64))]))?;
         let spec = &self.rules.table("data_types")[zbitpix.to_string()];
         let znaxis = self.opt_int(cards, "ZNAXIS")?.unwrap_or(0);
-        self.check("znaxis", rules::env([("hdu", num(hdu)), ("value", num(znaxis as f64))]))?;
+        self.rules.check("znaxis", rules::env([("hdu", num(hdu)), ("value", num(znaxis as f64))]))?;
         let (mut shape_fits, mut tile_fits) = (Vec::new(), Vec::new());
         for n in 1..=znaxis as usize {
             let size = self.opt_int(cards, &format!("ZNAXIS{n}"))?.unwrap_or(-1);
-            self.check("znaxisn", rules::env([("hdu", num(hdu)), ("n", num(n as f64)), ("value", num(size as f64))]))?;
+            self.rules.check("znaxisn", rules::env([("hdu", num(hdu)), ("n", num(n as f64)), ("value", num(size as f64))]))?;
             let tile = self.opt_int(cards, &format!("ZTILE{n}"))?.unwrap_or(if n == 1 { size } else { 1 });
-            self.check("ztile", rules::env([("hdu", num(hdu)), ("n", num(n as f64)), ("value", num(tile as f64)), ("size", num(size as f64))]))?;
+            self.rules.check("ztile", rules::env([("hdu", num(hdu)), ("n", num(n as f64)), ("value", num(tile as f64)), ("size", num(size as f64))]))?;
             shape_fits.push(size as u64);
             tile_fits.push(tile as u64);
         }
@@ -771,7 +767,7 @@ impl Fits {
             }
         }
         if codec == "RICE_1" {
-            self.check("rice", rules::env([("hdu", num(hdu)), ("blocksize", num(blocksize as f64)), ("bytepix", num(bytepix as f64))]))?;
+            self.rules.check("rice", rules::env([("hdu", num(hdu)), ("blocksize", num(blocksize as f64)), ("bytepix", num(bytepix as f64))]))?;
         }
         let quantize = card(cards, "ZQUANTIZ").map(str_of).unwrap_or_else(|| "NO_DITHER".into());
         let mut env = rules::env([("hdu", num(hdu)), ("name", text(&quantize))]);
@@ -779,7 +775,7 @@ impl Fits {
         let dithered = matches!(env.0.iter().find(|(k, _)| *k == "method").map(|(_, v)| v.clone()), Some(V::Num(m)) if m > 0.0);
         let dither_seed = if dithered {
             let v = self.opt_int(cards, "ZDITHER0")?;
-            self.check("zdither0", rules::env([("hdu", num(hdu)), ("name", text(&quantize)), ("found", flag(v.is_some())), ("value", num(v.unwrap_or(0) as f64))]))?;
+            self.rules.check("zdither0", rules::env([("hdu", num(hdu)), ("name", text(&quantize)), ("found", flag(v.is_some())), ("value", num(v.unwrap_or(0) as f64))]))?;
             v.map(|v| v as i64)
         } else {
             None
@@ -811,7 +807,7 @@ impl Fits {
                 "ZBLANK" => (form.trim_start_matches('1') == "J", 4),
                 _ => (true, 0),
             };
-            self.check(
+            self.rules.check(
                 "tile_column",
                 rules::env([
                     ("hdu", num(hdu)),
@@ -834,7 +830,7 @@ impl Fits {
             at += width;
         }
         columns.row_bytes = at;
-        self.check(
+        self.rules.check(
             "tile_columns",
             rules::env([
                 ("hdu", num(hdu)),
@@ -846,7 +842,7 @@ impl Fits {
         let shape: Vec<u64> = shape_fits.iter().rev().copied().collect();
         let tile: Vec<u64> = tile_fits.iter().rev().copied().collect();
         let tiles: u64 = (0..shape.len()).map(|j| shape[j].div_ceil(tile[j].max(1))).product();
-        self.check("tile_count", rules::env([("hdu", num(hdu)), ("rows", num(rows as f64)), ("tiles", num(tiles as f64))]))?;
+        self.rules.check("tile_count", rules::env([("hdu", num(hdu)), ("rows", num(rows as f64)), ("tiles", num(tiles as f64))]))?;
         Ok(Comp {
             codec,
             zbitpix: zbitpix as i64,
@@ -911,18 +907,18 @@ impl Fits {
             let (n, o) = read(at as usize, q, r);
             let gz = c.columns.gzip.map(|(at, q)| read(at as usize, q, r));
             let both = n != 0 && gz.is_some_and(|(gn, _)| gn != 0);
-            self.check("tile_one", rules::env([("hdu", num(hdu)), ("tile", num(r as f64)), ("both", flag(both))]))?;
+            self.rules.check("tile_one", rules::env([("hdu", num(hdu)), ("tile", num(r as f64)), ("both", flag(both))]))?;
             let (n, o) = if n != 0 { (n, o) } else { gz.filter(|(gn, _)| *gn != 0).unwrap_or((0, 0)) };
             if n == 0 {
                 tiles.push(None);
                 continue;
             }
-            self.check(
+            self.rules.check(
                 "tile_descriptor",
                 rules::env([("hdu", num(hdu)), ("tile", num(r as f64)), ("offset", num(o as f64)), ("length", num(n as f64)), ("heap", num(p.heap as f64))]),
             )?;
             if tiles.iter().any(|t| t.is_some()) {
-                self.check(
+                self.rules.check(
                     "tile_order",
                     rules::env([("hdu", num(hdu)), ("tile", num(r as f64)), ("offset", num(o as f64)), ("previous", num(previous as f64)), ("end", num(end as f64))]),
                 )?;
@@ -969,14 +965,9 @@ impl Fits {
         Ok(())
     }
 
-    pub fn finish(mut self) -> Result<(Ir, J), String> {
-        if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
-        }
-        self.ir.sort_values();
-        check::finish(&mut self.ir)?;
+    pub fn finish(self) -> Result<(Ir, J), String> {
         let facts = json!({"hdus": self.hdus, "copy_threshold": crate::out::copy_threshold()});
-        Ok((self.ir, facts))
+        sans::finish(self.phase == Phase::Done, self.ir, facts)
     }
 }
 

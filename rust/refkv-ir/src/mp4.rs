@@ -10,12 +10,12 @@
 //! is gaps. The schema (`schema/mp4.json`) holds the checks that reject a file; whether a
 //! track is virtualized is decided here, and recorded with the reason when it is not.
 
-use crate::check;
 use crate::expr::V;
 use crate::fed::{Fed, Word, uint};
 use crate::ir::*;
 use crate::nd2::Step;
-use crate::rules::{self, Rules, Vars, flag, num, text};
+use crate::rules::{self, Rules, flag, num, text};
+use crate::sans;
 use serde_json::{json, Value as J};
 
 /// The first read, and the most bytes of a moov box (the schema's `max_moov`).
@@ -169,14 +169,10 @@ impl Mp4 {
         self.fed.feed(offset, data);
     }
 
-    fn check(&self, role: &str, mut env: Vars<'static>) -> Res<()> {
-        self.rules.check(role, &mut env)
-    }
-
     pub fn step(&mut self) -> Result<Step, String> {
         match self.phase {
             Phase::Start => {
-                self.check("file", rules::env([("size", num(self.size as f64))]))?;
+                self.rules.check("file", rules::env([("size", num(self.size as f64))]))?;
                 self.phase = Phase::Walk;
                 Ok(Step::Read(vec![(0, self.size.min(HEAD))]))
             }
@@ -202,11 +198,11 @@ impl Mp4 {
             let b = header(h, self.p, self.size).ok_or("internal: no box header")?;
             self.check_box(&b, self.size)?;
             if &b.typ == b"moof" {
-                self.check("fragment", rules::env([("type", text("moof")), ("at", num(b.at as f64)), ("seen", flag(false))]))?;
+                self.rules.check("fragment", rules::env([("type", text("moof")), ("at", num(b.at as f64)), ("seen", flag(false))]))?;
             }
             if &b.typ == b"moov" {
                 let moovs = self.tops.iter().filter(|t| &t.typ == b"moov").count() + 1;
-                self.check("movie", rules::env([
+                self.rules.check("movie", rules::env([
                     ("moovs", num(moovs as f64)), ("second", if moovs > 1 { num(b.at as f64) } else { V::Absent }),
                     ("size", num(b.size as f64)),
                 ]))?;
@@ -225,12 +221,12 @@ impl Mp4 {
             self.p = b.end();
         }
         let moovs = self.tops.iter().filter(|t| &t.typ == b"moov").count();
-        self.check("movie", rules::env([("moovs", num(moovs as f64)), ("second", V::Absent), ("size", num(0.0))]))?;
+        self.rules.check("movie", rules::env([("moovs", num(moovs as f64)), ("second", V::Absent), ("size", num(0.0))]))?;
         Ok(None)
     }
 
     fn check_box(&self, b: &BoxRef, end: u64) -> Res<()> {
-        self.check("box", rules::env([
+        self.rules.check("box", rules::env([
             ("type", text(&type_text(&b.typ))), ("at", num(b.at as f64)), ("size", num(b.size as f64)),
             ("head", num(b.head as f64)), ("end", num(end as f64)),
         ]))
@@ -335,7 +331,7 @@ impl Mp4 {
                 }
             }
             b"mvex" => {
-                self.check("fragment", rules::env([("type", text("mvex")), ("at", num(b.at as f64)), ("seen", flag(false))]))?;
+                self.rules.check("fragment", rules::env([("type", text("mvex")), ("at", num(b.at as f64)), ("seen", flag(false))]))?;
             }
             b"mvhd" | b"tkhd" | b"mdhd" => {
                 let v1 = n > 0 && body[0] == 1;
@@ -381,12 +377,12 @@ impl Mp4 {
             }
             b"elst" | b"stts" | b"ctts" | b"stsc" | b"stco" | b"co64" | b"stss" => self.table(s, b, m, base)?,
             b"stsz" => {
-                self.check("fields", rules::env([("type", text("stsz")), ("at", num(b.at as f64)), ("need", num(12.0)), ("have", num(n as f64))]))?;
+                self.rules.check("fields", rules::env([("type", text("stsz")), ("at", num(b.at as f64)), ("need", num(12.0)), ("have", num(n as f64))]))?;
                 self.ir.value(s, "fields", NO_INDEX, "{version:u1,flags:u1[3],sample_size:>u4,sample_count:>u4}", 0, (b.body(), 12), Some(&body[..12]))?;
                 let (fixed, count) = (uint(body, 4, 4, false), uint(body, 8, 4, false));
                 let mut end = b.body() + 12;
                 if fixed == 0 {
-                    self.check("table", rules::env([
+                    self.rules.check("table", rules::env([
                         ("type", text("stsz")), ("at", num(b.at as f64)), ("count", num(count as f64)), ("width", num(4.0)), ("have", num((n - 12) as f64)),
                     ]))?;
                     if count > 0 {
@@ -411,7 +407,7 @@ impl Mp4 {
                 self.opaque(s, b, body)?;
             }
             b"stsd" => {
-                self.check("fields", rules::env([("type", text("stsd")), ("at", num(b.at as f64)), ("need", num(8.0)), ("have", num(n as f64))]))?;
+                self.rules.check("fields", rules::env([("type", text("stsd")), ("at", num(b.at as f64)), ("need", num(8.0)), ("have", num(n as f64))]))?;
                 self.ir.value(s, "fields", NO_INDEX, FULL, 0, (b.body(), 8), Some(&body[..8]))?;
                 let handler = self.cur.as_ref().map(|t| t.handler).unwrap_or(*b"    ");
                 if let Some(t) = self.cur.as_mut() {
@@ -442,7 +438,7 @@ impl Mp4 {
         let body = &m[(b.body() - base) as usize..(b.end() - base) as usize];
         let n = body.len() as u64;
         let t = type_text(&b.typ);
-        self.check("fields", rules::env([("type", text(&t)), ("at", num(b.at as f64)), ("need", num(8.0)), ("have", num(n as f64))]))?;
+        self.rules.check("fields", rules::env([("type", text(&t)), ("at", num(b.at as f64)), ("need", num(8.0)), ("have", num(n as f64))]))?;
         let (version, count) = (body[0], uint(body, 4, 4, false));
         let (ty, width): (&str, u64) = match (&b.typ, version) {
             (b"elst", 1) => ("{segment_duration:>u8,media_time:>i8,media_rate:>i2,media_rate_fraction:>i2}", 20),
@@ -454,7 +450,7 @@ impl Mp4 {
             (b"co64", _) => (">u8", 8),
             _ => (">u4", 4),
         };
-        self.check("table", rules::env([
+        self.rules.check("table", rules::env([
             ("type", text(&t)), ("at", num(b.at as f64)), ("count", num(count as f64)), ("width", num(width as f64)), ("have", num((n - 8) as f64)),
         ]))?;
         self.ir.value(s, "fields", NO_INDEX, FULL, 0, (b.body(), 8), Some(&body[..8]))?;
@@ -570,7 +566,7 @@ impl Mp4 {
                 }).to_string();
                 let mut first = None;
                 for (j, (&o, &n)) in offsets.iter().zip(&sizes).enumerate() {
-                    self.check("sample", rules::env([
+                    self.rules.check("sample", rules::env([
                         ("track", num(t.id as f64)), ("j", num(j as f64)), ("offset", num(o as f64)), ("length", num(n as f64)), ("size", num(self.size as f64)),
                     ]))?;
                     let i = self.ir.data(ts, "", j as u64, 0, (o, n), &form)?;
@@ -585,7 +581,7 @@ impl Mp4 {
             }
             facts.push(f);
         }
-        self.check("tracks", rules::env([("projected", num(projected as f64)), ("reasons", text(&reasons.join("; ")))]))?;
+        self.rules.check("tracks", rules::env([("projected", num(projected as f64)), ("reasons", text(&reasons.join("; ")))]))?;
         let brand = self.ftyp.as_ref().filter(|f| f.len() >= 16).map(|f| {
             let head = if uint(f, 0, 4, false) == 1 { 16 } else { 8 };
             let body = &f[head..];
@@ -611,20 +607,20 @@ impl Mp4 {
             Some((_, count)) => count,
             None => t.sizes.len() as u64,
         };
-        self.check("samples", rules::env([("track", num(t.id as f64)), ("n", num(n as f64))]))?;
+        self.rules.check("samples", rules::env([("track", num(t.id as f64)), ("n", num(n as f64))]))?;
         let size_of = |j: u64| match t.fixed_size {
             Some((s, _)) => s,
             None => t.sizes[j as usize],
         };
         let counts = |what: &'static str, m: u64| {
-            self.check("counts", rules::env([("track", num(t.id as f64)), ("what", text(what)), ("n", num(n as f64)), ("m", num(m as f64))]))
+            self.rules.check("counts", rules::env([("track", num(t.id as f64)), ("what", text(what)), ("n", num(n as f64)), ("m", num(m as f64))]))
         };
         counts("stts box", t.stts.iter().map(|e| e.0).sum())?;
         if !t.ctts.is_empty() {
             counts("ctts box", t.ctts.iter().map(|e| e.0).sum())?;
         }
         let chunks = t.offsets.len() as u64;
-        let bad = |detail: String| self.check("chunks", rules::env([("track", num(t.id as f64)), ("ok", flag(false)), ("detail", text(&detail))]));
+        let bad = |detail: String| self.rules.check("chunks", rules::env([("track", num(t.id as f64)), ("ok", flag(false)), ("detail", text(&detail))]));
         if n > 0 && t.stsc.is_empty() {
             bad("is empty".into())?;
         }
@@ -759,13 +755,8 @@ impl Mp4 {
         f
     }
 
-    pub fn finish(mut self) -> Result<(Ir, J), String> {
-        if self.phase != Phase::Done {
-            return Err("internal: the parse is not done".into());
-        }
-        self.ir.sort_values();
-        check::finish(&mut self.ir)?;
-        Ok((self.ir, self.facts))
+    pub fn finish(self) -> Result<(Ir, J), String> {
+        sans::finish(self.phase == Phase::Done, self.ir, self.facts)
     }
 }
 
