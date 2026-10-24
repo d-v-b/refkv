@@ -536,6 +536,40 @@ pub fn metadata_array(out: &mut Out, path: &str, data_type: &str, shape: &[u64],
     }
 }
 
+/// The gzip level of the chunks a projection writes deflated (conventions §9
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>).
+pub const GZIP_LEVEL: u8 = 6;
+
+/// `raw` as a gzip member (RFC 1952): a header with no name, time or extra field, the
+/// deflate stream at `GZIP_LEVEL`, the CRC-32 and the length.
+pub fn gzip(raw: &[u8]) -> Vec<u8> {
+    let mut out = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255];
+    out.extend(miniz_oxide::deflate::compress_to_vec(raw, GZIP_LEVEL));
+    out.extend_from_slice(&crate::safe::zip::crc32(raw).to_le_bytes());
+    out.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+    out
+}
+
+/// A 1-D array of `n` (≥ 1) values the archive holds whole (MRC's coordinates, MP4's times;
+/// conventions §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>):
+/// its zarr.json at `path`, with the dimension `dim`, `attributes`, and the codecs `filters`,
+/// then `bytes` (little-endian) and gzip; in chunks of `c` = min(n, `limit`) values, the q-th
+/// `raw(q, c)` (its values, padded to `c` by the caller) as gzip.
+#[allow(clippy::too_many_arguments)]
+pub fn gzip_array(out: &mut Out, path: &str, data_type: &str, n: u64, limit: u64, dim: &str, filters: Vec<J>, attributes: J,
+                  raw: impl Fn(u64, u64) -> Vec<u8>) {
+    let c = n.min(limit);
+    let mut codecs = filters;
+    codecs.push(json!({"name": "bytes", "configuration": {"endian": "little"}}));
+    codecs.push(json!({"name": "gzip", "configuration": {"level": GZIP_LEVEL}}));
+    let mut doc = array_json(&[n], data_type, json!([c]), J::Array(codecs), &[dim]);
+    doc["attributes"] = attributes;
+    out.json(&format!("{path}/zarr.json"), &doc);
+    for q in 0..n.div_ceil(c) {
+        out.bytes(&format!("{path}/c/{q}"), gzip(&raw(q, c)));
+    }
+}
+
 /// `v` as a protobuf varint: 7 bits a byte, least significant first, the high bit set on every
 /// byte but the last.
 pub fn varint(out: &mut Vec<u8>, mut v: u64) {

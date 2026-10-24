@@ -6,10 +6,9 @@
 //! `refkv.stream` chunk of the track's samples (spec/virtualize/mp4.md §8.3
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#83-chunks>).
 
-use super::mrc::gzip;
-use super::{arr, n, Copied};
+use super::{arr, audio, n, Copied};
 use crate::ir::Ir;
-use crate::out::{array_json, declare, group_doc, stream_parts, Out};
+use crate::out::{array_json, declare, group_doc, gzip_array, stream_parts, Out};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -55,13 +54,7 @@ pub fn audio_lead(a: usize, format: &str, sizes: &[u64]) -> usize {
     if format == "aac" {
         return a - 1;
     }
-    let mut l = a.saturating_sub(2);
-    let mut have = 0;
-    while l > 0 && have < MP3_RESERVOIR {
-        l -= 1;
-        have += sizes[l].saturating_sub(MP3_OVERHEAD);
-    }
-    l
+    audio::reservoir_lead(a, MP3_RESERVOIR, |l| sizes[l].saturating_sub(MP3_OVERHEAD))
 }
 
 fn stream_codec(format: &str, setup: &J, plane: Option<&str>) -> J {
@@ -166,14 +159,12 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
             }
             // the presentation times, in the track's timescale, delta-free little-endian int64
             // deflated (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#41-video-tracks>)
-            let tc = (count as u64).min(TIME_CHUNK);
-            let codecs = json!([{"name": "bytes", "configuration": {"endian": "little"}}, {"name": "gzip", "configuration": {"level": 6}}]);
-            refs.out.json(&format!("{dir}/time/zarr.json"), &array_json(&[count as u64], "int64", json!([tc]), codecs, &["time"]));
-            for (q, run) in order.chunks(tc as usize).enumerate() {
-                let mut raw: Vec<u8> = run.iter().flat_map(|&d| pts[d].to_le_bytes()).collect();
-                raw.resize(tc as usize * 8, 0);
-                refs.out.bytes(&format!("{dir}/time/c/{q}"), gzip(&raw));
-            }
+            gzip_array(&mut refs.out, &format!("{dir}/time"), "int64", count as u64, TIME_CHUNK, "time", vec![], json!({}), |q, c| {
+                let (from, to) = ((q * c) as usize, (((q + 1) * c) as usize).min(count));
+                let mut raw: Vec<u8> = order[from..to].iter().flat_map(|&d| pts[d].to_le_bytes()).collect();
+                raw.resize(c as usize * 8, 0);
+                raw
+            });
         } else {
             // the samples (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#42-audio-tracks>)
             let (spf, channels) = (n(&t["spf"]), n(&t["channels"]));
@@ -182,17 +173,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
             let doc = array_json(&[count as u64 * spf, channels], "float32", json!([chunk * spf, channels]), stream_codec(format, &t["setup"], None), &["time", "channel"]);
             refs.out.json(&format!("{dir}/samples/zarr.json"), &doc);
             let sizes: Vec<u64> = (0..count).map(|j| sample(j).1).collect();
-            chunks = (count as u64).div_ceil(chunk) as usize;
-            for q in 0..chunks {
-                let a = q * chunk as usize;
-                let b = (a + chunk as usize).min(count);
-                let l = audio_lead(a, format, &sizes);
-                let units: Vec<(u64, u64, i64)> = (l..b)
-                    .map(|j| { let (o, len) = sample(j); (o, len, if j < a { -1 } else { ((j - a) as u64 * spf) as i64 }) })
-                    .collect();
-                let (o, len) = sample(a);
-                refs.chunk(format!("{dir}/samples/c/{q}/0"), o, len, form, Some(stream_parts(&units)), q as u64)?;
-            }
+            chunks = audio::chunks(&mut refs, ir, &format!("{dir}/samples"), first, count, chunk as usize, spf, form, |a| audio_lead(a, format, &sizes))?;
         }
         summary.push(json!({"id": id, "format": format, "path": dir, "frames": count, "chunkFrames": chunk, "chunks": chunks}));
     }
