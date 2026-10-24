@@ -11,10 +11,9 @@ import json
 import zipfile
 from pathlib import Path
 
-import pytest
 from refkv import _core
 
-from refkv.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
+from refkv.virtualize import _virtualize as virtualize  # the profile output, not the store
 from refkv.virtualize.common import declare
 from refkv.virtualize.store import object_url
 
@@ -209,52 +208,6 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     out.write(str(archive))
     with zipfile.ZipFile(archive) as z:
         assert b'"fill_value":9007199254740993' in z.read("h/zarr.json")
-
-
-@pytest.mark.parametrize("name,message", [
-    ("zarr2_reject_filters", "filters"),
-    ("zarr2_reject_compressor_lz4", "compressor lz4"),
-    ("zarr2_reject_compressor_bz2", "compressor bz2"),
-    ("zarr2_reject_compressor_no_id", "string id"),
-    ("zarr2_reject_blosc_cname", "cname snappy2"),
-    ("zarr2_reject_blosc_shuffle", "shuffle 3"),
-    ("zarr2_reject_blosc_clevel", "clevel none"),
-    ("zarr2_reject_dtype_unicode", "dtype <U4"),
-    ("zarr2_reject_dtype_bytes", "dtype \\|S8"),
-    ("zarr2_reject_dtype_object", "dtype \\|O"),
-    ("zarr2_reject_dtype_complex", "dtype <c8"),
-    ("zarr2_reject_dtype_datetime", "dtype <M8"),
-    ("zarr2_reject_dtype_structured", "dtype \\[\\[a"),
-    ("zarr2_reject_dtype_no_byteorder", "dtype \\|u2 is not supported"),
-    ("zarr2_reject_order", "order A"),
-    ("zarr2_reject_order_missing", "order none"),
-    ("zarr2_reject_fill_out_of_range", "fill_value 300"),
-    ("zarr2_reject_fill_bool_int", "fill_value 1 is not a bool"),
-    ("zarr2_reject_fill_fraction_int", "fill_value 0.5"),
-    ("zarr2_reject_fill_string_int", "fill_value NaN is not a uint16"),
-    ("zarr2_reject_fill_uint64_max", "is not a uint64"),
-    ("zarr2_reject_fill_f4_overflow", "is not a float32"),
-    ("zarr2_reject_fill_base64", "is not a float64"),
-    ("zarr2_reject_separator", "dimension_separator -"),
-    ("zarr2_reject_zarr_format_3", "zarr_format is not 2"),
-    ("zarr2_reject_shape_chunks_mismatch", "chunks \\[2\\]"),
-    ("zarr2_reject_chunks_zero", "chunks \\[2, 0\\]"),
-    ("zarr2_reject_shape_negative", "shape \\[4, -4\\]"),
-    ("zarr2_reject_json_nan_literal", "literal NaN"),
-    ("zarr2_reject_json_duplicate_last_wins", "order K"),
-    ("zarr2_reject_zarray_and_zgroup", "both .zarray and .zgroup"),
-    ("zarr2_reject_zattrs_not_object", "x/.zattrs is not a JSON object"),
-    ("zarr2_reject_zgroup_format", ".zgroup: zarr_format is not 2"),
-    ("zarr2_reject_no_root_metadata", "not an N5, Zarr v2 or SAFE store"),
-    ("zarr2_reject_zlib_level", "zlib level 10"),
-    ("zarr2_reject_gzip_level", "gzip level 1 is not an integer"),
-    ("zarr2_reject_zstd_level", "zstd level 23"),
-    ("zarr2_reject_zstd_checksum", "zstd checksum 1"),
-    ("zarr2_reject_objects_collision", "the node refkv_source is where"),
-])
-def test_rejects(name, message):
-    with pytest.raises(Rejected, match=message):
-        virtualize(str(FIXTURES / name), url=URL.format(name))
 
 
 def test_root_array_keeps_other_objects_without_a_group(tmp_path):

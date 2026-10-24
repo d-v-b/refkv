@@ -3,29 +3,18 @@
 
 mod common;
 
-use common::{fixtures, rebuilt, reject};
+use common::{fixtures, rebuilt};
 use refkv_ir::check;
 use refkv_ir::ims::Ims;
 
 // one test per rejected fixture, each the message its check gives
-reject!(ims_reject_chunk_mismatch, Ims, "ims/ims_reject_chunk_mismatch.ims", "the datasets of level 0 differ in size, chunk shape or filters");
-reject!(ims_reject_contiguous, Ims, "ims/ims_reject_contiguous.ims", "dataset layout class 1 is not chunked");
-reject!(ims_reject_dtype_mismatch, Ims, "ims/ims_reject_dtype_mismatch.ims", "the datasets have different data types");
-reject!(ims_reject_fill_value, Ims, "ims/ims_reject_fill_value.ims", "the fill value is not zero");
-reject!(ims_reject_fletcher32, Ims, "ims/ims_reject_fletcher32.ims", "unsupported HDF5 filters [3]");
-reject!(ims_reject_float64, Ims, "ims/ims_reject_float64.ims", "unsupported HDF5 datatype (class 1, 8 bytes)");
-reject!(ims_reject_image_larger, Ims, "ims/ims_reject_image_larger.ims", "the image of level 0 is larger than its dataset");
-reject!(ims_reject_imagesize_text, Ims, "ims/ims_reject_imagesize_text.ims", "ImageSizeX of level 0 is not a positive integer");
-reject!(ims_reject_imagesize_vlen, Ims, "ims/ims_reject_imagesize_vlen.ims", "attribute ImageSizeX is not a string");
-reject!(ims_reject_missing_channel, Ims, "ims/ims_reject_missing_channel.ims", "no Channel 1");
-reject!(ims_reject_not_imaris, Ims, "ims/ims_reject_not_imaris.ims", "not an Imaris file (no DataSet group)");
-reject!(ims_reject_offset_size, Ims, "ims/ims_reject_offset_size.ims", "HDF5 offsets and lengths of 4 and 8 bytes are not supported");
-reject!(ims_reject_rank, Ims, "ims/ims_reject_rank.ims", "a dataset of level 0 is not 3-dimensional");
-reject!(ims_reject_raw_edges_image, Ims, "ims/ims_reject_raw_edges_image.ims", "a chunk's filter mask is not 0");
-reject!(ims_reject_relative_soft_link, Ims, "ims/ims_reject_relative_soft_link.ims", "soft link \"Data\" to a relative path");
-reject!(ims_reject_shuffle, Ims, "ims/ims_reject_shuffle.ims", "unsupported HDF5 filters [2, 1]");
-reject!(ims_reject_size_mismatch, Ims, "ims/ims_reject_size_mismatch.ims", "the datasets of level 0 differ in size, chunk shape or filters");
-reject!(ims_reject_z_levels, Ims, "ims/ims_reject_z_levels.ims", "a level has more than one z plane, and level 0 has one");
+// one test per case of conformance/virtualize/rejects/ims.json (build.rs), each the message its check gives
+macro_rules! reject {
+    ($name:ident, $input:literal, $msg:literal) => {
+        common::reject!($name, Ims, concat!("ims/", $input), $msg);
+    };
+}
+include!(concat!(env!("OUT_DIR"), "/rejects_ims.rs"));
 
 /// Runs the IMS parser over bytes in memory, the walk's room in elements set to `room`.
 fn ims_with_room(data: &[u8], room: Option<u64>) -> (refkv_ir::ir::Ir, serde_json::Value) {

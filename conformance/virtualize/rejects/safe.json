@@ -1,0 +1,301 @@
+{
+  "about": "The inputs the safe profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/safe.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "safe_reject_bad_band_name",
+      "input": "safe_reject_bad_band_name",
+      "message": "the band name \"B-1\" of \"T32TNS_20240103T101329_B-1\" is not ASCII letters and digits"
+    },
+    {
+      "test": "safe_reject_bad_cs_code",
+      "input": "safe_reject_bad_cs_code",
+      "message": "HORIZONTAL_CS_CODE \"WGS84 / UTM 32N\" is not EPSG: and digits"
+    },
+    {
+      "test": "safe_reject_box_beyond_file",
+      "input": "safe_reject_box_beyond_file",
+      "message": "a JP2 box reaches beyond the file"
+    },
+    {
+      "test": "safe_reject_bytes_after_eoc",
+      "input": "safe_reject_bytes_after_eoc",
+      "message": "a band file's codestream does not end with EOC after its last tile-part"
+    },
+    {
+      "test": "safe_reject_duplicate_band_name",
+      "input": "safe_reject_duplicate_band_name",
+      "message": "two band files at 60 m have the band name B01"
+    },
+    {
+      "test": "safe_reject_duplicate_resolution",
+      "input": "safe_reject_duplicate_resolution",
+      "message": "two Sizes have the resolution 60"
+    },
+    {
+      "test": "safe_reject_eph",
+      "input": "safe_reject_eph",
+      "message": "a band file's COD uses SOP or EPH markers, or precinct anchors (Scod)"
+    },
+    {
+      "test": "safe_reject_image_file_form",
+      "input": "safe_reject_image_file_form",
+      "message": "MTD_MSIL1C.xml: IMAGE_FILE 'IMG_DATA/B01' is not GRANULE/<g>/<directory>/<file>"
+    },
+    {
+      "test": "safe_reject_infinite_ulx",
+      "input": "safe_reject_infinite_ulx",
+      "message": "Geoposition ULX \"1e999\" is not a finite decimal number"
+    },
+    {
+      "test": "safe_reject_jp2c_not_last",
+      "input": "safe_reject_jp2c_not_last",
+      "message": "a band file's jp2c box does not end at the end of the file"
+    },
+    {
+      "test": "safe_reject_missing_band_file",
+      "input": "safe_reject_missing_band_file",
+      "message": "the band file GRANULE/L1C_T32TNS_A035655_20240103T101328/IMG_DATA/T32TNS_20240103T101329_B02.jp2 is not in the product"
+    },
+    {
+      "test": "safe_reject_mixed_granule_dirs",
+      "input": "safe_reject_mixed_granule_dirs",
+      "message": "MTD_MSIL1C.xml: the image files are in two granule directories"
+    },
+    {
+      "test": "safe_reject_mixed_precision",
+      "input": "safe_reject_mixed_precision",
+      "message": "a band file's components differ in precision or sign"
+    },
+    {
+      "test": "safe_reject_no_band_file",
+      "input": "safe_reject_no_band_file",
+      "message": "MTD_MSIL1C.xml: no image file is in IMG_DATA"
+    },
+    {
+      "test": "safe_reject_no_eoc",
+      "input": "safe_reject_no_eoc",
+      "message": "a band file's tile-part 15 reaches beyond the codestream"
+    },
+    {
+      "test": "safe_reject_no_geoposition",
+      "input": "safe_reject_no_geoposition",
+      "message": "Geoposition of resolution 60: 0 elements where there must be one"
+    },
+    {
+      "test": "safe_reject_no_image_file",
+      "input": "safe_reject_no_image_file",
+      "message": "MTD_MSIL1C.xml: no granule has an IMAGE_FILE"
+    },
+    {
+      "test": "safe_reject_no_manifest",
+      "input": "safe_reject_no_manifest",
+      "message": "a SAFE product has no manifest.safe",
+      "host": "not an N5, Zarr v2 or SAFE store: the root has no .zarray, .zgroup, attributes.json or manifest.safe"
+    },
+    {
+      "test": "safe_reject_no_tile_metadata",
+      "input": "safe_reject_no_tile_metadata",
+      "message": "the tile metadata GRANULE/L1C_T32TNS_A035655_20240103T101328/MTD_TL.xml is not in the product"
+    },
+    {
+      "test": "safe_reject_not_jp2",
+      "input": "safe_reject_not_jp2",
+      "message": "a band file is not a JP2 file: no JPEG 2000 signature box"
+    },
+    {
+      "test": "safe_reject_old_format",
+      "input": "safe_reject_old_format",
+      "message": "not a SAFE product of the compact format: the root has no MTD_MSIL1C.xml or MTD_MSIL2A.xml (products before December 2016 are not supported)"
+    },
+    {
+      "test": "safe_reject_ppm",
+      "input": "safe_reject_ppm",
+      "message": "a band file's main header has a PPM marker"
+    },
+    {
+      "test": "safe_reject_precision_17",
+      "input": "safe_reject_precision_17",
+      "message": "a band file's components have 17 bits, more than 16"
+    },
+    {
+      "test": "safe_reject_psot_zero",
+      "input": "safe_reject_psot_zero",
+      "message": "a band file's tile-part 15 has Psot 0"
+    },
+    {
+      "test": "safe_reject_signed",
+      "input": "safe_reject_signed",
+      "message": "a band file's components are signed"
+    },
+    {
+      "test": "safe_reject_size_matches_no_resolution",
+      "input": "safe_reject_size_matches_no_resolution",
+      "message": "the band file GRANULE/L1C_T32TNS_A035655_20240103T101328/IMG_DATA/T32TNS_20240103T101329_B01.jp2 (19 × 19) matches no resolution of the tile geocoding"
+    },
+    {
+      "test": "safe_reject_size_matches_two_resolutions",
+      "input": "safe_reject_size_matches_two_resolutions",
+      "message": "the band file GRANULE/L1C_T32TNS_A035655_20240103T101328/IMG_DATA/T32TNS_20240103T101329_B01.jp2 (19 × 19) matches several resolution of the tile geocoding"
+    },
+    {
+      "test": "safe_reject_sop",
+      "input": "safe_reject_sop",
+      "message": "a band file's COD uses SOP or EPH markers, or precinct anchors (Scod)"
+    },
+    {
+      "test": "safe_reject_subsampled",
+      "input": "safe_reject_subsampled",
+      "message": "a band file's components are subsampled"
+    },
+    {
+      "test": "safe_reject_tail_too_long",
+      "input": "safe_reject_tail_too_long",
+      "message": "the empty tiles of a chunk of tile 15 would take more than 4096 bytes"
+    },
+    {
+      "test": "safe_reject_tails_over_band_size",
+      "input": "safe_reject_tails_over_band_size",
+      "message": "the empty tiles of GRANULE/L1C_T32TNS_A035655_20240103T101328/IMG_DATA/T32TNS_20240103T101329_B01.jp2's chunks would take 4342 bytes, more than the band file's 3116"
+    },
+    {
+      "test": "safe_reject_tile_origin",
+      "input": "safe_reject_tile_origin",
+      "message": "a band file's image or tile origin is not 0"
+    },
+    {
+      "test": "safe_reject_tile_parts_out_of_order",
+      "input": "safe_reject_tile_parts_out_of_order",
+      "message": "a band file's tile-parts are not in raster order (tile 1 where 0 is)"
+    },
+    {
+      "test": "safe_reject_tlm",
+      "input": "safe_reject_tlm",
+      "message": "a band file's main header has a TLM marker"
+    },
+    {
+      "test": "safe_reject_two_components",
+      "input": "safe_reject_two_components",
+      "message": "a band file has 2 components, not 1 or 3"
+    },
+    {
+      "test": "safe_reject_two_granules",
+      "input": "safe_reject_two_granules",
+      "message": "MTD_MSIL1C.xml: IMAGE_FILE 'GRANULE/L1C_T32TNS_A035655_20240103T101328/IMG_DATA/T32TNS_20240103T101329_B01' is listed twice"
+    },
+    {
+      "test": "safe_reject_two_mtd",
+      "input": "safe_reject_two_mtd",
+      "message": "not a SAFE product of the compact format: the root has both MTD_MSIL1C.xml and MTD_MSIL2A.xml"
+    },
+    {
+      "test": "safe_reject_two_tile_parts",
+      "input": "safe_reject_two_tile_parts",
+      "message": "a band file's tile 0 has more than one tile-part"
+    },
+    {
+      "test": "safe_reject_wrong_root_element",
+      "input": "safe_reject_wrong_root_element",
+      "message": "MTD_MSIL1C.xml's root element is not Level-1C_User_Product"
+    },
+    {
+      "test": "safe_reject_xml_doctype",
+      "input": "safe_reject_xml_doctype",
+      "message": "MTD_MSIL1C.xml is not well formed: expected a name at 56"
+    },
+    {
+      "test": "safe_reject_xml_not_utf8_metadata",
+      "input": "safe_reject_xml_not_utf8_metadata",
+      "message": "MTD_MSIL1C.xml is not UTF-8"
+    },
+    {
+      "test": "safe_reject_xml_too_deep",
+      "input": "safe_reject_xml_too_deep",
+      "message": "MTD_MSIL1C.xml is not well formed: elements nest more than 256 deep at 12649"
+    },
+    {
+      "test": "safe_reject_xml_unclosed_tile_metadata",
+      "input": "safe_reject_xml_unclosed_tile_metadata",
+      "message": "MTD_TL.xml is not well formed: unterminated element at 4066"
+    },
+    {
+      "test": "safe_reject_zero_xdim",
+      "input": "safe_reject_zero_xdim",
+      "message": "a Geoposition's XDIM or YDIM is 0"
+    },
+    {
+      "test": "safe_reject_zip_bad_crc",
+      "input": "safe_reject_zip_bad_crc.SAFE.zip",
+      "message": "a zip entry's CRC-32 does not match its bytes"
+    },
+    {
+      "test": "safe_reject_zip_bzip2",
+      "input": "safe_reject_zip_bzip2.SAFE.zip",
+      "message": "the zip entry MTD_MSIL1C.xml has the compression method 12"
+    },
+    {
+      "test": "safe_reject_zip_comment_misaligned",
+      "input": "safe_reject_zip_comment_misaligned.SAFE.zip",
+      "message": "not a zip file: no end of central directory record"
+    },
+    {
+      "test": "safe_reject_zip_deflated_band",
+      "input": "safe_reject_zip_deflated_band.SAFE.zip",
+      "message": "the zip entry GRANULE/L1C_T32TNS_A035655_20240103T101328/IMG_DATA/T32TNS_20240103T101329_B01.jp2 is compressed: only XML documents may be"
+    },
+    {
+      "test": "safe_reject_zip_deflated_mask",
+      "input": "safe_reject_zip_deflated_mask.SAFE.zip",
+      "message": "the zip entry GRANULE/L1C_T32TNS_A035655_20240103T101328/QI_DATA/MSK_CLASSI_B00.jp2 is compressed: only XML documents may be"
+    },
+    {
+      "test": "safe_reject_zip_deflated_too_large",
+      "input": "safe_reject_zip_deflated_too_large.SAFE.zip",
+      "message": "the deflated XML document MTD_MSIL1C.xml is larger than 2^26 bytes"
+    },
+    {
+      "test": "safe_reject_zip_dotdot",
+      "input": "safe_reject_zip_dotdot.SAFE.zip",
+      "message": "a zip entry's name \"S2B_MSIL1C_20240103T101329_N0510_R022_T32TNS_20240103T110304.SAFE/GRANULE/../x.txt\" has an empty, . or .. segment, or a backslash"
+    },
+    {
+      "test": "safe_reject_zip_duplicate_name",
+      "input": "safe_reject_zip_duplicate_name.SAFE.zip",
+      "message": "a zip file has two entries named \"S2B_MSIL1C_20240103T101329_N0510_R022_T32TNS_20240103T110304.SAFE/manifest.safe\""
+    },
+    {
+      "test": "safe_reject_zip_encrypted",
+      "input": "safe_reject_zip_encrypted.SAFE.zip",
+      "message": "a zip entry is encrypted"
+    },
+    {
+      "test": "safe_reject_zip_inflated_total",
+      "input": "safe_reject_zip_inflated_total.SAFE.zip",
+      "message": "the deflated XML documents are larger than 2^27 bytes together"
+    },
+    {
+      "test": "safe_reject_zip_no_eocd",
+      "input": "safe_reject_zip_no_eocd.SAFE.zip",
+      "message": "not a zip file: no end of central directory record"
+    },
+    {
+      "test": "safe_reject_zip_not_safe_root",
+      "input": "safe_reject_zip_not_safe_root.SAFE.zip",
+      "message": "a zip entry \"S2B_MSIL1C_product/\" is not under a .SAFE directory"
+    },
+    {
+      "test": "safe_reject_zip_overlapping_entries",
+      "input": "safe_reject_zip_overlapping_entries.SAFE.zip",
+      "message": "two zip entries' local headers and data overlap"
+    },
+    {
+      "test": "safe_reject_zip_truncated_cd",
+      "input": "safe_reject_zip_truncated_cd.SAFE.zip",
+      "message": "a zip file's central directory has fewer entries than it says"
+    },
+    {
+      "test": "safe_reject_zip_two_roots",
+      "input": "safe_reject_zip_two_roots.SAFE.zip",
+      "message": "a zip file has entries under two root directories"
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "about": "The inputs the mp3 profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/mp3.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "mp3_reject_layer2",
+      "input": "mp3_reject_layer2.mp3",
+      "message": "MPEG-2 Layer II (the frame at 0) is not supported: only Layer III is"
+    },
+    {
+      "test": "mp3_reject_layer1",
+      "input": "mp3_reject_layer1.mp3",
+      "message": "MPEG-1 Layer I (the frame at 0) is not supported: only Layer III is"
+    },
+    {
+      "test": "mp3_reject_free_format",
+      "input": "mp3_reject_free_format.mp3",
+      "message": "free-format bitrate (the frame header at 0) is not supported"
+    },
+    {
+      "test": "mp3_reject_sample_rate_change",
+      "input": "mp3_reject_sample_rate_change.mp3",
+      "message": "the frame at 2304 changes the sample rate from 16000 to 22050"
+    },
+    {
+      "test": "mp3_reject_channels_change",
+      "input": "mp3_reject_channels_change.mp3",
+      "message": "the frame at 2304 changes the channel count from 1 to 2"
+    },
+    {
+      "test": "mp3_reject_version_change",
+      "input": "mp3_reject_version_change.mp3",
+      "message": "the frame at 2304 changes the version from MPEG-2 to MPEG-1"
+    },
+    {
+      "test": "mp3_reject_layer_change",
+      "input": "mp3_reject_layer_change.mp3",
+      "message": "the frame at 2304 changes the layer from III to II"
+    },
+    {
+      "test": "mp3_reject_no_frames",
+      "input": "mp3_reject_no_frames.mp3",
+      "message": "no MPEG audio frames"
+    },
+    {
+      "test": "mp3_reject_only_id3v1",
+      "input": "mp3_reject_only_id3v1.mp3",
+      "message": "no MPEG audio frames",
+      "host": "not a file of any supported format"
+    },
+    {
+      "test": "mp3_reject_id3v2_outside",
+      "input": "mp3_reject_id3v2_outside.mp3",
+      "message": "the 100010-byte ID3v2 tag at 0 is outside the 60-byte file"
+    },
+    {
+      "test": "mp3_reject_id3v2_syncsafe",
+      "input": "mp3_reject_id3v2_syncsafe.mp3",
+      "message": "the ID3v2 tag at 0 has a size byte that is not syncsafe (128)"
+    },
+    {
+      "test": "mp3_reject_short",
+      "input": "mp3_reject_short.mp3",
+      "message": "file too short for an MPEG audio frame header"
+    }
+  ]
+}

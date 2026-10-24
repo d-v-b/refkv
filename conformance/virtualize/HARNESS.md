@@ -104,7 +104,10 @@ The synthetic files in `fixtures/`, one directory per profile of the registry
 (`spec/virtualize/profiles/`; a file profile's files have its suffixes, a
 store profile's directory holds one directory per store), are good first inputs. Their names say what they
 exercise, and `unsupported_*`, `edge_reject_*` and `<profile>_reject_*`
-inputs must be rejected. To serve them the way the harness does, run:
+inputs must be rejected. `conformance/virtualize/rejects/<directory>.json` lists
+each rejected input of `fixtures/<directory>` with the start of the message the
+reference implementation gives for it; an implementation need not give the same
+message. To serve the inputs the way the harness does, run:
 
 ```
 python conformance/virtualize/proxy.py fixtures /tmp/vzip-proxy-cache 8765

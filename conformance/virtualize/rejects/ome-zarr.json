@@ -1,0 +1,260 @@
+{
+  "about": "The inputs the ome-zarr profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/ome_zarr.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "ome_zarr_reject_axes_count",
+      "input": "ome_zarr_reject_axes_count",
+      "message": "axes is not 2 to 5 axis objects"
+    },
+    {
+      "test": "ome_zarr_reject_axes_duplicate",
+      "input": "ome_zarr_reject_axes_duplicate",
+      "message": "axis names [x, x] are not distinct"
+    },
+    {
+      "test": "ome_zarr_reject_axes_four_space",
+      "input": "ome_zarr_reject_axes_four_space",
+      "message": "axis types [space, space, space, space] are not"
+    },
+    {
+      "test": "ome_zarr_reject_axes_name",
+      "input": "ome_zarr_reject_axes_name",
+      "message": "an axis name is not a string"
+    },
+    {
+      "test": "ome_zarr_reject_axes_order",
+      "input": "ome_zarr_reject_axes_order",
+      "message": "axis types [space, channel, space] are not"
+    },
+    {
+      "test": "ome_zarr_reject_axes_two_others",
+      "input": "ome_zarr_reject_axes_two_others",
+      "message": "axis types [channel, phase, space, space] are not"
+    },
+    {
+      "test": "ome_zarr_reject_axes_type",
+      "input": "ome_zarr_reject_axes_type",
+      "message": "axis type 3 is not a string"
+    },
+    {
+      "test": "ome_zarr_reject_bioformats2raw_layout",
+      "input": "ome_zarr_reject_bioformats2raw_layout",
+      "message": "bioformats2raw.layout is not 3"
+    },
+    {
+      "test": "ome_zarr_reject_bioformats2raw_numbering",
+      "input": "ome_zarr_reject_bioformats2raw_numbering",
+      "message": "the images are not numbered consecutively from 0"
+    },
+    {
+      "test": "ome_zarr_reject_bioformats2raw_series",
+      "input": "ome_zarr_reject_bioformats2raw_series",
+      "message": "OME: series is not an array of image paths"
+    },
+    {
+      "test": "ome_zarr_reject_datasets_empty",
+      "input": "ome_zarr_reject_datasets_empty",
+      "message": "datasets is not a nonempty array of objects"
+    },
+    {
+      "test": "ome_zarr_reject_datasets_missing",
+      "input": "ome_zarr_reject_datasets_missing",
+      "message": "datasets[0]: 9 is not an array"
+    },
+    {
+      "test": "ome_zarr_reject_datasets_path",
+      "input": "ome_zarr_reject_datasets_path",
+      "message": "path ../1 is not a relative path"
+    },
+    {
+      "test": "ome_zarr_reject_datasets_rank",
+      "input": "ome_zarr_reject_datasets_rank",
+      "message": "r has 3 dimensions, not 2"
+    },
+    {
+      "test": "ome_zarr_reject_has_ome",
+      "input": "ome_zarr_reject_has_ome",
+      "message": "the group already has an `ome` attribute"
+    },
+    {
+      "test": "ome_zarr_reject_image_label_color_duplicate",
+      "input": "ome_zarr_reject_image_label_color_duplicate",
+      "message": "colors label-values are not unique"
+    },
+    {
+      "test": "ome_zarr_reject_image_label_dtype",
+      "input": "ome_zarr_reject_image_label_dtype",
+      "message": "label data type float32 is not an integer type"
+    },
+    {
+      "test": "ome_zarr_reject_image_label_levels",
+      "input": "ome_zarr_reject_image_label_levels",
+      "message": "the label image has 1 levels, fewer than its image /'s 2"
+    },
+    {
+      "test": "ome_zarr_reject_image_label_no_multiscales",
+      "input": "ome_zarr_reject_image_label_no_multiscales",
+      "message": "image-label: the group has no multiscales"
+    },
+    {
+      "test": "ome_zarr_reject_image_label_rgba",
+      "input": "ome_zarr_reject_image_label_rgba",
+      "message": "rgba [1,2,3,300] is not four integers from 0 to 255"
+    },
+    {
+      "test": "ome_zarr_reject_image_label_source",
+      "input": "ome_zarr_reject_image_label_source",
+      "message": "source image ../../elsewhere is not an image"
+    },
+    {
+      "test": "ome_zarr_reject_image_label_value",
+      "input": "ome_zarr_reject_image_label_value",
+      "message": "properties is not an array of objects with an integer label-value"
+    },
+    {
+      "test": "ome_zarr_reject_image_label_version",
+      "input": "ome_zarr_reject_image_label_version",
+      "message": "image-label: version 0.3 is not 0.4"
+    },
+    {
+      "test": "ome_zarr_reject_labels_not_image",
+      "input": "ome_zarr_reject_labels_not_image",
+      "message": "label missing is not the path of an image"
+    },
+    {
+      "test": "ome_zarr_reject_level_axes_conflict",
+      "input": "ome_zarr_reject_level_axes_conflict",
+      "message": "p/q/lvl is a level of images with axes [y, x] and [a, b]"
+    },
+    {
+      "test": "ome_zarr_reject_multiscale_transforms",
+      "input": "ome_zarr_reject_multiscale_transforms",
+      "message": "multiscales[0]: the scale is not 2 numbers"
+    },
+    {
+      "test": "ome_zarr_reject_multiscales_empty",
+      "input": "ome_zarr_reject_multiscales_empty",
+      "message": "g: multiscales is not a nonempty array of objects"
+    },
+    {
+      "test": "ome_zarr_reject_omero_channels",
+      "input": "ome_zarr_reject_omero_channels",
+      "message": "omero: channels is not an array of objects"
+    },
+    {
+      "test": "ome_zarr_reject_omero_color",
+      "input": "ome_zarr_reject_omero_color",
+      "message": "channel color red is not 6 hexadecimal digits"
+    },
+    {
+      "test": "ome_zarr_reject_omero_window",
+      "input": "ome_zarr_reject_omero_window",
+      "message": "a channel window does not have numbers min, max, start and end"
+    },
+    {
+      "test": "ome_zarr_reject_plate_acquisition_id",
+      "input": "ome_zarr_reject_plate_acquisition_id",
+      "message": "acquisition id -1 is not an integer from 0"
+    },
+    {
+      "test": "ome_zarr_reject_plate_column_name",
+      "input": "ome_zarr_reject_plate_column_name",
+      "message": "a column name is not alphanumeric"
+    },
+    {
+      "test": "ome_zarr_reject_plate_field_count",
+      "input": "ome_zarr_reject_plate_field_count",
+      "message": "field_count 0 is not a positive integer"
+    },
+    {
+      "test": "ome_zarr_reject_plate_row_duplicate",
+      "input": "ome_zarr_reject_plate_row_duplicate",
+      "message": "row names are not unique"
+    },
+    {
+      "test": "ome_zarr_reject_plate_version",
+      "input": "ome_zarr_reject_plate_version",
+      "message": "plate: version 0.3 is not 0.4"
+    },
+    {
+      "test": "ome_zarr_reject_plate_well_index",
+      "input": "ome_zarr_reject_plate_well_index",
+      "message": "well rowIndex or columnIndex is not an index of rows or columns"
+    },
+    {
+      "test": "ome_zarr_reject_plate_well_missing",
+      "input": "ome_zarr_reject_plate_well_missing",
+      "message": "plate: A/2 is not a well"
+    },
+    {
+      "test": "ome_zarr_reject_plate_well_path",
+      "input": "ome_zarr_reject_plate_well_path",
+      "message": "well path B/2 is not row A/column 2"
+    },
+    {
+      "test": "ome_zarr_reject_scale_length",
+      "input": "ome_zarr_reject_scale_length",
+      "message": "datasets[0]: the scale is not 2 numbers"
+    },
+    {
+      "test": "ome_zarr_reject_scale_order",
+      "input": "ome_zarr_reject_scale_order",
+      "message": "the scale [0.5, 2] is smaller than the previous level's [1, 1]"
+    },
+    {
+      "test": "ome_zarr_reject_transforms_identity",
+      "input": "ome_zarr_reject_transforms_identity",
+      "message": "the first transformation is not a scale"
+    },
+    {
+      "test": "ome_zarr_reject_transforms_missing",
+      "input": "ome_zarr_reject_transforms_missing",
+      "message": "coordinateTransformations is not one or two transformation objects"
+    },
+    {
+      "test": "ome_zarr_reject_transforms_order",
+      "input": "ome_zarr_reject_transforms_order",
+      "message": "the first transformation is not a scale"
+    },
+    {
+      "test": "ome_zarr_reject_transforms_path",
+      "input": "ome_zarr_reject_transforms_path",
+      "message": "the scale is not 2 numbers"
+    },
+    {
+      "test": "ome_zarr_reject_translation_length",
+      "input": "ome_zarr_reject_translation_length",
+      "message": "the translation is not 2 numbers"
+    },
+    {
+      "test": "ome_zarr_reject_version",
+      "input": "ome_zarr_reject_version",
+      "message": "old: multiscales[0]: version 0.3 is not 0.4"
+    },
+    {
+      "test": "ome_zarr_reject_well_acquisition",
+      "input": "ome_zarr_reject_well_acquisition",
+      "message": "A/1: acquisition 5 is not one of the plate's"
+    },
+    {
+      "test": "ome_zarr_reject_well_acquisition_missing",
+      "input": "ome_zarr_reject_well_acquisition_missing",
+      "message": "an image has no acquisition, and the plate has several"
+    },
+    {
+      "test": "ome_zarr_reject_well_image_duplicate",
+      "input": "ome_zarr_reject_well_image_duplicate",
+      "message": "well: image paths are not unique"
+    },
+    {
+      "test": "ome_zarr_reject_well_image_missing",
+      "input": "ome_zarr_reject_well_image_missing",
+      "message": "well: A/1/7 is not an image"
+    },
+    {
+      "test": "ome_zarr_reject_well_image_path",
+      "input": "ome_zarr_reject_well_image_path",
+      "message": "image path f-0 is not alphanumeric"
+    }
+  ]
+}

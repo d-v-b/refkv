@@ -1,0 +1,205 @@
+{
+  "about": "The inputs the tiff profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/tiff.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "tiff_edge_reject_big_offset",
+      "input": "edge_reject_big_offset.tif",
+      "message": "a value of tag 324 is more than 2^53 - 1"
+    },
+    {
+      "test": "tiff_edge_reject_bigtiff_reserved",
+      "input": "edge_reject_bigtiff_reserved.tif",
+      "message": "invalid BigTIFF header"
+    },
+    {
+      "test": "tiff_edge_reject_candidate_planar3",
+      "input": "edge_reject_candidate_planar3.tif",
+      "message": "PlanarConfiguration 3"
+    },
+    {
+      "test": "tiff_edge_reject_cycle",
+      "input": "edge_reject_cycle.tif",
+      "message": "IFD offset 4136 read twice"
+    },
+    {
+      "test": "tiff_edge_reject_dimension_order",
+      "input": "edge_reject_dimension_order.tif",
+      "message": "DimensionOrder 'XYZZT'"
+    },
+    {
+      "test": "tiff_edge_reject_fill_order",
+      "input": "edge_reject_fill_order.tif",
+      "message": "the image at 4136 has FillOrder 2"
+    },
+    {
+      "test": "tiff_edge_reject_first_z",
+      "input": "edge_reject_first_z.tif",
+      "message": "TiffData starts outside the planes"
+    },
+    {
+      "test": "tiff_edge_reject_jpeg_16bit",
+      "input": "edge_reject_jpeg_16bit.tif",
+      "message": "unsupported JPEG: 16-bit, 3 samples, planar 1, p"
+    },
+    {
+      "test": "tiff_edge_reject_jpeg_no_photometric",
+      "input": "edge_reject_jpeg_no_photometric.tif",
+      "message": "unsupported JPEG: 8-bit, 3 samples, planar 1, ph"
+    },
+    {
+      "test": "tiff_edge_reject_jpeg_planar",
+      "input": "edge_reject_jpeg_planar.tif",
+      "message": "unsupported JPEG: 8-bit, 3 samples, planar 2, ph"
+    },
+    {
+      "test": "tiff_edge_reject_jpeg_short_tile",
+      "input": "edge_reject_jpeg_short_tile.tif",
+      "message": "JPEG tile 0 of the IFD at 16 is too short"
+    },
+    {
+      "test": "tiff_edge_reject_jpeg_tables",
+      "input": "edge_reject_jpeg_tables.tif",
+      "message": "the IFD at 834 has malformed JPEGTables"
+    },
+    {
+      "test": "tiff_edge_reject_multifile",
+      "input": "edge_reject_multifile.tif",
+      "message": "multi-file OME-TIFF is not supported"
+    },
+    {
+      "test": "tiff_edge_reject_multifile_uuid",
+      "input": "edge_reject_multifile_uuid.tif",
+      "message": "multi-file OME-TIFF is not supported"
+    },
+    {
+      "test": "tiff_edge_reject_nbsp_size",
+      "input": "edge_reject_nbsp_size.tif",
+      "message": "SizeZ=' 2' is not an integer"
+    },
+    {
+      "test": "tiff_edge_reject_no_ifds",
+      "input": "edge_reject_no_ifds.tif",
+      "message": "no images"
+    },
+    {
+      "test": "tiff_edge_reject_no_width",
+      "input": "edge_reject_no_width.tif",
+      "message": "IFD at 4136 has no tag 256"
+    },
+    {
+      "test": "tiff_edge_reject_planar3",
+      "input": "edge_reject_planar3.tif",
+      "message": "PlanarConfiguration 3"
+    },
+    {
+      "test": "tiff_edge_reject_plane_limit",
+      "input": "edge_reject_plane_limit.tif",
+      "message": "100001 planes is more than 100000"
+    },
+    {
+      "test": "tiff_edge_reject_plane_size",
+      "input": "edge_reject_plane_size.tif",
+      "message": "planes of one pyramid level differ in size, tili"
+    },
+    {
+      "test": "tiff_edge_reject_sample_format",
+      "input": "edge_reject_sample_format.tif",
+      "message": "SampleFormat values are missing or differ"
+    },
+    {
+      "test": "tiff_edge_reject_scalar_count0",
+      "input": "edge_reject_scalar_count0.tif",
+      "message": "tag 259 has no value"
+    },
+    {
+      "test": "tiff_edge_reject_shared_subifd",
+      "input": "edge_reject_shared_subifd.tif",
+      "message": "IFD offset 1032 read twice"
+    },
+    {
+      "test": "tiff_edge_reject_signed_width",
+      "input": "edge_reject_signed_width.tif",
+      "message": "tag 256 has field type 8"
+    },
+    {
+      "test": "tiff_edge_reject_size_sign",
+      "input": "edge_reject_size_sign.tif",
+      "message": "SizeZ='+2' is not an integer"
+    },
+    {
+      "test": "tiff_edge_reject_size_zero",
+      "input": "edge_reject_size_zero.tif",
+      "message": "SizeZ='0' is less than 1"
+    },
+    {
+      "test": "tiff_edge_reject_subifd_count",
+      "input": "edge_reject_subifd_count.tif",
+      "message": "the IFD at 9832 has fewer SubIFDs than IFD 0"
+    },
+    {
+      "test": "tiff_edge_reject_tiffdata_steps",
+      "input": "edge_reject_tiffdata_steps.tif",
+      "message": "the TiffData elements cover more than 1008 plane"
+    },
+    {
+      "test": "tiff_edge_reject_tile_count",
+      "input": "edge_reject_tile_count.tif",
+      "message": "IFD at 32 has 3 tiles, expected 4"
+    },
+    {
+      "test": "tiff_edge_reject_tile_outside",
+      "input": "edge_reject_tile_outside.tif",
+      "message": "tile 0 of the IFD at 40 is outside the file"
+    },
+    {
+      "test": "tiff_edge_reject_unmapped",
+      "input": "edge_reject_unmapped.tif",
+      "message": "OME-XML planes do not match the TIFF's images"
+    },
+    {
+      "test": "tiff_edge_reject_unused_ifd_type",
+      "input": "edge_reject_unused_ifd_type.tif",
+      "message": "tag 259 has field type 99"
+    },
+    {
+      "test": "tiff_edge_reject_unused_value_outside",
+      "input": "edge_reject_unused_value_outside.tif",
+      "message": "the value of tag 324 is outside the file"
+    },
+    {
+      "test": "tiff_edge_reject_uuid_self_closing",
+      "input": "edge_reject_uuid_self_closing.tif",
+      "message": "multi-file OME-TIFF is not supported"
+    },
+    {
+      "test": "tiff_edge_reject_ycbcr_default",
+      "input": "edge_reject_ycbcr_default.tif",
+      "message": "the image at 12334 is YCbCr with subsampling [2,"
+    },
+    {
+      "test": "tiff_edge_reject_ycbcr_subsampled",
+      "input": "edge_reject_ycbcr_subsampled.tif",
+      "message": "the image at 12334 is YCbCr with subsampling [2,"
+    },
+    {
+      "test": "tiff_edge_reject_zero_tile",
+      "input": "edge_reject_zero_tile.tif",
+      "message": "the image at 8 has an empty tile size"
+    },
+    {
+      "test": "tiff_unsupported_lzw",
+      "input": "unsupported_lzw.tif",
+      "message": "unsupported compression 5"
+    },
+    {
+      "test": "tiff_unsupported_predictor",
+      "input": "unsupported_predictor.tif",
+      "message": "unsupported predictor 2"
+    },
+    {
+      "test": "tiff_unsupported_strips",
+      "input": "unsupported_strips.tif",
+      "message": "only tiled TIFFs are supported; the image at 8 i"
+    }
+  ]
+}
