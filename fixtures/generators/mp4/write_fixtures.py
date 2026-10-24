@@ -1,11 +1,11 @@
 """Writes synthetic MP4 and MOV files to fixtures/mp4/, covering the rules of the MP4 profile
 (spec/virtualize/mp4.md §8
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#8-mp4-profile>): H.264 video with
-and without B-frames, intra-only, odd sizes, a variable frame rate, long enough for several
-chunks, two video tracks; AAC and MP3 audio, alone and beside video; the moov box before and
-after the media data, a 64-bit mdat size and an mdat that runs to the end of the file; tracks
-the profile does not virtualize (HEVC, 10-bit H.264) beside ones it does; and the inputs it
-rejects (`mp4_reject_*`).
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#8-mp4-profile>): H.264 video
+with and without B-frames, intra-only, odd sizes, a variable frame rate, long enough for
+several chunks, groups of pictures of unequal lengths, two video tracks; AAC and MP3 audio,
+alone and beside video; the moov box before and after the media data, a 64-bit mdat size and an
+mdat that runs to the end of the file; tracks the profile does not virtualize (HEVC, 10-bit
+H.264) beside ones it does; and the inputs it rejects (`mp4_reject_*`).
 
 The media are ffmpeg's test sources encoded by ffmpeg (libx264, libx265, its AAC encoder and
 libmp3lame), with the bit-exact flags so that a build writes no version strings; some files
@@ -103,6 +103,7 @@ def main() -> None:
     write("mp4_h264_vfr.mp4", ffmpeg(*video(), "-vf", "settb=1/1000,setpts='N*0.1/TB+0.03*mod(N,3)/TB'", "-fps_mode", "passthrough",
                                      "-enc_time_base", "1/1000", "-video_track_timescale", "1000", *X264, "-g", "9", "-bf", "2"))
     write("mp4_h264_long.mp4", ffmpeg(*video("32x32", 25, 16), *X264, "-g", "50", "-bf", "3"))
+    write("mp4_h264_irregular_groups.mp4", irregular_groups())
     write("mp4_h264_two_tracks.mp4", ffmpeg(*video(), "-filter_complex", "[0:v]split[a][b];[b]scale=32:24[c]",
                                             "-map", "[a]", "-map", "[c]", *X264, "-g", "6", "-bf", "1"))
     # audio, alone and beside video: AAC without noise substitution (whose noise a chunk
@@ -149,6 +150,14 @@ def main() -> None:
     s, h, _ = find(plain, "/stts")
     (count,) = struct.unpack_from(">I", plain, s + h + 8)
     write("mp4_reject_stts_count.mp4", plain[:s + h + 8] + struct.pack(">I", count + 1) + plain[s + h + 12:])
+
+
+def irregular_groups() -> bytes:
+    """60 pictures with B-frames whose groups start at pictures 0, 7, 9, 23 and 40: keyframes
+    forced (as IDR pictures, closing each group) and none other, so that the profile's video
+    chunks of whole groups have unequal lengths (a rectilinear grid)."""
+    return ffmpeg(*video(seconds=6), *X264, "-bf", "2", "-x264-params", "keyint=200:min-keyint=1:scenecut=0:forced-idr=1",
+                  "-force_key_frames", "0,0.7,0.9,2.3,4.0")
 
 
 def subprocess_title(*args: str) -> bytes:

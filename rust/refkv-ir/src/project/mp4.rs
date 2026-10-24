@@ -8,7 +8,7 @@
 
 use super::{arr, audio, n, Copied};
 use crate::ir::Ir;
-use crate::out::{array_json, declared_group, group_doc, gzip_array, stream_parts, Out};
+use crate::out::{array_json, declared_group, group_doc, gzip_array, rectilinear_array_json, stream_parts, Out};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -22,9 +22,54 @@ const TIME_CHUNK: u64 = 1 << 17;
 const MP3_OVERHEAD: u64 = 38;
 const MP3_RESERVOIR: u64 = 511;
 
-/// The frames of a video chunk: the profile's limit, and at most `CHUNK_LUMA` bytes of luma.
+/// The most pictures of a video chunk: the profile's limit, and at most `CHUNK_LUMA` bytes of
+/// luma.
 pub fn video_chunk(limit: u64, width: u64, height: u64) -> u64 {
     limit.min((CHUNK_LUMA / (width * height).max(1)).max(1))
+}
+
+/// The lengths of the video chunks of `count` presented pictures, at most `per` each, the
+/// sync samples presented at `sync` (ascending, from 0) (§4.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#41-video-tracks>): from picture
+/// `a`, a chunk runs to the end when at most `per` pictures are left; else to the last sync
+/// sample after `a` and at most `per` pictures on, so that it holds whole groups of pictures
+/// and the next starts with a sync sample; else `per` pictures, splitting a group longer than
+/// `per`.
+pub fn video_lengths(count: usize, per: usize, sync: &[usize]) -> Vec<u64> {
+    let mut lengths = Vec::new();
+    let mut a = 0;
+    while a < count {
+        let b = if count - a <= per {
+            count
+        } else {
+            match sync[..sync.partition_point(|&s| s <= a + per)].last() {
+                Some(&s) if s > a => s,
+                _ => a + per,
+            }
+        };
+        lengths.push((b - a) as u64);
+        a = b;
+    }
+    lengths
+}
+
+/// The chunk lengths of a video plane's time axis as its grid gives them: the integer `L` when
+/// every chunk but the last is `L` pictures and the last at most `L` (a regular grid), else the
+/// zarr-extensions `rectilinear` grid's list, each run of `r > 1` equal lengths `L` as `[L, r]`.
+pub fn grid_lengths(lengths: &[u64]) -> J {
+    let first = lengths.first().copied().unwrap_or(1);
+    let (last, rest) = lengths.split_last().unwrap_or((&first, &[]));
+    if rest.iter().all(|&l| l == first) && *last <= first {
+        return json!(first);
+    }
+    let mut runs: Vec<(u64, u64)> = Vec::new();
+    for &l in lengths {
+        match runs.last_mut() {
+            Some((v, r)) if *v == l => *r += 1,
+            _ => runs.push((l, 1)),
+        }
+    }
+    J::Array(runs.into_iter().map(|(v, r)| if r > 1 { json!([v, r]) } else { json!(v) }).collect())
 }
 
 /// The samples of a video chunk of the presented frames `[a, b)` (§18.3
@@ -139,16 +184,22 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
             for (p, &d) in order.iter().enumerate() {
                 rank[d] = p;
             }
+            // the chunks: runs of whole groups of pictures, a group longer than a chunk split
+            let mut presented: Vec<usize> = sync.iter().map(|&d| rank[d as usize]).collect();
+            presented.sort_unstable();
+            let lengths = video_lengths(count, chunk as usize, &presented);
+            let along = grid_lengths(&lengths);
             refs.out.json(&format!("{dir}/zarr.json"), &declared_group(Map::new(), "mp4", None, Some(track_json(t, chunk))));
             let planes = [("y", w, h), ("u", w.div_ceil(2), h.div_ceil(2)), ("v", w.div_ceil(2), h.div_ceil(2))];
             for (p, pw, ph) in planes {
-                let doc = array_json(&[count as u64, ph, pw], "uint8", json!([chunk, ph, pw]), stream_codec("h264", &t["setup"], Some(p)), &["time", "y", "x"]);
+                let doc = rectilinear_array_json(&[count as u64, ph, pw], "uint8", &json!([along, ph, pw]), stream_codec("h264", &t["setup"], Some(p)), &["time", "y", "x"]);
                 refs.out.json(&format!("{dir}/{p}/zarr.json"), &doc);
             }
-            chunks = (count as u64).div_ceil(chunk) as usize;
-            for q in 0..chunks {
-                let a = q * chunk as usize;
-                let b = (a + chunk as usize).min(count);
+            chunks = lengths.len();
+            let mut b = 0;
+            for (q, &len) in lengths.iter().enumerate() {
+                let a = b;
+                b = a + len as usize;
                 let units: Vec<(u64, u64, i64)> = video_units(a, b, &order, &rank, &sync)
                     .into_iter().map(|(d, pos)| { let (o, len) = sample(d); (o, len, pos) }).collect();
                 let parts = stream_parts(&units);
@@ -205,6 +256,38 @@ mod tests {
         assert_eq!(video_units(5, 6, &order, &rank, &sync), vec![(4, -1), (5, -1), (6, 0)]);
         assert_eq!(video_chunk(256, 1920, 1080), 16);
         assert_eq!(video_chunk(256, 64, 48), 256);
+    }
+
+    /// Video chunks hold whole groups of pictures up to `per`, splitting a longer group, and the
+    /// grid is regular when every chunk but a shorter last one has one length.
+    #[test]
+    fn video_chunks_start_at_sync_samples() {
+        // (pictures, per, sync samples presented at) -> lengths
+        let cases: [(usize, usize, &[usize], &[u64]); 7] = [
+            // the whole track fits one chunk, whatever its groups
+            (30, 256, &[0, 10, 20], &[30]),
+            // groups of 10 packed to 25: two groups a chunk, then the rest
+            (60, 25, &[0, 10, 20, 30, 40, 50], &[20, 20, 20]),
+            // groups of 10 in chunks of 7: each group split, its second piece short
+            (30, 7, &[0, 10, 20], &[7, 3, 7, 3, 7, 3]),
+            // irregular groups
+            (60, 7, &[0, 7, 9, 23, 40], &[7, 2, 7, 7, 7, 7, 3, 7, 7, 6]),
+            // one group of 300 in chunks of 256: split, the rest one chunk
+            (300, 256, &[0], &[256, 44]),
+            // every picture a sync sample
+            (15, 7, &(0..15).collect::<Vec<_>>(), &[7, 7, 1]),
+            // groups of 50 in chunks of 256: five groups, then the rest
+            (400, 256, &[0, 50, 100, 150, 200, 250, 300, 350], &[250, 150]),
+        ];
+        for (count, per, sync, want) in cases {
+            assert_eq!(video_lengths(count, per, sync), want, "{count} {per} {sync:?}");
+        }
+        assert_eq!(grid_lengths(&[20, 20, 20]), json!(20));
+        assert_eq!(grid_lengths(&[250, 150]), json!(250));
+        assert_eq!(grid_lengths(&[30]), json!(30));
+        assert_eq!(grid_lengths(&[7, 3, 7, 3]), json!([7, 3, 7, 3]));
+        assert_eq!(grid_lengths(&[7, 2, 7, 7, 7, 7, 3, 7, 7, 6]), json!([7, 2, [7, 4], 3, [7, 2], 6]));
+        assert_eq!(grid_lengths(&[5, 9]), json!([5, 9]));
     }
 
     /// AAC's lead-in is the frame before the chunk; MP3's holds the reservoir before the two

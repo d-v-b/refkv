@@ -29,8 +29,11 @@ A group at the archive root, and a group per track refkv virtualizes, at
 - **Video (H.264, 8-bit 4:2:0):** three arrays, `y`, `u` and `v`, the
   decoder's planes, `uint8`, `[time, y, x]` (the chroma planes half the
   size along each axis), in presentation order; and `time`, each
-  picture's presentation time in the track's timescale (`int64`). Chunks
-  of up to 256 pictures, at most 32 MiB of luma (16 pictures at 1080p).
+  picture's presentation time in the track's timescale (`int64`). Each
+  chunk is whole groups of pictures from a keyframe, up to 256 pictures
+  and at most 32 MiB of luma (16 pictures at 1080p); only a group longer
+  than that is split. Chunks of different lengths use the zarr-extensions
+  `rectilinear` chunk grid, which `refkv.zarr` turns on in zarr-python.
   No color conversion: RGB depends on the stream's color matrix, which is
   the reader's to apply.
 - **Audio (AAC-LC, MP3):** `samples`, `float32`, `[time, channel]`, the
@@ -65,7 +68,7 @@ uv run python -m refkv.virtualize https://archive.org/download/AboutBan1935/Abou
 ```
 
 ```
-{"format": "mp4", "brand": "isom", "tracks": [{"id": 1, "format": "h264", "path": "tracks/1", "frames": 19901, "chunkFrames": 256, "chunks": 78}, {"id": 2, "format": "aac", "path": "tracks/2", "frames": 28567, "chunkFrames": 256, "chunks": 112}], "skipped": [], ...}
+{"format": "mp4", "brand": "isom", "tracks": [{"id": 1, "format": "h264", "path": "tracks/1", "frames": 19901, "chunkFrames": 256, "chunks": 80}, {"id": 2, "format": "aac", "path": "tracks/2", "frames": 28567, "chunkFrames": 256, "chunks": 112}], "skipped": [], ...}
 ```
 
 It takes under 4 seconds, reading the `moov` box alone; the archive is
@@ -91,8 +94,8 @@ print(g["tracks/2/samples"].shape)
 ```
 
 Picture 5000 is ffmpeg's decoding of it, value for value. Reading it
-fetches and decodes its chunk, 256 pictures and the ones before it back to
-a keyframe, in about 2 seconds over HTTP.
+fetches and decodes its chunk, 21 groups of 12 pictures from a keyframe, in
+about 2 seconds over HTTP.
 
 **In the browser.** The service worker serves a virtualized MP4 as a Zarr
 hierarchy like any other; the demo page does not display video.
@@ -121,9 +124,13 @@ with none of the tracks above, and malformed boxes or sample tables.
   and the `moov` box: for a file whose `moov` box is at the end, three or
   four requests.
 - Reading a video chunk is one request per run of its pictures in the file
-  (the audio interleaved between them splits them) and decoding up to 256
-  pictures plus those back to the keyframe before the chunk. A smaller
-  read costs the same: Zarr decodes whole chunks.
+  (the audio interleaved between them splits them) and decoding its
+  pictures. A chunk starts at a keyframe, unless it splits a group longer
+  than a chunk: then it also decodes the pictures back to the group's
+  keyframe. A smaller read costs the same: Zarr decodes whole chunks.
+- Decoding holds the chunk and the decoder's reference pictures, never the
+  lead-in's pictures, and decodes Y, U and V once: reading U and V after Y
+  takes the planes the decoding of Y kept.
 - The archive holds a reference per chunk, with a range per picture when
   the audio is interleaved, for each of the three planes, and about 4
   bytes per frame of header: 2.4 MB for the 46 MB file above, two thirds of
