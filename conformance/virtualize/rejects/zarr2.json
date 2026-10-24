@@ -1,0 +1,201 @@
+{
+  "about": "The inputs the zarr2 profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/zarr2.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "zarr2_reject_blosc_clevel",
+      "input": "zarr2_reject_blosc_clevel",
+      "message": "blosc clevel none is not an integer from 0 to 9"
+    },
+    {
+      "test": "zarr2_reject_blosc_cname",
+      "input": "zarr2_reject_blosc_cname",
+      "message": "blosc cname snappy2 is not supported"
+    },
+    {
+      "test": "zarr2_reject_blosc_shuffle",
+      "input": "zarr2_reject_blosc_shuffle",
+      "message": "blosc shuffle 3 is not supported"
+    },
+    {
+      "test": "zarr2_reject_chunks_zero",
+      "input": "zarr2_reject_chunks_zero",
+      "message": "chunks [2, 0] is not 2 chunk sizes"
+    },
+    {
+      "test": "zarr2_reject_compressor_bz2",
+      "input": "zarr2_reject_compressor_bz2",
+      "message": "compressor bz2 is not supported"
+    },
+    {
+      "test": "zarr2_reject_compressor_lz4",
+      "input": "zarr2_reject_compressor_lz4",
+      "message": "compressor lz4 is not supported"
+    },
+    {
+      "test": "zarr2_reject_compressor_no_id",
+      "input": "zarr2_reject_compressor_no_id",
+      "message": "compressor is not null or an object with a string id"
+    },
+    {
+      "test": "zarr2_reject_dtype_bytes",
+      "input": "zarr2_reject_dtype_bytes",
+      "message": "dtype |S8 is not supported"
+    },
+    {
+      "test": "zarr2_reject_dtype_complex",
+      "input": "zarr2_reject_dtype_complex",
+      "message": "dtype <c8 is not supported"
+    },
+    {
+      "test": "zarr2_reject_dtype_datetime",
+      "input": "zarr2_reject_dtype_datetime",
+      "message": "dtype <M8[ns] is not supported"
+    },
+    {
+      "test": "zarr2_reject_dtype_no_byteorder",
+      "input": "zarr2_reject_dtype_no_byteorder",
+      "message": "dtype |u2 is not supported"
+    },
+    {
+      "test": "zarr2_reject_dtype_object",
+      "input": "zarr2_reject_dtype_object",
+      "message": "dtype |O is not supported"
+    },
+    {
+      "test": "zarr2_reject_dtype_structured",
+      "input": "zarr2_reject_dtype_structured",
+      "message": "dtype [[a, <u2], [b, <f4]] is not supported"
+    },
+    {
+      "test": "zarr2_reject_dtype_unicode",
+      "input": "zarr2_reject_dtype_unicode",
+      "message": "dtype <U4 is not supported"
+    },
+    {
+      "test": "zarr2_reject_fill_base64",
+      "input": "zarr2_reject_fill_base64",
+      "message": "fill_value AAAAAAAA+H8= is not a float64"
+    },
+    {
+      "test": "zarr2_reject_fill_bool_int",
+      "input": "zarr2_reject_fill_bool_int",
+      "message": "fill_value 1 is not a bool"
+    },
+    {
+      "test": "zarr2_reject_fill_f4_overflow",
+      "input": "zarr2_reject_fill_f4_overflow",
+      "message": "is not a float32"
+    },
+    {
+      "test": "zarr2_reject_fill_fraction_int",
+      "input": "zarr2_reject_fill_fraction_int",
+      "message": "fill_value 0.5 is not a uint16"
+    },
+    {
+      "test": "zarr2_reject_fill_out_of_range",
+      "input": "zarr2_reject_fill_out_of_range",
+      "message": "fill_value 300 is not a uint8"
+    },
+    {
+      "test": "zarr2_reject_fill_string_int",
+      "input": "zarr2_reject_fill_string_int",
+      "message": "fill_value NaN is not a uint16"
+    },
+    {
+      "test": "zarr2_reject_fill_uint64_max",
+      "input": "zarr2_reject_fill_uint64_max",
+      "message": "is not a uint64"
+    },
+    {
+      "test": "zarr2_reject_filters",
+      "input": "zarr2_reject_filters",
+      "message": "filters are not supported"
+    },
+    {
+      "test": "zarr2_reject_gzip_level",
+      "input": "zarr2_reject_gzip_level",
+      "message": "gzip level 1 is not an integer from -1 to 9"
+    },
+    {
+      "test": "zarr2_reject_json_duplicate_last_wins",
+      "input": "zarr2_reject_json_duplicate_last_wins",
+      "message": "order K is not C or F"
+    },
+    {
+      "test": "zarr2_reject_json_nan_literal",
+      "input": "zarr2_reject_json_nan_literal",
+      "message": ".zarray: JSON literal NaN is not allowed"
+    },
+    {
+      "test": "zarr2_reject_no_root_metadata",
+      "input": "zarr2_reject_no_root_metadata",
+      "message": "the root has no .zarray or .zgroup",
+      "host": "not an N5, Zarr v2 or SAFE store: the root has no .zarray, .zgroup, attributes.json or manifest.safe"
+    },
+    {
+      "test": "zarr2_reject_objects_collision",
+      "input": "zarr2_reject_objects_collision",
+      "message": "the node refkv_source is where the store's source metadata goes"
+    },
+    {
+      "test": "zarr2_reject_order",
+      "input": "zarr2_reject_order",
+      "message": "order A is not C or F"
+    },
+    {
+      "test": "zarr2_reject_order_missing",
+      "input": "zarr2_reject_order_missing",
+      "message": "order none is not C or F"
+    },
+    {
+      "test": "zarr2_reject_separator",
+      "input": "zarr2_reject_separator",
+      "message": "dimension_separator - is not . or /"
+    },
+    {
+      "test": "zarr2_reject_shape_chunks_mismatch",
+      "input": "zarr2_reject_shape_chunks_mismatch",
+      "message": "chunks [2] is not 2 chunk sizes"
+    },
+    {
+      "test": "zarr2_reject_shape_negative",
+      "input": "zarr2_reject_shape_negative",
+      "message": "shape [4, -4] is not up to 32 sizes"
+    },
+    {
+      "test": "zarr2_reject_zarr_format_3",
+      "input": "zarr2_reject_zarr_format_3",
+      "message": ".zarray: zarr_format is not 2"
+    },
+    {
+      "test": "zarr2_reject_zarray_and_zgroup",
+      "input": "zarr2_reject_zarray_and_zgroup",
+      "message": "/ has both .zarray and .zgroup"
+    },
+    {
+      "test": "zarr2_reject_zattrs_not_object",
+      "input": "zarr2_reject_zattrs_not_object",
+      "message": "x/.zattrs is not a JSON object"
+    },
+    {
+      "test": "zarr2_reject_zgroup_format",
+      "input": "zarr2_reject_zgroup_format",
+      "message": ".zgroup: zarr_format is not 2"
+    },
+    {
+      "test": "zarr2_reject_zlib_level",
+      "input": "zarr2_reject_zlib_level",
+      "message": "zlib level 10 is not an integer from -1 to 9"
+    },
+    {
+      "test": "zarr2_reject_zstd_checksum",
+      "input": "zarr2_reject_zstd_checksum",
+      "message": "zstd checksum 1 is not a boolean"
+    },
+    {
+      "test": "zarr2_reject_zstd_level",
+      "input": "zarr2_reject_zstd_level",
+      "message": "zstd level 23 is not an integer from -131072 to 22"
+    }
+  ]
+}

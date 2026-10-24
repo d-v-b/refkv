@@ -13,6 +13,7 @@ only that member. No node has any other attribute besides `ome`. (For the file p
 same schemas.) The inputs are every fixture of every profile of the registry
 (spec/virtualize/profiles/): the files of its suffixes, and a store profile's directories."""
 
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -37,6 +38,11 @@ GEOZARR = {"proj:": "proj", "spatial:": "spatial", "multiscales": "multiscales"}
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>), on the nodes
 # below the layouts the root names.
 DATASET_ATTRS = {"units", "long_name", "actual_range", "scale_factor", "add_offset"}
+# The registry's tool (spec/tools/profiles.py), which checks the documents' copies of each CMO
+# against its own `cmo` without importing refkv: here, `cmo` is checked against refkv's.
+_tool = importlib.util.spec_from_file_location("spec_tools_profiles", ROOT / "spec" / "tools" / "profiles.py")
+spec_profiles = importlib.util.module_from_spec(_tool)
+_tool.loader.exec_module(spec_profiles)
 
 
 def geozarr_schema(name: str) -> Draft202012Validator:
@@ -83,6 +89,16 @@ def test_schemas_describe_the_conventions():
         cmo = validator.schema["$defs"]["conventionMetadata"]["properties"]
         assert {k: v["const"] for k, v in cmo.items()} == convention(profile), profile
         assert validator.schema["$id"] == convention(profile)["schema_url"], profile
+
+
+def test_the_documents_cmos_are_the_ones_refkv_writes():
+    """The documents' copies of each CMO are the registry tool's (`profiles.py check`, which `just
+    sections` runs), and the tool's are refkv's."""
+    entries = spec_profiles.load()
+    assert {e["name"] for e in entries} == set(PROFILES)
+    for e in entries:
+        assert spec_profiles.cmo(e) == convention(e["name"]), e["name"]
+    assert spec_profiles.cmo_errors(entries, spec_profiles.documents()) == []
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs node for the browser implementation")

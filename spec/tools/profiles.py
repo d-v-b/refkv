@@ -2,7 +2,7 @@
 derives from it.
 
     uv run python spec/tools/profiles.py          # write the derived files
-    uv run python spec/tools/profiles.py check    # fail if any derived file is stale
+    uv run python spec/tools/profiles.py check    # fail if any derived file is stale, or a CMO copy
     uv run python spec/tools/profiles.py sample   # one accepted fixture of each file profile
 
 The registry is the one place a profile's identity is written, one file per profile so that
@@ -28,6 +28,15 @@ indexes describe it by. Everything else is derived from it:
 Adding a format is its registry file and its own files; `just profiles` then regenerates the
 indexes. `spec/tools/test_profiles.py` checks that the derived files are current (`just
 sections` runs it).
+
+The documents also write out each convention's metadata object (CMO, spec/conventions.md §1
+<https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>), which is
+derived from the registry but copied by hand, to be read in place. `check` checks the copies:
+every CMO of refkv's conventions in spec/ (but its history, spec/history/) and docs/ MUST be
+the one the registry gives (`cmo`), and each format's document MUST show its own in its
+declaration, its section 1. `cmo` is what refkv writes, `refkv.virtualize.common.convention`,
+as python/tests/test_virtualize_conventions.py checks (this tool does not import refkv, whose
+Rust core it would have to build).
 """
 
 from __future__ import annotations
@@ -41,6 +50,10 @@ ROOT = Path(__file__).resolve().parents[2]
 REGISTRY_DIR = ROOT / "spec" / "virtualize" / "profiles"
 COPY_DIR = ROOT / "rust" / "refkv-ir" / "profiles"
 KINDS = ("file", "store", "both", "layout")
+CONVENTION_KEY = "refkv_virtualized"
+UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+# A flat JSON object with a member "uuid", as a CMO is written (its members are strings).
+CMO_TEXT = re.compile(r'\{[^{}]*"uuid"\s*:[^{}]*\}')
 FIELDS = ("name", "title", "uuid", "version", "kind", "sniff", "suffixes", "reference", "source", "inputs", "for")
 
 
@@ -67,7 +80,7 @@ def validate(entries: list[dict]) -> list[dict]:
             raise ValueError(f"{e['name']}: only a file profile has a signature, whose precedence is an integer")
         if bool(e["suffixes"]) != (e["kind"] in ("file", "both")):
             raise ValueError(f"{e['name']}: a file input has suffixes, a store or layout none")
-        if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", e["uuid"]):
+        if not UUID.fullmatch(e["uuid"]):
             raise ValueError(f"{e['name']}: {e['uuid']!r} is not a UUID")
     for key in ("name", "uuid"):
         values = [e[key] for e in entries]
@@ -182,6 +195,74 @@ def stale() -> list[str]:
     return out
 
 
+def cmo(e: dict) -> dict:
+    """The CMO of an entry's convention, as refkv writes it (spec/conventions.md §1
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>): at version 0,
+    which has no tag, its URLs name the development branch."""
+    p, n = e["name"], e["version"]
+    ref, blob = ("heads/main", "main") if n == 0 else (f"tags/virtualize-{p}-v{n}",) * 2
+    return {
+        "uuid": e["uuid"],
+        "schema_url": f"https://raw.githubusercontent.com/d-v-b/refkv/refs/{ref}/spec/virtualize/{p}/schema.json",
+        "spec_url": f"https://github.com/d-v-b/refkv/blob/{blob}/spec/virtualize/{p}.md",
+        "name": CONVENTION_KEY,
+        "description": f"The Zarr layout of a {e['title']} source virtualized by refkv, and the source's metadata",
+    }
+
+
+def documents() -> dict[str, str]:
+    """The documents that may copy a CMO, by path from the repository's root: the Markdown of
+    spec/, but the records of past states (spec/history/), and of docs/."""
+    out = {}
+    for p in sorted(q for d in ("spec", "docs") for q in (ROOT / d).rglob("*.md")):
+        path = p.relative_to(ROOT).as_posix()
+        if not path.startswith("spec/history/"):
+            out[path] = p.read_text(encoding="utf-8")
+    return out
+
+
+def declaration(text: str) -> str:
+    """A format's document's declaration: its section 1, up to its section 2."""
+    m = re.search(r"^## 1\. .*?(?=^## 2\. )", text, re.M | re.S)
+    return m.group(0) if m else ""
+
+
+def cmo_errors(entries: list[dict], texts: dict[str, str]) -> list[str]:
+    """In `texts` (each document's path and Markdown): each copy of a CMO of refkv's conventions
+    that is not the registry's, and each format's document whose declaration does not show its
+    own. A copy of refkv's is a flat object with a member "uuid" that is an entry's UUID, or that
+    names the key `refkv_virtualized` and has a UUID (not a placeholder, as conventions §1's)."""
+    by_uuid = {e["uuid"]: e for e in entries}
+    out = []
+    for path, text in texts.items():
+        for m in CMO_TEXT.finditer(text):
+            where = f"{path}:{text.count(chr(10), 0, m.start()) + 1}"
+            try:
+                value = json.loads(m.group(0))
+            except json.JSONDecodeError:
+                value = None
+            uuid = value.get("uuid") if isinstance(value, dict) else None
+            if uuid in by_uuid:
+                want = cmo(by_uuid[uuid])
+                if value != want:
+                    out.append(f"{where}: not the CMO of {by_uuid[uuid]['name']}, which is {json.dumps(want)}")
+            elif value is None and any(u in m.group(0) for u in by_uuid):
+                out.append(f"{where}: a CMO of refkv's that is not JSON")
+            elif isinstance(value, dict) and value.get("name") == CONVENTION_KEY and UUID.fullmatch(str(uuid)):
+                out.append(f"{where}: a CMO of refkv's whose UUID is no registry entry's")
+    for e in entries:
+        path = f"spec/virtualize/{e['name']}.md"
+        shown = []
+        for m in CMO_TEXT.finditer(declaration(texts.get(path, ""))):
+            try:
+                shown.append(json.loads(m.group(0)))
+            except json.JSONDecodeError:
+                pass
+        if cmo(e) not in shown:
+            out.append(f"{path}: its declaration (section 1) does not show its CMO")
+    return out
+
+
 def sample(entries: list[dict]) -> list[str]:
     """One fixture of each profile that reads a file, as a path from the repository's root: the
     first, by name, of its suffixes under fixtures/<p> that is not named as rejected
@@ -203,7 +284,10 @@ def main(argv: list[str]) -> int:
         paths = stale()
         for p in paths:
             print(f"{p}: stale (run `uv run python spec/tools/profiles.py`)", file=sys.stderr)
-        return 1 if paths else 0
+        errors = cmo_errors(load(), documents())
+        for error in errors:
+            print(error, file=sys.stderr)
+        return 1 if paths or errors else 0
     entries = load()
     want = {ROOT / path: text for path, text in derived(entries).items()} | copies()
     COPY_DIR.mkdir(exist_ok=True)

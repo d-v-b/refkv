@@ -3,52 +3,19 @@
 
 mod common;
 
-use common::{fixtures, rebuilt, reject};
+use common::{fixtures, rebuilt};
 use refkv_ir::check;
 use refkv_ir::parse_bytes;
 use refkv_ir::tiff::Tiff;
 
 // one test per rejected fixture, each the message its check gives
-reject!(tiff_edge_reject_big_offset, Tiff, "tiff/edge_reject_big_offset.tif", "a value of tag 324 is more than 2^53 - 1");
-reject!(tiff_edge_reject_bigtiff_reserved, Tiff, "tiff/edge_reject_bigtiff_reserved.tif", "invalid BigTIFF header");
-reject!(tiff_edge_reject_candidate_planar3, Tiff, "tiff/edge_reject_candidate_planar3.tif", "PlanarConfiguration 3");
-reject!(tiff_edge_reject_cycle, Tiff, "tiff/edge_reject_cycle.tif", "IFD offset 4136 read twice");
-reject!(tiff_edge_reject_dimension_order, Tiff, "tiff/edge_reject_dimension_order.tif", "DimensionOrder 'XYZZT'");
-reject!(tiff_edge_reject_fill_order, Tiff, "tiff/edge_reject_fill_order.tif", "the image at 4136 has FillOrder 2");
-reject!(tiff_edge_reject_first_z, Tiff, "tiff/edge_reject_first_z.tif", "TiffData starts outside the planes");
-reject!(tiff_edge_reject_jpeg_16bit, Tiff, "tiff/edge_reject_jpeg_16bit.tif", "unsupported JPEG: 16-bit, 3 samples, planar 1, p");
-reject!(tiff_edge_reject_jpeg_no_photometric, Tiff, "tiff/edge_reject_jpeg_no_photometric.tif", "unsupported JPEG: 8-bit, 3 samples, planar 1, ph");
-reject!(tiff_edge_reject_jpeg_planar, Tiff, "tiff/edge_reject_jpeg_planar.tif", "unsupported JPEG: 8-bit, 3 samples, planar 2, ph");
-reject!(tiff_edge_reject_jpeg_short_tile, Tiff, "tiff/edge_reject_jpeg_short_tile.tif", "JPEG tile 0 of the IFD at 16 is too short");
-reject!(tiff_edge_reject_jpeg_tables, Tiff, "tiff/edge_reject_jpeg_tables.tif", "the IFD at 834 has malformed JPEGTables");
-reject!(tiff_edge_reject_multifile, Tiff, "tiff/edge_reject_multifile.tif", "multi-file OME-TIFF is not supported");
-reject!(tiff_edge_reject_multifile_uuid, Tiff, "tiff/edge_reject_multifile_uuid.tif", "multi-file OME-TIFF is not supported");
-reject!(tiff_edge_reject_nbsp_size, Tiff, "tiff/edge_reject_nbsp_size.tif", "SizeZ=' 2' is not an integer");
-reject!(tiff_edge_reject_no_ifds, Tiff, "tiff/edge_reject_no_ifds.tif", "no images");
-reject!(tiff_edge_reject_no_width, Tiff, "tiff/edge_reject_no_width.tif", "IFD at 4136 has no tag 256");
-reject!(tiff_edge_reject_planar3, Tiff, "tiff/edge_reject_planar3.tif", "PlanarConfiguration 3");
-reject!(tiff_edge_reject_plane_limit, Tiff, "tiff/edge_reject_plane_limit.tif", "100001 planes is more than 100000");
-reject!(tiff_edge_reject_plane_size, Tiff, "tiff/edge_reject_plane_size.tif", "planes of one pyramid level differ in size, tili");
-reject!(tiff_edge_reject_sample_format, Tiff, "tiff/edge_reject_sample_format.tif", "SampleFormat values are missing or differ");
-reject!(tiff_edge_reject_scalar_count0, Tiff, "tiff/edge_reject_scalar_count0.tif", "tag 259 has no value");
-reject!(tiff_edge_reject_shared_subifd, Tiff, "tiff/edge_reject_shared_subifd.tif", "IFD offset 1032 read twice");
-reject!(tiff_edge_reject_signed_width, Tiff, "tiff/edge_reject_signed_width.tif", "tag 256 has field type 8");
-reject!(tiff_edge_reject_size_sign, Tiff, "tiff/edge_reject_size_sign.tif", "SizeZ='+2' is not an integer");
-reject!(tiff_edge_reject_size_zero, Tiff, "tiff/edge_reject_size_zero.tif", "SizeZ='0' is less than 1");
-reject!(tiff_edge_reject_subifd_count, Tiff, "tiff/edge_reject_subifd_count.tif", "the IFD at 9832 has fewer SubIFDs than IFD 0");
-reject!(tiff_edge_reject_tiffdata_steps, Tiff, "tiff/edge_reject_tiffdata_steps.tif", "the TiffData elements cover more than 1008 plane");
-reject!(tiff_edge_reject_tile_count, Tiff, "tiff/edge_reject_tile_count.tif", "IFD at 32 has 3 tiles, expected 4");
-reject!(tiff_edge_reject_tile_outside, Tiff, "tiff/edge_reject_tile_outside.tif", "tile 0 of the IFD at 40 is outside the file");
-reject!(tiff_edge_reject_unmapped, Tiff, "tiff/edge_reject_unmapped.tif", "OME-XML planes do not match the TIFF's images");
-reject!(tiff_edge_reject_unused_ifd_type, Tiff, "tiff/edge_reject_unused_ifd_type.tif", "tag 259 has field type 99");
-reject!(tiff_edge_reject_unused_value_outside, Tiff, "tiff/edge_reject_unused_value_outside.tif", "the value of tag 324 is outside the file");
-reject!(tiff_edge_reject_uuid_self_closing, Tiff, "tiff/edge_reject_uuid_self_closing.tif", "multi-file OME-TIFF is not supported");
-reject!(tiff_edge_reject_ycbcr_default, Tiff, "tiff/edge_reject_ycbcr_default.tif", "the image at 12334 is YCbCr with subsampling [2,");
-reject!(tiff_edge_reject_ycbcr_subsampled, Tiff, "tiff/edge_reject_ycbcr_subsampled.tif", "the image at 12334 is YCbCr with subsampling [2,");
-reject!(tiff_edge_reject_zero_tile, Tiff, "tiff/edge_reject_zero_tile.tif", "the image at 8 has an empty tile size");
-reject!(tiff_unsupported_lzw, Tiff, "tiff/unsupported_lzw.tif", "unsupported compression 5");
-reject!(tiff_unsupported_predictor, Tiff, "tiff/unsupported_predictor.tif", "unsupported predictor 2");
-reject!(tiff_unsupported_strips, Tiff, "tiff/unsupported_strips.tif", "only tiled TIFFs are supported; the image at 8 i");
+// one test per case of conformance/virtualize/rejects/tiff.json (build.rs), each the message its check gives
+macro_rules! reject {
+    ($name:ident, $input:literal, $msg:literal) => {
+        common::reject!($name, Tiff, concat!("tiff/", $input), $msg);
+    };
+}
+include!(concat!(env!("OUT_DIR"), "/rejects_tiff.rs"));
 
 /// The TIFF parser reads an NDPI as NDPI (spec/virtualize/ndpi.md §7
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>): each

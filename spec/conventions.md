@@ -1199,3 +1199,52 @@ decode the frame after them from nothing. The header holds the frames'
 sizes and positions, which are the source's structure, not its samples
 ([spec/virtualize.md §1.2](virtualize.md#12-input)).
 
+## 11. Format documents
+
+What every format's document, `virtualize/<p>.md`, would otherwise say in
+the same words is stated here once, and each document cites it.
+
+### 11.1 Parts
+
+A format's document has two parts. Part 1 is the format's convention: the Zarr layout, which Part 2 cites as "the convention §n".
+Part 2 is the format's profile ([spec/virtualize.md, Profiles](virtualize.md#profiles)):
+how refkv reads the source, which inputs it rejects, and how each chunk
+references the source. The document is numbered on its own, Part 2 after
+Part 1, and other documents cite it by name. A dataset layout's document
+([§9](#9-dataset-layouts)) is a convention alone.
+
+### 11.2 Declaration
+
+A format's convention starts with its declaration ([§2](#2-attributes)), its
+section 1, which shows its CMO ([§1](#1-conventions)) at the version its
+header states. Unless the declaration says otherwise:
+
+- the root declares the convention with `"profile": "<p>"`, the convention's
+  version as `version`, and the input's URL as `source.url` (a file's URL,
+  or a store's, ending in `/`);
+- `refkv_source` declares it too, with the IR mirror's description
+  ([§8.2](#82-the-table); a store's, [§8.9](#89-stores)), and so does each
+  group of the mirror's view that has a member ([§8.7](#87-the-view)); the
+  mirror's arrays have no attributes.
+
+The declaration names what is the format's own: the root's source metadata,
+the member `"<p>"`, when the root has any, the other nodes that declare the
+convention, and the other arrays that have no attributes. A dataset layout's
+declaration is [§9](#9-dataset-layouts)'s.
+
+### 11.3 The IR mirror
+
+For a file's convention, `refkv_source` is the file's IR mirror
+([§8](#8-the-ir-mirror)): its table, from which the file is rebuilt byte for
+byte, and its view, `refkv_source/tree`; for a store's, it is the store's
+([§8.9](#89-stores)). The format's convention lists the IR's elements, the
+format's **source model**.
+
+### 11.4 Equivalence
+
+The elements are determined by the source (a file, or a store's listing and
+the documents the profile reads), and the mirror by its elements
+([§8.8](#88-canonical-form): one order, one folding, one encoding):
+hierarchies of one source are compared entry for entry, `refkv_source`
+included ([spec/virtualize.md §1.1](virtualize.md#11-output-and-equivalence)).
+

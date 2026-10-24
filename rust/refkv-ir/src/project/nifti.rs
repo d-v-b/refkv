@@ -5,11 +5,11 @@
 //! IR: the header is the IR's `header` value, and the array's chunks are cut from its
 //! `voxels` element.
 
-use super::{header_json, n, Copied};
+use super::{along, contiguous, header_json, image_axes, n, Copied};
 use crate::ir::Ir;
 use crate::nifti::header;
 use crate::record::Header;
-use crate::out::{array_json, grid_chunks, image_ome, omero_channel, omero_json, omero_window, root_json, Chunk, Out, MAX_PAYLOAD};
+use crate::out::{array_json, bytes_codec, full_window, grid_chunks, image_ome, omero_channel, omero_json, root_json, Chunk, Out, RGBA};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -19,7 +19,6 @@ const CHUNK_BYTES: u64 = 1 << 17;
 /// The most channels given display windows (spec/virtualize/nifti.md §4.4
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#44-channels>).
 const MAX_CHANNELS: i64 = 64;
-const COLORS: [(&str, &str); 4] = [("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF"), ("A", "FFFFFF")];
 
 fn valid(v: f64) -> bool {
     v.is_finite() && v > 0.0
@@ -50,17 +49,7 @@ fn cut(h: &Header, vox: u64, facts: &J) -> Result<Cut, String> {
     let spec = &crate::rules::of("nifti").table("datatypes")[h.get("datatype").i().to_string()];
     let (bits, samples) = (n(&spec["bits"]), n(&spec["samples"]));
     let color = samples > 1;
-    let mut axes: Vec<&'static str> = Vec::new();
-    if nd >= 4 {
-        axes.push("t");
-    }
-    if nd >= 5 || color {
-        axes.push("c");
-    }
-    if nd >= 3 {
-        axes.push("z");
-    }
-    axes.extend(["y", "x"]);
+    let axes = image_axes(nd >= 4, nd >= 5 || color, nd >= 3);
     let mut stored: Vec<&'static str> = if nd >= 5 { vec!["c"] } else { vec![] };
     stored.extend(axes.iter().filter(|a| **a != "c"));
     if color {
@@ -68,16 +57,10 @@ fn cut(h: &Header, vox: u64, facts: &J) -> Result<Cut, String> {
     }
     let shape: Vec<u64> = stored
         .iter()
-        .map(|a| match *a {
-            "t" => size(4),
-            "c" => if color { samples } else { size(5) },
-            "z" => size(3),
-            "y" => size(2),
-            _ => size(1),
-        })
+        .map(|a| along(a, [size(4), if color { samples } else { size(5) }, size(3), size(2), size(1)]))
         .collect();
     let item = bits / 8 / samples;
-    let (grid, chunks) = grid_chunks(vox, &shape, item, CHUNK_BYTES, facts["copy_threshold"].as_u64().map_or(MAX_PAYLOAD, |t| t as usize)).ok_or("internal: the voxel data cannot be cut into chunks")?;
+    let (grid, chunks) = grid_chunks(vox, &shape, item, CHUNK_BYTES, contiguous::threshold(facts)).ok_or("internal: the voxel data cannot be cut into chunks")?;
     Ok(Cut { axes, stored, shape, item, grid, chunks })
 }
 
@@ -92,10 +75,7 @@ fn parts<'a>(ir: &'a Ir, facts: &J) -> Result<(Header<'a>, u32), String> {
 pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
     let (h, voxels) = parts(ir, facts)?;
     let c = cut(&h, ir.start[voxels as usize], facts)?;
-    Ok(c.chunks.iter().filter_map(|(_, k)| match k {
-        Chunk::Copy(o, n, _) => Some((*o, *n)),
-        _ => None,
-    }).collect())
+    Ok(contiguous::copy_reads(&c.chunks).collect())
 }
 
 pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
@@ -169,8 +149,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     // channels (§4.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#44-channels>)
     let mut channels = None;
     if color {
-        let window = omero_window(json!(0), json!(255), json!(0), json!(255));
-        channels = Some(COLORS[..samples as usize].iter().map(|(l, k)| omero_channel(l, *k, Some(&window))).collect::<Vec<J>>());
+        let window = full_window(json!(0), json!(255));
+        channels = Some(RGBA[..samples as usize].iter().map(|(l, k)| omero_channel(l, *k, Some(&window))).collect::<Vec<J>>());
     } else {
         let (mut lo, mut hi) = (f("cal_min"), f("cal_max"));
         if lo.is_finite() && hi.is_finite() && hi > lo && (c as i64) <= MAX_CHANNELS {
@@ -179,7 +159,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
                 (lo, hi) = if b < a { (b, a) } else { (a, b) };
             }
             if lo.is_finite() && hi.is_finite() {
-                let window = omero_window(json!(lo), json!(hi), json!(lo), json!(hi));
+                let window = full_window(json!(lo), json!(hi));
                 channels = Some((0..c).map(|k| omero_channel(&format!("C{k}"), "FFFFFF", Some(&window))).collect());
             }
         }
@@ -191,14 +171,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let pos = |a: &str| stored.iter().position(|s| *s == a).unwrap();
     let chunk_shape: Vec<u64> = axes.iter().map(|a| grid[pos(a)]).collect();
     let shape: Vec<u64> = axes.iter().map(|a| shape_of(a)).collect();
-    let translation = placed.map(|p| {
-        J::Array(axes.iter().map(|a| match *a {
-            "x" => json!(p.1[0]),
-            "y" => json!(p.1[1]),
-            "z" => json!(p.1[2]),
-            _ => json!(0),
-        }).collect())
-    });
+    let translation = placed.map(|p| super::translation(&axes, p.1.map(|v| json!(v))));
     let scales = J::Array(axes.iter().map(|a| scale[*a].clone()).collect());
     let trs = translation.clone().map(|t| vec![t]);
     let mut ome = image_ome(&axes, &units, &[scales], None, trs.as_deref())?;
@@ -224,26 +197,12 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         let order: Vec<usize> = stored.iter().map(|a| axes.iter().position(|b| b == a).unwrap()).collect();
         codecs.push(json!({"name": "transpose", "configuration": {"order": order}}));
     }
-    codecs.push(if item > 1 { json!({"name": "bytes", "configuration": {"endian": endian}}) } else { json!({"name": "bytes"}) });
+    codecs.push(bytes_codec(item, endian));
     out.json("0/zarr.json", &array_json(&shape, data_type, json!(chunk_shape), J::Array(codecs), &axes));
     let count = chunks.len();
     let mut refs = Refs::new(ir, out);
-    for (piece, (coords, chunk)) in chunks.into_iter().enumerate() {
-        let key = format!("0/c/{}", axes.iter().map(|a| coords[pos(a)].to_string()).collect::<Vec<_>>().join("/"));
-        match chunk {
-            Chunk::Ranges(parts) => refs.chunk(key, vox, length, form, Some(parts), piece as u64)?,
-            // an edge chunk whose padding does not fit in a reference: its bytes, then the padding
-            Chunk::Copy(o, len, pad) => {
-                let mut b = copied
-                    .get(&(o, len))
-                    .ok_or("a copied chunk's bytes were not read: project a run's IR with the bytes its last batch read")?
-                    .clone();
-                b.resize(b.len() + pad as usize, 0);
-                refs.out.bytes(&key, b);
-            }
-            Chunk::Bytes(b) => refs.out.bytes(&key, b),
-        }
-    }
+    // the chunks' coordinates in the array's axis order
+    contiguous::emit(&mut refs, chunks, (vox, length, form), copied, &["0/c/"], |c| axes.iter().map(|a| c[pos(a)]).collect())?;
     let mut out = refs.out;
     let sizes: Map<String, J> = axes.iter().map(|a| (a.to_string(), json!(shape_of(a)))).collect();
     out.summary = json!({
