@@ -9,11 +9,7 @@ it reads, is the IMS profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `5067a535-8261-4b25-a93c-1985ed333bde` ·
 Schema: [schema.json](ims/schema.json)
 
-This document has two parts. [Part 1](#part-1-the-convention) is the IMS
-convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the IMS profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The document is
-numbered on its own, Part 2 after Part 1, and other documents cite it by name.
+This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 # Part 1. The convention
 
@@ -24,10 +20,10 @@ convention, and the profile rejects it.
 
 ## 1. Declaration
 
-The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "ims"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)) and the file's URL as `source.url`.
-The root has no source metadata of its own: the whole HDF5 file is described
-by `refkv_source`, its IR mirror ([§5](#5-source-metadata)). Its CMO is:
+The root and `refkv_source` declare the convention
+([conventions §11.2](../conventions.md#112-declaration)). The root has no source
+metadata of its own: the whole HDF5 file is described by `refkv_source`, its IR
+mirror ([§5](#5-source-metadata)). Its CMO is:
 
 ```json
 {
@@ -38,10 +34,6 @@ by `refkv_source`, its IR mirror ([§5](#5-source-metadata)). Its CMO is:
   "description": "The Zarr layout of a IMS source virtualized by refkv, and the source's metadata"
 }
 ```
-
-These other nodes declare it, each with `{"ims": S}`: `refkv_source`, with
-the IR mirror's description ([§5.1](#51-the-ir-mirror)), and each group of the
-mirror's view that has a member.
 
 ## 2. The source
 
@@ -287,9 +279,8 @@ whatever else a writer adds) is kept by the file's IR mirror.
 ### 5.1 The IR mirror
 
 `refkv_source` is the file's **IR mirror**
-([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `refkv_source/tree`. The IR's
-elements (the IMS **source model**, below) describe the HDF5 structures the
+([conventions §11.3](../conventions.md#113-the-ir-mirror)).
+The IR's elements (the IMS **source model**, below) describe the HDF5 structures the
 walk ([§5.3](#53-the-walk)) reads; every other byte of the file (free space,
 unused allocations, the padding of blocks and heaps, the data of datasets
 the walk does not reach, and structures outside the subset the profile
@@ -391,10 +382,8 @@ superblock names one, is read as an object's.
 
 ### 5.4 Equivalence
 
-The elements are determined by the file, and the mirror by its elements
-([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
-file are compared entry for entry, `refkv_source` included
-([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
+Hierarchies of one file are compared entry for entry, `refkv_source` included
+([conventions §11.4](../conventions.md#114-equivalence)).
 
 ## 6. Example
 
@@ -444,12 +433,8 @@ their row in the table):
 
 # Part 2. The profile
 
-The IMS profile of [spec/virtualize.md](../virtualize.md) (revision 16) is [§7](#7-ims-profile) of this document. [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here.
-
-The output has the convention's layout for the input
-([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
-how the file is read, which inputs are rejected, and how each chunk
-references the file. "The convention §n" below is a section of Part 1.
+The IMS profile of [spec/virtualize.md](../virtualize.md) (revision 16) is [§7](#7-ims-profile) of this document. What every profile's Part 2 shares is in
+[spec/virtualize.md, Profiles](../virtualize.md#profiles).
 
 ## 7. IMS profile
 

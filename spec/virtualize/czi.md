@@ -10,11 +10,7 @@ is the CZI profile, [Part 2](#part-2-the-profile) below, cited as
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `7a0733c7-d4be-4482-a64f-6904d9354ea5` ·
 Schema: [schema.json](czi/schema.json)
 
-This document has two parts. [Part 1](#part-1-the-convention) is the CZI
-convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the CZI profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The document is
-numbered on its own, Part 2 after Part 1, and other documents cite it by name.
+This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 # Part 1. The convention
 
@@ -35,9 +31,9 @@ file is in an array, referenced where the file holds it.
 
 ## 1. Declaration
 
-The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "czi"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`, and
-the source metadata of [§5.1](#51-the-root) as the member `"czi"`. Its CMO is:
+The root and `refkv_source` declare the convention
+([conventions §11.2](../conventions.md#112-declaration)), the root with the source
+metadata of [§5.1](#51-the-root) as the member `"czi"`. Its CMO is:
 
 ```json
 {
@@ -50,9 +46,7 @@ the source metadata of [§5.1](#51-the-root) as the member `"czi"`. Its CMO is:
 ```
 
 These other nodes declare it, each with `{"czi": S}`: every image group
-whose series key has a dimension ([§4.2](#42-images)), every tile array ([§4.4](#44-tiles)),
-`refkv_source`, with the IR mirror's description ([§5.2](#52-the-ir-mirror)), and each group of the
-mirror's view that has a member.
+whose series key has a dimension ([§4.2](#42-images)), and every tile array ([§4.4](#44-tiles)).
 
 ## 2. The source
 
@@ -602,9 +596,8 @@ them. Everything else is on `refkv_source`.
 ### 5.2 The IR mirror
 
 `refkv_source` is the file's **IR mirror**
-([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `refkv_source/tree`. The IR's
-elements (the CZI **source model**) are below; nothing is left out, deleted
+([conventions §11.3](../conventions.md#113-the-ir-mirror)).
+The IR's elements (the CZI **source model**) are below; nothing is left out, deleted
 and unreferenced segments, spare bytes and dead space included.
 
 ### 5.3 Elements
@@ -649,10 +642,8 @@ file), and holds `header`, a value of type
 
 ### 5.4 Equivalence
 
-The elements are determined by the file, and the mirror by its elements
-([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
-file are compared entry for entry, `refkv_source` included
-([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
+Hierarchies of one file are compared entry for entry, `refkv_source` included
+([conventions §11.4](../conventions.md#114-equivalence)).
 
 ## 6. Example
 
@@ -723,13 +714,8 @@ finds (`segments/<k>`). (The display channel's `High` is 0.25: the window ends a
 
 # Part 2. The profile
 
-The CZI profile of [spec/virtualize.md](../virtualize.md) (revision 18) is [§7](#7-czi-profile) of this document. (Conformance is spec/virtualize.md's [Appendix A](../virtualize.md#appendix-a-conformance).) [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in
-spec/virtualize.md and apply here.
-
-The output has the convention's layout for the input
-([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
-how the file is read, which inputs are rejected, and how each chunk
-references the file. "The convention §n" below is a section of Part 1.
+The CZI profile of [spec/virtualize.md](../virtualize.md) (revision 18) is [§7](#7-czi-profile) of this document. (Conformance is spec/virtualize.md's [Appendix A](../virtualize.md#appendix-a-conformance).) What every profile's Part 2 shares is in
+[spec/virtualize.md, Profiles](../virtualize.md#profiles).
 
 ## 7. CZI profile
 

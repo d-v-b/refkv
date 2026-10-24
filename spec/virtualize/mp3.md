@@ -20,11 +20,7 @@ of this convention's own `mp3`; its data type is `float32`, the decoder's own sa
 place of `int16`; a chunk's header gives each frame's size and output position, in place
 of the count of samples to keep ([§4.1](#41-the-array), [§8.2](#82-chunks)).
 
-This document has two parts. [Part 1](#part-1-the-convention) is the MP3
-convention: the Zarr layout, cited as "the convention §n".
-[Part 2](#part-2-the-profile) is the MP3 profile: how refkv reads the source,
-which inputs it rejects, and how each chunk references the source. The document is
-numbered on its own, Part 2 after Part 1, and other documents cite it by name.
+This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 MP3 is the one format among refkv's conventions whose source is not an
 image: the hierarchy holds the decoded audio as one array of samples, with no
@@ -35,9 +31,9 @@ codec decodes them when a chunk is read.
 
 ## 1. Declaration
 
-The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "mp3"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
-and the root's source metadata of [§5.1](#51-the-root) as the member `"mp3"`. Its CMO is:
+The root and `refkv_source` declare the convention
+([conventions §11.2](../conventions.md#112-declaration)), the root with its source
+metadata of [§5.1](#51-the-root) as the member `"mp3"`. Its CMO is:
 
 ```json
 {
@@ -51,10 +47,7 @@ and the root's source metadata of [§5.1](#51-the-root) as the member `"mp3"`. I
 
 The root's attributes are `zarr_conventions` and `refkv_virtualized` and
 nothing else: there is no `ome` member, since the hierarchy is not an image.
-`refkv_source` declares the convention too, with the IR mirror's description
-([§5.2](#52-the-ir-mirror), [conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
-the mirror's view that has a member; the array and the mirror's arrays have no
-attributes.
+The array has no attributes.
 
 ## 2. Frames
 
@@ -273,9 +266,8 @@ The ID3v2 and APE tags' items are in the mirror, not decoded.
 ### 5.2 The IR mirror
 
 `refkv_source` is the file's **IR mirror**
-([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `refkv_source/tree`. The IR's
-elements (the MP3 **source model**) are below; nothing is left out: the
+([conventions §11.3](../conventions.md#113-the-ir-mirror)).
+The IR's elements (the MP3 **source model**) are below; nothing is left out: the
 tags, the info frame, every audio frame, and every byte between or after
 them.
 
@@ -306,10 +298,8 @@ opaque bytes, are not shown.
 
 ### 5.4 Equivalence
 
-The elements are determined by the file, and the mirror by its elements
-([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
-file are compared entry for entry, `refkv_source` included
-([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
+Hierarchies of one file are compared entry for entry, `refkv_source` included
+([conventions §11.4](../conventions.md#114-equivalence)).
 
 ## 6. Example
 
@@ -397,14 +387,8 @@ This section is informative.
 
 # Part 2. The profile
 
-The MP3 profile of [spec/virtualize.md](../virtualize.md) is [§8](#8-mp3-profile) of this document. [§1](../virtualize.md#1-introduction) and
-[§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply
-here.
-
-The output has the convention's layout for the input
-([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
-which inputs are accepted and how each chunk references the file. "The
-convention §n" below is a section of Part 1.
+The MP3 profile of [spec/virtualize.md](../virtualize.md) is [§8](#8-mp3-profile) of this document. What every profile's Part 2 shares is in
+[spec/virtualize.md, Profiles](../virtualize.md#profiles).
 
 ## 8. MP3 profile
 

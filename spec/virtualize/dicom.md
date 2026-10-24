@@ -11,11 +11,7 @@ refkv produces this layout as a reference store is the DICOM profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `acf17198-e5a5-48d3-8187-22ec4bb40ea5` ·
 Schema: [schema.json](dicom/schema.json)
 
-This document has two parts. [Part 1](#part-1-the-convention) is the DICOM
-convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the DICOM profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The document is
-numbered on its own, Part 2 after Part 1, and other documents cite it by name.
+This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 # Part 1. The convention
 
@@ -26,9 +22,9 @@ convention, and the profile rejects it.
 
 ## 1. Declaration
 
-The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "dicom"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
-and the source metadata of [§5](#5-source-metadata) as the member `"dicom"`. Its CMO is:
+The root and `refkv_source` declare the convention
+([conventions §11.2](../conventions.md#112-declaration)), the root with the source
+metadata of [§5](#5-source-metadata) as the member `"dicom"`. Its CMO is:
 
 ```json
 {
@@ -40,10 +36,7 @@ and the source metadata of [§5](#5-source-metadata) as the member `"dicom"`. It
 }
 ```
 
-`refkv_source` declares it too, with the IR mirror's description ([§5](#5-source-metadata),
-[conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
-the mirror's view that has a member; the mirror's arrays and the image's array
-have no attributes.
+The image's array has no attributes.
 
 ## 2. The source
 
@@ -624,9 +617,8 @@ elements under `dataset/7FE00010` ([§5.4](#54-elements)).
 ### 5.3 The IR mirror
 
 `refkv_source` is the file's **IR mirror**
-([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `refkv_source/tree`. The IR's
-elements (the DICOM **source model**) are below; nothing is left out: the
+([conventions §11.3](../conventions.md#113-the-ir-mirror)).
+The IR's elements (the DICOM **source model**) are below; nothing is left out: the
 preamble, the File Meta Information, every data element at every depth
 (group lengths, offset tables, duplicates, private and padding elements
 included), the items and delimiters of sequences and fragments, the pixel
@@ -691,10 +683,8 @@ the root leaves out included.
 
 ### 5.5 Equivalence
 
-The elements are determined by the file, and the mirror by its elements
-([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
-file are compared entry for entry, `refkv_source` included
-([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
+Hierarchies of one file are compared entry for entry, `refkv_source` included
+([conventions §11.4](../conventions.md#114-equivalence)).
 
 ## 6. Example
 
@@ -906,12 +896,8 @@ referenced image sequence and shared functional groups
 
 # Part 2. The profile
 
-The DICOM profile of [spec/virtualize.md](../virtualize.md) (revision 16) is [§7](#7-dicom-profile) of this document. [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here.
-
-The output has the convention's layout for the input
-([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
-how the file is read, which inputs are rejected, and how each chunk
-references the file. "The convention §n" below is a section of Part 1.
+The DICOM profile of [spec/virtualize.md](../virtualize.md) (revision 16) is [§7](#7-dicom-profile) of this document. What every profile's Part 2 shares is in
+[spec/virtualize.md, Profiles](../virtualize.md#profiles).
 
 ## 7. DICOM profile
 

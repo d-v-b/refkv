@@ -10,11 +10,7 @@ below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` ·
 Schema: [schema.json](fits/schema.json)
 
-This document has two parts. [Part 1](#part-1-the-convention) is the FITS
-convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the FITS profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The document is
-numbered on its own, Part 2 after Part 1, and other documents cite it by name.
+This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 **Draft.** This revision covers uncompressed images, multi-extension files,
 tables and tile-compressed images (`ZIMAGE = T`, the `.fz` files `fpack`
@@ -42,14 +38,11 @@ node's attributes are `zarr_conventions` and `refkv_virtualized` alone.
 
 ## 1. Declaration
 
-The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "fits"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)),
-the file's URL as `source.url`, and the root's source metadata of [§5.1](#51-the-root)
-as the member `"fits"`. Every HDU's node declares it too, with the HDU's source
-metadata ([§5.2](#52-an-hdus-node)); `refkv_source` declares it with the IR
-mirror's description ([§6](#6-the-ir-mirror)), and so does each group of the
-mirror's view that has a member. A table's `rows` and `heap` arrays have no
-attributes. Its CMO is:
+The root and `refkv_source` declare the convention
+([conventions §11.2](../conventions.md#112-declaration)), the root with its source
+metadata of [§5.1](#51-the-root) as the member `"fits"`. Every HDU's node declares
+it too, with the HDU's source metadata ([§5.2](#52-an-hdus-node)). A table's `rows`
+and `heap` arrays have no attributes. Its CMO is:
 
 ```json
 {
@@ -288,8 +281,8 @@ bytes are in the mirror in any case.
 
 ## 6. The IR mirror
 
-`refkv_source` is the file's IR mirror ([conventions §8](../conventions.md#8-the-ir-mirror)),
-from which the file is rebuilt byte for byte. The view shows each HDU's
+`refkv_source` is the file's IR mirror ([conventions §11.3](../conventions.md#113-the-ir-mirror)).
+The view shows each HDU's
 header as a spill (a header is at least 2880 bytes, over the 1024 bytes a
 shown value may have); its cards are in the nodes' source metadata.
 
@@ -319,10 +312,8 @@ length ([§4](#4-tables)):
 
 ### 6.2 Equivalence
 
-The elements are determined by the file, and the mirror by its elements
-([conventions §8.8](../conventions.md#88-canonical-form)): hierarchies of one
-file are compared entry for entry, `refkv_source` included
-([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
+Hierarchies of one file are compared entry for entry, `refkv_source` included
+([conventions §11.4](../conventions.md#114-equivalence)).
 
 ## 7. Example
 
