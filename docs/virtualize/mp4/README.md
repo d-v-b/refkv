@@ -98,7 +98,10 @@ fetches and decodes its chunk, 21 groups of 12 pictures from a keyframe, in
 about 2 seconds over HTTP.
 
 **In the browser.** The service worker serves a virtualized MP4 as a Zarr
-hierarchy like any other; the demo page does not display video.
+hierarchy like any other, and the demo page opens each H.264 track's luma
+(its Y plane) in Neuroglancer, scrolled over time: the Neuroglancer fork
+decodes `refkv.stream` chunks with the browser's WebCodecs `VideoDecoder`.
+The demo's MP4 example is a SLEAP test video of two flies.
 
 ## Supported and not supported
 
