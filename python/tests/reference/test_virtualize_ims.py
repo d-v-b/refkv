@@ -582,8 +582,8 @@ def test_source_node_lists_references_in_a_chunk_too_large_to_decode():
 
 def test_source_node_reads_every_chunk_index():
     """Extensible arrays, version 2 B-trees, implicit and fixed array indexes at maximum
-    dimensions (spec/virtualize.md §8.5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>);
+    dimensions (spec/virtualize/ims.md §7.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#75-datasets-and-chunks>);
     js/test/ims/verify.py compares the data with h5py."""
     _, out = virtualize(str(FIXTURES / "ims_latest_indexes.ims"), url="https://data.test/x")
     group = json.loads(out.bytes_entries["vzip_source/hdf5/Indexes/zarr.json"])
@@ -615,8 +615,8 @@ def test_json_text():
 
 
 def test_parse_selection():
-    """Serialized selections of each type and version (spec/virtualize.md §8.9
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>);
+    """Serialized selections of each type and version (spec/virtualize/ims.md §7.9
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#79-source-metadata-structures>);
     js/test/ims/source.test.ts has the same cases."""
     from refkv_reference.ims.hdf5 import parse_selection
 
@@ -690,8 +690,8 @@ def _dataset(dims, maxdims, chunk):
 
 
 def test_max_grid():
-    """The chunk counts at the maximum dimensions (spec/virtualize.md §8.5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#85-datasets-and-chunks>)."""
+    """The chunk counts at the maximum dimensions (spec/virtualize/ims.md §7.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#75-datasets-and-chunks>)."""
     from refkv_reference.ims.hdf5 import UNDEFINED, _max_grid
 
     assert _max_grid(_dataset([5, 6], None, [2, 4]), False) == [3, 2]

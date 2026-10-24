@@ -88,8 +88,8 @@ def drive_store(run, store: Store, workers: int | None = None, fmt: str | None =
             if reqs is None:
                 return
             if not reqs:
-                # a batch of probes (a VSI input's tile files, spec/virtualize/vsi.md §15.2
-                # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#152-the-tile-files>):
+                # a batch of probes (a VSI input's tile files, spec/virtualize/vsi.md §9.2
+                # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>):
                 # each key answered with its size, or None when it does not exist
                 for key in run.probes():
                     try:
@@ -177,8 +177,8 @@ class StoreIrOutput:
         (spec/virtualize.md §1.4
         <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>; a Zarr v2
         or N5 store's objects are each one reference's, so this is one source per reference,
-        in order of the entries' keys; spec/virtualize/safe.md §12.8
-        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#128-the-source-table>).
+        in order of the entries' keys; spec/virtualize/safe.md §8.8
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#88-the-source-table>).
         A reference's parts become (source, offset, length) or bytes."""
         objects, data, refs = self._numbered()
         return [object_url(self.url, k) for k in objects], data, refs

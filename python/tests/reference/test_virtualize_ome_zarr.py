@@ -151,8 +151,8 @@ def test_virtualizes_the_synthetic_stores():
             zattrs = z.parent / ".zattrs"
             assert inverse(attrs.get("ome", {}), s.get("attributes", {}), s.get("unversioned", [])) == (
                 json.loads(zattrs.read_text()) if zattrs.exists() else {}), (name, path)
-        # The chunks and other objects are §10
-        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>'s,
+        # The chunks and other objects are §7
+        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#7-zarr-v2-profile>'s,
         # referenced in place, except the OME-XML of a
         # collection, which keeps its own key (§7
         # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#7-chunks-and-ome-xml>).
@@ -161,8 +161,8 @@ def test_virtualizes_the_synthetic_stores():
         assert out.chunks == sorted([c for c in plain.chunks if c[0].removeprefix("vzip_source/objects/")
                                      not in dict(xml)] + xml), name
         assert len(xml) == summary.get("omeXml", 0), name
-        # Only attributes and dimension names differ from §10
-        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>'s
+        # Only attributes and dimension names differ from §7
+        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#7-zarr-v2-profile>'s
         # documents.
         source = {"vzip_source/zarr.json"}
         assert set(out.docs) - source == set(plain.docs) - source, name

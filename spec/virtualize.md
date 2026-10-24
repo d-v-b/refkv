@@ -2,13 +2,20 @@
 
 Profiles version: 0 (**draft**)
 
+Changed 2026-10-24, with no change to any output: each profile's document is numbered on its
+own and cited by its name ([Profiles](#profiles)), not as a section of this one, and each file
+profile's signature is in its own document, tested in the registry's order
+([§1.2](#12-input)).
+
 ## 1. Introduction
 
 A **virtualizer** reads the structure of an image file or of a chunked array
 store (the formats of the table below), and writes a
 vzip archive ([spec/bindings/vzip.md](bindings/vzip.md)) that presents the pixels as an OME-Zarr
 dataset, or for a store as a Zarr v3 hierarchy (for an OME-Zarr 0.4 store,
-an OME-Zarr 0.5 one; for a Sentinel-2 SAFE product, a GeoZarr one). The
+an OME-Zarr 0.5 one; for a Sentinel-2 SAFE product, a GeoZarr one; for an
+MP3 file, the one format that is not an image, a plain array of audio
+samples). The
 pixels stay where they are: each Zarr chunk is a reference to byte ranges of
 the file, or to a whole object of the store. This document specifies, for
 each supported input format (a **profile**), exactly which archive a
@@ -17,29 +24,34 @@ output from the same input.
 
 This document holds what every profile shares: the input, the output and how
 outputs compare ([§1](#1-introduction)), and the common parts of the output ([§2](#2-the-zarr-layout)). Each profile
-is a document of its own, numbered as a section of this one:
+is a document of its own, `virtualize/<name>.md`, numbered on its own and cited by its name
+([Profiles](#profiles)); its registry entry, `virtualize/profiles/<name>.json`, holds its identity.
+The table, generated from the registry, lists them:
 
 <!-- profiles:spec-table -->
-| § | profile | input | inputs |
-|---|---|---|---|
-| 3 | [TIFF](virtualize/tiff.md#part-2-the-profile) | file | TIFF and BigTIFF, including OME-TIFF and JPEG-tiled slides such as Aperio SVS |
-| 4 | [NDPI](virtualize/ndpi.md#part-2-the-profile) | file | Hamamatsu NDPI slides, a TIFF variant with 64-bit offsets |
-| 5 | [ND2](virtualize/nd2.md#part-2-the-profile) | file | Nikon ND2, format version 3 and later |
-| 6 | [DICOM](virtualize/dicom.md#part-2-the-profile) | file | DICOM Part 10 files with native or JPEG-encapsulated pixel data, including whole-slide images |
-| 7 | [NIfTI](virtualize/nifti.md#part-2-the-profile) | file | NIfTI-1 and NIfTI-2 single files (`.nii`) |
-| 8 | [IMS](virtualize/ims.md#part-2-the-profile) | file | Imaris IMS files (HDF5) |
-| 9 | [N5](virtualize/n5.md#part-2-the-profile) | store | N5 containers, default-mode blocks |
-| 10 | [Zarr v2](virtualize/zarr2.md#part-2-the-profile) | store | Zarr v2 hierarchies |
-| 11 | [OME-Zarr](virtualize/ome-zarr.md#part-2-the-profile) | store | OME-Zarr 0.4 hierarchies on Zarr v2, migrated to OME-Zarr 0.5 |
-| 12 | [Sentinel-2 SAFE](virtualize/safe.md#part-2-the-profile) | file or store | Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (a store) or a `.SAFE.zip` file |
-| 13 | [CZI](virtualize/czi.md#part-2-the-profile) | file | Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids |
-| 14 | [MRC](virtualize/mrc.md#part-2-the-profile) | file | MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks) |
-| 15 | [VSI](virtualize/vsi.md#part-2-the-profile) | file | Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG and JPEG 2000 tiles) |
-| 16 | [QPTIFF](virtualize/qptiff.md#part-2-the-profile) | file | Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips |
+| profile | input | inputs |
+|---|---|---|
+| [CZI](virtualize/czi.md#part-2-the-profile) | file | Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids |
+| [DICOM](virtualize/dicom.md#part-2-the-profile) | file | DICOM Part 10 files with native or JPEG-encapsulated pixel data, including whole-slide images |
+| [FITS](virtualize/fits.md#part-2-the-profile) | file | FITS files: images, multi-extension files, binary and ASCII tables |
+| [IMS](virtualize/ims.md#part-2-the-profile) | file | Imaris IMS files (HDF5) |
+| [MP3](virtualize/mp3.md#part-2-the-profile) | file | MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio files (`.mp3`), with their ID3v2, ID3v1 and APE tags; one array of samples, not an image |
+| [MP4](virtualize/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.mov`) with H.264 video and AAC or MP3 audio tracks; a group per track, not an image |
+| [MRC](virtualize/mrc.md#part-2-the-profile) | file | MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks) |
+| [N5](virtualize/n5.md#part-2-the-profile) | store | N5 containers, default-mode blocks |
+| [ND2](virtualize/nd2.md#part-2-the-profile) | file | Nikon ND2, format version 3 and later |
+| [NDPI](virtualize/ndpi.md#part-2-the-profile) | file | Hamamatsu NDPI slides, a TIFF variant with 64-bit offsets |
+| [NIfTI](virtualize/nifti.md#part-2-the-profile) | file | NIfTI-1 and NIfTI-2 single files (`.nii`) |
+| [OME-Zarr](virtualize/ome-zarr.md#part-2-the-profile) | store | OME-Zarr 0.4 hierarchies on Zarr v2, migrated to OME-Zarr 0.5 |
+| [QPTIFF](virtualize/qptiff.md#part-2-the-profile) | file | Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips |
+| [Sentinel-2 SAFE](virtualize/safe.md#part-2-the-profile) | file or store | Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (a store) or a `.SAFE.zip` file |
+| [TIFF](virtualize/tiff.md#part-2-the-profile) | file | TIFF and BigTIFF, including OME-TIFF and JPEG-tiled slides such as Aperio SVS |
+| [VSI](virtualize/vsi.md#part-2-the-profile) | file | Olympus cellSens VSI slides: a `.vsi` file and the tile files beside it, probed by key (uncompressed, JPEG and JPEG 2000 tiles) |
+| [Zarr v2](virtualize/zarr2.md#part-2-the-profile) | store | Zarr v2 hierarchies |
 <!-- /profiles -->
 
 The table says which profiles read a single file (a **file input**), which a store of many
-objects (a **store input**, [§1.4](#14-store-inputs)), and which either; VSI ([§15](virtualize/vsi.md#15-vsi-profile)) is named by a file, its `.vsi`, and reads it and the tile files beside it as a store it probes rather than lists. [Appendix A](#appendix-a-conformance) is informative:
+objects (a **store input**, [§1.4](#14-store-inputs)), and which either; VSI ([vsi.md §9](virtualize/vsi.md#9-vsi-profile)) is named by a file, its `.vsi`, and reads it and the tile files beside it as a store it probes rather than lists. [Appendix A](#appendix-a-conformance) is informative:
 the implementations and how they are compared.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be
@@ -142,31 +154,36 @@ reference in order of its ranges, the first range that uses a byte string
 not yet in the table adds it as the next source. A range that uses a shared
 byte string `d` in data source `i` is `(i, 0, len(d))`, the whole source.
 Every other range of a reference is a range of source 0 or a literal range.
-The TIFF ([§3](virtualize/tiff.md#3-tiff-profile), JPEG tiles), NDPI ([§4](virtualize/ndpi.md#4-ndpi-profile)) and SAFE ([§12](virtualize/safe.md#12-safe-profile), JPEG 2000 main
-headers) profiles define shared byte strings; the others define none, so
-their table is source 0 alone.
+A profile that defines shared byte strings says so, as the TIFF
+([tiff.md §7](virtualize/tiff.md#7-tiff-profile), JPEG tiles) and SAFE ([safe.md §8](virtualize/safe.md#8-safe-profile), JPEG 2000 main headers) profiles do; for a
+profile that defines none, the table is source 0 alone.
 
-**Choosing the profile.** The file's first bytes decide, by the first row
-of this table that matches. `H` is the file's first `min(552, size)` bytes;
-a test that needs a byte beyond `H` does not match.
+**Choosing the profile.** The file's first bytes decide. `H` is the file's first
+`min(552, size)` bytes; a test that needs a byte beyond `H` does not match. Each file profile's
+document states its **signature**, a test on `H`, and its registry entry
+(`virtualize/profiles/<name>.json`) the signature's precedence, `sniff`. The signatures are
+tested in ascending precedence, those of equal precedence in order of the profiles' names,
+and the first that matches chooses the profile. A file that no signature matches is rejected.
+A profile whose `sniff` is null has no signature: the reading of another profile chooses it
+(the TIFF profile's chooses NDPI and QPTIFF). The precedences, generated from the registry, by
+profile name:
 
-| test on `H` | |
+<!-- profiles:sniff-table -->
+| profile | `sniff` |
 |---|---|
-| bytes 128–131 are `44 49 43 4D` (`DICM`) | DICOM profile ([§6](virtualize/dicom.md#6-dicom-profile)) |
-| bytes 0–3 are `49 49 2A 00`, `4D 4D 00 2A`, `49 49 2B 00` or `4D 4D 00 2B` | NDPI profile ([§4](virtualize/ndpi.md#4-ndpi-profile)) if the file passes its detection test ([§4](virtualize/ndpi.md#4-ndpi-profile)), else TIFF profile ([§3](virtualize/tiff.md#3-tiff-profile)) |
-| bytes 0–3 are `DA CE BE 0A` (the ND2 chunk magic, [§5.1](virtualize/nd2.md#51-chunks)) | ND2 profile ([§5](virtualize/nd2.md#5-nd2-profile)) |
-| bytes 0–7 are `89 48 44 46 0D 0A 1A 0A` (the HDF5 signature) | IMS profile ([§8](virtualize/ims.md#8-ims-profile)) |
-| bytes 0–3 are the 32-bit integer 348 in either byte order, and bytes 344–347 are `6E 2B 31 00` (`n+1`) | NIfTI profile ([§7](virtualize/nifti.md#7-nifti-profile)), NIfTI-1 |
-| bytes 0–3 are the 32-bit integer 540 in either byte order, and bytes 4–11 are `6E 2B 32 00 0D 0A 1A 0A` (`n+2`) | NIfTI profile ([§7](virtualize/nifti.md#7-nifti-profile)), NIfTI-2 |
-| bytes 0–3 are `50 4B 03 04` (a ZIP local file header) | SAFE profile ([§12](virtualize/safe.md#12-safe-profile)), zip form |
-| bytes 0–15 are `5A 49 53 52 41 57 46 49 4C 45` (`ZISRAWFILE`) and six `00` bytes | CZI profile ([§13](virtualize/czi.md#13-czi-profile)) |
-| bytes 208–210 are `4D 41 50` (`MAP`) | MRC profile ([§14](virtualize/mrc.md#14-mrc-profile)) |
-| bytes 0–3 are `49 49 2A 00` and bytes 8–11 are `18 00 49 53` (a cellSens container header) | VSI profile ([§15](virtualize/vsi.md#15-vsi-profile)), tested before the TIFF row |
-| anything else, including the JPEG 2000 signature box `00 00 00 0C 6A 50 20 20 0D 0A 87 0A` that starts legacy ND2 files, NIfTI header-and-image pairs (`ni1`, `ni2`) and pre-2000 MRC files without `MAP` | rejected |
-
-A DICOM file is read by the DICOM profile even when its 128-byte preamble
-holds a TIFF header, as dual-personality files and some writers' preambles
-do. An HDF5 file that is not an Imaris file is rejected by the IMS profile.
+| CZI ([czi.md §7](virtualize/czi.md#7-czi-profile)) | 50 |
+| DICOM ([dicom.md §7](virtualize/dicom.md#7-dicom-profile)) | 10 |
+| FITS ([fits.md §9](virtualize/fits.md#9-fits-profile)) | 110 |
+| IMS ([ims.md §7](virtualize/ims.md#7-ims-profile)) | 70 |
+| MP3 ([mp3.md §8](virtualize/mp3.md#8-mp3-profile)) | 100 |
+| MP4 ([mp4.md §8](virtualize/mp4.md#8-mp4-profile)) | 85 |
+| MRC ([mrc.md §8](virtualize/mrc.md#8-mrc-profile)) | 90 |
+| ND2 ([nd2.md §7](virtualize/nd2.md#7-nd2-profile)) | 20 |
+| NIfTI ([nifti.md §7](virtualize/nifti.md#7-nifti-profile)) | 60 |
+| Sentinel-2 SAFE ([safe.md §8](virtualize/safe.md#8-safe-profile)) | 80 |
+| TIFF ([tiff.md §7](virtualize/tiff.md#7-tiff-profile)) | 40 |
+| VSI ([vsi.md §9](virtualize/vsi.md#9-vsi-profile)) | 30 |
+<!-- /profiles -->
 
 **Rejection.** A virtualizer MUST reject an input the profile does not
 accept, producing no output. That includes every input that is not well
@@ -265,9 +282,9 @@ decide, by the first row that matches:
 
 | root keys | |
 |---|---|
-| `.zarray` or `.zgroup` | OME-Zarr profile ([§11](virtualize/ome-zarr.md#11-ome-zarr-profile)) if the store declares OME-NGFF 0.4 (below), else Zarr v2 profile ([§10](virtualize/zarr2.md#10-zarr-v2-profile)) |
-| `attributes.json` | N5 profile ([§9](virtualize/n5.md#9-n5-profile)) |
-| `manifest.safe` | SAFE profile ([§12](virtualize/safe.md#12-safe-profile)), directory form |
+| `.zarray` or `.zgroup` | OME-Zarr profile ([ome-zarr.md §11](virtualize/ome-zarr.md#11-ome-zarr-profile)) if the store declares OME-NGFF 0.4 (below), else Zarr v2 profile ([zarr2.md §7](virtualize/zarr2.md#7-zarr-v2-profile)) |
+| `attributes.json` | N5 profile ([n5.md §8](virtualize/n5.md#8-n5-profile)) |
+| `manifest.safe` | SAFE profile ([safe.md §8](virtualize/safe.md#8-safe-profile)), directory form |
 | anything else, including an empty store | rejected |
 
 **Declaring OME-NGFF 0.4.** The test reads at most three documents, by
@@ -304,7 +321,7 @@ string `"0.4"`.
 
 (These are the forms OME-NGFF 0.4 gives an image, a plate, a well and a
 bioformats2raw collection at the root. A 0.4 group below a root that does
-not declare 0.4 is read by [§10](virtualize/zarr2.md#10-zarr-v2-profile), with its attributes unchanged.)
+not declare 0.4 is read by [zarr2.md §7](virtualize/zarr2.md#7-zarr-v2-profile), with its attributes unchanged.)
 
 **Reading an object.** A virtualizer reads an object whole: the bytes
 `[0, size)` of the object's URL (below), with HTTP range requests, or from
@@ -315,7 +332,7 @@ reads only the metadata documents it names; it never reads a chunk object.
 bytes, only on its key and size.) The SAFE profile is the exception: it
 reads its band files in ranges (their boxes, main headers and tile-part
 headers), with HTTP range requests, and a response that is not of the
-requested length is a failure ([§12.2](virtualize/safe.md#122-objects-and-reading)).
+requested length is a failure ([safe.md §8.2](virtualize/safe.md#82-objects-and-reading)).
 
 **Object URLs.** The URL of the object with key `k` is `U` followed by
 `k`'s UTF-8 bytes with every byte that is not an unreserved character
@@ -326,7 +343,7 @@ digits (the encoding of [spec/refkv.md §5](refkv.md#5-source-table) for local p
 
 **Source table and chunk references.** A profile names the **chunk
 objects** of each array: objects whose keys are chunk keys of the array,
-and the other objects it references whole ([§11.2](virtualize/ome-zarr.md#112-chunks-and-ome-xml), the only one that does).
+and the other objects it references whole ([ome-zarr.md §11.2](virtualize/ome-zarr.md#112-chunks-and-ome-xml), the only one that does).
 Of these, an object of size 0 is not used: it has no entry (so the chunk
 reads as the fill value) and no source, and the store conventions keep its
 key (with the empty objects' keys, or, for the Zarr v2, N5 and OME-Zarr profiles,
@@ -346,7 +363,7 @@ range `(i, 0, size)`. No other entry is a reference, and a store input's
 output has no data sources ([§1.2](#12-input)). The SAFE profile is the exception: its
 url sources are one per object that some reference uses, and data sources
 follow them, and its references are ranges within objects
-([§12.8](virtualize/safe.md#128-the-source-table)).
+([safe.md §8.8](virtualize/safe.md#88-the-source-table)).
 
 These rules replace [§1.2](#12-input)'s **References stay in the file** (but for the
 SAFE profile, whose payloads are checked as [§1.2](#12-input) says): each range lies
@@ -521,26 +538,39 @@ states, with:
 ## Profiles
 
 Each profile is Part 2 of its format's document in [virtualize/](virtualize/), whose Part 1
-is the format's Zarr convention. A profile keeps the number the registry
-([virtualize/profiles.json](virtualize/profiles.json)) gives it, so adding a profile moves no
-other section:
+is the format's Zarr convention, and its registry entry is that document's name in
+[virtualize/profiles/](virtualize/profiles/). A format's document is numbered on its own (its
+Part 2 after its Part 1), and other documents cite its sections by its name
+(`spec/virtualize/<name>.md §n`), so adding a profile adds its own files and renumbers nothing
+else. The profiles, generated from the registry:
 
 <!-- profiles:spec-list -->
-- [§3](virtualize/tiff.md#3-tiff-profile), the TIFF profile: [spec/virtualize/tiff.md](virtualize/tiff.md#part-2-the-profile);
-- [§4](virtualize/ndpi.md#4-ndpi-profile), the NDPI profile: [spec/virtualize/ndpi.md](virtualize/ndpi.md#part-2-the-profile);
-- [§5](virtualize/nd2.md#5-nd2-profile), the ND2 profile: [spec/virtualize/nd2.md](virtualize/nd2.md#part-2-the-profile);
-- [§6](virtualize/dicom.md#6-dicom-profile), the DICOM profile: [spec/virtualize/dicom.md](virtualize/dicom.md#part-2-the-profile);
-- [§7](virtualize/nifti.md#7-nifti-profile), the NIfTI profile: [spec/virtualize/nifti.md](virtualize/nifti.md#part-2-the-profile);
-- [§8](virtualize/ims.md#8-ims-profile), the IMS profile: [spec/virtualize/ims.md](virtualize/ims.md#part-2-the-profile);
-- [§9](virtualize/n5.md#9-n5-profile), the N5 profile: [spec/virtualize/n5.md](virtualize/n5.md#part-2-the-profile);
-- [§10](virtualize/zarr2.md#10-zarr-v2-profile), the Zarr v2 profile: [spec/virtualize/zarr2.md](virtualize/zarr2.md#part-2-the-profile);
-- [§11](virtualize/ome-zarr.md#11-ome-zarr-profile), the OME-Zarr profile: [spec/virtualize/ome-zarr.md](virtualize/ome-zarr.md#part-2-the-profile);
-- [§12](virtualize/safe.md#12-safe-profile), the SAFE profile: [spec/virtualize/safe.md](virtualize/safe.md#part-2-the-profile);
-- [§13](virtualize/czi.md#13-czi-profile), the CZI profile: [spec/virtualize/czi.md](virtualize/czi.md#part-2-the-profile);
-- [§14](virtualize/mrc.md#14-mrc-profile), the MRC profile: [spec/virtualize/mrc.md](virtualize/mrc.md#part-2-the-profile);
-- [§15](virtualize/vsi.md#15-vsi-profile), the VSI profile: [spec/virtualize/vsi.md](virtualize/vsi.md#part-2-the-profile);
-- [§16](virtualize/qptiff.md#16-qptiff-profile), the QPTIFF profile: [spec/virtualize/qptiff.md](virtualize/qptiff.md#part-2-the-profile).
+- the CZI profile: [spec/virtualize/czi.md §7](virtualize/czi.md#7-czi-profile);
+- the DICOM profile: [spec/virtualize/dicom.md §7](virtualize/dicom.md#7-dicom-profile);
+- the FITS profile: [spec/virtualize/fits.md §9](virtualize/fits.md#9-fits-profile);
+- the IMS profile: [spec/virtualize/ims.md §7](virtualize/ims.md#7-ims-profile);
+- the MP3 profile: [spec/virtualize/mp3.md §8](virtualize/mp3.md#8-mp3-profile);
+- the MP4 profile: [spec/virtualize/mp4.md §8](virtualize/mp4.md#8-mp4-profile);
+- the MRC profile: [spec/virtualize/mrc.md §8](virtualize/mrc.md#8-mrc-profile);
+- the N5 profile: [spec/virtualize/n5.md §8](virtualize/n5.md#8-n5-profile);
+- the ND2 profile: [spec/virtualize/nd2.md §7](virtualize/nd2.md#7-nd2-profile);
+- the NDPI profile: [spec/virtualize/ndpi.md §7](virtualize/ndpi.md#7-ndpi-profile);
+- the NIfTI profile: [spec/virtualize/nifti.md §7](virtualize/nifti.md#7-nifti-profile);
+- the OME-Zarr profile: [spec/virtualize/ome-zarr.md §11](virtualize/ome-zarr.md#11-ome-zarr-profile);
+- the QPTIFF profile: [spec/virtualize/qptiff.md §7](virtualize/qptiff.md#7-qptiff-profile);
+- the SAFE profile: [spec/virtualize/safe.md §8](virtualize/safe.md#8-safe-profile);
+- the TIFF profile: [spec/virtualize/tiff.md §7](virtualize/tiff.md#7-tiff-profile);
+- the VSI profile: [spec/virtualize/vsi.md §9](virtualize/vsi.md#9-vsi-profile);
+- the Zarr v2 profile: [spec/virtualize/zarr2.md §7](virtualize/zarr2.md#7-zarr-v2-profile).
 <!-- /profiles -->
+
+A profile's Part 2 starts by naming the revision of this document it follows, if any, its
+section, and the profiles it builds on. [§1](#1-introduction) and [§2](#2-the-zarr-layout)
+apply to every profile, and to a store input's in particular the store input rules of
+[§1.4](#14-store-inputs)–[§1.6](#16-json-documents). The output has the convention's layout
+for the input ([§2](#2-the-zarr-layout)); the profile says how the input is read, which inputs
+are rejected, and how each chunk references the input. In Part 2, "the convention §n" is a
+section of Part 1.
 
 ## Appendix A. Conformance
 
@@ -579,7 +609,7 @@ compares their outputs by [§1.1](#11-output-and-equivalence) (`conformance/virt
 describes the command an implementation provides). The corpus has:
 - the synthetic files and stores in `fixtures/<profile>/`, including inputs
   each profile rejects (the files of the suffixes the registry,
-  [virtualize/profiles.json](virtualize/profiles.json), gives the profile;
+  [virtualize/profiles/](virtualize/profiles/), gives the profile;
   a store profile's one directory per store);
 - the 205 OME-TIFFs of IDR idr0096;
 - public files and stores of every profile, listed in

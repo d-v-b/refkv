@@ -1,12 +1,12 @@
 """Virtualizing image files and stores in vzip archives (spec/virtualize.md).
 
-Every format (the profiles of spec/virtualize/profiles.json; docs/virtualize/README.md lists
+Every format (the profiles of spec/virtualize/profiles/; docs/virtualize/README.md lists
 them) goes through the IR (`refkv.ir`): the Rust core's sans-IO parser of the format, driven by
 its read planner (a file) or by the store's reads (`refkv.ir.store`; a Sentinel-2 SAFE product
 is either, a `.SAFE.zip` file or a `.SAFE` directory), projected to the convention's hierarchy
 and mirrored under `refkv_source` by the Rust core. A run may decide the profile itself: the
-core's TIFF parser finds NDPI (spec/virtualize/ndpi.md §4
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), and its
+core's TIFF parser finds NDPI (spec/virtualize/ndpi.md §7
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>), and its
 Zarr v2 parser decides between Zarr v2 (spec/virtualize/zarr2.md) and OME-Zarr 0.4
 (spec/virtualize/ome-zarr.md).
 common holds what the profiles share, and store the store
@@ -94,8 +94,8 @@ def _virtualize_store(location: str, url: str | None = None, *, max_objects: int
 def _virtualize_vsi(location: str, url: str | None, transport, *, checksums: bool = False,
                     policy: Policy | None = None, connections: int | None = None) -> tuple[str, StoreIrOutput]:
     """(format, output) for the VSI input at `location`, a `.vsi` file (opened as `transport`)
-    whose tile files lie beside it (spec/virtualize/vsi.md §15.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#152-the-tile-files>): a store
+    whose tile files lie beside it (spec/virtualize/vsi.md §9.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>): a store
     run of the core's `vsi` format over the files, probed as the run asks for them
     (`refkv.virtualize.vsi.VsiFiles`). `url`, when given, is the URL of the `.vsi` file's
     directory (ending in `/`), the store URL the output's object URLs are made from."""

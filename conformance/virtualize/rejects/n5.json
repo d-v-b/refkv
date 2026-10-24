@@ -1,0 +1,166 @@
+{
+  "about": "The inputs the n5 profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/n5.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "n5_reject_attributes_not_object",
+      "input": "n5_reject_attributes_not_object",
+      "message": "attributes.json is not a JSON object"
+    },
+    {
+      "test": "n5_reject_blocksize_huge",
+      "input": "n5_reject_blocksize_huge",
+      "message": "blockSize [2, 2147483648] is not 2 block sizes"
+    },
+    {
+      "test": "n5_reject_blocksize_mismatch",
+      "input": "n5_reject_blocksize_mismatch",
+      "message": "blockSize [2] is not 2 block sizes"
+    },
+    {
+      "test": "n5_reject_blocksize_zero",
+      "input": "n5_reject_blocksize_zero",
+      "message": "blockSize [2, 0] is not 2 block sizes"
+    },
+    {
+      "test": "n5_reject_blosc_clevel",
+      "input": "n5_reject_blosc_clevel",
+      "message": "blosc clevel 10 is not an integer from 0 to 9"
+    },
+    {
+      "test": "n5_reject_blosc_cname",
+      "input": "n5_reject_blosc_cname",
+      "message": "blosc cname lz5 is not supported"
+    },
+    {
+      "test": "n5_reject_blosc_shuffle_missing",
+      "input": "n5_reject_blosc_shuffle_missing",
+      "message": "blosc shuffle none is not supported"
+    },
+    {
+      "test": "n5_reject_compression_bzip2",
+      "input": "n5_reject_compression_bzip2",
+      "message": "N5 compression bzip2 is not supported"
+    },
+    {
+      "test": "n5_reject_compression_jpeg",
+      "input": "n5_reject_compression_jpeg",
+      "message": "N5 compression jpeg is not supported"
+    },
+    {
+      "test": "n5_reject_compression_lz4",
+      "input": "n5_reject_compression_lz4",
+      "message": "N5 compression lz4 is not supported"
+    },
+    {
+      "test": "n5_reject_compression_no_type",
+      "input": "n5_reject_compression_no_type",
+      "message": "compression is not an object with a string type"
+    },
+    {
+      "test": "n5_reject_compression_xz",
+      "input": "n5_reject_compression_xz",
+      "message": "N5 compression xz is not supported"
+    },
+    {
+      "test": "n5_reject_datatype_object",
+      "input": "n5_reject_datatype_object",
+      "message": "dataType object is not supported"
+    },
+    {
+      "test": "n5_reject_datatype_string",
+      "input": "n5_reject_datatype_string",
+      "message": "dataType string is not supported"
+    },
+    {
+      "test": "n5_reject_dimensions_empty",
+      "input": "n5_reject_dimensions_empty",
+      "message": "dimensions [] is not 1 to 32 sizes"
+    },
+    {
+      "test": "n5_reject_dimensions_fraction",
+      "input": "n5_reject_dimensions_fraction",
+      "message": "dimensions [4, 2.5] is not 1 to 32 sizes"
+    },
+    {
+      "test": "n5_reject_dimensions_huge",
+      "input": "n5_reject_dimensions_huge",
+      "message": "dimensions [9007199254740992, 4] is not 1 to 32 sizes"
+    },
+    {
+      "test": "n5_reject_dimensions_negative",
+      "input": "n5_reject_dimensions_negative",
+      "message": "dimensions [4, -1] is not 1 to 32 sizes"
+    },
+    {
+      "test": "n5_reject_gzip_level",
+      "input": "n5_reject_gzip_level",
+      "message": "gzip level 10 is not an integer from -1 to 9"
+    },
+    {
+      "test": "n5_reject_gzip_usezlib_string",
+      "input": "n5_reject_gzip_usezlib_string",
+      "message": "gzip useZlib true is not a boolean"
+    },
+    {
+      "test": "n5_reject_json_bom",
+      "input": "n5_reject_json_bom",
+      "message": "JSON document starts with a byte order mark"
+    },
+    {
+      "test": "n5_reject_json_empty_object",
+      "input": "n5_reject_json_empty_object",
+      "message": "invalid JSON: the document is empty"
+    },
+    {
+      "test": "n5_reject_json_nan",
+      "input": "n5_reject_json_nan",
+      "message": "JSON literal NaN is not allowed"
+    },
+    {
+      "test": "n5_reject_json_not_utf8",
+      "input": "n5_reject_json_not_utf8",
+      "message": "JSON document is not UTF-8"
+    },
+    {
+      "test": "n5_reject_json_overflow",
+      "input": "n5_reject_json_overflow",
+      "message": "JSON number 1e400 is not finite in binary64"
+    },
+    {
+      "test": "n5_reject_json_too_deep",
+      "input": "n5_reject_json_too_deep",
+      "message": "JSON nests more than 256 deep"
+    },
+    {
+      "test": "n5_reject_json_trailing_comma",
+      "input": "n5_reject_json_trailing_comma",
+      "message": "invalid JSON: expecting a property name"
+    },
+    {
+      "test": "n5_reject_no_compression",
+      "input": "n5_reject_no_compression",
+      "message": "no compression"
+    },
+    {
+      "test": "n5_reject_no_root_attributes",
+      "input": "n5_reject_no_root_attributes",
+      "message": "the root has no attributes.json",
+      "host": "not an N5, Zarr v2 or SAFE store: the root has no .zarray, .zgroup, attributes.json or manifest.safe"
+    },
+    {
+      "test": "n5_reject_objects_collision",
+      "input": "n5_reject_objects_collision",
+      "message": "the node refkv_source is where the store's other objects go"
+    },
+    {
+      "test": "n5_reject_reserved_key",
+      "input": "n5_reject_reserved_key",
+      "message": "output key \"__vz__/zarr.json\" is in the reserved __vz__/ space"
+    },
+    {
+      "test": "n5_reject_zstd_level",
+      "input": "n5_reject_zstd_level",
+      "message": "zstd level 2.5 is not an integer from -131072 to 22"
+    }
+  ]
+}

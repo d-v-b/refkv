@@ -3,6 +3,9 @@
 //! every document read), one of the JSON documents it reads, and one test per rejected fixture
 //! store, each with the reason (the schema's message where a role rejects it).
 
+mod common;
+
+use common::{drive, listing, walk};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use refkv_ir::json;
@@ -16,27 +19,9 @@ fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/zarr2")
 }
 
-fn walk(root: &Path) -> BTreeMap<String, Vec<u8>> {
-    let mut out = BTreeMap::new();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(d) = stack.pop() {
-        for e in std::fs::read_dir(&d).unwrap() {
-            let e = e.unwrap();
-            let t = e.file_type().unwrap();
-            if t.is_dir() {
-                stack.push(e.path());
-            } else if t.is_file() {
-                let k = e.path().strip_prefix(root).unwrap().to_str().unwrap().replace('\\', "/");
-                out.insert(k, std::fs::read(e.path()).unwrap());
-            }
-        }
-    }
-    out
-}
-
 /// The output of the store `files`, mirrored.
 fn output(files: &BTreeMap<String, Vec<u8>>) -> Result<Out, String> {
-    let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
+    let keys = listing(&files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let (ir, facts, stats) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone())?;
     store_output(StoreFormat::Zarr2, &ir, &facts, stats, "https://data.test/s/", true)
@@ -137,7 +122,7 @@ fn documents_are_read_as_json_by_the_store_rules() {
         let mut files = walk(&fixtures().join("zarr2_hierarchy"));
         let doc = format!("{{{}}}", (0..n).map(|i| format!("\"k{i}\":{i}")).collect::<Vec<_>>().join(","));
         files.insert(".zattrs".into(), doc.into_bytes());
-        let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
+        let keys = listing(&files);
         let bytes: Vec<&Vec<u8>> = files.values().collect();
         let (ir, _, _) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone()).unwrap();
         let o = (0..ir.len() as u32).find(|&i| ir.kind[i as usize] == refkv_ir::ir::OBJECT && ir.key(i) == ".zattrs").unwrap();
@@ -178,15 +163,11 @@ fn the_ignored_keys_are_refkv_source_s_member_ignored_in_byte_order() {
     for (root_array, ignored) in [(false, vec![]), (false, vec!["b//c".to_string(), "./x".into(), "\u{e9}/..".into()]),
                                   (true, vec!["./y".to_string()])] {
         let files: BTreeMap<String, Vec<u8>> = if root_array { walk(&fixtures().join("zarr2_root_array_objects")) } else { files.clone() };
-        let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
+        let keys = listing(&files);
         let bytes: Vec<&Vec<u8>> = files.values().collect();
         let mut r = StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
         r.ignore(ignored.clone(), Vec::new()).unwrap();
-        while let Some(reqs) = r.poll().unwrap() {
-            for (k, q) in reqs.iter().enumerate() {
-                r.complete(k, q.spans.iter().map(|&(a, e)| bytes[q.object][a as usize..e as usize].to_vec()).collect()).unwrap();
-            }
-        }
+        drive(&mut r, &bytes).unwrap();
         let out = r.into_output("https://data.test/h/", true).unwrap();
         let own = &doc(&out, "refkv_source/zarr.json")["attributes"]["refkv_virtualized"]["zarr2"];
         let mut sorted = ignored.clone();
@@ -207,15 +188,11 @@ fn the_ignored_keys_are_refkv_source_s_member_ignored_in_byte_order() {
         assert_eq!(refkv_ir::mirror::canonical_problem(&get, &mut never).as_deref(), Some("refkv_source/zarr.json differs from the canonical table's"));
     }
     // without a mirror (tools, tests), there is no refkv_source source metadata, ignored keys or not
-    let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
+    let keys = listing(&files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let mut r = StoreRun::new(StoreFormat::Zarr2, keys, 4).unwrap();
     r.ignore(vec!["b//c".into(), "./x".into()], Vec::new()).unwrap();
-    while let Some(reqs) = r.poll().unwrap() {
-        for (k, q) in reqs.iter().enumerate() {
-            r.complete(k, q.spans.iter().map(|&(a, e)| bytes[q.object][a as usize..e as usize].to_vec()).collect()).unwrap();
-        }
-    }
+    drive(&mut r, &bytes).unwrap();
     let out = r.into_output("https://data.test/h/", false).unwrap();
     assert!(!out.entries.iter().any(|e| e.0 == "refkv_source/zarr.json"));
 }
@@ -230,7 +207,7 @@ fn members_named_gaps_or_json_keep_the_ir_valid_and_rebuild() {
         members.extend((members.len()..n).map(|i| format!("\"k{i}\": {i}")));
         let doc = format!("{{ {} }}", members.join(", "));
         files.insert(".zattrs".into(), doc.clone().into_bytes());
-        let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
+        let keys = listing(&files);
         let bytes: Vec<&Vec<u8>> = files.values().collect();
         let (ir, _, _) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone()).unwrap_or_else(|e| panic!("{n}: {e}"));
         refkv_ir::check::check(&ir).unwrap_or_else(|e| panic!("{n}: {e}"));
@@ -265,42 +242,5 @@ macro_rules! reject {
     };
 }
 
-reject!(zarr2_reject_blosc_clevel, "zarr2_reject_blosc_clevel", "blosc clevel none is not an integer from 0 to 9");
-reject!(zarr2_reject_blosc_cname, "zarr2_reject_blosc_cname", "blosc cname snappy2 is not supported");
-reject!(zarr2_reject_blosc_shuffle, "zarr2_reject_blosc_shuffle", "blosc shuffle 3 is not supported");
-reject!(zarr2_reject_chunks_zero, "zarr2_reject_chunks_zero", "chunks [2, 0] is not 2 chunk sizes");
-reject!(zarr2_reject_compressor_bz2, "zarr2_reject_compressor_bz2", "compressor bz2 is not supported");
-reject!(zarr2_reject_compressor_lz4, "zarr2_reject_compressor_lz4", "compressor lz4 is not supported");
-reject!(zarr2_reject_compressor_no_id, "zarr2_reject_compressor_no_id", "compressor is not null or an object with a string id");
-reject!(zarr2_reject_dtype_bytes, "zarr2_reject_dtype_bytes", "dtype |S8 is not supported");
-reject!(zarr2_reject_dtype_complex, "zarr2_reject_dtype_complex", "dtype <c8 is not supported");
-reject!(zarr2_reject_dtype_datetime, "zarr2_reject_dtype_datetime", "dtype <M8[ns] is not supported");
-reject!(zarr2_reject_dtype_no_byteorder, "zarr2_reject_dtype_no_byteorder", "dtype |u2 is not supported");
-reject!(zarr2_reject_dtype_object, "zarr2_reject_dtype_object", "dtype |O is not supported");
-reject!(zarr2_reject_dtype_structured, "zarr2_reject_dtype_structured", "dtype [[a, <u2], [b, <f4]] is not supported");
-reject!(zarr2_reject_dtype_unicode, "zarr2_reject_dtype_unicode", "dtype <U4 is not supported");
-reject!(zarr2_reject_fill_base64, "zarr2_reject_fill_base64", "fill_value AAAAAAAA+H8= is not a float64");
-reject!(zarr2_reject_fill_bool_int, "zarr2_reject_fill_bool_int", "fill_value 1 is not a bool");
-reject!(zarr2_reject_fill_f4_overflow, "zarr2_reject_fill_f4_overflow", "is not a float32");
-reject!(zarr2_reject_fill_fraction_int, "zarr2_reject_fill_fraction_int", "fill_value 0.5 is not a uint16");
-reject!(zarr2_reject_fill_out_of_range, "zarr2_reject_fill_out_of_range", "fill_value 300 is not a uint8");
-reject!(zarr2_reject_fill_string_int, "zarr2_reject_fill_string_int", "fill_value NaN is not a uint16");
-reject!(zarr2_reject_fill_uint64_max, "zarr2_reject_fill_uint64_max", "is not a uint64");
-reject!(zarr2_reject_filters, "zarr2_reject_filters", "filters are not supported");
-reject!(zarr2_reject_gzip_level, "zarr2_reject_gzip_level", "gzip level 1 is not an integer from -1 to 9");
-reject!(zarr2_reject_json_duplicate_last_wins, "zarr2_reject_json_duplicate_last_wins", "order K is not C or F");
-reject!(zarr2_reject_json_nan_literal, "zarr2_reject_json_nan_literal", ".zarray: JSON literal NaN is not allowed");
-reject!(zarr2_reject_no_root_metadata, "zarr2_reject_no_root_metadata", "the root has no .zarray or .zgroup");
-reject!(zarr2_reject_objects_collision, "zarr2_reject_objects_collision", "the node refkv_source is where the store's source metadata goes");
-reject!(zarr2_reject_order, "zarr2_reject_order", "order A is not C or F");
-reject!(zarr2_reject_order_missing, "zarr2_reject_order_missing", "order none is not C or F");
-reject!(zarr2_reject_separator, "zarr2_reject_separator", "dimension_separator - is not . or /");
-reject!(zarr2_reject_shape_chunks_mismatch, "zarr2_reject_shape_chunks_mismatch", "chunks [2] is not 2 chunk sizes");
-reject!(zarr2_reject_shape_negative, "zarr2_reject_shape_negative", "shape [4, -4] is not up to 32 sizes");
-reject!(zarr2_reject_zarr_format_3, "zarr2_reject_zarr_format_3", ".zarray: zarr_format is not 2");
-reject!(zarr2_reject_zarray_and_zgroup, "zarr2_reject_zarray_and_zgroup", "/ has both .zarray and .zgroup");
-reject!(zarr2_reject_zattrs_not_object, "zarr2_reject_zattrs_not_object", "x/.zattrs is not a JSON object");
-reject!(zarr2_reject_zgroup_format, "zarr2_reject_zgroup_format", ".zgroup: zarr_format is not 2");
-reject!(zarr2_reject_zlib_level, "zarr2_reject_zlib_level", "zlib level 10 is not an integer from -1 to 9");
-reject!(zarr2_reject_zstd_checksum, "zarr2_reject_zstd_checksum", "zstd checksum 1 is not a boolean");
-reject!(zarr2_reject_zstd_level, "zarr2_reject_zstd_level", "zstd level 23 is not an integer from -131072 to 22");
+// one test per case of conformance/virtualize/rejects/zarr2.json (build.rs)
+include!(concat!(env!("OUT_DIR"), "/rejects_zarr2.rs"));

@@ -154,13 +154,25 @@ Supported:
 Rejected:
 
 - Gzipped maps (`.map.gz`), the way the EMDB distributes them: `not a
-  TIFF, NDPI, ND2, DICOM, NIfTI, MRC, IMS, CZI, VSI or SAFE zip file`. A gzip
-  stream has no byte ranges to reference; decompress the map first.
+  file of any supported format`. A gzip stream has no byte ranges to reference; decompress the map first.
 - Files without `MAP` at byte 208 (the pre-2000 format), and a machine
   stamp that is neither little- nor big-endian.
 - Complex int16 (mode 3) and 4-bit (mode 101) data.
 - A volume stack whose `mz` does not divide `nz`, and data past the end of
   the file.
+
+### In the browser
+
+The browser code ([js/](../../../js/README.md)) reads MRC (MRC2014 files):
+
+- Images, image stacks, volumes and volume stacks (`t`, `z`, `y`, `x`),
+  either byte order, modes 0, 1, 2, 4, 6 and 12.
+- Chunks of at most 1 MiB: blocks of sections, or blocks of rows.
+- The voxel size (angstroms) as scale, the origin as translation, the whole
+  header under `refkv_virtualized`.
+
+Not supported, and refused with HTTP 422: gzipped maps (`.map.gz`), pre-2000
+files without `MAP` at byte 208, and modes 3 and 101.
 
 ## Performance
 

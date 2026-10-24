@@ -9,19 +9,15 @@ accepts, is the MRC profile, [Part 2](#part-2-the-profile) below.
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` ·
 Schema: [schema.json](mrc/schema.json)
 
-This document has two parts. [Part 1](#part-1-the-convention) is the MRC
-convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the MRC profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The profile keeps its numbering as a section
-of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
+This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 # Part 1. The convention
 
 ## 1. Declaration
 
-The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "mrc"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
-and the root's source metadata of [§5.1](#51-the-root) as the member `"mrc"`. Its CMO is:
+The root and `refkv_source` declare the convention
+([conventions §11.2](../conventions.md#112-declaration)), the root with its source
+metadata of [§5.1](#51-the-root) as the member `"mrc"`. Its CMO is:
 
 ```json
 {
@@ -33,10 +29,7 @@ and the root's source metadata of [§5.1](#51-the-root) as the member `"mrc"`. I
 }
 ```
 
-`refkv_source` declares it too, with the IR mirror's description ([§5.2](#52-the-ir-mirror),
-[conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
-the mirror's view that has a member; the array and the mirror's arrays have no
-attributes.
+The array has no attributes.
 
 The hierarchy also holds the file as a **dataset**: the group `dataset`,
 which declares the MRC dataset convention
@@ -48,7 +41,7 @@ The root's property names it: `"layouts": {"dataset": "dataset"}`, after
 ## 2. The header
 
 The file's **header** is its first 1024 bytes, in the file's byte order
-([§14.1](#141-header)). Its fields, in the order of the file, are those of
+([§8.1](#81-header)). Its fields, in the order of the file, are those of
 the MRC2014 standard (Cheng et al., 2015, and the CCP4 map format), at these
 byte offsets. `i32` is a two's complement integer, `f32` an IEEE 754 binary32
 number (converted to binary64 exactly), `u8` an unsigned byte, `char[k]` `k`
@@ -127,7 +120,7 @@ without a name, with one array at path `"0"`: the root `zarr.json` is
 **Kind.** The file is, by `ispg` and `nz`:
 
 - a **volume stack** when `ispg ≥ 401` (the profile has checked that `mz`
-  divides `nz`, [§14.1](#141-header)): `nz / mz` volumes of `mz` sections;
+  divides `nz`, [§8.1](#81-header)): `nz / mz` volumes of `mz` sections;
 - an **image** when `ispg = 0` and `nz = 1`;
 - an **image stack** when `ispg = 0` and `nz > 1`;
 - a **volume** otherwise (any other `ispg`, negative or over 230 included).
@@ -237,9 +230,8 @@ they are there so that a reader need not repeat the rules of [§4](#4-the-image)
 ### 5.2 The IR mirror
 
 `refkv_source` is the file's **IR mirror**
-([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `refkv_source/tree`. The IR's
-elements (the MRC **source model**) are below; nothing is left out: the
+([conventions §11.3](../conventions.md#113-the-ir-mirror)).
+The IR's elements (the MRC **source model**) are below; nothing is left out: the
 header, the extended header, the data, and every byte after them.
 
 ### 5.3 Elements
@@ -263,10 +255,8 @@ reads it.
 
 ### 5.4 Equivalence
 
-The elements are determined by the file, and the mirror by its elements
-([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
-file are compared entry for entry, `refkv_source` included
-([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
+Hierarchies of one file are compared entry for entry, `refkv_source` included
+([conventions §11.4](../conventions.md#114-equivalence)).
 
 ## 6. Example
 
@@ -384,19 +374,16 @@ reader that needs them must read them there.
 
 # Part 2. The profile
 
-The MRC profile of [spec/virtualize.md](../virtualize.md) (revision 28), numbered
-as its [§14](#14-mrc-profile). [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here.
+The MRC profile of [spec/virtualize.md](../virtualize.md) (revision 28) is [§8](#8-mrc-profile) of this document. What every profile's Part 2 shares is in
+[spec/virtualize.md, Profiles](../virtualize.md#profiles).
 
-The output has the convention's layout for the input
-([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
-which inputs are accepted and how each chunk references the file. "The convention §n" below is a section of Part 1.
+## 8. MRC profile
 
-## 14. MRC profile
+### 8.1 Header
 
-### 14.1 Header
-
-The input is an MRC2014 file, which [§1.2](../virtualize.md#12-input) chose by
-the bytes `MAP` at offset 208. Its header is the first 1024 bytes of the
+The input is an MRC2014 file, which its **signature** ([spec/virtualize.md §1.2](../virtualize.md#12-input), tested at the precedence of
+[profiles/mrc.json](profiles/mrc.json))
+chose: bytes 208–210 of `H` are `4D 41 50` (`MAP`). Its header is the first 1024 bytes of the
 file ([the convention §2](#2-the-header)); a file shorter than 1024 bytes
 is rejected. The file is **little-endian** if byte 212 (the first byte of
 `machst`) is `44`, and **big-endian** if it is `11`; any other value is
@@ -427,7 +414,7 @@ than 212 bytes are rejected by [§1.2](../virtualize.md#12-input).
 **The extended header** is described ([the convention §5.3](#53-elements))
 and never read: the data starts at `1024 + nsymbt` whatever it holds.
 
-### 14.2 Chunks
+### 8.2 Chunks
 
 The data is `B` contiguous bytes at offset `v = 1024 + nsymbt`, the column
 index varying fastest: the value at column `i`, row `j` and section `k`
@@ -451,7 +438,7 @@ and its coordinates are deflated index chunks, bytes entries. The archive has no
 root's and the array's `zarr.json`, the array's chunks, the dataset's
 documents and chunks, and the mirror's.
 
-### 14.3 Summary
+### 8.3 Summary
 
 This section is informative. Both implementations print a one-line JSON
 summary: `kind` (`"image"`, `"image_stack"`, `"volume"` or `"volume_stack"`),

@@ -1,11 +1,13 @@
 //! CZI codec headers (spec/virtualize/czi.md §3.1
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#31-pixel-types-and-codecs>–§3.2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#32-conforming-and-unplaced-subblocks>,
-//! spec/virtualize.md §13.4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#134-codec-headers>): a
+//! spec/virtualize/czi.md §7.4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#74-codec-headers>): a
 //! subblock's coded size from the first 2^16 bytes of its data at most. The
 //! readers are given the bytes read so far; one that needs more says how many
 //! (`Err(n)`), and is run again with them.
+
+use crate::fed::Word;
 
 /// The first bytes of a subblock's data: `bound` = min(its size, 2^16) are
 /// readable; `have` of them are here.
@@ -142,14 +144,14 @@ fn jpeg_frame(h: &Head, p: u64) -> Result<Option<(u64, u64)>, Need> {
             return Ok(None);
         }
         let Some(lb) = h.get(pos, 2)? else { return Ok(None) };
-        let length = u16::from_be_bytes([lb[0], lb[1]]) as u64;
+        let length = u16::be_at(lb, 0) as u64;
         if length < 2 {
             return Ok(None);
         }
         if (0xC0..=0xCF).contains(&m) && !matches!(m, 0xC4 | 0xC8 | 0xCC) {
             let Some(f) = h.get(pos + 2, 6)? else { return Ok(None) };
             let (precision, height, width, count) =
-                (f[0], u16::from_be_bytes([f[1], f[2]]) as u64, u16::from_be_bytes([f[3], f[4]]) as u64, f[5]);
+                (f[0], u16::be_at(f, 1) as u64, u16::be_at(f, 3) as u64, f[5]);
             if matches!(m, 0xC0..=0xC2) && precision == 8 && height >= 1 && width >= 1 && count as u64 == p {
                 return Ok(Some((width, height)));
             }
@@ -165,13 +167,13 @@ fn jpegxr_size(h: &Head, pt: i32) -> Result<Option<(u64, u64)>, Need> {
     if b[..4] != [0x49, 0x49, 0xbc, 0x01] {
         return Ok(None);
     }
-    let ifd = u32::from_le_bytes(b[4..8].try_into().unwrap()) as u64;
+    let ifd = u32::le_at(b, 4) as u64;
     let Some(c) = h.get(ifd, 2)? else { return Ok(None) };
-    let count = u16::from_le_bytes([c[0], c[1]]) as u64;
+    let count = u16::le_at(c, 0) as u64;
     let mut found: Vec<(u16, [u8; 12])> = Vec::new();
     for k in 0..count {
         let Some(e) = h.get(ifd + 2 + 12 * k, 12)? else { return Ok(None) };
-        let tag = u16::from_le_bytes([e[0], e[1]]);
+        let tag = u16::le_at(&e, 0);
         if matches!(tag, 0xBC01 | 0xBC80 | 0xBC81) && !found.iter().any(|f| f.0 == tag) {
             found.push((tag, e.try_into().unwrap()));
             if found.len() == 3 {
@@ -184,12 +186,12 @@ fn jpegxr_size(h: &Head, pt: i32) -> Result<Option<(u64, u64)>, Need> {
     }
     let entry = |t: u16| found.iter().find(|f| f.0 == t).unwrap().1;
     let fmt = entry(0xBC01);
-    let typ = u16::from_le_bytes([fmt[2], fmt[3]]);
-    let n = u32::from_le_bytes(fmt[4..8].try_into().unwrap());
+    let typ = u16::le_at(&fmt, 2);
+    let n = u32::le_at(&fmt, 4);
     if typ != 1 || n != 16 {
         return Ok(None);
     }
-    let at = u32::from_le_bytes(fmt[8..12].try_into().unwrap()) as u64;
+    let at = u32::le_at(&fmt, 8) as u64;
     let Some(guid) = h.get(at, 16)? else { return Ok(None) };
     if !jxr_format(pt, guid) {
         return Ok(None);
@@ -197,15 +199,15 @@ fn jpegxr_size(h: &Head, pt: i32) -> Result<Option<(u64, u64)>, Need> {
     let mut size = [0u64; 2];
     for (i, t) in [0xBC80u16, 0xBC81].into_iter().enumerate() {
         let e = entry(t);
-        let typ = u16::from_le_bytes([e[2], e[3]]);
-        let n = u32::from_le_bytes(e[4..8].try_into().unwrap());
+        let typ = u16::le_at(&e, 2);
+        let n = u32::le_at(&e, 4);
         if n != 1 || !(typ == 3 || typ == 4) {
             return Ok(None);
         }
         let v = if typ == 3 {
-            u16::from_le_bytes([e[8], e[9]]) as u64
+            u16::le_at(&e, 8) as u64
         } else {
-            u32::from_le_bytes(e[8..12].try_into().unwrap()) as u64
+            u32::le_at(&e, 8) as u64
         };
         if v < 1 {
             return Ok(None);

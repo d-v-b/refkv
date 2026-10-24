@@ -1,5 +1,5 @@
-// A VSI input (spec/virtualize/vsi.md §15.2
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#152-the-tile-files>): the `.vsi`
+// A VSI input (spec/virtualize/vsi.md §9.2
+// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>): the `.vsi`
 // file named by the input URL, and the tile files beside it, which the Rust core's `vsi` store
 // format asks for by key (the probes of ir/store.ts) rather than from a listing, since a plain
 // web server cannot list a directory. The files are the objects of a store whose URL is the

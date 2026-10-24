@@ -6,7 +6,9 @@
 //! now, and the root is unchanged.
 
 use super::elements::*;
+use crate::fed::{Word, uint};
 use crate::mirror::base64;
+use crate::text::{is_decimal, latin1};
 use crate::out::{json_size, js_string_size, MAX_CHUNK, SOURCE_NODE};
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -159,56 +161,6 @@ pub fn json_int(v: i128) -> J {
     }
 }
 
-/// UTF-8 when valid, else {"latin1": ...}.
-pub fn text_json(b: &[u8]) -> J {
-    match std::str::from_utf8(b) {
-        Ok(s) => json!(s),
-        Err(_) => json!({"latin1": latin1(b)}),
-    }
-}
-
-fn latin1(b: &[u8]) -> String {
-    b.iter().map(|&c| c as char).collect()
-}
-
-/// `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?`, whole.
-pub fn is_decimal(t: &[u8]) -> bool {
-    let mut i = 0;
-    if i < t.len() && (t[i] == b'+' || t[i] == b'-') {
-        i += 1;
-    }
-    let a = i;
-    while i < t.len() && t[i].is_ascii_digit() {
-        i += 1;
-    }
-    let int_digits = i - a;
-    let mut frac_digits = 0;
-    if i < t.len() && t[i] == b'.' {
-        i += 1;
-        let f = i;
-        while i < t.len() && t[i].is_ascii_digit() {
-            i += 1;
-        }
-        frac_digits = i - f;
-    }
-    if int_digits == 0 && frac_digits == 0 {
-        return false;
-    }
-    if i < t.len() && (t[i] == b'e' || t[i] == b'E') {
-        i += 1;
-        if i < t.len() && (t[i] == b'+' || t[i] == b'-') {
-            i += 1;
-        }
-        let e = i;
-        while i < t.len() && t[i].is_ascii_digit() {
-            i += 1;
-        }
-        if i == e {
-            return false;
-        }
-    }
-    i == t.len()
-}
 
 /// `[+-]?[0-9]+`, whole.
 pub fn is_integer(t: &[u8]) -> bool {
@@ -359,7 +311,7 @@ pub fn value_json(vr: &str, data: &[u8], little: bool, multibyte: bool) -> J {
     if size.is_some_and(|s| data.len() as u64 % s != 0) {
         return json!({"vr": vr, "InlineBinary": base64(data)});
     }
-    let u16_at = |k: usize| if little { u16::from_le_bytes([data[k], data[k + 1]]) } else { u16::from_be_bytes([data[k], data[k + 1]]) };
+    let u16_at = |k: usize| u16::at(data, k, little);
     if vr == "AT" {
         let v: Vec<J> = (0..data.len() / 4).map(|i| json!(format!("{:04X}{:04X}", u16_at(4 * i), u16_at(4 * i + 2)))).collect();
         return json!({"vr": vr, "Value": v});
@@ -369,15 +321,7 @@ pub fn value_json(vr: &str, data: &[u8], little: bool, multibyte: bool) -> J {
         let values: Vec<J> = data
             .chunks(s)
             .map(|c| {
-                let mut b = [0u8; 8];
-                if little {
-                    b[..s].copy_from_slice(c);
-                } else {
-                    for (k, &x) in c.iter().rev().enumerate() {
-                        b[k] = x;
-                    }
-                }
-                let u = u64::from_le_bytes(b);
+                let u = uint(c, 0, s, little);
                 match vr {
                     "FL" => json_float(f32::from_bits(u as u32) as f64),
                     "FD" => json_float(f64::from_bits(u)),

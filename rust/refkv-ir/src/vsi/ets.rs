@@ -6,6 +6,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#62-the-ir-mirror>): the
 //! headers and the directory as values, each tile as a data element.
 
+use crate::fed::Word;
 use crate::ir::{GAP, Ir, NO_INDEX, Res};
 use crate::rules::{self, Rules, num, text};
 use serde_json::{Value as J, json};
@@ -28,13 +29,6 @@ impl Default for Ets {
 pub const RAW: i32 = 0;
 pub const JPEG: i32 = 2;
 pub const JPEG2000: i32 = 3;
-
-fn i32_at(b: &[u8], o: usize) -> i32 {
-    i32::from_le_bytes(b[o..o + 4].try_into().unwrap())
-}
-fn i64_at(b: &[u8], o: usize) -> i64 {
-    i64::from_le_bytes(b[o..o + 8].try_into().unwrap())
-}
 
 /// The SIS header (the file's first 64 bytes).
 #[derive(Clone, Debug, Default)]
@@ -61,14 +55,14 @@ impl Sis {
 pub fn sis(rules: &Rules, key: &str, head: &[u8], size: u64) -> Res<Sis> {
     let magic = String::from_utf8_lossy(&head[..3]).to_string();
     let s = Sis {
-        header_size: i32_at(head, 4),
-        version: i32_at(head, 8),
-        coordinates: i32_at(head, 12),
-        ets_offset: i64_at(head, 16),
-        ets_size: i32_at(head, 24),
-        tiles_offset: i64_at(head, 32),
-        tiles: i32_at(head, 40),
-        size: i64_at(head, 48),
+        header_size: i32::le_at(head, 4),
+        version: i32::le_at(head, 8),
+        coordinates: i32::le_at(head, 12),
+        ets_offset: i64::le_at(head, 16),
+        ets_size: i32::le_at(head, 24),
+        tiles_offset: i64::le_at(head, 32),
+        tiles: i32::le_at(head, 40),
+        size: i64::le_at(head, 48),
     };
     rules.check(
         "sis",
@@ -116,20 +110,20 @@ pub struct Ets {
 pub fn ets(rules: &Rules, key: &str, s: &Sis, h: &[u8]) -> Res<Ets> {
     let magic = String::from_utf8_lossy(&h[..3]).to_string();
     let mut e = Ets {
-        version: i32_at(h, 4),
-        pixel_type: i32_at(h, 8),
-        channels: i32_at(h, 12),
-        colorspace: i32_at(h, 16),
-        compression: i32_at(h, 20),
-        quality: i32_at(h, 24),
-        tile_width: i32_at(h, 28),
-        tile_height: i32_at(h, 32),
-        tile_depth: i32_at(h, 36),
+        version: i32::le_at(h, 4),
+        pixel_type: i32::le_at(h, 8),
+        channels: i32::le_at(h, 12),
+        colorspace: i32::le_at(h, 16),
+        compression: i32::le_at(h, 20),
+        quality: i32::le_at(h, 24),
+        tile_width: i32::le_at(h, 28),
+        tile_height: i32::le_at(h, 32),
+        tile_depth: i32::le_at(h, 36),
         background: h[108..148].try_into().unwrap(),
-        component_order: i32_at(h, 148),
-        use_pyramid: i32_at(h, 152) != 0,
-        dimensions: i32_at(h, 184),
-        dimension_sizes: (0..10).map(|k| i32_at(h, 188 + 4 * k)).collect(),
+        component_order: i32::le_at(h, 148),
+        use_pyramid: i32::le_at(h, 152) != 0,
+        dimensions: i32::le_at(h, 184),
+        dimension_sizes: (0..10).map(|k| i32::le_at(h, 188 + 4 * k)).collect(),
         ..Default::default()
     };
     rules.check(
@@ -172,10 +166,10 @@ pub fn directory(s: &Sis, d: &[u8]) -> Vec<Tile> {
         .map(|k| {
             let o = k * rec;
             Tile {
-                coords: (0..n).map(|i| i32_at(d, o + 4 + 4 * i)).collect(),
-                offset: i64_at(d, o + 4 + 4 * n),
-                size: i32_at(d, o + 12 + 4 * n),
-                index: i32_at(d, o + 16 + 4 * n),
+                coords: (0..n).map(|i| i32::le_at(d, o + 4 + 4 * i)).collect(),
+                offset: i64::le_at(d, o + 4 + 4 * n),
+                size: i32::le_at(d, o + 12 + 4 * n),
+                index: i32::le_at(d, o + 16 + 4 * n),
             }
         })
         .collect()

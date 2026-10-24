@@ -421,8 +421,8 @@ function column(t: Type): "family" | "paths" | "regions" | undefined {
 }
 
 /**
- * The object header address of an object reference, or undefined (§8.9
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
+ * The object header address of an object reference, or undefined (§7.9
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#79-source-metadata-structures>).
  */
 function refAddress(b: Uint8Array): number | undefined {
   const v = le(b, 0, 8);
@@ -840,8 +840,8 @@ export class Tree {
   }
 
   /** A region reference's [object header address, selection], or null for the
-   * null reference (§8.9
-   * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
+   * null reference (§7.9
+   * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#79-source-metadata-structures>).
    * Each reference counts the size of its global heap
    * object against the budget of selections; each object is read once. */
   private async region(b: Uint8Array): Promise<Region> {
@@ -1274,8 +1274,8 @@ export class Tree {
   }
 
   /**
-   * The files of an external data files message (§8.9
-   * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#89-source-metadata-structures>).
+   * The files of an external data files message (§7.9
+   * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#79-source-metadata-structures>).
    */
   private async externalFiles(d: Uint8Array): Promise<Json[]> {
     if (u(d, 0, 1) !== 1) reject("unsupported external data files message version");

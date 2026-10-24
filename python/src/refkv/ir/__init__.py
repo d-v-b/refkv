@@ -14,50 +14,14 @@ import json
 
 from refkv.virtualize.common import Rejected
 
-TIFF_MAGIC = (b"II*\0", b"MM\0*", b"II+\0", b"MM\0+")
-CZI_MAGIC = b"ZISRAWFILE" + bytes(6)
-ND2_MAGIC = bytes.fromhex("DACEBE0A")
-HDF5 = b"\x89HDF\r\n\x1a\n"
-ZIP_MAGIC = b"PK\x03\x04"
-
-
-def nifti_version(head: bytes) -> int | None:
-    """The NIfTI version a file's first bytes (at least 348 of them, when the file has
-    them) select (spec/virtualize.md §1.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>), or None."""
-    if len(head) < 12:
-        return None
-    sizes = (int.from_bytes(head[:4], "little", signed=True), int.from_bytes(head[:4], "big", signed=True))
-    if 348 in sizes and len(head) >= 348 and head[344:348] == b"n+1\0":
-        return 1
-    if 540 in sizes and head[4:12] == b"n+2\0\r\n\x1a\n":
-        return 2
-    return None
-
 
 def sniff(head: bytes) -> str | None:
-    """The IR format a file's first bytes give, if any (132 of them for DICOM, 348 for
-    NIfTI-1, 212 for MRC; DICOM first: a dual-personality file's preamble may hold a TIFF
-    header)."""
-    if head[128:132] == b"DICM":
-        return "dicom"
-    if head[:4] == ND2_MAGIC:
-        return "nd2"
-    if head[:4] == b"II*\0" and head[8:12] == b"\x18\x00IS":
-        return "vsi"  # a VSI file: a TIFF whose byte 8 starts the metadata tree
-    if head[:4] in TIFF_MAGIC:
-        return "tiff"
-    if head[:16] == CZI_MAGIC:
-        return "czi"
-    if nifti_version(head) is not None:
-        return "nifti"
-    if head[:8] == HDF5:
-        return "ims"
-    if head[:4] == ZIP_MAGIC:
-        return "safe"
-    if len(head) >= 212 and head[208:211] == b"MAP":
-        return "mrc"
-    return None
+    """The IR format a file's first bytes (up to 552 of them) give, if any: the Rust core's
+    `Format::sniff`, which tests each file profile's signature in the registry's `sniff` order
+    (spec/virtualize.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>)."""
+    from refkv import _core
+
+    return _core.sniff(head)
 
 
 def parse(fmt: str, transport, conc: int | None = None):

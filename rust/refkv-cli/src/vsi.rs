@@ -1,5 +1,5 @@
-//! A VSI input (spec/virtualize/vsi.md §15.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#152-the-tile-files>): the `.vsi`
+//! A VSI input (spec/virtualize/vsi.md §9.2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>): the `.vsi`
 //! file named by the input, and the tile files beside it, which the core's `vsi` store format
 //! asks for by key (the probes of `refkv_ir::store::StoreRun`) rather than from a listing. The
 //! files are the objects of a store whose URL is the `.vsi` file's directory, each read through

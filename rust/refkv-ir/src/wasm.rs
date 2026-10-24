@@ -3,7 +3,7 @@
 //! for, writes their bytes into buffers it allocates here, and feeds them.
 //!
 //! `vz_new(format, n, size)` makes a parser of the format named by the UTF-8 `format` (a name of
-//! `Format::from_name`: the profile's in spec/virtualize/profiles.json); `vz_step`, `vz_feed`
+//! `Format::from_name`: the profile's in spec/virtualize/profiles/); `vz_step`, `vz_feed`
 //! and `vz_finish` drive it. The `nd2_*` names are round 2's, kept.
 
 use crate::nd2::{Nd2, Step};
@@ -40,6 +40,31 @@ pub extern "C" fn vz_out() -> *const u8 {
     OUT.with(|o| o.borrow().as_ptr())
 }
 
+/// The `refkv.fits_tiles` codec (spec/virtualize/fits.md §3.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>):
+/// decodes the chunk at `chunk` (`n` bytes) with the configuration JSON at `config` (`nc`
+/// bytes) into the pixels of the chunk shape at `shape` (`rank` little-endian u64), in
+/// `vz_out`: the pixels' length, or minus a message's.
+///
+/// # Safety
+/// The pointers come from `vz_alloc` with those lengths.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_fits_tiles_decode(chunk: *const u8, n: usize, config: *const u8, nc: usize, shape: *const u8, rank: usize) -> i64 {
+    let chunk = unsafe { std::slice::from_raw_parts(chunk, n) };
+    let config = unsafe { std::slice::from_raw_parts(config, nc) };
+    let shape = unsafe { std::slice::from_raw_parts(shape, rank * 8) };
+    let shape: Vec<u64> = shape.chunks(8).map(|b| u64::from_le_bytes(b.try_into().unwrap())).collect();
+    let decoded = std::str::from_utf8(config)
+        .map_err(|e| e.to_string())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).map_err(|e| e.to_string()))
+        .and_then(|v| crate::fits_tiles::Config::from_json(&v))
+        .and_then(|cfg| crate::fits_tiles::decode(chunk, &cfg, &shape));
+    match decoded {
+        Ok(b) => set_out(b) as i64,
+        Err(e) => -(set_out(e.into_bytes()) as i64),
+    }
+}
+
 fn step_out(r: Result<Step, String>) -> i64 {
     match r {
         Ok(Step::Read(r)) => 1 + set_out(r.iter().flat_map(|(o, n)| [o.to_le_bytes(), n.to_le_bytes()]).flatten().collect()) as i64,
@@ -61,6 +86,20 @@ fn finish_out(r: Result<(crate::ir::Ir, serde_json::Value), String>) -> i64 {
             set_out(out.to_string().into_bytes()) as i64
         }
         Err(e) => -(set_out(e.into_bytes()) as i64),
+    }
+}
+
+/// The format a file's first bytes give (`Format::sniff`; `head`/`n` from `vz_alloc`, consumed):
+/// its name's length at `vz_out()`, or 0 when they are no format's.
+///
+/// # Safety
+/// `head` and `n` must come from `vz_alloc(n)`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_sniff(head: *mut u8, n: usize) -> i64 {
+    let head = unsafe { Vec::from_raw_parts(head, n, n) };
+    match crate::run::Format::sniff(&head) {
+        Some(f) => set_out(f.name().as_bytes().to_vec()) as i64,
+        None => 0,
     }
 }
 

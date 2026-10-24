@@ -26,9 +26,7 @@ import io
 import json
 import math
 import struct
-import subprocess
 import sys
-import tempfile
 import zipfile
 from pathlib import Path
 
@@ -39,18 +37,14 @@ import zarr
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
-from http_server import Server  # noqa: E402
 
-from refkv.policy import Policy  # noqa: E402
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
 
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import mirror_problems  # noqa: E402
 
-# The sources are served on 127.0.0.1, which spec §6.7
-# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3 refuses by
-# default.
-LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
+from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
 
 
 def expected(img) -> tuple[np.ndarray, list[str]]:
@@ -221,49 +215,36 @@ def shown_bytes(v) -> bytes:
     raise ValueError(f"not a shown value: {v!r}")
 
 
+def check(nii: Path, out: Path, _) -> tuple[list, str]:
+    """A virtualized file's problems against nibabel's reading of it, and its chunks and axes."""
+    img = load(nii, str(out.parent))
+    want, axes = expected(img)
+    root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
+    arr = root["0"]
+    got = arr[...]
+    problems = []
+    if list(arr.metadata.dimension_names) != axes:
+        problems.append(f"axes {arr.metadata.dimension_names} != {axes}")
+    if got.dtype != want.dtype.newbyteorder("="):
+        problems.append(f"dtype {got.dtype} != {want.dtype}")
+    if got.shape != want.shape or not np.array_equal(got, want, equal_nan=got.dtype.kind == "f"):
+        problems.append(f"voxels differ ({got.shape} vs {want.shape})")
+    meta = root.attrs["refkv_virtualized"]["nifti"]  # spec/virtualize/nifti.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>
+    slope, inter = img.dataobj.slope, img.dataobj.inter  # the header's are reset on load
+    recorded = meta.get("scaling")
+    # nibabel keeps a color type's scl_slope but cannot apply it; NIfTI does not scale color.
+    if img.get_data_dtype().names is None and (slope, inter) != (1, 0):
+        if recorded != {"slope": slope, "inter": inter}:
+            problems.append(f"scaling {recorded} != nibabel's {(slope, inter)}")
+    elif recorded is not None:
+        problems.append(f"scaling {recorded} recorded, nibabel has none")
+    problems += header_problems(nii, meta, out)
+    return problems, f"({arr.nchunks} chunks, axes {axes})"
+
+
 def main(fixtures: Path) -> int:
-    server = Server(fixtures)
-    failures = 0
-    with tempfile.TemporaryDirectory() as tmp:
-        for nii in sorted(fixtures.glob("*.nii")):
-            out = Path(tmp) / f"{nii.stem}.vzip"
-            p = subprocess.run(["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts",
-                                server.base + nii.name, str(out)], capture_output=True, text=True)
-            if nii.stem.startswith("nifti_reject"):
-                ok = p.returncode == 3 and not out.exists()
-                failures += not ok
-                print(f"{nii.name:44s} {'rejected: ' + p.stderr.strip()[-80:] if ok else 'NOT REJECTED ' + p.stderr[-200:]}")
-                continue
-            if p.returncode:
-                failures += 1
-                print(f"{nii.name:44s} FAILED: {p.stderr.strip()[-300:]}")
-                continue
-            img = load(nii, tmp)
-            want, axes = expected(img)
-            root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
-            arr = root["0"]
-            got = arr[...]
-            problems = []
-            if list(arr.metadata.dimension_names) != axes:
-                problems.append(f"axes {arr.metadata.dimension_names} != {axes}")
-            if got.dtype != want.dtype.newbyteorder("="):
-                problems.append(f"dtype {got.dtype} != {want.dtype}")
-            if got.shape != want.shape or not np.array_equal(got, want, equal_nan=got.dtype.kind == "f"):
-                problems.append(f"voxels differ ({got.shape} vs {want.shape})")
-            meta = root.attrs["refkv_virtualized"]["nifti"]  # spec/virtualize/nifti.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>
-            slope, inter = img.dataobj.slope, img.dataobj.inter  # the header's are reset on load
-            recorded = meta.get("scaling")
-            # nibabel keeps a color type's scl_slope but cannot apply it; NIfTI does not scale color.
-            if img.get_data_dtype().names is None and (slope, inter) != (1, 0):
-                if recorded != {"slope": slope, "inter": inter}:
-                    problems.append(f"scaling {recorded} != nibabel's {(slope, inter)}")
-            elif recorded is not None:
-                problems.append(f"scaling {recorded} recorded, nibabel has none")
-            problems += header_problems(nii, meta, out)
-            failures += bool(problems)
-            print(f"{nii.name:44s} {'ok' if not problems else problems} ({arr.nchunks} chunks, axes {axes})")
-    print(f"\n{failures} failures")
-    return 1 if failures else 0
+    paths = sorted(fixtures.glob("*.nii"))
+    return run(paths, check, url=serve(paths))
 
 
 if __name__ == "__main__":

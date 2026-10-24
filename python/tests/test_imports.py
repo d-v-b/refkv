@@ -19,8 +19,10 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "refkv"
 
-ZARR_MODULES = {"zarr/__init__.py", "zarr/codecs.py", "convert.py", "shards.py"}
-"""The modules that may import zarr, relative to the package."""
+ZARR_MODULES = {"zarr/__init__.py", "convert.py", "shards.py"} | {
+    p.relative_to(SRC).as_posix() for p in (SRC / "zarr" / "codecs").glob("*.py")}
+"""The modules that may import zarr, relative to the package: the adapter, its codecs and the
+VirtualiZarr conversion."""
 
 
 def imports_of(module: str, source: str) -> list[int]:

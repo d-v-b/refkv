@@ -754,7 +754,7 @@ fn project<'py>(py: Python<'py>, format: &str, ir: &PyIr, facts: &str, url: &str
     out_py(py, &o)
 }
 
-/// The mirror of an IR (for the profile "nd2", "tiff", "czi", "dicom", "nifti", "ims", "ndpi" or "mrc"): its entries and
+/// The mirror of an IR (for the profile "nd2", "tiff", "czi", "dicom", "nifti", "ims", "ndpi", "mrc" or "mp3"): its entries and
 /// references under `refkv_source` (`out_py`'s form, the url empty), and what the
 /// table folded (JSON).
 #[pyfunction]
@@ -792,6 +792,20 @@ fn view_problem(keys: Vec<String>, get: Bound<'_, PyAny>, read: Bound<'_, PyAny>
     refkv_ir::mirror::view_problem(&keys, &g, &mut rd)
 }
 
+/// The format a file's first bytes (up to 552 of them) give (`Format::sniff`), if any: its
+/// profile's name.
+#[pyfunction]
+fn sniff(head: &[u8]) -> Option<&'static str> {
+    refkv_ir::run::Format::sniff(head).map(|f| f.name())
+}
+
+/// The profile registry (spec/virtualize/profiles/, as the core holds it): its entries, by
+/// name, as a JSON array.
+#[pyfunction]
+fn registry() -> String {
+    serde_json::Value::Array(refkv_ir::out::registry().to_vec()).to_string()
+}
+
 /// The planner's merge of ranges (offset, length) into requests (start, end), for a
 /// gap threshold, an amplification cap and a concurrency (the policy's core, for tests).
 #[pyfunction]
@@ -799,15 +813,36 @@ fn plan_spans(ranges: Vec<(u64, u64)>, threshold: u64, cap: f64, concurrency: us
     refkv_ir::plan::plan_spans(&ranges, threshold, cap, concurrency)
 }
 
+/// The `refkv.fits_tiles` codec (spec/virtualize/fits.md §3.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>): a
+/// chunk's pixels, as little-endian bytes of the array's data type in C order over
+/// `chunk_shape`, from the chunk's bytes and the codec's configuration (JSON).
+#[pyfunction]
+fn fits_tiles_decode<'py>(py: Python<'py>, chunk: &[u8], config: &str, chunk_shape: Vec<u64>) -> PyResult<Bound<'py, PyBytes>> {
+    let cfg: serde_json::Value = serde_json::from_str(config).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let cfg = refkv_ir::fits_tiles::Config::from_json(&cfg).map_err(PyValueError::new_err)?;
+    let out = py.detach(|| refkv_ir::fits_tiles::decode(chunk, &cfg, &chunk_shape)).map_err(PyValueError::new_err)?;
+    Ok(PyBytes::new(py, &out))
+}
+
 /// For tests: the reference payload past which a NIfTI or MRC edge chunk is copied (None:
 /// the payload limit), so that small files reach the copy (spec/virtualize/nifti.md §7.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>,
-/// spec/virtualize/mrc.md §14.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#142-chunks>).
+/// spec/virtualize/mrc.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#82-chunks>).
 #[pyfunction]
 #[pyo3(signature = (n=None))]
 fn _set_copy_threshold(n: Option<usize>) {
     refkv_ir::out::set_copy_threshold(n);
+}
+
+/// For tests: the frames of an MP3 chunk (None: 256), so that small files have several chunks,
+/// each with its lead-in (spec/virtualize/mp3.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#82-chunks>).
+#[pyfunction]
+#[pyo3(signature = (n=None))]
+fn _set_chunk_frames(n: Option<usize>) {
+    refkv_ir::mp3::set_chunk_frames(n);
 }
 
 #[pymodule]
@@ -821,7 +856,11 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyStoreRun>()?;
     m.add_function(wrap_pyfunction!(rebuild_store, m)?)?;
     m.add_function(wrap_pyfunction!(plan_spans, m)?)?;
+    m.add_function(wrap_pyfunction!(sniff, m)?)?;
+    m.add_function(wrap_pyfunction!(registry, m)?)?;
+    m.add_function(wrap_pyfunction!(fits_tiles_decode, m)?)?;
     m.add_function(wrap_pyfunction!(_set_copy_threshold, m)?)?;
+    m.add_function(wrap_pyfunction!(_set_chunk_frames, m)?)?;
     m.add_function(wrap_pyfunction!(project, m)?)?;
     m.add_function(wrap_pyfunction!(mirror, m)?)?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;

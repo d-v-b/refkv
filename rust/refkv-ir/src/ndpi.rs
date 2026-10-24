@@ -1,5 +1,5 @@
-//! What NDPI adds to TIFF (spec/virtualize/ndpi.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), beyond its
+//! What NDPI adds to TIFF (spec/virtualize/ndpi.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>), beyond its
 //! IFD layout (which `tiff.rs` reads in its NDPI variant): a level's strip is one JPEG stream
 //! whose restart intervals McuStarts locates, and each chunk is a JPEG stream rebuilt from the
 //! strip's header (its parts around SOF0 shared, a literal SOF0 of the chunk's size), `a × b`
@@ -9,6 +9,7 @@
 //! (`Grid::new`); the projection (`project/ndpi.rs`) writes the chunks (`Grid::parts`). Both
 //! use the code here, so the payload the parser checks is the one the projection writes.
 
+use crate::fed::Word;
 use crate::ir::Ir;
 use crate::out::{payload_size, Part};
 use crate::rules::{self, flag, num, text, Res, Rules};
@@ -50,7 +51,7 @@ pub fn header(h: &[u8], rules: &Rules) -> Res<Header> {
     loop {
         let whole0 = pos + 4 <= h.len() && h[pos] == 0xFF;
         let marker = if whole0 { h[pos + 1] } else { 0 };
-        let length = if whole0 { u16::from_be_bytes([h[pos + 2], h[pos + 3]]) as usize } else { 0 };
+        let length = if whole0 { u16::be_at(h, pos + 2) as usize } else { 0 };
         let end = pos + 2 + length;
         let whole = whole0 && length >= 2 && end <= h.len();
         rules.check(
@@ -69,7 +70,7 @@ pub fn header(h: &[u8], rules: &Rules) -> Res<Header> {
                 sofs += 1;
                 sof = Some((pos, end));
             }
-            0xDD => dri = u16::from_be_bytes([h[pos + 4], h[pos + 5]]) as u64,
+            0xDD => dri = u16::be_at(h, pos + 4) as u64,
             0xDA => break,
             _ => {}
         }
@@ -91,6 +92,90 @@ pub fn header(h: &[u8], rules: &Rules) -> Res<Header> {
     }
     start(true, true, dri, sof0_ok, hs > 0 && vs > 0)?;
     Ok(Header { sof: (a, b), mw: 8 * hs, mh: 8 * vs, restart: dri })
+}
+
+/// The first bytes of a strip without McuStarts read for its frame header, and the most read.
+pub const FRAME_READ: u64 = 1024;
+pub const MAX_FRAME_READ: u64 = 1 << 20;
+
+/// The frame header (SOF0) of a strip without McuStarts: where its height field is in the
+/// strip (the width's follows it), the frame's height and width, and the MCU's size.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Frame {
+    pub at: u64,
+    pub height: u64,
+    pub width: u64,
+    pub mw: u64,
+    pub mh: u64,
+}
+
+impl Frame {
+    /// Whether a `height` × `width` image needs as many MCU rows and columns as the frame, and
+    /// a frame header holds its size.
+    pub fn covers(&self, height: u64, width: u64) -> bool {
+        height <= MAX_SIDE
+            && width <= MAX_SIDE
+            && height.div_ceil(self.mh) == self.height.div_ceil(self.mh)
+            && width.div_ceil(self.mw) == self.width.div_ceil(self.mw)
+    }
+}
+
+/// What the first bytes of a strip without McuStarts say of its frame header.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scan {
+    /// its SOF0 segment, well formed
+    Frame(Frame),
+    /// the header continues past them: its first `n` bytes are needed
+    Need(u64),
+    /// none: no SOI, a malformed segment, a marker that is not a segment's, or SOS or another
+    /// SOFn before an SOF0, or a malformed SOF0
+    None,
+}
+
+/// Scans the first bytes `b` of a strip without McuStarts (spec/virtualize/ndpi.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>): SOI, then
+/// marker segments (each an `FF`, the marker and a length of at least 2, after any `FF` fill
+/// bytes) up to the first SOF0 segment. Unlike a McuStarts header (`header`), it never rejects.
+pub fn frame(b: &[u8]) -> Scan {
+    if b.len() < 2 {
+        return Scan::Need(2);
+    }
+    if b[..2] != [0xFF, 0xD8] {
+        return Scan::None;
+    }
+    let mut pos = 2usize;
+    loop {
+        while pos + 1 < b.len() && b[pos] == 0xFF && b[pos + 1] == 0xFF {
+            pos += 1;
+        }
+        if pos + 4 > b.len() {
+            return Scan::Need(pos as u64 + 4);
+        }
+        let (marker, length) = (b[pos + 1], u16::be_at(b, pos + 2) as usize);
+        if b[pos] != 0xFF || length < 2 {
+            return Scan::None;
+        }
+        let end = pos + 2 + length;
+        match marker {
+            0xC0 => {
+                let Some(seg) = b.get(pos..end) else { return Scan::Need(end as u64) };
+                let nf = seg.get(9).copied().unwrap_or(0) as usize;
+                if nf == 0 || seg.len() != 10 + 3 * nf {
+                    return Scan::None;
+                }
+                let factors = (0..nf).map(|k| seg[11 + 3 * k]);
+                let (hs, vs) = factors.fold((0, 0), |(h, v), f| (h.max((f >> 4) as u64), v.max((f & 15) as u64)));
+                if hs == 0 || vs == 0 {
+                    return Scan::None;
+                }
+                let be = |i: usize| u16::be_at(seg, i) as u64;
+                return Scan::Frame(Frame { at: pos as u64 + 5, height: be(5), width: be(7), mw: 8 * hs, mh: 8 * vs });
+            }
+            // a segment of the header: tables, application data, comments, DRI
+            0xC4 | 0xC8 | 0xCC | 0xDB..=0xDF | 0xE0..=0xEF | 0xF0..=0xFD | 0xFE => pos = end,
+            _ => return Scan::None,
+        }
+    }
 }
 
 /// A McuStarts level's intervals and chunk grid. `starts` are offsets in the strip
@@ -252,9 +337,9 @@ pub fn uints(b: &[u8], typ: u16) -> Vec<u64> {
     b.chunks_exact(z)
         .map(|c| match z {
             1 => c[0] as u64,
-            2 => u16::from_le_bytes([c[0], c[1]]) as u64,
-            4 => u32::from_le_bytes(c.try_into().unwrap()) as u64,
-            _ => u64::from_le_bytes(c.try_into().unwrap()),
+            2 => u16::le_at(c, 0) as u64,
+            4 => u32::le_at(c, 0) as u64,
+            _ => u64::le_at(c, 0),
         })
         .collect()
 }
@@ -265,7 +350,7 @@ pub fn tag_values(ir: &Ir, value: u32, typ: u16, high: Option<u32>) -> Vec<u64> 
     let mut v = ir.value_bytes(value).map(|b| uints(b, typ)).unwrap_or_default();
     if let (Some(h), 1, true) = (high, v.len(), matches!(typ, 4 | 13)) {
         if let Some(hb) = ir.value_bytes(h) {
-            v[0] += (u32::from_le_bytes(hb[..4].try_into().unwrap()) as u64) << 32;
+            v[0] += (u32::le_at(hb, 0) as u64) << 32;
         }
     }
     v
@@ -282,6 +367,20 @@ pub fn combine(starts: Vec<u64>, high: Option<&[u64]>) -> Vec<u64> {
             .zip(h)
             .map(|(&s, &x)| x.checked_mul(1 << 32).and_then(|x| s.checked_add(x)).unwrap_or(u64::MAX))
             .collect(),
+    }
+}
+
+/// The NDPI profile's file run: a TIFF the TIFF parser found to be NDPI (spec/virtualize/ndpi.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>), so hosts
+/// never test for NDPI themselves. Its files are not sniffed: they are TIFFs.
+pub struct Profile;
+
+impl crate::run::FileProfile for Profile {
+    fn parser(&self, size: u64) -> crate::run::AnyParser {
+        crate::run::AnyParser::of::<crate::tiff::Tiff>(size)
+    }
+    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::ndpi::project(ir, facts, url)
     }
 }
 
@@ -312,7 +411,7 @@ mod tests {
     }
 
     fn rejects(h: &[u8], msg: &str) {
-        assert_eq!(header(h, crate::rules::ndpi()), Err(msg.to_string()));
+        assert_eq!(header(h, crate::rules::of("ndpi")), Err(msg.to_string()));
     }
 
     #[test]
@@ -325,7 +424,7 @@ mod tests {
             (&[0x11][..], 8, 8),
         ] {
             let h = jpeg(factors, 4);
-            let got = header(&h, crate::rules::ndpi()).unwrap();
+            let got = header(&h, crate::rules::of("ndpi")).unwrap();
             assert_eq!((got.sof.0, got.mw, got.mh, got.restart), (2, mw, mh, 4));
             assert_eq!(&h[got.sof.0..got.sof.0 + 2], &[0xFF, 0xC0]);
         }
@@ -342,6 +441,36 @@ mod tests {
     fn a_truncated_header_is_rejected() {
         let h = jpeg(&[0x11], 4);
         rejects(&h[..h.len() - 3], "malformed JPEG header in an NDPI strip");
+    }
+
+    #[test]
+    fn the_frame_is_the_first_sof0() {
+        let h = jpeg(&[0x22, 0x11, 0x11], 4);
+        // a fill byte and a comment before the SOF0 move it by 1 + 6 bytes
+        let mut b = h[..2].to_vec();
+        b.extend([0xFF, 0xFF, 0xFE, 0, 4, b'h', b'i']);
+        b.extend(&h[2..]);
+        let want = Frame { at: 2 + 7 + 5, height: 16, width: 32, mw: 16, mh: 16 };
+        assert_eq!(frame(&b), Scan::Frame(want));
+        assert_eq!(frame(&b[..12]), Scan::Need(13));
+        assert_eq!(frame(&b[..5]), Scan::Need(7));
+        assert!(want.covers(15, 17) && !want.covers(17, 32) && !want.covers(16, 33));
+        let big = Frame { height: 65535, width: 16, ..want };
+        assert!(!big.covers(65536, 16)); // as many MCU rows, but more than a frame header holds
+    }
+
+    #[test]
+    fn a_strip_without_a_frame_has_none() {
+        let h = jpeg(&[0x11], 4);
+        assert_eq!(frame(&h[1..]), Scan::None); // no SOI
+        let sos = [0xFF, 0xD8, 0xFF, 0xDA, 0, 2];
+        assert_eq!(frame(&sos), Scan::None);
+        let mut progressive = h.clone();
+        progressive[3] = 0xC2;
+        assert_eq!(frame(&progressive), Scan::None);
+        let mut zero = h.clone();
+        zero[2 + 4 + 7] = 0x01; // the component's sampling factors 0 × 1
+        assert_eq!(frame(&zero), Scan::None);
     }
 
     #[test]
@@ -396,8 +525,8 @@ mod tests {
     /// A strip of a 16 × 8 image of MCUs 8 × 8 and restart interval 1: two intervals.
     fn grid(starts: Vec<u64>, length: u64, w: u64) -> Res<Grid> {
         let h = jpeg(&[0x11], 1);
-        let hd = header(&h, crate::rules::ndpi())?;
-        Grid::new(100, length, w, 8, h, hd, starts, &Part::Data(1, 0, 2), &Part::Data(2, 0, 10), crate::rules::ndpi())
+        let hd = header(&h, crate::rules::of("ndpi"))?;
+        Grid::new(100, length, w, 8, h, hd, starts, &Part::Data(1, 0, 2), &Part::Data(2, 0, 10), crate::rules::of("ndpi"))
     }
 
     #[test]
@@ -430,8 +559,8 @@ mod tests {
     #[test]
     fn a_chunk_wider_than_a_frame_header_is_rejected() {
         let h = jpeg(&[0x11], 8192);
-        let hd = header(&h, crate::rules::ndpi()).unwrap();
-        let g = Grid::new(0, 60, 65536, 8, h, hd, vec![40], &Part::Data(1, 0, 2), &Part::Data(2, 0, 10), crate::rules::ndpi());
+        let hd = header(&h, crate::rules::of("ndpi")).unwrap();
+        let g = Grid::new(0, 60, 65536, 8, h, hd, vec![40], &Part::Data(1, 0, 2), &Part::Data(2, 0, 10), crate::rules::of("ndpi"));
         assert_eq!(g.unwrap_err(), "an NDPI chunk would be 65536 pixels wide, more than 65535");
     }
 }

@@ -3,7 +3,7 @@ every input of the fixture corpus, and must give the same exit status and, on su
 archive, byte for byte, and the same summary.
 
 The corpus is conformance/virtualize/compare.py's synthetic one: every file under fixtures/ with
-the suffix of a profile of the registry (spec/virtualize/profiles.json), and every store directory
+the suffix of a profile of the registry (spec/virtualize/profiles/), and every store directory
 under a store profile's fixtures/<p> (the rejected inputs included: both must reject them). Each
 input is converted:
 

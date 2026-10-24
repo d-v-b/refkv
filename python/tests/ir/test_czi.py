@@ -2,7 +2,6 @@
 today's profile, the compact mirror, the streaming XML values, and round 1's CZI
 review findings, each closed and probed."""
 
-import io
 import json
 import threading
 from http.server import ThreadingHTTPServer
@@ -10,9 +9,8 @@ from http.server import ThreadingHTTPServer
 import pytest
 from refkv import _core
 
-from ir_helpers import FIXTURES, same_hierarchy
+from ir_helpers import FIXTURES, as_the_reference, same_hierarchy
 from refkv.ir import virtualize as via_ir
-from refkv.ir.cmirror import rebuild_from_archive
 from refkv.ir import parse
 from refkv.ir.planner import HttpTransport
 from refkv.policy import Policy
@@ -25,22 +23,7 @@ CZIS = sorted((FIXTURES / "czi").iterdir())
 
 @pytest.mark.parametrize("path", CZIS, ids=lambda p: p.name)
 def test_projects_as_today_and_rebuilds(path, tmp_path):
-    data = path.read_bytes()
-    url = f"https://data.test/{path.name}"
-    try:
-        _, today = virtualize(str(path), url)
-    except Rejected:
-        with pytest.raises(Rejected):
-            via_ir(str(path), url)
-        return
-    fmt, out, ir = via_ir(str(path), url)
-    assert fmt == "czi"
-    ir.check()
-    same_hierarchy(today, out)
-    out.write(str(tmp_path / "a.vzip"))
-    buf = io.BytesIO()
-    rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
-    assert buf.getvalue() == data
+    as_the_reference(path, tmp_path, "czi")
 
 
 XMLS = [

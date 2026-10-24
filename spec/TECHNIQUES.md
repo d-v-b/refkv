@@ -188,6 +188,8 @@ From [§1](#1-three-kinds-of-information), [§4](#4-numeric-metadata-as-arrays) 
 | DICOM | the dataset without Per-frame Functional Groups and without binary-VR values | Per-frame Functional Groups | `OF`/`OD`/`OL`/`OV` values; optionally derived per-frame position and time arrays |
 | NIfTI | the header; text extensions (comment, AFNI and CIFTI XML, JSON) as text; a derived orientation (which affine, whether it is applied) | none | none |
 | MRC | the header; the kind of file, the data type, whether the axis map is applied, the voxel size; the extended header by reference | none | none |
+| MP4 | the brands, the movie's timescale and duration, and every track (its handler, codec, and why it is not virtualized when it is not); each track's timescale, edit list, size or sample rate, and the SPS's profile and level, on its group | none | every box, field by field, with its tables (sample sizes, offsets, times, sync samples); each sample by reference |
+| MP3 | the stream's parameters (version, sample rate, channels, frames, bitrate), the Xing or Info frame's counts and LAME fields, the ID3v1 tag's fields; the ID3v2 and APE tags, and every frame, by reference | none | none |
 | IMS | none | the whole HDF5 tree, mirrored under `refkv_source/hdf5`: each group's attributes, links and named datatypes on its own group | every dataset but the image's (histograms, thumbnail, `DataSetTimes`, `Scene8` tables), by reference, typed when its elements are numbers; large attributes, copied |
 | N5 | each node's `attributes.json` without its layout members (`dimensions`, `blockSize`, `dataType`, `compression`, `n5`) | none | none |
 | Zarr v2, OME-Zarr | each node's `.zattrs` | none | none |

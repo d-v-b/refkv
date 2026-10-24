@@ -1,4 +1,4 @@
-"""The OME-Zarr profile (spec/virtualize.md, §11
+"""The OME-Zarr profile (spec/virtualize/ome-zarr.md, §11
 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#11-ome-zarr-profile>): an
 OME-Zarr 0.4 hierarchy
 on Zarr v2 storage as OME-Zarr 0.5 on Zarr v3, each chunk referenced in place.
@@ -45,7 +45,7 @@ def declares_04(store: Store) -> bool:
     """Does the root of this Zarr v2 store declare OME-NGFF 0.4 content (§1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>)?"""
     objects = store.objects
-    prefetch(store)  # the documents §10 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile> reads, these among them
+    prefetch(store)  # the documents §7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#7-zarr-v2-profile> reads, these among them
 
     def attrs(path: str):
         if join(path, ".zgroup") not in objects or join(path, ".zattrs") not in objects:

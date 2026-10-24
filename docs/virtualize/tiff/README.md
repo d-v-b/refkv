@@ -51,6 +51,16 @@ level, `0` the full resolution.
 - **Translation:** the stage position of the first plane (OME-XML), or the
   slide position of an Aperio scan (`Left`, `Top`).
 - **Name:** the OME `Image` name.
+- **Channels:** `omero.channels` labels RGB samples (an SVS slide's, for
+  example) `R`, `G`, `B` in red, green and blue, and an OME-TIFF's channels
+  by their OME-XML `Channel` names and colors (else `C0`, `C1`, ..., in
+  white). The file records no display range, so each channel's window is
+  sampled from the middle chunk of the coarsest level: the 5th to 99.9th
+  percentile of its values, leaving out zeros, for uncompressed and Deflate
+  tiles. RGB samples, and tiles refkv does not decode (JPEG, JPEG 2000,
+  zstd), get the data type's whole range (0 to 255 for 8-bit data). A float
+  image whose windows cannot be sampled, or one with more than 64 channels,
+  has no `omero`.
 - **Metadata:** the root's `refkv_virtualized.tiff` holds the byte order and
   whether the file is BigTIFF. Everything else is on `refkv_source`, the
   file's IR mirror ([conventions §8](../../../spec/conventions.md#8-the-ir-mirror)):
@@ -213,6 +223,26 @@ Rejected:
 A file that is none of the formats refkv reads is rejected with
 `not a file of any supported format` (exit status
 3).
+
+### In the browser
+
+The browser code ([js/](../../../js/README.md)) reads TIFF:
+
+- Tiled TIFF and BigTIFF, either byte order.
+- Pyramids as SubIFDs (OME-TIFF), or, without OME-XML, as later tiled images of
+  decreasing size (as in SVS).
+- OME-TIFF planes over Z, C and T in any `DimensionOrder`, with physical pixel
+  sizes and units.
+- Samples per pixel stored planar (one chunk per channel) or interleaved
+  (through a `transpose` codec).
+- Compression: none, DEFLATE (`zlib`), zstd, JPEG 2000 (`imagecodecs_jpeg2k`),
+  and JPEG (`imagecodecs_jpeg`), without a predictor. JPEG tiles that keep
+  their tables in `JPEGTables`, as in Aperio SVS, become complete JPEG streams
+  through references that prepend the tables and a color marker, held once
+  in the archive as a `data` source.
+
+Not supported, and refused with HTTP 422: images in strips, LZW, old-style
+JPEG, predictors, and multi-file OME-TIFF.
 
 ## Performance
 

@@ -10,21 +10,24 @@ its JSON Schema `virtualize/<format>/schema.json`:
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
 |---|---|---|
-| TIFF, OME-TIFF, Aperio SVS | [tiff](virtualize/tiff.md) | `48e9ac4e-1156-4a62-955e-20467d9c2700` |
-| Hamamatsu NDPI | [ndpi](virtualize/ndpi.md) | `6cac71ef-dbb2-4acd-b60c-00389aa4238a` |
-| Nikon ND2 | [nd2](virtualize/nd2.md) | `59612f14-e314-4207-ba00-8f422ba71490` |
+| Zeiss CZI | [czi](virtualize/czi.md) | `7a0733c7-d4be-4482-a64f-6904d9354ea5` |
 | DICOM | [dicom](virtualize/dicom.md) | `acf17198-e5a5-48d3-8187-22ec4bb40ea5` |
-| NIfTI-1 and NIfTI-2 | [nifti](virtualize/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
+| FITS | [fits](virtualize/fits.md) | `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` |
+| Imaris IMS | [ims](virtualize/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
+| MP3 (MPEG Layer III audio) | [mp3](virtualize/mp3.md) | `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` |
+| MP4 and QuickTime (H.264 video, AAC and MP3 audio) | [mp4](virtualize/mp4.md) | `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` |
 | MRC2014 | [mrc](virtualize/mrc.md) | `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` |
 | MRC2014, as a dataset ([§9](#9-dataset-layouts)) | [mrc-dataset](virtualize/mrc-dataset.md) | `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` |
-| Imaris IMS | [ims](virtualize/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
 | N5 | [n5](virtualize/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
-| Zarr v2 | [zarr2](virtualize/zarr2.md) | `8e792619-d671-4687-ab51-752885dd3ee6` |
+| Nikon ND2 | [nd2](virtualize/nd2.md) | `59612f14-e314-4207-ba00-8f422ba71490` |
+| Hamamatsu NDPI | [ndpi](virtualize/ndpi.md) | `6cac71ef-dbb2-4acd-b60c-00389aa4238a` |
+| NIfTI-1 and NIfTI-2 | [nifti](virtualize/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
 | OME-Zarr 0.4 | [ome-zarr](virtualize/ome-zarr.md) | `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` |
-| Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](virtualize/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
-| Zeiss CZI | [czi](virtualize/czi.md) | `7a0733c7-d4be-4482-a64f-6904d9354ea5` |
-| Olympus VSI | [vsi](virtualize/vsi.md) | `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` |
 | Akoya QPTIFF | [qptiff](virtualize/qptiff.md) | `329ea136-2f55-4c27-b6f4-8e60ca2109b8` |
+| Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](virtualize/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
+| TIFF, OME-TIFF, Aperio SVS | [tiff](virtualize/tiff.md) | `48e9ac4e-1156-4a62-955e-20467d9c2700` |
+| Olympus VSI | [vsi](virtualize/vsi.md) | `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` |
+| Zarr v2 | [zarr2](virtualize/zarr2.md) | `8e792619-d671-4687-ab51-752885dd3ee6` |
 <!-- /profiles -->
 
 A format's convention specifies the hierarchy's whole **Zarr layout**: which
@@ -102,7 +105,7 @@ the Convention Metadata Object (CMO)
 with no other members. At version 0, which has no tag, the URLs name the
 development branch instead: `.../refs/heads/main/spec/virtualize/<p>/schema.json`
 and `.../blob/main/spec/virtualize/<p>.md`. `T` is the format's title, the `title` of its
-entry in the profile registry ([virtualize/profiles.json](virtualize/profiles.json): `TIFF`,
+entry in the profile registry ([virtualize/profiles/](virtualize/profiles/)`<p>.json`: `TIFF`,
 `Zarr v2`, `Sentinel-2 SAFE`, ...). The UUID is the same for every version; the version is in
 the URLs. All conventions nest their property under one key, `refkv_virtualized`, which is
 also their `name`: the framework asks a nesting convention's `name` to be
@@ -177,7 +180,10 @@ nests its own record.
 Unless the format's convention says otherwise (the store conventions, N5,
 Zarr v2 and OME-Zarr, define their arrays themselves; the CZI convention
 gives clipped levels the zarr-extensions `rectilinear` chunk grid and adds
-the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle`), every array's
+the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle`; the MP3 and MP4
+conventions give their arrays the codec `refkv.stream` of [§10](#10-coded-streams) and dimension
+names of their own, and the MP4 convention gives video planes whose chunks differ in length the
+`rectilinear` chunk grid), every array's
 `zarr.json` is the JSON object:
 
 ```json
@@ -1103,3 +1109,143 @@ that every producer writes the same values. A deflated coordinate chunk is
 the one place a producer compresses bytes it computed, and deflate streams
 differ between encoders, so such chunks are compared by the indexes they
 decode to, not byte for byte.
+
+## 10. Coded streams
+
+Audio and video formats code each frame (an MP3 or AAC frame, an H.264
+picture) into a run of bytes that a decoder can only decode after the
+frames it depends on: an MP3 frame's bit reservoir reaches into the frames
+before it, an AAC frame overlaps the one before it, and an H.264 picture
+is predicted from other pictures, back to the last keyframe. A chunk of
+such a stream's samples therefore holds the frames it decodes to and the
+frames before them that a decoder must decode first, its **lead-in**. The
+array-to-bytes codec `refkv.stream` decodes such a chunk.
+
+**The codec.** `{"name": "refkv.stream", "configuration": C}`, where `C` has:
+
+- `format`: the coding of the frames: `"mp3"` (MPEG-1, 2 or 2.5 Layer III
+  frames), `"aac"` (raw AAC frames, without ADTS headers) or `"h264"`
+  (H.264 access units as an MP4 file holds them: each NAL unit preceded by
+  its length, in the length's size the setup gives);
+- `setup`, when the format has one: the decoder's configuration, base64
+  ([RFC 4648 §4](https://www.rfc-editor.org/rfc/rfc4648#section-4)): for
+  `"aac"` the AudioSpecificConfig (ISO/IEC 14496-3 §1.6.2.1), for `"h264"`
+  the AVCDecoderConfigurationRecord (an MP4 file's avcC box, ISO/IEC
+  14496-15 §5.3.3.1), which holds the parameter sets;
+- `plane`, for `"h264"`: the plane of a decoded picture the array holds,
+  `"y"`, `"u"` or `"v"`.
+
+There are no other members.
+
+**A chunk's bytes** are a header, then the frames:
+
+1. `n`, the frames' count, as a varint;
+2. for each frame, in the order of the frames, its `size` as a varint,
+   then its `position` less the previous frame's (the first frame's less
+   −1) as a zigzag varint;
+3. the `n` frames, each `size` bytes, one after the other, in decode
+   order.
+
+A **varint** is an unsigned integer as protobuf encodes it, 7 bits a byte,
+the least significant first, the high bit set on every byte but the last;
+a **zigzag varint** is the varint of `2d` for `d ≥ 0` and of `−2d − 1` for
+`d < 0`. So a lead-in frame (−1 after −1) costs one byte for its position,
+and a frame whose output follows the one before it (`s` samples on, or one
+picture on) one or two. A header that ends inside a varint, or whose sizes
+do not add up to the bytes after it, is an error.
+
+**Decoding a chunk.** A decoder of the format, set up with `setup` and in
+its initial state, is given the frames in order, one frame each time. Each
+frame decodes to some outputs: for audio, `s` samples of each channel; for
+video, one picture. The output of frame `k` goes to the chunk's row
+`position[k]` on, along the array's first axis: for audio, the `s` rows
+from `position[k]`, `[s, channels]`; for video, the one row `position[k]`,
+`[1, height, width]` of the plane. A frame of position −1 is decoded and
+its output dropped: it is the chunk's lead-in. Every row no frame fills is
+the fill value: the rows past the array's end in its last chunk, and the
+rows of a frame the decoder gives no output for. An output that does not
+fit its rows, or whose shape is not the array's, is an error. The outputs
+are the decoder's own samples, with no conversion: `float32` for MP3 and
+AAC, and the 8-bit planes of a 4:2:0 picture for H.264 (`u` and `v` half
+the size of `y` along each axis, rounded up).
+
+The outputs are placed by the frame each comes from, whatever order the
+decoder gives them in: an H.264 decoder outputs pictures in presentation
+order, after a delay, and may emit nothing for a frame it cannot decode.
+A decoder that cannot say which frame an output comes from does not decode
+this codec. Nor does one whose output for a frame depends on more than a
+bounded run of the frames before it, such as ffmpeg's fixed-point MP3
+decoder, which carries its rounding error from frame to frame, so a chunk
+it decodes from the lead-in differs from the stream by a unit here and
+there. ffmpeg's float MP3 decoder, its AAC decoder and its H.264 decoder
+(the implementations' decoders, through PyAV) decode it.
+
+**Determinism.** A chunk decodes to the same values every time, and, for
+MP3 and H.264, to the values a decoder of the whole stream gives (H.264
+decoding is exact by its standard). AAC's perceptual noise substitution
+fills a band with noise from a pseudo-random generator whose state runs on
+from frame to frame, so a chunk's noise bands differ from those of a
+decoder of the whole stream; every other value is the same.
+
+**Producing a chunk.** A convention says which frames are a chunk's own,
+where each one's output goes, and which frames before them are its
+lead-in ([virtualize/mp3.md §8.2](virtualize/mp3.md#82-chunks),
+[virtualize/mp4.md §8.3](virtualize/mp4.md#83-chunks)). A virtualizer
+writes the header as a literal range, then the frames as ranges of the
+source, a frame that starts where the one before it ends extending that
+one's range. The bytes between two frames of the source are in no range,
+so a decoder never sees them: one that looked for a run of frames to lock
+onto would drop the frames before them, and one that reset its state would
+decode the frame after them from nothing. The header holds the frames'
+sizes and positions, which are the source's structure, not its samples
+([spec/virtualize.md §1.2](virtualize.md#12-input)).
+
+## 11. Format documents
+
+What every format's document, `virtualize/<p>.md`, would otherwise say in
+the same words is stated here once, and each document cites it.
+
+### 11.1 Parts
+
+A format's document has two parts. Part 1 is the format's convention: the Zarr layout, which Part 2 cites as "the convention §n".
+Part 2 is the format's profile ([spec/virtualize.md, Profiles](virtualize.md#profiles)):
+how refkv reads the source, which inputs it rejects, and how each chunk
+references the source. The document is numbered on its own, Part 2 after
+Part 1, and other documents cite it by name. A dataset layout's document
+([§9](#9-dataset-layouts)) is a convention alone.
+
+### 11.2 Declaration
+
+A format's convention starts with its declaration ([§2](#2-attributes)), its
+section 1, which shows its CMO ([§1](#1-conventions)) at the version its
+header states. Unless the declaration says otherwise:
+
+- the root declares the convention with `"profile": "<p>"`, the convention's
+  version as `version`, and the input's URL as `source.url` (a file's URL,
+  or a store's, ending in `/`);
+- `refkv_source` declares it too, with the IR mirror's description
+  ([§8.2](#82-the-table); a store's, [§8.9](#89-stores)), and so does each
+  group of the mirror's view that has a member ([§8.7](#87-the-view)); the
+  mirror's arrays have no attributes.
+
+The declaration names what is the format's own: the root's source metadata,
+the member `"<p>"`, when the root has any, the other nodes that declare the
+convention, and the other arrays that have no attributes. A dataset layout's
+declaration is [§9](#9-dataset-layouts)'s.
+
+### 11.3 The IR mirror
+
+For a file's convention, `refkv_source` is the file's IR mirror
+([§8](#8-the-ir-mirror)): its table, from which the file is rebuilt byte for
+byte, and its view, `refkv_source/tree`; for a store's, it is the store's
+([§8.9](#89-stores)). The format's convention lists the IR's elements, the
+format's **source model**.
+
+### 11.4 Equivalence
+
+The elements are determined by the source (a file, or a store's listing and
+the documents the profile reads), and the mirror by its elements
+([§8.8](#88-canonical-form): one order, one folding, one encoding):
+hierarchies of one source are compared entry for entry, `refkv_source`
+included ([spec/virtualize.md §1.1](virtualize.md#11-output-and-equivalence)).
+

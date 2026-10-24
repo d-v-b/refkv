@@ -1,4 +1,4 @@
-// The OME-Zarr profile (spec/virtualize.md, §11
+// The OME-Zarr profile (spec/virtualize/ome-zarr.md, §11
 // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#11-ome-zarr-profile>): an
 // OME-Zarr 0.4 hierarchy
 // on Zarr v2 storage as OME-Zarr 0.5 on Zarr v3, each chunk referenced in place.
@@ -67,7 +67,7 @@ function version04(a: Obj, key: string): boolean {
  */
 export async function declares04(store: Store): Promise<boolean> {
   const objects = store.objects;
-  prefetch(store); // the documents §10 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile> reads, these among them
+  prefetch(store); // the documents §7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#7-zarr-v2-profile> reads, these among them
   const attrs = async (path: string): Promise<Obj | undefined> => {
     if (!objects.has(join(path, ".zgroup")) || !objects.has(join(path, ".zattrs"))) return undefined;
     const a = await readDocument(store, join(path, ".zattrs"), { keep: true }); // read again by readHierarchy

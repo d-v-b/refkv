@@ -101,10 +101,13 @@ implementation that wrote it.
 ## Test inputs
 
 The synthetic files in `fixtures/`, one directory per profile of the registry
-(`spec/virtualize/profiles.json`; a file profile's files have its suffixes, a
+(`spec/virtualize/profiles/`; a file profile's files have its suffixes, a
 store profile's directory holds one directory per store), are good first inputs. Their names say what they
 exercise, and `unsupported_*`, `edge_reject_*` and `<profile>_reject_*`
-inputs must be rejected. To serve them the way the harness does, run:
+inputs must be rejected. `conformance/virtualize/rejects/<directory>.json` lists
+each rejected input of `fixtures/<directory>` with the start of the message the
+reference implementation gives for it; an implementation need not give the same
+message. To serve the inputs the way the harness does, run:
 
 ```
 python conformance/virtualize/proxy.py fixtures /tmp/vzip-proxy-cache 8765
@@ -146,18 +149,19 @@ with the first's:
   files, and SAFE directories and Zarr v2, OME-Zarr and N5 stores, it runs the frozen Python profiles in
   `conformance/virtualize/reference/refkv_reference/` (what `refkv.virtualize`
   shipped before these formats moved to the IR, unchanged but for their import
-  paths); for every other profile, the shipped code. MRC and VSI were never
-  implemented outside the core, so they have no reference: their inputs
+  paths); for every other profile, the shipped code. A profile added since
+  (its registry entry's `reference` is null, spec/virtualize/profiles/) was
+  never implemented outside the core, so it has no reference: its inputs
   (`no-ref` in the corpus) compare `py` with `web` alone.
 - `py`: `python -m refkv.virtualize --allow-private-hosts`.
 - `web`: the browser code under Node, `js/conformance/virtualize.ts
   --allow-private-hosts`.
 
-For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC, IMS, VSI and SAFE files, and SAFE directories and Zarr v2, OME-Zarr and N5 stores, `py` and `web` are one implementation: the Rust core
+For every profile, `py` and `web` are one implementation: the Rust core
 `rust/refkv-ir` (its parsers, schemas, read planner, projections and mirror),
 built natively for Python and as wasm32 for the browser, each with a thin host
 (the I/O, and the archive writer). Their `refkv_source` is the IR's mirror,
-which the reference does not write. So, for those profiles:
+which the reference does not write. So:
 
 - `ref` against `py` and `web`, outside `refkv_source`: proves that the IR path
   writes the hierarchy, references and data sources an independent
@@ -177,9 +181,6 @@ which the reference does not write. So, for those profiles:
   today: the mirror (`refkv_source`) has no second implementation, and its
   checks are the byte-exact rebuild of the source from it and its canonical
   form (below).
-
-For every other profile, `py` and `web` are still two hand-written
-implementations, and `ref` runs the same code as `py`.
 
 Since revision 21, `refkv_source` of TIFF, ND2 and CZI is the IR mirror of
 [conventions §8](../../spec/conventions.md#8-the-ir-mirror), and since revision 26 those of DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2, OME-Zarr and N5 too; since revision 22 the mirror is canonical ([conventions §8.8](../../spec/conventions.md#88-canonical-form))

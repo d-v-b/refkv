@@ -11,7 +11,7 @@ use refkv_ir::mirror::{text_json, canonical, canonical_problem, load, mirror, or
 use refkv_ir::out::Out;
 use refkv_ir::run::{run_bytes, Format};
 
-/// Every file profile's fixtures (the registry's, spec/virtualize/profiles.json: fixtures/<p>,
+/// Every file profile's fixtures (the registry's, spec/virtualize/profiles/: fixtures/<p>,
 /// the files of its suffixes), with its format.
 fn fixtures() -> Vec<(Format, std::path::PathBuf)> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");

@@ -1,14 +1,16 @@
 //! The NDPI image projection (spec/virtualize/ndpi.md §3
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#3-levels>, §4
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>) from a valid IR:
-//! one array per level, whose chunk is the level's strip, or, with McuStarts, `a × b` of the
+//! one array per level, whose chunk is the level's strip (with the level's size in its SOF0 when
+//! the frame's differs), or, with McuStarts, `a × b` of the
 //! strip's restart intervals as a JPEG stream of their own (`ndpi::Grid`); the facts hold the
-//! sizes, the grids, scales and translation, and the IR the McuStarts values.
+//! sizes, the grids, scales and translation, and the IR the McuStarts values. Its `omero` is the
+//! three RGB samples the JPEG streams decode to, each with the window 0 to 255.
 
-use super::{arr, n, obj, strs, translations, truthy};
+use super::{arr, n, strs, tiled};
 use crate::ir::Ir;
 use crate::ndpi::{combine, tag_values, Grid};
-use crate::out::{array_json, image_ome, root_json, transpose_codec, Out, Part};
+use crate::out::{array_json, omero_json, root_json, sample_channels, transpose_codec, type_window, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Value as J};
 
@@ -28,7 +30,18 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     for (li, lv) in levels.iter().enumerate() {
         let (w, h, strip, length) = (n(&lv["w"]), n(&lv["h"]), n(&lv["strip"]), n(&lv["length"]));
         let chunk = if lv["grid"].is_null() {
-            refs.chunk(format!("{li}/c/0/0/0"), strip, length, 0, Some(vec![Part::Src(strip, length)]), 0)?;
+            // the strip, or, when its frame header is not the level's size, the strip with the
+            // level's height and width in its SOF0 (spec/virtualize/ndpi.md §7
+            // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>)
+            let parts = match lv["frame"].as_u64() {
+                Some(at) => {
+                    let mut size = (h as u16).to_be_bytes().to_vec();
+                    size.extend((w as u16).to_be_bytes());
+                    vec![Part::Src(strip, at), Part::Lit(size), Part::Src(strip + at + 4, length - at - 4)]
+                }
+                None => vec![Part::Src(strip, length)],
+            };
+            refs.chunk(format!("{li}/c/0/0/0"), strip, length, 0, Some(parts), 0)?;
             [3, h, w]
         } else {
             let starts = values(ir, &lv["starts"]).ok_or("internal: no McuStarts in the IR")?;
@@ -51,9 +64,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         shapes.push(shape);
     }
     let mut out = refs.out;
-    let tr = &facts["translation"];
-    let trs = J::Array(if truthy(tr) { vec![tr.clone(); levels.len()] } else { vec![] });
-    let ome = image_ome(&axes, &obj(&facts["units"]), arr(&facts["scales"]), None, translations(&trs))?;
+    let mut ome = tiled::ome(facts, &axes, None)?;
+    ome["omero"] = omero_json(sample_channels("", 3, true, &vec![type_window("uint8"); 3]));
     out.json("zarr.json", &root_json(ome, "ndpi", url, None));
     let references = out.refs.len();
     out.summary = json!({"axes": axes, "levels": shapes, "references": references, "codec": "imagecodecs_jpeg"});

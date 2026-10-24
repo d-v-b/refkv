@@ -48,9 +48,12 @@ level, `0` the full resolution.
   uncompressed data; interleaved RGB behind a `transpose` codec. Integer and
   float32 samples (inForm's component data).
 - **Channels:** `omero.channels` carries each channel's name and color from
-  its description (`DAPI`, `0,0,255`), without a contrast window (the file
-  records none; the demo samples one from the data); an RGB scan gets `R`,
-  `G` and `B` channels.
+  its description (`DAPI`, `0,0,255`). The file records no display range,
+  so each channel's window is sampled from the middle chunk of the coarsest
+  level (the 5th to 99.9th percentile of its values, leaving out zeros) for
+  LZW, Deflate and uncompressed data, float32 component data included; an
+  RGB scan gets `R`, `G` and `B` channels with the data type's whole range,
+  as does a channel whose chunk is not sampled.
 - **Scale:** from the TIFF resolution tags (pixels per centimeter), in
   micrometers; each level's scale grows with its downsampling.
 - **Translation:** the stage position of the image's upper-left corner,
@@ -155,6 +158,19 @@ Rejected:
 A plain TIFF (no `PerkinElmer-QPI` Software tag) is read by the
 [TIFF profile](../tiff/README.md), which still rejects LZW; LZW support is
 specific to QPTIFF for now.
+
+### In the browser
+
+The browser code ([js/](../../../js/README.md)) reads Akoya QPTIFF (Vectra scans, inForm component data; found by the Software tag):
+
+- The FullResolution images as channels and the runs of ReducedResolution
+  images as levels, named and colored in `omero` from each image's XML
+  description; tiles, or strips for the smallest levels and inForm fields
+  (a rectilinear chunk grid when the last strip is short).
+- Compression: none, LZW (`imagecodecs_lzw`), JPEG, DEFLATE, zstd, JPEG 2000.
+
+Not supported, and refused with HTTP 422: predictors, several RGB channels,
+and images that do not follow the format's arrangement.
 
 ## How it's verified
 

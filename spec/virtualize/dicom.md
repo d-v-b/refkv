@@ -11,11 +11,7 @@ refkv produces this layout as a reference store is the DICOM profile,
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `acf17198-e5a5-48d3-8187-22ec4bb40ea5` ·
 Schema: [schema.json](dicom/schema.json)
 
-This document has two parts. [Part 1](#part-1-the-convention) is the DICOM
-convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the DICOM profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The profile keeps its numbering as a section
-of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
+This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 # Part 1. The convention
 
@@ -26,9 +22,9 @@ convention, and the profile rejects it.
 
 ## 1. Declaration
 
-The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "dicom"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
-and the source metadata of [§5](#5-source-metadata) as the member `"dicom"`. Its CMO is:
+The root and `refkv_source` declare the convention
+([conventions §11.2](../conventions.md#112-declaration)), the root with the source
+metadata of [§5](#5-source-metadata) as the member `"dicom"`. Its CMO is:
 
 ```json
 {
@@ -40,10 +36,7 @@ and the source metadata of [§5](#5-source-metadata) as the member `"dicom"`. It
 }
 ```
 
-`refkv_source` declares it too, with the IR mirror's description ([§5](#5-source-metadata),
-[conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
-the mirror's view that has a member; the mirror's arrays and the image's array
-have no attributes.
+The image's array has no attributes.
 
 ## 2. The source
 
@@ -57,7 +50,7 @@ other levels are other files.
 
 The File Meta Information is the file's group `0002` elements, from offset
 132; the top-level dataset follows it and runs until Pixel Data
-`(7FE0,0010)`. ([spec/virtualize.md §6.2](#62-file)
+`(7FE0,0010)`. ([§7.2](#72-file)
 says how they are read.)
 
 - **Transfer syntax:** the meta element `(0002,0010)` (Transfer Syntax UID)
@@ -110,7 +103,7 @@ Attributes elsewhere (in other items, or deeper) are not read.
 | `(0048,0303)` | Total Pixel Matrix Focal Planes | UL | integer |
 | `(7FE0,0001)` | Extended Offset Table | OV | 64-bit integers |
 | `(7FE0,0002)` | Extended Offset Table Lengths | OV | 64-bit integers |
-| `(7FE0,0010)` | Pixel Data | OB or OW | [spec/virtualize.md §6.5](#65-frames) |
+| `(7FE0,0010)` | Pixel Data | OB or OW | [§7.5](#75-frames) |
 
 Every attribute of the table present where it is read is checked as below,
 whether or not its value ends up in the output.
@@ -118,7 +111,7 @@ whether or not its value ends up in the output.
 - **VR:** in explicit VR, the element's VR MUST be the table's, else the
   input is rejected. (In implicit VR there is none to check.)
 - **Length:** an attribute of the table other than Pixel Data MUST NOT have
-  an undefined length (in implicit VR, [spec/virtualize.md §6.3](#63-datasets-and-sequences) walks such an element as a
+  an undefined length (in implicit VR, [§7.3](#73-datasets-and-sequences) walks such an element as a
   sequence; it is then rejected here).
 - **tag:** the value is `u16` group and `u16` element pairs in the dataset's
   byte order; its length MUST be a multiple of 4, and the first pair is
@@ -255,7 +248,7 @@ array `"0"`.
   sample's, when planar); for encapsulated pixel data, the frame's
   fragments' data, concatenated, which is one JPEG or JPEG 2000 stream (a
   JPEG stream with three samples made explicit about its color transform,
-  as [spec/virtualize.md §6.5](#65-frames) says).
+  as [§7.5](#75-frames) says).
 
 ## 5. Source metadata
 
@@ -467,7 +460,7 @@ Trailing Padding is kept:
   of that tag) are kept;
 - the Extended Offset Table `(7FE0,0001)` and its lengths `(7FE0,0002)`,
   when the profile reads the frames from them (encapsulated pixel data,
-  [spec/virtualize.md §6.5](#65-frames)): the first element of each tag in the top-level
+  [§7.5](#75-frames)): the first element of each tag in the top-level
   dataset, before Pixel Data. A later element of such a tag is a member of
   `duplicates` (the omitted one is the first). An offset table in native
   pixel data's dataset, in an item, in the File Meta Information or after
@@ -556,7 +549,7 @@ structure of every element it walks:
 - every element of the top-level dataset;
 - the elements of sequences of undefined length;
 - the elements of the two sequences of [§2.2](#22-attributes)
-  ([spec/virtualize.md §6.3](#63-datasets-and-sequences)).
+  ([§7.3](#73-datasets-and-sequences)).
 
 The source metadata also walks the other sequences of defined length, by
 the same rules. It never rejects the input.
@@ -594,7 +587,7 @@ Pixel Data ends:
 
 **Pixel data that no frame holds.**
 - **Native.** With `B`, `F` and `N` as in
-  [spec/virtualize.md §6.5](#65-frames), the bytes of
+  [§7.5](#75-frames), the bytes of
   Pixel Data's value after its `N × F` bytes of frames, unless they are
   none or one byte `00`, are the IR's element `pixel_extra` (one byte `00`
   is `dataset/7FE00010/padding`).
@@ -615,7 +608,7 @@ Pixel Data ends:
 
 **Fragments.** Without an Extended Offset Table, a frame of encapsulated
 pixel data is the data of its fragments without their item headers, and of
-its empty fragments nothing ([spec/virtualize.md §6.5](#65-frames)). When a frame has more
+its empty fragments nothing ([§7.5](#75-frames)). When a frame has more
 than one fragment (empty ones included), the root has `pixel_fragments`.
 `pixel_offset_table` is `true` when the Basic Offset Table is not empty.
 The fragments, their item headers and the offset table are the IR's
@@ -624,9 +617,8 @@ elements under `dataset/7FE00010` ([§5.4](#54-elements)).
 ### 5.3 The IR mirror
 
 `refkv_source` is the file's **IR mirror**
-([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `refkv_source/tree`. The IR's
-elements (the DICOM **source model**) are below; nothing is left out: the
+([conventions §11.3](../conventions.md#113-the-ir-mirror)).
+The IR's elements (the DICOM **source model**) are below; nothing is left out: the
 preamble, the File Meta Information, every data element at every depth
 (group lengths, offset tables, duplicates, private and padding elements
 included), the items and delimiters of sequences and fragments, the pixel
@@ -640,7 +632,7 @@ Paths are relative to the IR's root, whose path is `""`
 are decimal name indexes; `<tag>` is a tag as 8 uppercase hexadecimal digits
 (`00280010`); `E` is the byte order of the dataset (`<` little, `>` big),
 and of the items of a fragment sequence. Each dataset's elements are walked
-as [spec/virtualize.md §6.3](#63-datasets-and-sequences) and **Sequences that the profile does not walk**
+as [§7.3](#73-datasets-and-sequences) and **Sequences that the profile does not walk**
 ([§5.2](#52-the-datasets-as-json)) say, every sequence that parses a struct.
 
 | path | kind | type | what |
@@ -656,7 +648,7 @@ as [spec/virtualize.md §6.3](#63-datasets-and-sequences) and **Sequences that t
 | `<d>/FFFCFFFC~<k>` | value | | the `k`-th later Data Set Trailing Padding of `<d>` (padding is never a duplicate) |
 | `<s>/<i>` | struct | | item `i` of a sequence `<s>`: `header` (`{group:Eu2,element:Eu2,length:Eu4}`), its dataset's elements, and `end` (the item delimiter) when its length is undefined |
 | `dataset/7FE00010` | struct | | the top-level Pixel Data: `header` (`{H}`), then its value (below) |
-| `dataset/7FE00010/frames/<f>` | data | | native pixel data: frame `f`, its `F` bytes ([spec/virtualize.md §6.5](#65-frames)) |
+| `dataset/7FE00010/frames/<f>` | data | | native pixel data: frame `f`, its `F` bytes ([§7.5](#75-frames)) |
 | `dataset/7FE00010/padding` | value | `bytes[1]` | native pixel data's one byte `00` past the frames |
 | `…/offset_table` | struct | | encapsulated pixel data's first item: `header` and `offsets` (`Eu4[k]`, or `bytes[n]` when its length is not a multiple of 4) |
 | `…/fragment_headers/<j>` | value | `{group:Eu2,element:Eu2,length:Eu4}` | the item header of fragment `j` (after the offset table), or, with an Extended Offset Table, of frame `j` when the frames' headers are item headers |
@@ -691,10 +683,8 @@ the root leaves out included.
 
 ### 5.5 Equivalence
 
-The elements are determined by the file, and the mirror by its elements
-([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
-file are compared entry for entry, `refkv_source` included
-([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
+Hierarchies of one file are compared entry for entry, `refkv_source` included
+([conventions §11.4](../conventions.md#114-equivalence)).
 
 ## 6. Example
 
@@ -906,15 +896,15 @@ referenced image sequence and shared functional groups
 
 # Part 2. The profile
 
-The DICOM profile of [spec/virtualize.md](../virtualize.md) (revision 16), numbered
-as its [§6](#6-dicom-profile). [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here.
+The DICOM profile of [spec/virtualize.md](../virtualize.md) (revision 16) is [§7](#7-dicom-profile) of this document. What every profile's Part 2 shares is in
+[spec/virtualize.md, Profiles](../virtualize.md#profiles).
 
-The output has the convention's layout for the input
-([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
-how the file is read, which inputs are rejected, and how each chunk
-references the file. "The convention §n" below is a section of Part 1.
+## 7. DICOM profile
 
-## 6. DICOM profile
+**Signature** ([spec/virtualize.md §1.2](../virtualize.md#12-input), tested at the precedence of
+[profiles/dicom.json](profiles/dicom.json)): bytes 128–131 of `H` are `44 49 43 4D`
+(`DICM`). It is tested first, so a file whose 128-byte preamble holds a TIFF header, as
+dual-personality files and some writers' preambles do, is read by this profile.
 
 The input is one DICOM Part 10 file (PS3.10): a 128-byte preamble, `DICM`,
 the File Meta Information, then a dataset whose last element read is Pixel
@@ -922,7 +912,7 @@ Data. One file is one image with one pyramid level; a whole-slide image's
 other levels are other files.
 
 
-### 6.1 Elements
+### 7.1 Elements
 
 All integers below are unsigned. An **element** at offset `p` is read in an
 **encoding**: explicit or implicit VR, little or big endian.
@@ -942,11 +932,11 @@ All integers below are unsigned. An **element** at offset `p` is read in an
   length, and the value starts at `p + 8`.
 
 A length of `FFFFFFFF` is **undefined**. An element's header (its 8 or 12
-bytes) MUST lie within its **container** ([§6.3](#63-datasets-and-sequences)), and so MUST a value of
+bytes) MUST lie within its **container** ([§7.3](#73-datasets-and-sequences)), and so MUST a value of
 defined length: a value that starts at `w` with defined length `n` ends at
 `w + n`, where the next element starts.
 
-### 6.2 File
+### 7.2 File
 
 - **Preamble:** the file MUST be at least 132 bytes long and bytes 128–131
   MUST be `DICM` (which is how [§1.2](../virtualize.md#12-input) selected this profile).
@@ -966,7 +956,7 @@ defined length: a value that starts at `w` with defined length `n` ends at
   container is the file. The other meta elements, including the group
   length `(0002,0000)`, are walked as elements but not otherwise read.
 
-### 6.3 Datasets and sequences
+### 7.3 Datasets and sequences
 
 A **dataset** is a run of elements. The top-level dataset runs until its
 first element with tag `(7FE0,0010)` (Pixel Data): that element's header is
@@ -981,7 +971,7 @@ Each element of a dataset is one of these, by the first that applies:
 2. **Undefined length.** In explicit VR, the VR MUST be `SQ` or `UN`, or
    (for tag `(7FE0,0010)` only) `OB` or `OW`, else the input is rejected.
    - Tag `(7FE0,0010)` (pixel data nested in an item, for example an icon
-     image) is **encapsulated**: its value is a fragment sequence ([§6.5](#65-frames)),
+     image) is **encapsulated**: its value is a fragment sequence ([§7.5](#75-frames)),
      whose items are read in the dataset's byte order and are not parsed.
    - Otherwise the element is a **sequence** of undefined length, read in
      the dataset's encoding, except that a VR of `UN` means its items are
@@ -1016,14 +1006,14 @@ convention's source metadata keeps the others); tags are not otherwise
 required to be in order. Every element walked is checked as this
 section says, whether or not [the convention §2.2](#22-attributes) reads it.
 
-### 6.4 Rejection
+### 7.4 Rejection
 
 The input is rejected when a rule of this profile fails, and when the
 convention gives it no layout: wherever its [§2](#2-the-source)–[§4](#4-output) say that the input is
 rejected, or that something MUST hold and it does not. The source
 metadata ([the convention §5](#5-source-metadata)) never rejects the input.
 
-### 6.5 Frames
+### 7.5 Frames
 
 Let `B = Bits Allocated / 8` and `F = Rows × Columns × S × B`, a frame's
 size. Let `v` be the start of the top-level Pixel Data value and `n` its
@@ -1043,7 +1033,7 @@ swapped in 16-bit words). Frame `f` is the range `(0, v + f × F, F)`; when
 **fragment sequence**, read in little endian: items `(FFFE,E000)` of defined
 length (undefined rejects the input), ended by `(FFFE,E0DD)` whose length
 MUST be 0; any other tag rejects the input. Item headers are 8 bytes, as in
-[§6.1](#61-elements), and an item's **data** is its value. The first item, at `v`, is the
+[§7.1](#71-elements), and an item's **data** is its value. The first item, at `v`, is the
 **Basic Offset Table** (BOT): its length `L` MUST be a multiple of 4, and its
 data is `L / 4` `u32` offsets. The **fragments** are the items after it,
 starting at `q = v + 8 + L`. A fragment's **position** is the offset of its
@@ -1082,7 +1072,7 @@ headers.
 
 **JPEG color.** For `jpeg` with `S` = 3, the frame's stream is made
 explicit about its color transform, as the TIFF profile does for JPEG tiles
-([tiff.md §3.3](tiff.md#33-chunks)): its ranges become `[P, (0, o + 2, m − 2), ...the rest]`, where
+([tiff.md §7.3](tiff.md#73-chunks)): its ranges become `[P, (0, o + 2, m − 2), ...the rest]`, where
 `(0, o, m)` is its first range, `m` MUST be more than 2 and the range's
 first 2 bytes MUST be `FF D8`, the SOI marker (they are dropped, and `P`
 starts with its own), and `P` is the literal range
@@ -1094,15 +1084,15 @@ APP14 marker with transform `T` = 0 for `RGB` and 1 for `YBR_FULL` and
 Every range MUST lie within the file, and every chunk's reference payload
 MUST be at most 65519 bytes ([§1.2](../virtualize.md#12-input)); otherwise the input is rejected.
 
-### 6.6 Chunk references
+### 7.6 Chunk references
 
 Frame `f` (or sample `s` of it) is the entry `0/c/<coords>` of
-[the convention §4](#4-output), with its ranges ([§6.5](#65-frames)). Coords are: for `c`, the sample `s` when planar,
+[the convention §4](#4-output), with its ranges ([§7.5](#75-frames)). Coords are: for `c`, the sample `s` when planar,
 else 0; for the frame axis, `f`; then the frame's tile row and column for a
 whole-slide image, else 0 and 0.
 
 
-### 6.7 Limits
+### 7.7 Limits
 
 These are deliberate, and follow from the rules above.
 

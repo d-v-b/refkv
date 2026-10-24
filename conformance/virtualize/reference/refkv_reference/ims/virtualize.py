@@ -1,5 +1,5 @@
-"""The IMS profile (spec/virtualize.md, §8
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#8-ims-profile>)."""
+"""The IMS profile (spec/virtualize/ims.md, §7
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#7-ims-profile>)."""
 
 from __future__ import annotations
 
@@ -292,8 +292,8 @@ def virtualize_ims(url: str, read: Reader, size: int) -> Output:
 
     # spec/virtualize/ims.md §4
     # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>: output;
-    # spec/virtualize.md §8.8
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#88-chunk-references>: the
+    # spec/virtualize/ims.md §7.8
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#78-chunk-references>: the
     # chunk references.
     z0 = level_info[0][0][0]
     # A z axis also when chunks hold several z planes, so that they decode to Zarr chunks.

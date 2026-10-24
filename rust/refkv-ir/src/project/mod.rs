@@ -12,23 +12,20 @@
 //! projection checks nothing (the parser checked the schema)
 //! and reads nothing (the IR holds what it needs).
 
-mod czi;
-mod dicom;
-mod ims;
-pub mod n5;
-mod mrc;
-mod nd2;
-mod ndpi;
+mod audio;
+mod contiguous;
 pub mod store;
-mod nifti;
-mod qptiff;
-pub mod safe;
-mod tiff;
-pub mod vsi;
-pub mod zarr2;
+mod tiled;
+mod window;
 
+// Every profile's projection (src/project/<profile>.rs), by the registry (profiles/; build.rs)
+include!(concat!(env!("OUT_DIR"), "/projections.rs"));
+
+use crate::fed::uint;
 use crate::ir::Ir;
 use crate::out::Out;
+use crate::record::{Header, Num, width};
+use crate::text::text_json;
 use crate::run::Format;
 use serde_json::{Map, Value as J};
 use std::fmt::Write;
@@ -39,30 +36,15 @@ pub type Copied = std::collections::HashMap<(u64, u64), Vec<u8>>;
 /// The image projection of `format`: today's hierarchy, without `refkv_source`. `copied`
 /// holds the bytes of the ranges `reads` gives.
 pub fn project(format: Format, ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    match format {
-        Format::Tiff => tiff::project(ir, facts, url),
-        Format::Czi => czi::project(ir, facts, url),
-        Format::Nd2 => nd2::project(ir, facts, url),
-        Format::Dicom => dicom::project(ir, facts, url),
-        Format::Nifti => nifti::project(ir, facts, url, copied),
-        Format::Mrc => mrc::project(ir, facts, url, copied),
-        Format::Ims => ims::project(ir, facts, url),
-        Format::Safe => safe::project(ir, facts, url),
-        Format::Ndpi => ndpi::project(ir, facts, url),
-        Format::Vsi => Err("a VSI input is virtualized as a store run".into()),
-        Format::Qptiff => qptiff::project(ir, facts, url),
-    }
+    format.profile().project(ir, facts, url, copied)
 }
 
 /// The source's ranges the projection of `format` copies into the archive (NIfTI's and
-/// MRC's edge chunks whose padding does not fit in a reference), which the run reads after
-/// the parser: a projection reads nothing itself.
+/// MRC's edge chunks whose padding does not fit in a reference) or decodes (the TIFF and
+/// QPTIFF chunks their `omero` windows sample), which the run reads after the parser: a
+/// projection reads nothing itself.
 pub fn reads(format: Format, ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
-    match format {
-        Format::Nifti => nifti::reads(ir, facts),
-        Format::Mrc => mrc::reads(ir, facts),
-        _ => Ok(Vec::new()),
-    }
+    format.profile().reads(ir, facts)
 }
 
 // ---- reading the facts (JSON the parsers wrote)
@@ -72,11 +54,7 @@ pub fn reads(format: Format, ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, Stri
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>):
 /// UTF-8 if valid, else {"latin1": ...}.
 fn json_text(b: &[u8]) -> J {
-    let b = &b[..b.iter().position(|&c| c == 0).unwrap_or(b.len())];
-    match std::str::from_utf8(b) {
-        Ok(s) => J::String(s.to_string()),
-        Err(_) => serde_json::json!({"latin1": b.iter().map(|&c| c as char).collect::<String>()}),
-    }
+    text_json(&b[..b.iter().position(|&c| c == 0).unwrap_or(b.len())])
 }
 
 /// Opaque bytes as a source metadata member (conventions §6
@@ -105,6 +83,41 @@ fn float_json(bits: u64, width: usize, v: f64) -> J {
 }
 
 /// A count or index of the facts (an integer, or a number written as a float).
+/// A header value as the root's source metadata writes it (spec/virtualize/mrc.md §5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#5-source-metadata>,
+/// spec/virtualize/nifti.md §5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>): an
+/// integer exactly (as text past 2^53 - 1); a float as a number, "NaN", "Infinity" or
+/// "-Infinity", or {"bits": hex} for a negative zero or a NaN other than the canonical one.
+fn header_value(h: &Header, at: usize, kind: &str) -> J {
+    const MAX_SAFE: i64 = (1 << 53) - 1;
+    match h.number(at, kind) {
+        Num::Int(v) if (-MAX_SAFE..=MAX_SAFE).contains(&v) => J::from(v),
+        Num::Int(v) => J::from(v.to_string()),
+        Num::Float(v) => {
+            let w = width(kind);
+            float_json(uint(h.raw, at, w, h.little), w, v)
+        }
+    }
+}
+
+/// Every field of a header, in its table's order: `header` of the root's source metadata
+/// (texts as text, opaque bytes as base64, labels as a list of texts).
+fn header_json(h: &Header) -> J {
+    let mut out = Map::new();
+    for &(name, at, kind, count) in h.fields {
+        let v = match kind {
+            "c" => json_text(h.bytes(name)),
+            "b" => J::from(base64(h.bytes(name))),
+            "l" => J::Array(h.bytes(name).chunks(80).map(json_text).collect()),
+            _ if count == 1 => header_value(h, at, kind),
+            _ => J::Array((0..count).map(|k| header_value(h, at + k * width(kind), kind)).collect()),
+        };
+        out.insert(name.into(), v);
+    }
+    J::Object(out)
+}
+
 fn n(v: &J) -> u64 {
     v.as_u64().or_else(|| v.as_f64().map(|f| f as u64)).unwrap_or(0)
 }
@@ -139,6 +152,42 @@ fn truthy(v: &J) -> bool {
 /// `translations` as `image_ome` takes them: None when absent or empty.
 fn translations(v: &J) -> Option<&[J]> {
     v.as_array().filter(|a| !a.is_empty()).map(|a| a.as_slice())
+}
+
+/// The value along axis `a` of the ones along `t`, `c`, `z`, `y` and `x` (any other axis: `x`'s).
+fn along<T>(a: &str, [t, c, z, y, x]: [T; 5]) -> T {
+    match a {
+        "t" => t,
+        "c" => c,
+        "z" => z,
+        "y" => y,
+        _ => x,
+    }
+}
+
+/// An image's axes: `t`, `c` and `z` when present, then `y` and `x`.
+fn image_axes(t: bool, c: bool, z: bool) -> Vec<&'static str> {
+    let mut axes: Vec<&'static str> = [("t", t), ("c", c), ("z", z)].iter().filter(|a| a.1).map(|a| a.0).collect();
+    axes.extend(["y", "x"]);
+    axes
+}
+
+/// A translation along `axes`: `x`, `y` and `z` along those, 0 along any other.
+fn translation(axes: &[&str], [x, y, z]: [J; 3]) -> J {
+    J::Array(axes.iter().map(|a| match *a {
+        "x" => x.clone(),
+        "y" => y.clone(),
+        "z" => z.clone(),
+        _ => serde_json::json!(0),
+    }).collect())
+}
+
+/// A store projection's summary with the facts' `counts` (the parser's) after its own members.
+fn with_counts(mut summary: J, facts: &J) -> J {
+    if let (Some(m), Some(c)) = (summary.as_object_mut(), facts["counts"].as_object()) {
+        m.extend(c.clone());
+    }
+    summary
 }
 
 /// A chunk key: `prefix` and the coordinates, joined by "/".

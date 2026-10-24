@@ -30,20 +30,14 @@ impl Scope for Vars<'_> {
     }
 }
 use serde_json::Value as J;
+use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
 pub type Res<T> = Result<T, String>;
 
-pub static TIFF_SCHEMA: &str = include_str!("../schema/tiff.json");
-pub static CZI_SCHEMA: &str = include_str!("../schema/czi.json");
-pub static NIFTI_SCHEMA: &str = include_str!("../schema/nifti.json");
-pub static MRC_SCHEMA: &str = include_str!("../schema/mrc.json");
-pub static IMS_SCHEMA: &str = include_str!("../schema/ims.json");
-pub static SAFE_SCHEMA: &str = include_str!("../schema/safe.json");
-pub static NDPI_SCHEMA: &str = include_str!("../schema/ndpi.json");
-pub static VSI_SCHEMA: &str = include_str!("../schema/vsi.json");
-pub static QPTIFF_SCHEMA: &str = include_str!("../schema/qptiff.json");
+// The source models, schema/<name>.json, by name (build.rs)
+include!(concat!(env!("OUT_DIR"), "/schemas.rs"));
 
 struct Role {
     derive: Vec<(String, E)>,
@@ -56,49 +50,11 @@ pub struct Rules {
     roles: HashMap<String, Role>,
 }
 
-pub fn tiff() -> &'static Rules {
-    static S: OnceLock<Rules> = OnceLock::new();
-    S.get_or_init(|| Rules::new(TIFF_SCHEMA).expect("the TIFF schema is valid"))
-}
-
-pub fn ims() -> &'static Rules {
-    static S: OnceLock<Rules> = OnceLock::new();
-    S.get_or_init(|| Rules::new(IMS_SCHEMA).expect("the IMS schema is valid"))
-}
-
-pub fn ndpi() -> &'static Rules {
-    static S: OnceLock<Rules> = OnceLock::new();
-    S.get_or_init(|| Rules::new(NDPI_SCHEMA).expect("the NDPI schema is valid"))
-}
-
-pub fn qptiff() -> &'static Rules {
-    static S: OnceLock<Rules> = OnceLock::new();
-    S.get_or_init(|| Rules::new(QPTIFF_SCHEMA).expect("the QPTIFF schema is valid"))
-}
-
-pub fn czi() -> &'static Rules {
-    static S: OnceLock<Rules> = OnceLock::new();
-    S.get_or_init(|| Rules::new(CZI_SCHEMA).expect("the CZI schema is valid"))
-}
-
-pub fn nifti() -> &'static Rules {
-    static S: OnceLock<Rules> = OnceLock::new();
-    S.get_or_init(|| Rules::new(NIFTI_SCHEMA).expect("the NIfTI schema is valid"))
-}
-
-pub fn mrc() -> &'static Rules {
-    static S: OnceLock<Rules> = OnceLock::new();
-    S.get_or_init(|| Rules::new(MRC_SCHEMA).expect("the MRC schema is valid"))
-}
-
-pub fn vsi() -> &'static Rules {
-    static S: OnceLock<Rules> = OnceLock::new();
-    S.get_or_init(|| Rules::new(VSI_SCHEMA).expect("the VSI schema is valid"))
-}
-
-pub fn safe() -> &'static Rules {
-    static S: OnceLock<Rules> = OnceLock::new();
-    S.get_or_init(|| Rules::new(SAFE_SCHEMA).expect("the SAFE schema is valid"))
+/// The rules of the source model schema/<name>.json, parsed once.
+pub fn of(name: &str) -> &'static Rules {
+    static S: [OnceLock<Rules>; SCHEMAS.len()] = [const { OnceLock::new() }; SCHEMAS.len()];
+    let i = SCHEMAS.iter().position(|(n, _)| *n == name).unwrap_or_else(|| panic!("no source model schema/{name}.json"));
+    S[i].get_or_init(|| Rules::new(SCHEMAS[i].1).unwrap_or_else(|e| panic!("the {name} schema is not valid: {e}")))
 }
 
 /// A value as a message shows it: integers without a fraction, text as is.
@@ -191,7 +147,10 @@ impl Rules {
 
     /// Derives the role's quantities into `env`, then checks its constraints in
     /// order: the first that fails rejects, with its message.
-    pub fn check<'a>(&'a self, role: &str, env: &mut Vars<'a>) -> Res<()> {
+    /// The environment is given or lent (a parser's own, or one it reads the derived
+    /// quantities of afterwards).
+    pub fn check<'a>(&'a self, role: &str, mut env: impl BorrowMut<Vars<'a>>) -> Res<()> {
+        let env = env.borrow_mut();
         let r = self.roles.get(role).ok_or(format!("internal: no role {role}"))?;
         for (k, e) in &r.derive {
             let v = expr::eval(e, &Layered(&*env, &self.consts));

@@ -7,13 +7,17 @@ cited here as "conventions §n". How refkv produces this layout as a reference
 store is the TIFF profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `48e9ac4e-1156-4a62-955e-20467d9c2700` ·
-Schema: [schema.json](tiff/schema.json)
+Schema: [schema.json](tiff/schema.json) · Changed 2026-10-23: each `omero` channel's window
+is sampled from the coarsest level's data when refkv decodes its compression and the samples are
+not RGB, and an image of a float type has an `omero` when every channel's window is sampled
+([§4.4](#44-arrays)); the profile reads the sampled chunks
+([§7.1](#71-reading)) · Changed 2026-10-22: an image of an integer type has
+an `omero` member ([§4.4](#44-arrays)), with the OME-XML's channel names and colors
+([§3](#3-ome-xml)) and the type's range as each channel's window, after
+[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
+(a profile's changes are recorded here, dated, from then on)
 
-This document has two parts. [Part 1](#part-1-the-convention) is the TIFF
-convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the TIFF profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The profile keeps its numbering as a section
-of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
+This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 # Part 1. The convention
 
@@ -24,9 +28,9 @@ convention, and the profile rejects it.
 
 ## 1. Declaration
 
-The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "tiff"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
-and the source metadata of [§5](#5-source-metadata) as the member `"tiff"`. Its CMO is:
+The root and `refkv_source` declare the convention
+([conventions §11.2](../conventions.md#112-declaration)), the root with the source
+metadata of [§5](#5-source-metadata) as the member `"tiff"`. Its CMO is:
 
 ```json
 {
@@ -37,11 +41,6 @@ and the source metadata of [§5](#5-source-metadata) as the member `"tiff"`. Its
   "description": "The Zarr layout of a TIFF source virtualized by refkv, and the source's metadata"
 }
 ```
-
-`refkv_source` declares it too, with the IR mirror's description ([§5](#5-source-metadata),
-[conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
-the mirror's view that has a member; the mirror's arrays have no
-attributes.
 
 ## 2. The source
 
@@ -58,7 +57,7 @@ is used.
 
 The layout uses these tags (absent tags take the defaults shown); field
 types and counts are as the profile checks them
-([spec/virtualize.md §3.1](#31-reading)):
+([§7.1](#71-reading)):
 
 | tag | name | kind | default |
 |---|---|---|---|
@@ -160,6 +159,10 @@ From `X` the virtualizer uses:
   first `Pixels` end tag after it whose `TheZ`, `TheC` and `TheT` are each
   absent or `0` (as integer attributes): its `PositionX`, `PositionY`,
   `PositionXUnit` and `PositionYUnit` (the stage position of the plane);
+- the `Channel` start tags after that `Pixels` start tag and before the
+  first `Pixels` end tag after it (or the end of `X`), in order: the
+  `Name` and `Color` attributes of the first 64 (the channel names and
+  colors of `omero`, [§4.4](#44-arrays));
 - the `TiffData` start tags after that `Pixels` start tag and before the
   first `Pixels` end tag after it (or the end of `X`), in order:
   - with attributes `IFD`, `FirstZ`, `FirstC`, `FirstT` and `PlaneCount`;
@@ -345,6 +348,66 @@ path `"<level>"`.
   `y = PY × (H0 / HL)`, `x = PX × (W0 / WL)`, `z = PZ`, `t = c = 1`. (The
   division is computed first.)
 - **Name:** the OME `Image` name, if present and not empty.
+- **omero.** When the channel count (`SizeC` after [§4.1](#41-planes), or
+  `spp` without OME-XML) is at most 64 and every channel has a window
+  (below), `M` has `"omero": {"channels": [...]}` next to `multiscales`, one
+  object per channel (one object when there is no `c` axis). Otherwise `M`
+  has no `"omero"` member: with more channels, so that the root does not
+  grow with the channel count; with a channel of a `float` data type
+  ([§4.3](#43-data-types-and-codecs)) whose window is not sampled, because a
+  channel's `window` is required and a float type has no range to give it. Let channel `c`'s **name** be the `Name` of
+  the `c`-th `Channel` ([§3](#3-ome-xml)) when present, not empty and at most
+  256 bytes.
+  - With `spp > 1` (the channels are the samples), `spp` channels: when the
+    samples decode to RGB (PhotometricInterpretation 2, or 6 with
+    Compression 7, whose stream the codec decodes to RGB), samples 0, 1 and
+    2 are labeled `R`, `G` and `B`, with colors `FF0000`, `00FF00`,
+    `0000FF`; every other sample `s` is labeled `S<s>`, with color `FFFFFF`.
+    Each label follows channel 0's name and a space, when it has one.
+  - With `spp = 1`, channel `c`'s **label** is its name, else `C<c>`; its
+    **color** is the `c`-th `Channel`'s `Color` when that is an integer
+    from −2^31 to 2^31 − 1 (an optional `+` or `-` sign and digits,
+    whitespace around allowed), OME's signed 32-bit `RRGGBBAA`: its top 24
+    bits as six uppercase hex digits `RRGGBB`. Otherwise `FFFFFF`.
+  - Every channel has `"active": true` and a **window**. A TIFF records
+    no display range (SMinSampleValue and SMaxSampleValue, when present,
+    are the data's extremes, not a display setting), so the window is
+    sampled from the data, as refkv's demo samples a contrast range, when
+    the samples do not decode to RGB (above) and Compression is 1, 8 or
+    32946, whose chunks refkv decodes (it does not decode JPEG, JPEG 2000 or
+    zstd):
+    1. Channel `c`'s **sampled chunk** is the chunk of the last level (the
+       coarsest) with coords: along `t`, 0; along `c`, the chunk holding
+       channel `c` (`c`, or 0 when interleaved); along `z`, `y` and `x`, the
+       chunk holding index `floor(n / 2)`, `n` the axis' length. A chunk
+       that is absent, or whose bytes, encoded or decoded, are more than
+       2^26, is not sampled.
+    2. Its **values** are the chunk's bytes decoded by the codecs, which
+       MUST give exactly the chunk's size (else the chunk is not sampled),
+       as values of the data type: channel `c`'s (of each pixel's `spp`
+       values, the `c`-th, when interleaved), at the rows and columns inside
+       the array (an edge tile's padding past the image is left out),
+       leaving out those equal to the fill value 0 (in a coarse level they
+       are mostly the area outside the acquired region) and, of a float
+       type, those that are not finite.
+    3. Of the `m` values in ascending order, `start` is the one at index
+       `floor(m × 5 / 100)` and `end` the one at
+       `min(m − 1, floor(m × 999 / 1000))`, the 5th and 99.9th percentiles;
+       `min` and `max` are the type's least and greatest values for `uint`
+       and `int`, and the least and greatest of the values for `float`.
+       When `m` is 0 or `start` equals `end`, there is no sampled window.
+
+    A channel without a sampled window (RGB samples, which a window per
+    sample would tint; another compression; no sampled chunk or window)
+    has, for `uint` and `int`, the window of the type's whole range,
+    `{"min": lo, "max": hi, "start": lo, "end": hi}` with `lo` and `hi` the
+    type's least and greatest values (0 and 255 for `uint8`, −32768 and
+    32767 for `int16`), and for `float` none. An integer type's values are
+    JSON integers; a float type's are JSON numbers, a `float32` value
+    converted exactly to a double.
+
+  The members are written in the order label, color, active, window, and
+  the window's in the order min, max, start, end.
 - **Chunks:** for each plane (t, c, z) of a level, its IFD's tiles are numbered
   `k = s × T + j`, where `T` is the number of tiles per sample plane
   (`ceil(H/TileLength) × ceil(W/TileWidth)`), `j` runs row-major over the
@@ -366,9 +429,8 @@ path `"<level>"`.
 The root's source metadata `S` is `{"byte_order": "little" | "big",
 "bigtiff": true | false}`. Everything else the file holds is on
 `refkv_source`, which is the file's **IR mirror**
-([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `refkv_source/tree`. This
-section is the TIFF **source model**: the elements of a TIFF's IR. Nothing is
+([conventions §11.3](../conventions.md#113-the-ir-mirror)).
+This section is the TIFF **source model**: the elements of a TIFF's IR. Nothing is
 left out, layout and dead space included (they are elements too, the dead
 space as gaps).
 
@@ -428,10 +490,8 @@ every such value.
 
 ### 5.4 Equivalence
 
-The elements are determined by the file, and the mirror by its elements
-([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding): hierarchies of one
-file are compared entry for entry, `refkv_source` included
-([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
+Hierarchies of one file are compared entry for entry, `refkv_source` included
+([conventions §11.4](../conventions.md#114-equivalence)).
 
 ## 6. Example
 
@@ -506,20 +566,22 @@ NUL, so tag 305's 12 bytes are `tifffile.py`).
 
 # Part 2. The profile
 
-The TIFF profile of [spec/virtualize.md](../virtualize.md) (revision 16), numbered
-as its [§3](#3-tiff-profile). [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here.
+The TIFF profile of [spec/virtualize.md](../virtualize.md) (revision 16) is [§7](#7-tiff-profile) of this document. What every profile's Part 2 shares is in
+[spec/virtualize.md, Profiles](../virtualize.md#profiles).
 
-The output has the convention's layout for the input
-([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
-how the file is read, which inputs are rejected, and how each chunk
-references the file. "The convention §n" below is a section of Part 1.
+## 7. TIFF profile
 
-## 3. TIFF profile
+**Signature** ([spec/virtualize.md §1.2](../virtualize.md#12-input), tested at the precedence of
+[profiles/tiff.json](profiles/tiff.json)): bytes 0–3 of `H` are `49 49 2A 00`,
+`4D 4D 00 2A`, `49 49 2B 00` or `4D 4D 00 2B`. A file this signature chose is read by the NDPI
+profile instead when it passes that profile's detection test ([ndpi.md §7](ndpi.md#7-ndpi-profile)), and by the
+QPTIFF profile when it passes that one's ([qptiff.md §7](qptiff.md#7-qptiff-profile)); a VSI file, whose signature
+is tested first, is read by the VSI profile ([vsi.md §9](vsi.md#9-vsi-profile)).
 
-### 3.1 Reading
+### 7.1 Reading
 
 The input is a TIFF (magic 42) or BigTIFF (magic 43, offset size 8 and
-reserved word 0), in either byte order. An NDPI file is read with the changes given in the NDPI profile ([§4](ndpi.md#4-ndpi-profile),
+reserved word 0), in either byte order. An NDPI file is read with the changes given in the NDPI profile ([ndpi.md §7](ndpi.md#7-ndpi-profile),
 [ndpi.md](ndpi.md#part-2-the-profile)).
 
 - **IFDs:** the virtualizer reads the chain of image file directories (IFDs)
@@ -584,14 +646,20 @@ or IFD8 value can exceed it). The values of the other IFDs are not read:
 for an IFD that is not used, only the field type, count and place of each
 tag of the table are checked.
 
-### 3.2 Rejection
+**Sampled chunks.** After the IFDs, the virtualizer reads the bytes of
+each sampled chunk of the `omero` windows ([the convention §4.4](#44-arrays)),
+the source ranges its reference names, and decodes them. These reads and
+their decoding never reject the input: a chunk that does not decode is not
+sampled.
 
-The input is rejected when a check of [§3.1](#31-reading) fails, and when the convention
+### 7.2 Rejection
+
+The input is rejected when a check of [§7.1](#71-reading) fails, and when the convention
 gives it no layout: wherever the convention says that the input is
 rejected, or that something MUST hold and it does not
 ([the convention §2–§4](#2-the-source)).
 
-### 3.3 Chunks
+### 7.3 Chunks
 
 Every chunk that the convention says is present
 ([the convention §4.4](#44-arrays)) is the

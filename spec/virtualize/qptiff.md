@@ -11,13 +11,15 @@ How refkv produces this layout as a reference store is the QPTIFF profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `329ea136-2f55-4c27-b6f4-8e60ca2109b8` ·
-Schema: [schema.json](qptiff/schema.json)
+Schema: [schema.json](qptiff/schema.json) · Changed 2026-10-23: each `omero` channel's
+window is sampled from the coarsest level's data, as in the TIFF convention, when refkv decodes
+its compression (none, LZW, Deflate) and the image is not RGB, so that a `float32` channel has a
+window too, and an integer channel without a sampled window has the type's range
+([§4.3](#43-arrays)); the profile reads the sampled chunks ([§7](#7-qptiff-profile)), after
+[revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
+(a profile's changes are recorded here, dated, from then on)
 
-This document has two parts. [Part 1](#part-1-the-convention) is the QPTIFF
-convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the QPTIFF profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The profile keeps its numbering as a section
-of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
+This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 The format is described by Akoya's "PerkinElmer image format" note
 (`PKI_Image Format.docx`, 2015, with its public sample files at
@@ -33,9 +35,9 @@ convention, and the profile rejects it.
 
 ## 1. Declaration
 
-The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "qptiff"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
-and the source metadata of [§5](#5-source-metadata) as the member `"qptiff"`. Its CMO is:
+The root and `refkv_source` declare the convention
+([conventions §11.2](../conventions.md#112-declaration)), the root with the source
+metadata of [§5](#5-source-metadata) as the member `"qptiff"`. Its CMO is:
 
 ```json
 {
@@ -47,16 +49,11 @@ and the source metadata of [§5](#5-source-metadata) as the member `"qptiff"`. I
 }
 ```
 
-`refkv_source` declares it too, with the IR mirror's description ([§5](#5-source-metadata),
-[conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
-the mirror's view that has a member; the mirror's arrays have no
-attributes.
-
 ## 2. The source
 
 The file is a TIFF (magic 42) or BigTIFF (magic 43), in either byte order,
 whose first IFD's Software tag (305) is ASCII text starting with
-`PerkinElmer-QPI` ([spec/virtualize.md §16](#16-qptiff-profile) says how
+`PerkinElmer-QPI` ([§7](#7-qptiff-profile) says how
 that is tested). Its **IFDs** are the image file directories of its **main
 chain**, which starts at the header's first-IFD offset and ends at a
 next-IFD offset of 0, and MUST have at least one IFD; **IFD 0** is its
@@ -259,21 +256,30 @@ SamplesPerPixel.
     that letter alone, with colors `FF0000`, `00FF00`, `0000FF`; with any
     other `spp > 1`, `spp` channels labeled likewise with `S<s>` and
     colored `FFFFFF`;
-  - every channel has `"active": true` and no `window`: a QPTIFF records no
-    display range (SMinSampleValue and SMaxSampleValue, when present, are
-    the data's extremes, not a display setting), and a reader that needs
-    one samples it from the data, as refkv's demo does.
+  - every channel has `"active": true` and, but for a `float32` channel
+    without a sampled window, a **window**, as in [the TIFF convention
+    §4.4](tiff.md#44-arrays): a QPTIFF records no display range
+    (SMinSampleValue and SMaxSampleValue, when present, are the data's
+    extremes, not a display setting), so the window is sampled from the
+    middle chunk of each channel of the last level, there in steps 1 to 3,
+    when `spp` is not 3 (an RGB image, whose samples keep the type's range)
+    and Compression is 1, 5 (LZW, decoded as [§4.1](#41-data-types-and-codecs)
+    says, into the chunk's size) or 8 or 32946 (Deflate); a level in strips
+    has the chunk shape above, and a padded last strip's rows past the image
+    are not values. A channel without a sampled window has, with an integer
+    data type, the window of the type's whole range (0 to 255 for `uint8`),
+    and with `float32` none, which has no such range.
 
-  The members are written in the order label, color, active.
+  The members are written in the order label, color, active, window, and
+  the window's in the order min, max, start, end.
 
 ## 5. Source metadata
 
 The root's source metadata `S` is `{"byte_order": "little" | "big",
 "bigtiff": true | false}`, as the TIFF convention's. Everything else the
 file holds is on `refkv_source`, which is the file's **IR mirror**
-([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `refkv_source/tree`. The QPTIFF
-**source model** is the [TIFF source model](tiff.md#5-source-metadata)
+([conventions §11.3](../conventions.md#113-the-ir-mirror)).
+The QPTIFF **source model** is the [TIFF source model](tiff.md#5-source-metadata)
 (its elements, which IFDs, its values), without `ome/planes/<p>` (a QPTIFF
 has no OME-XML planes), and with the TIFF convention's named array rule
 ("layout tables", [conventions §8.8](../conventions.md#88-canonical-form)),
@@ -283,10 +289,8 @@ StripOffsets and StripByteCounts). Every QPI description, the ScanProfile
 included, is a value of its IFD's ImageDescription, held in the mirror; the
 channel names and colors the layout reads are also in `omero`.
 
-The elements are determined by the file, and the mirror by its elements
-([conventions §8.8](../conventions.md#88-canonical-form)): hierarchies of one
-file are compared entry for entry, `refkv_source` included
-([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
+Hierarchies of one file are compared entry for entry, `refkv_source` included
+([conventions §11.4](../conventions.md#114-equivalence)).
 
 ## 6. Example
 
@@ -323,9 +327,9 @@ OME metadata:
     ]
   }],
   "omero": {"channels": [
-    {"label": "DAPI", "color": "0000FF", "active": true},
-    {"label": "Cy3 & TRITC", "color": "FF3C9D", "active": true},
-    {"label": "Opal 520", "color": "00FF00", "active": true}
+    {"label": "DAPI", "color": "0000FF", "active": true, "window": {"min": 0, "max": 255, "start": 0, "end": 255}},
+    {"label": "Cy3 & TRITC", "color": "FF3C9D", "active": true, "window": {"min": 0, "max": 255, "start": 0, "end": 255}},
+    {"label": "Opal 520", "color": "00FF00", "active": true, "window": {"min": 0, "max": 255, "start": 0, "end": 255}}
   ]}
 }
 ```
@@ -342,42 +346,38 @@ and label, which the layout leaves out.
 
 # Part 2. The profile
 
-The QPTIFF profile of [spec/virtualize.md](../virtualize.md), numbered as
-its [§16](#16-qptiff-profile) (the number is the registry's,
-[profiles.json](profiles.json)). It builds on the TIFF profile
-([§3](tiff.md#3-tiff-profile), [tiff.md](tiff.md#part-2-the-profile)).
-[§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout)
-are in spec/virtualize.md and apply here.
+The QPTIFF profile of [spec/virtualize.md](../virtualize.md) is [§7](#7-qptiff-profile) of this document. It builds on the TIFF profile
+([tiff.md §7](tiff.md#7-tiff-profile), [tiff.md](tiff.md#part-2-the-profile)). What every profile's Part 2 shares is in
+[spec/virtualize.md, Profiles](../virtualize.md#profiles).
 
-The output has the convention's layout for the input
-([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
-how the file is read, which inputs are rejected, and how each chunk
-references the file. "The convention §n" below is a section of Part 1.
+## 7. QPTIFF profile
 
-## 16. QPTIFF profile
+**No signature.** A file's first bytes never choose this profile ([spec/virtualize.md
+§1.2](../virtualize.md#12-input)): a file the TIFF profile's signature chose is read by it when it passes the
+detection test below.
 
 Akoya QPTIFF files are TIFFs or BigTIFFs, in either byte order, whose
-images each carry a QPI description. They are read by [§3.1](tiff.md#31-reading)
-([tiff.md](tiff.md#31-reading)) with the changes below, with the tags of
+images each carry a QPI description. They are read by [tiff.md §7.1](tiff.md#71-reading)
+([tiff.md](tiff.md#71-reading)) with the changes below, with the tags of
 [the convention §2](#2-the-source) (the TIFF table and the five it adds) as
 the checked tags.
 
 **Detection.** After the header is read (and the NDPI test,
-[§4](ndpi.md#4-ndpi-profile), has failed), let `O` be the header's
+[ndpi.md §7](ndpi.md#7-ndpi-profile), has failed), let `O` be the header's
 first-IFD offset. The file is a QPTIFF if the entry count at `O` and the
 entries it counts lie within the file, an entry among them has tag 305
 (Software; of several, the first), with field type ASCII (2) and a count of
 at least 15, its value lies within the file, and the value's first 15 bytes
-are `PerkinElmer-QPI`. Otherwise it is a TIFF ([§3](tiff.md#3-tiff-profile)).
+are `PerkinElmer-QPI`. Otherwise it is a TIFF ([tiff.md §7](tiff.md#7-tiff-profile)).
 This test never rejects; the IFD at `O` is then read as the first IFD of
-the main chain, with every check of [§3.1](tiff.md#31-reading).
+the main chain, with every check of [tiff.md §7.1](tiff.md#71-reading).
 
-**Reading.** The IFDs, limits and checks of [§3.1](tiff.md#31-reading)
+**Reading.** The IFDs, limits and checks of [tiff.md §7.1](tiff.md#71-reading)
 apply (the main chain, its SubIFDs to depth 4, at most 100000 IFDs; the
 field type, count and place of every tag of the table in every IFD read,
 RowsPerStrip, StripOffsets and StripByteCounts being integer tags and
 XPosition and YPosition RATIONAL ones). These values are read
-([§3.1](tiff.md#31-reading), **Values read**):
+([tiff.md §7.1](tiff.md#71-reading), **Values read**):
 
 - of every main-chain IFD: every tag of the table but the tile and strip
   tables (TileOffsets, TileByteCounts, StripOffsets, StripByteCounts), and
@@ -386,7 +386,11 @@ XPosition and YPosition RATIONAL ones). These values are read
 - of every IFD of every level: its tile tables, or its strip tables;
 - of every IFD of a level in LZW strips whose last strip is short: the
   bytes of its last strip (of each sample plane), for the tail of
-  [the convention §4.2](#42-tiles-and-strips).
+  [the convention §4.2](#42-tiles-and-strips);
+- after them, the bytes of each sampled chunk of the `omero` windows
+  ([the convention §4.3](#43-arrays)), the source ranges its reference
+  names. These reads and their decoding never reject the input: a chunk
+  that does not decode is not sampled.
 
 Each value read of an integer type MUST be at most 2^53 − 1. Nothing else
 is read for the layout.
@@ -410,7 +414,7 @@ convention §4.3](#43-arrays)) is the entry `<level>/c/<coords>`. Tile (or
 strip) `k`, with byte count `n > 0`, has the single range
 `(0, offset[k], n)`, where `offset` is TileOffsets (StripOffsets) and `n`
 TileByteCounts`[k]` (StripByteCounts`[k]`); a JPEG tile or strip has the
-ranges of [§3.3](tiff.md#33-chunks) (its first 2 bytes, the shared prefix
+ranges of [tiff.md §7.3](tiff.md#73-chunks) (its first 2 bytes, the shared prefix
 `P` of its IFD, the rest), with the same requirements. A short last strip
 ([the convention §4.2](#42-tiles-and-strips)) has, when uncompressed, the
 ranges `[(0, offset[k], n), Z]`, `Z` a range of the data source

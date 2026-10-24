@@ -283,8 +283,8 @@ def choose_texts(xml_sizes: dict[str, int], read_texts, lists: dict[str, list[st
     (documents of at most 65536 bytes), and `lists` holds the other members of `S`
     (`empty`, `empty_dirs`, `ignored`), which never move. The candidates are read in the
     order they are taken, at most READ_AHEAD at a time, and no longer once the next one
-    cannot fit (§12.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#122-objects-and-reading>): `S`
+    cannot fit (§8.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#82-objects-and-reading>): `S`
     with only its texts and `lists`, J bytes of JSON, and a
     candidate of n bytes as text is more than J + n bytes."""
     key_size = {k: json_size(k) for k in xml_sizes}
