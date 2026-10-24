@@ -44,10 +44,12 @@ ir-rust-test:
     cargo test --release --manifest-path rust/refkv-ir/Cargo.toml
     just python::cargo-test
 
-# Test the vzip archive writer (rust/refkv-vzip) and the `vzip convert` CLI (rust/refkv-cli), and
-# build the CLI (rust/refkv-cli/target/release/vzip)
+# Test the vzip archive writer (rust/refkv-vzip), the phkv store's reader and writers
+# (rust/refkv-phkv), and the `vzip convert` CLI (rust/refkv-cli), and build the CLI
+# (rust/refkv-cli/target/release/vzip)
 cli-test:
     cargo test --release --manifest-path rust/refkv-vzip/Cargo.toml
+    cargo test --release --manifest-path rust/refkv-phkv/Cargo.toml
     cargo test --release --manifest-path rust/refkv-cli/Cargo.toml
     cargo build --release --manifest-path rust/refkv-cli/Cargo.toml
 
@@ -57,6 +59,12 @@ cli-test:
 cli-identical *args: ir-build
     cargo build --release --manifest-path rust/refkv-cli/Cargo.toml
     uv run python rust/refkv-cli/tests/identical.py {{args}}
+
+# Benchmark phkv against vzip on local files and over HTTP: requests, bytes and latency
+# (rust/refkv-phkv/bench/README.md; e.g. `just phkv-bench --sizes 1000 10000 --rtt-ms 20`)
+phkv-bench *args: ir-build
+    cargo build --release --example bench --manifest-path rust/refkv-phkv/Cargo.toml
+    uv run python rust/refkv-phkv/bench/bench.py {{args}}
 
 # Run every offline test: the Python reference, the browser code, the independent implementations,
 # and the Rust CLI against the Python one
