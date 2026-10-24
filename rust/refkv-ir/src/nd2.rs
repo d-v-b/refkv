@@ -13,7 +13,8 @@ use crate::ir::*;
 use crate::lv::{self, Decoded};
 use crate::schema::{self, FrameHead};
 use crate::xml;
-use std::collections::{BTreeMap, HashMap};
+use crate::fed::{Fed, Overlap};
+use std::collections::HashMap;
 
 pub const FILE_SIGNATURE: &[u8] = b"ND2 FILE SIGNATURE CHUNK NAME01!";
 pub const MAP_SIGNATURE: &[u8] = b"ND2 CHUNK MAP SIGNATURE 0000001!";
@@ -64,7 +65,7 @@ pub struct Nd2 {
     size: u64,
     phase: Phase,
     asked: Vec<(u64, u64)>,
-    got: BTreeMap<u64, Vec<u8>>,
+    got: Fed,
     pub ir: Ir,
     map: (u64, u32, u64), // offset, name length, data length
     /// the map's chunks, in map order: (name, offset of its last record)
@@ -142,7 +143,7 @@ impl Nd2 {
             size,
             phase: Phase::Start,
             asked: Vec::new(),
-            got: BTreeMap::new(),
+            got: Fed::new(Overlap::Replace),
             ir: {
                 // the records the convention's decode limits allow: its own chunks' and
                 // the source metadata's (each LV record is at least 3 bytes)
@@ -171,16 +172,11 @@ impl Nd2 {
     /// The bytes of a requested range (or of part of one).
     fn bytes(&self, o: u64, n: u64) -> Result<&[u8], String> {
         // the range may lie in a merged response that starts before a smaller one
-        for (&s, b) in self.got.range(..=o).rev().take(64) {
-            if o + n <= s + b.len() as u64 {
-                return Ok(&b[(o - s) as usize..(o - s + n) as usize]);
-            }
-        }
-        Err(format!("internal: bytes [{o}, {}) were not read", o + n))
+        self.got.get(o, n).ok_or_else(|| format!("internal: bytes [{o}, {}) were not read", o + n))
     }
 
     pub fn feed(&mut self, offset: u64, data: Vec<u8>) {
-        self.got.insert(offset, data);
+        self.got.feed(offset, data);
     }
 
     fn ask(&mut self, ranges: Vec<(u64, u64)>) -> Step {
@@ -588,7 +584,7 @@ impl Nd2 {
             est += d;
             ranges.push((s, d));
         }
-        self.got.retain(|_, _| false);
+        self.got.clear();
         self.phase = Phase::Meta;
         Ok(self.ask(ranges))
     }
@@ -686,7 +682,7 @@ impl Nd2 {
         }
         let data = self
             .got
-            .remove(&s)
+            .take(s)
             .ok_or_else(|| format!("internal: bytes [{s}, {}) were not read", s + d))?;
         let name = &self.chunks[k].0;
         if name.starts_with(b"CustomDataVar|") {

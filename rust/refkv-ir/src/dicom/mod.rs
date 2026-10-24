@@ -352,7 +352,7 @@ impl Dicom {
 
     pub fn feed(&mut self, offset: u64, data: Vec<u8>) {
         self.b.feed(offset, data);
-        self.held_max = self.held_max.max(self.b.held);
+        self.held_max = self.held_max.max(self.b.held());
     }
 
     fn ask(&mut self, mut r: Vec<(u64, u64)>) -> Step {

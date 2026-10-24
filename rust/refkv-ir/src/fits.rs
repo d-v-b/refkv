@@ -14,6 +14,7 @@
 
 use crate::check;
 use crate::expr::V;
+use crate::fed::{Fed, Overlap};
 use crate::ir::*;
 use crate::nd2::Step;
 use crate::rules::{self, Rules, Vars, flag, num, text};
@@ -369,9 +370,8 @@ struct Pending {
 pub struct Fits {
     size: u64,
     phase: Phase,
-    /// the bytes fed from `buf_start`, contiguous
-    buf: Vec<u8>,
-    buf_start: u64,
+    /// the bytes fed, one contiguous run
+    fed: Fed,
     /// the HDU being read: its first byte and its index
     offset: u64,
     index: u64,
@@ -387,8 +387,7 @@ impl Fits {
         Fits {
             size,
             phase: Phase::Start,
-            buf: Vec::new(),
-            buf_start: 0,
+            fed: Fed::new(Overlap::Run),
             offset: 0,
             index: 0,
             ir: Ir::new(size),
@@ -406,17 +405,7 @@ impl Fits {
                 return;
             }
         }
-        if offset == self.buf_start + self.buf.len() as u64 {
-            self.buf.extend_from_slice(&data);
-        } else if offset == self.buf_start && data.len() >= self.buf.len() {
-            self.buf = data;
-        } else if offset > self.buf_start && offset < self.buf_start + self.buf.len() as u64 {
-            self.buf.truncate((offset - self.buf_start) as usize);
-            self.buf.extend_from_slice(&data);
-        } else {
-            self.buf_start = offset;
-            self.buf = data;
-        }
+        self.fed.feed(offset, data);
     }
 
     fn check(&self, role: &str, mut env: Vars<'static>) -> Res<()> {
@@ -439,8 +428,8 @@ impl Fits {
                         if self.table_buf.is_none() {
                             // the table, with the next HDU's first window when the current window does not reach it
                             let mut reads = vec![(p.data_offset, p.rows_bytes)];
-                            let end = self.buf_start + self.buf.len() as u64;
-                            if self.offset < self.size && self.offset >= end {
+                            // (the run starts at or before the offset: at the HDU's header)
+                            if self.offset < self.size && self.fed.reach(self.offset) == self.offset {
                                 reads.push((self.offset, (self.size - self.offset).min(WINDOW)));
                             }
                             return Ok(Step::Read(reads));
@@ -457,24 +446,18 @@ impl Fits {
                         self.phase = Phase::Done;
                         continue;
                     }
-                    if self.offset < self.buf_start || self.offset > self.buf_start + self.buf.len() as u64 {
-                        self.buf.clear();
-                        self.buf_start = self.offset;
-                    } else if self.offset > self.buf_start {
-                        self.buf.drain(..(self.offset - self.buf_start) as usize);
-                        self.buf_start = self.offset;
-                    }
-                    let have = self.buf.len() as u64;
+                    self.fed.keep_from(self.offset);
+                    let have = self.fed.from(self.offset).len() as u64;
                     let want = left.min(WINDOW);
                     if have < want.min(CARD as u64) {
                         return Ok(Step::Read(vec![(self.offset + have, want - have)]));
                     }
                     if self.index == 0 {
-                        if !detect(&self.buf) {
+                        if !detect(self.fed.from(self.offset)) {
                             return Err("not a FITS file".into());
                         }
                         self.check("file", rules::env([("size", num(self.size as f64))]))?;
-                    } else if &self.buf[..9] != b"XTENSION=" {
+                    } else if &self.fed.from(self.offset)[..9] != b"XTENSION=" {
                         // not an extension: special records, a gap
                         self.phase = Phase::Done;
                         continue;
@@ -505,13 +488,14 @@ impl Fits {
         }
     }
 
-    /// The records of the header in `buf` up to and including END, when END is there; each
+    /// The records of the header fed from the HDU up to and including END, when END is there; each
     /// scanned record is checked to be printable ASCII (§9.3
     /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#93-checks>).
     fn scan(&self) -> Res<Option<usize>> {
         let mut k = 0;
-        while (k + 1) * CARD <= self.buf.len() {
-            let rec = &self.buf[k * CARD..(k + 1) * CARD];
+        let buf = self.fed.from(self.offset);
+        while (k + 1) * CARD <= buf.len() {
+            let rec = &buf[k * CARD..(k + 1) * CARD];
             if let Some(at) = rec.iter().position(|&b| !(32..=126).contains(&b)) {
                 self.check(
                     "card_text",
@@ -573,13 +557,13 @@ impl Fits {
         matches!(card(cards, keyword).map(|c| &c.value), Some(Value::Logical(true)))
     }
 
-    /// The HDU whose header is the first `records` records of `buf` (END included), with its
+    /// The HDU whose header is the first `records` records fed from the HDU (END included), with its
     /// checks (§9.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#93-checks>),
     /// then its elements (§6.1
     /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#61-elements>).
     fn hdu(&mut self, records: usize, header_bytes: u64) -> Res<()> {
         let hdu = self.index as f64;
-        let cards = parse_cards(&self.buf, records - 1);
+        let cards = parse_cards(self.fed.from(self.offset), records - 1);
         let primary = self.index == 0;
         self.mandatory(&cards, 0, if primary { "SIMPLE" } else { "XTENSION" })?;
         let bitpix = self.mandatory_int(&cards, 1, "BITPIX")?;
@@ -672,7 +656,7 @@ impl Fits {
         let hdu_end = padded_end.min(self.size);
         let s = self.ir.struct_(0, "hdus/", self.index, 0, Some((self.offset, hdu_end - self.offset)))?;
         let ty = format!("{{card:ascii[80]}}[{}]", header_bytes / CARD as u64);
-        let header = self.ir.value(s, "header", NO_INDEX, &ty, 0, (self.offset, header_bytes), Some(&self.buf[..header_bytes as usize]))?;
+        let header = self.ir.value(s, "header", NO_INDEX, &ty, 0, (self.offset, header_bytes), Some(&self.fed.from(self.offset)[..header_bytes as usize]))?;
         let mut elements = json!({"header": header});
         let empty = naxis == 0;
         let (rows, gap, heap) = match table.as_object() {
