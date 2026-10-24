@@ -96,13 +96,13 @@ conformance out="conformance/results/latest": impls::build
         --impl rust=conformance/impls/rust/vzip --impl typescript=conformance/impls/typescript/vzip --impl python=conformance/impls/python/vzip
 
 # Regenerate the synthetic files and stores in fixtures/<format>: every generator
-# fixtures/generators/<format>/write_*.py (all but NDPI's, which needs the network, and MP3's, which
-# needs lame and ffmpeg: `just fixtures-of ndpi`, `just fixtures-of mp3`)
+# fixtures/generators/<format>/write_*.py (all but NDPI's, which needs the network, and MP3's and
+# MP4's, which need lame and ffmpeg: `just fixtures-of ndpi`, `just fixtures-of mp3`, `just fixtures-of mp4`)
 fixtures:
     #!/usr/bin/env bash
     set -euo pipefail
     for g in fixtures/generators/*/write_*.py; do
-        case "$g" in fixtures/generators/ndpi/*|fixtures/generators/mp3/*) continue ;; esac
+        case "$g" in fixtures/generators/ndpi/*|fixtures/generators/mp3/*|fixtures/generators/mp4/*) continue ;; esac
         uv run python "$g"
     done
 

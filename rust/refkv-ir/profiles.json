@@ -96,7 +96,10 @@
     "uuid": "4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93",
     "version": 0,
     "kind": "file",
-    "suffixes": [".fits", ".fz"],
+    "suffixes": [
+      ".fits",
+      ".fz"
+    ],
     "reference": null,
     "source": "FITS",
     "inputs": "FITS files: images, multi-extension files, binary and ASCII tables",
@@ -243,5 +246,21 @@
     "source": "MP3 (MPEG Layer III audio)",
     "inputs": "MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio files (`.mp3`), with their ID3v2, ID3v1 and APE tags; one array of samples, not an image",
     "for": "MP3 audio files, as an array of samples (`.mp3`)"
+  },
+  {
+    "name": "mp4",
+    "section": 19,
+    "title": "MP4",
+    "uuid": "bbe3f6b9-488d-4d8d-85ce-60a1649dd27e",
+    "version": 0,
+    "kind": "file",
+    "suffixes": [
+      ".mp4",
+      ".mov"
+    ],
+    "reference": null,
+    "source": "MP4 and QuickTime (H.264 video, AAC and MP3 audio)",
+    "inputs": "MP4 and QuickTime files (`.mp4`, `.m4a`, `.mov`) with H.264 video and AAC or MP3 audio tracks; a group per track, not an image",
+    "for": "MP4 and QuickTime video and audio, as arrays of planes and samples (`.mp4`, `.mov`)"
   }
 ]

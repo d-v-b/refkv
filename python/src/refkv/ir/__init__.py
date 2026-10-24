@@ -47,6 +47,20 @@ def mpeg_header(head: bytes) -> bool:
     return version != 1 and layer != 0 and rate != 3
 
 
+MP4_TYPES = (b"ftyp", b"moov", b"mdat", b"wide", b"free", b"skip")
+
+
+def mp4_box(head: bytes) -> bool:
+    """Whether `head` starts with an MP4 or QuickTime box (spec/virtualize.md §1.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>): a 32-bit size of at
+    least 8 (or 1, a 64-bit size follows), and the type `ftyp`, `moov`, `mdat`, `wide`, `free`
+    or `skip`."""
+    if len(head) < 8:
+        return False
+    size = int.from_bytes(head[:4], "big")
+    return (size >= 8 or size == 1) and head[4:8] in MP4_TYPES
+
+
 def sniff(head: bytes) -> str | None:
     """The IR format a file's first bytes give, if any (132 of them for DICOM, 348 for
     NIfTI-1, 212 for MRC, 4 for MP3, 30 for FITS; DICOM first: a dual-personality file's preamble may hold
@@ -67,6 +81,8 @@ def sniff(head: bytes) -> str | None:
         return "ims"
     if head[:4] == ZIP_MAGIC:
         return "safe"
+    if mp4_box(head):
+        return "mp4"
     if len(head) >= 212 and head[208:211] == b"MAP":
         return "mrc"
     if head[:3] == b"ID3" or mpeg_header(head):

@@ -76,7 +76,7 @@ export function isDicom(head: Uint8Array): boolean {
 
 const HDF5 = [0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a];
 
-type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc" | "vsi" | "qptiff" | "mp3" | "fits"; summary: object };
+type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc" | "vsi" | "qptiff" | "mp3" | "mp4" | "fits"; summary: object };
 
 /** `exact`, when given, reads exactly the ranges asked for, past `read`'s block cache: the
  * Rust core's requests, which it plans itself, are read with it.
@@ -165,6 +165,9 @@ export function irFormat(head: Uint8Array): IrFormat | undefined {
   if (head.length >= 4 && head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04) return "safe";
   if (niftiVersion(head) !== undefined) return "nifti";
   if (HDF5.every((b, i) => head[i] === b)) return "ims";
+  // an MP4 or QuickTime box at 0 (spec/virtualize/mp4.md §19.1
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#191-boxes>), before MRC's `MAP` at 208
+  if (isMp4Box(head)) return "mp4";
   // `MAP` at 208: an MRC2014 file (spec/virtualize/mrc.md §14.1
   // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#141-header>)
   if (head.length >= 212 && head[208] === 0x4d && head[209] === 0x41 && head[210] === 0x50) return "mrc";
@@ -175,6 +178,16 @@ export function irFormat(head: Uint8Array): IrFormat | undefined {
   // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#181-choosing-the-profile>)
   if (head.length >= 30 && String.fromCharCode(...head.subarray(0, 9)) === "SIMPLE  =" && head[29] === 0x54) return "fits";
   return undefined;
+}
+
+/** Whether `head` starts with an MP4 or QuickTime box (§1.2
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>): a 32-bit size of at least
+ * 8 (or 1, a 64-bit size follows), and the type `ftyp`, `moov`, `mdat`, `wide`, `free` or `skip`. */
+export function isMp4Box(head: Uint8Array): boolean {
+  if (head.length < 8) return false;
+  const size = new DataView(head.buffer, head.byteOffset, 4).getUint32(0, false);
+  const type = String.fromCharCode(...head.subarray(4, 8));
+  return (size >= 8 || size === 1) && ["ftyp", "moov", "mdat", "wide", "free", "skip"].includes(type);
 }
 
 /** Whether `head` starts with an MPEG audio frame header (§1.2
@@ -192,7 +205,7 @@ async function virtualizeFile(url: string, { read, size: fileSize, exact, source
   if (isDicom(head)) return virtualizeIr("dicom", url, source);
   const ir = irFormat(head);
   if (ir === "tiff" || ir === "nd2") return virtualizeIr(ir, url, source);
-  if (ir === "nifti" || ir === "ims" || ir === "czi" || ir === "safe" || ir === "mrc" || ir === "mp3" || ir === "fits") return virtualizeIr(ir, url, source);
+  if (ir === "nifti" || ir === "ims" || ir === "czi" || ir === "safe" || ir === "mrc" || ir === "mp3" || ir === "mp4" || ir === "fits") return virtualizeIr(ir, url, source);
   throw new ImageError(NOT_SUPPORTED);
 }
 

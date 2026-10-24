@@ -146,14 +146,14 @@ with the first's:
   files, and SAFE directories and Zarr v2, OME-Zarr and N5 stores, it runs the frozen Python profiles in
   `conformance/virtualize/reference/refkv_reference/` (what `refkv.virtualize`
   shipped before these formats moved to the IR, unchanged but for their import
-  paths); for every other profile, the shipped code. MRC, VSI and MP3 were
-  never implemented outside the core, so they have no reference: their
+  paths); for every other profile, the shipped code. MRC, VSI, MP3 and MP4
+  were never implemented outside the core, so they have no reference: their
   inputs (`no-ref` in the corpus) compare `py` with `web` alone.
 - `py`: `python -m refkv.virtualize --allow-private-hosts`.
 - `web`: the browser code under Node, `js/conformance/virtualize.ts
   --allow-private-hosts`.
 
-For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC, IMS, VSI, MP3 and SAFE files, and SAFE directories and Zarr v2, OME-Zarr and N5 stores, `py` and `web` are one implementation: the Rust core
+For TIFF (NDPI included), ND2, CZI, DICOM, NIfTI, MRC, IMS, VSI, MP3, MP4 and SAFE files, and SAFE directories and Zarr v2, OME-Zarr and N5 stores, `py` and `web` are one implementation: the Rust core
 `rust/refkv-ir` (its parsers, schemas, read planner, projections and mirror),
 built natively for Python and as wasm32 for the browser, each with a thin host
 (the I/O, and the archive writer). Their `refkv_source` is the IR's mirror,

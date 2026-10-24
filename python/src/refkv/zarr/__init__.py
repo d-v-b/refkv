@@ -12,7 +12,7 @@ module wraps one as a `zarr.abc.store.Store`:
 
 Importing it also registers the codecs that archives of virtualized files and
 stores use (`refkv.zarr.codecs`): JPEG, JPEG 2000 and JPEG XR (whose decoders
-need the `images` extra), `mp3` (whose decoder needs the `audio` extra), zlib, and
+need the `images` extra), `refkv.stream` (whose decoders need the `media` extra), zlib, and
 `n5_default`.
 """
 

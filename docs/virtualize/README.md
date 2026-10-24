@@ -35,6 +35,7 @@ who each one is for, what you get, and how to run it.
 | QPTIFF | Akoya (PerkinElmer) Vectra multiplex scans and inForm component data | [qptiff](qptiff/README.md) | [§16](../../spec/virtualize/qptiff.md#part-2-the-profile) |
 | MP3 | MP3 audio files, as an array of samples (`.mp3`) | [mp3](mp3/README.md) | [§17](../../spec/virtualize/mp3.md#part-2-the-profile) |
 | FITS | FITS images and tables (`.fits`, `.fz`) | [fits](fits/README.md) | [§18](../../spec/virtualize/fits.md#part-2-the-profile) |
+| MP4 | MP4 and QuickTime video and audio, as arrays of planes and samples (`.mp4`, `.mov`) | [mp4](mp4/README.md) | [§19](../../spec/virtualize/mp4.md#part-2-the-profile) |
 <!-- /profiles -->
 
 A format that reads a file takes a URL, or a local path. One that reads a

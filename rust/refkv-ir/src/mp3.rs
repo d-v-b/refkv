@@ -423,7 +423,7 @@ impl Mp3 {
         let span = last.0 + last.1.length() - first_o;
         let frames_struct = self.ir.struct_(0, "frames", NO_INDEX, 0, Some((first_o, span)))?;
         let form = json!({
-            "geometry": {"samples": s.samples(), "channels": s.channels(), "data_type": "int16"},
+            "geometry": {"samples": s.samples(), "channels": s.channels(), "data_type": "float32"},
             "codec": {"name": "mp3", "version": VERSIONS[s.version as usize], "sample_rate": s.rate()},
             "recipe": [["src", 0, null]],
         })

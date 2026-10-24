@@ -9,6 +9,7 @@ use crate::ir::Ir;
 use crate::nd2::{Nd2, Step};
 use crate::plan::{Planner, Request};
 use crate::mp3::Mp3;
+use crate::mp4::Mp4;
 use crate::mrc::Mrc;
 use crate::fits::Fits;
 use crate::nifti::Nifti;
@@ -35,6 +36,8 @@ pub enum Format {
     Mrc,
     /// an MP3 file (MPEG-1, MPEG-2 or MPEG-2.5 Layer III audio), read whole
     Mp3,
+    /// an MP4 or QuickTime file: H.264 video and AAC or MP3 audio tracks
+    Mp4,
     /// An Olympus VSI slide: a `.vsi` file whose tile files lie beside it, virtualized as a
     /// store run of the `vsi` store format (spec/virtualize/vsi.md §15.2
     /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#152-the-tile-files>), never
@@ -63,6 +66,7 @@ impl Format {
             Format::Ndpi => "ndpi",
             Format::Mrc => "mrc",
             Format::Mp3 => "mp3",
+            Format::Mp4 => "mp4",
             Format::Vsi => "vsi",
             Format::Qptiff => "qptiff",
             Format::Fits => "fits",
@@ -75,9 +79,9 @@ impl Format {
         matches!(self, Format::Vsi)
     }
 
-    /// The format of a name ("nd2", "tiff", "czi", "dicom", "nifti", "ims", "safe", "ndpi", "mrc", "vsi", "qptiff", "mp3", "fits").
+    /// The format of a name ("nd2", "tiff", "czi", "dicom", "nifti", "ims", "safe", "ndpi", "mrc", "vsi", "qptiff", "mp3", "mp4", "fits").
     pub fn from_name(s: &str) -> Option<Format> {
-        [Format::Nd2, Format::Tiff, Format::Czi, Format::Dicom, Format::Nifti, Format::Ims, Format::Safe, Format::Ndpi, Format::Mrc, Format::Vsi, Format::Qptiff, Format::Mp3, Format::Fits].into_iter().find(|f| f.name() == s)
+        [Format::Nd2, Format::Tiff, Format::Czi, Format::Dicom, Format::Nifti, Format::Ims, Format::Safe, Format::Ndpi, Format::Mrc, Format::Vsi, Format::Qptiff, Format::Mp3, Format::Mp4, Format::Fits].into_iter().find(|f| f.name() == s)
     }
     /// The format a file's first bytes give, if one of these: a hint, the format of its
     /// signature (any zip file is taken for a SAFE product's zip form, which then rejects one
@@ -111,6 +115,10 @@ impl Format {
         if head.len() >= 4 && &head[..4] == b"PK\x03\x04" {
             return Some(Format::Safe);
         }
+        // MP4 before MRC: an MP4 box at 0 is a stronger signature than `MAP` at 208
+        if crate::mp4::detect(head) {
+            return Some(Format::Mp4);
+        }
         if crate::mrc::detect(head) {
             return Some(Format::Mrc);
         }
@@ -134,6 +142,7 @@ pub enum AnyParser {
     Safe(Box<Safe>),
     Mrc(Mrc),
     Mp3(Mp3),
+    Mp4(Mp4),
     /// a VSI file, which no file run reads (its parser is a store parser)
     Vsi,
     Fits(Fits),
@@ -151,6 +160,7 @@ impl AnyParser {
             Format::Safe => AnyParser::Safe(Box::new(Safe::new(size))),
             Format::Mrc => AnyParser::Mrc(Mrc::new(size)),
             Format::Mp3 => AnyParser::Mp3(Mp3::new(size)),
+            Format::Mp4 => AnyParser::Mp4(Mp4::new(size)),
             Format::Vsi => AnyParser::Vsi,
             Format::Fits => AnyParser::Fits(Fits::new(size)),
         }
@@ -166,6 +176,7 @@ impl AnyParser {
             AnyParser::Safe(x) => x.step(),
             AnyParser::Mrc(x) => x.step(),
             AnyParser::Mp3(x) => x.step(),
+            AnyParser::Mp4(x) => x.step(),
             AnyParser::Vsi => Err("a VSI file is virtualized as a store run, with its tile files".into()),
             AnyParser::Fits(x) => x.step(),
         }
@@ -181,6 +192,7 @@ impl AnyParser {
             AnyParser::Safe(x) => x.feed(o, b),
             AnyParser::Mrc(x) => x.feed(o, b),
             AnyParser::Mp3(x) => x.feed(o, b),
+            AnyParser::Mp4(x) => x.feed(o, b),
             AnyParser::Vsi => {}
             AnyParser::Fits(x) => x.feed(o, b),
         }
@@ -196,6 +208,7 @@ impl AnyParser {
             AnyParser::Safe(x) => Parser::finish(*x),
             AnyParser::Mrc(x) => Parser::finish(x),
             AnyParser::Mp3(x) => Parser::finish(x),
+            AnyParser::Mp4(x) => Parser::finish(x),
             AnyParser::Vsi => Err("a VSI file is virtualized as a store run, with its tile files".into()),
             AnyParser::Fits(x) => Parser::finish(x),
         }
@@ -234,7 +247,7 @@ impl Run {
             copied: Default::default(),
             planner: Planner::new(size, remote, concurrency),
             // TIFF and CZI find their ranges in whole responses; ND2, SAFE and MP3 take exact ranges
-            whole: !matches!(format, Format::Nd2 | Format::Safe | Format::Mp3),
+            whole: !matches!(format, Format::Nd2 | Format::Safe | Format::Mp3 | Format::Mp4),
             in_batch: false,
             done: false,
         }
