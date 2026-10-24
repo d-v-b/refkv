@@ -15,6 +15,8 @@
 //! of a name is lost to the decoding;
 //! `xml` and `xml:<runtype>` are the text of an XML attribute value, as UTF-8.
 
+use crate::fed::Word;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Val {
     Int(i128),
@@ -199,12 +201,7 @@ fn one(t: &[String], pos: &mut usize, s: &str) -> Result<Ty, String> {
 fn num(code: &str, big: bool, b: &[u8]) -> Val {
     macro_rules! rd {
         ($t:ty) => {{
-            let a: [u8; std::mem::size_of::<$t>()] = b.try_into().unwrap();
-            if big {
-                <$t>::from_be_bytes(a)
-            } else {
-                <$t>::from_le_bytes(a)
-            }
+            <$t as Word>::of(b, !big)
         }};
     }
     match code {
@@ -260,9 +257,9 @@ pub fn decode(ty: &Ty, raw: &[u8]) -> Result<Val, String> {
         Ty::Text { kind, .. } => match kind.as_str() {
             "bytes" | "utf16" => Val::Bytes(raw.to_vec()),
             "guid" => {
-                let a = u32::from_le_bytes(raw[0..4].try_into().unwrap());
-                let b = u16::from_le_bytes(raw[4..6].try_into().unwrap());
-                let c = u16::from_le_bytes(raw[6..8].try_into().unwrap());
+                let a = u32::le_at(raw, 0);
+                let b = u16::le_at(raw, 4);
+                let c = u16::le_at(raw, 6);
                 let hex = |x: &[u8]| x.iter().map(|v| format!("{v:02x}")).collect::<String>();
                 Val::Str(format!(
                     "{a:08x}-{b:04x}-{c:04x}-{}-{}",

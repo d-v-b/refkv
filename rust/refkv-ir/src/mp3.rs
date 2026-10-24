@@ -12,7 +12,7 @@
 
 use crate::check;
 use crate::expr::V;
-use crate::fed::Fed;
+use crate::fed::{Fed, Word};
 use crate::ir::*;
 use crate::nd2::Step;
 use crate::rules::{self, Rules, Vars, flag, num, text};
@@ -160,18 +160,6 @@ pub fn detect(head: &[u8]) -> bool {
             && (head[2] >> 2) & 3 != 3)
 }
 
-fn u32be(b: &[u8], at: usize) -> Option<u32> {
-    b.get(at..at + 4).map(|a| u32::from_be_bytes(a.try_into().unwrap()))
-}
-
-fn u16be(b: &[u8], at: usize) -> Option<u16> {
-    b.get(at..at + 2).map(|a| u16::from_be_bytes(a.try_into().unwrap()))
-}
-
-fn u32le(b: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes(b[at..at + 4].try_into().unwrap())
-}
-
 /// The offset in a frame of its Xing or Info tag, if it holds one: after the header, the CRC
 /// and the side information.
 fn xing_at(f: &[u8], h: &Head) -> Option<usize> {
@@ -191,10 +179,10 @@ fn is_info(f: &[u8], h: &Head) -> bool {
 fn info_json(f: &[u8], h: &Head) -> J {
     let (mut frames, mut bytes, mut quality, mut encoder, mut delay, mut padding) = (J::Null, J::Null, J::Null, J::Null, J::Null, J::Null);
     let tag = if let Some(at) = xing_at(f, h) {
-        let flags = u32be(f, at + 4).unwrap_or(0);
+        let flags = u32::try_at(f, at + 4, false).unwrap_or(0);
         let mut pos = at + 8;
         let field = |pos: &mut usize| {
-            let v = u32be(f, *pos).map_or(J::Null, |v| json!(v));
+            let v = u32::try_at(f, *pos, false).map_or(J::Null, |v| json!(v));
             *pos += 4;
             v
         };
@@ -225,10 +213,10 @@ fn info_json(f: &[u8], h: &Head) -> J {
         String::from_utf8_lossy(&f[at..at + 4]).to_string()
     } else {
         // VBRI: version, delay, quality, bytes, frames
-        delay = u16be(f, 42).map_or(J::Null, |v| json!(v));
-        quality = u16be(f, 44).map_or(J::Null, |v| json!(v));
-        bytes = u32be(f, 46).map_or(J::Null, |v| json!(v));
-        frames = u32be(f, 50).map_or(J::Null, |v| json!(v));
+        delay = u16::try_at(f, 42, false).map_or(J::Null, |v| json!(v));
+        quality = u16::try_at(f, 44, false).map_or(J::Null, |v| json!(v));
+        bytes = u32::try_at(f, 46, false).map_or(J::Null, |v| json!(v));
+        frames = u32::try_at(f, 50, false).map_or(J::Null, |v| json!(v));
         "VBRI".to_string()
     };
     json!({"tag": tag, "frames": frames, "bytes": bytes, "quality": quality, "encoder": encoder, "delay": delay, "padding": padding})
@@ -346,7 +334,7 @@ impl Mp3 {
         let mut ape = None;
         if e >= a + 32 && &d[(e - 32) as usize..(e - 24) as usize] == b"APETAGEX" {
             let f = (e - 32) as usize;
-            let (version, size, items, flags) = (u32le(&d, f + 8), u32le(&d, f + 12) as u64, u32le(&d, f + 16), u32le(&d, f + 20));
+            let (version, size, items, flags) = (u32::le_at(&d, f + 8), u32::le_at(&d, f + 12) as u64, u32::le_at(&d, f + 16), u32::le_at(&d, f + 20));
             let total = size + if flags & 0x8000_0000 != 0 { 32 } else { 0 };
             if size >= 32 && total <= e - a {
                 e -= total;

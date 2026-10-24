@@ -9,7 +9,7 @@
 //! main header with a SIZ marker of its own, the tile's tile-part, and, at the array's right
 //! and bottom edges, empty tiles that fill the chunk ([`chunk_parts`]).
 
-use crate::fed::Fed;
+use crate::fed::{Fed, Word, uint};
 use crate::rules::{self, Rules, flag, num, text};
 
 pub const MAX_BOXES: usize = 1024;
@@ -77,14 +77,6 @@ impl Codestream {
     }
 }
 
-fn u16_be(b: &[u8], at: usize) -> u64 {
-    u16::from_be_bytes([b[at], b[at + 1]]) as u64
-}
-
-fn u32_be(b: &[u8], at: usize) -> u64 {
-    u32::from_be_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]]) as u64
-}
-
 /// What a walk needs to go on: a read (offset, length, read-ahead), or a rejection.
 enum Need {
     Read(u64, u64, u64),
@@ -127,7 +119,7 @@ fn boxes(c: &Cache) -> W<Vec<Jp2Box>> {
             return Err("a band file is not a JP2 file: its boxes end without a jp2c box".to_string().into());
         }
         let head = c.get(o, 8)?;
-        let lbox = u32_be(head, 0);
+        let lbox = uint(head, 0, 4, false);
         let tbox: [u8; 4] = head[4..8].try_into().unwrap();
         if i == 0 && (lbox != 12 || &tbox != b"jP  " || c.get(o + 8, 4)? != b"\r\n\x87\n") {
             return Err("a band file is not a JP2 file: no JPEG 2000 signature box".to_string().into());
@@ -137,7 +129,7 @@ fn boxes(c: &Cache) -> W<Vec<Jp2Box>> {
                 return Err("a JP2 box's XLBox is beyond the file".to_string().into());
             }
             let x = c.get(o + 8, 8)?;
-            let length = u64::from_be_bytes(x.try_into().unwrap());
+            let length = u64::be_at(x, 0);
             if length < 16 {
                 return Err(format!("a JP2 box's XLBox is {length}, less than 16").into());
             }
@@ -184,22 +176,22 @@ fn coding(rules: &Rules, seg: &[u8], at: usize, scod: u64, what: &str) -> W<Codi
 /// The SIZ segment and the main header rest of the codestream at c0.
 fn main_header(rules: &Rules, c: &Cache, boxes: Vec<Jp2Box>, c0: u64) -> W<Codestream> {
     let c1 = c.n;
-    if c0 + 4 > c1 || u16_be(c.get(c0, 2)?, 0) != SOC as u64 {
+    if c0 + 4 > c1 || uint(c.get(c0, 2)?, 0, 2, false) != SOC as u64 {
         return Err("a band file's codestream does not start with SOC".to_string().into());
     }
-    if u16_be(c.get(c0 + 2, 2)?, 0) != SIZ as u64 {
+    if uint(c.get(c0 + 2, 2)?, 0, 2, false) != SIZ as u64 {
         return Err("a band file's codestream has no SIZ marker after SOC".to_string().into());
     }
     if c0 + 6 > c1 {
         return Err("a band file's SIZ marker is truncated".to_string().into());
     }
-    let lsiz = u16_be(c.get(c0 + 4, 2)?, 0);
+    let lsiz = uint(c.get(c0 + 4, 2)?, 0, 2, false);
     if c0 + 4 + lsiz > c1 || lsiz < 41 {
         return Err("a band file's SIZ segment is truncated".to_string().into());
     }
     let siz = c.get(c0 + 2, 2 + lsiz)?.to_vec();
-    let (rsiz, xs, ys, xo, yo, xt, yt, xto, yto, csiz) = (u16_be(&siz, 4), u32_be(&siz, 6), u32_be(&siz, 10), u32_be(&siz, 14),
-        u32_be(&siz, 18), u32_be(&siz, 22), u32_be(&siz, 26), u32_be(&siz, 30), u32_be(&siz, 34), u16_be(&siz, 38));
+    let (rsiz, xs, ys, xo, yo, xt, yt, xto, yto, csiz) = (uint(&siz, 4, 2, false), uint(&siz, 6, 4, false), uint(&siz, 10, 4, false), uint(&siz, 14, 4, false),
+        uint(&siz, 18, 4, false), uint(&siz, 22, 4, false), uint(&siz, 26, 4, false), uint(&siz, 30, 4, false), uint(&siz, 34, 4, false), uint(&siz, 38, 2, false));
     let comps: Vec<&[u8]> = (0..csiz as usize).filter(|k| 40 + 3 * k + 3 <= siz.len()).map(|k| &siz[40 + 3 * k..43 + 3 * k]).collect();
     let same = comps.iter().all(|x| x[0] == comps[0][0]);
     let ssiz = comps.first().map(|x| x[0]).unwrap_or(0) as u64;
@@ -225,7 +217,7 @@ fn main_header(rules: &Rules, c: &Cache, boxes: Vec<Jp2Box>, c0: u64) -> W<Codes
         if pos + 2 > c1 {
             return Err("a band file's main header has no SOT".to_string().into());
         }
-        let marker = u16_be(c.get(pos, 2)?, 0) as u16;
+        let marker = uint(c.get(pos, 2)?, 0, 2, false) as u16;
         if marker == SOT {
             break;
         }
@@ -241,13 +233,13 @@ fn main_header(rules: &Rules, c: &Cache, boxes: Vec<Jp2Box>, c0: u64) -> W<Codes
         if pos + 4 > c1 {
             return Err("a band file's main header marker segment is truncated".to_string().into());
         }
-        let length = u16_be(c.get(pos + 2, 2)?, 0);
+        let length = uint(c.get(pos + 2, 2)?, 0, 2, false);
         if length < 2 || pos + 2 + length > c1 {
             return Err("a band file's main header marker segment is truncated".to_string().into());
         }
         let seg = c.get(pos + 4, length - 2)?.to_vec();
         if marker == COD {
-            let (scod, layers) = if length >= 12 { (seg[0] as u64, u16_be(&seg, 2)) } else { (0, 0) };
+            let (scod, layers) = if length >= 12 { (seg[0] as u64, uint(&seg, 2, 2, false)) } else { (0, 0) };
             let levels = if length >= 12 { seg[5] as u64 } else { 0 };
             rules.check("cod", &mut rules::env([("twice", flag(cod.is_some())), ("length", num(length as f64)),
                 ("scod", num(scod as f64)), ("layers", num(layers as f64)), ("levels", num(levels as f64))]))?;
@@ -348,7 +340,7 @@ impl BandReader {
                         let Some(head) = self.fed.get(s, 12) else { return Ok(self.need(s, 12, ahead)) };
                         let head: [u8; 12] = head.try_into().unwrap();
                         let (marker, lsot, isot, psot, tpsot, tnsot) =
-                            (u16_be(&head, 0), u16_be(&head, 2), u16_be(&head, 4), u32_be(&head, 6), head[10], head[11]);
+                            (uint(&head, 0, 2, false), uint(&head, 2, 2, false), uint(&head, 4, 2, false), uint(&head, 6, 4, false), head[10], head[11]);
                         rules.check("tile_part", &mut rules::env([("k", num(k as f64)), ("sot", flag(marker == SOT as u64 && lsot == 10)),
                             ("isot", num(isot as f64)), ("psot", num(psot as f64)), ("one", flag(tpsot == 0 && tnsot == 1)),
                             ("within", flag(s + psot <= c1 - 2))]))?;
@@ -360,7 +352,7 @@ impl BandReader {
                     if s + 2 != c1 {
                         return Err("a band file's codestream does not end with EOC after its last tile-part".into());
                     }
-                    let Some(e) = self.fed.get(s, 2).map(|b| u16_be(b, 0)) else { return Ok(self.need(s, 2, 2)) };
+                    let Some(e) = self.fed.get(s, 2).map(|b| uint(b, 0, 2, false)) else { return Ok(self.need(s, 2, 2)) };
                     if e != EOC as u64 {
                         return Err("a band file's codestream does not end with EOC after its last tile-part".into());
                     }

@@ -12,7 +12,7 @@
 
 use crate::check;
 use crate::expr::V;
-use crate::fed::Fed;
+use crate::fed::{Fed, Word, uint};
 use crate::ir::*;
 use crate::nd2::Step;
 use crate::rules::{self, Rules, Vars, flag, num, text};
@@ -34,13 +34,9 @@ const HIGH_PROFILES: [u8; 13] = [100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 
 /// bytes whose type is `ftyp`, `moov`, `mdat`, `wide`, `free` or `skip`.
 pub fn detect(head: &[u8]) -> bool {
     head.len() >= 8
-        && u32::from_be_bytes(head[..4].try_into().unwrap()) != 0
+        && u32::be_at(head, 0) != 0
         && [b"ftyp", b"moov", b"mdat", b"wide", b"free", b"skip"].iter().any(|t| &head[4..8] == *t)
-        && (u32::from_be_bytes(head[..4].try_into().unwrap()) >= 8 || u32::from_be_bytes(head[..4].try_into().unwrap()) == 1)
-}
-
-fn be(b: &[u8], at: usize, n: usize) -> u64 {
-    b[at..at + n].iter().fold(0u64, |a, &c| a << 8 | c as u64)
+        && (u32::be_at(head, 0) >= 8 || u32::be_at(head, 0) == 1)
 }
 
 /// A box's type as a name: printable ASCII but `/`, `~`, `%` and space as they are, every
@@ -94,7 +90,7 @@ impl Entry {
         let wave = &self.children.iter().find(|c| &c.0 == b"wave")?.1;
         let mut p = 0;
         while p + 8 <= wave.len() {
-            let size = be(wave, p, 4) as usize;
+            let size = uint(wave, p, 4, false) as usize;
             if size < 8 || p + size > wave.len() {
                 return None;
             }
@@ -358,16 +354,16 @@ impl Mp4 {
                 self.rest(s, b.body() + need, b.end(), Some(m), base)?;
                 let w = if v1 { 8 } else { 4 };
                 match &b.typ {
-                    b"mvhd" => self.movie = (be(body, 4 + 2 * w, 4), be(body, 8 + 2 * w, w)),
+                    b"mvhd" => self.movie = (uint(body, 4 + 2 * w, 4, false), uint(body, 8 + 2 * w, w, false)),
                     b"tkhd" => {
                         if let Some(t) = self.cur.as_mut() {
-                            t.id = be(body, 4 + 2 * w, 4);
+                            t.id = uint(body, 4 + 2 * w, 4, false);
                         }
                     }
                     _ => {
                         if let Some(t) = self.cur.as_mut() {
-                            t.timescale = be(body, 4 + 2 * w, 4);
-                            t.duration = be(body, 8 + 2 * w, w);
+                            t.timescale = uint(body, 4 + 2 * w, 4, false);
+                            t.duration = uint(body, 8 + 2 * w, w, false);
                         }
                     }
                 }
@@ -387,7 +383,7 @@ impl Mp4 {
             b"stsz" => {
                 self.check("fields", rules::env([("type", text("stsz")), ("at", num(b.at as f64)), ("need", num(12.0)), ("have", num(n as f64))]))?;
                 self.ir.value(s, "fields", NO_INDEX, "{version:u1,flags:u1[3],sample_size:>u4,sample_count:>u4}", 0, (b.body(), 12), Some(&body[..12]))?;
-                let (fixed, count) = (be(body, 4, 4), be(body, 8, 4));
+                let (fixed, count) = (uint(body, 4, 4, false), uint(body, 8, 4, false));
                 let mut end = b.body() + 12;
                 if fixed == 0 {
                     self.check("table", rules::env([
@@ -397,7 +393,7 @@ impl Mp4 {
                         self.ir.value(s, "entries", NO_INDEX, &format!(">u4[{count}]"), 0, (end, 4 * count), Some(&body[12..12 + 4 * count as usize]))?;
                     }
                     if let Some(t) = self.cur.as_mut() {
-                        t.sizes = (0..count as usize).map(|k| be(body, 12 + 4 * k, 4)).collect();
+                        t.sizes = (0..count as usize).map(|k| uint(body, 12 + 4 * k, 4, false)).collect();
                     }
                     end += 4 * count;
                 } else if let Some(t) = self.cur.as_mut() {
@@ -419,7 +415,7 @@ impl Mp4 {
                 self.ir.value(s, "fields", NO_INDEX, FULL, 0, (b.body(), 8), Some(&body[..8]))?;
                 let handler = self.cur.as_ref().map(|t| t.handler).unwrap_or(*b"    ");
                 if let Some(t) = self.cur.as_mut() {
-                    t.stsd_count = be(body, 4, 4);
+                    t.stsd_count = uint(body, 4, 4, false);
                 }
                 let (kids, rest) = self.children(m, base, b.body() + 8, b.end())?;
                 let texts: Vec<String> = kids.iter().map(|k| type_name(&k.typ)).collect();
@@ -447,7 +443,7 @@ impl Mp4 {
         let n = body.len() as u64;
         let t = type_text(&b.typ);
         self.check("fields", rules::env([("type", text(&t)), ("at", num(b.at as f64)), ("need", num(8.0)), ("have", num(n as f64))]))?;
-        let (version, count) = (body[0], be(body, 4, 4));
+        let (version, count) = (body[0], uint(body, 4, 4, false));
         let (ty, width): (&str, u64) = match (&b.typ, version) {
             (b"elst", 1) => ("{segment_duration:>u8,media_time:>i8,media_rate:>i2,media_rate_fraction:>i2}", 20),
             (b"elst", _) => ("{segment_duration:>u4,media_time:>i4,media_rate:>i2,media_rate_fraction:>i2}", 12),
@@ -477,15 +473,15 @@ impl Mp4 {
                 let d = if version == 1 { 8 } else { 4 };
                 tr.edits = (0..k).map(|i| {
                     let r = &e[i * w..];
-                    json!({"duration": be(r, 0, d), "media_time": signed(be(r, d, d), 8 * d as u32), "rate": signed(be(r, 2 * d, 2), 16) as f64 + be(r, 2 * d + 2, 2) as f64 / 65536.0})
+                    json!({"duration": uint(r, 0, d, false), "media_time": signed(uint(r, d, d, false), 8 * d as u32), "rate": signed(uint(r, 2 * d, 2, false), 16) as f64 + uint(r, 2 * d + 2, 2, false) as f64 / 65536.0})
                 }).collect();
             }
-            b"stts" => tr.stts = (0..k).map(|i| (be(e, i * 8, 4), be(e, i * 8 + 4, 4))).collect(),
-            b"ctts" => tr.ctts = (0..k).map(|i| (be(e, i * 8, 4), if version == 0 { be(e, i * 8 + 4, 4) as i64 } else { signed(be(e, i * 8 + 4, 4), 32) })).collect(),
-            b"stsc" => tr.stsc = (0..k).map(|i| (be(e, i * 12, 4), be(e, i * 12 + 4, 4), be(e, i * 12 + 8, 4))).collect(),
-            b"stco" => tr.offsets = (0..k).map(|i| be(e, i * 4, 4)).collect(),
-            b"co64" => tr.offsets = (0..k).map(|i| be(e, i * 8, 8)).collect(),
-            _ => tr.sync = Some((0..k).map(|i| be(e, i * 4, 4)).collect()),
+            b"stts" => tr.stts = (0..k).map(|i| (uint(e, i * 8, 4, false), uint(e, i * 8 + 4, 4, false))).collect(),
+            b"ctts" => tr.ctts = (0..k).map(|i| (uint(e, i * 8, 4, false), if version == 0 { uint(e, i * 8 + 4, 4, false) as i64 } else { signed(uint(e, i * 8 + 4, 4, false), 32) })).collect(),
+            b"stsc" => tr.stsc = (0..k).map(|i| (uint(e, i * 12, 4, false), uint(e, i * 12 + 4, 4, false), uint(e, i * 12 + 8, 4, false))).collect(),
+            b"stco" => tr.offsets = (0..k).map(|i| uint(e, i * 4, 4, false)).collect(),
+            b"co64" => tr.offsets = (0..k).map(|i| uint(e, i * 8, 8, false)).collect(),
+            _ => tr.sync = Some((0..k).map(|i| uint(e, i * 4, 4, false)).collect()),
         }
         Ok(())
     }
@@ -502,15 +498,15 @@ impl Mp4 {
         let fields = match handler {
             b"vide" if n >= 78 => {
                 self.ir.value(s, "fields", NO_INDEX, VISUAL, 0, (b.body(), 78), Some(&body[..78]))?;
-                e.width = be(body, 24, 2);
-                e.height = be(body, 26, 2);
+                e.width = uint(body, 24, 2, false);
+                e.height = uint(body, 26, 2, false);
                 Some(78)
             }
             b"soun" if n >= 28 => {
                 self.ir.value(s, "fields", NO_INDEX, AUDIO, 0, (b.body(), 28), Some(&body[..28]))?;
-                e.sound_version = be(body, 8, 2);
-                e.channels = be(body, 16, 2);
-                e.rate = be(body, 24, 4) >> 16;
+                e.sound_version = uint(body, 8, 2, false);
+                e.channels = uint(body, 16, 2, false);
+                e.rate = uint(body, 24, 4, false) >> 16;
                 if e.sound_version == 1 && n >= 44 {
                     self.ir.value(s, "fields_v1", NO_INDEX, AUDIO_V1, 0, (b.body() + 28, 16), Some(&body[28..44]))?;
                     Some(44)
@@ -591,10 +587,10 @@ impl Mp4 {
         }
         self.check("tracks", rules::env([("projected", num(projected as f64)), ("reasons", text(&reasons.join("; ")))]))?;
         let brand = self.ftyp.as_ref().filter(|f| f.len() >= 16).map(|f| {
-            let head = if be(f, 0, 4) == 1 { 16 } else { 8 };
+            let head = if uint(f, 0, 4, false) == 1 { 16 } else { 8 };
             let body = &f[head..];
             json!({
-                "major": type_text(&body[0..4]), "minor": be(body, 4, 4),
+                "major": type_text(&body[0..4]), "minor": uint(body, 4, 4, false),
                 "compatible": body[8..].chunks_exact(4).map(type_text).collect::<Vec<_>>(),
             })
         });
@@ -780,10 +776,10 @@ fn header(h: &[u8], at: u64, end: u64) -> Option<BoxRef> {
     if h.len() < 8 {
         return None;
     }
-    let size = be(h, 0, 4);
+    let size = uint(h, 0, 4, false);
     let typ: [u8; 4] = h[4..8].try_into().unwrap();
     Some(match size {
-        1 if h.len() >= 16 => BoxRef { at, head: 16, size: be(h, 8, 8), typ },
+        1 if h.len() >= 16 => BoxRef { at, head: 16, size: uint(h, 8, 8, false), typ },
         1 => BoxRef { at, head: 16, size: 0, typ },
         0 => BoxRef { at, head: 8, size: end - at, typ },
         s => BoxRef { at, head: 8, size: s, typ },
@@ -875,7 +871,7 @@ pub fn h264_sps(avcc: &[u8]) -> Option<Sps> {
     if avcc.len() < 8 || avcc[5] & 0x1F == 0 {
         return None;
     }
-    let len = be(avcc, 6, 2) as usize;
+    let len = uint(avcc, 6, 2, false) as usize;
     let nal = avcc.get(8..8 + len)?;
     if nal.len() < 4 || nal[0] & 0x1F != 7 {
         return None;

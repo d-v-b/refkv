@@ -30,6 +30,7 @@
 //! its leaves in order. Element ids the facts and the projections use stay those
 //! of the parser's rows: only the mirror renumbers.
 
+use crate::fed::{Word, uint};
 use crate::ir::*;
 use crate::out::{declare, json_size, metadata_array, metadata_group, Chunk, Out, CONVENTION_KEY, SOURCE_NODE};
 use crate::types::{self, Ty, Val};
@@ -673,18 +674,7 @@ pub fn unsigned_array(t: &str) -> Option<(usize, bool)> {
 }
 
 pub fn uints(raw: &[u8], z: usize, big: bool) -> Vec<u64> {
-    raw.chunks(z)
-        .map(|c| {
-            let mut b = [0u8; 8];
-            if big {
-                b[8 - z..].copy_from_slice(c);
-                u64::from_be_bytes(b)
-            } else {
-                b[..z].copy_from_slice(c);
-                u64::from_le_bytes(b)
-            }
-        })
-        .collect()
+    raw.chunks(z).map(|c| uint(c, 0, z, !big)).collect()
 }
 
 /// The most values of a table chunk (1 MiB of int64).
@@ -1440,7 +1430,7 @@ pub fn table_from(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Table, String
         }
         Ok(out)
     };
-    let ints = |b: Vec<u8>| -> Vec<i64> { b.chunks(8).map(|c| i64::from_le_bytes(c.try_into().unwrap())).collect() };
+    let ints = |b: Vec<u8>| -> Vec<i64> { b.chunks(8).map(|c| i64::le_at(c, 0)).collect() };
     let node = doc("")?;
     let attrs = node["attributes"]["refkv_virtualized"].as_object().and_then(|m| m.values().next())
         .map(|v| &v["ir"]).ok_or("refkv_source declares no mirror")?;

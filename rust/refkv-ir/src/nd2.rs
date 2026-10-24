@@ -13,7 +13,7 @@ use crate::ir::*;
 use crate::lv::{self, Decoded};
 use crate::schema::{self, FrameHead};
 use crate::xml;
-use crate::fed::{Fed, Overlap};
+use crate::fed::{Fed, Overlap, Word};
 use std::collections::HashMap;
 
 pub const FILE_SIGNATURE: &[u8] = b"ND2 FILE SIGNATURE CHUNK NAME01!";
@@ -82,14 +82,6 @@ pub struct Nd2 {
     declared: Vec<(String, &'static str, usize)>,
     pub requests: u64,
     pub requested: u64,
-}
-
-fn u32le(b: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes(b[at..at + 4].try_into().unwrap())
-}
-
-fn u64le(b: &[u8], at: usize) -> u64 {
-    u64::from_le_bytes(b[at..at + 8].try_into().unwrap())
 }
 
 pub fn decode_text(b: &[u8]) -> String {
@@ -215,7 +207,7 @@ impl Nd2 {
             }
             Phase::Head => {
                 let h = self.bytes(0, 112)?.to_vec();
-                let (magic, n, d) = (u32le(&h, 0), u32le(&h, 4), u64le(&h, 8));
+                let (magic, n, d) = (u32::le_at(&h, 0), u32::le_at(&h, 4), u64::le_at(&h, 8));
                 if magic != schema::limit("chunk_magic") as u32 {
                     return Err("no ND2 chunk at 0".into());
                 }
@@ -245,7 +237,7 @@ impl Nd2 {
                 if &tail[..32] != MAP_SIGNATURE {
                     return Err("no ND2 chunk map signature".into());
                 }
-                let m = u64le(&tail, 32);
+                let m = u64::le_at(&tail, 32);
                 let ir = &mut self.ir;
                 let s = ir.struct_(0, "signature", NO_INDEX, 0, Some((0, 112)))?;
                 ir.value(s, "header", NO_INDEX, HEADER, 0, (0, 16), Some(&h[..16]))?;
@@ -293,7 +285,7 @@ impl Nd2 {
             Phase::MapHeader | Phase::MapName => {
                 let m = self.map.0;
                 let h = self.bytes(m, 16)?.to_vec();
-                let (magic, n, d) = (u32le(&h, 0), u32le(&h, 4), u64le(&h, 8));
+                let (magic, n, d) = (u32::le_at(&h, 0), u32::le_at(&h, 4), u64::le_at(&h, 8));
                 if magic != schema::limit("chunk_magic") as u32 {
                     return Err(format!("no ND2 chunk at {m}"));
                 }
@@ -353,7 +345,7 @@ impl Nd2 {
             if e + 17 > data.len() {
                 return Err("truncated ND2 chunk map record".into());
             }
-            let offset = u64le(&data, e + 1);
+            let offset = u64::le_at(&data, e + 1);
             match self.index.get(cname) {
                 Some(&k) => self.chunks[k].1 = offset,
                 None => {
@@ -441,7 +433,7 @@ impl Nd2 {
         for (_, o) in &self.chunks {
             heads.push(if *o <= size.saturating_sub(16) {
                 let h = self.bytes(*o, 16)?;
-                Some((u32le(h, 0), u32le(h, 4), u64le(h, 8)))
+                Some((u32::le_at(h, 0), u32::le_at(h, 4), u64::le_at(h, 8)))
             } else {
                 None
             });

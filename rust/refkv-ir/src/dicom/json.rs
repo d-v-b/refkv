@@ -6,6 +6,7 @@
 //! now, and the root is unchanged.
 
 use super::elements::*;
+use crate::fed::{Word, uint};
 use crate::mirror::base64;
 use crate::out::{json_size, js_string_size, MAX_CHUNK, SOURCE_NODE};
 use serde_json::{json, Map, Value as J};
@@ -359,7 +360,7 @@ pub fn value_json(vr: &str, data: &[u8], little: bool, multibyte: bool) -> J {
     if size.is_some_and(|s| data.len() as u64 % s != 0) {
         return json!({"vr": vr, "InlineBinary": base64(data)});
     }
-    let u16_at = |k: usize| if little { u16::from_le_bytes([data[k], data[k + 1]]) } else { u16::from_be_bytes([data[k], data[k + 1]]) };
+    let u16_at = |k: usize| u16::at(data, k, little);
     if vr == "AT" {
         let v: Vec<J> = (0..data.len() / 4).map(|i| json!(format!("{:04X}{:04X}", u16_at(4 * i), u16_at(4 * i + 2)))).collect();
         return json!({"vr": vr, "Value": v});
@@ -369,15 +370,7 @@ pub fn value_json(vr: &str, data: &[u8], little: bool, multibyte: bool) -> J {
         let values: Vec<J> = data
             .chunks(s)
             .map(|c| {
-                let mut b = [0u8; 8];
-                if little {
-                    b[..s].copy_from_slice(c);
-                } else {
-                    for (k, &x) in c.iter().rev().enumerate() {
-                        b[k] = x;
-                    }
-                }
-                let u = u64::from_le_bytes(b);
+                let u = uint(c, 0, s, little);
                 match vr {
                     "FL" => json_float(f32::from_bits(u as u32) as f64),
                     "FD" => json_float(f64::from_bits(u)),

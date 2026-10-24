@@ -205,27 +205,51 @@ impl Fed {
     }
 }
 
-pub fn u16_at(b: &[u8], at: usize, le: bool) -> u16 {
-    let a: [u8; 2] = b[at..at + 2].try_into().unwrap();
-    if le { u16::from_le_bytes(a) } else { u16::from_be_bytes(a) }
+/// A number of fixed width, read from bytes in either byte order: `u32::le_at(b, at)`,
+/// `i16::be_at(b, at)`, `u64::at(b, at, little)`, and `u16::try_at(b, at, little)`, None past the
+/// end of `b`. The unchecked forms panic past the end of `b`.
+pub trait Word: Sized {
+    const SIZE: usize;
+    /// The number of `b`, exactly `SIZE` bytes.
+    fn of(b: &[u8], little: bool) -> Self;
+
+    fn at(b: &[u8], at: usize, little: bool) -> Self {
+        Self::of(&b[at..at + Self::SIZE], little)
+    }
+    fn le_at(b: &[u8], at: usize) -> Self {
+        Self::at(b, at, true)
+    }
+    fn be_at(b: &[u8], at: usize) -> Self {
+        Self::at(b, at, false)
+    }
+    fn try_at(b: &[u8], at: usize, little: bool) -> Option<Self> {
+        b.get(at..at.checked_add(Self::SIZE)?).map(|a| Self::of(a, little))
+    }
 }
 
-pub fn u32_at(b: &[u8], at: usize, le: bool) -> u32 {
-    let a: [u8; 4] = b[at..at + 4].try_into().unwrap();
-    if le { u32::from_le_bytes(a) } else { u32::from_be_bytes(a) }
+macro_rules! word {
+    ($($t:ty),*) => {$(
+        impl Word for $t {
+            const SIZE: usize = size_of::<$t>();
+            fn of(b: &[u8], little: bool) -> Self {
+                let a = b.try_into().unwrap();
+                if little { <$t>::from_le_bytes(a) } else { <$t>::from_be_bytes(a) }
+            }
+        }
+    )*};
+}
+word!(u8, i8, u16, i16, u32, i32, u64, i64, f32, f64);
+
+/// The unsigned integer of the `n` bytes at `at` of `b` (n at most 8), little-endian if
+/// `little`; panics past the end of `b`.
+pub fn uint(b: &[u8], at: usize, n: usize, little: bool) -> u64 {
+    let b = &b[at..at + n];
+    if little { b.iter().rev().fold(0, |a, &c| a << 8 | c as u64) } else { b.iter().fold(0, |a, &c| a << 8 | c as u64) }
 }
 
-pub fn u64_at(b: &[u8], at: usize, le: bool) -> u64 {
-    let a: [u8; 8] = b[at..at + 8].try_into().unwrap();
-    if le { u64::from_le_bytes(a) } else { u64::from_be_bytes(a) }
-}
-
-pub fn i32le(b: &[u8], at: usize) -> i32 {
-    i32::from_le_bytes(b[at..at + 4].try_into().unwrap())
-}
-
-pub fn i64le(b: &[u8], at: usize) -> i64 {
-    i64::from_le_bytes(b[at..at + 8].try_into().unwrap())
+/// `uint`, or None past the end of `b`.
+pub fn try_uint(b: &[u8], at: usize, n: usize, little: bool) -> Option<u64> {
+    (at.checked_add(n)? <= b.len()).then(|| uint(b, at, n, little))
 }
 
 #[cfg(test)]

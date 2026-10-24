@@ -5,6 +5,7 @@
 //! a valid IR: the IR holds what it needs.
 
 use super::{arr, json_text, n, truthy};
+use crate::fed::Word;
 use crate::ir::{source_text, Ir, NO_INDEX, STRUCT};
 use crate::lv::{base64, well_formed};
 use crate::out::{array_json, group_json, image_ome, omero_channel, omero_json, omero_window, payload_size, root_json, transpose_codec, Out, Part, MAX_PAYLOAD};
@@ -83,7 +84,7 @@ fn bytes_of(v: &Val) -> &[u8] {
 /// A string's exact JSON value: the text, or {"utf16": base64} when it is not
 /// well-formed UTF-16.
 fn exact_text(units: &[u8]) -> J {
-    let u: Vec<u16> = units.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+    let u: Vec<u16> = units.chunks_exact(2).map(|c| u16::le_at(c, 0)).collect();
     if well_formed(&u) {
         json!(String::from_utf16_lossy(&u))
     } else {

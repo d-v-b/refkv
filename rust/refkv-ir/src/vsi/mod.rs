@@ -16,6 +16,7 @@ pub mod ets;
 pub mod tiff;
 pub mod tree;
 
+use crate::fed::Word;
 use crate::ir::{Ir, NO_INDEX, Res, key_name};
 use crate::rules::{self, Rules, flag, num, text};
 use crate::store::{StoreParser, StoreStep};
@@ -209,8 +210,7 @@ impl Vsi {
         let b = self.take((self.vsi, 0, size))?;
         self.check("file", rules::env([("size", num(size as f64))]))?;
         let order = String::from_utf8_lossy(&b[..2]).to_string();
-        let magic = u16::from_le_bytes([b[2], b[3]]);
-        let first = u32::from_le_bytes(b[4..8].try_into().unwrap()) as u64;
+        let (magic, first) = (u16::le_at(&b, 2), u32::le_at(&b, 4) as u64);
         self.check("tiff_header", rules::env([("order", text(&order)), ("magic", num(magic as f64)), ("first_ifd", num(first as f64)), ("size", num(size as f64))]))?;
         let root = tree::parse(self.rules, &b, 8, size, 0)?;
         self.ifds = tiff::chain(self.rules, &b, first)?;
@@ -692,18 +692,18 @@ fn fill_value(e: &ets::Ets) -> J {
     match e.data_type.as_str() {
         "int8" => json!(b[0] as i8),
         "uint8" => json!(b[0]),
-        "int16" => json!(i16::from_le_bytes([b[0], b[1]])),
-        "uint16" => json!(u16::from_le_bytes([b[0], b[1]])),
-        "int32" => json!(i32::from_le_bytes(b[..4].try_into().unwrap())),
-        "uint32" => json!(u32::from_le_bytes(b[..4].try_into().unwrap())),
-        "int64" => json!(i64::from_le_bytes(b[..8].try_into().unwrap())),
-        "uint64" => json!(u64::from_le_bytes(b[..8].try_into().unwrap())),
+        "int16" => json!(i16::le_at(b, 0)),
+        "uint16" => json!(u16::le_at(b, 0)),
+        "int32" => json!(i32::le_at(b, 0)),
+        "uint32" => json!(u32::le_at(b, 0)),
+        "int64" => json!(i64::le_at(b, 0)),
+        "uint64" => json!(u64::le_at(b, 0)),
         "float32" => {
-            let v = f32::from_le_bytes(b[..4].try_into().unwrap());
+            let v = f32::le_at(b, 0);
             if v.is_finite() { json!(v) } else { json!(0) }
         }
         _ => {
-            let v = f64::from_le_bytes(b[..8].try_into().unwrap());
+            let v = f64::le_at(b, 0);
             if v.is_finite() { json!(v) } else { json!(0) }
         }
     }

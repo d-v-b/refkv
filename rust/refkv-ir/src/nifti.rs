@@ -11,7 +11,7 @@
 //! bytes after the voxels).
 
 use crate::check;
-use crate::fed::Fed;
+use crate::fed::{Fed, Word};
 use crate::ir::*;
 use crate::nd2::Step;
 use crate::rules::{self, Rules, Vars, flag, num, text};
@@ -340,10 +340,7 @@ impl Nifti {
     /// the chain stops at an `esize` below 8 or past the voxel data.
     fn chain(&mut self, block: &[u8]) -> Res<()> {
         let e = if self.little { "<" } else { ">" };
-        let i32_at = |at: usize| {
-            let a: [u8; 4] = block[at..at + 4].try_into().unwrap();
-            if self.little { i32::from_le_bytes(a) } else { i32::from_be_bytes(a) }
-        };
+        let i32_at = |at: usize| i32::at(block, at, self.little);
         let mut p = 0usize;
         while p + 8 <= block.len() {
             let (esize, ecode) = (i32_at(p), i32_at(p + 4));

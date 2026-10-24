@@ -3,7 +3,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#73-datasets-and-sequences>):
 //! the bytes a parser was fed, element headers, and the profile's walk, which rejects.
 
-use crate::fed::{Fed, Overlap};
+use crate::fed::{Fed, Overlap, Word};
 use std::collections::HashMap;
 
 pub const UNDEFINED: u32 = 0xFFFF_FFFF;
@@ -123,13 +123,11 @@ impl Bytes {
     }
 
     pub fn u16(&self, o: u64, little: bool) -> R<u16> {
-        let b = self.get(o, 2)?;
-        Ok(if little { u16::from_le_bytes([b[0], b[1]]) } else { u16::from_be_bytes([b[0], b[1]]) })
+        Ok(u16::at(self.get(o, 2)?, 0, little))
     }
 
     pub fn u32(&self, o: u64, little: bool) -> R<u32> {
-        let b: [u8; 4] = self.get(o, 4)?.try_into().unwrap();
-        Ok(if little { u32::from_le_bytes(b) } else { u32::from_be_bytes(b) })
+        Ok(u32::at(self.get(o, 4)?, 0, little))
     }
 
     /// The element at `pos`, whose header must end by `end` (spec/virtualize/dicom.md §7.1
@@ -140,12 +138,10 @@ impl Bytes {
         }
         let b = self.get(pos, 8)?;
         let le = enc.little;
-        let g = if le { u16::from_le_bytes([b[0], b[1]]) } else { u16::from_be_bytes([b[0], b[1]]) };
-        let e = if le { u16::from_le_bytes([b[2], b[3]]) } else { u16::from_be_bytes([b[2], b[3]]) };
+        let (g, e) = (u16::at(b, 0, le), u16::at(b, 2, le));
         let tag = (g as u32) << 16 | e as u32;
         if g == 0xFFFE || !enc.explicit {
-            let n: [u8; 4] = b[4..8].try_into().unwrap();
-            let length = if le { u32::from_le_bytes(n) } else { u32::from_be_bytes(n) };
+            let length = u32::at(b, 4, le);
             return Ok(El { at: pos, tag, vr: None, value: pos + 8, length, little: le });
         }
         let v = [b[4], b[5]];
@@ -164,7 +160,7 @@ impl Bytes {
                 .collect();
             return reject(format!("unknown VR '{shown}' at {pos}"));
         }
-        let length = if le { u16::from_le_bytes([b[6], b[7]]) } else { u16::from_be_bytes([b[6], b[7]]) } as u32;
+        let length = u16::at(b, 6, le) as u32;
         Ok(El { at: pos, tag, vr: Some(v), value: pos + 8, length, little: le })
     }
 }

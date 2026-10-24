@@ -14,7 +14,7 @@
 
 use crate::check;
 use crate::expr::V;
-use crate::fed::{Fed, Overlap};
+use crate::fed::{Fed, Overlap, Word};
 use crate::ir::*;
 use crate::nd2::Step;
 use crate::rules::{self, Rules, Vars, flag, num, text};
@@ -898,9 +898,9 @@ impl Fits {
         let read = |at: usize, q: bool, row: u64| -> (i64, i64) {
             let o = (row * c.columns.row_bytes) as usize + at;
             if q {
-                (i64::from_be_bytes(raw[o..o + 8].try_into().unwrap()), i64::from_be_bytes(raw[o + 8..o + 16].try_into().unwrap()))
+                (i64::be_at(&raw, o), i64::be_at(&raw, o + 8))
             } else {
-                (i32::from_be_bytes(raw[o..o + 4].try_into().unwrap()) as i64, i32::from_be_bytes(raw[o + 4..o + 8].try_into().unwrap()) as i64)
+                (i32::be_at(&raw, o) as i64, i32::be_at(&raw, o + 4) as i64)
             }
         };
         // each tile's bytes in the heap: (start, length) from the heap's first byte, or None

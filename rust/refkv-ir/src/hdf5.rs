@@ -18,7 +18,7 @@
 //! bytes ([`Fail::Bad`]) is final; with misses before it, the round is retried (the outcome
 //! is the one a sequential reading would give).
 
-use crate::fed::{Fed, Overlap};
+use crate::fed::{Fed, Overlap, uint};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc as Rc;
 
@@ -156,11 +156,7 @@ pub fn le(d: &[u8], at: usize, n: usize) -> R<u64> {
     if at.checked_add(n).is_none_or(|e| e > d.len()) {
         return bad("truncated HDF5 structure");
     }
-    let mut v = 0u64;
-    for k in (0..n.min(8)).rev() {
-        v = (v << 8) | d[at + k] as u64;
-    }
-    Ok(v)
+    Ok(uint(d, at, n.min(8), true))
 }
 
 /// An address: None if undefined (all bits set), else at most 2^53 − 1.

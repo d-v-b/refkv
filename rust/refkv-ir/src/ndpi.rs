@@ -9,6 +9,7 @@
 //! (`Grid::new`); the projection (`project/ndpi.rs`) writes the chunks (`Grid::parts`). Both
 //! use the code here, so the payload the parser checks is the one the projection writes.
 
+use crate::fed::Word;
 use crate::ir::Ir;
 use crate::out::{payload_size, Part};
 use crate::rules::{self, flag, num, text, Res, Rules};
@@ -50,7 +51,7 @@ pub fn header(h: &[u8], rules: &Rules) -> Res<Header> {
     loop {
         let whole0 = pos + 4 <= h.len() && h[pos] == 0xFF;
         let marker = if whole0 { h[pos + 1] } else { 0 };
-        let length = if whole0 { u16::from_be_bytes([h[pos + 2], h[pos + 3]]) as usize } else { 0 };
+        let length = if whole0 { u16::be_at(h, pos + 2) as usize } else { 0 };
         let end = pos + 2 + length;
         let whole = whole0 && length >= 2 && end <= h.len();
         rules.check(
@@ -69,7 +70,7 @@ pub fn header(h: &[u8], rules: &Rules) -> Res<Header> {
                 sofs += 1;
                 sof = Some((pos, end));
             }
-            0xDD => dri = u16::from_be_bytes([h[pos + 4], h[pos + 5]]) as u64,
+            0xDD => dri = u16::be_at(h, pos + 4) as u64,
             0xDA => break,
             _ => {}
         }
@@ -150,7 +151,7 @@ pub fn frame(b: &[u8]) -> Scan {
         if pos + 4 > b.len() {
             return Scan::Need(pos as u64 + 4);
         }
-        let (marker, length) = (b[pos + 1], u16::from_be_bytes([b[pos + 2], b[pos + 3]]) as usize);
+        let (marker, length) = (b[pos + 1], u16::be_at(b, pos + 2) as usize);
         if b[pos] != 0xFF || length < 2 {
             return Scan::None;
         }
@@ -167,7 +168,7 @@ pub fn frame(b: &[u8]) -> Scan {
                 if hs == 0 || vs == 0 {
                     return Scan::None;
                 }
-                let be = |i: usize| u16::from_be_bytes([seg[i], seg[i + 1]]) as u64;
+                let be = |i: usize| u16::be_at(seg, i) as u64;
                 return Scan::Frame(Frame { at: pos as u64 + 5, height: be(5), width: be(7), mw: 8 * hs, mh: 8 * vs });
             }
             // a segment of the header: tables, application data, comments, DRI
@@ -336,9 +337,9 @@ pub fn uints(b: &[u8], typ: u16) -> Vec<u64> {
     b.chunks_exact(z)
         .map(|c| match z {
             1 => c[0] as u64,
-            2 => u16::from_le_bytes([c[0], c[1]]) as u64,
-            4 => u32::from_le_bytes(c.try_into().unwrap()) as u64,
-            _ => u64::from_le_bytes(c.try_into().unwrap()),
+            2 => u16::le_at(c, 0) as u64,
+            4 => u32::le_at(c, 0) as u64,
+            _ => u64::le_at(c, 0),
         })
         .collect()
 }
@@ -349,7 +350,7 @@ pub fn tag_values(ir: &Ir, value: u32, typ: u16, high: Option<u32>) -> Vec<u64> 
     let mut v = ir.value_bytes(value).map(|b| uints(b, typ)).unwrap_or_default();
     if let (Some(h), 1, true) = (high, v.len(), matches!(typ, 4 | 13)) {
         if let Some(hb) = ir.value_bytes(h) {
-            v[0] += (u32::from_le_bytes(hb[..4].try_into().unwrap()) as u64) << 32;
+            v[0] += (u32::le_at(hb, 0) as u64) << 32;
         }
     }
     v

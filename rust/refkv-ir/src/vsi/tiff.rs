@@ -5,6 +5,7 @@
 //! file; each IFD's elements (its entries, out-of-line values, strips and EXIF IFD) are
 //! emitted under the field whose region holds it, and what the region has left is gaps.
 
+use crate::fed::Word;
 use crate::ir::{GAP, Ir, NO_INDEX, Res};
 use crate::rules::{self, Rules, num};
 use serde_json::json;
@@ -70,13 +71,6 @@ fn value_type(typ: u16, count: u32) -> String {
     }
 }
 
-fn u16_at(b: &[u8], o: usize) -> u16 {
-    u16::from_le_bytes([b[o], b[o + 1]])
-}
-fn u32_at(b: &[u8], o: usize) -> u32 {
-    u32::from_le_bytes(b[o..o + 4].try_into().unwrap())
-}
-
 impl Ifd {
     pub fn entry(&self, tag: u16) -> Option<&Entry> {
         self.entries.iter().find(|e| e.tag == tag)
@@ -95,8 +89,8 @@ impl Ifd {
         let d: &[u8] = if e.inline { &e.field[..n] } else { b.get(e.off as usize..e.off as usize + n)? };
         Some(d.chunks_exact(w).map(|c| match w {
             1 => c[0] as u64,
-            2 => u16_at(c, 0) as u64,
-            _ => u32_at(c, 0) as u64,
+            2 => u16::le_at(c, 0) as u64,
+            _ => u32::le_at(c, 0) as u64,
         }).collect())
     }
 
@@ -121,22 +115,22 @@ impl Ifd {
 /// Reads the IFD at `o` (the file's bytes `b`), checking it.
 fn read_ifd(rules: &Rules, b: &[u8], o: u64, index: usize, exif: bool, seen: usize) -> Res<Ifd> {
     let size = b.len() as u64;
-    let count = if o + 2 <= size { u16_at(b, o as usize) as u64 } else { 0 };
+    let count = if o + 2 <= size { u16::le_at(b, o as usize) as u64 } else { 0 };
     rules.check("ifd", &mut rules::env([("offset", num(o as f64)), ("count", num(count as f64)), ("size", num(size as f64)), ("ifds", num(seen as f64))]))?;
     let mut entries = Vec::with_capacity(count as usize);
     for i in 0..count as usize {
         let at = o as usize + 2 + 12 * i;
-        let tag = u16_at(b, at);
-        let typ = u16_at(b, at + 2);
-        let n = u32_at(b, at + 4);
+        let tag = u16::le_at(b, at);
+        let typ = u16::le_at(b, at + 2);
+        let n = u32::le_at(b, at + 4);
         let field: [u8; 4] = b[at + 8..at + 12].try_into().unwrap();
         let nbytes = type_size(typ).map(|z| z * n as u64);
         let inline = nbytes.is_some_and(|x| x <= 4);
-        let off = if inline { 0 } else { u32_at(&field, 0) as u64 };
+        let off = if inline { 0 } else { u32::le_at(&field, 0) as u64 };
         entries.push(Entry { tag, typ, count: n, field, nbytes, inline, off });
     }
     let end = o + 2 + 12 * count + 4;
-    let next = u32_at(b, (end - 4) as usize);
+    let next = u32::le_at(b, (end - 4) as usize);
     Ok(Ifd { offset: o, end, entries, next, index, exif })
 }
 
@@ -152,7 +146,7 @@ pub fn chain(rules: &Rules, b: &[u8], first: u64) -> Res<Vec<Ifd>> {
         }
         let ifd = read_ifd(rules, b, o, index, false, out.len())?;
         o = ifd.next as u64;
-        let exif = ifd.entry(34665).filter(|e| e.typ == 4 || e.typ == 13 || e.typ == 3).map(|e| u32_at(&e.field, 0) as u64);
+        let exif = ifd.entry(34665).filter(|e| e.typ == 4 || e.typ == 13 || e.typ == 3).map(|e| u32::le_at(&e.field, 0) as u64);
         out.push(ifd);
         if let Some(x) = exif.filter(|&x| x != 0) {
             if at.insert(x, ()).is_some() {

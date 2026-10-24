@@ -3,6 +3,7 @@
 //! archive's end records, its central directory, its local headers, and its deflated XML
 //! documents. The functions are pure: the parser reads the bytes they name.
 
+use crate::fed::{Word, uint};
 use crate::rules::{self, Rules, flag, num, text};
 
 pub const EOCD: &[u8; 4] = b"PK\x05\x06";
@@ -16,16 +17,6 @@ pub const MAX_TAIL: u64 = 65557;
 pub const MAX_DEFLATED: u64 = 1 << 26;
 /// the most bytes of all the deflated XML documents together
 pub const MAX_INFLATED: u64 = 1 << 27;
-
-fn le16(b: &[u8], at: usize) -> u64 {
-    u16::from_le_bytes([b[at], b[at + 1]]) as u64
-}
-fn le32(b: &[u8], at: usize) -> u64 {
-    u32::from_le_bytes(b[at..at + 4].try_into().unwrap()) as u64
-}
-fn le64(b: &[u8], at: usize) -> u64 {
-    u64::from_le_bytes(b[at..at + 8].try_into().unwrap())
-}
 
 /// A central directory file header, as §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form> reads it, with where it is.
 #[derive(Clone, Debug, Default)]
@@ -72,7 +63,7 @@ pub fn eocd(rules: &Rules, tail: &[u8], n: u64) -> Result<End, String> {
     let mut at = tail.len();
     let found = loop {
         let Some(k) = tail[..at].windows(4).rposition(|w| w == EOCD) else { break None };
-        if k + 22 <= tail.len() && k + 22 + le16(tail, k + 20) as usize == tail.len() {
+        if k + 22 <= tail.len() && k + 22 + uint(tail, k + 20, 2, true) as usize == tail.len() {
             break Some(k);
         }
         at = k;
@@ -80,19 +71,19 @@ pub fn eocd(rules: &Rules, tail: &[u8], n: u64) -> Result<End, String> {
     let k = found.ok_or("not a zip file: no end of central directory record")?;
     let eocd = n - tail.len() as u64 + k as u64;
     let (disk, cd_disk, here, count, cd_size, cd_offset) =
-        (le16(tail, k + 4), le16(tail, k + 6), le16(tail, k + 8), le16(tail, k + 10), le32(tail, k + 12), le32(tail, k + 16));
+        (uint(tail, k + 4, 2, true), uint(tail, k + 6, 2, true), uint(tail, k + 8, 2, true), uint(tail, k + 10, 2, true), uint(tail, k + 12, 4, true), uint(tail, k + 16, 4, true));
     rules.check("zip_end", &mut rules::env([("disks", flag(disk == 0 && cd_disk == 0)), ("counts", flag(here == count))]))?;
     let zip64 = count == 0xFFFF || cd_size == 0xFFFF_FFFF || cd_offset == 0xFFFF_FFFF;
     if zip64 && eocd < 20 {
         return Err("a ZIP64 zip file has no ZIP64 end of central directory locator".into());
     }
-    Ok(End { eocd, comment: le16(tail, k + 20), count, cd_size, cd_offset, zip64: zip64.then_some((eocd - 20, 0)) })
+    Ok(End { eocd, comment: uint(tail, k + 20, 2, true), count, cd_size, cd_offset, zip64: zip64.then_some((eocd - 20, 0)) })
 }
 
 /// The ZIP64 locator's record offset.
 pub fn zip64_locator(loc: &[u8], end: &End) -> Result<u64, String> {
-    let (rec, disks) = (le64(loc, 8), le32(loc, 16));
-    if &loc[0..4] != ZIP64_LOCATOR || le32(loc, 4) != 0 || disks != 1 {
+    let (rec, disks) = (u64::le_at(loc, 8), uint(loc, 16, 4, true));
+    if &loc[0..4] != ZIP64_LOCATOR || uint(loc, 4, 4, true) != 0 || disks != 1 {
         return Err("a ZIP64 zip file has no valid ZIP64 end of central directory locator".into());
     }
     if rec.checked_add(56).is_none_or(|e| e > end.eocd - 20) {
@@ -106,11 +97,11 @@ pub fn zip64_record(rules: &Rules, body: &[u8], end: &mut End, rec: u64) -> Resu
     if &body[0..4] != ZIP64_EOCD {
         return Err("a zip file has no ZIP64 end of central directory record where its locator says".into());
     }
-    let (d1, d2, here, count) = (le32(body, 16), le32(body, 20), le64(body, 24), le64(body, 32));
+    let (d1, d2, here, count) = (uint(body, 16, 4, true), uint(body, 20, 4, true), u64::le_at(body, 24), u64::le_at(body, 32));
     rules.check("zip_end", &mut rules::env([("disks", flag(d1 == 0 && d2 == 0)), ("counts", flag(here == count))]))?;
     end.count = count;
-    end.cd_size = le64(body, 40);
-    end.cd_offset = le64(body, 48);
+    end.cd_size = u64::le_at(body, 40);
+    end.cd_offset = u64::le_at(body, 48);
     end.zip64 = end.zip64.map(|(l, _)| (l, rec));
     Ok(())
 }
@@ -124,7 +115,7 @@ pub fn cd_end(end: &End) -> u64 {
 fn zip64_extra(extra: &[u8], wanted: usize) -> Result<Vec<u64>, String> {
     let mut p = 0;
     while p + 4 <= extra.len() {
-        let (hid, size) = (le16(extra, p), le16(extra, p + 2) as usize);
+        let (hid, size) = (uint(extra, p, 2, true), uint(extra, p + 2, 2, true) as usize);
         if p + 4 + size > extra.len() {
             break;
         }
@@ -132,7 +123,7 @@ fn zip64_extra(extra: &[u8], wanted: usize) -> Result<Vec<u64>, String> {
             if size < 8 * wanted {
                 return Err("a zip entry's ZIP64 extra field is too short".into());
             }
-            return Ok((0..wanted).map(|k| le64(extra, p + 4 + 8 * k)).collect());
+            return Ok((0..wanted).map(|k| u64::le_at(extra, p + 4 + 8 * k)).collect());
         }
         p += 4 + size;
     }
@@ -147,8 +138,8 @@ pub fn central_directory(rules: &Rules, cd: &[u8], end: &End) -> Result<Vec<Entr
         if p + 46 > cd.len() || &cd[p..p + 4] != CENTRAL {
             return Err("a zip file's central directory has fewer entries than it says".into());
         }
-        let (flags, method, crc, mut cs, mut us) = (le16(cd, p + 8), le16(cd, p + 10), le32(cd, p + 16) as u32, le32(cd, p + 20), le32(cd, p + 24));
-        let (nn, ne, nc, disk, mut lho) = (le16(cd, p + 28), le16(cd, p + 30), le16(cd, p + 32), le16(cd, p + 34), le32(cd, p + 42));
+        let (flags, method, crc, mut cs, mut us) = (uint(cd, p + 8, 2, true), uint(cd, p + 10, 2, true), uint(cd, p + 16, 4, true) as u32, uint(cd, p + 20, 4, true), uint(cd, p + 24, 4, true));
+        let (nn, ne, nc, disk, mut lho) = (uint(cd, p + 28, 2, true), uint(cd, p + 30, 2, true), uint(cd, p + 32, 2, true), uint(cd, p + 34, 2, true), uint(cd, p + 42, 4, true));
         let len = 46 + (nn + ne + nc) as usize;
         if p + len > cd.len() {
             return Err("a zip file's central directory entry is truncated".into());
@@ -254,8 +245,8 @@ pub fn local_header(head: &[u8], e: &mut Entry, cd_offset: u64) -> Result<(), St
         return Err("a zip entry has no local header where the central directory says".into());
     }
     e.local = head[..30].to_vec();
-    e.local_nn = le16(head, 26);
-    e.local_ne = le16(head, 28);
+    e.local_nn = uint(head, 26, 2, true);
+    e.local_ne = uint(head, 28, 2, true);
     e.ds = e.lho + 30 + e.local_nn + e.local_ne;
     if e.ds.checked_add(e.cs).is_none_or(|x| x > cd_offset) {
         return Err("a zip entry's data reaches beyond the entries".into());

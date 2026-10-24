@@ -21,6 +21,7 @@
 //! coarse-level IFDs sit there, after an inline `Coarse pyramid level` field) holds TIFF
 //! structures too, or padding.
 
+use crate::fed::Word;
 use crate::ir::{Ir, NO_INDEX, Res};
 use crate::rules::{self, Rules, flag, num};
 use serde_json::{Value as J, json};
@@ -113,26 +114,13 @@ impl Container {
     }
 }
 
-fn u16_at(b: &[u8], o: usize) -> u16 {
-    u16::from_le_bytes([b[o], b[o + 1]])
-}
-fn u32_at(b: &[u8], o: usize) -> u32 {
-    u32::from_le_bytes(b[o..o + 4].try_into().unwrap())
-}
-fn i32_at(b: &[u8], o: usize) -> i32 {
-    u32_at(b, o) as i32
-}
-fn i64_at(b: &[u8], o: usize) -> i64 {
-    i64::from_le_bytes(b[o..o + 8].try_into().unwrap())
-}
-
 /// Parses the container at `fp` with the region end `end`, checking each container and field
 /// against the schema (§9.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#91-the-vsi-file>).
 pub fn parse(rules: &Rules, b: &[u8], fp: u64, end: u64, depth: u32) -> Res<Container> {
     let fits = fp.checked_add(CONTAINER_HEADER).is_some_and(|e| e <= end && end <= b.len() as u64);
     let (header_size, version, volume_version, data_offset, flags) = if fits {
         let h = &b[fp as usize..(fp + CONTAINER_HEADER) as usize];
-        (u16_at(h, 0), u16_at(h, 2), i32_at(h, 4), i64_at(h, 8), u32_at(h, 16))
+        (u16::le_at(h, 0), u16::le_at(h, 2), i32::le_at(h, 4), i64::le_at(h, 8), u32::le_at(h, 16))
     } else {
         (0, 0, 0, 0, 0)
     };
@@ -155,7 +143,7 @@ pub fn parse(rules: &Rules, b: &[u8], fp: u64, end: u64, depth: u32) -> Res<Cont
         let have = p + 16 <= end;
         let (ftype, tag, next, size) = if have {
             let h = &b[p as usize..p as usize + 16];
-            (u32_at(h, 0), u32_at(h, 4), u32_at(h, 8), u32_at(h, 12))
+            (u32::le_at(h, 0), u32::le_at(h, 4), u32::le_at(h, 8), u32::le_at(h, 12))
         } else {
             (0, 0, 0, 0)
         };
@@ -165,7 +153,7 @@ pub fn parse(rules: &Rules, b: &[u8], fp: u64, end: u64, depth: u32) -> Res<Cont
         let real = ftype & 0x00ff_ffff;
         let header = if extra { 20 } else { 16 };
         let q = p + header;
-        let tag2 = (extra && q <= end).then(|| u32_at(b, p as usize + 16));
+        let tag2 = (extra && q <= end).then(|| u32::le_at(b, p as usize + 16));
         let region_end = if next == 0 { end } else { fp.saturating_add(next as u64) };
         // where the data ends (§2.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#21-containers-and-fields>)
         let data_end = if inline {
@@ -253,7 +241,7 @@ pub fn value_type(rules: &Rules, real: u32, n: u64) -> String {
 /// A UTF-16LE text value as JSON: the code units up to the first NUL, decoded (a lone
 /// surrogate as U+FFFD, as Bio-Formats' decoder does).
 fn utf16_json(d: &[u8]) -> J {
-    let units: Vec<u16> = d.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+    let units: Vec<u16> = d.chunks_exact(2).map(|c| u16::le_at(c, 0)).collect();
     let n = units.iter().position(|&u| u == 0).unwrap_or(units.len());
     J::String(String::from_utf16_lossy(&units[..n]))
 }
@@ -290,14 +278,14 @@ pub fn value_json(rules: &Rules, real: u32, d: &[u8]) -> J {
         match code {
             "u1" => json!(c[0]),
             "i1" => json!(c[0] as i8),
-            "u2" => json!(u16::from_le_bytes([c[0], c[1]])),
-            "i2" => json!(i16::from_le_bytes([c[0], c[1]])),
-            "u4" => json!(u32::from_le_bytes(c.try_into().unwrap())),
-            "i4" => json!(i32::from_le_bytes(c.try_into().unwrap())),
-            "u8" => int_json(u64::from_le_bytes(c.try_into().unwrap()) as i128),
-            "i8" => int_json(i64::from_le_bytes(c.try_into().unwrap()) as i128),
-            "f4" => float_json(f32::from_le_bytes(c.try_into().unwrap()) as f64),
-            _ => float_json(f64::from_le_bytes(c.try_into().unwrap())),
+            "u2" => json!(u16::le_at(c, 0)),
+            "i2" => json!(i16::le_at(c, 0)),
+            "u4" => json!(u32::le_at(c, 0)),
+            "i4" => json!(i32::le_at(c, 0)),
+            "u8" => int_json(u64::le_at(c, 0) as i128),
+            "i8" => int_json(i64::le_at(c, 0) as i128),
+            "f4" => float_json(f32::le_at(c, 0) as f64),
+            _ => float_json(f64::le_at(c, 0)),
         }
     };
     if d.len() == w {

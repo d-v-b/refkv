@@ -44,7 +44,7 @@
 
 use crate::check;
 use crate::expr::V;
-use crate::fed::{Fed, u16_at, u32_at, u64_at};
+use crate::fed::{Fed, Word};
 use crate::ir::*;
 use crate::nd2::Step;
 use crate::lzw;
@@ -423,7 +423,7 @@ impl Tiff {
         if self.big { 8 } else { 4 }
     }
     fn word(&self, b: &[u8], at: usize) -> u64 {
-        if self.big { u64_at(b, at, self.le) } else { u32_at(b, at, self.le) as u64 }
+        if self.big { u64::at(b, at, self.le) } else { u32::at(b, at, self.le) as u64 }
     }
     fn within(&self, o: u64, n: u64) -> bool {
         o.checked_add(n).is_some_and(|e| e <= self.size)
@@ -444,7 +444,7 @@ impl Tiff {
                     // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>):
                     // the IFD at V, the u64 at bytes 4–11, of a little-endian classic TIFF
                     if h.len() >= 12 && h[..4] == *b"II*\0" {
-                        let v = u64_at(&h, 4, true);
+                        let v = u64::at(&h, 4, true);
                         if v >= 16 && v.checked_add(2).is_some_and(|e| e <= self.size) {
                             self.head = h;
                             self.phase = Phase::Detect;
@@ -462,8 +462,8 @@ impl Tiff {
                 }
                 Phase::Detect => {
                     let h = std::mem::take(&mut self.head);
-                    let v = u64_at(&h, 4, true);
-                    let n = u16_at(self.fed.get(v, 2).ok_or("internal: no NDPI entry count")?, 0, true) as u64;
+                    let v = u64::at(&h, 4, true);
+                    let n = u16::at(self.fed.get(v, 2).ok_or("internal: no NDPI entry count")?, 0, true) as u64;
                     let end = v + 2 + 12 * n;
                     if end <= self.size && self.fed.get(v + 2, 12 * n).is_none() {
                         self.head = h;
@@ -474,8 +474,8 @@ impl Tiff {
                 }
                 Phase::DetectEntries => {
                     let h = std::mem::take(&mut self.head);
-                    let v = u64_at(&h, 4, true);
-                    let n = u16_at(self.fed.get(v, 2).ok_or("internal: no NDPI entry count")?, 0, true) as u64;
+                    let v = u64::at(&h, 4, true);
+                    let n = u16::at(self.fed.get(v, 2).ok_or("internal: no NDPI entry count")?, 0, true) as u64;
                     self.decide(&h, v, n)?;
                 }
                 Phase::Chain => {
@@ -652,8 +652,8 @@ impl Tiff {
             _ => "other",
         };
         self.le = order == "II";
-        let magic = if h.len() >= 4 { u16_at(h, 2, self.le) } else { 0 };
-        let (os, rs) = if h.len() >= 8 { (u16_at(h, 4, self.le), u16_at(h, 6, self.le)) } else { (0, 0) };
+        let magic = if h.len() >= 4 { u16::at(h, 2, self.le) } else { 0 };
+        let (os, rs) = if h.len() >= 8 { (u16::at(h, 4, self.le), u16::at(h, 6, self.le)) } else { (0, 0) };
         self.check(
             "header",
             rules::env([
@@ -686,7 +686,7 @@ impl Tiff {
     fn decide(&mut self, h: &[u8], v: u64, n: u64) -> Res<()> {
         let within = v + 2 + 12 * n <= self.size;
         let ndpi = within
-            && self.fed.get(v + 2, 12 * n).is_some_and(|e| (0..n as usize).any(|i| u16_at(e, 12 * i, true) == 65420));
+            && self.fed.get(v + 2, 12 * n).is_some_and(|e| (0..n as usize).any(|i| u16::at(e, 12 * i, true) == 65420));
         if ndpi {
             self.ndpi = true;
             self.rules = rules::of("ndpi");
@@ -727,10 +727,10 @@ impl Tiff {
         let Some(body) = self.fed.get(o + cs, n) else {
             return Ok(Some(self.ask(vec![(o + cs, n)])));
         };
-        let Some(raw) = body.chunks_exact(es as usize).find(|e| u16_at(e, 0, self.le) == 305).map(|e| e.to_vec()) else {
+        let Some(raw) = body.chunks_exact(es as usize).find(|e| u16::at(e, 0, self.le) == 305).map(|e| e.to_vec()) else {
             return Ok(None);
         };
-        let (typ, count) = (u16_at(&raw, 2, self.le), self.word(&raw, 4));
+        let (typ, count) = (u16::at(&raw, 2, self.le), self.word(&raw, 4));
         let want = QPI_SOFTWARE.len() as u64;
         if typ != 2 || count < want {
             return Ok(None); // a longer value than the field holds: never in line
@@ -873,7 +873,7 @@ impl Tiff {
             if p.tree && p.depth == 0 {
                 self.chain.push(k);
                 if self.ndpi {
-                    self.next = u64_at(&body, self.next_of(count), true);
+                    self.next = u64::at(&body, self.next_of(count), true);
                 } else {
                     let f = self.fs() as usize;
                     self.next = self.word(&body, body.len() - f);
@@ -890,7 +890,7 @@ impl Tiff {
     }
 
     fn word_n(&self, b: &[u8]) -> u64 {
-        if self.big { u64_at(b, 0, self.le) } else { u16_at(b, 0, self.le) as u64 }
+        if self.big { u64::at(b, 0, self.le) } else { u16::at(b, 0, self.le) as u64 }
     }
 
     /// Emits the IFD at `p.offset` from its bytes, checking its fields (tree IFDs).
@@ -920,15 +920,15 @@ impl Tiff {
         for i in 0..count as usize {
             let at = cs + i * es;
             let raw = &body[at..at + es];
-            let tag = u16_at(raw, 0, self.le);
-            let typ = u16_at(raw, 2, self.le);
+            let tag = u16::at(raw, 0, self.le);
+            let typ = u16::at(raw, 2, self.le);
             let n = self.word(raw, 4);
             let field = raw[4 + fs..4 + 2 * fs].to_vec();
             let nbytes = type_size(typ).and_then(|z| z.checked_mul(n));
             let inline = nbytes.is_some_and(|b| b <= fs as u64);
             // NDPI: the entry's high word, after the next-IFD offset
             let hat = self.next_of(count) + 8 + 4 * i;
-            let high = if self.ndpi { u32_at(body, hat, true) as u64 } else { 0 };
+            let high = if self.ndpi { u32::at(body, hat, true) as u64 } else { 0 };
             let off = if inline { 0 } else { self.word(&field, 0) + (high << 32) };
             let dup = *dups.get(&tag).unwrap_or(&0);
             dups.insert(tag, dup + 1);
@@ -1011,16 +1011,16 @@ impl Tiff {
         let n = if first { 1.min(e.count) } else { e.count };
         if self.ndpi && e.inline && e.count == 1 && matches!(e.typ, 4 | 13) {
             // an NDPI LONG or IFD of count 1 in line: its 4 bytes plus its high word
-            return Some(vec![u32_at(&e.field, 0, true) as u64 + (e.high << 32)]);
+            return Some(vec![u32::at(&e.field, 0, true) as u64 + (e.high << 32)]);
         }
         let b = self.bytes_of(e, n * z)?;
         Some(
             b.chunks(z as usize)
                 .map(|c| match e.typ {
                     1 => c[0] as u64,
-                    3 => u16_at(c, 0, self.le) as u64,
-                    4 | 13 => u32_at(c, 0, self.le) as u64,
-                    _ => u64_at(c, 0, self.le),
+                    3 => u16::at(c, 0, self.le) as u64,
+                    4 | 13 => u32::at(c, 0, self.le) as u64,
+                    _ => u64::at(c, 0, self.le),
                 })
                 .collect(),
         )
@@ -1336,9 +1336,9 @@ impl Tiff {
         b.chunks(z)
             .map(|c| match typ {
                 1 => c[0] as u64,
-                3 => u16_at(c, 0, self.le) as u64,
-                4 | 13 => u32_at(c, 0, self.le) as u64,
-                _ => u64_at(c, 0, self.le),
+                3 => u16::at(c, 0, self.le) as u64,
+                4 | 13 => u32::at(c, 0, self.le) as u64,
+                _ => u64::at(c, 0, self.le),
             })
             .collect()
     }
@@ -1375,8 +1375,8 @@ impl Tiff {
                         let v = match tag {
                             270 | 347 => Loaded::Bytes(b),
                             282 | 283 | 286 | 287 => Loaded::Pairs(vec![(
-                                u32_at(&b, 0, self.le) as u64,
-                                u32_at(&b, 4, self.le) as u64,
+                                u32::at(&b, 0, self.le) as u64,
+                                u32::at(&b, 4, self.le) as u64,
                             )]),
                             _ => Loaded::Ints(self.view_ints(&b, e.typ)),
                         };
@@ -2266,11 +2266,11 @@ impl Tiff {
                 };
                 let c = b.chunks_exact(z as usize);
                 match e.typ {
-                    8 => Nv::Signed(c.map(|x| i16::from_le_bytes([x[0], x[1]]) as i64).collect()),
-                    9 => Nv::Signed(c.map(|x| i32::from_le_bytes(x.try_into().unwrap()) as i64).collect()),
-                    11 => Nv::Floats(c.map(|x| f32::from_le_bytes(x.try_into().unwrap()) as f64).collect()),
-                    12 => Nv::Floats(c.map(|x| f64::from_le_bytes(x.try_into().unwrap())).collect()),
-                    5 => Nv::Rats(c.map(|x| (u32_at(x, 0, true) as u64, u32_at(x, 4, true) as u64)).collect()),
+                    8 => Nv::Signed(c.map(|x| i16::le_at(x, 0) as i64).collect()),
+                    9 => Nv::Signed(c.map(|x| i32::le_at(x, 0) as i64).collect()),
+                    11 => Nv::Floats(c.map(|x| f32::le_at(x, 0) as f64).collect()),
+                    12 => Nv::Floats(c.map(|x| f64::le_at(x, 0)).collect()),
+                    5 => Nv::Rats(c.map(|x| (u32::at(x, 0, true) as u64, u32::at(x, 4, true) as u64)).collect()),
                     _ => return Err("internal: an NDPI tag of an unexpected type".into()),
                 }
             };
