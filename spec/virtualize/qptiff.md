@@ -19,11 +19,7 @@ window too, and an integer channel without a sampled window has the type's range
 [revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
 (a profile's changes are recorded here, dated, from then on)
 
-This document has two parts. [Part 1](#part-1-the-convention) is the QPTIFF
-convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the QPTIFF profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The document is
-numbered on its own, Part 2 after Part 1, and other documents cite it by name.
+This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 The format is described by Akoya's "PerkinElmer image format" note
 (`PKI_Image Format.docx`, 2015, with its public sample files at
@@ -39,9 +35,9 @@ convention, and the profile rejects it.
 
 ## 1. Declaration
 
-The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "qptiff"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)), the file's URL as `source.url`,
-and the source metadata of [§5](#5-source-metadata) as the member `"qptiff"`. Its CMO is:
+The root and `refkv_source` declare the convention
+([conventions §11.2](../conventions.md#112-declaration)), the root with the source
+metadata of [§5](#5-source-metadata) as the member `"qptiff"`. Its CMO is:
 
 ```json
 {
@@ -52,11 +48,6 @@ and the source metadata of [§5](#5-source-metadata) as the member `"qptiff"`. I
   "description": "The Zarr layout of a QPTIFF source virtualized by refkv, and the source's metadata"
 }
 ```
-
-`refkv_source` declares it too, with the IR mirror's description ([§5](#5-source-metadata),
-[conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
-the mirror's view that has a member; the mirror's arrays have no
-attributes.
 
 ## 2. The source
 
@@ -287,9 +278,8 @@ SamplesPerPixel.
 The root's source metadata `S` is `{"byte_order": "little" | "big",
 "bigtiff": true | false}`, as the TIFF convention's. Everything else the
 file holds is on `refkv_source`, which is the file's **IR mirror**
-([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `refkv_source/tree`. The QPTIFF
-**source model** is the [TIFF source model](tiff.md#5-source-metadata)
+([conventions §11.3](../conventions.md#113-the-ir-mirror)).
+The QPTIFF **source model** is the [TIFF source model](tiff.md#5-source-metadata)
 (its elements, which IFDs, its values), without `ome/planes/<p>` (a QPTIFF
 has no OME-XML planes), and with the TIFF convention's named array rule
 ("layout tables", [conventions §8.8](../conventions.md#88-canonical-form)),
@@ -299,10 +289,8 @@ StripOffsets and StripByteCounts). Every QPI description, the ScanProfile
 included, is a value of its IFD's ImageDescription, held in the mirror; the
 channel names and colors the layout reads are also in `omero`.
 
-The elements are determined by the file, and the mirror by its elements
-([conventions §8.8](../conventions.md#88-canonical-form)): hierarchies of one
-file are compared entry for entry, `refkv_source` included
-([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
+Hierarchies of one file are compared entry for entry, `refkv_source` included
+([conventions §11.4](../conventions.md#114-equivalence)).
 
 ## 6. Example
 
@@ -359,14 +347,8 @@ and label, which the layout leaves out.
 # Part 2. The profile
 
 The QPTIFF profile of [spec/virtualize.md](../virtualize.md) is [§7](#7-qptiff-profile) of this document. It builds on the TIFF profile
-([tiff.md §7](tiff.md#7-tiff-profile), [tiff.md](tiff.md#part-2-the-profile)).
-[§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout)
-are in spec/virtualize.md and apply here.
-
-The output has the convention's layout for the input
-([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
-how the file is read, which inputs are rejected, and how each chunk
-references the file. "The convention §n" below is a section of Part 1.
+([tiff.md §7](tiff.md#7-tiff-profile), [tiff.md](tiff.md#part-2-the-profile)). What every profile's Part 2 shares is in
+[spec/virtualize.md, Profiles](../virtualize.md#profiles).
 
 ## 7. QPTIFF profile
 
