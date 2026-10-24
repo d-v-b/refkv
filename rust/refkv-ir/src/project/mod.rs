@@ -15,6 +15,7 @@
 mod audio;
 mod contiguous;
 pub mod store;
+mod tiled;
 mod window;
 
 // Every profile's projection (src/project/<profile>.rs), by the registry (profiles/; build.rs)

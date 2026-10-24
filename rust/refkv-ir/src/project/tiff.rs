@@ -4,15 +4,12 @@
 //! translation, and the OME-XML's channel names and colors (its `omero`); the windows of its
 //! `omero` are sampled from the coarsest level's chunks, which the run reads (`reads`).
 
-use super::{arr, key, n, obj, strs, translations, truthy, window, Copied};
+use super::tiled::{self, MAX_NAME};
+use super::{arr, n, strs, window, Copied};
 use crate::ir::Ir;
-use crate::out::{array_json, image_ome, omero_channel, omero_json, root_json, sample_channels, tiff_codecs, transpose_codec, type_window, Out};
-use crate::refs::Refs;
+use crate::out::{omero_channel, omero_json, root_json, sample_channels, type_window, Out};
 use crate::tiff::MAX_OMERO;
 use serde_json::{json, Value as J};
-
-/// The longest channel name taken for a label.
-const MAX_NAME: usize = 256;
 
 /// A channel's omero color from its OME-XML `Color` (a signed 32-bit integer, `RRGGBBAA`), else
 /// white.
@@ -57,22 +54,9 @@ fn omero(facts: &J, size_c: u64, data_type: &str, sampled: &[Option<J>]) -> Opti
     Some(omero_json(channels.collect()))
 }
 
-/// The data type of the samples (spec/virtualize/tiff.md §4.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#43-data-types-and-codecs>).
-fn data_type(facts: &J) -> Result<String, String> {
-    let kind = match n(&facts["sample_format"]) {
-        1 => "uint",
-        2 => "int",
-        3 => "float",
-        f => return Err(format!("internal: sample format {f}")),
-    };
-    Ok(format!("{kind}{}", n(&facts["bits"])))
-}
-
 /// The axes, and a level's shape and chunk shape along them.
 fn level_shape<'a>(facts: &'a J, lv: &J) -> (Vec<&'a str>, Vec<u64>, Vec<u64>) {
     let spp = n(&facts["spp"]);
-    let contig = spp > 1 && n(&facts["planar"]) == 1;
     let sizes = &facts["sizes"];
     let (w, h, tw, th) = (n(&lv["w"]), n(&lv["h"]), n(&lv["tw"]), n(&lv["th"]));
     let axes = strs(&facts["axes"]);
@@ -84,7 +68,7 @@ fn level_shape<'a>(facts: &'a J, lv: &J) -> (Vec<&'a str>, Vec<u64>, Vec<u64>) {
         _ => x,
     };
     let shape = axes.iter().map(|a| of(a, n(&sizes["t"]), n(&sizes["c"]), n(&sizes["z"]), h, w)).collect();
-    let chunk = axes.iter().map(|a| of(a, 1, if contig { spp } else { 1 }, 1, th, tw)).collect();
+    let chunk = axes.iter().map(|a| of(a, 1, if tiled::contig(facts) { spp } else { 1 }, 1, th, tw)).collect();
     (axes, shape, chunk)
 }
 
@@ -106,37 +90,21 @@ fn samples(facts: &J) -> Vec<window::Sample> {
 /// The source's ranges the windows sample (`samples`): their chunks' bytes, which the run
 /// reads after the parser.
 pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
-    let s = samples(facts);
-    if s.is_empty() {
-        return Ok(Vec::new());
-    }
-    let last = arr(&facts["levels"]).len() - 1;
-    Ok(window::reads(&arrays(ir, facts, "", Some(last))?.0, &s))
+    tiled::reads(ir, facts, &samples(facts), arrays)
 }
 
-/// The levels' arrays and chunks (every level's, or only level `only`'s), and their shapes.
+/// The levels' arrays and chunks (every level's, or only level `only`'s), and their shapes: a
+/// level's chunks are the tiles of each plane (t, c, z), keyed along the axes of more than one.
 fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Vec<Vec<u64>>), String> {
-    let little = facts["little"].as_bool().unwrap_or(false);
-    let (spp, planar, bits) = (n(&facts["spp"]), n(&facts["planar"]), n(&facts["bits"]));
     let sizes = &facts["sizes"];
     let (size_t, size_c, size_z) = (n(&sizes["t"]), n(&sizes["c"]), n(&sizes["z"]));
     let plane_c = n(&facts["plane_c"]);
-    let contig = spp > 1 && planar == 1;
-    let data_type = data_type(facts)?;
-    let mut codecs = if contig { vec![transpose_codec(&strs(&facts["axes"]))] } else { vec![] };
-    codecs.extend(tiff_codecs(n(&facts["compression"]), bits, little));
-    let codecs = J::Array(codecs);
-    let mut refs = Refs::new(ir, Out::new(url));
-    let levels = arr(&facts["levels"]);
-    let mut shapes = Vec::with_capacity(levels.len());
-    for (li, lv) in levels.iter().enumerate() {
-        if only.is_some_and(|l| l != li) {
-            continue;
-        }
+    let shape = |lv: &J| {
+        let (_, shape, chunk) = level_shape(facts, lv);
+        (shape, chunk)
+    };
+    tiled::arrays(ir, facts, url, only, shape, |refs, li, lv| {
         let (w, h, tw, th) = (n(&lv["w"]), n(&lv["h"]), n(&lv["tw"]), n(&lv["th"]));
-        let (axes, shape, chunk) = level_shape(facts, lv);
-        refs.out.json(&format!("{li}/zarr.json"), &array_json(&shape, &data_type, json!(chunk), codecs.clone(), &axes));
-        shapes.push(shape);
         let across = w.div_ceil(tw);
         let per = across * h.div_ceil(th);
         let planes = arr(&lv["planes"]);
@@ -145,54 +113,40 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
             for c in 0..plane_c {
                 for z in 0..size_z {
                     let tiles = planes.get(((t * plane_c + c) * size_z + z) as usize).and_then(|v| v.as_u64());
-                    let mut members = tiles.map(|e| ir.members(e as u32)).unwrap_or_default();
-                    members.sort_unstable();
-                    for (k, start, length, form) in members {
-                        let (s, j) = (k / per, k % per);
+                    let coords = |s, row, col| {
                         let mut coords = Vec::with_capacity(5);
                         if size_t > 1 {
                             coords.push(t);
                         }
                         if size_c > 1 {
-                            coords.push(if spp > 1 { if contig { 0 } else { s } } else { c });
+                            coords.push(tiled::channel(facts, s, c));
                         }
                         if size_z > 1 {
                             coords.push(z);
                         }
-                        coords.extend([j / across, j % across]);
-                        refs.chunk(key(&prefix, coords), start, length, form, None, 0)?;
-                    }
+                        coords.extend([row, col]);
+                        coords
+                    };
+                    tiled::plane(refs, &prefix, tiles, per, across, coords, |_, _, _, _| None)?;
                 }
             }
         }
-    }
-    Ok((refs.out, shapes))
+        Ok(())
+    })
 }
 
 /// The TIFF image: one array per level, its chunks the tiles of each plane. `copied` holds the
 /// bytes of the chunks the windows sample (`reads`).
 pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    let little = facts["little"].as_bool().unwrap_or(false);
     let axes = strs(&facts["axes"]);
-    let levels = arr(&facts["levels"]);
-    let data_type = data_type(facts)?;
+    let data_type = tiled::data_type(facts)?;
     let (mut out, shapes) = arrays(ir, facts, url, None)?;
-    let samples = samples(facts);
-    let sampled = match levels.last() {
-        Some(lv) if !samples.is_empty() => {
-            let size = level_shape(facts, lv).2.iter().product::<u64>() * (n(&facts["bits"]) / 8);
-            window::windows(&out, &samples, copied, n(&facts["compression"]), &data_type, little, size)
-        }
-        _ => Vec::new(),
-    };
-    let tr = &facts["translation"];
-    let trs = J::Array(if truthy(tr) { vec![tr.clone(); levels.len()] } else { vec![] });
-    let mut ome = image_ome(&axes, &obj(&facts["units"]), arr(&facts["scales"]), Some(&facts["name"]), translations(&trs))?;
+    let sampled = tiled::sampled(&out, facts, &samples(facts), |lv| level_shape(facts, lv).2, &data_type, copied);
+    let mut ome = tiled::ome(facts, &axes, Some(&facts["name"]))?;
     if let Some(omero) = omero(facts, n(&facts["sizes"]["c"]), &data_type, &sampled) {
         ome["omero"] = omero;
     }
-    let own = json!({"byte_order": if little { "little" } else { "big" }, "bigtiff": facts["bigtiff"]});
-    out.json("zarr.json", &root_json(ome, "tiff", url, Some(own)));
+    out.json("zarr.json", &root_json(ome, "tiff", url, Some(tiled::own(facts))));
     out.summary = json!({"axes": axes, "levels": shapes, "references": out.refs.len()});
     Ok(out)
 }
