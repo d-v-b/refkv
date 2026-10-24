@@ -28,7 +28,8 @@ fn bad<T>(m: impl Into<String>) -> Res<T> {
     Err(DecodeError(m.into()))
 }
 
-pub(crate) fn put_varint(out: &mut Vec<u8>, mut n: u64) {
+/// Appends `n` as a base-128 varint.
+pub fn put_varint(out: &mut Vec<u8>, mut n: u64) {
     while n > 0x7f {
         out.push((n as u8 & 0x7f) | 0x80);
         n >>= 7;
@@ -60,7 +61,8 @@ pub(crate) fn put_optional(out: &mut Vec<u8>, field: u32, n: u64) {
     put_varint(out, n);
 }
 
-fn get_varint(buf: &[u8], pos: &mut usize) -> Res<u64> {
+/// Reads a varint at `pos`, and moves `pos` past it: at most 10 bytes, and at most 2^64 - 1.
+pub fn get_varint(buf: &[u8], pos: &mut usize) -> Res<u64> {
     let mut result: u128 = 0;
     for i in 0..10 {
         let Some(&b) = buf.get(*pos) else {
@@ -534,6 +536,16 @@ mod tests {
         assert_eq!(Range::decode(&[0x08, 0x01, 0x38, 0x05, 0x39, 0, 0, 0, 0, 0, 0, 0, 0, 0x08, 0x02]).unwrap(), Range::of(2, 0, 0));
         // the last kind on the wire wins
         assert_eq!(Source::decode(&[0x0a, 0x01, b'a', 0x12, 0x01, b'k']).unwrap(), Source::key("k"));
+    }
+
+    #[test]
+    fn varints_round_trip() {
+        for n in [0, 1, 127, 128, 300, u32::MAX as u64, u64::MAX] {
+            let mut b = Vec::new();
+            put_varint(&mut b, n);
+            let mut pos = 0;
+            assert_eq!((get_varint(&b, &mut pos).unwrap(), pos), (n, b.len()));
+        }
     }
 
     #[test]
