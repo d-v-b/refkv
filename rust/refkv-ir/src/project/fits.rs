@@ -5,11 +5,11 @@
 //! `data` element), a group with the arrays `rows` and `heap` for a table, and an empty
 //! group for an HDU without data, each declaring the convention with its own cards.
 
-use super::Copied;
+use super::{contiguous, Copied};
 use crate::fits::{card, parse_cards, Card, Value};
 use crate::fits_tiles::{prefix, TileRecord};
 use crate::ir::Ir;
-use crate::out::{array_json, blob_chunks, declare, grid_chunks, group_doc, json_size, Chunk, Out, Part, MAX_PAYLOAD};
+use crate::out::{array_json, blob_chunks, declare, grid_chunks, group_doc, json_size, Chunk, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -141,21 +141,18 @@ fn arrays(ir: &Ir, h: &J, threshold: usize) -> Result<Vec<(String, String, Vec<u
 
 /// The source's ranges of the edge chunks the projection copies.
 pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
-    let threshold = facts["copy_threshold"].as_u64().map_or(MAX_PAYLOAD, |t| t as usize);
+    let threshold = contiguous::threshold(facts);
     let mut out = Vec::new();
     for h in facts["hdus"].as_array().into_iter().flatten() {
         for (_, _, _, _, _, _, chunks) in arrays(ir, h, threshold)? {
-            out.extend(chunks.iter().filter_map(|(_, k)| match k {
-                Chunk::Copy(o, n, _) => Some((*o, *n)),
-                _ => None,
-            }));
+            out.extend(contiguous::copy_reads(&chunks));
         }
     }
     Ok(out)
 }
 
 pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
-    let threshold = facts["copy_threshold"].as_u64().map_or(MAX_PAYLOAD, |t| t as usize);
+    let threshold = contiguous::threshold(facts);
     let hdus = facts["hdus"].as_array().cloned().unwrap_or_default();
     let mut out = Out::new(url);
     // the root: the table of HDUs and the primary header's cards (§5.1
@@ -222,19 +219,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
                 Some(e) => (ir.start[e as usize], ir.len[e as usize], ir.form_id(e).ok_or("internal: the data has no form")?),
                 None => (0, 0, 0),
             };
-            for (piece, (coords, chunk)) in chunks.into_iter().enumerate() {
-                count += 1;
-                let key = std::iter::once(format!("{path}/c")).chain(coords.iter().map(|c| c.to_string())).collect::<Vec<_>>().join("/");
-                match chunk {
-                    Chunk::Ranges(parts) => refs.chunk(key, start, length, form, Some(parts), piece as u64)?,
-                    Chunk::Copy(o, len, pad) => {
-                        let mut b = copied.get(&(o, len)).ok_or("a copied chunk's bytes were not read: project a run's IR with the bytes its last batch read")?.clone();
-                        b.resize(b.len() + pad as usize, 0);
-                        refs.out.bytes(&key, b);
-                    }
-                    Chunk::Bytes(b) => refs.out.bytes(&key, b),
-                }
-            }
+            count += chunks.len();
+            contiguous::emit(&mut refs, chunks, (start, length, form), copied, &[&format!("{path}/c/")], |c| c)?;
         }
     }
     // the tile-compressed images (§3.3

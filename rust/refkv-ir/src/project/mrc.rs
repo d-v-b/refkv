@@ -5,11 +5,11 @@
 //! IR: the header is the IR's `header` value, and the array's chunks are cut from its
 //! `data` element.
 
-use super::{base64, float_json, json_text, n, Copied};
+use super::{base64, contiguous, float_json, json_text, n, Copied};
 use crate::ir::Ir;
 use crate::mrc::{Header, FIELDS};
 use crate::nifti::Num;
-use crate::out::{array_json, declare, grid_chunks, group_doc, image_ome, omero_channel, omero_json, omero_window, root_json, Chunk, Out, MAX_PAYLOAD};
+use crate::out::{array_json, declare, grid_chunks, group_doc, image_ome, omero_channel, omero_json, omero_window, root_json, Chunk, Out};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -118,8 +118,7 @@ fn cut(h: &Header, offset: u64, facts: &J) -> Result<Cut, String> {
         ),
         _ => (named.clone(), vec![nz, ny, nx]),
     };
-    let threshold = facts["copy_threshold"].as_u64().map_or(MAX_PAYLOAD, |t| t as usize);
-    let (grid, chunks) = grid_chunks(offset, &shape, item, CHUNK_BYTES, threshold).ok_or("internal: the data cannot be cut into chunks")?;
+    let (grid, chunks) = grid_chunks(offset, &shape, item, CHUNK_BYTES, contiguous::threshold(facts)).ok_or("internal: the data cannot be cut into chunks")?;
     Ok(Cut { kind, axes, names: named, mapped, shape, item, grid, chunks })
 }
 
@@ -134,10 +133,7 @@ fn parts<'a>(ir: &'a Ir, facts: &J) -> Result<(Header<'a>, u32), String> {
 pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
     let (h, data) = parts(ir, facts)?;
     let c = cut(&h, ir.start[data as usize], facts)?;
-    Ok(c.chunks.iter().filter_map(|(_, k)| match k {
-        Chunk::Copy(o, n, _) => Some((*o, *n)),
-        _ => None,
-    }).collect())
+    Ok(contiguous::copy_reads(&c.chunks).collect())
 }
 
 fn valid(v: f64) -> bool {
@@ -245,31 +241,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     out.json(&format!("{DATASET}/data/zarr.json"), &data);
     let count = chunks.len();
     let mut refs = Refs::new(ir, out);
-    for (piece, (coords, chunk)) in chunks.into_iter().enumerate() {
-        let coords = coords.iter().map(|c| c.to_string()).collect::<Vec<_>>().join("/");
-        let (key, dkey) = (format!("0/c/{coords}"), format!("{DATASET}/data/c/{coords}"));
-        match chunk {
-            Chunk::Ranges(parts) => {
-                let same = parts.clone();
-                refs.chunk(key, offset, length, form, Some(parts), piece as u64)?;
-                refs.out.refs(&dkey, same);
-            }
-            // an edge chunk whose padding does not fit in a reference: its bytes, then the padding
-            Chunk::Copy(o, len, pad) => {
-                let mut b = copied
-                    .get(&(o, len))
-                    .ok_or("a copied chunk's bytes were not read: project a run's IR with the bytes its last batch read")?
-                    .clone();
-                b.resize(b.len() + pad as usize, 0);
-                refs.out.bytes(&key, b.clone());
-                refs.out.bytes(&dkey, b);
-            }
-            Chunk::Bytes(b) => {
-                refs.out.bytes(&key, b.clone());
-                refs.out.bytes(&dkey, b);
-            }
-        }
-    }
+    // the data variable's chunks are the image's, not charged again
+    contiguous::emit(&mut refs, chunks, (offset, length, form), copied, &["0/c/", &format!("{DATASET}/data/c/")], |c| c)?;
     let mut out = refs.out;
     // the coordinates (spec/virtualize/mrc-dataset.md §3
     // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc-dataset.md#3-coordinates>): the

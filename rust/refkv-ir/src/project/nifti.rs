@@ -5,10 +5,10 @@
 //! IR: the header is the IR's `header` value, and the array's chunks are cut from its
 //! `voxels` element.
 
-use super::{float_json, json_text, n, Copied};
+use super::{contiguous, float_json, json_text, n, Copied};
 use crate::ir::Ir;
 use crate::nifti::{Header, Num};
-use crate::out::{array_json, grid_chunks, image_ome, omero_channel, omero_json, omero_window, root_json, Chunk, Out, MAX_PAYLOAD};
+use crate::out::{array_json, grid_chunks, image_ome, omero_channel, omero_json, omero_window, root_json, Chunk, Out};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -113,7 +113,7 @@ fn cut(h: &Header, vox: u64, facts: &J) -> Result<Cut, String> {
         })
         .collect();
     let item = bits / 8 / samples;
-    let (grid, chunks) = grid_chunks(vox, &shape, item, CHUNK_BYTES, facts["copy_threshold"].as_u64().map_or(MAX_PAYLOAD, |t| t as usize)).ok_or("internal: the voxel data cannot be cut into chunks")?;
+    let (grid, chunks) = grid_chunks(vox, &shape, item, CHUNK_BYTES, contiguous::threshold(facts)).ok_or("internal: the voxel data cannot be cut into chunks")?;
     Ok(Cut { axes, stored, shape, item, grid, chunks })
 }
 
@@ -128,10 +128,7 @@ fn parts<'a>(ir: &'a Ir, facts: &J) -> Result<(Header<'a>, u32), String> {
 pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
     let (h, voxels) = parts(ir, facts)?;
     let c = cut(&h, ir.start[voxels as usize], facts)?;
-    Ok(c.chunks.iter().filter_map(|(_, k)| match k {
-        Chunk::Copy(o, n, _) => Some((*o, *n)),
-        _ => None,
-    }).collect())
+    Ok(contiguous::copy_reads(&c.chunks).collect())
 }
 
 pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
@@ -264,22 +261,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     out.json("0/zarr.json", &array_json(&shape, data_type, json!(chunk_shape), J::Array(codecs), &axes));
     let count = chunks.len();
     let mut refs = Refs::new(ir, out);
-    for (piece, (coords, chunk)) in chunks.into_iter().enumerate() {
-        let key = format!("0/c/{}", axes.iter().map(|a| coords[pos(a)].to_string()).collect::<Vec<_>>().join("/"));
-        match chunk {
-            Chunk::Ranges(parts) => refs.chunk(key, vox, length, form, Some(parts), piece as u64)?,
-            // an edge chunk whose padding does not fit in a reference: its bytes, then the padding
-            Chunk::Copy(o, len, pad) => {
-                let mut b = copied
-                    .get(&(o, len))
-                    .ok_or("a copied chunk's bytes were not read: project a run's IR with the bytes its last batch read")?
-                    .clone();
-                b.resize(b.len() + pad as usize, 0);
-                refs.out.bytes(&key, b);
-            }
-            Chunk::Bytes(b) => refs.out.bytes(&key, b),
-        }
-    }
+    // the chunks' coordinates in the array's axis order
+    contiguous::emit(&mut refs, chunks, (vox, length, form), copied, &["0/c/"], |c| axes.iter().map(|a| c[pos(a)]).collect())?;
     let mut out = refs.out;
     let sizes: Map<String, J> = axes.iter().map(|a| (a.to_string(), json!(shape_of(a)))).collect();
     out.summary = json!({

@@ -12,6 +12,7 @@
 //! projection checks nothing (the parser checked the schema)
 //! and reads nothing (the IR holds what it needs).
 
+mod contiguous;
 pub mod store;
 mod window;
 
