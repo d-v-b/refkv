@@ -18,6 +18,7 @@ mod ims;
 pub mod n5;
 mod mp3;
 mod mrc;
+mod fits;
 mod nd2;
 mod ndpi;
 pub mod store;
@@ -54,6 +55,7 @@ pub fn project(format: Format, ir: &Ir, facts: &J, url: &str, copied: &Copied) -
         Format::Ndpi => ndpi::project(ir, facts, url),
         Format::Vsi => Err("a VSI input is virtualized as a store run".into()),
         Format::Qptiff => qptiff::project(ir, facts, url, copied),
+        Format::Fits => fits::project(ir, facts, url, copied),
     }
 }
 
@@ -67,6 +69,7 @@ pub fn reads(format: Format, ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, Stri
         Format::Mrc => mrc::reads(ir, facts),
         Format::Tiff => tiff::reads(ir, facts),
         Format::Qptiff => qptiff::reads(ir, facts),
+        Format::Fits => fits::reads(ir, facts),
         _ => Ok(Vec::new()),
     }
 }

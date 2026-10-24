@@ -76,7 +76,7 @@ export function isDicom(head: Uint8Array): boolean {
 
 const HDF5 = [0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a];
 
-type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc" | "vsi" | "qptiff" | "mp3"; summary: object };
+type ImageDesc = ArchiveDesc & { format: "tiff" | "ndpi" | "nd2" | "dicom" | "nifti" | "ims" | "czi" | "safe" | "mrc" | "vsi" | "qptiff" | "mp3" | "fits"; summary: object };
 
 /** `exact`, when given, reads exactly the ranges asked for, past `read`'s block cache: the
  * Rust core's requests, which it plans itself, are read with it.
@@ -171,6 +171,9 @@ export function irFormat(head: Uint8Array): IrFormat | undefined {
   // `ID3` at 0, or a valid MPEG audio frame header: an MP3 file (spec/virtualize/mp3.md §17.1
   // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#171-the-stream>)
   if ((head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33) || isMpegHeader(head)) return "mp3";
+  // `SIMPLE  =` and a fixed-format T in column 30: a FITS file (spec/virtualize/fits.md §18.1
+  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#181-choosing-the-profile>)
+  if (head.length >= 30 && String.fromCharCode(...head.subarray(0, 9)) === "SIMPLE  =" && head[29] === 0x54) return "fits";
   return undefined;
 }
 
@@ -189,7 +192,7 @@ async function virtualizeFile(url: string, { read, size: fileSize, exact, source
   if (isDicom(head)) return virtualizeIr("dicom", url, source);
   const ir = irFormat(head);
   if (ir === "tiff" || ir === "nd2") return virtualizeIr(ir, url, source);
-  if (ir === "nifti" || ir === "ims" || ir === "czi" || ir === "safe" || ir === "mrc" || ir === "mp3") return virtualizeIr(ir, url, source);
+  if (ir === "nifti" || ir === "ims" || ir === "czi" || ir === "safe" || ir === "mrc" || ir === "mp3" || ir === "fits") return virtualizeIr(ir, url, source);
   throw new ImageError(NOT_SUPPORTED);
 }
 

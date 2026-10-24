@@ -40,6 +40,31 @@ pub extern "C" fn vz_out() -> *const u8 {
     OUT.with(|o| o.borrow().as_ptr())
 }
 
+/// The `refkv.fits_tiles` codec (spec/virtualize/fits.md §3.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>):
+/// decodes the chunk at `chunk` (`n` bytes) with the configuration JSON at `config` (`nc`
+/// bytes) into the pixels of the chunk shape at `shape` (`rank` little-endian u64), in
+/// `vz_out`: the pixels' length, or minus a message's.
+///
+/// # Safety
+/// The pointers come from `vz_alloc` with those lengths.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_fits_tiles_decode(chunk: *const u8, n: usize, config: *const u8, nc: usize, shape: *const u8, rank: usize) -> i64 {
+    let chunk = unsafe { std::slice::from_raw_parts(chunk, n) };
+    let config = unsafe { std::slice::from_raw_parts(config, nc) };
+    let shape = unsafe { std::slice::from_raw_parts(shape, rank * 8) };
+    let shape: Vec<u64> = shape.chunks(8).map(|b| u64::from_le_bytes(b.try_into().unwrap())).collect();
+    let decoded = std::str::from_utf8(config)
+        .map_err(|e| e.to_string())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).map_err(|e| e.to_string()))
+        .and_then(|v| crate::fits_tiles::Config::from_json(&v))
+        .and_then(|cfg| crate::fits_tiles::decode(chunk, &cfg, &shape));
+    match decoded {
+        Ok(b) => set_out(b) as i64,
+        Err(e) => -(set_out(e.into_bytes()) as i64),
+    }
+}
+
 fn step_out(r: Result<Step, String>) -> i64 {
     match r {
         Ok(Step::Read(r)) => 1 + set_out(r.iter().flat_map(|(o, n)| [o.to_le_bytes(), n.to_le_bytes()]).flatten().collect()) as i64,

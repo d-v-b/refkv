@@ -10,6 +10,7 @@ use crate::nd2::{Nd2, Step};
 use crate::plan::{Planner, Request};
 use crate::mp3::Mp3;
 use crate::mrc::Mrc;
+use crate::fits::Fits;
 use crate::nifti::Nifti;
 use crate::safe::Safe;
 use crate::tiff::Tiff;
@@ -43,6 +44,8 @@ pub enum Format {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#16-qptiff-profile>), as
     /// `Ndpi`: a run of `Tiff` becomes one of `Qptiff`.
     Qptiff,
+    /// a FITS file (images, multi-extension files, tables)
+    Fits,
 }
 
 impl Format {
@@ -62,6 +65,7 @@ impl Format {
             Format::Mp3 => "mp3",
             Format::Vsi => "vsi",
             Format::Qptiff => "qptiff",
+            Format::Fits => "fits",
         }
     }
     /// Whether the format's input, a file, is virtualized by a store run rather than a file
@@ -71,9 +75,9 @@ impl Format {
         matches!(self, Format::Vsi)
     }
 
-    /// The format of a name ("nd2", "tiff", "czi", "dicom", "nifti", "ims", "safe", "ndpi", "mrc", "vsi", "qptiff", "mp3").
+    /// The format of a name ("nd2", "tiff", "czi", "dicom", "nifti", "ims", "safe", "ndpi", "mrc", "vsi", "qptiff", "mp3", "fits").
     pub fn from_name(s: &str) -> Option<Format> {
-        [Format::Nd2, Format::Tiff, Format::Czi, Format::Dicom, Format::Nifti, Format::Ims, Format::Safe, Format::Ndpi, Format::Mrc, Format::Vsi, Format::Qptiff, Format::Mp3].into_iter().find(|f| f.name() == s)
+        [Format::Nd2, Format::Tiff, Format::Czi, Format::Dicom, Format::Nifti, Format::Ims, Format::Safe, Format::Ndpi, Format::Mrc, Format::Vsi, Format::Qptiff, Format::Mp3, Format::Fits].into_iter().find(|f| f.name() == s)
     }
     /// The format a file's first bytes give, if one of these: a hint, the format of its
     /// signature (any zip file is taken for a SAFE product's zip form, which then rejects one
@@ -113,6 +117,9 @@ impl Format {
         if crate::mp3::detect(head) {
             return Some(Format::Mp3);
         }
+        if crate::fits::detect(head) {
+            return Some(Format::Fits);
+        }
         None
     }
 }
@@ -129,6 +136,7 @@ pub enum AnyParser {
     Mp3(Mp3),
     /// a VSI file, which no file run reads (its parser is a store parser)
     Vsi,
+    Fits(Fits),
 }
 
 impl AnyParser {
@@ -144,6 +152,7 @@ impl AnyParser {
             Format::Mrc => AnyParser::Mrc(Mrc::new(size)),
             Format::Mp3 => AnyParser::Mp3(Mp3::new(size)),
             Format::Vsi => AnyParser::Vsi,
+            Format::Fits => AnyParser::Fits(Fits::new(size)),
         }
     }
     pub fn step(&mut self) -> Result<Step, String> {
@@ -158,6 +167,7 @@ impl AnyParser {
             AnyParser::Mrc(x) => x.step(),
             AnyParser::Mp3(x) => x.step(),
             AnyParser::Vsi => Err("a VSI file is virtualized as a store run, with its tile files".into()),
+            AnyParser::Fits(x) => x.step(),
         }
     }
     pub fn feed(&mut self, o: u64, b: Vec<u8>) {
@@ -172,6 +182,7 @@ impl AnyParser {
             AnyParser::Mrc(x) => x.feed(o, b),
             AnyParser::Mp3(x) => x.feed(o, b),
             AnyParser::Vsi => {}
+            AnyParser::Fits(x) => x.feed(o, b),
         }
     }
     pub fn finish(self) -> Result<(Ir, serde_json::Value), String> {
@@ -186,6 +197,7 @@ impl AnyParser {
             AnyParser::Mrc(x) => Parser::finish(x),
             AnyParser::Mp3(x) => Parser::finish(x),
             AnyParser::Vsi => Err("a VSI file is virtualized as a store run, with its tile files".into()),
+            AnyParser::Fits(x) => Parser::finish(x),
         }
     }
 }

@@ -34,6 +34,7 @@ who each one is for, what you get, and how to run it.
 | VSI | Olympus cellSens whole-slide images (`.vsi` with its tile files) | [vsi](vsi/README.md) | [§15](../../spec/virtualize/vsi.md#part-2-the-profile) |
 | QPTIFF | Akoya (PerkinElmer) Vectra multiplex scans and inForm component data | [qptiff](qptiff/README.md) | [§16](../../spec/virtualize/qptiff.md#part-2-the-profile) |
 | MP3 | MP3 audio files, as an array of samples (`.mp3`) | [mp3](mp3/README.md) | [§17](../../spec/virtualize/mp3.md#part-2-the-profile) |
+| FITS | FITS images and tables (`.fits`, `.fz`) | [fits](fits/README.md) | [§18](../../spec/virtualize/fits.md#part-2-the-profile) |
 <!-- /profiles -->
 
 A format that reads a file takes a URL, or a local path. One that reads a

@@ -16,6 +16,7 @@ its JSON Schema `virtualize/<format>/schema.json`:
 | DICOM | [dicom](virtualize/dicom.md) | `acf17198-e5a5-48d3-8187-22ec4bb40ea5` |
 | NIfTI-1 and NIfTI-2 | [nifti](virtualize/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
 | MRC2014 | [mrc](virtualize/mrc.md) | `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` |
+| FITS | [fits](virtualize/fits.md) | `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` |
 | MRC2014, as a dataset ([§9](#9-dataset-layouts)) | [mrc-dataset](virtualize/mrc-dataset.md) | `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` |
 | Imaris IMS | [ims](virtualize/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
 | N5 | [n5](virtualize/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
