@@ -8,7 +8,11 @@ How refkv produces this layout as a reference store is the NDPI profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `6cac71ef-dbb2-4acd-b60c-00389aa4238a` ·
-Schema: [schema.json](ndpi/schema.json) · Changed 2026-10-22: the image has an `omero` member
+Schema: [schema.json](ndpi/schema.json) · Changed 2026-10-24: a level without McuStarts whose
+strip's frame header is not the level's size has the level's size spliced into the frame header
+when it needs the same MCU rows and columns, and is otherwise not a level (rejected when it is
+level 0) ([§3](#3-levels), [§4](#4-the-image)); the profile reads such a strip's header
+([§7](#7-ndpi-profile)) · Changed 2026-10-22: the image has an `omero` member
 ([§4](#4-the-image)), after
 [revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
 (a profile's changes are recorded here, dated, from then on)
@@ -78,6 +82,10 @@ within the file and be at least 4 bytes long (a JPEG stream's SOI and EOI),
 and each MUST be strictly smaller in both width and length than the
 one before. If two levels have the same Magnification (focal planes), the
 input is rejected. Other IFDs (the macro image, the slide map) are ignored.
+A level without McuStarts whose strip's frame cannot be given the level's
+size ([§4](#4-the-image), **Chunks**) is not a level after all: it is left
+out, and its IFD stays in the source metadata like the ignored ones; when
+it is the first level, the input is rejected.
 The array has axes `c`, `y`, `x`, data type `uint8`, and codecs
 `transpose` and `imagecodecs_jpeg` ([conventions §3](../conventions.md#3-arrays)).
 
@@ -109,7 +117,22 @@ convention §4.4](tiff.md#44-arrays), whose member order this follows.
 
 **Chunks.** A level's strip is a JPEG stream. Without McuStarts, the
 level is one chunk, the whole image (chunk shape `[3, H, W]`), which holds
-the strip. With McuStarts, the strip is a sequence of restart
+the strip. Its frame header (its first SOF0 segment) should give the size
+`W × H`, but some scanners write a frame a row short of the level's
+ImageLength: a decoder then gives an image of the frame's size, which is
+not the chunk's. So, when the frame's height `h` or width `w` differs from
+`H` or `W`, with an MCU of `mw × mh` pixels (8 times the frame's largest
+horizontal and vertical sampling factors):
+- if `ceil(H / mh) = ceil(h / mh)`, `ceil(W / mw) = ceil(w / mw)`, and `H`
+  and `W` are at most 65535, the chunk holds the strip with the frame's
+  height and width set to `H` and `W`. The stream encodes whole MCUs, so it
+  holds every pixel of that size: rows or columns the frame left out are
+  those the encoder padded its last MCU row or column with, and those it
+  adds are decoded and dropped;
+- otherwise the level is not a level ([§3](#3-levels)).
+
+A strip that has no frame header to read this way (the profile's
+[§7](#7-ndpi-profile)) is held as it is. With McuStarts, the strip is a sequence of restart
 **intervals**, each `R` MCUs of `mw × mh` pixels wide and one MCU tall, in
 row-major order, `q` per row and `r` rows (the profile defines them from
 the strip's JPEG header); a chunk is `a × b` intervals, `a` =
@@ -314,7 +337,8 @@ Magnification of every main-chain IFD, and every tag of the table of each
 level ([the convention §3](#3-levels)); of a
 scalar tag, its first value, of McuStarts, McuStartsHighBytes and
 BitsPerSample, every value. (A LONG or IFD value of count 1, with its high
-word, can exceed 2^53 − 1 too.) No other value is read for the layout, so
+word, can exceed 2^53 − 1 too.) The strip header of each level is read
+too, as **Strips** says. No other value is read for the layout, so
 the other IFDs' tags have only their field types, counts and places
 checked.
 
@@ -328,7 +352,28 @@ lie within the file. StripByteCounts MUST be at least 4, the SOI and EOI
 markers of the shortest JPEG stream.
 
 - **Without McuStarts,** the level is one chunk, the whole image (chunk
-  shape `[3, H, W]`), with the single range of `S`.
+  shape `[3, H, W]`). Its **frame header** is read from the first bytes of
+  `S`: `min(len(S), 1024)` of them, then, while the header continues past
+  the `n` bytes read and the `k` bytes it needs are at most
+  `c = min(len(S), 2^20)`, `min(c, max(k, 2 × n))` of them. The frame
+  header is the first SOF0 (`C0`) segment when `S` starts with SOI
+  (`FF D8`), then, after any `FF` fill bytes, each marker `FF xx` has a
+  2-byte length of at least 2, every segment before the SOF0 is one of
+  DQT, DHT, DAC, JPG, DRI, DNL, DHP, EXP, APPn, JPGn or COM (`xx` = `C4`,
+  `C8`, `CC`, `DB` to `DF`, `E0` to `FD`, `FE`), and the SOF0 segment is
+  `10 + 3 × Nf` bytes long with `Nf ≥ 1` components and sampling factors
+  whose largest horizontal and vertical are above 0. Otherwise (another
+  marker first, such as SOS or another SOFn; a header past `c` bytes; a
+  malformed segment) the strip has no frame header to read, and the chunk
+  is the single range of `S`: this reading never rejects the input. With a frame header of the level's
+  size, the chunk is the single range of `S` too. With one of another size
+  ([the convention §4](#4-the-image), **Chunks**), when the level's size
+  needs the same MCU rows and columns, the chunk is three parts: the range
+  of `S` up to the frame's height field (its SOF0 segment's bytes 5 and
+  6), a literal of 4 bytes, `H` and `W` as big-endian `u16`, and the range
+  of `S` after the frame's width field. Otherwise the level is left out
+  ([the convention §3](#3-levels)), and when it is level 0 the input is
+  rejected.
 - **With McuStarts,** let `M[i]` be its values, plus `McuStartsHighBytes[i]
   × 2^32` when that tag is present (it MUST then have as many values); they
   are offsets in `S`. `S`'s **header** is its first `M[0]` bytes: a JPEG SOI,

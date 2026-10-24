@@ -93,6 +93,90 @@ pub fn header(h: &[u8], rules: &Rules) -> Res<Header> {
     Ok(Header { sof: (a, b), mw: 8 * hs, mh: 8 * vs, restart: dri })
 }
 
+/// The first bytes of a strip without McuStarts read for its frame header, and the most read.
+pub const FRAME_READ: u64 = 1024;
+pub const MAX_FRAME_READ: u64 = 1 << 20;
+
+/// The frame header (SOF0) of a strip without McuStarts: where its height field is in the
+/// strip (the width's follows it), the frame's height and width, and the MCU's size.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Frame {
+    pub at: u64,
+    pub height: u64,
+    pub width: u64,
+    pub mw: u64,
+    pub mh: u64,
+}
+
+impl Frame {
+    /// Whether a `height` × `width` image needs as many MCU rows and columns as the frame, and
+    /// a frame header holds its size.
+    pub fn covers(&self, height: u64, width: u64) -> bool {
+        height <= MAX_SIDE
+            && width <= MAX_SIDE
+            && height.div_ceil(self.mh) == self.height.div_ceil(self.mh)
+            && width.div_ceil(self.mw) == self.width.div_ceil(self.mw)
+    }
+}
+
+/// What the first bytes of a strip without McuStarts say of its frame header.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scan {
+    /// its SOF0 segment, well formed
+    Frame(Frame),
+    /// the header continues past them: its first `n` bytes are needed
+    Need(u64),
+    /// none: no SOI, a malformed segment, a marker that is not a segment's, or SOS or another
+    /// SOFn before an SOF0, or a malformed SOF0
+    None,
+}
+
+/// Scans the first bytes `b` of a strip without McuStarts (spec/virtualize/ndpi.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>): SOI, then
+/// marker segments (each an `FF`, the marker and a length of at least 2, after any `FF` fill
+/// bytes) up to the first SOF0 segment. Unlike a McuStarts header (`header`), it never rejects.
+pub fn frame(b: &[u8]) -> Scan {
+    if b.len() < 2 {
+        return Scan::Need(2);
+    }
+    if b[..2] != [0xFF, 0xD8] {
+        return Scan::None;
+    }
+    let mut pos = 2usize;
+    loop {
+        while pos + 1 < b.len() && b[pos] == 0xFF && b[pos + 1] == 0xFF {
+            pos += 1;
+        }
+        if pos + 4 > b.len() {
+            return Scan::Need(pos as u64 + 4);
+        }
+        let (marker, length) = (b[pos + 1], u16::from_be_bytes([b[pos + 2], b[pos + 3]]) as usize);
+        if b[pos] != 0xFF || length < 2 {
+            return Scan::None;
+        }
+        let end = pos + 2 + length;
+        match marker {
+            0xC0 => {
+                let Some(seg) = b.get(pos..end) else { return Scan::Need(end as u64) };
+                let nf = seg.get(9).copied().unwrap_or(0) as usize;
+                if nf == 0 || seg.len() != 10 + 3 * nf {
+                    return Scan::None;
+                }
+                let factors = (0..nf).map(|k| seg[11 + 3 * k]);
+                let (hs, vs) = factors.fold((0, 0), |(h, v), f| (h.max((f >> 4) as u64), v.max((f & 15) as u64)));
+                if hs == 0 || vs == 0 {
+                    return Scan::None;
+                }
+                let be = |i: usize| u16::from_be_bytes([seg[i], seg[i + 1]]) as u64;
+                return Scan::Frame(Frame { at: pos as u64 + 5, height: be(5), width: be(7), mw: 8 * hs, mh: 8 * vs });
+            }
+            // a segment of the header: tables, application data, comments, DRI
+            0xC4 | 0xC8 | 0xCC | 0xDB..=0xDF | 0xE0..=0xEF | 0xF0..=0xFD | 0xFE => pos = end,
+            _ => return Scan::None,
+        }
+    }
+}
+
 /// A McuStarts level's intervals and chunk grid. `starts` are offsets in the strip
 /// (with McuStartsHighBytes); interval `i` is `[starts[i], ends[i])` of the strip.
 #[derive(Clone, Debug)]
@@ -356,6 +440,36 @@ mod tests {
     fn a_truncated_header_is_rejected() {
         let h = jpeg(&[0x11], 4);
         rejects(&h[..h.len() - 3], "malformed JPEG header in an NDPI strip");
+    }
+
+    #[test]
+    fn the_frame_is_the_first_sof0() {
+        let h = jpeg(&[0x22, 0x11, 0x11], 4);
+        // a fill byte and a comment before the SOF0 move it by 1 + 6 bytes
+        let mut b = h[..2].to_vec();
+        b.extend([0xFF, 0xFF, 0xFE, 0, 4, b'h', b'i']);
+        b.extend(&h[2..]);
+        let want = Frame { at: 2 + 7 + 5, height: 16, width: 32, mw: 16, mh: 16 };
+        assert_eq!(frame(&b), Scan::Frame(want));
+        assert_eq!(frame(&b[..12]), Scan::Need(13));
+        assert_eq!(frame(&b[..5]), Scan::Need(7));
+        assert!(want.covers(15, 17) && !want.covers(17, 32) && !want.covers(16, 33));
+        let big = Frame { height: 65535, width: 16, ..want };
+        assert!(!big.covers(65536, 16)); // as many MCU rows, but more than a frame header holds
+    }
+
+    #[test]
+    fn a_strip_without_a_frame_has_none() {
+        let h = jpeg(&[0x11], 4);
+        assert_eq!(frame(&h[1..]), Scan::None); // no SOI
+        let sos = [0xFF, 0xD8, 0xFF, 0xDA, 0, 2];
+        assert_eq!(frame(&sos), Scan::None);
+        let mut progressive = h.clone();
+        progressive[3] = 0xC2;
+        assert_eq!(frame(&progressive), Scan::None);
+        let mut zero = h.clone();
+        zero[2 + 4 + 7] = 0x01; // the component's sampling factors 0 × 1
+        assert_eq!(frame(&zero), Scan::None);
     }
 
     #[test]

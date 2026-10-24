@@ -121,6 +121,11 @@ MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_trunc
 # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>, spec/virtualize/ndpi.md §4
 # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>).
 ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
+# The fixtures (by file name) whose layout the profile changed after the freeze, which the frozen
+# reference does not give: they compare py with web alone. NDPI's strips without McuStarts whose frame header is
+# not their level's size (spec/virtualize/ndpi.md §7
+# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>).
+REVISED = {"edge_ndpi_frames.ndpi", "edge_reject_ndpi_frame.ndpi"}
 
 
 class Unreadable(Exception):
@@ -455,7 +460,7 @@ def check(item: tuple, impls: dict, out_dir: Path) -> dict:
     name, url = item[:2]
     if len(item) > 2 and item[2] == "py-only":  # past the browser's limit: every implementation but web
         impls = {k: v for k, v in impls.items() if k != "web"}
-    if len(item) > 2 and item[2] == "no-ref":  # a profile the frozen reference never had (its `reference` is null): py and web alone
+    if len(item) > 2 and item[2] == "no-ref":  # a profile the frozen reference never had (its `reference` is null), or REVISED: py and web alone
         impls = {k: v for k, v in impls.items() if k != "ref"}
     results = {n: run(impl, url, out_dir / f"{name}.{n}.out") for n, impl in impls.items()}
     ref_name = next(iter(impls))
@@ -471,8 +476,10 @@ def check(item: tuple, impls: dict, out_dir: Path) -> dict:
         elif status == "rejected":
             verdicts[n] = ("rejects", [])
         else:
+            # against the frozen reference, outside the mirror and without what it does not write;
+            # without it (no-ref), py and web entry for entry
             diffs = differences(without_source(at_revision(ref[1])), without_source(without_added(value))) \
-                if mirror and n != ref_name else differences(ref[1], value)
+                if mirror and ref_name == "ref" and n != ref_name else differences(ref[1], value)
             verdicts[n] = ("DIVERGES", diffs) if diffs else ("equivalent", [])
     # one core, two hosts: py and web give the same archive contents, the mirror included
     if mirror and all(results.get(n, ("",))[0] == "ok" for n in ("py", "web")) and \
@@ -574,9 +581,11 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
     stores = store_fixtures(fixtures)
     files = [p for p in sorted(p for s in FILE_SUFFIXES for p in fixtures.rglob(f"*{s}"))
              if not any(p.is_relative_to(s) for s in stores)]
-    # a profile the frozen reference never had (its `reference` is null): its files compare py with web alone
+    # a profile the frozen reference never had (its `reference` is null), and a fixture whose layout
+    # changed after the freeze (REVISED): its files compare py with web alone
     items = [(f"fixture-{p.stem}", proxy.local(p.relative_to(fixtures).as_posix()),
-              *(["no-ref"] if FILE_SUFFIXES[p.suffix]["reference"] is None else []))
+              *(["no-ref"] if FILE_SUFFIXES[p.suffix]["reference"] is None
+                or p.name in REVISED else []))
              for p in files]
     items += [(f"fixture-{s.name}", proxy.local_store(s.relative_to(fixtures).as_posix())) for s in stores]
     if local_only:

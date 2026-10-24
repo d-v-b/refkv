@@ -8,6 +8,7 @@ use refkv_ir::tiff::Tiff;
 
 // one test per rejected fixture, each the message its check gives
 reject!(ndpi_edge_reject_focal_planes, Tiff, "ndpi/edge_reject_ndpi_focal_planes.ndpi", "NDPI focal planes (two levels with one magnification) are not supported");
+reject!(ndpi_edge_reject_frame, Tiff, "ndpi/edge_reject_ndpi_frame.ndpi", "NDPI level 0's JPEG frame of 64 × 16 pixels has other MCU rows or columns than its 64 × 17");
 reject!(ndpi_edge_reject_growing, Tiff, "ndpi/edge_reject_ndpi_growing.ndpi", "NDPI levels do not decrease in size");
 reject!(ndpi_edge_reject_mcustarts, Tiff, "ndpi/edge_reject_ndpi_mcustarts.ndpi", "McuStarts does not match the strip's intervals");
 reject!(ndpi_edge_reject_no_restart_interval, Tiff, "ndpi/edge_reject_ndpi_no_restart_interval.ndpi", "an NDPI strip has no SOF0 or no restart interval");

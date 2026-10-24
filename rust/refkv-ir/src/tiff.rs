@@ -2302,6 +2302,23 @@ impl Tiff {
         }
     }
 
+    /// The frame header of the strip at `s0` of `n` bytes, of a level without McuStarts
+    /// (`ndpi::frame`), from its first bytes read so far: `FRAME_READ` of them, then, while
+    /// the header continues past them, at least twice as many, up to `MAX_FRAME_READ` and the
+    /// strip's end (past which it has none). Err: the first bytes to read next.
+    fn ndpi_frame(&self, s0: u64, n: u64) -> Result<Option<ndpi::Frame>, (u64, u64)> {
+        let cap = n.min(ndpi::MAX_FRAME_READ);
+        let mut have = n.min(ndpi::FRAME_READ);
+        loop {
+            let Some(b) = self.heads.get(&(s0, have)) else { return Err((s0, have)) };
+            match ndpi::frame(b) {
+                ndpi::Scan::Frame(f) => return Ok(Some(f)),
+                ndpi::Scan::Need(k) if k <= cap => have = cap.min(k.max(2 * have)),
+                _ => return Ok(None),
+            }
+        }
+    }
+
     /// The NDPI layout: levels, chunk grids, scales and translation, as facts for
     /// `project/ndpi.rs`. Asks for the values and strip headers not read yet.
     fn derive_ndpi(&self) -> Got<Layout> {
@@ -2339,11 +2356,21 @@ impl Tiff {
             }
             let m = self.nload(k, None, &mut need, false)?;
             let (s0, n) = (Self::nint(&m, 273).unwrap_or(0), Self::nint(&m, 279).unwrap_or(0));
-            if let Some((starts, true)) = starts_of(&m) {
-                let fits = (s0 as u128 + n as u128) <= self.size as u128 && starts.first().is_some_and(|&f| f >= 2 && f <= n);
-                if fits && !self.heads.contains_key(&(s0, starts[0])) {
-                    need.push((s0, starts[0]));
+            let fits = (s0 as u128 + n as u128) <= self.size as u128;
+            match starts_of(&m) {
+                Some((starts, true)) => {
+                    let first = starts.first().is_some_and(|&f| f >= 2 && f <= n);
+                    if fits && first && !self.heads.contains_key(&(s0, starts[0])) {
+                        need.push((s0, starts[0]));
+                    }
                 }
+                // a strip without McuStarts: its first bytes, for its frame header
+                None if fits && n >= 4 => {
+                    if let Err(r) = self.ndpi_frame(s0, n) {
+                        need.push(r);
+                    }
+                }
+                _ => {}
             }
         }
         if !need.is_empty() {
@@ -2430,7 +2457,7 @@ impl Tiff {
         };
         let mut out = Vec::new();
         let mut scales = Vec::new();
-        for &(k, _, w, h) in &levels {
+        for (li, &(k, _, w, h)) in levels.iter().enumerate() {
             let m = vals(k);
             let (s0, n) = (Self::nint(m, 273).unwrap_or(0), Self::nint(m, 279).unwrap_or(0));
             let within = (s0 as u128 + n as u128) <= self.size as u128;
@@ -2445,6 +2472,35 @@ impl Tiff {
                         ("length", num(n as f64)),
                     ]),
                 )?;
+            }
+            // a strip without McuStarts whose frame is not the level's size, but has its MCU rows
+            // and columns, is spliced the level's (spec/virtualize/ndpi.md §7
+            // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>); with
+            // others, the level is not a level
+            let mut frame = J::Null;
+            if head.is_none() {
+                let f = match self.ndpi_frame(s0, n) {
+                    Ok(f) => f,
+                    Err(r) => return Err(Stop::Need(vec![r])),
+                };
+                if let Some(f) = f.filter(|f| (f.height, f.width) != (h, w)) {
+                    let covers = f.covers(h, w);
+                    self.check(
+                        "frame",
+                        rules::env([
+                            ("level", num(li as f64)),
+                            ("covers", flag(covers)),
+                            ("frame_height", num(f.height as f64)),
+                            ("frame_width", num(f.width as f64)),
+                            ("height", num(h as f64)),
+                            ("width", num(w as f64)),
+                        ]),
+                    )?;
+                    if !covers {
+                        continue;
+                    }
+                    frame = json!(f.at);
+                }
             }
             let grid = match head {
                 None => J::Null,
@@ -2463,7 +2519,7 @@ impl Tiff {
             };
             out.push(json!({
                 "w": w, "h": h, "strip": s0, "length": n,
-                "starts": self.ent_facts(k, 65426), "high": self.ent_facts(k, 65432), "grid": grid,
+                "starts": self.ent_facts(k, 65426), "high": self.ent_facts(k, 65432), "grid": grid, "frame": frame,
             }));
             scales.push(json!([1, py.unwrap_or(1.0) * (bh as f64 / h as f64), px.unwrap_or(1.0) * (bw as f64 / w as f64)]));
         }

@@ -31,7 +31,12 @@ One OME-Zarr 0.5 image at the archive root, with one array per level.
 - **Chunks:** with restart offsets (`McuStarts`), a level is cut into chunks
   of whole restart intervals, about 1024 pixels on a side (2048 × 1024 at
   CMU-1's level 0, where one interval is 2048 pixels wide). A level without
-  them, usually the smallest, is one chunk.
+  them, usually the smallest, is one chunk. Some older scanners write such a
+  level's JPEG a row short of its tagged size; its chunk then carries the
+  tagged size in the JPEG's frame header, which the stream's last row of
+  8 × 8 or 16 × 16 blocks already covers, so it decodes at the level's
+  size. A level whose JPEG would need more blocks is left out (the file is
+  rejected when that is the full-resolution level).
 - **Codecs:** `transpose`, then `imagecodecs_jpeg`. Each chunk is decoded as
   one JPEG stream.
 - **Data sources:** the parts of each level's JPEG header (quantization and
