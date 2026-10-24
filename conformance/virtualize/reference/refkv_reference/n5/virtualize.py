@@ -1,5 +1,5 @@
-"""The N5 profile (spec/virtualize.md, §9
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#9-n5-profile>).
+"""The N5 profile (spec/virtualize/n5.md, §8
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#8-n5-profile>).
 
 Frozen at revision 25 (the last before N5 moved onto the IR), which its root records (the
 frozen Zarr v2 profile's StoreOutput declares it)."""

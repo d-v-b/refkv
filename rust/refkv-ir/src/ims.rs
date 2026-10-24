@@ -253,7 +253,7 @@ impl Ims {
     pub fn new(size: u64) -> Self {
         Ims {
             h: H5::new(size),
-            rules: rules::ims(),
+            rules: rules::of("ims"),
             phase: Phase::Layout,
             rounds: 0,
             requests: 0,
@@ -1505,6 +1505,24 @@ impl Emit<'_> {
             self.bytes(x, "data", NO_INDEX, a + 16, n)?;
         }
         Ok(())
+    }
+}
+
+crate::parser!(Ims);
+
+/// The IMS profile's file run (spec/virtualize/ims.md).
+pub struct Profile;
+
+impl crate::run::FileProfile for Profile {
+    /// The HDF5 signature.
+    fn detect(&self, head: &[u8]) -> bool {
+        head.len() >= 8 && &head[..8] == crate::hdf5::SIGNATURE
+    }
+    fn parser(&self, size: u64) -> crate::run::AnyParser {
+        crate::run::AnyParser::of::<Ims>(size)
+    }
+    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::ims::project(ir, facts, url)
     }
 }
 

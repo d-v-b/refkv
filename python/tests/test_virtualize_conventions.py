@@ -11,7 +11,7 @@ only that member. No node has any other attribute besides `ome`. (For the file p
 `refkv_source` and the groups of its view are the IR mirror of conventions §8
 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#8-the-ir-mirror>, validated by the
 same schemas.) The inputs are every fixture of every profile of the registry
-(spec/virtualize/profiles.json): the files of its suffixes, and a store profile's directories."""
+(spec/virtualize/profiles/): the files of its suffixes, and a store profile's directories."""
 
 import json
 import shutil

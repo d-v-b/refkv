@@ -305,8 +305,8 @@ def test_every_reject_fixture_has_a_test():
 
 def test_edge_chunks_past_the_payload_are_copied(tmp_path):
     """An edge chunk whose reference (its range and its zero padding) does not fit in a
-    payload is copied into the archive, padding included (spec/virtualize/mrc.md §14.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#142-chunks>). With the
+    payload is copied into the archive, padding included (spec/virtualize/mrc.md §8.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#82-chunks>). With the
     chunk limit no file reaches it in practice, so the core takes a payload limit of 8
     bytes here: the padded edge chunk is copied, by the run's last batch, and the array
     is still mrcfile's."""

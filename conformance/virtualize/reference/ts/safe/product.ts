@@ -4,8 +4,8 @@
 import { compareKeys, parseXml, type XmlElement } from "../legacy.ts";
 
 /**
- * The input is rejected by the SAFE profile (spec/virtualize.md §12.5
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#125-rejection-and-limits>).
+ * The input is rejected by the SAFE profile (spec/virtualize/safe.md §8.5
+ * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#85-rejection-and-limits>).
  */
 export class SafeError extends Error {}
 

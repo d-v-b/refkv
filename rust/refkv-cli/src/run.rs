@@ -102,8 +102,8 @@ pub fn drive(run: &mut Run, t: &Transport, conc: usize) -> Result<(), Fail> {
     Ok(())
 }
 
-/// Whether the file `t` opened is a VSI file (spec/virtualize/vsi.md §15.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#151-the-vsi-file>), which is
+/// Whether the file `t` opened is a VSI file (spec/virtualize/vsi.md §9.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#91-the-vsi-file>), which is
 /// virtualized with its tile files (vsi.rs) rather than as a file run.
 pub fn is_vsi(t: &Transport) -> Result<bool, Fail> {
     let want = t.size().min(552);

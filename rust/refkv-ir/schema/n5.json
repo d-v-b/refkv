@@ -1,7 +1,7 @@
 {
   "source_model": "n5",
   "version": 1,
-  "about": "The source model of an N5 container (spec/virtualize/n5.md, spec/virtualize.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#9-n5-profile>): the elements a parser emits in a store IR (conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), the tables of data types, compressions and units, and the roles a candidate's document and a dataset's document play, each with the constraints a container must meet to have the N5 convention's layout. The parser checks this schema as it reads each document; the projection reads a valid IR and checks nothing but the keys of its output.",
+  "about": "The source model of an N5 container (spec/virtualize/n5.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#8-n5-profile>): the elements a parser emits in a store IR (conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), the tables of data types, compressions and units, and the roles a candidate's document and a dataset's document play, each with the constraints a container must meet to have the N5 convention's layout. The parser checks this schema as it reads each document; the projection reads a valid IR and checks nothing but the keys of its output.",
   "limits": {
     "max_safe": 9007199254740991,
     "max_document": 16777216,

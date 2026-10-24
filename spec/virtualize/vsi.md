@@ -15,8 +15,8 @@ Schema: [schema.json](vsi/schema.json) · Added 2026-10-21, after
 This document has two parts. [Part 1](#part-1-the-convention) is the VSI
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
 is the VSI profile: how refkv reads the files, which inputs it rejects, and
-how each chunk references them. The profile keeps its numbering as a section
-of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
+how each chunk references them. The document is
+numbered on its own, Part 2 after Part 1, and other documents cite it by name.
 
 # Part 1. The convention
 
@@ -287,7 +287,7 @@ and is no chunk (the count is recorded, [§6.1](#61-the-root)).
   `z` when the `z` dimension's size `Z` is over 1; then `y`, `x`. (A
   dimension is the stack's dimension of that meaning whose coordinate is a
   tile record's and not the level's; without one, its size is 1. A
-  dimension of another meaning has the size 1, [§15.3](#153-tiles-and-levels).)
+  dimension of another meaning has the size 1, [§9.3](#93-tiles-and-levels).)
   `t` is `time`, `c` `channel`, `z`, `y` and `x` `space`.
 - **Arrays:** one per level, at the path `l`, with the shape `[T, C or S, Z, h_l, w_l]`
   in the axes present (the `c` axis has `S` when `S > 1`, else `C`), the chunk
@@ -304,7 +304,7 @@ and is no chunk (the count is recorded, [§6.1](#61-the-root)).
   the directory lacks reads as the background.
 - **Chunks:** each tile inside its level is the chunk at `l/c/<t>/<c>/<z>/<row>/<column>`
   (the keys of the axes present; `c` is 0 when `S > 1`), its bytes the tile's
-  bytes ([§15.4](#154-chunks)).
+  bytes ([§9.4](#94-chunks)).
 
 ### 4.2 Channels
 
@@ -350,7 +350,7 @@ at the path `0`, the whole IFD:
   when the tag is present and well formed. When the prefix is empty, or the
   strip is 2 bytes or fewer, the chunk is the strip. For an uncompressed
   image, the chunk is the strips in order, one range per run of contiguous
-  strips ([§15.4](#154-chunks)).
+  strips ([§9.4](#94-chunks)).
 - **Channels:** as [§4.2](#42-channels), with the stack's display limits (the
   macro image has none, so its windows are the type's range).
 
@@ -449,7 +449,7 @@ and its bytes stay in the file (the table holds none of them). The view,
 `refkv_source/tree`, shows the headers, the tree's fields and values, the
 IFDs' entries and the tile directories; tiles, strips and gaps are not
 shown. A tile file the profile did not read (a `frame_t_0.ets` beside a
-`frame_t.ets`, [§15.2](#152-the-tile-files)) is not an object.
+`frame_t.ets`, [§9.2](#92-the-tile-files)) is not an object.
 
 ### 6.3 Elements
 
@@ -608,7 +608,7 @@ or in the mirror.
   `z` scale is the z step alone, `t` has none); the channel wavelengths are
   recorded, not expressed.
 - **Dimensions the axes cannot hold.** A `lambda`, `phase` or unknown
-  dimension is accepted only when its size is 1 ([§15.3](#153-tiles-and-levels)).
+  dimension is accepted only when its size is 1 ([§9.3](#93-tiles-and-levels)).
 - **The thumbnails.** Each stack's coarse frame IFD (a small JPEG of the
   stack) is in the mirror but is no image: the pyramid's levels serve.
 - **Display.** The stack's and channels' display limits become windows;
@@ -623,8 +623,7 @@ or in the mirror.
 
 # Part 2. The profile
 
-The VSI profile of [spec/virtualize.md](../virtualize.md),
-numbered as its [§15](#15-vsi-profile). [§1](../virtualize.md#1-introduction)
+The VSI profile of [spec/virtualize.md](../virtualize.md) is [§9](#9-vsi-profile) of this document. [§1](../virtualize.md#1-introduction)
 and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and
 apply here.
 
@@ -633,13 +632,14 @@ The output has the convention's layout for the input
 says which files are read and how, which inputs are accepted, and how each
 chunk references the files. "The convention §n" below is a section of Part 1.
 
-## 15. VSI profile
+## 9. VSI profile
 
 The input is a **file input** that names the `.vsi` file (a URL, or a local
-path), which [§1.2](../virtualize.md#12-input) chose by its first bytes: `49 49 2A 00`
-(a little-endian classic TIFF) and bytes 8 to 11 `18 00 49 53` (a container
+path), which its **signature** ([spec/virtualize.md §1.2](../virtualize.md#12-input), tested at the precedence of
+[profiles/vsi.json](profiles/vsi.json)) chose: bytes 0–3 of `H`
+are `49 49 2A 00` (a little-endian classic TIFF) and bytes 8 to 11 `18 00 49 53` (a container
 header's size, 24, and version, 21321; [the convention §2.1](#21-containers-and-fields)),
-tested before the TIFF test. The profile reads it as a **store**
+tested before the TIFF profile's. The profile reads it as a **store**
 ([§1.4](../virtualize.md#14-store-inputs)) whose URL is the `.vsi` file's
 directory (the URL up to and including its last `/`; for a local path, the
 URI reference of its directory, ending in `/`, or `--url`'s directory when
@@ -648,11 +648,11 @@ empty store URL, so that the keys name the files relative to the archive),
 and whose objects are the `.vsi` file, at its key (its name, percent-decoded
 from the URL), and the tile files the profile finds. The store is not listed
 (a plain web server cannot list a directory): its objects are **probed** by
-key ([§15.2](#152-the-tile-files)). The root's `source.url` is the `.vsi`
+key ([§9.2](#92-the-tile-files)). The root's `source.url` is the `.vsi`
 file's object URL. The `.vsi` file's key must end in `.vsi` (in any case)
 and hold no `/`; its URL must have no query or fragment.
 
-### 15.1 The .vsi file
+### 9.1 The .vsi file
 
 The `.vsi` file is read **whole**, in one request. It is rejected when it is
 shorter than 32 bytes or larger than 2^28 bytes (256 MiB; a slide's metadata
@@ -689,9 +689,9 @@ that has a tile file but no image boundary (a width and height of at least
 1) is rejected. A stack of the collection volume that is not a volume field
 of tag 2001 is not a stack; a stack whose dimension descriptions name
 coordinates the tile records lack is accepted (those dimensions have the
-size 1, [§15.3](#153-tiles-and-levels)).
+size 1, [§9.3](#93-tiles-and-levels)).
 
-### 15.2 The tile files
+### 9.2 The tile files
 
 For each stack that has a tile file, in the tree's order, the profile
 **probes** two keys, in this order: `_<base>_/stack<id>/frame_t.ets` and
@@ -730,7 +730,7 @@ than 0, 2 or 3, its tiles are not 1 to 65535 pixels on each side, its
 `tile_depth` is not 1, or its `dimensions` are fewer than 2 or more than
 `coordinates`.
 
-### 15.3 Tiles and levels
+### 9.3 Tiles and levels
 
 The coordinates of a tile record are read as [the convention §3](#3-the-tile-files)
 says: the column, the row, the stack's dimensions by coordinate, and the
@@ -754,7 +754,7 @@ The levels and their sizes are those of [the convention §4.1](#41-the-pyramid);
 a tile outside its level is no chunk, and counted. A tile the directory
 lacks is no chunk: the array's fill value stands for it.
 
-### 15.4 Chunks
+### 9.4 Chunks
 
 Every image's chunk ([the convention §4.1](#41-the-pyramid), [§4.3](#43-the-macro-image))
 references the files; the output copies no pixels. A pyramid's chunk is one
@@ -773,7 +773,7 @@ with a prefix, shared when equal).
 The archive has no other entries than the root's, the `OME` group's, each
 image's and each level's `zarr.json`, the chunks, and the mirror's.
 
-### 15.5 Summary
+### 9.5 Summary
 
 This section is informative. Both implementations print a one-line JSON
 summary: `images` (one object per image: `name`, `kind` (`"stack"` or

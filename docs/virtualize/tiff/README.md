@@ -224,6 +224,26 @@ A file that is none of the formats refkv reads is rejected with
 `not a file of any supported format` (exit status
 3).
 
+### In the browser
+
+The browser code ([js/](../../../js/README.md)) reads TIFF:
+
+- Tiled TIFF and BigTIFF, either byte order.
+- Pyramids as SubIFDs (OME-TIFF), or, without OME-XML, as later tiled images of
+  decreasing size (as in SVS).
+- OME-TIFF planes over Z, C and T in any `DimensionOrder`, with physical pixel
+  sizes and units.
+- Samples per pixel stored planar (one chunk per channel) or interleaved
+  (through a `transpose` codec).
+- Compression: none, DEFLATE (`zlib`), zstd, JPEG 2000 (`imagecodecs_jpeg2k`),
+  and JPEG (`imagecodecs_jpeg`), without a predictor. JPEG tiles that keep
+  their tables in `JPEGTables`, as in Aperio SVS, become complete JPEG streams
+  through references that prepend the tables and a color marker, held once
+  in the archive as a `data` source.
+
+Not supported, and refused with HTTP 422: images in strips, LZW, old-style
+JPEG, predictors, and multi-file OME-TIFF.
+
 ## Performance
 
 - Virtualizing reads only the IFDs, the tag values the layout uses and the

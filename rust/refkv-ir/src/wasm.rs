@@ -3,7 +3,7 @@
 //! for, writes their bytes into buffers it allocates here, and feeds them.
 //!
 //! `vz_new(format, n, size)` makes a parser of the format named by the UTF-8 `format` (a name of
-//! `Format::from_name`: the profile's in spec/virtualize/profiles.json); `vz_step`, `vz_feed`
+//! `Format::from_name`: the profile's in spec/virtualize/profiles/); `vz_step`, `vz_feed`
 //! and `vz_finish` drive it. The `nd2_*` names are round 2's, kept.
 
 use crate::nd2::{Nd2, Step};
@@ -86,6 +86,20 @@ fn finish_out(r: Result<(crate::ir::Ir, serde_json::Value), String>) -> i64 {
             set_out(out.to_string().into_bytes()) as i64
         }
         Err(e) => -(set_out(e.into_bytes()) as i64),
+    }
+}
+
+/// The format a file's first bytes give (`Format::sniff`; `head`/`n` from `vz_alloc`, consumed):
+/// its name's length at `vz_out()`, or 0 when they are no format's.
+///
+/// # Safety
+/// `head` and `n` must come from `vz_alloc(n)`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vz_sniff(head: *mut u8, n: usize) -> i64 {
+    let head = unsafe { Vec::from_raw_parts(head, n, n) };
+    match crate::run::Format::sniff(&head) {
+        Some(f) => set_out(f.name().as_bytes().to_vec()) as i64,
+        None => 0,
     }
 }
 

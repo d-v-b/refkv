@@ -597,8 +597,8 @@ class Store:
         raise NotImplementedError
 
     def read_range(self, key: str, offset: int, length: int) -> bytes:  # pragma: no cover - interface
-        """The bytes [offset, offset + length) of the object `key` (spec/virtualize.md §12.2
-        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#122-objects-and-reading>)."""
+        """The bytes [offset, offset + length) of the object `key` (spec/virtualize/safe.md §8.2
+        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#82-objects-and-reading>)."""
         raise NotImplementedError
 
     def probe(self, key: str) -> int | None:

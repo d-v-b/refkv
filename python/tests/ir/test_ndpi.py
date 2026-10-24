@@ -47,7 +47,7 @@ def test_omero_is_rgb():
 
 
 def test_header_pieces_are_data_sources():
-    """§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: the
+    """§7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>: the
     header before and after SOF0 are data sources, one per distinct byte string in order of
     first use, shared by every chunk and level; the strip's own SOF0, which each chunk
     replaces, is in the mirror (the strip is an element, rebuilt byte for byte)."""
@@ -86,7 +86,7 @@ def test_every_ifd_and_high_word_is_an_element():
 
 
 def test_reads_only_the_values_it_uses():
-    """§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: the
+    """§7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>: the
     values of an IFD that is not a level are not checked, so the macro image's McuStarts
     (LONG8, above 2^53 - 1) does not reject."""
     _, out, _ = via_ir(str(FIXTURES / "ndpi" / "ndpi_unused_values.ndpi"), "u")

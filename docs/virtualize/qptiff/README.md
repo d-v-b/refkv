@@ -159,6 +159,19 @@ A plain TIFF (no `PerkinElmer-QPI` Software tag) is read by the
 [TIFF profile](../tiff/README.md), which still rejects LZW; LZW support is
 specific to QPTIFF for now.
 
+### In the browser
+
+The browser code ([js/](../../../js/README.md)) reads Akoya QPTIFF (Vectra scans, inForm component data; found by the Software tag):
+
+- The FullResolution images as channels and the runs of ReducedResolution
+  images as levels, named and colored in `omero` from each image's XML
+  description; tiles, or strips for the smallest levels and inForm fields
+  (a rectilinear chunk grid when the last strip is short).
+- Compression: none, LZW (`imagecodecs_lzw`), JPEG, DEFLATE, zstd, JPEG 2000.
+
+Not supported, and refused with HTTP 422: predictors, several RGB channels,
+and images that do not follow the format's arrangement.
+
 ## How it's verified
 
 `python/tests/ir/test_qptiff.py` and `js/test/qptiff/verify.py` virtualize

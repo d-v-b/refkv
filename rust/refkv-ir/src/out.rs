@@ -237,13 +237,17 @@ pub fn payload_size(ranges: &[Part]) -> usize {
 
 pub const CONVENTION_KEY: &str = "refkv_virtualized";
 
-/// The profile registry, spec/virtualize/profiles.json (the crate's profiles.json is its copy,
-/// which spec/tools/profiles.py writes and checks): one entry per profile and dataset layout,
-/// with its `name`, convention `title`, `uuid` and `version`, `kind` ("file", "store", "both"
-/// or "layout"), fixture `suffixes` and the rest the registry documents. Parsed once.
+// The registry's entries, by name (build.rs)
+include!(concat!(env!("OUT_DIR"), "/registry.rs"));
+
+/// The profile registry, spec/virtualize/profiles/<name>.json (the crate's profiles/ holds its
+/// copies, which spec/tools/profiles.py writes and checks): one entry per profile and dataset
+/// layout, with its `name`, convention `title`, `uuid` and `version`, `kind` ("file", "store",
+/// "both" or "layout"), `sniff` precedence, fixture `suffixes` and the rest the registry
+/// documents; by name. Parsed once.
 pub fn registry() -> &'static [J] {
     static REGISTRY: std::sync::OnceLock<Vec<J>> = std::sync::OnceLock::new();
-    REGISTRY.get_or_init(|| serde_json::from_str(include_str!("../profiles.json")).expect("profiles.json"))
+    REGISTRY.get_or_init(|| REGISTRY_TEXT.iter().map(|t| serde_json::from_str(t).expect("a profile of profiles/")).collect())
 }
 
 /// (uuid, version, title) of a profile's convention, from the registry.

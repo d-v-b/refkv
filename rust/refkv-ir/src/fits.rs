@@ -1,6 +1,6 @@
 //! A sans-IO parser of FITS files (images, multi-extension files, binary and ASCII tables,
-//! tile-compressed images) into the IR (spec/virtualize/fits.md §18
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#18-fits-profile>, and the
+//! tile-compressed images) into the IR (spec/virtualize/fits.md §9
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#9-fits-profile>, and the
 //! source model of §6.1
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#61-elements>).
 //!
@@ -392,7 +392,7 @@ impl Fits {
             offset: 0,
             index: 0,
             ir: Ir::new(size),
-            rules: rules::fits(),
+            rules: rules::of("fits"),
             hdus: Vec::new(),
             pending: None,
             table_buf: None,
@@ -506,8 +506,8 @@ impl Fits {
     }
 
     /// The records of the header in `buf` up to and including END, when END is there; each
-    /// scanned record is checked to be printable ASCII (§18.3
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#183-checks>).
+    /// scanned record is checked to be printable ASCII (§9.3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#93-checks>).
     fn scan(&self) -> Res<Option<usize>> {
         let mut k = 0;
         while (k + 1) * CARD <= self.buf.len() {
@@ -574,7 +574,7 @@ impl Fits {
     }
 
     /// The HDU whose header is the first `records` records of `buf` (END included), with its
-    /// checks (§18.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#183-checks>),
+    /// checks (§9.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#93-checks>),
     /// then its elements (§6.1
     /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#61-elements>).
     fn hdu(&mut self, records: usize, header_bytes: u64) -> Res<()> {
@@ -636,7 +636,7 @@ impl Fits {
             ]),
         )?;
         let total = total as u64;
-        // tables (§18.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#183-checks>):
+        // tables (§9.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#93-checks>):
         // BITPIX 8, NAXIS 2, TFIELDS and a TFORMn per column, the heap's place
         let mut table = J::Null;
         let mut comp: Option<Comp> = None;
@@ -752,8 +752,8 @@ impl Fits {
         Ok(())
     }
 
-    /// A tile-compressed image's cards and columns, checked (§18.3
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#183-checks>).
+    /// A tile-compressed image's cards and columns, checked (§9.3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#93-checks>).
     fn compressed(&self, cards: &[Card], forms: &[String], rows: u64) -> Res<Comp> {
         let hdu = self.index as f64;
         let name = card(cards, "ZCMPTYPE").map(str_of).unwrap_or_default();
@@ -993,6 +993,27 @@ impl Fits {
         check::finish(&mut self.ir)?;
         let facts = json!({"hdus": self.hdus, "copy_threshold": crate::out::copy_threshold()});
         Ok((self.ir, facts))
+    }
+}
+
+crate::parser!(Fits);
+
+/// The FITS profile's file run (spec/virtualize/fits.md).
+pub struct Profile;
+
+impl crate::run::FileProfile for Profile {
+    /// `SIMPLE  =` and a fixed-format `T` in column 30 (`detect`).
+    fn detect(&self, head: &[u8]) -> bool {
+        detect(head)
+    }
+    fn parser(&self, size: u64) -> crate::run::AnyParser {
+        crate::run::AnyParser::of::<Fits>(size)
+    }
+    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::fits::project(ir, facts, url, copied)
+    }
+    fn reads(&self, ir: &crate::ir::Ir, facts: &serde_json::Value) -> Result<Vec<(u64, u64)>, String> {
+        crate::project::fits::reads(ir, facts)
     }
 }
 

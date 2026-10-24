@@ -1,6 +1,6 @@
 """Writes synthetic Zarr v2 hierarchies to fixtures/zarr2/<name>/,
-covering the rules of the Zarr v2 profile (spec/virtualize.md §10
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>): C and F
+covering the rules of the Zarr v2 profile (spec/virtualize/zarr2.md §7
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#7-zarr-v2-profile>): C and F
 order, both dimension separators, every supported data type and byte order,
 each compressor (none, zlib, gzip, zstd, blosc with each shuffle), fill
 values (numbers, "NaN", "Infinity", "-Infinity", null), 0-d arrays, missing
@@ -215,8 +215,8 @@ def main() -> None:
     # OME-NGFF 0.4 attributes below a root that does not declare OME-NGFF 0.4
     # (spec/virtualize.md §1.4
     # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>): the store is
-    # read by §10
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#10-zarr-v2-profile>, and
+    # read by §7
+    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#7-zarr-v2-profile>, and
     # every attribute is
     # copied unchanged (OME-Zarr 0.4 stores are read by spec/virtualize/ome-zarr.md).
     d = store("zarr2_ome_attrs")

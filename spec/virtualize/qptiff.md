@@ -15,15 +15,15 @@ Schema: [schema.json](qptiff/schema.json) · Changed 2026-10-23: each `omero` ch
 window is sampled from the coarsest level's data, as in the TIFF convention, when refkv decodes
 its compression (none, LZW, Deflate) and the image is not RGB, so that a `float32` channel has a
 window too, and an integer channel without a sampled window has the type's range
-([§4.3](#43-arrays)); the profile reads the sampled chunks ([§16](#16-qptiff-profile)), after
+([§4.3](#43-arrays)); the profile reads the sampled chunks ([§7](#7-qptiff-profile)), after
 [revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
 (a profile's changes are recorded here, dated, from then on)
 
 This document has two parts. [Part 1](#part-1-the-convention) is the QPTIFF
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
 is the QPTIFF profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The profile keeps its numbering as a section
-of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
+each chunk references the source. The document is
+numbered on its own, Part 2 after Part 1, and other documents cite it by name.
 
 The format is described by Akoya's "PerkinElmer image format" note
 (`PKI_Image Format.docx`, 2015, with its public sample files at
@@ -62,7 +62,7 @@ attributes.
 
 The file is a TIFF (magic 42) or BigTIFF (magic 43), in either byte order,
 whose first IFD's Software tag (305) is ASCII text starting with
-`PerkinElmer-QPI` ([spec/virtualize.md §16](#16-qptiff-profile) says how
+`PerkinElmer-QPI` ([§7](#7-qptiff-profile) says how
 that is tested). Its **IFDs** are the image file directories of its **main
 chain**, which starts at the header's first-IFD offset and ends at a
 next-IFD offset of 0, and MUST have at least one IFD; **IFD 0** is its
@@ -358,10 +358,8 @@ and label, which the layout leaves out.
 
 # Part 2. The profile
 
-The QPTIFF profile of [spec/virtualize.md](../virtualize.md), numbered as
-its [§16](#16-qptiff-profile) (the number is the registry's,
-[profiles.json](profiles.json)). It builds on the TIFF profile
-([§3](tiff.md#3-tiff-profile), [tiff.md](tiff.md#part-2-the-profile)).
+The QPTIFF profile of [spec/virtualize.md](../virtualize.md) is [§7](#7-qptiff-profile) of this document. It builds on the TIFF profile
+([tiff.md §7](tiff.md#7-tiff-profile), [tiff.md](tiff.md#part-2-the-profile)).
 [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout)
 are in spec/virtualize.md and apply here.
 
@@ -370,30 +368,34 @@ The output has the convention's layout for the input
 how the file is read, which inputs are rejected, and how each chunk
 references the file. "The convention §n" below is a section of Part 1.
 
-## 16. QPTIFF profile
+## 7. QPTIFF profile
+
+**No signature.** A file's first bytes never choose this profile ([spec/virtualize.md
+§1.2](../virtualize.md#12-input)): a file the TIFF profile's signature chose is read by it when it passes the
+detection test below.
 
 Akoya QPTIFF files are TIFFs or BigTIFFs, in either byte order, whose
-images each carry a QPI description. They are read by [§3.1](tiff.md#31-reading)
-([tiff.md](tiff.md#31-reading)) with the changes below, with the tags of
+images each carry a QPI description. They are read by [tiff.md §7.1](tiff.md#71-reading)
+([tiff.md](tiff.md#71-reading)) with the changes below, with the tags of
 [the convention §2](#2-the-source) (the TIFF table and the five it adds) as
 the checked tags.
 
 **Detection.** After the header is read (and the NDPI test,
-[§4](ndpi.md#4-ndpi-profile), has failed), let `O` be the header's
+[ndpi.md §7](ndpi.md#7-ndpi-profile), has failed), let `O` be the header's
 first-IFD offset. The file is a QPTIFF if the entry count at `O` and the
 entries it counts lie within the file, an entry among them has tag 305
 (Software; of several, the first), with field type ASCII (2) and a count of
 at least 15, its value lies within the file, and the value's first 15 bytes
-are `PerkinElmer-QPI`. Otherwise it is a TIFF ([§3](tiff.md#3-tiff-profile)).
+are `PerkinElmer-QPI`. Otherwise it is a TIFF ([tiff.md §7](tiff.md#7-tiff-profile)).
 This test never rejects; the IFD at `O` is then read as the first IFD of
-the main chain, with every check of [§3.1](tiff.md#31-reading).
+the main chain, with every check of [tiff.md §7.1](tiff.md#71-reading).
 
-**Reading.** The IFDs, limits and checks of [§3.1](tiff.md#31-reading)
+**Reading.** The IFDs, limits and checks of [tiff.md §7.1](tiff.md#71-reading)
 apply (the main chain, its SubIFDs to depth 4, at most 100000 IFDs; the
 field type, count and place of every tag of the table in every IFD read,
 RowsPerStrip, StripOffsets and StripByteCounts being integer tags and
 XPosition and YPosition RATIONAL ones). These values are read
-([§3.1](tiff.md#31-reading), **Values read**):
+([tiff.md §7.1](tiff.md#71-reading), **Values read**):
 
 - of every main-chain IFD: every tag of the table but the tile and strip
   tables (TileOffsets, TileByteCounts, StripOffsets, StripByteCounts), and
@@ -430,7 +432,7 @@ convention §4.3](#43-arrays)) is the entry `<level>/c/<coords>`. Tile (or
 strip) `k`, with byte count `n > 0`, has the single range
 `(0, offset[k], n)`, where `offset` is TileOffsets (StripOffsets) and `n`
 TileByteCounts`[k]` (StripByteCounts`[k]`); a JPEG tile or strip has the
-ranges of [§3.3](tiff.md#33-chunks) (its first 2 bytes, the shared prefix
+ranges of [tiff.md §7.3](tiff.md#73-chunks) (its first 2 bytes, the shared prefix
 `P` of its IFD, the rest), with the same requirements. A short last strip
 ([the convention §4.2](#42-tiles-and-strips)) has, when uncompressed, the
 ranges `[(0, offset[k], n), Z]`, `Z` a range of the data source

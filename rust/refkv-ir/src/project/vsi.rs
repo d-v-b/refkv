@@ -1,7 +1,7 @@
 //! The VSI projection (spec/virtualize/vsi.md §4
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#4-the-images>–§6.1
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#61-the-root>, the profile's
-//! §15.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#154-chunks>) from a valid
+//! §9.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#94-chunks>) from a valid
 //! store IR: a bioformats2raw layout of one OME-Zarr image per stack with pixels, each level's
 //! chunks the tile file's tiles, and the macro image from the `.vsi` file's own IFD; the root
 //! carries the metadata tree as JSON. The facts hold what the parser read; the projection

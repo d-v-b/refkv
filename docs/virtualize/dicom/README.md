@@ -165,6 +165,21 @@ Rejected, with the message the command prints:
 Not applied to the pixels: Rescale Slope and Intercept, modality and VOI
 LUTs, palettes and overlays. The values are the stored ones.
 
+### In the browser
+
+The browser code ([js/](../../../js/README.md)) reads DICOM (Part 10 files):
+
+- Native pixel data in implicit or explicit VR, little or big endian, and
+  JPEG Baseline or JPEG 2000 frames, including frames split over several
+  fragments, with or without a Basic or Extended Offset Table.
+- Multi-frame images along `z`; whole-slide images (TILED_FULL) as one
+  pyramid level per file, with frames as tiles.
+- Pixel spacing as scale; window center and width in `omero`.
+
+Not supported, and refused with HTTP 422: other transfer syntaxes (JPEG-LS,
+lossless JPEG, RLE, deflate, HTJ2K), palette color, TILED_SPARSE slides, and
+slides with several focal planes or optical paths.
+
 ## Performance
 
 - **Large encapsulated files without an Extended Offset Table are slow to

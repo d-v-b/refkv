@@ -16,8 +16,8 @@ Schema: [schema.json](ndpi/schema.json) · Changed 2026-10-22: the image has an 
 This document has two parts. [Part 1](#part-1-the-convention) is the NDPI
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
 is the NDPI profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The profile keeps its numbering as a section
-of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
+each chunk references the source. The document is
+numbered on its own, Part 2 after Part 1, and other documents cite it by name.
 
 # Part 1. The convention
 
@@ -50,7 +50,7 @@ attributes.
 ## 2. The source
 
 An NDPI file is a little-endian classic TIFF (magic 42) whose IFDs have
-64-bit offsets ([spec/virtualize.md §4](#4-ndpi-profile)
+64-bit offsets ([§7](#7-ndpi-profile)
 says how they are read). Its **IFDs** are those of its main chain, in
 order. Of duplicate tags in an IFD, the first is used.
 
@@ -156,7 +156,7 @@ an NDPI is little-endian.
 | `header` | struct | | the header, bytes 0 to 12 |
 | `header/byte_order` | value | `ascii[2]` | `II` |
 | `header/magic` | value | `<u2` | 42 |
-| `header/first_ifd` | value | `<u8` | the first IFD's offset `V` ([§4](#4-ndpi-profile)) |
+| `header/first_ifd` | value | `<u8` | the first IFD's offset `V` ([§7](#7-ndpi-profile)) |
 | `ifds/<i>` | struct | | main-chain IFD `i` ([§2](#2-the-source)): its entry count, entries, next-IFD offset and high words, `2 + 16 n + 8` bytes for `n` entries |
 | `…/entry_count` | value | `<u2` | the entry count `n` |
 | `…/tags/<tag>` | struct | | the first entry of tag `<tag>` (12 bytes); a later one of the same tag is `…/tags/<tag>~<k>`, `k` = 1, 2, … |
@@ -184,7 +184,7 @@ says, with these differences:
 - the other pointer tags of type IFD or IFD8 are those that are neither in
   the table of [§2](#2-the-source) nor layout tags, McuStarts (65426) and McuStartsHighBytes
   (65432) among the latter;
-- every IFD is read in NDPI's layout ([§4](#4-ndpi-profile)): one a pointer leads to is read
+- every IFD is read in NDPI's layout ([§7](#7-ndpi-profile)): one a pointer leads to is read
   when its offset is at least 16 and its entry count, entries, next-IFD
   offset and high words lie within the file, has at least one entry, and
   overlaps no IFD already read; an in-line LONG or IFD of count 1 leads to
@@ -272,8 +272,7 @@ names the element by its row, and a reader reads them from the source.
 
 # Part 2. The profile
 
-The NDPI profile of [spec/virtualize.md](../virtualize.md) (revision 16), numbered
-as its [§4](#4-ndpi-profile). It builds on the TIFF profile ([§3](tiff.md#3-tiff-profile), [tiff.md](tiff.md#part-2-the-profile)). [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout)
+The NDPI profile of [spec/virtualize.md](../virtualize.md) (revision 16) is [§7](#7-ndpi-profile) of this document. It builds on the TIFF profile ([tiff.md §7](tiff.md#7-tiff-profile), [tiff.md](tiff.md#part-2-the-profile)). [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout)
 are in spec/virtualize.md and apply here.
 
 The output has the convention's layout for the input
@@ -281,11 +280,15 @@ The output has the convention's layout for the input
 how the file is read, which inputs are rejected, and how each chunk
 references the file. "The convention §n" below is a section of Part 1.
 
-## 4. NDPI profile
+## 7. NDPI profile
+
+**No signature.** A file's first bytes never choose this profile ([spec/virtualize.md
+§1.2](../virtualize.md#12-input)): a file the TIFF profile's signature chose is read by it when it passes the
+detection test below.
 
 Hamamatsu NDPI files are little-endian classic TIFFs (magic 42) with a 64-bit
-extension and pyramids stored as single JPEG strips. They are read by [§3.1](tiff.md#31-reading)
-([tiff.md](tiff.md#31-reading)) with the changes below, with the tags of
+extension and pyramids stored as single JPEG strips. They are read by [tiff.md §7.1](tiff.md#71-reading)
+([tiff.md](tiff.md#71-reading)) with the changes below, with the tags of
 [the convention §2](#2-the-source) as the
 checked tags.
 
@@ -294,7 +297,7 @@ header. The file is NDPI if it is little-endian with magic 42, `16 ≤ V`,
 `V + 2 ≤` the file's size, and the IFD at `V`, read as below, has tag 65420
 among its first `n` entries (its entry count `n` and the `12 n` bytes of
 entries MUST lie within the file for this test; if they do not, the file is
-not NDPI). Otherwise it is a TIFF ([§3](tiff.md#3-tiff-profile)). This test never rejects.
+not NDPI). Otherwise it is a TIFF ([tiff.md §7](tiff.md#7-tiff-profile)). This test never rejects.
 
 **IFDs.** The main chain starts at `V`. An IFD at `o` is a `u16` entry count
 `n`, `n` entries of 12 bytes as in TIFF, then a `u64` next-IFD offset, then
@@ -306,7 +309,7 @@ chain is read for the layout: an NDPI's SubIFDs, like the IFDs of its other
 pointer tags, are read in this layout for the IR only, and
 never reject the input ([the convention
 §5](#5-source-metadata)). The limits and checks
-of [§3.1](tiff.md#31-reading) apply, with these values read ([§3.1](tiff.md#31-reading), **Values read**): the
+of [tiff.md §7.1](tiff.md#71-reading) apply, with these values read ([tiff.md §7.1](tiff.md#71-reading), **Values read**): the
 Magnification of every main-chain IFD, and every tag of the table of each
 level ([the convention §3](#3-levels)); of a
 scalar tag, its first value, of McuStarts, McuStartsHighBytes and

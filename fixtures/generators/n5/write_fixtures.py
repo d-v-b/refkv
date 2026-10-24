@@ -1,6 +1,6 @@
 """Writes synthetic N5 containers to fixtures/n5/<name>/, covering the
-rules of the N5 profile (spec/virtualize.md §9
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#9-n5-profile>): every data type, each
+rules of the N5 profile (spec/virtualize/n5.md §8
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#8-n5-profile>): every data type, each
 supported compression (raw, gzip, zlib, zstd, blosc), truncated and padded edge
 blocks, missing and empty blocks, explicit and implicit groups, a dataset at
 the root, nodes inside datasets, COSEM and n5-viewer multiscales, and the

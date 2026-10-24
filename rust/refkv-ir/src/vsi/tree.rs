@@ -127,7 +127,7 @@ fn i64_at(b: &[u8], o: usize) -> i64 {
 }
 
 /// Parses the container at `fp` with the region end `end`, checking each container and field
-/// against the schema (§15.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#151-the-vsi-file>).
+/// against the schema (§9.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#91-the-vsi-file>).
 pub fn parse(rules: &Rules, b: &[u8], fp: u64, end: u64, depth: u32) -> Res<Container> {
     let fits = fp.checked_add(CONTAINER_HEADER).is_some_and(|e| e <= end && end <= b.len() as u64);
     let (header_size, version, volume_version, data_offset, flags) = if fits {

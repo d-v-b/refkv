@@ -14,68 +14,14 @@ import json
 
 from refkv.virtualize.common import Rejected
 
-TIFF_MAGIC = (b"II*\0", b"MM\0*", b"II+\0", b"MM\0+")
-CZI_MAGIC = b"ZISRAWFILE" + bytes(6)
-ND2_MAGIC = bytes.fromhex("DACEBE0A")
-HDF5 = b"\x89HDF\r\n\x1a\n"
-ZIP_MAGIC = b"PK\x03\x04"
-
-
-def nifti_version(head: bytes) -> int | None:
-    """The NIfTI version a file's first bytes (at least 348 of them, when the file has
-    them) select (spec/virtualize.md §1.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>), or None."""
-    if len(head) < 12:
-        return None
-    sizes = (int.from_bytes(head[:4], "little", signed=True), int.from_bytes(head[:4], "big", signed=True))
-    if 348 in sizes and len(head) >= 348 and head[344:348] == b"n+1\0":
-        return 1
-    if 540 in sizes and head[4:12] == b"n+2\0\r\n\x1a\n":
-        return 2
-    return None
-
-
-def mpeg_header(head: bytes) -> bool:
-    """Whether `head` starts with an MPEG audio frame header (spec/virtualize.md §1.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>): the 11-bit sync, a
-    version and a layer that are not reserved, and a sample rate index from 0 to 2, of any layer
-    and bitrate index (the MP3 profile rejects Layers I and II, and a free-format bitrate, by
-    name)."""
-    if len(head) < 4 or head[0] != 0xFF or head[1] & 0xE0 != 0xE0:
-        return False
-    version, layer, rate = (head[1] >> 3) & 3, (head[1] >> 1) & 3, (head[2] >> 2) & 3
-    return version != 1 and layer != 0 and rate != 3
-
 
 def sniff(head: bytes) -> str | None:
-    """The IR format a file's first bytes give, if any (132 of them for DICOM, 348 for
-    NIfTI-1, 212 for MRC, 4 for MP3, 30 for FITS; DICOM first: a dual-personality file's preamble may hold
-    a TIFF header)."""
-    if head[128:132] == b"DICM":
-        return "dicom"
-    if head[:4] == ND2_MAGIC:
-        return "nd2"
-    if head[:4] == b"II*\0" and head[8:12] == b"\x18\x00IS":
-        return "vsi"  # a VSI file: a TIFF whose byte 8 starts the metadata tree
-    if head[:4] in TIFF_MAGIC:
-        return "tiff"
-    if head[:16] == CZI_MAGIC:
-        return "czi"
-    if nifti_version(head) is not None:
-        return "nifti"
-    if head[:8] == HDF5:
-        return "ims"
-    if head[:4] == ZIP_MAGIC:
-        return "safe"
-    if len(head) >= 212 and head[208:211] == b"MAP":
-        return "mrc"
-    if head[:3] == b"ID3" or mpeg_header(head):
-        return "mp3"
-    # `SIMPLE  =` and a fixed-format T in column 30: a FITS file (spec/virtualize/fits.md §18.1
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#181-choosing-the-profile>)
-    if len(head) >= 30 and head[:9] == b"SIMPLE  =" and head[29:30] == b"T":
-        return "fits"
-    return None
+    """The IR format a file's first bytes (up to 552 of them) give, if any: the Rust core's
+    `Format::sniff`, which tests each file profile's signature in the registry's `sniff` order
+    (spec/virtualize.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>)."""
+    from refkv import _core
+
+    return _core.sniff(head)
 
 
 def parse(fmt: str, transport, conc: int | None = None):

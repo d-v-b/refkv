@@ -32,8 +32,8 @@ pub enum StoreStep {
     /// (object, offset, length): `object` indexes the listing.
     Read(Vec<(usize, u64, u64)>),
     /// Keys the parser needs to know about, which the listing does not have (a VSI input's
-    /// tile files, spec/virtualize/vsi.md §15.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#152-the-tile-files>): the
+    /// tile files, spec/virtualize/vsi.md §9.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>): the
     /// host tells which exist, and their sizes ([`StoreRun::found`]), each found one becoming an
     /// object of the run and of the IR ([`StoreParser::found`]).
     Probe(Vec<String>),
