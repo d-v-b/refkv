@@ -2,7 +2,6 @@
 astropy's reading of every synthetic file, the mirror's rebuild, and the inputs the profile
 rejects. FITS has no frozen Python reference: astropy is the independent reader."""
 
-import io
 import json
 import warnings
 
@@ -11,10 +10,9 @@ import pytest
 import zarr
 from astropy.io import fits
 
-import refkv.zarr
 from ir_helpers import FIXTURES
+from ir_helpers import virtualized as shared_virtualized
 from refkv.ir import virtualize as via_ir
-from refkv.ir.cmirror import rebuild_from_archive
 from refkv.virtualize import Rejected
 
 FILES = sorted(p for p in (FIXTURES / "fits").iterdir() if p.name.endswith((".fits", ".fz")))
@@ -28,18 +26,10 @@ COMMENTARY = ("COMMENT", "HISTORY", "")
 
 
 def virtualized(path, tmp_path):
-    """(the output, the hierarchy's root group); the archive rebuilds the file."""
-    data = path.read_bytes()
-    fmt, out, ir = via_ir(str(path))
-    assert fmt == "fits"
-    ir.check()
-    out.write(str(tmp_path / "a.vzip"))
-    buf = io.BytesIO()
-    rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
-    assert buf.getvalue() == data
-    root = zarr.open_group(refkv.zarr.store(out.to_store()), mode="r", zarr_format=3)
+    """(the output, the hierarchy's root group); the archive rebuilds the file
+    (ir_helpers.virtualized)."""
+    out, root, _ = shared_virtualized(path, tmp_path, "fits")
     return out, root
-
 
 def card_value(v):
     """astropy's card value as the convention writes it (spec/virtualize/fits.md §5.3

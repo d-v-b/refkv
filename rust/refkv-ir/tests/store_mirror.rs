@@ -6,6 +6,9 @@
 //! its view is the one it rebuilds, and the chunk objects of an array fold into column runs.
 //! One test per way a store's table can be invalid.
 
+mod common;
+
+use common::{listing, walk};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Instant;
@@ -14,25 +17,6 @@ use refkv_ir::ir::*;
 use refkv_ir::mirror::{canonical_problem, load, mirror, ordered, rebuild_store, table_from_out, view_problem, write, Table};
 use refkv_ir::out::Out;
 use refkv_ir::store::{run_store, StoreFormat};
-
-/// A directory's regular files as a listing (key, size) and their bytes, keys in byte order.
-fn walk(root: &Path) -> BTreeMap<String, Vec<u8>> {
-    let mut out = BTreeMap::new();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(d) = stack.pop() {
-        for e in std::fs::read_dir(&d).unwrap() {
-            let e = e.unwrap();
-            let t = e.file_type().unwrap();
-            if t.is_dir() {
-                stack.push(e.path());
-            } else if t.is_file() {
-                let k = e.path().strip_prefix(root).unwrap().to_str().unwrap().replace('\\', "/");
-                out.insert(k, std::fs::read(e.path()).unwrap());
-            }
-        }
-    }
-    out
-}
 
 fn stores() -> Vec<std::path::PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
@@ -54,7 +38,7 @@ fn no_source(_: u64, _: u64) -> Result<Vec<u8>, String> {
 /// The mirror of a store held in memory, its IR and the documents the format read; or the
 /// rejection.
 fn try_mirrored(files: &BTreeMap<String, Vec<u8>>) -> Result<(Out, Ir, Vec<String>), String> {
-    let keys: Vec<(String, u64)> = files.iter().map(|(k, v)| (k.clone(), v.len() as u64)).collect();
+    let keys = listing(&files);
     let bytes: Vec<&Vec<u8>> = files.values().collect();
     let (ir, facts, _) = run_store(StoreFormat::Zarr2, keys, &|k| bytes[k].clone())?;
     let mut out = Out::new("https://example.org/s/");

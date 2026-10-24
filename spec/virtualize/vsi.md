@@ -12,22 +12,17 @@ Schema: [schema.json](vsi/schema.json) · Added 2026-10-21, after
 [revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
 (a profile's changes are recorded here, dated, from then on)
 
-This document has two parts. [Part 1](#part-1-the-convention) is the VSI
-convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the VSI profile: how refkv reads the files, which inputs it rejects, and
-how each chunk references them. The document is
-numbered on its own, Part 2 after Part 1, and other documents cite it by name.
+This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 # Part 1. The convention
 
 ## 1. Declaration
 
-The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "vsi"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)),
-the `.vsi` file's URL as `source.url` (the object URL of its key in the
-store, [spec/virtualize.md §1.4](../virtualize.md#14-store-inputs)), and the
-root's source metadata of [§6.1](#61-the-root) as the member `"vsi"`. Its CMO
-is:
+The root and `refkv_source` declare the convention
+([conventions §11.2](../conventions.md#112-declaration)), the root with the `.vsi`
+file's URL as `source.url` (the object URL of its key in the store,
+[spec/virtualize.md §1.4](../virtualize.md#14-store-inputs)) and its source metadata
+of [§6.1](#61-the-root) as the member `"vsi"`. Its CMO is:
 
 ```json
 {
@@ -42,10 +37,7 @@ is:
 Each image's group ([§4](#4-the-images)) declares it too, with the image's
 source metadata ([§6.1](#61-the-root)) as `"vsi"` and no `profile`, `version`
 or `source` (a node property, [conventions §2](../conventions.md#2-attributes)).
-`refkv_source` declares it with the IR mirror's description ([§6.2](#62-the-ir-mirror),
-[conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
-the mirror's view that has a member; the arrays, the `OME` group and the
-mirror's arrays have no attributes.
+The arrays and the `OME` group have no attributes.
 
 ## 2. The .vsi file
 
@@ -490,10 +482,9 @@ In a tile file:
 
 ### 6.4 Equivalence
 
-The elements are determined by the files, and the mirror by its elements
-([conventions §8.8](../conventions.md#88-canonical-form)): hierarchies of one
+The elements are determined by the files. Hierarchies of one
 slide are compared entry for entry, `refkv_source` included
-([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
+([conventions §11.4](../conventions.md#114-equivalence)).
 
 ## 7. Example
 
@@ -623,14 +614,9 @@ or in the mirror.
 
 # Part 2. The profile
 
-The VSI profile of [spec/virtualize.md](../virtualize.md) is [§9](#9-vsi-profile) of this document. [§1](../virtualize.md#1-introduction)
-and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and
-apply here.
-
-The output has the convention's layout for the input
-([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile
-says which files are read and how, which inputs are accepted, and how each
-chunk references the files. "The convention §n" below is a section of Part 1.
+The VSI profile of [spec/virtualize.md](../virtualize.md) is [§9](#9-vsi-profile) of this document. What every profile's Part 2 shares is in
+[spec/virtualize.md, Profiles](../virtualize.md#profiles). The input is the slide's files,
+and the profile also says which of them are read.
 
 ## 9. VSI profile
 

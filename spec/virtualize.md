@@ -564,6 +564,14 @@ else. The profiles, generated from the registry:
 - the Zarr v2 profile: [spec/virtualize/zarr2.md §7](virtualize/zarr2.md#7-zarr-v2-profile).
 <!-- /profiles -->
 
+A profile's Part 2 starts by naming the revision of this document it follows, if any, its
+section, and the profiles it builds on. [§1](#1-introduction) and [§2](#2-the-zarr-layout)
+apply to every profile, and to a store input's in particular the store input rules of
+[§1.4](#14-store-inputs)–[§1.6](#16-json-documents). The output has the convention's layout
+for the input ([§2](#2-the-zarr-layout)); the profile says how the input is read, which inputs
+are rejected, and how each chunk references the input. In Part 2, "the convention §n" is a
+section of Part 1.
+
 ## Appendix A. Conformance
 
 This section is informative. There are two maintained implementations:

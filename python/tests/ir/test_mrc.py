@@ -5,7 +5,6 @@ is the independent reader."""
 
 import base64
 import gzip
-import io
 import json
 import struct
 import warnings
@@ -14,14 +13,11 @@ import mrcfile
 import numpy as np
 import pytest
 import xarray as xr
-import zarr
 
 import refkv.zarr
 from ir_helpers import FIXTURES
+from ir_helpers import virtualized as shared_virtualized
 from refkv import _core
-from refkv.ir import virtualize as via_ir
-from refkv.ir.cmirror import rebuild_from_archive
-from refkv.virtualize import Rejected
 
 MRCS = sorted((FIXTURES / "mrc").glob("*.mrc"))
 A = "angstrom"
@@ -78,19 +74,10 @@ def load(path):
 
 
 def virtualized(path, tmp_path):
-    """(the output, the hierarchy's root group, read in memory from the file); the archive
-    rebuilds the file."""
-    data = path.read_bytes()
-    fmt, out, ir = via_ir(str(path))
-    assert fmt == "mrc"
-    ir.check()
-    out.write(str(tmp_path / "a.vzip"))
-    buf = io.BytesIO()
-    rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
-    assert buf.getvalue() == data
-    root = zarr.open_group(refkv.zarr.store(out.to_store()), mode="r", zarr_format=3)
+    """(the output, the hierarchy's root group); the archive rebuilds the file
+    (ir_helpers.virtualized)."""
+    out, root, _ = shared_virtualized(path, tmp_path, "mrc")
     return out, root
-
 
 @pytest.mark.parametrize("path", [p for p in MRCS if not p.name.startswith("mrc_reject")], ids=lambda p: p.name)
 def test_matches_mrcfile_and_rebuilds(path, tmp_path):
@@ -270,37 +257,6 @@ def test_virtualizes_the_synthetic_files(tmp_path):
         assert out.data == {}, name  # no data sources
         codecs = json.loads(out.bytes_entries["0/zarr.json"])["codecs"]
         assert [c["name"] for c in codecs] == ["bytes"], name
-
-
-@pytest.mark.parametrize("name,message", [
-    ("mrc_reject_short_header", "file too short for a 1024-byte MRC header"),
-    ("mrc_reject_machst", "machine stamp 00 00 00 00 is neither 44 (little-endian) nor 11 (big-endian)"),
-    ("mrc_reject_machst_swapped", "machine stamp 41 44 00 00 is neither"),
-    ("mrc_reject_nx_zero", "nx = 0 is not positive"),
-    ("mrc_reject_ny_negative", "ny = -2 is not positive"),
-    ("mrc_reject_nz_zero", "nz = 0 is not positive"),
-    ("mrc_reject_mode_complex_int16", "unsupported MRC mode 3 (COMPLEX_INT16)"),
-    ("mrc_reject_mode_int4", "unsupported MRC mode 101 (INT4)"),
-    ("mrc_reject_mode_unknown", "unknown MRC mode 7"),
-    ("mrc_reject_mode_negative", "unknown MRC mode -1"),
-    ("mrc_reject_nsymbt_negative", "nsymbt -80 is negative"),
-    ("mrc_reject_extended_outside", "the 1000-byte extended header at 1024 is outside the 1072-byte file"),
-    ("mrc_reject_volume_stack_mz", "a volume stack (ispg 401) of 5 sections, which mz = 2 does not divide"),
-    ("mrc_reject_volume_stack_mz_zero", "a volume stack (ispg 401) of 4 sections, which mz = 0 does not divide"),
-    ("mrc_reject_truncated", "the 48-byte data at 1024 is outside the 1071-byte file"),
-    ("mrc_reject_data_overflow", "the 4951760157141521099596496896-byte data at 1024 is outside the 1072-byte file"),
-    ("mrc_reject_data_outside", "the 48-byte data at 1040 is outside the 1087-byte file"),
-])
-def test_rejects(name, message):
-    path = FIXTURES / "mrc" / f"{name}.mrc"
-    with pytest.raises(Rejected) as e:
-        via_ir(str(path), f"https://data.test/{name}.mrc")
-    assert str(e.value).startswith(message)
-
-
-def test_every_reject_fixture_has_a_test():
-    assert {p.stem for p in MRCS if p.name.startswith("mrc_reject")} == {
-        name for name, _ in test_rejects.pytestmark[0].args[1]}
 
 
 def test_edge_chunks_past_the_payload_are_copied(tmp_path):

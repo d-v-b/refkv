@@ -18,9 +18,8 @@ Usage: uv run python js/test/vsi/verify.py [<dir of .vsi files>] [--no-bioformat
 
 from __future__ import annotations
 
-import subprocess
+import json
 import sys
-import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -29,13 +28,12 @@ import zarr
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
-from http_server import Server  # noqa: E402
 
 from refkv import _core  # noqa: E402
-from refkv.policy import Policy  # noqa: E402
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
 
-LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
+from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
 
 
 def as_tczyx(arr: np.ndarray, axes: list[str], samples: int) -> np.ndarray:
@@ -117,32 +115,15 @@ def problems_of(path: Path, out: Path, summary: dict, Reader) -> list[str]:
 
 
 def main(fixtures: Path, use_bioformats: bool) -> int:
-    server = Server(fixtures)
-    failures = 0
     Reader = bioformats() if use_bioformats else None
     print("Bio-Formats:", "yes" if Reader else "no (known pixels only)")
-    with tempfile.TemporaryDirectory() as tmp:
-        for path in sorted(fixtures.glob("*.vsi")):
-            out = Path(tmp) / f"{path.stem}.vzip"
-            p = subprocess.run(["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts",
-                                server.base + path.name, str(out)], capture_output=True, text=True)
-            if path.stem.startswith("vsi_reject"):
-                ok = p.returncode == 3 and not out.exists()
-                failures += not ok
-                print(f"{path.name:44s} {'rejected: ' + p.stderr.strip()[-80:] if ok else 'NOT REJECTED ' + p.stderr[-200:]}")
-                continue
-            if p.returncode:
-                failures += 1
-                print(f"{path.name:44s} FAILED: {p.stderr.strip()[-300:]}")
-                continue
-            import json
 
-            summary = json.loads(p.stdout.strip().splitlines()[-1])
-            problems = problems_of(path, out, summary, Reader)
-            failures += bool(problems)
-            print(f"{path.name:44s} {'ok' if not problems else problems}")
-    print(f"\n{failures} failures")
-    return 1 if failures else 0
+    def check(path: Path, out: Path, p) -> list:
+        summary = json.loads(p.stdout.strip().splitlines()[-1])
+        return problems_of(path, out, summary, Reader)
+
+    paths = sorted(fixtures.glob("*.vsi"))
+    return run(paths, check, url=serve(paths))
 
 
 if __name__ == "__main__":

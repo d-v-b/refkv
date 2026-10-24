@@ -17,11 +17,7 @@ level 0) ([§3](#3-levels), [§4](#4-the-image)); the profile reads such a strip
 [revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
 (a profile's changes are recorded here, dated, from then on)
 
-This document has two parts. [Part 1](#part-1-the-convention) is the NDPI
-convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
-is the NDPI profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The document is
-numbered on its own, Part 2 after Part 1, and other documents cite it by name.
+This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 # Part 1. The convention
 
@@ -32,9 +28,9 @@ convention, and the profile rejects it.
 
 ## 1. Declaration
 
-The root declares the convention by [conventions §2](../conventions.md#2-attributes),
-with `"profile": "ndpi"`, `"version": 0` ([conventions §1](../conventions.md#1-conventions)) and the file's URL as `source.url`;
-it has no source metadata member ([§5](#5-source-metadata)). Its CMO is:
+The root and `refkv_source` declare the convention
+([conventions §11.2](../conventions.md#112-declaration)); the root has no source
+metadata member ([§5](#5-source-metadata)). Its CMO is:
 
 ```json
 {
@@ -45,11 +41,6 @@ it has no source metadata member ([§5](#5-source-metadata)). Its CMO is:
   "description": "The Zarr layout of a NDPI source virtualized by refkv, and the source's metadata"
 }
 ```
-
-`refkv_source` declares it too, with the IR mirror's description ([§5](#5-source-metadata),
-[conventions §8](../conventions.md#8-the-ir-mirror)), and so does each group of
-the mirror's view that has a member; the mirror's arrays have no
-attributes.
 
 ## 2. The source
 
@@ -159,9 +150,8 @@ own size, its intervals, and restart markers and an EOI of its own, so:
 
 The root has no source metadata member. Everything else the file holds is on
 `refkv_source`, which is the file's **IR mirror**
-([conventions §8](../conventions.md#8-the-ir-mirror)): its table, from which the
-file is rebuilt byte for byte, and its view, `refkv_source/tree`. This
-section is the NDPI **source model**: the elements of an NDPI's IR. It is the
+([conventions §11.3](../conventions.md#113-the-ir-mirror)).
+This section is the NDPI **source model**: the elements of an NDPI's IR. It is the
 [TIFF source model](tiff.md#5-source-metadata) read in NDPI's layout. Nothing is
 left out, layout and dead space included (they are elements too, the dead
 space as gaps): a level's strip, its JPEG header, restart markers and EOI
@@ -224,10 +214,8 @@ rest. Every high word is shown.
 
 ### 5.4 Equivalence
 
-The elements are determined by the file, and the mirror by its elements
-([conventions §8.8](../conventions.md#88-canonical-form): one order, one folding, one encoding; NDPI has no
-named array rule): hierarchies of one file are compared entry for entry,
-`refkv_source` included ([spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence)).
+Hierarchies of one file are compared entry for entry, `refkv_source` included
+([conventions §11.4](../conventions.md#114-equivalence); NDPI has no named array rule).
 
 ## 6. Example
 
@@ -295,13 +283,8 @@ names the element by its row, and a reader reads them from the source.
 
 # Part 2. The profile
 
-The NDPI profile of [spec/virtualize.md](../virtualize.md) (revision 16) is [§7](#7-ndpi-profile) of this document. It builds on the TIFF profile ([tiff.md §7](tiff.md#7-tiff-profile), [tiff.md](tiff.md#part-2-the-profile)). [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout)
-are in spec/virtualize.md and apply here.
-
-The output has the convention's layout for the input
-([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
-how the file is read, which inputs are rejected, and how each chunk
-references the file. "The convention §n" below is a section of Part 1.
+The NDPI profile of [spec/virtualize.md](../virtualize.md) (revision 16) is [§7](#7-ndpi-profile) of this document. It builds on the TIFF profile ([tiff.md §7](tiff.md#7-tiff-profile), [tiff.md](tiff.md#part-2-the-profile)). What every profile's Part 2 shares is in
+[spec/virtualize.md, Profiles](../virtualize.md#profiles).
 
 ## 7. NDPI profile
 
