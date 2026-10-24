@@ -9,7 +9,7 @@
 use super::{arr, audio, json_text, n, Copied};
 use crate::ir::Ir;
 use crate::mp3::{MODES, RESERVOIR, VERSIONS};
-use crate::out::{array_json, declare, group_doc, Out};
+use crate::out::{array_json, declared_group, Out};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -73,7 +73,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
     }
     own.insert("stray_bytes".into(), facts["stray"].clone());
     let mut out = Out::new(url);
-    out.json("zarr.json", &group_doc(declare(Map::new(), "mp3", Some(url), Some(J::Object(own)))));
+    out.json("zarr.json", &declared_group(Map::new(), "mp3", Some(url), Some(J::Object(own))));
 
     // the array (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#41-the-array>)
     let shape = [samples, channels];

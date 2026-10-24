@@ -5,7 +5,7 @@
 //! `omero` are sampled from the coarsest level's chunks, which the run reads (`reads`).
 
 use super::tiled::{self, MAX_NAME};
-use super::{arr, n, strs, window, Copied};
+use super::{along, arr, n, strs, window, Copied};
 use crate::ir::Ir;
 use crate::out::{omero_channel, omero_json, root_json, sample_channels, type_window, Out};
 use crate::tiff::MAX_OMERO;
@@ -60,15 +60,8 @@ fn level_shape<'a>(facts: &'a J, lv: &J) -> (Vec<&'a str>, Vec<u64>, Vec<u64>) {
     let sizes = &facts["sizes"];
     let (w, h, tw, th) = (n(&lv["w"]), n(&lv["h"]), n(&lv["tw"]), n(&lv["th"]));
     let axes = strs(&facts["axes"]);
-    let of = |a: &str, t: u64, c: u64, z: u64, y: u64, x: u64| match a {
-        "t" => t,
-        "c" => c,
-        "z" => z,
-        "y" => y,
-        _ => x,
-    };
-    let shape = axes.iter().map(|a| of(a, n(&sizes["t"]), n(&sizes["c"]), n(&sizes["z"]), h, w)).collect();
-    let chunk = axes.iter().map(|a| of(a, 1, if tiled::contig(facts) { spp } else { 1 }, 1, th, tw)).collect();
+    let shape = axes.iter().map(|a| along(a, [n(&sizes["t"]), n(&sizes["c"]), n(&sizes["z"]), h, w])).collect();
+    let chunk = axes.iter().map(|a| along(a, [1, if tiled::contig(facts) { spp } else { 1 }, 1, th, tw])).collect();
     (axes, shape, chunk)
 }
 

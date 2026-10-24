@@ -8,7 +8,7 @@
 
 use super::{arr, audio, n, Copied};
 use crate::ir::Ir;
-use crate::out::{array_json, declare, group_doc, gzip_array, stream_parts, Out};
+use crate::out::{array_json, declared_group, group_doc, gzip_array, stream_parts, Out};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -112,7 +112,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
     }).collect();
     own.insert("tracks".into(), J::Array(listed));
     let mut out = Out::new(url);
-    out.json("zarr.json", &group_doc(declare(Map::new(), "mp4", Some(url), Some(J::Object(own)))));
+    out.json("zarr.json", &declared_group(Map::new(), "mp4", Some(url), Some(J::Object(own))));
     out.json("tracks/zarr.json", &group_doc(Map::new()));
     let mut refs = Refs::new(ir, out);
     let mut summary = Vec::new();
@@ -139,7 +139,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
             for (p, &d) in order.iter().enumerate() {
                 rank[d] = p;
             }
-            refs.out.json(&format!("{dir}/zarr.json"), &group_doc(declare(Map::new(), "mp4", None, Some(track_json(t, chunk)))));
+            refs.out.json(&format!("{dir}/zarr.json"), &declared_group(Map::new(), "mp4", None, Some(track_json(t, chunk))));
             let planes = [("y", w, h), ("u", w.div_ceil(2), h.div_ceil(2)), ("v", w.div_ceil(2), h.div_ceil(2))];
             for (p, pw, ph) in planes {
                 let doc = array_json(&[count as u64, ph, pw], "uint8", json!([chunk, ph, pw]), stream_codec("h264", &t["setup"], Some(p)), &["time", "y", "x"]);
@@ -169,7 +169,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
             // the samples (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#42-audio-tracks>)
             let (spf, channels) = (n(&t["spf"]), n(&t["channels"]));
             chunk = limit;
-            refs.out.json(&format!("{dir}/zarr.json"), &group_doc(declare(Map::new(), "mp4", None, Some(track_json(t, chunk)))));
+            refs.out.json(&format!("{dir}/zarr.json"), &declared_group(Map::new(), "mp4", None, Some(track_json(t, chunk))));
             let doc = array_json(&[count as u64 * spf, channels], "float32", json!([chunk * spf, channels]), stream_codec(format, &t["setup"], None), &["time", "channel"]);
             refs.out.json(&format!("{dir}/samples/zarr.json"), &doc);
             let sizes: Vec<u64> = (0..count).map(|j| sample(j).1).collect();

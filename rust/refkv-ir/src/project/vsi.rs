@@ -7,9 +7,9 @@
 //! carries the metadata tree as JSON. The facts hold what the parser read; the projection
 //! checks only the archive's own limits.
 
-use super::{arr, key, n, Copied};
+use super::{along, arr, image_axes, key, n, translation, with_counts, Copied};
 use crate::ir::Ir;
-use crate::out::{array_json, bytes_codec, declare, group_doc, group_json, image_ome, transpose_codec, Out, Part};
+use crate::out::{array_json, bioformats2raw, bytes_codec, declared_group, image_ome, transpose_codec, Out, Part, BGRA, RGBA};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -75,7 +75,7 @@ fn omero(im: &J, samples: u64, bgr: bool, c_size: u64, data_type: &str) -> J {
     let display = pair(&im["display"]);
     let mut out = Vec::new();
     if samples > 1 {
-        let letters: &[(&str, &str)] = if bgr { &[("B", "0000FF"), ("G", "00FF00"), ("R", "FF0000"), ("A", "FFFFFF")] } else { &[("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF"), ("A", "FFFFFF")] };
+        let letters = if bgr { &BGRA } else { &RGBA };
         for (l, color) in letters.iter().take(samples as usize) {
             let mut ch = json!({"label": l, "color": color, "active": true});
             if let Some(w) = window(data_type, display) {
@@ -123,17 +123,7 @@ fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> 
         let sizes = &ets["sizes"];
         let (size_t, size_c, size_z) = (n(&sizes["t"]).max(1), n(&sizes["c"]).max(1), n(&sizes["z"]).max(1));
         let c_axis = size_c > 1 || samples > 1;
-        let mut axes: Vec<&str> = Vec::new();
-        if size_t > 1 {
-            axes.push("t");
-        }
-        if c_axis {
-            axes.push("c");
-        }
-        if size_z > 1 {
-            axes.push("z");
-        }
-        axes.extend(["y", "x"]);
+        let axes = image_axes(size_t > 1, c_axis, size_z > 1);
         let levels = arr(&ets["levels"]);
         let (w0, h0) = (n(&levels[0][0]) as f64, n(&levels[0][1]) as f64);
         let z_unit = im["z_unit_name"].as_str().map(str::to_string);
@@ -149,7 +139,6 @@ fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> 
             units.insert("z".into(), json!(u));
         }
         let mut scales = Vec::with_capacity(levels.len());
-        let mut translations = Vec::with_capacity(levels.len());
         for lv in levels {
             let (w, h) = (n(&lv[0]) as f64, n(&lv[1]) as f64);
             let s: Vec<J> = axes.iter().map(|a| match *a {
@@ -159,13 +148,8 @@ fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> 
                 _ => json!(1),
             }).collect();
             scales.push(J::Array(s));
-            translations.push(J::Array(axes.iter().map(|a| match (*a, origin) {
-                ("x", Some((ox, _))) => json!(ox),
-                ("y", Some((_, oy))) => json!(oy),
-                _ => json!(0),
-            }).collect()));
         }
-        let trs = origin.map(|_| translations);
+        let trs = origin.map(|(ox, oy)| vec![translation(&axes, [json!(ox), json!(oy), json!(0)]); levels.len()]);
         let mut ome = image_ome(&axes, &units, &scales, Some(&json!(name)), trs.as_deref())?;
         ome["omero"] = omero(im, samples, bgr, size_c, &data_type);
         let mut a = Map::new();
@@ -174,20 +158,13 @@ fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> 
         own.insert("ets".into(), ets["header"].clone());
         own.insert("levels".into(), json!(levels));
         own.insert("tiles_outside".into(), ets["tiles_outside"].clone());
-        refs.out.json(&format!("{path}/zarr.json"), &group_doc(declare(a, PROFILE, None, Some(J::Object(own)))));
+        refs.out.json(&format!("{path}/zarr.json"), &declared_group(a, PROFILE, None, Some(J::Object(own))));
         let codecs = codecs(codec, bytes, samples, &axes);
-        let of = |a: &str, t: u64, c: u64, z: u64, y: u64, x: u64| match a {
-            "t" => t,
-            "c" => c,
-            "z" => z,
-            "y" => y,
-            _ => x,
-        };
         let mut grids = Vec::new();
         for (l, lv) in levels.iter().enumerate() {
             let (w, h) = (n(&lv[0]), n(&lv[1]));
-            let shape: Vec<u64> = axes.iter().map(|a| of(a, size_t, size_c.max(samples), size_z, h, w)).collect();
-            let chunk: Vec<u64> = axes.iter().map(|a| of(a, 1, if samples > 1 { samples } else { 1 }, 1, th, tw)).collect();
+            let shape: Vec<u64> = axes.iter().map(|a| along(a, [size_t, size_c.max(samples), size_z, h, w])).collect();
+            let chunk: Vec<u64> = axes.iter().map(|a| along(a, [1, if samples > 1 { samples } else { 1 }, 1, th, tw])).collect();
             let mut doc = array_json(&shape, &data_type, json!(chunk), codecs.clone(), &axes);
             doc["fill_value"] = ets["fill"].clone();
             refs.out.json(&format!("{path}/{l}/zarr.json"), &doc);
@@ -201,7 +178,7 @@ fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> 
             let (Some(&start), Some(&length)) = (ir.start.get(el as usize), ir.len.get(el as usize)) else {
                 return Err(format!("internal: no element {el}"));
             };
-            let coords = axes.iter().map(|a| of(a, ti, if samples > 1 { 0 } else { ci }, zi, y, x));
+            let coords = axes.iter().map(|a| along(a, [ti, if samples > 1 { 0 } else { ci }, zi, y, x]));
             refs.chunk(key(&format!("{path}/{l}/c/"), coords), start, length, 0, Some(vec![Part::Obj(key_ets.clone(), start, length)]), 0)?;
             count += 1;
         }
@@ -225,17 +202,13 @@ fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> 
             ("y", Some((_, sy))) => json!(sy),
             _ => json!(1),
         }).collect())];
-        let trs = origin.map(|(ox, oy)| vec![J::Array(axes.iter().map(|a| match *a {
-            "x" => json!(ox),
-            "y" => json!(oy),
-            _ => json!(0),
-        }).collect())]);
+        let trs = origin.map(|(ox, oy)| vec![translation(&axes, [json!(ox), json!(oy), json!(0)])]);
         let mut ome = image_ome(&axes, &units, &scales, Some(&json!(name)), trs.as_deref())?;
         ome["omero"] = omero(im, samples, false, 1, data_type);
         let mut a = Map::new();
         a.insert("ome".into(), ome);
         own.insert("ifd".into(), json!({"index": ifd["index"], "width": w, "height": h, "samples": samples, "bits": bits, "compression": compression, "photometric": ifd["photometric"]}));
-        refs.out.json(&format!("{path}/zarr.json"), &group_doc(declare(a, PROFILE, None, Some(J::Object(own)))));
+        refs.out.json(&format!("{path}/zarr.json"), &declared_group(a, PROFILE, None, Some(J::Object(own))));
         let mut codecs = if samples > 1 { vec![transpose_codec(&axes)] } else { vec![] };
         if compression == 7 {
             codecs.push(json!({"name": "imagecodecs_jpeg"}));
@@ -268,8 +241,7 @@ fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> 
         }
         let (el, start, length) = (n(&strips[0][0]), n(&strips[0][1]), n(&strips[0][2]));
         let _ = el;
-        let chunk_key = format!("{path}/0/c/{}", vec!["0"; axes.len()].join("/"));
-        refs.chunk(chunk_key, start, length, 0, Some(parts), 0)?;
+        refs.chunk(key(&format!("{path}/0/c/"), vec![0; axes.len()]), start, length, 0, Some(parts), 0)?;
         summary = json!({"name": name, "kind": im["kind"], "source": "ifd", "id": im["id"], "dataType": data_type, "samples": samples, "codec": if compression == 7 { "jpeg" } else { "raw" },
                          "axes": axes, "levels": [[w, h]], "chunks": 1});
     }
@@ -282,21 +254,13 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
     let images = arr(&facts["images"]);
     let vsi_key = facts["vsi"]["key"].as_str().unwrap_or("").to_string();
     let mut out = Out::new(url);
-    let mut root = Map::new();
-    if !images.is_empty() {
-        root.insert("ome".into(), json!({"version": "0.5", "bioformats2raw.layout": 3}));
-    }
     let own = json!({
         "file": facts["vsi"],
         "stacks": facts["stacks"],
         "tree": facts["tree"],
     });
     let vsi_url = object_url(url, &vsi_key);
-    out.json("zarr.json", &group_doc(declare(root, PROFILE, Some(&vsi_url), Some(own))));
-    if !images.is_empty() {
-        let series: Vec<String> = (0..images.len()).map(|k| k.to_string()).collect();
-        out.json("OME/zarr.json", &group_json(json!({"version": "0.5", "series": series})));
-    }
+    bioformats2raw(&mut out, PROFILE, &vsi_url, own, images.len(), !images.is_empty());
     let mut refs = Refs::new(ir, out);
     let mut summaries = Vec::with_capacity(images.len());
     for (k, im) in images.iter().enumerate() {
@@ -307,10 +271,6 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
         super::store::check_key(k)?;
     }
     let chunks: u64 = summaries.iter().map(|s| n(&s["chunks"])).sum();
-    let mut summary = json!({"images": summaries, "chunks": chunks, "dataSources": out.data.len()});
-    if let (Some(m), Some(c)) = (summary.as_object_mut(), facts["counts"].as_object()) {
-        m.extend(c.clone());
-    }
-    out.summary = summary;
+    out.summary = with_counts(json!({"images": summaries, "chunks": chunks, "dataSources": out.data.len()}), facts);
     Ok(out)
 }

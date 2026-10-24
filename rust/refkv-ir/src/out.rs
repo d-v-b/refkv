@@ -307,6 +307,33 @@ pub fn group_doc(attributes: Map<String, J>) -> J {
     json!({"zarr_format": 3, "node_type": "group", "attributes": attributes})
 }
 
+/// A group's zarr.json whose attributes are `attributes` and the convention of profile `p`
+/// (`declare`).
+pub fn declared_group(attributes: Map<String, J>, p: &str, url: Option<&str>, own: Option<J>) -> J {
+    group_doc(declare(attributes, p, url, own))
+}
+
+/// An array's zarr.json `doc` declaring the convention of profile `p` with its own metadata `own`.
+pub fn declare_array(doc: &mut J, p: &str, own: J) {
+    doc["attributes"] = J::Object(declare(Map::new(), p, None, Some(own)));
+}
+
+/// The root and `OME/zarr.json` of a bioformats2raw layout (conventions §4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#4-images>) of the images 0 to
+/// `images` - 1: the root declares profile `p` for the source `url` with `own`, and, with
+/// `layout`, names the layout, and `OME/zarr.json` lists the images; without, the root alone.
+pub fn bioformats2raw(out: &mut Out, p: &str, url: &str, own: J, images: usize, layout: bool) {
+    let mut root = Map::new();
+    if layout {
+        root.insert("ome".into(), json!({"version": "0.5", "bioformats2raw.layout": 3}));
+    }
+    out.json("zarr.json", &declared_group(root, p, Some(url), Some(own)));
+    if layout {
+        let series: Vec<String> = (0..images).map(|k| k.to_string()).collect();
+        out.json("OME/zarr.json", &group_json(json!({"version": "0.5", "series": series})));
+    }
+}
+
 pub fn group_json(ome: J) -> J {
     let mut a = Map::new();
     a.insert("ome".into(), ome);
@@ -390,11 +417,21 @@ pub fn tiff_codecs(compression: u64, bits: u64, little: bool) -> Vec<J> {
     out
 }
 
+/// The letters and colors of a pixel's red, green, blue and alpha samples, in that order and
+/// in the order of BGR(A) data.
+pub const RGBA: [(&str, &str); 4] = [("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF"), ("A", "FFFFFF")];
+pub const BGRA: [(&str, &str); 4] = [("B", "0000FF"), ("G", "00FF00"), ("R", "FF0000"), ("A", "FFFFFF")];
+
 /// A channel's display window of `omero` (conventions §4
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#4-images>): the data's range
 /// `min`..`max`, shown from `start` to `end`.
 pub fn omero_window(min: J, max: J, start: J, end: J) -> J {
     json!({"min": min, "max": max, "start": start, "end": end})
+}
+
+/// The window of the range `lo`..`hi` shown whole.
+pub fn full_window(lo: J, hi: J) -> J {
+    omero_window(lo.clone(), hi.clone(), lo, hi)
 }
 
 /// An `omero` channel: its label, its color (`RRGGBB`), active, and its window when it has one.
@@ -429,14 +466,14 @@ pub fn type_window(data_type: &str) -> Option<J> {
         "int64" => (json!(i64::MIN), json!(i64::MAX)),
         _ => return None,
     };
-    Some(omero_window(lo.clone(), hi.clone(), lo, hi))
+    Some(full_window(lo, hi))
 }
 
 /// The `omero` channels of an image whose channels are a pixel's `spp` samples: with `rgb`, the
 /// first three `R`, `G` and `B`, colored so, and any other `S<s>`, white; each label after
 /// `base`, sample `s` with `windows[s]` when there is one.
 pub fn sample_channels(base: &str, spp: u64, rgb: bool, windows: &[Option<J>]) -> Vec<J> {
-    let letters: &[(&str, &str)] = if rgb { &[("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF")] } else { &[] };
+    let letters: &[(&str, &str)] = if rgb { &RGBA[..3] } else { &[] };
     (0..spp)
         .map(|s| {
             let window = windows.get(s as usize).and_then(Option::as_ref);

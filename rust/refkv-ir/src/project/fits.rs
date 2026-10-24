@@ -5,11 +5,11 @@
 //! `data` element), a group with the arrays `rows` and `heap` for a table, and an empty
 //! group for an HDU without data, each declaring the convention with its own cards.
 
-use super::{contiguous, Copied};
+use super::{contiguous, key, Copied};
 use crate::fits::{card, parse_cards, Card, Value};
 use crate::fits_tiles::{prefix, TileRecord};
 use crate::ir::Ir;
-use crate::out::{array_json, blob_chunks, bytes_codec, item_size, declare, grid_chunks, group_doc, json_size, Chunk, Out, Part};
+use crate::out::{array_json, blob_chunks, bytes_codec, declare_array, declared_group, grid_chunks, item_size, json_size, Chunk, Out, Part};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -193,12 +193,12 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         if kind == "image" {
             // the array is the node itself: its document gets the declaration
         } else {
-            docs.push((format!("{index}/zarr.json"), group_doc(declare(Map::new(), PROFILE, None, Some(own.clone())))));
+            docs.push((format!("{index}/zarr.json"), declared_group(Map::new(), PROFILE, None, Some(own.clone()))));
         }
         all_arrays.push((kind == "image", own, node_arrays));
     }
     let root_own = json!({"hdus": table, "cards": primary_cards});
-    out.json("zarr.json", &group_doc(declare(Map::new(), PROFILE, Some(url), Some(root_own))));
+    out.json("zarr.json", &declared_group(Map::new(), PROFILE, Some(url), Some(root_own)));
     for (key, doc) in docs {
         out.json(&key, &doc);
     }
@@ -211,7 +211,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
             let dim_refs: Vec<&str> = dims.iter().map(|s| s.as_str()).collect();
             let mut doc = array_json(&shape, &data_type, json!(grid), codecs, &dim_refs);
             if is_image {
-                doc["attributes"] = J::Object(declare(Map::new(), PROFILE, None, Some(own.clone())));
+                declare_array(&mut doc, PROFILE, own.clone());
             }
             refs.out.json(&format!("{path}/zarr.json"), &doc);
             summary_arrays.push(json!({"path": path, "shape": shape, "dataType": data_type, "chunkShape": grid}));
@@ -242,7 +242,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         });
         let codecs = json!([{"name": "refkv.fits_tiles", "configuration": config}]);
         let mut doc = array_json(&shape, &data_type, c["chunk_shape"].clone(), codecs, &dim_refs);
-        doc["attributes"] = J::Object(declare(Map::new(), PROFILE, None, Some(own)));
+        declare_array(&mut doc, PROFILE, own);
         refs.out.json(&format!("{path}/zarr.json"), &doc);
         summary_arrays.push(json!({"path": path, "shape": shape, "dataType": data_type, "chunkShape": c["chunk_shape"], "compression": c["type"]}));
         let table = h["elements"]["table"].as_u64().and_then(|t| ir.value_bytes(t as u32)).unwrap_or(&[]);
@@ -253,9 +253,9 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
             let (start, length, form) = (ir.start[e as usize], ir.len[e as usize], ir.form_id(e as u32).ok_or("internal: a heap chunk has no form")?);
             let mut parts = refs.parts(start, length, form)?;
             parts.insert(0, Part::Lit(prefix(first as u64, &records[first..first + n])));
-            let coords: Vec<String> = ch["coords"].as_array().into_iter().flatten().map(|v| v.to_string()).collect();
+            let coords = ch["coords"].as_array().into_iter().flatten().map(super::n);
             count += 1;
-            refs.chunk(format!("{path}/c/{}", coords.join("/")), start, length, form, Some(parts), piece as u64)?;
+            refs.chunk(key(&format!("{path}/c/"), coords), start, length, form, Some(parts), piece as u64)?;
         }
     }
     let mut out = refs.out;

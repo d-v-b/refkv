@@ -5,10 +5,10 @@
 //! JPEG with three samples; the facts hold the array, its scales, the window and the root's
 //! source metadata.
 
-use super::{arr, n, obj, strs};
+use super::{arr, key, n, obj, strs};
 use crate::dicom::ADOBE;
 use crate::ir::Ir;
-use crate::out::{array_json, bytes_codec, item_size, image_ome, omero_channel, omero_json, root_json, transpose_codec, Out, Part};
+use crate::out::{array_json, bytes_codec, image_ome, item_size, omero_channel, omero_json, root_json, transpose_codec, Out, Part, RGBA};
 use crate::refs::Refs;
 use serde_json::{json, Value as J};
 
@@ -36,7 +36,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         }
         vec![c]
     } else {
-        [("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF")].iter().map(|(l, c)| omero_channel(l, *c, Some(&window))).collect()
+        RGBA[..3].iter().map(|(l, c)| omero_channel(l, *c, Some(&window))).collect()
     };
     ome["omero"] = omero_json(channels);
 
@@ -79,18 +79,14 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
                 }
                 p
             };
-            let coords: Vec<String> = axes
-                .iter()
-                .map(|a| match *a {
-                    "c" => s,
-                    "y" => row,
-                    "x" => col,
-                    a if a == fa => f,
-                    _ => 0,
-                })
-                .map(|c| c.to_string())
-                .collect();
-            refs.chunk(format!("0/c/{}", coords.join("/")), start, length, form, Some(parts), s)?;
+            let coords = axes.iter().map(|a| match *a {
+                "c" => s,
+                "y" => row,
+                "x" => col,
+                a if a == fa => f,
+                _ => 0,
+            });
+            refs.chunk(key("0/c/", coords), start, length, form, Some(parts), s)?;
         }
     }
     let mut out = refs.out;

@@ -6,10 +6,10 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#43-image-arrays>, with the
 //! parser's band floor).
 
-use super::{arr, key, n, obj, strs, translations, truthy};
+use super::{along, arr, key, n, obj, strs, translations, truthy};
 use crate::coding::{pixel_type, JPEG, JPEGXR, UNCOMPRESSED, ZSTD0, ZSTD1};
 use crate::ir::Ir;
-use crate::out::{bytes_codec, declare, group_doc, group_json, image_ome, item_size, metadata_group, omero_channel, omero_json, omero_window, rectilinear_array_json, transpose_codec, Out, Part};
+use crate::out::{bioformats2raw, bytes_codec, declare_array, declared_group, image_ome, item_size, metadata_group, omero_channel, omero_json, omero_window, rectilinear_array_json, transpose_codec, Out, Part, RGBA};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -126,13 +126,7 @@ fn omero(values: &J, form: Form, data_type: &str, p: u64, lo_c: i64, channels: u
             omero_window(json!(0), json!(top), low.map_or(json!(0), |v| times(v, full)), high.map_or(json!(top), |v| times(v, full)))
         });
         for letter in letters {
-            let rgb = match *letter {
-                "B" => Some("0000FF"),
-                "G" => Some("00FF00"),
-                "R" => Some("FF0000"),
-                "A" => Some("FFFFFF"),
-                _ => None,
-            };
+            let rgb = RGBA.iter().find(|(l, _)| l == letter).map(|(_, c)| *c);
             let name = if letter.is_empty() { label.clone() } else { format!("{label} {letter}") };
             out.push(omero_channel(&name, rgb.map_or_else(|| color.clone(), |x| json!(x)), window.as_ref()));
         }
@@ -163,13 +157,7 @@ fn cell_refs(refs: &mut Refs, path: &str, axes: &[&str], compression: i32, q: u6
         };
         for (k, (o, len)) in pieces.into_iter().enumerate() {
             let y = row * per + k as u64;
-            let coords = axes.iter().map(|a| match *a {
-                "t" => t,
-                "c" => c,
-                "z" => z,
-                "x" => col,
-                _ => y,
-            });
+            let coords = axes.iter().map(|a| along(a, [t, c, z, y, col]));
             refs.chunk(key(&prefix, coords), start, length, 0, Some(vec![Part::Src(o, len)]), k as u64)?;
         }
     }
@@ -184,15 +172,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let tiles = arr(&facts["tiles"]);
     let mut out = Out::new(url);
     out.lazy.push(format!("{TILES}/"));
-    let mut root = Map::new();
-    if !images.is_empty() {
-        root.insert("ome".into(), json!({"version": "0.5", "bioformats2raw.layout": 3}));
-    }
-    out.json("zarr.json", &group_doc(declare(root, "czi", Some(url), Some(facts["root"].clone()))));
-    if !images.is_empty() {
-        let series: Vec<String> = (0..images.len()).map(|k| k.to_string()).collect();
-        out.json("OME/zarr.json", &group_json(json!({"version": "0.5", "series": series})));
-    }
+    bioformats2raw(&mut out, "czi", url, facts["root"].clone(), images.len(), !images.is_empty());
     let mut refs = Refs::new(ir, out);
     for (k, im) in images.iter().enumerate() {
         let axes = strs(&im["axes"]);
@@ -206,7 +186,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         let mut a = Map::new();
         a.insert("ome".into(), ome);
         let own = truthy(dims).then(|| json!({"dimensions": dims}));
-        refs.out.json(&format!("{k}/zarr.json"), &group_doc(declare(a, "czi", None, own)));
+        refs.out.json(&format!("{k}/zarr.json"), &declared_group(a, "czi", None, own));
         for (di, lv) in arr(&im["levels"]).iter().enumerate() {
             let path = format!("{k}/{di}");
             refs.out.json(&format!("{path}/zarr.json"), &array_doc(&lv["shape"], dtype, &lv["chunks"], codecs(form, dtype, p, &axes), &axes));
@@ -228,7 +208,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
             own.insert(m.into(), t[m].clone());
         }
         let mut doc = array_doc(&t["shape"], dtype, &t["chunks"], codecs(form, dtype, p, &axes), &axes);
-        doc["attributes"] = J::Object(declare(Map::new(), "czi", None, Some(J::Object(own))));
+        declare_array(&mut doc, "czi", J::Object(own));
         let path = format!("{TILES}/{k}");
         refs.out.json(&format!("{path}/zarr.json"), &doc);
         cell_refs(&mut refs, &path, &axes, form.1, q, &t["band"], &t["members"])?;

@@ -9,7 +9,7 @@ use super::{base64, contiguous, float_json, json_text, n, Copied};
 use crate::ir::Ir;
 use crate::mrc::{Header, FIELDS};
 use crate::nifti::Num;
-use crate::out::{array_json, bytes_codec, declare, grid_chunks, group_doc, gzip_array, image_ome, omero_channel, omero_json, omero_window, root_json, Chunk, Out};
+use crate::out::{array_json, bytes_codec, declared_group, full_window, grid_chunks, gzip_array, image_ome, omero_channel, omero_json, root_json, Chunk, Out};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -182,9 +182,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
             },
         })
         .collect();
-    let translation = placed.then(|| {
-        J::Array(axes.iter().map(|a| if *a == "t" { json!(0) } else { json!(origin[index(a)]) }).collect())
-    });
+    let translation = placed.then(|| super::translation(&axes, [json!(origin[0]), json!(origin[1]), json!(origin[2])]));
     let trs = translation.clone().map(|t| vec![t]);
     let mut ome = image_ome(&axes, &units, &[J::Array(scales)], None, trs.as_deref())?;
 
@@ -192,7 +190,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let (lo, hi) = (f("dmin"), f("dmax"));
     let window = mode != 4 && lo.is_finite() && hi.is_finite() && hi > lo;
     if window {
-        let window = omero_window(json!(lo), json!(hi), json!(lo), json!(hi));
+        let window = full_window(json!(lo), json!(hi));
         ome["omero"] = omero_json(vec![omero_channel("C0", "FFFFFF", Some(&window))]);
     }
 
@@ -234,7 +232,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     if window {
         data["attributes"]["actual_range"] = json!([lo, hi]);
     }
-    out.json(&format!("{DATASET}/zarr.json"), &group_doc(declare(Map::new(), "mrc-dataset", Some(url), Some(J::Object(own)))));
+    out.json(&format!("{DATASET}/zarr.json"), &declared_group(Map::new(), "mrc-dataset", Some(url), Some(J::Object(own))));
     out.json(&format!("{DATASET}/data/zarr.json"), &data);
     let count = chunks.len();
     let mut refs = Refs::new(ir, out);

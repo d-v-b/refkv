@@ -5,7 +5,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#78-chunk-references>). The
 //! parser decided the layout and the keys (the facts); this writes them.
 
-use super::{arr, key, n, obj, strs, translations};
+use super::{along, arr, key, n, obj, strs, translations};
 use crate::hdf5;
 use crate::ir::Ir;
 use crate::out::{array_json, image_ome, root_json, Out};
@@ -45,13 +45,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
             if (0..3).any(|i| coords[i] as u128 * chunk[i] as u128 >= sizes[i] as u128) {
                 continue; // padding, wholly outside the image
             }
-            let k = key(&format!("{r}/c/"), axes.iter().map(|a| match *a {
-                "t" => t,
-                "c" => c,
-                "z" => coords[0],
-                "y" => coords[1],
-                _ => coords[2],
-            }));
+            let k = key(&format!("{r}/c/"), axes.iter().map(|a| along(a, [t, c, coords[0], coords[1], coords[2]])));
             refs.chunk(k, start, length, form, None, 0)?;
             count += 1;
         }
