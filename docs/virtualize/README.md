@@ -24,6 +24,7 @@ who each one is for, what you get, and how to run it.
 | FITS | FITS images and tables (`.fits`, `.fz`) | [fits](fits/README.md) | [fits.md §9](../../spec/virtualize/fits.md#9-fits-profile) |
 | IMS | Imaris `.ims` files | [ims](ims/README.md) | [ims.md §7](../../spec/virtualize/ims.md#7-ims-profile) |
 | MP3 | MP3 audio files, as an array of samples (`.mp3`) | [mp3](mp3/README.md) | [mp3.md §8](../../spec/virtualize/mp3.md#8-mp3-profile) |
+| MP4 | MP4 and QuickTime video and audio, as arrays of planes and samples (`.mp4`, `.mov`) | [mp4](mp4/README.md) | [mp4.md §8](../../spec/virtualize/mp4.md#8-mp4-profile) |
 | MRC | MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`) | [mrc](mrc/README.md) | [mrc.md §8](../../spec/virtualize/mrc.md#8-mrc-profile) |
 | N5 | N5 containers on S3 | [n5](n5/README.md) | [n5.md §8](../../spec/virtualize/n5.md#8-n5-profile) |
 | ND2 | Nikon NIS-Elements ND2 files | [nd2](nd2/README.md) | [nd2.md §7](../../spec/virtualize/nd2.md#7-nd2-profile) |

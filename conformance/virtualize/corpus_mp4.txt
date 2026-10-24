@@ -1,0 +1,5 @@
+# url|name|no-ref of the public MP4 files in the corpus (the frozen reference has no MP4 profile, so each
+# compares py with web alone): "About Bananas" (1935), from the Prelinger Archives on the Internet
+# Archive (public domain): H.264 320 x 240 and AAC stereo, 46 MB (archive.org redirects downloads to a
+# mirror)
+https://archive.org/download/AboutBan1935/AboutBan1935_512kb.mp4|prelinger_about_bananas|no-ref

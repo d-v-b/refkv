@@ -12,7 +12,7 @@ module wraps one as a `zarr.abc.store.Store`:
 
 Importing it also registers the codecs that archives of virtualized files and
 stores use (`refkv.zarr.codecs`, one module per codec; the image codecs' decoders
-need the `images` extra, the `mp3` codec's the `audio` extra).
+need the `images` extra, the `refkv.stream` codec's the `media` extra).
 """
 
 from __future__ import annotations

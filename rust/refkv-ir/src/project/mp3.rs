@@ -9,7 +9,7 @@
 use super::{arr, json_text, n, Copied};
 use crate::ir::Ir;
 use crate::mp3::{MODES, RESERVOIR, VERSIONS};
-use crate::out::{array_json, declare, group_doc, Out, Part};
+use crate::out::{array_json, declare, group_doc, stream_parts, Out};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
@@ -95,7 +95,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
 
     // the array (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#41-the-array>)
     let shape = [samples, channels];
-    let array = array_json(&shape, "int16", json!([per_chunk as u64 * spf, channels]), json!([{"name": "mp3"}]), &["time", "channel"]);
+    let array = array_json(&shape, "float32", json!([per_chunk as u64 * spf, channels]), json!([{"name": "refkv.stream", "configuration": {"format": "mp3"}}]), &["time", "channel"]);
     out.json(&format!("{ARRAY}/zarr.json"), &array);
     let form = ir.form_id(first as u32).ok_or("internal: a frame has no form")?;
     let chunks = count.div_ceil(per_chunk);
@@ -103,18 +103,13 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
     for q in 0..chunks {
         let a = q * per_chunk;
         let b = (a + per_chunk).min(count);
-        let keep = ((b - a) as u64 * spf) as u32;
         let l = lead(a, &main, RESERVOIR[version]);
-        // the frames l to b - 1, a range per run of frames that follow each other (the bytes
-        // between frames, which are no frame, are left out: a decoder resyncs on them)
-        let mut parts = vec![Part::Lit(keep.to_le_bytes().to_vec())];
-        for j in l..b {
-            let (o, n) = (ir.start[first + j], ir.len[first + j]);
-            match parts.last_mut() {
-                Some(Part::Src(po, pn)) if *po + *pn == o => *pn += n,
-                _ => parts.push(Part::Src(o, n)),
-            }
-        }
+        // the frames l to b - 1 (the bytes between frames, which are no frame, are left out: a
+        // decoder resyncs on them), the lead-in's dropped and frame j's samples at (j - a) * S
+        let units: Vec<(u64, u64, i64)> = (l..b)
+            .map(|j| (ir.start[first + j], ir.len[first + j], if j < a { -1 } else { ((j - a) as u64 * spf) as i64 }))
+            .collect();
+        let parts = stream_parts(&units);
         refs.chunk(format!("{ARRAY}/c/{q}/0"), ir.start[first + a], ir.len[first + a], form, Some(parts), q as u64)?;
     }
     let mut out = refs.out;

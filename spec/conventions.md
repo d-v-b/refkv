@@ -15,6 +15,7 @@ its JSON Schema `virtualize/<format>/schema.json`:
 | FITS | [fits](virtualize/fits.md) | `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` |
 | Imaris IMS | [ims](virtualize/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
 | MP3 (MPEG Layer III audio) | [mp3](virtualize/mp3.md) | `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` |
+| MP4 and QuickTime (H.264 video, AAC and MP3 audio) | [mp4](virtualize/mp4.md) | `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` |
 | MRC2014 | [mrc](virtualize/mrc.md) | `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` |
 | MRC2014, as a dataset ([§9](#9-dataset-layouts)) | [mrc-dataset](virtualize/mrc-dataset.md) | `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` |
 | N5 | [n5](virtualize/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
@@ -179,8 +180,9 @@ nests its own record.
 Unless the format's convention says otherwise (the store conventions, N5,
 Zarr v2 and OME-Zarr, define their arrays themselves; the CZI convention
 gives clipped levels the zarr-extensions `rectilinear` chunk grid and adds
-the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle`; the MP3 convention
-defines the codec `mp3` and its own dimension names), every array's
+the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle`; the MP3 and MP4
+conventions give their arrays the codec `refkv.stream` of [§10](#10-coded-streams) and dimension
+names of their own), every array's
 `zarr.json` is the JSON object:
 
 ```json
@@ -1106,3 +1108,94 @@ that every producer writes the same values. A deflated coordinate chunk is
 the one place a producer compresses bytes it computed, and deflate streams
 differ between encoders, so such chunks are compared by the indexes they
 decode to, not byte for byte.
+
+## 10. Coded streams
+
+Audio and video formats code each frame (an MP3 or AAC frame, an H.264
+picture) into a run of bytes that a decoder can only decode after the
+frames it depends on: an MP3 frame's bit reservoir reaches into the frames
+before it, an AAC frame overlaps the one before it, and an H.264 picture
+is predicted from other pictures, back to the last keyframe. A chunk of
+such a stream's samples therefore holds the frames it decodes to and the
+frames before them that a decoder must decode first, its **lead-in**. The
+array-to-bytes codec `refkv.stream` decodes such a chunk.
+
+**The codec.** `{"name": "refkv.stream", "configuration": C}`, where `C` has:
+
+- `format`: the coding of the frames: `"mp3"` (MPEG-1, 2 or 2.5 Layer III
+  frames), `"aac"` (raw AAC frames, without ADTS headers) or `"h264"`
+  (H.264 access units as an MP4 file holds them: each NAL unit preceded by
+  its length, in the length's size the setup gives);
+- `setup`, when the format has one: the decoder's configuration, base64
+  ([RFC 4648 §4](https://www.rfc-editor.org/rfc/rfc4648#section-4)): for
+  `"aac"` the AudioSpecificConfig (ISO/IEC 14496-3 §1.6.2.1), for `"h264"`
+  the AVCDecoderConfigurationRecord (an MP4 file's avcC box, ISO/IEC
+  14496-15 §5.3.3.1), which holds the parameter sets;
+- `plane`, for `"h264"`: the plane of a decoded picture the array holds,
+  `"y"`, `"u"` or `"v"`.
+
+There are no other members.
+
+**A chunk's bytes** are a header, then the frames:
+
+1. `n`, the frames' count, as a varint;
+2. for each frame, in the order of the frames, its `size` as a varint,
+   then its `position` less the previous frame's (the first frame's less
+   −1) as a zigzag varint;
+3. the `n` frames, each `size` bytes, one after the other, in decode
+   order.
+
+A **varint** is an unsigned integer as protobuf encodes it, 7 bits a byte,
+the least significant first, the high bit set on every byte but the last;
+a **zigzag varint** is the varint of `2d` for `d ≥ 0` and of `−2d − 1` for
+`d < 0`. So a lead-in frame (−1 after −1) costs one byte for its position,
+and a frame whose output follows the one before it (`s` samples on, or one
+picture on) one or two. A header that ends inside a varint, or whose sizes
+do not add up to the bytes after it, is an error.
+
+**Decoding a chunk.** A decoder of the format, set up with `setup` and in
+its initial state, is given the frames in order, one frame each time. Each
+frame decodes to some outputs: for audio, `s` samples of each channel; for
+video, one picture. The output of frame `k` goes to the chunk's row
+`position[k]` on, along the array's first axis: for audio, the `s` rows
+from `position[k]`, `[s, channels]`; for video, the one row `position[k]`,
+`[1, height, width]` of the plane. A frame of position −1 is decoded and
+its output dropped: it is the chunk's lead-in. Every row no frame fills is
+the fill value: the rows past the array's end in its last chunk, and the
+rows of a frame the decoder gives no output for. An output that does not
+fit its rows, or whose shape is not the array's, is an error. The outputs
+are the decoder's own samples, with no conversion: `float32` for MP3 and
+AAC, and the 8-bit planes of a 4:2:0 picture for H.264 (`u` and `v` half
+the size of `y` along each axis, rounded up).
+
+The outputs are placed by the frame each comes from, whatever order the
+decoder gives them in: an H.264 decoder outputs pictures in presentation
+order, after a delay, and may emit nothing for a frame it cannot decode.
+A decoder that cannot say which frame an output comes from does not decode
+this codec. Nor does one whose output for a frame depends on more than a
+bounded run of the frames before it, such as ffmpeg's fixed-point MP3
+decoder, which carries its rounding error from frame to frame, so a chunk
+it decodes from the lead-in differs from the stream by a unit here and
+there. ffmpeg's float MP3 decoder, its AAC decoder and its H.264 decoder
+(the implementations' decoders, through PyAV) decode it.
+
+**Determinism.** A chunk decodes to the same values every time, and, for
+MP3 and H.264, to the values a decoder of the whole stream gives (H.264
+decoding is exact by its standard). AAC's perceptual noise substitution
+fills a band with noise from a pseudo-random generator whose state runs on
+from frame to frame, so a chunk's noise bands differ from those of a
+decoder of the whole stream; every other value is the same.
+
+**Producing a chunk.** A convention says which frames are a chunk's own,
+where each one's output goes, and which frames before them are its
+lead-in ([virtualize/mp3.md §8.2](virtualize/mp3.md#82-chunks),
+[virtualize/mp4.md §8.3](virtualize/mp4.md#83-chunks)). A virtualizer
+writes the header as a literal range, then the frames as ranges of the
+source, a frame that starts where the one before it ends extending that
+one's range. The bytes between two frames of the source are in no range,
+so a decoder never sees them: one that looked for a run of frames to lock
+onto would drop the frames before them, and one that reset its state would
+decode the frame after them from nothing. The header holds the frames'
+sizes and positions, which are the source's structure, not its samples
+([spec/virtualize.md §1.2](virtualize.md#12-input)).
+

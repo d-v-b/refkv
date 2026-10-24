@@ -1,0 +1,93 @@
+{
+  "source_model": "mp4",
+  "version": 1,
+  "about": "The source model of an MP4 or QuickTime file (spec/virtualize/mp4.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#53-elements>): the elements a parser emits, and the roles the file, each box, the movie, each table and each track play, with the constraints a file must meet to have the MP4 convention's layout (spec/virtualize/mp4.md §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#81-boxes>). The parser checks them in this order; whether a track is virtualized is no constraint (a track the profile does not virtualize is recorded with the reason), and projections read a valid IR and check nothing.",
+  "limits": {
+    "max_moov": 67108864,
+    "max_samples": 16777216,
+    "max_group": 1024
+  },
+  "tables": {},
+  "elements": {
+    "about": "The IR of an MP4 file. Every box is a struct named by its type (spec/virtualize/mp4.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#53-elements> says how a repeated or unusual type is named), whose extent is the box; T is a track's index among the moov box's trak boxes, j a sample's index in decode order.",
+    "<box>/header": {"kind": "value", "type": "{size:>u4,type:ascii[4]} or {size:>u4,type:ascii[4],largesize:>u8}", "extent": "the box's header"},
+    "<box>/fields": {"kind": "value", "type": "a record of the box's fixed fields (spec/virtualize/mp4.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#2-boxes>)", "extent": "after the header"},
+    "<box>/entries": {"kind": "value", "type": "the box's table, an array of numbers or records", "extent": "after the fields"},
+    "<box>/name": {"kind": "value", "type": "cstr[n]: an hdlr box's name"},
+    "<box>/data": {"kind": "value", "type": "bytes[n]: the payload of a box the convention does not parse, opaque"},
+    "<box>/rest": {"kind": "value", "type": "bytes[n]: bytes after a box's fields, table or children that are none of them"},
+    "samples/<T>/<j>": {"kind": "data", "form": "{geometry, codec: {name: the sample entry's type, format}, recipe: [[src, 0, null]]}", "extent": "sample j of track T"},
+    "gaps/<offset>": {"kind": "gap", "about": "bytes no box header, value or sample claims: the media data that is in no sample"}
+  },
+  "roles": {
+    "file": {
+      "given": {"size": "the file's size"},
+      "constraints": [
+        {"require": "size >= 8", "message": "file too short for an MP4 box header"}
+      ]
+    },
+    "box": {
+      "given": {"type": "the box's type, as text", "at": "its offset", "size": "its size", "head": "its header's length, 8 or 16", "end": "where its parent ends"},
+      "constraints": [
+        {"require": "size >= head", "message": "the {type} box at {at} is {size} bytes, less than its {head}-byte header"},
+        {"require": "at + size <= end", "message": "the {size}-byte {type} box at {at} is outside its parent, which ends at {end}"}
+      ]
+    },
+    "fragment": {
+      "given": {"type": "moof or mvex", "at": "the box's offset", "seen": "false"},
+      "constraints": [
+        {"require": "seen", "message": "fragmented MP4 (the {type} box at {at}) is not supported"}
+      ]
+    },
+    "movie": {
+      "given": {"moovs": "the moov boxes", "second": "the second's offset, when there is one", "size": "the first's size"},
+      "constraints": [
+        {"require": "moovs >= 1", "message": "no moov box"},
+        {"require": "moovs <= 1", "message": "a second moov box at {second}"},
+        {"require": "size <= max_moov", "message": "the {size}-byte moov box is larger than 64 MiB"}
+      ]
+    },
+    "table": {
+      "given": {"type": "the box's type", "at": "its offset", "count": "its entry count", "width": "an entry's bytes", "have": "the bytes after its fields"},
+      "constraints": [
+        {"require": "count * width <= have", "message": "the {type} box at {at} holds {count} entries of {width} bytes in {have} bytes"}
+      ]
+    },
+    "fields": {
+      "given": {"type": "the box's type", "at": "its offset", "need": "its fields' bytes", "have": "its payload's bytes"},
+      "constraints": [
+        {"require": "need <= have", "message": "the {type} box at {at} has {have} bytes, too few for its {need} bytes of fields"}
+      ]
+    },
+    "samples": {
+      "given": {"track": "the track's ID", "n": "the samples of its stsz box"},
+      "constraints": [
+        {"require": "n <= max_samples", "message": "track {track} has {n} samples, more than 2^24"}
+      ]
+    },
+    "counts": {
+      "given": {"track": "the track's ID", "what": "the other table", "n": "the samples of its stsz box", "m": "the samples the other counts"},
+      "constraints": [
+        {"require": "n == m", "message": "track {track}'s {what} counts {m} samples, its stsz box {n}"}
+      ]
+    },
+    "chunks": {
+      "given": {"track": "the track's ID", "ok": "whether the sample-to-chunk table is valid", "detail": "what is wrong with it"},
+      "constraints": [
+        {"require": "ok", "message": "track {track}'s sample-to-chunk table {detail}"}
+      ]
+    },
+    "sample": {
+      "given": {"track": "the track's ID", "j": "the sample's index", "offset": "its offset", "length": "its length", "size": "the file's size"},
+      "constraints": [
+        {"require": "offset + length <= size", "message": "track {track}'s sample {j} at {offset} ({length} bytes) is outside the {size}-byte file"}
+      ]
+    },
+    "tracks": {
+      "given": {"projected": "the tracks the profile virtualizes", "reasons": "each other track's reason"},
+      "constraints": [
+        {"require": "projected >= 1", "message": "no track can be virtualized: {reasons}"}
+      ]
+    }
+  }
+}

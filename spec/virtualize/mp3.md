@@ -14,6 +14,12 @@ Added 2026-10-21, after
 [revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
 (a profile's changes are recorded here, dated, from then on).
 
+**2026-10-23.** The array's codec is `refkv.stream`
+([conventions §10](../conventions.md#10-coded-streams)), which MP4 tracks share, in place
+of this convention's own `mp3`; its data type is `float32`, the decoder's own samples, in
+place of `int16`; a chunk's header gives each frame's size and output position, in place
+of the count of samples to keep ([§4.1](#41-the-array), [§8.2](#82-chunks)).
+
 This document has two parts. [Part 1](#part-1-the-convention) is the MP3
 convention: the Zarr layout, cited as "the convention §n".
 [Part 2](#part-2-the-profile) is the MP3 profile: how refkv reads the source,
@@ -165,57 +171,42 @@ says which frames those are). Every audio frame has the stream's `S`
 and `C`.
 
 - **Shape:** `[N × S, C]`: the samples per channel, then the channels.
-- **Data type:** `int16`.
+- **Data type:** `float32`.
 - **Dimension names:** `["time", "channel"]`.
 - **Chunk shape:** `[F × S, C]` with **`F = 256` frames per chunk**: chunk `q`
   holds the audio frames `q × F` to `min(N, (q + 1) × F) − 1`, which are
   **its frames**; the last chunk may hold fewer than `F`, and is padded
   to the chunk shape by the codec. The chunk grid is regular; the chunk
   keys are `samples/c/<q>/0`.
-- **Codecs:** `[{"name": "mp3"}]`, the array-to-bytes codec this convention
-  defines below.
+- **Codecs:** `[{"name": "refkv.stream", "configuration": {"format": "mp3"}}]`
+  ([conventions §10](../conventions.md#10-coded-streams)).
 - **Fill value:** 0.
 
 The array's `zarr.json` is otherwise [conventions §3](../conventions.md#3-arrays)'s.
 
-**The `mp3` codec.** The bytes of a chunk are:
-
-1. a 32-bit little-endian unsigned integer **`keep`**, the samples per
-   channel of the chunk's frames: `F × S`, or fewer for the last chunk;
-2. then MPEG audio frames, one after the other in file order (whatever
-   the file holds between two frames is left out): the chunk's
-   **lead-in**, the frames before its first frame that a decoder needs to
-   have decoded so that it decodes the chunk's frames as a decoder of the
-   whole stream does ([§8.2](#82-chunks) says which);
-   then the chunk's frames.
-
-Decoding a chunk is decoding the frames of 2 in one pass as a Layer III
-decoder decodes a stream (the frames of the lead-in supply the bit
-reservoir and the overlap state of the filter bank for the chunk's frames;
-their own output is discarded), to 16-bit PCM of the stream's `C` channels,
-interleaved by sample, and taking the **last `keep` samples** of the output:
-they are the chunk's samples, from the chunk's first sample on, followed by
-zeros up to the chunk shape. A decoder that cannot decode a frame whose
-reservoir it does not hold (the stream's first frames, which have no
-lead-in) gives fewer than `keep` samples for the first chunk; they are the
-last of the `keep`, preceded by zeros. The channel count of the frames is
-the array's; a chunk whose frames differ from it, or whose `keep` exceeds
-the chunk shape, is an error.
+A chunk is a `refkv.stream` chunk of MP3 frames: its own frames, each
+placed at its `S` samples from the chunk's start, after its **lead-in**,
+the frames before its first frame that a decoder needs to have decoded so
+that it decodes the chunk's frames as a decoder of the whole stream does
+([§8.2](#82-chunks) says which). The lead-in's frames
+supply the bit reservoir and the overlap state of the filter bank for the
+chunk's frames, and their own output is dropped.
 
 ### 4.2 The samples
 
 Sample `i` of channel `c` is the output of a Layer III decoder, as ISO/IEC
 11172-3 and 13818-3 define it, decoding the audio frames one after the
 other from the first (the frames alone: not the bytes between them), as a
-signed 16-bit integer (rounded from the decoder's output), the
-`i`th sample it produces for channel `c`; the decoder starts with an empty
+binary32 number, the `i`th sample it produces for channel `c`, from −1 to
+1 (a decoder's output before any conversion to integers); the decoder starts with an empty
 bit reservoir and a zero filter-bank state, and its first frame's output is
 what it is (the stream's encoder delay and the decoder's own delay, about
 529 samples, are in the array; neither is trimmed). The samples of a frame
 are its `S` outputs; a frame the decoder cannot decode (its reservoir
 reaches before the first audio frame) gives zeros. Two conforming decoders
-may differ by a few units in a sample (the standards allow it); the
-convention does not say which decoder a reader uses, and
+may differ in the last bits of a sample (the standards allow it); the
+convention does not say which decoder a reader uses, so long as it decodes
+`refkv.stream` ([conventions §10](../conventions.md#10-coded-streams)), and
 [spec/virtualize.md §1.1](../virtualize.md#11-output-and-equivalence) compares
 references, not samples.
 
@@ -304,7 +295,7 @@ frame's length.
 | `id3v2/<k>/footer` | value | `bytes[10]` | its footer, when it has one |
 | `info` | value | `bytes[L]` | the info frame ([§2](#2-frames)), when the stream starts with one |
 | `frames` | struct | | the audio frames: from the first's start to the last's end |
-| `frames/<j>` | data | | audio frame `j`, `j` from 0, `(offset, L)`, header included; its form's geometry is `{"samples": S, "channels": C, "data_type": "int16"}`, its codec `{"name": "mp3", "version": V, "sample_rate": r}`, and its recipe `[["src", 0, null]]` |
+| `frames/<j>` | data | | audio frame `j`, `j` from 0, `(offset, L)`, header included; its form's geometry is `{"samples": S, "channels": C, "data_type": "float32"}`, its codec `{"name": "mp3", "version": V, "sample_rate": r}`, and its recipe `[["src", 0, null]]` |
 | `id3v1` | value | `{tag:ascii[3],title:cstr[30],artist:cstr[30],album:cstr[30],year:ascii[4],comment:cstr[30],genre:u1}` | the ID3v1 tag, `(size − 128, 128)`, when there is one |
 | `ape` | value | `bytes[n]` | the APE tag, header and footer included, when there is one, opaque |
 | `gaps/<offset>` | gap | | bytes no other element claims: junk between frames, a truncated last frame, bytes after the last frame |
@@ -364,15 +355,19 @@ has this root `zarr.json`:
 ```
 
 Its array `samples/zarr.json` has the shape `[12672, 1]`, the chunk shape
-`[147456, 1]` (256 frames of 576 samples), the data type `int16`, the codecs
-`[{"name": "mp3"}]` and the dimension names `["time", "channel"]`. The one
-chunk, `samples/c/0/0`, is the literal `80 31 00 00` (`keep = 12672`) then
-the range `(0, 3168)` of source 0: every frame, no lead-in. Read with 4
-frames a chunk instead (as the tests do), chunk 3 holds frames 12 to 15,
-`keep = 2304`, and its range is `(1152, 1152)`: it starts at frame 8, since
-the lead-in is frames 10 and 11, the two before the chunk, and before them
-frames 8 and 9, whose main data (131 bytes each: `144 − 4 − 9`) holds 262
-bytes, at least the 255-byte reservoir of MPEG-2.
+`[147456, 1]` (256 frames of 576 samples), the data type `float32`, the codecs
+`[{"name": "refkv.stream", "configuration": {"format": "mp3"}}]` and the
+dimension names `["time", "channel"]`. The one chunk, `samples/c/0/0`, is an
+88-byte literal, the header (`16 90 01 02 90 01 80 09 ...`: the count 22, then
+each frame's size 144 and its position's step, 1 for the first and 576 for
+each after it), then the range `(0, 3168)` of source 0: every frame, no
+lead-in. Read with 4 frames a chunk instead (as the tests
+do), chunk 3 holds frames 12 to 15, and its range is `(1152, 1152)`: it
+starts at frame 8, since the lead-in is frames 10 and 11, the two before
+the chunk, and before them frames 8 and 9, whose main data (131 bytes each:
+`144 − 4 − 9`) holds 262 bytes, at least the 255-byte reservoir of MPEG-2.
+Its header places frames 8 to 11 at −1 and frames 12 to 15 at 0, 576, 1152
+and 1728.
 
 ## 7. What the layout does not express
 
@@ -491,15 +486,11 @@ convention does not know are bytes between or after frames, kept as gaps
 The array has `ceil(N / F)` chunks, `F = 256`, chunk `q` holding the audio
 frames `a = q × F` to `b − 1`, `b = min(N, a + F)`
 ([the convention §4.1](#41-the-array)). Every chunk is present. Chunk `q`, at
-`samples/c/<q>/0`, is the reference of two ranges:
-
-1. the literal range of 4 bytes `keep = (b − a) × S` as a 32-bit
-   little-endian unsigned integer;
-2. the audio frames `l` to `b − 1` as ranges of source 0, in order, one
-   range per run of frames that follow each other in the file: a frame that
-   starts where the frame before it ends extends that frame's range, and
-   any other frame starts a new one (so the bytes between frames, which are
-   no frame, are in no range). `l` is the first frame of the **lead-in**:
+`samples/c/<q>/0`, is the `refkv.stream` chunk
+([conventions §10](../conventions.md#10-coded-streams)) of the audio frames `l` to
+`b − 1`, as a literal range for its header and ranges of source 0 for the
+frames: frame `j`'s position is −1 when `j < a`, and `(j − a) × S`
+otherwise. `l` is the first frame of the **lead-in**:
    `l = a` for the first chunk (`a = 0`); otherwise `l` is the greatest
    index at most `a − 2` such that the main data of frames `l` to `a − 3`
    ([the convention §2](#2-frames), `M` of each) sums to at least `R`,
@@ -514,10 +505,8 @@ synthesis state the chunk's first frame needs (the frame before it in
 MPEG-1, where a frame has two granules; the two frames before it in MPEG-2
 and 2.5, where a frame has one), and the chunk's frames then decode as
 they do in the stream. Decoding the lead-in costs a few frames' work per
-chunk and no extra reads. Leaving the bytes between frames out keeps a
-decoder from resyncing in the middle of a chunk: a decoder that looks for a
-run of frames to lock onto would drop the frames before junk, and one that
-resets its state on junk would decode the frame after it from nothing.
+chunk and no extra reads. The bytes between frames are in no range
+([conventions §10](../conventions.md#10-coded-streams) says why).
 
 The ranges lie within the file (frames are found within `[A, E)`). The
 output has no data sources: its source table is source 0 alone.

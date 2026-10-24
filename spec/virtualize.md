@@ -36,6 +36,7 @@ The table, generated from the registry, lists them:
 | [FITS](virtualize/fits.md#part-2-the-profile) | file | FITS files: images, multi-extension files, binary and ASCII tables |
 | [IMS](virtualize/ims.md#part-2-the-profile) | file | Imaris IMS files (HDF5) |
 | [MP3](virtualize/mp3.md#part-2-the-profile) | file | MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio files (`.mp3`), with their ID3v2, ID3v1 and APE tags; one array of samples, not an image |
+| [MP4](virtualize/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.mov`) with H.264 video and AAC or MP3 audio tracks; a group per track, not an image |
 | [MRC](virtualize/mrc.md#part-2-the-profile) | file | MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks) |
 | [N5](virtualize/n5.md#part-2-the-profile) | store | N5 containers, default-mode blocks |
 | [ND2](virtualize/nd2.md#part-2-the-profile) | file | Nikon ND2, format version 3 and later |
@@ -175,6 +176,7 @@ profile name:
 | FITS ([fits.md §9](virtualize/fits.md#9-fits-profile)) | 110 |
 | IMS ([ims.md §7](virtualize/ims.md#7-ims-profile)) | 70 |
 | MP3 ([mp3.md §8](virtualize/mp3.md#8-mp3-profile)) | 100 |
+| MP4 ([mp4.md §8](virtualize/mp4.md#8-mp4-profile)) | 85 |
 | MRC ([mrc.md §8](virtualize/mrc.md#8-mrc-profile)) | 90 |
 | ND2 ([nd2.md §7](virtualize/nd2.md#7-nd2-profile)) | 20 |
 | NIfTI ([nifti.md §7](virtualize/nifti.md#7-nifti-profile)) | 60 |
@@ -548,6 +550,7 @@ else. The profiles, generated from the registry:
 - the FITS profile: [spec/virtualize/fits.md §9](virtualize/fits.md#9-fits-profile);
 - the IMS profile: [spec/virtualize/ims.md §7](virtualize/ims.md#7-ims-profile);
 - the MP3 profile: [spec/virtualize/mp3.md §8](virtualize/mp3.md#8-mp3-profile);
+- the MP4 profile: [spec/virtualize/mp4.md §8](virtualize/mp4.md#8-mp4-profile);
 - the MRC profile: [spec/virtualize/mrc.md §8](virtualize/mrc.md#8-mrc-profile);
 - the N5 profile: [spec/virtualize/n5.md §8](virtualize/n5.md#8-n5-profile);
 - the ND2 profile: [spec/virtualize/nd2.md §7](virtualize/nd2.md#7-nd2-profile);

@@ -23,7 +23,7 @@
     "id3v2/<k>/footer": {"kind": "value", "type": "bytes[10]", "extent": "(at + 10 + n, 10), when the header's footer flag (0x10) is set"},
     "info": {"kind": "value", "type": "bytes[L]", "extent": "the stream's first frame, when it holds a Xing, Info or VBRI tag: not an audio frame"},
     "frames": {"kind": "struct", "about": "the audio frames; its extent from the first frame's start to the last frame's end"},
-    "frames/<j>": {"kind": "data", "form": "{geometry: {samples: S, channels: C, data_type: int16}, codec: {name: mp3, version, sample_rate}, recipe: [[src, 0, null]]}", "extent": "(offset, L): audio frame j, j from 0, header included"},
+    "frames/<j>": {"kind": "data", "form": "{geometry: {samples: S, channels: C, data_type: float32}, codec: {name: mp3, version, sample_rate}, recipe: [[src, 0, null]]}", "extent": "(offset, L): audio frame j, j from 0, header included"},
     "id3v1": {"kind": "value", "type": "{tag:ascii[3],title:cstr[30],artist:cstr[30],album:cstr[30],year:ascii[4],comment:cstr[30],genre:u1}", "extent": "(size - 128, 128), when the file ends with TAG there"},
     "ape": {"kind": "value", "type": "bytes[n]", "extent": "the APE tag before the ID3v1 tag (or at the end), footer and header included, opaque"},
     "gaps/<offset>": {"kind": "gap", "about": "bytes no frame or tag holds: junk between frames, a truncated last frame, bytes after the last frame"}

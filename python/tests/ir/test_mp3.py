@@ -1,13 +1,14 @@
 """The MP3 IR: the Rust parser and its schema, the projection (spec/virtualize/mp3.md) and the
-`mp3` codec against two decoders on every synthetic file, the mirror's rebuild, the inputs the
-profile rejects, and the lead-in of each chunk. MP3 has no frozen Python reference: miniaudio
-(the codec's own decoder, run over the whole stream) and ffmpeg (an independent decoder, run by
-the fixture generator and stored) are the readers it is compared with."""
+`refkv.stream` codec against two decodings on every synthetic file, the mirror's rebuild, the
+inputs the profile rejects, and the lead-in of each chunk. MP3 has no frozen Python reference:
+the codec's own decoder (ffmpeg's float MP3 decoder, through PyAV) run over the whole stream,
+and the ffmpeg command line's 16-bit output (run by the fixture generator and stored) are the
+readings it is compared with."""
 
 import io
 import json
 
-import miniaudio
+import av
 import numpy as np
 import pytest
 import zarr
@@ -18,13 +19,15 @@ from refkv import _core
 from refkv.ir import virtualize as via_ir
 from refkv.ir.cmirror import rebuild_from_archive
 from refkv.virtualize import Rejected
+from refkv.zarr.codecs.stream import stream_units
 
 MP3S = sorted((FIXTURES / "mp3").glob("*.mp3"))
 ACCEPTED = [p for p in MP3S if not p.name.startswith("mp3_reject")]
 EXPECTED = FIXTURES / "mp3" / "expected"
-# ffmpeg's decoding and miniaudio's differ by rounding (about half the samples of a joint
-# stereo stream by one unit): the most a sample may differ, and the most the mean may
-FFMPEG_MAX, FFMPEG_MEAN = 8, 1.0
+# the array's float samples, scaled to 16 bits and rounded, against the command line's 16-bit
+# output, whose rounding differs (about half the samples by one unit): the most a sample may
+# differ, and the most the mean may
+FFMPEG_MAX, FFMPEG_MEAN = 1, 0.6
 
 
 def virtualized(path, tmp_path, chunk_frames=None):
@@ -46,14 +49,25 @@ def virtualized(path, tmp_path, chunk_frames=None):
     return out, root, ir
 
 
-def chunk_parts(out, q):
-    """(keep, [(offset, length), ...]) of chunk q's reference: its literal and its ranges of
-    source 0 (spec/virtualize/mp3.md §8.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#82-chunks>)."""
+def chunk_parts(out, q, data):
+    """(the samples its frames keep, [(offset, length), ...]) of chunk q's reference: its
+    refkv.stream header (conventions §10
+    <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#10-coded-streams>), whose lead-in
+    frames have the position -1 and whose own frames are placed one after the other from 0, and
+    its ranges of source 0 (spec/virtualize/mp3.md §8.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#82-chunks>), which hold the
+    frames the header sizes."""
     lit, *ranges = out.refs[f"samples/c/{q}/0"]
-    assert isinstance(lit, bytes) and len(lit) == 4
-    assert all(len(r) == 2 for r in ranges)
-    return int.from_bytes(lit, "little"), ranges
+    assert isinstance(lit, bytes) and all(len(r) == 2 for r in ranges)
+    frames = b"".join(data[o:o + n] for o, n in ranges)
+    units, positions = stream_units(lit + frames)
+    assert sum(len(u) for u in units) == sum(length for _, length in ranges)
+    own = [p for p in positions if p >= 0]
+    lead = len(positions) - len(own)
+    assert all(p == -1 for p in positions[:lead]) and own[0] == 0
+    per = own[1] - own[0] if len(own) > 1 else None
+    assert per is None or own == [k * per for k in range(len(own))]
+    return (len(own) * per if per else None), ranges
 
 
 def frames_of(ir):
@@ -68,25 +82,29 @@ def frames_of(ir):
 
 
 def audio_frames(path, ir):
-    """The audio frames' bytes, one after the other (the bytes between them left out)."""
+    """The audio frames' bytes, in order (the bytes between them left out)."""
     data = path.read_bytes()
-    return b"".join(data[o:o + n] for o, n in frames_of(ir))
+    return [data[o:o + n] for o, n in frames_of(ir)]
 
 
-def sequential(audio: bytes, channels: int) -> np.ndarray:
-    """miniaudio's decoding of the audio frames in one pass, int16 [samples, channels]."""
-    info = miniaudio.mp3_get_info(audio)
-    assert info.nchannels == channels
-    d = miniaudio.decode(audio, miniaudio.SampleFormat.SIGNED16, nchannels=channels, sample_rate=info.sample_rate)
-    return np.frombuffer(d.samples, dtype=np.int16).reshape(-1, channels)
+def sequential(frames: list[bytes], channels: int) -> np.ndarray:
+    """ffmpeg's float MP3 decoder (through PyAV) decoding the audio frames in one pass, one
+    packet a frame: float32 [samples, channels]."""
+    ctx = av.CodecContext.create("mp3float", "r")
+    out = []
+    for f in [d for p in frames for d in ctx.decode(av.Packet(p))] + ctx.decode(None):
+        assert f.layout.nb_channels == channels
+        a = f.to_ndarray()
+        out.append(a.T if f.format.is_planar else a.reshape(f.samples, -1))
+    return np.concatenate(out).astype(np.float32)
 
 
 @pytest.mark.parametrize("path", ACCEPTED, ids=lambda p: p.name)
 def test_chunks_decode_as_the_stream_does(path, tmp_path):
     """With 4 frames a chunk (so that every file has several chunks, each with its lead-in),
-    the array read through the mp3 codec is miniaudio's decoding of the audio frames in one
-    pass, sample for sample (spec/virtualize/mp3.md §4.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#41-the-array>, §8.2
+    the array read through the refkv.stream codec is its decoder's decoding of the audio
+    frames in one pass, sample for sample (spec/virtualize/mp3.md §4.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#41-the-array>, §17.2
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#82-chunks>); the root's
     metadata and the summary agree with the array; the file is rebuilt from the mirror."""
     out, root, ir = virtualized(path, tmp_path, chunk_frames=4)
@@ -95,7 +113,7 @@ def test_chunks_decode_as_the_stream_does(path, tmp_path):
     got = arr[...]
     frames = frames_of(ir)
     assert len(frames) == meta["frames"]
-    assert got.dtype == np.int16 and got.shape == (meta["samples"], meta["channels"])
+    assert got.dtype == np.float32 and got.shape == (meta["samples"], meta["channels"])
     assert meta["samples"] == meta["frames"] * meta["samples_per_frame"]
     assert arr.chunks == (4 * meta["samples_per_frame"], meta["channels"])
     chunks = -(-meta["frames"] // 4)
@@ -108,8 +126,8 @@ def test_chunks_decode_as_the_stream_does(path, tmp_path):
     # first to its own last, runs of consecutive frames merged, and the first has no lead-in
     for q in range(chunks):
         a, b = 4 * q, min(4 * q + 4, len(frames))
-        keep, ranges = chunk_parts(out, q)
-        assert keep == (b - a) * meta["samples_per_frame"]
+        keep, ranges = chunk_parts(out, q, path.read_bytes())
+        assert keep in (None, (b - a) * meta["samples_per_frame"]) and (keep is not None or b - a == 1)
         l = next(j for j, (o, _) in enumerate(frames) if o == ranges[0][0])
         assert (l == 0) if q == 0 else (l < a)
         assert ranges[-1][0] + ranges[-1][1] == frames[b - 1][0] + frames[b - 1][1]
@@ -117,8 +135,9 @@ def test_chunks_decode_as_the_stream_does(path, tmp_path):
         assert all(ranges[k][0] > ranges[k - 1][0] + ranges[k - 1][1] for k in range(1, len(ranges)))
     assert out.data == {}  # no data sources
     doc = json.loads(out.bytes_entries["samples/zarr.json"])
-    assert doc["codecs"] == [{"name": "mp3"}] and doc["dimension_names"] == ["time", "channel"]
-    assert doc["fill_value"] == 0 and doc["data_type"] == "int16"
+    assert doc["codecs"] == [{"name": "refkv.stream", "configuration": {"format": "mp3"}}]
+    assert doc["dimension_names"] == ["time", "channel"]
+    assert doc["fill_value"] == 0 and doc["data_type"] == "float32"
 
 
 @pytest.mark.parametrize("path", [p for p in ACCEPTED if (EXPECTED / f"{p.stem}.npy").exists()], ids=lambda p: p.name)
@@ -128,7 +147,7 @@ def test_matches_ffmpeg(path, chunk_frames, tmp_path):
     the generator) within a few units per sample, whole (256 frames a chunk) and in chunks of
     4 frames with their lead-ins."""
     _, root, _ = virtualized(path, tmp_path, chunk_frames)
-    got = root["samples"][...].astype(np.int32)
+    got = np.clip(np.rint(root["samples"][...] * 32768.0), -32768, 32767).astype(np.int32)
     want = np.load(EXPECTED / f"{path.stem}.npy").astype(np.int32)
     assert got.shape == want.shape
     diff = np.abs(got - want)
@@ -144,7 +163,7 @@ def test_a_long_stream_has_chunks_of_256_frames(tmp_path):
     assert meta["frames"] > 256 and out.summary["chunks"] == 2
     arr = root["samples"]
     assert arr.chunks == (256 * 576, 1)
-    keep1, ranges1 = chunk_parts(out, 1)
+    keep1, ranges1 = chunk_parts(out, 1, path.read_bytes())
     assert keep1 == (meta["frames"] - 256) * 576
     # frames of 72 bytes hold 59 bytes of main data (72 - 4 - 9): the lead-in is frames 254
     # and 255, and before them the 5 frames (295 bytes) that hold the 255-byte reservoir
@@ -212,7 +231,7 @@ def test_the_info_frame_is_read_and_not_audio(tmp_path):
     info = root.attrs["refkv_virtualized"]["mp3"]["info"]
     assert info["tag"] == "Xing" and info["encoder"].startswith("LAME") and info["frames"] == out.summary["frames"]
     assert isinstance(info["delay"], int) and isinstance(info["padding"], int)
-    _, ranges = chunk_parts(out, 0)
+    _, ranges = chunk_parts(out, 0, (FIXTURES / "mp3" / "mp3_abr_xing.mp3").read_bytes())
     assert ranges[0][0] > 0 and out.summary["strayBytes"] == 0
     out, root, _ = virtualized(FIXTURES / "mp3" / "mp3_info_lavc.mp3", tmp_path)
     info = root.attrs["refkv_virtualized"]["mp3"]["info"]
