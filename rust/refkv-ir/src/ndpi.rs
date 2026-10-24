@@ -1,5 +1,5 @@
-//! What NDPI adds to TIFF (spec/virtualize/ndpi.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>), beyond its
+//! What NDPI adds to TIFF (spec/virtualize/ndpi.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>), beyond its
 //! IFD layout (which `tiff.rs` reads in its NDPI variant): a level's strip is one JPEG stream
 //! whose restart intervals McuStarts locates, and each chunk is a JPEG stream rebuilt from the
 //! strip's header (its parts around SOF0 shared, a literal SOF0 of the chunk's size), `a × b`
@@ -285,6 +285,20 @@ pub fn combine(starts: Vec<u64>, high: Option<&[u64]>) -> Vec<u64> {
     }
 }
 
+/// The NDPI profile's file run: a TIFF the TIFF parser found to be NDPI (spec/virtualize/ndpi.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>), so hosts
+/// never test for NDPI themselves. Its files are not sniffed: they are TIFFs.
+pub struct Profile;
+
+impl crate::run::FileProfile for Profile {
+    fn parser(&self, size: u64) -> crate::run::AnyParser {
+        crate::run::AnyParser::of::<crate::tiff::Tiff>(size)
+    }
+    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::ndpi::project(ir, facts, url)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,7 +326,7 @@ mod tests {
     }
 
     fn rejects(h: &[u8], msg: &str) {
-        assert_eq!(header(h, crate::rules::ndpi()), Err(msg.to_string()));
+        assert_eq!(header(h, crate::rules::of("ndpi")), Err(msg.to_string()));
     }
 
     #[test]
@@ -325,7 +339,7 @@ mod tests {
             (&[0x11][..], 8, 8),
         ] {
             let h = jpeg(factors, 4);
-            let got = header(&h, crate::rules::ndpi()).unwrap();
+            let got = header(&h, crate::rules::of("ndpi")).unwrap();
             assert_eq!((got.sof.0, got.mw, got.mh, got.restart), (2, mw, mh, 4));
             assert_eq!(&h[got.sof.0..got.sof.0 + 2], &[0xFF, 0xC0]);
         }
@@ -396,8 +410,8 @@ mod tests {
     /// A strip of a 16 × 8 image of MCUs 8 × 8 and restart interval 1: two intervals.
     fn grid(starts: Vec<u64>, length: u64, w: u64) -> Res<Grid> {
         let h = jpeg(&[0x11], 1);
-        let hd = header(&h, crate::rules::ndpi())?;
-        Grid::new(100, length, w, 8, h, hd, starts, &Part::Data(1, 0, 2), &Part::Data(2, 0, 10), crate::rules::ndpi())
+        let hd = header(&h, crate::rules::of("ndpi"))?;
+        Grid::new(100, length, w, 8, h, hd, starts, &Part::Data(1, 0, 2), &Part::Data(2, 0, 10), crate::rules::of("ndpi"))
     }
 
     #[test]
@@ -430,8 +444,8 @@ mod tests {
     #[test]
     fn a_chunk_wider_than_a_frame_header_is_rejected() {
         let h = jpeg(&[0x11], 8192);
-        let hd = header(&h, crate::rules::ndpi()).unwrap();
-        let g = Grid::new(0, 60, 65536, 8, h, hd, vec![40], &Part::Data(1, 0, 2), &Part::Data(2, 0, 10), crate::rules::ndpi());
+        let hd = header(&h, crate::rules::of("ndpi")).unwrap();
+        let g = Grid::new(0, 60, 65536, 8, h, hd, vec![40], &Part::Data(1, 0, 2), &Part::Data(2, 0, 10), crate::rules::of("ndpi"));
         assert_eq!(g.unwrap_err(), "an NDPI chunk would be 65536 pixels wide, more than 65535");
     }
 }

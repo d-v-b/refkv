@@ -13,8 +13,8 @@ Schema: [schema.json](czi/schema.json)
 This document has two parts. [Part 1](#part-1-the-convention) is the CZI
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
 is the CZI profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The profile keeps its numbering as a section
-of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
+each chunk references the source. The document is
+numbered on its own, Part 2 after Part 1, and other documents cite it by name.
 
 # Part 1. The convention
 
@@ -79,7 +79,7 @@ early writers left it). The next segment starts at `o + 32 + A`. The ids are:
 
 A segment is **referenced** when the file header, the directory or the
 attachment directory gives its offset ([§2.2](#22-the-file-header)–[§2.6](#26-attachments)); the rest are found by the
-**walk** ([the profile §13.2](#132-structures-and-the-walk)), which
+**walk** ([the profile §7.2](#72-structures-and-the-walk)), which
 visits the segments in file order from offset 0 and stops at the first offset
 where no segment header can be read; the bytes from there to the end of the
 file are the **tail**.
@@ -315,12 +315,12 @@ A subblock's **coded size** is the width and height its data holds, and its
 - Zstd0 and Zstd1: its stored size, when its Zstd1 header (for Zstd1) is one
   of those of [§3.1](#31-pixel-types-and-codecs), hi-lo packing is only on Gray16 and Bgr48, and its zstd
   frame header declares a content size of `W × H × q` bytes and no
-  dictionary ([the profile §13.4](#134-codec-headers));
+  dictionary ([the profile §7.4](#74-codec-headers));
 - JpgFile: the width and height of its JPEG frame header (SOF0, SOF1 or
   SOF2, 8-bit samples, `p` components);
 - JpgXr: the `ImageWidth` and `ImageHeight` of its JPEG XR container, when
   its `PixelFormat` is one this subblock's pixel type admits (the profile
-  [§13.4](#134-codec-headers)).
+  [§7.4](#74-codec-headers)).
 
 A subblock is **unplaced** when its copy of its entry does not agree ([§2.4](#24-subblocks)),
 or when it has no coded size by these rules (its data is too short, or its
@@ -723,8 +723,7 @@ finds (`segments/<k>`). (The display channel's `High` is 0.25: the window ends a
 
 # Part 2. The profile
 
-The CZI profile of [spec/virtualize.md](../virtualize.md) (revision 18), numbered
-as its [§13](#13-czi-profile). (Conformance is spec/virtualize.md's [Appendix A](../virtualize.md#appendix-a-conformance).) [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in
+The CZI profile of [spec/virtualize.md](../virtualize.md) (revision 18) is [§7](#7-czi-profile) of this document. (Conformance is spec/virtualize.md's [Appendix A](../virtualize.md#appendix-a-conformance).) [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in
 spec/virtualize.md and apply here.
 
 The output has the convention's layout for the input
@@ -732,16 +731,16 @@ The output has the convention's layout for the input
 how the file is read, which inputs are rejected, and how each chunk
 references the file. "The convention §n" below is a section of Part 1.
 
-## 13. CZI profile
+## 7. CZI profile
 
-### 13.1 Detection
+### 7.1 Detection
 
-A file input is read by this profile when bytes 0–15 of `H` (spec/virtualize.md
-[§1.2](../virtualize.md#12-input)) are `5A 49 53 52 41 57 46 49 4C 45` (`ZISRAWFILE`) followed by six
-`00` bytes. (This row goes before the "anything else" row of [§1.2](../virtualize.md#12-input)'s table;
-no other profile's test matches these bytes.)
+**Signature** ([spec/virtualize.md §1.2](../virtualize.md#12-input), tested at the precedence of
+[profiles/czi.json](profiles/czi.json)): bytes 0–15 of `H` are
+`5A 49 53 52 41 57 46 49 4C 45` (`ZISRAWFILE`) followed by six `00` bytes. No other profile's
+signature matches these bytes.
 
-### 13.2 Structures and the walk
+### 7.2 Structures and the walk
 
 Reading a segment header at `o` means reading its 32 bytes, which MUST lie
 within the file; when the segment is referenced (steps 1–5), its id MUST
@@ -762,7 +761,7 @@ The virtualizer reads, in any order ([spec/virtualize.md §1.2](../virtualize.md
    subblock's first `L` bytes (`L` from its `d'`, [the convention §2.4](#24-subblocks); the
    first 256 bytes MUST lie within the file before `d'` is read), and,
    when its copy of its entry agrees with the directory, the codec header of
-   its data ([§13.4](#134-codec-headers));
+   its data ([§7.4](#74-codec-headers));
 4. when MetadataPosition is not 0, the metadata segment's header and first
    8 bytes of data, and the XML when [§2.7](#27-the-metadata-xml) of the convention reads it;
 5. when AttachmentDirectoryPosition is not 0, the attachment directory's
@@ -781,9 +780,9 @@ The virtualizer reads, in any order ([spec/virtualize.md §1.2](../virtualize.md
    those of referenced segments from step 1–5's reads, and read only the
    others, in order.
 
-### 13.3 Rejection
+### 7.3 Rejection
 
-The input is rejected when a read of [§13.2](#132-structures-and-the-walk) steps 1–5 lies outside the file,
+The input is rejected when a read of [§7.2](#72-structures-and-the-walk) steps 1–5 lies outside the file,
 when a rule of this profile fails, and wherever the convention says the
 input is rejected or that something MUST hold: Major and FilePart ([§2.2](#22-the-file-header)),
 the directory and its entries ([§2.3](#23-the-subblock-directory): segment id, EntryCount, schema `DV`,
@@ -792,7 +791,7 @@ schema `DV` and `d'` of the subblock's copy, parts within the file), the
 metadata segment and attachment directory when present ([§2.5](#25-the-metadata-segment), [§2.6](#26-attachments): ids,
 counts, parts within the file, FilePart), pixel types and compressions
 ([§3.1](#31-pixel-types-and-codecs)), and the limits below. What only [§3.2](#32-conforming-and-unplaced-subblocks) decides (a subblock's coded
-size) never rejects: such a subblock is unplaced. The walk ([§13.2](#132-structures-and-the-walk) step 6)
+size) never rejects: such a subblock is unplaced. The walk ([§7.2](#72-structures-and-the-walk) step 6)
 never rejects. Neither does what only the source metadata reads (the
 attachment forms, the budget), nor the metadata XML.
 
@@ -816,7 +815,7 @@ has at most 64 channels), each tile array's by its fixed members (the
 convention [§4.4](#44-tiles)), whatever its number of planes, and `refkv_source`'s by
 the mirror's budgets ([conventions §8.7](../conventions.md#87-the-view)). The tile arrays number at most `N`.
 
-### 13.4 Codec headers
+### 7.4 Codec headers
 
 Each is read from the start of the subblock's data `D` (its `n` bytes); a
 read past `n` bytes, or past 2^16 bytes into `D`, means the subblock has no
@@ -859,7 +858,7 @@ output may depend on ([spec/virtualize.md §1.2](../virtualize.md#12-input), str
   `8F D7 FE E3 DB E8 CF 4A 84 C1 E9 7F 61 36 B3 27`. The coded size is
   (ImageWidth, ImageHeight), each at least 1.
 
-### 13.5 Chunk references
+### 7.5 Chunk references
 
 All references are ranges of source 0; this profile has no data sources.
 Let `P = o + 32 + L + m` be subblock `i`'s data offset ([the convention §2.4](#24-subblocks)).
@@ -885,7 +884,7 @@ Let `P = o + 32 + L + m` be subblock `i`'s data offset ([the convention §2.4](#
   that a reader fetches them only when it opens the node ([conventions §2](../conventions.md#2-attributes)):
   there is one per tile position and copy.
 
-### 13.6 Equivalence notes
+### 7.6 Equivalence notes
 
 The hi-lo flag, Zstd frame content size, JPEG frame header and JPEG XR
 directory decide whether a subblock is placed, so two producers read them
@@ -894,7 +893,7 @@ anything (structure only). A zstd stream that, after a valid frame header,
 holds more than one frame or trailing bytes is placed all the same, and
 fails when a reader decodes it; a writer of such files is not known.
 
-### 13.7 Reading the output
+### 7.7 Reading the output
 
 The layout uses two things that are not in every Zarr reader:
 
@@ -915,7 +914,7 @@ The layout uses two things that are not in every Zarr reader:
   complete whatever a reader supports. Their registration, and decoders in
   the Neuroglancer fork, are a follow-up.
 
-### 13.8 Measured cost
+### 7.8 Measured cost
 
 On the public corpus (`conformance/virtualize/corpus_czi.txt`, 24 files
 of 1 MB to 2.1 GB), the Python reference makes about one range request per

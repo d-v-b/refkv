@@ -1,6 +1,6 @@
 """Writes synthetic Olympus VSI slides to fixtures/vsi/, covering the rules of the VSI profile
-(spec/virtualize/vsi.md §15
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#15-vsi-profile>) and its
+(spec/virtualize/vsi.md §9
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#9-vsi-profile>) and its
 convention: each `<name>.vsi` (a little-endian TIFF whose byte 8 starts the metadata tree, with
 the macro image and the thumbnails as IFDs inside the tree's regions) and its sidecar directory
 `_<name>_/stack<N>/frame_t.ets` (or `frame_t_0.ets`), the tile files: a 64-byte SIS header, a

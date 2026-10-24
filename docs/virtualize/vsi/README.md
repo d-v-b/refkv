@@ -145,6 +145,24 @@ Rejected:
 - A `.vsi` file over 256 MB, and any file whose containers, fields, IFDs or
   tile directories are inconsistent (the profile lists every check).
 
+### In the browser
+
+The browser code ([js/](../../../js/README.md)) reads Olympus VSI (cellSens slides):
+
+- The `.vsi` file's URL names the slide; the tile files beside it
+  (`_<name>_/stack<N>/frame_t.ets`) are probed by URL, not listed, so a
+  plain web server that allows cross-origin reads serves a slide as it is.
+- One OME-Zarr image per stack in a bioformats2raw layout: every pyramid
+  level, with time, channel and z dimensions; JPEG, JPEG 2000 and
+  uncompressed tiles as chunks; the macro image and focus maps from the
+  `.vsi` file; pixel sizes in micrometers, stage origins as translations,
+  channel names and colors.
+- The whole metadata tree under `refkv_virtualized` on the root.
+
+Not supported, and refused with HTTP 422: lossless JPEG, PNG and BMP
+tiles, dimensions other than t, c and z with more than one value, and a
+stack whose tile file is missing.
+
 ## Performance
 
 - Virtualizing reads the `.vsi` file whole (one request; a few megabytes),

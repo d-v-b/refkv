@@ -1,6 +1,6 @@
 """Writes synthetic FITS files to fixtures/fits/, covering the rules of the FITS profile
-(spec/virtualize/fits.md §18
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#18-fits-profile>): images of
+(spec/virtualize/fits.md §9
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#9-fits-profile>): images of
 every BITPIX, multi-extension files, empty HDUs, value scaling, long and odd headers,
 binary and ASCII tables with and without a heap, chunking, trailing bytes, a truncated
 final block, and the inputs the profile rejects (`fits_reject_*`).

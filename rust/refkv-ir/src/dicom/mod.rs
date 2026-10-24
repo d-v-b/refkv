@@ -5,8 +5,8 @@
 //! Rounds: (1) the first 64 KiB; (2) the **scan** of the File Meta Information and the
 //! dataset to Pixel Data, in windows that double from 64 KiB to 16 MiB while the walk keeps
 //! to the bytes after the last one, skipping values of more than 64 KiB that are not
-//! sequences; (3) the profile (spec/virtualize/dicom.md §6
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#6-dicom-profile>), which
+//! sequences; (3) the profile (spec/virtualize/dicom.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#7-dicom-profile>), which
 //! checks the schema (`schema/dicom.json`) and reads the pixel data's structure: the Basic
 //! Offset Table, then the frames' item headers an Extended Offset Table names (one batch), or
 //! the fragments' item headers, those the Basic Offset Table predicts in one batch; then the
@@ -30,7 +30,7 @@ use std::collections::{HashMap, HashSet};
 const FIRST: u64 = 1 << 16;
 const MAX_WINDOW: u64 = 1 << 24;
 /// SOI and the Adobe APP14 marker, without its last byte, the color transform
-/// (spec/virtualize/dicom.md §6.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#65-frames>).
+/// (spec/virtualize/dicom.md §7.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#75-frames>).
 pub const ADOBE: [u8; 17] = [0xFF, 0xD8, 0xFF, 0xEE, 0x00, 0x0E, 0x41, 0x64, 0x6F, 0x62, 0x65, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00];
 /// The most bytes of an element the IR holds (the view shows at most 1024).
 const HOLD: u64 = 1 << 10;
@@ -627,8 +627,8 @@ impl Dicom {
         }
     }
 
-    // ---- the profile (spec/virtualize/dicom.md §6
-    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#6-dicom-profile>)
+    // ---- the profile (spec/virtualize/dicom.md §7
+    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#7-dicom-profile>)
 
     fn profile(&mut self) -> R<()> {
         if self.image.is_none() {
@@ -827,8 +827,8 @@ impl Dicom {
         })
     }
 
-    /// The pixel data's layout (spec/virtualize/dicom.md §6.5
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#65-frames>).
+    /// The pixel data's layout (spec/virtualize/dicom.md §7.5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#75-frames>).
     fn pixel_layout(&mut self, img: &Image) -> R<Layout> {
         let r = self.rules;
         let size = self.size;
@@ -1485,4 +1485,23 @@ struct Names {
     present: HashSet<u32>,
     dups: u64,
     pads: u64,
+}
+
+crate::parser!(Dicom);
+
+/// The DICOM profile's file run (spec/virtualize/dicom.md).
+pub struct Profile;
+
+impl crate::run::FileProfile for Profile {
+    /// `DICM` after the 128-byte preamble (tested first: a dual-personality file's preamble may
+    /// hold a TIFF header).
+    fn detect(&self, head: &[u8]) -> bool {
+        head.len() >= 132 && &head[128..132] == b"DICM"
+    }
+    fn parser(&self, size: u64) -> crate::run::AnyParser {
+        crate::run::AnyParser::of::<Dicom>(size)
+    }
+    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::dicom::project(ir, facts, url)
+    }
 }

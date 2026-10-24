@@ -123,7 +123,7 @@ def test_headings(repo):
         ("design/conformance/archive/r1/x.md", "SPEC.md §1.1\n", "ok", "spec/history/archive/SPEC.r1.md#11-old"),
         ("js/src/x.ts", "// conventions §3\n", "ok", "spec/conventions.md#3-arrays"),
         # spec/virtualize.md's §3 and on are the profiles (the registry's numbers)
-        ("python/src/refkv/virtualize/x.py", "# spec/virtualize.md §3.1\n", "ok", "spec/virtualize/tiff.md#31-reading"),
+        ("python/src/refkv/virtualize/x.py", "# spec/virtualize/tiff.md §4\n", "ok", "spec/virtualize/tiff.md#4-the-image"),
         # a format's document by its path, or by its name, is its convention
         ("rust/refkv-ir/src/xml.rs", "// spec/virtualize/tiff.md §3\n", "ok", "spec/virtualize/tiff.md#3-ome-xml"),
         ("spec/virtualize.md", "decimal (TIFF §3)\n", "ok", "spec/virtualize/tiff.md#3-ome-xml"),
@@ -134,7 +134,7 @@ def test_headings(repo):
         ("python/src/refkv/virtualize/tiff/x.py", "# §3\n", "ambiguous", ""),
         ("python/src/refkv/virtualize/tiff/x.py", "# §1.2\n", "review", "spec/virtualize.md#12-input"),
         # a chain keeps the qualifier
-        ("js/src/x.ts", "// spec/virtualize.md §1.2, §3.1\n", "ok", "spec/virtualize/tiff.md#31-reading"),
+        ("js/src/x.ts", "// spec/virtualize.md §1.2, spec/virtualize/tiff.md §4\n", "ok", "spec/virtualize/tiff.md#4-the-image"),
         # other standards, links, and what cannot be settled
         ("python/src/refkv/x.py", "# RFC 3986 §5.2.2\n", "external", ""),
         ("python/src/refkv/x.py", "# RFC 9110 §5.6.7 and §1.1\n", "external", ""),

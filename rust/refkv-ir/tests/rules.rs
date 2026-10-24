@@ -121,7 +121,7 @@ fn a_derived_name_of_a_limit_is_an_error() {
 
 #[test]
 fn the_tiff_czi_and_ims_schemas_are_valid() {
-    let (t, c, i) = (rules::tiff(), rules::czi(), rules::ims());
+    let (t, c, i) = (rules::of("tiff"), rules::of("czi"), rules::of("ims"));
     assert!(t.has_role("field") && t.has_role("tile") && c.has_role("entry") && c.has_role("extent"));
     assert!(i.has_role("imaris") && i.has_role("image") && i.has_role("datatype") && i.limit("max_levels") == 64.0);
 }

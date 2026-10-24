@@ -1,7 +1,7 @@
 {
   "source_model": "mrc",
   "version": 1,
-  "about": "The source model of an MRC2014 file (spec/virtualize/mrc.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#53-elements>): the elements a parser emits, the table of modes, and the roles the file, its byte order, its dimensions, its mode, its extended header, a volume stack and its data play, each with the constraints a file must meet to have the MRC convention's layout (spec/virtualize/mrc.md §14.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#141-header>). The parser checks them in this order; projections read a valid IR and check nothing.",
+  "about": "The source model of an MRC2014 file (spec/virtualize/mrc.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#53-elements>): the elements a parser emits, the table of modes, and the roles the file, its byte order, its dimensions, its mode, its extended header, a volume stack and its data play, each with the constraints a file must meet to have the MRC convention's layout (spec/virtualize/mrc.md §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#81-header>). The parser checks them in this order; projections read a valid IR and check nothing.",
   "limits": {
     "max_safe": 9007199254740991,
     "header": 1024

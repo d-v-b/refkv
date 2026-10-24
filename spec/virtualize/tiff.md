@@ -11,7 +11,7 @@ Schema: [schema.json](tiff/schema.json) · Changed 2026-10-23: each `omero` chan
 is sampled from the coarsest level's data when refkv decodes its compression and the samples are
 not RGB, and an image of a float type has an `omero` when every channel's window is sampled
 ([§4.4](#44-arrays)); the profile reads the sampled chunks
-([§3.1](#31-reading)) · Changed 2026-10-22: an image of an integer type has
+([§7.1](#71-reading)) · Changed 2026-10-22: an image of an integer type has
 an `omero` member ([§4.4](#44-arrays)), with the OME-XML's channel names and colors
 ([§3](#3-ome-xml)) and the type's range as each channel's window, after
 [revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
@@ -20,8 +20,8 @@ an `omero` member ([§4.4](#44-arrays)), with the OME-XML's channel names and co
 This document has two parts. [Part 1](#part-1-the-convention) is the TIFF
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
 is the TIFF profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The profile keeps its numbering as a section
-of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
+each chunk references the source. The document is
+numbered on its own, Part 2 after Part 1, and other documents cite it by name.
 
 # Part 1. The convention
 
@@ -66,7 +66,7 @@ is used.
 
 The layout uses these tags (absent tags take the defaults shown); field
 types and counts are as the profile checks them
-([spec/virtualize.md §3.1](#31-reading)):
+([§7.1](#71-reading)):
 
 | tag | name | kind | default |
 |---|---|---|---|
@@ -578,20 +578,26 @@ NUL, so tag 305's 12 bytes are `tifffile.py`).
 
 # Part 2. The profile
 
-The TIFF profile of [spec/virtualize.md](../virtualize.md) (revision 16), numbered
-as its [§3](#3-tiff-profile). [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here.
+The TIFF profile of [spec/virtualize.md](../virtualize.md) (revision 16) is [§7](#7-tiff-profile) of this document. [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here.
 
 The output has the convention's layout for the input
 ([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
 how the file is read, which inputs are rejected, and how each chunk
 references the file. "The convention §n" below is a section of Part 1.
 
-## 3. TIFF profile
+## 7. TIFF profile
 
-### 3.1 Reading
+**Signature** ([spec/virtualize.md §1.2](../virtualize.md#12-input), tested at the precedence of
+[profiles/tiff.json](profiles/tiff.json)): bytes 0–3 of `H` are `49 49 2A 00`,
+`4D 4D 00 2A`, `49 49 2B 00` or `4D 4D 00 2B`. A file this signature chose is read by the NDPI
+profile instead when it passes that profile's detection test ([ndpi.md §7](ndpi.md#7-ndpi-profile)), and by the
+QPTIFF profile when it passes that one's ([qptiff.md §7](qptiff.md#7-qptiff-profile)); a VSI file, whose signature
+is tested first, is read by the VSI profile ([vsi.md §9](vsi.md#9-vsi-profile)).
+
+### 7.1 Reading
 
 The input is a TIFF (magic 42) or BigTIFF (magic 43, offset size 8 and
-reserved word 0), in either byte order. An NDPI file is read with the changes given in the NDPI profile ([§4](ndpi.md#4-ndpi-profile),
+reserved word 0), in either byte order. An NDPI file is read with the changes given in the NDPI profile ([ndpi.md §7](ndpi.md#7-ndpi-profile),
 [ndpi.md](ndpi.md#part-2-the-profile)).
 
 - **IFDs:** the virtualizer reads the chain of image file directories (IFDs)
@@ -662,14 +668,14 @@ the source ranges its reference names, and decodes them. These reads and
 their decoding never reject the input: a chunk that does not decode is not
 sampled.
 
-### 3.2 Rejection
+### 7.2 Rejection
 
-The input is rejected when a check of [§3.1](#31-reading) fails, and when the convention
+The input is rejected when a check of [§7.1](#71-reading) fails, and when the convention
 gives it no layout: wherever the convention says that the input is
 rejected, or that something MUST hold and it does not
 ([the convention §2–§4](#2-the-source)).
 
-### 3.3 Chunks
+### 7.3 Chunks
 
 Every chunk that the convention says is present
 ([the convention §4.4](#44-arrays)) is the

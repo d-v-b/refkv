@@ -185,7 +185,7 @@
       ]
     },
     "intervals": {
-      "about": "a level's restart intervals (spec/virtualize/ndpi.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>)",
+      "about": "a level's restart intervals (spec/virtualize/ndpi.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>)",
       "given": {
         "matches": "McuStarts has q × r values, increasing, the last before len(S)",
         "nonempty": "every interval holds at least one byte"
@@ -210,5 +210,5 @@
       "constraints": [{"require": "finite(x) && finite(y)", "message": "a translation is not finite"}]
     }
   },
-  "about_builtins": "What the parser's code computes and the roles above check: detection (spec/virtualize/ndpi.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-ndpi-profile>: a little-endian magic-42 TIFF whose IFD at the u64 at bytes 4-11 has tag 65420 among its entries; it never rejects); the main chain in NDPI's IFD layout (each next offset, a u64, until 0); each value with its high word; the levels (main-chain IFDs whose Magnification is positive, every IFD's Magnification read); the strip's JPEG header (its marker segments, SOF0's sampling factors, DRI's restart interval); the intervals and the chunk size a × b (b the largest within the payload limit)."
+  "about_builtins": "What the parser's code computes and the roles above check: detection (spec/virtualize/ndpi.md §7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>: a little-endian magic-42 TIFF whose IFD at the u64 at bytes 4-11 has tag 65420 among its entries; it never rejects); the main chain in NDPI's IFD layout (each next offset, a u64, until 0); each value with its high word; the levels (main-chain IFDs whose Magnification is positive, every IFD's Magnification read); the strip's JPEG header (its marker segments, SOF0's sampling factors, DRI's restart interval); the intervals and the chunk size a × b (b the largest within the payload limit)."
 }

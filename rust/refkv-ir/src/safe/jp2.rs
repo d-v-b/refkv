@@ -1,6 +1,6 @@
-//! JPEG 2000 band files (spec/virtualize/safe.md §12.3
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>), read sans-IO,
-//! and their chunks (§12.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#126-chunks>).
+//! JPEG 2000 band files (spec/virtualize/safe.md §8.3
+//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#83-band-files>), read sans-IO,
+//! and their chunks (§8.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#86-chunks>).
 //!
 //! A band file is a JP2 file whose codestream has one tile-part per tile, in raster order.
 //! [`BandReader`] walks one: its boxes and main header from 64 KiB blocks, then each
@@ -42,7 +42,7 @@ pub struct Jp2Box {
     pub raw: Vec<u8>,
 }
 
-/// A band file's structure (§12.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#123-band-files>).
+/// A band file's structure (§8.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#83-band-files>).
 #[derive(Clone, Debug, Default)]
 pub struct Codestream {
     pub n: u64,
@@ -430,7 +430,7 @@ pub fn tail_length(cs: &Codestream, t: u64) -> Result<u64, String> {
     Ok(2 + tail_packets(cs, t)?.iter().map(|e| 14 + e).sum::<u64>())
 }
 
-/// The chunk of tile t (§12.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#126-chunks>):
+/// The chunk of tile t (§8.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#86-chunks>):
 /// (SOC + SIZ', SOT, (offset, length) of the body in the band file, the empty tiles and
 /// EOC, whether it has empty tiles).
 pub fn chunk_parts(cs: &Codestream, t: u64) -> Result<ChunkParts, String> {

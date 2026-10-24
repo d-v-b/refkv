@@ -4,7 +4,7 @@ The dataset layout ([conventions §9](../conventions.md#9-dataset-layouts))
 of an MRC2014 file: the group `dataset` that the MRC convention's
 hierarchy ([mrc.md](mrc.md)) also holds, which xarray opens as a dataset
 with named dimensions and coordinates in angstroms. It is written by the
-MRC profile ([mrc.md §14](mrc.md#14-mrc-profile)) beside the image layout,
+MRC profile ([mrc.md §8](mrc.md#8-mrc-profile)) beside the image layout,
 from the same read of the file, and references the same bytes. What all of
 refkv's conventions share is in [spec/conventions.md](../conventions.md),
 cited here as "conventions §n"; "the MRC convention §n" is a section of
@@ -42,7 +42,7 @@ and [§3](#3-coordinates).
 [the MRC convention §4.1](mrc.md#41-the-array), with the same shape, data
 type, chunk grid, codecs and fill value, and the same chunks, each the
 same reference as the image layout's chunk at the same coords, or the same
-copied bytes ([the MRC convention §14.2](mrc.md#142-chunks)). Its
+copied bytes ([the MRC convention §8.2](mrc.md#82-chunks)). Its
 dimensions are, by the kind of file, with `S`, `R` and `C` the names the
 axis map gives the sections, the rows and the columns
 ([the MRC convention §4.1](mrc.md#41-the-array): `z`, `y`, `x` for the

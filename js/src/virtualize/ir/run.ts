@@ -1,5 +1,5 @@
-// Virtualizing a file with the Rust core (rust/refkv-ir; the file profiles of the formats
-// table, docs/virtualize/README.md, whose names `IrFormat` lists): its
+// Virtualizing a file with the Rust core (rust/refkv-ir; the file profiles of the registry,
+// spec/virtualize/profiles/, whose names are the `IrFormat`s): its
 // parser, read planner, image projection and source mirror run in WebAssembly;
 // this host performs the requests a run asks for (`RangeSource`) and turns its
 // output (`Out::encode`) into the writer's archive description. The twin of
@@ -8,12 +8,14 @@
 import type { Range, Source } from "../../protobuf.ts";
 import type { ArchiveDesc, EntryDesc } from "../../writer.ts";
 import { ImageError } from "../common.ts";
+import type { Profile } from "../profiles.ts";
 import type { RangeSource, Span } from "./source.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
-/** The formats of the core's file runs (`Format::from_name` in rust/refkv-ir/src/run.rs). */
-export type IrFormat = "nd2" | "tiff" | "czi" | "dicom" | "nifti" | "ims" | "safe" | "ndpi" | "mrc" | "vsi" | "qptiff" | "mp3" | "fits";
-// (`vsi` is sniffed as a file but virtualized by the store run of vsi.ts; its file run only rejects.)
+/** The formats of the core's file runs (`Format::from_name` in rust/refkv-ir/src/run.rs): the
+ * names of the registry's file profiles, `FILE_FORMATS`. (`vsi` is sniffed as a file but
+ * virtualized by the store run of vsi.ts; its file run only rejects.) */
+export type IrFormat = Profile;
 
 export interface IrOutput extends ArchiveDesc {
   format: IrFormat;

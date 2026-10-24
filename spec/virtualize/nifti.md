@@ -12,8 +12,8 @@ Schema: [schema.json](nifti/schema.json)
 This document has two parts. [Part 1](#part-1-the-convention) is the NIfTI
 convention: the Zarr layout, cited as "the convention §n". [Part 2](#part-2-the-profile)
 is the NIfTI profile: how refkv reads the source, which inputs it rejects, and how
-each chunk references the source. The profile keeps its numbering as a section
-of [spec/virtualize.md](../virtualize.md), and is cited as spec/virtualize.md §n.
+each chunk references the source. The document is
+numbered on its own, Part 2 after Part 1, and other documents cite it by name.
 
 # Part 1. The convention
 
@@ -449,8 +449,7 @@ bytes.
 
 # Part 2. The profile
 
-The NIfTI profile of [spec/virtualize.md](../virtualize.md) (revision 16), numbered
-as its [§7](#7-nifti-profile). [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here.
+The NIfTI profile of [spec/virtualize.md](../virtualize.md) (revision 16) is [§7](#7-nifti-profile) of this document. [§1](../virtualize.md#1-introduction) and [§2](../virtualize.md#2-the-zarr-layout) are in spec/virtualize.md and apply here.
 
 The output has the convention's layout for the input
 ([spec/virtualize.md §2](../virtualize.md#2-the-zarr-layout)); this profile says
@@ -460,8 +459,11 @@ which inputs are accepted and how each chunk references the file. "The conventio
 
 ### 7.1 Header
 
-The input is a NIfTI-1 or NIfTI-2 single file (`.nii`), which [§1.2](../virtualize.md#12-input) chose by
-its first bytes. Its header is the first `L` bytes of the file
+The input is a NIfTI-1 or NIfTI-2 single file (`.nii`), which its **signature**
+([spec/virtualize.md §1.2](../virtualize.md#12-input), tested at the precedence of
+[profiles/nifti.json](profiles/nifti.json)) chose: bytes 0–3 of `H` are the 32-bit integer 348 in either byte order
+and bytes 344–347 are `6E 2B 31 00` (`n+1`), NIfTI-1; or bytes 0–3 are the 32-bit integer 540
+in either byte order and bytes 4–11 are `6E 2B 32 00 0D 0A 1A 0A` (`n+2`), NIfTI-2. Its header is the first `L` bytes of the file
 ([the convention §2](#2-the-header)); a file
 shorter than `L` bytes is rejected. The file is **little-endian** if bytes
 0–3, read as a little-endian 32-bit integer, are `L`, and **big-endian**

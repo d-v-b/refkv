@@ -1,6 +1,6 @@
 """Writes TIFFs to fixtures/tiff/ that exercise the edges of the TIFF
-profile (spec/virtualize.md §3
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-tiff-profile>) which tifffile
+profile (spec/virtualize/tiff.md §7
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#7-tiff-profile>) which tifffile
 does not write: odd OME-XML, duplicate tags, SubIFD mismatches, tiles outside the file, and so on.
 
 They are compared between implementations (conformance/virtualize/

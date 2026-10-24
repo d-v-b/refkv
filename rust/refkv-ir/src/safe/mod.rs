@@ -1,5 +1,5 @@
 //! A sans-IO parser of Sentinel-2 SAFE products into the IR (spec/virtualize/safe.md, the
-//! profile's §12 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#12-safe-profile>),
+//! profile's §8 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#8-safe-profile>),
 //! in both forms:
 //!
 //! - **the directory form**, a store ([`crate::store::StoreParser`]): a store IR whose objects
@@ -143,7 +143,7 @@ fn whole_key(o: usize, n: u64) -> (usize, u64, u64) {
 impl Safe {
     fn blank(store: bool, size: u64) -> Safe {
         Safe {
-            rules: rules::safe(), store, size, phase: if store { Phase::Start } else { Phase::ZipTail }, ir: None, elems: Vec::new(),
+            rules: rules::of("safe"), store, size, phase: if store { Phase::Start } else { Phase::ZipTail }, ir: None, elems: Vec::new(),
             listed_dirs: Vec::new(), end: zip::End::default(), entries: Vec::new(), zprod: None,
             deflated: Vec::new(), raw: HashMap::new(), objs: Vec::new(), by_key: HashMap::new(), markers: HashSet::new(),
             empty_dirs: Vec::new(), asked: Vec::new(), got: HashMap::new(), level: 0, product_obj: 0, tile_obj: 0, metadata: None,
@@ -194,7 +194,7 @@ impl Safe {
         self.by_key.get(key).is_some_and(|o| !self.markers.contains(o))
     }
 
-    // ---- the zip form's own structures (§12.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#124-the-zip-form>)
+    // ---- the zip form's own structures (§8.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>)
 
     fn zip_step(&mut self) -> Result<(), String> {
         let n = self.size;
@@ -399,7 +399,7 @@ impl Safe {
     }
 
     /// Each band's resolution and band name, and its chunks' empty tiles, checked (§2.5
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#25-band-files>, §12.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#126-chunks>).
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#25-band-files>, §8.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#86-chunks>).
     fn finish_bands(&mut self) -> Result<(), String> {
         let geo = self.geo.as_ref().unwrap();
         let mut names: HashSet<(u64, String)> = HashSet::new();
@@ -695,6 +695,34 @@ impl StoreParser for Safe {
 
     fn finish(self: Box<Self>) -> Result<(Ir, J), String> {
         Safe::finish(*self)
+    }
+}
+
+crate::parser!(Safe);
+
+/// The SAFE profile's file run, of a product's zip form (`.SAFE.zip`; spec/virtualize/safe.md).
+pub struct Profile;
+
+impl crate::run::FileProfile for Profile {
+    /// A zip local file header: any zip file is taken for a SAFE product's zip form, which
+    /// then rejects one that is not (spec/virtualize/safe.md §8.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#81-choosing-the-profile>).
+    fn detect(&self, head: &[u8]) -> bool {
+        head.len() >= 4 && &head[..4] == b"PK\x03\x04"
+    }
+    fn parser(&self, size: u64) -> crate::run::AnyParser {
+        crate::run::AnyParser::of::<Safe>(size)
+    }
+    /// It takes exactly the ranges it asked for.
+    fn whole(&self) -> bool {
+        false
+    }
+    fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
+        crate::project::safe::project(ir, facts, url)
+    }
+    /// Its empty directories and ignored keys beside the mirror, as a SAFE directory's.
+    fn mirrored(&self, out: &mut crate::out::Out, facts: &serde_json::Value) -> Result<(), String> {
+        crate::project::store::record_ignored(out, facts, "safe")
     }
 }
 

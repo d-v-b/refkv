@@ -538,7 +538,7 @@ def group_json(ome: dict) -> dict:
 # The virtualization conventions (conventions §2
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>): one per profile, each
 # with its fixed UUID, its current version and its name in the description, from the profile
-# registry (spec/virtualize/profiles.json; `refkv.virtualize.profiles` is its generated copy).
+# registry (spec/virtualize/profiles/, as `refkv.virtualize.profiles` reads it from the core).
 CONVENTION_KEY = "refkv_virtualized"
 PROFILES = {e["name"]: (e["uuid"], e["version"], e["title"]) for e in REGISTRY}
 UUIDS = frozenset(uuid for uuid, _, _ in PROFILES.values())

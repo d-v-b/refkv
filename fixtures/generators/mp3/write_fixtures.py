@@ -1,6 +1,6 @@
 """Writes synthetic MP3 files to fixtures/mp3/, covering the rules of the MP3 profile
-(spec/virtualize/mp3.md §17
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#17-mp3-profile>): MPEG-1, MPEG-2
+(spec/virtualize/mp3.md §8
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#8-mp3-profile>): MPEG-1, MPEG-2
 and MPEG-2.5 streams, mono and stereo, constant and variable bitrates, CRC protection, the bit
 reservoir on and off, Xing, Info and LAME tags, ID3v2, ID3v1 and APE tags, junk between and
 around frames, a truncated last frame, and the inputs the profile rejects (`mp3_reject_*`).
@@ -20,6 +20,8 @@ network): `just fixtures-of mp3` does.
 
 Usage: uv run python fixtures/generators/mp3/write_fixtures.py
 """
+
+# fixtures: on demand (it needs lame and ffmpeg; `just fixtures` skips it)
 
 from __future__ import annotations
 

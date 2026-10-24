@@ -19,22 +19,22 @@ who each one is for, what you get, and how to run it.
 <!-- profiles:docs-table -->
 | format | for | README | profile |
 |---|---|---|---|
-| TIFF | OME-TIFF, plain tiled TIFF, and JPEG-tiled slides such as Aperio SVS | [tiff](tiff/README.md) | [§3](../../spec/virtualize/tiff.md#part-2-the-profile) |
-| NDPI | Hamamatsu NDPI whole-slide images | [ndpi](ndpi/README.md) | [§4](../../spec/virtualize/ndpi.md#part-2-the-profile) |
-| ND2 | Nikon NIS-Elements ND2 files | [nd2](nd2/README.md) | [§5](../../spec/virtualize/nd2.md#part-2-the-profile) |
-| DICOM | DICOM files, including whole-slide images | [dicom](dicom/README.md) | [§6](../../spec/virtualize/dicom.md#part-2-the-profile) |
-| NIfTI | NIfTI-1 and NIfTI-2 volumes (`.nii`) | [nifti](nifti/README.md) | [§7](../../spec/virtualize/nifti.md#part-2-the-profile) |
-| IMS | Imaris `.ims` files | [ims](ims/README.md) | [§8](../../spec/virtualize/ims.md#part-2-the-profile) |
-| N5 | N5 containers on S3 | [n5](n5/README.md) | [§9](../../spec/virtualize/n5.md#part-2-the-profile) |
-| Zarr v2 | Zarr v2 hierarchies on S3 | [zarr2](zarr2/README.md) | [§10](../../spec/virtualize/zarr2.md#part-2-the-profile) |
-| OME-Zarr | OME-Zarr 0.4 hierarchies, migrated to OME-Zarr 0.5 in place | [ome-zarr](ome-zarr/README.md) | [§11](../../spec/virtualize/ome-zarr.md#part-2-the-profile) |
-| Sentinel-2 SAFE | Sentinel-2 Level-1C and Level-2A products, as a `.SAFE` directory or a `.SAFE.zip` | [convention](../../spec/virtualize/safe.md) | [§12](../../spec/virtualize/safe.md#part-2-the-profile) |
-| CZI | Zeiss CZI files | [convention](../../spec/virtualize/czi.md) | [§13](../../spec/virtualize/czi.md#part-2-the-profile) |
-| MRC | MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`) | [mrc](mrc/README.md) | [§14](../../spec/virtualize/mrc.md#part-2-the-profile) |
-| VSI | Olympus cellSens whole-slide images (`.vsi` with its tile files) | [vsi](vsi/README.md) | [§15](../../spec/virtualize/vsi.md#part-2-the-profile) |
-| QPTIFF | Akoya (PerkinElmer) Vectra multiplex scans and inForm component data | [qptiff](qptiff/README.md) | [§16](../../spec/virtualize/qptiff.md#part-2-the-profile) |
-| MP3 | MP3 audio files, as an array of samples (`.mp3`) | [mp3](mp3/README.md) | [§17](../../spec/virtualize/mp3.md#part-2-the-profile) |
-| FITS | FITS images and tables (`.fits`, `.fz`) | [fits](fits/README.md) | [§18](../../spec/virtualize/fits.md#part-2-the-profile) |
+| CZI | Zeiss CZI files | [czi](czi/README.md) | [czi.md §7](../../spec/virtualize/czi.md#7-czi-profile) |
+| DICOM | DICOM files, including whole-slide images | [dicom](dicom/README.md) | [dicom.md §7](../../spec/virtualize/dicom.md#7-dicom-profile) |
+| FITS | FITS images and tables (`.fits`, `.fz`) | [fits](fits/README.md) | [fits.md §9](../../spec/virtualize/fits.md#9-fits-profile) |
+| IMS | Imaris `.ims` files | [ims](ims/README.md) | [ims.md §7](../../spec/virtualize/ims.md#7-ims-profile) |
+| MP3 | MP3 audio files, as an array of samples (`.mp3`) | [mp3](mp3/README.md) | [mp3.md §8](../../spec/virtualize/mp3.md#8-mp3-profile) |
+| MRC | MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`) | [mrc](mrc/README.md) | [mrc.md §8](../../spec/virtualize/mrc.md#8-mrc-profile) |
+| N5 | N5 containers on S3 | [n5](n5/README.md) | [n5.md §8](../../spec/virtualize/n5.md#8-n5-profile) |
+| ND2 | Nikon NIS-Elements ND2 files | [nd2](nd2/README.md) | [nd2.md §7](../../spec/virtualize/nd2.md#7-nd2-profile) |
+| NDPI | Hamamatsu NDPI whole-slide images | [ndpi](ndpi/README.md) | [ndpi.md §7](../../spec/virtualize/ndpi.md#7-ndpi-profile) |
+| NIfTI | NIfTI-1 and NIfTI-2 volumes (`.nii`) | [nifti](nifti/README.md) | [nifti.md §7](../../spec/virtualize/nifti.md#7-nifti-profile) |
+| OME-Zarr | OME-Zarr 0.4 hierarchies, migrated to OME-Zarr 0.5 in place | [ome-zarr](ome-zarr/README.md) | [ome-zarr.md §11](../../spec/virtualize/ome-zarr.md#11-ome-zarr-profile) |
+| QPTIFF | Akoya (PerkinElmer) Vectra multiplex scans and inForm component data | [qptiff](qptiff/README.md) | [qptiff.md §7](../../spec/virtualize/qptiff.md#7-qptiff-profile) |
+| Sentinel-2 SAFE | Sentinel-2 Level-1C and Level-2A products, as a `.SAFE` directory or a `.SAFE.zip` | [safe](safe/README.md) | [safe.md §8](../../spec/virtualize/safe.md#8-safe-profile) |
+| TIFF | OME-TIFF, plain tiled TIFF, and JPEG-tiled slides such as Aperio SVS | [tiff](tiff/README.md) | [tiff.md §7](../../spec/virtualize/tiff.md#7-tiff-profile) |
+| VSI | Olympus cellSens whole-slide images (`.vsi` with its tile files) | [vsi](vsi/README.md) | [vsi.md §9](../../spec/virtualize/vsi.md#9-vsi-profile) |
+| Zarr v2 | Zarr v2 hierarchies on S3 | [zarr2](zarr2/README.md) | [zarr2.md §7](../../spec/virtualize/zarr2.md#7-zarr-v2-profile) |
 <!-- /profiles -->
 
 A format that reads a file takes a URL, or a local path. One that reads a

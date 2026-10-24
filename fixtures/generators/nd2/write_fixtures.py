@@ -1,7 +1,7 @@
 """Writes synthetic ND2 files (format version 3) to fixtures/nd2/, with
 the pixels each one should decode to, covering the rules of the ND2 profile
-(spec/virtualize.md §5
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-nd2-profile>) that the public
+(spec/virtualize/nd2.md §7
+<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#7-nd2-profile>) that the public
 corpus does not: compressed frames, padded
 rows, multi-period time loops, disabled positions, sibling and spectral
 experiment nodes, missing frames, float data, and the inputs it rejects.
@@ -60,7 +60,7 @@ def compressed(structure: bytes) -> bytes:
     return bytes([76, 0]) + b"\0" * 10 + zlib.compress(structure)
 
 
-# ---- file layout (§5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-chunks>)
+# ---- file layout (§7.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#71-chunks>)
 
 class Nd2:
     def __init__(self, version: bytes = b"Ver3.0") -> None:
@@ -235,8 +235,8 @@ def record(typ: int, name: str, payload: bytes) -> bytes:
 
 
 def edges() -> None:
-    """The edges of §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-nd2-profile> that the files
+    """The edges of §7
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#7-nd2-profile> that the files
     above do not reach."""
     h, w = 3, 4
 
@@ -664,8 +664,8 @@ def sized_level(target: int, legacy: bool = True) -> bytes:
 
 def revision8() -> None:
     """Round-2 review: every placed frame's header, tags, lossless CustomData,
-    sparse families and frame grids, and the root's budget (spec/virtualize.md §5.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#53-frames>,
+    sparse families and frame grids, and the root's budget (spec/virtualize/nd2.md §7.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#73-frames>,
     spec/virtualize/nd2.md §5
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-source-metadata>)."""
     h, w = 3, 4
@@ -860,8 +860,8 @@ def revision9() -> None:
 
 def revision10() -> None:
     """Round-3 follow-up: the profile's chunks inflate to at most 64 MiB
-    (spec/virtualize.md §5.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-chunks>), and other and empty
+    (spec/virtualize/nd2.md §7.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#71-chunks>), and other and empty
     past refkv_source's budget
     (spec/virtualize/nd2.md §5.4
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#54-equivalence>)."""
@@ -887,9 +887,9 @@ def revision10() -> None:
 
 def revision11() -> None:
     """Round-4 review: positions and the profile's LV records are bounded
-    (spec/virtualize.md §5.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-chunks>, §5.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#53-frames>), sparse frame times
+    (spec/virtualize/nd2.md §7.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#71-chunks>, §7.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#73-frames>), sparse frame times
     take smaller chunks, a large declared tag is its index, and path segments that a store cannot
     hold go to other (spec/virtualize/nd2.md §5.2
     <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#52-the-ir-mirror>-§5.4
