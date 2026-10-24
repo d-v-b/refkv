@@ -22,6 +22,7 @@ use crate::fed::uint;
 use crate::ir::Ir;
 use crate::out::Out;
 use crate::record::{Header, Num, width};
+use crate::text::text_json;
 use crate::run::Format;
 use serde_json::{Map, Value as J};
 use std::fmt::Write;
@@ -50,11 +51,7 @@ pub fn reads(format: Format, ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, Stri
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>):
 /// UTF-8 if valid, else {"latin1": ...}.
 fn json_text(b: &[u8]) -> J {
-    let b = &b[..b.iter().position(|&c| c == 0).unwrap_or(b.len())];
-    match std::str::from_utf8(b) {
-        Ok(s) => J::String(s.to_string()),
-        Err(_) => serde_json::json!({"latin1": b.iter().map(|&c| c as char).collect::<String>()}),
-    }
+    text_json(&b[..b.iter().position(|&c| c == 0).unwrap_or(b.len())])
 }
 
 /// Opaque bytes as a source metadata member (conventions §6

@@ -28,6 +28,7 @@ pub mod run;
 pub mod sans;
 pub mod schema;
 pub mod store;
+pub mod text;
 pub mod types;
 pub mod xml;
 

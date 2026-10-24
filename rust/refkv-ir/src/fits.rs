@@ -18,6 +18,7 @@ use crate::ir::*;
 use crate::nd2::Step;
 use crate::rules::{self, Rules, flag, num, text};
 use crate::sans;
+use crate::text::latin1;
 use serde_json::{json, Value as J};
 
 /// A FITS block, and a card.
@@ -157,7 +158,7 @@ pub fn parse_value(field: &str) -> (Value, Option<String>) {
 /// One 80-byte record as a card. A `CONTINUE` card is a card whose keyword is `CONTINUE`
 /// and whose value is the string it continues (joined by `parse_cards`).
 pub fn parse_card(rec: &[u8]) -> Card {
-    let s: String = rec[..CARD].iter().map(|&b| b as char).collect();
+    let s = latin1(&rec[..CARD]);
     let keyword = s[..8].trim_end().to_string();
     if keyword == "HIERARCH" && &s[8..10] != "= " {
         if let Some(eq) = s[9..].find('=') {

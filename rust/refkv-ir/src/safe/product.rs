@@ -9,6 +9,7 @@
 
 use super::xmltree::{self, Element};
 use crate::rules::{self, Rules, flag, num, text};
+use crate::text::is_strict_decimal;
 use serde_json::{Map, Value as J, json};
 
 pub const MAX_XML: u64 = 1 << 24;
@@ -87,45 +88,9 @@ fn layout_text(el: &Element, what: &str) -> Result<String, String> {
     el_text(el).ok_or(format!("{what} has a child element"))
 }
 
-/// A decimal number (§6.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#61-values>):
-/// an optional sign, digits, optionally `.` and digits, optionally an exponent.
-pub fn is_decimal(t: &str) -> bool {
-    let b = t.as_bytes();
-    let mut i = 0;
-    let digits = |i: &mut usize| {
-        let s = *i;
-        while *i < b.len() && b[*i].is_ascii_digit() {
-            *i += 1;
-        }
-        *i > s
-    };
-    if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
-        i += 1;
-    }
-    if !digits(&mut i) {
-        return false;
-    }
-    if i < b.len() && b[i] == b'.' {
-        i += 1;
-        if !digits(&mut i) {
-            return false;
-        }
-    }
-    if i < b.len() && (b[i] == b'e' || b[i] == b'E') {
-        i += 1;
-        if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
-            i += 1;
-        }
-        if !digits(&mut i) {
-            return false;
-        }
-    }
-    i == b.len()
-}
-
 /// A decimal number's binary64 value, or None if `t` is not one.
 fn decimal(t: &str) -> Option<f64> {
-    if !is_decimal(t) {
+    if !is_strict_decimal(t) {
         return None;
     }
     t.parse::<f64>().ok()
@@ -350,7 +315,7 @@ fn float_json(v: f64) -> J {
 
 /// A text as a value: a decimal number as a JSON number, else the string.
 pub fn typed(t: &str) -> J {
-    if !is_decimal(t) {
+    if !is_strict_decimal(t) {
         return json!(t);
     }
     if t.contains(['.', 'e', 'E']) {

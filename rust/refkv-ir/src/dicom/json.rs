@@ -8,6 +8,7 @@
 use super::elements::*;
 use crate::fed::{Word, uint};
 use crate::mirror::base64;
+use crate::text::{is_decimal, latin1};
 use crate::out::{json_size, js_string_size, MAX_CHUNK, SOURCE_NODE};
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -160,56 +161,6 @@ pub fn json_int(v: i128) -> J {
     }
 }
 
-/// UTF-8 when valid, else {"latin1": ...}.
-pub fn text_json(b: &[u8]) -> J {
-    match std::str::from_utf8(b) {
-        Ok(s) => json!(s),
-        Err(_) => json!({"latin1": latin1(b)}),
-    }
-}
-
-fn latin1(b: &[u8]) -> String {
-    b.iter().map(|&c| c as char).collect()
-}
-
-/// `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?`, whole.
-pub fn is_decimal(t: &[u8]) -> bool {
-    let mut i = 0;
-    if i < t.len() && (t[i] == b'+' || t[i] == b'-') {
-        i += 1;
-    }
-    let a = i;
-    while i < t.len() && t[i].is_ascii_digit() {
-        i += 1;
-    }
-    let int_digits = i - a;
-    let mut frac_digits = 0;
-    if i < t.len() && t[i] == b'.' {
-        i += 1;
-        let f = i;
-        while i < t.len() && t[i].is_ascii_digit() {
-            i += 1;
-        }
-        frac_digits = i - f;
-    }
-    if int_digits == 0 && frac_digits == 0 {
-        return false;
-    }
-    if i < t.len() && (t[i] == b'e' || t[i] == b'E') {
-        i += 1;
-        if i < t.len() && (t[i] == b'+' || t[i] == b'-') {
-            i += 1;
-        }
-        let e = i;
-        while i < t.len() && t[i].is_ascii_digit() {
-            i += 1;
-        }
-        if i == e {
-            return false;
-        }
-    }
-    i == t.len()
-}
 
 /// `[+-]?[0-9]+`, whole.
 pub fn is_integer(t: &[u8]) -> bool {

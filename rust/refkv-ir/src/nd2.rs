@@ -12,6 +12,7 @@ use crate::check;
 use crate::ir::*;
 use crate::lv::{self, Decoded};
 use crate::schema::{self, FrameHead};
+use crate::text::utf8_or_latin1;
 use crate::xml;
 use crate::fed::{Fed, Overlap, Word};
 use std::collections::HashMap;
@@ -82,13 +83,6 @@ pub struct Nd2 {
     declared: Vec<(String, &'static str, usize)>,
     pub requests: u64,
     pub requested: u64,
-}
-
-pub fn decode_text(b: &[u8]) -> String {
-    match std::str::from_utf8(b) {
-        Ok(s) => s.to_string(),
-        Err(_) => b.iter().map(|&c| c as char).collect(),
-    }
 }
 
 /// `ImageDataSeq|<f>!` with f decimal without leading zeros, at most 20 digits: f.
@@ -466,7 +460,7 @@ impl Nd2 {
                 return Err("chunk length too large".into());
             }
             if self.outside(o + 16, n as u64) || self.outside(o + 16 + n as u64, d) {
-                return Err(format!("chunk {} lies outside the file", decode_text(name)));
+                return Err(format!("chunk {} lies outside the file", utf8_or_latin1(name)));
             }
             ranges.push((o + 16 + n as u64, d));
         }
@@ -624,7 +618,7 @@ impl Nd2 {
                 continue;
             };
             let is_frame = name.starts_with(b"ImageDataSeq|");
-            let text = decode_text(name);
+            let text = utf8_or_latin1(name);
             if d == 0
                 || is_frame
                 || texts.contains(&text)
@@ -708,7 +702,7 @@ impl Nd2 {
         // the chunks' names (spec/virtualize/nd2.md §5.3
         // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#53-elements>): their
         // texts, unique among `chunks`' children
-        let texts: Vec<String> = self.chunks.iter().filter(|c| !is_frame(&c.0)).map(|c| decode_text(&c.0)).collect();
+        let texts: Vec<String> = self.chunks.iter().filter(|c| !is_frame(&c.0)).map(|c| utf8_or_latin1(&c.0)).collect();
         let mut names = source_names(&texts, &[]).into_iter();
         let mut frames: Vec<(u64, usize)> = Vec::new();
         for k in 0..self.chunks.len() {

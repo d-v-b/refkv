@@ -8,12 +8,9 @@
 use crate::fed::Word;
 use crate::ir::{GAP, Ir, NO_INDEX, Res};
 use crate::rules::{self, Rules, num};
+use crate::tiff::{jpeg_frame, tile_forms, type_size};
 use serde_json::json;
 use std::collections::HashMap;
-
-/// The Adobe APP14 marker that tells a decoder a 3-component stream is RGB (transform 0),
-/// as the TIFF profile writes it before a JPEG tile's tables.
-pub const ADOBE: [u8; 15] = [0xFF, 0xEE, 0x00, 0x0E, b'A', b'd', b'o', b'b', b'e', 0x00, 0x64, 0x00, 0x00, 0x00, 0x00];
 
 #[derive(Clone, Debug)]
 pub struct Entry {
@@ -41,32 +38,10 @@ pub struct Ifd {
     pub exif: bool,
 }
 
-pub fn type_size(typ: u16) -> Option<u64> {
-    Some(match typ {
-        1 | 2 | 6 | 7 => 1,
-        3 | 8 => 2,
-        4 | 9 | 11 | 13 => 4,
-        5 | 10 | 12 | 16 | 17 | 18 => 8,
-        _ => return None,
-    })
-}
-
+/// A value's type: TIFF's (little-endian), but bytes for an IFD8 or an unknown type.
 fn value_type(typ: u16, count: u32) -> String {
     match typ {
-        1 => format!("u1[{count}]"),
-        6 => format!("i1[{count}]"),
-        2 => format!("ascii[{count}]"),
-        7 => format!("bytes[{count}]"),
-        5 => format!("<u4[{count},2]"),
-        10 => format!("<i4[{count},2]"),
-        3 => format!("<u2[{count}]"),
-        8 => format!("<i2[{count}]"),
-        4 | 13 => format!("<u4[{count}]"),
-        9 => format!("<i4[{count}]"),
-        11 => format!("<f4[{count}]"),
-        12 => format!("<f8[{count}]"),
-        16 => format!("<u8[{count}]"),
-        17 => format!("<i8[{count}]"),
+        1..=13 | 16 | 17 => crate::tiff::value_type(true, typ, count as u64),
         _ => format!("bytes[{}]", count as u64 * type_size(typ).unwrap_or(1)),
     }
 }
@@ -190,19 +165,11 @@ fn segments(ifd: &Ifd, b: &[u8], ot: u16, ct: u16) -> Option<Vec<(u64, u64)>> {
 /// The JPEG prefix of an IFD (its JPEGTables between SOI and EOI, after the Adobe marker for 3
 /// samples), or empty.
 fn jpeg_prefix(ifd: &Ifd, b: &[u8], samples: u64, photometric: u64) -> Vec<u8> {
-    let mut p = Vec::new();
     if ifd.int(b, 259) != Some(7) {
-        return p;
+        return Vec::new();
     }
-    if samples == 3 {
-        p.extend_from_slice(&ADOBE);
-        p.push(if photometric == 2 { 0 } else { 1 });
-    }
-    if let Some(t) = ifd.bytes(b, 347)
-        && t.len() >= 4 && t[..2] == [0xFF, 0xD8] && t[t.len() - 2..] == [0xFF, 0xD9]
-    {
-        p.extend_from_slice(&t[2..t.len() - 2]);
-    }
+    // malformed tables are left out, silently
+    let p = jpeg_frame(samples, photometric == 2, ifd.bytes(b, 347)).0;
     p
 }
 
@@ -309,16 +276,7 @@ pub fn emit_region(ir: &mut Ir, b: &[u8], ifds: &[Ifd], start: u64, end: u64, pa
                     "codec": {"compression": ifd.int(b, 259).unwrap_or(1)},
                 });
                 let shared = if prefix.is_empty() { None } else { Some(ir.share(&prefix)) };
-                let plain = {
-                    let mut j = base.clone();
-                    j["recipe"] = json!([["src", 0, null]]);
-                    j.to_string()
-                };
-                let framed = shared.map(|x| {
-                    let mut j = base.clone();
-                    j["recipe"] = json!([["src", 0, 2], ["shared", x], ["src", 2, null]]);
-                    j.to_string()
-                });
+                let (plain, framed) = tile_forms(&base, shared);
                 let mut els = Vec::with_capacity(segs.len());
                 for (k, &(so, sn)) in segs.iter().enumerate() {
                     if sn == 0 || so.checked_add(sn).is_none_or(|x| x > b.len() as u64) {

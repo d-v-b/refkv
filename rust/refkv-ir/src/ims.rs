@@ -23,6 +23,7 @@ use crate::ir::{Ir, NO_INDEX};
 use crate::nd2::Step;
 use crate::rules::{self, flag, num, text, Rules, Vars};
 use crate::expr::V;
+use crate::text::{is_decimal, utf8_or_latin1};
 use serde_json::{json, Map, Value as J};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc as Rc;
@@ -94,50 +95,7 @@ fn lenient<T>(r: R<T>) -> R<Option<T>> {
 
 /// The text of a string's data: up to the first NUL, UTF-8 or else Latin-1.
 pub fn decode_text(data: &[u8]) -> String {
-    let raw = data.split(|&c| c == 0).next().unwrap_or(&[]);
-    match std::str::from_utf8(raw) {
-        Ok(s) => s.to_string(),
-        Err(_) => raw.iter().map(|&c| c as char).collect(),
-    }
-}
-
-fn is_decimal(s: &str) -> bool {
-    let b = s.as_bytes();
-    let mut i = 0;
-    if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
-        i += 1;
-    }
-    let d0 = i;
-    while i < b.len() && b[i].is_ascii_digit() {
-        i += 1;
-    }
-    let int_digits = i - d0;
-    let mut frac_digits = 0;
-    if i < b.len() && b[i] == b'.' {
-        i += 1;
-        let f0 = i;
-        while i < b.len() && b[i].is_ascii_digit() {
-            i += 1;
-        }
-        frac_digits = i - f0;
-    }
-    if int_digits == 0 && frac_digits == 0 {
-        return false;
-    }
-    if i < b.len() && (b[i] == b'e' || b[i] == b'E') {
-        i += 1;
-        if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
-            i += 1;
-        }
-        let e0 = i;
-        while i < b.len() && b[i].is_ascii_digit() {
-            i += 1;
-        }
-        if i == e0 {
-            return false;
-        }
-    }
-    i == b.len()
+    utf8_or_latin1(data.split(|&c| c == 0).next().unwrap_or(&[]))
 }
 
 /// A decimal number, or None if `s` is absent or not one.

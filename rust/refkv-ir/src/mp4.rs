@@ -16,6 +16,7 @@ use crate::ir::*;
 use crate::nd2::Step;
 use crate::rules::{self, Rules, flag, num, text};
 use crate::sans;
+use crate::text::latin1;
 use serde_json::{json, Value as J};
 
 /// The first read, and the most bytes of a moov box (the schema's `max_moov`).
@@ -43,10 +44,6 @@ pub fn detect(head: &[u8]) -> bool {
 /// other byte as `%XX` (so `©nam` is `%A9nam`).
 fn type_name(t: &[u8]) -> String {
     t.iter().map(|&c| if (0x21..0x7F).contains(&c) && !b"/~%".contains(&c) { (c as char).to_string() } else { format!("%{c:02X}") }).collect()
-}
-
-fn type_text(t: &[u8]) -> String {
-    t.iter().map(|&c| c as char).collect()
 }
 
 /// A box: its offset, header length, size and type.
@@ -227,7 +224,7 @@ impl Mp4 {
 
     fn check_box(&self, b: &BoxRef, end: u64) -> Res<()> {
         self.rules.check("box", rules::env([
-            ("type", text(&type_text(&b.typ))), ("at", num(b.at as f64)), ("size", num(b.size as f64)),
+            ("type", text(&latin1(&b.typ))), ("at", num(b.at as f64)), ("size", num(b.size as f64)),
             ("head", num(b.head as f64)), ("end", num(end as f64)),
         ]))
     }
@@ -437,7 +434,7 @@ impl Mp4 {
     fn table(&mut self, s: u32, b: &BoxRef, m: &[u8], base: u64) -> Res<()> {
         let body = &m[(b.body() - base) as usize..(b.end() - base) as usize];
         let n = body.len() as u64;
-        let t = type_text(&b.typ);
+        let t = latin1(&b.typ);
         self.rules.check("fields", rules::env([("type", text(&t)), ("at", num(b.at as f64)), ("need", num(8.0)), ("have", num(n as f64))]))?;
         let (version, count) = (body[0], uint(body, 4, 4, false));
         let (ty, width): (&str, u64) = match (&b.typ, version) {
@@ -561,7 +558,7 @@ impl Mp4 {
                 let ts = self.ir.struct_(ss, "", k as u64, 0, None)?;
                 let form = json!({
                     "geometry": f["geometry"].clone(),
-                    "codec": {"name": type_text(&t.entries.first().map(|e| e.typ).unwrap_or(*b"    ")), "format": f["format"].clone()},
+                    "codec": {"name": latin1(&t.entries.first().map(|e| e.typ).unwrap_or(*b"    ")), "format": f["format"].clone()},
                     "recipe": [["src", 0, null]],
                 }).to_string();
                 let mut first = None;
@@ -577,7 +574,7 @@ impl Mp4 {
             if f["reason"].is_null() {
                 projected += 1;
             } else {
-                reasons.push(format!("track {} ({}): {}", t.id, type_text(&t.entries.first().map(|e| e.typ).unwrap_or(*b"none")).trim(), f["reason"].as_str().unwrap_or("")));
+                reasons.push(format!("track {} ({}): {}", t.id, latin1(&t.entries.first().map(|e| e.typ).unwrap_or(*b"none")).trim(), f["reason"].as_str().unwrap_or("")));
             }
             facts.push(f);
         }
@@ -586,8 +583,8 @@ impl Mp4 {
             let head = if uint(f, 0, 4, false) == 1 { 16 } else { 8 };
             let body = &f[head..];
             json!({
-                "major": type_text(&body[0..4]), "minor": uint(body, 4, 4, false),
-                "compatible": body[8..].chunks_exact(4).map(type_text).collect::<Vec<_>>(),
+                "major": latin1(&body[0..4]), "minor": uint(body, 4, 4, false),
+                "compatible": body[8..].chunks_exact(4).map(latin1).collect::<Vec<_>>(),
             })
         });
         self.facts = json!({
@@ -662,16 +659,16 @@ impl Mp4 {
     /// null for a track it virtualizes, else why it does not.
     fn classify(&self, t: &Track, offsets: &[u64]) -> J {
         let entry = t.entries.first();
-        let codec = entry.map(|e| type_text(&e.typ)).unwrap_or_default();
+        let codec = entry.map(|e| latin1(&e.typ)).unwrap_or_default();
         let mut f = json!({
-            "id": t.id, "handler": type_text(&t.handler), "codec": codec, "timescale": t.timescale, "duration": t.duration,
+            "id": t.id, "handler": latin1(&t.handler), "codec": codec, "timescale": t.timescale, "duration": t.duration,
             "edits": t.edits, "count": offsets.len(), "format": null, "geometry": null, "reason": null,
         });
         let reason = (|| -> Result<(), String> {
             let kind = match &t.handler {
                 b"vide" => "video",
                 b"soun" => "audio",
-                h => return Err(format!("a {} track", type_text(h).trim())),
+                h => return Err(format!("a {} track", latin1(h).trim())),
             };
             if t.stz2 {
                 return Err("compact sample sizes (stz2) are not supported".into());

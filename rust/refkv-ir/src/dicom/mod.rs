@@ -23,8 +23,9 @@ use crate::nd2::Step;
 use crate::out::{payload_size, Part};
 use crate::rules::{self, Rules, Vars, flag, num, text};
 use crate::sans;
+use crate::text::{is_decimal, latin1};
 use elements::*;
-use json::{dictionary_vr, is_decimal, is_integer, is_text, numeric, Pixel, Translator, EOT_TAGS, MAX_TEXT, PADDING};
+use json::{dictionary_vr, is_integer, is_text, numeric, Pixel, Translator, EOT_TAGS, MAX_TEXT, PADDING};
 use serde_json::{json, Map, Value as J};
 use std::collections::{HashMap, HashSet};
 
@@ -99,10 +100,6 @@ fn first_string(v: &[u8]) -> &[u8] {
         s += 1;
     }
     &p[s..e]
-}
-
-fn latin1(b: &[u8]) -> String {
-    b.iter().map(|&c| c as char).collect()
 }
 
 /// A transfer syntax's (encoding, codec), from the schema's table.

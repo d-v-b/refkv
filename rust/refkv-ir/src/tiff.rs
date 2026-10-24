@@ -60,7 +60,9 @@ const TABLE: [u16; 21] = [
 ];
 const SCALARS: [u16; 13] = [256, 257, 259, 262, 266, 277, 282, 283, 284, 296, 317, 322, 323];
 const LAYOUT: [u16; 11] = [273, 279, 288, 289, 324, 325, 513, 514, 519, 520, 521];
-const ADOBE: [u8; 15] = [
+/// The Adobe APP14 marker that tells a decoder a 3-component stream is RGB (transform 0),
+/// written before a JPEG tile's tables.
+pub const ADOBE: [u8; 15] = [
     0xFF, 0xEE, 0x00, 0x0E, 0x41, 0x64, 0x6F, 0x62, 0x65, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00,
 ];
 const WINDOW: u64 = 4096; // the bytes asked at an IFD, before its entry count is known
@@ -123,7 +125,7 @@ fn label(tag: u16) -> String {
     }
 }
 
-fn value_type(le: bool, typ: u16, count: u64) -> String {
+pub fn value_type(le: bool, typ: u16, count: u64) -> String {
     let e = if le { "<" } else { ">" };
     match typ {
         1 => format!("u1[{count}]"),
@@ -1292,22 +1294,44 @@ fn aperio_fields(d: &str) -> Option<Vec<(String, String)>> {
 /// for 3 samples, then JPEGTables without its SOI and EOI; whether the IFD has JPEGTables, and
 /// whether they are well formed (the `plane` role). Empty when the compression is not JPEG.
 fn jpeg_prefix(m: &Vals, jpeg: bool, spp: u64, photometric: Option<u64>) -> (Vec<u8>, bool, bool) {
-    let mut prefix = Vec::new();
-    let (mut has_tables, mut tables_ok) = (false, true);
-    if jpeg {
-        if spp == 3 {
-            prefix.extend_from_slice(&ADOBE);
-            prefix.push(if photometric == Some(2) { 0 } else { 1 });
-        }
-        if let Some(Loaded::Bytes(t)) = m.get(&347) {
-            has_tables = true;
-            tables_ok = t.len() >= 4 && t[..2] == [0xFF, 0xD8] && t[t.len() - 2..] == [0xFF, 0xD9];
-            if tables_ok {
-                prefix.extend_from_slice(&t[2..t.len() - 2]);
-            }
-        }
+    if !jpeg {
+        return (Vec::new(), false, true);
     }
-    (prefix, has_tables, tables_ok)
+    let tables = match m.get(&347) {
+        Some(Loaded::Bytes(t)) => Some(t.as_slice()),
+        _ => None,
+    };
+    let (prefix, tables_ok) = jpeg_frame(spp, photometric == Some(2), tables);
+    (prefix, tables.is_some(), tables_ok)
+}
+
+/// What a JPEG stream of a TIFF image starts with (spec/virtualize/tiff.md §7.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#73-chunks>): the Adobe
+/// marker for 3 samples (transform 0 when the image is RGB, else 1), then the JPEGTables
+/// `tables` without their SOI and EOI; and whether the tables are well formed (tables that are
+/// not are left out).
+pub fn jpeg_frame(samples: u64, rgb: bool, tables: Option<&[u8]>) -> (Vec<u8>, bool) {
+    let mut prefix = Vec::new();
+    if samples == 3 {
+        prefix.extend_from_slice(&ADOBE);
+        prefix.push(if rgb { 0 } else { 1 });
+    }
+    let ok = tables.is_none_or(|t| t.len() >= 4 && t[..2] == [0xFF, 0xD8] && t[t.len() - 2..] == [0xFF, 0xD9]);
+    if let Some(t) = tables.filter(|_| ok) {
+        prefix.extend_from_slice(&t[2..t.len() - 2]);
+    }
+    (prefix, ok)
+}
+
+/// The forms of a strip or tile whose geometry and codec are `base`: read whole, and, when
+/// the image has a shared JPEG prefix, framed by it (the stream's SOI, the prefix, the rest).
+pub fn tile_forms(base: &J, shared: Option<u32>) -> (String, Option<String>) {
+    let form = |recipe: J| {
+        let mut j = base.clone();
+        j["recipe"] = recipe;
+        j.to_string()
+    };
+    (form(json!([["src", 0, null]])), shared.map(|x| form(json!([["src", 0, 2], ["shared", x], ["src", 2, null]]))))
 }
 
 fn first_int(m: &Vals, tag: u16) -> Option<u64> {
@@ -1900,20 +1924,11 @@ impl Tiff {
         }
         let f = &self.ifds[k];
         let one = |t: u16| f.field(t).filter(|e| unsigned(e.typ)).and_then(|e| self.ints(e, true)).and_then(|v| v.first().copied());
-        let mut out = Vec::new();
         if one(259).unwrap_or(1) != 7 {
-            return out;
+            return Vec::new();
         }
-        if one(277).unwrap_or(1) == 3 {
-            out.extend_from_slice(&ADOBE);
-            out.push(if one(262) == Some(2) { 0 } else { 1 });
-        }
-        if let Some(t) = f.field(347).and_then(|e| self.bytes_of(e, e.nbytes.unwrap_or(0))) {
-            if t.len() >= 4 && t[..2] == [0xFF, 0xD8] && t[t.len() - 2..] == [0xFF, 0xD9] {
-                out.extend_from_slice(&t[2..t.len() - 2]);
-            }
-        }
-        out
+        let tables = f.field(347).and_then(|e| self.bytes_of(e, e.nbytes.unwrap_or(0)));
+        jpeg_frame(one(277).unwrap_or(1), one(262) == Some(2), tables.as_deref()).0
     }
 
     /// The IFD's strips and tiles as `data` elements, with geometry,
@@ -1962,16 +1977,7 @@ impl Tiff {
             let s = self.ir.struct_(parent, name, NO_INDEX, 0, None)?;
             by_key.insert(key, s);
             let shared = if prefix.is_empty() { None } else { Some(self.ir.share(&prefix)) };
-            let plain = {
-                let mut j = base.clone();
-                j["recipe"] = json!([["src", 0, null]]);
-                j.to_string()
-            };
-            let framed = shared.map(|x| {
-                let mut j = base.clone();
-                j["recipe"] = json!([["src", 0, 2], ["shared", x], ["src", 2, null]]);
-                j.to_string()
-            });
+            let (plain, framed) = tile_forms(&base, shared);
             // one element a tile, not folded into runs: the mirror folds the tiles of a
             // table into one column run whose extents it reads from the table itself
             for (j, (&o, &c)) in offsets.iter().zip(&counts).enumerate() {

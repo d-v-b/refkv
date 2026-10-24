@@ -19,6 +19,7 @@
 //! is the one a sequential reading would give).
 
 use crate::fed::{Fed, Overlap, uint};
+use crate::text::latin1;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc as Rc;
 
@@ -2076,7 +2077,7 @@ impl H5 {
 pub fn show_bytes(b: &[u8]) -> String {
     match std::str::from_utf8(b) {
         Ok(s) => format!("{s:?}"),
-        Err(_) => format!("{:?}", b.iter().map(|&c| c as char).collect::<String>()),
+        Err(_) => format!("{:?}", latin1(b)),
     }
 }
 

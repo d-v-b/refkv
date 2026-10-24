@@ -1011,11 +1011,7 @@ pub fn text_json(kind: &str, raw: &[u8]) -> J {
     } else {
         let n = raw.iter().position(|&c| c == 0).unwrap_or(raw.len());
         let b = &raw[..n];
-        let t = match std::str::from_utf8(b) {
-            Ok(s) => json!(s),
-            Err(_) => json!({"latin1": b.iter().map(|&c| c as char).collect::<String>()}),
-        };
-        (n, t)
+        (n, crate::text::text_json(b))
     };
     if raw[n..].iter().any(|&c| c != 0) {
         json!({"text": text, "after": {"$vz": "bytes", "b64": base64(&raw[n..])}})
