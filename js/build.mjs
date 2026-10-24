@@ -1,5 +1,6 @@
 // Builds dist/: the service worker (vzip-sw.js, a classic script so it works
-// in every browser with service workers), the demo page, the map page for
+// in every browser with service workers), the embeddable virtualizer
+// (refkv_embed.js, an ES module: src/embed.ts), the demo page, the map page for
 // Sentinel-2 products (map.html, with OpenLayers, and the JPEG 2000 decoder
 // and its worker), and the Rust core's wasm32 build (refkv_ir.wasm, which
 // `#irwasm` fetches from beside the script; `just js::wasm` builds it).
@@ -45,6 +46,9 @@ const build = (entry, outfile, options = {}) =>
   esbuild.build({ ...common, entryPoints: [path.join(here, entry)], outfile: path.join(dist, outfile), ...options });
 await build("src/sw.ts", "vzip-sw.js", { format: "iife" });
 await build("../demo/demo.ts", "demo.js", { format: "esm" });
+// The virtualizer for a host that reads the input itself (src/embed.ts): the Neuroglancer fork
+// vendors it, with refkv_ir.wasm, for its `refkv:` kvstore (src/third_party/refkv/)
+await build("src/embed.ts", "refkv_embed.js", { format: "esm", sourcemap: false });
 // zarrita imports its blosc, lz4 and zstd codecs (numcodecs, 1.4 MB with their
 // wasm inline) dynamically: split them out, to be loaded only when an array
 // uses them.
