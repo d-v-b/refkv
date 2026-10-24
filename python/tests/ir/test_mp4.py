@@ -13,7 +13,8 @@ import pytest
 from ir_helpers import FIXTURES, core_setting
 from ir_helpers import virtualized as shared_virtualized
 from refkv import _core
-from refkv.zarr.codecs.stream import stream_units
+from refkv.zarr.codecs import stream
+from refkv.zarr.codecs.stream import Shared, StreamCodec, stream_units
 
 FILES = sorted(p for p in (FIXTURES / "mp4").iterdir() if p.suffix in (".mp4", ".mov"))
 ACCEPTED = [p for p in FILES if "reject" not in p.name]
@@ -103,23 +104,97 @@ def test_tracks_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
     assert out.data == {}  # no data sources
 
 
-def test_a_video_chunk_holds_its_lead_in(tmp_path):
-    """mp4_h264_long.mp4 (400 pictures of 32 x 32 in groups of 50, three B-frames) has two
-    chunks of 256 pictures; the second's reference starts at the sync sample before picture
-    256 in decode order, and its header places the lead-in's pictures at -1 and the chunk's
-    256 to 399 at 0 to 143 (conventions §10
+def chunk_units(out, key, data):
+    """The frames of the chunk `key` and their positions (conventions §10
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#10-coded-streams>)."""
-    out, root = virtualized(FIXTURES / "mp4" / "mp4_h264_long.mp4", tmp_path)
-    assert root["tracks/1/y"].chunks == (256, 32, 32)
-    lit, *ranges = out.refs["tracks/1/y/c/1/0/0"]
-    data = (FIXTURES / "mp4" / "mp4_h264_long.mp4").read_bytes()
-    units, positions = stream_units(lit + b"".join(data[o:o + n] for o, n in ranges))
-    assert sorted(p for p in positions if p >= 0) == list(range(144))
-    assert positions[0] == -1 and len(units) > 144
+    lit, *ranges = out.refs[key]
+    return stream_units(lit + b"".join(data[o:o + n] for o, n in ranges))
+
+
+def test_video_chunks_start_at_keyframes(tmp_path):
+    """Video chunks are runs of whole groups of pictures, a group longer than a chunk split
+    (spec/virtualize/mp4.md §4.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#41-video-tracks>):
+    mp4_h264_long.mp4 (400 pictures of 32 x 32 in groups of 50) has chunks of 250 and 150
+    pictures, a regular grid, each starting at a keyframe with no lead-in.
+    mp4_h264_irregular_groups.mp4 (60 pictures, groups starting at 0, 7, 9, 23 and 40) in
+    chunks of at most 7 has a rectilinear grid; a chunk that starts at a keyframe has no
+    lead-in, and one inside a group decodes from its keyframe (§8.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#83-chunks>)."""
+    path = FIXTURES / "mp4" / "mp4_h264_long.mp4"
+    out, root = virtualized(path, tmp_path)
+    assert root["tracks/1/y"].chunks == (250, 32, 32)
+    units, positions = chunk_units(out, "tracks/1/y/c/1/0/0", path.read_bytes())
+    assert sorted(positions) == list(range(150))
     assert out.refs["tracks/1/u/c/1/0/0"] == out.refs["tracks/1/y/c/1/0/0"] == out.refs["tracks/1/v/c/1/0/0"]
     codecs = json.loads(out.bytes_entries["tracks/1/u/zarr.json"])["codecs"]
     assert codecs[0]["name"] == "refkv.stream" and codecs[0]["configuration"]["plane"] == "u"
     assert codecs[0]["configuration"]["format"] == "h264" and codecs[0]["configuration"]["setup"]
+
+    path = FIXTURES / "mp4" / "mp4_h264_irregular_groups.mp4"
+    out, root = virtualized(path, tmp_path, chunk_frames=7)
+    grid = json.loads(out.bytes_entries["tracks/1/y/zarr.json"])["chunk_grid"]
+    assert grid == {"name": "rectilinear", "configuration": {"kind": "inline",
+                                                             "chunk_shapes": [[7, 2, [7, 4], 3, [7, 2], 6], 48, 64]}}
+    assert json.loads(out.bytes_entries["tracks/1/u/zarr.json"])["chunk_grid"]["configuration"]["chunk_shapes"][1:] == [24, 32]
+    data = path.read_bytes()
+    starts = [0, 7, 9, 16, 23, 30, 37, 40, 47, 54]
+    for q, (a, b) in enumerate(zip(starts, starts[1:] + [60])):
+        units, positions = chunk_units(out, f"tracks/1/y/c/{q}/0/0", data)
+        assert sorted(p for p in positions if p >= 0) == list(range(b - a)), q
+        if a in (0, 7, 9, 23, 40):
+            # the keyframe first (a P-frame its last B-frames need is decoded and dropped after them)
+            assert positions[0] == 0, q
+        else:
+            # every picture back to the keyframe decoded and dropped: 9 to 15 for 16, 23 to 29 for 30
+            assert positions[0] == -1 and sum(p < 0 for p in positions) >= a - max(k for k in (0, 7, 9, 23, 40) if k <= a), q
+    assert out.summary["tracks"][0]["chunks"] == 10
+
+
+def test_a_video_chunk_s_planes_decode_once(tmp_path, monkeypatch):
+    """Reading a chunk's Y, U and V decodes it once: the codec keeps the planes not asked for
+    (refkv.zarr.codecs.stream); and the lead-in's pictures are dropped as the decoder gives
+    them, never converted."""
+    calls = []
+    decode = stream.decode_chunk
+    monkeypatch.setattr(stream, "decode_chunk", lambda *a: calls.append(1) or decode(*a))
+    monkeypatch.setattr(stream, "SHARED", Shared(1 << 26))
+    path = FIXTURES / "mp4" / "mp4_h264_irregular_groups.mp4"
+    out, root = virtualized(path, tmp_path, chunk_frames=7)
+    kind, frames, _ = decoded(path, 0)
+    for k, p in enumerate("yuv"):
+        assert np.array_equal(root["tracks/1"][p][16:23], np.stack([plane(f, k) for f in frames[16:23]])), p
+    assert len(calls) == 1
+    # the chunk of pictures 16 to 22 leads in from the keyframe at 9
+    units, positions = chunk_units(out, "tracks/1/y/c/3/0/0", path.read_bytes())
+    codec = StreamCodec(format="h264", setup=root["tracks/1/y"].metadata.codecs[0].setup, plane="y")
+    given = list(stream._h264_frames(codec, units, positions))
+    assert sorted(k for k, v in given if not v) == [k for k, p in enumerate(positions) if p < 0] != []
+
+
+def test_the_codec_keeps_each_plane_once_within_its_limit():
+    """The planes a decoding gave and no one asked for are kept until asked for, once each,
+    the oldest dropped past the limit, and a chunk's planes larger than the limit not kept."""
+    shared = Shared(300)
+    runs = []
+
+    def decode(n):
+        def run():
+            runs.append(n)
+            return {p: np.zeros(n, np.uint8) for p in "yuv"}
+        return run
+
+    assert shared.take("a", "y", decode(100)).nbytes == 100
+    assert set(shared.kept["a"]) == {"u", "v"}
+    shared.take("a", "u", decode(100))
+    shared.take("a", "v", decode(100))
+    assert runs == [100] and "a" not in shared.kept
+    shared.take("a", "v", decode(100))  # given once: decoded again
+    assert runs == [100, 100]
+    shared.take("b", "y", decode(100))  # past 300 bytes: a's planes dropped
+    assert list(shared.kept) == ["b"]
+    shared.take("c", "y", decode(200))  # 400 bytes: not kept
+    assert list(shared.kept) == ["b"]
 
 
 # (file, the tracks it virtualizes, each other track's ID and the start of its reason)

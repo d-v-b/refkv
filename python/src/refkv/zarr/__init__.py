@@ -12,7 +12,9 @@ module wraps one as a `zarr.abc.store.Store`:
 
 Importing it also registers the codecs that archives of virtualized files and
 stores use (`refkv.zarr.codecs`, one module per codec; the image codecs' decoders
-need the `images` extra, the `refkv.stream` codec's the `media` extra).
+need the `images` extra, the `refkv.stream` codec's the `media` extra), and turns on
+zarr-python's `array.rectilinear_chunks`, which the zarr-extensions `rectilinear` chunk
+grid of some archives' arrays needs (an MP4 file's video planes, a clipped CZI level).
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ from collections.abc import AsyncIterator, Iterable
 from refkv._extras import missing
 
 try:
-    import zarr  # noqa: F401
+    import zarr
     from zarr.abc.store import (
         ByteRequest,
         OffsetByteRequest,
@@ -35,6 +37,8 @@ except ImportError as e:
     raise missing("zarr", "refkv.zarr", e) from e
 
 import refkv.zarr.codecs  # noqa: E402,F401  registers the codecs vzip archives use
+
+zarr.config.set({"array.rectilinear_chunks": True})
 from refkv.reader import (  # noqa: E402
     OffsetRequest,
     RangeRequest,

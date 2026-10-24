@@ -182,7 +182,8 @@ Zarr v2 and OME-Zarr, define their arrays themselves; the CZI convention
 gives clipped levels the zarr-extensions `rectilinear` chunk grid and adds
 the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle`; the MP3 and MP4
 conventions give their arrays the codec `refkv.stream` of [§10](#10-coded-streams) and dimension
-names of their own), every array's
+names of their own, and the MP4 convention gives video planes whose chunks differ in length the
+`rectilinear` chunk grid), every array's
 `zarr.json` is the JSON object:
 
 ```json

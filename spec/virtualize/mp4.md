@@ -15,6 +15,11 @@ Added 2026-10-23, after
 [revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
 (a profile's changes are recorded here, dated, from then on).
 
+**2026-10-24.** A video chunk holds whole groups of pictures, from a sync sample, in place of
+`F` pictures from a multiple of `F`; a group longer than `F` pictures is split. Where the
+chunks' lengths differ, the planes' chunk grid is the zarr-extensions `rectilinear` grid
+([§4.1](#41-video-tracks), [§8.3](#83-chunks)).
+
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
 An MP4 file is not an image. The hierarchy holds each track it virtualizes
@@ -131,11 +136,29 @@ the sample with the `p`-th smallest presentation time.
   the dimension names `["time", "y", "x"]`; the codecs
   `[{"name": "refkv.stream", "configuration": {"format": "h264", "setup":
   S, "plane": P}}]`, `S` the base64 of the sample entry's `avcC` box's
-  payload and `P` the array's name. The chunk shape is `[F, H, W]` (or the
-  chroma planes' sizes), `F = min(256, max(1, floor(2^25 / (W × H))))`
-  pictures: at most 32 MiB of luma a chunk (16 pictures at 1920 × 1080),
-  since a chunk decodes whole. Chunk `q` holds the pictures `q × F` to
-  `min(N, (q + 1) × F) − 1`, its key `<plane>/c/<q>/0/0`.
+  payload and `P` the array's name. A chunk holds at most
+  `F = min(256, max(1, floor(2^25 / (W × H))))` pictures: at most 32 MiB of
+  luma (16 pictures at 1920 × 1080), since a chunk decodes whole. The
+  chunks are cut at the sync samples, each presented at its own index (its
+  group of pictures is closed, [§8.2](#82-tracks)): chunk `q` holds the
+  pictures `a_q` to `a_{q+1} − 1`, from `a_0 = 0`, where `a_{q+1}` is `N`
+  when `N − a_q ≤ F`; else the greatest index of a sync sample that is
+  greater than `a_q` and at most `a_q + F`; else `a_q + F`. So a chunk holds
+  whole groups of pictures and the next starts with a sync sample, but
+  where a group longer than `F` is split. Its key is `<plane>/c/<q>/0/0`.
+- The chunk grid of `y`, `u` and `v`, `L_q` the length of chunk `q`: when
+  every `L_q` but the last is `L_0` and the last at most `L_0`, the regular
+  grid of chunk shape `[L_0, H, W]` (or the chroma planes' sizes);
+  otherwise the zarr-extensions `rectilinear` grid
+  ([chunk-grids/rectilinear](https://github.com/zarr-developers/zarr-extensions/tree/main/chunk-grids/rectilinear)),
+  exactly `{"name": "rectilinear", "configuration": {"kind": "inline",
+  "chunk_shapes": [T, H, W]}}` (or the chroma planes' sizes), `T` the
+  lengths in order, each run of `r > 1` equal lengths `L` written `[L, r]`,
+  as the CZI convention writes a clipped axis
+  ([virtualize/czi.md §4.3](czi.md#43-image-arrays)). For example, groups
+  starting at pictures 0, 7, 9, 23 and 40 of 60, with `F = 7`, give
+  `T = [7, 2, [7, 4], 3, [7, 2], 6]`. zarr-python 3.4 reads such an array
+  once `zarr.config.set({"array.rectilinear_chunks": True})` is set.
 - `time`: the pictures' presentation times, in the media timescale, `int64`
   of shape `[N]`, the dimension names `["time"]`, the codecs
   `[{"name": "bytes", "configuration": {"endian": "little"}}, {"name":
@@ -197,7 +220,7 @@ sample count `N`; then, for a video track, `width`, `height`, `profile` and
 `level` (the SPS's `profile_idc` and `level_idc`) and `sync_samples` (their
 count), and for an audio track `sample_rate`, `channels`,
 `samples_per_frame` (`S`) and `samples` (`N × S`); and last `chunk_frames`,
-the frames a chunk holds (`F`, or 256).
+the most frames a chunk holds (a video track's `F`, an audio track's 256).
 
 ### 5.3 Elements
 
@@ -270,9 +293,9 @@ and `tracks/1`'s `{"mp4": V}`, `V`:
 
 The edit list starts the movie at media time 2048, two pictures' worth:
 the B-frames' composition delay. `tracks/1/y` has the shape `[30, 48, 64]`,
-the chunk shape `[256, 48, 64]` and the codecs `[{"name": "refkv.stream",
-"configuration": {"format": "h264", "setup": "AWQACv/hABhn...", "plane":
-"y"}}]`; its one chunk, `tracks/1/y/c/0/0/0`, is a literal header and the
+the chunk shape `[30, 48, 64]` (every picture in one chunk, since 30 is at
+most `F`, 256) and the codecs `[{"name": "refkv.stream", "configuration":
+{"format": "h264", "setup": "AWQACv/hABhn...", "plane": "y"}}]`; its one chunk, `tracks/1/y/c/0/0/0`, is a literal header and the
 30 samples' ranges, each sample's position its presentation index.
 `tracks/2/samples` has the shape `[49152, 1]` (48 frames of 1024 samples),
 `float32`, the codecs `[{"name": "refkv.stream", "configuration": {"format":
@@ -389,15 +412,17 @@ Every chunk of every array of a virtualized track is present, and is the
 of these samples, in decode order, a range per run of samples that follow
 each other in the file:
 
-- **Video**, chunk `q` of the pictures `a = q × F` to `b − 1`: the samples
-  from the last sync sample at or before the first of those pictures in
-  decode order, to the last of them in decode order. A sample's position is
+- **Video**, chunk `q` of the pictures `a = a_q` to `b − 1`, `b = a_{q+1}`
+  ([the convention §4.1](#41-video-tracks)): the samples from the last sync
+  sample at or before the first of those pictures in decode order, to the
+  last of them in decode order. A sample's position is
   its presentation index less `a` when that is from 0 to `b − a − 1`, else
   −1. So the chunk decodes the group of pictures it starts in from its sync
   sample, and every picture its own pictures are predicted from; the
   pictures it decodes and does not hold (before `a`, or after `b − 1` but
-  decoded before one of its own) are dropped. The chunks of `u` and `v` are
-  `y`'s.
+  decoded before one of its own) are dropped. A chunk that starts with a
+  sync sample decodes from it, with no picture before `a`. The chunks of `u`
+  and `v` are `y`'s.
 - **Audio**, chunk `q` of the frames `a = q × 256` to `b − 1`: the frames
   `l` to `b − 1`, frame `j`'s position −1 when `j < a` and `(j − a) × S`
   otherwise. `l = a` for the first chunk; otherwise, for AAC, `l = a − 1`
