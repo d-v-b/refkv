@@ -1,0 +1,221 @@
+{
+  "about": "The inputs the nd2 profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/nd2.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "nd2_reject_compression",
+      "input": "nd2_reject_compression.nd2",
+      "message": "unknown ND2 compression"
+    },
+    {
+      "test": "nd2_reject_empty_compressed_frame",
+      "input": "nd2_reject_empty_compressed_frame.nd2",
+      "message": "a compressed frame has no data"
+    },
+    {
+      "test": "nd2_reject_etype_without_pars",
+      "input": "nd2_reject_etype_without_pars.nd2",
+      "message": "unsupported experiment loop type 7"
+    },
+    {
+      "test": "nd2_reject_fraction",
+      "input": "nd2_reject_fraction.nd2",
+      "message": "uiHeight = 3.5 is not an integer from 0 to 2^53 - 1"
+    },
+    {
+      "test": "nd2_reject_frame_magic",
+      "input": "nd2_reject_frame_magic.nd2",
+      "message": "a placed frame's chunk header is not an ND2 chunk header within the file"
+    },
+    {
+      "test": "nd2_reject_frame_name_length",
+      "input": "nd2_reject_frame_name_length.nd2",
+      "message": "a frame's chunk header differs in name length from the first frame's"
+    },
+    {
+      "test": "nd2_reject_frame_short",
+      "input": "nd2_reject_frame_short.nd2",
+      "message": "a frame's chunk is too short for its pixels"
+    },
+    {
+      "test": "nd2_reject_header_lengths",
+      "input": "nd2_reject_header_lengths.nd2",
+      "message": "a frame's chunk header differs in name length from the first frame's"
+    },
+    {
+      "test": "nd2_reject_inflate_limit",
+      "input": "nd2_reject_inflate_limit.nd2",
+      "message": "compressed LV data inflates to more than 67108864 bytes"
+    },
+    {
+      "test": "nd2_reject_itemvalid_on_time",
+      "input": "nd2_reject_itemvalid_on_time.nd2",
+      "message": "pItemValid entry is not a flag"
+    },
+    {
+      "test": "nd2_reject_legacy",
+      "input": "nd2_reject_legacy.nd2",
+      "message": "not an ND2 file (too short for its signature chunk)",
+      "host": "not a file of any supported format"
+    },
+    {
+      "test": "nd2_reject_level_short",
+      "input": "nd2_reject_level_short.nd2",
+      "message": "LV level length outside the data"
+    },
+    {
+      "test": "nd2_reject_loop_type",
+      "input": "nd2_reject_loop_type.nd2",
+      "message": "unsupported experiment loop type 7"
+    },
+    {
+      "test": "nd2_reject_lossy",
+      "input": "nd2_reject_lossy.nd2",
+      "message": "lossy ND2 compression is not supported"
+    },
+    {
+      "test": "nd2_reject_lv_type",
+      "input": "nd2_reject_lv_type.nd2",
+      "message": "unknown LV record type 10"
+    },
+    {
+      "test": "nd2_reject_magic",
+      "input": "nd2_reject_magic.nd2",
+      "message": "a placed frame's chunk header is not an ND2 chunk header within the file"
+    },
+    {
+      "test": "nd2_reject_missing_etype",
+      "input": "nd2_reject_missing_etype.nd2",
+      "message": "missing eType"
+    },
+    {
+      "test": "nd2_reject_missing_width_bytes",
+      "input": "nd2_reject_missing_width_bytes.nd2",
+      "message": "missing uiWidthBytes"
+    },
+    {
+      "test": "nd2_reject_nan_period",
+      "input": "nd2_reject_nan_period.nd2",
+      "message": "dPeriod is not finite"
+    },
+    {
+      "test": "nd2_reject_negative_count",
+      "input": "nd2_reject_negative_count.nd2",
+      "message": "uiCount = -1 is not an integer from 0 to 2^53 - 1"
+    },
+    {
+      "test": "nd2_reject_nested_compression",
+      "input": "nd2_reject_nested_compression.nd2",
+      "message": "compressed LV data inside compressed LV data"
+    },
+    {
+      "test": "nd2_reject_nesting_101",
+      "input": "nd2_reject_nesting_101.nd2",
+      "message": "LV levels nested more than 100 deep"
+    },
+    {
+      "test": "nd2_reject_number_type",
+      "input": "nd2_reject_number_type.nd2",
+      "message": "uiWidth is not a number"
+    },
+    {
+      "test": "nd2_reject_path_through_scalar",
+      "input": "nd2_reject_path_through_scalar.nd2",
+      "message": "uLoopPars is not an object"
+    },
+    {
+      "test": "nd2_reject_pointer_number",
+      "input": "nd2_reject_pointer_number.nd2",
+      "message": "uiWidth is not a number"
+    },
+    {
+      "test": "nd2_reject_position_channels",
+      "input": "nd2_reject_position_channels.nd2",
+      "message": "more than 2^16 positions, or more than 2^20 positions x components"
+    },
+    {
+      "test": "nd2_reject_positions",
+      "input": "nd2_reject_positions.nd2",
+      "message": "more than 2^16 positions, or more than 2^20 positions x components"
+    },
+    {
+      "test": "nd2_reject_profile_records",
+      "input": "nd2_reject_profile_records.nd2",
+      "message": "the profile's chunks hold more than 1048576 LV records and byte-array bytes"
+    },
+    {
+      "test": "nd2_reject_short_frame",
+      "input": "nd2_reject_short_frame.nd2",
+      "message": "a frame's chunk is too short for its pixels"
+    },
+    {
+      "test": "nd2_reject_skipped_bad_etype",
+      "input": "nd2_reject_skipped_bad_etype.nd2",
+      "message": "unsupported experiment loop type 7"
+    },
+    {
+      "test": "nd2_reject_tiled",
+      "input": "nd2_reject_tiled.nd2",
+      "message": "tiled ND2 frames are not supported"
+    },
+    {
+      "test": "nd2_reject_tiny",
+      "input": "nd2_reject_tiny.nd2",
+      "message": "not an ND2 file (too short for its signature chunk)"
+    },
+    {
+      "test": "nd2_reject_too_many_components",
+      "input": "nd2_reject_too_many_components.nd2",
+      "message": "image width and height must be at least 1, and components from 1 to 1024"
+    },
+    {
+      "test": "nd2_reject_trailing_byte",
+      "input": "nd2_reject_trailing_byte.nd2",
+      "message": "truncated LV record"
+    },
+    {
+      "test": "nd2_reject_two_time_loops",
+      "input": "nd2_reject_two_time_loops.nd2",
+      "message": "repeated loop kinds"
+    },
+    {
+      "test": "nd2_reject_unused_calibration",
+      "input": "nd2_reject_unused_calibration.nd2",
+      "message": "dCalibration is not a number"
+    },
+    {
+      "test": "nd2_reject_unused_plane_color",
+      "input": "nd2_reject_unused_plane_color.nd2",
+      "message": "uiColor is not a number"
+    },
+    {
+      "test": "nd2_reject_validity_object",
+      "input": "nd2_reject_validity_object.nd2",
+      "message": "pItemValid is not a list"
+    },
+    {
+      "test": "nd2_reject_version2",
+      "input": "nd2_reject_version2.nd2",
+      "message": "unsupported ND2 version \"Ver2.0\\0\\0\""
+    },
+    {
+      "test": "nd2_reject_width_bytes",
+      "input": "nd2_reject_width_bytes.nd2",
+      "message": "uiWidthBytes is less than a row"
+    },
+    {
+      "test": "nd2_reject_width_zero",
+      "input": "nd2_reject_width_zero.nd2",
+      "message": "image width and height must be at least 1, and components from 1 to 1024"
+    },
+    {
+      "test": "nd2_reject_z_step_overflow",
+      "input": "nd2_reject_z_step_overflow.nd2",
+      "message": "the z step is not finite"
+    },
+    {
+      "test": "nd2_reject_zlib_trailing",
+      "input": "nd2_reject_zlib_trailing.nd2",
+      "message": "compressed LV data does not end with its zlib stream"
+    }
+  ]
+}

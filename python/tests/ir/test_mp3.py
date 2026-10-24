@@ -5,20 +5,15 @@ the codec's own decoder (ffmpeg's float MP3 decoder, through PyAV) run over the 
 and the ffmpeg command line's 16-bit output (run by the fixture generator and stored) are the
 readings it is compared with."""
 
-import io
 import json
 
 import av
 import numpy as np
 import pytest
-import zarr
 
-import refkv.zarr
-from ir_helpers import FIXTURES
+from ir_helpers import FIXTURES, core_setting
+from ir_helpers import virtualized as shared_virtualized
 from refkv import _core
-from refkv.ir import virtualize as via_ir
-from refkv.ir.cmirror import rebuild_from_archive
-from refkv.virtualize import Rejected
 from refkv.zarr.codecs.stream import stream_units
 
 MP3S = sorted((FIXTURES / "mp3").glob("*.mp3"))
@@ -31,23 +26,11 @@ FFMPEG_MAX, FFMPEG_MEAN = 1, 0.6
 
 
 def virtualized(path, tmp_path, chunk_frames=None):
-    """(the output, the hierarchy's root group, read in memory from the file, the IR), with
-    `chunk_frames` frames a chunk (None: the profile's 256); the archive rebuilds the file."""
-    data = path.read_bytes()
-    _core._set_chunk_frames(chunk_frames)
-    try:
-        fmt, out, ir = via_ir(str(path))
-    finally:
-        _core._set_chunk_frames(None)
-    assert fmt == "mp3"
-    ir.check()
-    out.write(str(tmp_path / "a.vzip"))
-    buf = io.BytesIO()
-    rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
-    assert buf.getvalue() == data
-    root = zarr.open_group(refkv.zarr.store(out.to_store()), mode="r", zarr_format=3)
+    """(the output, the hierarchy's root group, the IR), with at most `chunk_frames` frames a chunk (None: the
+    profile's 256); the archive rebuilds the file (ir_helpers.virtualized)."""
+    with core_setting(_core._set_chunk_frames, chunk_frames):
+        out, root, ir = shared_virtualized(path, tmp_path, "mp3")
     return out, root, ir
-
 
 def chunk_parts(out, q, data):
     """(the samples its frames keep, [(offset, length), ...]) of chunk q's reference: its
@@ -236,35 +219,3 @@ def test_the_info_frame_is_read_and_not_audio(tmp_path):
     out, root, _ = virtualized(FIXTURES / "mp3" / "mp3_info_lavc.mp3", tmp_path)
     info = root.attrs["refkv_virtualized"]["mp3"]["info"]
     assert info["tag"] == "Info" and info["encoder"].startswith("Lavc") and info["frames"] == out.summary["frames"]
-
-
-@pytest.mark.parametrize("name,message", [
-    ("mp3_reject_layer2", "MPEG-2 Layer II (the frame at 0) is not supported: only Layer III is"),
-    ("mp3_reject_layer1", "MPEG-1 Layer I (the frame at 0) is not supported: only Layer III is"),
-    ("mp3_reject_free_format", "free-format bitrate (the frame header at 0) is not supported"),
-    ("mp3_reject_sample_rate_change", "changes the sample rate from 16000 to 22050"),
-    ("mp3_reject_channels_change", "changes the channel count from 1 to 2"),
-    ("mp3_reject_version_change", "changes the version from MPEG-2 to MPEG-1"),
-    ("mp3_reject_layer_change", "changes the layer from III to II"),
-    ("mp3_reject_no_frames", "no MPEG audio frames"),
-    ("mp3_reject_only_id3v1", "not a file of any supported format"),
-    ("mp3_reject_id3v2_outside", "the 100010-byte ID3v2 tag at 0 is outside the 60-byte file"),
-    ("mp3_reject_id3v2_syncsafe", "the ID3v2 tag at 0 has a size byte that is not syncsafe (128)"),
-    ("mp3_reject_short", "file too short for an MPEG audio frame header"),
-])
-def test_rejects(name, message):
-    """Each rejected input, with its message (a parameter change names the frame's offset
-    before the message checked here; a file no row of spec/virtualize.md §1.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input> matches is rejected by
-    the host before the parser)."""
-    path = FIXTURES / "mp3" / f"{name}.mp3"
-    with pytest.raises(Rejected) as e:
-        via_ir(str(path), f"https://data.test/{name}.mp3")
-    assert message in str(e.value), str(e.value)
-    if "changes the" in message:
-        assert str(e.value).startswith("the frame at ")
-
-
-def test_every_reject_fixture_has_a_test():
-    assert {p.stem for p in MP3S if p.name.startswith("mp3_reject")} == {
-        name for name, _ in test_rejects.pytestmark[0].args[1]}

@@ -1,0 +1,230 @@
+{
+  "about": "The inputs the fits profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/fits.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "fits_reject_short",
+      "input": "fits_reject_short.fits",
+      "message": "file too short for a 2880-byte FITS block"
+    },
+    {
+      "test": "fits_reject_simple_false",
+      "input": "fits_reject_simple_false.fits",
+      "message": "not a FITS file",
+      "host": "not a file of any supported format"
+    },
+    {
+      "test": "fits_reject_not_fits",
+      "input": "fits_reject_not_fits.fits",
+      "message": "not a FITS file",
+      "host": "not a file of any supported format"
+    },
+    {
+      "test": "fits_reject_extension_first",
+      "input": "fits_reject_extension_first.fits",
+      "message": "not a FITS file",
+      "host": "not a file of any supported format"
+    },
+    {
+      "test": "fits_reject_gzip_file",
+      "input": "fits_reject_gzip_file.fits",
+      "message": "not a FITS file",
+      "host": "not a file of any supported format"
+    },
+    {
+      "test": "fits_reject_bzip2_file",
+      "input": "fits_reject_bzip2_file.fits",
+      "message": "not a FITS file",
+      "host": "not a file of any supported format"
+    },
+    {
+      "test": "fits_reject_no_end",
+      "input": "fits_reject_no_end.fits",
+      "message": "HDU 0: no END card in the 5760 bytes from 0"
+    },
+    {
+      "test": "fits_reject_header_nul",
+      "input": "fits_reject_header_nul.fits",
+      "message": "HDU 0: byte 10 of card 4 is 0x00, not printable ASCII"
+    },
+    {
+      "test": "fits_reject_mandatory_order",
+      "input": "fits_reject_mandatory_order.fits",
+      "message": "HDU 0: card 1 is NAXIS, not BITPIX"
+    },
+    {
+      "test": "fits_reject_bitpix",
+      "input": "fits_reject_bitpix.fits",
+      "message": "HDU 0: BITPIX 12 is not one of 8, 16, 32, 64, -32, -64"
+    },
+    {
+      "test": "fits_reject_bitpix_text",
+      "input": "fits_reject_bitpix_text.fits",
+      "message": "HDU 0: BITPIX 'sixteen' is not an integer"
+    },
+    {
+      "test": "fits_reject_naxis_negative",
+      "input": "fits_reject_naxis_negative.fits",
+      "message": "HDU 0: NAXIS -1 is not in 0..999"
+    },
+    {
+      "test": "fits_reject_naxis_1000",
+      "input": "fits_reject_naxis_1000.fits",
+      "message": "HDU 0: NAXIS 1000 is not in 0..999"
+    },
+    {
+      "test": "fits_reject_naxisn_negative",
+      "input": "fits_reject_naxisn_negative.fits",
+      "message": "HDU 0: NAXIS1 -4 is negative"
+    },
+    {
+      "test": "fits_reject_naxisn_missing",
+      "input": "fits_reject_naxisn_missing.fits",
+      "message": "HDU 0: card 4 is NAXIS3, not NAXIS2"
+    },
+    {
+      "test": "fits_reject_pcount_negative",
+      "input": "fits_reject_pcount_negative.fits",
+      "message": "HDU 1: PCOUNT -1 is negative"
+    },
+    {
+      "test": "fits_reject_gcount_zero",
+      "input": "fits_reject_gcount_zero.fits",
+      "message": "HDU 1: GCOUNT 0 is not positive"
+    },
+    {
+      "test": "fits_reject_xtension_unknown",
+      "input": "fits_reject_xtension_unknown.fits",
+      "message": "HDU 1: XTENSION 'FOREIGN' is not IMAGE, TABLE or BINTABLE"
+    },
+    {
+      "test": "fits_reject_groups",
+      "input": "fits_reject_groups.fits",
+      "message": "HDU 0: random groups (GROUPS = T) are not supported"
+    },
+    {
+      "test": "fits_reject_data_outside",
+      "input": "fits_reject_data_outside.fits",
+      "message": "HDU 0: the 24-byte data at 2880 is outside the 2903-byte file"
+    },
+    {
+      "test": "fits_reject_data_overflow",
+      "input": "fits_reject_data_overflow.fits",
+      "message": "HDU 0: the 32000000000000000000000000000000-byte data at 2880 is outside the 5760-byte file"
+    },
+    {
+      "test": "fits_reject_table_bitpix",
+      "input": "fits_reject_table_bitpix.fits",
+      "message": "HDU 1: a BINTABLE with BITPIX 16, not 8"
+    },
+    {
+      "test": "fits_reject_table_naxis",
+      "input": "fits_reject_table_naxis.fits",
+      "message": "HDU 1: a BINTABLE with NAXIS 1, not 2"
+    },
+    {
+      "test": "fits_reject_tfields",
+      "input": "fits_reject_tfields.fits",
+      "message": "HDU 1: TFIELDS 1000 is not in 0..999"
+    },
+    {
+      "test": "fits_reject_tform_missing",
+      "input": "fits_reject_tform_missing.fits",
+      "message": "HDU 1: no TFORM1 card"
+    },
+    {
+      "test": "fits_reject_theap_small",
+      "input": "fits_reject_theap_small.fits",
+      "message": "HDU 1: THEAP 4 is less than the rows' 8 bytes"
+    },
+    {
+      "test": "fits_reject_ztable",
+      "input": "fits_reject_ztable.fits",
+      "message": "HDU 1: tile-compressed tables (ZTABLE = T) are not supported"
+    },
+    {
+      "test": "fits_reject_zcmptype_hcompress",
+      "input": "fits_reject_zcmptype_hcompress.fits",
+      "message": "HDU 1: ZCMPTYPE 'HCOMPRESS_1' is not supported"
+    },
+    {
+      "test": "fits_reject_zcmptype_plio",
+      "input": "fits_reject_zcmptype_plio.fits",
+      "message": "HDU 1: ZCMPTYPE 'PLIO_1' is not supported"
+    },
+    {
+      "test": "fits_reject_zcmptype_unknown",
+      "input": "fits_reject_zcmptype_unknown.fits",
+      "message": "HDU 1: ZCMPTYPE 'FOO_1' is not RICE_1, GZIP_1, GZIP_2 or NOCOMPRESS"
+    },
+    {
+      "test": "fits_reject_zbitpix",
+      "input": "fits_reject_zbitpix.fits",
+      "message": "HDU 1: ZBITPIX 12 is not one of 8, 16, 32, 64, -32, -64"
+    },
+    {
+      "test": "fits_reject_ztile_zero",
+      "input": "fits_reject_ztile_zero.fits",
+      "message": "HDU 1: ZTILE1 0 is not in 1..20"
+    },
+    {
+      "test": "fits_reject_ztile_large",
+      "input": "fits_reject_ztile_large.fits",
+      "message": "HDU 1: ZTILE2 100 is not in 1..12"
+    },
+    {
+      "test": "fits_reject_bytepix8",
+      "input": "fits_reject_bytepix8.fits",
+      "message": "HDU 1: BYTEPIX 8 is not 1, 2 or 4"
+    },
+    {
+      "test": "fits_reject_zquantiz_unknown",
+      "input": "fits_reject_zquantiz_unknown.fits",
+      "message": "HDU 1: ZQUANTIZ 'DITHER_9' is not NO_DITHER, SUBTRACTIVE_DITHER_1 or SUBTRACTIVE_DITHER_2"
+    },
+    {
+      "test": "fits_reject_zdither0_range",
+      "input": "fits_reject_zdither0_range.fits",
+      "message": "HDU 1: ZDITHER0 20000 is not in 1..10000"
+    },
+    {
+      "test": "fits_reject_zdither0_missing",
+      "input": "fits_reject_zdither0_missing.fits",
+      "message": "HDU 1: no ZDITHER0 card for SUBTRACTIVE_DITHER_2"
+    },
+    {
+      "test": "fits_reject_row_count",
+      "input": "fits_reject_row_count.fits",
+      "message": "HDU 1: 5 rows for 4 tiles"
+    },
+    {
+      "test": "fits_reject_columns_extra",
+      "input": "fits_reject_columns_extra.fits",
+      "message": "HDU 1: column 'FOO' is not a tile-compressed image's"
+    },
+    {
+      "test": "fits_reject_uncompressed_data",
+      "input": "fits_reject_uncompressed_data.fits",
+      "message": "HDU 1: column 'UNCOMPRESSED_DATA' is not supported"
+    },
+    {
+      "test": "fits_reject_null_pixel_mask",
+      "input": "fits_reject_null_pixel_mask.fits",
+      "message": "HDU 1: column 'NULL_PIXEL_MASK' is not supported"
+    },
+    {
+      "test": "fits_reject_descriptor_outside",
+      "input": "fits_reject_descriptor_outside.fits",
+      "message": "HDU 1: tile 3's "
+    },
+    {
+      "test": "fits_reject_descriptor_both",
+      "input": "fits_reject_descriptor_both.fits",
+      "message": "HDU 1: tile 1 is in both COMPRESSED_DATA and GZIP_COMPRESSED_DATA"
+    },
+    {
+      "test": "fits_reject_tiles_out_of_order",
+      "input": "fits_reject_tiles_out_of_order.fits",
+      "message": "HDU 1: tile 1 at heap offset 0 starts before tile 0 ends"
+    }
+  ]
+}

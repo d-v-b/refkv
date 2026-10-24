@@ -4,20 +4,15 @@ tracks the profile does not virtualize, and the inputs it rejects. MP4 has no fr
 reference: ffmpeg's demuxer and decoders (through PyAV), which read the file's tables
 themselves, are the reader it is compared with."""
 
-import io
 import json
 
 import av
 import numpy as np
 import pytest
-import zarr
 
-import refkv.zarr
-from ir_helpers import FIXTURES
+from ir_helpers import FIXTURES, core_setting
+from ir_helpers import virtualized as shared_virtualized
 from refkv import _core
-from refkv.ir import virtualize as via_ir
-from refkv.ir.cmirror import rebuild_from_archive
-from refkv.virtualize import Rejected
 from refkv.zarr.codecs.stream import stream_units
 
 FILES = sorted(p for p in (FIXTURES / "mp4").iterdir() if p.suffix in (".mp4", ".mov"))
@@ -29,22 +24,11 @@ NOISE = {"mp4_aac_pns.mp4"}
 
 
 def virtualized(path, tmp_path, chunk_frames=None):
-    """(the output, the hierarchy's root group, read in memory from the file), with at most
-    `chunk_frames` frames a chunk (None: the profile's 256); the archive rebuilds the file."""
-    data = path.read_bytes()
-    _core._set_chunk_frames(chunk_frames)
-    try:
-        fmt, out, ir = via_ir(str(path))
-    finally:
-        _core._set_chunk_frames(None)
-    assert fmt == "mp4"
-    ir.check()
-    out.write(str(tmp_path / "a.vzip"))
-    buf = io.BytesIO()
-    rebuild_from_archive(str(tmp_path / "a.vzip"), lambda o, n: data[o:o + n], buf.write)
-    assert buf.getvalue() == data
-    return out, zarr.open_group(refkv.zarr.store(out.to_store()), mode="r", zarr_format=3)
-
+    """(the output, the hierarchy's root group), with at most `chunk_frames` frames a chunk (None: the
+    profile's 256); the archive rebuilds the file (ir_helpers.virtualized)."""
+    with core_setting(_core._set_chunk_frames, chunk_frames):
+        out, root, ir = shared_virtualized(path, tmp_path, "mp4")
+    return out, root
 
 def decoded(path, index):
     """ffmpeg's demuxer's packets of stream `index`, decoded in one pass by a decoder that is
@@ -171,23 +155,3 @@ def test_reads_the_movie_and_track_metadata(tmp_path):
     times = root["tracks/1/time"][...]
     assert root["tracks/1"].attrs["refkv_virtualized"]["mp4"]["timescale"] == 1000
     assert len(set(np.diff(times).tolist())) > 1  # the steps differ
-
-
-@pytest.mark.parametrize("name,message", [
-    ("mp4_reject_box_outside", "the 7481-byte moov box at 32 is outside its parent, which ends at 6388"),
-    ("mp4_reject_box_too_small", "the free box at 32 is 4 bytes, less than its 8-byte header"),
-    ("mp4_reject_fragmented", "fragmented MP4 (the moof box at "),
-    ("mp4_reject_hevc_only", "no track can be virtualized: track 1 (hev1): hev1 video is not supported"),
-    ("mp4_reject_moov_twice", "a second moov box at 6388"),
-    ("mp4_reject_no_moov", "no moov box"),
-    ("mp4_reject_sample_outside", "track 1's sample 0 at 6398 (1724 bytes) is outside the 6388-byte file"),
-    ("mp4_reject_stts_count", "track 1's stts box counts 31 samples, its stsz box 30"),
-])
-def test_rejects(name, message):
-    with pytest.raises(Rejected) as e:
-        via_ir(str(FIXTURES / "mp4" / f"{name}.mp4"), f"https://data.test/{name}.mp4")
-    assert str(e.value).startswith(message), str(e.value)
-
-
-def test_every_fixture_has_a_test():
-    assert {p.stem for p in FILES if "reject" in p.name} == {n for n, _ in test_rejects.pytestmark[0].args[1]}

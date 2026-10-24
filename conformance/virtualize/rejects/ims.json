@@ -1,0 +1,95 @@
+{
+  "about": "The inputs the ims profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/ims.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "ims_reject_chunk_mismatch",
+      "input": "ims_reject_chunk_mismatch.ims",
+      "message": "the datasets of level 0 differ in size, chunk shape or filters"
+    },
+    {
+      "test": "ims_reject_contiguous",
+      "input": "ims_reject_contiguous.ims",
+      "message": "dataset layout class 1 is not chunked"
+    },
+    {
+      "test": "ims_reject_dtype_mismatch",
+      "input": "ims_reject_dtype_mismatch.ims",
+      "message": "the datasets have different data types"
+    },
+    {
+      "test": "ims_reject_fill_value",
+      "input": "ims_reject_fill_value.ims",
+      "message": "the fill value is not zero"
+    },
+    {
+      "test": "ims_reject_fletcher32",
+      "input": "ims_reject_fletcher32.ims",
+      "message": "unsupported HDF5 filters [3]"
+    },
+    {
+      "test": "ims_reject_float64",
+      "input": "ims_reject_float64.ims",
+      "message": "unsupported HDF5 datatype (class 1, 8 bytes)"
+    },
+    {
+      "test": "ims_reject_image_larger",
+      "input": "ims_reject_image_larger.ims",
+      "message": "the image of level 0 is larger than its dataset"
+    },
+    {
+      "test": "ims_reject_imagesize_text",
+      "input": "ims_reject_imagesize_text.ims",
+      "message": "ImageSizeX of level 0 is not a positive integer"
+    },
+    {
+      "test": "ims_reject_imagesize_vlen",
+      "input": "ims_reject_imagesize_vlen.ims",
+      "message": "attribute ImageSizeX is not a string"
+    },
+    {
+      "test": "ims_reject_missing_channel",
+      "input": "ims_reject_missing_channel.ims",
+      "message": "no Channel 1"
+    },
+    {
+      "test": "ims_reject_not_imaris",
+      "input": "ims_reject_not_imaris.ims",
+      "message": "not an Imaris file (no DataSet group)"
+    },
+    {
+      "test": "ims_reject_offset_size",
+      "input": "ims_reject_offset_size.ims",
+      "message": "HDF5 offsets and lengths of 4 and 8 bytes are not supported"
+    },
+    {
+      "test": "ims_reject_rank",
+      "input": "ims_reject_rank.ims",
+      "message": "a dataset of level 0 is not 3-dimensional"
+    },
+    {
+      "test": "ims_reject_raw_edges_image",
+      "input": "ims_reject_raw_edges_image.ims",
+      "message": "a chunk's filter mask is not 0"
+    },
+    {
+      "test": "ims_reject_relative_soft_link",
+      "input": "ims_reject_relative_soft_link.ims",
+      "message": "soft link \"Data\" to a relative path"
+    },
+    {
+      "test": "ims_reject_shuffle",
+      "input": "ims_reject_shuffle.ims",
+      "message": "unsupported HDF5 filters [2, 1]"
+    },
+    {
+      "test": "ims_reject_size_mismatch",
+      "input": "ims_reject_size_mismatch.ims",
+      "message": "the datasets of level 0 differ in size, chunk shape or filters"
+    },
+    {
+      "test": "ims_reject_z_levels",
+      "input": "ims_reject_z_levels.ims",
+      "message": "a level has more than one z plane, and level 0 has one"
+    }
+  ]
+}

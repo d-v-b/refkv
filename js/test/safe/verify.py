@@ -63,13 +63,10 @@ sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
 sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
 from proxy import Proxy  # noqa: E402
 
-from refkv.policy import Policy  # noqa: E402
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg2k)
 
-# The sources are served on 127.0.0.1, which spec §6.7
-# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3 refuses by
-# default.
-LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
+from verify_common import LOOPBACK_SOURCES  # noqa: E402
 
 ESCAPED = re.compile(r"(?:zarr\.json|\.zarray|\.zgroup)~+\Z")
 
