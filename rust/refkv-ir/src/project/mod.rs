@@ -18,8 +18,10 @@ mod window;
 // Every profile's projection (src/project/<profile>.rs), by the registry (profiles/; build.rs)
 include!(concat!(env!("OUT_DIR"), "/projections.rs"));
 
+use crate::fed::uint;
 use crate::ir::Ir;
 use crate::out::Out;
+use crate::record::{Header, Num, width};
 use crate::run::Format;
 use serde_json::{Map, Value as J};
 use std::fmt::Write;
@@ -81,6 +83,41 @@ fn float_json(bits: u64, width: usize, v: f64) -> J {
 }
 
 /// A count or index of the facts (an integer, or a number written as a float).
+/// A header value as the root's source metadata writes it (spec/virtualize/mrc.md §5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#5-source-metadata>,
+/// spec/virtualize/nifti.md §5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>): an
+/// integer exactly (as text past 2^53 - 1); a float as a number, "NaN", "Infinity" or
+/// "-Infinity", or {"bits": hex} for a negative zero or a NaN other than the canonical one.
+fn header_value(h: &Header, at: usize, kind: &str) -> J {
+    const MAX_SAFE: i64 = (1 << 53) - 1;
+    match h.number(at, kind) {
+        Num::Int(v) if (-MAX_SAFE..=MAX_SAFE).contains(&v) => J::from(v),
+        Num::Int(v) => J::from(v.to_string()),
+        Num::Float(v) => {
+            let w = width(kind);
+            float_json(uint(h.raw, at, w, h.little), w, v)
+        }
+    }
+}
+
+/// Every field of a header, in its table's order: `header` of the root's source metadata
+/// (texts as text, opaque bytes as base64, labels as a list of texts).
+fn header_json(h: &Header) -> J {
+    let mut out = Map::new();
+    for &(name, at, kind, count) in h.fields {
+        let v = match kind {
+            "c" => json_text(h.bytes(name)),
+            "b" => J::from(base64(h.bytes(name))),
+            "l" => J::Array(h.bytes(name).chunks(80).map(json_text).collect()),
+            _ if count == 1 => header_value(h, at, kind),
+            _ => J::Array((0..count).map(|k| header_value(h, at + k * width(kind), kind)).collect()),
+        };
+        out.insert(name.into(), v);
+    }
+    J::Object(out)
+}
+
 fn n(v: &J) -> u64 {
     v.as_u64().or_else(|| v.as_f64().map(|f| f as u64)).unwrap_or(0)
 }

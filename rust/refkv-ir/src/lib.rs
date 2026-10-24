@@ -21,6 +21,7 @@ pub mod fits_tiles;
 pub mod out;
 pub mod plan;
 pub mod project;
+pub mod record;
 pub mod refs;
 pub mod rules;
 pub mod run;

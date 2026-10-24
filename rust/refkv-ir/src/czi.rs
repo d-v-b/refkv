@@ -21,6 +21,7 @@ use crate::fed::{Fed, Word};
 use crate::ir::*;
 use crate::nd2::Step;
 use crate::rules::{self, Rules, Vars, flag, num, text};
+use crate::types;
 use serde_json::{Value as J, json};
 use std::collections::{BTreeMap, HashMap};
 
@@ -331,14 +332,21 @@ impl Czi {
                     self.within_check("the file header", 32, 80)?;
                     let d = self.fed.get(32, 80).unwrap().to_vec();
                     self.ir.value(s, "fields", NO_INDEX, FILE_HEADER, 0, (32, 80), Some(&d))?;
-                    let (major, minor) = (i32::le_at(&d, 0), i32::le_at(&d, 4));
-                    let file_part = i32::le_at(&d, 48);
+                    // the fields at their offsets in FILE_HEADER
+                    let field = |name: &str| -> &[u8] {
+                        let (at, ty) = types::field(FILE_HEADER, name).expect("a file header field");
+                        &d[at..at + ty.size().unwrap_or(0)]
+                    };
+                    let (major, minor) = (i32::le_at(field("major"), 0), i32::le_at(field("minor"), 0));
+                    let file_part = i32::le_at(field("file_part"), 0);
                     self.check(
                         "file_header",
                         rules::env([("major", num(major)), ("minor", num(minor)), ("file_part", num(file_part))]),
                     )?;
-                    let (dir, meta, upd, att) = (i64::le_at(&d, 52), i64::le_at(&d, 60), i32::le_at(&d, 68), i64::le_at(&d, 72));
-                    self.fields = Some((major, minor, d[16..32].to_vec(), d[32..48].to_vec(), file_part, dir, meta, upd, att));
+                    let (dir, meta) = (i64::le_at(field("directory_position"), 0), i64::le_at(field("metadata_position"), 0));
+                    let (upd, att) = (i32::le_at(field("update_pending"), 0), i64::le_at(field("attachment_directory_position"), 0));
+                    let (primary, file) = (field("primary_file_guid").to_vec(), field("file_guid").to_vec());
+                    self.fields = Some((major, minor, primary, file, file_part, dir, meta, upd, att));
                     self.fed.clear();
                     // the directory's, the metadata segment's and the attachment directory's headers
                     let mut r = Vec::new();

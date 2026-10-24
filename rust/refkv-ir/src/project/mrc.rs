@@ -5,10 +5,10 @@
 //! IR: the header is the IR's `header` value, and the array's chunks are cut from its
 //! `data` element.
 
-use super::{base64, float_json, json_text, n, Copied};
+use super::{header_json, json_text, n, Copied};
 use crate::ir::Ir;
-use crate::mrc::{Header, FIELDS};
-use crate::nifti::Num;
+use crate::mrc::header;
+use crate::record::Header;
 use crate::out::{array_json, declare, grid_chunks, group_doc, image_ome, omero_channel, omero_json, omero_window, root_json, Chunk, Out, MAX_PAYLOAD};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
@@ -16,7 +16,6 @@ use serde_json::{json, Map, Value as J};
 /// The most bytes of a chunk of the image (spec/virtualize/mrc.md §4.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#41-the-array>).
 const CHUNK_BYTES: u64 = 1 << 20;
-const MAX_SAFE: i64 = (1 << 53) - 1;
 /// The space group from which a file is a volume stack (MRC2014).
 const VOLUME_STACK: i64 = 401;
 /// The dataset layout's node (spec/virtualize/mrc-dataset.md §1
@@ -28,43 +27,6 @@ const COORD_CHUNK: u64 = 1 << 17;
 /// The gzip level of a coordinate chunk (conventions §9
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>).
 const GZIP_LEVEL: u8 = 6;
-
-/// A header value as the root's source metadata writes it (spec/virtualize/mrc.md §5
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#5-source-metadata>): an
-/// integer exactly; a float as a number, "NaN", "Infinity" or "-Infinity", or {"bits": hex}
-/// for a negative zero or a NaN other than the canonical one.
-fn value_json(h: &Header, at: usize, kind: &str) -> J {
-    match h.number(at, kind) {
-        Num::Int(v) if (-MAX_SAFE..=MAX_SAFE).contains(&v) => json!(v),
-        Num::Int(v) => json!(v.to_string()),
-        Num::Float(v) => {
-            let mut raw = h.raw[at..at + 4].to_vec();
-            if h.little {
-                raw.reverse();
-            }
-            float_json(raw.iter().fold(0u64, |a, &b| a << 8 | b as u64), 4, v)
-        }
-    }
-}
-
-/// Every header field, in the standard's order: `header` of the root's source metadata.
-pub fn header_json(h: &Header) -> J {
-    let mut out = Map::new();
-    for &(name, at, kind, count) in FIELDS.iter() {
-        let v = match kind {
-            "c" => json_text(h.bytes(name)),
-            "b" => json!(base64(h.bytes(name))),
-            "l" => J::Array(h.bytes(name).chunks(80).map(json_text).collect()),
-            _ if count == 1 => value_json(h, at, kind),
-            _ => {
-                let w = crate::nifti::width(kind);
-                J::Array((0..count).map(|k| value_json(h, at + k * w, kind)).collect())
-            }
-        };
-        out.insert(name.into(), v);
-    }
-    J::Object(out)
-}
 
 /// The kind of file the space group and the section count make it (§4.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#41-the-array>).
@@ -126,7 +88,7 @@ fn cut(h: &Header, offset: u64, facts: &J) -> Result<Cut, String> {
 /// The header and the data's element.
 fn parts<'a>(ir: &'a Ir, facts: &J) -> Result<(Header<'a>, u32), String> {
     let raw = ir.value_bytes(n(&facts["header"]) as u32).ok_or("internal: the header is not held")?;
-    Ok((Header::new(raw), n(&facts["data"]) as u32))
+    Ok((header(raw), n(&facts["data"]) as u32))
 }
 
 /// The source's ranges of the edge chunks the projection copies (§8.2

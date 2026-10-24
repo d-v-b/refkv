@@ -14,6 +14,7 @@ use crate::check;
 use crate::fed::{Fed, Word};
 use crate::ir::*;
 use crate::nd2::Step;
+use crate::record::{Field, Header, Num};
 use crate::rules::{self, Rules, Vars, flag, num, text};
 use serde_json::{Value as J, json};
 
@@ -35,12 +36,9 @@ const SHOWN: u64 = 1024;
 /// The ecodes of text extensions: AFNI, XCEDE and CIFTI XML, comments, MRS JSON.
 pub const TEXT_CODES: [i32; 5] = [4, 6, 8, 32, 44];
 
-/// A header field: its name, offset, kind (`i2`, `i4`, `i8`, `u1`, `f4`, `f8`, or `c`
-/// for text) and count (values, or a text's bytes), in the standard's order
-/// (spec/virtualize/nifti.md §2
+/// The header's fields of each version (`i2`, `i4`, `i8`, `u1`, `f4`, `f8`, or `c` for
+/// text), in the standard's order (spec/virtualize/nifti.md §2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#2-the-header>).
-pub type Field = (&'static str, usize, &'static str, usize);
-
 pub const NIFTI1: [Field; 43] = [
     ("sizeof_hdr", 0, "i4", 1), ("data_type", 4, "c", 10), ("db_name", 14, "c", 18), ("extents", 32, "i4", 1),
     ("session_error", 36, "i2", 1), ("regular", 38, "c", 1), ("dim_info", 39, "u1", 1), ("dim", 40, "i2", 8),
@@ -74,8 +72,7 @@ pub fn detect(head: &[u8]) -> Option<u8> {
     if head.len() < 12 {
         return None;
     }
-    let b: [u8; 4] = head[..4].try_into().unwrap();
-    let sizes = [i32::from_le_bytes(b), i32::from_be_bytes(b)];
+    let sizes = [i32::le_at(head, 0), i32::be_at(head, 0)];
     if sizes.contains(&348) && head.len() >= 348 && &head[344..348] == b"n+1\0" {
         return Some(1);
     }
@@ -85,106 +82,12 @@ pub fn detect(head: &[u8]) -> Option<u8> {
     None
 }
 
-/// A header's bytes, version and byte order, read field by field.
-pub struct Header<'a> {
-    pub raw: &'a [u8],
-    pub version: u8,
-    pub little: bool,
-}
-
-/// A field's value: integers exactly, floats as binary64 (an f32 converted exactly).
-#[derive(Clone, Copy, Debug)]
-pub enum Num {
-    Int(i64),
-    Float(f64),
-}
-
-impl Num {
-    pub fn f(self) -> f64 {
-        match self {
-            Num::Int(v) => v as f64,
-            Num::Float(v) => v,
-        }
-    }
-    pub fn i(self) -> i64 {
-        match self {
-            Num::Int(v) => v,
-            Num::Float(v) => v as i64,
-        }
-    }
-}
-
-impl<'a> Header<'a> {
-    /// The header at the start of `raw` (at least its length), of the version `detect` gives.
-    pub fn new(raw: &'a [u8], version: u8) -> Header<'a> {
-        let length = if version == 1 { 348 } else { 540 };
-        let little = i32::from_le_bytes(raw[..4].try_into().unwrap()) == length;
-        Header { raw: &raw[..length as usize], version, little }
-    }
-
-    pub fn fields(&self) -> &'static [Field] {
-        if self.version == 1 { &NIFTI1 } else { &NIFTI2 }
-    }
-
-    fn field(&self, name: &str) -> Field {
-        *self.fields().iter().find(|f| f.0 == name).expect("a header field")
-    }
-
-    /// The numeric value of `kind` at `at`.
-    pub fn number(&self, at: usize, kind: &str) -> Num {
-        let n = &self.raw[at..];
-        macro_rules! get {
-            ($t:ty, $w:expr) => {{
-                let a: [u8; $w] = n[..$w].try_into().unwrap();
-                if self.little { <$t>::from_le_bytes(a) } else { <$t>::from_be_bytes(a) }
-            }};
-        }
-        match kind {
-            "u1" => Num::Int(n[0] as i64),
-            "i2" => Num::Int(get!(i16, 2) as i64),
-            "i4" => Num::Int(get!(i32, 4) as i64),
-            "i8" => Num::Int(get!(i64, 8)),
-            "f4" => Num::Float(get!(f32, 4) as f64),
-            _ => Num::Float(get!(f64, 8)),
-        }
-    }
-
-    /// The values of a numeric field.
-    pub fn values(&self, name: &str) -> Vec<Num> {
-        let (_, at, kind, count) = self.field(name);
-        let w = width(kind);
-        (0..count).map(|k| self.number(at + k * w, kind)).collect()
-    }
-
-    pub fn get(&self, name: &str) -> Num {
-        self.values(name)[0]
-    }
-
-    /// The header as one record type (conventions §8.6
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#86-types>).
-    pub fn record_type(&self) -> String {
-        let e = if self.little { "<" } else { ">" };
-        let parts: Vec<String> = self
-            .fields()
-            .iter()
-            .map(|&(name, _, kind, count)| match kind {
-                "c" => format!("{name}:cstr[{count}]"),
-                "u1" if count == 1 => format!("{name}:u1"),
-                k if count == 1 => format!("{name}:{e}{k}"),
-                k => format!("{name}:{e}{k}[{count}]"),
-            })
-            .collect();
-        format!("{{{}}}", parts.join(","))
-    }
-}
-
-pub fn width(kind: &str) -> usize {
-    match kind {
-        "u1" => 1,
-        "i2" => 2,
-        "i4" | "f4" => 4,
-        _ => 8,
-    }
+/// The header at the start of `raw` (at least its length), of the version `detect` gives, in
+/// the byte order in which its first field is the header's length.
+pub fn header(raw: &[u8], version: u8) -> Header<'_> {
+    let length = if version == 1 { 348 } else { 540 };
+    let little = i32::le_at(raw, 0) == length;
+    Header { raw: &raw[..length as usize], little, fields: if version == 1 { &NIFTI1 } else { &NIFTI2 } }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -276,7 +179,7 @@ impl Nifti {
             "file",
             rules::env([("version", num(version)), ("length", num(length as f64)), ("size", num(self.size as f64))]),
         )?;
-        let h = Header::new(&got, version);
+        let h = header(&got, version);
         let dim = h.values("dim");
         let n = dim[0].i();
         self.check("dimensions", rules::env([("n", num(n as f64))]))?;
