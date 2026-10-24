@@ -5,8 +5,10 @@
 //! a valid IR: the IR holds what it needs.
 
 use super::{along, arr, image_axes, json_text, n, truthy};
+use crate::fed::Word;
 use crate::ir::{source_text, Ir, NO_INDEX, STRUCT};
 use crate::lv::{base64, well_formed};
+use crate::text::{is_decimal, utf8_or_latin1};
 use crate::out::{array_json, bioformats2raw, bytes_codec, full_window, group_json, image_ome, omero_channel, omero_json, payload_size, transpose_codec, Out, Part, MAX_PAYLOAD, RGBA};
 use crate::types::{self, Ty, Val};
 use serde_json::{json, Map, Value as J};
@@ -83,7 +85,7 @@ fn bytes_of(v: &Val) -> &[u8] {
 /// A string's exact JSON value: the text, or {"utf16": base64} when it is not
 /// well-formed UTF-16.
 fn exact_text(units: &[u8]) -> J {
-    let u: Vec<u16> = units.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+    let u: Vec<u16> = units.chunks_exact(2).map(|c| u16::le_at(c, 0)).collect();
     if well_formed(&u) {
         json!(String::from_utf16_lossy(&u))
     } else {
@@ -108,19 +110,12 @@ fn scalar(runtype: Option<&str>, value: &str) -> J {
                 json!({"int": format!("{sign}{digits}")})
             }
         }
-        Some("double" | "float") if crate::xml::decimal(value) => float_json(value.parse().unwrap_or(f64::NAN)),
+        Some("double" | "float") if is_decimal(value) => float_json(value.parse().unwrap_or(f64::NAN)),
         Some("bool") if value == "true" || value == "false" => json!(value == "true"),
         _ => json!(value),
     }
 }
 
-/// Bytes as text: UTF-8 if valid, else ISO 8859-1.
-fn decode_text(b: &[u8]) -> String {
-    match std::str::from_utf8(b) {
-        Ok(s) => s.to_string(),
-        Err(_) => b.iter().map(|&c| c as char).collect(),
-    }
-}
 
 /// The IR's values decoded by their types (each type parsed once).
 struct Values<'a> {
@@ -251,7 +246,7 @@ fn root_chunks(ir: &Ir, decoded: &[J]) -> Result<J, String> {
         names.push(name);
     }
     let mut on_node: Vec<bool> = (0..names.len()).map(|k| frame_scaled(&names[k]) || sizes[k] > MAX_ROOT_JSON).collect();
-    let texts: Vec<String> = names.iter().map(|b| decode_text(b)).collect();
+    let texts: Vec<String> = names.iter().map(|b| utf8_or_latin1(b)).collect();
     let mut members: Vec<(usize, usize)> = (0..names.len())
         .filter(|&k| !on_node[k])
         .map(|k| (k, js_string_size(&texts[k]) + 1 + sizes[k]))

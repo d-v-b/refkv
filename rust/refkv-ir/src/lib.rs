@@ -21,11 +21,14 @@ pub mod fits_tiles;
 pub mod out;
 pub mod plan;
 pub mod project;
+pub mod record;
 pub mod refs;
 pub mod rules;
 pub mod run;
+pub mod sans;
 pub mod schema;
 pub mod store;
+pub mod text;
 pub mod types;
 pub mod xml;
 

@@ -3,7 +3,8 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#73-datasets-and-sequences>):
 //! the bytes a parser was fed, element headers, and the profile's walk, which rejects.
 
-use std::collections::{BTreeMap, HashMap};
+use crate::fed::{Fed, Overlap, Word};
+use std::collections::HashMap;
 
 pub const UNDEFINED: u32 = 0xFFFF_FFFF;
 pub const ITEM: u32 = 0xFFFE_E000;
@@ -89,81 +90,44 @@ pub fn reject<T>(m: impl Into<String>) -> R<T> {
 
 /// The bytes fed, as disjoint ranges (adjacent and overlapping ones merged), held until
 /// the parse is done.
-#[derive(Default)]
 pub struct Bytes {
-    got: BTreeMap<u64, Vec<u8>>,
-    pub held: u64,
+    fed: Fed,
     pub size: u64,
 }
 
 impl Bytes {
     pub fn new(size: u64) -> Bytes {
-        Bytes { size, ..Default::default() }
+        Bytes { fed: Fed::new(Overlap::MergeKeep), size }
     }
 
-    pub fn feed(&mut self, mut o: u64, mut data: Vec<u8>) {
-        if data.is_empty() {
-            return;
-        }
-        // the range before (or at) o that reaches o
-        if let Some((&s, b)) = self.got.range(..=o).next_back() {
-            let e = s + b.len() as u64;
-            if e >= o {
-                if e >= o + data.len() as u64 {
-                    return;
-                }
-                let mut merged = self.got.remove(&s).unwrap();
-                self.held -= merged.len() as u64;
-                merged.extend_from_slice(&data[(e - o) as usize..]);
-                o = s;
-                data = merged;
-            }
-        }
-        // the ranges that start within (or right after) the new one
-        loop {
-            let end = o + data.len() as u64;
-            let Some((&s, _)) = self.got.range(o..=end).next() else { break };
-            let b = self.got.remove(&s).unwrap();
-            self.held -= b.len() as u64;
-            let be = s + b.len() as u64;
-            if be > end {
-                data.extend_from_slice(&b[(end - s) as usize..]);
-            }
-        }
-        self.held += data.len() as u64;
-        self.got.insert(o, data);
+    pub fn feed(&mut self, o: u64, data: Vec<u8>) {
+        self.fed.feed(o, data)
+    }
+
+    pub fn held(&self) -> u64 {
+        self.fed.held()
     }
 
     /// The bytes [o, o + n), or Miss.
     pub fn get(&self, o: u64, n: u64) -> R<&[u8]> {
-        if let Some((&s, b)) = self.got.range(..=o).next_back() {
-            if o.saturating_add(n) <= s + b.len() as u64 {
-                return Ok(&b[(o - s) as usize..(o - s + n) as usize]);
-            }
-        }
-        Err(Fail::Miss(o, n))
+        self.fed.get(o, n).ok_or(Fail::Miss(o, n))
     }
 
     pub fn has(&self, o: u64, n: u64) -> bool {
-        self.get(o, n).is_ok()
+        self.fed.has(o, n)
     }
 
     /// Where the fed range holding `o` ends (o itself when none does).
     pub fn reach(&self, o: u64) -> u64 {
-        match self.got.range(..=o).next_back() {
-            Some((&s, b)) if s + b.len() as u64 > o => s + b.len() as u64,
-            _ => o,
-        }
+        self.fed.reach(o)
     }
 
     pub fn u16(&self, o: u64, little: bool) -> R<u16> {
-        let b = self.get(o, 2)?;
-        Ok(if little { u16::from_le_bytes([b[0], b[1]]) } else { u16::from_be_bytes([b[0], b[1]]) })
+        Ok(u16::at(self.get(o, 2)?, 0, little))
     }
 
     pub fn u32(&self, o: u64, little: bool) -> R<u32> {
-        let b: [u8; 4] = self.get(o, 4)?.try_into().unwrap();
-        Ok(if little { u32::from_le_bytes(b) } else { u32::from_be_bytes(b) })
+        Ok(u32::at(self.get(o, 4)?, 0, little))
     }
 
     /// The element at `pos`, whose header must end by `end` (spec/virtualize/dicom.md §7.1
@@ -174,12 +138,10 @@ impl Bytes {
         }
         let b = self.get(pos, 8)?;
         let le = enc.little;
-        let g = if le { u16::from_le_bytes([b[0], b[1]]) } else { u16::from_be_bytes([b[0], b[1]]) };
-        let e = if le { u16::from_le_bytes([b[2], b[3]]) } else { u16::from_be_bytes([b[2], b[3]]) };
+        let (g, e) = (u16::at(b, 0, le), u16::at(b, 2, le));
         let tag = (g as u32) << 16 | e as u32;
         if g == 0xFFFE || !enc.explicit {
-            let n: [u8; 4] = b[4..8].try_into().unwrap();
-            let length = if le { u32::from_le_bytes(n) } else { u32::from_be_bytes(n) };
+            let length = u32::at(b, 4, le);
             return Ok(El { at: pos, tag, vr: None, value: pos + 8, length, little: le });
         }
         let v = [b[4], b[5]];
@@ -198,7 +160,7 @@ impl Bytes {
                 .collect();
             return reject(format!("unknown VR '{shown}' at {pos}"));
         }
-        let length = if le { u16::from_le_bytes([b[6], b[7]]) } else { u16::from_be_bytes([b[6], b[7]]) } as u32;
+        let length = u16::at(b, 6, le) as u32;
         Ok(El { at: pos, tag, vr: Some(v), value: pos + 8, length, little: le })
     }
 }
@@ -393,11 +355,11 @@ mod tests {
         assert_eq!(b.get(18, 4), Err(Fail::Miss(18, 4)));
         b.feed(20, file[20..30].to_vec()); // joins both
         assert_eq!(b.get(15, 20).unwrap(), &file[15..35]);
-        assert_eq!((b.got.len(), b.held), (1, 30));
+        assert_eq!((b.fed.ranges(), b.held()), (1, 30));
         b.feed(5, file[5..45].to_vec()); // covers all, past both ends
-        assert_eq!((b.got.len(), b.held), (1, 40));
+        assert_eq!((b.fed.ranges(), b.held()), (1, 40));
         assert_eq!(b.get(5, 40).unwrap(), &file[5..45]);
         b.feed(12, file[12..14].to_vec()); // inside: nothing changes
-        assert_eq!((b.got.len(), b.held, b.reach(7)), (1, 40, 45));
+        assert_eq!((b.fed.ranges(), b.held(), b.reach(7)), (1, 40, 45));
     }
 }

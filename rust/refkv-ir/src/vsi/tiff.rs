@@ -5,14 +5,12 @@
 //! file; each IFD's elements (its entries, out-of-line values, strips and EXIF IFD) are
 //! emitted under the field whose region holds it, and what the region has left is gaps.
 
+use crate::fed::Word;
 use crate::ir::{GAP, Ir, NO_INDEX, Res};
 use crate::rules::{self, Rules, num};
+use crate::tiff::{jpeg_frame, tile_forms, type_size};
 use serde_json::json;
 use std::collections::HashMap;
-
-/// The Adobe APP14 marker that tells a decoder a 3-component stream is RGB (transform 0),
-/// as the TIFF profile writes it before a JPEG tile's tables.
-pub const ADOBE: [u8; 15] = [0xFF, 0xEE, 0x00, 0x0E, b'A', b'd', b'o', b'b', b'e', 0x00, 0x64, 0x00, 0x00, 0x00, 0x00];
 
 #[derive(Clone, Debug)]
 pub struct Entry {
@@ -40,41 +38,12 @@ pub struct Ifd {
     pub exif: bool,
 }
 
-pub fn type_size(typ: u16) -> Option<u64> {
-    Some(match typ {
-        1 | 2 | 6 | 7 => 1,
-        3 | 8 => 2,
-        4 | 9 | 11 | 13 => 4,
-        5 | 10 | 12 | 16 | 17 | 18 => 8,
-        _ => return None,
-    })
-}
-
+/// A value's type: TIFF's (little-endian), but bytes for an IFD8 or an unknown type.
 fn value_type(typ: u16, count: u32) -> String {
     match typ {
-        1 => format!("u1[{count}]"),
-        6 => format!("i1[{count}]"),
-        2 => format!("ascii[{count}]"),
-        7 => format!("bytes[{count}]"),
-        5 => format!("<u4[{count},2]"),
-        10 => format!("<i4[{count},2]"),
-        3 => format!("<u2[{count}]"),
-        8 => format!("<i2[{count}]"),
-        4 | 13 => format!("<u4[{count}]"),
-        9 => format!("<i4[{count}]"),
-        11 => format!("<f4[{count}]"),
-        12 => format!("<f8[{count}]"),
-        16 => format!("<u8[{count}]"),
-        17 => format!("<i8[{count}]"),
+        1..=13 | 16 | 17 => crate::tiff::value_type(true, typ, count as u64),
         _ => format!("bytes[{}]", count as u64 * type_size(typ).unwrap_or(1)),
     }
-}
-
-fn u16_at(b: &[u8], o: usize) -> u16 {
-    u16::from_le_bytes([b[o], b[o + 1]])
-}
-fn u32_at(b: &[u8], o: usize) -> u32 {
-    u32::from_le_bytes(b[o..o + 4].try_into().unwrap())
 }
 
 impl Ifd {
@@ -95,8 +64,8 @@ impl Ifd {
         let d: &[u8] = if e.inline { &e.field[..n] } else { b.get(e.off as usize..e.off as usize + n)? };
         Some(d.chunks_exact(w).map(|c| match w {
             1 => c[0] as u64,
-            2 => u16_at(c, 0) as u64,
-            _ => u32_at(c, 0) as u64,
+            2 => u16::le_at(c, 0) as u64,
+            _ => u32::le_at(c, 0) as u64,
         }).collect())
     }
 
@@ -121,22 +90,22 @@ impl Ifd {
 /// Reads the IFD at `o` (the file's bytes `b`), checking it.
 fn read_ifd(rules: &Rules, b: &[u8], o: u64, index: usize, exif: bool, seen: usize) -> Res<Ifd> {
     let size = b.len() as u64;
-    let count = if o + 2 <= size { u16_at(b, o as usize) as u64 } else { 0 };
+    let count = if o + 2 <= size { u16::le_at(b, o as usize) as u64 } else { 0 };
     rules.check("ifd", &mut rules::env([("offset", num(o as f64)), ("count", num(count as f64)), ("size", num(size as f64)), ("ifds", num(seen as f64))]))?;
     let mut entries = Vec::with_capacity(count as usize);
     for i in 0..count as usize {
         let at = o as usize + 2 + 12 * i;
-        let tag = u16_at(b, at);
-        let typ = u16_at(b, at + 2);
-        let n = u32_at(b, at + 4);
+        let tag = u16::le_at(b, at);
+        let typ = u16::le_at(b, at + 2);
+        let n = u32::le_at(b, at + 4);
         let field: [u8; 4] = b[at + 8..at + 12].try_into().unwrap();
         let nbytes = type_size(typ).map(|z| z * n as u64);
         let inline = nbytes.is_some_and(|x| x <= 4);
-        let off = if inline { 0 } else { u32_at(&field, 0) as u64 };
+        let off = if inline { 0 } else { u32::le_at(&field, 0) as u64 };
         entries.push(Entry { tag, typ, count: n, field, nbytes, inline, off });
     }
     let end = o + 2 + 12 * count + 4;
-    let next = u32_at(b, (end - 4) as usize);
+    let next = u32::le_at(b, (end - 4) as usize);
     Ok(Ifd { offset: o, end, entries, next, index, exif })
 }
 
@@ -152,7 +121,7 @@ pub fn chain(rules: &Rules, b: &[u8], first: u64) -> Res<Vec<Ifd>> {
         }
         let ifd = read_ifd(rules, b, o, index, false, out.len())?;
         o = ifd.next as u64;
-        let exif = ifd.entry(34665).filter(|e| e.typ == 4 || e.typ == 13 || e.typ == 3).map(|e| u32_at(&e.field, 0) as u64);
+        let exif = ifd.entry(34665).filter(|e| e.typ == 4 || e.typ == 13 || e.typ == 3).map(|e| u32::le_at(&e.field, 0) as u64);
         out.push(ifd);
         if let Some(x) = exif.filter(|&x| x != 0) {
             if at.insert(x, ()).is_some() {
@@ -196,19 +165,11 @@ fn segments(ifd: &Ifd, b: &[u8], ot: u16, ct: u16) -> Option<Vec<(u64, u64)>> {
 /// The JPEG prefix of an IFD (its JPEGTables between SOI and EOI, after the Adobe marker for 3
 /// samples), or empty.
 fn jpeg_prefix(ifd: &Ifd, b: &[u8], samples: u64, photometric: u64) -> Vec<u8> {
-    let mut p = Vec::new();
     if ifd.int(b, 259) != Some(7) {
-        return p;
+        return Vec::new();
     }
-    if samples == 3 {
-        p.extend_from_slice(&ADOBE);
-        p.push(if photometric == 2 { 0 } else { 1 });
-    }
-    if let Some(t) = ifd.bytes(b, 347)
-        && t.len() >= 4 && t[..2] == [0xFF, 0xD8] && t[t.len() - 2..] == [0xFF, 0xD9]
-    {
-        p.extend_from_slice(&t[2..t.len() - 2]);
-    }
+    // malformed tables are left out, silently
+    let p = jpeg_frame(samples, photometric == 2, ifd.bytes(b, 347)).0;
     p
 }
 
@@ -315,16 +276,7 @@ pub fn emit_region(ir: &mut Ir, b: &[u8], ifds: &[Ifd], start: u64, end: u64, pa
                     "codec": {"compression": ifd.int(b, 259).unwrap_or(1)},
                 });
                 let shared = if prefix.is_empty() { None } else { Some(ir.share(&prefix)) };
-                let plain = {
-                    let mut j = base.clone();
-                    j["recipe"] = json!([["src", 0, null]]);
-                    j.to_string()
-                };
-                let framed = shared.map(|x| {
-                    let mut j = base.clone();
-                    j["recipe"] = json!([["src", 0, 2], ["shared", x], ["src", 2, null]]);
-                    j.to_string()
-                });
+                let (plain, framed) = tile_forms(&base, shared);
                 let mut els = Vec::with_capacity(segs.len());
                 for (k, &(so, sn)) in segs.iter().enumerate() {
                     if sn == 0 || so.checked_add(sn).is_none_or(|x| x > b.len() as u64) {

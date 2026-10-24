@@ -7,6 +7,7 @@
 //! dequantization and its dither of `unquantize_i4r4` and `fits_init_randoms` (unquantize.c),
 //! bit for bit. One implementation serves Python and the browser.
 
+use crate::fed::Word;
 use crate::fits::tile_at;
 use serde_json::Value as J;
 use std::sync::OnceLock;
@@ -89,8 +90,8 @@ fn parse_prefix(chunk: &[u8]) -> Res<(u64, Vec<TileRecord>, usize)> {
     if chunk.len() < PREFIX_HEADER {
         return Err("fits_tiles: the chunk is shorter than its prefix".into());
     }
-    let n = u32::from_le_bytes(chunk[0..4].try_into().unwrap()) as usize;
-    let first = u32::from_le_bytes(chunk[4..8].try_into().unwrap()) as u64;
+    let n = u32::le_at(chunk, 0) as usize;
+    let first = u32::le_at(chunk, 4) as u64;
     let end = PREFIX_HEADER + n * RECORD;
     if chunk.len() < end {
         return Err("fits_tiles: the chunk is shorter than its prefix".into());
@@ -98,14 +99,14 @@ fn parse_prefix(chunk: &[u8]) -> Res<(u64, Vec<TileRecord>, usize)> {
     let mut records = Vec::with_capacity(n);
     for k in 0..n {
         let r = &chunk[PREFIX_HEADER + k * RECORD..PREFIX_HEADER + (k + 1) * RECORD];
-        let u = |i: usize| u32::from_le_bytes(r[i..i + 4].try_into().unwrap());
+        let u = |i: usize| u32::le_at(r, i);
         records.push(TileRecord {
             length: u(0),
             kind: u(4),
             zblank: u(8) as i32,
             flags: u(12),
-            zscale: f64::from_le_bytes(r[16..24].try_into().unwrap()),
-            zzero: f64::from_le_bytes(r[24..32].try_into().unwrap()),
+            zscale: f64::le_at(r, 16),
+            zzero: f64::le_at(r, 24),
         });
     }
     Ok((first, records, end))
@@ -215,7 +216,7 @@ pub fn gunzip(data: &[u8], limit: usize) -> Res<Vec<u8>> {
     let flg = data[3];
     let mut at = 10;
     if flg & 4 != 0 {
-        let n = u16::from_le_bytes([data[at], data[at + 1]]) as usize;
+        let n = u16::le_at(data, at) as usize;
         at += 2 + n;
     }
     for bit in [8u8, 16] {
@@ -332,7 +333,7 @@ fn tile_values(stream: &[u8], rec: &TileRecord, cfg: &Config, tile_index: u64, n
         if big.len() != npix * 4 {
             return Err(format!("fits_tiles: a quantized tile of {} bytes for {npix} pixels", big.len()));
         }
-        let ints: Vec<i32> = big.chunks(4).map(|c| i32::from_be_bytes(c.try_into().unwrap())).collect();
+        let ints: Vec<i32> = big.chunks(4).map(|c| i32::be_at(c, 0)).collect();
         let zblank = (rec.flags & 2 != 0).then_some(rec.zblank);
         let vals = dequantize(&ints, tile_index as i64 + cfg.dither_seed, cfg.quantize, rec.zscale, rec.zzero, zblank);
         let mut out = Vec::with_capacity(npix * item);
@@ -471,12 +472,12 @@ mod tests {
         chunk.extend(&t0);
         chunk.extend(&t1);
         let out = decode(&chunk, &cfg, &[2, 4]).unwrap();
-        let vals: Vec<i16> = out.chunks(2).map(|c| i16::from_le_bytes([c[0], c[1]])).collect();
+        let vals: Vec<i16> = out.chunks(2).map(|c| i16::le_at(c, 0)).collect();
         assert_eq!(vals, [1, 2, 3, 4, 5, 6, 7, 8]);
         let mut chunk = prefix(2, &[TileRecord { length: 8, ..Default::default() }, TileRecord::default()]);
         chunk.extend(&t0);
         let out = decode(&chunk, &cfg, &[2, 4]).unwrap();
-        let vals: Vec<i16> = out.chunks(2).map(|c| i16::from_le_bytes([c[0], c[1]])).collect();
+        let vals: Vec<i16> = out.chunks(2).map(|c| i16::le_at(c, 0)).collect();
         assert_eq!(vals, [1, 2, 3, 4, 0, 0, 0, 0]);
     }
 }

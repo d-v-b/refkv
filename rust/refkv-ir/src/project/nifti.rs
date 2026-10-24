@@ -5,9 +5,10 @@
 //! IR: the header is the IR's `header` value, and the array's chunks are cut from its
 //! `voxels` element.
 
-use super::{along, contiguous, float_json, image_axes, json_text, n, Copied};
+use super::{along, contiguous, header_json, image_axes, n, Copied};
 use crate::ir::Ir;
-use crate::nifti::{Header, Num};
+use crate::nifti::header;
+use crate::record::Header;
 use crate::out::{array_json, bytes_codec, full_window, grid_chunks, image_ome, omero_channel, omero_json, root_json, Chunk, Out, RGBA};
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
@@ -18,43 +19,6 @@ const CHUNK_BYTES: u64 = 1 << 17;
 /// The most channels given display windows (spec/virtualize/nifti.md §4.4
 /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#44-channels>).
 const MAX_CHANNELS: i64 = 64;
-const MAX_SAFE: i64 = (1 << 53) - 1;
-
-/// A header value as the root's source metadata writes it (spec/virtualize/nifti.md §5
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>): an
-/// integer exactly (as text past 2^53 - 1); a float as a number, "NaN", "Infinity" or
-/// "-Infinity", or {"bits": hex} for a negative zero or a NaN other than the canonical one.
-fn value_json(h: &Header, at: usize, kind: &str) -> J {
-    match h.number(at, kind) {
-        Num::Int(v) if (-MAX_SAFE..=MAX_SAFE).contains(&v) => json!(v),
-        Num::Int(v) => json!(v.to_string()),
-        Num::Float(v) => {
-            let w = crate::nifti::width(kind);
-            let mut raw = h.raw[at..at + w].to_vec();
-            if h.little {
-                raw.reverse();
-            }
-            float_json(raw.iter().fold(0u64, |a, &b| a << 8 | b as u64), w, v)
-        }
-    }
-}
-
-/// Every header field, in the standard's order: `header` of the root's source metadata.
-pub fn header_json(h: &Header) -> J {
-    let mut out = Map::new();
-    for &(name, at, kind, count) in h.fields() {
-        let v = if kind == "c" {
-            json_text(&h.raw[at..at + count])
-        } else if count == 1 {
-            value_json(h, at, kind)
-        } else {
-            let w = crate::nifti::width(kind);
-            J::Array((0..count).map(|k| value_json(h, at + k * w, kind)).collect())
-        };
-        out.insert(name.into(), v);
-    }
-    J::Object(out)
-}
 
 fn valid(v: f64) -> bool {
     v.is_finite() && v > 0.0
@@ -103,7 +67,7 @@ fn cut(h: &Header, vox: u64, facts: &J) -> Result<Cut, String> {
 /// The header and the voxel data's element.
 fn parts<'a>(ir: &'a Ir, facts: &J) -> Result<(Header<'a>, u32), String> {
     let raw = ir.value_bytes(n(&facts["header"]) as u32).ok_or("internal: the header is not held")?;
-    Ok((Header::new(raw, n(&facts["version"]) as u8), n(&facts["voxels"]) as u32))
+    Ok((header(raw, n(&facts["version"]) as u8), n(&facts["voxels"]) as u32))
 }
 
 /// The source's ranges of the edge chunks the projection copies (§7.2
@@ -116,7 +80,7 @@ pub fn reads(ir: &Ir, facts: &J) -> Result<Vec<(u64, u64)>, String> {
 
 pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, String> {
     let (h, voxels) = parts(ir, facts)?;
-    let version = h.version;
+    let version = n(&facts["version"]) as u8;
     let (vox, form) = (ir.start[voxels as usize], ir.form_id(voxels).ok_or("internal: the voxels have no form")?);
     let length = ir.len[voxels as usize];
     let dim: Vec<i64> = h.values("dim").iter().map(|x| x.i()).collect();

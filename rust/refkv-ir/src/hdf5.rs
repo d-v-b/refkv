@@ -18,6 +18,8 @@
 //! bytes ([`Fail::Bad`]) is final; with misses before it, the round is retried (the outcome
 //! is the one a sequential reading would give).
 
+use crate::fed::{Fed, Overlap, uint};
+use crate::text::latin1;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc as Rc;
 
@@ -101,61 +103,11 @@ impl Acc {
 
 // ---- the bytes fed
 
-/// Fed bytes, ranges that touch merged into one, so that a read finds its bytes in the one
-/// range at or before it.
-#[derive(Default)]
-pub struct Store {
-    got: BTreeMap<u64, Vec<u8>>,
-    pub held: u64,
-}
-
-impl Store {
-    pub fn feed(&mut self, o: u64, data: Vec<u8>) {
-        if data.is_empty() {
-            return;
-        }
-        let end = o + data.len() as u64;
-        let mut lo = o;
-        let mut hi = end;
-        let mut old: Vec<u64> = Vec::new();
-        for (&s, b) in self.got.range(..=end).rev() {
-            let e = s + b.len() as u64;
-            if e < o {
-                break;
-            }
-            lo = lo.min(s);
-            hi = hi.max(e);
-            old.push(s);
-        }
-        if old.len() == 1 && lo == old[0] && hi == old[0] + self.got[&old[0]].len() as u64 {
-            return; // already held
-        }
-        let mut buf = vec![0u8; (hi - lo) as usize];
-        for s in old.iter().rev() {
-            let b = self.got.remove(s).unwrap();
-            self.held -= b.len() as u64;
-            buf[(s - lo) as usize..(s - lo) as usize + b.len()].copy_from_slice(&b);
-        }
-        buf[(o - lo) as usize..(end - lo) as usize].copy_from_slice(&data);
-        self.held += buf.len() as u64;
-        self.got.insert(lo, buf);
-    }
-
-    pub fn get(&self, o: u64, n: u64) -> Option<&[u8]> {
-        let end = o.checked_add(n)?;
-        let (&s, b) = self.got.range(..=o).next_back()?;
-        if end <= s + b.len() as u64 {
-            Some(&b[(o - s) as usize..(end - s) as usize])
-        } else {
-            None
-        }
-    }
-}
-
-/// A file read sans-IO: what was fed, and what a round wants.
+/// A file read sans-IO: what was fed (ranges that touch merged into one, so that a read finds
+/// its bytes in the one range at or before it), and what a round wants.
 pub struct Src {
     pub size: u64,
-    pub store: Store,
+    pub store: Fed,
     pub want: Vec<(u64, u64)>,
 }
 
@@ -174,7 +126,7 @@ impl Src {
     }
 
     pub fn new(size: u64) -> Src {
-        Src { size, store: Store::default(), want: Vec::new() }
+        Src { size, store: Fed::new(Overlap::MergeNew), want: Vec::new() }
     }
 
     /// The `n` bytes at `at`, which MUST lie within the file (§7.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#71-hdf5-structures>).
@@ -205,11 +157,7 @@ pub fn le(d: &[u8], at: usize, n: usize) -> R<u64> {
     if at.checked_add(n).is_none_or(|e| e > d.len()) {
         return bad("truncated HDF5 structure");
     }
-    let mut v = 0u64;
-    for k in (0..n.min(8)).rev() {
-        v = (v << 8) | d[at + k] as u64;
-    }
-    Ok(v)
+    Ok(uint(d, at, n.min(8), true))
 }
 
 /// An address: None if undefined (all bits set), else at most 2^53 − 1.
@@ -2129,7 +2077,7 @@ impl H5 {
 pub fn show_bytes(b: &[u8]) -> String {
     match std::str::from_utf8(b) {
         Ok(s) => format!("{s:?}"),
-        Err(_) => format!("{:?}", b.iter().map(|&c| c as char).collect::<String>()),
+        Err(_) => format!("{:?}", latin1(b)),
     }
 }
 
@@ -2139,13 +2087,13 @@ mod tests {
 
     #[test]
     fn store_merges_touching_ranges() {
-        let mut s = Store::default();
+        let mut s = Fed::new(Overlap::MergeNew);
         s.feed(10, vec![1, 2, 3]);
         s.feed(13, vec![4, 5]);
         s.feed(0, vec![9; 4]);
         s.feed(2, vec![7; 9]);
         assert_eq!(s.get(0, 15).unwrap(), &[9, 9, 7, 7, 7, 7, 7, 7, 7, 7, 7, 2, 3, 4, 5]);
-        assert_eq!(s.held, 15);
+        assert_eq!(s.held(), 15);
         assert!(s.get(14, 2).is_none());
     }
 

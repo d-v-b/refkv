@@ -6,6 +6,7 @@
 //! group for an HDU without data, each declaring the convention with its own cards.
 
 use super::{contiguous, key, Copied};
+use crate::fed::Word;
 use crate::fits::{card, parse_cards, Card, Value};
 use crate::fits_tiles::{prefix, TileRecord};
 use crate::ir::Ir;
@@ -289,15 +290,15 @@ fn tile_records(c: &J, table: &[u8]) -> Result<Vec<TileRecord>, String> {
         let Some(at) = col["offset"].as_u64() else { return (0, 0) };
         let o = r * row_bytes + at as usize;
         if col["q"].as_bool().unwrap_or(false) {
-            (i64::from_be_bytes(table[o..o + 8].try_into().unwrap()) as u64, i64::from_be_bytes(table[o + 8..o + 16].try_into().unwrap()) as u64)
+            (i64::be_at(table, o) as u64, i64::be_at(table, o + 8) as u64)
         } else {
-            (i32::from_be_bytes(table[o..o + 4].try_into().unwrap()) as u64, i32::from_be_bytes(table[o + 4..o + 8].try_into().unwrap()) as u64)
+            (i32::be_at(table, o) as u64, i32::be_at(table, o + 4) as u64)
         }
     };
     let f64_at = |col: &J, r: usize| -> Option<f64> {
         let at = col.as_u64()? as usize;
         let o = r * row_bytes + at;
-        Some(f64::from_be_bytes(table[o..o + 8].try_into().unwrap()))
+        Some(f64::be_at(table, o))
     };
     let scaled = cols["ZSCALE"].is_u64() && cols["ZZERO"].is_u64();
     let zblank_keyword = c["zblank"].as_i64();
@@ -308,7 +309,7 @@ fn tile_records(c: &J, table: &[u8]) -> Result<Vec<TileRecord>, String> {
         let (length, kind) = if n != 0 { (n, 0) } else { (gn, 1) };
         let zblank_column = cols["ZBLANK"].as_u64().map(|at| {
             let o = r * row_bytes + at as usize;
-            i32::from_be_bytes(table[o..o + 4].try_into().unwrap())
+            i32::be_at(table, o)
         });
         let (zblank, has_blank) = match (zblank_column, zblank_keyword) {
             (Some(b), _) => (b, true),

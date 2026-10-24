@@ -30,6 +30,7 @@ impl Scope for Vars<'_> {
     }
 }
 use serde_json::Value as J;
+use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -146,7 +147,10 @@ impl Rules {
 
     /// Derives the role's quantities into `env`, then checks its constraints in
     /// order: the first that fails rejects, with its message.
-    pub fn check<'a>(&'a self, role: &str, env: &mut Vars<'a>) -> Res<()> {
+    /// The environment is given or lent (a parser's own, or one it reads the derived
+    /// quantities of afterwards).
+    pub fn check<'a>(&'a self, role: &str, mut env: impl BorrowMut<Vars<'a>>) -> Res<()> {
+        let env = env.borrow_mut();
         let r = self.roles.get(role).ok_or(format!("internal: no role {role}"))?;
         for (k, e) in &r.derive {
             let v = expr::eval(e, &Layered(&*env, &self.consts));
