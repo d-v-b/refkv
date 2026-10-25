@@ -2,10 +2,12 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>), as
 //! the projections that cut them with `out::grid_chunks` write them (NIfTI, MRC, FITS): the copy
 //! threshold of a run's facts, the source's ranges of the edge chunks a projection copies, and
-//! the chunks' references, copies and bytes.
+//! the chunks' references, copies and bytes. A reference's zero padding is a range of the
+//! output's zero data source (spec/zarrify.md §1.2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), not a literal.
 
 use super::{key, Copied};
-use crate::out::{Chunk, MAX_PAYLOAD};
+use crate::out::{Chunk, Part, MAX_PAYLOAD};
 use crate::refs::Refs;
 use serde_json::Value as J;
 
@@ -24,19 +26,57 @@ pub fn copy_reads(chunks: &[(Vec<u64>, Chunk)]) -> impl Iterator<Item = (u64, u6
     })
 }
 
+/// The zero padding of a chunk's reference: its literal after its range, as `out::grid_chunks`
+/// and `out::blob_chunks` pad an edge chunk.
+fn padding_of(chunk: &Chunk) -> Option<u64> {
+    match chunk {
+        Chunk::Ranges(parts) => match parts.as_slice() {
+            [Part::Src(..), Part::Lit(z)] => Some(z.len() as u64),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The most zero padding a reference of `chunks` holds: the size of the output's zero data
+/// source, of which each padded reference names a prefix (0 when none is padded).
+pub fn padding<'a>(chunks: impl IntoIterator<Item = &'a (Vec<u64>, Chunk)>) -> u64 {
+    chunks.into_iter().filter_map(|(_, c)| padding_of(c)).max().unwrap_or(0)
+}
+
 /// Writes `chunks`, cut from the element `(start, length, form)`: the i-th at the key of each of
 /// `prefixes` and `coords` of its coordinates (`project::key`). A chunk of ranges is a reference,
 /// charged to the budget as piece i at the first key and the same ranges, not charged, at the
-/// others; a copied chunk is its bytes of `copied` then its zero padding, and a chunk of bytes
-/// its bytes, at every key.
+/// others, its zero padding the range of that many bytes of the data source of `zeros` zero
+/// bytes (`padding`, of every chunk of the output); a copied chunk is its bytes of `copied` then
+/// its zero padding, and a chunk of bytes its bytes, at every key.
 pub fn emit(refs: &mut Refs, chunks: Vec<(Vec<u64>, Chunk)>, (start, length, form): (u64, u64, u32), copied: &Copied,
-            prefixes: &[&str], coords: impl Fn(Vec<u64>) -> Vec<u64>) -> Result<(), String> {
+            prefixes: &[&str], coords: impl Fn(Vec<u64>) -> Vec<u64>, zeros: u64) -> Result<(), String> {
+    let mut source = None;
     for (piece, (c, chunk)) in chunks.into_iter().enumerate() {
         let c = coords(c);
         let keys: Vec<String> = prefixes.iter().map(|p| key(p, c.iter().copied())).collect();
         let Some((first, rest)) = keys.split_first() else { return Err("internal: a chunk without a key".into()) };
+        let pad = padding_of(&chunk);
         let bytes = match chunk {
-            Chunk::Ranges(parts) => {
+            Chunk::Ranges(mut parts) => {
+                if let Some(n) = pad {
+                    if n > zeros {
+                        return Err("internal: a chunk's padding is past the zero data source".into());
+                    }
+                    // the source is added at its first use
+                    let i = match source {
+                        Some(i) => i,
+                        None => {
+                            let Part::Data(i, ..) = refs.out.shared(&vec![0; zeros as usize]) else {
+                                return Err("internal: a shared range of no data source".into());
+                            };
+                            *source.insert(i)
+                        }
+                    };
+                    parts.pop();
+                    parts.push(Part::Data(i, 0, n));
+                }
                 let same = (!rest.is_empty()).then(|| parts.clone());
                 refs.chunk(first.clone(), start, length, form, Some(parts), piece as u64)?;
                 for k in rest {

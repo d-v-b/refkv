@@ -201,8 +201,9 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     out.json("0/zarr.json", &array_json(&shape, data_type, json!(chunk_shape), J::Array(codecs), &axes));
     let count = chunks.len();
     let mut refs = Refs::new(ir, out);
+    let zeros = contiguous::padding(&chunks);
     // the chunks' coordinates in the array's axis order
-    contiguous::emit(&mut refs, chunks, (vox, length, form), copied, &["0/c/"], |c| axes.iter().map(|a| c[pos(a)]).collect())?;
+    contiguous::emit(&mut refs, chunks, (vox, length, form), copied, &["0/c/"], |c| axes.iter().map(|a| c[pos(a)]).collect(), zeros)?;
     let mut out = refs.out;
     let sizes: Map<String, J> = axes.iter().map(|a| (a.to_string(), json!(shape_of(a)))).collect();
     out.summary = json!({
