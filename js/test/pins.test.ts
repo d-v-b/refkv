@@ -89,6 +89,6 @@ test("a sharded array's ranges are joined only without checksums", async () => {
   // the host tells the core whether it records checksums (vz_run_output's flags, bit 1)
   for (const checksums of [false, true]) {
     const { v } = await image("flac/flac_blocks.flac", undefined, checksums);
-    assert.equal(v.summary.joinRanges, !checksums);
+    assert.equal((v.summary as { joinRanges?: boolean }).joinRanges, !checksums);
   }
 });

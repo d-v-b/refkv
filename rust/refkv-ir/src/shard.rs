@@ -111,18 +111,34 @@ pub fn apply(out: &mut Out, path: &str, shard: &[u64], merge: bool) -> Result<()
     let nums = |v: &J| -> Option<Vec<u64>> { v.as_array()?.iter().map(|x| x.as_u64()).collect() };
     let shape = nums(&doc["shape"]).ok_or("internal: an array without a shape")?;
     let inner = nums(&doc["chunk_grid"]["configuration"]["chunk_shape"]).ok_or("internal: an array without a regular grid")?;
-    if doc["chunk_grid"]["name"] != "regular" || doc["chunk_key_encoding"] != json!({"name": "default", "configuration": {"separator": "/"}})
-        || inner.len() != shape.len() || shard.len() != shape.len() || inner.contains(&0) || shard.contains(&0)
-    {
-        return Err(format!("internal: {path} cannot be sharded"));
+    let why = if doc["chunk_grid"]["name"] != "regular" {
+        "its chunk grid is not regular"
+    } else if doc["chunk_key_encoding"] != json!({"name": "default", "configuration": {"separator": "/"}}) {
+        "its chunk keys are not the default encoding's, with `/`"
+    } else if inner.len() != shape.len() {
+        "its chunk shape is not of its rank"
+    } else if shard.len() != shape.len() {
+        "the shard shape is not of its rank"
+    } else if inner.contains(&0) {
+        "its chunk shape has a 0"
+    } else if shard.contains(&0) {
+        "the shard shape has a 0"
+    } else {
+        ""
+    };
+    if !why.is_empty() {
+        return Err(format!("internal: {path} cannot be sharded: {why}"));
     }
     let grid: Vec<u64> = shape.iter().zip(&inner).map(|(s, c)| s.div_ceil(*c)).collect();
     let shards: Vec<u64> = grid.iter().zip(shard).map(|(g, s)| g.div_ceil(*s)).collect();
     // the inner chunks, by their coordinates
     let prefix = format!("{path}/c/");
     let mut chunks: HashMap<Vec<u64>, Vec<Part>> = HashMap::new();
+    let mut copied: HashMap<Vec<u64>, usize> = HashMap::new();
     for (k, v) in out.take_entries(&prefix) {
-        chunks.insert(coords(&k[prefix.len()..])?, vec![Part::Lit(v)]);
+        let c = coords(&k[prefix.len()..])?;
+        copied.insert(c.clone(), v.len());
+        chunks.insert(c, vec![Part::Lit(v)]);
     }
     for (k, v) in out.take_refs(&prefix) {
         chunks.insert(coords(&k[prefix.len()..])?, v);
@@ -131,23 +147,18 @@ pub fn apply(out: &mut Out, path: &str, shard: &[u64], merge: bool) -> Result<()
     let count: u64 = shards.iter().product();
     for s in 0..count {
         let sc = unravel(s, &shards);
-        let held: Vec<Option<Vec<Part>>> = (0..per)
-            .map(|i| {
-                let c: Vec<u64> = unravel(i, shard).iter().zip(&sc).zip(shard).map(|((i, s), n)| s * n + i).collect();
-                chunks.remove(&c)
-            })
+        let cells: Vec<Vec<u64>> = (0..per)
+            .map(|i| unravel(i, shard).iter().zip(&sc).zip(shard).map(|((i, s), n)| s * n + i).collect())
             .collect();
+        let held: Vec<Option<Vec<Part>>> = cells.iter().map(|c| chunks.remove(c)).collect();
         if held.iter().all(Option::is_none) {
             continue;
         }
-        let copied: usize = held.iter().flatten().filter_map(|c| match c.as_slice() {
-            [Part::Lit(b)] => Some(b.len()),
-            _ => None,
-        }).sum();
+        let copies: usize = cells.iter().filter_map(|c| copied.get(c)).sum();
         let parts = shard_parts(&held, merge);
         let k = key(path, &sc);
         if payload_size(&parts) > MAX_PAYLOAD {
-            return Err(format!("{k}: a shard's reference payload of more than {MAX_PAYLOAD} bytes (of which {copied} \
+            return Err(format!("{k}: a shard's reference payload of more than {MAX_PAYLOAD} bytes (of which {copies} \
                                 bytes of copied inner chunks)"));
         }
         out.refs(&k, parts);
@@ -296,24 +307,37 @@ mod tests {
     fn rejects_an_irregular_grid() {
         let mut d = doc(&[4], &[2]);
         d["chunk_grid"]["name"] = json!("rectilinear");
-        assert_eq!(sharded(d, &[], &[2]), Err("internal: a cannot be sharded".into()));
+        assert_eq!(sharded(d, &[], &[2]), Err("internal: a cannot be sharded: its chunk grid is not regular".into()));
     }
 
     #[test]
     fn rejects_another_chunk_key_encoding() {
         let mut d = doc(&[4], &[2]);
         d["chunk_key_encoding"]["configuration"]["separator"] = json!(".");
-        assert_eq!(sharded(d, &[], &[2]), Err("internal: a cannot be sharded".into()));
+        assert_eq!(sharded(d, &[], &[2]),
+                   Err("internal: a cannot be sharded: its chunk keys are not the default encoding's, with `/`".into()));
+    }
+
+    #[test]
+    fn rejects_a_chunk_shape_of_another_rank() {
+        let mut d = doc(&[4], &[2]);
+        d["chunk_grid"]["configuration"]["chunk_shape"] = json!([2, 2]);
+        assert_eq!(sharded(d, &[], &[2]), Err("internal: a cannot be sharded: its chunk shape is not of its rank".into()));
     }
 
     #[test]
     fn rejects_a_shard_shape_of_another_rank() {
-        assert_eq!(sharded(doc(&[4, 4], &[2, 2]), &[], &[2]), Err("internal: a cannot be sharded".into()));
+        assert_eq!(sharded(doc(&[4, 4], &[2, 2]), &[], &[2]), Err("internal: a cannot be sharded: the shard shape is not of its rank".into()));
+    }
+
+    #[test]
+    fn rejects_an_empty_chunk_shape() {
+        assert_eq!(sharded(doc(&[4], &[0]), &[], &[2]), Err("internal: a cannot be sharded: its chunk shape has a 0".into()));
     }
 
     #[test]
     fn rejects_an_empty_shard_shape() {
-        assert_eq!(sharded(doc(&[4], &[2]), &[], &[0]), Err("internal: a cannot be sharded".into()));
+        assert_eq!(sharded(doc(&[4], &[2]), &[], &[0]), Err("internal: a cannot be sharded: the shard shape has a 0".into()));
     }
 
     #[test]
@@ -332,6 +356,18 @@ mod tests {
         assert_eq!(refuse(&out), Ok(()));
         out.shard("a", &[2]);
         assert_eq!(refuse(&out), Err("internal: a asks to be sharded, which a store run does not do".into()));
+    }
+
+    /// A copied chunk is counted in the message, and a reference of one literal is not.
+    #[test]
+    fn rejects_a_shard_of_copied_chunks_past_the_payload_limit() {
+        let mut out = Out::new("u");
+        out.json("a/zarr.json", &doc(&[3], &[1]));
+        out.bytes("a/c/0", vec![1; 40000]);
+        out.refs("a/c/1", vec![Part::Lit(vec![2; 30000])]);
+        out.shard("a", &[3]);
+        assert_eq!(apply_all(&mut out, true),
+                   Err("a/c/0: a shard's reference payload of more than 65519 bytes (of which 40000 bytes of copied inner chunks)".into()));
     }
 
     #[test]
