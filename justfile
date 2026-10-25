@@ -139,8 +139,9 @@ fixtures-check:
         exit 1
     fi
 
-# Run every format's example, docs/zarrify/<format>/example.py, against this checkout (network),
-# each figure saved as <dir>/<format>.png
+# Run every format's example, docs/zarrify/<format>/example.py, against this checkout's code and
+# environment (network), each figure saved as <dir>/<format>.png; the scripts' PEP 723 headers
+# are not used (examples-standalone runs the scripts as a user does)
 examples dir="examples-out": ir-build
     #!/usr/bin/env bash
     set -euo pipefail
@@ -149,6 +150,19 @@ examples dir="examples-out": ir-build
     for f in "$root"/docs/zarrify/*/example.py; do
         echo "== $f"
         MPLBACKEND=Agg uv run --project "$root" --with matplotlib python "$f"
+    done
+
+# Run every format's example as a user does, `uv run <script>`: each in the environment its PEP 723
+# header gives, with refkv built from GitHub's main (network; a Rust toolchain), each figure saved
+# as <dir>/<format>.png
+examples-standalone dir="examples-out":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root="$PWD"
+    mkdir -p "{{dir}}" && cd "{{dir}}"
+    for f in "$root"/docs/zarrify/*/example.py; do
+        echo "== $f"
+        MPLBACKEND=Agg uv run --script "$f"
     done
 
 # Check the browser zarrifier's pixels against an independent reader, for every format that has

@@ -22,7 +22,7 @@ URL = "https://portal.nersc.gov/cfs/cosmo/data/legacysurvey/dr10/south/coadd/000
 
 root = zarr.open_group(refkv.zarr.store(zarrify(URL)), mode="r")
 image = root["1"]  # HDU 1, [axis2, axis1]: the compressed image
-cut = image[1500:2100, 1500:2100]  # a 600 x 600 cutout: the six chunks it spans are decoded
+cut = image[1500:2100, 1200:1800]  # a 600 x 600 cutout: the six 100 x 1800 chunks it spans are decoded
 lo, hi = np.percentile(cut, [1, 99.5])
 fig, ax = plt.subplots(figsize=(6, 6))
 ax.imshow(np.arcsinh((cut - lo) / (hi - lo) * 10), cmap="gray", origin="lower")
