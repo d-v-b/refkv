@@ -94,26 +94,13 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         let (nt, st) = (n(&im["t"][0]), n(&im["t"][1]));
         let (nz, sz) = (n(&im["z"][0]), n(&im["z"][1]));
         let (rows, row, y_stride, band) = (n(&im["rows"]), n(&im["row"]), n(&im["y_stride"]), n(&im["band"]));
-        let planes: Vec<(Vec<u64>, u64)> = {
-            let mut p = Vec::new();
-            let cs = if interleaved { 1 } else { offsets.len() };
-            for t in 0..nt {
-                for (c, &o) in offsets.iter().enumerate().take(cs) {
-                    for z in 0..nz {
-                        let mut coords = Vec::new();
-                        for a in &axes {
-                            match *a {
-                                "t" => coords.push(t),
-                                "c" => coords.push(c as u64),
-                                "z" => coords.push(z),
-                                _ => {}
-                            }
-                        }
-                        p.push((coords, o + t * st + z * sz));
-                    }
-                }
-            }
-            p
+        // the planes, (coordinates, offset) of times, channels and depths, made as they are used:
+        // the references' budget stops them (refs.rs)
+        let channel_chunks = if interleaved { 1 } else { offsets.len() };
+        let planes = || {
+            (0..nt).flat_map(move |t| {
+                (0..channel_chunks).flat_map(move |c| (0..nz).map(move |z| (t, c, z)))
+            })
         };
         let mut piece = 0u64;
         for (f, field) in fields.iter().enumerate() {
@@ -140,7 +127,17 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
             refs.out.json(&format!("{s}/0/zarr.json"), &array);
             let at = base + n(&field[1]);
             let prefix = format!("{s}/0/c/");
-            for (coords, o) in &planes {
+            for (t, c, z) in planes() {
+                let o = offsets[c] + t * st + z * sz;
+                let coords: Vec<u64> = axes
+                    .iter()
+                    .filter_map(|a| match *a {
+                        "t" => Some(t),
+                        "c" => Some(c as u64),
+                        "z" => Some(z),
+                        _ => None,
+                    })
+                    .collect();
                 for j in 0..rows / band {
                     let first = at + o + j * band * y_stride;
                     let parts: Vec<Part> = if y_stride == row {

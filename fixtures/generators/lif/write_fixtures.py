@@ -238,8 +238,10 @@ def accepted() -> dict[str, Lif]:
         "lif_fields": Lif("m.lif", [Img("lambda", "xyw", {"x": 5, "y": 4, "w": 3}, lengths=yx)]),
         "lif_blocks_unordered": Lif("n.lif", [Img("one", "xy", {"x": 4, "y": 3}), Img("two", "xy", {"x": 3, "y": 4}),
                                               Img("three", "xy", {"x": 2, "y": 2})], order=[0, 3, 1, 2]),
-        # an ID past the walk's first guess at a header (128 characters)
-        "lif_long_block_id": Lif("o2.lif", [Img("long", "xy", {"x": 4, "y": 3}, memory="MemBlock_" + "9" * 300)]),
+        # a block no Memory element predicts, whose ID is past the walk's guess at a header (128
+        # characters): its header is read in a round of its own
+        "lif_long_block_id": Lif("o2.lif", [Img("long", "xy", {"x": 4, "y": 3})],
+                                 extra=[("MemBlock_" + "9" * 300, bytes(5))]),
         "lif_tail": Lif("o.lif", [Img("plane", "xy", {"x": 5, "y": 5})], tail=bytes(37)),
         "lif_no_images": Lif("p.lif", []),
     }

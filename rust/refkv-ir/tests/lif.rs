@@ -11,3 +11,15 @@ macro_rules! reject {
     };
 }
 include!(concat!(env!("OUT_DIR"), "/rejects_lif.rs"));
+
+/// A block no Memory element predicts, whose ID is past the walk's guess at a header, is read
+/// when each round is fed exactly the ranges it asked for (the walk once asked for the ID alone
+/// and dropped the fixed part, forever).
+#[test]
+fn an_unpredicted_long_block_id_is_read() {
+    let data = std::fs::read(common::fixtures().join("lif/lif_long_block_id.lif")).unwrap();
+    let (ir, facts) = refkv_ir::parse_bytes::<Lif>(&data).unwrap();
+    assert_eq!(facts["blocks"], 3);
+    assert!(facts["rounds"].as_u64().unwrap() <= 5, "{}", facts["rounds"]);
+    assert_eq!(common::rebuilt(&ir, &data), data);
+}
