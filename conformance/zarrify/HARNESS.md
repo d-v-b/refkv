@@ -213,9 +213,14 @@ them. `compare.py` drops the frozen revision a reference root records (the shipp
 code records none since revision 29). For NIfTI it also leaves out of
 that root's source metadata the members the mirror now holds instead (`header_rest`,
 `extender`, `extensions`, `extensions_truncated`, `unparsed` and `trailing`: raw
-bytes, and paths of the reference's `vzip_source` arrays). So the revision number
-and those members are the only differences it does not report; a profile added
-since (such as MRC) has no reference, and compares `py` with `web` alone.
+bytes, and paths of the reference's `vzip_source` arrays), and reads the shipped
+code's NIfTI edge-chunk padding, a range of the output's zero data source since
+[nifti.md §7.2](../../spec/zarrify/nifti.md#72-chunks) changed, as the literal range of
+its bytes that the reference writes (`literal_padding`), so that the zero data source
+drops out with the sources no compared entry uses. So the revision number, those
+members and the padding's form are the only differences it does not report; a
+profile added since (such as MRC) has no reference, and compares `py` with `web`
+alone.
 
 **Zarr v2 stores, since revision 26,** are on the core too (its `zarr2` store
 format), and compared as TIFF, ND2 and CZI are: `ref` runs the frozen Zarr v2

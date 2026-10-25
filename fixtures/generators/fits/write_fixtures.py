@@ -261,7 +261,8 @@ def accepted() -> None:
 
     # Chunking (conventions §7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>,
     # with the profile's 2^20 limit): 20 planes of 64 KiB, cut into 2 chunks of 10 planes; a plane of 1.1 MB,
-    # cut into 2 bands of 550 rows; a row of 2^20 + 1 bytes, cut into 2 chunks, the second padded with a literal byte.
+    # cut into 2 bands of 550 rows; a row of 2^20 + 1 bytes, cut into 2 chunks, the second padded with a zero
+    # byte (a range of the zero data source).
     write("fits_chunk_planes", [primary(ramp((20, 128, 256), "i2", 100))])
     write("fits_chunk_rows", [primary(ramp((1100, 1000), "u1", 101))])
     write("fits_chunk_edge_literal", [primary(ramp((1, 2**20 + 1), "u1", 102))])

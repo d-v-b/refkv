@@ -391,8 +391,11 @@ declaration of the convention with the array's own source metadata.
   × s_a + q × c × s_a` bytes into the values; when `m < c` it is padded with
   `(c − m) × s_a` zero bytes, a literal of the reference when the reference
   fits in a payload ([spec/zarrify.md §1.2](zarrify.md#12-input)), and otherwise the chunk is copied with
-  its padding. An array of rank 0 is one chunk; an array with a size of 0
-  has no chunks, and the chunk shape `max(1, S[j])`.
+  its padding. (A profile may name that literal's bytes as a range of its zero
+  data source instead, as [spec/zarrify.md §1.2](zarrify.md#12-input) allows: the
+  chunk is copied all the same when the reference, with the literal, would not
+  fit.) An array of rank 0 is one chunk; an array with a size of 0 has no
+  chunks, and the chunk shape `max(1, S[j])`.
 - **A family of byte values** (one value per index `i`, such as a per-frame
   blob) is:
   - when every member has the same length `L`, a 2-D `uint8` array of shape
