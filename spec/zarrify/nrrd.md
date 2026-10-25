@@ -547,15 +547,21 @@ and references the data's file; the output copies no data, but an edge chunk bel
 
 - **Raw:** the chunk is referenced as [conventions §7](../conventions.md#7-source-values-as-arrays)
   references a chunk of contiguous values of `V` at `D` (with the chunk limit 2^17 bytes): one
-  range of the data's file, followed for an edge chunk by its zero padding as a literal range;
-  when that reference does not fit in a payload ([spec/zarrify.md §1.2](../zarrify.md#12-input)),
-  the chunk is copied, with its padding (its bytes are read in the run's last batch).
+  range of the data's file, followed for an edge chunk by its zero padding. Where
+  [conventions §7](../conventions.md#7-source-values-as-arrays) makes that padding a literal
+  range, it is instead the range `(1, 0, p)` of the output's **zero data source**
+  ([spec/zarrify.md §1.2](../zarrify.md#12-input)), `p` the padding's bytes: the source holds as
+  many zero bytes as the most padding any reference of the output holds. Where that section
+  copies the chunk (when its reference, with the padding as a literal range, would not fit in a
+  payload), the chunk is copied, with its padding (its bytes are read in the run's last batch).
 - **Gzip:** the one chunk, `0/c/0/.../0`, is one range of the data's file: `(D, size − D)`.
 
 The source table is one url source per file some reference uses, its size pinned
 ([spec/zarrify.md §1.4](../zarrify.md#14-store-inputs)): the data's file, which is the header
 file for an attached header. A detached header's file is no source: the mirror holds it
-([the convention §5.2](#52-the-ir-mirror)). The output has no data sources. `refkv_source` is the IR mirror ([the convention §5.2](#52-the-ir-mirror)). The archive
+([the convention §5.2](#52-the-ir-mirror)). The url source, source 0, is followed by the zero data
+source, source 1, when a reference is padded; the output has no other data source.
+`refkv_source` is the IR mirror ([the convention §5.2](#52-the-ir-mirror)). The archive
 has no other entries than the root's and the array's `zarr.json`, the array's chunks, and the
 mirror's.
 

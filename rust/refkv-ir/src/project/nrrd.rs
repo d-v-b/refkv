@@ -5,7 +5,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#85-chunks>) from a valid store
 //! IR and its facts: one image at the root, whose array's chunks are ranges of the data's object.
 
-use super::{arr, image_axes, key, n, translation, with_counts};
+use super::{arr, contiguous, image_axes, key, n, translation, with_counts};
 use super::vsi::object_url;
 use crate::ir::Ir;
 use crate::nrrd::CHUNK_BYTES;
@@ -194,12 +194,15 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         .map(|c| (n(&c[0]), arr(&c[1]).iter().map(|b| n(b) as u8).collect()))
         .collect();
     let count = chunks.len();
+    let mut zeros = contiguous::Zeros::of(&chunks);
     let mut refs = Refs::new(ir, out);
     for (piece, (coords, chunk)) in chunks.into_iter().enumerate() {
         let k = key("0/c/", axes.iter().map(|x| coords[pos(x)]));
+        let pad = contiguous::padding(&chunk);
         match chunk {
             Chunk::Ranges(parts) => {
-                let parts = parts.into_iter().map(|p| match p {
+                // the data's ranges are its file's; an edge chunk's padding, the zero data source's
+                let parts = contiguous::padded(parts, pad, &mut zeros, &mut refs.out)?.into_iter().map(|p| match p {
                     Part::Src(o, len) => Part::Obj(data_key.clone(), o, len),
                     other => other,
                 }).collect();

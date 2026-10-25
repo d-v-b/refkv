@@ -1,6 +1,7 @@
 //! The chunks of contiguous values (conventions §7
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>), as
-//! the projections that cut them with `out::grid_chunks` write them (NIfTI, MRC, FITS): the copy
+//! the projections that cut them with `out::grid_chunks` write them (NIfTI, MRC, FITS, and NRRD's
+//! store run, through `padded`): the copy
 //! threshold of a run's facts, the source's ranges of the edge chunks a projection copies, and
 //! the chunks' references, copies and bytes. A reference's zero padding is a range of the
 //! output's zero data source (spec/zarrify.md §1.2
@@ -69,6 +70,22 @@ impl Zeros {
     }
 }
 
+/// A chunk's reference `parts` with its zero padding, a literal of zero bytes after its range
+/// (`padding`), as a range of the output's zero data source `zeros`; any other `parts` as they are.
+pub fn padded(parts: Vec<Part>, padding: Option<u64>, zeros: &mut Zeros, out: &mut Out) -> Result<Vec<Part>, String> {
+    let Some(n) = padding else { return Ok(parts) };
+    let mut parts = parts;
+    parts.pop();
+    parts.push(zeros.range(out, n)?);
+    Ok(parts)
+}
+
+/// The zero padding of a chunk's reference (`padding_of`), for a projection that writes its own
+/// references, as NRRD's store run does.
+pub fn padding(chunk: &Chunk) -> Option<u64> {
+    padding_of(chunk)
+}
+
 /// Writes `chunks`, cut from the element `(start, length, form)`: the i-th at the key of each of
 /// `prefixes` and `coords` of its coordinates (`project::key`). A chunk of ranges is a reference,
 /// charged to the budget as piece i at the first key and the same ranges, not charged, at the
@@ -82,11 +99,8 @@ pub fn emit(refs: &mut Refs, chunks: Vec<(Vec<u64>, Chunk)>, (start, length, for
         let Some((first, rest)) = keys.split_first() else { return Err("internal: a chunk without a key".into()) };
         let pad = padding_of(&chunk);
         let bytes = match chunk {
-            Chunk::Ranges(mut parts) => {
-                if let Some(n) = pad {
-                    parts.pop();
-                    parts.push(zeros.range(&mut refs.out, n)?);
-                }
+            Chunk::Ranges(parts) => {
+                let parts = padded(parts, pad, zeros, &mut refs.out)?;
                 let same = (!rest.is_empty()).then(|| parts.clone());
                 refs.chunk(first.clone(), start, length, form, Some(parts), piece as u64)?;
                 for k in rest {

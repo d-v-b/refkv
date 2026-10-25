@@ -1,9 +1,10 @@
-"""The zero padding of the NIfTI, MRC and FITS profiles' edge chunks: a range of the output's one
-zero data source, of the most padding any reference holds (spec/zarrify.md §1.2
+"""The zero padding of the NIfTI, MRC, FITS and NRRD profiles' edge chunks: a range of the output's
+one zero data source, of the most padding any reference holds (spec/zarrify.md §1.2
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>,
 spec/zarrify/nifti.md §7.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>,
 spec/zarrify/mrc.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#82-chunks>,
-spec/zarrify/fits.md §9.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#94-chunks>)."""
+spec/zarrify/fits.md §9.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#94-chunks>,
+spec/zarrify/nrrd.md §8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#85-chunks>)."""
 
 import dataclasses
 from pathlib import Path
@@ -13,10 +14,14 @@ import mrcfile
 import nibabel
 import numpy as np
 import pytest
+import zarr
 from astropy.io import fits
 from ir_helpers import literal_padding, zarrified
 
+import refkv.zarr
 from refkv._narrow import ndarray
+from refkv.ir.store import StoreIrOutput
+from refkv.zarrify import _zarrify as zarrify
 
 
 def ramp(shape: tuple[int, ...]) -> np.ndarray:
@@ -90,3 +95,39 @@ def test_padding_is_a_range_of_one_zero_data_source(case, tmp_path):
     assert data == []
     dataclasses.replace(out, refs=refs, data={}).write(str(literal))
     assert shared.stat().st_size + sum(paddings) - max(paddings) <= literal.stat().st_size
+
+
+def test_nrrd_padding_is_a_range_of_one_zero_data_source(tmp_path):
+    """NRRD's store run pads as the file profiles do: the data of `nifti`'s volumes after a NRRD
+    header, each volume's last chunk its range of the header file then a prefix of the output's
+    one data source, numbered after the one url source; the array is the file's values; and the
+    archive is smaller than with the padding as literal ranges."""
+    data = ramp((8, 37, 64, 64))
+    path = tmp_path / "a.nrrd"
+    header = ("NRRD0004\ntype: uchar\ndimension: 4\nsizes: 64 64 37 8\nencoding: raw\n"
+              "kinds: domain domain domain time\n\n")
+    path.write_bytes(header.encode() + data.tobytes())
+    fmt, out = zarrify(str(path))  # the archive names the file by its path, which it reads
+    assert fmt == "nrrd"
+    assert isinstance(out, StoreIrOutput)
+    assert out.data == [bytes(4096)]
+    padded = []
+    for key, v in out.refs.items():
+        if key.startswith("refkv_source/"):
+            continue
+        match v:
+            case [("object", "a.nrrd", int(), int())]:
+                pass
+            case [("object", "a.nrrd", int(), int()), (1, 0, int(p))]:
+                padded.append(p)
+            case _:
+                pytest.fail(f"{key}: {v}")
+    assert padded == [4096] * 8
+    root = zarr.open_group(refkv.zarr.store(out.to_store()), mode="r", zarr_format=3)
+    assert np.array_equal(ndarray(root.get_array("0")[...]), data)
+    shared, literal = tmp_path / "shared.vzip", tmp_path / "literal.vzip"
+    out.write(str(shared))
+    refs = {k: [bytes(p[2]) if p[:1] == (1,) else p for p in v] for k, v in out.refs.items()}
+    dataclasses.replace(out, refs=refs, data=[]).write(str(literal))
+    assert shared.stat().st_size + 7 * 4096 <= literal.stat().st_size
+

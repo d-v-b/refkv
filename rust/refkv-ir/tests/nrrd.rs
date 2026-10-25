@@ -251,14 +251,15 @@ fn the_root_keeps_every_field_pair_and_comment() {
 }
 
 /// The cut of contiguous values (conventions §7
-/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>), with an
-/// edge chunk's padding as a literal.
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>), an
+/// edge chunk's padding a prefix of the output's one zero data source.
 #[test]
 fn the_data_is_cut_into_chunks_of_at_most_128_kib() {
     let (out, _, _) = run(&fixtures().join("nrrd_chunk_edge.nrrd")).unwrap();
     assert_eq!(doc(&out, "0/zarr.json")["chunk_grid"]["configuration"]["chunk_shape"], json!([16, 30, 100]));
     let last = out.refs.iter().find(|r| r.0 == "0/c/2/0/0").unwrap();
-    assert!(matches!(last.1.as_slice(), [Part::Obj(_, _, 90000), Part::Lit(pad)] if pad.len() == 6000));
+    assert!(matches!(last.1.as_slice(), [Part::Obj(_, _, 90000), Part::Data(_, 0, 6000)]), "{:?}", last.1);
+    assert_eq!(out.data, vec![vec![0u8; 6000]]);
 }
 
 /// A spatial axis whose direction has no component of its own (three axes in a 2-D space) is
