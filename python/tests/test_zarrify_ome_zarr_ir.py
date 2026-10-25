@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from refkv import _core
+from refkv.ir.store import StoreIrOutput
 from refkv.zarrify import Rejected
 from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store
 from refkv.zarrify.common import CONVENTION_KEY
@@ -22,7 +23,7 @@ from refkv.zarrify.common import CONVENTION_KEY
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "zarrify" / "reference"))
 from refkv_reference import virtualize as reference
 from refkv_reference.legacy import SOURCE_NODE as LEGACY_NODE
-from refkv_reference.legacy import current_names
+from refkv_reference.legacy import StoreOutput, current_names
 
 FIXTURES = Path(__file__).parents[2] / "fixtures" / "ome-zarr"
 URL = "https://data.test/ome-zarr/{}/"
@@ -64,6 +65,8 @@ def test_the_ir_gives_the_reference_hierarchy(store):
             zarrify(str(store), url)
         return
     fmt, out = zarrify(str(store), url)
+    assert isinstance(out, StoreIrOutput)
+    assert isinstance(expected[1], StoreOutput)
     assert fmt == expected[0] == "ome-zarr"
     assert hierarchy(out) == reference_hierarchy(expected[1])
     assert out.sources == expected[1].sources
@@ -77,6 +80,7 @@ def test_the_mirror_rebuilds_each_node_document():
         if "_reject_" in store.name:
             continue
         _, out = zarrify(str(store), URL.format(store.name))
+        assert isinstance(out, StoreIrOutput)
         rebuilt = _core.rebuild_store(out.entries.get)
         held = {k: b for k, _, b in rebuilt if b is not None}
         assert held, store.name

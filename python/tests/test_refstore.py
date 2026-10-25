@@ -7,12 +7,14 @@ import threading
 import time
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import override
 
 import numpy as np
 import obstore.store
 import pytest
 import xarray as xr
 import zarr
+import zarr.storage
 from helpers import zarrify
 from obspec_utils.registry import ObjectStoreRegistry
 from obstore.store import LocalStore, MemoryStore
@@ -21,6 +23,7 @@ from zarr.core.sync import sync
 
 import refkv
 import refkv.zarr
+from refkv._narrow import string
 from refkv.convert import write_vzip
 from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Source
@@ -71,7 +74,7 @@ def test_store_reads_what_its_saved_archive_reads(netcdf_files, tmp_path):
                     reopened = refkv.open(out)
                     assert _values(reopened) == in_memory
                     if relative_to is not None:
-                        assert all(not s.url.startswith("file:") for s in reopened.sources)
+                        assert all(not string(s.url).startswith("file:") for s in reopened.sources)
                     xr.testing.assert_identical(xr.open_zarr(refkv.zarr.store(reopened)).load(),
                                                 exp.load())
 
@@ -110,7 +113,7 @@ def test_from_virtualizarr_rewrites_urls(netcdf_files, tmp_path):
     ]
     for rewrite in cases:
         store = refkv.ReferenceStore.from_virtualizarr(vds, rewrite_urls=rewrite)
-        assert sorted(s.url for s in store.sources) == sorted(f"{new}{p.name}" for p in paths)
+        assert sorted(string(s.url) for s in store.sources) == sorted(f"{new}{p.name}" for p in paths)
         xr.testing.assert_identical(xr.open_zarr(refkv.zarr.store(store)).load(), expected.load())
 
 
@@ -157,7 +160,9 @@ def test_save_follows_the_store_layout(tmp_path):
     assert store.info == {"format": "x", "n": [1]}
     assert store.compressed == {"m"}
     assert store.page_size == 1 << 16
-    store.info["n"].append(2)  # a copy
+    n = store.info["n"]
+    assert isinstance(n, list)
+    n.append(2)  # a copy
     assert store.info == {"format": "x", "n": [1]}
     for page_size, index in ((..., True), (None, False)):
         path = tmp_path / f"{index}.vzip"
@@ -181,7 +186,7 @@ def _s3_store(**kwargs):
     mem = zarr.storage.MemoryStore()
     zarr.create_array(mem, name="x", shape=(4,), chunks=(4,), dtype="u1", dimension_names=["i"],
                       compressors=None)
-    mapping = {k: v.to_bytes() for k, v in mem._store_dict.items()}
+    mapping: dict[str, bytes | Range] = {k: v.to_bytes() for k, v in mem._store_dict.items()}
     mapping["x/c/0"] = Range(source=0, offset=0, length=4)
     return refkv.ReferenceStore(mapping, [Source(url="s3://some-bucket/obj.nc")], **kwargs)
 
@@ -214,6 +219,7 @@ def test_save_counts_each_refused_source_of_a_shared_origin(tmp_path):
     # a policy with its own check decides each source
 
     class ByPath(refkv.Policy):
+        @override
         def check(self, base, url, **kwargs):
             if url.endswith("/c"):
                 raise ResolutionError(f"{url}: refused by path")
@@ -233,7 +239,7 @@ def test_save_counts_each_refused_source_of_a_shared_origin(tmp_path):
 
 def test_save_checks_against_the_policy_given(tmp_path):
     store = _s3_store()
-    store.save(tmp_path / "ok.vzip", policy=refkv.Policy(schemes={"s3"}))
+    store.save(tmp_path / "ok.vzip", policy=refkv.Policy(schemes=frozenset({"s3"})))
     with pytest.raises(ResolutionError, match="reader policy given refuses"):
         store.save(tmp_path / "x.vzip", policy=refkv.Policy(prefixes=("https://data.example/",)))
 
@@ -260,7 +266,7 @@ def test_registry_reads_registered_sources(netcdf_files, tmp_path):
                "b": Concat((Range(source=1, offset=0, length=2), Range(data=b"!")))}
     sources = [Source(url="s3://bucket/raw/blob.bin"),
                Source(url="s3://bucket/raw/blob.bin", size=len(blob))]
-    s3 = refkv.Policy(schemes={"s3"})  # for save: what the archive's readers allow
+    s3 = refkv.Policy(schemes=frozenset({"s3"}))  # for save: what the archive's readers allow
     for prefix in ["s3://bucket", "s3://bucket/", "s3://bucket/data"]:
         forms = {"mapping": {prefix: bucket, "s3://other": MemoryStore()},
                  "ObjectStoreRegistry": ObjectStoreRegistry({prefix: bucket}),
@@ -294,7 +300,7 @@ def test_unregistered_s3_source_is_refused_without_credential_lookup(monkeypatch
 
     for name in ["from_url", "S3Store", "GCSStore", "AzureStore"]:
         monkeypatch.setattr(obstore.store, name, no_lookup)
-    store = _s3_store(policy=refkv.Policy(schemes={"s3"}))
+    store = _s3_store(policy=refkv.Policy(schemes=frozenset({"s3"})))
     with pytest.raises(ResolutionError, match=r"no store is registered for s3://some-bucket\. "
                                               r".*registry=\{'s3://some-bucket': store\}.*refkv\[obstore\]"):
         _ = xr.open_zarr(refkv.zarr.store(store), consolidated=False).x.values
@@ -313,7 +319,7 @@ def test_registry_does_not_let_a_remote_store_read_files(tmp_path):
     (tmp_path / "obj.bin").write_bytes(b"1234")
     mem = zarr.storage.MemoryStore()
     zarr.create_array(mem, name="x", shape=(4,), chunks=(4,), dtype="u1", compressors=None)
-    mapping = {k: v.to_bytes() for k, v in mem._store_dict.items()}
+    mapping: dict[str, bytes | Range] = {k: v.to_bytes() for k, v in mem._store_dict.items()}
     mapping["x/c/0"] = Range(source=0, offset=0, length=4)
     store = refkv.ReferenceStore(mapping, [Source(url=file_uri(tmp_path / "obj.bin"))],
                                 url="https://data.example/", registry={"file://": LocalStore()})
@@ -323,7 +329,7 @@ def test_registry_does_not_let_a_remote_store_read_files(tmp_path):
 
 def test_registry_of_another_type_is_refused():
     with pytest.raises(TypeError, match="ObjectStoreRegistry, a mapping"):
-        refkv.ReferenceStore({}, registry=["s3://bucket"])
+        refkv.ReferenceStore({}, registry=["s3://bucket"])  # pyrefly: ignore[bad-argument-type] (the type refused)
 
 
 def test_registry_prefix_without_a_scheme_is_refused():
@@ -344,7 +350,8 @@ def counting_server():
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *a):
+        @override
+        def log_message(self, format, *args):
             pass
 
         def do_GET(self):
@@ -388,7 +395,7 @@ def test_max_concurrency_caps_requests_in_flight(counting_server, tmp_path):
     state["files"]["/src.bin"] = bytes(range(n)) * 1024
     mem = zarr.storage.MemoryStore()
     zarr.create_array(mem, name="x", shape=(n,), chunks=(1,), dtype="u1", compressors=None)
-    mapping = {k: v.to_bytes() for k, v in mem._store_dict.items()}
+    mapping: dict[str, bytes | Range] = {k: v.to_bytes() for k, v in mem._store_dict.items()}
     mapping.update({f"x/c/{i}": Range(source=0, offset=1024 * i + i, length=1) for i in range(n)})
     sources = [Source(url=f"{base}/src.bin")]
     policy = refkv.Policy(allow_private_hosts=True)
@@ -428,7 +435,7 @@ def test_max_concurrency_must_be_a_positive_integer(cap, tmp_path):
 
 def test_constructor_rejects_a_value_of_another_type():
     with pytest.raises(TypeError, match="bytes, a Range or a Concat"):
-        refkv.ReferenceStore({"k": "text"})
+        refkv.ReferenceStore({"k": "text"})  # pyrefly: ignore[bad-assignment] (the type refused)
 
 
 def test_constructor_rejects_a_range_outside_the_source_table():
@@ -448,7 +455,7 @@ def test_constructor_rejects_an_empty_key():
 
 def test_constructor_rejects_a_key_that_is_not_a_string():
     with pytest.raises(TypeError, match="keys are non-empty strings"):
-        refkv.ReferenceStore({1: b""})
+        refkv.ReferenceStore({1: b""})  # pyrefly: ignore[bad-assignment] (the type refused)
 
 
 def test_constructor_rejects_compressed_naming_no_bytes_value():
@@ -476,7 +483,7 @@ def test_a_page_size_that_is_not_positive_is_rejected(tmp_path, page_size):
 
 def test_constructor_rejects_a_source_of_another_type():
     with pytest.raises(TypeError, match="Source"):
-        refkv.ReferenceStore({}, ["https://a/b"])
+        refkv.ReferenceStore({}, ["https://a/b"])  # pyrefly: ignore[bad-argument-type] (the type refused)
 
 
 # ------------------------------------------------------------ no mutations
@@ -556,11 +563,11 @@ def test_sources_cannot_be_changed(store):
 def test_mapping_cannot_be_changed():
     s = refkv.ReferenceStore({"k": b"v"})
     with pytest.raises(TypeError):
-        s.mapping["k"] = b"w"
+        s.mapping["k"] = b"w"  # pyrefly: ignore[unsupported-operation] (the change refused)
     with pytest.raises(TypeError):
-        del s.mapping["k"]
+        del s.mapping["k"]  # pyrefly: ignore[unsupported-operation] (the change refused)
     with pytest.raises(AttributeError):
-        s.mapping = {}
+        s.mapping = {}  # pyrefly: ignore[read-only] (the change refused)
     assert _values(s) == {"k": b"v"}
 
 

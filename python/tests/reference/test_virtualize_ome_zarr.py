@@ -13,13 +13,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
 
 import json
+from collections.abc import Mapping, Sequence
 
 import pytest
 from refkv_reference import virtualize
-from refkv_reference.legacy import DirStore, declare
+from refkv_reference.legacy import DirStore, StoreOutput, declare
 from refkv_reference.revision import STORES_REVISION as STORE_REVISION
 from refkv_reference.zarr2 import virtualize_zarr2
 
+from refkv._narrow import JSON, at, mapping, sequence
 from refkv.zarrify import Rejected
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "ome-zarr"
@@ -91,7 +93,7 @@ UNVERSIONED = {
 VERSIONED = ("omero", "image-label", "plate", "well")
 
 
-def inverse(ome: dict, a: dict, unversioned: list[str]) -> dict:
+def inverse(ome: Mapping[str, JSON], a: Mapping[str, JSON], unversioned: Sequence[JSON]) -> dict:
     """The .zattrs of an OME group, from its `ome`, its attributes A and its unversioned
     members U (spec/zarrify/ome-zarr.md §5
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#5-group-attributes>, §8
@@ -102,9 +104,9 @@ def inverse(ome: dict, a: dict, unversioned: list[str]) -> dict:
         if k in unversioned:
             pass
         elif k == "multiscales":
-            value = [{"version": "0.4", **m} for m in v]
+            value = [{"version": "0.4", **mapping(m)} for m in sequence(v)]
         elif k in VERSIONED:
-            value = {"version": "0.4", **v}
+            value = {"version": "0.4", **mapping(v)}
         if k != "version":
             out[k] = value
     return {**out, **a}
@@ -118,27 +120,28 @@ def test_virtualizes_the_synthetic_stores():
     for name, (summary, groups, arrays) in CASES.items():
         url = URL.format(name)
         fmt, out = virtualize(str(FIXTURES / name), url=url)
+        assert isinstance(out, StoreOutput)
         assert fmt == "ome-zarr", name
         assert {**out.summary, **summary} == out.summary, name
         for path, (outer, ome) in groups.items():
-            attrs = out.docs[key(path)]["attributes"]
+            attrs = mapping(out.docs[key(path)]["attributes"])
             # The attributes A that `ome` does not give back are copied under the convention, which
             # the root and any node with source metadata declare (conventions §2
             # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>).
-            s = attrs.get("vzip_virtualized", {}).get("ome-zarr", {})
-            assert set(s.get("attributes", {})) == outer, (name, path)
+            s = mapping(mapping(attrs.get("vzip_virtualized", {})).get("ome-zarr", {}))
+            assert set(mapping(s.get("attributes", {}))) == outer, (name, path)
             declared = {"zarr_conventions", "vzip_virtualized"} if path == "" or s else set()
             if ome is None:
                 assert "ome" not in attrs, (name, path)
                 assert set(attrs) == declared, (name, path)
                 continue
             assert set(attrs) == declared | {"ome"}, (name, path)
-            assert attrs["ome"]["version"] == "0.5", (name, path)
-            assert set(attrs["ome"]) == ome | {"version"}, (name, path)
-            for m in attrs["ome"].get("multiscales", []):
-                assert "version" not in m, (name, path)
+            assert at(attrs, "ome", "version") == "0.5", (name, path)
+            assert set(mapping(attrs["ome"])) == ome | {"version"}, (name, path)
+            for m in sequence(mapping(attrs["ome"]).get("multiscales", [])):
+                assert "version" not in mapping(m), (name, path)
             for k in ("omero", "image-label", "plate", "well"):
-                assert "version" not in attrs["ome"].get(k, {}), (name, path, k)
+                assert "version" not in mapping(mapping(attrs["ome"]).get(k, {})), (name, path, k)
         for path, names in arrays.items():
             assert out.docs[key(path)].get("dimension_names") == names, (name, path)
         # Every .zattrs is its `ome`, by the inverse of §5
@@ -147,11 +150,12 @@ def test_virtualizes_the_synthetic_stores():
         # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#8-source-metadata>).
         for z in (FIXTURES / name).rglob(".zgroup"):
             path = z.parent.relative_to(FIXTURES / name).as_posix().removeprefix(".")
-            attrs = out.docs[key(path)]["attributes"]
-            s = attrs.get("vzip_virtualized", {}).get("ome-zarr", {})
+            attrs = mapping(out.docs[key(path)]["attributes"])
+            s = mapping(mapping(attrs.get("vzip_virtualized", {})).get("ome-zarr", {}))
             assert s.get("unversioned", []) == UNVERSIONED.get((name, path), []), (name, path)
             zattrs = z.parent / ".zattrs"
-            assert inverse(attrs.get("ome", {}), s.get("attributes", {}), s.get("unversioned", [])) == (
+            assert inverse(mapping(attrs.get("ome", {})), mapping(s.get("attributes", {})),
+                           sequence(s.get("unversioned", []))) == (
                 json.loads(zattrs.read_text()) if zattrs.exists() else {}), (name, path)
         # The chunks and other objects are §7
         # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#7-zarr-v2-profile>'s,
@@ -177,13 +181,15 @@ def test_virtualizes_the_synthetic_stores():
                 {a: b for a, b in doc.items() if a not in strip}, (name, k)
     # Level 0's empty chunk (1.0) and missing one (2.0) have no entry; the stray object is kept whole.
     _, out = virtualize(str(FIXTURES / "ome_zarr_image_2d"), url=URL.format("i"))
+    assert isinstance(out, StoreOutput)
     assert [k for k, _ in out.chunks] == ["0/0.0", "1/0.0", "vzip_source/objects/notes.txt"]
     # The empty chunk's key is listed with the empty objects (the Zarr v2 convention §5
     # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>).
-    assert out.docs["vzip_source/zarr.json"]["attributes"]["vzip_virtualized"]["ome-zarr"] == {"empty": ["0/1.0"]}
+    assert at(out.docs["vzip_source/zarr.json"], "attributes", "vzip_virtualized", "ome-zarr") == {"empty": ["0/1.0"]}
     # The OME members, moved under `ome` without their own `version`, are otherwise unchanged.
     _, out = virtualize(str(FIXTURES / "ome_zarr_labels"), url=URL.format("l"))
-    ome = out.docs["labels/cells/zarr.json"]["attributes"]["ome"]
+    assert isinstance(out, StoreOutput)
+    ome = mapping(at(out.docs["labels/cells/zarr.json"], "attributes", "ome"))
     assert ome["image-label"] == {
         "colors": [{"label-value": 1, "rgba": [255, 0, 0, 255]}, {"label-value": 2, "rgba": [0, 255, 0, 128]}],
         "properties": [{"label-value": 1, "class": "nucleus", "area (pixels)": 12}, {"label-value": 2}],
@@ -192,18 +198,21 @@ def test_virtualizes_the_synthetic_stores():
     assert attrs == {"ome": {"version": "0.5", "labels": ["cells"]}}  # all given back: no source metadata
     # L7: a label image's levels past its image's are dropped from its multiscales, transforms unchanged.
     _, out = virtualize(str(FIXTURES / "ome_zarr_labels_extra_level"), url=URL.format("x"))
-    m = out.docs["labels/cells/zarr.json"]["attributes"]["ome"]["multiscales"][0]
-    assert [d["path"] for d in m["datasets"]] == ["0", "1"]
-    assert m["datasets"][1]["coordinateTransformations"] == [{"type": "scale", "scale": [1.0, 2.0, 2.0]}]
+    assert isinstance(out, StoreOutput)
+    m = at(out.docs["labels/cells/zarr.json"], "attributes", "ome", "multiscales", 0)
+    assert [at(d, "path") for d in sequence(at(m, "datasets"))] == ["0", "1"]
+    assert at(m, "datasets", 1, "coordinateTransformations") == [{"type": "scale", "scale": [1.0, 2.0, 2.0]}]
     _, out = virtualize(str(FIXTURES / "ome_zarr_image_3d_translation"), url=URL.format("t"))
-    m = out.docs["zarr.json"]["attributes"]["ome"]["multiscales"][0]
-    assert m["datasets"][2]["coordinateTransformations"] == [
+    assert isinstance(out, StoreOutput)
+    m = at(out.docs["zarr.json"], "attributes", "ome", "multiscales", 0)
+    assert at(m, "datasets", 2, "coordinateTransformations") == [
         {"type": "scale", "scale": [2.0, 2.0, 2.0]}, {"type": "translation", "translation": [10.0, -3.5, 4.25]}]
-    assert m["coordinateTransformations"][1] == {"type": "translation", "translation": [0.0, 100.0, 0.0]}
+    assert at(m, "coordinateTransformations", 1) == {"type": "translation", "translation": [0.0, 100.0, 0.0]}
     _, out = virtualize(str(FIXTURES / "ome_zarr_bioformats2raw"), url=URL.format("b"))
+    assert isinstance(out, StoreOutput)
     assert out.docs["zarr.json"]["attributes"] == declare({"ome": {"version": "0.5", "bioformats2raw.layout": 3}},
                                                           "ome-zarr", URL.format("b"), {}, STORE_REVISION)
-    assert out.docs["OME/zarr.json"]["attributes"]["ome"] == {"version": "0.5", "series": ["0", "1"]}
+    assert at(out.docs["OME/zarr.json"], "attributes", "ome") == {"version": "0.5", "series": ["0", "1"]}
     assert out.sources[-1] == "https://data.test/ome-zarr/b/OME/METADATA.ome.xml"
     # The Zarr v2 metadata M, the attributes with integers kept exact, and the other objects:
     # OME-XML outside a collection and a README (spec/zarrify/ome-zarr.md §7
@@ -211,9 +220,11 @@ def test_virtualizes_the_synthetic_stores():
     # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#8-source-metadata>).
     url = URL.format("s")
     _, out = virtualize(str(FIXTURES / "ome_zarr_source_metadata"), url=url)
-    s = lambda p: out.docs[key(p)]["attributes"].get("vzip_virtualized", {}).get("ome-zarr")  # noqa: E731
-    assert s("")["metadata"] == {"creator": "a writer"}
-    assert s("0")["attributes"]["note"] == {"big": 18446744073709551615}
+    assert isinstance(out, StoreOutput)
+    s = lambda p: mapping(mapping(out.docs[key(p)]["attributes"]).get("vzip_virtualized", {})).get(  # noqa: E731
+        "ome-zarr")
+    assert at(s(""), "metadata") == {"creator": "a writer"}
+    assert at(s("0"), "attributes", "note") == {"big": 18446744073709551615}
     assert s("1") is None
     assert s("1/0") == {"metadata": {"fill_value": None}}
     assert [k for k, _ in out.chunks if k.startswith("vzip_source/")] == [
@@ -281,5 +292,5 @@ def test_rejects(name, message):
 
 def test_every_rejection_fixture_is_tested():
     names = {d.name.removeprefix("ome_zarr_reject_") for d in FIXTURES.iterdir() if "_reject_" in d.name}
-    params = next(m for m in test_rejects.pytestmark if m.name == "parametrize").args[1]
+    params = next(m for m in vars(test_rejects)["pytestmark"] if m.name == "parametrize").args[1]
     assert names == {n for n, _ in params}

@@ -14,6 +14,7 @@ import tempfile
 import threading
 import zlib
 from pathlib import Path
+from typing import Any, override
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "vzip"
@@ -43,7 +44,8 @@ def write(desc, name):
     return r, out
 
 
-def read(archive, queries, cwd=None):
+def read(archive, queries, cwd=None) -> tuple[int, Any]:
+    """The exit status and the parsed output (a JSON value), or a failure's stderr."""
     qp = path("q.json")
     with open(qp, "w") as f:
         f.write(queries if isinstance(queries, str) else json.dumps(queries))
@@ -197,7 +199,7 @@ def test_roundtrip():
     st = Path(path("data.bin")).stat()
     for page_size in [None, 1, 120, 100000]:
         for mirror in [True, False]:
-            desc = {
+            desc: dict[str, Any] = {  # a JSON value, indexed below
                 "page_size": page_size,
                 "mirror": mirror,
                 "sources": [
@@ -598,7 +600,8 @@ LOG = []
 class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
-    def log_message(self, *a):
+    @override
+    def log_message(self, format, *args):
         pass
 
     def do_HEAD(self):
@@ -610,6 +613,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         LOG.append(("GET", self.path, dict(self.headers)))
         p = self.path
         rng = self.headers.get("Range")
+        if rng is None:
+            raise ValueError("GET without Range")
         a, z = map(int, rng.split("=")[1].split("-"))
         if p.startswith("/redir/"):
             n = int(p.split("/")[2])

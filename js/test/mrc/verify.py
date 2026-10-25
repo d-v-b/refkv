@@ -32,6 +32,7 @@ ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
+from refkv._narrow import at, mapping, ndarray  # noqa: E402
 
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import mirror_problems  # noqa: E402
@@ -83,6 +84,7 @@ def load(path: Path):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with mrcfile.open(path, permissive=False) as f:
+            assert f.header is not None, path  # (None only before a header is read or created)
             header, data = f.header.copy(), np.array(f.data)
     raw = path.read_bytes()
     order = "<" if header.mode.dtype.byteorder in "<=" else ">"
@@ -95,26 +97,27 @@ def load(path: Path):
 def problems_of(path: Path, out: Path) -> list[str]:
     header, want = load(path)
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
-    arr = root["0"]
-    got = arr[...]
+    got = ndarray(root.get_array("0")[...])
     problems = []
     if got.dtype != want.dtype.newbyteorder("="):
         problems.append(f"dtype {got.dtype} != {want.dtype}")
     if got.shape != want.shape or not np.array_equal(got, want, equal_nan=got.dtype.kind in "fc"):
         problems.append(f"values differ ({got.shape} vs {want.shape})")
-    meta = root.attrs["refkv_zarrified"]["mrc"]
+    zarrified = mapping(at(root.attrs, "refkv_zarrified"))
+    meta = mapping(zarrified["mrc"])
+    fields = mapping(meta["header"], "header")
     if meta["data_type"] != str(want.dtype.newbyteorder("=")):
         problems.append(f"data_type {meta['data_type']} != {want.dtype}")
-    if list(meta["header"]) != list(header.dtype.names):
-        problems.append(f"header fields {list(meta['header'])} != mrcfile's {list(header.dtype.names)}")
-    problems += [f"header {name} {meta['header'].get(name)!r} != mrcfile's {as_json(header[name])!r}"
-                 for name in header.dtype.names if meta["header"].get(name) != as_json(header[name])]
+    if list(fields) != list(header.dtype.names):
+        problems.append(f"header fields {list(fields)} != mrcfile's {list(header.dtype.names)}")
+    problems += [f"header {name} {fields.get(name)!r} != mrcfile's {as_json(header[name])!r}"
+                 for name in header.dtype.names if fields.get(name) != as_json(header[name])]
     kind = {2: "image", 4: "volume_stack"}.get(want.ndim, "image_stack" if header.ispg == 0 else "volume")
     if meta["kind"] != kind:
         problems.append(f"kind {meta['kind']} != {kind}")
     # the dataset layout (spec/zarrify/mrc-dataset.md): xarray opens it with the file's values
     # and coordinates in angstroms
-    if root.attrs["refkv_zarrified"].get("layouts") != {"dataset": "dataset"}:
+    if zarrified.get("layouts") != {"dataset": "dataset"}:
         problems.append("the root does not name the dataset layout")
     ds = xr.open_zarr(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), group="dataset", consolidated=False)
     if ds.attrs["refkv_zarrified"]["mrc-dataset"] != meta:

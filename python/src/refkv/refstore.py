@@ -44,10 +44,10 @@ import os
 import re
 import types
 from collections import Counter
-from collections.abc import AsyncIterator, Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Generator, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict, Unpack, override
 
 from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Reference, Source, parts
@@ -59,6 +59,20 @@ from refkv.vzip.names import INDEX_KEY, RESERVED_PREFIX, SOURCES_KEY
 
 if TYPE_CHECKING:
     import xarray as xr
+
+    # closed (PEP 728), which typing.TypedDict takes only from Python 3.15
+    class ReferenceStoreOptions(TypedDict, total=False, closed=True):
+        """`ReferenceStore`'s keyword arguments, which `ReferenceStore.from_virtualizarr` passes on."""
+
+        url: str | None
+        read_at_open: Iterable[str] | None
+        compressed: Iterable[str]
+        page_size: int | None
+        info: Mapping[str, object] | None
+        registry: Registry | None
+        stats: Stats | None
+        policy: Policy | None
+        max_concurrency: int | None
 
 
 @dataclass(frozen=True)
@@ -73,7 +87,7 @@ class Summary:
     - `bytes`: the size of the archive.
     """
 
-    path: str
+    path: str | os.PathLike[str]
     keys: int
     references: int
     sources: int
@@ -91,7 +105,7 @@ def _page_size(page_size: int | None) -> int | None:
 
 
 @contextlib.contextmanager
-def bulk() -> Iterator[None]:
+def bulk() -> Generator[None]:
     """Pauses the cyclic garbage collector, for the whole process, while
     millions of acyclic objects (a store's ranges and sources, a writer's
     records) are built: each collection would scan them all again, which made
@@ -191,7 +205,7 @@ class ReferenceStore(ReferenceReader):
         read_at_open: Iterable[str] | None = None,
         compressed: Iterable[str] = (),
         page_size: int | None = None,
-        info: Mapping | None = None,
+        info: Mapping[str, object] | None = None,
         registry: Registry | None = None,
         stats: Stats | None = None,
         policy: Policy | None = None,
@@ -247,7 +261,7 @@ class ReferenceStore(ReferenceReader):
         vds: xr.Dataset,
         *,
         rewrite_urls: Mapping[str, str] | Callable[[str], str | None] | None = None,
-        **kwargs: object,
+        **kwargs: Unpack[ReferenceStoreOptions],
     ) -> ReferenceStore:
         """The store of a VirtualiZarr virtual dataset: its Zarr v3 metadata
         (consolidated in the root `zarr.json`) and its loadable variables as
@@ -314,7 +328,7 @@ class ReferenceStore(ReferenceReader):
         return self._page_size
 
     @property
-    def info(self) -> dict:
+    def info(self) -> dict[str, object]:
         """What the store's builder says about it, as a copy: changing it leaves the
         store's own unchanged. For a store from
         `refkv.zarrify.zarrify`: `format`, the profile that zarrified the
@@ -336,7 +350,7 @@ class ReferenceStore(ReferenceReader):
 
     def save(
         self,
-        path: str | os.PathLike,
+        path: str | os.PathLike[str],
         *,
         page_size: int | types.EllipsisType | None = ...,
         mirror_refs: bool = True,
@@ -441,6 +455,7 @@ class ReferenceStore(ReferenceReader):
 
     # ------------------------------------------------------------ reading
 
+    @override
     async def _key_bytes(self, key: str, start: int, end: int) -> bytes:
         v = self._values.get(key)
         if v is None:
@@ -454,6 +469,7 @@ class ReferenceStore(ReferenceReader):
     def _visible(self, key: str) -> bytes | Reference | None:
         return None if key.startswith(RESERVED_PREFIX) else self._values.get(key)
 
+    @override
     async def get_async(self, key: str, request: Request | None = None) -> bytes | None:
         _abs_range(0, request)  # request errors, even for missing keys
         v = self._visible(key)
@@ -465,10 +481,12 @@ class ReferenceStore(ReferenceReader):
         start, end = _abs_range(v.size, request)
         return await self._ref_bytes(v, start, end)
 
+    @override
     async def classify_async(self, key: str) -> Kind:
         v = self._visible(key)
         return "missing" if v is None else "bytes" if isinstance(v, bytes) else "reference"
 
+    @override
     async def raw_async(self, key: str) -> bytes | None:
         """A bytes value, a hidden key's included; a reference's payload, as `save`
         writes it (spec §4.4
@@ -481,12 +499,14 @@ class ReferenceStore(ReferenceReader):
         ranges = parts(v)
         return ranges[0].encode() if len(ranges) == 1 else Concat(ranges).encode()
 
+    @override
     async def list_async(self, prefix: str = "") -> AsyncIterator[str]:
         i = bisect.bisect_left(self._keys, prefix)
         while i < len(self._keys) and self._keys[i].startswith(prefix):
             yield self._keys[i]
             i += 1
 
+    @override
     async def list_dir_async(self, prefix: str = "") -> AsyncIterator[str]:
         prefix = prefix.rstrip("/")
         prefix = prefix + "/" if prefix else ""

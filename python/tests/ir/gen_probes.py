@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, "fixtures/generators/czi")
+# pyrefly: ignore[missing-import]  # on sys.path above; the config's search-path lacks fixtures/generators
 from write_fixtures import Att, Czi, Sb, plane, segment, time_stamps
 
 out = Path(sys.argv[1])

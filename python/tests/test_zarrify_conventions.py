@@ -22,15 +22,16 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft7Validator, Draft202012Validator
 
+from refkv._narrow import at, mapping, sequence, string
 from refkv.zarrify import Rejected
 from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store
-from refkv.zarrify.common import CONVENTION_KEY, PROFILES, UUIDS, convention, declare, same
+from refkv.zarrify.common import CONVENTION_KEY, PROFILES, UUIDS, Output, convention, declare, same
 from refkv.zarrify.profiles import REGISTRY
 
 ROOT = Path(__file__).parents[2]
 FIXTURES = ROOT / "fixtures"
-FILES = {e["name"]: [f"*{s}" for s in e["suffixes"]] for e in REGISTRY if e["suffixes"]}
-STORES = tuple(e["name"] for e in REGISTRY if e["kind"] in ("store", "both"))
+FILES = {string(e["name"]): [f"*{s}" for s in sequence(e["suffixes"])] for e in REGISTRY if e["suffixes"]}
+STORES = tuple(string(e["name"]) for e in REGISTRY if e["kind"] in ("store", "both"))
 # The GeoZarr members a SAFE node may hold (spec/zarrify/safe.md §5
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#5-georeferencing-geozarr>), each
 # validated by its own convention's schema (spec/zarrify/safe/geozarr/).
@@ -42,11 +43,13 @@ DATASET_ATTRS = {"units", "long_name", "actual_range", "scale_factor", "add_offs
 # The registry's tool (spec/tools/profiles.py), which checks the documents' copies of each CMO
 # against its own `cmo` without importing refkv: here, `cmo` is checked against refkv's.
 _tool = importlib.util.spec_from_file_location("spec_tools_profiles", ROOT / "spec" / "tools" / "profiles.py")
+assert _tool is not None
+assert _tool.loader is not None
 spec_profiles = importlib.util.module_from_spec(_tool)
 _tool.loader.exec_module(spec_profiles)
 
 
-def geozarr_schema(name: str) -> Draft202012Validator:
+def geozarr_schema(name: str) -> Draft7Validator:
     path = ROOT / "spec" / "zarrify" / "safe" / "geozarr" / f"{name}.schema.json"
     return Draft7Validator(json.loads(path.read_text()))
 
@@ -73,13 +76,13 @@ def python_docs(path: Path, url: str):
         return None
     if hasattr(out, "docs"):  # the zarr.json documents (not refkv_source/empty.json, which is not a node's)
         return fmt, {k: v for k, v in out.docs.items() if k.endswith("zarr.json")}
-    entries = out.bytes_entries if hasattr(out, "bytes_entries") else out.entries  # a file's, or a store IR's
+    entries = out.bytes_entries if isinstance(out, Output) else out.entries  # a file's, or a store IR's
     return fmt, {k: json.loads(v) for k, v in entries.items() if k.endswith("zarr.json")}
 
 
-def declares(doc: dict) -> bool:
-    attrs = doc.get("attributes", {})
-    cmos = attrs.get("zarr_conventions", [])
+def declares(doc: object) -> bool:
+    attrs = mapping(mapping(doc).get("attributes", {}))
+    cmos = sequence(attrs.get("zarr_conventions", []))
     return any(isinstance(c, dict) and c.get("uuid") in UUIDS for c in cmos)
 
 
@@ -87,9 +90,9 @@ def test_schemas_describe_the_conventions():
     for profile in PROFILES:
         validator = schema(profile)
         Draft202012Validator.check_schema(validator.schema)
-        cmo = validator.schema["$defs"]["conventionMetadata"]["properties"]
-        assert {k: v["const"] for k, v in cmo.items()} == convention(profile), profile
-        assert validator.schema["$id"] == convention(profile)["schema_url"], profile
+        cmo = mapping(at(validator.schema, "$defs", "conventionMetadata", "properties"))
+        assert {k: at(v, "const") for k, v in cmo.items()} == convention(profile), profile
+        assert at(validator.schema, "$id") == convention(profile)["schema_url"], profile
 
 
 def test_the_documents_cmos_are_the_ones_refkv_writes():
@@ -118,12 +121,13 @@ def test_every_output_declares_its_profile_where_the_convention_says():
         fmt, docs = py
         assert fmt == w["format"], path.name
         for impl, d in (("py", docs), ("web", w["docs"])):
-            assert d["zarr.json"]["attributes"][CONVENTION_KEY]["source"] == {"url": url}, (impl, path.name)
-            layouts = tuple(f"{p}/" for p in d["zarr.json"]["attributes"][CONVENTION_KEY].get("layouts", {}).values())
+            assert at(d, "zarr.json", "attributes", CONVENTION_KEY, "source") == {"url": url}, (impl, path.name)
+            root = mapping(at(d, "zarr.json", "attributes", CONVENTION_KEY))
+            layouts = tuple(f"{p}/" for p in mapping(root.get("layouts", {})).values())
             for key, doc in d.items():
-                attrs = doc.get("attributes", {})
+                attrs = mapping(mapping(doc).get("attributes", {}))
                 geo = {m for m in attrs if m.startswith(tuple(GEOZARR))} if fmt == "safe" else set()
-                if layouts and key.startswith(layouts) and doc["node_type"] == "array":
+                if layouts and key.startswith(layouts) and at(doc, "node_type") == "array":
                     geo |= set(attrs) & DATASET_ATTRS
                 assert set(attrs) - geo <= {"ome", "zarr_conventions", CONVENTION_KEY}, (impl, path.name, key)
                 for name in {n for p, n in GEOZARR.items() for m in geo if m.startswith(p)}:
@@ -134,11 +138,11 @@ def test_every_output_declares_its_profile_where_the_convention_says():
                     assert declares(doc), (impl, path.name)
                 if declares(doc):
                     # a dataset layout's node declares its own convention, as a root does
-                    own = attrs[CONVENTION_KEY].get("profile", fmt)
+                    own = string(mapping(attrs[CONVENTION_KEY]).get("profile", fmt))
                     errors = [e.message for e in schema(own).iter_errors(doc)]
                     assert not errors, (impl, path.name, key, errors)
                     is_root = key == "zarr.json" or key.removesuffix("/zarr.json") in [p[:-1] for p in layouts]
-                    assert ("profile" in attrs[CONVENTION_KEY]) == is_root, (impl, path.name, key)
+                    assert ("profile" in mapping(attrs[CONVENTION_KEY])) == is_root, (impl, path.name, key)
                     if impl == "py":
                         accepted[own] = accepted.get(own, 0) + 1
         assert same(docs, w["docs"]), path.name
@@ -186,9 +190,9 @@ def test_schemas_reject_an_unknown_version():
     for profile in PROFILES:
         doc = {"zarr_format": 3, "node_type": "group", "attributes": declare({}, profile, "https://data.test/x/")}
         validator = schema(profile)
-        root = doc["attributes"][CONVENTION_KEY]
+        root = mapping(at(doc, "attributes", CONVENTION_KEY))
         assert not list(validator.iter_errors(doc)), profile
-        assert convention(profile)["schema_url"].startswith(
+        assert string(convention(profile)["schema_url"]).startswith(
             "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/"), profile
         doc["attributes"][CONVENTION_KEY] = {**root, "version": 1}
         assert list(validator.iter_errors(doc)), profile

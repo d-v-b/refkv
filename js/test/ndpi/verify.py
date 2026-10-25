@@ -12,6 +12,8 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 spec = importlib.util.spec_from_file_location("tiff_verify", HERE.parent / "tiff" / "verify.py")
+assert spec is not None
+assert spec.loader is not None
 tiff_verify = sys.modules["tiff_verify"] = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tiff_verify)
 

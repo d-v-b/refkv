@@ -15,9 +15,11 @@ import json
 import struct
 
 import pytest
+from reference_helpers import ranges_of
 from refkv_reference import virtualize
 from refkv_reference.dicom.dataset import EXPLICIT_LE, IMPLICIT_LE
 from refkv_reference.dicom.source import Translator, dictionary_vr, json_size, value_json
+from refkv_reference.legacy import Output
 
 from refkv.zarrify import Rejected
 
@@ -68,6 +70,7 @@ def test_virtualizes_the_synthetic_files():
     # first window where given.
     for name, summary, codecs, scale, window in CASES:
         fmt, out = virtualize(str(FIXTURES / name), url=f"https://data.test/{name}")
+        assert isinstance(out, Output)
         assert fmt == "dicom", name
         assert out.url == f"https://data.test/{name}"
         assert {**out.summary, **summary} == out.summary, name
@@ -188,10 +191,11 @@ def _bounds(tag: str) -> tuple[dict, list]:
     """In dicom_gathered_bounds.dcm, the attribute of tag `tag` of the
     dataset, and the references of the array of its bytes."""
     _, out = virtualize(str(FIXTURES / "dicom_gathered_bounds.dcm"), url="https://data.test/x.dcm")
+    assert isinstance(out, Output)
     root, node, docs = _source("dicom_gathered_bounds.dcm")
     attribute = {**root["dataset"], **node.get("dataset", {})}[tag]
-    assert docs[f"vzip_source/dataset/{tag}/zarr.json"]["shape"] == [sum(n for _, n in out.refs[
-        f"vzip_source/dataset/{tag}/c/0"])]
+    assert docs[f"vzip_source/dataset/{tag}/zarr.json"]["shape"] == [sum(n for _, n in ranges_of(
+        out, f"vzip_source/dataset/{tag}/c/0"))]
     assert not [k for k in docs if k.startswith(f"vzip_source/dataset/{tag}/items/")]  # nothing gathered
     return attribute, out.refs[f"vzip_source/dataset/{tag}/c/0"]
 
@@ -264,6 +268,7 @@ def test_large_values_are_arrays_and_nothing_after_pixel_data_is_lost():
     named by BulkDataURI, per-frame groups on
     vzip_source, elements after Pixel Data, and no layout or padding."""
     _, out = virtualize(str(FIXTURES / "dicom_reconstruction.dcm"), url="https://data.test/r.dcm")
+    assert isinstance(out, Output)
     dataset = json.loads(out.bytes_entries["zarr.json"])["attributes"]["vzip_virtualized"]["dicom"]["dataset"]
     node = json.loads(out.bytes_entries["vzip_source/zarr.json"])["attributes"]["vzip_virtualized"]["dicom"]
     bulk = {k: v["BulkDataURI"] for k, v in dataset.items() if "BulkDataURI" in v}
@@ -282,6 +287,7 @@ def test_large_values_are_arrays_and_nothing_after_pixel_data_is_lost():
 
 def _source(name: str):
     _, out = virtualize(str(FIXTURES / name), url=f"https://data.test/{name}")
+    assert isinstance(out, Output)
     docs = {k: json.loads(v) for k, v in out.bytes_entries.items() if k.endswith("zarr.json")}
     root = docs["zarr.json"]["attributes"]["vzip_virtualized"]["dicom"]
     node = docs.get("vzip_source/zarr.json", {}).get("attributes", {}).get("vzip_virtualized", {}).get("dicom", {})
@@ -292,6 +298,7 @@ def _items(name: str, sequence: str = "dataset/52009230") -> tuple[list[dict], l
     """The distinct structures of the items of a file's gathered sequence at
     path `sequence`, and each item's."""
     _, out = virtualize(str(FIXTURES / name), url=f"https://data.test/{name}")
+    assert isinstance(out, Output)
     root, node, _ = _source(name)
     first, *names = sequence.split("/")
     attribute = {**root[first], **node.get(first, {})}
@@ -438,6 +445,7 @@ def test_the_source_metadata_keeps_what_the_file_holds():
         doc = docs[f"vzip_source/dataset/52009230/items/{k}/value/zarr.json"]
         assert (doc["data_type"], doc["chunk_grid"]["configuration"]["chunk_shape"]) == (data_type, chunks), k
     _, out = virtualize(str(FIXTURES / "dicom_gathered_sequences.dcm"), url="https://data.test/x.dcm")
+    assert isinstance(out, Output)
     sparse = sorted(k for k in out.refs if k.startswith("vzip_source/dataset/52009230/items/00291001/value/c/"))
     assert sparse == [f"vzip_source/dataset/52009230/items/00291001/value/c/{f}/0" for f in (3, 40, 79)]
     # An explicit UN value in big endian keeps its bytes in little endian, and says so.
@@ -495,7 +503,8 @@ def test_the_source_metadata_keeps_what_the_file_holds():
     root, _, docs = _source("dicom_eot_item_headers.dcm")
     assert root["pixel_unreferenced_headers"] is True
     _, out = virtualize(str(FIXTURES / "dicom_eot_item_headers.dcm"), url="https://data.test/x.dcm")
-    assert [n for _, n in out.refs["vzip_source/pixel_unreferenced/data/c/0"]] == [8, 8, 10]  # 2 bytes of padding
+    assert isinstance(out, Output)
+    assert [n for _, n in ranges_of(out, "vzip_source/pixel_unreferenced/data/c/0")] == [8, 8, 10]  # 2 bytes of padding
 
     # Numbers too long to convert.
     root, _, _ = _source("dicom_long_numbers.dcm")

@@ -15,12 +15,14 @@ import os
 import struct
 import zipfile
 import zlib
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pbref
 from http_server import etag_for
 from model import standard_queries
 
+from refkv._narrow import sequence
 from refkv.pb import Concat, Range, Source
 from refkv.vzip.archive import VZipWriter
 
@@ -261,7 +263,7 @@ def descriptions(root: Path, http_base: str | None = None) -> dict[str, dict]:
     }
     # pages small enough that the o/ keys (UTF-8 vs UTF-16 order) straddle pages
     paged_tiny = {**paged, "page_size": 1,
-                  "entries": [*paged["entries"][:60],
+                  "entries": [*sequence(paged["entries"])[:60],
                               {"key": "__vz__/pinned_hidden", "bytes": H(b"ph"), "pinned": True}]}
     empty = {"page_size": None, "mirror": True, "sources": [], "entries": []}
     empty_paged = {**empty, "page_size": 100}
@@ -348,9 +350,18 @@ def invalid_descriptions(_root: Path) -> dict[str, dict]:
 # ---------------------------------------------------------------- crafted
 
 
+class _Writer(VZipWriter):
+    """The reference writer with its test hooks declared (archive.py reads them with getattr)."""
+
+    _skip_checks: bool = False
+    _source_table_override: bytes | None = None
+    _trailer_first: bool = False
+    _sources_trailing_junk: bool = False
+
+
 def _writer(path: Path, sources=None, **kw):
     f = open(path, "wb")  # noqa: SIM115 (returned to the caller, which closes it)
-    w = VZipWriter(f, **kw)
+    w = _Writer(f, **kw)
     for s in sources or [Source(url="data/blob.bin")]:
         w.source(s)
     return f, w
@@ -376,12 +387,15 @@ def crafted(_root: Path) -> dict[str, dict]:
     """name -> {"build": fn(path), "open": "ok" | "fail", "expect": [(query, accept)],
     "read_path": optional fn(path) -> path to hand to the reader}"""
     cases: dict[str, dict] = {}
+    # a build's expectations, and its read_path, set after its def (before case() registers it)
+    expects: dict[Callable[..., None], list] = {}
+    read_paths: dict[Callable[..., None], Callable[[Path], Path]] = {}
     REF = {"ok": True, "kind": "reference"}
 
     def case(name, opens="ok"):
         def deco(fn):
-            cases[name] = {"build": fn, "open": opens, "expect": getattr(fn, "expect", []),
-                           "read_path": getattr(fn, "read_path", None)}
+            cases[name] = {"build": fn, "open": opens, "expect": expects.get(fn, []),
+                           "read_path": read_paths.get(fn)}
             return fn
         return deco
 
@@ -415,7 +429,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.add_bytes("fine", b"ok")
         w.close()
         f.close()
-    both_ids.expect = entry_error("x") + fine + [
+    expects[both_ids] = entry_error("x") + fine + [
         ({"op": "list", "prefix": ""}, [{"ok": True, "keys": ["fine", "x"]}])]
     case("both_reference_ids")(both_ids)
 
@@ -426,7 +440,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.add_bytes("fine", b"ok")
         w.close()
         f.close()
-    dup_block.expect = entry_error("x") + fine
+    expects[dup_block] = entry_error("x") + fine
     case("duplicate_reference_block")(dup_block)
 
     def bad_extra(path):
@@ -435,7 +449,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.add_bytes("fine", b"ok")
         w.close()
         f.close()
-    bad_extra.expect = entry_error("x") + fine
+    expects[bad_extra] = entry_error("x") + fine
     case("unparseable_extra_field")(bad_extra)
 
     def deflated_ref(path):
@@ -445,7 +459,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.add_bytes("fine", b"ok")
         w.close()
         f.close()
-    deflated_ref.expect = entry_error("x") + fine
+    expects[deflated_ref] = entry_error("x") + fine
     case("reference_entry_deflated")(deflated_ref)
 
     def bad_method(path, paged=False):
@@ -457,12 +471,12 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.close()
         f.close()
         _set_method(path, "x", 9)
-    bad_method.expect = entry_error("x") + fine + [(get("y19"), [ok_value(b"y")])]
+    expects[bad_method] = entry_error("x") + fine + [(get("y19"), [ok_value(b"y")])]
     case("unsupported_method")(bad_method)
 
     def bad_method_paged(path):
         bad_method(path, paged=True)
-    bad_method_paged.expect = bad_method.expect
+    expects[bad_method_paged] = expects[bad_method]
     case("unsupported_method_paged")(bad_method_paged)
 
     # -- payload errors (§4 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#4-messages>):
@@ -473,7 +487,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.add_bytes("fine", b"ok")
         w.close()
         f.close()
-    truncated.expect = payload_error("x") + fine
+    expects[truncated] = payload_error("x") + fine
     case("truncated_payload")(truncated)
 
     def wiretype(path):
@@ -481,7 +495,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         _raw_ref(w, "x", 0x7A76, b"\x1a\x01\x05")  # field 3 (offset) sent as LEN
         w.close()
         f.close()
-    wiretype.expect = payload_error("x")
+    expects[wiretype] = payload_error("x")
     case("wire_type_mismatch")(wiretype)
 
     def long_varint(path):
@@ -490,7 +504,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         _raw_ref(w, "y", 0x7A76, b"\x18" + b"\xff" * 9 + b"\x02")   # 10 bytes, > 2^64-1
         w.close()
         f.close()
-    long_varint.expect = payload_error("x") + payload_error("y")
+    expects[long_varint] = payload_error("x") + payload_error("y")
     case("varint_too_long_or_too_large")(long_varint)
 
     def field_zero(path):
@@ -499,7 +513,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         _raw_ref(w, "y", 0x7A76, _varint((2**29) << 3) + b"\x01\x20\x02")  # field 2^29
         w.close()
         f.close()
-    field_zero.expect = payload_error("x") + payload_error("y")
+    expects[field_zero] = payload_error("x") + payload_error("y")
     case("invalid_field_numbers")(field_zero)
 
     def literal_nonzero(path):
@@ -508,7 +522,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.add_bytes("fine", b"ok")
         w.close()
         f.close()
-    literal_nonzero.expect = payload_error("x") + fine
+    expects[literal_nonzero] = payload_error("x") + fine
     case("literal_range_with_length")(literal_nonzero)
 
     def src_oob(path):
@@ -517,7 +531,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.add_bytes("fine", b"ok")
         w.close()
         f.close()
-    src_oob.expect = payload_error("x") + fine + [(get("x", {"start": 0, "end": 1}), [P])]
+    expects[src_oob] = payload_error("x") + fine + [(get("x", {"start": 0, "end": 1}), [P])]
     case("source_index_out_of_bounds")(src_oob)
 
     def uint32_overflow(path):
@@ -525,7 +539,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         _raw_ref(w, "x", 0x7A76, b"\x08" + _varint(2**32) + b"\x20\x02")  # source = 2^32
         w.close()
         f.close()
-    uint32_overflow.expect = payload_error("x")
+    expects[uint32_overflow] = payload_error("x")
     case("source_uint32_overflow")(uint32_overflow)
 
     def length_overflow(path):
@@ -533,7 +547,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         _raw_ref(w, "x", 0x7A76, b"\x18" + _varint(2**64 - 1) + b"\x20\x01")
         w.close()
         f.close()
-    length_overflow.expect = payload_error("x")
+    expects[length_overflow] = payload_error("x")
     case("offset_plus_length_overflow")(length_overflow)
 
     # -- accepted encodings (§4.1
@@ -547,7 +561,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         _raw_ref(w, "x", 0x7A76, p)
         w.close()
         f.close()
-    unknown_fields.expect = [(get("x"), [ok_value(BLOB[10:13])])]
+    expects[unknown_fields] = [(get("x"), [ok_value(BLOB[10:13])])]
     case("unknown_fields_ignored")(unknown_fields)
 
     def last_wins(path):
@@ -559,7 +573,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         _raw_ref(w, "y", 0x7A76, b"\x08\x01\x20\x02")
         w.close()
         f.close()
-    last_wins.expect = [(get("x"), [ok_value(BLOB[10:12])]), (get("y"), [ok_value(b"zz")])]
+    expects[last_wins] = [(get("x"), [ok_value(BLOB[10:12])]), (get("y"), [ok_value(b"zz")])]
     case("last_occurrence_wins")(last_wins)
 
     def out_of_order(path):
@@ -568,7 +582,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         _raw_ref(w, "y", 0x7A76, b"\x18\x84\x00\x20\x02")  # non-minimal varint offset = 4
         w.close()
         f.close()
-    out_of_order.expect = [(get("x"), [ok_value(BLOB[4:6])]), (get("y"), [ok_value(BLOB[4:6])])]
+    expects[out_of_order] = [(get("x"), [ok_value(BLOB[4:6])]), (get("y"), [ok_value(BLOB[4:6])])]
     case("non_canonical_encodings_accepted")(out_of_order)
 
     def concat_one(path):
@@ -577,7 +591,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         _raw_ref(w, "y", 0x7A77, b"")  # zero parts
         w.close()
         f.close()
-    concat_one.expect = [(get("x"), [ok_value(BLOB[3:5])]), (get("y"), [ok_value(b"")]),
+    expects[concat_one] = [(get("x"), [ok_value(BLOB[3:5])]), (get("y"), [ok_value(b"")]),
                          (classify("y"), [REF])]
     case("concat_with_one_or_zero_parts")(concat_one)
 
@@ -590,7 +604,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w._entry("x", b"", struct.pack("<HH", 0x7A76, len(p)) + p)
         w.close()
         f.close()
-    empty_body.expect = [(get("x"), [ok_value(BLOB[7:8])]), (raw("x"), [ok_value(b"")])]
+    expects[empty_body] = [(get("x"), [ok_value(BLOB[7:8])]), (raw("x"), [ok_value(b"")])]
     case("reference_with_empty_body")(empty_body)
 
     # -- resolution errors (§5
@@ -604,7 +618,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         _raw_ref(w, "x", 0x7A76, Range(source=1, length=2).encode())
         w.close()
         f.close()
-    key_to_ref.expect = [(get("x"), [R]), (get("target"), [ok_value(BLOB[:4])])]
+    expects[key_to_ref] = [(get("x"), [R]), (get("target"), [ok_value(BLOB[:4])])]
     case("key_source_names_reference")(key_to_ref)
 
     def key_missing(path):
@@ -615,7 +629,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.add_bytes("ghost-ish", b"no")
         w.close()
         f.close()
-    key_missing.expect = [(get("x"), [R]), (get("ghost-ish"), [ok_value(b"no")]),
+    expects[key_missing] = [(get("x"), [R]), (get("ghost-ish"), [ok_value(b"no")]),
                           (get("z"), [ok_value(b"ab")]),
                           (get("z", {"start": 0, "end": 1}), [ok_value(b"a")])]
     case("key_source_missing")(key_missing)
@@ -626,7 +640,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         _raw_ref(w, "x", 0x7A76, Range(source=1, length=1).encode())
         w.close()
         f.close()
-    key_format.expect = [(get("x"), [R])]
+    expects[key_format] = [(get("x"), [R])]
     case("key_source_names_format_entry")(key_format)
 
     def key_errored(path):
@@ -635,7 +649,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         _raw_ref(w, "x", 0x7A76, Range(source=1, length=1).encode())
         w.close()
         f.close()
-    key_errored.expect = [(get("x"), [R]), *entry_error("broken")]
+    expects[key_errored] = [(get("x"), [R]), *entry_error("broken")]
     case("key_source_names_entry_with_error")(key_errored)
 
     def symlinked(path):
@@ -649,8 +663,8 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.add_ref("x", "../data/blob.bin", 3, 2)  # lexically: vectors/data/blob.bin
         w.close()
         f.close()
-    symlinked.read_path = lambda path: path.parent / "sym_link" / path.name
-    symlinked.expect = [(get("x"), [ok_value(BLOB[3:5])])]
+    read_paths[symlinked] = lambda path: path.parent / "sym_link" / path.name
+    expects[symlinked] = [(get("x"), [ok_value(BLOB[3:5])])]
     case("base_uri_not_symlink_resolved")(symlinked)
 
     # -- revision 3: check order, body errors, ignored records, pins over time ---
@@ -660,7 +674,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.add_bytes("fine", b"ok")
         w.close()
         f.close()
-    hidden_entry_error.expect = [
+    expects[hidden_entry_error] = [
         (classify("__vz__/broken"), [{"ok": True, "kind": "missing"}]),
         (get("__vz__/broken"), [ok_value(None)]),
         (raw("__vz__/broken"), [E]),
@@ -680,7 +694,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         b[i] = 0xFF  # an invalid DEFLATE block type
         b[i + 1] = 0xFF
         path.write_bytes(bytes(b))
-    corrupt_deflate.expect = [
+    expects[corrupt_deflate] = [
         (classify("z"), [{"ok": True, "kind": "bytes"}]), (get("z"), [B]), (raw("z"), [B]),
         (get("z", {"start": 0, "end": 1}), [B]), (get("k"), [R]), (get("r"), [ok_value(BLOB[:1])])]
     case("body_does_not_inflate")(corrupt_deflate)
@@ -691,7 +705,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.close()
         f.close()
         _set_size(path, "z", 99)
-    wrong_size.expect = [(get("z"), [B]), (raw("z"), [B]), (classify("z"), [{"ok": True, "kind": "bytes"}])]
+    expects[wrong_size] = [(get("z"), [B]), (raw("z"), [B]), (classify("z"), [{"ok": True, "kind": "bytes"}])]
     case("body_inflates_to_wrong_size")(wrong_size)
 
     def ignored_names(path):
@@ -703,7 +717,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         f.close()
         _rename(path, "zz-invalid", b"\xff\xfe\xfd\xfc\xfb\xfa\xf9\xf8\xf7\xf6")
         _rename(path, "zz-empty", b"")
-    ignored_names.expect = [*fine, ({"op": "list", "prefix": ""}, [{"ok": True, "keys": ["fine"]}])]
+    expects[ignored_names] = [*fine, ({"op": "list", "prefix": ""}, [{"ok": True, "keys": ["fine"]}])]
     case("records_with_empty_or_invalid_names_ignored")(ignored_names)
 
     def stale(path):
@@ -722,7 +736,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         # the producer regenerates the file in place: same size, new values, newer mtime
         (d / "regen.bin").write_bytes(bytes(range(100, 200)))
         os.utime(d / "regen.bin", (MTIME + 86400, MTIME + 86400))
-    stale.expect = [(get("unpinned"), [ok_value(bytes(range(110, 114)))]),
+    expects[stale] = [(get("unpinned"), [ok_value(bytes(range(110, 114)))]),
                     (get("pinned"), [R]),
                     (get("size_only"), [ok_value(bytes(range(110, 114)))])]
     case("source_regenerated_in_place")(stale)
@@ -735,7 +749,7 @@ def crafted(_root: Path) -> dict[str, dict]:
             _raw_ref(w, f"u{i}", 0x7A76, Range(source=i + 1, length=1).encode())
         w.close()
         f.close()
-    invalid_uri.expect = [(get(f"u{i}"), [R]) for i in range(5)]
+    expects[invalid_uri] = [(get(f"u{i}"), [R]) for i in range(5)]
     case("url_not_a_uri_reference")(invalid_uri)
 
     def bad_page(path):
@@ -746,7 +760,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.close()
         f.close()
         _corrupt_cd_record(path, "k10")
-    bad_page.expect = [(get("k10"), [E]), (classify("k10"), [E]), (get("zz"), [ok_value(b"last")]),
+    expects[bad_page] = [(get("k10"), [E]), (classify("k10"), [E]), (get("zz"), [ok_value(b"last")]),
                        ({"op": "list", "prefix": "k1"}, [E]),
                        ({"op": "list", "prefix": "zz"}, [{"ok": True, "keys": ["zz"]}])]
     case("page_that_cannot_be_parsed")(bad_page)
@@ -764,7 +778,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.add_bytes("fine", b"ok")
         w.close()
         f.close()
-    signatures_in_name.expect = [
+    expects[signatures_in_name] = [
         *fine, (get("zz" + "PK\x06\x07" + "\x01" * 16 + "PK\x06\x06" + "PK\x05\x06"), [ok_value(b"still fine")])]
     case("end_record_signatures_in_name")(signatures_in_name)
 
@@ -777,7 +791,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.add_bytes("fine", b"ok")
         w.close()
         f.close()
-    trailing_bytes.expect = [*fine, (get("z"), [B]), (raw("z"), [B]), (get("z", {"start": 0, "end": 1}), [B])]
+    expects[trailing_bytes] = [*fine, (get("z"), [B]), (raw("z"), [B]), (get("z", {"start": 0, "end": 1}), [B])]
     case("deflate_trailing_bytes")(trailing_bytes)
 
     def truncated_deflate(path):
@@ -788,7 +802,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w._entry_raw("z", body, stored)
         w.close()
         f.close()
-    truncated_deflate.expect = [(get("z", {"start": 0, "end": 1}), [B]), (raw("z"), [B])]
+    expects[truncated_deflate] = [(get("z", {"start": 0, "end": 1}), [B]), (raw("z"), [B])]
     case("deflate_truncated_window_at_start")(truncated_deflate)
 
     def sources_trailing(path):
@@ -805,7 +819,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.close()
         f.close()
         _set_size(path, "z", 9)
-    stored_size_mismatch.expect = [*fine, (get("z"), [B]), (raw("z"), [B])]
+    expects[stored_size_mismatch] = [*fine, (get("z"), [B]), (raw("z"), [B])]
     case("stored_sizes_differ")(stored_size_mismatch)
 
     def offset_sentinel(path):
@@ -818,7 +832,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         i = next(_records(b, b"PK\x01\x02", 28, 46, b"z"))
         struct.pack_into("<I", b, i + 42, 0xFFFFFFFF)
         path.write_bytes(bytes(b))
-    offset_sentinel.expect = fine + entry_error("z")
+    expects[offset_sentinel] = fine + entry_error("z")
     case("offset_sentinel_without_zip64_block")(offset_sentinel)
 
     def pre_epoch(path):
@@ -831,7 +845,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         _raw_ref(w, "bad", 0x7A76, Range(source=1, length=3).encode())
         w.close()
         f.close()
-    pre_epoch.expect = [(get("ok"), [ok_value(b"anc")]), (get("bad"), [R])]
+    expects[pre_epoch] = [(get("ok"), [ok_value(b"anc")]), (get("bad"), [R])]
     case("pre_epoch_mtime_rounds_down")(pre_epoch)
 
     # -- revision 7 ----------------------------------------------------------
@@ -845,7 +859,7 @@ def crafted(_root: Path) -> dict[str, dict]:
                                          Range(data=b"!"))).encode())
         w.close()
         f.close()
-    oob_tail.expect = [(get("x"), [R]), (get("x", {"start": 0, "end": 2}), [ok_value(b"ED")]),
+    expects[oob_tail] = [(get("x"), [R]), (get("x", {"start": 0, "end": 2}), [ok_value(b"ED")]),
                        (get("x", {"start": 0, "end": 3}), [R])]
     case("data_range_past_end_read")(oob_tail)
 
@@ -859,7 +873,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         i = next(_records(b, b"PK\x01\x02", 28, 46, b"z"))
         struct.pack_into("<I", b, i + 24, 0xFFFFFFFF)  # uncompressed size
         path.write_bytes(bytes(b))
-    size_sentinel.expect = fine + entry_error("z")
+    expects[size_sentinel] = fine + entry_error("z")
     case("size_field_all_ones")(size_sentinel)
 
     def dup_zip64(path):
@@ -868,7 +882,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.add_bytes("fine", b"ok")
         w.close()
         f.close()
-    dup_zip64.expect = fine + entry_error("z")
+    expects[dup_zip64] = fine + entry_error("z")
     case("duplicate_zip64_block")(dup_zip64)
 
     def big_payload(path):
@@ -879,7 +893,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.add_bytes("fine", b"ok")
         w.close()
         f.close()
-    big_payload.expect = fine + payload_error("x")
+    expects[big_payload] = fine + payload_error("x")
     case("payload_over_65519_bytes")(big_payload)
 
     def explicit_zero_source(path):
@@ -887,7 +901,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         _raw_ref(w, "x", 0x7A76, b"\x08\x00\x2a\x01a")  # source=0 encoded explicitly
         w.close()
         f.close()
-    explicit_zero_source.expect = [(get("x"), [ok_value(b"a")])]
+    expects[explicit_zero_source] = [(get("x"), [ok_value(b"a")])]
     case("literal_range_explicit_zero_source")(explicit_zero_source)
 
     def missing_on_bad_page(path):
@@ -897,7 +911,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.close()
         f.close()
         _corrupt_cd_record(path, "k10")
-    missing_on_bad_page.expect = [(get("k10x"), [E]), (classify("k10x"), [E])]
+    expects[missing_on_bad_page] = [(get("k10x"), [E]), (classify("k10x"), [E])]
     case("missing_key_on_unparseable_page")(missing_on_bad_page)
 
     def empty_key_source(path):
@@ -932,7 +946,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         struct.pack_into("<Q", b, z + 40, struct.unpack_from("<Q", b, z + 40)[0] + len(block))
         struct.pack_into("<Q", b, z + 56 + 8, z)
         path.write_bytes(bytes(b))
-    long_zip64_block.expect = [(get("z"), [ok_value(b"hello")])]
+    expects[long_zip64_block] = [(get("z"), [ok_value(b"hello")])]
     case("zip64_block_longer_than_8_bytes")(long_zip64_block)
 
     def earlier_invalid(path):
@@ -942,7 +956,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.add_bytes("fine", b"ok")
         w.close()
         f.close()
-    earlier_invalid.expect = fine + payload_error("x")
+    expects[earlier_invalid] = fine + payload_error("x")
     case("invalid_earlier_occurrence_in_payload")(earlier_invalid)
 
     def earlier_invalid_source(path):
@@ -1044,7 +1058,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         def build(path):
             end_records(path, lambda b, _z, _loc, eocd: struct.pack_into("<HHII", b, eocd + 8, *values),
                         paged=paged)
-        build.expect = end_ok
+        expects[build] = end_ok
         return build
 
     case("end_record_fields_zero")(eocd_fields(0, 0, 0, 0))
@@ -1058,12 +1072,12 @@ def crafted(_root: Path) -> dict[str, dict]:
             n, _, cd_size, cd_off = struct.unpack_from("<QQQQ", b, z + 24)
             struct.pack_into("<HHII", b, eocd + 8, n, n, cd_size, cd_off)
         end_records(path, mutate)
-    eocd_real_values.expect = end_ok
+    expects[eocd_real_values] = end_ok
     case("end_record_fields_actual_values")(eocd_real_values)
 
     def zip64_counts_ignored(path):
         end_records(path, lambda b, z, _loc, _eocd: struct.pack_into("<QQ", b, z + 24, 0, 10**9))
-    zip64_counts_ignored.expect = end_ok
+    expects[zip64_counts_ignored] = end_ok
     case("zip64_record_counts_ignored")(zip64_counts_ignored)
 
     # -- revision 11: large entries
@@ -1078,7 +1092,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.add_ref("x", "data/blob.bin", 3, 2)
         w.close()
         f.close()
-    large.expect = [
+    expects[large] = [
         (classify("big"), [{"ok": True, "kind": "bytes"}]),
         (get("big", {"suffix": 5}), [ok_value(b"tail!")]),
         (get("big", {"start": 0x100000000 - 4, "end": 0x100000000}), [ok_value(b"\0\0ta")]),
@@ -1122,7 +1136,7 @@ def crafted(_root: Path) -> dict[str, dict]:
             struct.pack_into("<Q", b, z + 40, struct.unpack_from("<Q", b, z + 40)[0] + len(new) - xlen)
             struct.pack_into("<Q", b, z + 56 + 8, z)
             path.write_bytes(bytes(b))
-        build.expect = fine + entry_error(key)
+        expects[build] = fine + entry_error(key)
         return build
 
     def z64(*values):
@@ -1156,7 +1170,7 @@ def crafted(_root: Path) -> dict[str, dict]:
         w.add_ref("x", "data/blob.bin", 3, 2)
         w.close()
         f.close()
-    orphan_local_header.expect = [
+    expects[orphan_local_header] = [
         *fine, (get("x"), [ok_value(BLOB[3:5])]),
         ({"op": "list", "prefix": ""}, [{"ok": True, "keys": ["fine", "x"]}]),
         (classify(".fine.sozip.idx"), [{"ok": True, "kind": "missing"}])]
@@ -1215,7 +1229,7 @@ def crafted(_root: Path) -> dict[str, dict]:
     return cases
 
 
-def _records(b: bytes, sig: bytes, name_len_at: int, name_at: int, key: bytes):
+def _records(b: bytes | bytearray, sig: bytes, name_len_at: int, name_at: int, key: bytes) -> Iterator[int]:
     i = 0
     while (i := b.find(sig, i)) >= 0:
         n = struct.unpack_from("<H", b, i + name_len_at)[0]
@@ -1242,7 +1256,7 @@ def _sparse_entry(w, key: str, size: int, tail: bytes) -> None:
     w._cd.append((key, off, size, size, 0, crc, b""))
 
 
-def _body_offset(b: bytes, key: str) -> int:
+def _body_offset(b: bytes | bytearray, key: str) -> int:
     i = next(_records(b, b"PK\x03\x04", 26, 30, key.encode()))
     return i + 30 + len(key.encode())
 

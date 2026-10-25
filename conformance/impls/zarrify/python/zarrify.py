@@ -15,6 +15,7 @@ import struct
 import sys
 import urllib.parse
 import zlib
+from typing import TypedDict, overload
 
 MAX = 2**53 - 1
 MAX_PAYLOAD = 65519
@@ -45,10 +46,12 @@ class Source:
         u = urllib.parse.urlsplit(url)
         if u.scheme != "http":
             raise ReadError(f"unsupported URL scheme: {u.scheme}")
-        self.host = u.hostname
+        if u.hostname is None:
+            raise ReadError(f"no host in the URL: {url}")
+        self.host: str = u.hostname
         self.port = u.port or 80
         self.path = (u.path or "/") + (("?" + u.query) if u.query else "")
-        self.conn = None
+        self.conn: http.client.HTTPConnection | None = None
         self.cache: dict[int, bytes] = {}
         st, hdrs, _ = self._request("HEAD", {})
         if st != 200:
@@ -58,7 +61,7 @@ class Source:
             raise ReadError("HEAD without Content-Length")
         self.size = int(cl)
 
-    def _request(self, method, headers):
+    def _request(self, method: str, headers: dict[str, str]) -> tuple[int, dict[str, str], bytes]:
         for attempt in range(3):
             try:
                 if self.conn is None:
@@ -71,7 +74,7 @@ class Source:
                 self.conn = None
                 if attempt == 2:
                     raise ReadError(str(e)) from e
-        return None
+        raise AssertionError("unreachable")
 
     def _fetch(self, first: int, last: int) -> None:
         start = first * self.BLOCK
@@ -176,12 +179,12 @@ def array_json(shape, dtype, chunk_shape, codecs, dims):
     }
 
 
-def transpose_codec(dims):
+def transpose_codec(dims) -> dict[str, object]:
     order = [i for i, d in enumerate(dims) if d != "c"] + [dims.index("c")]
     return {"name": "transpose", "configuration": {"order": order}}
 
 
-def bytes_codec(itemsize, endian):
+def bytes_codec(itemsize, endian) -> dict[str, object]:
     if itemsize == 1:
         return {"name": "bytes"}
     return {"name": "bytes", "configuration": {"endian": endian}}
@@ -215,19 +218,27 @@ MAX_IFDS = 100000
 class IFD:
     def __init__(self, offset):
         self.offset = offset
-        self.tags: dict[int, tuple] = {}  # tag -> (type, count, values or None, data offset)
+        # tag -> (type, count, values or None, data offset)
+        self.tags: dict[int, tuple[int, int, list[int] | None, int]] = {}
         self.next = 0
         self.subs: list[IFD] = []
 
     def has(self, tag):
         return tag in self.tags
 
-    def scalar(self, tag, default=None):
+    # without a default, callers check the tag first
+    @overload
+    def scalar(self, tag: int) -> int: ...
+    @overload
+    def scalar(self, tag: int, default: int) -> int: ...
+    def scalar(self, tag: int, default: int | None = None) -> int | None:
         if tag not in self.tags:
             return default
-        return self.tags[tag][2][0]
+        values = self.tags[tag][2]
+        assert values is not None  # a scalar tag has an integer type
+        return values[0]
 
-    def array(self, tag):
+    def array(self, tag: int) -> list[int] | None:
         return self.tags[tag][2] if tag in self.tags else None
 
 
@@ -326,7 +337,8 @@ class Tiff:
 
     def fmt(self, ifd: IFD):
         bps = ifd.array(258)
-        need(bps is not None and len(bps) >= 1, "BitsPerSample missing or empty")
+        if bps is None or len(bps) < 1:
+            raise RejectedError("BitsPerSample missing or empty")
         need(all(b == bps[0] for b in bps) and bps[0] >= 1, "BitsPerSample values differ or are 0")
         spp = ifd.scalar(277, 1)
         need(spp >= 1, "SamplesPerPixel is 0")
@@ -391,7 +403,7 @@ class Tiff:
             SZ, SC, ST = 1, spp, 1
             Cp = 1
             plane_ifd = {(0, 0, 0): 0}
-            positions = [(0, 0, 0)]
+            positions: list[tuple[int, int, int]] = [(0, 0, 0)]
         else:
             px = ome["pixels"]
             SZ = px.get("SizeZ", 1)
@@ -408,11 +420,12 @@ class Tiff:
             need(total <= 100000, "more than 100000 planes")
             order = px.get("DimensionOrder", "XYZCT")[2:]
             sizes = {"Z": SZ, "C": Cp, "T": ST}
-            tds = ome["tiffdata"] or [{}]
-            files = set()
+            tds: list[TiffData] = ome["tiffdata"] or [{}]
+            files: set[str] = set()
             for td in ome["tiffdata"]:
-                if td.get("_file") is not None:
-                    files.add(td["_file"])
+                fn = td.get("_file")
+                if fn is not None:
+                    files.add(fn)
             need(len(files) <= 1, "multi-file dataset")
             mapping: dict[int, int] = {}
             for td in tds:
@@ -438,7 +451,7 @@ class Tiff:
             for lin in range(total):
                 need(lin in mapping and mapping[lin] < len(self.main), f"plane {lin} not mapped to an IFD")
                 rem = lin
-                pos = {}
+                pos: dict[str, int] = {}
                 for L in order:
                     pos[L] = rem % sizes[L]
                     rem //= sizes[L]
@@ -449,9 +462,10 @@ class Tiff:
         # §3.4
         # <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#34-pyramid-levels>
         # levels: list of {pos: IFD}
-        levels: list[dict] = [{p: self.main[plane_ifd[p]] for p in positions}]
-        if ifd0.array(330):
-            s = len(ifd0.array(330))
+        levels: list[dict[tuple[int, int, int], IFD]] = [{p: self.main[plane_ifd[p]] for p in positions}]
+        subifds = ifd0.array(330)
+        if subifds:
+            s = len(subifds)
             for p in positions:
                 need(len(levels[0][p].subs) >= s, "plane IFD has fewer SubIFDs than IFD 0")
             for k in range(1, s + 1):
@@ -467,9 +481,9 @@ class Tiff:
                     levels.append({(0, 0, 0): ifd})
                     last = ifd
 
-        geo = []
+        geo: list[tuple[int, int, int, int]] = []
         for lv in levels:
-            g = None
+            g: tuple[int, int, int, int] | None = None
             for p in positions:
                 ifd = lv[p]
                 f = self.fmt(ifd)
@@ -479,6 +493,7 @@ class Tiff:
                 gi = (ifd.scalar(256), ifd.scalar(257), ifd.scalar(322), ifd.scalar(323))
                 need(g is None or g == gi, "planes of a level differ")
                 g = gi
+            assert g is not None  # every level has a plane
             geo.append(g)
 
         # §3.5
@@ -489,8 +504,10 @@ class Tiff:
         dtype = {1: "uint", 2: "int", 3: "float"}[sf] + str(bits)
         endian = "little" if self.bo == "<" else "big"
         interleaved = spp > 1 and planar == 1
+        compressor: dict[str, object] | None
         if comp in (33003, 33004, 33005, 34712):
-            a2b, compressor = {"name": "imagecodecs_jpeg2k"}, None
+            a2b: dict[str, object] = {"name": "imagecodecs_jpeg2k"}
+            compressor = None
         else:
             need(pred == 1, f"Predictor {pred}")
             if comp == 1:
@@ -515,22 +532,24 @@ class Tiff:
         if SZ > 1:
             dims.append("z")
         dims += ["y", "x"]
-        codecs = []
+        codecs: list[dict[str, object]] = []
         if interleaved:
             codecs.append(transpose_codec(dims))
         codecs.append(a2b)
         if compressor:
             codecs.append(compressor)
 
-        px = ome["pixels"] if ome else {}
-        PX = px.get("PhysicalSizeX")
-        PY = px.get("PhysicalSizeY")
-        PZ = px.get("PhysicalSizeZ")
-        units = {}
+        px: Pixels = ome["pixels"] if ome else {}
+        phys = px.get("physical", {})
+        phys_units = px.get("units", {})
+        PX = phys.get("X")
+        PY = phys.get("Y")
+        PZ = phys.get("Z")
+        units: dict[str, str | None] = {}
         if ome:
             for ax, P in (("x", PX), ("y", PY), ("z", PZ)):
                 if P is not None:
-                    units[ax] = UNITS.get(px.get(f"PhysicalSize{ax.upper()}Unit", "µm"))
+                    units[ax] = UNITS.get(phys_units.get(ax.upper(), "µm"))
         W0, H0 = geo[0][0], geo[0][1]
         datasets = []
         for L, (W, H, _TW, _TL) in enumerate(geo):
@@ -544,7 +563,7 @@ class Tiff:
             datasets.append(
                 {"path": str(L), "coordinateTransformations": [{"type": "scale", "scale": [sc[d] for d in dims]}]}
             )
-        ms = {}
+        ms: dict[str, object] = {}
         if ome and ome.get("name"):
             ms["name"] = ome["name"]
         ms["axes"] = [axis_json(d, units.get(d)) for d in dims]
@@ -563,6 +582,9 @@ class Tiff:
             for p in positions:
                 ifd = levels[L][p]
                 offs, cnts = ifd.array(324), ifd.array(325)
+                # check_size: a tiled IFD has both
+                assert offs is not None
+                assert cnts is not None
                 need(len(offs) == T * nsp and len(cnts) == T * nsp, "TileOffsets/TileByteCounts count")
                 z, c, t = p
                 for k in range(T * nsp):
@@ -575,6 +597,7 @@ class Tiff:
                     key = f"{L}/c/" + "/".join(str(coord[d]) for d in dims)
                     self.out.ref(key, [(0, offs[k], n)])
         if ome is not None:
+            assert D is not None  # the OME-XML was read from D
             self.out.bytes("OME/METADATA.ome.xml", D)
 
 
@@ -628,11 +651,41 @@ def decode_refs(s: str) -> str:
 
 class Tag:
     __slots__ = ("attrs", "end", "is_end", "name", "self_closing", "start")
+    attrs: dict[str, str]
+    end: int
+    is_end: bool
+    name: str
+    self_closing: bool
+    start: int
 
 
-def scan_tags(X: str):
-    tags = []
-    skips = []
+class Pixels(TypedDict, total=False):
+    SizeZ: int
+    SizeC: int
+    SizeT: int
+    DimensionOrder: str
+    physical: dict[str, float]  # PhysicalSize<axis>, by axis X, Y or Z
+    units: dict[str, str]  # PhysicalSize<axis>Unit, by axis
+
+
+class TiffData(TypedDict, total=False):
+    IFD: int
+    FirstZ: int
+    FirstC: int
+    FirstT: int
+    PlaneCount: int
+    _file: str | None
+
+
+class Ome(TypedDict):
+    name: str | None
+    pixels: Pixels
+    tiffdata: list[TiffData]
+
+
+def scan_tags(X: str) -> tuple[list[Tag], list[tuple[int, int]]]:
+    tags: list[Tag] = []
+    skips: list[tuple[int, int]] = []
     n = len(X)
     i = 0
     while True:
@@ -659,7 +712,7 @@ def scan_tags(X: str):
         t.is_end = m.group(1) == "/"
         t.name = m.group(2)
         t.self_closing = m.group(4) == "/"
-        attrs = {}
+        attrs: dict[str, str] = {}
         for a in ATTR_RE.finditer(m.group(3)):
             if a.group(1) not in attrs:
                 attrs[a.group(1)] = a.group(2) if a.group(2) is not None else a.group(3)
@@ -671,18 +724,19 @@ def scan_tags(X: str):
 
 def int_attr(v: str, name: str, min1: bool) -> int:
     m = INT_RE.fullmatch(v)
-    need(m is not None, f"{name}={v!r} is not an integer")
+    if m is None:
+        raise RejectedError(f"{name}={v!r} is not an integer")
     x = int(m.group(1))
     need(x <= MAX, f"{name} above 2^53-1")
     need(not min1 or x >= 1, f"{name} is 0")
     return x
 
 
-def parse_ome(X: str):
+def parse_ome(X: str) -> Ome | None:
     tags, skips = scan_tags(X)
     if not any(not t.is_end and t.name == "OME" for t in tags):
         return None
-    res = {"name": None, "pixels": {}, "tiffdata": []}
+    res: Ome = {"name": None, "pixels": {}, "tiffdata": []}
     for t in tags:
         if not t.is_end and t.name == "Image":
             nm = t.attrs.get("Name")
@@ -705,10 +759,10 @@ def parse_ome(X: str):
         if v is not None and FLOAT_RE.fullmatch(v):
             f = float(v)
             if math.isfinite(f) and f > 0:
-                px[f"PhysicalSize{ax}"] = f
+                px.setdefault("physical", {})[ax] = f
         u = a.get(f"PhysicalSize{ax}Unit")
         if u is not None:
-            px[f"PhysicalSize{ax}Unit"] = u
+            px.setdefault("units", {})[ax] = u
     if pt.self_closing:
         return res
     # TiffData tags up to the first Pixels end tag
@@ -722,7 +776,7 @@ def parse_ome(X: str):
         if t.is_end or t.name != "TiffData":
             continue
         ta = {k: decode_refs(v) for k, v in t.attrs.items()}
-        td = {}
+        td: TiffData = {}
         for k in ("IFD", "FirstZ", "FirstC", "FirstT", "PlaneCount"):
             if k in ta:
                 td[k] = int_attr(ta[k], k, k == "PlaneCount")
@@ -907,7 +961,8 @@ REQUIRED = object()
 def get(obj, path, default=REQUIRED):
     cur = obj
     for step in path.split("/"):
-        need(isinstance(cur, LVObj), f"path step {step!r} from a non-object")
+        if not isinstance(cur, LVObj):
+            raise RejectedError(f"path step {step!r} from a non-object")
         if step not in cur.m:
             need(default is not REQUIRED, f"required member {path} missing")
             return default
@@ -944,13 +999,15 @@ def as_string(v, what):
     return v.v
 
 
-def as_object(v, what):
-    need(isinstance(v, LVObj), f"{what} is not an object")
+def as_object(v, what) -> LVObj:
+    if not isinstance(v, LVObj):
+        raise RejectedError(f"{what} is not an object")
     return v
 
 
-def as_list(v, what):
-    need(isinstance(v, LVList), f"{what} is not a list")
+def as_list(v, what) -> LVList:
+    if not isinstance(v, LVList):
+        raise RejectedError(f"{what} is not a list")
     return v
 
 
@@ -965,8 +1022,9 @@ def opt(obj, path, conv, default):
     return conv(v, path)
 
 
-def as_obj_or_list(v, what):
-    need(isinstance(v, (LVObj, LVList)), f"{what} is not an object or a list")
+def as_obj_or_list(v, what) -> LVObj | LVList:
+    if not isinstance(v, (LVObj, LVList)):
+        raise RejectedError(f"{what} is not an object or a list")
     return v
 
 
@@ -979,7 +1037,12 @@ def validity(lst, what):
 
 
 class Node:
-    pass
+    etype: int
+    children: list[Node]
+    has_pars: bool
+    count: int
+    value: float
+    kind: str
 
 
 def check_node(obj) -> Node:
@@ -1044,8 +1107,8 @@ def check_node(obj) -> Node:
     return node
 
 
-def flatten(root: Node):
-    loops = []  # [kind, depth, count, value]
+def flatten(root: Node) -> list[tuple[str, int, int, float]]:
+    loops: list[tuple[str, int, int, float]] = []  # (kind, depth, count, value)
 
     def visit(node, depth):
         if not node.has_pars or node.count == 0:
@@ -1054,7 +1117,7 @@ def flatten(root: Node):
             for ch in node.children:
                 visit(ch, depth)
             return
-        loop = [node.kind, depth, node.count, node.value]
+        loop = (node.kind, depth, node.count, node.value)
         if not loops or loops[-1][1] < depth:
             loops.append(loop)
         elif loops[-1][1] == depth and loops[-1][0] == node.kind and loops[-1][2] < node.count:
@@ -1091,7 +1154,8 @@ class ND2:
         need(src.read(16, 32) == SIG_NAME, "signature chunk name")
         sig = src.read(48, 64)
         m = re.match(rb"Ver([0-9]+)\.", sig)
-        need(m is not None, "signature version")
+        if m is None:
+            raise RejectedError("signature version")
         need(int(m.group(1)) >= 3, "ND2 version below 3")
 
         need(src.size >= 40, "file shorter than 40 bytes")
@@ -1139,7 +1203,7 @@ class ND2:
         need(not (tw > 0 and tw != W) and not (th > 0 and th != H), "tiled ND2")
 
         # experiment
-        loops = []
+        loops: list[tuple[str, int, int, float]] = []
         if b"ImageMetadataLV!" in cmap:
             top = parse_lv_chunk(self.chunk_data(cmap[b"ImageMetadataLV!"]))
             exp = get(top, "SLxExperiment", MISSING)
@@ -1166,8 +1230,7 @@ class ND2:
                     pn = get(sp, "sPlaneNew", MISSING)
                     pl = {}
                     if pn is not MISSING:
-                        as_object(pn, "sPlaneNew")
-                        for k, v in pn.m.items():
+                        for k, v in as_object(pn, "sPlaneNew").m.items():
                             mm = re.fullmatch(r"a(0|[1-9][0-9]*)", k)
                             if not mm or int(mm.group(1)) >= cnt:
                                 continue
@@ -1274,21 +1337,22 @@ class ND2:
         if "z" in loop_of:
             dims.append("z")
         dims += ["y", "x"]
-        shape = {"y": H, "x": W, "c": comp}
+        shape: dict[str, int] = {"y": H, "x": W, "c": comp}
         if "time" in loop_of:
             shape["t"] = loop_of["time"][2]
         if "z" in loop_of:
             shape["z"] = loop_of["z"][2]
         chunk = {"t": 1, "z": 1, "c": comp, "y": h, "x": W}
-        codecs = []
+        codecs: list[dict[str, object]] = []
         if "c" in dims:
             codecs.append(transpose_codec(dims))
         codecs.append(bytes_codec(bpc // 8, "little"))
         if compressed:
             codecs.append({"name": "zlib", "configuration": {"level": 1}})
         units = {}
-        scale = {"t": 1, "c": 1, "z": 1, "y": 1, "x": 1}
+        scale: dict[str, float] = {"t": 1, "c": 1, "z": 1, "y": 1, "x": 1}
         if calibrated:
+            assert dcal is not None  # calibrated needs dcal
             units["x"] = units["y"] = "micrometer"
             scale["x"] = dcal
             scale["y"] = finite(dcal * aspect, "y scale")
@@ -1303,7 +1367,7 @@ class ND2:
             b = int(sig_bits)
         chan_json = []
         for label, color in channels:
-            cj = {"label": label, "color": color, "active": True}
+            cj: dict[str, object] = {"label": label, "color": color, "active": True}
             if dtype != "float32":
                 V = 2**b - 1
                 cj["window"] = {"min": 0, "max": V, "start": 0, "end": V}

@@ -29,6 +29,7 @@ ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
+from refkv._narrow import at, mapping, ndarray  # noqa: E402
 from refkv.ir.cmirror import Archive, load  # noqa: E402
 
 sys.path.insert(0, str(HERE.parent))
@@ -56,13 +57,14 @@ def audio_frames(path: Path, out: Path) -> list[bytes]:
 
 def problems_of(path: Path, out: Path) -> list[str]:
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
-    meta = root.attrs["refkv_zarrified"]["mp3"]
-    got = root["samples"][...]
+    meta = mapping(at(root.attrs, "refkv_zarrified", "mp3"))
+    got = ndarray(root.get_array("samples")[...])
     problems = []
     if got.dtype != np.float32 or got.shape != (meta["samples"], meta["channels"]):
         problems.append(f"shape {got.shape} {got.dtype} is not {meta['samples']} x {meta['channels']} float32")
         return problems
     ctx = av.CodecContext.create("mp3float", "r")
+    assert isinstance(ctx, av.AudioCodecContext)
     decoded = [d for p in audio_frames(path, out) for d in ctx.decode(av.Packet(p))] + ctx.decode(None)
     if {f.sample_rate for f in decoded} != {meta["sample_rate"]}:
         problems.append(f"sample rate {meta['sample_rate']} is not the decoder's "

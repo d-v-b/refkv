@@ -3,11 +3,12 @@ against today's profile, the compact mirror, and the read planner."""
 
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import ClassVar
+from typing import ClassVar, override
 
 import pytest
 from ir_helpers import FIXTURES, as_the_reference
 
+from refkv._narrow import integer
 from refkv.errors import ResolutionError
 from refkv.ir import parse
 from refkv.ir import zarrify as via_ir
@@ -25,9 +26,11 @@ def test_projects_as_today_and_rebuilds(path, tmp_path):
 
 def test_frames_fold_into_one_run():
     _, _, ir = via_ir(str(FIXTURES / "nd2" / "nd2_tz_uint16.nd2"), "u", mirror=False)
-    frames = ir.children(ir.child(0, "frames"))
+    frames = ir.children(integer(ir.child(0, "frames")))
     assert len(frames) == 1
-    assert ir.run(frames[0])[0] == 12
+    run = ir.run(frames[0])
+    assert run is not None
+    assert run[0] == 12
     assert [ir.name(c) for c in ir.children(frames[0])] == ["header", "name", "timestamp", "pixels"]
 
 
@@ -36,7 +39,7 @@ class _Ranges(BaseHTTPRequestHandler):
 
     data = bytes(range(256)) * 4096
     fail = 0
-    multipart = True
+    multipart: bool | str = True  # or "crash"
     seen: ClassVar[list] = []
 
     def do_GET(self):
@@ -74,7 +77,8 @@ class _Ranges(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(cls.data[a:b])
 
-    def log_message(self, *args):
+    @override
+    def log_message(self, format, *args):
         pass
 
 
@@ -116,7 +120,8 @@ def test_transport_does_not_retry_a_missing_object():
             self.send_header("Content-Length", "0")
             self.end_headers()
 
-        def log_message(self, *args):
+        @override
+        def log_message(self, format, *args):
             pass
 
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Missing)

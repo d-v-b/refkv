@@ -48,11 +48,14 @@ sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from proxy import Proxy  # noqa: E402
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers zlib)
+from refkv._narrow import ndarray  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("zarr2_verify", HERE.parent / "zarr2" / "verify.py")
+assert _spec is not None
+assert _spec.loader is not None
 zarr2_verify = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(zarr2_verify)
 
@@ -142,10 +145,10 @@ def remote(store_url: str, paths: list[str]) -> int:
             print("   ", x)
         failures = len(problems)
         for path in paths:
-            got = zarr.open_array(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), path=path, mode="r",
-                                  zarr_format=3)[...]
-            want = zarr.open_array(FsspecStore.from_url(store_url, read_only=True), path=path, mode="r",
-                                   zarr_format=2)[...]
+            got = ndarray(zarr.open_array(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), path=path, mode="r",
+                                          zarr_format=3)[...])
+            want = ndarray(zarr.open_array(FsspecStore.from_url(store_url, read_only=True), path=path, mode="r",
+                                           zarr_format=2)[...])
             ok = zarr2_verify.same(got, want)
             failures += not ok
             print(f"{path}: {got.dtype}{got.shape}, {'equal to' if ok else 'DIFFERS from'} zarr-python's Zarr v2 "

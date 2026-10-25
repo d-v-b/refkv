@@ -13,6 +13,7 @@ import zlib
 
 from . import httpfetch, pb
 from . import uri as urimod
+from ._narrow import integer, mapping, sequence, string
 from .errors import VzError
 
 HIDDEN = b"__vz__/"
@@ -216,13 +217,14 @@ def decode_payload(ref_id, payload, nsources):
         if ref_id == ID_RANGE:
             ranges = [pb.decode(payload, pb.RANGE)]
         else:
-            ranges = pb.decode(payload, pb.CONCAT).get("parts", [])
+            ranges = sequence(pb.decode(payload, pb.CONCAT).get("parts", []), "parts")
     except pb.MalformedError as e:
         raise _payload(f"malformed reference payload: {e}") from e
     parts = []
     total = 0
-    for r in ranges:
-        src, off, ln, data = r.get("source", 0), r.get("offset", 0), r.get("length", 0), r.get("data")
+    for r in map(mapping, ranges):
+        src, off, ln = integer(r.get("source", 0)), integer(r.get("offset", 0)), integer(r.get("length", 0))
+        data = r.get("data")
         if data is not None:
             if src or off or ln:
                 raise _payload("literal range has non-zero source/offset/length")
@@ -319,7 +321,7 @@ class Archive:
     def _open(self):
         fs = self.file_size
         eocd = None
-        clen = None
+        clen = 0
         if fs >= 60:
             b = self._pread(fs - 60, 22)
             if struct.unpack_from("<I", b)[0] == EOCD_SIG and struct.unpack_from("<H", b, 20)[0] == 38:
@@ -392,17 +394,17 @@ class Archive:
         except pb.MalformedError as e:
             raise _arch(f"source table is malformed: {e}") from e
         out = []
-        for i, s in enumerate(t.get("sources", [])):
+        for i, s in enumerate(map(mapping, sequence(t.get("sources", []), "sources"))):
             kind = s.get("kind")
             if kind is None:
                 raise _arch(f"source {i} has no kind")
-            k, v = kind
+            k, v = sequence(kind)
             if k in ("url", "key") and v == "":
                 raise _arch(f"source {i} has an empty {k}")
             size, etag, mnf = s.get("size"), s.get("etag"), s.get("modified_not_after")
             if k != "url" and (size is not None or etag is not None or mnf is not None):
                 raise _arch(f"source {i}: pin on a {k} source")
-            if etag is not None and not ETAG_RE.fullmatch(etag.encode("utf-8")):
+            if etag is not None and not ETAG_RE.fullmatch(string(etag).encode("utf-8")):
                 raise _arch(f"source {i}: etag pin is not a strong entity tag")
             out.append(Source(k, v, size, etag, mnf))
         return out
@@ -415,9 +417,9 @@ class Archive:
         self.pages = []
         expect = 0
         prev = None
-        for i, p in enumerate(idx.get("pages", [])):
-            fk = p.get("first_key", "").encode("utf-8")
-            off, ln = p.get("offset", 0), p.get("length", 0)
+        for i, p in enumerate(map(mapping, sequence(idx.get("pages", []), "pages"))):
+            fk = string(p.get("first_key", "")).encode("utf-8")
+            off, ln = integer(p.get("offset", 0)), integer(p.get("length", 0))
             if not fk:
                 raise _arch(f"page index is malformed: page {i} has an empty first_key")
             if ln == 0:
@@ -433,8 +435,8 @@ class Archive:
             self.pages.append((fk, off, ln))
         self.first_keys = [p[0] for p in self.pages]
         self.pinned = {}
-        for i, p in enumerate(idx.get("pinned", [])):
-            k = p.get("key", "").encode("utf-8")
+        for i, p in enumerate(map(mapping, sequence(idx.get("pinned", []), "pinned"))):
+            k = string(p.get("key", "")).encode("utf-8")
             if not k:
                 raise _arch(f"page index is malformed: pinned entry {i} has an empty key")
             if k in self.pinned:

@@ -15,6 +15,7 @@ from refkv._sync import run
 from refkv.errors import RequestError, ResolutionError
 from refkv.pb import Concat, Range, Source
 from refkv.uri import file_uri
+from refkv.vzip.store import VZipStore
 
 SRC = bytes(range(64))
 HIDDEN = b"xyz"
@@ -37,7 +38,7 @@ def _stores(tmp_path):
     (tmp_path / "src.bin").write_bytes(SRC)
     sources = [Source(url=file_uri(tmp_path / "src.bin")), Source(key="__vz__/shared")]
     store = refkv.ReferenceStore(_mapping(), sources)
-    out = {"memory": store}
+    out: dict[str, refkv.ReferenceStore | VZipStore] = {"memory": store}
     for page_size in [None, 64]:
         path = tmp_path / f"{page_size}.vzip"
         store.save(path, page_size=page_size)
@@ -124,7 +125,7 @@ def test_get_refuses_a_negative_request(tmp_path):
 def test_get_refuses_a_request_of_another_type(tmp_path):
     for store in _stores(tmp_path).values():
         with pytest.raises(TypeError, match="a request is a RangeRequest"):
-            store.get("a", (0, 2))
+            store.get("a", (0, 2))  # pyrefly: ignore[bad-argument-type] (the type refused)
 
 
 def test_get_of_a_refused_source_raises(tmp_path):

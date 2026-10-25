@@ -17,6 +17,7 @@ store as a read-only zarr store.
 from __future__ import annotations
 
 import asyncio
+import builtins
 import contextlib
 import datetime as dt
 import email.utils
@@ -29,12 +30,13 @@ import socket
 import threading
 import urllib.error
 import urllib.request
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Buffer, Callable, Coroutine, Mapping
 from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from email.message import Message
+from http.client import HTTPMessage
 from pathlib import Path
-from typing import Literal, NoReturn, Protocol
+from typing import IO, Literal, NoReturn, Protocol, TypedDict, cast, override
 from urllib.parse import unquote, urljoin, urlparse, urlsplit
 
 from refkv._extras import OBSTORE_HINT
@@ -144,7 +146,7 @@ class Resolver:
     def __init__(self, registry: Registry | None = None) -> None:
         self._registry: ObjectStoreRegistryLike | None = None
         self._prefixes: list[tuple[str, str, tuple[str, ...], object]] = []
-        self._made: dict[str, object] = {}  # LocalFiles, made once
+        self._made: dict[str, LocalFiles] = {}  # made once
         if isinstance(registry, Resolver):
             self._registry = registry._registry  # noqa: SLF001 (another Resolver's)
             self._prefixes = list(registry._prefixes)  # noqa: SLF001 (another Resolver's)
@@ -162,7 +164,7 @@ class Resolver:
                                 f"{type(registry).__name__}")
             self._registry = registry
 
-    def registered(self, url: str) -> tuple[object, str] | None:
+    def registered(self, url: str) -> tuple[ObjectStore, str] | None:
         """The store the application registered for `url`, and the object's path
         in it; None if there is none."""
         if self._registry is not None:
@@ -170,7 +172,7 @@ class Resolver:
                 store, path = self._registry.resolve(url)
             except ValueError:
                 return None
-            return store, unquote(path)
+            return cast("ObjectStore", store), unquote(path)  # an obspec store, as the registry's are
         p = urlsplit(url)
         segs = _segments(p.path)
         best = None
@@ -183,16 +185,16 @@ class Resolver:
             return None
         store = best[1]
         # as obspec_utils does: the path is relative to the store's own root
-        root = getattr(store, "prefix", None) or (
-            urlsplit(store.url).path if isinstance(getattr(store, "url", None), str) else "")
+        store_url = getattr(store, "url", None)
+        root = getattr(store, "prefix", None) or (urlsplit(store_url).path if isinstance(store_url, str) else "")
         path = unquote(p.path).lstrip("/")
         root = unquote(str(root)).strip("/")
         if root and (path == root or path.startswith(root + "/")):
             path = path[len(root):].lstrip("/")
-        return store, path
+        return cast("ObjectStore", store), path  # an obspec store, as the registry's are
 
     def resolve(self, url: str, *, allow_file_host: bool = False, policy: Policy | None = None,
-                executor: Executor | None = None) -> tuple[object, str]:
+                executor: Executor | None = None) -> tuple[ObjectStore, str]:
         """The store that reads `url`, and the object's path in it. `allow_file_host`:
         a `file:` URL may name a host, a UNC path on Windows (spec §5
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>).
@@ -228,6 +230,51 @@ class Resolver:
         return HttpObjects(origin, policy, executor), url[len(origin):]
 
 
+class ObjectMeta(TypedDict):
+    """The part of an obspec object's metadata the reader reads."""
+
+    size: int
+
+
+class GetResult(Protocol):
+    """What an obspec store's `get_async` gives, as the reader reads it."""
+
+    @property
+    def meta(self) -> ObjectMeta:
+        """The object's metadata."""
+        ...
+
+    async def buffer_async(self) -> Buffer:
+        """The bytes read."""
+        ...
+
+
+class SuffixRange(TypedDict):
+    """A range of an object's last `suffix` bytes."""
+
+    suffix: int
+
+
+class GetOptions(TypedDict, total=False):
+    """The options of an obspec store's `get_async` the reader passes."""
+
+    range: tuple[int, int] | SuffixRange
+    if_match: str
+    if_unmodified_since: dt.datetime
+
+
+class ObjectStore(Protocol):
+    """The methods of an obspec store the reader calls."""
+
+    async def get_range_async(self, path: str, *, start: int, end: int) -> Buffer:
+        """Bytes [start, end) of the object at `path`."""
+        ...
+
+    async def get_async(self, path: str, *, options: GetOptions) -> GetResult:
+        """The object at `path`, as `options` say."""
+        ...
+
+
 class ObjectStoreRegistryLike(Protocol):
     """An `obspec_utils.registry.ObjectStoreRegistry`, or another object with its `resolve`."""
 
@@ -245,7 +292,8 @@ class _Got:
     """What `LocalFiles.get_async` returns: the bytes read, and the file's size."""
 
     def __init__(self, data: bytes, size: int) -> None:
-        self._data, self.meta = data, {"size": size}
+        self._data = data
+        self.meta: ObjectMeta = {"size": size}
 
     async def buffer_async(self) -> bytes:
         return self._data
@@ -278,10 +326,10 @@ class LocalFiles:
     async def get_range_async(self, path: str, *, start: int, end: int) -> bytes:
         return await asyncio.to_thread(self._range, path, start, end)
 
-    async def get_async(self, path: str, *, options: dict) -> _Got:
-        if set(options) != {"range"} or set(options["range"]) != {"suffix"}:
+    async def get_async(self, path: str, *, options: GetOptions) -> _Got:
+        if set(options) != {"range"} or isinstance(r := options["range"], tuple) or set(r) != {"suffix"}:
             raise NotImplementedError(f"LocalFiles.get_async reads a suffix, not {options!r}")
-        return await asyncio.to_thread(self._suffix, path, options["range"]["suffix"])
+        return await asyncio.to_thread(self._suffix, path, r["suffix"])
 
 
 def _segments(path: str) -> tuple[str, ...]:
@@ -400,7 +448,8 @@ def new_connection(scheme: str, host: str, port: int | None, timeout: float = 60
     """An unopened connection to `host`, which only `_connect` (checking the address) opens."""
     cls = http.client.HTTPSConnection if scheme == "https" else http.client.HTTPConnection
     conn = cls(host, port, timeout=timeout)
-    conn._create_connection = _refuse_unchecked  # connect() must go through _connect
+    # connect() must go through _connect (typeshed omits http.client's private hook)
+    conn._create_connection = _refuse_unchecked  # pyrefly: ignore[missing-attribute]
     return conn
 
 
@@ -434,7 +483,7 @@ def _connect(conn: http.client.HTTPConnection, check: Check | None) -> None:
         for family, type_, proto, _, sockaddr in _getaddrinfo(host, port, 0, socket.SOCK_STREAM):
             if check is not None:
                 try:
-                    check(sockaddr[0])
+                    check(cast("str", sockaddr[0]))  # an IP address (AF_INET or AF_INET6)
                 except ResolutionError as e:
                     refused = refused or e
                     continue
@@ -455,11 +504,11 @@ def _connect(conn: http.client.HTTPConnection, check: Check | None) -> None:
             raise refused
         raise OSError(f"{host}: no address")
 
-    conn._create_connection = create  # noqa: SLF001 (http.client's hook)
+    conn._create_connection = create  # noqa: SLF001 (http.client's hook)  # pyrefly: ignore[missing-attribute]
     try:
         conn.connect()
     finally:
-        conn._create_connection = _refuse_unchecked  # noqa: SLF001 (http.client's hook)
+        conn._create_connection = _refuse_unchecked  # noqa: SLF001 (http.client's hook)  # pyrefly: ignore[missing-attribute]
 
 
 def _proxy(url: str) -> str | None:
@@ -469,7 +518,8 @@ def _proxy(url: str) -> str | None:
     `all_proxy` is not used."""
     pu = urlparse(url)
     proxy = urllib.request.getproxies().get(pu.scheme)
-    if not proxy or urllib.request.proxy_bypass(pu.hostname):
+    # a checked http(s) URL has a host (_check_http_url)
+    if not proxy or urllib.request.proxy_bypass(cast("str", pu.hostname)):
         return None
     return proxy
 
@@ -510,19 +560,21 @@ def _send(url: str, headers: dict[str, str], check: Check | None = None,
             # honest names, not DNS rebinding.
             port = pu.port or (443 if pu.scheme == "https" else 80)
             for *_, sockaddr in _getaddrinfo(pu.hostname, port, 0, socket.SOCK_STREAM):
-                check(sockaddr[0])
+                check(cast("str", sockaddr[0]))  # an IP address (AF_INET or AF_INET6)
         return _send_urllib(url, headers, method)
     # the request target exactly as written in the URL: path and query, without the fragment
     rest = url.split("://", 1)[1]
-    target = rest[re.match(r"[^/?#]*", rest).end():].split("#", 1)[0]
+    origin = cast("re.Match[str]", re.match(r"[^/?#]*", rest))  # which every string matches
+    target = rest[origin.end():].split("#", 1)[0]
     target = target if target.startswith("/") else "/" + target
+    host = cast("str", pu.hostname)  # a checked http(s) URL has one (_check_http_url)
     for attempt in (0, 1):
-        conn, reused = pool.get(pu.scheme, pu.hostname, pu.port)
+        conn, reused = pool.get(pu.scheme, host, pu.port)
         try:
             if conn.sock is None:
                 _connect(conn, check)
             if check is not None:  # also a reused connection, opened for another archive
-                check(conn.sock.getpeername()[0])
+                check(cast("socket.socket", conn.sock).getpeername()[0])  # connected
             conn.request(method, target, headers=headers)
             r = conn.getresponse()
             body = r.read()
@@ -537,7 +589,7 @@ def _send(url: str, headers: dict[str, str], check: Check | None = None,
         if r.will_close:
             conn.close()
         else:
-            pool.put(pu.scheme, pu.hostname, pu.port, conn)
+            pool.put(pu.scheme, host, pu.port, conn)
         return r.status, r.msg, body
     raise AssertionError("unreachable")
 
@@ -546,7 +598,9 @@ def _send_urllib(url: str, headers: dict[str, str], method: str = "GET") -> tupl
     """`_send` through urllib, which honors the proxy settings in the environment."""
 
     class NoRedirects(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, *_args: object) -> None:
+        @override
+        def redirect_request(self, req: urllib.request.Request, fp: IO[bytes], code: int, msg: str,
+                             headers: HTTPMessage, newurl: str) -> None:
             return None  # http_range follows redirects itself
 
     req = urllib.request.Request(url, headers=headers, method=method)  # noqa: S310 (an http(s) URL)
@@ -582,7 +636,7 @@ def _http_get(url: str, range_: str, src: Source | None,
     first = url
     # spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http>: at most 5 redirects
     for redirects in range(6):
-        check = None if address is None else (lambda ip, u=url: address(u, ip))
+        check = None if address is None else functools.partial(address, url)
         try:
             status, msg, body = _send(url, headers, check, unchecked_proxy)
         except ResolutionError:
@@ -723,8 +777,7 @@ class HttpObjects:
     def __repr__(self) -> str:
         return f"HttpObjects({self.origin!r})"
 
-    async def _call(self, f: Callable[..., tuple[bytes, int | None]], path: str, *args: object,
-                    **kwargs: object) -> tuple[bytes, int | None]:
+    async def _call[T](self, f: Callable[..., T], path: str, *args: object, **kwargs: object) -> T:
         url = self.origin + path
         p = self.policy
         p.check_host(url)  # as written, before resolving it; each address is checked as well
@@ -741,11 +794,11 @@ class HttpObjects:
         data, _ = await self._call(http_range, path, start, end, None, clip=True)
         return data
 
-    async def get_async(self, path: str, *, options: dict) -> _Got:
+    async def get_async(self, path: str, *, options: GetOptions) -> _Got:
         """The last `options["range"]["suffix"]` bytes of the object, and its size."""
-        if set(options) != {"range"} or set(options["range"]) != {"suffix"}:
+        if set(options) != {"range"} or isinstance(r := options["range"], tuple) or set(r) != {"suffix"}:
             raise NotImplementedError(f"HttpObjects.get_async reads a suffix, not {options!r}")
-        return _Got(*await self._call(http_suffix, path, options["range"]["suffix"]))
+        return _Got(*await self._call(http_suffix, path, r["suffix"]))
 
 
 def _size_mismatch(url: str, pin: int, size: int | None) -> str:
@@ -932,7 +985,7 @@ class ReferenceReader:
         """Every key that starts with `prefix`, sorted (hidden keys are not listed)."""
         return run(_collect(self.list_async(prefix)))
 
-    def list_dir(self, prefix: str = "") -> list[str]:
+    def list_dir(self, prefix: str = "") -> builtins.list[str]:  # the method `list` shadows the type
         """The distinct next path segments of the keys under `prefix`, a
         "directory" whose trailing "/" may be left out."""
         return run(_collect(self.list_dir_async(prefix)))
@@ -961,7 +1014,7 @@ class ReferenceReader:
                     thread_name_prefix="refkv-read")
             return self._threads
 
-    def _limit(self) -> contextlib.AbstractAsyncContextManager:
+    def _limit(self) -> contextlib.AbstractAsyncContextManager[None]:
         """Held around each request: the `max_concurrency` cap. A semaphore belongs
         to one event loop, so a store used from another loop gets a new one."""
         if self.max_concurrency is None:
@@ -1000,9 +1053,9 @@ class ReferenceReader:
     async def _url_bytes(self, src: Source, start: int, end: int) -> bytes:
         """Bytes [start, end) of a url source, checking its pins (spec §5.1
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#51-pins>)."""
-        url = resolve_reference(self.url, src.url)
+        url = resolve_reference(self.url, cast("str", src.url))  # a url source's
         registered = self.resolver.registered(url) is not None
-        allow = lambda u: self.policy.check(self.url, u, registered=registered)  # noqa: E731
+        allow: Callable[[str], None] = lambda u: self.policy.check(self.url, u, registered=registered)  # noqa: E731
         # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule
         # 3: check every address, unless the application allows them all
         address = None if self.policy.allow_private_hosts else self.policy.check_address
@@ -1035,7 +1088,7 @@ class ReferenceReader:
                 raise ResolutionError("modified_not_after pin failed: the file changed")
             return await self._read(url, start, end, external=True)
         store, path = self.resolver.resolve(url)
-        options: dict = {"range": (start, end)}
+        options: GetOptions = {"range": (start, end)}
         if src.etag is not None:
             options["if_match"] = src.etag
         if src.modified_not_after is not None:
@@ -1072,7 +1125,7 @@ class ReferenceReader:
         # with a crc32c is read whole and checked (spec §6.3
         # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#63-resolving-a-reference>);
         # `cuts` says which part of each piece the window takes, and which checksum it must have.
-        pieces: list = []
+        pieces: list[bytes | tuple[int, int, int] | Coroutine[object, object, bytes]] = []
         cuts: list[tuple[int, int, int | None]] = []
         pos = 0
         for r in parts(ref):
@@ -1101,7 +1154,7 @@ class ReferenceReader:
             pos += r.size
         # Combine nearby reads of each url source, then slice them apart.
         reads = sorted({p for p in pieces if isinstance(p, tuple)}, key=lambda t: (t[0], t[1]))
-        runs: list[list] = []  # [source, a, b]
+        runs: list[list[int]] = []  # [source, a, b]
         for source, a, b in reads:
             if runs and runs[-1][0] == source and a - runs[-1][2] <= self.MERGE_GAP:
                 runs[-1][2] = max(runs[-1][2], b)

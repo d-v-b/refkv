@@ -14,11 +14,14 @@ sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "
 import json
 import struct
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
 import tifffile
+from reference_helpers import ranges_of
 from refkv_reference import virtualize
+from refkv_reference.legacy import Output
 from refkv_reference.tiff.tags import LAYOUT, json_size
 
 from refkv.zarrify import Rejected
@@ -37,6 +40,7 @@ def test_virtualizes_the_synthetic_files():
     }
     for name, (expected, ome_xml) in cases.items():
         fmt, out = virtualize(str(FIXTURES / name), url=f"https://data.test/{name}")
+        assert isinstance(out, Output)
         assert fmt == "tiff", name
         assert {**out.summary, **expected} == out.summary, name
         assert out.url == f"https://data.test/{name}"
@@ -47,6 +51,7 @@ def test_virtualizes_the_synthetic_files():
         with tifffile.TiffFile(FIXTURES / name) as tf:
             assert node == {"ifd_count": len(tf.pages)}, name
             for i, page in enumerate(tf.pages):
+                assert isinstance(page, tifffile.TiffPage), name
                 ifd = source(out, f"ifds/{i}")
                 assert {k: (v["type"], v["count"]) for k, v in ifd["tags"].items()} == {
                     str(t.code): (int(t.dtype), t.count) for t in page.tags
@@ -54,7 +59,7 @@ def test_virtualizes_the_synthetic_files():
             assert prop["tiff"] == {"byte_order": "little" if tf.byteorder == "<" else "big",
                                     "bigtiff": tf.is_bigtiff}, name
             if ome_xml:
-                assert source(out, "ifds/0")["tags"]["270"]["value"] == tf.pages[0].description, name
+                assert source(out, "ifds/0")["tags"]["270"]["value"] == tf.pages.first.description, name
 
 
 def source(out, path: str) -> dict:
@@ -67,6 +72,7 @@ def test_records_every_ifd_in_its_own_group():
     """spec/zarrify/tiff.md §5: pointer tags, nested SubIFDs, a shared EXIF IFD,
     duplicate tags, an unknown field type, a JPEG interchange stream, contiguous strips."""
     _, out = virtualize(str(FIXTURES / "edge_pointers.tif"), url="https://data.test/p.tif")
+    assert isinstance(out, Output)
     ifd0 = source(out, "ifds/0")
     assert ifd0["pointers"] == {
         "330": {"type": 4, "count": 1, "ifds": ["ifds/0/subifds/0"]},
@@ -90,17 +96,18 @@ def test_records_every_ifd_in_its_own_group():
     assert ifd1["pointers"] == {"34665": {"type": 4, "count": 1, "ifds": ["ifds/0/exif"]}}  # shared
     assert not {"273", "279", "513", "514"} & set(ifd1["tags"])
     data = (FIXTURES / "edge_pointers.tif").read_bytes()
-    (start, n), = out.refs["vzip_source/ifds/1/jpeg_interchange/c/0"]
+    (start, n), = ranges_of(out, "vzip_source/ifds/1/jpeg_interchange/c/0")
     assert data[start:start + n].startswith(b"\xff\xd8")
     assert data[start + n - 2:start + n] == b"\xff\xd9"
     # Three contiguous strips are one range of the data chunk (conventions §7).
-    (start, n), = out.refs["vzip_source/ifds/1/data/data/c/0"]
+    (start, n), = ranges_of(out, "vzip_source/ifds/1/data/data/c/0")
     assert (n, data[start:start + n]) == (640, bytes([7]) * 640)
 
     # A pointer tag of 71 values: an int32 array of record numbers (IFDs 0 and 1 are 0 and
     # 1, GlobalParametersIFD 2, the new targets from 3), -1 for an IFD of no entries, one
     # inside another's extent and one outside the file; the IFDs it refers to have their number.
     _, out = virtualize(str(FIXTURES / "edge_pointer_list.tif"), url="https://data.test/p.tif")
+    assert isinstance(out, Output)
     ifd0 = source(out, "ifds/0")
     assert ifd0["pointers"] == {"400": {"type": 4, "count": 1, "ifds": ["ifds/0/ifd_400"]},
                                 "50001": {"type": 13, "count": 71}}
@@ -119,11 +126,12 @@ def test_records_every_ifd_in_its_own_group():
     for name, shape, n in (("jpeg_q_tables", [2, 64], 128), ("jpeg_dc_tables", [1, 28], 28),
                            ("jpeg_ac_tables", [1, 22], 22)):
         assert json.loads(out.bytes_entries[f"vzip_source/ifds/1/{name}/zarr.json"])["shape"] == shape, name
-        (start, length), = out.refs[f"vzip_source/ifds/1/{name}/c/0/0"]
+        (start, length), = ranges_of(out, f"vzip_source/ifds/1/{name}/c/0/0")
         assert length == n, name
     assert data[start:start + 4] == bytes([0, 2, 1, 3])
     # At most 10000 IFDs are recorded through pointer tags.
     _, out = virtualize(str(FIXTURES / "edge_pointer_limit.tif"), url="https://data.test/p.tif")
+    assert isinstance(out, Output)
     numbers = struct.unpack("<10001i", out.bytes_entries["vzip_source/ifds/0/50001/c/0"])
     assert numbers == (*range(1, 10001), -1)
 
@@ -136,12 +144,14 @@ def test_no_document_grows_with_the_ifds(tmp_path):
     tifffile.imwrite(path, np.zeros((1500, 16, 16), np.uint8), ome=True, tile=(16, 16),
                      metadata={"axes": "ZYX", "Plane": {"PositionZ": [float(i) for i in range(1500)]}})
     _, out = virtualize(str(path), url="https://data.test/n.ome.tif")
+    assert isinstance(out, Output)
     assert "value" not in source(out, "ifds/0")["tags"]["270"]
     assert "vzip_source/ifds/0/270/zarr.json" in out.bytes_entries
     for n in (2, 200):
         path = tmp_path / f"n{n}.ome.tif"
         tifffile.imwrite(path, np.zeros((n, 16, 16), np.uint8), ome=True, tile=(16, 16), metadata={"axes": "ZYX"})
         _, out = virtualize(str(path), url="https://data.test/n.ome.tif")
+        assert isinstance(out, Output)
         assert source(out, "") == {"ifd_count": n}
         sizes.append(len(out.bytes_entries["vzip_source/zarr.json"]))
         assert max(len(v) for k, v in out.bytes_entries.items() if k.startswith("vzip_source/ifds/")) < 2000
@@ -169,10 +179,12 @@ def test_jpeg_prefix_is_a_data_source():
     # every byte of the tile is referenced. Without a prefix (one sample, no JPEGTables),
     # the tile is one range.
     _, out = virtualize(str(FIXTURES / "jpeg_gray.tif"), url="https://data.test/x.tif")
+    assert isinstance(out, Output)
     assert not out.data
     assert all(len(r) == 1 for k, r in out.refs.items() if not k.startswith("vzip_source/"))
     for name in ("jpeg_aperio_rgb.tif", "jpeg_ycbcr.tif"):
         _, out = virtualize(str(FIXTURES / name), url="https://data.test/x.tif")
+        assert isinstance(out, Output)
         data = list(out.data)
         assert data, name
         assert not any(d.startswith(b"\xff\xd8") for d in data), name
@@ -191,7 +203,7 @@ def test_jpeg_prefix_is_a_data_source():
 
 def test_resolution_tags_give_a_pixel_size_only_when_it_is_microscopic(tmp_path):
     """An explicit ResolutionUnit and a pixel under 25.4 µm (spec/zarrify/tiff.md §4.4)."""
-    cases = [
+    cases: list[tuple[dict[str, Any], float | None]] = [
         ({"resolution": (72, 72), "resolutionunit": 2}, None),  # a document's 72 dpi
         ({"resolution": (40000, 40000), "resolutionunit": 3}, 0.25),  # 40000 pixels per cm
         ({"resolution": (40000, 40000), "resolutionunit": 1}, None),  # no absolute unit
@@ -206,6 +218,7 @@ def test_resolution_tags_give_a_pixel_size_only_when_it_is_microscopic(tmp_path)
             assert entry in data
             path.write_bytes(data.replace(entry, b"\xff\xff" + entry[2:], 1))
         _, out = virtualize(str(path), url="https://data.test/r.tif")
+        assert isinstance(out, Output)
         axes = json.loads(out.bytes_entries["zarr.json"])["attributes"]["ome"]["multiscales"][0]
         scale = axes["datasets"][0]["coordinateTransformations"][0]["scale"]
         units = [a.get("unit") for a in axes["axes"]]
@@ -228,13 +241,14 @@ def test_bounds_the_source_metadata_and_shares_tables():
     # first's arrays. IFD 0, a tiled image, keeps its strips; IFD 3 is not used, so its
     # LONG8 TileOffsets above 2^53 - 1 are not read (its member at offset 1 is kept).
     _, out = virtualize(str(FIXTURES / "edge_shared_tables.tif"), url="https://data.test/t.tif")
+    assert isinstance(out, Output)
     assert source(out, "ifds/2")["same_as"] == {
         "50001": "ifds/1/50001", "jpeg_q_tables": "ifds/1/jpeg_q_tables", "data": "ifds/1/data"}
     assert "same_as" not in source(out, "ifds/1")
     assert "same_as" not in source(out, "ifds/0")
     assert [k for k in [*out.bytes_entries, *out.refs] if k.startswith("vzip_source/ifds/2/")] == [
         "vzip_source/ifds/2/zarr.json"]
-    (start, n), = out.refs["vzip_source/ifds/0/strips/c/0/0"]
+    (start, n), = ranges_of(out, "vzip_source/ifds/0/strips/c/0/0")
     assert n == 64
     assert (FIXTURES / "edge_shared_tables.tif").read_bytes()[start:start + n] == bytes([9]) * 64
     assert out.refs["vzip_source/ifds/3/data/c/1/0"] == [(1, 1)]
@@ -244,6 +258,7 @@ def test_bounds_the_source_metadata_and_shares_tables():
     # EXIF's ifds and the duplicate are arrays. IFD 2's texts spend the total budget, so
     # IFD 3's short text is an array.
     _, out = virtualize(str(FIXTURES / "edge_budget.tif"), url="https://data.test/b.tif")
+    assert isinstance(out, Output)
     ifd1 = source(out, "ifds/1")
     assert {t for t, v in ifd1["tags"].items() if "value" in v} == {"1000", "1001", "1003", "1004", "1005", "1006"}
     assert ifd1["tags"]["1005"]["value"] == [1e21, 1.5e-7, 0.0, 0.1, 123.456, 1e-6]
@@ -260,5 +275,6 @@ def test_bounds_the_source_metadata_and_shares_tables():
     # Offsets tried: 100 values of one offset that leads to no IFD are one try; with 9998
     # others, the valid IFD after them is the 10000th try, and nothing after it is tried.
     _, out = virtualize(str(FIXTURES / "edge_pointer_tries.tif"), url="https://data.test/p.tif")
+    assert isinstance(out, Output)
     numbers = struct.unpack("<10101i", out.bytes_entries["vzip_source/ifds/0/50001/c/0"])
     assert numbers == (-1,) * 10098 + (1, -1, -1)

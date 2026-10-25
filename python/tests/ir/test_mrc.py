@@ -9,6 +9,7 @@ import json
 import math
 import struct
 import warnings
+from typing import cast
 
 import mrcfile
 import numpy as np
@@ -19,6 +20,7 @@ from ir_helpers import zarrified as shared_zarrified
 
 import refkv.zarr
 from refkv import _core
+from refkv._narrow import at, mapping, ndarray
 
 MRCS = sorted((FIXTURES / "mrc").glob("*.mrc"))
 A = "angstrom"
@@ -67,7 +69,8 @@ def load(path):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with mrcfile.open(path, permissive=False) as f:
-            header, data = f.header.copy(), np.array(f.data)
+            # mrcfile is unannotated: pyrefly takes its header for None, as it is before a read
+            header, data = cast("np.recarray", f.header).copy(), np.array(f.data)
     raw = path.read_bytes()
     order = "<" if header.mode.dtype.byteorder in "<=" else ">"
     stamp, flags = struct.unpack(order + "ii", raw[152:160])
@@ -90,15 +93,17 @@ def test_matches_mrcfile_and_rebuilds(path, tmp_path):
     rebuilt from the mirror."""
     header, want = load(path)
     out, root = zarrified(path, tmp_path)
-    arr = root["0"]
-    got = arr[...]
+    arr = root.get_array("0")
+    got = ndarray(arr[...])
     assert got.shape == want.shape
     assert got.dtype == want.dtype.newbyteorder("=")
     assert np.array_equal(got, want, equal_nan=got.dtype.kind in "fc")
-    meta = root.attrs["refkv_zarrified"]["mrc"]
-    assert list(meta["header"]) == list(header.dtype.names)
-    for name in header.dtype.names:
-        assert meta["header"][name] == as_json(header[name]), name
+    meta = mapping(at(root.attrs, "refkv_zarrified", "mrc"))
+    names = header.dtype.names
+    assert names is not None  # a record
+    assert list(mapping(meta["header"])) == list(names)
+    for name in names:
+        assert at(meta, "header", name) == as_json(header[name]), name
     assert meta["byte_order"] == ("little" if header.mode.dtype.byteorder in "<=" else "big")
     assert meta["data_type"] == str(want.dtype.newbyteorder("="))
     kind = {2: "image", 4: "volume_stack"}.get(want.ndim, "image_stack" if header.ispg == 0 else "volume")
@@ -106,7 +111,7 @@ def test_matches_mrcfile_and_rebuilds(path, tmp_path):
     assert out.summary["kind"] == kind
     assert out.summary["extendedHeader"] == int(header.nsymbt)
     # the extended header is never read: the run reads the header alone
-    assert out.summary["planner"]["bytes"] == 1024
+    assert at(out.summary, "planner", "bytes") == 1024
     dataset_is_the_file(out, root, header, want, kind, meta)
 
 
@@ -296,4 +301,4 @@ def test_edge_chunks_past_the_payload_are_copied(tmp_path):
     assert len(out.bytes_entries["0/c/0/1"]) == 524289
     assert out.bytes_entries["dataset/data/c/0/1"] == out.bytes_entries["0/c/0/1"]
     _, want = load(path)
-    assert np.array_equal(root["0"][...], want)
+    assert np.array_equal(ndarray(root.get_array("0")[...]), want)

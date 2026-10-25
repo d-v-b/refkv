@@ -51,6 +51,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from refkv._narrow import string
 from refkv.ir.planner import Transport, open_transport
 from refkv.ir.store import StoreIrOutput, run_store
 from refkv.policy import Policy, crc32c
@@ -84,7 +85,7 @@ def _zarrify_store(location: str, url: str | None = None, *, max_objects: int | 
             # is OME-Zarr 0.4's or not (its summary's `format`)
             out = run_store(store, "safe" if fmt == "safe" else "zarr2")[0]
             if fmt != "safe":
-                fmt = out.summary["format"]
+                fmt = string(out.summary["format"], "summary.format")
     finally:
         store.close()
     if checksums:

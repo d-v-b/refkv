@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import itertools
 import struct
+from collections.abc import Sequence
 from pathlib import Path
 
 OUT = Path(__file__).parents[2] / "tiff"
@@ -21,6 +22,8 @@ OUT = Path(__file__).parents[2] / "tiff"
 SHORT, LONG, ASCII, UNDEFINED = 3, 4, 2, 7
 SIZE = {1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1, 8: 2, 12: 8, 13: 4, 16: 8, 99: 1}
 PACK = {1: "B", 2: "B", 3: "H", 4: "I", 7: "B", 8: "h", 12: "d", 13: "I", 16: "Q", 99: "B"}
+# an entry's value: numbers, bytes (ASCII/UNDEFINED), or ("at", count, offset), stored anywhere
+type Value = Sequence[float] | bytes | bytearray | tuple[str, int, int]
 
 
 class Tiff:
@@ -36,7 +39,7 @@ class Tiff:
         self.buf += data
         return offset
 
-    def ifd(self, entries: list[tuple[int, int, object]]) -> int:
+    def ifd(self, entries: Sequence[tuple[int, int, Value]]) -> int:
         """Writes an IFD (entries in the order given) and returns its offset.
         A value is a list of ints, or bytes for ASCII/UNDEFINED."""
         packed = []

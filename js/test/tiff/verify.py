@@ -22,20 +22,23 @@ import tempfile
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import override
 
 import numpy as np
 import tifffile
 import zarr
 from zarr.abc.codec import BytesBytesCodec
+from zarr.core.common import JSON
 from zarr.registry import register_codec
 
 import refkv.zarr
+from refkv._narrow import at, integer, mapping, ndarray, sequence, string
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 from ir_mirror import is_mirror, mirror_problems
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
-from verify_common import LOOPBACK_SOURCES
+from verify_common import LOOPBACK_SOURCES, tiff_page
 
 
 @dataclass(frozen=True)
@@ -46,17 +49,21 @@ class ZlibCodec(BytesBytesCodec):
     level: int = 6
 
     @classmethod
+    @override
     def from_dict(cls, data):
-        return cls(**data.get("configuration", {}))
+        return cls(**{k: integer(v, k) for k, v in mapping(data.get("configuration", {})).items()})
 
-    def to_dict(self):
+    @override
+    def to_dict(self) -> dict[str, JSON]:
         return {"name": "zlib", "configuration": {"level": self.level}}
 
-    async def _decode_single(self, chunk_bytes, chunk_spec):
-        return chunk_spec.prototype.buffer.from_bytes(zlib.decompress(chunk_bytes.to_bytes()))
+    @override
+    async def _decode_single(self, chunk_data, chunk_spec):
+        return chunk_spec.prototype.buffer.from_bytes(zlib.decompress(chunk_data.to_bytes()))
 
-    async def _encode_single(self, chunk_bytes, chunk_spec):
-        return chunk_spec.prototype.buffer.from_bytes(zlib.compress(chunk_bytes.to_bytes()))
+    @override
+    async def _encode_single(self, chunk_data, chunk_spec):
+        return chunk_spec.prototype.buffer.from_bytes(zlib.compress(chunk_data.to_bytes()))
 
     def compute_encoded_size(self, input_byte_length, chunk_spec):
         raise NotImplementedError
@@ -76,7 +83,7 @@ def expected_levels(path: Path) -> list[tuple[np.ndarray, str]]:
         if path.name.startswith("svs_like"):
             return [(tf.pages[i].asarray(), "YX") for i in (0, 2)]
         if path.suffix == ".ndpi":  # the levels: pages with a positive magnification (65421)
-            return [(p.asarray(), "YXS") for p in tf.pages if p.tags[65421].value > 0]
+            return [(p.asarray(), "YXS") for p in map(tiff_page, tf.pages) if p.tags[65421].value > 0]
         return [(level.asarray(), series.axes) for level in series.levels]
 
 
@@ -181,9 +188,9 @@ def tag_problems(path: Path, root, key: str) -> list[str]:
                 continue
             if "value" not in ours:  # large: in an array
                 a = node[f"{path}/{code}"][...]
-                got = a.tobytes().decode("latin-1") if t.dtype == 2 else None
                 want = as_json(t)
                 if t.dtype == 2:
+                    got = a.tobytes().decode("latin-1")
                     if t.value not in (got.rstrip("\0"), got.split("\0")[0]):
                         problems.append(f"{where} tag {code}: array text differs")
                 elif t.dtype in (1, 7):
@@ -216,11 +223,17 @@ def tag_problems(path: Path, root, key: str) -> list[str]:
             return
         a = node[family]
         if isinstance(a, zarr.Group):  # members of several lengths: offsets and data (conventions §7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>)
-            starts, joined = a["offsets"][...], a["data"][...].tobytes()
+            starts, joined = ndarray(a.get_array("offsets")[...]), ndarray(a.get_array("data")[...]).tobytes()
+
+            def member(i):
+                return joined[starts[i]:starts[i + 1]]
+        else:
+            def member(i):
+                return a[i].tobytes()
         for i, o, n in members:
             f.seek(o)
             raw = f.read(n)
-            got = a[i].tobytes() if not isinstance(a, zarr.Group) else joined[starts[i]:starts[i + 1]]
+            got = member(i)
             if got != raw:
                 problems.append(f"{where}: strip or tile {i} differs")
                 return
@@ -228,7 +241,7 @@ def tag_problems(path: Path, root, key: str) -> list[str]:
     records = {}  # record number -> path, for the pointer tags whose IFDs are an array
     for name, member in node.members(max_depth=None):
         if isinstance(member, zarr.Group):
-            r = member.attrs.get("refkv_zarrified", {}).get(key, {}).get("record")
+            r = mapping(mapping(member.attrs.get("refkv_zarrified", {})).get(key, {})).get("record")
             if r is not None:
                 records[r] = name
 
@@ -240,7 +253,7 @@ def tag_problems(path: Path, root, key: str) -> list[str]:
         tf.pages._clear(fully=True)
         size = Path(path).stat().st_size
         big, order = tf.is_bigtiff, tf.byteorder
-        at = {f"ifds/{i}": page.offset for i, page in enumerate(tf.pages)}  # path -> offset
+        ifd_at = {f"ifds/{i}": page.offset for i, page in enumerate(tf.pages)}  # path -> offset
         links = []  # (where, path, offset): a pointer value that leads to an IFD recorded elsewhere
 
         def visit(where, path, page):
@@ -273,7 +286,7 @@ def tag_problems(path: Path, root, key: str) -> list[str]:
                     if child != new:
                         links.append((f"{where} pointer {code}[{j}]", child, o))
                         continue
-                    at[child] = o
+                    ifd_at[child] = o
                     tf.filehandle.seek(o)
                     try:
                         sub = tifffile.TiffPage(tf, index=0)
@@ -286,7 +299,7 @@ def tag_problems(path: Path, root, key: str) -> list[str]:
         for i, page in enumerate(tf.pages):
             visit(f"IFD {i}", f"ifds/{i}", page)
         for where, child, o in links:
-            if at.get(child) != o:
+            if ifd_at.get(child) != o:
                 problems.append(f"{where}: leads to {child}, which is not the IFD at {o}")
     return problems
 
@@ -320,19 +333,20 @@ def main(fixtures: Path = HERE.parents[2] / "fixtures" / "tiff") -> int:
                 continue
             summary = json.loads(p.stdout)
             group = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
-            ms = group.attrs["ome"]["multiscales"][0]
-            names = [a["name"] for a in ms["axes"]]
+            ms = mapping(at(group.attrs, "ome", "multiscales", 0))
+            names = [string(at(a, "name")) for a in sequence(ms["axes"])]
+            datasets = sequence(ms["datasets"])
             problems = []
             want = expected_levels(tiff)
-            if len(want) != len(ms["datasets"]):
-                problems.append(f"{len(ms['datasets'])} levels, tifffile has {len(want)}")
-            for (level, axes), d in zip(want, ms["datasets"], strict=False):
-                got = group[d["path"]][...]
+            if len(want) != len(datasets):
+                problems.append(f"{len(datasets)} levels, tifffile has {len(want)}")
+            for (level, axes), d in zip(want, datasets, strict=False):
+                got = ndarray(group.get_array(string(at(d, "path")))[...])
                 # tifffile's axes, renamed and reordered to ours.
                 letters = [AXIS[a] for a in axes]
                 data = np.transpose(level, [letters.index(n) for n in names])
                 if got.dtype != data.dtype or not np.array_equal(got, data):
-                    problems.append(f"level {d['path']} differs ({got.dtype} {got.shape} vs "
+                    problems.append(f"level {at(d, 'path')} differs ({got.dtype} {got.shape} vs "
                                     f"{data.dtype} {data.shape})")
             failures += bool(problems)
             print(f"{tiff.name:42s} {problems or 'ok'} "

@@ -55,6 +55,7 @@ from proxy import Proxy  # noqa: E402
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers n5_default and zlib)
 from refkv import _core  # noqa: E402
+from refkv._narrow import ndarray  # noqa: E402
 from refkv.ir.cmirror import Archive  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
@@ -65,6 +66,8 @@ from verify_common import LOOPBACK_SOURCES, run  # noqa: E402
 # spec/zarrify/zarr2.md §5
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>).
 _spec = importlib.util.spec_from_file_location("zarr2_verify", HERE.parent / "zarr2" / "verify.py")
+assert _spec is not None
+assert _spec.loader is not None
 zarr2_verify = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(zarr2_verify)
 
@@ -118,7 +121,7 @@ def zarr_n5_read(store_dir: Path, path: str) -> np.ndarray | None:
         try:
             a = zarr.open_array(N5WrapperStore(LocalStore(store_dir, read_only=True)), path=path, mode="r",
                                 zarr_format=3)
-            return a[...]
+            return ndarray(a[...])
         except Exception:  # noqa: BLE001  (unsupported by zarr-n5: legacy compressionType, ...)
             return None
 
@@ -153,7 +156,7 @@ def check_store(store_dir: Path, out: Path) -> list[str]:
                 continue
             problems.append(f"{path}: the varlength block was read")
             continue
-        got = arr[...]
+        got = ndarray(arr[...])
 
         def get(key, base=store_dir / path):
             f = base / key
@@ -213,7 +216,8 @@ def remote(store_url: str, path: str) -> int:
                 raise
 
         want = read_n5(attrs, get)
-        got = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)[path][...]
+        root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
+        got = ndarray(root.get_array(path)[...])
         ok = got.shape == want.shape and np.array_equal(got, want)
         print(f"{path}: {got.dtype}{got.shape}, {'equal to read_n5' if ok else 'DIFFERS from read_n5'}, "
               f"{int(np.count_nonzero(want))} nonzero values")

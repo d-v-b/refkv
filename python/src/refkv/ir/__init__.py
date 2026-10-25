@@ -27,7 +27,8 @@ def sniff(head: bytes) -> str | None:
     return _core.sniff(head)
 
 
-def parse(fmt: str, transport: Transport, conc: int | None = None) -> tuple[_core.Ir, dict, dict]:
+def parse(fmt: str, transport: Transport,
+          conc: int | None = None) -> tuple[_core.Ir, dict[str, object], dict[str, object]]:
     """(IR, facts, planner counts) of the source the transport reads, or Rejected."""
     run = new_run(fmt, transport, conc)
     drive(run, transport, conc)

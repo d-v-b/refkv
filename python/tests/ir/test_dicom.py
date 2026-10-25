@@ -6,6 +6,7 @@ DICOM probes of gen_probes.py at the tests' sizes."""
 import pytest
 from ir_helpers import FIXTURES, as_the_reference
 
+from refkv._narrow import at, integer
 from refkv.ir import zarrify as via_ir
 
 DICOMS = sorted((FIXTURES / "dicom").glob("*.dcm"))
@@ -19,7 +20,7 @@ def decides_as_today(path, tmp_path):
     rebuilds the file. The IR's output, or None when rejected."""
     out = as_the_reference(path, tmp_path, "dicom", same_message=True)
     if out is not None:
-        assert out.summary["planner"]["fill"]["ranges"] == 0
+        assert at(out.summary, "planner", "fill", "ranges") == 0
     return out
 
 
@@ -37,19 +38,20 @@ def test_identical_items_and_frames_fold_into_runs(probes, tmp_path):
     # 2000 identical items, and 5000 one-byte frames: a few elements each, many rows
     for name, rows in (("dicom_items_same.dcm", 6020), ("dicom_frames_many.dcm", 5017)):
         out = decides_as_today(probes / name, tmp_path)
-        assert out.summary["elements"] < 30, name
-        assert out.summary["folded"]["rows"] == rows, name
+        assert out is not None, name
+        assert integer(out.summary["elements"]) < 30, name
+        assert at(out.summary, "folded", "rows") == rows, name
 
 
 def test_a_value_past_the_scan_is_not_read(probes):
     # a 2 MiB private value before Pixel Data: skipped, not read
     _, out, _ = via_ir(str(probes / "dicom_big_private.dcm"), "https://data.test/a.dcm")
-    assert out.summary["planner"]["bytes"] < 300_000
+    assert integer(at(out.summary, "planner", "bytes")) < 300_000
 
 
 def test_a_basic_offset_table_predicts_the_fragments_in_one_batch(probes):
     # 20 fragments of 70,000 bytes: one batch with the table, a batch a fragment without
     _, bot, _ = via_ir(str(probes / "dicom_chain_bot.dcm"), "https://data.test/a.dcm")
     _, chain, _ = via_ir(str(probes / "dicom_chain_nobot.dcm"), "https://data.test/a.dcm")
-    assert bot.summary["planner"]["batches"] < 8
-    assert chain.summary["planner"]["batches"] >= 20
+    assert integer(at(bot.summary, "planner", "batches")) < 8
+    assert integer(at(chain.summary, "planner", "batches")) >= 20

@@ -5,6 +5,7 @@ import random
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import override
 
 import pytest
 
@@ -27,7 +28,8 @@ def server():
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *a):
+        @override
+        def log_message(self, format, *args):
             pass
 
         def do_HEAD(self):
@@ -74,6 +76,8 @@ def test_http_reader(server):
         assert state["ranges"] == ranges, (offset, length)
     # prefetched ranges are read in one request each, and reads inside one are not requested again
     read, _ = http_reader(url, block=BLOCK, policy=LOCAL)
+    assert hasattr(read, "prefetch")
+    assert hasattr(read, "requests")
     state["ranges"].clear()
     read.prefetch([(100, 50), (500, 4), (995, 100)])
     assert sorted(state["ranges"]) == [(100, 150), (500, 504), (995, 1000)]

@@ -12,19 +12,24 @@ from collections import OrderedDict
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from types import ModuleType
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Self, cast, override
 
 import numpy as np
 import numpy.typing as npt
 from zarr.abc.codec import ArrayBytesCodec
 from zarr.core.array_spec import ArraySpec
 from zarr.core.buffer import Buffer, NDBuffer
+from zarr.core.buffer.core import NDArrayLike
+from zarr.core.common import JSON
 from zarr.registry import register_codec
 
 from refkv._extras import missing
+from refkv._narrow import mapping, string
 
 if TYPE_CHECKING:
+    from av.audio.frame import AudioFrame
     from av.frame import Frame
+    from av.video.frame import VideoFrame
 
 
 def _av() -> ModuleType:
@@ -59,13 +64,17 @@ class StreamCodec(ArrayBytesCodec):
     is_fixed_size = False
 
     @classmethod
-    def from_dict(cls, data: dict) -> Self:
-        c = data.get("configuration", {})
+    @override
+    def from_dict(cls, data: dict[str, JSON]) -> Self:
+        c = mapping(data.get("configuration", {}), "configuration")
         if c.get("format") not in STREAM_FORMATS:
             raise ValueError(f"refkv.stream: unknown format {c.get('format')!r}")
-        return cls(format=c["format"], setup=c.get("setup"), plane=c.get("plane"))
+        setup, plane = c.get("setup"), c.get("plane")
+        return cls(format=string(c["format"]), setup=None if setup is None else string(setup, "setup"),
+                   plane=None if plane is None else string(plane, "plane"))
 
-    def to_dict(self) -> dict:
+    @override
+    def to_dict(self) -> dict[str, JSON]:
         c = {"format": self.format}
         if self.setup is not None:
             c["setup"] = self.setup
@@ -73,8 +82,9 @@ class StreamCodec(ArrayBytesCodec):
             c["plane"] = self.plane
         return {"name": "refkv.stream", "configuration": c}
 
-    async def _decode_single(self, chunk_bytes: Buffer, chunk_spec: ArraySpec) -> NDBuffer:
-        data = chunk_bytes.to_bytes()
+    @override
+    async def _decode_single(self, chunk_data: Buffer, chunk_spec: ArraySpec) -> NDBuffer:
+        data = chunk_data.to_bytes()
         shape, dtype = tuple(chunk_spec.shape), chunk_spec.dtype.to_native_dtype()
         if self.format == "h264":
             plane = self.plane or "y"
@@ -82,9 +92,11 @@ class StreamCodec(ArrayBytesCodec):
                               lambda: decode_chunk(self, data, plane, shape, dtype))
         else:
             out = decode_chunk(self, data, None, shape, dtype)[None]
-        return chunk_spec.prototype.nd_buffer.from_ndarray_like(out)
+        # an ndarray is NDArrayLike, though numpy's stubs do not match zarr's protocol
+        return chunk_spec.prototype.nd_buffer.from_ndarray_like(cast("NDArrayLike", out))
 
-    async def _encode_single(self, chunk_array: NDBuffer, chunk_spec: ArraySpec) -> Buffer:
+    @override
+    async def _encode_single(self, chunk_data: NDBuffer, chunk_spec: ArraySpec) -> Buffer:
         raise NotImplementedError("refkv.stream decodes only")
 
     def compute_encoded_size(self, input_byte_length: int, chunk_spec: ArraySpec) -> int:
@@ -117,7 +129,9 @@ def stream_units(b: bytes) -> tuple[list[bytes], list[int]]:
     then for each frame a varint size and a zigzag varint of its position less the previous
     frame's (the first's less -1), then the frames."""
     n, at = _varint(b, 0)
-    sizes, positions, prev = [], [], -1
+    sizes: list[int] = []
+    positions: list[int] = []
+    prev = -1
     for _ in range(n):
         size, at = _varint(b, at)
         z, at = _varint(b, at)
@@ -126,7 +140,7 @@ def stream_units(b: bytes) -> tuple[list[bytes], list[int]]:
         positions.append(prev)
     if at + sum(sizes) != len(b):
         raise ValueError(f"refkv.stream: the frames' sizes sum to {sum(sizes)}, not the chunk's {len(b) - at}")
-    units = []
+    units: list[bytes] = []
     for size in sizes:
         units.append(b[at:at + size])
         at += size
@@ -139,9 +153,9 @@ def decode_chunk(codec: StreamCodec, data: bytes, plane: str | None, shape: tupl
     of shape `shape`, and for video the other planes of their pictures' sizes. Each frame is
     placed as the decoder gives it, and a lead-in frame's dropped."""
     units, positions = stream_units(data)
-    out: dict = {}
+    out: Planes = {}
     for k, values in STREAM_FORMATS[codec.format](codec, units, positions):
-        if not 0 <= k < len(units):
+        if k is None or not 0 <= k < len(units):
             raise ValueError(f"refkv.stream: the decoder gave a frame of no packet ({k})")
         position = positions[k]
         if position < 0:
@@ -188,10 +202,11 @@ def _audio_frames(name: str, dtype: npt.DTypeLike) -> Decoder:
     chunk decoded from its lead-in would differ from the stream by a unit here and there)."""
 
     def decode(codec: StreamCodec, units: list[bytes], positions: list[int]) -> Iterator[tuple[int | None, Planes]]:
-        for k, f in _av_frames(codec, units, positions, name):
-            if f is None:
+        for k, frame in _av_frames(codec, units, positions, name):
+            if frame is None:
                 yield k, {}
                 continue
+            f = cast("AudioFrame", frame)  # an audio decoder's
             a = f.to_ndarray()
             yield k, {None: (a.T if f.format.is_planar else a.reshape(f.samples, -1)).astype(dtype, copy=False)}
 
@@ -204,13 +219,14 @@ PLANES = {"y": 0, "u": 1, "v": 2}
 def _h264_frames(codec: StreamCodec, units: list[bytes], positions: list[int]) -> Iterator[tuple[int | None, Planes]]:
     """(frame index, {plane: [1, height, width] uint8}) per H.264 frame PyAV's decoder outputs:
     the Y, U and V planes of the 8-bit 4:2:0 picture."""
-    for k, f in _av_frames(codec, units, positions, "h264"):
-        if f is None:
+    for k, frame in _av_frames(codec, units, positions, "h264"):
+        if frame is None:
             yield k, {}
             continue
+        f = cast("VideoFrame", frame)  # a video decoder's
         if f.format.name not in ("yuv420p", "yuvj420p"):
             raise ValueError(f"refkv.stream: an H.264 frame decodes to {f.format.name}, not 8-bit 4:2:0")
-        planes = {}
+        planes: Planes = {}
         for name, i in PLANES.items():
             p = f.planes[i]
             planes[name] = np.frombuffer(p, dtype=np.uint8).reshape(p.height, p.line_size)[None, :, :p.width]
@@ -225,8 +241,8 @@ class Shared:
 
     def __init__(self, limit: int) -> None:
         self.limit = limit
-        self.kept: OrderedDict = OrderedDict()
-        self.decoding: dict = {}
+        self.kept: OrderedDict[tuple[str | None, bytes, int], Planes] = OrderedDict()
+        self.decoding: dict[tuple[str | None, bytes, int], threading.Event] = {}
         self.lock = threading.Lock()
 
     def held(self) -> int:

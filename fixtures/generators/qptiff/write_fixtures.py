@@ -30,6 +30,7 @@ Usage: uv run python fixtures/generators/qptiff/write_fixtures.py
 from __future__ import annotations
 
 import struct
+from collections.abc import Iterator
 from pathlib import Path
 
 import numpy as np
@@ -132,7 +133,7 @@ def pyramid(tif, channels, names, colors, *, tile, levels, rps=None, stripped_la
              position=position, resolution=(1500, 1500), unit=unit)
 
 
-def lzw_codes(stream: bytes):
+def lzw_codes(stream: bytes | bytearray) -> Iterator[tuple[int, int, int]]:
     """The codes of a TIFF LZW stream with the bit position and width each was read at,
     following the decoder's table growth (TIFF 6.0 §13 with libtiff's early change)."""
     bit, width, nxt, prev = 0, 9, 258, None
@@ -168,6 +169,7 @@ def narrow_eoi(path: Path, page_index: int, tile: int = 0) -> None:
         last = None
         for code, bit, width in lzw_codes(stream):
             last = (code, bit, width)
+        assert last is not None
         code, bit, width = last
         assert code == 257, (code, width)
         assert width >= 10, (code, width)
@@ -186,7 +188,9 @@ def narrow_eoi(path: Path, page_index: int, tile: int = 0) -> None:
 def patch_long(path: Path, page_index: int, tag: int, value: int) -> None:
     """Overwrites the in-line LONG value of `tag` in IFD `page_index`."""
     with tifffile.TiffFile(path) as tf:
-        t = tf.pages[page_index].tags[tag]
+        page = tf.pages[page_index]
+        assert isinstance(page, tifffile.TiffPage)
+        t = page.tags[tag]
         offset, order = t.valueoffset, tf.byteorder
     with open(path, "r+b") as f:
         f.seek(offset)

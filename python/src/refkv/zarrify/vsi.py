@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import threading
 from pathlib import Path
+from typing import override
 from urllib.parse import unquote
 
 from refkv.ir.planner import FileTransport, HttpTransport, Transport, _FatalError
@@ -94,6 +95,7 @@ class VsiFiles(Store):
             return None
         return FileTransport(str(path))
 
+    @override
     def probe(self, key: str) -> int | None:
         with self._lock:
             if key in self.objects:
@@ -107,9 +109,11 @@ class VsiFiles(Store):
             self.requests += 1  # an object opened beyond the .vsi file (the summary's listingRequests)
         return t.size
 
+    @override
     def read(self, key: str) -> bytes:
         return self.read_range(key, 0, self.objects[key])
 
+    @override
     def read_range(self, key: str, offset: int, length: int) -> bytes:
         t = self.transports[key]
         if length == 0:
@@ -127,8 +131,10 @@ class VsiFiles(Store):
         t = self.transports.get(key)
         return t.etag() if t is not None and self.remote else None
 
+    @override
     def _release(self) -> None:
         pass
 
+    @override
     def close(self) -> None:
         pass

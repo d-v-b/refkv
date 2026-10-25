@@ -15,6 +15,7 @@ import ast
 import shutil
 import subprocess
 import sys
+from collections.abc import Collection
 from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "refkv"
@@ -54,7 +55,7 @@ def imports_of(module: str, source: str) -> list[int]:
     return lines
 
 
-def importers(src: Path, module: str, allowed: set[str] = frozenset()) -> dict[str, list[int]]:
+def importers(src: Path, module: str, allowed: Collection[str] = frozenset()) -> dict[str, list[int]]:
     """The modules of the package at `src`, other than `allowed`, that import
     `module`, with the lines that do."""
     return {

@@ -19,14 +19,14 @@ The store and the writer are imported on first use: `import refkv`, whose
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Unpack
 
 if TYPE_CHECKING:
     from refkv.vzip.archive import VZipWriter
-    from refkv.vzip.store import VZipStore
+    from refkv.vzip.store import VZipOptions, VZipStore
 
 
-def open(url: str, **kwargs: object) -> VZipStore:  # noqa: A001 (vzip.open, the public name)
+def open(url: str, **kwargs: Unpack[VZipOptions]) -> VZipStore:  # noqa: A001 (vzip.open, the public name)
     """Open the vzip archive at `url` (a local path or an `http(s)` URL) as a read-only
     store: `refkv.vzip.open("data.vzip").get("zarr.json")`.
 

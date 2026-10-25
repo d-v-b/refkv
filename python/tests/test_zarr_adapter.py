@@ -51,7 +51,7 @@ def test_zarr_reads_what_the_store_reads(tmp_path):
 
 def test_store_refuses_another_type():
     with pytest.raises(TypeError, match="wraps a reference store"):
-        refkv.zarr.store({"a": b""})
+        refkv.zarr.store({"a": b""})  # pyrefly: ignore[bad-argument-type] (the type refused)
 
 
 def test_without_zarr_the_adapter_names_its_extra():

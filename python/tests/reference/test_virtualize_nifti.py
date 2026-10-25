@@ -16,6 +16,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
 
 from refkv_reference import virtualize
+from refkv_reference.legacy import Output
 
 from refkv.zarrify import Rejected
 
@@ -116,6 +117,7 @@ CASES = {
 def test_virtualizes_the_synthetic_files():
     for name, (summary, axes, scale, translation, scaling, window, chunk) in CASES.items():
         fmt, out = virtualize(str(FIXTURES / f"{name}.nii"), url=f"https://data.test/{name}.nii")
+        assert isinstance(out, Output)
         assert fmt == "nifti", name
         assert out.url == f"https://data.test/{name}.nii"
         assert {**out.summary, **summary} == out.summary, name
@@ -140,6 +142,7 @@ def test_virtualizes_the_synthetic_files():
     for name, order in {"nifti_n2_be_float64_5d": [1, 0, 2, 3, 4], "nifti_n1_be_rgb24_4d": [0, 2, 3, 4, 1],
                         "nifti_n1_le_int16_3d_sform": None}.items():
         _, out = virtualize(str(FIXTURES / f"{name}.nii"), url="https://data.test/x.nii")
+        assert isinstance(out, Output)
         codecs = json.loads(out.bytes_entries["0/zarr.json"])["codecs"]
         transpose = [c["configuration"]["order"] for c in codecs if c["name"] == "transpose"]
         assert transpose == ([order] if order else []), name
@@ -180,6 +183,7 @@ def test_extensions_and_trailing_bytes_are_kept():
     extensions as text, binary ones as arrays,
     the bytes the chain does not hold and the bytes after the voxels as bytes."""
     _, out = virtualize(str(FIXTURES / "nifti_reconstruction.nii"), url="https://data.test/r.nii")
+    assert isinstance(out, Output)
     meta = json.loads(out.bytes_entries["zarr.json"])["attributes"]["vzip_virtualized"]["nifti"]
     assert meta["extensions"] == [{"ecode": 6, "text": "hello"}, {"ecode": 2, "data": "vzip_source/extensions/1"}]
     assert (meta["extensions_truncated"], meta["unparsed"], meta["trailing"]) == (
@@ -257,6 +261,7 @@ def test_the_bytes_between_the_header_and_the_voxels():
     }
     for name, (want, arrays) in cases.items():
         _, out = virtualize(str(FIXTURES / f"{name}.nii"), url=f"https://data.test/{name}.nii")
+        assert isinstance(out, Output)
         meta = json.loads(out.bytes_entries["zarr.json"])["attributes"]["vzip_virtualized"]["nifti"]
         got = {k: v for k, v in meta.items() if k not in ("nifti_version", "byte_order", "header", "affine")}
         assert got == want, name
@@ -273,11 +278,13 @@ def test_the_bytes_between_the_header_and_the_voxels():
             else:
                 assert out.refs[key][:len(first)] == first, name
     _, out = virtualize(str(FIXTURES / "nifti_header_latin1.nii"), url="https://data.test/l.nii")
+    assert isinstance(out, Output)
     meta = json.loads(out.bytes_entries["zarr.json"])["attributes"]["vzip_virtualized"]["nifti"]
     assert meta["header"]["descrip"] == {"latin1": "caf\u00e9"}
     # The second chunk of the family holds over a payload's worth of ranges: its bytes are copied,
     # the end of the large extension's data, the short ones' and a padding NUL.
     _, out = virtualize(str(FIXTURES / "nifti_region_extensions_family_chunks.nii"), url="https://data.test/f.nii")
+    assert isinstance(out, Output)
     assert "vzip_source/extensions/data/data/c/1" not in out.refs
     second = out.bytes_entries["vzip_source/extensions/data/data/c/1"]
     large = bytes(range(256)) * 4100 + bytes(8)
@@ -306,5 +313,6 @@ def test_float_header_fields_keep_their_bits():
     }
     for name, want in cases.items():
         _, out = virtualize(str(FIXTURES / f"{name}.nii"), url=f"https://data.test/{name}.nii")
+        assert isinstance(out, Output)
         header = json.loads(out.bytes_entries["zarr.json"])["attributes"]["vzip_virtualized"]["nifti"]["header"]
         assert {k: header[k] for k in want} == want, name

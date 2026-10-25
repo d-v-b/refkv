@@ -6,12 +6,15 @@ payloads found in archives under test.
 
 from __future__ import annotations
 
+from typing import Any
+
 from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
 
 _F = descriptor_pb2.FieldDescriptorProto
 
 
-def _build():
+def _build() -> tuple[Any, Any, Any, Any, Any]:
+    """The message classes, made at run time: their fields are unknown to a type checker."""
     fdp = descriptor_pb2.FileDescriptorProto(name="refkv.proto", package="refkv.v0", syntax="proto3")
 
     rng = fdp.message_type.add(name="Range")

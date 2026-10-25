@@ -27,12 +27,16 @@ import zarr
 
 HERE = Path(__file__).parent
 spec = importlib.util.spec_from_file_location("tiff_verify", HERE.parent / "tiff" / "verify.py")
+assert spec is not None
+assert spec.loader is not None
 tiff_verify = sys.modules["tiff_verify"] = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tiff_verify)
 
 from ir_mirror import is_mirror, mirror_problems  # noqa: E402  (on sys.path through tiff_verify)
+from verify_common import tiff_page  # noqa: E402  (on sys.path through tiff_verify)
 
 import refkv.zarr  # noqa: E402
+from refkv._narrow import at, ndarray, sequence, string  # noqa: E402
 
 zarr.config.set({"array.rectilinear_chunks": True})
 
@@ -45,13 +49,13 @@ def expected_levels(path: Path) -> list[np.ndarray]:
     RGB page's samples become the channel axis."""
     with tifffile.TiffFile(path) as tf:
         kinds = [(re.search(r"<ImageType>([^<]*)</ImageType>", p.description or "") or [None, None])[1]
-                 for p in tf.pages]
+                 for p in map(tiff_page, tf.pages)]
         full = [i for i, k in enumerate(kinds) if k == "FullResolution"]
         reduced = [i for i, k in enumerate(kinds) if k == "ReducedResolution"]
         n = len(full)
         out = []
         for ks in [full] + [reduced[i:i + n] for i in range(0, len(reduced), n)]:
-            page = tf.pages[ks[0]]
+            page = tiff_page(tf.pages[ks[0]])
             if not page.is_tiled and page.compression not in (1, 5):
                 rows = min(page.tags[278].value if 278 in page.tags else page.imagelength, page.imagelength)
                 if page.imagelength > rows and page.imagelength % rows:
@@ -86,14 +90,14 @@ def main(fixtures: Path = HERE.parents[2] / "fixtures" / "qptiff") -> int:
             summary = json.loads(p.stdout)
             group = zarr.open_group(refkv.zarr.open(str(out), policy=tiff_verify.LOOPBACK_SOURCES), mode="r",
                                     zarr_format=3)
-            ms = group.attrs["ome"]["multiscales"][0]
+            datasets = sequence(at(group.attrs, "ome", "multiscales", 0, "datasets"))
             want = expected_levels(path)
-            if len(want) != len(ms["datasets"]):
-                problems.append(f"{len(ms['datasets'])} levels, tifffile has {len(want)}")
-            for level, d in zip(want, ms["datasets"], strict=False):
-                got = group[d["path"]][...]
+            if len(want) != len(datasets):
+                problems.append(f"{len(datasets)} levels, tifffile has {len(want)}")
+            for level, d in zip(want, datasets, strict=False):
+                got = ndarray(group.get_array(string(at(d, "path")))[...])
                 if got.dtype != level.dtype or got.shape != level.shape or not np.array_equal(got, level):
-                    problems.append(f"level {d['path']} differs "
+                    problems.append(f"level {at(d, 'path')} differs "
                                     f"({got.dtype} {got.shape} vs {level.dtype} {level.shape})")
             failures += bool(problems)
             print(f"{path.name:46s} {problems or 'ok'} format={summary.get('format')} "

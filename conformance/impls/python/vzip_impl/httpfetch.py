@@ -81,7 +81,7 @@ def _request(u, headers):
             conn = http.client.HTTPConnection(host, port, timeout=TIMEOUT)
         conn.request("GET", target, headers=headers)
         resp = conn.getresponse()
-    except (OSError, http.client.HTTPException, ValueError, UnicodeError) as e:
+    except (OSError, http.client.HTTPException, ValueError) as e:  # UnicodeError is a ValueError
         if conn is not None:
             conn.close()
         raise res_err(f"HTTP request to {u} failed: {e}") from e

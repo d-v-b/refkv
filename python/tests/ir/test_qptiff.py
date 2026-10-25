@@ -8,6 +8,7 @@ the independent reader."""
 import json
 import logging
 import re
+from typing import cast
 
 import imagecodecs
 import numpy as np
@@ -16,6 +17,7 @@ import tifffile
 import zarr
 from ir_helpers import FIXTURES, assert_rebuilds, omero_and_expected_windows
 
+from refkv._narrow import at, mapping, ndarray, sequence
 from refkv.ir import zarrify as via_ir
 from refkv.zarr import ZarrStore
 from refkv.zarrify import Rejected, zarrify
@@ -49,14 +51,16 @@ def tifffile_levels(path) -> list[np.ndarray]:
     strips whose last strip is short and whose compression is neither none nor LZW is not a
     level (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>)."""
     with tifffile.TiffFile(path) as tf:
+        pages = [p for p in tf.pages if isinstance(p, tifffile.TiffPage)]
+        assert len(pages) == len(tf.pages)  # pages, not frames (tifffile's default)
         kinds = [(re.search(r"<ImageType>([^<]*)</ImageType>", p.description or "") or [None, None])[1]
-                 for p in tf.pages]
+                 for p in pages]
         full = [i for i, k in enumerate(kinds) if k == "FullResolution"]
         reduced = [i for i, k in enumerate(kinds) if k == "ReducedResolution"]
         n = len(full)
         out = []
         for ks in [full] + [reduced[i:i + n] for i in range(0, len(reduced), n)]:
-            page = tf.pages[ks[0]]
+            page = pages[ks[0]]
             if not page.is_tiled and page.compression not in (1, 5):
                 rows = min(page.tags[278].value if 278 in page.tags else page.imagelength, page.imagelength)
                 if page.imagelength > rows and page.imagelength % rows:
@@ -88,9 +92,10 @@ def test_levels_read_as_tifffile_decodes_them(path):
     assert store.info["format"] == "qptiff"
     g = zarr.open_group(ZarrStore(store), mode="r", zarr_format=3)
     want = tifffile_levels(path)
-    assert [d["path"] for d in g.attrs["ome"]["multiscales"][0]["datasets"]] == [str(i) for i in range(len(want))]
+    assert [at(d, "path") for d in sequence(at(g.attrs, "ome", "multiscales", 0, "datasets"))] == [
+        str(i) for i in range(len(want))]
     for i, level in enumerate(want):
-        got = g[str(i)][...]
+        got = ndarray(g.get_array(str(i))[...])
         assert got.dtype == level.dtype, (path.name, i)
         assert got.shape == level.shape, (path.name, i)
         assert np.array_equal(got, level), (path.name, i)
@@ -189,7 +194,7 @@ def test_omero_windows_sample_the_coarsest_level(path):
     channel's window is the one numpy computes from the coarsest level read through zarr-python
     (ir_helpers.omero_and_expected_windows), and a float channel without one has none."""
     omero, want = omero_and_expected_windows(path, "qptiff")
-    assert [c.get("window") for c in omero["channels"]] == want
+    assert [mapping(c).get("window") for c in sequence(at(omero, "channels"))] == want
 
 
 def test_windows_of_rgb_samples_are_the_type_range():
@@ -206,7 +211,10 @@ def broken(tmp_path, name: str, key: str):
     output of the copy."""
     path = FIXTURES / "qptiff" / name
     _, out, _ = via_ir(str(path), "u", mirror=False)
-    (offset, length), = out.refs[key]
+    part, = out.refs[key]
+    assert isinstance(part, tuple)
+    assert len(part) == 2
+    offset, length = part
     b = bytearray(path.read_bytes())
     b[offset:offset + length] = b"\xff" * length
     (tmp_path / name).write_bytes(b)
@@ -253,10 +261,14 @@ def test_a_stream_past_its_tile_decodes_to_the_tile():
     bytes for a 1024-byte tile; the codec decodes into the chunk's size and gives the tile."""
     path = FIXTURES / "qptiff" / "qptiff_fl_lzw_narrow_eoi.qptiff"
     _, out, _ = via_ir(str(path), "u")
-    (offset, length), = out.refs["0/c/0/0"]
+    part, = out.refs["0/c/0/0"]
+    assert isinstance(part, tuple)
+    assert len(part) == 2
+    offset, length = part
     stream = path.read_bytes()[offset:offset + length]
     assert len(imagecodecs.lzw_decode(stream)) == 1026
-    assert len(imagecodecs.lzw_decode(stream, out=np.empty(1024, np.uint8))) == 1024
+    # cast: imagecodecs' stub omits the numpy array `out` the codec takes
+    assert len(imagecodecs.lzw_decode(stream, out=cast("bytearray", np.empty(1024, np.uint8)))) == 1024
     # test_levels_read_as_tifffile_decodes_them reads it through zarr and compares with tifffile
 
 

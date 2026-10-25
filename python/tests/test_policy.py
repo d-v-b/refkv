@@ -12,6 +12,7 @@ import zipfile
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import override
 
 import pytest
 
@@ -35,6 +36,13 @@ def _get(store, key, request=None):
     return store.get(key, request)
 
 
+class _Writer(VZipWriter):
+    """The writer with the test hooks it reads by getattr declared."""
+
+    _skip_checks: bool = False
+    _source_table_override: bytes | None = None
+
+
 @pytest.fixture
 def server():
     """Serves `state["body"]` at /blob.bin with range requests and `state["etag"]`,
@@ -45,7 +53,8 @@ def server():
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *a):
+        @override
+        def log_message(self, format, *args):
             pass
 
         def do_GET(self):
@@ -329,7 +338,7 @@ def test_refuses_an_inflation_bomb(tmp_path):
     # a source table that inflates to 64 MiB from about 64 KiB
     path = tmp_path / "a.vzip"
     with open(path, "wb") as f:
-        w = VZipWriter(f)
+        w = _Writer(f)
         w._source_table_override = b"\0" * (64 << 20)
         w._skip_checks = True
         w.close()

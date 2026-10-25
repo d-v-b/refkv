@@ -24,6 +24,7 @@ from ir_helpers import FIXTURES, ROOT
 
 import refkv.zarr
 from refkv import _core
+from refkv._narrow import JSON, at, integer, mapping, ndarray, sequence, string
 from refkv.ir.store import StoreIrOutput
 from refkv.policy import Policy
 from refkv.uri import path_reference
@@ -47,15 +48,15 @@ def expected_array(name: str, stack: int) -> np.ndarray | None:
     return np.load(p) if p.exists() else None
 
 
-def as_tczyx(arr: np.ndarray, axes: list[str], samples: int) -> np.ndarray:
+def as_tczyx(arr: np.ndarray, axes: JSON, samples: JSON) -> np.ndarray:
     """Our array (its axes a subset of t, c, z, y, x, c being the samples when the file has
-    several) in TCZYX(S) order, the samples last."""
-    axes = list(axes)
-    if samples > 1:
-        arr = np.moveaxis(arr, axes.index("c"), -1)
-        axes.remove("c")
+    several) in TCZYX(S) order, the samples last; `axes` and `samples` as the summary has them."""
+    names = [string(a) for a in sequence(axes)]
+    if integer(samples) > 1:
+        arr = np.moveaxis(arr, names.index("c"), -1)
+        names.remove("c")
     for ax in ("t", "c", "z"):
-        if ax not in axes:
+        if ax not in names:
             arr = np.expand_dims(arr, {"t": 0, "c": 1, "z": 2}[ax])
     return arr
 
@@ -75,21 +76,21 @@ def test_slides_match_their_known_pixels_and_rebuild(path, tmp_path):
     alone (the files are described in place: from their own bytes, nothing held)."""
     out, root = zarrified(path)
     assert root.attrs["ome"] == {"version": "0.5", "bioformats2raw.layout": 3}
-    images = out.summary["images"]
-    assert root["OME"].attrs["ome"]["series"] == [str(k) for k in range(len(images))]
+    images = [mapping(im) for im in sequence(out.summary["images"])]
+    assert at(root["OME"].attrs, "ome", "series") == [str(k) for k in range(len(images))]
     assert images[-1]["name"] == "macro image"
     checked = 0
     for k, im in enumerate(images):
-        g = root[str(k)]
-        ms = g.attrs["ome"]["multiscales"][0]
+        g = root.get_group(str(k))
+        ms = mapping(at(g.attrs, "ome", "multiscales", 0))
         assert ms["name"] == im["name"]
-        assert len(ms["datasets"]) == len(im["levels"])
+        assert len(sequence(ms["datasets"])) == len(sequence(im["levels"]))
         if im["kind"] != "stack" or im.get("id") is None:
             continue
-        want = expected_array(path.stem, im["id"])
+        want = expected_array(path.stem, integer(im["id"]))
         if want is None:
             continue
-        got = as_tczyx(g["0"][...], im["axes"], im["samples"])
+        got = as_tczyx(ndarray(g.get_array("0")[...]), im["axes"], im["samples"])
         assert got.shape == want.shape, im["name"]
         assert got.dtype == want.dtype, im["name"]
         assert np.array_equal(got, want), im["name"]
@@ -113,31 +114,31 @@ def test_the_rgb_jpeg_slide_layout():
     background), the focus map from an IFD, the macro from its JPEG strip with a shared prefix,
     scales in micrometers and a translation from the origin."""
     out, root = zarrified(VSI / "vsi_rgb_jpeg.vsi", URL.format("vsi_rgb_jpeg.vsi"))
-    assert root.attrs["refkv_zarrified"]["source"] == {"url": URL.format("vsi_rgb_jpeg.vsi")}
-    names = [root[str(k)].attrs["ome"]["multiscales"][0]["name"] for k in range(4)]
+    assert at(root.attrs, "refkv_zarrified", "source") == {"url": URL.format("vsi_rgb_jpeg.vsi")}
+    names = [at(root[str(k)].attrs, "ome", "multiscales", 0, "name") for k in range(4)]
     assert names == ["Overview", "20x_BF_01", "20x FocusMap", "macro image"]
-    a = root["1/0"]
+    a = root.get_array("1/0")
     assert (a.shape, a.chunks, a.dtype, a.fill_value) == ((3, 200, 300), (3, 64, 64), np.uint8, 238)
     assert [c["name"] for c in json.loads(out.entries["1/0/zarr.json"])["codecs"]] == ["transpose", "imagecodecs_jpeg"]
-    assert [root[f"1/{lv}"].shape for lv in range(3)] == [(3, 200, 300), (3, 100, 150), (3, 50, 75)]
+    assert [root.get_array(f"1/{lv}").shape for lv in range(3)] == [(3, 200, 300), (3, 100, 150), (3, 50, 75)]
     assert "1/0/c/0/0/0" in out.refs
     assert "1/0/c/0/1/2" not in out.refs
     assert np.all(a[:, 64:128, 128:192] == 238)  # the missing tile
-    assert root["2/0"].shape == (5, 6)
-    assert root["2/0"].dtype == np.uint16
+    assert root.get_array("2/0").shape == (5, 6)
+    assert root.get_array("2/0").dtype == np.uint16
     macro = out.refs["3/0/c/0/0/0"]
     assert len(macro) == 3
     assert macro[0][:2] == ("object", "vsi_rgb_jpeg.vsi")
     assert macro[1][0] == 1
     assert len(out.data) == 1
-    ms = root["1"].attrs["ome"]["multiscales"][0]
-    assert ms["axes"][1] == {"name": "y", "type": "space", "unit": "micrometer"}
-    assert ms["datasets"][1]["coordinateTransformations"][0]["scale"] == [1, 0.27 * 2, 0.27 * 2]
-    assert ms["datasets"][0]["coordinateTransformations"][1]["translation"] == [0, 4600.0, 37000.0]
-    channels = root["1"].attrs["ome"]["omero"]["channels"]
+    ms = at(root["1"].attrs, "ome", "multiscales", 0)
+    assert at(ms, "axes", 1) == {"name": "y", "type": "space", "unit": "micrometer"}
+    assert at(ms, "datasets", 1, "coordinateTransformations", 0, "scale") == [1, 0.27 * 2, 0.27 * 2]
+    assert at(ms, "datasets", 0, "coordinateTransformations", 1, "translation") == [0, 4600.0, 37000.0]
+    channels = [mapping(c) for c in sequence(at(root["1"].attrs, "ome", "omero", "channels"))]
     assert [c["label"] for c in channels] == ["R", "G", "B"]
     assert channels[0]["window"] == {"min": 0, "max": 255, "start": 0, "end": 255}
-    own = root["1"].attrs["refkv_zarrified"]["vsi"]
+    own = mapping(at(root["1"].attrs, "refkv_zarrified", "vsi"))
     assert own["tile_file"] == "_vsi_rgb_jpeg_/stack10002/frame_t.ets"
     assert own["type_name"] == "Default image"
     # the source table: one url source per file some reference uses, sizes pinned
@@ -156,18 +157,18 @@ def test_the_multidimensional_slide():
     (the dye, not the optical path), colors from the LUTs and windows from the display limits;
     the z step in micrometers; the 12-bit background as the fill value; `frame_t_0.ets`."""
     out, root = zarrified(VSI / "vsi_raw_tzc.vsi")
-    a = root["0/0"]
+    a = root.get_array("0/0")
     assert (a.shape, a.dtype, a.fill_value) == ((2, 2, 3, 30, 40), np.uint16, 4095)
     assert json.loads(out.entries["0/0/zarr.json"])["dimension_names"] == ["t", "c", "z", "y", "x"]
-    ms = root["0"].attrs["ome"]["multiscales"][0]
-    assert [x["name"] for x in ms["axes"]] == ["t", "c", "z", "y", "x"]
-    assert ms["datasets"][0]["coordinateTransformations"][0]["scale"] == [1, 1, 0.2, 0.065, 0.065]
-    channels = root["0"].attrs["ome"]["omero"]["channels"]
+    ms = mapping(at(root["0"].attrs, "ome", "multiscales", 0))
+    assert [mapping(x)["name"] for x in sequence(ms["axes"])] == ["t", "c", "z", "y", "x"]
+    assert at(ms, "datasets", 0, "coordinateTransformations", 0, "scale") == [1, 1, 0.2, 0.065, 0.065]
+    channels = [mapping(c) for c in sequence(at(root["0"].attrs, "ome", "omero", "channels"))]
     assert [(c["label"], c["color"]) for c in channels] == [("Cy5", "FF0000"), ("GFP", "00FF00")]
     assert channels[0]["window"] == {"min": 0, "max": 65535, "start": 88, "end": 169}
-    own = root["0"].attrs["refkv_zarrified"]["vsi"]
+    own = mapping(at(root["0"].attrs, "refkv_zarrified", "vsi"))
     assert own["tile_file"] == "_vsi_raw_tzc_/stack1/frame_t_0.ets"
-    assert [c["channel_name"] for c in own["channels"]] == ["488/640_50um_1x"] * 2
+    assert [mapping(c)["channel_name"] for c in sequence(own["channels"])] == ["488/640_50um_1x"] * 2
     assert own["z_unit_name"] == "micrometer" if "z_unit_name" in own else own["z_unit"] == "10^-6m^1"
 
 
@@ -176,42 +177,45 @@ def test_the_root_metadata():
     §6.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#61-the-root>): tags named
     as Bio-Formats names them, texts decoded from UTF-16, a blob over 1024 bytes as its length."""
     _out, root = zarrified(VSI / "vsi_metadata_edges.vsi")
-    own = root.attrs["refkv_zarrified"]["vsi"]
+    own = mapping(at(root.attrs, "refkv_zarrified", "vsi"))
     assert set(own) == {"file", "stacks", "tree"}
-    assert own["file"]["key"] == "vsi_metadata_edges.vsi"
-    assert own["stacks"][0]["name"] == "µm édge"
-    top = own["tree"]["fields"]
-    doc = top[0]
+    assert at(own, "file", "key") == "vsi_metadata_edges.vsi"
+    assert at(own, "stacks", 0, "name") == "µm édge"
+    top = sequence(at(own, "tree", "fields"))
+    doc = mapping(top[0])
     assert doc["tag"] == 2
     assert doc["type"] == 1
-    assert doc["fields"][0] == {"tag": 11, "type": 8192, "name": "Document Name", "value": "vsi_metadata_edges"}
-    coll = top[1]
+    assert at(doc, "fields", 0) == {"tag": 11, "type": 8192, "name": "Document Name", "value": "vsi_metadata_edges"}
+    coll = mapping(top[1])
     assert (coll["tag"], coll["tag2"], coll["name"]) == (2000, 0, "Collection volume")
-    stack = next(f for f in coll["fields"] if f["tag"] == 2001)
-    props = next(f for f in stack["fields"] if f["tag"] == 2005)
-    by_tag = {f["tag"]: f for f in props["fields"]}
+    stack = next(f for f in map(mapping, sequence(coll["fields"])) if f["tag"] == 2001)
+    props = next(f for f in map(mapping, sequence(stack["fields"])) if f["tag"] == 2005)
+    by_tag = {f["tag"]: f for f in map(mapping, sequence(props["fields"]))}
     assert by_tag[2024]["value"] == {"bytes": 1280}
     assert by_tag[175307]["value"] == "Défaut"
     assert by_tag[2020] == {"tag": 2020, "type": 13, "name": "Calibration units", "value": "10^-3m^1"}
     assert by_tag[2074] == {"tag": 2074, "type": 5, "name": "Image Type", "inline": True, "value": 4096}
-    ifd = next(f for f in coll["fields"] if f["tag"] == 2016)
-    assert ifd["ifd"]["index"] == 0
-    assert ifd["ifd"]["bytes"] > 0
-    ms = root["0"].attrs["ome"]["multiscales"][0]
-    assert ms["axes"][0]["unit"] == "millimeter"
-    assert len(ms["datasets"][0]["coordinateTransformations"]) == 1
-    ome = root["0"].attrs["ome"]
-    assert "omero" not in ome or ome["omero"]["channels"][0]["window"]["start"] == 0
-    assert root["0"].attrs["refkv_zarrified"]["vsi"]["type_name"] is None
+    ifd = next(f for f in map(mapping, sequence(coll["fields"])) if f["tag"] == 2016)
+    assert at(ifd, "ifd", "index") == 0
+    assert integer(at(ifd, "ifd", "bytes")) > 0
+    ms = at(root["0"].attrs, "ome", "multiscales", 0)
+    assert at(ms, "axes", 0, "unit") == "millimeter"
+    assert len(sequence(at(ms, "datasets", 0, "coordinateTransformations"))) == 1
+    ome = mapping(at(root["0"].attrs, "ome"))
+    assert "omero" not in ome or at(ome, "omero", "channels", 0, "window", "start") == 0
+    assert at(root["0"].attrs, "refkv_zarrified", "vsi", "type_name") is None
 
 
 def test_raw_pixel_types():
     out, root = zarrified(VSI / "vsi_raw_types.vsi")
-    types = [im["dataType"] for im in out.summary["images"] if im["kind"] == "stack"]
+    images = [mapping(im) for im in sequence(out.summary["images"])]
+    types = [im["dataType"] for im in images if im["kind"] == "stack"]
     assert types == ["int8", "int16", "int32", "uint32", "int64", "uint64", "float32", "float64"]
-    for k, im in enumerate(out.summary["images"][:-1]):
-        assert root[f"{k}/0"].dtype == np.dtype(im["dataType"]), im["name"]
-        assert np.array_equal(root[f"{k}/0"][...], expected_array("vsi_raw_types", im["id"])[0, 0, 0]), im["name"]
+    for k, im in enumerate(images[:-1]):
+        assert root.get_array(f"{k}/0").dtype == np.dtype(string(im["dataType"])), im["name"]
+        want = expected_array("vsi_raw_types", integer(im["id"]))
+        assert want is not None, im["name"]
+        assert np.array_equal(ndarray(root.get_array(f"{k}/0")[...]), want[0, 0, 0]), im["name"]
 
 
 def test_the_second_tile_file_name_is_read_when_the_first_is_absent_and_the_first_wins():
@@ -257,10 +261,12 @@ def test_a_local_input_without_a_url_names_its_files_by_path(tmp_path):
     assert urls == [object_url(d, "_vsi_raw_bgr_/stack10000/frame_t.ets"), object_url(d, "vsi_raw_bgr.vsi")]
     out.write(str(tmp_path / "a.vzip"))
     g = zarr.open_group(refkv.zarr.open(str(tmp_path / "a.vzip")), mode="r", zarr_format=3)
-    want = expected_array("vsi_raw_bgr", 10000)[0, 0, 0]
-    assert np.array_equal(np.moveaxis(g["0/0"][...], 0, -1), want)
+    want = expected_array("vsi_raw_bgr", 10000)
+    assert want is not None
+    assert np.array_equal(np.moveaxis(ndarray(g.get_array("0/0")[...]), 0, -1), want[0, 0, 0])
     # a BGR file's samples are B, G, R
-    assert [c["label"] for c in g["0"].attrs["ome"]["omero"]["channels"]] == ["B", "G", "R"]
+    channels = sequence(at(g["0"].attrs, "ome", "omero", "channels"))
+    assert [mapping(c)["label"] for c in channels] == ["B", "G", "R"]
 
 
 @pytest.fixture(scope="module")
@@ -276,13 +282,16 @@ def test_over_http_the_tile_files_are_probed_and_a_404_is_absent(server, tmp_pat
     policy = Policy(allow_private_hosts=True)
     fmt, out = zarrify(server + "vsi_raw_tzc.vsi", policy=policy)
     assert fmt == "vsi"
+    assert isinstance(out, StoreIrOutput)
     assert set(out.sizes) == {"vsi_raw_tzc.vsi", "_vsi_raw_tzc_/stack1/frame_t_0.ets"}
     assert out.url == server
     assert out.summary["listingRequests"] == 1  # one file opened besides the .vsi
     out.write(str(tmp_path / "a.vzip"))
     g = zarr.open_group(refkv.zarr.open(str(tmp_path / "a.vzip"), policy=policy), mode="r", zarr_format=3)
-    assert g.attrs["refkv_zarrified"]["source"] == {"url": server + "vsi_raw_tzc.vsi"}
-    assert np.array_equal(g["0/0"][...], expected_array("vsi_raw_tzc", 1))
+    assert at(g.attrs, "refkv_zarrified", "source") == {"url": server + "vsi_raw_tzc.vsi"}
+    want = expected_array("vsi_raw_tzc", 1)
+    assert want is not None
+    assert np.array_equal(ndarray(g.get_array("0/0")[...]), want)
     # a missing tile file over HTTP is a rejection, as it is locally
     with pytest.raises(Rejected, match="has no tile file"):
         zarrify(server + "vsi_reject_missing_tile_file.vsi", policy=policy)
@@ -325,34 +334,39 @@ def test_matches_bioformats(name):
         pytest.skip("Bio-Formats is not available (bioio-bioformats needs a JVM and Maven)")
     out, root = zarrified(VSI / f"{name}.vsi")
     r = Reader(str(VSI / f"{name}.vsi"))
-    ours = [(k, im) for k, im in enumerate(out.summary["images"]) if im["source"] == "tiles" or im["kind"] == "macro"]
-    assert len(r.scenes) == len(ours)
-    for (k, im), scene in zip(ours, r.scenes, strict=True):
+    images = [mapping(im) for im in sequence(out.summary["images"])]
+    ours = [(k, im) for k, im in enumerate(images) if im["source"] == "tiles" or im["kind"] == "macro"]
+    scenes = r.scenes
+    assert scenes is not None
+    assert len(scenes) == len(ours)
+    for (k, im), scene in zip(ours, scenes, strict=True):
         r.set_scene(scene)
         r.set_resolution_level(0)  # the level stays set across scenes
-        assert scene.lower() == im["name"].lower()
+        assert scene.lower() == string(im["name"]).lower()
         rgb = "S" in str(r.dims)
         order = "TCZYXS" if rgb else "TCZYX"
         tolerance = 1 if im.get("codec") == "jpeg2000" else 0
-        bgr = root[str(k)].attrs["ome"]["omero"]["channels"][0]["label"] == "B"
+        bgr = at(root[str(k)].attrs, "ome", "omero", "channels", 0, "label") == "B"
         for level in r.resolution_levels:
             r.set_resolution_level(level)
             want = r.get_image_data(order)
-            got = as_tczyx(root[f"{k}/{level}"][...], im["axes"], im["samples"])
+            got = as_tczyx(ndarray(root.get_array(f"{k}/{level}")[...]), im["axes"], im["samples"])
             if bgr:
                 got = got[..., ::-1]  # stored blue first; Bio-Formats reorders to RGB
             assert got.shape == want.shape, (scene, level)
             diff = np.abs(got.astype(np.int64) - want.astype(np.int64)).max()
             assert diff <= tolerance, (scene, level, diff)
-        if im["kind"] == "stack" and im["samples"] == 1 and im["sizes"]["c"] > 1:
-            own = root[str(k)].attrs["refkv_zarrified"]["vsi"]
-            assert list(r.channel_names) == [c["channel_name"] for c in own["channels"]]
+        if im["kind"] == "stack" and im["samples"] == 1 and integer(at(im, "sizes", "c")) > 1:
+            own = at(root[str(k)].attrs, "refkv_zarrified", "vsi", "channels")
+            names = r.channel_names
+            assert names is not None
+            assert list(names) == [mapping(c)["channel_name"] for c in sequence(own)]
         if im["kind"] == "stack":
-            ms = root[str(k)].attrs["ome"]["multiscales"][0]
+            ms = mapping(at(root[str(k)].attrs, "ome", "multiscales", 0))
             r.set_resolution_level(0)
             px = r.physical_pixel_sizes
-            scale = ms["datasets"][0]["coordinateTransformations"][0]["scale"]
-            axes = [a["name"] for a in ms["axes"]]
+            scale = sequence(at(ms, "datasets", 0, "coordinateTransformations", 0, "scale"))
+            axes = [mapping(a)["name"] for a in sequence(ms["axes"])]
             if px.X is not None:
                 assert scale[axes.index("x")] == pytest.approx(px.X)
                 assert scale[axes.index("y")] == pytest.approx(px.Y)
@@ -374,27 +388,29 @@ def test_public_samples_match_bioformats():
             continue  # the .vsi file alone, without its tile files
         out, root = zarrified(path)
         r = Reader(str(path))
-        ours = [(k, im) for k, im in enumerate(out.summary["images"])
+        ours = [(k, im) for k, im in enumerate(map(mapping, sequence(out.summary["images"])))
                 if im["source"] == "tiles" or im["kind"] == "macro"]
-        assert len(r.scenes) == len(ours), path.name
-        for (k, im), scene in zip(ours, r.scenes, strict=True):
+        scenes = r.scenes
+        assert scenes is not None, path.name
+        assert len(scenes) == len(ours), path.name
+        for (k, im), scene in zip(ours, scenes, strict=True):
             r.set_scene(scene)
             r.set_resolution_level(0)
             rgb = "S" in str(r.dims)
             order = "TCZYXS" if rgb else "TCZYX"
             tolerance = 1 if im.get("codec") == "jpeg2000" else 0
-            bgr = root[str(k)].attrs["ome"]["omero"]["channels"][0]["label"] == "B"
+            bgr = at(root[str(k)].attrs, "ome", "omero", "channels", 0, "label") == "B"
             for level in r.resolution_levels:
                 r.set_resolution_level(level)
-                w, h = im["levels"][level]
+                w, h = map(integer, sequence(at(im, "levels", level)))
                 if w * h > 4_000_000:
                     ys, xs = slice(h // 2 - 256, h // 2 + 256), slice(w // 2 - 256, w // 2 + 256)
                     want = np.asarray(r.get_image_dask_data(order)[:, :, :, ys, xs])
-                    a = root[f"{k}/{level}"]
-                    got = as_tczyx(a[(slice(None),) * (a.ndim - 2) + (ys, xs)], im["axes"], im["samples"])
+                    a = root.get_array(f"{k}/{level}")
+                    got = as_tczyx(ndarray(a[(slice(None),) * (a.ndim - 2) + (ys, xs)]), im["axes"], im["samples"])
                 else:
                     want = r.get_image_data(order)
-                    got = as_tczyx(root[f"{k}/{level}"][...], im["axes"], im["samples"])
+                    got = as_tczyx(ndarray(root.get_array(f"{k}/{level}")[...]), im["axes"], im["samples"])
                 if bgr:
                     got = got[..., ::-1]
                 assert got.shape == want.shape, (path.name, scene, level)

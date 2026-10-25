@@ -41,6 +41,7 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import override
 from xml.sax.saxutils import escape
 
 BLOCK = 1 << 16
@@ -74,7 +75,7 @@ class Upstream:
                 if attempt == 5:
                     raise
             time.sleep(2**attempt)
-        return None
+        raise AssertionError("unreachable: the last attempt raises")
 
     def size(self, url: str) -> int:
         if url not in self.sizes:
@@ -186,7 +187,8 @@ def make_handler(fixtures: Path, upstream: Upstream, page_size: int = 100):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *args):
+        @override
+        def log_message(self, format, *args):
             pass
 
         def _target(self):

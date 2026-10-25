@@ -9,6 +9,7 @@ import tifffile
 from ir_helpers import FIXTURES, as_the_reference, omero_and_expected_windows, same_hierarchy
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
+from refkv._narrow import at, integer, sequence
 from refkv.ir import zarrify as via_ir
 from refkv.zarrify import Rejected
 
@@ -66,7 +67,7 @@ def test_omero_windows_sample_the_coarsest_level(path):
     if None in want:
         assert omero is None
     else:
-        assert [c["window"] for c in omero["channels"]] == want
+        assert [at(c, "window") for c in sequence(at(omero, "channels"))] == want
 
 
 def tiled(path, data, **kw):
@@ -83,7 +84,7 @@ def tile_at(path, k: int) -> tuple[int, int, int, int]:
     """Tile `k` of page 0: its offset and byte count, and where its TileByteCounts value is
     and how long."""
     with tifffile.TiffFile(path) as tf:
-        page = tf.pages[0]
+        page = tf.pages.first
         counts = page.tags["TileByteCounts"]
         size = counts.valuebytecount // counts.count
         return page.dataoffsets[k], page.databytecounts[k], counts.valueoffset + k * size, size
@@ -165,7 +166,7 @@ def test_planes_and_tiles_that_share_bytes_are_aliases(probes):
     planes = [i for i in range(len(ir)) if ir.path(i).startswith("ome/planes")]
     assert len(planes) == 100
     assert all(ir.kind(i) == 4 for i in planes)
-    tiles = ir.child(ir.child(0, "ifds/0"), "tiles")
+    tiles = integer(ir.child(integer(ir.child(0, "ifds/0")), "tiles"))
     ks, starts, _lengths, _ = ir.members(tiles)
     assert len(ks) == 100
     assert set(starts) == {starts[0]}
@@ -174,7 +175,7 @@ def test_planes_and_tiles_that_share_bytes_are_aliases(probes):
 
 def test_ifds_that_share_a_tile_table_name_it_by_alias(probes):
     _, _out, ir = via_ir(str(probes / "tiff_shared_1000_1024.tif"), "u", mirror=False)
-    tiles = [ir.child(ir.child(0, f"ifds/{k}"), "tiles") for k in range(1000)]
+    tiles = [integer(ir.child(integer(ir.child(0, f"ifds/{k}")), "tiles")) for k in range(1000)]
     assert ir.kind(tiles[0]) == 0
     assert all(ir.kind(t) == 4 and ir.target(t) == tiles[0] for t in tiles[1:])
     assert len(ir) < 50000  # about 40 per IFD (entries and values), none per tile: not 1000 x 1024
