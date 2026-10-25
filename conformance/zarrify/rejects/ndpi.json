@@ -2,6 +2,11 @@
   "about": "The inputs the ndpi profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/ndpi.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
   "cases": [
     {
+      "test": "ndpi_edge_reject_compressions",
+      "input": "edge_reject_ndpi_compressions.ndpi",
+      "message": "NDPI levels differ in compression (7, the first's 22610)"
+    },
+    {
       "test": "ndpi_edge_reject_focal_planes",
       "input": "edge_reject_ndpi_focal_planes.ndpi",
       "message": "NDPI focal planes (two levels with one magnification) are not supported"
@@ -15,6 +20,46 @@
       "test": "ndpi_edge_reject_growing",
       "input": "edge_reject_ndpi_growing.ndpi",
       "message": "NDPI levels do not decrease in size"
+    },
+    {
+      "test": "ndpi_edge_reject_jpegxr_format",
+      "input": "edge_reject_ndpi_jpegxr_format.ndpi",
+      "message": "an NDPI level's JPEG XR pixel format 24C3DD6F034EFE4BB1853D77768DC911 is not supported"
+    },
+    {
+      "test": "ndpi_edge_reject_jpegxr_formats",
+      "input": "edge_reject_ndpi_jpegxr_formats.ndpi",
+      "message": "NDPI levels' JPEG XR pixel formats differ"
+    },
+    {
+      "test": "ndpi_edge_reject_jpegxr_header",
+      "input": "edge_reject_ndpi_jpegxr_header.ndpi",
+      "message": "an NDPI level's JPEG XR stream has no container header with a pixel format and size"
+    },
+    {
+      "test": "ndpi_edge_reject_jpegxr_high_bytes",
+      "input": "edge_reject_ndpi_jpegxr_high_bytes.ndpi",
+      "message": "an NDPI tile is outside the file"
+    },
+    {
+      "test": "ndpi_edge_reject_jpegxr_high_length",
+      "input": "edge_reject_ndpi_jpegxr_high_length.ndpi",
+      "message": "an NDPI level's tile high bytes differ in length from its tiles"
+    },
+    {
+      "test": "ndpi_edge_reject_jpegxr_size",
+      "input": "edge_reject_ndpi_jpegxr_size.ndpi",
+      "message": "an NDPI JPEG XR stream of 32 × 32 pixels is not its chunk's 64 × 64"
+    },
+    {
+      "test": "ndpi_edge_reject_jpegxr_strips",
+      "input": "edge_reject_ndpi_jpegxr_strips.ndpi",
+      "message": "an NDPI JPEG XR level has neither tiles nor exactly one strip"
+    },
+    {
+      "test": "ndpi_edge_reject_jpegxr_tiles",
+      "input": "edge_reject_ndpi_jpegxr_tiles.ndpi",
+      "message": "an NDPI level has 5 tile offsets and 5 byte counts, not its 6 tiles"
     },
     {
       "test": "ndpi_edge_reject_mcustarts",

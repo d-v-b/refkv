@@ -73,12 +73,19 @@ fn is_table(tag: u16) -> bool {
 
 /// The tags of NDPI's table (spec/zarrify/ndpi.md §2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#2-the-source>), and the tags
-/// NDPI adds to TIFF's layout tags (McuStarts and McuStartsHighBytes).
-const NDPI_TABLE: [u16; 17] = [
-    256, 257, 258, 259, 262, 273, 277, 279, 282, 283, 296, 65420, 65421, 65422, 65423, 65426, 65432,
+/// NDPI adds to TIFF's layout tags (the tile tables' high bytes, McuStarts and
+/// McuStartsHighBytes).
+const NDPI_TABLE: [u16; 23] = [
+    256, 257, 258, 259, 262, 273, 277, 279, 282, 283, 296, 322, 323, 324, 325, 65324, 65325, 65420, 65421, 65422, 65423,
+    65426, 65432,
 ];
-const NDPI_SCALARS: [u16; 14] = [256, 257, 259, 262, 273, 277, 279, 282, 283, 296, 65420, 65421, 65422, 65423];
-const NDPI_LAYOUT: [u16; 2] = [65426, 65432];
+const NDPI_SCALARS: [u16; 16] = [256, 257, 259, 262, 273, 277, 279, 282, 283, 296, 322, 323, 65420, 65421, 65422, 65423];
+const NDPI_LAYOUT: [u16; 4] = [65324, 65325, 65426, 65432];
+/// NDPI's acquisition tags (spec/zarrify/ndpi.md §2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#2-the-source>): Fluorescence,
+/// Wavelength and ExposureTime, each read when of its field types.
+const NDPI_ACQUISITION: [(u16, &str, &[u16]); 3] =
+    [(65434, "Fluorescence", &[2]), (65451, "Wavelength", &[11, 12]), (65454, "ExposureTime", &[3, 4])];
 /// The tags of QPTIFF's table (spec/zarrify/qptiff.md §2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#2-the-source>): TIFF's, with
 /// the strip tables, RowsPerStrip and the position tags.
@@ -1942,7 +1949,21 @@ impl Tiff {
             if !unsigned(eo.typ) || !unsigned(ec.typ) {
                 continue;
             }
-            let (Some(offsets), Some(counts)) = (self.ints(&eo, false), self.ints(&ec, false)) else { continue };
+            let (Some(mut offsets), Some(mut counts)) = (self.ints(&eo, false), self.ints(&ec, false)) else { continue };
+            let at = |e: &Ent| if e.inline { format!("i{}", e.field.len()) } else { format!("{}+{}", e.off, e.nbytes.unwrap_or(0)) };
+            // an NDPI's tiles: each offset and byte count with its high bytes, when they are read
+            // and as many (spec/zarrify/ndpi.md §7
+            // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)
+            let mut highs = String::new();
+            if self.ndpi && name == "tiles" {
+                for (t, v) in [(65324u16, &mut offsets), (65325, &mut counts)] {
+                    let Some(e) = f.field(t).filter(|e| unsigned(e.typ)) else { continue };
+                    if let Some(h) = self.ints(e, false).filter(|h| h.len() == eo.count as usize) {
+                        *v = ndpi::combine(std::mem::take(v), Some(&h));
+                        highs.push_str(&format!("|{t}:{}", at(e)));
+                    }
+                }
+            }
             let prefix = match self.layout.as_ref().and_then(|l| l.prefixes.get(&k)) {
                 Some(p) => p.clone(),
                 None => self.own_prefix(k),
@@ -1958,11 +1979,10 @@ impl Tiff {
                              "bits": f.field(258).and_then(|e| self.ints(e, true)).and_then(|v| v.first().copied())},
                 "codec": {"compression": one(259).unwrap_or(1)},
             });
-            let at = |e: &Ent| if e.inline { format!("i{}", e.field.len()) } else { format!("{}+{}", e.off, e.nbytes.unwrap_or(0)) };
             let key = if eo.inline || ec.inline {
                 format!("{k}/{name}") // in-line tables are the IFD's own
             } else {
-                format!("{name}|{}|{}|{}|{}", at(&eo), at(&ec), base, prefix.iter().map(|b| format!("{b:02x}")).collect::<String>())
+                format!("{name}|{}|{}|{}|{}{highs}", at(&eo), at(&ec), base, prefix.iter().map(|b| format!("{b:02x}")).collect::<String>())
             };
             let parent = self.ifds[k].el;
             if let Some(&t) = by_key.get(&key) {
@@ -2009,7 +2029,13 @@ impl Tiff {
         self.data_keys = by_key;
         let lay = self.layout.as_mut().unwrap();
         if self.ndpi {
-            return Ok(()); // derive_ndpi wrote the levels
+            // derive_ndpi wrote the levels; a tiled JPEG XR level's chunks are its IFD's tiles
+            for lv in lay.facts["levels"].as_array_mut().into_iter().flatten() {
+                if let Some(k) = lv["tiles_ifd"].as_u64() {
+                    lv["tiles"] = json!(tiles_of.get(&(k as usize)).and_then(|t| t.0));
+                }
+            }
+            return Ok(());
         }
         let levels: Vec<J> = lay
             .levels
@@ -2305,14 +2331,96 @@ impl Tiff {
         }
     }
 
+    /// The header of a JPEG XR level's first stream at `s0` of `n` bytes (`ndpi::stream`), from
+    /// its first bytes read so far: `STREAM_READ` of them, then, while the header continues past
+    /// them, at least twice as many, up to `MAX_STREAM_READ` and the stream's end. Err: the
+    /// first bytes to read next.
+    fn ndpi_stream(&self, s0: u64, n: u64) -> Result<Option<ndpi::Stream>, (u64, u64)> {
+        let mut have = n.min(ndpi::STREAM_READ);
+        loop {
+            let Some(b) = self.heads.get(&(s0, have)) else { return Err((s0, have)) };
+            match ndpi::stream(b, n) {
+                Ok(h) => return Ok(h),
+                Err(k) if k > have => have = k,
+                Err(_) => return Ok(None),
+            }
+        }
+    }
+
+    /// A JPEG XR level's tiles (spec/zarrify/ndpi.md §7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>): its
+    /// offsets and byte counts, each with its high bytes when they are as many, and whether they
+    /// are; None until TileOffsets and TileByteCounts are read.
+    fn ndpi_tiles(m: &NVals) -> Option<(Vec<u64>, Vec<u64>, bool)> {
+        let (o, c) = (m.get(&324)?.ints()?, m.get(&325)?.ints()?);
+        let (ho, hc) = (m.get(&65324).and_then(|v| v.ints()), m.get(&65325).and_then(|v| v.ints()));
+        let same = ho.is_none_or(|h| h.len() == o.len()) && hc.is_none_or(|h| h.len() == o.len());
+        if !same {
+            return Some((o.to_vec(), c.to_vec(), false));
+        }
+        Some((ndpi::combine(o.to_vec(), ho), ndpi::combine(c.to_vec(), hc), true))
+    }
+
+    /// A JPEG XR level's first stream: its strip, or its first tile whose byte count is above 0.
+    fn ndpi_first(m: &NVals, tiled: bool) -> Option<(u64, u64)> {
+        if tiled {
+            let (o, c, _) = Self::ndpi_tiles(m)?;
+            o.iter().zip(&c).find(|x| *x.1 > 0).map(|(&o, &c)| (o, c))
+        } else {
+            Some((Self::nint(m, 273)?, Self::nint(m, 279)?))
+        }
+    }
+
+    /// Level 0's acquisition tags (spec/zarrify/ndpi.md §5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#5-source-metadata>), as the
+    /// root's source metadata, and the Fluorescence a single channel is labeled with (§4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>). A tag of
+    /// another field type, without a value, with a value outside the file, or a Fluorescence of
+    /// more than `VIEW_VALUE` bytes, is left out; the bytes not read yet are added to `need`.
+    fn ndpi_acquisition(&self, k: usize, need: &mut Vec<(u64, u64)>) -> (serde_json::Map<String, J>, Option<String>) {
+        let f = &self.ifds[k];
+        let (mut own, mut label) = (serde_json::Map::new(), None);
+        for (tag, name, types) in NDPI_ACQUISITION {
+            let Some(e) = f.field(tag).filter(|e| types.contains(&e.typ) && e.count > 0) else { continue };
+            let z = type_size(e.typ).unwrap_or(1);
+            let n = if e.typ == 2 { e.count } else { z };
+            if (e.typ == 2 && n > crate::mirror::VIEW_VALUE) || !(e.inline || self.within(e.off, n)) {
+                continue;
+            }
+            let v = if e.typ == 2 {
+                self.bytes_of(e, n).map(|b| {
+                    let t = &b[..b.iter().position(|&c| c == 0).unwrap_or(b.len())];
+                    if !t.is_empty() && t.len() <= crate::project::MAX_NAME {
+                        label = std::str::from_utf8(t).ok().map(str::to_string);
+                    }
+                    crate::text::text_json(t)
+                })
+            } else if e.typ == 11 {
+                self.bytes_of(e, n).map(|b| crate::project::float_json(u32::le_at(&b, 0) as u64, 4, f32::le_at(&b, 0) as f64))
+            } else if e.typ == 12 {
+                self.bytes_of(e, n).map(|b| crate::project::float_json(u64::le_at(&b, 0), 8, f64::le_at(&b, 0)))
+            } else {
+                self.ints(e, true).map(|v| if v[0] <= MAX_SAFE { json!(v[0]) } else { json!(v[0].to_string()) })
+            };
+            match v {
+                Some(v) => {
+                    own.insert(name.into(), v);
+                }
+                None => need.push((e.off, n)),
+            }
+        }
+        (own, label)
+    }
+
     /// The NDPI layout: levels, chunk grids, scales and translation, as facts for
     /// `project/ndpi.rs`. Asks for the values and strip headers not read yet.
     fn derive_ndpi(&self) -> Got<Layout> {
         // The bytes first, each kind in one batch, with no check: every main-chain IFD's
-        // Magnification, the tags of those it makes levels, and their strips' headers. Then the
-        // checks, in the profile's order (an IFD's Magnification, then, for a level, its tags
-        // and the level's checks; then, level by level, its strip, McuStarts, header and chunks),
-        // so that a file with several faults is rejected for the one the profile meets first.
+        // Magnification, the tags of those it makes levels, and their strips' headers (a JPEG
+        // XR level's first stream's). Then the checks, in the profile's order (an IFD's
+        // Magnification, then, for a level, its tags and the level's checks; then, level by
+        // level, its strip or tiles, McuStarts, header and chunks), so that a file with several
+        // faults is rejected for the one the profile meets first.
         let mut need = Vec::new();
         let mut mags = Vec::new();
         for &k in &self.chain {
@@ -2336,13 +2444,32 @@ impl Tiff {
             let same_length = high.is_none_or(|h| h.len() == starts.len());
             Some((if same_length { ndpi::combine(starts.to_vec(), high) } else { starts.to_vec() }, same_length))
         };
+        let tiled_of = |k: usize, m: &NVals| {
+            let f = &self.ifds[k];
+            [322u16, 323].iter().all(|&t| Self::nint(m, t).is_some_and(|v| v >= 1)) && f.has(324) && f.has(325)
+        };
+        let mut first_level = true;
         for (j, &k) in self.chain.iter().enumerate() {
             if !positive(j) {
                 continue;
             }
             let m = self.nload(k, None, &mut need, false)?;
+            if first_level {
+                // level 0's acquisition tags, when out of line and not read yet
+                self.ndpi_acquisition(k, &mut need);
+                first_level = false;
+            }
             let (s0, n) = (Self::nint(&m, 273).unwrap_or(0), Self::nint(&m, 279).unwrap_or(0));
             let fits = (s0 as u128 + n as u128) <= self.size as u128;
+            if Self::nint(&m, 259) == Some(ndpi::JPEGXR) {
+                // a JPEG XR level: its first stream's first bytes, for its header
+                if let Some((o, c)) = Self::ndpi_first(&m, tiled_of(k, &m)).filter(|&(o, c)| c > 0 && self.within(o, c)) {
+                    if let Err(r) = self.ndpi_stream(o, c) {
+                        need.push(r);
+                    }
+                }
+                continue;
+            }
             match starts_of(&m) {
                 Some((starts, true)) => {
                     let first = starts.first().is_some_and(|&f| f >= 2 && f <= n);
@@ -2365,7 +2492,7 @@ impl Tiff {
         // the levels (spec/zarrify/ndpi.md §3
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>)
         let mut tags: Vec<(usize, NVals)> = Vec::new();
-        let mut levels: Vec<(usize, f64, u64, u64)> = Vec::new(); // (IFD, magnification, w, h)
+        let mut levels: Vec<(usize, f64, u64, u64, u64, bool)> = Vec::new(); // (IFD, magnification, w, h, compression, tiled)
         for (j, &k) in self.chain.iter().enumerate() {
             self.nload(k, Some(&[65421]), &mut need, true)?; // the profile reads Magnification first
             let mag = self.nreq(&mags[j], 65421, "Magnification")?;
@@ -2382,30 +2509,33 @@ impl Tiff {
             let bits = m.get(&258).and_then(|v| v.ints()).map(|v| v.to_vec()).unwrap_or_default();
             let f = &self.ifds[k];
             let one_strip = [273u16, 279].iter().all(|&t| f.field(t).is_some_and(|e| e.count == 1));
+            let tiled = tiled_of(k, &m);
             let smaller = levels.last().is_none_or(|l| w < l.2 && h < l.3);
             let new_magnification = !levels.iter().any(|l| l.1 == mag);
             self.rules.check(
                 "level",
                 rules::env([
                     ("compression", num(compression as f64)),
+                    ("first_compression", num(levels.first().map_or(compression, |l| l.4) as f64)),
                     ("photometric", photometric.map(|p| num(p as f64)).unwrap_or(V::Absent)),
                     ("spp", num(Self::nint(&m, 277).unwrap_or(1) as f64)),
                     ("bits", V::List(bits.iter().map(|&b| V::Num(b as f64)).collect())),
                     ("one_strip", flag(one_strip)),
+                    ("tiled", flag(tiled)),
                     ("smaller", flag(smaller)),
                     ("new_magnification", flag(new_magnification)),
                     ("width", num(w as f64)),
                     ("height", num(h as f64)),
                 ]),
             )?;
-            levels.push((k, mag, w, h));
+            levels.push((k, mag, w, h, compression, tiled));
             tags.push((k, m));
         }
         self.rules.check("images", rules::env([("levels", num(levels.len() as f64))]))?;
         let vals = |k: usize| &tags.iter().find(|t| t.0 == k).unwrap().1;
         // scale and position (spec/zarrify/ndpi.md §4
         // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>)
-        let (k0, _, bw, bh) = levels[0];
+        let (k0, _, bw, bh, _, _) = levels[0];
         let m0 = vals(k0);
         let per_unit = self
             .rules
@@ -2443,9 +2573,68 @@ impl Tiff {
         };
         let mut out = Vec::new();
         let mut scales = Vec::new();
-        for (li, &(k, _, w, h)) in levels.iter().enumerate() {
+        // the pixel format of level 0's first JPEG XR stream (spec/zarrify/ndpi.md §3
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>)
+        let mut format0: Option<[u8; 16]> = None;
+        for (li, &(k, _, w, h, compression, tiled)) in levels.iter().enumerate() {
             let m = vals(k);
             let (s0, n) = (Self::nint(m, 273).unwrap_or(0), Self::nint(m, 279).unwrap_or(0));
+            if compression == ndpi::JPEGXR {
+                // a JPEG XR level: its tiles, or its strip, each a chunk
+                let (cw, ch) = if tiled {
+                    let (tw, th) = (Self::nint(m, 322).unwrap_or(1), Self::nint(m, 323).unwrap_or(1));
+                    let (offsets, counts, high) = Self::ndpi_tiles(m).ok_or_else(|| Stop::Reject("internal: an NDPI level's tile tables were not read".into()))?;
+                    let within = offsets.iter().zip(&counts).all(|(&o, &c)| c == 0 || self.within(o, c));
+                    self.rules.check(
+                        "tiles",
+                        rules::env([
+                            ("tiles", num(h.div_ceil(th).saturating_mul(w.div_ceil(tw)) as f64)),
+                            ("offsets", num(offsets.len() as f64)),
+                            ("counts", num(counts.len() as f64)),
+                            ("high", flag(high)),
+                            ("within", flag(within)),
+                        ]),
+                    )?;
+                    (tw, th)
+                } else {
+                    let within = (s0 as u128 + n as u128) <= self.size as u128;
+                    self.rules.check("strip", rules::env([("within", flag(within)), ("length", num(n as f64))]))?;
+                    (w, h)
+                };
+                let first = Self::ndpi_first(m, tiled).filter(|x| x.1 > 0);
+                let header = match first {
+                    Some((o, c)) => match self.ndpi_stream(o, c) {
+                        Ok(x) => x,
+                        Err(r) => return Err(Stop::Need(vec![r])),
+                    },
+                    None => None,
+                };
+                let format = header.map(|x| x.0);
+                if li == 0 {
+                    format0 = format;
+                }
+                let (fw, fh) = header.map_or((0, 0), |x| (x.1, x.2));
+                self.rules.check(
+                    "jpegxr",
+                    rules::env([
+                        ("stream", flag(first.is_some())),
+                        ("header", flag(header.is_some())),
+                        ("format", text(&format.as_ref().map(ndpi::hex).unwrap_or_default())),
+                        ("supported", flag(format.as_ref().and_then(ndpi::pixel_format).is_some())),
+                        ("same", flag(format.is_some() && format == format0)),
+                        ("width", num(fw as f64)),
+                        ("height", num(fh as f64)),
+                        ("chunk_width", num(cw as f64)),
+                        ("chunk_height", num(ch as f64)),
+                    ]),
+                )?;
+                out.push(json!({
+                    "w": w, "h": h, "tw": cw, "th": ch, "strip": s0, "length": n,
+                    "tiles_ifd": if tiled { json!(k) } else { J::Null },
+                }));
+                scales.push(json!([1, py.unwrap_or(1.0) * (bh as f64 / h as f64), px.unwrap_or(1.0) * (bw as f64 / w as f64)]));
+                continue;
+            }
             let within = (s0 as u128 + n as u128) <= self.size as u128;
             self.rules.check("strip", rules::env([("within", flag(within)), ("length", num(n as f64))]))?;
             let head = starts_of(m);
@@ -2517,10 +2706,26 @@ impl Tiff {
             self.rules.check("translation", rules::env([("x", num(x)), ("y", num(y))]))?;
             translation = json!([0, y, x]);
         }
+        // the pixels (spec/zarrify/ndpi.md §3
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>), and level 0's
+        // acquisition tags (§5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#5-source-metadata>)
+        let (data_type, samples, codec) = match format0.as_ref().and_then(ndpi::pixel_format) {
+            Some((t, s)) => (t, s, "imagecodecs_jpegxr"),
+            None => ("uint8", 3, "imagecodecs_jpeg"),
+        };
+        let (own, label) = self.ndpi_acquisition(k0, &mut need);
+        if !need.is_empty() {
+            return Err(Stop::Need(need));
+        }
         let facts = json!({
             "profile": "ndpi",
             "ifds": self.chain.len(),
             "axes": ["c", "y", "x"],
+            "data_type": data_type,
+            "samples": samples,
+            "codec": codec,
+            "label": label,
+            "own": own,
             "units": units,
             "scales": scales,
             "translation": translation,

@@ -10,3 +10,9 @@ https://openslide.cs.cmu.edu/download/openslide-testdata/Aperio/JP2K-33003-1.svs
 https://openslide.cs.cmu.edu/download/openslide-testdata/Hamamatsu/CMU-1.ndpi|ndpi-CMU-1|ends-sha256=20b33fe928fa55324ca0c783015b841a755370152e8cd76fc81045ca60fb9ed5
 https://openslide.cs.cmu.edu/download/openslide-testdata/Hamamatsu/Hamamatsu-1.ndpi|ndpi-Hamamatsu-1|ends-sha256=6cff1577358b48197b1800728b5ee2b69b092b0e79f6e12b9f3114b3777020ca
 https://openslide.cs.cmu.edu/download/openslide-testdata/Hamamatsu/Hamamatsu-2.ndpi|ndpi-Hamamatsu-2|ends-sha256=94e6491d6a8321ad7dd3304babf42c189f591a8385844fccf382c07ba473c0d3
+# Hamamatsu NanoZoomer (C13210) NDPI slides from OME's sample images ((c) Hamamatsu, CC BY-ND
+# 4.0, as the readme.txt beside them says), whose levels are JPEG XR: a fluorescence slide in
+# 16-bit grayscale tiles (TxRed, 2.8 GB) and a brightfield one in RGB tiles and strips (2.1 GB).
+# The frozen reference has no JPEG XR levels (no-ref).
+https://downloads.openmicroscopy.org/images/Hamamatsu-NDPI/hamamatsu/DM0014%20-%202020-04-02%2010.25.21.ndpi|ndpi-DM0014-10.25.21-fluorescence|no-ref|ends-sha256=21205ab87de094b738152668145e35021d0b10ee8ac55658ade2ac60d7b76f84
+https://downloads.openmicroscopy.org/images/Hamamatsu-NDPI/hamamatsu/DM0014%20-%202020-04-02%2011.10.47.ndpi|ndpi-DM0014-11.10.47|no-ref|ends-sha256=15ce1e08e01fa9525845255c8da85baa06685a0b9147ed543677970e7d7e62ea

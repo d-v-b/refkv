@@ -134,6 +134,65 @@ def test_a_level_0_frame_with_other_mcu_rows_is_rejected():
         via_ir(str(FIXTURES / "ndpi" / "edge_reject_ndpi_frame.ndpi"), "u")
 
 
+JPEGXR_SLIDES = {
+    # name: (data type, samples, levels' shapes and chunk shapes, label, root's source metadata,
+    # the chunks of tiles of byte count 0)
+    "ndpi_jpegxr_gray16.ndpi": ("uint16", 1, [([1, 100, 160], [1, 64, 64]), ([1, 50, 80], [1, 32, 32]),
+                                              ([1, 25, 40], [1, 25, 40])],
+                                "TxRed", {"Fluorescence": "TxRed", "Wavelength": 650.0, "ExposureTime": 1024000},
+                                {"1/c/0/1/1"}),
+    "ndpi_jpegxr_rgb.ndpi": ("uint8", 3, [([3, 60, 90], [3, 32, 48]), ([3, 30, 45], [3, 30, 45])], None, None,
+                             set()),
+}
+
+
+def test_jpegxr_levels_are_their_streams_pixels(tmp_path):
+    """§3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>, §4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image> (d-v-b/refkv#123):
+    a JPEG XR level, tiled or in one strip, has the data type and samples of its streams' pixel
+    format, not the 8-bit YCbCr its tags say; each tile (with its high bytes) or the strip is a
+    chunk as it is, one of byte count 0 none; `omero` is R, G, B or the one channel labeled
+    with the Fluorescence, the windows the type's range; the root's source metadata is level 0's
+    acquisition tags. Read through zarr, each chunk is its stream as imagecodecs decodes it, and
+    the mirror rebuilds the file."""
+    for name, (data_type, samples, levels, label, own, absent) in JPEGXR_SLIDES.items():
+        path = FIXTURES / "ndpi" / name
+        data = path.read_bytes()
+        _, out, _ = via_ir(str(path), "u")
+        root = json.loads(out.bytes_entries["zarr.json"])["attributes"]
+        assert root["refkv_zarrified"].get("ndpi") == own, name
+        top = 255 if data_type == "uint8" else 65535
+        window = {"min": 0, "max": top, "start": 0, "end": top}
+        names = [("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF")] if samples == 3 else [(label or "C0", "FFFFFF")]
+        assert root["ome"]["omero"]["channels"] == [{"label": n, "color": c, "active": True, "window": window}
+                                                    for n, c in names], name
+        g = zarr.open_group(ZarrStore(shipped(str(path))), mode="r", zarr_format=3)
+        for li, (shape, chunk) in enumerate(levels):
+            meta = json.loads(out.bytes_entries[f"{li}/zarr.json"])
+            assert (meta["shape"], meta["data_type"], meta["chunk_grid"]["configuration"]["chunk_shape"]) == (
+                shape, data_type, chunk), (name, li)
+            codecs = [c["name"] for c in meta["codecs"]]
+            assert codecs == (["transpose", "imagecodecs_jpegxr"] if samples == 3 else ["imagecodecs_jpegxr"]), name
+            got = ndarray(g.get_array(str(li))[...])
+            down, across = -(-shape[1] // chunk[1]), -(-shape[2] // chunk[2])
+            for row in range(down):
+                for col in range(across):
+                    key = f"{li}/c/0/{row}/{col}"
+                    region = got[:, row * chunk[1]:(row + 1) * chunk[1], col * chunk[2]:(col + 1) * chunk[2]]
+                    assert (key not in out.refs) == (key in absent), key
+                    if key in absent:  # a tile of byte count 0: the fill value
+                        assert not region.any(), key
+                        continue
+                    span, = out.refs[key]
+                    assert isinstance(span, tuple)
+                    assert len(span) == 2
+                    offset, length = span
+                    want = imagecodecs.jpegxr_decode(data[offset:offset + length])
+                    want = np.moveaxis(want if want.ndim == 3 else want[..., None], -1, 0)
+                    assert np.array_equal(region, want[:, :region.shape[1], :region.shape[2]]), key
+        assert_rebuilds(out, data, tmp_path, f"{path.stem}.vzip")
+
+
 def test_a_tiff_is_not_ndpi():
     fmt, _, _ = via_ir(str(FIXTURES / "tiff" / "jpeg_gray.tif"), "u")
     assert fmt == "tiff"

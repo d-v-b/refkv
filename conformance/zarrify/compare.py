@@ -131,8 +131,10 @@ ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
 # The fixtures (by file name) whose layout the profile changed after the freeze, which the frozen
 # reference does not give: they compare py with web alone. NDPI's strips without McuStarts whose frame header is
 # not their level's size (spec/zarrify/ndpi.md §7
-# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>).
-REVISED = {"edge_ndpi_frames.ndpi", "edge_reject_ndpi_frame.ndpi"}
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>), and its JPEG XR levels
+# (spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>).
+REVISED = {"edge_ndpi_frames.ndpi", "edge_reject_ndpi_frame.ndpi", "ndpi_jpegxr_gray16.ndpi",
+           "ndpi_jpegxr_rgb.ndpi"}
 
 
 class UnreadableError(Exception):
