@@ -1,11 +1,13 @@
-// A VSI input (spec/zarrify/vsi.md §9.2
-// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>): the `.vsi`
-// file named by the input URL, and the tile files beside it, which the Rust core's `vsi` store
-// format asks for by key (the probes of ir/store.ts) rather than from a listing, since a plain
-// web server cannot list a directory. The files are the objects of a store whose URL is the
-// `.vsi` file's directory, each read through a range source of its own (ir/source.ts); a probe
-// opens the file, and an object the server answers 404 for is absent. The twin of
-// python/src/refkv/zarrify/vsi.py.
+// An input read with the files beside it: a VSI input (spec/zarrify/vsi.md §9.2
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>), the `.vsi`
+// file named by the input URL and the tile files beside it, and a NRRD input
+// (spec/zarrify/nrrd.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#83-the-data-file>),
+// the header file named by the input URL and a detached header's data file. The Rust core's
+// `vsi` and `nrrd` store formats ask for those files by key (the probes of ir/store.ts) rather
+// than from a listing, since a plain web server cannot list a directory. The files are the
+// objects of a store whose URL is the named file's directory, each read through a range source
+// of its own (ir/source.ts); a probe opens the file, and an object the server answers 404 for is
+// absent. The twin of python/src/refkv/zarrify/vsi.py.
 
 import type { ArchiveDesc } from "../../writer.ts";
 import { HttpResolutionError } from "../../http.ts";
@@ -14,19 +16,25 @@ import { objectUrl, type Store, StoreError } from "../store.ts";
 import { HttpSource, type HttpSourceOptions, type RangeSource } from "./source.ts";
 import { zarrifyStoreIr } from "./store.ts";
 
-/** [the directory's URL (ending in `/`), the `.vsi` file's key (its last segment, percent-decoded)]. */
-export function splitVsiUrl(url: string): [string, string] {
+/** The formats whose input is read with the files beside it: each one's title, as a rejection
+ * names it. */
+export const BESIDE = { vsi: "VSI", nrrd: "NRRD" } as const;
+export type BesideFormat = keyof typeof BESIDE;
+
+/** [the directory's URL (ending in `/`), the named file's key (its last segment,
+ * percent-decoded)] of an input of the format `title` names (VSI, NRRD). */
+export function splitVsiUrl(url: string, title = "VSI"): [string, string] {
   const base = url.split(/[?#]/, 1)[0];
-  if (base !== url) throw new ImageError(`VSI input ${JSON.stringify(url)} has a query or a fragment`);
+  if (base !== url) throw new ImageError(`${title} input ${JSON.stringify(url)} has a query or a fragment`);
   const k = base.lastIndexOf("/");
   const name = base.slice(k + 1);
   let key: string;
   try {
     key = decodeURIComponent(name);
   } catch {
-    throw new ImageError(`VSI input ${JSON.stringify(url)}: its file name is not percent-encoded UTF-8`);
+    throw new ImageError(`${title} input ${JSON.stringify(url)}: its file name is not percent-encoded UTF-8`);
   }
-  if (k < 0 || !key || key.includes("/")) throw new ImageError(`VSI input ${JSON.stringify(url)} names no file`);
+  if (k < 0 || !key || key.includes("/")) throw new ImageError(`${title} input ${JSON.stringify(url)} names no file`);
   return [base.slice(0, k + 1), key];
 }
 
@@ -42,23 +50,24 @@ async function probeHttp(url: string, options: HttpSourceOptions): Promise<Range
 }
 
 export interface VsiOptions {
-  /** Opens the file `key` beside the `.vsi` file (`key` relative to its directory), or
+  /** Opens the file `key` beside the named file (`key` relative to its directory), or
    * undefined when it does not exist; by default the directory's URL is read over http(s)
-   * with `http`'s options, or, when the `.vsi` file's source is an `HttpSource`, with the
+   * with `http`'s options, or, when the named file's source is an `HttpSource`, with the
    * options it was opened with (the same reader policy and headers). */
   open?: (key: string) => Promise<RangeSource | undefined>;
   http?: HttpSourceOptions;
   mirror?: boolean;
 }
 
-/** The files of a VSI input as a store the run probes: `objects` holds the `.vsi` file (read
- * through `source`), then every tile file found. */
-export function vsiFiles(url: string, source: RangeSource, options: VsiOptions = {}): Store & { dir: string; key: string } {
-  const [dir, key] = splitVsiUrl(url);
+/** The files of a VSI or NRRD input as a store the run probes: `objects` holds the named file
+ * (read through `source`), then every file found beside it. */
+export function vsiFiles(url: string, source: RangeSource, options: VsiOptions = {}, format: BesideFormat = "vsi"): Store & { dir: string; key: string } {
+  const title = BESIDE[format];
+  const [dir, key] = splitVsiUrl(url, title);
   const sources = new Map<string, RangeSource>([[key, source]]);
   const open = options.open ?? ((k: string) => {
     if (!/^https?:\/\//.test(dir)) {
-      return Promise.reject(new ImageError(`VSI input ${JSON.stringify(url)}: its tile files can only be opened at an http(s) URL`));
+      return Promise.reject(new ImageError(`${title} input ${JSON.stringify(url)}: the files beside it can only be opened at an http(s) URL`));
     }
     return probeHttp(objectUrl(dir, k), options.http ?? (source instanceof HttpSource ? source.options : {}));
   });
@@ -84,18 +93,18 @@ export function vsiFiles(url: string, source: RangeSource, options: VsiOptions =
     },
     async readRange(k: string, offset: number, length: number): Promise<Uint8Array> {
       const s = sources.get(k);
-      if (s === undefined) throw new StoreError(`${k}: not a file of the VSI input`, "vsi");
+      if (s === undefined) throw new StoreError(`${k}: not a file of the ${title} input`, format);
       return s.read(offset, length);
     },
   };
   return store;
 }
 
-/** Zarrifies the VSI input at `url` (its `.vsi` file opened as `source`): a store run of the
- * core's `vsi` format over the files, probed as the run asks for them. The description's
+/** Zarrifies the VSI or NRRD input at `url` (its named file opened as `source`): a store run of
+ * the core's `format` over the files, probed as the run asks for them. The description's
  * sources are the files some reference uses, their sizes pinned. */
-export async function zarrifyVsi(url: string, source: RangeSource, options: VsiOptions = {}): Promise<ArchiveDesc & { summary: Record<string, unknown>; store: Store }> {
-  const store = vsiFiles(url, source, options);
-  const desc = await zarrifyStoreIr("vsi", store, { mirror: options.mirror ?? true, concurrency: source.concurrency });
+export async function zarrifyVsi(url: string, source: RangeSource, options: VsiOptions = {}, format: BesideFormat = "vsi"): Promise<ArchiveDesc & { summary: Record<string, unknown>; store: Store }> {
+  const store = vsiFiles(url, source, options, format);
+  const desc = await zarrifyStoreIr(format, store, { mirror: options.mirror ?? true, concurrency: source.concurrency });
   return { ...desc, store };
 }

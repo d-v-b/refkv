@@ -27,7 +27,7 @@ def proxy(tmp_path_factory):
 
 
 # (fixture, a store, checksums, format): a TIFF through the Rust core, NIfTI, MRC, an MP3, an MP4, a VSI slide (a
-# file whose tile files make it a store output), Imaris IMS,
+# file whose tile files make it a store output), NRRD (attached, and a detached header and its data file), Imaris IMS,
 # N5 stores (one with objects it ignores, one with an empty block), an OME-Zarr 0.4 store and a
 # Zarr v2 store (all the core's), and a SAFE product as a store (whose ranges start past byte 0,
 # beside data sources) and as a zip file
@@ -40,6 +40,8 @@ INPUTS = [
     ("mp4/mp4_h264_aac.mp4", False, True, "mp4"),
     ("vsi/vsi_rgb_jpeg.vsi", False, False, "vsi"),
     ("vsi/vsi_raw_tzc.vsi", False, True, "vsi"),
+    ("nrrd/nrrd_gzip_3d.nrrd", False, False, "nrrd"),
+    ("nrrd/nrrd_detached_raw.nhdr", False, True, "nrrd"),
     ("ims/ims_latest_uint8.ims", False, False, "ims"),
     ("ims/ims_latest_uint8.ims", False, True, "ims"),
     ("n5/n5_hierarchy", True, False, "n5"),

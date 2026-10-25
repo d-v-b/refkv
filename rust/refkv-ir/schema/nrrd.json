@@ -1,0 +1,252 @@
+{
+  "source_model": "nrrd",
+  "version": 1,
+  "about": "The source model of a NRRD input (spec/zarrify/nrrd.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#53-elements>): the header file and, for a detached header, its data file, each an object described in place; the tables of NRRD's types, encodings, fields, spaces and kinds; and the roles the header, its fields, the axes and the data play, with the constraints an input must meet to have the NRRD convention's layout (spec/zarrify/nrrd.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#8-nrrd-profile>). The parser checks them in this order; the projection reads a valid IR and its facts and checks nothing.",
+  "limits": {
+    "max_safe": 9007199254740991,
+    "max_header": 16777216,
+    "max_skip": 16777216,
+    "max_dimension": 16
+  },
+  "tables": {
+    "types": {
+      "about": "the type field's descriptors, lower case: the Zarr data type and its bytes",
+      "signed char": {"dtype": "int8", "bytes": 1},
+      "int8": {"dtype": "int8", "bytes": 1},
+      "int8_t": {"dtype": "int8", "bytes": 1},
+      "uchar": {"dtype": "uint8", "bytes": 1},
+      "unsigned char": {"dtype": "uint8", "bytes": 1},
+      "uint8": {"dtype": "uint8", "bytes": 1},
+      "uint8_t": {"dtype": "uint8", "bytes": 1},
+      "short": {"dtype": "int16", "bytes": 2},
+      "short int": {"dtype": "int16", "bytes": 2},
+      "signed short": {"dtype": "int16", "bytes": 2},
+      "signed short int": {"dtype": "int16", "bytes": 2},
+      "int16": {"dtype": "int16", "bytes": 2},
+      "int16_t": {"dtype": "int16", "bytes": 2},
+      "ushort": {"dtype": "uint16", "bytes": 2},
+      "unsigned short": {"dtype": "uint16", "bytes": 2},
+      "unsigned short int": {"dtype": "uint16", "bytes": 2},
+      "uint16": {"dtype": "uint16", "bytes": 2},
+      "uint16_t": {"dtype": "uint16", "bytes": 2},
+      "int": {"dtype": "int32", "bytes": 4},
+      "signed int": {"dtype": "int32", "bytes": 4},
+      "int32": {"dtype": "int32", "bytes": 4},
+      "int32_t": {"dtype": "int32", "bytes": 4},
+      "uint": {"dtype": "uint32", "bytes": 4},
+      "unsigned int": {"dtype": "uint32", "bytes": 4},
+      "uint32": {"dtype": "uint32", "bytes": 4},
+      "uint32_t": {"dtype": "uint32", "bytes": 4},
+      "longlong": {"dtype": "int64", "bytes": 8},
+      "long long": {"dtype": "int64", "bytes": 8},
+      "long long int": {"dtype": "int64", "bytes": 8},
+      "signed long long": {"dtype": "int64", "bytes": 8},
+      "signed long long int": {"dtype": "int64", "bytes": 8},
+      "int64": {"dtype": "int64", "bytes": 8},
+      "int64_t": {"dtype": "int64", "bytes": 8},
+      "ulonglong": {"dtype": "uint64", "bytes": 8},
+      "unsigned long long": {"dtype": "uint64", "bytes": 8},
+      "unsigned long long int": {"dtype": "uint64", "bytes": 8},
+      "uint64": {"dtype": "uint64", "bytes": 8},
+      "uint64_t": {"dtype": "uint64", "bytes": 8},
+      "float": {"dtype": "float32", "bytes": 4},
+      "double": {"dtype": "float64", "bytes": 8}
+    },
+    "unsupported_types": {
+      "about": "types the profile names and rejects",
+      "block": "its blocks are opaque, of no data type"
+    },
+    "encodings": {
+      "about": "the encoding field's descriptors, lower case: the encoding",
+      "raw": "raw",
+      "gz": "gzip",
+      "gzip": "gzip"
+    },
+    "unsupported_encodings": {
+      "about": "encodings the profile names and rejects, with the reason",
+      "ascii": "its values are decimal text, which no chunk can reference as binary",
+      "text": "its values are decimal text, which no chunk can reference as binary",
+      "txt": "its values are decimal text, which no chunk can reference as binary",
+      "hex": "its bytes are hexadecimal text, which no chunk can reference as binary",
+      "bz2": "no Zarr v3 codec that both hosts read decodes bzip2",
+      "bzip2": "no Zarr v3 codec that both hosts read decodes bzip2"
+    },
+    "fields": {
+      "about": "the field identifiers, lower case (an alternate form names its field): the field each names",
+      "dimension": "dimension",
+      "type": "type",
+      "block size": "block size",
+      "blocksize": "block size",
+      "encoding": "encoding",
+      "endian": "endian",
+      "content": "content",
+      "min": "min",
+      "max": "max",
+      "old min": "old min",
+      "oldmin": "old min",
+      "old max": "old max",
+      "oldmax": "old max",
+      "data file": "data file",
+      "datafile": "data file",
+      "line skip": "line skip",
+      "lineskip": "line skip",
+      "byte skip": "byte skip",
+      "byteskip": "byte skip",
+      "number": "number",
+      "sample units": "sample units",
+      "sampleunits": "sample units",
+      "sizes": "sizes",
+      "spacings": "spacings",
+      "thicknesses": "thicknesses",
+      "axis mins": "axis mins",
+      "axismins": "axis mins",
+      "axis maxs": "axis maxs",
+      "axismaxs": "axis maxs",
+      "centers": "centers",
+      "centerings": "centers",
+      "labels": "labels",
+      "units": "units",
+      "kinds": "kinds",
+      "space": "space",
+      "space dimension": "space dimension",
+      "space units": "space units",
+      "space origin": "space origin",
+      "space directions": "space directions",
+      "measurement frame": "measurement frame"
+    },
+    "spaces": {
+      "about": "the space field's descriptors, lower case: the space's dimension",
+      "right-anterior-superior": 3, "ras": 3,
+      "left-anterior-superior": 3, "las": 3,
+      "left-posterior-superior": 3, "lps": 3,
+      "right-anterior-superior-time": 4, "rast": 4,
+      "left-anterior-superior-time": 4, "last": 4,
+      "left-posterior-superior-time": 4, "lpst": 4,
+      "scanner-xyz": 3, "scanner-xyz-time": 4,
+      "3d-right-handed": 3, "3d-left-handed": 3,
+      "3d-right-handed-time": 4, "3d-left-handed-time": 4
+    },
+    "kinds": {
+      "about": "the kinds, lower case: the role of an axis of the kind (space, time or channel)",
+      "domain": "space", "space": "space", "time": "time",
+      "list": "channel", "point": "channel", "vector": "channel", "covariant-vector": "channel", "normal": "channel",
+      "stub": "channel", "scalar": "channel", "complex": "channel", "2-vector": "channel",
+      "3-color": "channel", "rgb-color": "channel", "hsv-color": "channel", "xyz-color": "channel",
+      "4-color": "channel", "rgba-color": "channel",
+      "3-vector": "channel", "3-gradient": "channel", "3-normal": "channel", "4-vector": "channel", "quaternion": "channel",
+      "2d-symmetric-matrix": "channel", "2d-masked-symmetric-matrix": "channel", "2d-matrix": "channel", "2d-masked-matrix": "channel",
+      "3d-symmetric-matrix": "channel", "3d-masked-symmetric-matrix": "channel", "3d-matrix": "channel", "3d-masked-matrix": "channel",
+      "???": "unknown", "none": "unknown"
+    }
+  },
+  "elements": {
+    "about": "The store IR of a NRRD input: the header file's object, and a detached header's data file's object, each described in place. h is the header's length, through the blank line that ends it (or the file's end); D the data's start in its object; B the raw data's size, or the gzip stream's (to the object's end).",
+    "lines/<i>": {"kind": "value", "type": "ascii[k]", "extent": "line i of the header, its line end included: the magic first, the blank line last when one ends the header"},
+    "data": {"kind": "data", "form": "{geometry: {data_type, shape}, codec: {encoding, endian}, recipe: [[src, 0, null]]}", "extent": "(D, B) of the data's object"},
+    "gaps/<offset>": {"kind": "gap", "about": "the lines and bytes line skip and byte skip pass over, the bytes after the data, and a detached header's bytes after its blank line"}
+  },
+  "roles": {
+    "magic": {
+      "given": {"ok": "the first line is NRRD0001 to NRRD0005"},
+      "constraints": [
+        {"require": "ok", "message": "not a NRRD header: its first line is not NRRD0001 to NRRD0005"}
+      ]
+    },
+    "header": {
+      "given": {"within": "whether the bytes read without a blank line or the file's end are fewer than max_header"},
+      "constraints": [
+        {"require": "within", "message": "no blank line ends the NRRD header within its first 16777216 bytes"}
+      ]
+    },
+    "attached": {
+      "given": {"detached": "whether the header has a data file field", "blank": "whether a blank line ends the header"},
+      "constraints": [
+        {"require": "detached || blank", "message": "the header ends at the end of the file, without the blank line before the data"}
+      ]
+    },
+    "line": {
+      "given": {"number": "the line's number, the magic's 1", "problem": "what is wrong with it, or absent"},
+      "constraints": [
+        {"require": "!present(problem)", "message": "line {number} of the header: {problem}"}
+      ]
+    },
+    "required": {
+      "given": {"field": "a field the header must have", "present": "whether it has it", "why": "why it must"},
+      "constraints": [
+        {"require": "present", "message": "the header has no {field} field{why}"}
+      ]
+    },
+    "value": {
+      "given": {"field": "the field", "shown": "its descriptor", "problem": "what is wrong with it, or absent"},
+      "constraints": [
+        {"require": "!present(problem)", "message": "the {field} field \"{shown}\" {problem}"}
+      ]
+    },
+    "type": {
+      "given": {"name": "the type field's descriptor, lower case"},
+      "derive": {"spec": "at(types, name)", "named": "at(unsupported_types, name)"},
+      "constraints": [
+        {"require": "!present(named)", "message": "the NRRD type {name} is not supported: {named}"},
+        {"require": "present(spec)", "message": "unknown NRRD type \"{name}\""}
+      ]
+    },
+    "encoding": {
+      "given": {"name": "the encoding field's descriptor, lower case"},
+      "derive": {"encoding": "at(encodings, name)", "named": "at(unsupported_encodings, name)"},
+      "constraints": [
+        {"require": "!present(named)", "message": "the NRRD encoding {name} is not supported: {named}"},
+        {"require": "present(encoding)", "message": "unknown NRRD encoding \"{name}\""}
+      ]
+    },
+    "skips": {
+      "given": {"encoding": "raw or gzip", "byte_skip": "the byte skip"},
+      "constraints": [
+        {"require": "encoding == 'raw' || byte_skip == 0", "message": "byte skip {byte_skip} with the gzip encoding skips decompressed bytes, which no Zarr codec does"}
+      ]
+    },
+    "data_file": {
+      "given": {"shown": "the data file field's descriptor", "several": "whether it names several files (LIST, or a %d pattern)", "relative": "whether it is a relative path whose segments are none of empty and ..", "itself": "whether it names the header's own file"},
+      "constraints": [
+        {"require": "!several", "message": "the data file field \"{shown}\" names several data files, which the profile does not read"},
+        {"require": "relative", "message": "the data file \"{shown}\" is not a path below the header's directory"},
+        {"require": "!itself", "message": "the data file \"{shown}\" is the header's own file"}
+      ]
+    },
+    "data_object": {
+      "given": {"key": "the data file's key", "found": "whether it exists"},
+      "constraints": [
+        {"require": "found", "message": "the data file \"{key}\" does not exist"}
+      ]
+    },
+    "axes": {
+      "given": {"spatial": "the axes of the role space", "times": "the axes of the role time", "channels": "the axes of the role channel"},
+      "constraints": [
+        {"require": "spatial >= 2 && spatial <= 3", "message": "the image needs 2 or 3 spatial axes, and the header's kinds and space directions give {spatial}"},
+        {"require": "times <= 1", "message": "the image has at most one time axis, and the header's kinds give {times}"},
+        {"require": "channels <= 1", "message": "the image has at most one channel axis, and the header's kinds and space directions give {channels}"}
+      ]
+    },
+    "line_skip": {
+      "given": {"lines": "the line skip", "key": "the data's object", "end": "whether the scan reached the object's end", "within": "whether the bytes scanned are fewer than max_skip"},
+      "constraints": [
+        {"require": "!end", "message": "line skip {lines} passes the end of {key}"},
+        {"require": "within", "message": "line skip {lines}: its lines are more than 16777216 bytes of {key}"}
+      ]
+    },
+    "data": {
+      "given": {"total": "B, exactly (raw)", "total_shown": "B in decimal", "start": "D", "size": "the object's size", "key": "the data's object", "base": "where the data may start: past the header and the skipped lines", "encoding": "raw or gzip"},
+      "constraints": [
+        {"require": "total <= max_safe", "message": "the data's {total_shown} bytes are more than 2^53 - 1"},
+        {"require": "encoding != 'raw' || start + total <= size", "message": "the {total_shown}-byte data at {start} is outside the {size}-byte file {key}"},
+        {"require": "start >= base", "message": "the data at {start} of {key} starts before {base}, inside the header or the skipped lines"},
+        {"require": "encoding != 'gzip' || start + 18 <= size", "message": "the gzip data at {start} of the {size}-byte file {key} is shorter than a gzip member"}
+      ]
+    },
+    "gzip": {
+      "given": {"ok": "the stream starts 1F 8B 08", "start": "D", "key": "the data's object"},
+      "constraints": [
+        {"require": "ok", "message": "the gzip data at {start} of {key} does not start with a gzip header"}
+      ]
+    }
+  }
+}

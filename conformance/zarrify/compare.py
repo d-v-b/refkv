@@ -406,9 +406,11 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     url = prop.get("source", {}).get("url") if isinstance(prop, dict) else None
     if not isinstance(prop, dict) or not isinstance(url, str):
         return "no store URL on the root"
-    if prop.get("profile") == "vsi":
-        # a VSI root names the .vsi file; the store's URL is its directory (spec/zarrify/vsi.md
-        # §9 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#9-vsi-profile>)
+    if prop.get("profile") in ("vsi", "nrrd"):
+        # a VSI root names the .vsi file, and a NRRD root the header file; the store's URL is its
+        # directory (spec/zarrify/vsi.md §9
+        # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#9-vsi-profile>,
+        # spec/zarrify/nrrd.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#8-nrrd-profile>)
         url = url[:url.rfind("/") + 1]
     pins = {s.url: s.size for s in decode_source_table(zipfile.ZipFile(path).read("__vz__/sources"))
             if s.url is not None}

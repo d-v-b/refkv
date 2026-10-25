@@ -48,6 +48,7 @@ The table, generated from the registry, lists them:
 | [ND2](zarrify/nd2.md#part-2-the-profile) | file | Nikon ND2, format version 3 and later |
 | [NDPI](zarrify/ndpi.md#part-2-the-profile) | file | Hamamatsu NDPI slides, a TIFF variant with 64-bit offsets |
 | [NIfTI](zarrify/nifti.md#part-2-the-profile) | file | NIfTI-1 and NIfTI-2 single files (`.nii`) |
+| [NRRD](zarrify/nrrd.md#part-2-the-profile) | file | NRRD files (`.nrrd`) and detached headers with one data file (`.nhdr`), raw or gzip-encoded |
 | [OME-Zarr](zarrify/ome-zarr.md#part-2-the-profile) | store | OME-Zarr 0.4 hierarchies on Zarr v2, migrated to OME-Zarr 0.5 |
 | [QPTIFF](zarrify/qptiff.md#part-2-the-profile) | file | Akoya (PerkinElmer) Vectra QPTIFF slides and inForm component data, a TIFF with an XML description per image, in LZW, JPEG or uncompressed tiles or strips |
 | [Sentinel-2 SAFE](zarrify/safe.md#part-2-the-profile) | file or store | Sentinel-2 Level-1C and Level-2A products: a `.SAFE` directory (a store) or a `.SAFE.zip` file |
@@ -186,6 +187,7 @@ profile name:
 | MRC ([mrc.md §8](zarrify/mrc.md#8-mrc-profile)) | 90 |
 | ND2 ([nd2.md §7](zarrify/nd2.md#7-nd2-profile)) | 20 |
 | NIfTI ([nifti.md §7](zarrify/nifti.md#7-nifti-profile)) | 60 |
+| NRRD ([nrrd.md §8](zarrify/nrrd.md#8-nrrd-profile)) | 95 |
 | Sentinel-2 SAFE ([safe.md §8](zarrify/safe.md#8-safe-profile)) | 80 |
 | TIFF ([tiff.md §7](zarrify/tiff.md#7-tiff-profile)) | 40 |
 | VSI ([vsi.md §9](zarrify/vsi.md#9-vsi-profile)) | 30 |
@@ -586,6 +588,7 @@ else. The profiles, generated from the registry:
 - the ND2 profile: [spec/zarrify/nd2.md §7](zarrify/nd2.md#7-nd2-profile);
 - the NDPI profile: [spec/zarrify/ndpi.md §7](zarrify/ndpi.md#7-ndpi-profile);
 - the NIfTI profile: [spec/zarrify/nifti.md §7](zarrify/nifti.md#7-nifti-profile);
+- the NRRD profile: [spec/zarrify/nrrd.md §8](zarrify/nrrd.md#8-nrrd-profile);
 - the OME-Zarr profile: [spec/zarrify/ome-zarr.md §11](zarrify/ome-zarr.md#11-ome-zarr-profile);
 - the QPTIFF profile: [spec/zarrify/qptiff.md §7](zarrify/qptiff.md#7-qptiff-profile);
 - the SAFE profile: [spec/zarrify/safe.md §8](zarrify/safe.md#8-safe-profile);

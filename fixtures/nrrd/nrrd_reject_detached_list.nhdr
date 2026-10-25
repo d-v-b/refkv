@@ -1,0 +1,7 @@
+NRRD0004
+type: uchar
+dimension: 2
+sizes: 3 2
+encoding: raw
+data file: LIST
+

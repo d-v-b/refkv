@@ -23,6 +23,7 @@ its JSON Schema `zarrify/<format>/schema.json`. (Changed 2026-10-25: the propert
 | Nikon ND2 | [nd2](zarrify/nd2.md) | `59612f14-e314-4207-ba00-8f422ba71490` |
 | Hamamatsu NDPI | [ndpi](zarrify/ndpi.md) | `6cac71ef-dbb2-4acd-b60c-00389aa4238a` |
 | NIfTI-1 and NIfTI-2 | [nifti](zarrify/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
+| NRRD (Teem) | [nrrd](zarrify/nrrd.md) | `23e0c600-8da6-40f1-81e7-ab246e948e88` |
 | OME-Zarr 0.4 | [ome-zarr](zarrify/ome-zarr.md) | `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` |
 | Akoya QPTIFF | [qptiff](zarrify/qptiff.md) | `329ea136-2f55-4c27-b6f4-8e60ca2109b8` |
 | Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](zarrify/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
@@ -183,8 +184,9 @@ Zarr v2 and OME-Zarr, define their arrays themselves; the CZI convention
 gives clipped levels the zarr-extensions `rectilinear` chunk grid and adds
 the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle`; the MP3 and MP4
 conventions give their arrays the codec `refkv.stream` of [§10](#10-coded-streams) and dimension
-names of their own, and the MP4 convention gives video planes whose chunks differ in length the
-`rectilinear` chunk grid), every array's
+names of their own, the MP4 convention gives video planes whose chunks differ in length the
+`rectilinear` chunk grid, and the NRRD convention compresses a gzip-encoded array with the
+`gzip` codec), every array's
 `zarr.json` is the JSON object:
 
 ```json

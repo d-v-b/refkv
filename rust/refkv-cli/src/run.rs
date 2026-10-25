@@ -102,14 +102,17 @@ pub fn drive(run: &mut Run, t: &Transport, conc: usize) -> Result<(), Fail> {
     Ok(())
 }
 
-/// Whether the file `t` opened is a VSI file (spec/zarrify/vsi.md §9.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#91-the-vsi-file>), which is
-/// zarrified with its tile files (vsi.rs) rather than as a file run.
-pub fn is_vsi(t: &Transport) -> Result<bool, Fail> {
+/// The store format of the file `t` opened, when its profile reads it with the files beside it
+/// (`Format::store_run`): a VSI file (spec/zarrify/vsi.md §9.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#91-the-vsi-file>) with its
+/// tile files, a NRRD header (spec/zarrify/nrrd.md §8.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#83-the-data-file>) with its
+/// data file (vsi.rs), rather than as a file run.
+pub fn beside_format(t: &Transport) -> Result<Option<refkv_ir::store::StoreFormat>, Fail> {
     let want = t.size().min(552);
     let (held, _) = t.head();
     let head = if held.len() as u64 >= want { held[..want as usize].to_vec() } else { t.get(0, want)? };
-    Ok(Format::sniff(&head) == Some(Format::Vsi))
+    Ok(Format::sniff(&head).filter(|f| f.store_run()).and_then(|f| refkv_ir::store::StoreFormat::from_name(f.name())))
 }
 
 /// (format, output) of the file at `location`, read through `t`: the format its first bytes give

@@ -119,23 +119,32 @@ def _zarrify_store(location: str, url: str | None = None, *, max_objects: int | 
     return fmt, out
 
 
-def _zarrify_vsi(location: str, url: str | None, transport: Transport, *, checksums: bool = False,
-                 policy: Policy | None = None, connections: int | None = None) -> tuple[str, StoreIrOutput]:
-    """(format, output) for the VSI input at `location`, a `.vsi` file (opened as `transport`)
-    whose tile files lie beside it (spec/zarrify/vsi.md §9.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>): a store
-    run of the core's `vsi` format over the files, probed as the run asks for them
-    (`refkv.zarrify.vsi.VsiFiles`). `url`, when given, is the URL of the `.vsi` file's
+# The file profiles whose input is read with the files beside it, as a store run that probes for
+# them: (the format's title, the named file) as a rejection names them.
+BESIDE = {"vsi": ("VSI", ".vsi file"), "nrrd": ("NRRD", "header file")}
+
+
+def _zarrify_beside(fmt: str, location: str, url: str | None, transport: Transport, *, checksums: bool = False,
+                    policy: Policy | None = None, connections: int | None = None) -> tuple[str, StoreIrOutput]:
+    """(format, output) for the input at `location` of a profile of `BESIDE`, a file (opened as
+    `transport`) read with the files beside it: a VSI slide's `.vsi` file, whose tile files lie
+    beside it (spec/zarrify/vsi.md §9.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>), or a NRRD
+    header file, whose data file a detached header names (spec/zarrify/nrrd.md §8.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#83-the-data-file>): a store
+    run of the core's `fmt` format over the files, probed as the run asks for them
+    (`refkv.zarrify.vsi.VsiFiles`). `url`, when given, is the URL of the named file's
     directory (ending in `/`), the store URL the output's object URLs are made from."""
-    store = VsiFiles(location, url, policy=policy, workers=connections, transport=transport)
+    title, noun = BESIDE[fmt]
+    store = VsiFiles(location, url, policy=policy, workers=connections, transport=transport, title=title, noun=noun)
     try:
-        out = run_store(store, "vsi")[0]
+        out = run_store(store, fmt)[0]
     finally:
         store.close()
     if checksums:
         keys = {object_url(store.url, k): k for k in store.objects}
         out.checksum = lambda u, offset, length: crc32c(store.read_range(keys[u], offset, length))
-    return "vsi", out
+    return fmt, out
 
 
 def is_store(location: str) -> bool:
@@ -182,8 +191,9 @@ def _zarrify(location: str, url: str | None = None, *, checksums: bool = False,
         if fmt is None:
             raise Rejected(NOT_SUPPORTED)
         names = layout_names(layouts, fmt)
-    if fmt == "vsi":
-        return _zarrify_vsi(location, url, transport, checksums=checksums, policy=policy, connections=connections)
+    if fmt in BESIDE:
+        return _zarrify_beside(fmt, location, url, transport, checksums=checksums, policy=policy,
+                               connections=connections)
     found, out, _ = ir.zarrify(location, url, transport=transport, connections=connections, byte_cost=byte_cost,
                                fmt=fmt, layouts=names)
     if checksums:

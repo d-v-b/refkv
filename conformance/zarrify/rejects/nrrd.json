@@ -1,0 +1,131 @@
+{
+  "about": "The inputs the nrrd profile rejects, each with the start of its message (the Rust tests' prefix, or what each store test's message contains), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/nrrd.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "reject_ascii",
+      "input": "nrrd_reject_ascii.nrrd",
+      "message": "the NRRD encoding ascii is not supported: its values are decimal text, which no chunk can reference as binary"
+    },
+    {
+      "test": "reject_block",
+      "input": "nrrd_reject_block.nrrd",
+      "message": "the NRRD type block is not supported: its blocks are opaque, of no data type"
+    },
+    {
+      "test": "reject_bzip2",
+      "input": "nrrd_reject_bzip2.nrrd",
+      "message": "the NRRD encoding bzip2 is not supported: no Zarr v3 codec that both hosts read decodes bzip2"
+    },
+    {
+      "test": "reject_detached_absolute",
+      "input": "nrrd_reject_detached_absolute.nhdr",
+      "message": "the data file \"/data/image.raw\" is not a path below the header's directory"
+    },
+    {
+      "test": "reject_detached_itself",
+      "input": "nrrd_reject_detached_itself.nhdr",
+      "message": "the data file \"./nrrd_reject_detached_itself.nhdr\" is the header's own file"
+    },
+    {
+      "test": "reject_detached_list",
+      "input": "nrrd_reject_detached_list.nhdr",
+      "message": "the data file field \"LIST\" names several data files, which the profile does not read"
+    },
+    {
+      "test": "reject_detached_missing",
+      "input": "nrrd_reject_detached_missing.nhdr",
+      "message": "the data file \"image.raw\" does not exist"
+    },
+    {
+      "test": "reject_detached_parent",
+      "input": "nrrd_reject_detached_parent.nhdr",
+      "message": "the data file \"../image.raw\" is not a path below the header's directory"
+    },
+    {
+      "test": "reject_detached_pattern",
+      "input": "nrrd_reject_detached_pattern.nhdr",
+      "message": "the data file field \"slice%03d.raw 1 2 1 2\" names several data files, which the profile does not read"
+    },
+    {
+      "test": "reject_field_twice",
+      "input": "nrrd_reject_field_twice.nrrd",
+      "message": "line 6 of the header: the encoding field is given twice"
+    },
+    {
+      "test": "reject_gzip_byte_skip",
+      "input": "nrrd_reject_gzip_byte_skip.nrrd",
+      "message": "byte skip 4 with the gzip encoding skips decompressed bytes, which no Zarr codec does"
+    },
+    {
+      "test": "reject_gzip_not_gzip",
+      "input": "nrrd_reject_gzip_not_gzip.nrrd",
+      "message": "the gzip data at 61 of nrrd_reject_gzip_not_gzip.nrrd does not start with a gzip header"
+    },
+    {
+      "test": "reject_hex",
+      "input": "nrrd_reject_hex.nrrd",
+      "message": "the NRRD encoding hex is not supported: its bytes are hexadecimal text, which no chunk can reference as binary"
+    },
+    {
+      "test": "reject_line_skip_past_end",
+      "input": "nrrd_reject_line_skip_past_end.nrrd",
+      "message": "line skip 3 passes the end of nrrd_reject_line_skip_past_end.nrrd"
+    },
+    {
+      "test": "reject_magic_long",
+      "input": "nrrd_reject_magic_long.nrrd",
+      "message": "not a NRRD header: its first line is not NRRD0001 to NRRD0005",
+      "host": "not a file of any supported format"
+    },
+    {
+      "test": "reject_no_blank_line",
+      "input": "nrrd_reject_no_blank_line.nrrd",
+      "message": "the header ends at the end of the file, without the blank line before the data"
+    },
+    {
+      "test": "reject_no_endian",
+      "input": "nrrd_reject_no_endian.nrrd",
+      "message": "the header has no endian field (its type has more than 1 byte)"
+    },
+    {
+      "test": "reject_not_a_line",
+      "input": "nrrd_reject_not_a_line.nrrd",
+      "message": "line 6 of the header: \"just some words\" is not a field, a key/value pair or a comment"
+    },
+    {
+      "test": "reject_one_axis",
+      "input": "nrrd_reject_one_axis.nrrd",
+      "message": "the image needs 2 or 3 spatial axes, and the header's kinds and space directions give 1"
+    },
+    {
+      "test": "reject_sizes_count",
+      "input": "nrrd_reject_sizes_count.nrrd",
+      "message": "the sizes field \"3 2 1\" has 3 values, not 2 (the dimension)"
+    },
+    {
+      "test": "reject_space_directions_count",
+      "input": "nrrd_reject_space_directions_count.nrrd",
+      "message": "the space directions field \"(1,0,0) (0,1)\" has a vector of other than 3 components (the space's dimension)"
+    },
+    {
+      "test": "reject_truncated",
+      "input": "nrrd_reject_truncated.nrrd",
+      "message": "the 60-byte data at 75 is outside the 134-byte file nrrd_reject_truncated.nrrd"
+    },
+    {
+      "test": "reject_two_channel_axes",
+      "input": "nrrd_reject_two_channel_axes.nrrd",
+      "message": "the image has at most one channel axis, and the header's kinds and space directions give 2"
+    },
+    {
+      "test": "reject_type_unknown",
+      "input": "nrrd_reject_type_unknown.nrrd",
+      "message": "unknown NRRD type \"char\""
+    },
+    {
+      "test": "reject_unknown_field",
+      "input": "nrrd_reject_unknown_field.nrrd",
+      "message": "line 6 of the header: \"colour\" is not a NRRD field"
+    }
+  ]
+}
