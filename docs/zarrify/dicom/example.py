@@ -12,6 +12,7 @@ Run with `uv run docs/zarrify/dicom/example.py`; the figure is saved as dicom.pn
 """
 
 import matplotlib.pyplot as plt
+import numpy as np
 import zarr
 
 import refkv.zarr
@@ -20,7 +21,7 @@ from refkv.zarrify import zarrify
 URL = "https://raw.githubusercontent.com/pydicom/pydicom/v3.0.1/src/pydicom/data/test_files/CT_small.dcm"
 
 root = zarr.open_group(refkv.zarr.store(zarrify(URL)), mode="r")
-image = root["0"][...]  # [y, x], int16 as stored
+image = np.asarray(root.get_array("0")[...])  # [y, x], int16 as stored
 fig, ax = plt.subplots(figsize=(5, 5))
 ax.imshow(image, cmap="gray")
 ax.set_title("CT_small.dcm")

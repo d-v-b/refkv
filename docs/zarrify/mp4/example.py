@@ -5,8 +5,9 @@
 # [tool.uv.sources]
 # refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python" }
 # ///
-"""SLEAP's test video of two flies (H.264): four pictures, in color from their Y, U and V planes, zarrified without copying it: refkv reads the file's structure and
-presents it as Zarr, each chunk a reference to the file's own bytes, read only when plotted.
+"""SLEAP's test video of two flies (H.264): four pictures, in color from their Y, U and V planes,
+zarrified without copying it: refkv reads the file's structure and presents it as Zarr, each chunk a
+reference to the file's own bytes, read only when plotted.
 
 Run with `uv run docs/zarrify/mp4/example.py`; the figure is saved as mp4.png.
 """
@@ -30,13 +31,18 @@ def rgb(y, u, v):
     return np.clip(out / 255, 0, 1)
 
 
-track = zarr.open_group(refkv.zarr.store(zarrify(URL)), mode="r")["tracks/1"]
-times = track["time"][...] / track.attrs["refkv_zarrified"]["mp4"]["timescale"]
+track = zarr.open_group(refkv.zarr.store(zarrify(URL)), mode="r").get_group("tracks/1")
+meta = track.attrs["refkv_zarrified"]  # attributes are JSON: check the parts read
+assert isinstance(meta, dict)
+assert isinstance(meta["mp4"], dict)
+timescale = meta["mp4"]["timescale"]
+assert isinstance(timescale, int)
+times = np.asarray(track.get_array("time")[...]) / timescale
 pictures = [0, 300, 600, 900]
 fig, axes = plt.subplots(1, len(pictures), figsize=(4 * len(pictures), 4))
-for ax, p in zip(axes, pictures):
+for ax, p in zip(axes, pictures, strict=True):
     # a chunk decodes once for its three planes
-    ax.imshow(rgb(track["y"][p], track["u"][p], track["v"][p]))
+    ax.imshow(rgb(track.get_array("y")[p], track.get_array("u")[p], track.get_array("v")[p]))
     ax.set_title(f"picture {p}, {times[p]:.1f} s")
     ax.axis("off")
 

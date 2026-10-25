@@ -5,13 +5,15 @@
 # [tool.uv.sources]
 # refkv = { git = "https://github.com/d-v-b/refkv", subdirectory = "python" }
 # ///
-"""A Sentinel-2 Level-1C product (tile 32TNS, the Alps, 2024-01-03): a true-color crop, zarrified without copying it: refkv reads the file's structure and
-presents it as Zarr, each chunk a reference to the file's own bytes, read only when plotted.
+"""A Sentinel-2 Level-1C product (tile 32TNS, the Alps, 2024-01-03): a true-color crop, zarrified
+without copying it: refkv reads the file's structure and presents it as Zarr, each chunk a reference
+to the file's own bytes, read only when plotted.
 
 Run with `uv run docs/zarrify/safe/example.py`; the figure is saved as safe.png.
 """
 
 import matplotlib.pyplot as plt
+import numpy as np
 import zarr
 
 import refkv.zarr
@@ -21,10 +23,10 @@ URL = "https://storage.googleapis.com/gcp-public-data-sentinel-2/tiles/32/T/NS/S
 
 # refkv lists the product and reads its XML documents: about half a minute
 root = zarr.open_group(refkv.zarr.store(zarrify(URL)), mode="r")
-tci = root["r10m/TCI"]  # [c, y, x]: the true-color image, JPEG 2000 coded, 10 m pixels
+tci = root.get_array("r10m/TCI")  # [c, y, x]: the true-color image, JPEG 2000 coded, 10 m pixels
 # the orbit covers the tile's eastern fifth (the rest is no data): a 10 km square there,
 # 4 x 4 of the image's 256 x 256 chunks, decoded
-crop = tci[:, 4608:5632, 9216:10240]
+crop = np.asarray(tci[:, 4608:5632, 9216:10240])
 fig, ax = plt.subplots(figsize=(7, 7))
 ax.imshow(crop.transpose(1, 2, 0))
 ax.set_title("T32TNS true color, 10 km")
