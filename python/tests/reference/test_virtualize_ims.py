@@ -18,10 +18,12 @@ import pytest
 # the frozen reference twins (conformance/zarrify/reference/refkv_reference)
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
 
+from reference_helpers import ranges_of
 from refkv_reference import virtualize
 from refkv_reference.ims import source
 from refkv_reference.ims.hdf5 import UNDEFINED, Dataset, Datatype, _max_grid, parse_selection
 from refkv_reference.ims.source import canonical, describe_type, size
+from refkv_reference.legacy import Output
 
 from refkv.zarrify import Rejected
 
@@ -159,6 +161,7 @@ def test_virtualizes_the_synthetic_files():
     }
     for name, (summary, axes, scale, translation, channel) in cases.items():
         fmt, out = virtualize(str(FIXTURES / name), url=f"https://data.test/{name}")
+        assert isinstance(out, Output)
         assert fmt == "ims", name
         assert out.url == f"https://data.test/{name}"
         assert {**out.summary, **summary} == out.summary, name
@@ -255,6 +258,7 @@ def test_source_node_holds_the_hdf5_tree():
     js/test/ims/verify.py checks every value against h5py."""
     for libver in ("earliest", "latest"):
         _, out = virtualize(str(FIXTURES / f"ims_{libver}_reconstruction.ims"), url="https://data.test/x")
+        assert isinstance(out, Output)
         doc = lambda p, out=out: json.loads(out.bytes_entries[f"vzip_source/hdf5/{p}zarr.json"])  # noqa: E731
         assert "ims" not in json.loads(out.bytes_entries["zarr.json"])["attributes"]["vzip_virtualized"]
         channel = doc("DataSet/ResolutionLevel 0/TimePoint 0/Channel 1/")["attributes"]["vzip_virtualized"]["ims"]
@@ -307,6 +311,7 @@ def test_source_node_keeps_what_the_review_found():
     js/test/ims/verify.py rebuilds them all."""
     for libver in ("earliest", "latest"):
         _, out = virtualize(str(FIXTURES / f"ims_{libver}_review.ims"), url="https://data.test/x")
+        assert isinstance(out, Output)
         doc = lambda p, out=out: json.loads(out.bytes_entries[f"vzip_source/hdf5/{p}zarr.json"])  # noqa: E731
         source = lambda p, doc=doc: doc(p)["attributes"]["vzip_virtualized"]["ims"]  # noqa: E731
         x = source("X/")
@@ -376,6 +381,7 @@ def test_source_node_keeps_what_the_review_found():
 
 def test_source_node_keeps_integer_fill_values_beyond_2_53():
     _, out = virtualize(str(FIXTURES / "exact" / "ims_big_fill.ims"), url="https://data.test/x")
+    assert isinstance(out, Output)
     fills = {n: json.loads(out.bytes_entries[f"vzip_source/hdf5/{n}/zarr.json"])["fill_value"]
              for n in ("bigfill", "u64fill", "negfill")}
     assert fills == {"bigfill": 2**60 + 1, "u64fill": 2**64 - 1, "negfill": -2**63}
@@ -399,6 +405,7 @@ def test_source_node_counts_the_members_beyond_the_object_limit(monkeypatch, max
     monkeypatch.setattr(source, "MAX_OBJECTS", max_objects)
     monkeypatch.setattr(source, "PER_IMAGE", per_image)
     _, out = virtualize(str(FIXTURES / "ims_latest_timelapse.ims"), url="https://data.test/x")
+    assert isinstance(out, Output)
     found = {}
     for k, v in out.bytes_entries.items():
         if k.startswith("vzip_source/hdf5") and k.endswith("zarr.json"):
@@ -417,6 +424,7 @@ def test_source_node_keeps_what_the_second_review_found():
     js/test/ims/verify.py rebuilds them all."""
     for libver in ("earliest", "latest"):
         _, out = virtualize(str(FIXTURES / f"ims_{libver}_review2.ims"), url="https://data.test/x")
+        assert isinstance(out, Output)
         e = out.bytes_entries
         doc = lambda p, e=e: json.loads(e[f"vzip_source/hdf5/{p}zarr.json"])  # noqa: E731
         source = lambda p, doc=doc: doc(p)["attributes"]["vzip_virtualized"]["ims"]  # noqa: E731
@@ -503,6 +511,7 @@ def test_source_node_keeps_what_the_third_review_found():
     path = FIXTURES / "ims_latest_review3.ims"
     raw = path.read_bytes()
     _, out = virtualize(str(path), url="https://data.test/x")
+    assert isinstance(out, Output)
     e = out.bytes_entries
     doc = lambda p: json.loads(e[f"vzip_source/hdf5/{p}zarr.json"])  # noqa: E731
     source = lambda p: doc(p)["attributes"]["vzip_virtualized"]["ims"]  # noqa: E731
@@ -532,13 +541,16 @@ def test_source_node_keeps_what_the_third_review_found():
               "managed": (held["managed"]["array"], np.arange(200, dtype="<f8")),
               "huge": (held["huge"]["array"], np.arange(20000, dtype="<u4"))}
     for name, (array, values) in arrays.items():
-        ranges = out.refs[f"vzip_source/{array}/c/0"]
+        ranges = ranges_of(out, f"vzip_source/{array}/c/0")
         assert b"".join(raw[o : o + n] for o, n in ranges) == values.tobytes(), name
     channel = source("DataSet/ResolutionLevel 0/TimePoint 0/Channel 0/")
     assert channel["images"]["Data"] == {"level": 0, "t": 0, "c": 0, "shape": [2, 8, 8]}
     # The root: a name or label over 256 bytes is left out; more than 64 channels, no omero.
-    roots = {n: json.loads(virtualize(str(FIXTURES / f"ims_latest_{n}.ims"), url="https://data.test/x")[1]
-                           .bytes_entries["zarr.json"])["attributes"]["ome"] for n in ("long_names", "many_channels")}
+    roots = {}
+    for n in ("long_names", "many_channels"):
+        _, root = virtualize(str(FIXTURES / f"ims_latest_{n}.ims"), url="https://data.test/x")
+        assert isinstance(root, Output)
+        roots[n] = json.loads(root.bytes_entries["zarr.json"])["attributes"]["ome"]
     assert "name" not in roots["long_names"]["multiscales"][0]
     assert [c["label"] for c in roots["long_names"]["omero"]["channels"]] == ["Channel 0", "\u00e9" * 128]
     assert "omero" not in roots["many_channels"]
@@ -575,6 +587,7 @@ def test_source_node_copies_partial_edge_chunks_stored_unfiltered():
     path = FIXTURES / "ims_latest_raw_edges.ims"
     raw = path.read_bytes()
     _, out = virtualize(str(path), url="https://data.test/x")
+    assert isinstance(out, Output)
     group = json.loads(out.bytes_entries["vzip_source/hdf5/E/zarr.json"])
     assert "vzip_virtualized" not in group["attributes"]  # nothing unsupported
     expected = {"fixed": np.arange(10), "extensible": np.arange(10), "btree": np.arange(70).reshape(10, 7),
@@ -593,6 +606,7 @@ def test_source_node_lists_region_references_over_the_budget_of_selections():
     it read does not count against the references after it (spec/zarrify/ims.md §5.4
     <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>)."""
     _, out = virtualize(str(FIXTURES / "ims_latest_review3.ims"), url="https://data.test/x")
+    assert isinstance(out, Output)
     r = json.loads(out.bytes_entries["vzip_source/hdf5/R/zarr.json"])["attributes"]["vzip_virtualized"]["ims"]
     assert r["unsupported"]["over"]["reason"] == "over the budget of region selections"
     assert r["attributes"]["region"]["value"]["selection"]["select"] == "hyperslab"
@@ -600,6 +614,7 @@ def test_source_node_lists_region_references_over_the_budget_of_selections():
 
 def test_source_node_lists_references_in_a_chunk_too_large_to_decode():
     _, out = virtualize(str(FIXTURES / "ims_latest_review3.ims"), url="https://data.test/x")
+    assert isinstance(out, Output)
     r = json.loads(out.bytes_entries["vzip_source/hdf5/R/zarr.json"])["attributes"]["vzip_virtualized"]["ims"]
     assert r["unsupported"]["bigchunk"]["reason"] == "a chunk of more than 2^24 bytes to decode"
 
@@ -610,6 +625,7 @@ def test_source_node_reads_every_chunk_index():
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#75-datasets-and-chunks>);
     js/test/ims/verify.py compares the data with h5py."""
     _, out = virtualize(str(FIXTURES / "ims_latest_indexes.ims"), url="https://data.test/x")
+    assert isinstance(out, Output)
     group = json.loads(out.bytes_entries["vzip_source/hdf5/Indexes/zarr.json"])
     assert "vzip_virtualized" not in group["attributes"]  # nothing unsupported
     chunks = {name: sum(1 for k in [*out.refs, *out.bytes_entries]

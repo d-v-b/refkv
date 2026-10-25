@@ -93,6 +93,8 @@ class URI:
 
 def split(s):
     m = _SPLIT_RE.match(s)
+    if m is None:  # never: every part of the pattern is optional
+        raise ValueError(f"not a URI reference: {s!r}")
     return URI(m.group(2), m.group(4), m.group(5), m.group(7), m.group(9))
 
 

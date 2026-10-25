@@ -55,6 +55,7 @@ sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from http_server import Server  # noqa: E402
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg, imagecodecs_jpegxr)
+from refkv._narrow import at, integer, mapping, ndarray, sequence  # noqa: E402
 from refkv.pb import Concat, Range  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
@@ -75,7 +76,7 @@ def run(impl: str, url: str, out: Path) -> subprocess.CompletedProcess:
     """`impl`: py, web, or ref (the frozen TypeScript twin, conformance/zarrify/reference/ts)."""
     cmd = {"py": ["uv", "run", "python", "-m", "refkv.zarrify", "--allow-private-hosts"],
            "web": ["node", str(ROOT / "js" / "conformance" / "zarrify.ts"), "--allow-private-hosts"],
-           "ref": ["node", str(ROOT / "conformance" / "zarrify" / "reference" / "ts" / "zarrify.ts")]}[impl]
+           "ref": ["node", str(ROOT / "conformance" / "zarrify" / "reference" / "ts" / "virtualize.ts")]}[impl]
     return subprocess.run([*cmd, url, str(out)], capture_output=True, text=True, cwd=ROOT, check=False)
 
 
@@ -142,11 +143,18 @@ class Archive:
             return None if b is None else b.to_bytes()
         return asyncio.run(go())
 
+    def chunk(self, key: str) -> bytes:
+        """A chunk the archive references."""
+        b = self.get(key)
+        if b is None:
+            raise KeyError(key)
+        return b
+
     def array_bytes(self, path: str) -> bytes:
         """A 1-D uint8 array's bytes (conventions §7
         <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>)."""
         a = zarr.open_array(self.store, path=path, mode="r", zarr_format=3)
-        return bytes(a[...])
+        return bytes(ndarray(a[...]))
 
     def family(self, path: str, i: int) -> bytes | None:
         """Member i of a family of byte values, or None (conventions §7
@@ -156,14 +164,14 @@ class Archive:
             a = zarr.open_array(self.store, path=full, mode="r", zarr_format=3)
             if i >= a.shape[0] or (self.get(f"{full}/c/{i}/0") is None and a.chunks[0] == 1):
                 return None
-            return bytes(a[i])
+            return bytes(ndarray(a[i]))
         if f"{full}/offsets/zarr.json" not in self.docs:
             return None
-        offsets = zarr.open_array(self.store, path=f"{full}/offsets", mode="r", zarr_format=3)[...]
+        offsets = ndarray(zarr.open_array(self.store, path=f"{full}/offsets", mode="r", zarr_format=3)[...])
         if i + 1 >= len(offsets) or offsets[i + 1] == offsets[i]:
             return None
         data = zarr.open_array(self.store, path=f"{full}/data", mode="r", zarr_format=3)
-        return bytes(data[int(offsets[i]) : int(offsets[i + 1])])
+        return bytes(ndarray(data[int(offsets[i]) : int(offsets[i + 1])]))
 
 
 def chunk_index(arr_doc: dict, index: list[int]) -> tuple[list[int], list[int]]:
@@ -284,13 +292,14 @@ def check_file(path: Path, ar: Archive) -> list[str]:
     cols = {}
     for name in ("pixel_type", "compression", "pyramid_type"):
         if n:
-            cols[name] = zarr.open_array(ar.store, path=f"vzip_source/directory/{name}", mode="r")[...]
-    spare = (zarr.open_array(ar.store, path="vzip_source/directory/spare", mode="r")[...]
+            cols[name] = ndarray(zarr.open_array(ar.store, path=f"vzip_source/directory/{name}", mode="r")[...])
+    spare = (ndarray(zarr.open_array(ar.store, path="vzip_source/directory/spare", mode="r")[...])
              if "vzip_source/directory/spare/zarr.json" in ar.docs else np.zeros((n, 5), "u1"))
     dims = {}
     for letter in LETTERS:
         if f"vzip_source/directory/{letter}/start/zarr.json" in ar.docs:
-            dims[letter] = {f: zarr.open_array(ar.store, path=f"vzip_source/directory/{letter}/{f}", mode="r")[...]
+            base = f"vzip_source/directory/{letter}"
+            dims[letter] = {f: ndarray(zarr.open_array(ar.store, path=f"{base}/{f}", mode="r")[...])
                             for f in ("start", "size", "stored_size", "start_coordinate", "position")}
     images: dict[str, dict] = {}  # image path -> lo planes seen, for consistency
     for i, e in enumerate(entries):
@@ -306,6 +315,7 @@ def check_file(path: Path, ar: Archive) -> list[str]:
         if rebuilt != file[e.offset : e.offset + len(rebuilt)]:
             problems.append(f"subblock {i}: directory entry differs when rebuilt from the columns")
         sb = e.read_segment_data(c)
+        assert isinstance(sb, czifile.CziSubBlockSegmentData), f"subblock {i}: a deleted segment"
         # 3. Metadata and attachment.
         meta = file[sb.metadata_offset : sb.metadata_offset + sb.metadata_size]
         if (ar.family("subblocks/metadata", i) or b"") != meta:
@@ -334,7 +344,7 @@ def check_file(path: Path, ar: Archive) -> list[str]:
         for _, idx in keys:
             key = f"{array}/c/" + "/".join(map(str, idx))
             used_keys.add(key)
-            rebuilt_data += ar.get(key)
+            rebuilt_data += ar.chunk(key)
         trailing = ar.family("subblocks/trailing", i) or b""
         comp = int(cols["compression"][i])
         if comp == 6:
@@ -355,7 +365,7 @@ def check_file(path: Path, ar: Archive) -> list[str]:
         arr = zarr.open_array(ar.store, path=array, mode="r", zarr_format=3)
         got = np.asarray(arr[tuple(sel)])
         order = next((c["configuration"]["order"] for c in doc["codecs"] if c["name"] == "transpose"), None)
-        direct = np.concatenate([decode_direct(ar.get(f"{array}/c/" + "/".join(map(str, k[1]))), doc["codecs"],
+        direct = np.concatenate([decode_direct(ar.chunk(f"{array}/c/" + "/".join(map(str, k[1]))), doc["codecs"],
                                                doc["data_type"], chunk_index(doc, k[1])[1], order) for k in keys],
                                 axis=axes.index("y"))
         if not np.array_equal(got, direct, equal_nan=True):
@@ -446,12 +456,12 @@ def check_source(file: bytes, c, ar: Archive) -> list[str]:
     m = c.metadata_segment
     if h.metadata_position:
         referenced.add(h.metadata_position)
-        at = h.metadata_position + 32 + 256
-        xml = file[at : at + m.xml_size]
+        xml_at = h.metadata_position + 32 + 256
+        xml = file[xml_at : xml_at + m.xml_size]
         got = ar.array_bytes("vzip_source/metadata/xml")[: m.xml_size] if m.xml_size else b""
         if got != xml:
             problems.append("the metadata XML differs")
-        att = file[at + m.xml_size : at + m.xml_size + m.attachment_size]
+        att = file[xml_at + m.xml_size : xml_at + m.xml_size + m.attachment_size]
         got = ar.array_bytes("vzip_source/metadata/attachment")[: len(att)] if att else b""
         if got != att:
             problems.append("the metadata attachment differs")
@@ -461,13 +471,14 @@ def check_source(file: bytes, c, ar: Archive) -> list[str]:
         referenced.add(h.attachment_directory_position)
         o = h.attachment_directory_position
         count = struct.unpack_from("<i", file, o + 32)[0]
-        s = ar.root["vzip_source"].attrs["vzip_virtualized"]["czi"]["attachments"]
-        listed = json.loads(ar.array_bytes("vzip_source/attachments/index").rstrip(b"\0")) if isinstance(s, str) else s
+        s = at(ar.root["vzip_source"].attrs, "vzip_virtualized", "czi", "attachments")
+        listed = sequence(json.loads(ar.array_bytes("vzip_source/attachments/index").rstrip(b"\0"))
+                          if isinstance(s, str) else s)
         if len(listed) != count:
             problems.append(f"{len(listed)} attachments listed, the directory has {count}")
         for k in range(count):
             entry = file[o + 288 + 128 * k : o + 288 + 128 * (k + 1)]
-            item = listed[k]
+            item = mapping(listed[k], f"attachment {k}")
             if entry[:2] != b"A1":
                 if item != {"entry": __import__("base64").b64encode(entry).decode()}:
                     problems.append(f"attachment {k}: its entry is not kept")
@@ -483,17 +494,17 @@ def check_source(file: bytes, c, ar: Archive) -> list[str]:
             form = item["form"]
             if form in ("time_stamps", "focus_positions"):
                 a = zarr.open_array(ar.store, path=base, mode="r")
-                got = struct.pack("<ii", a.attrs["vzip_virtualized"]["czi"]["size"],
-                                  a.shape[0]) + a[...].astype("<f8").tobytes()
+                got = struct.pack("<ii", integer(at(a.attrs, "vzip_virtualized", "czi", "size")),
+                                  a.shape[0]) + ndarray(a[...]).astype("<f8").tobytes()
             elif form == "event_list":
                 g = ar.root[base]
-                times = zarr.open_array(ar.store, path=f"{base}/time", mode="r")[...]
-                types = zarr.open_array(ar.store, path=f"{base}/type", mode="r")[...]
+                times = ndarray(zarr.open_array(ar.store, path=f"{base}/time", mode="r")[...])
+                types = ndarray(zarr.open_array(ar.store, path=f"{base}/type", mode="r")[...])
                 body = b""
                 for j in range(len(times)):
                     d = ar.family(f"attachments/{k}/description", j) or b""
                     body += struct.pack("<idii", 20 + len(d), times[j], types[j], len(d)) + d
-                got = struct.pack("<ii", g.attrs["vzip_virtualized"]["czi"]["size"], len(times)) + body
+                got = struct.pack("<ii", integer(at(g.attrs, "vzip_virtualized", "czi", "size")), len(times)) + body
             elif form == "bytes":
                 got = ar.array_bytes(base)[:size]
             else:
@@ -506,7 +517,7 @@ def check_source(file: bytes, c, ar: Archive) -> list[str]:
     segments, tail = walk(file)
     others = [s for s in segments if s[0] not in referenced]
     if others:
-        ids = zarr.open_array(ar.store, path="vzip_source/segments/id", mode="r")[...]
+        ids = ndarray(zarr.open_array(ar.store, path="vzip_source/segments/id", mode="r")[...])
         for j, (o, ident, a, u) in enumerate(others):
             if bytes(ids[j]) != ident:
                 problems.append(f"segment {j} at {o}: id differs")

@@ -97,9 +97,11 @@ def by_mrcfile() -> None:
             if stack:
                 f.set_image_stack()
             f.voxel_size = voxel_size
+            header = f.header
+            assert header is not None  # set_data's
             if origin is not None:
-                f.header.origin.x, f.header.origin.y, f.header.origin.z = origin
-            f.header.label[0] = "written by write_fixtures.py".ljust(80)
+                header.origin.x, header.origin.y, header.origin.z = origin
+            header.label[0] = "written by write_fixtures.py".ljust(80)
             f.update_header_stats()
 
     write("mrc_mrcfile_volume", rng.standard_normal((4, 5, 6)).astype(np.float32), 1.25, origin=(-3.0, 2.5, 10.0))

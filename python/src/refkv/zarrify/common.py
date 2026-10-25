@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import base64
 import bisect
+import functools
 import http.client
 import json
 import math
@@ -19,11 +20,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import OrderedDict
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from email.message import Message
 
+from refkv._narrow import integer, string
 from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Source
 from refkv.policy import Policy
@@ -70,6 +72,12 @@ def same(a: object, b: object) -> bool:
 # of any source, or literal bytes.
 Part = tuple[int, int] | tuple[int, int, int] | bytes
 
+type Chunk = list[Part] | bytes
+"""A chunk of a metadata array: the ranges of the source that hold it, or its bytes when copied."""
+
+type Chunks = dict[tuple[int, ...], Chunk]
+"""A metadata array's chunks, by coordinates."""
+
 
 @dataclass
 class Output:
@@ -81,7 +89,7 @@ class Output:
     url: str
     bytes_entries: dict[str, bytes] = field(default_factory=dict)
     refs: dict[str, list[Part]] = field(default_factory=dict)
-    summary: dict = field(default_factory=dict)
+    summary: dict[str, object] = field(default_factory=dict)
     # The data sources 1, 2, ... in order of first use (§1.2
     # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), and their indexes.
     data: dict[bytes, int] = field(default_factory=dict)
@@ -133,7 +141,7 @@ class Output:
                 w.add_bytes(key, self.bytes_entries[key], compress=not late, late=late)
             w.close()
 
-    def to_store(self, *, policy: Policy | None = None, info: dict | None = None) -> ReferenceStore:
+    def to_store(self, *, policy: Policy | None = None, info: dict[str, object] | None = None) -> ReferenceStore:
         """The output as a `refkv.ReferenceStore`, which `save` writes as the archive
         `write` writes, byte for byte (`reference_store`)."""
         sources = [Source(url=self.url, size=self.size, etag=self.etag)]
@@ -162,7 +170,7 @@ PAGE_SIZE = 1 << 16  # the page index of a zarrified archive (spec/bindings/vzip
 
 def reference_store(refs: Iterable[tuple[str, list[Range]]], entries: Iterable[tuple[str, bytes, bool]],
                     sources: list[Source], *, checksum: Callable[[str, int, int], int] | None = None,
-                    policy: Policy | None = None, info: dict | None = None) -> ReferenceStore:
+                    policy: Policy | None = None, info: dict[str, object] | None = None) -> ReferenceStore:
     """A profile output as a `refkv.ReferenceStore`, in the layout every output's
     `write` gives its archive: the references (key, ranges) first, then the bytes
     entries (key, bytes, late), in the order given; a late entry is read when the
@@ -177,7 +185,7 @@ def reference_store(refs: Iterable[tuple[str, list[Range]]], entries: Iterable[t
         url = sources[r.source].url
         return r if url is None else Range(r.source, r.offset, r.length, None, checksum(url, r.offset, r.length))
 
-    mapping: dict = {}
+    mapping: dict[str, bytes | Range | Concat] = {}
     late: list[str] = []
     compressed: list[str] = []
     with bulk():
@@ -208,14 +216,14 @@ class Plan:
     shape: list[int]
     chunk_shape: list[int]
     dims: list[str]
-    chunks: dict  # coords -> ranges of the source, or bytes
+    chunks: Chunks
     fill: object = 0
-    attributes: dict | None = None
+    attributes: Mapping[str, object] | None = None
     endian: str = "little"
-    compressor: dict | None = None  # a codec after `bytes`
+    compressor: Mapping[str, object] | None = None  # a codec after `bytes`
 
 
-def emit_plans(out: Output, plans: list[Plan], node_attributes: dict | None) -> None:
+def emit_plans(out: Output, plans: list[Plan], node_attributes: Mapping[str, object] | None) -> None:
     """The source metadata node, its groups and its arrays."""
     metadata_group(out, SOURCE_NODE, node_attributes)
     groups = sorted({"/".join(a.path.split("/")[:k]) for a in plans for k in range(1, a.path.count("/") + 1)})
@@ -227,11 +235,11 @@ def emit_plans(out: Output, plans: list[Plan], node_attributes: dict | None) -> 
 
 
 def metadata_array(out: Output, path: str, data_type: str, shape: list[int], chunk_shape: list[int],
-                   dims: list[str], chunks: dict, fill: object = 0, attributes: dict | None = None,
-                   endian: str = "little", compressor: dict | None = None) -> None:
+                   dims: list[str], chunks: Chunks, fill: object = 0, attributes: Mapping[str, object] | None = None,
+                   endian: str = "little", compressor: Mapping[str, object] | None = None) -> None:
     """An array of the source metadata node, each chunk the ranges of the source
     that hold it, or its bytes when copied; `dims` None gives no dimension names."""
-    codecs = [{"name": "bytes", "configuration": {"endian": endian}}] if data_type not in (
+    codecs: list[Mapping[str, object]] = [{"name": "bytes", "configuration": {"endian": endian}}] if data_type not in (
         "uint8", "int8") else [{"name": "bytes"}]
     if compressor is not None:
         codecs.append(compressor)
@@ -250,7 +258,7 @@ def metadata_array(out: Output, path: str, data_type: str, shape: list[int], chu
             out.refs[key] = list(c)
 
 
-def metadata_group(out: Output, path: str, attributes: dict | None = None) -> None:
+def metadata_group(out: Output, path: str, attributes: Mapping[str, object] | None = None) -> None:
     out.json(f"{path}/zarr.json", {"zarr_format": 3, "node_type": "group", "attributes": attributes or {}})
 
 
@@ -263,7 +271,7 @@ MAX_TOTAL_PADDING = 1 << 20  # the most zero bytes all edge chunks of a cut hold
 
 
 def grid_chunks(offset: int, shape: list[int], item: int, read: Reader | None = None,
-                deepen: bool = True, limit: int = MAX_CHUNK) -> tuple[list[int], dict]:
+                deepen: bool = True, limit: int = MAX_CHUNK) -> tuple[list[int], Chunks]:
     """The C-order array of `shape`, of `item`-byte elements contiguous at
     `offset`, cut as spec/conventions.md §7
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays> cuts
@@ -302,6 +310,8 @@ def grid_chunks(offset: int, shape: list[int], item: int, read: Reader | None = 
                 best = (pad, cq)
             if pad <= SMALL_PADDING:
                 break
+        if best is None:  # range(k, ...) is not empty: k <= n
+            raise AssertionError("no chunk count tried")
         outer = 1
         for v in shape[:a]:
             outer *= v
@@ -317,29 +327,31 @@ def grid_chunks(offset: int, shape: list[int], item: int, read: Reader | None = 
         a += 1
         slab //= shape[a]
     tail = (0,) * (len(shape) - a - 1)
-    chunks: dict = {}
-    outer: list[tuple] = [()]
+    chunks: Chunks = {}
+    outers: list[tuple[int, ...]] = [()]
     for v in shape[:a]:
-        outer = [(*o, i) for o in outer for i in range(v)]
-    for o in outer:
+        outers = [(*o, i) for o in outers for i in range(v)]
+    for o in outers:
         base = 0
         for i, v in zip(o, shape[:a], strict=True):
             base = base * v + i
         for q in range(-(-n // c)):
             m = min(c, n - q * c)
-            parts: list = [(offset + (base * n + q * c) * slab, m * slab)]
+            rng = (offset + (base * n + q * c) * slab, m * slab)
+            parts: Chunk = [rng]
             if m < c:
-                parts.append(bytes((c - m) * slab))
+                pad = bytes((c - m) * slab)
+                parts = [rng, pad]
                 if payload_size(parts) > MAX_PAYLOAD:
                     if read is None:
                         raise ValueError("an edge chunk whose padding does not fit in a payload")
-                    parts = read(parts[0][0], parts[0][1]) + parts[1]
+                    parts = read(rng[0], rng[1]) + pad
             chunks[(*o, q, *tail)] = parts
     return [1] * a + [c, *shape[a + 1 :]], chunks
 
 
-def row_chunks(offset: int, rows: int, row_bytes: int, row_shape: tuple = (), read: Reader | None = None
-               ) -> tuple[int, dict]:
+def row_chunks(offset: int, rows: int, row_bytes: int, row_shape: tuple[int, ...] = (), read: Reader | None = None
+               ) -> tuple[int, Chunks]:
     """`rows` values of `row_bytes` bytes each (at most 2^24), contiguous at
     `offset`, as the chunks of an array along its first axis: grid_chunks of
     the bytes [rows, row_bytes], each chunk's coords followed by `row_shape`."""
@@ -369,10 +381,12 @@ def family_plans(path: str, members: list[tuple[int, int, int]], read: Reader,
         if length <= MAX_CHUNK:
             return [Plan(path, "uint8", [count, length], [1, length], ["index", "byte"],
                          {(i, 0): [(o, d)] for i, o, d in members})]
-    by_index = {}
+    by_index: dict[int, tuple[int, int]] = {}
     for i, o, d in members:
         by_index.setdefault(i, (o, d))
-    starts, pieces, total = [], [], 0
+    starts: list[int] = []
+    pieces: list[tuple[int, int, int]] = []
+    total = 0
     for i in range(count):
         starts.append(total)
         if i in by_index:
@@ -383,18 +397,19 @@ def family_plans(path: str, members: list[tuple[int, int, int]], read: Reader,
     # The offsets are copied, and cut as contiguous values (spec/conventions.md §7
     # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>).
     shape, cut = grid_chunks(0, [count + 1], 8, lambda o, n: packed[o : o + n])
-    offsets = {k: v if isinstance(v, bytes) else b"".join(packed[r[0] : r[0] + r[1]] if isinstance(r, tuple) else r
-                                                          for r in v) for k, v in cut.items()}
+    offsets: Chunks = {k: v if isinstance(v, bytes) else
+                       b"".join(packed[r[0] : r[0] + r[1]] if isinstance(r, tuple) else r for r in v)
+                       for k, v in cut.items()}
     plans = [Plan(f"{path}/offsets", "int64", [count + 1], shape, ["index"], offsets)]
     if total:
         size_c = -(-total // -(-total // RAGGED_CHUNK))  # balanced: k = ceil(total / 2^20) chunks
-        data_chunks = {}
+        data_chunks: Chunks = {}
         first = 0  # the first piece that may reach the chunk: one sweep over the pieces
         for c in range(-(-total // size_c)):
             lo, hi = c * size_c, min(total, (c + 1) * size_c)
             while first < len(pieces) and pieces[first][0] + pieces[first][2] <= lo:
                 first += 1
-            ranges: list = []
+            ranges: list[Part] = []
             for at, o, d in pieces[first:]:
                 if at >= hi:
                     break
@@ -405,9 +420,10 @@ def family_plans(path: str, members: list[tuple[int, int, int]], read: Reader,
                     else:
                         ranges.append((start, n))
             ranges += [bytes(size_c - (hi - lo))] if hi - lo < size_c else []
+            chunk: Chunk = ranges
             if payload_size(ranges) > MAX_PAYLOAD:
-                ranges = b"".join(read(r[0], r[1]) if isinstance(r, tuple) else r for r in ranges)
-            data_chunks[(c,)] = ranges
+                chunk = b"".join(read(r[0], r[1]) if isinstance(r, tuple) else r for r in ranges)
+            data_chunks[(c,)] = chunk
         plans.append(Plan(f"{path}/data", "uint8", [total], [size_c], ["byte"], data_chunks))
     return plans
 
@@ -415,17 +431,18 @@ def family_plans(path: str, members: list[tuple[int, int, int]], read: Reader,
 RAGGED_CHUNK = 1 << 20
 
 
-def blob_chunks(offset: int, length: int) -> tuple[int, dict]:
+def blob_chunks(offset: int, length: int) -> tuple[int, Chunks]:
     """A run of the source's bytes (length at least 1) as a 1-D uint8 array:
     its chunk size and chunks. The k chunks are of equal size ceil(length / k),
     k = ceil(length / 2^24), so that the last one, which Zarr stores whole,
     is padded with fewer than k zero bytes."""
     k = -(-length // MAX_CHUNK)
     size = -(-length // k)
-    chunks = {}
+    chunks: Chunks = {}
     for i in range(k):
         n = min(size, length - i * size)
-        chunks[(i,)] = [(offset + i * size, n)] + ([bytes(size - n)] if n < size else [])
+        head: list[Part] = [(offset + i * size, n)]
+        chunks[(i,)] = head + ([bytes(size - n)] if n < size else [])
     return size, chunks
 
 
@@ -508,13 +525,14 @@ LENGTHS = {
 }
 
 
-def centred(cx: float, cy: float, w0: int, h0: int, sx: float, sy: float) -> dict:
+def centred(cx: float, cy: float, w0: int, h0: int, sx: float, sy: float) -> dict[str, float]:
     """The translation of an image whose centre is at (cx, cy) (conventions §5
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>)."""
     return {"x": cx - w0 * sx / 2, "y": cy - h0 * sy / 2}
 
 
-def array_json(shape: Sequence[int], data_type: str, chunk_shape: Sequence[int], codecs: list, axes: list[str]) -> dict:
+def array_json(shape: Sequence[int], data_type: str, chunk_shape: Sequence[int], codecs: Sequence[Mapping[str, object]],
+               axes: list[str]) -> dict[str, object]:
     """An array's zarr.json (conventions §3
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#3-arrays>)."""
     return {
@@ -531,14 +549,14 @@ def array_json(shape: Sequence[int], data_type: str, chunk_shape: Sequence[int],
     }
 
 
-def transpose_codec(axes: list[str]) -> dict:
+def transpose_codec(axes: list[str]) -> dict[str, object]:
     """The transpose codec for frames that hold the channel axis last (conventions §3
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#3-arrays>)."""
     stored = [a for a in axes if a != "c"] + ["c"]
     return {"name": "transpose", "configuration": {"order": [axes.index(a) for a in stored]}}
 
 
-def group_json(ome: dict) -> dict:
+def group_json(ome: Mapping[str, object]) -> dict[str, object]:
     return {"zarr_format": 3, "node_type": "group", "attributes": {"ome": ome}}
 
 
@@ -547,11 +565,11 @@ def group_json(ome: dict) -> dict:
 # with its fixed UUID, its current version and its name in the description, from the profile
 # registry (spec/zarrify/profiles/, as `refkv.zarrify.profiles` reads it from the core).
 CONVENTION_KEY = "refkv_zarrified"
-PROFILES = {e["name"]: (e["uuid"], e["version"], e["title"]) for e in REGISTRY}
+PROFILES = {string(e["name"]): (string(e["uuid"]), integer(e["version"]), string(e["title"])) for e in REGISTRY}
 UUIDS = frozenset(uuid for uuid, _, _ in PROFILES.values())
 
 
-def convention(profile: str) -> dict:
+def convention(profile: str) -> dict[str, object]:
     """The Convention Metadata Object of a profile's convention (conventions §2
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>)."""
     uuid, version, title = PROFILES[profile]
@@ -567,7 +585,7 @@ def convention(profile: str) -> dict:
     }
 
 
-def root_property(profile: str, url: str, revision: int | None = None) -> dict:
+def root_property(profile: str, url: str, revision: int | None = None) -> dict[str, object]:
     """The root's property without its source metadata (conventions §2
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>): the profile, its
     convention's version and the source URL. `revision` is only for the frozen reference twins'
@@ -578,8 +596,8 @@ def root_property(profile: str, url: str, revision: int | None = None) -> dict:
             "source": {"url": url}}
 
 
-def declare(attributes: dict, profile: str, url: str | None, own: dict | None = None,
-            revision: int | None = None) -> dict:
+def declare(attributes: Mapping[str, object], profile: str, url: str | None, own: Mapping[str, object] | None = None,
+            revision: int | None = None) -> dict[str, object]:
     """A node's attributes (conventions §2
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>): `attributes`, the
     members the target formats
@@ -588,7 +606,7 @@ def declare(attributes: dict, profile: str, url: str | None, own: dict | None = 
     (`own` is a nonempty object): its metadata object in `zarr_conventions`,
     and the property `refkv_zarrified`, which holds `own` as its member
     named after the profile."""
-    value: dict = {}
+    value: dict[str, object] = {}
     if url is not None:
         value = root_property(profile, url, revision)
     if own:
@@ -598,7 +616,8 @@ def declare(attributes: dict, profile: str, url: str | None, own: dict | None = 
     return {**attributes, "zarr_conventions": [convention(profile)], CONVENTION_KEY: value}
 
 
-def root_json(ome: dict, profile: str, url: str, own: dict | None = None, revision: int | None = None) -> dict:
+def root_json(ome: Mapping[str, object], profile: str, url: str, own: Mapping[str, object] | None = None,
+              revision: int | None = None) -> dict[str, object]:
     """The root image group of a file profile (conventions §4
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#4-images>, conventions §2
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), with the
@@ -607,15 +626,15 @@ def root_json(ome: dict, profile: str, url: str, own: dict | None = None, revisi
             "attributes": declare({"ome": ome}, profile, url, own, revision)}
 
 
-def image_ome(axes: list[str], units: dict, scales: list[list[float]], name: str | None,
-              translations: list[list[float]] | None = None) -> dict:
+def image_ome(axes: list[str], units: Mapping[str, str | None], scales: list[list[float]], name: str | None,
+              translations: list[list[float]] | None = None) -> dict[str, object]:
     for t in translations or []:
         if not all(math.isfinite(v) for v in t):
             raise Rejected("a translation is not finite")
     """The OME-NGFF 0.5 object of an image (conventions §4
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#4-images>), with a translation per
     level after its scale when `translations` is given."""
-    ms = {}
+    ms: dict[str, object] = {}
     if name is not None:
         ms["name"] = name
     ms["axes"] = [{"name": a, "type": TYPES[a], **({"unit": units[a]} if units.get(a) else {})} for a in axes]
@@ -654,10 +673,12 @@ class _ThreadConnections:
     def __init__(self) -> None:
         self._local = threading.local()
 
-    def _conns(self) -> dict:
+    def _conns(self) -> dict[tuple[str, str, int | None], http.client.HTTPConnection]:
+        conns: dict[tuple[str, str, int | None], http.client.HTTPConnection] | None
         conns = getattr(self._local, "conns", None)
         if conns is None:
-            conns = self._local.conns = {}
+            conns = {}
+            self._local.conns = conns
         return conns
 
     def get(self, scheme: str, host: str, port: int | None) -> tuple[http.client.HTTPConnection, bool]:
@@ -681,8 +702,8 @@ class _ThreadConnections:
 REDIRECTS = (301, 302, 303, 307, 308)
 
 
-def follow(base: str, url: str, send: Callable[[str], tuple[int, Message | None, bytes]],
-           policy: Policy) -> tuple[str, int, Message | None, bytes]:
+def follow[M: Message | None](base: str, url: str, send: Callable[[str], tuple[int, M, bytes]],
+                              policy: Policy) -> tuple[str, int, M, bytes]:
     """(url, status, headers, body) of the request `send(url)` makes, following at
     most 5 redirects: the policy checks `url`, and each redirect's target before it
     is requested, for the input at `base`. `send` does not follow redirects."""
@@ -691,7 +712,8 @@ def follow(base: str, url: str, send: Callable[[str], tuple[int, Message | None,
         status, msg, body = send(url)
         if status not in REDIRECTS:
             return url, status, msg, body
-        locations = (msg.get_all("Location") if msg is not None else None) or []
+        headers: Message | None = msg
+        locations = (headers.get_all("Location") if headers is not None else None) or []
         if len(locations) != 1:
             raise ResolutionError(f"{url}: HTTP {status} with {len(locations)} Location fields")
         if not is_uri_reference(locations[0]):
@@ -728,7 +750,7 @@ def http_reader(url: str, block: int = 1 << 16, policy: Policy | None = None) ->
         headers = {"User-Agent": UA, **headers}
 
         def send(u: str) -> tuple[int, Message, bytes]:
-            check = None if policy.allow_private_hosts else (lambda ip: policy.check_address(u, ip))
+            check = None if policy.allow_private_hosts else functools.partial(policy.check_address, u)
             try:
                 return _send(u, headers, check, policy.allow_unchecked_proxy, conns, method)
             except (OSError, http.client.HTTPException) as e:

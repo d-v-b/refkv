@@ -44,6 +44,7 @@ import shutil
 import struct
 import tempfile
 import zlib
+from collections.abc import Container, Sequence
 from pathlib import Path
 
 import numpy as np
@@ -157,7 +158,7 @@ def segments(cs: bytes) -> tuple[list[tuple[int, bytes]], bytes]:
         o += 2 + length
 
 
-def kakadu(cs: bytes, coms=KAKADU_COMS, extra: list[bytes] = ()) -> bytes:
+def kakadu(cs: bytes, coms=KAKADU_COMS, extra: Sequence[bytes] = ()) -> bytes:
     """The codestream with Kakadu's main header: Rsiz 0, its two COM markers instead of
     OpenJPEG's, and the `extra` segments before them."""
     segs, tail = segments(cs)
@@ -202,7 +203,7 @@ def band_file(data: np.ndarray, r: int, tile: int, bits: int, *, precincts: str 
 # ---------------------------------------------------------------- XML documents
 
 
-def spectral_xml(response: bool = True, skip: set = frozenset()) -> str:
+def spectral_xml(response: bool = True, skip: Container[str] = frozenset()) -> str:
     out = []
     for i, pb, r, lo, hi, mid, _, _ in SPECTRAL:
         if pb in skip:
@@ -873,7 +874,7 @@ PSD142 = [("Product_Info", "L2A_Product_Info"), ("Product_Organisation", "L2A_Pr
           ("SCENE_CLASSIFICATION_INDEX", "L2A_SCENE_CLASSIFICATION_INDEX")]
 
 
-def split_granules(xml: str, extra: list[str] = ()) -> str:
+def split_granules(xml: str, extra: Sequence[str] = ()) -> str:
     """The product metadata of processing baselines 02.04–02.07: a Granule_List per
     resolution, each with the one granule and that resolution's image files (and `extra`,
     image files outside IMG_DATA, in the first)."""

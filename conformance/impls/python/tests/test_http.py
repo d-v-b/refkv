@@ -7,11 +7,13 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import override
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
 from vzip_impl import reader, writer  # noqa: E402
+from vzip_impl._narrow import integer  # noqa: E402
 from vzip_impl.errors import VzError  # noqa: E402
 from vzip_impl.httpfetch import parse_imf_fixdate  # noqa: E402
 
@@ -25,7 +27,8 @@ LOG = []
 class H(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
-    def log_message(self, *a):
+    @override
+    def log_message(self, format, *args):
         pass
 
     def do_HEAD(self):
@@ -75,7 +78,7 @@ class H(BaseHTTPRequestHandler):
         if p in {"/obj", "/chunked"}:
             if im is not None and im != ETAG:
                 return self.send(412)
-            if ius is not None and parse_imf_fixdate(ius) < LM_T:
+            if ius is not None and integer(parse_imf_fixdate(ius)) < LM_T:
                 return self.send(412)
             if a >= len(OBJ):
                 return self.send(416, b"", [("Content-Range", f"bytes */{len(OBJ)}")])
@@ -114,17 +117,24 @@ class H(BaseHTTPRequestHandler):
         return self.send(404)
 
 
+class Server(ThreadingHTTPServer):
+    @override
+    def handle_error(self, request, client_address):
+        pass
+
+
 class TestHTTP(unittest.TestCase):
     @classmethod
+    @override
     def setUpClass(cls):
-        cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
-        cls.srv.handle_error = lambda *_a: None
+        cls.srv = Server(("127.0.0.1", 0), H)
         cls.port = cls.srv.server_address[1]
         cls.t = threading.Thread(target=cls.srv.serve_forever, daemon=True)
         cls.t.start()
         cls.dir = tempfile.mkdtemp(prefix="vzh")
 
     @classmethod
+    @override
     def tearDownClass(cls):
         cls.srv.shutdown()
         cls.srv.server_close()
@@ -147,7 +157,7 @@ class TestHTTP(unittest.TestCase):
     def ok(self, path, **pins):
         self.assertEqual(self.one(path, **pins).get("k0"), b"cdefg")
 
-    def fail(self, path, **pins):
+    def fails(self, path, **pins):
         with self.assertRaises(VzError) as cm:
             self.one(path, **pins).get("k0")
         self.assertEqual(cm.exception.cls, "resolution", str(cm.exception))
@@ -187,54 +197,54 @@ class TestHTTP(unittest.TestCase):
         self.assertTrue(all(m != "HEAD" for m, _, _ in LOG))
 
     def test_size_pin_mismatch(self):
-        self.fail("/obj", size=25)
-        self.fail("/norange", size=27)
+        self.fails("/obj", size=25)
+        self.fails("/norange", size=27)
 
     def test_size_pin_unknown_total(self):
-        self.fail("/star", size=26)
+        self.fails("/star", size=26)
 
     def test_etag_pin_412(self):
-        self.fail("/obj", etag='"v2"')
+        self.fails("/obj", etag='"v2"')
 
     def test_etag_pin_ignored_by_server(self):
-        self.fail("/lie", etag=ETAG)
+        self.fails("/lie", etag=ETAG)
 
     def test_etag_weak_response(self):
-        self.fail("/weak", etag=ETAG)
+        self.fails("/weak", etag=ETAG)
 
     def test_etag_missing(self):
-        self.fail("/nometa", etag=ETAG)
+        self.fails("/nometa", etag=ETAG)
 
     def test_mnf_412(self):
-        self.fail("/obj", modified_not_after=LM_T - 1)
+        self.fails("/obj", modified_not_after=LM_T - 1)
 
     def test_mnf_ignored_by_server(self):
-        self.fail("/lie", modified_not_after=LM_T)
+        self.fails("/lie", modified_not_after=LM_T)
 
     def test_mnf_bad_dates(self):
-        self.fail("/rfc850", modified_not_after=LM_T)
-        self.fail("/wrongday", modified_not_after=LM_T)
-        self.fail("/nometa", modified_not_after=LM_T)
+        self.fails("/rfc850", modified_not_after=LM_T)
+        self.fails("/wrongday", modified_not_after=LM_T)
+        self.fails("/nometa", modified_not_after=LM_T)
 
     def test_mnf_unsendable(self):
-        self.fail("/obj", modified_not_after=-62135596801)  # year 0
-        self.fail("/obj", modified_not_after=253402300800)  # year 10000
+        self.fails("/obj", modified_not_after=-62135596801)  # year 0
+        self.fails("/obj", modified_not_after=253402300800)  # year 10000
 
     def test_content_encoding(self):
-        self.fail("/gzip")
-        self.fail("/identity2")
+        self.fails("/gzip")
+        self.fails("/identity2")
 
     def test_multipart(self):
-        self.fail("/multi")
+        self.fails("/multi")
 
     def test_wrong_range(self):
-        self.fail("/wrongrange")
+        self.fails("/wrongrange")
 
     def test_206_without_content_range(self):
-        self.fail("/norange206")
+        self.fails("/norange206")
 
     def test_body_length(self):
-        self.fail("/badlen")
+        self.fails("/badlen")
 
     def test_416(self):
         ar = self.archive([writer.WSource("url", self.url("/obj"))])
@@ -259,17 +269,17 @@ class TestHTTP(unittest.TestCase):
         self.assertEqual(cm.exception.cls, "resolution")
 
     def test_other_status(self):
-        self.fail("/status500")
-        self.fail("/nothere")
+        self.fails("/status500")
+        self.fails("/nothere")
 
     def test_too_many_redirects(self):
-        self.fail("/redir/6")
+        self.fails("/redir/6")
 
     def test_redirect_without_location(self):
-        self.fail("/redir-noloc")
+        self.fails("/redir-noloc")
 
     def test_redirect_to_file(self):
-        self.fail("/redir-file")
+        self.fails("/redir-file")
 
     def test_userinfo_and_empty_host(self):
         ar = self.archive([writer.WSource("url", f"http://u@127.0.0.1:{self.port}/obj"),

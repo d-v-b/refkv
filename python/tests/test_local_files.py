@@ -40,7 +40,9 @@ def test_local_files_refuses_a_range_past_the_end(tmp_path):
 def test_local_files_reads_only_a_suffix_with_get(tmp_path):
     (tmp_path / "f.bin").write_bytes(b"abc")
     with pytest.raises(NotImplementedError, match="reads a suffix"):
-        run(LocalFiles().get_async(str(tmp_path / "f.bin"), options={"range": {"offset": 1}}))
+        # an offset range, which the options' type leaves out
+        run(LocalFiles().get_async(
+            str(tmp_path / "f.bin"), options={"range": {"offset": 1}}))  # pyrefly: ignore[bad-assignment]
 
 
 def test_local_files_refuses_a_missing_file(tmp_path):

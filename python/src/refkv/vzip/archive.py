@@ -36,7 +36,7 @@ import struct
 import zlib
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
-from typing import BinaryIO, Self
+from typing import BinaryIO, Self, cast
 
 from refkv.pb import (
     Concat,
@@ -65,7 +65,7 @@ FORMAT_VERSION = 0
 # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#13-versioning>, §5
 # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)
 SPEC_REVISION = 11
-MAGIC_COMMENT = b"vzip/%d" % FORMAT_VERSION
+MAGIC_COMMENT = f"vzip/{FORMAT_VERSION}".encode()
 
 _LFH = struct.Struct("<IHHHHHIIIHH")  # 30 bytes
 _CDH = struct.Struct("<IHHHHHHIIIHHHHHII")  # 46 bytes
@@ -144,7 +144,7 @@ class VZipWriter:
         self._names: set[str] = set()
         self._ref_names: set[str] = set()
         # (key, Range) for spec §7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing> bounds checks
-        self._range_checks: list = []
+        self._range_checks: list[tuple[str, Range]] = []
         self._sources: dict[Source, int] = {}
         # every source in table order: a Source, or a (url, size pin or None) pair from add_url_refs
         self._source_list: list[Source | tuple[str, int | None]] = []
@@ -227,7 +227,7 @@ class VZipWriter:
         self._write(stored)
         self._cd.append((name, off, len(body), len(stored), method, crc, extra))
 
-    def add_file(self, key: str, path: str | os.PathLike, *, block: int = 1 << 24) -> None:
+    def add_file(self, key: str, path: str | os.PathLike[str], *, block: int = 1 << 24) -> None:
         """Add the bytes of the file at `path` as a STORED entry, streaming it
         (twice: once for its CRC-32, once to copy it), so entries of any size,
         such as Zarr shards of 4 GiB or more, never sit in memory."""
@@ -335,9 +335,12 @@ class VZipWriter:
 
     def _with_checksum(self, r: Range) -> Range:
         """`r`, with the CRC-32C of its bytes if it is a range of a url source."""
+        checksum = self._checksum
+        if checksum is None:
+            raise AssertionError("_with_checksum without a checksum: the caller checks")
         if r.data is not None or r.crc32c is not None or (url := self._url_of(r.source)) is None:
             return r
-        return Range(r.source, r.offset, r.length, None, self._checksum(url, r.offset, r.length))
+        return Range(r.source, r.offset, r.length, None, checksum(url, r.offset, r.length))
 
     def add_url_refs(self, items: Iterable[tuple[str, str, int]], *, pin_size: bool = False) -> None:
         """Bulk path for many objects referenced whole: for each (key, url, size),
@@ -365,7 +368,7 @@ class VZipWriter:
             self._entry(key, payload if self._mirror else b"", extra)
             self._ref_names.add(key)
 
-    def _check_sources(self, all_sources: list) -> None:
+    def _check_sources(self, all_sources: list[Source | tuple[str, int | None]]) -> None:
         """Writer requirements on the source table (spec §7
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#7-writing>)."""
         bulk = [x[0] for x in all_sources if isinstance(x, tuple)]
@@ -376,7 +379,7 @@ class VZipWriter:
         sources = [x if isinstance(x, Source) else placeholder for x in all_sources]
         if any(x.key == "" for x in sources):
             raise ValueError("empty key source")
-        sizes = {name: size for name, _, size, *_ in self._cd}
+        sizes: dict[str | None, int] = {name: size for name, _, size, *_ in self._cd}
         sizes.update((k, len(d)) for k, d, _ in self._late)
         for key, r in self._range_checks:
             src = sources[r.source]
@@ -486,12 +489,12 @@ class VZipWriter:
             self.close()
 
 
-def _encode_sources(sources: list, revision: int | None = None) -> bytes:
+def _encode_sources(sources: list[Source | tuple[str, int | None]], revision: int | None = None) -> bytes:
     """The SourceTable of `sources` (Source objects, or (url, size pin) pairs), with
     the spec revision (spec §5
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)."""
     if all(isinstance(x, Source) for x in sources):
-        return encode_source_table(sources, revision)
+        return encode_source_table(cast("list[Source]", sources), revision)  # all Source, as checked
     out = bytearray()
     for x in sources:
         if isinstance(x, Source):
@@ -524,7 +527,7 @@ class Directory:
     cd_size: int
     n_entries: int
     is_vzip: bool
-    sources_offset: int | None = None  # body of the deflated SourceTable, if is_vzip
+    sources_offset: int  # body of the deflated SourceTable
     sources_size: int = 0
     index_offset: int | None = None  # body of the deflated CdIndex, if paged
     index_size: int = 0
@@ -621,7 +624,10 @@ def parse_central_directory(cd: bytes, *, trust_offsets: bool) -> dict[str, Entr
             continue
         if name in entries:
             raise ValueError(f"duplicate central directory record for {name!r}")
-        payload, error, ref_blocks, z64 = None, None, 0, []
+        payload: tuple[int, bytes] | None = None
+        error: str | None = None
+        ref_blocks = 0
+        z64: list[bytes] = []
         try:
             for hid, data in _iter_extra(extra):
                 if hid in (RANGE_EXTRA_ID, CONCAT_EXTRA_ID):

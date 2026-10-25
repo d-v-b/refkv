@@ -1,5 +1,6 @@
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import override
 
 import pytest
 
@@ -18,7 +19,8 @@ def server():
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *a):
+        @override
+        def log_message(self, format, *args):
             pass
 
         def do_GET(self):

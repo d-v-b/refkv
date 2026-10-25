@@ -19,12 +19,12 @@ DEFAULT_RECORD_READ = 4608
 OLD_TAIL = (64 << 10) + 64  # the defaults before
 
 
-def human(b):
-    for u in ("B", "KiB", "MiB", "GiB"):
-        if b < 1024 or u == "GiB":
+def human(b) -> str:
+    for u in ("B", "KiB", "MiB"):
+        if b < 1024:
             return f"{b:.0f} {u}" if u == "B" else f"{b:.1f} {u}"
         b /= 1024
-    return None
+    return f"{b:.1f} GiB"
 
 
 def main():

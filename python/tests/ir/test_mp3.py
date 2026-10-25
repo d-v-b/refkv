@@ -14,6 +14,7 @@ from ir_helpers import FIXTURES, core_setting
 from ir_helpers import zarrified as shared_zarrified
 
 from refkv import _core
+from refkv._narrow import at, integer, mapping, ndarray, string
 from refkv.zarr.codecs.stream import stream_units
 
 MP3S = sorted((FIXTURES / "mp3").glob("*.mp3"))
@@ -76,6 +77,7 @@ def sequential(frames: list[bytes], channels: int) -> np.ndarray:
     """ffmpeg's float MP3 decoder (through PyAV) decoding the audio frames in one pass, one
     packet a frame: float32 [samples, channels]."""
     ctx = av.CodecContext.create("mp3float", "r")
+    assert isinstance(ctx, av.AudioCodecContext)  # the stubs type an unlisted codec's context as the base
     out = []
     for f in [d for p in frames for d in ctx.decode(av.Packet(p))] + ctx.decode(None):
         assert f.layout.nb_channels == channels
@@ -93,20 +95,20 @@ def test_chunks_decode_as_the_stream_does(path, tmp_path):
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#82-chunks>); the root's
     metadata and the summary agree with the array; the file is rebuilt from the mirror."""
     out, root, ir = zarrified(path, tmp_path, chunk_frames=4)
-    meta = root.attrs["refkv_zarrified"]["mp3"]
-    arr = root["samples"]
-    got = arr[...]
+    meta = mapping(at(root.attrs, "refkv_zarrified", "mp3"))
+    arr = root.get_array("samples")
+    got = ndarray(arr[...])
     frames = frames_of(ir)
     assert len(frames) == meta["frames"]
     assert got.dtype == np.float32
     assert got.shape == (meta["samples"], meta["channels"])
-    assert meta["samples"] == meta["frames"] * meta["samples_per_frame"]
-    assert arr.chunks == (4 * meta["samples_per_frame"], meta["channels"])
-    chunks = -(-meta["frames"] // 4)
+    assert meta["samples"] == integer(meta["frames"]) * integer(meta["samples_per_frame"])
+    assert arr.chunks == (4 * integer(meta["samples_per_frame"]), meta["channels"])
+    chunks = -(-integer(meta["frames"]) // 4)
     assert out.summary["chunks"] == chunks
     assert out.summary["chunkFrames"] == 4
     assert set(root.attrs) == {"zarr_conventions", "refkv_zarrified"}
-    want = sequential(audio_frames(path, ir), meta["channels"])
+    want = sequential(audio_frames(path, ir), integer(meta["channels"]))
     assert want.shape == got.shape
     assert np.array_equal(got, want)
     # each chunk keeps its own frames' samples; its ranges are the frames from its lead-in's
@@ -114,7 +116,7 @@ def test_chunks_decode_as_the_stream_does(path, tmp_path):
     for q in range(chunks):
         a, b = 4 * q, min(4 * q + 4, len(frames))
         keep, ranges = chunk_parts(out, q, path.read_bytes())
-        assert keep in (None, (b - a) * meta["samples_per_frame"])
+        assert keep in (None, (b - a) * integer(meta["samples_per_frame"]))
         assert (keep is not None or b - a == 1)
         first = next(j for j, (o, _) in enumerate(frames) if o == ranges[0][0])
         assert (first == 0) if q == 0 else (first < a)
@@ -136,7 +138,7 @@ def test_matches_ffmpeg(path, chunk_frames, tmp_path):
     the generator) within a few units per sample, whole (256 frames a chunk) and in chunks of
     4 frames with their lead-ins."""
     _, root, _ = zarrified(path, tmp_path, chunk_frames)
-    got = np.clip(np.rint(root["samples"][...] * 32768.0), -32768, 32767).astype(np.int32)
+    got = np.clip(np.rint(ndarray(root.get_array("samples")[...]) * 32768.0), -32768, 32767).astype(np.int32)
     want = np.load(EXPECTED / f"{path.stem}.npy").astype(np.int32)
     assert got.shape == want.shape
     diff = np.abs(got - want)
@@ -149,18 +151,18 @@ def test_a_long_stream_has_chunks_of_256_frames(tmp_path):
     lead-in starts before frame 256, and both decode as the stream does."""
     path = FIXTURES / "mp3" / "mp3_mpeg25_long.mp3"
     out, root, ir = zarrified(path, tmp_path)
-    meta = root.attrs["refkv_zarrified"]["mp3"]
-    assert meta["frames"] > 256
+    meta = mapping(at(root.attrs, "refkv_zarrified", "mp3"))
+    assert integer(meta["frames"]) > 256
     assert out.summary["chunks"] == 2
-    arr = root["samples"]
+    arr = root.get_array("samples")
     assert arr.chunks == (256 * 576, 1)
     keep1, ranges1 = chunk_parts(out, 1, path.read_bytes())
-    assert keep1 == (meta["frames"] - 256) * 576
+    assert keep1 == (integer(meta["frames"]) - 256) * 576
     # frames of 72 bytes hold 59 bytes of main data (72 - 4 - 9): the lead-in is frames 254
     # and 255, and before them the 5 frames (295 bytes) that hold the 255-byte reservoir
     frames = frames_of(ir)
     assert ranges1 == [(frames[249][0], frames[-1][0] + frames[-1][1] - frames[249][0])]
-    got = arr[...]
+    got = ndarray(arr[...])
     assert np.array_equal(got, sequential(audio_frames(path, ir), 1))
 
 
@@ -209,7 +211,7 @@ def test_zarrifies_the_synthetic_files(tmp_path):
     for name, (summary, members) in CASES.items():
         out, root, _ = zarrified(FIXTURES / "mp3" / f"{name}.mp3", tmp_path)
         assert {**out.summary, **summary} == out.summary, name
-        meta = root.attrs["refkv_zarrified"]["mp3"]
+        meta = mapping(at(root.attrs, "refkv_zarrified", "mp3"))
         for k, v in members.items():
             assert meta.get(k) == v, (name, k)
         keys = ["version", "layer", "sample_rate", "channels", "channel_mode", "samples_per_frame", "frames", "samples",
@@ -223,9 +225,9 @@ def test_the_info_frame_is_read_and_not_audio(tmp_path):
     """A LAME Xing frame and an ffmpeg Info frame: their fields are the root's `info`, and
     the first audio frame is the frame after them (the first chunk's range starts there)."""
     out, root, _ = zarrified(FIXTURES / "mp3" / "mp3_abr_xing.mp3", tmp_path)
-    info = root.attrs["refkv_zarrified"]["mp3"]["info"]
+    info = mapping(at(root.attrs, "refkv_zarrified", "mp3", "info"))
     assert info["tag"] == "Xing"
-    assert info["encoder"].startswith("LAME")
+    assert string(info["encoder"]).startswith("LAME")
     assert info["frames"] == out.summary["frames"]
     assert isinstance(info["delay"], int)
     assert isinstance(info["padding"], int)
@@ -233,7 +235,7 @@ def test_the_info_frame_is_read_and_not_audio(tmp_path):
     assert ranges[0][0] > 0
     assert out.summary["strayBytes"] == 0
     out, root, _ = zarrified(FIXTURES / "mp3" / "mp3_info_lavc.mp3", tmp_path)
-    info = root.attrs["refkv_zarrified"]["mp3"]["info"]
+    info = mapping(at(root.attrs, "refkv_zarrified", "mp3", "info"))
     assert info["tag"] == "Info"
-    assert info["encoder"].startswith("Lavc")
+    assert string(info["encoder"]).startswith("Lavc")
     assert info["frames"] == out.summary["frames"]

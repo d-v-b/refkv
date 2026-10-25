@@ -1,12 +1,13 @@
 import io
 import struct
 import zipfile
+from typing import override
 
 import pytest
 
 from refkv._sync import run
 from refkv.errors import ArchiveError, EntryError
-from refkv.pb import Pinned, Range
+from refkv.pb import Pinned, Range, Reference
 from refkv.reader import OffsetRequest, RangeRequest, SuffixRequest
 from refkv.uri import file_uri
 from refkv.vzip.archive import VZipWriter, parse_central_directory, parse_tail
@@ -17,6 +18,13 @@ U32 = 0xFFFFFFFF
 
 def _get(store, key, request=None):
     return store.get(key, request)
+
+
+def _ref(store: VZipStore, key: str) -> Reference | None:
+    """The reference of the entry `key`, which the store has."""
+    e = store.entry(key)
+    assert e is not None, key
+    return e.ref
 
 
 def test_overlay_semantics(tmp_path):
@@ -63,7 +71,7 @@ def test_overlay_semantics(tmp_path):
     assert {k: s.classify(k) for k in ["a/zarr.json", "a/c/0", "a/c/2", "nope"]} == {
         "a/zarr.json": "bytes", "a/c/0": "reference", "a/c/2": "reference", "nope": "missing"}
     # one range -> bare Range (0x7a76); several -> Concat (0x7a77)
-    assert {k: type(s.entry(k).ref).__name__ for k in ["a/c/0", "a/c/1", "a/c/2", "a/c/3"]} == {
+    assert {k: type(_ref(s, k)).__name__ for k in ["a/c/0", "a/c/1", "a/c/2", "a/c/3"]} == {
         "a/c/0": "Range", "a/c/1": "Range", "a/c/2": "Concat", "a/c/3": "Concat"}
     with zipfile.ZipFile(arc) as zf:
         assert zf.getinfo("a/c/0").extra[:2] == b"\x76\x7a"
@@ -90,7 +98,9 @@ def test_zip64_many_entries_paged(tmp_path):
     assert _get(s, "zarr.json") == b"{}"  # pinned: no page load
     assert s.classify("c/69999") == "reference"
     assert s.classify("c/69999x") == "missing"
-    assert s.entry("c/69999").ref.offset == 69999
+    ref = _ref(s, "c/69999")
+    assert isinstance(ref, Range)
+    assert ref.offset == 69999
     assert s.stats.archive_requests - opened == 1  # one page, shared by both lookups
     assert len(s._loaded) == 1 < len(s._pages)
     keys = s.list()
@@ -133,7 +143,7 @@ def _small(path, page_size=None):
     return bytearray(path.read_bytes())
 
 
-def _tail(b: bytes) -> tuple[int, int, int]:
+def _tail(b: bytes | bytearray) -> tuple[int, int, int]:
     """The offsets of the zip64 record, its locator and the end record."""
     for clen in (38, 22):
         eocd = len(b) - 22 - clen
@@ -377,7 +387,8 @@ def test_add_file_duplicate_key_rejected(tmp_path):
 
 
 def test_large_deflate_entry_rejected():
-    class Large:  # the length of a large body, without its bytes
+    class Large(bytes):  # the length of a large body, without its bytes
+        @override
         def __len__(self):
             return 1 << 32
     with pytest.raises(ValueError, match="must be STORED"):

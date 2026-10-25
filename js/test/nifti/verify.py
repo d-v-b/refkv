@@ -28,23 +28,27 @@ import math
 import struct
 import sys
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path
 
 import nibabel as nib
 import numpy as np
 import zarr
+from nibabel.arrayproxy import ArrayProxy
+from nibabel.spatialimages import HeaderDataError
 
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
+from refkv._narrow import JSON, at, mapping, ndarray  # noqa: E402
 
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import mirror_problems  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
-from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
+from verify_common import LOOPBACK_SOURCES, metadata_v3, run, serve  # noqa: E402
 
 
 def expected(img) -> tuple[np.ndarray, list[str]]:
@@ -79,7 +83,7 @@ def load(nii: Path, tmp: str):
     extender's first byte to 0."""
     try:
         return nib.load(nii)
-    except nib.spatialimages.HeaderDataError as e:
+    except HeaderDataError as e:
         if "invalid intercept" not in str(e) and "extension" not in str(e):
             raise
         return load_copy(nii, tmp)
@@ -147,7 +151,7 @@ def as_json(v):
     return v if abs(v) <= 2**53 - 1 else str(v)
 
 
-def header_problems(nii: Path, meta: dict, out: Path) -> list[str]:
+def header_problems(nii: Path, meta: Mapping[str, JSON], out: Path) -> list[str]:
     """Every recorded header field against nibabel's reading of the raw header; the file
     rebuilt from the mirror; and the extender and extensions the view shows against the
     file's chain, and nibabel's."""
@@ -155,16 +159,19 @@ def header_problems(nii: Path, meta: dict, out: Path) -> list[str]:
     two = data[4:7] == b"n+2"
     raw = raw_header(data)
     want = {}
-    for name in raw.structarr.dtype.names:
+    names = raw.structarr.dtype.names
+    assert names is not None  # (a header is a structured array)
+    for name in names:
         if name == "eol_check":  # nibabel splits NIfTI-2's char magic[8]; the text stops at its NUL
             continue
         want[name] = as_json(raw.structarr[name][()] if raw.structarr[name].shape == () else raw.structarr[name])
     problems = []
-    if list(meta["header"]) != list(want):
-        problems.append(f"header fields {list(meta['header'])} != nibabel's {list(want)}")
+    fields = mapping(meta["header"], "header")
+    if list(fields) != list(want):
+        problems.append(f"header fields {list(fields)} != nibabel's {list(want)}")
     for name, value in want.items():
-        if meta["header"].get(name) != value:
-            problems.append(f"header {name} {meta['header'].get(name)!r} != nibabel's {value!r}")
+        if fields.get(name) != value:
+            problems.append(f"header {name} {fields.get(name)!r} != nibabel's {value!r}")
     if (meta["nifti_version"] != (2 if two else 1)
             or meta["byte_order"] != ("little" if raw.endianness == "<" else "big")):
         problems.append(f"version or byte order {meta['nifti_version']}, {meta['byte_order']}")
@@ -197,7 +204,7 @@ def header_problems(nii: Path, meta: dict, out: Path) -> list[str]:
             if [(c, d.rstrip(b"\0")) for c, d in chain] != nib_exts:  # nibabel drops trailing NULs
                 problems.append(f"the chain {[(c, len(d)) for c, d in chain]} "
                                 f"!= nibabel's {[(c, len(r)) for c, r in nib_exts]}")
-        except (ValueError, nib.spatialimages.HeaderDataError):
+        except (ValueError, HeaderDataError):
             pass  # nibabel cannot read the chain
     return problems
 
@@ -218,19 +225,24 @@ def shown_bytes(v) -> bytes:
 def check(nii: Path, out: Path, _) -> tuple[list, str]:
     """A zarrified file's problems against nibabel's reading of it, and its chunks and axes."""
     img = load(nii, str(out.parent))
+    assert isinstance(img, nib.Nifti1Image), nii  # (a NIfTI-2 image is one too)
     want, axes = expected(img)
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
-    arr = root["0"]
-    got = arr[...]
+    arr = root.get_array("0")
+    got = ndarray(arr[...])
     problems = []
-    if list(arr.metadata.dimension_names) != axes:
-        problems.append(f"axes {arr.metadata.dimension_names} != {axes}")
+    names = metadata_v3(arr).dimension_names
+    assert names is not None
+    if list(names) != axes:
+        problems.append(f"axes {names} != {axes}")
     if got.dtype != want.dtype.newbyteorder("="):
         problems.append(f"dtype {got.dtype} != {want.dtype}")
     if got.shape != want.shape or not np.array_equal(got, want, equal_nan=got.dtype.kind == "f"):
         problems.append(f"voxels differ ({got.shape} vs {want.shape})")
-    meta = root.attrs["refkv_zarrified"]["nifti"]  # spec/zarrify/nifti.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#5-source-metadata>
-    slope, inter = img.dataobj.slope, img.dataobj.inter  # the header's are reset on load
+    meta = mapping(at(root.attrs, "refkv_zarrified", "nifti"))  # spec/zarrify/nifti.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#5-source-metadata>
+    proxy = img.dataobj
+    assert isinstance(proxy, ArrayProxy), nii  # (nib.load reads lazily)
+    slope, inter = proxy.slope, proxy.inter  # the header's are reset on load
     recorded = meta.get("scaling")
     # nibabel keeps a color type's scl_slope but cannot apply it; NIfTI does not scale color.
     if img.get_data_dtype().names is None and (slope, inter) != (1, 0):

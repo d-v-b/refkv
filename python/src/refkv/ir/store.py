@@ -39,6 +39,7 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from typing import Literal
 
 from refkv import _core
 from refkv.pb import Range, Source
@@ -46,11 +47,14 @@ from refkv.policy import Policy
 from refkv.refstore import ReferenceStore
 from refkv.vzip.archive import VZipWriter
 from refkv.zarrify.common import Rejected, reference_store
-from refkv.zarrify.store import Store, object_url, open_store
+from refkv.zarrify.store import Opener, Store, object_url, open_store
 
-type StorePart = tuple[str, str, int, int] | tuple[int, int, int] | bytes
+type StorePart = tuple[Literal["object"], str, int, int] | tuple[int, int, int] | bytes
 """A part of a store run's reference: ("object", key, offset, length) of a store's object,
 (source, offset, length) of a data source, or literal bytes."""
+
+type Ref = tuple[int, int, int] | bytes
+"""A part of a reference numbered by the source table: (source, offset, length) or bytes."""
 
 
 def listing(store: Store) -> list[tuple[str, int]]:
@@ -74,10 +78,9 @@ def _whole(store: Store, key: str) -> bytes:
         r = store._prefetch.take(key)  # noqa: SLF001 (the store's reads)
     if r is None:
         return store.read(key)
-    ok, value = r
-    if not ok:
-        raise value
-    return value
+    if r[0] is False:
+        raise r[1]
+    return r[1]
 
 
 def drive_store(run: _core.StoreRun, store: Store, workers: int | None = None, fmt: str | None = None) -> None:
@@ -87,6 +90,10 @@ def drive_store(run: _core.StoreRun, store: Store, workers: int | None = None, f
     (`Rejected.format`); pass it whenever it is known."""
     workers = max(1, workers or store.workers)
     pool = ThreadPoolExecutor(workers) if workers > 1 else None
+
+    def fetch(q: tuple[int, str, list[tuple[int, int]]]) -> list[bytes]:
+        return _fetch(store, q[1], q[2])
+
     try:
         while True:
             try:
@@ -108,7 +115,7 @@ def drive_store(run: _core.StoreRun, store: Store, workers: int | None = None, f
             if pool is None or len(reqs) == 1:
                 results = [_fetch(store, key, spans) for _, key, spans in reqs]
             else:
-                results = list(pool.map(lambda q: _fetch(store, q[1], q[2]), reqs))
+                results = list(pool.map(fetch, reqs))
             for k, parts in enumerate(results):
                 try:
                     run.complete(k, parts)
@@ -143,7 +150,7 @@ class StoreIrOutput:
     refs: dict[str, list[StorePart]] = field(default_factory=dict)
     data: list[bytes] = field(default_factory=list)
     lazy: tuple[str, ...] = ("refkv_source/",)
-    summary: dict = field(default_factory=dict)
+    summary: dict[str, object] = field(default_factory=dict)
     sizes: dict[str, int] = field(default_factory=dict)
     # The CRC-32C of a url source's bytes, when the ranges are to carry checksums
     # (spec/refkv.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>);
@@ -169,14 +176,15 @@ class StoreIrOutput:
     def _whole_objects(self) -> dict[str, str]:
         """Each reference that is one whole listed object (entry key -> object key): one part,
         from the object's byte 0, of its listed size (`sizes`)."""
-        whole = {}
+        whole: dict[str, str] = {}
         for k, parts in self.refs.items():
             p = parts[0] if len(parts) == 1 else None
-            if isinstance(p, tuple) and p[0] == "object" and p[2] == 0 and self.sizes.get(p[1]) == p[3]:
-                whole[k] = p[1]
+            if isinstance(p, tuple):  # noqa: SIM102 (nested, which narrows p to the object's part)
+                if p[0] == "object" and p[2] == 0 and self.sizes.get(p[1]) == p[3]:
+                    whole[k] = p[1]
         return whole
 
-    def table(self) -> tuple[list[str], list[bytes], dict[str, list]]:
+    def table(self) -> tuple[list[str], list[bytes], dict[str, list[Ref]]]:
         """The source table and the references numbered by it: one url source per object
         some reference uses, in order of first use (the references in order of their keys,
         each one's ranges in order), then the data sources, also in order of first use
@@ -189,18 +197,19 @@ class StoreIrOutput:
         objects, data, refs = self._numbered()
         return [object_url(self.url, k) for k in objects], data, refs
 
-    def _numbered(self) -> tuple[list[str], list[bytes], dict[str, list]]:
+    def _numbered(self) -> tuple[list[str], list[bytes], dict[str, list[Ref]]]:
         """`table`, with the url sources as the object keys they are the urls of."""
         keys = sorted(self.refs, key=lambda k: k.encode())
         objects: dict[str, int] = {}
         for k in keys:
             for p in self.refs[k]:
-                if isinstance(p, tuple) and p[0] == "object":
-                    objects.setdefault(p[1], len(objects))
+                if isinstance(p, tuple):  # noqa: SIM102 (nested, which narrows p to the object's part)
+                    if p[0] == "object":
+                        objects.setdefault(p[1], len(objects))
         data: dict[int, int] = {}
-        out = {}
+        out: dict[str, list[Ref]] = {}
         for k in keys:
-            ranges = []
+            ranges: list[Ref] = []
             for p in self.refs[k]:
                 if isinstance(p, (bytes, bytearray)):
                     ranges.append(bytes(p))
@@ -228,7 +237,7 @@ class StoreIrOutput:
                 # (no interning, for millions of chunks) writes the same table, one source per
                 # reference in order of the entries' keys, its size pinned
                 keys = sorted(self.refs, key=lambda k: k.encode())
-                w.add_url_refs(((k, object_url(self.url, whole[k]), self.refs[k][0][3]) for k in keys), pin_size=True)
+                w.add_url_refs(((k, object_url(self.url, whole[k]), self.sizes[whole[k]]) for k in keys), pin_size=True)
             else:
                 objects, data, refs = self._numbered()
                 for i, k in enumerate(objects):
@@ -245,7 +254,7 @@ class StoreIrOutput:
                 w.add_bytes(key, self.entries[key], compress=not late, late=late)
             w.close()
 
-    def to_store(self, *, policy: Policy | None = None, info: dict | None = None) -> ReferenceStore:
+    def to_store(self, *, policy: Policy | None = None, info: dict[str, object] | None = None) -> ReferenceStore:
         """The output as a `refkv.ReferenceStore`, which `save` writes as the archive
         `write` writes, byte for byte (`refkv.zarrify.common.reference_store`)."""
         objects, data, table = self._numbered()
@@ -276,7 +285,8 @@ def from_rust(t: tuple[str, list[tuple[str, bytes]], list[tuple[str, list[StoreP
     return out
 
 
-def run_store(store: Store, fmt: str = "zarr2", mirror: bool = True) -> tuple[StoreIrOutput, _core.Ir, dict]:
+def run_store(store: Store, fmt: str = "zarr2",
+              mirror: bool = True) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
     """(output, IR, run counts) of the listed `store`, parsed by the core's store format `fmt`:
     the keys its listing ignores given to the run (the recorded ignored keys, which the
     projection records, and the empty `d/` keys, a SAFE directory's directories), its objects
@@ -308,7 +318,7 @@ def run_store(store: Store, fmt: str = "zarr2", mirror: bool = True) -> tuple[St
 
 def zarrify_store(location: str, url: str | None = None, fmt: str = "zarr2", mirror: bool = True,
                   policy: Policy | None = None, workers: int | None = None,
-                  opener: Callable | None = None) -> tuple[StoreIrOutput, _core.Ir, dict]:
+                  opener: Opener | None = None) -> tuple[StoreIrOutput, _core.Ir, dict[str, object]]:
     """(output, IR, run counts) of the store at `location` (an http(s) store URL, listed and
     read under `policy`, or a local directory served at `url`), parsed by the core's store
     format `fmt`, as `run_store` (`mirror` false: no mirror, and no record of the ignored keys)."""

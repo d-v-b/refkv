@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 from refkv_reference import virtualize
-from refkv_reference.legacy import file_reader, grid_chunks
+from refkv_reference.legacy import Output, file_reader, grid_chunks
 from refkv_reference.nd2 import virtualize_nd2
 from refkv_reference.nd2.lv import Lossy, LVList, Scalar, TooLarge, decode_lv
 from refkv_reference.nd2.source import grid_chunk, grid_cut, json_size, lv_json, variant_json
@@ -41,6 +41,7 @@ def test_virtualizes_the_synthetic_files():
     }
     for name, expected in cases.items():
         fmt, out = virtualize(str(FIXTURES / name), url=f"https://data.test/{name}")
+        assert isinstance(out, Output)
         assert fmt == "nd2", name
         assert {**out.summary, **expected} == out.summary, name
         assert out.url == f"https://data.test/{name}"
@@ -55,7 +56,7 @@ def test_frame_headers_are_prefetched_with_a_padded_name():
         def reader(offset, length, read=read):
             return read(offset, length)
 
-        reader.prefetch = asked.extend
+        reader.prefetch = asked.extend  # pyrefly: ignore[missing-attribute] (the reader's prefetch hook: a function attribute)
         url = f"https://data.test/{name}"
         assert virtualize_nd2(url, reader, size) == virtualize_nd2(url, read, size), name
         assert len(asked) == frames, name
@@ -64,6 +65,7 @@ def test_frame_headers_are_prefetched_with_a_padded_name():
 
 def test_padded_rows_become_one_range_per_row():
     _, out = virtualize(str(FIXTURES / "nd2_padded_rgb.nd2"), url="https://data.test/x.nd2")
+    assert isinstance(out, Output)
     rows = out.refs["0/0/c/0/1/0/0"]
     assert len(rows) == 4
     assert rows[0][1] == 39
@@ -129,6 +131,7 @@ def test_every_chunk_is_in_the_hierarchy():
     """The streams fixture: decoded chunks at the root and on vzip_source, streams
     shaped to the (flipped) frame grid, opaque chunks as bytes."""
     _, out = virtualize(str(FIXTURES / "nd2_streams.nd2"), url="https://data.test/s.nd2")
+    assert isinstance(out, Output)
     root = json.loads(out.bytes_entries["zarr.json"])["attributes"]["vzip_virtualized"]["nd2"]
     assert list(root["chunks"]) == ["ImageAttributesLV!", "ImageMetadataLV!", "ImageMetadataSeqLV|0!",
                                     "CustomDataVar|CustomDataV2_0!", "CustomDataVar|AppInfo_V1_0!"]
@@ -163,6 +166,7 @@ def test_a_multi_phase_time_loop_has_a_period_only_when_its_phases_agree():
 def _source(name: str):
     """The root's and vzip_source's source metadata, and the arrays of vzip_source, of a fixture."""
     _, out = virtualize(str(FIXTURES / name), url=f"https://data.test/{name}")
+    assert isinstance(out, Output)
     root = json.loads(out.bytes_entries["zarr.json"])["attributes"]["vzip_virtualized"]["nd2"]
     attributes = json.loads(out.bytes_entries["vzip_source/zarr.json"])["attributes"]
     node = attributes.get("vzip_virtualized", {}).get("nd2", {})

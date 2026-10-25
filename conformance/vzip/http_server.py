@@ -40,6 +40,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import override
 from urllib.parse import unquote
 
 QUIRKS = ("norange", "nototal", "gzip", "nocond", "noetag", "redirect", "oldate", "multipart",
@@ -62,7 +63,8 @@ class Server:
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
 
-            def log_message(self, *a):
+            @override
+            def log_message(self, format, *args):
                 pass
 
             def _reply(self, code: int, body: bytes = b"", headers: dict | None = None):

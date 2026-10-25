@@ -9,6 +9,7 @@ import socket
 import threading
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import override
 
 import pytest
 
@@ -30,6 +31,7 @@ class ServerOnly(Policy):
     """The default policy, but for the test server's address: rule 3 still refuses
     every other non-public address."""
 
+    @override
     def check_address(self, url: str, address: str) -> None:
         if address != "127.0.0.1":
             super().check_address(url, address)
@@ -69,7 +71,8 @@ def server(no_proxy):  # noqa: ARG001 (requested for its side effect: no proxy s
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *a):
+        @override
+        def log_message(self, format, *args):
             pass
 
         def _send(self, status, body=b"", headers=()):
@@ -120,7 +123,7 @@ def _serve_archive(base, state, tmp_path, *, page_size=None, sources=None) -> st
     tmp_path/a.vzip and served at /a.vzip: its local path."""
     state["files"]["/blob.bin"] = BLOB
     sources = sources or [Source(url=f"{base}/blob.bin")]
-    mapping = {f"b/{i:03}": bytes([i]) * (i + 1) for i in range(40)}
+    mapping: dict[str, bytes | Range | Concat] = {f"b/{i:03}": bytes([i]) * (i + 1) for i in range(40)}
     mapping.update({f"r/{i:03}": Range(source=0, offset=37 * i, length=50) for i in range(40)})
     mapping["c"] = Concat((Range(data=b"<"), Range(source=0, offset=4000, length=96)))
     path = tmp_path / "a.vzip"
@@ -184,6 +187,7 @@ def test_http_objects_reads_ranges_and_suffixes(server):
             got = run(objects.get_async(path, options={"range": {"suffix": n}}))
             assert (run(got.buffer_async()), got.meta["size"]) == (want, 10), (path, n)
     store, path = Resolver().resolve(f"{base}/d/f%20g.bin?x=1#frag", policy=SERVED)
+    assert isinstance(store, HttpObjects)
     assert (type(store), store.origin, path) == (HttpObjects, base, "/d/f%20g.bin?x=1")
 
 
@@ -278,4 +282,6 @@ def test_http_objects_refuses_a_range_past_the_end(server):
 def test_http_objects_reads_only_a_suffix_with_get(server):
     base, _ = server
     with pytest.raises(NotImplementedError, match="reads a suffix"):
-        run(HttpObjects(base, SERVED).get_async("/f.bin", options={"range": {"offset": 1}}))
+        # an offset range, which the options' type leaves out
+        run(HttpObjects(base, SERVED).get_async(
+            "/f.bin", options={"range": {"offset": 1}}))  # pyrefly: ignore[bad-assignment]

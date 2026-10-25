@@ -29,6 +29,7 @@ import gzip
 import json
 import shutil
 from pathlib import Path
+from typing import Literal
 
 import numcodecs
 import numpy as np
@@ -75,9 +76,9 @@ def codec(compressor: dict | None):
     return numcodecs.get_codec(c)
 
 
-def array(root: Path, path: str, data: np.ndarray, chunks: list[int], *, compressor=None, order="C", sep=None,
-          fill=0, skip=frozenset(), attrs=None, dtype: str | None = None, zarray_extra=None,
-          write_chunks: bool = True) -> None:
+def array(root: Path, path: str, data: np.ndarray, chunks: list[int], *, compressor=None,
+          order: Literal["C", "F"] = "C", sep=None, fill=0, skip=frozenset(), attrs=None, dtype: str | None = None,
+          zarray_extra=None, write_chunks: bool = True) -> None:
     d = root / path if path else root
     doc = {"zarr_format": 2, "shape": list(data.shape), "chunks": chunks, "dtype": dtype or data.dtype.str,
            "compressor": compressor, "fill_value": fill, "order": order, "filters": None}

@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
+from refkv._narrow import JSON, boolean, integer, mapping, sequence, string
 from refkv._sync import run
 from refkv.pb import Range, Source
 from refkv.policy import Policy
@@ -24,28 +26,30 @@ from refkv.vzip.archive import RESERVED_PREFIX, VZipWriter
 from refkv.vzip.store import VZipStore
 
 
-def _request(r: dict | None) -> Request | None:
-    if r is None:
+def _request(value: JSON) -> Request | None:
+    if value is None:
         return None
+    r = mapping(value, "range")
     if "suffix" in r:
-        return SuffixRequest(r["suffix"])
+        return SuffixRequest(integer(r["suffix"], "suffix"))
     if "offset" in r:
-        return OffsetRequest(r["offset"])
-    return RangeRequest(r["start"], r["end"])
+        return OffsetRequest(integer(r["offset"], "offset"))
+    return RangeRequest(integer(r["start"], "start"), integer(r["end"], "end"))
 
 
-def _answer(store: VZipStore, q: dict) -> dict:
+def _answer(store: VZipStore, q: Mapping[str, JSON]) -> dict[str, object]:
     if q["op"] == "classify":
-        return {"ok": True, "kind": store.classify(q["key"])}
+        return {"ok": True, "kind": store.classify(string(q["key"], "key"))}
     if q["op"] in ("get", "get_raw"):
-        value = store.get(q["key"], _request(q.get("range"))) if q["op"] == "get" else store.raw(q["key"])
+        key = string(q["key"], "key")
+        value = store.get(key, _request(q.get("range"))) if q["op"] == "get" else store.raw(key)
         return {"ok": True, "value": None if value is None else value.hex()}
     if q["op"] == "list":
-        return {"ok": True, "keys": store.list(q["prefix"])}
+        return {"ok": True, "keys": store.list(string(q["prefix"], "prefix"))}
     raise ValueError(f"unknown op {q['op']!r}")
 
 
-def _run_query(store: VZipStore, q: dict) -> dict:
+def _run_query(store: VZipStore, q: Mapping[str, JSON]) -> dict[str, object]:
     try:
         return _answer(store, q)
     except Exception as e:  # noqa: BLE001
@@ -91,7 +95,7 @@ def _check_query(q: object) -> None:
             raise ValueError(f"range values must be non-negative integers: {q!r}")
 
 
-def read(archive: str, queries_path: str, policy: Policy | None = None) -> dict:
+def read(archive: str, queries_path: str, policy: Policy | None = None) -> dict[str, object]:
     with open(queries_path, encoding="utf-8") as f:
         queries = json.load(f, object_pairs_hook=_no_duplicates)
     if not isinstance(queries, list):
@@ -122,25 +126,25 @@ def _int(v: object, what: str) -> int:
     return v
 
 
-def _source(d: dict) -> Source:
+def _source(d: Mapping[str, JSON]) -> Source:
     kinds = [k for k in ("url", "key", "data") if k in d]
     if len(kinds) != 1:
         raise ValueError(f"a source has exactly one of url, key, data: {d}")
     pins = {k: d[k] for k in _PINS if k in d}
-    for k in ("size", "modified_not_after"):
-        if k in pins:
-            _int(pins[k], k)
+    size = _int(pins["size"], "size") if "size" in pins else None
+    modified = _int(pins["modified_not_after"], "modified_not_after") if "modified_not_after" in pins else None
     k = kinds[0]
     if k == "url":
-        return Source(url=d["url"], **pins)
+        etag = string(pins["etag"], "etag") if "etag" in pins else None
+        return Source(url=string(d["url"], "url"), size=size, etag=etag, modified_not_after=modified)
     if pins:
         raise ValueError("pins are only allowed on url sources")
     if k == "key":
-        return Source(key=d["key"])
+        return Source(key=string(d["key"], "key"))
     return Source(data=_hex(d["data"]))
 
 
-def _range(r: dict) -> Range:
+def _range(r: Mapping[str, JSON]) -> Range:
     if "data" in r:
         if set(r) & {"source", "offset", "length"}:
             raise ValueError(f"range mixes data with source fields: {r}")
@@ -149,7 +153,7 @@ def _range(r: dict) -> Range:
                  length=_int(r.get("length", 0), "length"))
 
 
-def _reject_nulls(desc: dict) -> None:
+def _reject_nulls(desc: object) -> None:
     """HARNESS: null is allowed only for page_size."""
     def walk(v: object, path: str) -> None:
         if v is None and path != "page_size":
@@ -186,8 +190,8 @@ def write(desc_path: str, out: str) -> None:
         raise
 
 
-def _add_entry(w: VZipWriter, e: dict, page_size: int | None) -> None:
-    key = e["key"]
+def _add_entry(w: VZipWriter, e: Mapping[str, JSON], page_size: int | None) -> None:
+    key = string(e["key"], "key")
     if ("bytes" in e) == ("ranges" in e):
         raise ValueError(f"{key!r}: an entry has exactly one of bytes, ranges")
     if "ranges" in e:
@@ -195,7 +199,7 @@ def _add_entry(w: VZipWriter, e: dict, page_size: int | None) -> None:
             raise ValueError(f"{key!r}: only bytes entries can be pinned")
         if e.get("compress"):
             raise ValueError(f"{key!r}: reference entries are never compressed")
-        w.add_ranges(key, [_range(r) for r in e["ranges"]])
+        w.add_ranges(key, [_range(mapping(r, "range")) for r in sequence(e["ranges"], "ranges")])
         return
     data = _hex(e["bytes"])
     compress = e.get("compress", False)
@@ -205,9 +209,10 @@ def _add_entry(w: VZipWriter, e: dict, page_size: int | None) -> None:
     if e.get("pinned") and page_size is None:
         raise ValueError(f"{key!r}: pinned requires page_size")
     if key.startswith(RESERVED_PREFIX):
-        w.add_hidden(key[len(RESERVED_PREFIX):], data, compress=compress, late=e.get("pinned", False))
+        w.add_hidden(key[len(RESERVED_PREFIX):], data, compress=boolean(compress, "compress"),
+                     late=boolean(e.get("pinned", False), "pinned"))
     else:
-        w.add_bytes(key, data, compress=compress, late=e.get("pinned", False))
+        w.add_bytes(key, data, compress=boolean(compress, "compress"), late=boolean(e.get("pinned", False), "pinned"))
 
 
 def main(argv: list[str]) -> int:

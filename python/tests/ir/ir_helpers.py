@@ -13,6 +13,7 @@ import tifffile
 import zarr
 
 import refkv.zarr
+from refkv._narrow import JSON, at, mapping, ndarray, sequence, string
 from refkv.ir import zarrify as via_ir
 from refkv.ir.cmirror import rebuild_from_archive
 from refkv.zarr import ZarrStore
@@ -146,7 +147,7 @@ def as_current(key: str) -> str:
 DECODED = {"transpose", "bytes", "zlib", "imagecodecs_lzw"}
 
 
-def omero_and_expected_windows(path, profile: str) -> tuple[dict | None, list]:
+def omero_and_expected_windows(path, profile: str) -> tuple[JSON, list[dict[str, float] | None]]:
     """The `omero` of the file at `path` zarrified, and each channel's window as the TIFF and
     QPTIFF profiles give it (spec/zarrify/tiff.md §4.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>,
@@ -158,25 +159,25 @@ def omero_and_expected_windows(path, profile: str) -> tuple[dict | None, list]:
     `min`, `max` an integer type's range or the float values' extremes. Otherwise an integer
     type's range, else None."""
     g = zarr.open_group(ZarrStore(zarrify(str(path))), mode="r", zarr_format=3)
-    ms = g.attrs["ome"]["multiscales"][0]
-    a = g[ms["datasets"][-1]["path"]]
-    axes = [x["name"] for x in ms["axes"]]
+    ms = at(g.attrs, "ome", "multiscales", 0)
+    a = g.get_array(string(at(ms, "datasets", -1, "path")))
+    axes = [string(at(x, "name")) for x in sequence(at(ms, "axes"))]
     count = a.shape[axes.index("c")] if "c" in axes else 1
     with tifffile.TiffFile(path) as tf:
-        page = tf.pages[0]
+        page = tf.pages.first
         spp, pi, comp = page.samplesperpixel, page.photometric, page.compression
     rgb = spp == 3 if profile == "qptiff" else spp > 1 and (pi == 2 or (pi == 6 and comp == 7))
-    decoded = {c["name"] for c in a.metadata.to_dict()["codecs"]} <= DECODED
+    decoded = {string(at(c, "name")) for c in sequence(a.metadata.to_dict()["codecs"])} <= DECODED
     integer = np.issubdtype(a.dtype, np.integer)
-    windows = []
+    windows: list[dict[str, float] | None] = []
     for ch in range(count):
-        window = None
+        window: dict[str, float] | None = None
         if decoded and not rgb:
-            at = []
+            region = []
             for name, n, k in zip(axes, a.shape, a.chunks, strict=True):
                 start = 0 if name == "t" else ch if name == "c" else n // 2 // k * k
-                at.append(slice(start, start + (1 if name in "tc" else k)))
-            v = np.sort(a[tuple(at)].ravel())
+                region.append(slice(start, start + (1 if name in "tc" else k)))
+            v = np.sort(ndarray(a[tuple(region)]).ravel())
             v = v[v != 0] if integer else v[np.isfinite(v) & (v != 0)]
             n = len(v)
             if n and v[n * 5 // 100] < v[min(n - 1, n * 999 // 1000)]:
@@ -188,4 +189,4 @@ def omero_and_expected_windows(path, profile: str) -> tuple[dict | None, list]:
             info = np.iinfo(a.dtype)
             window = {"min": int(info.min), "max": int(info.max), "start": int(info.min), "end": int(info.max)}
         windows.append(window)
-    return g.attrs["ome"].get("omero"), windows
+    return mapping(at(g.attrs, "ome")).get("omero"), windows

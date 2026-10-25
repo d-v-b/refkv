@@ -7,6 +7,8 @@ import pytest
 
 _spec = importlib.util.spec_from_file_location(
     "refkv_version_script", Path(__file__).resolve().parents[1] / "tools" / "version.py")
+assert _spec is not None
+assert _spec.loader is not None
 version = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(version)
 

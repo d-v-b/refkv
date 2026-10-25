@@ -13,6 +13,7 @@ import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import override
 from xml.sax.saxutils import escape
 
 import pytest
@@ -30,6 +31,7 @@ OBJECTS = {p.relative_to(STORE).as_posix(): p.read_bytes() for p in STORE.rglob(
 class ServerIsPublic(Policy):
     """`Policy()`, except that the test server's address (127.0.0.1) counts as a public one."""
 
+    @override
     def check_address(self, url: str, address: str) -> None:
         if address != "127.0.0.1":
             super().check_address(url, address)
@@ -46,7 +48,8 @@ def server():
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *a):
+        @override
+        def log_message(self, format, *args):
             pass
 
         def do_GET(self):

@@ -46,6 +46,7 @@ def test_grid_chunks():
     assert shape == [10, 64, 64]
     assert len(chunks) == 10
     for parts in chunks.values():
+        assert isinstance(parts, list)
         assert sum(p[1] if isinstance(p, tuple) else len(p) for p in parts) <= 1 << 17
     # Row chunks: rows along the first axis only.
     assert row_chunks(0, 10, 4, (0,)) == (10, {(0, 0): [(0, 40)]})

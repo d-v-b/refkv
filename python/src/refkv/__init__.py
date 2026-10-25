@@ -39,7 +39,7 @@ from __future__ import annotations
 import importlib
 from importlib.metadata import PackageNotFoundError, version
 from types import ModuleType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict, Unpack
 
 from refkv import vzip
 from refkv.pb import Concat, Range, Source
@@ -54,13 +54,25 @@ except PackageNotFoundError:  # a source tree on sys.path, not installed
     __version__ = "0.0.0+unknown"
 
 if TYPE_CHECKING:
-    from refkv.vzip.store import VZipStore
+    from refkv.reader import Registry
+    from refkv.vzip.store import VZipOptions, VZipStore
+
+    # closed (PEP 728), which typing.TypedDict takes only from Python 3.15
+    class OpenOptions(TypedDict, total=False, closed=True):
+        """`open`'s keyword arguments, which `refkv.zarr.open` passes on."""
+
+        binding: str
+        resolve: bool
+        registry: Registry | None
+        stats: Stats | None
+        policy: Policy | None
+        max_concurrency: int | None
 
 BINDINGS = ("vzip",)
 """The bindings `open` can read a store with: the ZIP binding, `"vzip"`."""
 
 
-def open(url: str, *, binding: str = "vzip", **kwargs: object) -> VZipStore:  # noqa: A001 (refkv.open, the public name)
+def open(url: str, *, binding: str = "vzip", **kwargs: Unpack[VZipOptions]) -> VZipStore:  # noqa: A001 (refkv.open, the public name)
     """Open the store saved at `url` (a local path or an `http(s)` URL, presigned or with
     a query string, of any name) as a read-only store, with the binding `binding`. The
     ZIP binding, `"vzip"` (the default, and today the only one), opens a vzip archive as a

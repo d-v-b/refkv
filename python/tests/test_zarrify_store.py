@@ -10,7 +10,10 @@ import io
 import sys
 import urllib.error
 import zipfile
+from collections.abc import Callable
+from email.message import Message
 from pathlib import Path
+from typing import override
 
 import pytest
 
@@ -180,10 +183,12 @@ class Response(io.BytesIO):
         super().__init__(body)
         self.status = status
 
+    @override
     def __enter__(self):
         return self
 
-    def __exit__(self, *a):
+    @override
+    def __exit__(self, exc_type, exc_val, exc_tb):
         pass
 
 
@@ -192,7 +197,7 @@ def opener(pages: dict):
     def open_(req):
         v = pages[req.full_url]
         if isinstance(v, int):
-            raise urllib.error.HTTPError(req.full_url, v, "x", {}, None)
+            raise urllib.error.HTTPError(req.full_url, v, "x", Message(), None)
         if isinstance(v, tuple):
             return Response(v[1], v[0])
         return Response(v)
@@ -334,7 +339,7 @@ def test_finds_nearest_arrays_and_nodes():
 
     objects = {"a/0": 1, "a/x": 1, "a/b/0": 0, "a/0/0": 2, "c/d/e/0": 3, "c/0": 1, "z": 1,
                "/".join(["p"] * 500) + "/0": 1}
-    cases = [
+    cases: list[tuple[dict[str, Callable[[str], bool]], list[tuple[str, int]]]] = [
         ({"a": is_chunk}, [("a/0", 1), ("a/0/0", 2)]),
         ({"a": is_chunk, "a/b": is_chunk}, [("a/0", 1), ("a/0/0", 2), ("a/b/0", 0)]),
         ({"c/d/e": is_chunk, "c": is_chunk}, [("c/0", 1), ("c/d/e/0", 3)]),

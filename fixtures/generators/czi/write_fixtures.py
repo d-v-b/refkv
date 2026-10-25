@@ -18,8 +18,10 @@ import gzip
 import struct
 import sys
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 import czifile
 import imagecodecs
@@ -61,34 +63,35 @@ def raw(a: np.ndarray) -> bytes:
     return np.ascontiguousarray(a).tobytes()
 
 
+# the casts: imagecodecs' stubs widen an encoder's bytes (without out=) to bytes | bytearray | memoryview
 def zstd0(a: np.ndarray) -> bytes:
-    return imagecodecs.zstd_encode(raw(a))
+    return cast("bytes", imagecodecs.zstd_encode(raw(a)))
 
 
 def zstd1(a: np.ndarray, hilo: bool = False) -> bytes:
     b = raw(a)
     if hilo:
         b = np.frombuffer(b, "u1").reshape(-1, 2).T.tobytes()  # low bytes, then high bytes
-        return b"\x03\x01\x01" + imagecodecs.zstd_encode(b)
-    return b"\x01" + imagecodecs.zstd_encode(b)
+        return b"\x03\x01\x01" + cast("bytes", imagecodecs.zstd_encode(b))
+    return b"\x01" + cast("bytes", imagecodecs.zstd_encode(b))
 
 
 def jpeg(a: np.ndarray) -> bytes:
-    return imagecodecs.jpeg8_encode(a, level=95)
+    return cast("bytes", imagecodecs.jpeg8_encode(a, level=95))
 
 
 def set_jxr_format(b: bytes, guid: bytes) -> bytes:
-    b = bytearray(b)
-    ifd = struct.unpack_from("<I", b, 4)[0]
-    for k in range(struct.unpack_from("<H", b, ifd)[0]):
-        tag, _, _, value = struct.unpack_from("<HHII", b, ifd + 2 + 12 * k)
+    out = bytearray(b)
+    ifd = struct.unpack_from("<I", out, 4)[0]
+    for k in range(struct.unpack_from("<H", out, ifd)[0]):
+        tag, _, _, value = struct.unpack_from("<HHII", out, ifd + 2 + 12 * k)
         if tag == 0xBC01:
-            b[value : value + 16] = guid
-    return bytes(b)
+            out[value : value + 16] = guid
+    return bytes(out)
 
 
 def jxr(a: np.ndarray, guid: bytes | None = None) -> bytes:
-    b = imagecodecs.jpegxr_encode(a, level=1.0)
+    b = cast("bytes", imagecodecs.jpegxr_encode(a, level=1.0))
     return set_jxr_format(b, guid) if guid else b
 
 
@@ -123,8 +126,8 @@ class Sb:
     attachment: bytes = b""
     pyramid: int = 0
     spare: bytes = bytes(5)
-    copy: object = None  # bytes -> bytes: changes the subblock's own copy of its entry
-    entry: object = None  # bytes -> bytes: changes the directory's entry
+    copy: Callable[[bytes], bytes] | None = None  # changes the subblock's own copy of its entry
+    entry: Callable[[bytes], bytes] | None = None  # changes the directory's entry
     segment_id: str = "ZISRAWSUBBLOCK"
     sizes: tuple | None = None  # (MetadataSize, AttachmentSize, DataSize) as written
 
@@ -136,7 +139,7 @@ class Att:
     data: bytes
     schema: bytes = b"A1"
     file_part: int = 0
-    segment_entry: object = None  # bytes -> bytes: changes the segment's copy of the entry
+    segment_entry: Callable[[bytes], bytes] | None = None  # changes the segment's copy of the entry
     segment_id: str = "ZISRAWATTACH"
     guid: bytes = b""
 
@@ -410,7 +413,9 @@ def accepted() -> dict[str, Czi]:
         Att("Events0", "CZEVL", event_list([])),
         Att("Times0", "CZTIMS", time_stamps([])),
     ])
-    f["czi_attachments"].attachments[9].name = "Caf\xe9"
+    atts = f["czi_attachments"].attachments
+    assert atts is not None
+    atts[9].name = "Caf\xe9"
     f["czi_metadata_attachment"] = Czi([plane(0, 0, 0, 0, 4, 4, C=0)],
                                        xml(px=1e-6, channels=[("BOM channel", None, None)], bom=True),
                                        metadata_attachment=b"\x00\x01binary part")
@@ -444,7 +449,11 @@ def _pyramid(sb: Sb, kind: int) -> Sb:
     return sb
 
 
-def rejected() -> dict[str, tuple[Czi, object]]:
+# a patch of a fixture's bytes: (the offset's key in Czi.offsets, (bytes, offset) -> bytes)
+type Patch = tuple[str, Callable[[bytes, int], bytes]]
+
+
+def rejected() -> dict[str, tuple[Czi, Patch | None]]:
     """name -> (fixture, a patch of its bytes or None)."""
     def base(**kw) -> Czi:
         return Czi([plane(0, 0, 0, 0, 4, 4, C=0)], xml(), attachments=[Att("Thumbnail", "JPG", b"jpeg")], **kw)
@@ -467,11 +476,12 @@ def rejected() -> dict[str, tuple[Czi, object]]:
 
     def att(**kw):
         c = base()
+        assert c.attachments is not None
         for k, v in kw.items():
             setattr(c.attachments[0], k, v)
         return c
 
-    r: dict[str, tuple[Czi, object]] = {
+    r: dict[str, tuple[Czi, Patch | None]] = {
         "major_2": (base(major=2), None),
         "file_part": (base(file_part=1), None),
         "entry_file_part": (entry(lambda e: e[:14] + struct.pack("<i", 1) + e[18:]), None),

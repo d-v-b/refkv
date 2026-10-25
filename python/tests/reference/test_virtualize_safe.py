@@ -19,11 +19,12 @@ sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "
 
 from refkv_reference import virtualize
 from refkv_reference.legacy import text_json
-from refkv_reference.safe import jp2, zipdir
+from refkv_reference.safe import SafeOutput, jp2, zipdir
 from refkv_reference.safe.metadata import BUDGET, MULTISCALES, PROJ, SPATIAL, choose_texts, json_size, typed, wkt2
 from refkv_reference.safe.product import folders
 from refkv_reference.safe.virtualize import Shared
 
+from refkv._narrow import mapping
 from refkv.zarrify import Rejected
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "safe"
@@ -32,9 +33,11 @@ J2K = [{"name": "imagecodecs_jpeg2k"}]
 RGB = [{"name": "transpose", "configuration": {"order": [1, 2, 0]}}, {"name": "imagecodecs_jpeg2k"}]
 
 
-def run(name: str):
+def run(name: str) -> tuple[str, SafeOutput]:
     p = FIXTURES / name
-    return virtualize(str(p), url=URL.format(name) + ("/" if p.is_dir() else ""))
+    fmt, out = virtualize(str(p), url=URL.format(name) + ("/" if p.is_dir() else ""))
+    assert isinstance(out, SafeOutput)
+    return fmt, out
 
 
 # product: (summary members, {array: (shape, data type, chunk shape, codecs)})
@@ -218,7 +221,7 @@ def test_vzip_source():
     xml = sorted(k for k in files if k in s["xml"] or k in s["xml_arrays"])
     want = {"xml": {}, "xml_arrays": list(xml), "empty": s["empty"]}
     for k in sorted((k for k in xml if len(files[k]) <= 65536), key=lambda k: (len(files[k]), k)):
-        trial = {"xml": {**want["xml"], k: text_json(files[k])},
+        trial = {"xml": {**mapping(want["xml"]), k: text_json(files[k])},
                  "xml_arrays": [x for x in want["xml_arrays"] if x != k], "empty": s["empty"]}
         if json_size({m: v for m, v in trial.items() if v}) <= BUDGET:
             want = trial

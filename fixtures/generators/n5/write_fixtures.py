@@ -26,6 +26,7 @@ import json
 import shutil
 import struct
 import zlib
+from collections.abc import Container
 from pathlib import Path
 
 import numcodecs
@@ -82,11 +83,12 @@ def block_bytes(block: np.ndarray, compression: dict, mode: int = 0) -> bytes:
 
 
 def dataset(root: Path, path: str, data: np.ndarray, block: list[int], compression: dict, *,
-            dtype: str | None = None, padded: bool = False, skip: set = frozenset(), extra: dict | None = None,
-            legacy: bool = False, write_blocks: bool = True) -> None:
+            dtype: str | None = None, padded: bool = False, skip: Container[tuple[int, ...]] = frozenset(),
+            extra: dict | None = None, legacy: bool = False, write_blocks: bool = True) -> None:
     """Writes `data` (indexed in N5 dimension order) as the dataset at `path`."""
     d = root / path if path else root
-    attrs = {"dimensions": list(data.shape), "blockSize": block, "dataType": dtype or str(data.dtype)}
+    attrs: dict[str, object] = {"dimensions": list(data.shape), "blockSize": block,
+                                "dataType": dtype or str(data.dtype)}
     if legacy:
         attrs["compressionType"] = compression["type"]
     else:

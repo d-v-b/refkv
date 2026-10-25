@@ -73,8 +73,10 @@ import subprocess
 import sys
 import urllib.request
 import zipfile
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).parent
@@ -90,6 +92,7 @@ from vzip_impl import reader as strict_reader  # noqa: E402
 from vzip_impl.errors import VzError  # noqa: E402
 
 from refkv import _core  # noqa: E402
+from refkv._narrow import mapping, sequence, string  # noqa: E402
 from refkv.ir.cmirror import Archive, canonical_problem, load, view_problem  # noqa: E402
 from refkv.pb import Concat, Range, Source, decode_source_table  # noqa: E402
 from refkv.zarrify.common import CONVENTION_KEY, SOURCE_NODE, same  # noqa: E402
@@ -163,7 +166,7 @@ def _zip_view(path: Path) -> dict:
     """An archive's output as zipfile reads it."""
     z = zipfile.ZipFile(path)
     sources = [_source(s) for s in decode_source_table(z.read("__vz__/sources"))]
-    entries = {}
+    entries: dict[str, tuple[str, object]] = {}
     for info in z.infolist():
         if info.filename.startswith("__vz__/"):
             continue
@@ -221,6 +224,7 @@ def strict(path: Path, view: dict) -> list[str]:
         for key in keys:
             try:
                 e = archive._lookup(key.encode())
+                assert e is not None  # a listed key
                 if e.kind == "reference":
                     parts, _ = strict_reader.decode_payload(e.ref_id, e.payload, len(archive.sources))
                     ranges = [["data", _b64(p.data)] if p.data is not None else [p.source, p.offset, p.length]
@@ -233,6 +237,7 @@ def strict(path: Path, view: dict) -> list[str]:
                         {"source": p.source, "offset": p.offset, "length": p.length} for p in parts]})
                 else:
                     value = archive.get(key)
+                    assert value is not None  # a listed key's bytes
                     kind, seen = view["entries"].get(key, (None, None))
                     if (kind == "json" and json.loads(value) != seen) or (kind == "bytes" and (
                             hashlib.sha256(value).hexdigest() != seen)) or kind not in ("json", "bytes"):
@@ -268,7 +273,7 @@ def _range(r: Range) -> list:
 def from_json(path: Path) -> dict:
     """A HARNESS.md JSON description's output."""
     d = json.loads(path.read_text())
-    entries = {}
+    entries: dict[str, tuple[str, object]] = {}
     for key, v in d["entries"].items():
         if "ranges" in v:
             entries[key] = ("ranges", [["data", r["data"]] if isinstance(r, dict) else list(r) for r in v["ranges"]])
@@ -279,7 +284,7 @@ def from_json(path: Path) -> dict:
     return {"sources": d["sources"], "entries": entries}
 
 
-def differences(a: dict, b: dict) -> list[str]:
+def differences(a: Mapping[str, Any], b: Mapping[str, Any]) -> list[str]:
     out = []
     if not same(a["sources"], b["sources"]):
         out.append(f"sources {a['sources']} != {b['sources']}")
@@ -399,7 +404,7 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     root = view["entries"].get("zarr.json")
     prop = root[1].get("attributes", {}).get("refkv_zarrified") if root and root[0] == "json" else None
     url = prop.get("source", {}).get("url") if isinstance(prop, dict) else None
-    if not isinstance(url, str):
+    if not isinstance(prop, dict) or not isinstance(url, str):
         return "no store URL on the root"
     if prop.get("profile") == "vsi":
         # a VSI root names the .vsi file; the store's URL is its directory (spec/zarrify/vsi.md
@@ -466,7 +471,7 @@ def check(item: tuple, impls: dict, out_dir: Path) -> dict:
     results = {n: run(impl, url, out_dir / f"{name}.{n}.out") for n, impl in impls.items()}
     ref_name = next(iter(impls))
     ref = results[ref_name]
-    mirror = ref[0] == "ok" and profile(ref[1]) in IR_PROFILES
+    mirror = ref[0] == "ok" and profile(mapping(ref[1])) in IR_PROFILES
     verdicts = {}
     for n, (status, value) in results.items():
         if status == "crashed":
@@ -479,19 +484,20 @@ def check(item: tuple, impls: dict, out_dir: Path) -> dict:
         else:
             # against the frozen reference, outside the mirror and without what it does not write;
             # without it (no-ref), py and web entry for entry
-            diffs = differences(without_source(at_revision(ref[1])), without_source(without_added(value))) \
-                if mirror and ref_name == "ref" and n != ref_name else differences(ref[1], value)
+            a, b = mapping(ref[1]), mapping(value)  # both ok: views
+            diffs = differences(without_source(at_revision(a)), without_source(without_added(b))) \
+                if mirror and ref_name == "ref" and n != ref_name else differences(a, b)
             verdicts[n] = ("DIVERGES", diffs) if diffs else ("equivalent", [])
     # one core, two hosts: py and web give the same archive contents, the mirror included
     if mirror and all(results.get(n, ("",))[0] == "ok" for n in ("py", "web")) and \
             verdicts["web"][0] == "equivalent":
-        diffs = differences(results["py"][1], results["web"][1])
+        diffs = differences(mapping(results["py"][1]), mapping(results["web"][1]))
         if diffs:
             verdicts["web"] = ("DIVERGES", [f"from py: {d}" for d in diffs])
     return {"name": name, "url": url, "verdicts": verdicts}
 
 
-def profile(output: dict) -> str | None:
+def profile(output: Mapping[str, Any]) -> str | None:
     """The profile an output's root declares."""
     root = output["entries"].get("zarr.json")
     if not root or root[0] != "json":
@@ -500,7 +506,7 @@ def profile(output: dict) -> str | None:
     return (attrs.get(CONVENTION_KEY) or attrs.get(LEGACY_KEY) or {}).get("profile")
 
 
-def at_revision(output: dict) -> dict:
+def at_revision(output: Mapping[str, Any]) -> Mapping[str, Any]:
     """The frozen reference's output as the shipped code names it, for comparing the
     two: when its root has the frozen reference's names (LEGACY_KEY), its source metadata
     node's keys under `refkv_source/`, and every document outside it with the current
@@ -518,7 +524,7 @@ def at_revision(output: dict) -> dict:
         root = output["entries"]["zarr.json"]
     prop = root[1].get("attributes", {}).get(CONVENTION_KEY) if root and root[0] == "json" else None
     p = prop.get("profile") if isinstance(prop, dict) else None
-    if p not in REFERENCE_REVISIONS or prop.get("revision") != REFERENCE_REVISIONS[p]:
+    if not isinstance(prop, dict) or p not in REFERENCE_REVISIONS or prop.get("revision") != REFERENCE_REVISIONS[p]:
         return output
     prop = {k: v for k, v in prop.items() if k != "revision"}
     if isinstance(prop.get(p), dict) and p in MIRRORED:
@@ -527,12 +533,12 @@ def at_revision(output: dict) -> dict:
     return {**output, "entries": {**output["entries"], "zarr.json": (root[0], {**root[1], "attributes": attrs})}}
 
 
-def without_added(output: dict) -> dict:
+def without_added(output: Mapping[str, Any]) -> Mapping[str, Any]:
     """An output of the shipped code without the members of its root image that the frozen
     reference does not write (ADDED), for comparing the two."""
     root = output["entries"].get("zarr.json")
     drop = ADDED.get(profile(output) or "", ())
-    if not drop or root[0] != "json" or not isinstance(root[1].get("attributes", {}).get("ome"), dict):
+    if not drop or root is None or root[0] != "json" or not isinstance(root[1].get("attributes", {}).get("ome"), dict):
         return output
     attrs = root[1]["attributes"]
     ome = {k: v for k, v in attrs["ome"].items() if k not in drop}
@@ -540,7 +546,7 @@ def without_added(output: dict) -> dict:
     return {**output, "entries": {**output["entries"], "zarr.json": root}}
 
 
-def without_source(output: dict) -> dict:
+def without_source(output: Mapping[str, Any]) -> dict:
     """An output without the entries under refkv_source, its sources those the other entries
     use, in order of first use (the entries in order of their keys' UTF-8 bytes, each one's
     ranges in order), renumbered: so that sources only refkv_source used (a store's objects
@@ -568,9 +574,9 @@ def without_source(output: dict) -> dict:
     return {"sources": used, "entries": entries}
 
 
-STORE_FORMATS = tuple(e["name"] for e in REGISTRY if e["kind"] in ("store", "both"))
+STORE_FORMATS = tuple(string(e["name"]) for e in REGISTRY if e["kind"] in ("store", "both"))
 # The fixture files, by suffix: their profile's registry entry.
-FILE_SUFFIXES = {s: e for e in REGISTRY for s in e["suffixes"]}
+FILE_SUFFIXES = {string(s): e for e in REGISTRY for s in sequence(e["suffixes"])}
 
 
 def store_fixtures(fixtures: Path) -> list[Path]:
@@ -598,7 +604,7 @@ def corpus(proxy: Proxy, fixtures: Path, quick: bool, local_only: bool, large: b
     items += [(f"idr-{i:03d}", proxy.remote(IDR + n)) for i, n in enumerate(tiffs[:3] if quick else tiffs)]
     # each profile's public inputs, corpus_<p>.txt (NDPI's are in TIFF's), named <p>-<name>
     for e in REGISTRY:
-        corpus_file = HERE / f"corpus_{e['name'].replace('-', '_')}.txt"
+        corpus_file = HERE / f"corpus_{string(e['name']).replace('-', '_')}.txt"
         if not corpus_file.is_file():
             continue
         prefix = f"{e['name']}-"
