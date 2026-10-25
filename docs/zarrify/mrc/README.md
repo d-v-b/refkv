@@ -67,6 +67,14 @@ lists them.
 
 ## Try it
 
+[example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
+dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
+which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+
+```bash
+uv run docs/zarrify/mrc/example.py
+```
+
 An EMDB map from mrcfile's test data (EMD-3197, 20 × 20 × 20 voxels, CC0),
 from [corpus_mrc.txt](../../../conformance/zarrify/corpus_mrc.txt):
 

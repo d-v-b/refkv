@@ -37,3 +37,4 @@ python/src/refkv/_core*.pyd
 # and its earlier name, in checkouts built before the bindings moved to python/
 python/src/refkv/_ir*.so
 python/src/refkv/_ir*.pyd
+examples-out/

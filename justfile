@@ -139,6 +139,18 @@ fixtures-check:
         exit 1
     fi
 
+# Run every format's example, docs/zarrify/<format>/example.py, against this checkout (network),
+# each figure saved as <dir>/<format>.png
+examples dir="examples-out": ir-build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root="$PWD"
+    mkdir -p "{{dir}}" && cd "{{dir}}"
+    for f in "$root"/docs/zarrify/*/example.py; do
+        echo "== $f"
+        MPLBACKEND=Agg uv run --project "$root" --with matplotlib python "$f"
+    done
+
 # Check the browser zarrifier's pixels against an independent reader, for every format that has
 # one: every js/test/<format>/verify.py (each says which reader it needs)
 verify:

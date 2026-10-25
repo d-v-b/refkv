@@ -67,6 +67,14 @@ lists them.
 
 ## Try it
 
+[example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
+dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
+which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+
+```bash
+uv run docs/zarrify/fits/example.py
+```
+
 A Legacy Surveys brick (DR10, `g` band): 3600 × 3600 float32, RICE
 compressed in 100 × 100 tiles with subtractive dithering, 11 MB, from
 [corpus_fits.txt](../../../conformance/zarrify/corpus_fits.txt):

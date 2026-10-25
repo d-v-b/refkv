@@ -49,6 +49,14 @@ instead; see [ome-zarr](../ome-zarr/README.md).
 
 ## Try it
 
+[example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
+dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
+which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+
+```bash
+uv run docs/zarrify/zarr2/example.py
+```
+
 OpenOrganelle's HeLa-2 FIB-SEM at its lowest resolution, one array of 24
 blosc chunks (CC BY 4.0), from
 [corpus_zarr2.txt](../../../conformance/zarrify/corpus_zarr2.txt). Note

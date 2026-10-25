@@ -20,3 +20,13 @@ The browser code ([js/](../../../js/README.md)) reads Zeiss CZI (file version 1,
 
 Not supported, and refused with HTTP 422: LZW, lossless JPEG and camera raw
 subblocks, and CZI files split over several files.
+
+## Try it
+
+[example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
+dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
+which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+
+```bash
+uv run docs/zarrify/czi/example.py
+```
