@@ -145,7 +145,7 @@ class HttpTransport:
         self.retries += 1
         time.sleep(min(delay, 120))
 
-    def _retry[T](self, f: Callable[[], T]) -> T | None:
+    def _retry[T](self, f: Callable[[], T]) -> T:
         for attempt in range(self.attempts):
             try:
                 return f()
@@ -159,7 +159,7 @@ class HttpTransport:
                 if attempt == self.attempts - 1:
                     raise
                 self._wait(attempt, None)
-        return None
+        raise AssertionError("unreachable")
 
     def get(self, start: int, end: int) -> bytes:
         def once() -> bytes:

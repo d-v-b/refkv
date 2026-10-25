@@ -81,10 +81,10 @@ def rebuild_from_archive(path: str, read_source: ReadSource, write: Callable[[by
     ir = load(Archive(path, read_source))
     ir.check()
     total = 0
-    for offset, length in ir.leaves():
-        o, n = offset, length
-        while n:
-            k = min(n, 1 << 24)
-            write(read_source(o, k))
-            o, n, total = o + k, n - k, total + k
+    for leaf in ir.leaves():
+        pos, left = leaf
+        while left:
+            k = min(left, 1 << 24)
+            write(read_source(pos, k))
+            pos, left, total = pos + k, left - k, total + k
     return total

@@ -630,7 +630,7 @@ def image_ome(axes: list[str], units: dict, scales: list[list[float]], name: str
 Reader = Callable[[int, int], bytes]
 
 
-def _retry[T](f: Callable[[], T]) -> T | None:
+def _retry[T](f: Callable[[], T]) -> T:
     """Calls f, retrying transient network errors with backoff."""
     for attempt in range(5):
         try:
@@ -642,7 +642,7 @@ def _retry[T](f: Callable[[], T]) -> T | None:
             if attempt == 4:
                 raise
         time.sleep(2**attempt)
-    return None
+    raise AssertionError("unreachable")
 
 
 class _ThreadConnections:
