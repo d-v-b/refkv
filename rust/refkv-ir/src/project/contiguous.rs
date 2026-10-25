@@ -119,8 +119,9 @@ mod tests {
     use super::*;
     use crate::ir::Ir;
 
-    /// Two arrays' chunks, written by two calls with one `Zeros`: each zero padding is a prefix
-    /// of the one data source, of the larger padding; a literal of other bytes stays a literal.
+    /// Two arrays' chunks, written by two calls with one `Zeros`, the first at two keys: each
+    /// zero padding is a prefix of the one data source, of the larger padding, at every key; a
+    /// literal of other bytes stays a literal.
     #[test]
     fn padding_is_a_prefix_of_one_zero_data_source() {
         let ir = Ir::new(100);
@@ -128,15 +129,30 @@ mod tests {
         let a = vec![(vec![0], Chunk::Ranges(vec![Part::Src(0, 8)])), (vec![1], Chunk::Ranges(vec![Part::Src(8, 2), Part::Lit(vec![0; 6])]))];
         let b = vec![(vec![0], Chunk::Ranges(vec![Part::Src(10, 4), Part::Lit(vec![0; 2])])), (vec![1], Chunk::Ranges(vec![Part::Src(14, 4), Part::Lit(vec![7])]))];
         let mut zeros = Zeros::of(a.iter().chain(&b));
-        emit(&mut refs, a, (0, 10, 0), &Copied::new(), &["a/c/"], |c| c, &mut zeros).unwrap();
+        emit(&mut refs, a, (0, 10, 0), &Copied::new(), &["a/c/", "d/c/"], |c| c, &mut zeros).unwrap();
         emit(&mut refs, b, (10, 8, 0), &Copied::new(), &["b/c/"], |c| c, &mut zeros).unwrap();
         let got: Vec<(&str, &[Part])> = refs.out.refs.iter().map(|(k, p)| (k.as_str(), p.as_slice())).collect();
         assert_eq!(got, vec![
             ("a/c/0", &[Part::Src(0, 8)][..]),
+            ("d/c/0", &[Part::Src(0, 8)][..]),
             ("a/c/1", &[Part::Src(8, 2), Part::Data(1, 0, 6)][..]),
+            ("d/c/1", &[Part::Src(8, 2), Part::Data(1, 0, 6)][..]),
             ("b/c/0", &[Part::Src(10, 4), Part::Data(1, 0, 2)][..]),
             ("b/c/1", &[Part::Src(14, 4), Part::Lit(vec![7])][..]),
         ]);
         assert_eq!(refs.out.data, vec![vec![0; 6]]);
+    }
+
+    /// A padding past the zero data source, of chunks `Zeros` was not made from, is an error,
+    /// and adds no source.
+    #[test]
+    fn rejects_a_padding_past_the_zero_data_source() {
+        let ir = Ir::new(100);
+        let mut refs = Refs::new(&ir, Out::new("u"));
+        let mut zeros = Zeros::of(&[(vec![0], Chunk::Ranges(vec![Part::Src(0, 2), Part::Lit(vec![0; 2])]))]);
+        let wider = vec![(vec![0], Chunk::Ranges(vec![Part::Src(0, 2), Part::Lit(vec![0; 6])]))];
+        let got = emit(&mut refs, wider, (0, 2, 0), &Copied::new(), &["a/c/"], |c| c, &mut zeros);
+        assert_eq!(got, Err("internal: a chunk's padding is past the zero data source".into()));
+        assert!(refs.out.data.is_empty());
     }
 }
