@@ -186,12 +186,12 @@ def problems_of(path: Path, out: Path) -> list[str]:
     detached = "data_file" in own
     for key, size, held in rebuilt:
         f = path.parent / key
-        header = detached and key == path.name  # a detached header's file, which no chunk references
+        held_header = detached and key == path.name  # a detached header's file, which no chunk references
         if not f.is_file() or f.stat().st_size != size:
             problems.append(f"{key}: not a {size}-byte file of the input")
-        elif header and held != f.read_bytes():
+        elif held_header and held != f.read_bytes():
             problems.append(f"{key}: the detached header is not held, byte for byte")
-        elif not header and held is not None:
+        elif not held_header and held is not None:
             problems.append(f"{key}: not described in place")
     return problems
 

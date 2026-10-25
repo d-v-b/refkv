@@ -46,9 +46,9 @@ anonymously, such as a public S3 bucket. SAFE reads either: a product's
 `.SAFE` directory as a store, or its `.SAFE.zip` as a file. VSI is named by
 its `.vsi` file and reads the tile files beside it by name, without listing
 the directory, and NRRD by its header file, a detached header's data file
-read beside it by name. MP3 and FLAC are not images: their archives hold a plain Zarr
-array of audio samples, decoded from the file's frames when a chunk is read
-([mp3](mp3/README.md), [flac](flac/README.md)).
+read beside it by name. MP3 and FLAC are not images: their archives hold a
+plain Zarr array of audio samples, decoded from the file's frames when a
+chunk is read ([mp3](mp3/README.md), [flac](flac/README.md)).
 
 SAFE and CZI have no user-story page yet; their conventions describe the
 output. A Sentinel-2 product becomes a GeoZarr hierarchy (one group per
