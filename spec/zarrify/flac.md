@@ -168,8 +168,9 @@ The `pictures` group, `{"zarr_format": 3, "node_type": "group",
 empty, holds for the `i`-th PICTURE block of the file, counted from 0, whose
 picture data is not empty, the array `pictures/<i>`: the data, as **bytes**
 ([conventions §7](../conventions.md#7-source-values-as-arrays): `uint8`,
-dimension `byte`). Its fields are in `pictures` of [§5.1](#51-the-root). A picture whose media type is `-->` holds a URI, as text,
-in place of an image; its array holds the URI's bytes.
+dimension `byte`). Its fields are in `pictures` of [§5.1](#51-the-root). A
+picture whose media type is `-->` holds a URI, as text, in place of an image;
+its array holds the URI's bytes.
 
 ### 4.3 The samples
 

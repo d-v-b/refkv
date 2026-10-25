@@ -76,8 +76,9 @@ fn the_host_says_whether_it_records_checksums() {
     }
 }
 
-/// The frames, and the IR, of a parse that reads `window` bytes of frames a round (from the
-/// file's first 64 KiB on: `data` is padded past it with metadata), and its rounds.
+/// The IR and facts (their read counts null) of a parse that reads `window` bytes of frames a
+/// round (from the file's first 64 KiB on: `data` is padded past it with metadata), and its
+/// rounds.
 fn windowed(data: &[u8], window: u64) -> (refkv_ir::ir::Ir, serde_json::Value, u64) {
     let mut p = Flac::with_window(data.len() as u64, window);
     let mut rounds = 0;
