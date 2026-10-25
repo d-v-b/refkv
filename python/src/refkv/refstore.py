@@ -11,17 +11,17 @@ archive, one ZIP file (Part 2
 <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#part-2-the-zip-binding>), which
 `refkv.open` reads back as a store with the same values.
 
-`refkv.virtualize.virtualize` returns one too, for an image file or a store:
+`refkv.zarrify.zarrify` returns one too, for an image file or a store:
 
     import refkv
-    from refkv.virtualize import virtualize
+    from refkv.zarrify import zarrify
 
-    store = virtualize("https://example.org/image.ome.tiff")
+    store = zarrify("https://example.org/image.ome.tiff")
     store.info["format"]                # "tiff", and what the profile found
     store.get("zarr.json")              # readable now, in memory
     store.save("image.vzip")            # the archive: one serialization of the store
 
-The workflow for virtual datasets, such as many netCDF files virtualized with
+The workflow for virtual datasets, such as many netCDF files zarrified with
 VirtualiZarr and concatenated with xarray:
 
     import xarray as xr
@@ -136,7 +136,7 @@ class ReferenceStore(ReferenceReader):
 
     Build one with a constructor:
 
-    - `refkv.virtualize.virtualize(location)`, from an image file or an N5, Zarr v2,
+    - `refkv.zarrify.zarrify(location)`, from an image file or an N5, Zarr v2,
       OME-Zarr or SAFE store;
     - `ReferenceStore.from_virtualizarr(vds)`, from a VirtualiZarr virtual dataset;
     - `ReferenceStore(mapping, sources)`, from a mapping of keys to `bytes`, `Range`
@@ -163,7 +163,7 @@ class ReferenceStore(ReferenceReader):
     - `page_size`: the page index `save` writes when it is not given one (see
       `save`; the default, None, writes none).
     - `info`: what the store's builder says about it, as JSON-like values, read
-      back as `store.info`; `save` does not write it. `refkv.virtualize` records
+      back as `store.info`; `save` does not write it. `refkv.zarrify` records
       the format and the profile's summary here.
 
     `save` writes the values in the order of `mapping`, but for those of
@@ -310,9 +310,9 @@ class ReferenceStore(ReferenceReader):
     def info(self) -> dict:
         """What the store's builder says about it, as a copy: changing it leaves the
         store's own unchanged. For a store from
-        `refkv.virtualize.virtualize`: `format`, the profile that virtualized the
+        `refkv.zarrify.zarrify`: `format`, the profile that zarrified the
         input (such as "tiff" or "zarr2"), and the profile's summary of what it
-        found, as `python -m refkv.virtualize` prints it. Empty otherwise."""
+        found, as `python -m refkv.zarrify` prints it. Empty otherwise."""
         return copy.deepcopy(self._info)
 
     def __eq__(self, other: object) -> bool:

@@ -1,5 +1,5 @@
-// The map page: shows a virtualized Sentinel-2 SAFE product
-// (spec/virtualize/safe.md) on a map, with OpenLayers' GeoZarr source reading
+// The map page: shows a zarrified Sentinel-2 SAFE product
+// (spec/zarrify/safe.md) on a map, with OpenLayers' GeoZarr source reading
 // the service worker's Zarr URL. The page is in the worker's scope, so its
 // requests to that URL are answered by the worker, like Neuroglancer's.
 //
@@ -38,7 +38,7 @@ async function getJson(url: string) {
 
 /**
  * How a band's digital numbers become reflectance (§6.2
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#62-band-arrays>): `(DN + offset)
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#62-band-arrays>): `(DN + offset)
  * / quantification`.
  */
 interface Radiometry {
@@ -102,8 +102,8 @@ async function main() {
   const t0 = performance.now();
   const root = await getJson(`${zarrUrl}zarr.json`);
   const attrs = root.attributes ?? {};
-  const decl = attrs.refkv_virtualized;
-  if (decl?.profile !== "safe") throw new Error("not a virtualized Sentinel-2 SAFE product");
+  const decl = attrs.refkv_zarrified;
+  if (decl?.profile !== "safe") throw new Error("not a zarrified Sentinel-2 SAFE product");
   const safe = decl.safe ?? {};
   $("name").textContent = safe.PRODUCT_URI ?? url;
   $("meta").textContent = [safe.PROCESSING_LEVEL, safe.SENSING_TIME, attrs["proj:code"]]
@@ -120,10 +120,10 @@ async function main() {
   // each band at one resolution only, and no multiscales.
   const multiscale = Array.isArray(attrs.multiscales?.layout);
   const radiometry = async (band: string): Promise<Radiometry> => {
-    const s = (await getJson(`${zarrUrl}r10m/${band}/zarr.json`)).attributes?.refkv_virtualized?.safe ?? {};
+    const s = (await getJson(`${zarrUrl}r10m/${band}/zarr.json`)).attributes?.refkv_zarrified?.safe ?? {};
     // Offsets exist from processing baseline 04.00; they are not applied to
     // the arrays (§6.2
-    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#62-band-arrays>), so the
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#62-band-arrays>), so the
     // style applies them.
     const q = s.BOA_QUANTIFICATION_VALUE ?? s.QUANTIFICATION_VALUE;
     return {

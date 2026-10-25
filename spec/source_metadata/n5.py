@@ -1,10 +1,10 @@
-"""The N5 convention's source metadata (spec/virtualize/n5.md), for
+"""The N5 convention's source metadata (spec/zarrify/n5.md), for
 spec/generate_schemas.py."""
 
 SCHEMA = {"anyOf": [
     {
         "type": "object",
-        "description": "A node's (spec/virtualize/n5.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#5-source-metadata>)",
+        "description": "A node's (spec/zarrify/n5.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#5-source-metadata>)",
         "properties": {
             "attributes": {"type": "object", "minProperties": 1,
                            "description": "The node's attributes.json without the layout members"},
@@ -22,7 +22,7 @@ SCHEMA = {"anyOf": [
         "additionalProperties": False,
     },
     # refkv_source's: a store IR's description, and the recorded ignored keys (§5.1
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>)
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#51-the-ir-mirror>)
     {"allOf": [{"$ref": "#/$defs/storeMirror"},
                {"properties": {"ir": {"required": ["objects"]}, "empty_dirs": False}}]},
     {"$ref": "#/$defs/mirrorView"},

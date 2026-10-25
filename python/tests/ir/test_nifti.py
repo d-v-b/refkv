@@ -10,8 +10,8 @@ import time
 import pytest
 
 from ir_helpers import FIXTURES, as_the_reference, assert_rebuilds, same_hierarchy
-from refkv.ir import virtualize as via_ir
-from refkv.virtualize import Rejected
+from refkv.ir import zarrify as via_ir
+from refkv.zarrify import Rejected
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
 NIIS = sorted((FIXTURES / "nifti").glob("*.nii"))
@@ -24,14 +24,14 @@ def test_projects_as_the_reference_and_rebuilds(path, tmp_path):
 
 def test_edge_chunks_past_the_payload_are_copied_as_the_reference_copies_them(tmp_path, monkeypatch):
     """An edge chunk whose reference (its range and its zero padding) does not fit in a
-    payload is copied into the archive, padding included (spec/virtualize/nifti.md §7.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>). With
+    payload is copied into the archive, padding included (spec/zarrify/nifti.md §7.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>). With
     NIfTI's chunk limit no file reaches it in practice, so both sides take a payload limit
     of 8 bytes here: every padded edge chunk is copied, by the run's last batch, and the
     hierarchy is the frozen reference's."""
     from refkv import _core
 
-    from refkv.virtualize import common
+    from refkv.zarrify import common
 
     monkeypatch.setattr(common, "MAX_PAYLOAD", 8)
     _core._set_copy_threshold(8)
@@ -114,7 +114,7 @@ def test_integers_past_2_53_are_text_in_the_root(tmp_path):
     path = tmp_path / "m.nii"
     path.write_bytes(bytes(h) + bytes(4) + bytes(8))
     _, out, _ = via_ir(str(path), "https://data.test/m.nii")
-    header = json.loads(out.bytes_entries["zarr.json"])["attributes"]["refkv_virtualized"]["nifti"]["header"]
+    header = json.loads(out.bytes_entries["zarr.json"])["attributes"]["refkv_zarrified"]["nifti"]["header"]
     assert header["dim"][4:] == [2**53 - 1, -(2**53 - 1), str(2**53), str(-(1 << 63))]
     assert (header["slice_start"], header["slice_end"]) == (str(-(2**53)), str(2**63 - 1))
     _, ref = virtualize(str(path), "https://data.test/m.nii")
@@ -146,13 +146,13 @@ def test_more_than_2_22_chunks_are_cut_as_the_reference_cuts_them(tmp_path, monk
     """A NIfTI-2 uint8 volume of 4096 x 43 x 97542 voxels (a sparse file of 16 GiB): its
     rows of 43 x 4096 bytes do not fit the chunk limit with a small padding, so the cut
     moves to x, and the array has 97542 x 43 = 4194306 chunks of one row, more than 2^22
-    (spec/virtualize/nifti.md §4.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#41-the-array>). The IR
+    (spec/zarrify/nifti.md §4.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#41-the-array>). The IR
     cuts them all, as the frozen reference does: the archives are equivalent outside
     refkv_source."""
     from pathlib import Path
 
-    monkeypatch.syspath_prepend(str(Path(__file__).parents[3] / "conformance" / "virtualize"))
+    monkeypatch.syspath_prepend(str(Path(__file__).parents[3] / "conformance" / "zarrify"))
     import compare
 
     x, y, z = 4096, 43, 97542

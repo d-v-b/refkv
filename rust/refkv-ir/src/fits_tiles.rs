@@ -1,5 +1,5 @@
-//! The `refkv.fits_tiles` codec (spec/virtualize/fits.md §3.3
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>):
+//! The `refkv.fits_tiles` codec (spec/zarrify/fits.md §3.3
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>):
 //! decodes a chunk of a tile-compressed FITS image, whose bytes are a prefix describing each
 //! tile (its stream's length and kind, its quantization) followed by the tiles' streams, into
 //! the chunk's pixels. The tiles are decoded as cfitsio decodes them: RICE_1 is a port of

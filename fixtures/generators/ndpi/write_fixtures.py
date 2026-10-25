@@ -1,5 +1,5 @@
-"""Writes NDPI files to fixtures/ndpi/ for spec/virtualize/ndpi.md §7
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>, cut from
+"""Writes NDPI files to fixtures/ndpi/ for spec/zarrify/ndpi.md §7
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>, cut from
 the restart intervals of level 2 of OpenSlide's CMU-1.ndpi (CC0 1.0), which
 is downloaded once into a cache.
 
@@ -12,7 +12,7 @@ is downloaded once into a cache.
   level's size (as some older scanners write, d-v-b/refkv#100): one row short, wider, and,
   for the last, short by a whole MCU row, which is not a level.
 - `edge_reject_ndpi_*.ndpi`: inputs §7
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile> rejects.
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile> rejects.
 
 Pixels are checked against tifffile by verify.py.
 

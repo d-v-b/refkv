@@ -1,5 +1,5 @@
-// The browser's host of the Rust core (src/virtualize/ir): its output against the
-// frozen TypeScript virtualizers (conformance/reference), and its http source,
+// The browser's host of the Rust core (src/zarrify/ir): its output against the
+// frozen TypeScript zarrifiers (conformance/reference), and its http source,
 // the twin of HttpTransport in python/src/refkv/ir/planner.py.
 
 import assert from "node:assert/strict";
@@ -8,14 +8,14 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
 import { isDeepStrictEqual } from "node:util";
-import { virtualizeImage as referenceImage } from "../../../conformance/virtualize/reference/ts/index.ts";
+import { virtualizeImage as referenceImage } from "../../../conformance/zarrify/reference/ts/index.ts";
 import { RefkvError } from "../../src/archive.ts";
 import { HttpResolutionError } from "../../src/http.ts";
-import { blockReader, ImageError } from "../../src/virtualize/common.ts";
-import { irFormat, virtualizeImage, virtualizeSource } from "../../src/virtualize/index.ts";
-import { virtualizeIr } from "../../src/virtualize/ir/run.ts";
-import { bytesSource, openHttpSource } from "../../src/virtualize/ir/source.ts";
-import { IMS_REVISION, REVISION as FROZEN_REVISION } from "../../../conformance/virtualize/reference/ts/revision.ts";
+import { blockReader, ImageError } from "../../src/zarrify/common.ts";
+import { irFormat, zarrifyImage, zarrifySource } from "../../src/zarrify/index.ts";
+import { zarrifyIr } from "../../src/zarrify/ir/run.ts";
+import { bytesSource, openHttpSource } from "../../src/zarrify/ir/source.ts";
+import { IMS_REVISION, REVISION as FROZEN_REVISION } from "../../../conformance/zarrify/reference/ts/revision.ts";
 import { hierarchy } from "./compare.ts";
 
 const FIXTURES = new URL("../../../fixtures/", import.meta.url);
@@ -90,7 +90,7 @@ const IR_FIXTURES = ["tiff", "nd2", "czi", "nifti", "ims"].flatMap((dir) =>
   fs.readdirSync(new URL(dir, FIXTURES), { withFileTypes: true }).filter((e) => e.isFile() && !e.name.endsWith(".npz"))
     .map((e) => e.name).sort().map((n) => `${dir}/${n}`));
 
-test("the Rust core gives the frozen virtualizers' hierarchy, and rejects the same files", async () => {
+test("the Rust core gives the frozen zarrifiers' hierarchy, and rejects the same files", async () => {
   const problems: string[] = [];
   for (const path of IR_FIXTURES) {
     const bytes = fixture(path);
@@ -98,7 +98,7 @@ test("the Rust core gives the frozen virtualizers' hierarchy, and rejects the sa
     const read = async (o: number, n: number) => bytes.subarray(o, o + n);
     const [ref, got] = await Promise.allSettled([
       referenceImage(url, blockReader(read, bytes.length), bytes.length),
-      virtualizeImage(url, read, bytes.length),
+      zarrifyImage(url, read, bytes.length),
     ]);
     if (got.status === "fulfilled") assert.equal(got.value.format, await irFormat(bytes.subarray(0, 552)), path);
     if (ref.status === "rejected" || got.status === "rejected") {
@@ -124,10 +124,10 @@ test("an http source gives the in-memory output, with its pins and checksums", a
       state.mode = mode;
       const url = base + path;
       const bytes = fixture(path);
-      const expected = await virtualizeImage(url, async (o, n) => bytes.subarray(o, o + n), bytes.length, undefined, { checksums: true });
+      const expected = await zarrifyImage(url, async (o, n) => bytes.subarray(o, o + n), bytes.length, undefined, { checksums: true });
       // small files are read whole by default: plan their batches, to send multi-range requests
       const source = await openHttpSource(url, { policy: { allowPrivateHosts: true }, planner: { wholeBelow: 0 } });
-      const got = await virtualizeSource(url, source, { checksums: true });
+      const got = await zarrifySource(url, source, { checksums: true });
       assert.equal(source.size, bytes.length);
       packs.add(`${mode} ${(got.summary as { planner: { packs: unknown } }).planner.packs}`);
       assert.deepEqual(got.entries, expected.entries, `${mode} ${path}`);
@@ -151,9 +151,9 @@ test("cancels a multi-range answer that is not multipart, and reads single range
   state.closedEarly = 0;
   const path = "tiff/tczyx_uint16_deflate.ome.tif";
   const bytes = fixture(path);
-  const expected = await virtualizeIr("tiff", base + path, bytesSource(bytes));
+  const expected = await zarrifyIr("tiff", base + path, bytesSource(bytes));
   const source = await openHttpSource(base + path, { policy: { allowPrivateHosts: true }, planner: { wholeBelow: 0 } });
-  const got = await virtualizeIr("tiff", base + path, source);
+  const got = await zarrifyIr("tiff", base + path, source);
   assert.equal(state.multi, 1, "one multi-range probe");
   // the endless body was cancelled (its connection closed), else the run would not end
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -168,8 +168,8 @@ test("reads a small source whole: the request that opens it, and one for the res
     const size = fixture(path).length;
     const source = await openHttpSource(base + path, { policy: { allowPrivateHosts: true } });
     const before = state.requests;
-    const got = await virtualizeIr(path.startsWith("czi") ? "czi" : "tiff", base + path, source);
-    const expected = await virtualizeIr(path.startsWith("czi") ? "czi" : "tiff", base + path, bytesSource(fixture(path)));
+    const got = await zarrifyIr(path.startsWith("czi") ? "czi" : "tiff", base + path, source);
+    const expected = await zarrifyIr(path.startsWith("czi") ? "czi" : "tiff", base + path, bytesSource(fixture(path)));
     assert.deepEqual(got.entries, expected.entries, path);
     assert.ok(size <= 1 << 20, path);
     assert.equal(state.requests - before, size <= 1 << 16 ? 0 : 1, path);
@@ -188,6 +188,6 @@ test("retries a server error, then fails", async () => {
 
 test("a file the core refuses is an ImageError", async () => {
   const bytes = fixture("nd2/nd2_reject_magic.nd2");
-  await assert.rejects(virtualizeImage("https://data.test/x.nd2", async (o, n) => bytes.subarray(o, o + n), bytes.length),
+  await assert.rejects(zarrifyImage("https://data.test/x.nd2", async (o, n) => bytes.subarray(o, o + n), bytes.length),
     (e) => e instanceof ImageError && e.message.length > 0);
 });

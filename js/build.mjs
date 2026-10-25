@@ -1,5 +1,5 @@
 // Builds dist/: the service worker (vzip-sw.js, a classic script so it works
-// in every browser with service workers), the embeddable virtualizer
+// in every browser with service workers), the embeddable zarrifier
 // (refkv_embed.js, an ES module: src/embed.ts), the demo page, the map page for
 // Sentinel-2 products (map.html, with OpenLayers, and the JPEG 2000 decoder
 // and its worker), and the Rust core's wasm32 build (refkv_ir.wasm, which
@@ -31,9 +31,9 @@ const decoders = [
   path.join(neuroglancer, "src/sliceview/jpegxr/jpegxr.wasm"),
 ];
 fs.rmSync(dist, { recursive: true, force: true });
-// The profile registry, spec/virtualize/profiles/<name>.json, inlined as `#profiles`
-// (src/virtualize/profiles_bundled.ts)
-const registryDir = path.join(here, "../spec/virtualize/profiles");
+// The profile registry, spec/zarrify/profiles/<name>.json, inlined as `#profiles`
+// (src/zarrify/profiles_bundled.ts)
+const registryDir = path.join(here, "../spec/zarrify/profiles");
 const registry = fs.readdirSync(registryDir).filter((f) => f.endsWith(".json"))
   .map((f) => JSON.parse(fs.readFileSync(path.join(registryDir, f), "utf8")))
   .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
@@ -46,7 +46,7 @@ const build = (entry, outfile, options = {}) =>
   esbuild.build({ ...common, entryPoints: [path.join(here, entry)], outfile: path.join(dist, outfile), ...options });
 await build("src/sw.ts", "vzip-sw.js", { format: "iife" });
 await build("../demo/demo.ts", "demo.js", { format: "esm" });
-// The virtualizer for a host that reads the input itself (src/embed.ts): the Neuroglancer fork
+// The zarrifier for a host that reads the input itself (src/embed.ts): the Neuroglancer fork
 // vendors it, with refkv_ir.wasm, for its `refkv:` kvstore (src/third_party/refkv/)
 await build("src/embed.ts", "refkv_embed.js", { format: "esm", sourcemap: false });
 // zarrita imports its blosc, lz4 and zstd codecs (numcodecs, 1.4 MB with their

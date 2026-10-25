@@ -13,8 +13,8 @@ pub const OBJECTS: &str = "refkv_source/objects/";
 
 /// The hierarchy's key of the other object `key`: under `refkv_source/objects/`, with `~`
 /// appended to a last segment that is `zarr.json`, `.zarray` or `.zgroup` followed by any
-/// number of `~`, so that no Zarr reader opens a node there (spec/virtualize/zarr2.md
-/// §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
+/// number of `~`, so that no Zarr reader opens a node there (spec/zarrify/zarr2.md
+/// §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>).
 pub fn object_key(key: &str) -> String {
     let last = key.rsplit('/').next().unwrap_or("");
     let base = last.trim_end_matches('~');
@@ -59,14 +59,14 @@ pub fn check_key(key: &str) -> Result<(), String> {
 /// The members of `refkv_source`'s source metadata that the store conventions keep beside the
 /// mirror's `ir`, outside the IR (conventions §8.9
 /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), by profile: Zarr v2's
-/// ignored keys (spec/virtualize/zarr2.md §5
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>), and so
-/// OME-Zarr's (spec/virtualize/ome-zarr.md §8.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#82-the-store-ir>), N5's
-/// (spec/virtualize/n5.md §5.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>), and SAFE's
-/// empty directories and ignored keys, in both its forms (spec/virtualize/safe.md §6.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
+/// ignored keys (spec/zarrify/zarr2.md §5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>), and so
+/// OME-Zarr's (spec/zarrify/ome-zarr.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#82-the-store-ir>), N5's
+/// (spec/zarrify/n5.md §5.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#51-the-ir-mirror>), and SAFE's
+/// empty directories and ignored keys, in both its forms (spec/zarrify/safe.md §6.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>).
 /// The mirror check sets these aside, and only these.
 pub fn kept(profile: &str) -> &'static [&'static str] {
     match profile {
@@ -80,14 +80,14 @@ pub fn kept(profile: &str) -> &'static [&'static str] {
 /// After the mirror: the members [`kept`] beside the mirror's `ir` in `refkv_source`'s source
 /// metadata, from the facts, each only when it is not empty: a SAFE product's empty
 /// directories (`empty_dirs`, as its parser sorted them), then the recorded ignored keys
-/// (spec/virtualize.md §1.4
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>; `ignored`), in
-/// the order of their UTF-8 bytes (spec/virtualize/zarr2.md §5
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
-/// spec/virtualize/safe.md §6.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
+/// (spec/zarrify.md §1.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>; `ignored`), in
+/// the order of their UTF-8 bytes (spec/zarrify/zarr2.md §5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>,
+/// spec/zarrify/safe.md §6.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>).
 /// Nothing when there are none. An output made without its mirror (`mirror` false, which no
-/// virtualizer does) has no `refkv_source` source metadata at all, and so does not record them
+/// zarrifier does) has no `refkv_source` source metadata at all, and so does not record them
 /// either: like the mirror, they are what such an output leaves out. Facts that carry a member
 /// the profile does not keep are refused, with or without the mirror: that is a format
 /// missing from [`kept`], whose keys would otherwise be lost.

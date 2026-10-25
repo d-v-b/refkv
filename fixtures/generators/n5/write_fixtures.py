@@ -1,6 +1,6 @@
 """Writes synthetic N5 containers to fixtures/n5/<name>/, covering the
-rules of the N5 profile (spec/virtualize/n5.md §8
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#8-n5-profile>): every data type, each
+rules of the N5 profile (spec/zarrify/n5.md §8
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#8-n5-profile>): every data type, each
 supported compression (raw, gzip, zlib, zstd, blosc), truncated and padded edge
 blocks, missing and empty blocks, explicit and implicit groups, a dataset at
 the root, nodes inside datasets, COSEM and n5-viewer multiscales, and the
@@ -260,8 +260,8 @@ def main() -> None:
     dataset(d, "t/s0", vol, [2, 4, 6, 6], {"type": "zstd"})
     dataset(d, "t/s1", vol[:, ::2, ::2, ::2], [2, 4, 6, 6], {"type": "zstd"})
 
-    # Two recognized groups sharing levels with different axis names (spec/virtualize/n5.md §4
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#4-multiscale-images>): the
+    # Two recognized groups sharing levels with different axis names (spec/zarrify/n5.md §4
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#4-multiscale-images>): the
     # group whose path comes first (COSEM `a`, axes x, y, z) keeps its image; `a/b`
     # (n5-viewer, axes c, y, x) is left plain, since an array has one set of
     # dimension names.
@@ -316,8 +316,8 @@ def main() -> None:
     d = store("n5_reject_no_root_attributes")
     dataset(d, "x", arr((2, 2), "u1"), [2, 2], RAW, write_blocks=False)
 
-    # Source metadata (spec/virtualize/n5.md §5
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#5-source-metadata>): the
+    # Source metadata (spec/zarrify/n5.md §5
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#5-source-metadata>): the
     # attributes, and the layout members the
     # Zarr v3 metadata does not reproduce (the version `n5`, a compression's members its codec
     # does not carry, a compressionType next to a compression); the compression levels, which
@@ -333,8 +333,8 @@ def main() -> None:
     write_json(d / "version_only/attributes.json", {"n5": "4.0.0"})
     dataset(d, "version_only/x", arr((4,), "u1"), [4], RAW)
 
-    # Objects that are neither node documents nor blocks (spec/virtualize/n5.md §6
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>): each is
+    # Objects that are neither node documents nor blocks (spec/zarrify/n5.md §6
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects>): each is
     # kept whole under refkv_source/objects/, a dataset nested in a dataset included; an empty
     # object is not.
     d = store("n5_objects", {"n5": "4.0.0"})
@@ -357,8 +357,8 @@ def main() -> None:
 
 def exact_objects() -> None:
     """Objects named zarr.json, escaped with `~` under refkv_source/objects/, and empty
-    objects, whose keys are refkv_source's source metadata (spec/virtualize/n5.md §6
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>)."""
+    objects, whose keys are refkv_source's source metadata (spec/zarrify/n5.md §6
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects>)."""
     d = store("n5_node_names", {"n5": "4.0.0"})
     put(d / "zarr.json", b'{"zarr_format": 3, "node_type": "group"}')
     put(d / "g/zarr.json~", b"one tilde")
@@ -371,9 +371,9 @@ def exact_objects() -> None:
 
 def empty_chunks() -> None:
     """A root dataset with an empty block object, whose key is listed in
-    refkv_source/empty.json (spec/virtualize/n5.md §3.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#31-chunks>, §6
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>)."""
+    refkv_source/empty.json (spec/zarrify/n5.md §3.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#31-chunks>, §6
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects>)."""
     d = store("n5_root_dataset_empty_block")
     dataset(d, "", np.arange(4, dtype="uint16"), [2], RAW, extra={"n5": "4.0.0"})
     put(d / "1", b"")
@@ -381,8 +381,8 @@ def empty_chunks() -> None:
 
 def root_objects() -> None:
     """A dataset at the root with another object beside its block (a README), which the
-    root keeps without a refkv_source group (spec/virtualize/n5.md §6
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>). Written byte
+    root keeps without a refkv_source group (spec/zarrify/n5.md §6
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects>). Written byte
     for byte as the first, hand-made copy was: compact JSON with a newline, no RNG."""
     d = store("n5_root_dataset_objects")
     put(d / "attributes.json",

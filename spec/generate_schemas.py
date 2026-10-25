@@ -1,15 +1,15 @@
-"""Writes spec/virtualize/<profile>/schema.json for each virtualization convention.
+"""Writes spec/zarrify/<profile>/schema.json for each zarrification convention.
 
     uv run python spec/generate_schemas.py
 
-Each schema validates the zarr.json of one node of a virtualized hierarchy that
-declares the convention (spec/virtualize/<profile>.md): the convention's
-metadata object in `zarr_conventions`, the property `refkv_virtualized`, and no
+Each schema validates the zarr.json of one node of a zarrified hierarchy that
+declares the convention (spec/zarrify/<profile>.md): the convention's
+metadata object in `zarr_conventions`, the property `refkv_zarrified`, and no
 other attribute besides `ome`. The root carries the property's provenance
 members; any other node (store profiles only) carries only the profile's
 source-metadata member. Each profile's member schema is its module of spec/source_metadata/
 (one per profile, so that adding a profile adds a module); the profiles are the registry's
-(spec/virtualize/profiles/<name>.json).
+(spec/zarrify/profiles/<name>.json).
 """
 
 from __future__ import annotations
@@ -19,8 +19,8 @@ import json
 import sys
 from pathlib import Path
 
-from refkv.virtualize.common import CONVENTION_KEY, PROFILES, convention
-from refkv.virtualize.profiles import REGISTRY
+from refkv.zarrify.common import CONVENTION_KEY, PROFILES, convention
+from refkv.zarrify.profiles import REGISTRY
 
 HERE = Path(__file__).parent
 STORES = {e["name"] for e in REGISTRY if e["kind"] == "store"}
@@ -105,10 +105,10 @@ STORE_MIRROR_DEFS = {
         "properties": {
             "ir": {"$ref": "#/$defs/mirror/properties/ir"},
             "empty_dirs": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                           "description": "A SAFE product's empty directories (spec/virtualize/safe.md §6.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)"},
+                           "description": "A SAFE product's empty directories (spec/zarrify/safe.md §6.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>)"},
             "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                        "description": "The recorded keys of the listed objects that spec/virtualize.md "
-                                       "§1.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs> ignores"},
+                        "description": "The recorded keys of the listed objects that spec/zarrify.md "
+                                       "§1.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs> ignores"},
         },
         "required": ["ir"],
         "additionalProperties": False,
@@ -208,7 +208,7 @@ def schema(profile: str) -> dict:
 
 def main() -> None:
     for profile in PROFILES:
-        d = HERE / "virtualize" / profile
+        d = HERE / "zarrify" / profile
         d.mkdir(exist_ok=True)
         (d / "schema.json").write_text(json.dumps(schema(profile), indent=2, ensure_ascii=False) + "\n")
     print(f"wrote {len(PROFILES)} schemas")

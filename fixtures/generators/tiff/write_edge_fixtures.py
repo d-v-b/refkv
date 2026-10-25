@@ -1,9 +1,9 @@
 """Writes TIFFs to fixtures/tiff/ that exercise the edges of the TIFF
-profile (spec/virtualize/tiff.md §7
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#7-tiff-profile>) which tifffile
+profile (spec/zarrify/tiff.md §7
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#7-tiff-profile>) which tifffile
 does not write: odd OME-XML, duplicate tags, SubIFD mismatches, tiles outside the file, and so on.
 
-They are compared between implementations (conformance/virtualize/
+They are compared between implementations (conformance/zarrify/
 compare.py). `edge_reject_*` files must be rejected; the other `edge_*`
 files must be accepted.
 
@@ -356,8 +356,8 @@ def main() -> None:
     values = [empties] * 100 + [empties + 2 * i for i in range(1, 9999)] + [valid[0], empties + 2 * 9999, valid[1]]
     t.chain([image(t, extra=[(50001, 13, values)])])
     t.write("edge_pointer_tries.tif")
-    # omero (spec/virtualize/tiff.md §4.4
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>): the Pixels' Channels name and color the channels in
+    # omero (spec/zarrify/tiff.md §4.4
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>): the Pixels' Channels name and color the channels in
     # order (one commented out); an empty or over-long name gives C<c>, a Color outside a signed
     # 32-bit integer white, and the channel without a Channel C4 and white.
     planes("edge_ome_channels.tif", ome(

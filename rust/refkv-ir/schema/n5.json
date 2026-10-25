@@ -1,7 +1,7 @@
 {
   "source_model": "n5",
   "version": 1,
-  "about": "The source model of an N5 container (spec/virtualize/n5.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#8-n5-profile>): the elements a parser emits in a store IR (conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), the tables of data types, compressions and units, and the roles a candidate's document and a dataset's document play, each with the constraints a container must meet to have the N5 convention's layout. The parser checks this schema as it reads each document; the projection reads a valid IR and checks nothing but the keys of its output.",
+  "about": "The source model of an N5 container (spec/zarrify/n5.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#8-n5-profile>): the elements a parser emits in a store IR (conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), the tables of data types, compressions and units, and the roles a candidate's document and a dataset's document play, each with the constraints a container must meet to have the N5 convention's layout. The parser checks this schema as it reads each document; the projection reads a valid IR and checks nothing but the keys of its output.",
   "limits": {
     "max_safe": 9007199254740991,
     "max_document": 16777216,
@@ -32,7 +32,7 @@
     "axis_types": {"x": "space", "y": "space", "z": "space", "t": "time", "c": "channel"}
   },
   "elements": {
-    "about": "The store IR of an N5 container: the listing (directories and objects, conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), and the documents the profile reads, held whole. `<D>` is a candidate's directory (spec/virtualize/n5.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#2-nodes>); `<m>` a member name, named by the rule of spec/virtualize/nd2.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#53-elements> with `gaps` and `json` the fixed names (a name with an unpaired surrogate escape has U+FFFD in its place).",
+    "about": "The store IR of an N5 container: the listing (directories and objects, conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), and the documents the profile reads, held whole. `<D>` is a candidate's directory (spec/zarrify/n5.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#2-nodes>); `<m>` a member name, named by the rule of spec/zarrify/nd2.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#53-elements> with `gaps` and `json` the fixed names (a name with an unpaired surrogate escape has U+FFFD in its place).",
     "<D>/attributes.json": {
       "kind": "object",
       "about": "the document of a node (a group or a dataset), held: its bytes are in ir/held",
@@ -49,7 +49,7 @@
   },
   "roles": {
     "candidate": {
-      "about": "the document of a candidate (spec/virtualize/n5.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#2-nodes>) that the profile reads, before it is read",
+      "about": "the document of a candidate (spec/zarrify/n5.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#2-nodes>) that the profile reads, before it is read",
       "given": {"key": "", "size": "its listed size"},
       "constraints": [
         {"require": "size <= max_document", "message": "{key}: JSON document of {size} bytes exceeds 16777216"},
@@ -57,14 +57,14 @@
       ]
     },
     "document": {
-      "about": "a candidate's document, read (spec/virtualize.md §1.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-json-documents> is the reader's)",
+      "about": "a candidate's document, read (spec/zarrify.md §1.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents> is the reader's)",
       "given": {"key": "", "value": "the document's value"},
       "constraints": [
         {"require": "kind(value) == 'object'", "message": "{key} is not a JSON object"}
       ]
     },
     "dataset": {
-      "about": "a dataset's document (spec/virtualize/n5.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#3-datasets>): its members, `members` its member names, and the compression object `c` (its member `compression`, or {type: compressionType}) with `c_members` its member names",
+      "about": "a dataset's document (spec/zarrify/n5.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#3-datasets>): its members, `members` its member names, and the compression object `c` (its member `compression`, or {type: compressionType}) with `c_members` its member names",
       "given": {"path": "", "dimensions": "", "blockSize": "", "dataType": "", "members": "", "compressionType": "", "c": "", "c_members": ""},
       "derive": {"n": "len(dimensions)", "type": "c.type"},
       "constraints": [
@@ -84,5 +84,5 @@
       ]
     }
   },
-  "about_builtins": "What the parser's code computes and the roles above check: the JSON reading of spec/virtualize.md §1.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-json-documents> (sjson.rs: UTF-8, no byte order mark, nesting, literals, numbers kept exactly), which candidates are read and in which rounds (a candidate inside a dataset is never read), and the members' extents. The projection computes the layout of spec/virtualize/n5.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#2-nodes>–§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#4-multiscale-images> (nodes, arrays, codecs, the multiscale conventions COSEM and n5-viewer, which recognize or not and reject nothing but a scale that is not finite) and §6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects> (other objects, the keys of the output)."
+  "about_builtins": "What the parser's code computes and the roles above check: the JSON reading of spec/zarrify.md §1.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents> (sjson.rs: UTF-8, no byte order mark, nesting, literals, numbers kept exactly), which candidates are read and in which rounds (a candidate inside a dataset is never read), and the members' extents. The projection computes the layout of spec/zarrify/n5.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#2-nodes>–§4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#4-multiscale-images> (nodes, arrays, codecs, the multiscale conventions COSEM and n5-viewer, which recognize or not and reject nothing but a scale that is not finite) and §6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects> (other objects, the keys of the output)."
 }

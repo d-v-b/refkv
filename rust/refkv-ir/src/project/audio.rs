@@ -1,6 +1,6 @@
-//! The chunks of an array of audio samples (spec/virtualize/mp3.md §8.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#82-chunks>, spec/virtualize/mp4.md
-//! §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#83-chunks>): runs of frames,
+//! The chunks of an array of audio samples (spec/zarrify/mp3.md §8.2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#82-chunks>, spec/zarrify/mp4.md
+//! §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>): runs of frames,
 //! each a `refkv.stream` chunk with the frames before it that a decoder needs (its lead-in).
 
 use crate::ir::Ir;

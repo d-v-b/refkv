@@ -10,7 +10,7 @@ module wraps one as a `zarr.abc.store.Store`:
     ds = xr.open_zarr(refkv.zarr.open("data.vzip"))  # a saved archive
     ds = xr.open_zarr(refkv.zarr.store(store))      # a refkv.ReferenceStore
 
-Importing it also registers the codecs that archives of virtualized files and
+Importing it also registers the codecs that archives of zarrified files and
 stores use (`refkv.zarr.codecs`, one module per codec; the image codecs' decoders
 need the `images` extra, the `refkv.stream` codec's the `media` extra), and turns on
 zarr-python's `array.rectilinear_chunks`, which the zarr-extensions `rectilinear` chunk

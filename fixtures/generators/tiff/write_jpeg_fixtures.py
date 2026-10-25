@@ -1,13 +1,13 @@
 """Writes JPEG-in-TIFF files to fixtures/tiff/ for the JPEG rule of
-spec/virtualize/tiff.md §4.3
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#43-data-types-and-codecs> and
-spec/virtualize/tiff.md §7.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#73-chunks>.
+spec/zarrify/tiff.md §4.3
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs> and
+spec/zarrify/tiff.md §7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#73-chunks>.
 
 - `jpeg_aperio_rgb.tif`: like Aperio SVS. The IFD's JPEGTables holds the
   quantization and Huffman tables, and each tile is an abbreviated stream
   (no tables, no color marker) of RGB samples with component IDs 0, 1, 2,
   which a JPEG decoder would take for YCbCr without the Adobe marker the
-  virtualizer adds. PhotometricInterpretation is RGB.
+  zarrifier adds. PhotometricInterpretation is RGB.
 - `jpeg_ycbcr.tif`, `jpeg_gray.tif`: written by tifffile.
 - `edge_reject_jpeg_*.tif`: inputs the rule rejects.
 

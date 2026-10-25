@@ -20,7 +20,7 @@ import pytest
 import refkv.reader
 from refkv.errors import ResolutionError
 from refkv.policy import Policy
-from refkv.virtualize import _virtualize_store as virtualize_store  # the profile output, not the store
+from refkv.zarrify import _zarrify_store as zarrify_store  # the profile output, not the store
 
 ROOT = Path(__file__).parents[2]
 STORE = ROOT / "fixtures" / "zarr2" / "zarr2_hierarchy"
@@ -101,7 +101,7 @@ def env(monkeypatch):
 
 
 def _docs(url: str, policy: Policy, workers: int) -> str:
-    fmt, out = virtualize_store(url, workers=workers, policy=policy)
+    fmt, out = zarrify_store(url, workers=workers, policy=policy)
     assert fmt == "zarr2"
     return json.dumps(out.docs, sort_keys=True).replace(url, "<store>")
 
@@ -145,7 +145,7 @@ def test_reads_a_store_the_policy_allows(server, names, env):
 def test_refuses_a_private_host(server, env):
     port, state = server
     with pytest.raises(ResolutionError, match="is a loopback address.*allow_private_hosts"):
-        virtualize_store(f"http://127.0.0.1:{port}/b/s/")
+        zarrify_store(f"http://127.0.0.1:{port}/b/s/")
     assert state["paths"] == []
 
 
@@ -153,7 +153,7 @@ def test_refuses_a_name_that_resolves_to_a_private_address(server, names, env):
     port, state = server
     names["private.test"] = "127.0.0.1"
     with pytest.raises(ResolutionError, match="at 127.0.0.1.*is a loopback address"):
-        virtualize_store(f"http://private.test:{port}/b/s/")
+        zarrify_store(f"http://private.test:{port}/b/s/")
     assert state["paths"] == []
 
 
@@ -165,7 +165,7 @@ def test_refuses_a_redirect_to_a_private_host_before_requesting_it(server, names
     names["public.test"] = "127.0.0.1"
     state["redirect"] = f"http://localhost:{port}/b/r/"
     with pytest.raises(ResolutionError, match="http://localhost.*is a loopback address"):
-        virtualize_store(f"http://public.test:{port}/b/s/", workers=8, policy=ServerIsPublic())
+        zarrify_store(f"http://public.test:{port}/b/s/", workers=8, policy=ServerIsPublic())
     assert state["paths"] and not any(p.startswith("/b/r/") for p in state["paths"])
 
 
@@ -174,7 +174,7 @@ def test_refuses_a_request_through_a_proxy(server, names, env):
     names["proxied.test"] = "93.184.215.14"
     env.setenv("http_proxy", f"http://127.0.0.1:{port}")
     with pytest.raises(ResolutionError, match="through the proxy.*allow_unchecked_proxy=True"):
-        virtualize_store("http://proxied.test/b/s/")
+        zarrify_store("http://proxied.test/b/s/")
     assert state["paths"] == []
 
 
@@ -184,7 +184,7 @@ def test_refuses_a_redirect_to_a_file_url_whatever_the_policy(server, names, env
     names["public.test"] = "127.0.0.1"
     state["redirect"] = "file:///etc/"
     with pytest.raises(ResolutionError, match="redirect to a non-http URL"):
-        virtualize_store(f"http://public.test:{port}/b/s/", workers=1,
+        zarrify_store(f"http://public.test:{port}/b/s/", workers=1,
                          policy=ServerIsPublic(allow_files_from_remote_archives=True))
 
 
@@ -193,7 +193,7 @@ def test_the_cli_passes_allow_private_hosts_to_a_store(server, tmp_path, env):
     url = f"http://127.0.0.1:{port}/b/s/"
 
     def run(*flags):
-        return subprocess.run([sys.executable, "-m", "refkv.virtualize", *flags, url, str(tmp_path / "o.vzip")],
+        return subprocess.run([sys.executable, "-m", "refkv.zarrify", *flags, url, str(tmp_path / "o.vzip")],
                               capture_output=True, text=True, cwd=ROOT)
 
     refused = run()

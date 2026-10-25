@@ -1,10 +1,10 @@
-//! A VSI input (spec/virtualize/vsi.md §9.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>): the `.vsi`
+//! A VSI input (spec/zarrify/vsi.md §9.2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>): the `.vsi`
 //! file named by the input, and the tile files beside it, which the core's `vsi` store format
 //! asks for by key (the probes of `refkv_ir::store::StoreRun`) rather than from a listing. The
 //! files are the objects of a store whose URL is the `.vsi` file's directory, each read through
 //! a transport of its own (`transport.rs`); a probe opens the file, and one that does not exist
-//! (a missing local file, an HTTP 404) is absent. The twin of python/src/refkv/virtualize/vsi.py.
+//! (a missing local file, an HTTP 404) is absent. The twin of python/src/refkv/zarrify/vsi.py.
 
 use crate::http::Client;
 use crate::run::{concurrency, map};
@@ -137,7 +137,7 @@ impl Files {
 /// (the output, the files) of the VSI input at `location`, its `.vsi` file opened as `t`: a
 /// store run of the core's `vsi` format over the files, probed as the run asks for them, read
 /// `connections` at a time when remote.
-pub fn virtualize_vsi(location: &str, url: Option<&str>, t: Transport, client: &Arc<Client>, connections: Option<usize>) -> Result<(Out, Files), Fail> {
+pub fn zarrify_vsi(location: &str, url: Option<&str>, t: Transport, client: &Arc<Client>, connections: Option<usize>) -> Result<(Out, Files), Fail> {
     let workers = concurrency(&t, connections)?;
     let mut files = Files::open(location, url, t, client)?;
     let listing = vec![(files.keys[0].clone(), files.sizes[&files.keys[0]])];

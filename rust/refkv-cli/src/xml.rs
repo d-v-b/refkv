@@ -1,6 +1,6 @@
-//! The XML subset of a store listing (spec/virtualize.md §1.5
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store>), and the
-//! listing it holds: python/src/refkv/virtualize/store.py's `_Xml` and `parse_listing`. A document
+//! The XML subset of a store listing (spec/zarrify.md §1.5
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), and the
+//! listing it holds: python/src/refkv/zarrify/store.py's `_Xml` and `parse_listing`. A document
 //! outside the subset is rejected.
 
 const MAX_DEPTH: usize = 256;
@@ -263,7 +263,7 @@ fn text(el: &Element) -> Result<String, String> {
 }
 
 /// The objects one ListObjectsV2 response lists, and its continuation token when the listing is
-/// truncated (spec/virtualize.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store>); an error is a rejection.
+/// truncated (spec/zarrify.md §1.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>); an error is a rejection.
 #[allow(clippy::type_complexity)]
 pub fn parse_listing(body: &[u8], prefix: &str) -> Result<(Vec<(String, u64)>, Option<String>), String> {
     let text_ = std::str::from_utf8(body).map_err(|_| "listing is not UTF-8".to_string())?;

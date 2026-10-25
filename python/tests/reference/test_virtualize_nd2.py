@@ -1,15 +1,15 @@
-"""The Python ND2 virtualizer (spec/virtualize/nd2.md) on the synthetic fixtures.
+"""The Python ND2 virtualizer (spec/zarrify/nd2.md) on the synthetic fixtures.
 
 Equivalence with the browser virtualizer is checked by
-conformance/virtualize/compare.py, and pixel correctness by
+conformance/zarrify/compare.py, and pixel correctness by
 js/test/nd2/verify.py.
 """
 
 import sys
 from pathlib import Path
 
-# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
-sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
+# the frozen reference twins (conformance/zarrify/reference/refkv_reference)
+sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
 
 import json
 import math
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from refkv.virtualize import Rejected
+from refkv.zarrify import Rejected
 from refkv_reference import virtualize
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "nd2"
@@ -65,19 +65,19 @@ def test_padded_rows_become_one_range_per_row():
 
 
 def test_more_than_2_16_positions_are_rejected():
-    """spec/virtualize.md §5.3: at most 2^16 positions."""
+    """spec/zarrify.md §5.3: at most 2^16 positions."""
     with pytest.raises(Rejected, match="65537 positions of 1 components"):
         virtualize(str(FIXTURES / "nd2_reject_positions.nd2"), url="https://data.test/x")
 
 
 def test_more_than_2_20_positions_x_components_are_rejected():
-    """spec/virtualize.md §5.3: at most 2^20 positions x components."""
+    """spec/zarrify.md §5.3: at most 2^20 positions x components."""
     with pytest.raises(Rejected, match="1025 positions of 1024 components"):
         virtualize(str(FIXTURES / "nd2_reject_position_channels.nd2"), url="https://data.test/x")
 
 
 def test_the_profile_chunks_share_a_record_budget():
-    """spec/virtualize.md §5.1: two chunks of 600000 records each, together over 2^20."""
+    """spec/zarrify.md §5.1: two chunks of 600000 records each, together over 2^20."""
     with pytest.raises(Rejected, match="more than 1048576 LV records"):
         virtualize(str(FIXTURES / "nd2_reject_profile_records.nd2"), url="https://data.test/x")
 
@@ -100,7 +100,7 @@ def test_rejects(name, message):
 
 
 def test_variant_json():
-    """An XML variant document as JSON (spec/virtualize/nd2.md §5)."""
+    """An XML variant document as JSON (spec/zarrify/nd2.md §5)."""
     from refkv_reference.nd2.source import variant_json
 
     doc = (b'<?xml version="1.0"?><variant version="1.0"><a runtype="CLxListVariant">'
@@ -142,7 +142,7 @@ def test_every_chunk_is_in_the_hierarchy():
 
 
 def test_a_multi_phase_time_loop_has_a_period_only_when_its_phases_agree():
-    """spec/virtualize/nd2.md §3, eType 8."""
+    """spec/zarrify/nd2.md §3, eType 8."""
     from refkv_reference.nd2.lv import LVList, Scalar
     from refkv_reference.nd2.virtualize import flatten_experiment
 
@@ -178,7 +178,7 @@ def _bytes(out, path: str) -> bytes:
 
 def test_source_metadata_keeps_every_value():
     """Repeated names as pairs, unpaired surrogates, declarations read first, and a
-    large chunk on vzip_source (spec/virtualize/nd2.md §5.1-§5.3)."""
+    large chunk on vzip_source (spec/zarrify/nd2.md §5.1-§5.3)."""
     out, root, node, arrays = _source("nd2_source_values.nd2")
     chunks = root["chunks"]
     assert chunks["ImageTextInfoLV!"] == {"SLxImageTextInfo": [
@@ -202,7 +202,7 @@ def test_source_metadata_keeps_every_value():
 
 def test_source_metadata_keeps_every_chunk():
     """Frames the image does not place, a stream's rest, collisions, invalid and
-    reserved paths, names that read alike, and empty chunks (spec/virtualize/nd2.md §5.3, §5.4)."""
+    reserved paths, names that read alike, and empty chunks (spec/zarrify/nd2.md §5.3, §5.4)."""
     out, _, node, arrays = _source("nd2_source_chunks.nd2")
     other = [(b"ImageDataSeq|01!", b"\0frame"), (b"ImageDataSeq!", b"\0data"), (b"CustomData|X|1!", b"\0q"),
              (b"CustomData|Foo|Bar!", b"\0xyz"), (b"CustomData|a/b!", b"\0slash"), (b"CustomData|...!", b"\0dots"),
@@ -219,7 +219,7 @@ def test_source_metadata_keeps_every_chunk():
 
 
 def test_a_chunk_over_16_kib_of_json_is_on_vzip_source():
-    """The size is that of JSON.stringify's text, in UTF-8 (spec/virtualize/nd2.md §5.1)."""
+    """The size is that of JSON.stringify's text, in UTF-8 (spec/zarrify/nd2.md §5.1)."""
     from refkv_reference.nd2.source import json_size
 
     cases = {0.1: 3, 1e-7: 4, 1e21: 5, 123456789.125: 13, 5e-324: 6, -2.5e-300: 9, 2.0: 1, 1e16: 17,
@@ -234,7 +234,7 @@ def test_a_chunk_over_16_kib_of_json_is_on_vzip_source():
 def test_values_json_cannot_hold_are_tags():
     """Integers beyond 2^53 - 1 and non-finite binary64s are tags, and an object
     that would read as a tag is pairs; integer-like member names keep their order
-    (spec/virtualize/nd2.md §5.1, §5.2)."""
+    (spec/zarrify/nd2.md §5.1, §5.2)."""
     out, root, node, arrays = _source("nd2_source_tags.nd2")
     chunks = root["chunks"]
     assert chunks["ImageTextInfoLV!"] == {"SLxTags": {
@@ -252,7 +252,7 @@ def test_values_json_cannot_hold_are_tags():
 
 
 def test_custom_data_decodes_when_its_json_keeps_every_byte():
-    """spec/virtualize/nd2.md §5.1, the lossless test: compression and offset
+    """spec/zarrify/nd2.md §5.1, the lossless test: compression and offset
     tables (in any order) are layout, and k = 0 is the canonical empty name; a
     chunk named as LV decodes whatever."""
     _, root, _, _ = _source("nd2_source_tags.nd2")
@@ -284,7 +284,7 @@ def test_lossy_custom_data_is_bytes(name, data):
 def test_sparse_frames_and_families_are_bounded():
     """The frame times are cut as contiguous values and only chunks with a placed
     frame are written; a family keeps indices below 16 per member and 1024 more
-    (spec/virtualize/nd2.md §5.3, §5.4)."""
+    (spec/zarrify/nd2.md §5.3, §5.4)."""
     out, _, node, arrays = _source("nd2_source_sparse.nd2")
     times = arrays["ImageDataSeq"]
     # Copied values: chunks of at most 64 KiB, cut as contiguous values with that limit.
@@ -301,7 +301,7 @@ def test_sparse_frames_and_families_are_bounded():
 
 
 def test_the_root_keeps_at_most_64_kib_of_chunks():
-    """spec/virtualize/nd2.md §5.1: the largest move first, of equal sizes the first in map order."""
+    """spec/zarrify/nd2.md §5.1: the largest move first, of equal sizes the first in map order."""
     from refkv_reference.nd2.source import json_size
 
     _, root, node, _ = _source("nd2_source_root_budget.nd2")
@@ -311,7 +311,7 @@ def test_the_root_keeps_at_most_64_kib_of_chunks():
 
 
 def test_the_node_keeps_at_most_64_kib_of_chunks():
-    """spec/virtualize/nd2.md §5.1: vzip_source's chunks in map order while they
+    """spec/zarrify/nd2.md §5.1: vzip_source's chunks in map order while they
     fit (a later, smaller one too); byte arrays as JSON arrays; names that are
     array indices make pairs; -0 is a tag, guessed, named and in XML."""
     from refkv_reference.nd2.source import json_size
@@ -330,7 +330,7 @@ def test_the_node_keeps_at_most_64_kib_of_chunks():
 def test_a_chunk_that_does_not_fit_the_node_is_bytes():
     """A chunk over what is left of vzip_source's 64 KiB, or whose JSON is larger
     than that (a byte array of 70000 bytes, or of 8 MiB, compressed), is kept as
-    bytes (spec/virtualize/nd2.md §5.1)."""
+    bytes (spec/zarrify/nd2.md §5.1)."""
     out, root, node, arrays = _source("nd2_source_node_budget.nd2")
     for path in ("ImageMetadataSeqLV/3", "BigBytesLV", "HugeBytesLV"):
         assert arrays[path]["data_type"] == "uint8", path
@@ -339,7 +339,7 @@ def test_a_chunk_that_does_not_fit_the_node_is_bytes():
 
 
 def test_other_and_empty_past_the_node_budget_are_arrays():
-    """spec/virtualize/nd2.md §5.4: each list over what is left of vzip_source's
+    """spec/zarrify/nd2.md §5.4: each list over what is left of vzip_source's
     64 KiB is the path of an array holding its JSON text."""
     from refkv_reference.nd2.source import json_size
 
@@ -354,14 +354,14 @@ def test_other_and_empty_past_the_node_budget_are_arrays():
 def test_a_failed_decode_is_charged():
     """Chunks that inflate and are not lossless spend the budget as if they
     decoded; the one that inflates past what is left spends the rest
-    (spec/virtualize/nd2.md §5.1)."""
+    (spec/zarrify/nd2.md §5.1)."""
     out, root, _, arrays = _source("nd2_source_charged.nd2")
     assert list(root["chunks"]) == ["ImageAttributesLV!"]
     assert arrays["CustomData/Ok"]["data_type"] == "uint8"
 
 
 def test_an_invalid_stream_is_charged_the_most_it_could_inflate_to():
-    """1032 bytes per byte of the chunk, capped at what is left (spec/virtualize/nd2.md §5.1)."""
+    """1032 bytes per byte of the chunk, capped at what is left (spec/zarrify/nd2.md §5.1)."""
     out, root, _, arrays = _source("nd2_source_charged_invalid.nd2")
     assert list(root["chunks"]) == ["ImageAttributesLV!"]
     assert arrays["CustomData/Ok"]["data_type"] == "uint8"
@@ -377,7 +377,7 @@ def test_an_invalid_stream_is_charged_the_most_it_could_inflate_to():
     ("nd2_source_frame_times_sparse.nd2", [64], [str(128 * k) for k in range(2000)], ("128", 0, 1.0)),
 ])
 def test_frame_times_are_bounded_copies(name, chunk_shape, keys, value):
-    """spec/virtualize/nd2.md §5.3: the chunk limit halves from 64 KiB until the
+    """spec/zarrify/nd2.md §5.3: the chunk limit halves from 64 KiB until the
     chunks written hold at most max(2^20, 512 x the placed frames) bytes."""
     out, _, _, arrays = _source(name)
     assert arrays["ImageDataSeq"]["chunk_grid"]["configuration"]["chunk_shape"] == chunk_shape
@@ -392,7 +392,7 @@ def test_frame_times_are_bounded_copies(name, chunk_shape, keys, value):
 
 
 def test_a_declared_tag_over_16_kib_is_its_index():
-    """spec/virtualize/nd2.md §5.2: a member of at most 16384 bytes of JSON is
+    """spec/zarrify/nd2.md §5.2: a member of at most 16384 bytes of JSON is
     kept; a larger one is its index among CustomTagDescription_v1.0's members."""
     _, _, _, arrays = _source("nd2_source_tag_index.nd2")
     tag = lambda path: arrays[path]["attributes"]["vzip_virtualized"]["nd2"]
@@ -401,7 +401,7 @@ def test_a_declared_tag_over_16_kib_is_its_index():
 
 
 def test_path_segments_a_store_cannot_hold_go_to_other():
-    """spec/virtualize/nd2.md §5.4: zarr.json, .zarray, .zgroup and U+0000."""
+    """spec/zarrify/nd2.md §5.4: zarr.json, .zarray, .zgroup and U+0000."""
     out, _, node, arrays = _source("nd2_source_document_names.nd2")
     assert node["other"] == ["zarr.json!", "Foo|zarr.json!", "Foo|.zarray!", ".zgroup|x!", "Foo\0Baz!"]
     assert _bytes(out, "other/4") == b"\x01\x02\x03"
@@ -475,7 +475,7 @@ def test_lv_exact_decoding():
     (b"\x4c\x00" + bytes(10) + zlib.compress(bytes(1000)), 999),  # past the limit
 ])
 def test_a_stream_that_does_not_inflate_is_charged_the_most_it_could(data, limit):
-    """min(limit, 1032 x the data's length) (spec/virtualize/nd2.md §5.1, the budget)."""
+    """min(limit, 1032 x the data's length) (spec/zarrify/nd2.md §5.1, the budget)."""
     from refkv_reference.nd2.lv import decode_lv
 
     inflated: list[int] = []

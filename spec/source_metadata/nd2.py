@@ -1,10 +1,10 @@
-"""The ND2 convention's source metadata (spec/virtualize/nd2.md), for
+"""The ND2 convention's source metadata (spec/zarrify/nd2.md), for
 spec/generate_schemas.py."""
 
 SCHEMA = {"anyOf": [
     {
         "type": "object",
-        "description": "The root's: the signature and the decoded chunks it keeps (spec/virtualize/nd2.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-source-metadata>)",
+        "description": "The root's: the signature and the decoded chunks it keeps (spec/zarrify/nd2.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#5-source-metadata>)",
         "properties": {
             "signature": {"$ref": "#/$defs/text", "description": "The signature chunk's data up to its first NUL"},
             "chunks": {

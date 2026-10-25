@@ -1,5 +1,5 @@
-//! The TIFF image projection (spec/virtualize/tiff.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#4-the-image>) from a valid IR:
+//! The TIFF image projection (spec/zarrify/tiff.md §4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#4-the-image>) from a valid IR:
 //! each level's planes name the IR's tiles; the facts hold the format, sizes, scales,
 //! translation, and the OME-XML's channel names and colors (its `omero`); the windows of its
 //! `omero` are sampled from the coarsest level's chunks, which the run reads (`reads`).
@@ -26,8 +26,8 @@ fn rgb(facts: &J) -> bool {
     n(&facts["spp"]) > 1 && (interpretation == 2 || (interpretation == 6 && compression == 7))
 }
 
-/// The `omero` member (spec/virtualize/tiff.md §4.4
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>), when there are
+/// The `omero` member (spec/zarrify/tiff.md §4.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>), when there are
 /// at most 64 channels and each has a window: the samples, `R`, `G`, `B` when they decode to
 /// RGB; else one per channel, named and colored by the OME-XML's Channels. Channel `c`'s window
 /// is `sampled[c]`, sampled from the data, else the type's whole range (an integer type's).
@@ -65,8 +65,8 @@ fn level_shape<'a>(facts: &'a J, lv: &J) -> (Vec<&'a str>, Vec<u64>, Vec<u64>) {
     (axes, shape, chunk)
 }
 
-/// The chunks the `omero` windows sample (spec/virtualize/tiff.md §4.4
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>): one per
+/// The chunks the `omero` windows sample (spec/zarrify/tiff.md §4.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>): one per
 /// channel of the coarsest level, when the image has at most 64 channels, its samples do not
 /// decode to RGB, and the core decodes its compression; else none.
 fn samples(facts: &J) -> Vec<window::Sample> {

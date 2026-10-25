@@ -1,4 +1,4 @@
-//! The VSI parser (src/vsi/; spec/virtualize/vsi.md): every slide fixture it accepts is a valid
+//! The VSI parser (src/vsi/; spec/zarrify/vsi.md): every slide fixture it accepts is a valid
 //! store IR whose objects (the `.vsi` file and its tile files, described in place) rebuild from
 //! their leaves, whose mirror is canonical and whose view is the one it rebuilds; its images
 //! are the fixtures' (the generator's expected arrays are checked by python/tests/ir/test_vsi.py);
@@ -138,7 +138,7 @@ fn the_rgb_jpeg_slide_is_a_bioformats2raw_layout_of_its_stacks_and_the_macro_ima
     let doc = |k: &str| -> serde_json::Value { serde_json::from_slice(&get(k).unwrap_or_else(|| panic!("no {k}"))).unwrap() };
     let root = doc("zarr.json");
     assert_eq!(root["attributes"]["ome"], serde_json::json!({"version": "0.5", "bioformats2raw.layout": 3}));
-    assert_eq!(root["attributes"]["refkv_virtualized"]["source"]["url"], "https://example.org/slides/vsi_rgb_jpeg.vsi");
+    assert_eq!(root["attributes"]["refkv_zarrified"]["source"]["url"], "https://example.org/slides/vsi_rgb_jpeg.vsi");
     assert_eq!(doc("OME/zarr.json")["attributes"]["ome"]["series"], serde_json::json!(["0", "1", "2", "3"]));
     let names: Vec<String> = (0..4).map(|k| doc(&format!("{k}/zarr.json"))["attributes"]["ome"]["multiscales"][0]["name"].as_str().unwrap().to_string()).collect();
     assert_eq!(names, ["Overview", "20x_BF_01", "20x FocusMap", "macro image"]);
@@ -186,7 +186,7 @@ fn a_stack_with_t_z_and_c_dimensions_has_the_axes_and_channels_of_its_tree() {
     let ch = &g["attributes"]["ome"]["omero"]["channels"];
     assert_eq!((ch[0]["label"].as_str(), ch[0]["color"].as_str()), (Some("Cy5"), Some("FF0000")));
     assert_eq!(ch[1]["window"], serde_json::json!({"min": 0.0, "max": 65535.0, "start": 86.0, "end": 170.0}));
-    let own = &g["attributes"]["refkv_virtualized"]["vsi"];
+    let own = &g["attributes"]["refkv_zarrified"]["vsi"];
     assert_eq!(own["tile_file"], "_vsi_raw_tzc_/stack1/frame_t_0.ets");
     assert_eq!(own["dimensions"], serde_json::json!([{"coordinate": 2, "meaning": "t"}, {"coordinate": 3, "meaning": "z"}, {"coordinate": 4, "meaning": "c"}]));
     assert_eq!(out.refs.len(), 13);
@@ -198,7 +198,7 @@ fn the_root_holds_the_tree_as_json_and_the_stacks() {
     let (out, _, _) = run(&fixtures().join("vsi_metadata_edges.vsi")).unwrap();
     let get = entry(&out);
     let root: serde_json::Value = serde_json::from_slice(&get("zarr.json").unwrap()).unwrap();
-    let own = &root["attributes"]["refkv_virtualized"]["vsi"];
+    let own = &root["attributes"]["refkv_zarrified"]["vsi"];
     assert_eq!(own["file"]["key"], "vsi_metadata_edges.vsi");
     assert_eq!(own["stacks"][0]["name"], "µm édge");
     let fields = own["tree"]["fields"].as_array().unwrap();
@@ -228,7 +228,7 @@ fn sniff_finds_a_vsi_file_before_a_tiff() {
 #[test]
 fn a_vsi_file_run_is_refused() {
     let data = std::fs::read(fixtures().join("vsi_raw_tzc.vsi")).unwrap();
-    assert_eq!(refkv_ir::run::run_bytes(Format::Vsi, &data).err().as_deref(), Some("a VSI file is virtualized as a store run, with its tile files"));
+    assert_eq!(refkv_ir::run::run_bytes(Format::Vsi, &data).err().as_deref(), Some("a VSI file is zarrified as a store run, with its tile files"));
 }
 
 #[test]
@@ -251,7 +251,7 @@ macro_rules! reject {
     };
 }
 
-// one test per case of conformance/virtualize/rejects/vsi.json (build.rs)
+// one test per case of conformance/zarrify/rejects/vsi.json (build.rs)
 include!(concat!(env!("OUT_DIR"), "/rejects_vsi.rs"));
 
 /// Every `vsi_reject_*` fixture has a test above.

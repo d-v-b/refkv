@@ -1,16 +1,16 @@
-"""The Rust CLI (`vzip convert`, rust/refkv-cli) against `python -m refkv.virtualize`: both convert
+"""The Rust CLI (`vzip convert`, rust/refkv-cli) against `python -m refkv.zarrify`: both convert
 every input of the fixture corpus, and must give the same exit status and, on success, the same
 archive, byte for byte, and the same summary.
 
-The corpus is conformance/virtualize/compare.py's synthetic one: every file under fixtures/ with
-the suffix of a profile of the registry (spec/virtualize/profiles/), and every store directory
+The corpus is conformance/zarrify/compare.py's synthetic one: every file under fixtures/ with
+the suffix of a profile of the registry (spec/zarrify/profiles/), and every store directory
 under a store profile's fixtures/<p> (the rejected inputs included: both must reject them). Each
 input is converted:
 
 - `local`: from its path (a store with `--url`, the URL it would be served from);
 - `http`: from a server on 127.0.0.1 (with `--allow-private-hosts`), which serves the files with a
   strong ETag, ranges and multipart/byteranges, and the stores with an S3 ListObjectsV2 listing of
-  7 keys a page (so that listings take several pages; conformance/virtualize/proxy.py's); one input
+  7 keys a page (so that listings take several pages; conformance/zarrify/proxy.py's); one input
   in four through a redirect, and one in four named by another `--url`;
 - `ranges`: the files of `http` again, with REFKV_WHOLE_BELOW=0: the read planner then reads
   them by ranges, several in one request, where it would read a file of the corpus (each under 1
@@ -44,10 +44,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "fixtures"
-sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 
 from proxy import Upstream, make_handler  # noqa: E402
-from refkv.virtualize.profiles import REGISTRY  # noqa: E402
+from refkv.zarrify.profiles import REGISTRY  # noqa: E402
 
 STORE_FORMATS = tuple(e["name"] for e in REGISTRY if e["kind"] in ("store", "both"))
 SUFFIXES = tuple(s for e in REGISTRY for s in e["suffixes"])
@@ -192,7 +192,7 @@ def main() -> int:
 
         def one(k_case):
             k, (name, args, remote, env) = k_case
-            py = convert([sys.executable, "-m", "refkv.virtualize"], args, tmp / f"{k}.py.vzip", env)
+            py = convert([sys.executable, "-m", "refkv.zarrify"], args, tmp / f"{k}.py.vzip", env)
             rs = convert([str(vzip), "convert"], args, tmp / f"{k}.rs.vzip", env)
             problems = []
             if py[0] != rs[0]:

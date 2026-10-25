@@ -1,7 +1,7 @@
-"""Checks the browser N5 virtualizer's output against an independent N5 reader.
+"""Checks the browser N5 zarrifier's output against an independent N5 reader.
 
 Each store in fixtures/n5/ is served by the harness proxy (with its
-S3 listing) and virtualized by js/conformance/virtualize.ts (the browser
+S3 listing) and zarrified by js/conformance/zarrify.ts (the browser
 code, run under Node). Every array of the archive is read through refkv.zarr
 and zarr-python (with refkv.zarr.codecs' n5_default codec) and must equal:
 
@@ -14,14 +14,14 @@ and zarr-python (with refkv.zarr.codecs' n5_default codec) and must equal:
 
 `n5_reject_*` stores must be rejected; reading `n5_edge_varlength_block`'s
 array must fail (its varlength block is refused by the codec). The archive's
-`refkv_source` is the store's IR mirror (spec/virtualize/n5.md §5.1
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#51-the-ir-mirror>): rebuilt from
+`refkv_source` is the store's IR mirror (spec/zarrify/n5.md §5.1
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#51-the-ir-mirror>): rebuilt from
 the archive alone, its listing must be the store's (every object's key and size, the empty ones
 included) and every node's attributes.json must be the store's, byte for byte.
 
-With `--remote <store URL> <array path>`, a public store is virtualized
+With `--remote <store URL> <array path>`, a public store is zarrified
 directly and that array is compared with `read_n5` reading the blocks over
-HTTP (the pixel check of conformance/virtualize/corpus_n5.txt).
+HTTP (the pixel check of conformance/zarrify/corpus_n5.txt).
 
 Usage: uv run python js/test/n5/verify.py [<store dir> ...]
        uv run python js/test/n5/verify.py --remote <store URL> <array path>
@@ -48,7 +48,7 @@ import zarr
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 FIXTURES = ROOT / "fixtures"
-sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from proxy import Proxy  # noqa: E402
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers n5_default and zlib)
@@ -56,10 +56,10 @@ import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers n5_d
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run  # noqa: E402
 
-# The other objects' check is the Zarr v2 verifier's (spec/virtualize/n5.md §6
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects> is
-# spec/virtualize/zarr2.md §5
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
+# The other objects' check is the Zarr v2 verifier's (spec/zarrify/n5.md §6
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects> is
+# spec/zarrify/zarr2.md §5
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>).
 _spec = importlib.util.spec_from_file_location("zarr2_verify", HERE.parent / "zarr2" / "verify.py")
 zarr2_verify = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(zarr2_verify)
@@ -134,8 +134,8 @@ def arrays_of(out: Path) -> list[str]:
     return sorted(paths)
 
 
-def virtualize(url: str, out: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts", url, str(out)],
+def zarrify(url: str, out: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(["node", str(ROOT / "js" / "conformance" / "zarrify.ts"), "--allow-private-hosts", url, str(out)],
                           capture_output=True, text=True)
 
 
@@ -200,7 +200,7 @@ def mirror_problems(store_dir: Path, out: Path) -> list[str]:
 def remote(store_url: str, path: str) -> int:
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "remote.vzip"
-        p = virtualize(store_url, out)
+        p = zarrify(store_url, out)
         if p.returncode:
             print(f"FAILED: {p.stderr[-300:]}")
             return 1

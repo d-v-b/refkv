@@ -1,13 +1,13 @@
-"""Checks the browser FITS virtualizer's output against astropy.
+"""Checks the browser FITS zarrifier's output against astropy.
 
-Each fixtures/fits/*.fits is served over local HTTP and virtualized by
-js/conformance/virtualize.ts (the browser code, run under Node). Every HDU's node is read
+Each fixtures/fits/*.fits is served over local HTTP and zarrified by
+js/conformance/zarrify.ts (the browser code, run under Node). Every HDU's node is read
 through the reference reader and zarr-python: an image's array (a tile-compressed one
 decoded by the `refkv.fits_tiles` codec) must equal astropy's data, a table's rows and heap the
 file's bytes, and every node's cards astropy's reading of the header
-(spec/virtualize/fits.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#5-source-metadata>).
+(spec/zarrify/fits.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#5-source-metadata>).
 The file must be rebuilt byte for byte from the archive's IR mirror (refkv_source, §6
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#6-the-ir-mirror>).
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#6-the-ir-mirror>).
 `fits_reject_*` files must be rejected.
 
 Usage: uv run python js/test/fits/verify.py [<dir of .fits files>]
@@ -54,8 +54,8 @@ def card_value(v):
 
 
 def card_problems(ours, cards) -> list[str]:
-    """Our cards against astropy's (spec/virtualize/fits.md §5.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#53-cards>)."""
+    """Our cards against astropy's (spec/zarrify/fits.md §5.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>)."""
     if ours is None:
         return [] if len(cards) > 700 else ["cards are null under the budget"]
     if len(ours) != len(cards):
@@ -91,7 +91,7 @@ def pixel_problems(ours, theirs, table) -> list[str]:
 def problems_of(path: Path, out: Path) -> list[str]:
     raw = path.read_bytes()
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
-    meta = root.attrs["refkv_virtualized"]["fits"]
+    meta = root.attrs["refkv_zarrified"]["fits"]
     problems = []
     same = SAME_IMAGE.get(path.stem)
     with warnings.catch_warnings():
@@ -106,7 +106,7 @@ def problems_of(path: Path, out: Path) -> list[str]:
                 if entry["offset"] != info["hdrLoc"] or entry["data_offset"] != info["datLoc"]:
                     problems.append(f"HDU {i} offsets {entry['offset']}, {entry['data_offset']} != {info['hdrLoc']}, {info['datLoc']}")
                 node = root[str(i)]
-                problems += [f"HDU {i} {p}" for p in card_problems(node.attrs["refkv_virtualized"]["fits"]["cards"], hdu.header.cards)]
+                problems += [f"HDU {i} {p}" for p in card_problems(node.attrs["refkv_zarrified"]["fits"]["cards"], hdu.header.cards)]
                 if hdu.header.get("ZIMAGE"):
                     if same is not None:
                         ref, absent = same

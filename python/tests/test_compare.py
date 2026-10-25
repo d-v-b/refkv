@@ -1,5 +1,5 @@
-"""conformance/virtualize/compare.py: §1.1
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence> equivalence
+"""conformance/zarrify/compare.py: §1.1
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence> equivalence
 with exact integers, and the strict
 reading of every archive (spec/bindings/vzip.md, through the independent reader and the writer checks)."""
 
@@ -12,12 +12,12 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).parents[2]
-sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 import compare  # noqa: E402
 
 from refkv.vzip.archive import VZipWriter  # noqa: E402
 from refkv.pb import Range, Source  # noqa: E402
-from refkv.virtualize.common import convention  # noqa: E402
+from refkv.zarrify.common import convention  # noqa: E402
 
 URL = "https://data.test/image.tif"
 
@@ -30,10 +30,10 @@ def test_differences():
     big = 2**53 + 1
     cases = [
         ({"shape": [1]}, {"shape": [1]}, True),
-        ({"scale": [1]}, {"scale": [1.0]}, True),  # a computed number written either way (§1.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#13-arithmetic>)
+        ({"scale": [1]}, {"scale": [1.0]}, True),  # a computed number written either way (§1.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#13-arithmetic>)
         ({"fill_value": big}, {"fill_value": big - 1}, False),  # integers exactly: binary64 would equal them
         # an integer against a float: equal only if the float is exactly that integer (§1.1
-        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>)
+        # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence>)
         ({"fill_value": big}, {"fill_value": float(big)}, False),
         ({"fill_value": big - 1}, {"fill_value": float(big)}, True),
         ({"flag": True}, {"flag": 1}, False),
@@ -47,7 +47,7 @@ def test_differences():
 
 
 def archive(path: Path, build=None, *, doc: bytes = b'{"zarr_format":3,"node_type":"group"}') -> Path:
-    """A virtualizer-like archive at `path`: a document and a reference; `build(w)` adds to it."""
+    """A zarrifier-like archive at `path`: a document and a reference; `build(w)` adds to it."""
     with open(path, "wb") as fh:
         w = VZipWriter(fh, page_size=1 << 16)
         src = w.source(Source(url=URL))
@@ -107,9 +107,9 @@ def _jpeg_gray(o: int, n: int) -> bytes:
 
 
 def _mirror_archive(tmp_path, edit=None) -> Path:
-    from refkv.virtualize import _virtualize as virtualize  # the profile output, not the store
+    from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store
 
-    _, out = virtualize(str(ROOT / "fixtures/tiff/jpeg_gray.tif"), "https://data.test/jpeg_gray.tif")
+    _, out = zarrify(str(ROOT / "fixtures/tiff/jpeg_gray.tif"), "https://data.test/jpeg_gray.tif")
     if edit:
         edit(out)
     path = tmp_path / "m.vzip"
@@ -177,11 +177,11 @@ def test_at_revision():
             del prop["revision"]
         if own is not None:
             prop[profile] = own
-        return {"sources": [], "entries": {"zarr.json": ("json", {"attributes": {"refkv_virtualized": prop}}),
+        return {"sources": [], "entries": {"zarr.json": ("json", {"attributes": {"refkv_zarrified": prop}}),
                                            "a": ("bytes", b"x")}}
 
     def named(revision, profile, legacy, mirrored=()):
-        key, node = ("vzip_virtualized", "vzip_source") if legacy else ("refkv_virtualized", "refkv_source")
+        key, node = ("vzip_virtualized", "vzip_source") if legacy else ("refkv_zarrified", "refkv_source")
         cmo = convention(profile)
         if legacy:
             cmo = {**cmo, "name": key, "schema_url": cmo["schema_url"].replace("/refkv/", "/vzip/"),
@@ -234,7 +234,7 @@ def test_mirror_problem_finds_a_view_that_is_not_the_tables(tmp_path):
     def drop(out):
         key = "refkv_source/tree/zarr.json"
         doc = json.loads(out.bytes_entries[key])
-        del doc["attributes"]["refkv_virtualized"]["tiff"]["header"]["magic"]
+        del doc["attributes"]["refkv_zarrified"]["tiff"]["header"]["magic"]
         out.bytes_entries[key] = json.dumps(doc).encode()
 
     path = _mirror_archive(tmp_path, drop)
@@ -244,10 +244,10 @@ def test_mirror_problem_finds_a_view_that_is_not_the_tables(tmp_path):
 def _store_archive(tmp_path, name="zarr2_hierarchy", edit=None, kind="zarr2") -> tuple[Path, callable]:
     """A fixture store's archive (a Zarr v2 store's or a SAFE directory's: its mirror a store
     IR's), and a fetch of ranges of its objects by URL."""
-    from refkv.virtualize import _virtualize as virtualize  # the profile output, not the store
+    from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store
 
     url = f"https://data.test/{name}/"
-    _, out = virtualize(str(ROOT / "fixtures" / kind / name), url)
+    _, out = zarrify(str(ROOT / "fixtures" / kind / name), url)
     if edit:
         edit(out)
     path = tmp_path / "s.vzip"

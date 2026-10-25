@@ -8,12 +8,12 @@ import refkv.zarr
 from refkv.convert import split_virtual_dataset, write_vzip
 from refkv.vzip.store import VZipStore
 
-from helpers import virtualize
+from helpers import zarrify
 
 
 def test_roundtrip_single_and_combined(netcdf_files, tmp_path):
     paths, expected = netcdf_files
-    vdss = [virtualize(p) for p in paths]
+    vdss = [zarrify(p) for p in paths]
     combined = xr.concat(vdss, dim="time", coords="minimal", compat="override")
     cases = [
         ("one.vzip", vdss[0], xr.open_dataset(paths[0], engine="h5netcdf")),
@@ -43,7 +43,7 @@ def test_naive_view_is_a_plain_zip(netcdf_files, tmp_path):
 
     paths, _ = netcdf_files
     out = tmp_path / "one.vzip"
-    write_vzip(virtualize(paths[0]), out)
+    write_vzip(zarrify(paths[0]), out)
     with zipfile.ZipFile(out) as zf:
         assert zf.testzip() is None
         ref = Range.decode(zf.read("temp/c/0/0/0"))
@@ -55,7 +55,7 @@ def test_what_xarray_reads_at_open_is_written_late(netcdf_files, tmp_path):
     from refkv.convert import read_at_open
 
     paths, _ = netcdf_files
-    vds = xr.concat([virtualize(p) for p in paths], dim="time", coords="minimal",
+    vds = xr.concat([zarrify(p) for p in paths], dim="time", coords="minimal",
                     compat="override")
     assert {k: read_at_open(k, vds) for k in [
         "zarr.json", "temp/zarr.json", "time/c/0", "lat/c/0", "temp/c/0/0/0", "mask/c/0/0",
@@ -79,7 +79,7 @@ def test_loadable_variables_are_written_as_a_dataset_of_their_own(netcdf_files):
     roles and attributes of the virtual dataset (a non-index coordinate here, and
     dataset attributes, which would otherwise add `"coordinates": "row"` to `mask`)."""
     paths, _ = netcdf_files
-    vds = virtualize(paths[0], ["time", "lat", "lon", "mask"])
+    vds = zarrify(paths[0], ["time", "lat", "lon", "mask"])
     vds = vds.assign_coords(row=("lat", np.arange(30, dtype="i4"))).assign_attrs(extra="x")
     loadable = {k: v for k, v in vds.variables.items() if k != "temp"}
     mem = zarr.storage.MemoryStore()

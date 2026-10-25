@@ -1,6 +1,6 @@
-"""The MP4 IR: the Rust parser and its schema, the projection (spec/virtualize/mp4.md) and the
+"""The MP4 IR: the Rust parser and its schema, the projection (spec/zarrify/mp4.md) and the
 `refkv.stream` codec against ffmpeg's decoding of every synthetic file, the mirror's rebuild, the
-tracks the profile does not virtualize, and the inputs it rejects. MP4 has no frozen Python
+tracks the profile does not zarrify, and the inputs it rejects. MP4 has no frozen Python
 reference: ffmpeg's demuxer and decoders (through PyAV), which read the file's tables
 themselves, are the reader it is compared with."""
 
@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from ir_helpers import FIXTURES, core_setting
-from ir_helpers import virtualized as shared_virtualized
+from ir_helpers import zarrified as shared_zarrified
 from refkv import _core
 from refkv.zarr.codecs import stream
 from refkv.zarr.codecs.stream import Shared, StreamCodec, stream_units
@@ -19,16 +19,16 @@ from refkv.zarr.codecs.stream import Shared, StreamCodec, stream_units
 FILES = sorted(p for p in (FIXTURES / "mp4").iterdir() if p.suffix in (".mp4", ".mov"))
 ACCEPTED = [p for p in FILES if "reject" not in p.name]
 # AAC with noise substitution: a chunk decodes its noise from a generator of its own
-# (spec/virtualize/mp4.md §4.2
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#42-audio-tracks>)
+# (spec/zarrify/mp4.md §4.2
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#42-audio-tracks>)
 NOISE = {"mp4_aac_pns.mp4"}
 
 
-def virtualized(path, tmp_path, chunk_frames=None):
+def zarrified(path, tmp_path, chunk_frames=None):
     """(the output, the hierarchy's root group), with at most `chunk_frames` frames a chunk (None: the
-    profile's 256); the archive rebuilds the file (ir_helpers.virtualized)."""
+    profile's 256); the archive rebuilds the file (ir_helpers.zarrified)."""
     with core_setting(_core._set_chunk_frames, chunk_frames):
-        out, root, ir = shared_virtualized(path, tmp_path, "mp4")
+        out, root, ir = shared_zarrified(path, tmp_path, "mp4")
     return out, root
 
 def decoded(path, index):
@@ -62,21 +62,21 @@ def samples(frames):
 @pytest.mark.parametrize("chunk_frames", [None, 7])
 @pytest.mark.parametrize("path", ACCEPTED, ids=lambda p: p.name)
 def test_tracks_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
-    """Every virtualized track is ffmpeg's decoding of its samples, value for value: a video
-    track's Y, U and V planes and its presentation times, an audio track's samples (spec/virtualize/mp4.md
-    §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#4-the-layout>), with chunks of
+    """Every zarrified track is ffmpeg's decoding of its samples, value for value: a video
+    track's Y, U and V planes and its presentation times, an audio track's samples (spec/zarrify/mp4.md
+    §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#4-the-layout>), with chunks of
     the profile's size and of 7 frames (so that every track has several chunks, each with its
     lead-in); the file is rebuilt from the mirror."""
-    out, root = virtualized(path, tmp_path, chunk_frames)
-    meta = root.attrs["refkv_virtualized"]["mp4"]
-    assert set(root.attrs) == {"zarr_conventions", "refkv_virtualized"}
+    out, root = zarrified(path, tmp_path, chunk_frames)
+    meta = root.attrs["refkv_zarrified"]["mp4"]
+    assert set(root.attrs) == {"zarr_conventions", "refkv_zarrified"}
     paths = [t["path"] for t in meta["tracks"] if t["path"]]
     assert paths == [t["path"] for t in out.summary["tracks"]] and paths
     for track in meta["tracks"]:
         if track["path"] is None:
             continue
         g = root[track["path"]]
-        tm = g.attrs["refkv_virtualized"]["mp4"]
+        tm = g.attrs["refkv_zarrified"]["mp4"]
         assert tm["id"] == track["id"] and tm["format"] in ("h264", "aac", "mp3")
         kind, frames, pts = decoded(path, track["id"] - 1)
         if kind == "video":
@@ -113,16 +113,16 @@ def chunk_units(out, key, data):
 
 def test_video_chunks_start_at_keyframes(tmp_path):
     """Video chunks are runs of whole groups of pictures, a group longer than a chunk split
-    (spec/virtualize/mp4.md §4.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#41-video-tracks>):
+    (spec/zarrify/mp4.md §4.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#41-video-tracks>):
     mp4_h264_long.mp4 (400 pictures of 32 x 32 in groups of 50) has chunks of 250 and 150
     pictures, a regular grid, each starting at a keyframe with no lead-in.
     mp4_h264_irregular_groups.mp4 (60 pictures, groups starting at 0, 7, 9, 23 and 40) in
     chunks of at most 7 has a rectilinear grid; a chunk that starts at a keyframe has no
     lead-in, and one inside a group decodes from its keyframe (§8.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#83-chunks>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>)."""
     path = FIXTURES / "mp4" / "mp4_h264_long.mp4"
-    out, root = virtualized(path, tmp_path)
+    out, root = zarrified(path, tmp_path)
     assert root["tracks/1/y"].chunks == (250, 32, 32)
     units, positions = chunk_units(out, "tracks/1/y/c/1/0/0", path.read_bytes())
     assert sorted(positions) == list(range(150))
@@ -132,7 +132,7 @@ def test_video_chunks_start_at_keyframes(tmp_path):
     assert codecs[0]["configuration"]["format"] == "h264" and codecs[0]["configuration"]["setup"]
 
     path = FIXTURES / "mp4" / "mp4_h264_irregular_groups.mp4"
-    out, root = virtualized(path, tmp_path, chunk_frames=7)
+    out, root = zarrified(path, tmp_path, chunk_frames=7)
     grid = json.loads(out.bytes_entries["tracks/1/y/zarr.json"])["chunk_grid"]
     assert grid == {"name": "rectilinear", "configuration": {"kind": "inline",
                                                              "chunk_shapes": [[7, 2, [7, 4], 3, [7, 2], 6], 48, 64]}}
@@ -160,7 +160,7 @@ def test_a_video_chunk_s_planes_decode_once(tmp_path, monkeypatch):
     monkeypatch.setattr(stream, "decode_chunk", lambda *a: calls.append(1) or decode(*a))
     monkeypatch.setattr(stream, "SHARED", Shared(1 << 26))
     path = FIXTURES / "mp4" / "mp4_h264_irregular_groups.mp4"
-    out, root = virtualized(path, tmp_path, chunk_frames=7)
+    out, root = zarrified(path, tmp_path, chunk_frames=7)
     kind, frames, _ = decoded(path, 0)
     for k, p in enumerate("yuv"):
         assert np.array_equal(root["tracks/1"][p][16:23], np.stack([plane(f, k) for f in frames[16:23]])), p
@@ -197,7 +197,7 @@ def test_the_codec_keeps_each_plane_once_within_its_limit():
     assert list(shared.kept) == ["b"]
 
 
-# (file, the tracks it virtualizes, each other track's ID and the start of its reason)
+# (file, the tracks it zarrifies, each other track's ID and the start of its reason)
 TRACKS = [
     ("mp4_hevc_aac.mp4", ["tracks/2"], {1: "hev1 video is not supported"}),
     ("mp4_h264_10bit_aac.mp4", ["tracks/2"], {1: "H.264 with chroma format 1 and bit depth 10 is not supported"}),
@@ -207,10 +207,10 @@ TRACKS = [
 ]
 
 
-def test_records_the_tracks_it_does_not_virtualize(tmp_path):
+def test_records_the_tracks_it_does_not_zarrify(tmp_path):
     for name, projected, reasons in TRACKS:
-        out, root = virtualized(FIXTURES / "mp4" / name, tmp_path)
-        tracks = root.attrs["refkv_virtualized"]["mp4"]["tracks"]
+        out, root = zarrified(FIXTURES / "mp4" / name, tmp_path)
+        tracks = root.attrs["refkv_zarrified"]["mp4"]["tracks"]
         assert [t["path"] for t in tracks if t["path"]] == projected, name
         assert {t["id"]: t["reason"][:len(reasons[t["id"]])] for t in tracks if t["reason"]} == reasons, name
         assert {s["id"] for s in out.summary["skipped"]} == set(reasons), name
@@ -218,15 +218,15 @@ def test_records_the_tracks_it_does_not_virtualize(tmp_path):
 
 def test_reads_the_movie_and_track_metadata(tmp_path):
     """The brands, the timescales, the edit list (recorded, not applied) and a VFR track's
-    presentation times (spec/virtualize/mp4.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#5-source-metadata>)."""
-    out, root = virtualized(FIXTURES / "mp4" / "mp4_h264_bframes.mp4", tmp_path)
-    meta = root.attrs["refkv_virtualized"]["mp4"]
+    presentation times (spec/zarrify/mp4.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#5-source-metadata>)."""
+    out, root = zarrified(FIXTURES / "mp4" / "mp4_h264_bframes.mp4", tmp_path)
+    meta = root.attrs["refkv_zarrified"]["mp4"]
     assert meta["brand"]["major"] == "isom" and "mp41" in meta["brand"]["compatible"]
-    track = root["tracks/1"].attrs["refkv_virtualized"]["mp4"]
+    track = root["tracks/1"].attrs["refkv_zarrified"]["mp4"]
     assert track["edits"] and track["edits"][0]["media_time"] > 0  # B-frames: the composition delay
     assert track["sync_samples"] == 3 and track["chunk_frames"] == 256
-    _, root = virtualized(FIXTURES / "mp4" / "mp4_h264_vfr.mp4", tmp_path)
+    _, root = zarrified(FIXTURES / "mp4" / "mp4_h264_vfr.mp4", tmp_path)
     times = root["tracks/1/time"][...]
-    assert root["tracks/1"].attrs["refkv_virtualized"]["mp4"]["timescale"] == 1000
+    assert root["tracks/1"].attrs["refkv_zarrified"]["mp4"]["timescale"] == 1000
     assert len(set(np.diff(times).tolist())) > 1  # the steps differ

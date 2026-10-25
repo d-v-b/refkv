@@ -1,4 +1,4 @@
-//! The QPTIFF profile (spec/virtualize/qptiff.md), read by the TIFF parser: QPTIFF found as
+//! The QPTIFF profile (spec/zarrify/qptiff.md), read by the TIFF parser: QPTIFF found as
 //! QPTIFF, the facts its descriptions give, and one test per rejected fixture.
 
 mod common;
@@ -8,7 +8,7 @@ use refkv_ir::parse_bytes;
 use refkv_ir::tiff::Tiff;
 
 // one test per rejected fixture, each the message its check gives
-// one test per case of conformance/virtualize/rejects/qptiff.json (build.rs), each the message its check gives
+// one test per case of conformance/zarrify/rejects/qptiff.json (build.rs), each the message its check gives
 macro_rules! reject {
     ($name:ident, $input:literal, $msg:literal) => {
         common::reject!($name, Tiff, concat!("qptiff/", $input), $msg);
@@ -16,8 +16,8 @@ macro_rules! reject {
 }
 include!(concat!(env!("OUT_DIR"), "/rejects_qptiff.rs"));
 
-/// The TIFF parser reads a QPTIFF as QPTIFF (spec/virtualize/qptiff.md §7
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#7-qptiff-profile>): each
+/// The TIFF parser reads a QPTIFF as QPTIFF (spec/zarrify/qptiff.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#7-qptiff-profile>): each
 /// accepted QPTIFF fixture's facts name the profile, its channels and levels; a TIFF's and an
 /// NDPI's do not.
 #[test]
@@ -44,8 +44,8 @@ fn the_tiff_parser_finds_qptiff() {
 }
 
 /// The channels' names and colors, the image name and the levels' tiling, as the layout reads
-/// them (spec/virtualize/qptiff.md §3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#3-images-and-channels>): an
+/// them (spec/zarrify/qptiff.md §3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#3-images-and-channels>): an
 /// entity reference decoded, a Name nested in the ScanProfile not taken, the smallest level in
 /// strips.
 #[test]

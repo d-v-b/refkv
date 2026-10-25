@@ -2,7 +2,7 @@
 wide candidates, a document of 800,000 members or of one name repeated, a grid at the integer
 limit, a multiscale group whose levels repeat, many empty objects, many deep keys under a
 root dataset, a dataset full of nested documents, deep JSON, and member names that break the IR's naming rules. Each must be refused or
-virtualized as the frozen reference does it, never hang or blow up.
+zarrified as the frozen reference does it, never hang or blow up.
 Usage: uv run python python/tests/ir/gen_n5_probes.py <out dir> [--small]
 (--small writes the tests' sizes: each store under 2 MB and 3000 objects.)"""
 

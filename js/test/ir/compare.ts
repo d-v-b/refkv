@@ -1,21 +1,21 @@
-// Comparing the Rust core's output (src/virtualize/ir) with the frozen TypeScript
-// virtualizers' (conformance/reference): the hierarchy, outside the source
+// Comparing the Rust core's output (src/zarrify/ir) with the frozen TypeScript
+// zarrifiers' (conformance/reference): the hierarchy, outside the source
 // metadata node, whose mirror differs by design.
 
 import type { Range, Source } from "../../src/protobuf.ts";
-import { CONVENTION_KEY, SOURCE_NODE } from "../../src/virtualize/common.ts";
-import { currentNames, SOURCE_NODE as LEGACY_NODE } from "../../../conformance/virtualize/reference/ts/legacy.ts";
+import { CONVENTION_KEY, SOURCE_NODE } from "../../src/zarrify/common.ts";
+import { currentNames, SOURCE_NODE as LEGACY_NODE } from "../../../conformance/zarrify/reference/ts/legacy.ts";
 import type { ArchiveDesc } from "../../src/writer.ts";
-import { REVISION_25 } from "../../../conformance/virtualize/reference/ts/revision.ts";
+import { REVISION_25 } from "../../../conformance/zarrify/reference/ts/revision.ts";
 
 /** The profiles frozen at revision 25, and the members of their root's source metadata
- * the mirror holds instead (conformance/virtualize/compare.py's MIRRORED). */
+ * the mirror holds instead (conformance/zarrify/compare.py's MIRRORED). */
 const FROZEN_25: Record<string, string[]> = {
   nifti: ["header_rest", "extender", "extensions", "extensions_truncated", "unparsed", "trailing"],
 };
 
 /** The members of the root image's `ome` the Rust core writes and the frozen reference does
- * not, by profile (conformance/virtualize/compare.py's ADDED): TIFF's and NDPI's `omero`,
+ * not, by profile (conformance/zarrify/compare.py's ADDED): TIFF's and NDPI's `omero`,
  * added after the freeze. */
 const ADDED: Record<string, string[]> = { tiff: ["omero"], ndpi: ["omero"] };
 

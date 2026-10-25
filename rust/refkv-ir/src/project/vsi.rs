@@ -1,7 +1,7 @@
-//! The VSI projection (spec/virtualize/vsi.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#4-the-images>–§6.1
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#61-the-root>, the profile's
-//! §9.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#94-chunks>) from a valid
+//! The VSI projection (spec/zarrify/vsi.md §4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#4-the-images>–§6.1
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#61-the-root>, the profile's
+//! §9.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#94-chunks>) from a valid
 //! store IR: a bioformats2raw layout of one OME-Zarr image per stack with pixels, each level's
 //! chunks the tile file's tiles, and the macro image from the `.vsi` file's own IFD; the root
 //! carries the metadata tree as JSON. The facts hold what the parser read; the projection
@@ -15,8 +15,8 @@ use serde_json::{json, Map, Value as J};
 
 const PROFILE: &str = "vsi";
 
-/// The URL of the object with relative key `key` (spec/virtualize.md §1.4
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>), as the hosts
+/// The URL of the object with relative key `key` (spec/zarrify.md §1.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), as the hosts
 /// make it: the unreserved bytes and `!$&'()*+,;=:@/` as they are, every other percent-encoded.
 pub fn object_url(store_url: &str, key: &str) -> String {
     let mut s = String::from(store_url);
@@ -31,7 +31,7 @@ pub fn object_url(store_url: &str, key: &str) -> String {
 }
 
 /// The codecs of a tile file's arrays (§4.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#41-the-pyramid>): `transpose`
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#41-the-pyramid>): `transpose`
 /// for samples, then the compression's.
 fn codecs(codec: &str, bytes: u64, samples: u64, axes: &[&str]) -> J {
     let mut out = if samples > 1 { vec![transpose_codec(axes)] } else { vec![] };
@@ -44,7 +44,7 @@ fn codecs(codec: &str, bytes: u64, samples: u64, axes: &[&str]) -> J {
 }
 
 /// The window of a channel (§4.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#42-channels>): 0 to the type's
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#42-channels>): 0 to the type's
 /// largest value, with the display limits (clamped) as start and end; none for a type without
 /// a largest value.
 fn window(data_type: &str, display: Option<(f64, f64)>) -> Option<J> {
@@ -186,7 +186,7 @@ fn image(refs: &mut Refs, k: usize, im: &J, vsi_key: &str) -> Result<J, String> 
                          "axes": axes, "sizes": {"t": size_t, "c": size_c, "z": size_z}, "levels": levels, "grids": grids,
                          "chunks": count, "tilesOutside": ets["tiles_outside"]});
     } else {
-        // an IFD image (§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#43-the-macro-image>)
+        // an IFD image (§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#43-the-macro-image>)
         let ifd = &im["ifd"];
         let (w, h, samples, bits, compression) = (n(&ifd["width"]), n(&ifd["height"]), n(&ifd["samples"]), n(&ifd["bits"]), n(&ifd["compression"]));
         let data_type = if bits == 16 { "uint16" } else { "uint8" };

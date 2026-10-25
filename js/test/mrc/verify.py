@@ -1,13 +1,13 @@
-"""Checks the browser MRC virtualizer's output against mrcfile.
+"""Checks the browser MRC zarrifier's output against mrcfile.
 
-Each fixtures/mrc/*.mrc is served over local HTTP and virtualized by
-js/conformance/virtualize.ts (the browser code, run under Node). The array is read
+Each fixtures/mrc/*.mrc is served over local HTTP and zarrified by
+js/conformance/zarrify.ts (the browser code, run under Node). The array is read
 through the reference reader and zarr-python and must equal mrcfile's data, in its
 shape (an image, a stack of images, a volume, or a stack of volumes) and type, and
-every header field must be mrcfile's reading of the header (spec/virtualize/mrc.md §5
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#5-source-metadata>). The
+every header field must be mrcfile's reading of the header (spec/zarrify/mrc.md §5
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#5-source-metadata>). The
 file must be rebuilt byte for byte from the archive's IR mirror (refkv_source, §5.2
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#52-the-ir-mirror>).
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#52-the-ir-mirror>).
 `mrc_reject_*` files must be rejected.
 
 Usage: uv run python js/test/mrc/verify.py [<dir of .mrc files>]
@@ -43,8 +43,8 @@ CANONICAL_NAN = 0x7FC00000
 def as_json(v):
     """A header value as spec/conventions.md §6
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json> and
-    spec/virtualize/mrc.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#5-source-metadata> write it,
+    spec/zarrify/mrc.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#5-source-metadata> write it,
     from mrcfile's numpy value."""
     if isinstance(v, np.ndarray) and v.ndim == 0:
         return as_json(v[()])
@@ -75,8 +75,8 @@ IMOD = 1146047817
 
 def load(path: Path):
     """mrcfile's header and data (its warnings, such as a zero grid size, are not failures).
-    mrcfile does not read IMOD's unsigned-byte flag (spec/virtualize/mrc.md §3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#3-data-types>): a mode 0
+    mrcfile does not read IMOD's unsigned-byte flag (spec/zarrify/mrc.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>): a mode 0
     file with IMOD's stamp and bit 0 of its flags is its bytes as uint8."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -100,7 +100,7 @@ def problems_of(path: Path, out: Path) -> list[str]:
         problems.append(f"dtype {got.dtype} != {want.dtype}")
     if got.shape != want.shape or not np.array_equal(got, want, equal_nan=got.dtype.kind in "fc"):
         problems.append(f"values differ ({got.shape} vs {want.shape})")
-    meta = root.attrs["refkv_virtualized"]["mrc"]
+    meta = root.attrs["refkv_zarrified"]["mrc"]
     if meta["data_type"] != str(want.dtype.newbyteorder("=")):
         problems.append(f"data_type {meta['data_type']} != {want.dtype}")
     if list(meta["header"]) != list(header.dtype.names):
@@ -111,12 +111,12 @@ def problems_of(path: Path, out: Path) -> list[str]:
     kind = {2: "image", 4: "volume_stack"}.get(want.ndim, "image_stack" if header.ispg == 0 else "volume")
     if meta["kind"] != kind:
         problems.append(f"kind {meta['kind']} != {kind}")
-    # the dataset layout (spec/virtualize/mrc-dataset.md): xarray opens it with the file's values
+    # the dataset layout (spec/zarrify/mrc-dataset.md): xarray opens it with the file's values
     # and coordinates in angstroms
-    if root.attrs["refkv_virtualized"].get("layouts") != {"dataset": "dataset"}:
+    if root.attrs["refkv_zarrified"].get("layouts") != {"dataset": "dataset"}:
         problems.append("the root does not name the dataset layout")
     ds = xr.open_zarr(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), group="dataset", consolidated=False)
-    if ds.attrs["refkv_virtualized"]["mrc-dataset"] != meta:
+    if ds.attrs["refkv_zarrified"]["mrc-dataset"] != meta:
         problems.append("the dataset's source metadata is not the root's")
     if not np.array_equal(ds["data"].values, want, equal_nan=want.dtype.kind in "fc"):
         problems.append("the dataset's values differ")

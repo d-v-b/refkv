@@ -1,6 +1,6 @@
 """`imagecodecs_jpegxr`: each chunk is one JPEG XR file (ITU-T T.832, with its container), as CZI
-JpgXr subblocks are (spec/virtualize/czi.md §3.1
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#31-pixel-types-and-codecs>). It
+JpgXr subblocks are (spec/zarrify/czi.md §3.1
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#31-pixel-types-and-codecs>). It
 decodes only; its encoder exists so zarr can create the array metadata.
 """
 

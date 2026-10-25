@@ -445,7 +445,7 @@ def _proxy(url: str) -> str | None:
 
 
 # The User-Agent every request of the reader carries unless `headers` gives one (the
-# virtualizer's say `refkv-virtualize`): some hosts, Wikimedia Commons among them, refuse a
+# zarrifier's say `refkv-zarrify`): some hosts, Wikimedia Commons among them, refuse a
 # client that sends none or urllib's default.
 USER_AGENT = "refkv"
 
@@ -818,7 +818,7 @@ class ReferenceReader:
     - `policy`: what may be resolved (`Policy`; the default is `Policy()`).
     - `max_concurrency`: the most requests this store has in flight at once,
       to its sources and to the archive itself: 8 by default, as many
-      connections as the virtualizer opens to one host, and polite to the
+      connections as the zarrifier opens to one host, and polite to the
       hosts of public data. None for no cap. Zarr's `async.concurrency` setting
       (default 10) caps something else: the chunks one zarr operation reads at
       once, per operation. One chunk can need several requests (a reference

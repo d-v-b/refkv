@@ -1,9 +1,9 @@
-// A local directory as a store (spec/virtualize.md §1.5
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store>), under Node: its
+// A local directory as a store (spec/zarrify.md §1.5
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), under Node: its
 // regular files at any depth, without symbolic links or names that are not UTF-8.
 
 import fs from "node:fs";
-import { addListed, checkStoreUrl, type Store } from "../src/virtualize/store.ts";
+import { addListed, checkStoreUrl, type Store } from "../src/zarrify/store.ts";
 
 /** The directory `root`, read as the store served at `storeUrl` (ending in "/"). */
 export function directoryStore(root: string, storeUrl: string): Store {

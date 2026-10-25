@@ -102,9 +102,9 @@ pub fn drive(run: &mut Run, t: &Transport, conc: usize) -> Result<(), Fail> {
     Ok(())
 }
 
-/// Whether the file `t` opened is a VSI file (spec/virtualize/vsi.md §9.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#91-the-vsi-file>), which is
-/// virtualized with its tile files (vsi.rs) rather than as a file run.
+/// Whether the file `t` opened is a VSI file (spec/zarrify/vsi.md §9.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#91-the-vsi-file>), which is
+/// zarrified with its tile files (vsi.rs) rather than as a file run.
 pub fn is_vsi(t: &Transport) -> Result<bool, Fail> {
     let want = t.size().min(552);
     let (held, _) = t.head();
@@ -115,7 +115,7 @@ pub fn is_vsi(t: &Transport) -> Result<bool, Fail> {
 /// (format, output) of the file at `location`, read through `t`: the format its first bytes give
 /// ("tiff" becomes "ndpi" once the parser finds the file is NDPI), its output naming the source
 /// `url` (default: `location`, or for a local file the path's URI reference).
-pub fn virtualize_file(location: &str, url: Option<&str>, t: &Transport, connections: Option<usize>, byte_cost: Option<f64>)
+pub fn zarrify_file(location: &str, url: Option<&str>, t: &Transport, connections: Option<usize>, byte_cost: Option<f64>)
     -> Result<(Format, refkv_ir::out::Out), Fail> {
     let want = t.size().min(552);
     let (held, _) = t.head();

@@ -1,7 +1,7 @@
 """`refkv.fits_tiles`: a chunk of a tile-compressed FITS image, a prefix of per-tile records then
 the tiles' RICE_1, GZIP_1, GZIP_2 or NOCOMPRESS streams, dequantized as cfitsio does
-(spec/virtualize/fits.md §3.3
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>),
+(spec/zarrify/fits.md §3.3
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>),
 decoded by the Rust core. It has no encoder.
 """
 

@@ -1,26 +1,26 @@
-"""Checks the browser Zarr v2 virtualizer's output against zarr-python's
+"""Checks the browser Zarr v2 zarrifier's output against zarr-python's
 own Zarr v2 reader.
 
 Each store in fixtures/zarr2/ is served by the harness proxy (with
-its S3 listing) and virtualized by js/conformance/virtualize.ts (the browser
+its S3 listing) and zarrified by js/conformance/zarrify.ts (the browser
 code, run under Node). Every array of the archive is read through refkv.zarr
 and zarr-python as Zarr v3 and must equal the same array read from the
 fixture directory by zarr-python as Zarr v2 (`zarr_format=2`, which reads
 `.zarray` itself and decodes chunks with numcodecs), with the same data type
-and fill value. Zero-size chunk objects have no entry (spec/virtualize.md §1.4
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>),
+and fill value. Zero-size chunk objects have no entry (spec/zarrify.md §1.4
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>),
 so the reference reads a copy of the store without them (zarr-python fails on
 them); their keys are listed with the empty objects (the IR's mirror lists them as objects of size
 0, and rebuilds every document it holds, which must be the store's). Each object under
 `refkv_source/objects/` must read as the store's object at its unescaped key,
 none may open as a Zarr node, and the keys listed as empty must be exactly
-the store's empty objects, and none listed as ignored (spec/virtualize/zarr2.md §5
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>).
+the store's empty objects, and none listed as ignored (spec/zarrify/zarr2.md §5
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>).
 `zarr2_reject_*` stores must be rejected.
 
-With `--remote <store URL> <array path>`, a public store is virtualized
+With `--remote <store URL> <array path>`, a public store is zarrified
 directly and that array is compared with zarr-python reading the Zarr v2
-array over HTTP (the pixel check of conformance/virtualize/corpus_zarr2.txt).
+array over HTTP (the pixel check of conformance/zarrify/corpus_zarr2.txt).
 
 Usage: uv run python js/test/zarr2/verify.py [<store dir> ...]
        uv run python js/test/zarr2/verify.py --remote <store URL> <array path>
@@ -45,7 +45,7 @@ from zarr.storage import FsspecStore, LocalStore
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 FIXTURES = ROOT / "fixtures"
-sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from proxy import Proxy  # noqa: E402
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers zlib)
@@ -65,8 +65,8 @@ def arrays_of(out: Path) -> list[str]:
                   and json.loads(z.read(name)).get("node_type") == "array")
 
 
-def virtualize(url: str, out: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts", url, str(out)],
+def zarrify(url: str, out: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(["node", str(ROOT / "js" / "conformance" / "zarrify.ts"), "--allow-private-hosts", url, str(out)],
                           capture_output=True, text=True)
 
 
@@ -75,19 +75,19 @@ def same(got, want) -> bool:
             and np.array_equal(got, want, equal_nan=got.dtype.kind == "f"))
 
 
-# A last segment escaped with ~ (spec/virtualize/zarr2.md §5
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
-# spec/virtualize/n5.md §6
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>).
+# A last segment escaped with ~ (spec/zarrify/zarr2.md §5
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>,
+# spec/zarrify/n5.md §6
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects>).
 ESCAPED = re.compile(r"(?:zarr\.json|\.zarray|\.zgroup)~+\Z")
 NODE_NAME = re.compile(r"(?:zarr\.json|\.zarray|\.zgroup)\Z")
 
 
 def objects_problems(store_dir: Path, out: Path) -> list[str]:
-    """The other objects and the empty ones against the store (spec/virtualize/zarr2.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>,
-    spec/virtualize/n5.md §6
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>): each entry
+    """The other objects and the empty ones against the store (spec/zarrify/zarr2.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>,
+    spec/zarrify/n5.md §6
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects>): each entry
     under refkv_source/objects/ is its object, whose key
     is the entry's with one ~ taken off an escaped last segment; no Zarr node opens there; and
     every key listed as empty is an object of size 0."""
@@ -117,13 +117,13 @@ def objects_problems(store_dir: Path, out: Path) -> list[str]:
                 pass
     own = {}
     if "refkv_source/zarr.json" in names:
-        attrs = json.loads(zipfile.ZipFile(out).read("refkv_source/zarr.json"))["attributes"].get("refkv_virtualized", {})
+        attrs = json.loads(zipfile.ZipFile(out).read("refkv_source/zarr.json"))["attributes"].get("refkv_zarrified", {})
         own = next(iter(attrs.values()), {})
     if "refkv_source/empty.json" in names:
         own = json.loads(zipfile.ZipFile(out).read("refkv_source/empty.json"))
     if isinstance(own, dict) and "ir" in own:
-        # a store IR's mirror (spec/virtualize/zarr2.md §4.1
-        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#41-elements>): it lists
+        # a store IR's mirror (spec/zarrify/zarr2.md §4.1
+        # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#41-elements>): it lists
         # every object with its size, the empty ones included, and rebuilds each document it holds
         from refkv import _core
 
@@ -163,8 +163,8 @@ def check_store(store_dir: Path, out: Path, tmp: str) -> list[str]:
         if f.is_file() and f.stat().st_size == 0:
             f.unlink()
     # numcodecs takes no member it does not know; the archive keeps such members as source
-    # metadata (spec/virtualize/zarr2.md §4
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>), and
+    # metadata (spec/zarrify/zarr2.md §4
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#4-source-metadata>), and
     # they do not change how chunks decode.
     for f in copy.rglob(".zarray"):
         z = json.loads(f.read_text())
@@ -189,7 +189,7 @@ def check_store(store_dir: Path, out: Path, tmp: str) -> list[str]:
 def remote(store_url: str, path: str) -> int:
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "remote.vzip"
-        p = virtualize(store_url, out)
+        p = zarrify(store_url, out)
         if p.returncode:
             print(f"FAILED: {p.stderr[-300:]}")
             return 1

@@ -1,7 +1,7 @@
-"""The VSI convention's source metadata (spec/virtualize/vsi.md), for
+"""The VSI convention's source metadata (spec/zarrify/vsi.md), for
 spec/generate_schemas.py."""
 
-# A VSI slide (spec/virtualize/vsi.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#6-source-metadata>):
+# A VSI slide (spec/zarrify/vsi.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#6-source-metadata>):
 # the root's file, stacks and metadata tree; each image's stack properties and its tile file's
 # headers or its IFD; the macro image's IFD; and the mirror's.
 _VSI_PAIR = {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}
@@ -10,7 +10,7 @@ _VSI_NULLABLE_PAIR = {"anyOf": [_VSI_PAIR, {"type": "null"}]}
 
 _VSI_FIELD = {
     "type": "object",
-    "description": "A field of the metadata tree (spec/virtualize/vsi.md §6.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#61-the-root>)",
+    "description": "A field of the metadata tree (spec/zarrify/vsi.md §6.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#61-the-root>)",
     "properties": {
         "tag": {"type": "integer", "minimum": 0},
         "tag2": {"type": "integer", "minimum": 0},
@@ -28,7 +28,7 @@ _VSI_FIELD = {
 
 _VSI_IFD = {
     "type": "object",
-    "description": "An IFD image's IFD (spec/virtualize/vsi.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#43-the-macro-image>)",
+    "description": "An IFD image's IFD (spec/zarrify/vsi.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#43-the-macro-image>)",
     "properties": {k: {"type": "integer", "minimum": 0} for k in ("index", "width", "height", "samples", "bits", "compression", "photometric")},
     "required": ["index", "width", "height", "samples", "bits", "compression", "photometric"],
     "additionalProperties": False,
@@ -37,7 +37,7 @@ _VSI_IFD = {
 SCHEMA = {"anyOf": [
     {
         "type": "object",
-        "description": "The root's: the .vsi file, the stacks and the metadata tree (spec/virtualize/vsi.md §6.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#61-the-root>)",
+        "description": "The root's: the .vsi file, the stacks and the metadata tree (spec/zarrify/vsi.md §6.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#61-the-root>)",
         "properties": {
             "file": {"type": "object",
                      "properties": {"key": {"type": "string"}, "size": {"type": "integer", "minimum": 32}, "ifds": {"type": "integer", "minimum": 0}},
@@ -64,7 +64,7 @@ SCHEMA = {"anyOf": [
     },
     {
         "type": "object",
-        "description": "A stack's image's: its properties from the tree, then its tile file's headers and levels, or its IFD (spec/virtualize/vsi.md §6.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#61-the-root>)",
+        "description": "A stack's image's: its properties from the tree, then its tile file's headers and levels, or its IFD (spec/zarrify/vsi.md §6.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#61-the-root>)",
         "properties": {
             "id": {"type": "integer", "minimum": 0},
             "type": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
@@ -101,7 +101,7 @@ SCHEMA = {"anyOf": [
             "tile_file": {"type": "string"},
             "ets": {
                 "type": "object",
-                "description": "The tile file's SIS and ETS headers (spec/virtualize/vsi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#3-the-tile-files>)",
+                "description": "The tile file's SIS and ETS headers (spec/zarrify/vsi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#3-the-tile-files>)",
                 "properties": {
                     "key": {"type": "string"},
                     "size": {"type": "integer", "minimum": 64},
@@ -140,7 +140,7 @@ SCHEMA = {"anyOf": [
     },
     {
         "type": "object",
-        "description": "The macro image's: its name and IFD (spec/virtualize/vsi.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#43-the-macro-image>)",
+        "description": "The macro image's: its name and IFD (spec/zarrify/vsi.md §4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#43-the-macro-image>)",
         "properties": {"name": {"const": "macro image"}, "ifd": _VSI_IFD},
         "required": ["name", "ifd"],
         "additionalProperties": False,

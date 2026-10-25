@@ -1,7 +1,7 @@
-//! The XML subset of spec/virtualize.md §1.5
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store> as a tree: the
-//! reading of a SAFE product's metadata documents (spec/virtualize/safe.md §2.1
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#21-objects>). Elements,
+//! The XML subset of spec/zarrify.md §1.5
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store> as a tree: the
+//! reading of a SAFE product's metadata documents (spec/zarrify/safe.md §2.1
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#21-objects>). Elements,
 //! attributes, character data, the five entities and character references, and comments;
 //! anything else (CDATA, processing instructions, a DOCTYPE) is not in the subset, nor is
 //! nesting deeper than 256.

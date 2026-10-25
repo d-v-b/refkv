@@ -1,7 +1,7 @@
-"""Checks the browser ND2 virtualizer's output on the synthetic ND2 files.
+"""Checks the browser ND2 zarrifier's output on the synthetic ND2 files.
 
-Each fixtures/nd2/*.nd2 is served over local HTTP and virtualized by
-js/conformance/virtualize.ts (the browser code, run under Node). Every chunk
+Each fixtures/nd2/*.nd2 is served over local HTTP and zarrified by
+js/conformance/zarrify.ts (the browser code, run under Node). Every chunk
 of the archive is read through the reference reader and zarr-python and must
 equal the pixels write_fixtures.py wrote (<name>.npz); chunks absent from the
 npz (missing frames) must read as the fill value. `nd2_reject_*` files must be
@@ -66,8 +66,8 @@ register_codec("zlib", ZlibCodec)
 
 
 def lv_norm(v):
-    """The nd2 package's decoding of an LV value, as spec/virtualize/nd2.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-source-metadata> writes it."""
+    """The nd2 package's decoding of an LV value, as spec/zarrify/nd2.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#5-source-metadata> writes it."""
     if isinstance(v, dict):
         if v and all(re.fullmatch(r"i[0-9]{10}", k) for k in v):
             return [lv_norm(x) for x in v.values()]
@@ -85,8 +85,8 @@ TAGS = ("utf16", "int", "float")
 
 
 def ours_norm(v):
-    """Our JSON (spec/virtualize/nd2.md §5.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>) as the nd2
+    """Our JSON (spec/zarrify/nd2.md §5.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>) as the nd2
     package reads it: pairs
     as an object (first position, last value), or as a list when their names are empty;
     an int tag as its integer and a float tag as lv_norm writes the value (-0 as -0.0)."""
@@ -137,9 +137,9 @@ def family_member(node, i: int) -> bytes | None:
 
 def frame_problems(root, loops: list[dict], frames: dict[int, bytes], attrs: dict) -> list[str]:
     """Each placed frame's pixels in the image, and its timestamp in ImageDataSeq,
-    against its chunk's data (spec/virtualize/nd2.md §4.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#43-output>, §5.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#53-elements>)."""
+    against its chunk's data (spec/zarrify/nd2.md §4.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#43-output>, §5.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#53-elements>)."""
     h, w, comp = attrs["uiHeight"], attrs["uiWidth"], attrs["uiComp"]
     row, width_bytes = w * comp * attrs["uiBpcInMemory"] // 8, attrs["uiWidthBytes"]
     times = root["refkv_source/ImageDataSeq"] if frames else None
@@ -168,14 +168,14 @@ def frame_problems(root, loops: list[dict], frames: dict[int, bytes], attrs: dic
 
 
 def mirror_chunk_problems(path: Path, root, out: Path) -> list[str]:
-    """An archive of the IR: the root's decoded chunks (spec/virtualize/nd2.md §5.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>)
+    """An archive of the IR: the root's decoded chunks (spec/zarrify/nd2.md §5.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>)
     against the nd2 package's decoder, and the source rebuilt from the mirror byte for
     byte (the frames' pixels are checked against the expected arrays)."""
     import nd2 as nd2lib
 
     problems = mirror_problems(out, path)
-    decoded = root.attrs["refkv_virtualized"]["nd2"]["chunks"]
+    decoded = root.attrs["refkv_zarrified"]["nd2"]["chunks"]
     with nd2lib.ND2File(path) as f:
         r = f._rdr
         for k in r.chunkmap:
@@ -191,15 +191,15 @@ def mirror_chunk_problems(path: Path, root, out: Path) -> list[str]:
 
 
 def chunk_problems(path: Path, root) -> list[str]:
-    """Reconstruction (spec/virtualize/nd2.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-source-metadata>): every chunk
+    """Reconstruction (spec/zarrify/nd2.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#5-source-metadata>): every chunk
     of the map but the placed frames' pixels can be recovered from the hierarchy, against the nd2
     package's chunk map, loader and decoder."""
     import nd2 as nd2lib
 
-    meta = root.attrs["refkv_virtualized"]["nd2"]
+    meta = root.attrs["refkv_zarrified"]["nd2"]
     src = root["refkv_source"] if "refkv_source" in root else None
-    s = src.attrs["refkv_virtualized"]["nd2"] if src is not None and "refkv_virtualized" in src.attrs else {}
+    s = src.attrs["refkv_zarrified"]["nd2"] if src is not None and "refkv_zarrified" in src.attrs else {}
     decoded = {**meta["chunks"], **s.get("chunks", {})}
 
     def names(key: str) -> list:
@@ -272,8 +272,8 @@ def chunk_problems(path: Path, root) -> list[str]:
             if got != raw:
                 problems.append(f"{name}: bytes differ")
         exp = r._load_chunk(b"ImageMetadataLV!") if b"ImageMetadataLV!" in r.chunkmap else None
-    # the frozen reference twin of the ND2 profile (conformance/virtualize/reference)
-    sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
+    # the frozen reference twin of the ND2 profile (conformance/zarrify/reference)
+    sys.path.insert(0, str(ROOT / "conformance" / "zarrify" / "reference"))
     from refkv_reference.nd2.lv import decode_lv
     from refkv_reference.nd2.virtualize import flatten_experiment
 
@@ -282,7 +282,7 @@ def chunk_problems(path: Path, root) -> list[str]:
 
 
 def check(nd2: Path, out: Path, _) -> tuple[list, str]:
-    """A virtualized file's problems: its chunks' metadata, then every chunk against the values the generator
+    """A zarrified file's problems: its chunks' metadata, then every chunk against the values the generator
     wrote; and its chunk count and axes."""
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
     meta = mirror_chunk_problems(nd2, root, out) if is_mirror(out) else chunk_problems(nd2, root)

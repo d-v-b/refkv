@@ -1,6 +1,6 @@
 """Writes synthetic Olympus VSI slides to fixtures/vsi/, covering the rules of the VSI profile
-(spec/virtualize/vsi.md §9
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#9-vsi-profile>) and its
+(spec/zarrify/vsi.md §9
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#9-vsi-profile>) and its
 convention: each `<name>.vsi` (a little-endian TIFF whose byte 8 starts the metadata tree, with
 the macro image and the thumbnails as IFDs inside the tree's regions) and its sidecar directory
 `_<name>_/stack<N>/frame_t.ets` (or `frame_t_0.ets`), the tile files: a 64-byte SIS header, a
@@ -8,14 +8,14 @@ the macro image and the thumbnails as IFDs inside the tree's regions) and its si
 
 The layout is the one read from Olympus's files (Image_V4.1_BF.vsi and the Zenodo
 metadataTest_01.vsi of the public samples): the tree's containers and fields are laid out as
-§2.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#21-containers-and-fields>
+§2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#21-containers-and-fields>
 describes them (a field with a second tag counts its data from the container's start plus 20),
 and the tags are those Bio-Formats' CellSensReader reads, so that Bio-Formats opens the
 accepting fixtures too (python/tests/ir/test_vsi.py checks them against it when a JVM is at
 hand). Pixels are seeded gradients with noise, unique per tile, so that a misplaced tile cannot
 pass; the generator writes each stack's planes as `.npy` arrays beside the fixtures
 (`fixtures/vsi/expected/<name>/<stack>.npy`, the level-0 image in TCZYX order), which the tests
-compare the virtualized arrays with.
+compare the zarrified arrays with.
 
 Accepting fixtures: `vsi_rgb_jpeg` (an overview and a 20x stack of RGB JPEG tiles in pyramids,
 a tile missing, a focus map stored as an IFD, a macro JPEG with JPEG tables and an EXIF IFD),
@@ -117,7 +117,7 @@ def f64s(*v) -> bytes:
 
 
 class Builder:
-    """Lays a container out at an absolute offset, as the real files do (§2.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#21-containers-and-fields>)."""
+    """Lays a container out at an absolute offset, as the real files do (§2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#21-containers-and-fields>)."""
 
     def __init__(self):
         self.ifds: list[tuple[int, int]] = []  # (chain index, absolute offset) of each IFD written

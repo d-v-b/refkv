@@ -1,4 +1,4 @@
-"""The MP4 convention's source metadata (spec/virtualize/mp4.md), for
+"""The MP4 convention's source metadata (spec/zarrify/mp4.md), for
 spec/generate_schemas.py."""
 
 _MP4_EDITS = {"type": "array", "description": "The track's edit list (its elst box's entries), recorded and not applied",
@@ -18,7 +18,7 @@ _MP4_TRACK_COMMON = {
 SCHEMA = {"anyOf": [
     {
         "type": "object",
-        "description": "The root's: the file's brands, the movie's timescale and duration, and every track, with where it is or why it is not virtualized (spec/virtualize/mp4.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#51-the-root>)",
+        "description": "The root's: the file's brands, the movie's timescale and duration, and every track, with where it is or why it is not zarrified (spec/zarrify/mp4.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#51-the-root>)",
         "properties": {
             "brand": {"type": "object", "properties": {"major": {"type": "string"}, "minor": {"type": "integer"},
                                                        "compatible": {"type": "array", "items": {"type": "string"}}},
@@ -28,7 +28,7 @@ SCHEMA = {"anyOf": [
             "tracks": {"type": "array", "items": {
                 "type": "object",
                 "properties": {"id": {"type": "integer"}, "handler": {"type": "string"}, "codec": {"type": "string"},
-                               "path": {"type": ["string", "null"], "description": "The track's group, when it is virtualized"},
+                               "path": {"type": ["string", "null"], "description": "The track's group, when it is zarrified"},
                                "reason": {"type": ["string", "null"], "description": "Why it is not, when it is not"}},
                 "required": ["id", "handler", "codec", "path", "reason"], "additionalProperties": False}},
         },
@@ -37,7 +37,7 @@ SCHEMA = {"anyOf": [
     },
     {
         "type": "object",
-        "description": "A video track's group (spec/virtualize/mp4.md §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#52-the-tracks>)",
+        "description": "A video track's group (spec/zarrify/mp4.md §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#52-the-tracks>)",
         "properties": {
             **_MP4_TRACK_COMMON,
             "format": {"const": "h264"},
@@ -51,7 +51,7 @@ SCHEMA = {"anyOf": [
     },
     {
         "type": "object",
-        "description": "An audio track's group (spec/virtualize/mp4.md §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#52-the-tracks>)",
+        "description": "An audio track's group (spec/zarrify/mp4.md §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#52-the-tracks>)",
         "properties": {
             **_MP4_TRACK_COMMON,
             "format": {"enum": ["aac", "mp3"]},

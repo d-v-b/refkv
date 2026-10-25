@@ -2,14 +2,14 @@
 (a block the cache lacks fails the request: no remote host is contacted), one process
 each (/usr/bin/time -l), outputs compared without refkv_source. The IR runs at
 REFKV_CONCURRENCY (6) connections. `--today <cmd>` names today's command (default
-`python -m refkv.virtualize`); `--ir <cmd>` the IR's (default `python -m refkv.ir
+`python -m refkv.zarrify`); `--ir <cmd>` the IR's (default `python -m refkv.ir
 --allow-private-hosts`).
 Usage: corpus.py <prefix: czi-|nd2-|idr-|svs-> <out dir> [--keep] [--only name] [--today <cmd>] [--ir <cmd>]"""
 import json, os, re, subprocess, sys, time, threading, hashlib, urllib.parse
 from pathlib import Path
 W = Path(__file__).resolve().parents[3]
 HERE = Path(os.environ["REFKV_ADOPT_WORK"])  # the saved IDR listing (idr_listing.html)
-sys.path.insert(0, str(W / "conformance/virtualize"))
+sys.path.insert(0, str(W / "conformance/zarrify"))
 import proxy as P
 from compare import at_revision, from_vzip, differences
 
@@ -63,7 +63,7 @@ def items(prefix):
         out = [(f"idr-{i:03d}", proxy.remote(base + n)) for i, n in enumerate(names)]
     else:
         corpus_file = {"czi-": "corpus_czi.txt", "nd2-": "corpus_nd2.txt"}.get(prefix, "corpus_tiff.txt")
-        for line in (W / "conformance/virtualize" / corpus_file).read_text().split("\n"):
+        for line in (W / "conformance/zarrify" / corpus_file).read_text().split("\n"):
             if not line or line.startswith("#"):
                 continue
             url, name, *_ = line.split("|")
@@ -76,7 +76,7 @@ def opt(name, default):
     return sys.argv[sys.argv.index(name) + 1].split() if name in sys.argv else default
 
 
-TODAY = opt("--today", ["uv", "run", "python", "-m", "refkv.virtualize"])
+TODAY = opt("--today", ["uv", "run", "python", "-m", "refkv.zarrify"])
 IR = opt("--ir", ["uv", "run", "python", "-m", "refkv.ir", "--allow-private-hosts"])
 
 

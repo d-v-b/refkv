@@ -1,6 +1,6 @@
 """`imagecodecs_lzw`: a TIFF LZW stream (TIFF 6.0 §13, MSB-first with early change), as QPTIFF
-tiles and strips are (spec/virtualize/qptiff.md §4.1
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#41-data-types-and-codecs>),
+tiles and strips are (spec/zarrify/qptiff.md §4.1
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#41-data-types-and-codecs>),
 decoded into the chunk's size, as TIFF readers decode a tile: a stream that runs on past it
 (some scanners write the final code one bit too narrow) still gives the chunk.
 """

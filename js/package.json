@@ -2,19 +2,19 @@
   "name": "refkv",
   "private": true,
   "type": "module",
-  "description": "refkv in the browser: a service worker that serves vzip archives, and virtualized TIFFs, as plain HTTP Zarr",
+  "description": "refkv in the browser: a service worker that serves vzip archives, and zarrified TIFFs, as plain HTTP Zarr",
   "imports": {
     "#net": {
       "node": "./src/net_node.ts",
       "default": "./src/net_browser.ts"
     },
     "#irwasm": {
-      "node": "./src/virtualize/ir/wasm_node.ts",
-      "default": "./src/virtualize/ir/wasm_browser.ts"
+      "node": "./src/zarrify/ir/wasm_node.ts",
+      "default": "./src/zarrify/ir/wasm_browser.ts"
     },
     "#profiles": {
-      "node": "./src/virtualize/profiles_node.ts",
-      "default": "./src/virtualize/profiles_bundled.ts"
+      "node": "./src/zarrify/profiles_node.ts",
+      "default": "./src/zarrify/profiles_bundled.ts"
     }
   },
   "license": "MIT OR Apache-2.0",

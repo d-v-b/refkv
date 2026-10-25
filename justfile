@@ -13,7 +13,7 @@ idr_tiff := "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant
 default:
     @just --list --list-submodules
 
-# Test the Python package (python/src/refkv; it virtualizes every format of docs/virtualize/README.md with the Rust core, built first)
+# Test the Python package (python/src/refkv; it zarrifies every format of docs/zarrify/README.md with the Rust core, built first)
 test *args: ir-build
     uv run pytest -q python/tests {{args}}
 
@@ -53,7 +53,7 @@ cli-test:
     cargo test --release --manifest-path rust/refkv-cli/Cargo.toml
     cargo build --release --manifest-path rust/refkv-cli/Cargo.toml
 
-# Convert the fixture corpus with `python -m refkv.virtualize` and with the Rust CLI, from local
+# Convert the fixture corpus with `python -m refkv.zarrify` and with the Rust CLI, from local
 # paths and over HTTP (a server on 127.0.0.1), with and without --checksums, and check that both
 # give the same archives, byte for byte (rust/refkv-cli/tests/identical.py; e.g. `--only nd2`)
 cli-identical *args: ir-build
@@ -86,15 +86,15 @@ example-oisst:
     cd "$(mktemp -d)" && uv run --project "{{justfile_directory()}}" python "{{justfile_directory()}}/docs/examples/oisst.py"
 
 # Check that every section reference ("§n") is a link to a heading that exists, and test the check;
-# and that what derives from the profile registry (spec/virtualize/profiles/) is current
+# and that what derives from the profile registry (spec/zarrify/profiles/) is current
 sections:
     uv run pytest -q spec/tools
     uv run python spec/tools/sections.py check
     uv run python spec/tools/profiles.py check
 
-# Regenerate what derives from the profile registry, spec/virtualize/profiles/<name>.json (the one
+# Regenerate what derives from the profile registry, spec/zarrify/profiles/<name>.json (the one
 # place a profile's identity is written, one file per profile): the Rust core's copies, and the
-# index tables of spec/virtualize.md, spec/conventions.md and docs/virtualize/README.md
+# index tables of spec/zarrify.md, spec/conventions.md and docs/zarrify/README.md
 profiles:
     uv run python spec/tools/profiles.py
 
@@ -139,7 +139,7 @@ fixtures-check:
         exit 1
     fi
 
-# Check the browser virtualizer's pixels against an independent reader, for every format that has
+# Check the browser zarrifier's pixels against an independent reader, for every format that has
 # one: every js/test/<format>/verify.py (each says which reader it needs)
 verify:
     #!/usr/bin/env bash
@@ -154,18 +154,18 @@ verify-of format:
 compare-formats *args:
     uv run python design/comparison/compare.py {{args}}
 
-# spec/virtualize.md: compare implementations on the corpus (network; e.g. `just compare --quick`)
+# spec/zarrify.md: compare implementations on the corpus (network; e.g. `just compare --quick`)
 compare *args:
-    uv run python conformance/virtualize/compare.py conformance/results/virtualize {{args}}
+    uv run python conformance/zarrify/compare.py conformance/results/zarrify {{args}}
 
-# spec/virtualize.md: compare implementations on corrupted copies of the synthetic files
+# spec/zarrify.md: compare implementations on corrupted copies of the synthetic files
 compare-mutants count="10" seed="0" *args:
     rm -rf conformance/results/mutants
-    python3 conformance/virtualize/mutate.py conformance/results/mutants {{count}} {{seed}}
-    uv run python conformance/virtualize/compare.py conformance/results/mutants-out \
+    python3 conformance/zarrify/mutate.py conformance/results/mutants {{count}} {{seed}}
+    uv run python conformance/zarrify/compare.py conformance/results/mutants-out \
         --fixtures conformance/results/mutants {{args}}
 
-# On main after a merge: tag each convention's version as virtualize-<profile>-v<N> at HEAD
+# On main after a merge: tag each convention's version as zarrify-<profile>-v<N> at HEAD
 # (spec/conventions.md §1
 # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>); version 0, before
 # the release, has no tags
@@ -177,8 +177,8 @@ tag-conventions:
         echo "tag-conventions: HEAD is on '$branch'; the convention tags are made on main" >&2
         exit 1
     fi
-    tags="$(uv run python -c 'from refkv.virtualize.common import PROFILES
-    for p, (_, v, _) in PROFILES.items(): print(f"virtualize-{p}-v{v}")')"
+    tags="$(uv run python -c 'from refkv.zarrify.common import PROFILES
+    for p, (_, v, _) in PROFILES.items(): print(f"zarrify-{p}-v{v}")')"
     for tag in $tags; do
         if [ "${tag##*-v}" = "0" ]; then
             echo "$tag: version 0 is not tagged (its URLs name main), kept untagged"
@@ -187,27 +187,27 @@ tag-conventions:
         if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
             echo "$tag exists (at $(git rev-list -n 1 "$tag")), kept"
         else
-            git tag -a "$tag" -m "spec/virtualize.md convention ${tag#virtualize-}"
+            git tag -a "$tag" -m "spec/zarrify.md convention ${tag#zarrify-}"
             echo "$tag created at $(git rev-parse HEAD)"
         fi
     done
     echo "push them with: git push origin --tags"
 
-# Virtualize an image file (a URL or a path) or a store (a URL ending in "/") of any format of
-# docs/virtualize/README.md into a vzip archive
-virtualize src out:
-    uv run python -m refkv.virtualize {{quote(src)}} {{quote(out)}}
+# Zarrify an image file (a URL or a path) or a store (a URL ending in "/") of any format of
+# docs/zarrify/README.md into a vzip archive
+zarrify src out:
+    uv run python -m refkv.zarrify {{quote(src)}} {{quote(out)}}
 
 # Regenerate the (untracked) example archives in design/experiments/out (network)
 archives: archives-nd2 archives-idr
 
-# Virtualize the public ND2 files of the corpus into design/experiments/out/nd2
+# Zarrify the public ND2 files of the corpus into design/experiments/out/nd2
 archives-nd2:
-    grep -v '^#' conformance/virtualize/corpus_nd2.txt | grep . | while IFS='|' read -r url name _; do \
-        uv run python -m refkv.virtualize "$url" "design/experiments/out/nd2/$name.vzip"; \
+    grep -v '^#' conformance/zarrify/corpus_nd2.txt | grep . | while IFS='|' read -r url name _; do \
+        uv run python -m refkv.zarrify "$url" "design/experiments/out/nd2/$name.vzip"; \
     done
 
-# Virtualize the IDR idr0096 OME-TIFF (pinned, and unpinned for browsers) into design/experiments/out
+# Zarrify the IDR idr0096 OME-TIFF (pinned, and unpinned for browsers) into design/experiments/out
 archives-idr:
     mkdir -p design/experiments/out/ng_idr
     uv run python design/experiments/tiff_to_vzip.py {{quote(idr_tiff)}} design/experiments/out/idr0096_4000_d11_m5_LT_2.vzip

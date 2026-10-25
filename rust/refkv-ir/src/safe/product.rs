@@ -1,11 +1,11 @@
-//! A SAFE product's metadata (spec/virtualize/safe.md §2.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#22-the-product-metadata>–§2.5
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#25-band-files>): the product
+//! A SAFE product's metadata (spec/zarrify/safe.md §2.2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#22-the-product-metadata>–§2.5
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#25-band-files>): the product
 //! metadata's image files, the tile geocoding, band names and resolutions; and the source
 //! metadata the convention copies from the XML (§6.1
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#61-values>–§6.3
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)
-//! and its GeoZarr grids (§5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>).
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#61-values>–§6.3
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>)
+//! and its GeoZarr grids (§5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#5-georeferencing-geozarr>).
 
 use super::xmltree::{self, Element};
 use crate::rules::{self, Rules, flag, num, text};
@@ -25,7 +25,7 @@ pub const LEVELS: [(&str, &str, &str, &str); 2] = [
 ];
 
 /// The names of PSD 14.2 that stand for later ones (§2.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#21-objects>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#21-objects>).
 fn alias(name: &str) -> &str {
     match name {
         "Product_Info" => "L2A_Product_Info",
@@ -102,7 +102,7 @@ fn is_positive(t: &str) -> bool {
 }
 
 /// A product's metadata document: UTF-8 and in the XML subset (§2.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#21-objects>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#21-objects>).
 pub fn parse_document(data: &[u8], what: &str) -> Result<Element, String> {
     if data.starts_with(b"\xef\xbb\xbf") {
         return Err(format!("{what} starts with a byte order mark"));
@@ -112,7 +112,7 @@ pub fn parse_document(data: &[u8], what: &str) -> Result<Element, String> {
 }
 
 /// The key of a product's metadata and the level (§2.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#22-the-product-metadata>):
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#22-the-product-metadata>):
 /// index into [`LEVELS`].
 pub fn product_level(rules: &Rules, has: &dyn Fn(&str) -> bool) -> Result<usize, String> {
     let found: Vec<usize> = (0..2).filter(|&k| has(LEVELS[k].0)).collect();
@@ -129,8 +129,8 @@ pub struct Image {
 }
 
 /// The image files of the product metadata whose root is `root` (§2.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#22-the-product-metadata>, §2.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#23-image-files>): the bands,
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#22-the-product-metadata>, §2.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#23-image-files>): the bands,
 /// and the granule directory `<g>`.
 pub fn images(rules: &Rules, root: &Element, level: usize, has: &dyn Fn(&str) -> bool) -> Result<(Vec<Image>, String), String> {
     let (key, _, root_name, _) = LEVELS[level];
@@ -181,7 +181,7 @@ fn u32_text(rules: &Rules, t: &str, what: &str) -> Result<u64, String> {
     Ok(t.parse().unwrap())
 }
 
-/// The tile geocoding (§2.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#24-the-tile-geocoding>).
+/// The tile geocoding (§2.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#24-the-tile-geocoding>).
 pub fn geocoding(rules: &Rules, tile: &Element) -> Result<Geocoding, String> {
     let tg = one(path(tile, "Geometric_Info/Tile_Geocoding"), "MTD_TL.xml: Geometric_Info/Tile_Geocoding")?;
     let code = layout_text(one(kids(tg, "HORIZONTAL_CS_CODE"), "Tile_Geocoding/HORIZONTAL_CS_CODE")?, "HORIZONTAL_CS_CODE")?;
@@ -228,7 +228,7 @@ pub fn geocoding(rules: &Rules, tile: &Element) -> Result<Geocoding, String> {
     Ok(Geocoding { code, sizes, positions, cs_name: string("HORIZONTAL_CS_NAME"), cs_code: string("HORIZONTAL_CS_CODE") })
 }
 
-/// A band file's band name (§2.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#25-band-files>),
+/// A band file's band name (§2.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#25-band-files>),
 /// and whether it is ASCII letters and digits.
 pub fn band_name(basename: &str, r: u64) -> (String, bool) {
     let suffix = format!("_{r}m");
@@ -237,7 +237,7 @@ pub fn band_name(basename: &str, r: u64) -> (String, bool) {
     (name.to_string(), !name.is_empty() && name.bytes().all(|c| c.is_ascii_alphanumeric()))
 }
 
-// ---- the GeoZarr attributes (§5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#5-georeferencing-geozarr>)
+// ---- the GeoZarr attributes (§5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#5-georeferencing-geozarr>)
 
 pub fn proj_cmo() -> J {
     json!({"uuid": "f17cb550-5864-4468-aeb7-f3180cfb622f",
@@ -261,7 +261,7 @@ pub fn multiscales_cmo() -> J {
 }
 
 /// `proj:wkt2` for a WGS 84 / UTM zone's CRS code (§5.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#52-resolution-groups>), else None.
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#52-resolution-groups>), else None.
 pub fn wkt2(code: &str) -> Option<String> {
     let d = code.strip_prefix("EPSG:")?;
     if d.len() != 5 || !d.bytes().all(|c| c.is_ascii_digit()) || d.starts_with('0') {
@@ -301,7 +301,7 @@ pub fn wkt2(code: &str) -> Option<String> {
     ))
 }
 
-// ---- values (§6.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#61-values>)
+// ---- values (§6.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#61-values>)
 
 fn float_json(v: f64) -> J {
     if v.is_nan() {
@@ -396,7 +396,7 @@ fn characteristics(metadata: &Element) -> Option<&Element> {
 }
 
 /// A band array's source metadata (§6.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#62-band-arrays>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#62-band-arrays>).
 pub fn band_metadata(metadata: &Element, l2a: bool, image_text: &str, name: &str, siz_b64: &str) -> J {
     let mut s = Map::new();
     s.insert("IMAGE_FILE".into(), json!(image_text));
@@ -450,7 +450,7 @@ pub fn band_metadata(metadata: &Element, l2a: bool, image_text: &str, name: &str
 }
 
 /// The root's source metadata (§6.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>).
 pub fn root_metadata(metadata: &Element, tile: &Element, geo: &Geocoding) -> J {
     let mut s = Map::new();
     let info = path(metadata, "General_Info/Product_Info");

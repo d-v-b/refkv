@@ -1,7 +1,7 @@
-"""Checks the CZI virtualizers' output (spec/virtualize/czi.md) against czifile and libCZI.
+"""Checks the CZI zarrifiers' output (spec/zarrify/czi.md) against czifile and libCZI.
 
-Each fixtures/czi/*.czi is served over local HTTP and virtualized by
-the browser code under Node (js/conformance/virtualize.ts; `--impl py` uses
+Each fixtures/czi/*.czi is served over local HTTP and zarrified by
+the browser code under Node (js/conformance/zarrify.ts; `--impl py` uses
 the Python reference). Then, reading only the archive, and the file through
 czifile (Christoph Gohlke's independent reader) and pylibCZIrw (ZEISS libCZI)
 where installed:
@@ -51,7 +51,7 @@ HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 FIXTURES = ROOT / "fixtures" / "czi"
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
-sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from http_server import Server  # noqa: E402
 
 from refkv.pb import Concat, Range  # noqa: E402
@@ -71,10 +71,10 @@ LIBCZI_TYPES = {0, 1, 2, 3, 4}  # pixel types libCZI composites
 
 
 def run(impl: str, url: str, out: Path) -> subprocess.CompletedProcess:
-    """`impl`: py, web, or ref (the frozen TypeScript twin, conformance/virtualize/reference/ts)."""
-    cmd = {"py": ["uv", "run", "python", "-m", "refkv.virtualize", "--allow-private-hosts"],
-           "web": ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"],
-           "ref": ["node", str(ROOT / "conformance" / "virtualize" / "reference" / "ts" / "virtualize.ts")]}[impl]
+    """`impl`: py, web, or ref (the frozen TypeScript twin, conformance/zarrify/reference/ts)."""
+    cmd = {"py": ["uv", "run", "python", "-m", "refkv.zarrify", "--allow-private-hosts"],
+           "web": ["node", str(ROOT / "js" / "conformance" / "zarrify.ts"), "--allow-private-hosts"],
+           "ref": ["node", str(ROOT / "conformance" / "zarrify" / "reference" / "ts" / "zarrify.ts")]}[impl]
     return subprocess.run(cmd + [url, str(out)], capture_output=True, text=True, cwd=ROOT)
 
 
@@ -85,7 +85,7 @@ def mirror_check(path: Path, url: str, out: Path) -> list[str]:
     one outside the source metadata node (the reference read with the current names, at
     the current revision: compare.py's `at_revision`), and the mirror must rebuild the
     source byte for byte."""
-    sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
+    sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
     from compare import at_revision, differences, from_vzip, without_source
 
     ref = out.with_suffix(".ref.vzip")
@@ -241,8 +241,8 @@ def czi_pixels(sb_data: np.ndarray, pixel_type: int) -> np.ndarray:
 
 
 def walk(data: bytes) -> tuple[list[tuple[int, bytes, int, int]], int]:
-    """The segments in file order (spec/virtualize/czi.md §7.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#72-structures-and-the-walk>
+    """The segments in file order (spec/zarrify/czi.md §7.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#72-structures-and-the-walk>
     step 6), as the verifier reads them."""
     out, o = [], 0
     while o < len(data) and len(out) < 1 << 23:

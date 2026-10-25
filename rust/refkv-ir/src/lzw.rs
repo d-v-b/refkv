@@ -1,13 +1,13 @@
 //! TIFF LZW streams (TIFF 6.0 §13, as libtiff writes them: codes of 9 to 12 bits packed most
 //! significant bit first, Clear 256, end-of-information 257, new entries from 258, and the
 //! "early change" of the code width), as far as the QPTIFF profile needs them
-//! (spec/virtualize/qptiff.md §4.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#42-tiles-and-strips>): a
+//! (spec/zarrify/qptiff.md §4.2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>): a
 //! scan that decodes a strip's stream only to find where its output reaches the strip's size,
 //! and the tail that continues such a stream with zero bytes, so that a short last strip
 //! decodes to a whole chunk; and a decoder of a chunk's stream, for the `omero` windows sampled
-//! from the data (spec/virtualize/qptiff.md §4.3
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#43-arrays>).
+//! from the data (spec/zarrify/qptiff.md §4.3
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#43-arrays>).
 
 const CLEAR: u32 = 256;
 const EOI: u32 = 257;

@@ -1,5 +1,5 @@
 //! JSON text as Python's `json.dumps` writes it by default, for the summary `python -m
-//! refkv.virtualize` prints: `", "` and `": "` separators, every character outside printable ASCII
+//! refkv.zarrify` prints: `", "` and `": "` separators, every character outside printable ASCII
 //! escaped, and floats as Python's `repr` writes them.
 
 use serde_json::Value;

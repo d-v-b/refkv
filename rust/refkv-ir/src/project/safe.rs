@@ -1,8 +1,8 @@
-//! The SAFE projection (spec/virtualize/safe.md §3
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#3-the-hierarchy>–§6.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#62-band-arrays>, the profile's
-//! §8.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#86-chunks>–§8.8
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#88-the-source-table>) of
+//! The SAFE projection (spec/zarrify/safe.md §3
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#3-the-hierarchy>–§6.2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#62-band-arrays>, the profile's
+//! §8.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#86-chunks>–§8.8
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#88-the-source-table>) of
 //! either form: the GeoZarr root and resolution groups, one array per band file whose chunks
 //! are its tiles as standalone codestreams, and, in the directory form, the other objects at
 //! `refkv_source/objects/<k>`. The facts hold what the parser read; the projection checks only
@@ -59,7 +59,7 @@ pub fn project(_ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let mut resolutions: Vec<u64> = bands.iter().map(|b| n(&b["resolution"])).collect();
     resolutions.sort_unstable();
     resolutions.dedup();
-    // the root (§5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#53-the-root>)
+    // the root (§5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#53-the-root>)
     let mut geo = Map::new();
     crs(facts, &mut geo);
     geo.insert("spatial:bbox".into(), grid(facts, resolutions[0]).bbox);
@@ -82,7 +82,7 @@ pub fn project(_ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     root.insert(CONVENTION_KEY.into(), J::Object(prop));
     root.extend(geo);
     out.json("zarr.json", &group_doc(root));
-    // the resolution groups (§5.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#52-resolution-groups>)
+    // the resolution groups (§5.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#52-resolution-groups>)
     for &r in &resolutions {
         let g = grid(facts, r);
         let mut a = Map::new();
@@ -95,7 +95,7 @@ pub fn project(_ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
         a.insert("spatial:registration".into(), json!("pixel"));
         out.json(&format!("r{r}m/zarr.json"), &group_doc(a));
     }
-    // the band arrays and their chunks (§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#4-arrays>)
+    // the band arrays and their chunks (§4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#4-arrays>)
     let mut refs: Vec<(String, Vec<Pre>)> = Vec::new();
     let (mut chunks, mut edges) = (0u64, 0u64);
     for b in bands {
@@ -126,13 +126,13 @@ pub fn project(_ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
             edges += padded as u64;
         }
     }
-    // the other objects, whole (§6.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)
+    // the other objects, whole (§6.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>)
     for o in arr(&facts["objects"]) {
         let (k, size) = (o[0].as_str().unwrap_or("").to_string(), n(&o[1]));
         refs.push((super::store::object_key(&k), vec![Pre::Part(Part::Obj(k, 0, size))]));
     }
     // the data sources, numbered by first use in the order of the entries' keys (§8.8
-    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#88-the-source-table>)
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#88-the-source-table>)
     refs.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
     for (key, pre) in refs {
         let parts: Vec<Part> = pre.into_iter().map(|p| match p {

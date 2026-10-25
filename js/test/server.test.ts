@@ -40,7 +40,7 @@ const get = (h: ReturnType<typeof handler>, path: string, init?: RequestInit) =>
   h(new Request(PREFIX + path, init));
 const tiff = (name: string) => `tiff/${encodeId(remote(name))}/`;
 
-test("serves virtualized TIFFs and archives as plain HTTP", async () => {
+test("serves zarrified TIFFs and archives as plain HTTP", async () => {
   const fetched: string[] = [];
   const h = handler(fetched);
   const base = tiff("float32_uncompressed_be.ome.tif");
@@ -124,9 +124,9 @@ test("ignores paths outside the routes", async () => {
   assert.equal((await get(handler(), "other/zarr.json")).status, 404);
 });
 
-test("serves virtualized stores, and reports rejected ones", async () => {
-  // A store whose listing (spec/virtualize.md §1.5
-  // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store>) and objects
+test("serves zarrified stores, and reports rejected ones", async () => {
+  // A store whose listing (spec/zarrify.md §1.5
+  // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>) and objects
   // come from the N5, Zarr v2 and SAFE fixtures, in the bucket "b".
   const roots = ["n5", "zarr2", "safe"].map((f) => new URL(`../../fixtures/${f}/`, import.meta.url));
   const rootOf = (rel: string) => roots.find((r) => fs.existsSync(new URL(rel.split("/")[0] + "/", r))) ?? roots[0];

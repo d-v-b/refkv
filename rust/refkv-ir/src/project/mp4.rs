@@ -1,10 +1,10 @@
-//! The MP4 projection (spec/virtualize/mp4.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#4-the-layout>, and the source
-//! metadata of §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#5-source-metadata>)
-//! from a valid IR: a group per track the profile virtualizes, with the planes of an H.264
+//! The MP4 projection (spec/zarrify/mp4.md §4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#4-the-layout>, and the source
+//! metadata of §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#5-source-metadata>)
+//! from a valid IR: a group per track the profile zarrifies, with the planes of an H.264
 //! track's pictures and their presentation times, or an audio track's samples, each chunk a
-//! `refkv.stream` chunk of the track's samples (spec/virtualize/mp4.md §8.3
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#83-chunks>).
+//! `refkv.stream` chunk of the track's samples (spec/zarrify/mp4.md §8.3
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>).
 
 use super::{arr, audio, n, Copied};
 use crate::ir::Ir;
@@ -13,7 +13,7 @@ use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
 /// The most bytes of luma a video chunk decodes to (§4.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#41-video-tracks>), and the most
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#41-video-tracks>), and the most
 /// values of a chunk of the time array.
 const CHUNK_LUMA: u64 = 1 << 25;
 const TIME_CHUNK: u64 = 1 << 17;
@@ -30,7 +30,7 @@ pub fn video_chunk(limit: u64, width: u64, height: u64) -> u64 {
 
 /// The lengths of the video chunks of `count` presented pictures, at most `per` each, the
 /// sync samples presented at `sync` (ascending, from 0) (§4.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#41-video-tracks>): from picture
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#41-video-tracks>): from picture
 /// `a`, a chunk runs to the end when at most `per` pictures are left; else to the last sync
 /// sample after `a` and at most `per` pictures on, so that it holds whole groups of pictures
 /// and the next starts with a sync sample; else `per` pictures, splitting a group longer than
@@ -73,7 +73,7 @@ pub fn grid_lengths(lengths: &[u64]) -> J {
 }
 
 /// The samples of a video chunk of the presented frames `[a, b)` (§18.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#83-chunks>): in decode order,
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>): in decode order,
 /// from the last sync sample at or before the first of them in decode order to the last of
 /// them, each with its position (its presentation index less `a`, or -1 when it is not in
 /// the chunk). `order` is the decode index of each presented frame, `rank` the presentation
@@ -115,7 +115,7 @@ fn stream_codec(format: &str, setup: &J, plane: Option<&str>) -> J {
 }
 
 /// A track's source metadata (§5.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#52-the-tracks>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#52-the-tracks>).
 fn track_json(t: &J, chunk: u64) -> J {
     let mut m = Map::new();
     for k in ["id", "handler", "codec", "format", "timescale", "duration", "edits", "count"] {
@@ -143,7 +143,7 @@ fn track_json(t: &J, chunk: u64) -> J {
 pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, String> {
     let limit = n(&facts["chunk_frames"]).max(1);
     let tracks = arr(&facts["tracks"]);
-    // the root (§5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#51-the-root>)
+    // the root (§5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#51-the-root>)
     let mut own = Map::new();
     if !facts["brand"].is_null() {
         own.insert("brand".into(), facts["brand"].clone());
@@ -173,7 +173,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
         let chunk;
         if format == "h264" {
             // the planes of the pictures, in presentation order (§4.1
-            // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#41-video-tracks>)
+            // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#41-video-tracks>)
             let (w, h) = (n(&t["geometry"]["width"]), n(&t["geometry"]["height"]));
             chunk = video_chunk(limit, w, h);
             let pts: Vec<i64> = arr(&t["pts"]).iter().map(|v| v.as_i64().unwrap_or(0)).collect();
@@ -209,7 +209,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
                 refs.out.refs(&format!("{dir}/v/c/{q}/0/0"), parts);
             }
             // the presentation times, in the track's timescale, delta-free little-endian int64
-            // deflated (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#41-video-tracks>)
+            // deflated (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#41-video-tracks>)
             gzip_array(&mut refs.out, &format!("{dir}/time"), "int64", count as u64, TIME_CHUNK, "time", vec![], json!({}), |q, c| {
                 let (from, to) = ((q * c) as usize, (((q + 1) * c) as usize).min(count));
                 let mut raw: Vec<u8> = order[from..to].iter().flat_map(|&d| pts[d].to_le_bytes()).collect();
@@ -217,7 +217,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
                 raw
             });
         } else {
-            // the samples (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#42-audio-tracks>)
+            // the samples (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#42-audio-tracks>)
             let (spf, channels) = (n(&t["spf"]), n(&t["channels"]));
             chunk = limit;
             refs.out.json(&format!("{dir}/zarr.json"), &declared_group(Map::new(), "mp4", None, Some(track_json(t, chunk))));

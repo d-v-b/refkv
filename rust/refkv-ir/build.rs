@@ -1,5 +1,5 @@
 //! What each profile adds to the crate, generated from the profile registry's copies in
-//! profiles/ (one file per profile: spec/tools/profiles.py copies spec/virtualize/profiles/),
+//! profiles/ (one file per profile: spec/tools/profiles.py copies spec/zarrify/profiles/),
 //! so that adding a format adds its own files and edits no shared list:
 //!
 //! - `modules.rs`, included by lib.rs: `pub mod <m>` for every profile but a dataset layout,
@@ -13,7 +13,7 @@
 //! - `schemas.rs`, included by rules.rs: the source models, schema/<name>.json, by name;
 //! - `rejects_<dir>.rs`, which the integration test tests/<dir>.rs includes (`-` as `_`): a
 //!   `reject!(test, "input", "message")` line per case of the repository's
-//!   conformance/virtualize/rejects/<dir>.json, the inputs in fixtures/<dir> its profile
+//!   conformance/zarrify/rejects/<dir>.json, the inputs in fixtures/<dir> its profile
 //!   rejects, so that the Rust tests and the Python ones (python/tests/ir/test_rejects.py) read
 //!   one table. Outside the repository (a packaged crate) there are no tables, and none is written.
 
@@ -114,7 +114,7 @@ fn main() {
          #[derive(Clone, Copy, PartialEq, Eq, Debug)]\npub enum Format {\n",
     );
     for e in &files {
-        writeln!(formats, "    /// The {} profile (spec/virtualize/{}.md).\n    {},", e.title, e.name, e.variant()).unwrap();
+        writeln!(formats, "    /// The {} profile (spec/zarrify/{}.md).\n    {},", e.title, e.name, e.variant()).unwrap();
     }
     formats.push_str("}\n\nimpl Format {\n    /// Every file profile's format, by name.\n    pub const ALL: &'static [Format] = &[");
     formats.push_str(&files.iter().map(|e| format!("Format::{}", e.variant())).collect::<Vec<_>>().join(", "));
@@ -145,7 +145,7 @@ fn main() {
 
     let mut generated = vec![("modules.rs".to_string(), modules), ("projections.rs".into(), projections), ("formats.rs".into(), formats),
                              ("registry.rs".into(), registry), ("schemas.rs".into(), schema)];
-    generated.extend(rejects(&root.join("../../conformance/virtualize/rejects")));
+    generated.extend(rejects(&root.join("../../conformance/zarrify/rejects")));
     for (name, text) in generated {
         let path = out.join(name);
         if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {

@@ -1,7 +1,7 @@
 """Every format's rejected inputs, from one table per fixture directory,
-conformance/virtualize/rejects/<dir>.json, which rust/refkv-ir/build.rs also turns into the Rust
+conformance/zarrify/rejects/<dir>.json, which rust/refkv-ir/build.rs also turns into the Rust
 tests (one per case): each input in fixtures/<dir> is rejected by the Python host
-(`refkv.virtualize._virtualize`, a file by its first bytes or a store by its objects), with a
+(`refkv.zarrify._zarrify`, a file by its first bytes or a store by its objects), with a
 message that holds the table's, or the case's `host` message where the host rejects it before
 the profile is reached; and every fixture named as rejected is in its table."""
 
@@ -10,13 +10,13 @@ import json
 import pytest
 
 from ir_helpers import FIXTURES, ROOT
-from refkv.virtualize import Rejected, _virtualize as virtualize
+from refkv.zarrify import Rejected, _zarrify as zarrify
 
-TABLES = sorted((ROOT / "conformance" / "virtualize" / "rejects").glob("*.json"))
+TABLES = sorted((ROOT / "conformance" / "zarrify" / "rejects").glob("*.json"))
 
 
 def rejected_name(name: str) -> bool:
-    """Whether a fixture's name says it is rejected (conformance/virtualize/HARNESS.md:
+    """Whether a fixture's name says it is rejected (conformance/zarrify/HARNESS.md:
     `*_reject_*`, `unsupported_*`); a name starting with `_` is a slide's tile directory, part of
     an input, not one."""
     return not name.startswith("_") and ("reject" in name or name.startswith("unsupported"))
@@ -34,7 +34,7 @@ def test_the_host_rejects(directory, case):
     path = directory / case["input"]
     url = f"https://data.test/{directory.name}/{case['input']}" + ("/" if path.is_dir() else "")
     with pytest.raises(Rejected) as e:
-        virtualize(str(path), url)
+        zarrify(str(path), url)
     assert case.get("host", case["message"]) in str(e.value)
 
 

@@ -1,6 +1,6 @@
 """Writes synthetic DICOM files to fixtures/dicom/, covering the
-rules of the DICOM profile (spec/virtualize/dicom.md §7
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#7-dicom-profile>): the native
+rules of the DICOM profile (spec/zarrify/dicom.md §7
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#7-dicom-profile>): the native
 transfer syntaxes in both byte orders, signed and 8/16/32-bit data, RGB planar and
 interleaved, multi-frame images, JPEG and JPEG 2000 frames with and without
 offset tables and split into fragments, whole-slide images, sequences of
@@ -8,7 +8,7 @@ undefined length before the pixel data, and the inputs the profile rejects
 (`dicom_reject_*`).
 
 The files are written with pydicom; JPEG and JPEG 2000 frames are encoded
-with imagecodecs. js/test/dicom/verify.py checks the virtualized pixels
+with imagecodecs. js/test/dicom/verify.py checks the zarrified pixels
 against pydicom (and imagecodecs, for the encapsulated frames).
 
 Usage: uv run python fixtures/generators/dicom/write_fixtures.py
@@ -99,8 +99,8 @@ def jpeg(pixels: np.ndarray, photometric: str) -> bytes:
     if photometric == "RGB":
         # Stored as RGB, then made silent about it (no APP14, component ids
         # 1, 2, 3): a decoder that guesses would take it for YCbCr, so the
-        # profile's Adobe marker decides (spec/virtualize/dicom.md §7.5
-        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#75-frames>).
+        # profile's Adobe marker decides (spec/zarrify/dicom.md §7.5
+        # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>).
         return _strip_adobe(imagecodecs.jpeg8_encode(pixels, level=95, colorspace="RGB", outcolorspace="RGB"))
     if photometric == "YBR_FULL_422":
         return imagecodecs.jpeg8_encode(pixels, level=95, subsampling="422")
@@ -186,7 +186,7 @@ def main() -> None:
     ds.RescaleIntercept, ds.RescaleSlope = "-1024", "1"
     save("dicom_implicit_mono16", native(ds, ramp((12, 10), np.uint16) & 0x0FFF), ImplicitVRLittleEndian)
     # The same file with a TIFF header in its preamble, as some toolkits write
-    # it: §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input> tests for DICM
+    # it: §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input> tests for DICM
     # first, so it is still DICOM.
     (OUT / "dicom_tiff_preamble.dcm").write_bytes(
         b"II*\0" + (OUT / "dicom_implicit_mono16.dcm").read_bytes()[4:])
@@ -397,8 +397,8 @@ def later() -> None:
     """Fixtures added after the others, last so that the seeded UIDs of the
     others do not change."""
     # Cine frames: the Frame Increment Pointer names Frame Time, so the frames
-    # are along t, 33.3 ms apart (spec/virtualize/dicom.md §4
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#4-output>).
+    # are along t, 33.3 ms apart (spec/zarrify/dicom.md §4
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#4-output>).
     ds = image(MULTIFRAME_GRAYSCALE, 4, 6, bits=8, frames=5)
     ds.FrameIncrementPointer = 0x00181063
     ds.FrameTime = "33.3"
@@ -414,8 +414,8 @@ def later() -> None:
 
 def reconstruction() -> None:
     """Values the source metadata keeps as arrays, on refkv_source, and elements
-    after Pixel Data (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>)."""
+    after Pixel Data (spec/zarrify/dicom.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>)."""
     from pydicom.dataelem import DataElement
     from pydicom.sequence import Sequence
 
@@ -453,8 +453,8 @@ def _patch(name: str, f) -> None:
 
 
 def review() -> None:
-    """What else the source metadata keeps (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>):
+    """What else the source metadata keeps (spec/zarrify/dicom.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>):
     duplicate elements, values under a multibyte character set, large values,
     per-frame values, a preamble, and the pixel data that no frame holds."""
     from pydicom.filebase import DicomBytesIO
@@ -604,8 +604,8 @@ def review() -> None:
 
 
 def review2() -> None:
-    """More of what the source metadata keeps (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>):
+    """More of what the source metadata keeps (spec/zarrify/dicom.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>):
     per-frame values whose paths nest, numbers too long to convert, a root
     kept small, and Extended Offset Table frames without their item headers;
     and a JPEG frame that is not a JPEG stream, which the profile rejects."""
@@ -708,10 +708,10 @@ def review2() -> None:
 
 
 def review3() -> None:
-    """Round three (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>,
-    spec/virtualize/dicom.md §7.5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#75-frames>):
+    """Round three (spec/zarrify/dicom.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>,
+    spec/zarrify/dicom.md §7.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>):
     native pixel data that runs past the file and overlapping Extended Offset
     Table frames, which the profile rejects; group lengths and offset tables
     that are not layout; explicit UN values in big endian; per-frame values
@@ -864,8 +864,8 @@ def review3() -> None:
 
 
 def review4() -> None:
-    """Round four (spec/virtualize/dicom.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata>, Gathered
+    """Round four (spec/zarrify/dicom.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>, Gathered
     sequences): any sequence of more than 64 items gathered, at any depth, of defined and
     undefined length; sparse columns; the bounds past which a sequence keeps
     its bytes; and explicit UN values gathered in explicit VR big endian."""

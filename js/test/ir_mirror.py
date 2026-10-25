@@ -20,7 +20,7 @@ def is_mirror(archive: Path) -> bool:
             doc = json.loads(z.read("refkv_source/zarr.json"))
         except KeyError:
             return False
-    own = doc.get("attributes", {}).get("refkv_virtualized", {})
+    own = doc.get("attributes", {}).get("refkv_zarrified", {})
     return any(isinstance(v, dict) and "ir" in v for v in own.values())
 
 

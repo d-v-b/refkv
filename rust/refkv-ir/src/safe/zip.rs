@@ -1,5 +1,5 @@
-//! The zip form of a SAFE product (spec/virtualize/safe.md §8.4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>): the ZIP
+//! The zip form of a SAFE product (spec/zarrify/safe.md §8.4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#84-the-zip-form>): the ZIP
 //! archive's end records, its central directory, its local headers, and its deflated XML
 //! documents. The functions are pure: the parser reads the bytes they name.
 
@@ -18,7 +18,7 @@ pub const MAX_DEFLATED: u64 = 1 << 26;
 /// the most bytes of all the deflated XML documents together
 pub const MAX_INFLATED: u64 = 1 << 27;
 
-/// A central directory file header, as §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form> reads it, with where it is.
+/// A central directory file header, as §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#84-the-zip-form> reads it, with where it is.
 #[derive(Clone, Debug, Default)]
 pub struct Entry {
     pub name: String,
@@ -217,7 +217,7 @@ pub fn product_entries(entries: &[Entry]) -> Result<Product, String> {
     Ok(Product { root, objects, ignored, dirs })
 }
 
-/// The method checks of the objects (§8.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>, Methods), before anything is read: which are
+/// The method checks of the objects (§8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#84-the-zip-form>, Methods), before anything is read: which are
 /// deflated (an XML document each).
 pub fn methods(rules: &Rules, entries: &[Entry], objects: &[(String, usize)], is_xml: &dyn Fn(&str) -> bool) -> Result<Vec<bool>, String> {
     let mut deflated = vec![false; entries.len()];

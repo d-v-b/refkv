@@ -40,7 +40,7 @@ from urllib.parse import urljoin, urlparse
 
 from refkv.errors import ResolutionError
 from refkv.policy import Policy
-from refkv.virtualize.common import UA, EtagLog, Rejected
+from refkv.zarrify.common import UA, EtagLog, Rejected
 
 RETRY = (429, 500, 502, 503, 504)
 REDIRECTS = (301, 302, 303, 307, 308)

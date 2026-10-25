@@ -1,7 +1,7 @@
 # Implementation plan: the FITS profile
 
-This plan implements a FITS convention and profile (`spec/virtualize/fits.md`,
-to be written as Part 1 and Part 2 of one document, as [mrc.md](../../spec/virtualize/mrc.md)
+This plan implements a FITS convention and profile (`spec/zarrify/fits.md`,
+to be written as Part 1 and Part 2 of one document, as [mrc.md](../../spec/zarrify/mrc.md)
 is) in the Rust core, reached from Python, the browser and the CLI, with
 fixtures, a verifier, a public corpus and a docs page. It is a design note,
 not normative; the convention and the profile state the decisions.
@@ -185,12 +185,12 @@ layout later, not in version 0.
   with `P`/`Q` columns; `TableHDU`; `GroupsHDU`. `uv run --with astropy`
   works in the workspace (astropy 8.0.2); the dev dependencies gain it.
 
-## 2. The convention (Part 1 of `spec/virtualize/fits.md`)
+## 2. The convention (Part 1 of `spec/zarrify/fits.md`)
 
 The hierarchy is a plain Zarr v3 group, as SAFE's is: no OME-NGFF metadata,
 since FITS axes are sky coordinates under projections, not microscopy axes.
 This section extends [conventions §2](../../spec/conventions.md#2-attributes)
-as SAFE does: nodes carry `zarr_conventions` and `refkv_virtualized` only.
+as SAFE does: nodes carry `zarr_conventions` and `refkv_zarrified` only.
 
 ### 2.1 Declaration
 
@@ -229,7 +229,7 @@ registered foreign extensions are rejected by the profile in version 0.
   −32 `float32`, −64 `float64`. The stored values: `BSCALE`, `BZERO` and
   `BLANK` are recorded in the node's source metadata and not applied
   (the NIfTI precedent,
-  [nifti.md §4.2](../../spec/virtualize/nifti.md#42-value-scaling)); see
+  [nifti.md §4.2](../../spec/zarrify/nifti.md#42-value-scaling)); see
   [§11](#11-open-questions-and-their-decisions) for the unsigned case.
 - **Codecs:** `[{"name": "bytes", "configuration": {"endian": "big"}}]`,
   `[{"name": "bytes"}]` for `uint8`.
@@ -354,7 +354,7 @@ and that HDU's `cards`, plus for an image `bscale`, `bzero`, `blank`,
 (`HIERARCH` names as written after the keyword, up to `=`); `value` a JSON
 string for a string (quotes undoubled, trailing spaces trimmed, `CONTINUE`
 cards joined), `true`/`false` for a logical, a number for an integer (exact,
-every digit, per [spec/virtualize.md §1.1](../../spec/virtualize.md#11-output-and-equivalence))
+every digit, per [spec/zarrify.md §1.1](../../spec/zarrify.md#11-output-and-equivalence))
 or a real (its binary64 value; `D` exponents read as `E`), `[re, im]` for a
 complex, `null` for no value; `COMMENT`, `HISTORY`, blank and orphan
 `CONTINUE` cards have the value `null` and their text as the comment; the
@@ -392,17 +392,17 @@ forms of a file's chunks deduplicate to a handful (the distinct `N`).
 
 ### 2.8 What the layout does not express
 
-Informative, as [mrc.md §7](../../spec/virtualize/mrc.md#7-what-the-layout-does-not-express):
+Informative, as [mrc.md §7](../../spec/zarrify/mrc.md#7-what-the-layout-does-not-express):
 the WCS (kept as cards, not interpreted: SIP, TPV and lookup distortions are
 a library's job), `BSCALE`/`BZERO` (recorded), the ASDF tree and Rubin's
 JSON (bytes of a table), checksums (cards), table columns (bytes), random
 groups and tile-compressed tables (rejected).
 
-## 3. The profile (Part 2: §18 of spec/virtualize.md)
+## 3. The profile (Part 2: §18 of spec/zarrify.md)
 
 ### 3.1 Choosing the profile
 
-[spec/virtualize.md §1.2](../../spec/virtualize.md#12-input)'s table gains a
+[spec/zarrify.md §1.2](../../spec/zarrify.md#12-input)'s table gains a
 row before the last: bytes 0–8 are `SIMPLE  =` and byte 29 is `T` → FITS
 profile. `SIMPLE = F` (byte 29 `F`), bzip2 (`BZh`) and gzip (`1F 8B`) fall to
 the last row and are rejected; the row's note names them.
@@ -469,7 +469,7 @@ one of 8, 16, 32, 64, -32, -64`.
 
 Images: [conventions §7](../../spec/conventions.md#7-source-values-as-arrays)
 with the 2^20 limit, one range of source 0 per chunk plus a literal padding
-or a copy, as [mrc.md §8.2](../../spec/virtualize/mrc.md#82-chunks).
+or a copy, as [mrc.md §8.2](../../spec/zarrify/mrc.md#82-chunks).
 Compressed images: a literal prefix then the ranges of
 [§2.4](#24-tile-compressed-images). Tables: ranges of whole rows and heap
 blocks. The output has no data sources: the source table is source 0 alone.
@@ -506,9 +506,9 @@ detection and the codec.
   `python/src/lib.rs` (the first decoder the core exposes to a host;
   `python/src/refkv/zarr/codecs.py` registers `refkv.fits_tiles` as an
   `ArrayBytesCodec` that calls it and reshapes). No astropy in the package.
-- **Browser** (`js/src/virtualize`): `index.ts` detects `SIMPLE  =`,
+- **Browser** (`js/src/zarrify`): `index.ts` detects `SIMPLE  =`,
   `IrFormat` gains `"fits"`, `ir/run.ts` passes it through; the wasm build
-  exports `fits_tiles_decode`; `js/src/virtualize/codecs` (or wherever the
+  exports `fits_tiles_decode`; `js/src/zarrify/codecs` (or wherever the
   demo's decoders live, cf. `demo/jpegxr_decoder.ts`) wraps it for the
   demo's reader.
 - **Neuroglancer fork** (`~/dev/neuroglancer`, branch `vzip`): a
@@ -532,7 +532,7 @@ is 1043618065).
 accepted combinations, one per error), with astropy as the independent
 reader (as mrcfile is for MRC):
 
-- `test_virtualize_fits_outputs`: parametrized over the accepted fixtures.
+- `test_zarrify_fits_outputs`: parametrized over the accepted fixtures.
   For each: the output's HDU table equals astropy's `HDUList` (index, type,
   name, version, offsets from `fileinfo()`), every image array read through
   the archive equals `hdu.data` with `do_not_scale_image_data=True` (stored
@@ -558,7 +558,7 @@ reader (as mrcfile is for MRC):
   bytes, and of `fits_tiles_decode` against astropy for each compression,
   `ZBITPIX`, quantization and tile shape, including edge tiles and absent
   tiles.
-- `python/tests/test_virtualize_conventions.py` picks up the fixtures and
+- `python/tests/test_zarrify_conventions.py` picks up the fixtures and
   schema once the profile is registered; `rust/refkv-cli/tests/identical.py`
   and `just ir-wasm` likewise.
 
@@ -630,7 +630,7 @@ registered), and checks:
 
 ## 8. Corpus
 
-`conformance/virtualize/corpus_fits.txt`, each `no-ref` (no frozen
+`conformance/zarrify/corpus_fits.txt`, each `no-ref` (no frozen
 reference), compared py with web, over HTTP ranges:
 
 | file | URL | why |
@@ -652,18 +652,18 @@ stress cases for `--quick`-less runs, readable by header walk alone.
 
 ## 9. Shared changes
 
-- `spec/virtualize/profiles.json`: the entry `fits` (section 18, title
+- `spec/zarrify/profiles.json`: the entry `fits` (section 18, title
   `FITS`, kind `file`, suffixes `[".fits", ".fz"]`, reference `null`,
   phrases); `just profiles` regenerates the hosts' tables, the core's copy
   and the profile tables of the spec, the docs and the demo.
-- `spec/virtualize.md`: the detection row ([§3.1](#31-choosing-the-profile));
-  `spec/virtualize/fits.md` and `fits/schema.json`; `spec/generate_schemas.py`:
+- `spec/zarrify.md`: the detection row ([§3.1](#31-choosing-the-profile));
+  `spec/zarrify/fits.md` and `fits/schema.json`; `spec/generate_schemas.py`:
   `SOURCE_METADATA["fits"]` (root HDU table and cards, HDU nodes' cards,
   image scaling members, table columns, compression); `just sections`.
 - `spec/conventions.md`: nothing new; the convention cites §7, §8, §2.
 - `pyproject.toml` dev dependencies: `astropy` (the generator and the
   verifier; the package itself never imports it).
-- `docs/virtualize/fits/README.md` (who it is for, what you get, the `.fz`
+- `docs/zarrify/fits/README.md` (who it is for, what you get, the `.fz`
   codec and the viewers that have it, what is not done: columns, WCS
   interpretation, bzip2) and the docs index via `just profiles`.
 - `demo/index.html`: an example per form, from a host that allows

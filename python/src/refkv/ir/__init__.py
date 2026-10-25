@@ -1,6 +1,6 @@
 """refkv's intermediate representation (design/ARCHITECTURE.md §3
 <https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#3-proposal-an-intermediate-representation>),
-the path `refkv.virtualize`
+the path `refkv.zarrify`
 takes for every format (a file here, a `.SAFE.zip` included; a store, a `.SAFE` directory
 included, through `store.py`): the Rust core (rust/refkv-ir, the `refkv._core` module)
 parses, checking each format's source model schema, plans the reads, projects the
@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import json
 
-from refkv.virtualize.common import Rejected
+from refkv.zarrify.common import Rejected
 
 
 def sniff(head: bytes) -> str | None:
     """The IR format a file's first bytes (up to 552 of them) give, if any: the Rust core's
     `Format::sniff`, which tests each file profile's signature in the registry's `sniff` order
-    (spec/virtualize.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>)."""
+    (spec/zarrify.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)."""
     from refkv import _core
 
     return _core.sniff(head)
@@ -39,7 +39,7 @@ def parse(fmt: str, transport, conc: int | None = None):
     return ir, json.loads(facts), json.loads(stats)
 
 
-def virtualize(location: str, url: str | None = None, mirror: bool = True, policy=None, transport=None,
+def zarrify(location: str, url: str | None = None, mirror: bool = True, policy=None, transport=None,
                connections: int | None = None, byte_cost: float | None = None):
     """(format, output, IR): the source read through the read planner, parsed by the
     Rust parser of its format, projected and mirrored under refkv_source by the Rust

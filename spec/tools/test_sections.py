@@ -64,8 +64,8 @@ def repo(tmp_path, monkeypatch):
         "spec/refkv.md": SPEC,
         "spec/bindings/vzip.md": BINDING,
         "spec/history/archive/SPEC.r1.md": "# S\n\n## 1. Introduction\n\n### 1.1 Old\n",
-        "spec/virtualize.md": "# V\n\n## 1. Introduction\n\n### 1.2 Input\n",
-        "spec/virtualize/tiff.md": FORMAT,
+        "spec/zarrify.md": "# V\n\n## 1. Introduction\n\n### 1.2 Input\n",
+        "spec/zarrify/tiff.md": FORMAT,
         "spec/conventions.md": "# C\n\n## 3. Arrays\n",
     }
     for name, text in files.items():
@@ -104,7 +104,7 @@ def test_headings(repo):
         ("2", "2-the-layout-1"),  # a repeat; the fenced one is no heading
         ("4", "4-shared"),
     ]
-    parts = [(h.number, h.part) for h in sections.headings("spec/virtualize/tiff.md") if h.number]
+    parts = [(h.number, h.part) for h in sections.headings("spec/zarrify/tiff.md") if h.number]
     assert parts == [("3", 1), ("4", 1), ("3", 2), ("3.1", 2)]
 
 
@@ -122,19 +122,19 @@ def test_headings(repo):
         # a record of a past round cites the snapshot of its revision
         ("design/conformance/archive/r1/x.md", "SPEC.md §1.1\n", "ok", "spec/history/archive/SPEC.r1.md#11-old"),
         ("js/src/x.ts", "// conventions §3\n", "ok", "spec/conventions.md#3-arrays"),
-        # spec/virtualize.md's §3 and on are the profiles (the registry's numbers)
-        ("python/src/refkv/virtualize/x.py", "# spec/virtualize/tiff.md §4\n", "ok", "spec/virtualize/tiff.md#4-the-image"),
+        # spec/zarrify.md's §3 and on are the profiles (the registry's numbers)
+        ("python/src/refkv/zarrify/x.py", "# spec/zarrify/tiff.md §4\n", "ok", "spec/zarrify/tiff.md#4-the-image"),
         # a format's document by its path, or by its name, is its convention
-        ("rust/refkv-ir/src/xml.rs", "// spec/virtualize/tiff.md §3\n", "ok", "spec/virtualize/tiff.md#3-ome-xml"),
-        ("spec/virtualize.md", "decimal (TIFF §3)\n", "ok", "spec/virtualize/tiff.md#3-ome-xml"),
-        ("python/src/refkv/virtualize/tiff/x.py", "# the profile §3\n", "ok", "spec/virtualize/tiff.md#3-tiff-profile"),
+        ("rust/refkv-ir/src/xml.rs", "// spec/zarrify/tiff.md §3\n", "ok", "spec/zarrify/tiff.md#3-ome-xml"),
+        ("spec/zarrify.md", "decimal (TIFF §3)\n", "ok", "spec/zarrify/tiff.md#3-ome-xml"),
+        ("python/src/refkv/zarrify/tiff/x.py", "# the profile §3\n", "ok", "spec/zarrify/tiff.md#3-tiff-profile"),
         # a bare reference takes the file's document; a format's code, its format's
         ("python/src/refkv/reader.py", "# §2 here\n", "ambiguous", ""),
-        ("python/src/refkv/virtualize/tiff/x.py", "# §4\n", "ok", "spec/virtualize/tiff.md#4-the-image"),
-        ("python/src/refkv/virtualize/tiff/x.py", "# §3\n", "ambiguous", ""),
-        ("python/src/refkv/virtualize/tiff/x.py", "# §1.2\n", "review", "spec/virtualize.md#12-input"),
+        ("python/src/refkv/zarrify/tiff/x.py", "# §4\n", "ok", "spec/zarrify/tiff.md#4-the-image"),
+        ("python/src/refkv/zarrify/tiff/x.py", "# §3\n", "ambiguous", ""),
+        ("python/src/refkv/zarrify/tiff/x.py", "# §1.2\n", "review", "spec/zarrify.md#12-input"),
         # a chain keeps the qualifier
-        ("js/src/x.ts", "// spec/virtualize.md §1.2, spec/virtualize/tiff.md §4\n", "ok", "spec/virtualize/tiff.md#4-the-image"),
+        ("js/src/x.ts", "// spec/zarrify.md §1.2, spec/zarrify/tiff.md §4\n", "ok", "spec/zarrify/tiff.md#4-the-image"),
         # other standards, links, and what cannot be settled
         ("python/src/refkv/x.py", "# RFC 3986 §5.2.2\n", "external", ""),
         ("python/src/refkv/x.py", "# RFC 9110 §5.6.7 and §1.1\n", "external", ""),
@@ -155,18 +155,18 @@ def test_resolve_by_part(repo):
     """In a format's document, a bare reference means the part it is in first."""
     got = []
     for text in (FORMAT + "\nas §3 says\n", FORMAT.replace("## 4. The image", "## 4. The image\n\nas §3 says")):
-        (repo / "spec/virtualize/tiff.md").write_text(text)
+        (repo / "spec/zarrify/tiff.md").write_text(text)
         sections.headings.cache_clear()
-        got.append(sections.analyze("spec/virtualize/tiff.md", text)[0].target.anchor)
+        got.append(sections.analyze("spec/zarrify/tiff.md", text)[0].target.anchor)
     assert got == ["3-tiff-profile", "3-ome-xml"]
 
 
 def test_override(repo, monkeypatch):
-    row = ["python/src/refkv/virtualize/tiff/x.py", "1", "§3", "0", "spec/virtualize/tiff.md#3-ome-xml", ""]
+    row = ["python/src/refkv/zarrify/tiff/x.py", "1", "§3", "0", "spec/zarrify/tiff.md#3-ome-xml", ""]
     (repo / "o.tsv").write_text("# a comment\n" + "\t".join(row) + "\n")
     monkeypatch.setattr(sections, "OVERRIDES_FILE", repo / "o.tsv")
     sections.overrides.cache_clear()
-    ref = sections.analyze("python/src/refkv/virtualize/tiff/x.py", "# §3\n")[0]
+    ref = sections.analyze("python/src/refkv/zarrify/tiff/x.py", "# §3\n")[0]
     assert (ref.status, ref.target.anchor) == ("ok", "3-ome-xml")
 
 
@@ -174,11 +174,11 @@ def test_rewrite(repo):
     cases = [
         (
             "spec/refkv.md",
-            "See §1.1 and spec/virtualize.md §1.2.\n",
-            "See [§1.1](#11-output-and-equivalence) and [spec/virtualize.md §1.2](virtualize.md#12-input).\n",
+            "See §1.1 and spec/zarrify.md §1.2.\n",
+            "See [§1.1](#11-output-and-equivalence) and [spec/zarrify.md §1.2](zarrify.md#12-input).\n",
         ),
         (
-            "spec/virtualize/tiff.md",
+            "spec/zarrify/tiff.md",
             FORMAT + "\nconventions §3\n",
             FORMAT + "\n[conventions §3](../conventions.md#3-arrays)\n",
         ),

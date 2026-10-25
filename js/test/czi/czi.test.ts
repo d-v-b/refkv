@@ -2,23 +2,23 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { blockReader } from "../../../conformance/virtualize/reference/ts/legacy.ts";
-import { virtualizeImage } from "../../../conformance/virtualize/reference/ts/index.ts";
-import { boundedHead, jpegFrame, jpegxrSize, zstd1Header, zstdContentSize } from "../../../conformance/virtualize/reference/ts/czi/coding.ts";
-import { layer, rowBand } from "../../../conformance/virtualize/reference/ts/czi/layout.ts";
-import { guid } from "../../../conformance/virtualize/reference/ts/czi/segments.ts";
-import { CziError } from "../../../conformance/virtualize/reference/ts/czi/virtualize.ts";
+import { blockReader } from "../../../conformance/zarrify/reference/ts/legacy.ts";
+import { virtualizeImage } from "../../../conformance/zarrify/reference/ts/index.ts";
+import { boundedHead, jpegFrame, jpegxrSize, zstd1Header, zstdContentSize } from "../../../conformance/zarrify/reference/ts/czi/coding.ts";
+import { layer, rowBand } from "../../../conformance/zarrify/reference/ts/czi/layout.ts";
+import { guid } from "../../../conformance/zarrify/reference/ts/czi/segments.ts";
+import { CziError } from "../../../conformance/zarrify/reference/ts/czi/virtualize.ts";
 
 const FIXTURES = fileURLToPath(new URL("../../../fixtures/czi/", import.meta.url));
 const utf8 = new TextDecoder();
 
-async function virtualize(name: string) {
+async function zarrify(name: string) {
   const bytes = new Uint8Array(fs.readFileSync(FIXTURES + name));
   return virtualizeImage(`https://data.test/czi/${name}`,
     blockReader(async (o, n) => bytes.subarray(o, o + n), bytes.length), bytes.length);
 }
 
-type V = Awaited<ReturnType<typeof virtualize>>;
+type V = Awaited<ReturnType<typeof zarrify>>;
 function doc(v: V, key: string) {
   const e = v.entries.find((x) => x.key === key);
   assert.ok(e && "bytes" in e, key);
@@ -29,7 +29,7 @@ const one = [[[1, 1, 1]]];
 const s = (subblocks: number, images: number[][][], extra: object = {}) =>
   ({ subblocks, images, tiles: 0, unplaced: 0, segments: 0, attachments: 0, tail: 0, ...extra });
 
-// The Python reference's summaries (python -m refkv.virtualize).
+// The Python reference's summaries (python -m refkv.zarrify).
 const SUMMARIES: [string, object][] = [
   ["czi_attachments", s(1, one, { attachments: 12 })],
   ["czi_bgr24_raw", s(1, one)],
@@ -65,11 +65,11 @@ const SUMMARIES: [string, object][] = [
   ["czi_zstd", s(6, Array(6).fill(one[0]))],
 ];
 
-test("virtualizes the synthetic CZI files", async () => {
+test("zarrifies the synthetic CZI files", async () => {
   const names = fs.readdirSync(FIXTURES).filter((f) => f.endsWith(".czi") && !f.startsWith("czi_reject_"));
   assert.deepEqual(names.map((f) => f.slice(0, -4)).sort(), SUMMARIES.map(([n]) => n).sort());
   for (const [name, summary] of SUMMARIES) {
-    const v = await virtualize(`${name}.czi`);
+    const v = await zarrify(`${name}.czi`);
     assert.equal(v.format, "czi", name);
     assert.deepEqual(v.summary, summary, name);
     const root = doc(v, "zarr.json");
@@ -104,7 +104,7 @@ test("virtualizes the synthetic CZI files", async () => {
 test("rejects each czi_reject_ fixture with CziError", async () => {
   const names = fs.readdirSync(FIXTURES).filter((f) => f.startsWith("czi_reject_"));
   assert.ok(names.length > 30);
-  for (const name of names) await assert.rejects(virtualize(name), CziError, name);
+  for (const name of names) await assert.rejects(zarrify(name), CziError, name);
 });
 
 test("layer and rowBand", () => {

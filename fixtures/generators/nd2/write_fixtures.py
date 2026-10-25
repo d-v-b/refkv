@@ -1,7 +1,7 @@
 """Writes synthetic ND2 files (format version 3) to fixtures/nd2/, with
 the pixels each one should decode to, covering the rules of the ND2 profile
-(spec/virtualize/nd2.md §7
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#7-nd2-profile>) that the public
+(spec/zarrify/nd2.md §7
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#7-nd2-profile>) that the public
 corpus does not: compressed frames, padded
 rows, multi-period time loops, disabled positions, sibling and spectral
 experiment nodes, missing frames, float data, and the inputs it rejects.
@@ -24,8 +24,8 @@ MAGIC = 0x0ABECEDA
 NAME_PAD = 4072  # NIS-Elements pads chunk names so that headers are 4 KiB
 
 
-# ---- lite variant (spec/virtualize/nd2.md §2.2
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#22-lite-variant>)
+# ---- lite variant (spec/zarrify/nd2.md §2.2
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#22-lite-variant>)
 
 def _name(name: str) -> bytes:
     return bytes([len(name) + 1]) + (name + "\0").encode("utf-16le")
@@ -60,7 +60,7 @@ def compressed(structure: bytes) -> bytes:
     return bytes([76, 0]) + b"\0" * 10 + zlib.compress(structure)
 
 
-# ---- file layout (§7.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#71-chunks>)
+# ---- file layout (§7.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#71-chunks>)
 
 class Nd2:
     def __init__(self, version: bytes = b"Ver3.0") -> None:
@@ -151,8 +151,8 @@ def tz_uint16() -> None:
     for i in range(t * z):
         px = rng.integers(0, 4096, (h, w, c), dtype=np.uint16)
         f.chunk(f"ImageDataSeq|{i}!", frame_bytes(px, w * c * 2, False))
-        # dZStep is negative, so the z index is flipped (spec/virtualize/nd2.md §4.3
-        # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#43-output>).
+        # dZStep is negative, so the z index is flipped (spec/zarrify/nd2.md §4.3
+        # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#43-output>).
         expected[f"0/0/c/{i // z}/0/{z - 1 - i % z}/0/0"] = np.moveaxis(px, -1, 0)
     write("nd2_tz_uint16", f, expected)
 
@@ -236,7 +236,7 @@ def record(typ: int, name: str, payload: bytes) -> bytes:
 
 def edges() -> None:
     """The edges of §7
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#7-nd2-profile> that the files
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#7-nd2-profile> that the files
     above do not reach."""
     h, w = 3, 4
 
@@ -361,9 +361,9 @@ def edges() -> None:
 
 
 def revision3() -> None:
-    """The typed-member and loop-kind rules of revision 3 (spec/virtualize/nd2.md §2.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#22-lite-variant>, §3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#3-metadata>)."""
+    """The typed-member and loop-kind rules of revision 3 (spec/zarrify/nd2.md §2.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#22-lite-variant>, §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#3-metadata>)."""
     h, w = 3, 4
 
     def frames(f: Nd2, n: int) -> dict:
@@ -426,9 +426,9 @@ def revision3() -> None:
 
 
 def revision4() -> None:
-    """Whole-tree checks, validity lists everywhere, and nesting (spec/virtualize/nd2.md §2.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#22-lite-variant>, §3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#3-metadata>)."""
+    """Whole-tree checks, validity lists everywhere, and nesting (spec/zarrify/nd2.md §2.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#22-lite-variant>, §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#3-metadata>)."""
     h, w = 3, 4
 
     def write_case(name: str, exp: bytes | None = None, attrs: bytes | None = None, accept: bool = False) -> None:
@@ -464,8 +464,8 @@ def revision4() -> None:
     # A z step that overflows rejects, even on a node the flattening skips.
     write_case("nd2_reject_z_step_overflow", experiment(node(1, {"uiCount": 0}, [
         node(4, {"uiCount": 2, "dZStep": 0.0, "dZLow": -1e308, "dZHigh": 1e308})])))
-    # A single image's stage position, from the picture metadata (spec/virtualize/nd2.md §4.3
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#43-output>).
+    # A single image's stage position, from the picture metadata (spec/zarrify/nd2.md §4.3
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#43-output>).
     f = Nd2()
     f.chunk("ImageAttributesLV!", attributes(w, h, 1, 16, sequence=1))
     f.chunk("ImageMetadataSeqLV|0!", level("SLxPictureMetadata", [
@@ -480,8 +480,8 @@ def revision4() -> None:
 
 
 def revision6() -> None:
-    """Stage positions become translations (spec/virtualize/nd2.md §4.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#43-output>)."""
+    """Stage positions become translations (spec/zarrify/nd2.md §4.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#43-output>)."""
     h, w = 3, 4
 
     def case(name: str, points: list[dict], camera: tuple | None, valid: bytes | None = None) -> None:
@@ -516,8 +516,8 @@ def variant(members: str) -> bytes:
 
 
 def streams() -> None:
-    """Numeric streams, XML variants, events and a negative z step (spec/virtualize/nd2.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-source-metadata>)."""
+    """Numeric streams, XML variants, events and a negative z step (spec/zarrify/nd2.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#5-source-metadata>)."""
     t, z, h, w = 2, 3, 4, 5
     n = t * z
     f = Nd2()
@@ -552,8 +552,8 @@ def streams() -> None:
 
 
 def revision7() -> None:
-    """Source metadata that keeps every chunk (spec/virtualize/nd2.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-source-metadata>)."""
+    """Source metadata that keeps every chunk (spec/zarrify/nd2.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#5-source-metadata>)."""
     h, w = 3, 4
 
     def placed(f: Nd2, n: int, trailing: dict[int, bytes]) -> dict:
@@ -648,8 +648,8 @@ def sized_level(target: int, legacy: bool = True) -> bytes:
     writers format differently."""
     import sys
 
-    # the frozen reference twin of the ND2 profile (conformance/virtualize/reference)
-    sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
+    # the frozen reference twin of the ND2 profile (conformance/zarrify/reference)
+    sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
     from refkv_reference.nd2.lv import decode_lv
     from refkv_reference.nd2.source import json_size, lv_json
 
@@ -664,10 +664,10 @@ def sized_level(target: int, legacy: bool = True) -> bytes:
 
 def revision8() -> None:
     """Round-2 review: every placed frame's header, tags, lossless CustomData,
-    sparse families and frame grids, and the root's budget (spec/virtualize/nd2.md §7.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#73-frames>,
-    spec/virtualize/nd2.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#5-source-metadata>)."""
+    sparse families and frame grids, and the root's budget (spec/zarrify/nd2.md §7.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#73-frames>,
+    spec/zarrify/nd2.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#5-source-metadata>)."""
     h, w = 3, 4
 
     def frame(i: int, trailing: bytes = b"") -> tuple[bytes, np.ndarray]:
@@ -790,9 +790,9 @@ def revision8() -> None:
 def revision9() -> None:
     """Round-3 review: byte arrays as one value, refkv_source's budget, decodes
     charged whether or not they succeed, array-index names, -0, and the frame
-    times in chunks of at most 64 KiB (spec/virtualize/nd2.md §5.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>-§5.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#53-elements>)."""
+    times in chunks of at most 64 KiB (spec/zarrify/nd2.md §5.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>-§5.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#53-elements>)."""
     h, w = 3, 4
 
     def frame0(f: Nd2) -> dict:
@@ -860,11 +860,11 @@ def revision9() -> None:
 
 def revision10() -> None:
     """Round-3 follow-up: the profile's chunks inflate to at most 64 MiB
-    (spec/virtualize/nd2.md §7.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#71-chunks>), and other and empty
+    (spec/zarrify/nd2.md §7.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#71-chunks>), and other and empty
     past refkv_source's budget
-    (spec/virtualize/nd2.md §5.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#54-equivalence>)."""
+    (spec/zarrify/nd2.md §5.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#54-equivalence>)."""
     h, w = 3, 4
 
     # ImageAttributesLV! compressed, inflating to more than 2^26 bytes.
@@ -887,13 +887,13 @@ def revision10() -> None:
 
 def revision11() -> None:
     """Round-4 review: positions and the profile's LV records are bounded
-    (spec/virtualize/nd2.md §7.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#71-chunks>, §7.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#73-frames>), sparse frame times
+    (spec/zarrify/nd2.md §7.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#71-chunks>, §7.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#73-frames>), sparse frame times
     take smaller chunks, a large declared tag is its index, and path segments that a store cannot
-    hold go to other (spec/virtualize/nd2.md §5.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#52-the-ir-mirror>-§5.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#54-equivalence>)."""
+    hold go to other (spec/zarrify/nd2.md §5.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#52-the-ir-mirror>-§5.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#54-equivalence>)."""
     h, w = 3, 4
 
     def frame0(f: Nd2) -> dict:

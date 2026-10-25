@@ -1,14 +1,14 @@
 //! A sans-IO parser of MP4 and QuickTime files (ISO/IEC 14496-12 and 14496-14, and Apple's
-//! QuickTime file format) into the IR (spec/virtualize/mp4.md §8
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#8-mp4-profile>, and the source
-//! model of §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#53-elements>).
+//! QuickTime file format) into the IR (spec/zarrify/mp4.md §8
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#8-mp4-profile>, and the source
+//! model of §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#53-elements>).
 //!
 //! The rounds: the file's first 64 KiB, then each top-level box header the first read does not
 //! hold, then the whole moov box (the sample tables index every sample, so the media data is
 //! never read). Every box is a struct with its header, fields, table and children; each
 //! track's samples are `data` elements under `samples/<T>`; the media data no sample claims
 //! is gaps. The schema (`schema/mp4.json`) holds the checks that reject a file; whether a
-//! track is virtualized is decided here, and recorded with the reason when it is not.
+//! track is zarrified is decided here, and recorded with the reason when it is not.
 
 use crate::expr::V;
 use crate::fed::{Fed, Word, uint};
@@ -30,8 +30,8 @@ const AAC_RATES: [u32; 13] = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 2
 /// The H.264 profiles whose SPS carries the chroma format and bit depths (ITU-T H.264 §7.3.2.1.1).
 const HIGH_PROFILES: [u8; 13] = [100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135];
 
-/// Whether a file's first bytes are an MP4 or QuickTime file's (spec/virtualize.md §1.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>): a box of at least 8
+/// Whether a file's first bytes are an MP4 or QuickTime file's (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): a box of at least 8
 /// bytes whose type is `ftyp`, `moov`, `mdat`, `wide`, `free` or `skip`.
 pub fn detect(head: &[u8]) -> bool {
     head.len() >= 8
@@ -185,8 +185,8 @@ impl Mp4 {
         }
     }
 
-    /// The top-level boxes (spec/virtualize/mp4.md §8.1
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#81-boxes>): the range to read
+    /// The top-level boxes (spec/zarrify/mp4.md §8.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#81-boxes>): the range to read
     /// next, or None when every one is known and the moov box (and the ftyp box) read.
     fn walk(&mut self) -> Res<Option<(u64, u64)>> {
         while self.p + 8 <= self.size {
@@ -533,9 +533,9 @@ impl Mp4 {
         Ok(())
     }
 
-    /// Each track's samples, from its tables (spec/virtualize/mp4.md §8.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#82-tracks>), as `data`
-    /// elements; whether the profile virtualizes it, and the facts its projection reads.
+    /// Each track's samples, from its tables (spec/zarrify/mp4.md §8.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>), as `data`
+    /// elements; whether the profile zarrifies it, and the facts its projection reads.
     fn samples(&mut self) -> Res<()> {
         let tracks = std::mem::take(&mut self.tracks);
         let mut samples_struct = None;
@@ -653,10 +653,10 @@ impl Mp4 {
         Ok((offsets, sizes))
     }
 
-    /// Whether the profile virtualizes the track, and the facts its projection reads
-    /// (spec/virtualize/mp4.md §8.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#82-tracks>): `reason` is
-    /// null for a track it virtualizes, else why it does not.
+    /// Whether the profile zarrifies the track, and the facts its projection reads
+    /// (spec/zarrify/mp4.md §8.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>): `reason` is
+    /// null for a track it zarrifies, else why it does not.
     fn classify(&self, t: &Track, offsets: &[u64]) -> J {
         let entry = t.entries.first();
         let codec = entry.map(|e| latin1(&e.typ)).unwrap_or_default();
@@ -801,8 +801,8 @@ fn presentation(t: &Track) -> Vec<i64> {
     out
 }
 
-/// Whether the groups of pictures are closed (spec/virtualize/mp4.md §8.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#82-tracks>): the first sample
+/// Whether the groups of pictures are closed (spec/zarrify/mp4.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>): the first sample
 /// is a sync sample, no two samples share a presentation time, no group is longer than
 /// `max_group` samples, and every sample before a sync sample in decode order is presented
 /// before it and every sample after it is presented after it.
@@ -986,7 +986,7 @@ pub fn aac_config(asc: &[u8]) -> Option<Asc> {
 
 crate::parser!(Mp4);
 
-/// The MP4 profile's file run (spec/virtualize/mp4.md): the top-level box headers, then the moov
+/// The MP4 profile's file run (spec/zarrify/mp4.md): the top-level box headers, then the moov
 /// box.
 pub struct Profile;
 

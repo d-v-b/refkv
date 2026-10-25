@@ -1,15 +1,15 @@
 """Writes synthetic MP4 and MOV files to fixtures/mp4/, covering the rules of the MP4 profile
-(spec/virtualize/mp4.md §8
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#8-mp4-profile>): H.264 video
+(spec/zarrify/mp4.md §8
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#8-mp4-profile>): H.264 video
 with and without B-frames, intra-only, odd sizes, a variable frame rate, long enough for
 several chunks, groups of pictures of unequal lengths, two video tracks; AAC and MP3 audio,
 alone and beside video; the moov box before and after the media data, a 64-bit mdat size and an
-mdat that runs to the end of the file; tracks the profile does not virtualize (HEVC, 10-bit
+mdat that runs to the end of the file; tracks the profile does not zarrify (HEVC, 10-bit
 H.264) beside ones it does; and the inputs it rejects (`mp4_reject_*`).
 
 The media are ffmpeg's test sources encoded by ffmpeg (libx264, libx265, its AAC encoder and
 libmp3lame), with the bit-exact flags so that a build writes no version strings; some files
-are then edited box by box. ffmpeg must be on PATH. The tests compare each virtualized track
+are then edited box by box. ffmpeg must be on PATH. The tests compare each zarrified track
 with ffmpeg's own decoding of the file (through PyAV), so no expected values are stored.
 
 Usage: uv run python fixtures/generators/mp4/write_fixtures.py
@@ -126,13 +126,13 @@ def main() -> None:
     assert o + n == len(fast), "faststart puts mdat last"
     write("mp4_mdat_to_end.mp4", fast[:o] + struct.pack(">I", 0) + fast[o + 4:])
     write("mp4_udta_title.mp4", subprocess_title(*video(), *X264, "-g", "10"))
-    # tracks the profile does not virtualize, beside one it does
+    # tracks the profile does not zarrify, beside one it does
     write("mp4_hevc_aac.mp4", ffmpeg(*video(), *audio(), "-c:v", "libx265", "-x265-params", "log-level=error:pools=1",
                                      "-g", "10", *AAC))
     write("mp4_h264_10bit_aac.mp4", ffmpeg(*video(), *audio(), "-c:v", "libx264", "-threads", "1",
                                            "-pix_fmt", "yuv420p10le", "-g", "10", *AAC))
 
-    # rejected: fragmented, no moov box (cut before it), only tracks it does not virtualize,
+    # rejected: fragmented, no moov box (cut before it), only tracks it does not zarrify,
     # a box past the end of the file, a box smaller than its header, a second moov box, a
     # sample past the end of the file, and tables that disagree on the sample count
     write("mp4_reject_fragmented.mp4", ffmpeg(*video(), *X264, "-g", "10", "-movflags", "frag_keyframe+empty_moov"))

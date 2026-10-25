@@ -1,9 +1,9 @@
-// The virtualizers' pins and range checksums (spec/virtualize.md §1.2
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>, §1.4
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>;
+// The zarrifiers' pins and range checksums (spec/zarrify.md §1.2
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>, §1.4
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>;
 // spec/refkv.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>, §5.1
 // <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#51-pins>): the twin of
-// python/tests/test_virtualize_pins.py.
+// python/tests/test_zarrify_pins.py.
 
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -12,8 +12,8 @@ import { fileURLToPath } from "node:url";
 import { directoryStore } from "../conformance/directory_store.ts";
 import { crc32c } from "../src/deflate.ts";
 import { EtagLog } from "../src/http.ts";
-import { virtualizeImage, virtualizeStore } from "../src/virtualize/index.ts";
-import { blockReader } from "../src/virtualize/common.ts";
+import { zarrifyImage, zarrifyStore } from "../src/zarrify/index.ts";
+import { blockReader } from "../src/zarrify/common.ts";
 
 const FIXTURES = new URL("../../fixtures/", import.meta.url);
 const read = (rel: string) => new Uint8Array(fs.readFileSync(new URL(rel, FIXTURES)));
@@ -21,7 +21,7 @@ const read = (rel: string) => new Uint8Array(fs.readFileSync(new URL(rel, FIXTUR
 async function image(rel: string, etag: string | undefined, checksums: boolean) {
   const bytes = read(rel);
   const reader = async (o: number, n: number) => bytes.subarray(o, o + n);
-  const v = await virtualizeImage(`https://data.test/${rel}`, blockReader(reader, bytes.length), bytes.length, reader,
+  const v = await zarrifyImage(`https://data.test/${rel}`, blockReader(reader, bytes.length), bytes.length, reader,
     { etag: () => etag, checksums });
   return { v, bytes };
 }
@@ -49,7 +49,7 @@ test("pins sources and checksums ranges", async () => {
   // A store input: every source pins its object's size.
   const dir = new URL("zarr2/zarr2_dtypes/", FIXTURES);
   for (const checksums of [false, true]) {
-    const v = await virtualizeStore(directoryStore(fileURLToPath(dir), "https://data.test/s/"), { checksums });
+    const v = await zarrifyStore(directoryStore(fileURLToPath(dir), "https://data.test/s/"), { checksums });
     assert.ok(v.sources.length > 0);
     for (const s of v.sources) {
       const body = new Uint8Array(fs.readFileSync(new URL(s.url!.slice("https://data.test/s/".length), dir)));

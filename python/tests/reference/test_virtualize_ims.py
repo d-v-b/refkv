@@ -1,7 +1,7 @@
-"""The frozen Python IMS virtualizer (spec/virtualize/ims.md, revision 25) on the synthetic fixtures.
+"""The frozen Python IMS virtualizer (spec/zarrify/ims.md, revision 25) on the synthetic fixtures.
 
 Equivalence with the browser virtualizer is checked by
-conformance/virtualize/compare.py, and pixel correctness by
+conformance/zarrify/compare.py, and pixel correctness by
 js/test/ims/verify.py.
 """
 
@@ -14,10 +14,10 @@ import pytest
 
 import numpy as np
 
-# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
-sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
+# the frozen reference twins (conformance/zarrify/reference/refkv_reference)
+sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
 
-from refkv.virtualize import Rejected  # noqa: E402
+from refkv.zarrify import Rejected  # noqa: E402
 from refkv_reference import virtualize  # noqa: E402
 from refkv_reference.ims.source import canonical  # noqa: E402
 
@@ -25,7 +25,7 @@ FIXTURES = Path(__file__).parents[3] / "fixtures" / "ims"
 
 
 def paths(out) -> list[str]:
-    """The paths of the object table (spec/virtualize/ims.md §5.7
+    """The paths of the object table (spec/zarrify/ims.md §5.7
     <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#57-the-object-table>) of a
     virtualized file."""
     e = out.bytes_entries
@@ -195,7 +195,7 @@ I32 = {"class": "integer", "size": 4, "order": "little", "signed": True}
 
 
 def test_describe_type():
-    """Each datatype class's description (spec/virtualize/ims.md §5.2
+    """Each datatype class's description (spec/zarrify/ims.md §5.2
     <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#52-datatypes>);
     js/test/ims/source.test.ts has the same cases."""
     from refkv_reference.ims.source import describe_type
@@ -247,8 +247,8 @@ def test_describe_type_rejects_a_truncated_datatype():
 
 def test_source_node_holds_the_hdf5_tree():
     """Groups, datasets, links and named datatypes of the HDF5 file under vzip_source/hdf5
-    (spec/virtualize/ims.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>);
+    (spec/zarrify/ims.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata>);
     js/test/ims/verify.py checks every value against h5py."""
     for libver in ("earliest", "latest"):
         _, out = virtualize(str(FIXTURES / f"ims_{libver}_reconstruction.ims"), url="https://data.test/x")
@@ -298,8 +298,8 @@ def test_source_node_holds_the_hdf5_tree():
 def test_source_node_keeps_what_the_review_found():
     """Datatypes and shapes of attributes, named datatypes, references, external
     storage and links, null dataspaces, fill values, names and the attribute
-    budget (spec/virtualize/ims.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>);
+    budget (spec/zarrify/ims.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata>);
     js/test/ims/verify.py rebuilds them all."""
     for libver in ("earliest", "latest"):
         _, out = virtualize(str(FIXTURES / f"ims_{libver}_review.ims"), url="https://data.test/x")
@@ -377,7 +377,7 @@ def test_source_node_keeps_integer_fill_values_beyond_2_53():
             "DataSetInfo": 4, "Thumbnail": 1}),
 ])
 def test_source_node_counts_the_members_beyond_the_object_limit(monkeypatch, max_objects, per_image, overflow):
-    """The walk meets at most MAX_OBJECTS + PER_IMAGE x (Data datasets) objects (spec/virtualize/ims.md
+    """The walk meets at most MAX_OBJECTS + PER_IMAGE x (Data datasets) objects (spec/zarrify/ims.md
     §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#51-the-tree>), so that the
     image's tree leaves DataSetInfo and Thumbnail room; the members beyond are counted.
     The time-lapse has 12 Data datasets (2 levels, 3 time points, 2 channels), each with Histogram and
@@ -400,8 +400,8 @@ def test_source_node_counts_the_members_beyond_the_object_limit(monkeypatch, max
 def test_source_node_keeps_what_the_second_review_found():
     """Documents over their budget, shared datatypes, references at any depth, compound
     datasets with variable-length members, filters, region references, virtual datasets
-    and NaNs (spec/virtualize/ims.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>);
+    and NaNs (spec/zarrify/ims.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata>);
     js/test/ims/verify.py rebuilds them all."""
     for libver in ("earliest", "latest"):
         _, out = virtualize(str(FIXTURES / f"ims_{libver}_review2.ims"), url="https://data.test/x")
@@ -474,9 +474,9 @@ def test_source_node_keeps_what_the_third_review_found():
     indexes in a spilled document; variable-length data that HDF5 left unshuffled
     (filter mask bit 0); tiny chunks indexed implicitly; attribute data referenced
     where the file holds it; the image datasets' shapes; and the names and channels
-    the root lists (spec/virtualize/ims.md §4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#4-output>, §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>);
+    the root lists (spec/zarrify/ims.md §4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#4-output>, §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata>);
     js/test/ims/verify.py rebuilds them all, and js/test/ims/review.test.ts has the same cases."""
     path = FIXTURES / "ims_latest_review3.ims"
     raw = path.read_bytes()
@@ -546,7 +546,7 @@ def array(out, path: str, source: bytes) -> np.ndarray:
 def test_source_node_copies_partial_edge_chunks_stored_unfiltered():
     """Datasets whose partial edge chunks HDF5 stores unfiltered (H5Pset_chunk_opts): those chunks
     are copied raw and the others decoded, under every chunk index and with shuffle and
-    Fletcher32; without a partial chunk, the chunks are referenced (spec/virtualize/ims.md §5.4
+    Fletcher32; without a partial chunk, the chunks are referenced (spec/zarrify/ims.md §5.4
     <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>)."""
     path = FIXTURES / "ims_latest_raw_edges.ims"
     raw = path.read_bytes()
@@ -566,7 +566,7 @@ def test_source_node_copies_partial_edge_chunks_stored_unfiltered():
 
 def test_source_node_lists_region_references_over_the_budget_of_selections():
     """400 references to a selection of about 20 KB: the dataset is unsupported, and what
-    it read does not count against the references after it (spec/virtualize/ims.md §5.4
+    it read does not count against the references after it (spec/zarrify/ims.md §5.4
     <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>)."""
     _, out = virtualize(str(FIXTURES / "ims_latest_review3.ims"), url="https://data.test/x")
     r = json.loads(out.bytes_entries["vzip_source/hdf5/R/zarr.json"])["attributes"]["vzip_virtualized"]["ims"]
@@ -582,8 +582,8 @@ def test_source_node_lists_references_in_a_chunk_too_large_to_decode():
 
 def test_source_node_reads_every_chunk_index():
     """Extensible arrays, version 2 B-trees, implicit and fixed array indexes at maximum
-    dimensions (spec/virtualize/ims.md §7.5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#75-datasets-and-chunks>);
+    dimensions (spec/zarrify/ims.md §7.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#75-datasets-and-chunks>);
     js/test/ims/verify.py compares the data with h5py."""
     _, out = virtualize(str(FIXTURES / "ims_latest_indexes.ims"), url="https://data.test/x")
     group = json.loads(out.bytes_entries["vzip_source/hdf5/Indexes/zarr.json"])
@@ -596,7 +596,7 @@ def test_source_node_reads_every_chunk_index():
 
 
 def test_json_text():
-    """The JSON text whose size a document's budget counts (spec/virtualize/ims.md §5.6
+    """The JSON text whose size a document's budget counts (spec/zarrify/ims.md §5.6
     <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#56-documents>);
     js/test/ims/source.test.ts has the same cases."""
     from refkv_reference.ims.source import canonical, size
@@ -615,8 +615,8 @@ def test_json_text():
 
 
 def test_parse_selection():
-    """Serialized selections of each type and version (spec/virtualize/ims.md §7.9
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#79-source-metadata-structures>);
+    """Serialized selections of each type and version (spec/zarrify/ims.md §7.9
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#79-source-metadata-structures>);
     js/test/ims/source.test.ts has the same cases."""
     from refkv_reference.ims.hdf5 import parse_selection
 
@@ -690,8 +690,8 @@ def _dataset(dims, maxdims, chunk):
 
 
 def test_max_grid():
-    """The chunk counts at the maximum dimensions (spec/virtualize/ims.md §7.5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#75-datasets-and-chunks>)."""
+    """The chunk counts at the maximum dimensions (spec/zarrify/ims.md §7.5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#75-datasets-and-chunks>)."""
     from refkv_reference.ims.hdf5 import UNDEFINED, _max_grid
 
     assert _max_grid(_dataset([5, 6], None, [2, 4]), False) == [3, 2]

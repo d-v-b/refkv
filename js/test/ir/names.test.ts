@@ -9,9 +9,9 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
-import { ImageError } from "../../src/virtualize/common.ts";
-import { rejection } from "../../src/virtualize/ir/run.ts";
-import { type IrExports, put } from "../../src/virtualize/ir/wasm.ts";
+import { ImageError } from "../../src/zarrify/common.ts";
+import { rejection } from "../../src/zarrify/ir/run.ts";
+import { type IrExports, put } from "../../src/zarrify/ir/wasm.ts";
 
 const TEST_WASM = new URL("../../../rust/refkv-ir/target/web-test/refkv_ir.wasm", import.meta.url);
 

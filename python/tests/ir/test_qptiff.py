@@ -1,4 +1,4 @@
-"""QPTIFF on the IR (spec/virtualize/qptiff.md): the Rust TIFF parser's QPTIFF variant and the
+"""QPTIFF on the IR (spec/zarrify/qptiff.md): the Rust TIFF parser's QPTIFF variant and the
 QPTIFF projection on the synthetic fixtures: every accepted file is a valid IR that rebuilds its
 source, its levels read through zarr equal what tifffile decodes, its layout (channels, levels in
 tiles and strips, omero, scale and position) is the convention's, and each input the profile
@@ -15,8 +15,8 @@ import tifffile
 import zarr
 
 from ir_helpers import FIXTURES, assert_rebuilds, omero_and_expected_windows
-from refkv.ir import virtualize as via_ir
-from refkv.virtualize import Rejected, virtualize
+from refkv.ir import zarrify as via_ir
+from refkv.zarrify import Rejected, zarrify
 from refkv.zarr import ZarrStore
 
 logging.getLogger("tifffile").setLevel(logging.ERROR)  # its warnings on the rejected fixtures
@@ -43,10 +43,10 @@ def docs(out) -> dict:
 def tifffile_levels(path) -> list[np.ndarray]:
     """Each level's pixels as tifffile decodes the pages, grouped by the ImageType of their
     descriptions (the convention §3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#3-images-and-channels>), as
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#3-images-and-channels>), as
     `[c, y, x]` arrays: the channels stacked, or an RGB image's samples first. A level in
     strips whose last strip is short and whose compression is neither none nor LZW is not a
-    level (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#42-tiles-and-strips>)."""
+    level (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>)."""
     with tifffile.TiffFile(path) as tf:
         kinds = [(re.search(r"<ImageType>([^<]*)</ImageType>", p.description or "") or [None, None])[1]
                  for p in tf.pages]
@@ -72,7 +72,7 @@ def test_accepted_fixtures_are_valid_irs_that_rebuild(path, tmp_path):
     fmt, out, ir = via_ir(str(path), f"https://data.test/{path.name}")
     assert fmt == "qptiff"
     ir.check()
-    root = docs(out)["zarr.json"]["attributes"]["refkv_virtualized"]
+    root = docs(out)["zarr.json"]["attributes"]["refkv_zarrified"]
     assert root["profile"] == "qptiff" and root["qptiff"] == {"byte_order": "little", "bigtiff": "bigtiff" in path.name}
     assert_rebuilds(out, data, tmp_path)
 
@@ -82,7 +82,7 @@ def test_levels_read_as_tifffile_decodes_them(path):
     """Every level, read through zarr-python (the LZW codec, JPEG strips, the rectilinear grid
     of a short last strip), equals the channels' pages as tifffile decodes them."""
     zarr.config.set({"array.rectilinear_chunks": True})
-    store = virtualize(str(path))
+    store = zarrify(str(path))
     assert store.info["format"] == "qptiff"
     g = zarr.open_group(ZarrStore(store), mode="r", zarr_format=3)
     want = tifffile_levels(path)
@@ -94,8 +94,8 @@ def test_levels_read_as_tifffile_decodes_them(path):
 
 
 def test_layout_of_the_fluorescence_scan():
-    """The convention §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#3-images-and-channels>
-    and §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#4-the-image> on
+    """The convention §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#3-images-and-channels>
+    and §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#4-the-image> on
     qptiff_fl_uint8_lzw.qptiff: three LZW channels with names (an entity decoded, a ScanProfile's
     Name not taken) and colors in omero, the pixel size from the resolution tags, the position
     from XPosition and YPosition, two tiled levels and one in strips of 16 rows whose last strip
@@ -167,7 +167,7 @@ def test_layout_of_an_rgb_scan_and_of_component_data():
 
 @pytest.mark.parametrize("path", QPTIFFS, ids=lambda p: p.name)
 def test_omero_windows_sample_the_coarsest_level(path):
-    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#43-arrays>: each
+    """§4.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#43-arrays>: each
     channel's window is the one numpy computes from the coarsest level read through zarr-python
     (ir_helpers.omero_and_expected_windows), and a float channel without one has none."""
     omero, want = omero_and_expected_windows(path, "qptiff")
@@ -225,7 +225,7 @@ def test_unknown_and_undescribed_images_are_ignored_and_96_dpi_is_no_pixel_size(
 
 
 def test_a_stream_past_its_tile_decodes_to_the_tile():
-    """§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#41-data-types-and-codecs>:
+    """§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#41-data-types-and-codecs>:
     the first tile of qptiff_fl_lzw_narrow_eoi.qptiff ends with its end code one bit too narrow,
     as some Vectra scanners write (code 514 to a reader), so a whole-stream decode gives 1026
     bytes for a 1024-byte tile; the codec decodes into the chunk's size and gives the tile."""

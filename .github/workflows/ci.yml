@@ -1,12 +1,12 @@
 # Offline checks on every push and pull request: the Python package's tests and its
 # install without extras, the browser code's type check and Node tests, the IR core's
 # tests, the fixture
-# comparison of the virtualizers against the frozen reference (spec/virtualize.md §1.1
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>, with
+# comparison of the zarrifiers against the frozen reference (spec/zarrify.md §1.1
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence>, with
 # spec/bindings/vzip.md's strict reading of every archive), the reproducibility of the fixture
-# generators, and the section references, each a link to a heading that exists. Every format (docs/virtualize/README.md) goes through the Rust core (rust/refkv-ir), built natively
+# generators, and the section references, each a link to a heading that exists. Every format (docs/zarrify/README.md) goes through the Rust core (rust/refkv-ir), built natively
 # for Python (`uv sync`, which builds python/, refkv, with its bindings as the module refkv._core) and for wasm32 for the browser code (`just js::wasm`).
-# The vzip CLI (rust/refkv-cli) is checked against the Python virtualizer, archive for archive.
+# The vzip CLI (rust/refkv-cli) is checked against the Python zarrifier, archive for archive.
 # The Python tests, the install without extras, the IR core's tests, the CLI's and the Node tests
 # run on Linux, macOS and Windows; the fixture comparison, the fixtures' reproducibility and the
 # section references, which do not depend on the system, on Linux only.
@@ -151,7 +151,7 @@ jobs:
       - run: just ir-wasm
 
   # The vzip archive writer (rust/refkv-vzip) and the `vzip convert` CLI (rust/refkv-cli): their
-  # tests, and the CLI against `python -m refkv.virtualize` on the fixture corpus, whose archives
+  # tests, and the CLI against `python -m refkv.zarrify` on the fixture corpus, whose archives
   # must be the same, byte for byte (`just cli-identical`); and, but on Windows, where it does not
   # build, the conformance harness built on the writer (conformance/impls/rust)
   cli:
@@ -215,7 +215,7 @@ jobs:
       - run: uv sync --all-groups --locked
       - run: just js::wasm
       - run: >-
-          uv run python conformance/virtualize/compare.py conformance/results/fixtures
+          uv run python conformance/zarrify/compare.py conformance/results/fixtures
           --fixtures fixtures --shard ${{ matrix.shard }}/4
       - if: failure()
         uses: actions/upload-artifact@v4
@@ -223,7 +223,7 @@ jobs:
           name: fixture-compare-${{ matrix.shard }}
           path: conformance/results/fixtures/results.json
 
-  # The package without its extras (python/pyproject.toml): it reads, writes and virtualizes
+  # The package without its extras (python/pyproject.toml): it reads, writes and zarrifies
   # archives without zarr, and each optional part's ImportError names the extra that
   # installs it; then with only the zarr extra, which reads them through zarr
   base-install:

@@ -250,7 +250,7 @@ n = 10000 if small else 500000
 body = b"".join(el(0x0009 + 2 * (k >> 15), 0x1000 + (k & 0x7FFF), b"SH", b"ab") for k in range(n))
 write("dicom_many_elements.dcm", dcm(el(0x0009, 0x0010, b"LO", b"VZIP") + body + image(1, 1) + el(0x7FE0, 0x10, b"OB", b"\0\0")))
 
-# ---- NDPI (spec/virtualize/ndpi.md <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md>)
+# ---- NDPI (spec/zarrify/ndpi.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md>)
 
 def jpeg_head(w: int, h: int, r: int = 1) -> bytes:
     """SOI, SOF0 (3 components sampled 1 × 1: MCUs of 8 × 8), DRI `r`, SOS."""

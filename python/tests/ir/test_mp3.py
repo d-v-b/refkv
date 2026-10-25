@@ -1,4 +1,4 @@
-"""The MP3 IR: the Rust parser and its schema, the projection (spec/virtualize/mp3.md) and the
+"""The MP3 IR: the Rust parser and its schema, the projection (spec/zarrify/mp3.md) and the
 `refkv.stream` codec against two decodings on every synthetic file, the mirror's rebuild, the
 inputs the profile rejects, and the lead-in of each chunk. MP3 has no frozen Python reference:
 the codec's own decoder (ffmpeg's float MP3 decoder, through PyAV) run over the whole stream,
@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from ir_helpers import FIXTURES, core_setting
-from ir_helpers import virtualized as shared_virtualized
+from ir_helpers import zarrified as shared_zarrified
 from refkv import _core
 from refkv.zarr.codecs.stream import stream_units
 
@@ -25,11 +25,11 @@ EXPECTED = FIXTURES / "mp3" / "expected"
 FFMPEG_MAX, FFMPEG_MEAN = 1, 0.6
 
 
-def virtualized(path, tmp_path, chunk_frames=None):
+def zarrified(path, tmp_path, chunk_frames=None):
     """(the output, the hierarchy's root group, the IR), with at most `chunk_frames` frames a chunk (None: the
-    profile's 256); the archive rebuilds the file (ir_helpers.virtualized)."""
+    profile's 256); the archive rebuilds the file (ir_helpers.zarrified)."""
     with core_setting(_core._set_chunk_frames, chunk_frames):
-        out, root, ir = shared_virtualized(path, tmp_path, "mp3")
+        out, root, ir = shared_zarrified(path, tmp_path, "mp3")
     return out, root, ir
 
 def chunk_parts(out, q, data):
@@ -37,8 +37,8 @@ def chunk_parts(out, q, data):
     refkv.stream header (conventions §10
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#10-coded-streams>), whose lead-in
     frames have the position -1 and whose own frames are placed one after the other from 0, and
-    its ranges of source 0 (spec/virtualize/mp3.md §8.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#82-chunks>), which hold the
+    its ranges of source 0 (spec/zarrify/mp3.md §8.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#82-chunks>), which hold the
     frames the header sizes."""
     lit, *ranges = out.refs[f"samples/c/{q}/0"]
     assert isinstance(lit, bytes) and all(len(r) == 2 for r in ranges)
@@ -55,8 +55,8 @@ def chunk_parts(out, q, data):
 
 def frames_of(ir):
     """(offset, length) of each audio frame, in file order: the IR's data elements
-    (spec/virtualize/mp3.md §5.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#53-elements>)."""
+    (spec/zarrify/mp3.md §5.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#53-elements>)."""
     cols = ir.columns()
     kind = np.frombuffer(cols["kind"], np.uint8)
     start, length = np.frombuffer(cols["start"], "<u8"), np.frombuffer(cols["len"], "<u8")
@@ -86,12 +86,12 @@ def sequential(frames: list[bytes], channels: int) -> np.ndarray:
 def test_chunks_decode_as_the_stream_does(path, tmp_path):
     """With 4 frames a chunk (so that every file has several chunks, each with its lead-in),
     the array read through the refkv.stream codec is its decoder's decoding of the audio
-    frames in one pass, sample for sample (spec/virtualize/mp3.md §4.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#41-the-array>, §17.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#82-chunks>); the root's
+    frames in one pass, sample for sample (spec/zarrify/mp3.md §4.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#41-the-array>, §17.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#82-chunks>); the root's
     metadata and the summary agree with the array; the file is rebuilt from the mirror."""
-    out, root, ir = virtualized(path, tmp_path, chunk_frames=4)
-    meta = root.attrs["refkv_virtualized"]["mp3"]
+    out, root, ir = zarrified(path, tmp_path, chunk_frames=4)
+    meta = root.attrs["refkv_zarrified"]["mp3"]
     arr = root["samples"]
     got = arr[...]
     frames = frames_of(ir)
@@ -101,7 +101,7 @@ def test_chunks_decode_as_the_stream_does(path, tmp_path):
     assert arr.chunks == (4 * meta["samples_per_frame"], meta["channels"])
     chunks = -(-meta["frames"] // 4)
     assert out.summary["chunks"] == chunks and out.summary["chunkFrames"] == 4
-    assert set(root.attrs) == {"zarr_conventions", "refkv_virtualized"}
+    assert set(root.attrs) == {"zarr_conventions", "refkv_zarrified"}
     want = sequential(audio_frames(path, ir), meta["channels"])
     assert want.shape == got.shape
     assert np.array_equal(got, want)
@@ -129,7 +129,7 @@ def test_matches_ffmpeg(path, chunk_frames, tmp_path):
     """The array is ffmpeg's decoding of the audio frames (fixtures/mp3/expected, written by
     the generator) within a few units per sample, whole (256 frames a chunk) and in chunks of
     4 frames with their lead-ins."""
-    _, root, _ = virtualized(path, tmp_path, chunk_frames)
+    _, root, _ = zarrified(path, tmp_path, chunk_frames)
     got = np.clip(np.rint(root["samples"][...] * 32768.0), -32768, 32767).astype(np.int32)
     want = np.load(EXPECTED / f"{path.stem}.npy").astype(np.int32)
     assert got.shape == want.shape
@@ -141,8 +141,8 @@ def test_a_long_stream_has_chunks_of_256_frames(tmp_path):
     """mp3_mpeg25_long.mp3 (333 frames of 576 samples) has two chunks by default; the second's
     lead-in starts before frame 256, and both decode as the stream does."""
     path = FIXTURES / "mp3" / "mp3_mpeg25_long.mp3"
-    out, root, ir = virtualized(path, tmp_path)
-    meta = root.attrs["refkv_virtualized"]["mp3"]
+    out, root, ir = zarrified(path, tmp_path)
+    meta = root.attrs["refkv_zarrified"]["mp3"]
     assert meta["frames"] > 256 and out.summary["chunks"] == 2
     arr = root["samples"]
     assert arr.chunks == (256 * 576, 1)
@@ -193,29 +193,29 @@ def test_every_accepted_fixture_has_a_case():
     assert {p.stem for p in ACCEPTED} == set(CASES)
 
 
-def test_virtualizes_the_synthetic_files(tmp_path):
+def test_zarrifies_the_synthetic_files(tmp_path):
     for name, (summary, members) in CASES.items():
-        out, root, _ = virtualized(FIXTURES / "mp3" / f"{name}.mp3", tmp_path)
+        out, root, _ = zarrified(FIXTURES / "mp3" / f"{name}.mp3", tmp_path)
         assert {**out.summary, **summary} == out.summary, name
-        meta = root.attrs["refkv_virtualized"]["mp3"]
+        meta = root.attrs["refkv_zarrified"]["mp3"]
         for k, v in members.items():
             assert meta.get(k) == v, (name, k)
         keys = ["version", "layer", "sample_rate", "channels", "channel_mode", "samples_per_frame", "frames", "samples",
                 "duration", "bitrate_mode", "bitrate_kbps", "crc_frames"]
         keys += [k for k in ("info", "id3v2", "id3v1", "ape") if k in meta] + ["stray_bytes"]
         assert list(meta) == keys, name
-        assert set(root.attrs) == {"zarr_conventions", "refkv_virtualized"}, name
+        assert set(root.attrs) == {"zarr_conventions", "refkv_zarrified"}, name
 
 
 def test_the_info_frame_is_read_and_not_audio(tmp_path):
     """A LAME Xing frame and an ffmpeg Info frame: their fields are the root's `info`, and
     the first audio frame is the frame after them (the first chunk's range starts there)."""
-    out, root, _ = virtualized(FIXTURES / "mp3" / "mp3_abr_xing.mp3", tmp_path)
-    info = root.attrs["refkv_virtualized"]["mp3"]["info"]
+    out, root, _ = zarrified(FIXTURES / "mp3" / "mp3_abr_xing.mp3", tmp_path)
+    info = root.attrs["refkv_zarrified"]["mp3"]["info"]
     assert info["tag"] == "Xing" and info["encoder"].startswith("LAME") and info["frames"] == out.summary["frames"]
     assert isinstance(info["delay"], int) and isinstance(info["padding"], int)
     _, ranges = chunk_parts(out, 0, (FIXTURES / "mp3" / "mp3_abr_xing.mp3").read_bytes())
     assert ranges[0][0] > 0 and out.summary["strayBytes"] == 0
-    out, root, _ = virtualized(FIXTURES / "mp3" / "mp3_info_lavc.mp3", tmp_path)
-    info = root.attrs["refkv_virtualized"]["mp3"]["info"]
+    out, root, _ = zarrified(FIXTURES / "mp3" / "mp3_info_lavc.mp3", tmp_path)
+    info = root.attrs["refkv_zarrified"]["mp3"]["info"]
     assert info["tag"] == "Info" and info["encoder"].startswith("Lavc") and info["frames"] == out.summary["frames"]

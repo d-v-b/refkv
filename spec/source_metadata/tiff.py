@@ -1,4 +1,4 @@
-"""The TIFF convention's source metadata (spec/virtualize/tiff.md), for
+"""The TIFF convention's source metadata (spec/zarrify/tiff.md), for
 spec/generate_schemas.py."""
 
 SCHEMA = {"anyOf": [

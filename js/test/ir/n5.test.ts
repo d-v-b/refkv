@@ -1,6 +1,6 @@
-// N5 stores through the Rust core in the browser's host (src/virtualize/ir/store.ts): every
-// accepted fixture store gives the frozen TypeScript N5 virtualizer's hierarchy outside
-// refkv_source (conformance/virtualize/reference/ts/n5, revision 25), the same sources and
+// N5 stores through the Rust core in the browser's host (src/zarrify/ir/store.ts): every
+// accepted fixture store gives the frozen TypeScript N5 zarrifier's hierarchy outside
+// refkv_source (conformance/zarrify/reference/ts/n5, revision 25), the same sources and
 // references, and a store mirror under refkv_source; every rejected one is rejected by both.
 
 import assert from "node:assert/strict";
@@ -10,11 +10,11 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { directoryStore } from "../../conformance/directory_store.ts";
-import { virtualizeStore as referenceStore } from "../../../conformance/virtualize/reference/ts/index.ts";
-import { STORES_REVISION as FROZEN } from "../../../conformance/virtualize/reference/ts/revision.ts";
-import { currentNames, SOURCE_NODE as LEGACY_NODE } from "../../../conformance/virtualize/reference/ts/legacy.ts";
-import { virtualizeStore } from "../../src/virtualize/index.ts";
-import { StoreError } from "../../src/virtualize/store.ts";
+import { virtualizeStore as referenceStore } from "../../../conformance/zarrify/reference/ts/index.ts";
+import { STORES_REVISION as FROZEN } from "../../../conformance/zarrify/reference/ts/revision.ts";
+import { currentNames, SOURCE_NODE as LEGACY_NODE } from "../../../conformance/zarrify/reference/ts/legacy.ts";
+import { zarrifyStore } from "../../src/zarrify/index.ts";
+import { StoreError } from "../../src/zarrify/store.ts";
 import type { ArchiveDesc } from "../../src/writer.ts";
 
 const FIXTURES = fileURLToPath(new URL("../../../fixtures/n5/", import.meta.url));
@@ -33,8 +33,8 @@ function hierarchy(desc: ArchiveDesc, frozen?: number): Map<string, unknown> {
     } else {
       const parsed = JSON.parse(new TextDecoder().decode(e.bytes));
       // the frozen twin's documents, read with the current names
-      const json = (frozen !== undefined ? currentNames(parsed) : parsed) as { attributes?: { refkv_virtualized?: { revision?: number } } };
-      const prop = json.attributes?.refkv_virtualized;
+      const json = (frozen !== undefined ? currentNames(parsed) : parsed) as { attributes?: { refkv_zarrified?: { revision?: number } } };
+      const prop = json.attributes?.refkv_zarrified;
       if (frozen !== undefined && prop?.revision === frozen) delete prop.revision;
       out.set(e.key, json);
     }
@@ -42,18 +42,18 @@ function hierarchy(desc: ArchiveDesc, frozen?: number): Map<string, unknown> {
   return out;
 }
 
-test("N5 stores through the core have the frozen virtualizer's hierarchy and a store mirror", async () => {
+test("N5 stores through the core have the frozen zarrifier's hierarchy and a store mirror", async () => {
   let accepted = 0;
   for (const name of STORES) {
     if (name.startsWith("n5_reject_")) continue;
     const want = await referenceStore(directoryStore(FIXTURES + name, URL_OF(name)));
-    const got = await virtualizeStore(directoryStore(FIXTURES + name, URL_OF(name)));
+    const got = await zarrifyStore(directoryStore(FIXTURES + name, URL_OF(name)));
     assert.equal(got.format, "n5", name);
     assert.ok(isDeepStrictEqual(hierarchy(got), hierarchy(want, FROZEN)), name);
     assert.deepEqual(got.sources, want.sources, name);
     const src = got.entries.find((e) => e.key === "refkv_source/zarr.json");
     assert.ok(src && "bytes" in src, name);
-    const own = JSON.parse(new TextDecoder().decode(src.bytes)).attributes.refkv_virtualized.n5;
+    const own = JSON.parse(new TextDecoder().decode(src.bytes)).attributes.refkv_zarrified.n5;
     assert.equal(typeof own.ir.objects, "number", name);
     assert.ok(got.entries.some((e) => e.key === "refkv_source/ir/held/data/c/0"), name);
     if (!got.entries.some((e) => "ranges" in e)) assert.deepEqual(got.sources, [], name); // no reference, no source
@@ -63,22 +63,22 @@ test("N5 stores through the core have the frozen virtualizer's hierarchy and a s
 });
 
 test("under a root dataset, the mirror's keys and the other objects are plain keys of refkv_source/", async () => {
-  // spec/virtualize/n5.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>:
+  // spec/zarrify/n5.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects>:
   // no node is a child of the root array; the empty block is in the mirror's listing, not in empty.json
   for (const name of ["n5_root_dataset_objects", "n5_root_dataset_empty_block"]) {
-    const v = await virtualizeStore(directoryStore(FIXTURES + name, URL_OF(name)));
+    const v = await zarrifyStore(directoryStore(FIXTURES + name, URL_OF(name)));
     const keys = v.entries.map((e) => e.key);
     assert.ok(keys.includes("refkv_source/zarr.json") && !keys.includes("refkv_source/empty.json"), name);
     assert.deepEqual(keys.filter((k) => k.endsWith("zarr.json") && !k.startsWith("refkv_source/")), ["zarr.json"], name);
   }
-  const v = await virtualizeStore(directoryStore(FIXTURES + "n5_root_dataset_objects", URL_OF("x")));
+  const v = await zarrifyStore(directoryStore(FIXTURES + "n5_root_dataset_objects", URL_OF("x")));
   assert.ok(v.entries.some((e) => e.key === "refkv_source/objects/README" && "ranges" in e));
 });
 
 test("a store that references no object has no source", async () => {
   const dir = fs.mkdtempSync(`${fs.realpathSync(os.tmpdir())}/n5-`);
   fs.writeFileSync(`${dir}/attributes.json`, '{"dimensions": [4], "blockSize": [2], "dataType": "uint8", "compression": {"type": "raw"}}');
-  const v = await virtualizeStore(directoryStore(dir, "https://data.test/n5/none/"));
+  const v = await zarrifyStore(directoryStore(dir, "https://data.test/n5/none/"));
   assert.deepEqual(v.sources, []);
   assert.ok(!v.entries.some((e) => "ranges" in e));
   fs.rmSync(dir, { recursive: true });
@@ -96,13 +96,13 @@ test("a read that fails fails the run, and no other read of its batch starts aft
       return new TextEncoder().encode("{}");
     },
   };
-  await assert.rejects(virtualizeStore(store), /connection reset/);
+  await assert.rejects(zarrifyStore(store), /connection reset/);
   assert.ok(reads <= 3, `${reads} reads`);
 });
 
-test("N5 stores the frozen virtualizer rejects, the core rejects", async () => {
+test("N5 stores the frozen zarrifier rejects, the core rejects", async () => {
   for (const name of STORES.filter((n) => n.startsWith("n5_reject_"))) {
     await assert.rejects(referenceStore(directoryStore(FIXTURES + name, URL_OF(name))), name);
-    await assert.rejects(virtualizeStore(directoryStore(FIXTURES + name, URL_OF(name))), (e) => e instanceof StoreError, name);
+    await assert.rejects(zarrifyStore(directoryStore(FIXTURES + name, URL_OF(name))), (e) => e instanceof StoreError, name);
   }
 });

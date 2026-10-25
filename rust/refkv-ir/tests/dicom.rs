@@ -1,4 +1,4 @@
-//! The DICOM parser (src/dicom/; spec/virtualize/dicom.md): one test per rejected fixture, a
+//! The DICOM parser (src/dicom/; spec/zarrify/dicom.md): one test per rejected fixture, a
 //! long fragment chain built here, and a range asked for and not fed.
 
 mod common;
@@ -8,7 +8,7 @@ use refkv_ir::check;
 use refkv_ir::dicom::Dicom;
 
 // one test per rejected fixture, each the message its check gives
-// one test per case of conformance/virtualize/rejects/dicom.json (build.rs), each the message its check gives
+// one test per case of conformance/zarrify/rejects/dicom.json (build.rs), each the message its check gives
 macro_rules! reject {
     ($name:ident, $input:literal, $msg:literal) => {
         common::reject!($name, Dicom, concat!("dicom/", $input), $msg);

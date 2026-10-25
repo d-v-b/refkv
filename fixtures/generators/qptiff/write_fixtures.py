@@ -1,5 +1,5 @@
 """Writes synthetic Akoya/PerkinElmer QPTIFF files to fixtures/qptiff/ for
-spec/virtualize/qptiff.md <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md>,
+spec/zarrify/qptiff.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md>,
 with tifffile, in the arrangement of the format's specification and of Akoya's public samples:
 the channels as FullResolution images first, a stripped RGB Thumbnail, the ReducedResolution
 images of each level (tiled, or stripped for the smallest), then the Overview and Label images.

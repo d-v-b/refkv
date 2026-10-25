@@ -1,6 +1,6 @@
-"""`imagecodecs_jpeg`: each chunk is one complete JPEG stream (as virtualized JPEG-in-TIFF tiles
-are, spec/virtualize/tiff.md §7.3
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#73-chunks>). It decodes only;
+"""`imagecodecs_jpeg`: each chunk is one complete JPEG stream (as zarrified JPEG-in-TIFF tiles
+are, spec/zarrify/tiff.md §7.3
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#73-chunks>). It decodes only;
 its encoder exists so zarr can create the array metadata.
 """
 

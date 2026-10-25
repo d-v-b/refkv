@@ -1,4 +1,4 @@
-// End-to-end check in headless Chromium: the demo page virtualizes a TIFF in
+// End-to-end check in headless Chromium: the demo page zarrifies a TIFF in
 // its service worker, Neuroglancer (same origin) opens the resulting Zarr URL
 // as plain zarr3 over HTTP, and the archive is downloaded.
 //

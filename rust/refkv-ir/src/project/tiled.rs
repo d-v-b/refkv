@@ -1,6 +1,6 @@
-//! What the TIFF family's projections share (spec/virtualize/tiff.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#4-the-image>, spec/virtualize/qptiff.md
-//! §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#4-the-image>, and NDPI's
+//! What the TIFF family's projections share (spec/zarrify/tiff.md §4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#4-the-image>, spec/zarrify/qptiff.md
+//! §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#4-the-image>, and NDPI's
 //! levels): one array per level whose chunks are the tiles of each plane's IFD, the samples'
 //! data type and codecs, the `omero` windows sampled from the coarsest level, and the image's
 //! OME-NGFF object with the facts' translation at every level.
@@ -14,8 +14,8 @@ use serde_json::{json, Value as J};
 /// The longest channel name taken for a label.
 pub const MAX_NAME: usize = 256;
 
-/// The data type of the samples (spec/virtualize/tiff.md §4.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#43-data-types-and-codecs>).
+/// The data type of the samples (spec/zarrify/tiff.md §4.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>).
 pub fn data_type(facts: &J) -> Result<String, String> {
     let kind = match n(&facts["sample_format"]) {
         1 => "uint",

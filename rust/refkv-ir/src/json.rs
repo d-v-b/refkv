@@ -1,5 +1,5 @@
 //! A store's JSON documents as the store profiles read them
-//! (spec/virtualize.md §1.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-json-documents>):
+//! (spec/zarrify.md §1.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents>):
 //! UTF-8 without a byte order mark, at most 16 MiB, nesting at most 256 deep, no `NaN` or
 //! `Infinity` literal, every number finite in binary64, a repeated member the last one
 //! written (in the place of the first). An integer literal (no fraction, no exponent) keeps
@@ -97,8 +97,8 @@ impl Jv {
         }
     }
 
-    /// An integer of spec/virtualize.md §1.6
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-json-documents> from `lo` to `hi` (within ±(2^53 − 1)): an integer literal, or a
+    /// An integer of spec/zarrify.md §1.6
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents> from `lo` to `hi` (within ±(2^53 − 1)): an integer literal, or a
     /// number whose value is an integer.
     pub fn int(&self, lo: i64, hi: i64) -> Option<i64> {
         const MAX_SAFE: f64 = 9007199254740991.0;
@@ -211,8 +211,8 @@ pub struct Doc {
     pub members: Vec<(String, u64, u64)>,
 }
 
-/// The document `data` by spec/virtualize.md §1.6
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#16-json-documents>, or the reason it is rejected.
+/// The document `data` by spec/zarrify.md §1.6
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents>, or the reason it is rejected.
 pub fn parse(data: &[u8]) -> Result<Doc, String> {
     parse_within(data, MAX_DEPTH)
 }

@@ -7,7 +7,7 @@ import json
 import pytest
 
 from ir_helpers import FIXTURES, as_the_reference
-from refkv.ir import virtualize as via_ir
+from refkv.ir import zarrify as via_ir
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
 IMS = sorted((FIXTURES / "ims").rglob("*.ims"))
@@ -41,8 +41,8 @@ def test_probes_decide_as_the_reference(ims_probes, tmp_path, name, accepted):
 
 
 def objects(ir) -> list[str]:
-    """The paths of the IR's objects (spec/virtualize/ims.md §5.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#52-elements>)."""
+    """The paths of the IR's objects (spec/zarrify/ims.md §5.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#52-elements>)."""
     return [p for p in (ir.path(i) for i in range(len(ir))) if p.count("/") == 1 and p.startswith("objects/")]
 
 

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Image files to Zarr in the browser</title>
-<meta name="description" content="Paste the URL of a remote image file or store, such as an OME-TIFF, a Zeiss CZI, a DICOM, an N5 or a Sentinel-2 SAFE product: a service worker virtualizes it into a vzip archive in the browser and serves it as plain Zarr, opened here in Neuroglancer or on a map.">
+<meta name="description" content="Paste the URL of a remote image file or store, such as an OME-TIFF, a Zeiss CZI, a DICOM, an N5 or a Sentinel-2 SAFE product: a service worker zarrifies it into a vzip archive in the browser and serves it as plain Zarr, opened here in Neuroglancer or on a map.">
 <style>
   :root {
     --bg: #fafaf8; --fg: #1d1d1b; --muted: #6b6b66; --line: #deddd8;
@@ -60,15 +60,15 @@
     <!-- profiles:demo-lede --> <!-- /profiles -->
     the format is detected from the file's
     first bytes, or the store's metadata. A service worker reads the input's structure with a few range
-    requests, writes a vzip archive in memory (by <a href="https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md">spec/virtualize.md</a>),
+    requests, writes a vzip archive in memory (by <a href="https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md">spec/zarrify.md</a>),
     and serves it as plain Zarr at a local URL that any Zarr viewer on this site can open: Neuroglancer, or
     for Sentinel-2 a map. Pixel data is read from the original only when a viewer asks for it.</p>
   <form id="form">
     <input id="url" type="url" required aria-label="image file or refkv URL">
-    <button type="submit">Virtualize</button>
+    <button type="submit">Zarrify</button>
   </form>
   <!-- The blocks between `profiles:` markers are filled by js/build.mjs from the profile registry
-       (spec/virtualize/profiles/) and each format's demo/examples/<format>.html, with its
+       (spec/zarrify/profiles/) and each format's demo/examples/<format>.html, with its
        examples' sources and licenses. -->
   <dl class="examples" aria-label="examples, by format">
     <!-- profiles:demo-examples --> <!-- /profiles -->

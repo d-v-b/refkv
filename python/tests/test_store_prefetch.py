@@ -15,10 +15,10 @@ from xml.sax.saxutils import escape
 
 import pytest
 
-import refkv.virtualize
+import refkv.zarrify
 from refkv.policy import Policy
-from refkv.virtualize import Rejected, _virtualize_store as virtualize_store  # the profile output, not the store
-from refkv.virtualize.store import _Prefetch, object_url, open_store
+from refkv.zarrify import Rejected, _zarrify_store as zarrify_store  # the profile output, not the store
+from refkv.zarrify.store import _Prefetch, object_url, open_store
 
 FIXTURES = Path(__file__).parents[2] / "fixtures"
 STORES = sorted(p for f in ("n5", "zarr2", "ome-zarr") for p in (FIXTURES / f).iterdir() if p.is_dir())
@@ -82,10 +82,10 @@ def directory(root: Path) -> dict[str, bytes]:
 def outcome(monkeypatch, s3: FakeS3, workers: int):
     """("ok", format, docs, chunks), ("rejected", message) or ("failed", type, message)."""
     # The store reads through `s3` as a test's opener, so without kept-alive connections.
-    monkeypatch.setattr(refkv.virtualize, "open_store",
+    monkeypatch.setattr(refkv.zarrify, "open_store",
                         lambda location, url=None, **kw: open_store(location, url, opener=s3, **kw))
     try:
-        fmt, out = virtualize_store(URL, workers=workers)
+        fmt, out = zarrify_store(URL, workers=workers)
     except Rejected as e:
         return ("rejected", str(e))
     except OSError as e:
@@ -211,7 +211,7 @@ def test_concurrent_reads_over_kept_alive_connections(s3_server):
         state["reads"].clear()
         # the server is on 127.0.0.1, which the reader policy refuses by default (spec/refkv.md
         # §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)
-        fmt, out = virtualize_store(url, workers=workers, policy=Policy(allow_private_hosts=True))
+        fmt, out = zarrify_store(url, workers=workers, policy=Policy(allow_private_hosts=True))
         results.append((fmt, json.dumps(out.docs, sort_keys=True), out.chunks))
         assert set(state["reads"].values()) == {1}
     assert results[0] == results[1]

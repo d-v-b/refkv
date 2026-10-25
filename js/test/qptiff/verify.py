@@ -1,11 +1,11 @@
-"""Checks the browser QPTIFF virtualizer against tifffile.
+"""Checks the browser QPTIFF zarrifier against tifffile.
 
-Each fixture in fixtures/qptiff/ is virtualized by js/conformance/virtualize_file.ts (the
+Each fixture in fixtures/qptiff/ is zarrified by js/conformance/zarrify_file.ts (the
 browser code, run under Node). The archive is then read by the reference reader
 (python/src/refkv) and zarr-python (rectilinear chunk grids enabled), and every level must
 equal the channels' pages as tifffile decodes them, grouped by the ImageType of their
-descriptions (spec/virtualize/qptiff.md §3
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#3-images-and-channels>); the
+descriptions (spec/zarrify/qptiff.md §3
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#3-images-and-channels>); the
 file is rebuilt from the archive's IR mirror. The rejected fixtures must be refused.
 
 Usage: uv run python js/test/qptiff/verify.py
@@ -40,7 +40,7 @@ def expected_levels(path: Path) -> list[np.ndarray]:
     """Each level as `[c, y, x]`: the FullResolution pages, then each run of as many
     ReducedResolution pages (but a level in strips whose last strip is short and whose
     compression is neither none nor LZW, which the convention leaves out, §4.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#42-tiles-and-strips>); an
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>); an
     RGB page's samples become the channel axis."""
     with tifffile.TiffFile(path) as tf:
         kinds = [(re.search(r"<ImageType>([^<]*)</ImageType>", p.description or "") or [None, None])[1]
@@ -54,7 +54,7 @@ def expected_levels(path: Path) -> list[np.ndarray]:
             if not page.is_tiled and page.compression not in (1, 5):
                 rows = min(page.tags[278].value if 278 in page.tags else page.imagelength, page.imagelength)
                 if page.imagelength > rows and page.imagelength % rows:
-                    continue  # a level the convention leaves out (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#42-tiles-and-strips>)
+                    continue  # a level the convention leaves out (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>)
             a = np.stack([tf.pages[k].asarray() for k in ks])
             # an RGB image's samples first; one gray channel has no channel axis
             out.append(np.moveaxis(a[0], -1, 0) if a.ndim == 4 else a[0] if n == 1 else a)

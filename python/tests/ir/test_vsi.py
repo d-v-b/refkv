@@ -1,4 +1,4 @@
-"""The VSI IR: the Rust parser and its schema, the image projection (spec/virtualize/vsi.md)
+"""The VSI IR: the Rust parser and its schema, the image projection (spec/zarrify/vsi.md)
 against the synthetic slides' known pixels (fixtures/vsi/expected, the arrays the generator
 encoded into the tile files) and, when a JVM and Bio-Formats are at hand, against Bio-Formats
 (bioio-bioformats), the independent reader; the mirror's rebuild of every file; the inputs the
@@ -26,11 +26,11 @@ from refkv import _core
 from refkv.ir.store import StoreIrOutput
 from refkv.policy import Policy
 from refkv.uri import path_reference
-from refkv.virtualize import Rejected, _virtualize as virtualize
-from refkv.virtualize.store import object_url
-from refkv.virtualize.vsi import VsiFiles, split_input
+from refkv.zarrify import Rejected, _zarrify as zarrify
+from refkv.zarrify.store import object_url
+from refkv.zarrify.vsi import VsiFiles, split_input
 
-sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from proxy import Proxy  # noqa: E402
 
 VSI = FIXTURES / "vsi"
@@ -58,8 +58,8 @@ def as_tczyx(arr: np.ndarray, axes: list[str], samples: int) -> np.ndarray:
     return arr
 
 
-def virtualized(path: Path, url: str | None = None) -> tuple[StoreIrOutput, zarr.Group]:
-    fmt, out = virtualize(str(path), url=url)
+def zarrified(path: Path, url: str | None = None) -> tuple[StoreIrOutput, zarr.Group]:
+    fmt, out = zarrify(str(path), url=url)
     assert fmt == "vsi" and isinstance(out, StoreIrOutput)
     return out, zarr.open_group(refkv.zarr.store(out.to_store()), mode="r", zarr_format=3)
 
@@ -70,7 +70,7 @@ def test_slides_match_their_known_pixels_and_rebuild(path, tmp_path):
     read back through zarr-python; the root is a bioformats2raw layout whose series are the
     stacks with pixels then the macro image; every file of the input is rebuilt from the mirror
     alone (the files are described in place: from their own bytes, nothing held)."""
-    out, root = virtualized(path)
+    out, root = zarrified(path)
     assert root.attrs["ome"] == {"version": "0.5", "bioformats2raw.layout": 3}
     images = out.summary["images"]
     assert root["OME"].attrs["ome"]["series"] == [str(k) for k in range(len(images))]
@@ -100,13 +100,13 @@ def test_slides_match_their_known_pixels_and_rebuild(path, tmp_path):
 
 
 def test_the_rgb_jpeg_slide_layout():
-    """The brightfield-like fixture (spec/virtualize/vsi.md §4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#4-the-images>): levels sized as
+    """The brightfield-like fixture (spec/zarrify/vsi.md §4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#4-the-images>): levels sized as
     Bio-Formats sizes them, chunks the tiles, a missing tile absent (the fill value its
     background), the focus map from an IFD, the macro from its JPEG strip with a shared prefix,
     scales in micrometers and a translation from the origin."""
-    out, root = virtualized(VSI / "vsi_rgb_jpeg.vsi", URL.format("vsi_rgb_jpeg.vsi"))
-    assert root.attrs["refkv_virtualized"]["source"] == {"url": URL.format("vsi_rgb_jpeg.vsi")}
+    out, root = zarrified(VSI / "vsi_rgb_jpeg.vsi", URL.format("vsi_rgb_jpeg.vsi"))
+    assert root.attrs["refkv_zarrified"]["source"] == {"url": URL.format("vsi_rgb_jpeg.vsi")}
     names = [root[str(k)].attrs["ome"]["multiscales"][0]["name"] for k in range(4)]
     assert names == ["Overview", "20x_BF_01", "20x FocusMap", "macro image"]
     a = root["1/0"]
@@ -125,7 +125,7 @@ def test_the_rgb_jpeg_slide_layout():
     channels = root["1"].attrs["ome"]["omero"]["channels"]
     assert [c["label"] for c in channels] == ["R", "G", "B"]
     assert channels[0]["window"] == {"min": 0, "max": 255, "start": 0, "end": 255}
-    own = root["1"].attrs["refkv_virtualized"]["vsi"]
+    own = root["1"].attrs["refkv_zarrified"]["vsi"]
     assert own["tile_file"] == "_vsi_rgb_jpeg_/stack10002/frame_t.ets" and own["type_name"] == "Default image"
     # the source table: one url source per file some reference uses, sizes pinned
     urls, data, _ = out.table()
@@ -138,7 +138,7 @@ def test_the_multidimensional_slide():
     """T, Z and C from the tile coordinates and the tree's dimension blocks; the channel names
     (the dye, not the optical path), colors from the LUTs and windows from the display limits;
     the z step in micrometers; the 12-bit background as the fill value; `frame_t_0.ets`."""
-    out, root = virtualized(VSI / "vsi_raw_tzc.vsi")
+    out, root = zarrified(VSI / "vsi_raw_tzc.vsi")
     a = root["0/0"]
     assert (a.shape, a.dtype, a.fill_value) == ((2, 2, 3, 30, 40), np.uint16, 4095)
     assert json.loads(out.entries["0/0/zarr.json"])["dimension_names"] == ["t", "c", "z", "y", "x"]
@@ -148,18 +148,18 @@ def test_the_multidimensional_slide():
     channels = root["0"].attrs["ome"]["omero"]["channels"]
     assert [(c["label"], c["color"]) for c in channels] == [("Cy5", "FF0000"), ("GFP", "00FF00")]
     assert channels[0]["window"] == {"min": 0, "max": 65535, "start": 88, "end": 169}
-    own = root["0"].attrs["refkv_virtualized"]["vsi"]
+    own = root["0"].attrs["refkv_zarrified"]["vsi"]
     assert own["tile_file"] == "_vsi_raw_tzc_/stack1/frame_t_0.ets"
     assert [c["channel_name"] for c in own["channels"]] == ["488/640_50um_1x"] * 2
     assert own["z_unit_name"] == "micrometer" if "z_unit_name" in own else own["z_unit"] == "10^-6m^1"
 
 
 def test_the_root_metadata():
-    """The root's source metadata: the file, the stacks, and the tree as JSON (spec/virtualize/vsi.md
-    §6.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#61-the-root>): tags named
+    """The root's source metadata: the file, the stacks, and the tree as JSON (spec/zarrify/vsi.md
+    §6.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#61-the-root>): tags named
     as Bio-Formats names them, texts decoded from UTF-16, a blob over 1024 bytes as its length."""
-    out, root = virtualized(VSI / "vsi_metadata_edges.vsi")
-    own = root.attrs["refkv_virtualized"]["vsi"]
+    out, root = zarrified(VSI / "vsi_metadata_edges.vsi")
+    own = root.attrs["refkv_zarrified"]["vsi"]
     assert set(own) == {"file", "stacks", "tree"}
     assert own["file"]["key"] == "vsi_metadata_edges.vsi" and own["stacks"][0]["name"] == "µm édge"
     top = own["tree"]["fields"]
@@ -178,11 +178,11 @@ def test_the_root_metadata():
     ms = root["0"].attrs["ome"]["multiscales"][0]
     assert ms["axes"][0]["unit"] == "millimeter" and len(ms["datasets"][0]["coordinateTransformations"]) == 1
     assert "omero" not in root["0"].attrs["ome"] or root["0"].attrs["ome"]["omero"]["channels"][0]["window"]["start"] == 0
-    assert root["0"].attrs["refkv_virtualized"]["vsi"]["type_name"] is None
+    assert root["0"].attrs["refkv_zarrified"]["vsi"]["type_name"] is None
 
 
 def test_raw_pixel_types():
-    out, root = virtualized(VSI / "vsi_raw_types.vsi")
+    out, root = zarrified(VSI / "vsi_raw_types.vsi")
     types = [im["dataType"] for im in out.summary["images"] if im["kind"] == "stack"]
     assert types == ["int8", "int16", "int32", "uint32", "int64", "uint64", "float32", "float64"]
     for k, im in enumerate(out.summary["images"][:-1]):
@@ -191,13 +191,13 @@ def test_raw_pixel_types():
 
 
 def test_the_second_tile_file_name_is_read_when_the_first_is_absent_and_the_first_wins():
-    """`frame_t.ets`, else `frame_t_0.ets` (spec/virtualize/vsi.md §9.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>): the
+    """`frame_t.ets`, else `frame_t_0.ets` (spec/zarrify/vsi.md §9.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>): the
     Zenodo-like fixture has the second alone; the metadata fixture has both, and the second
     (which is not an ETS file) is never read."""
-    out, _ = virtualized(VSI / "vsi_raw_tzc.vsi")
+    out, _ = zarrified(VSI / "vsi_raw_tzc.vsi")
     assert set(out.sizes) == {"vsi_raw_tzc.vsi", "_vsi_raw_tzc_/stack1/frame_t_0.ets"}
-    out, _ = virtualized(VSI / "vsi_metadata_edges.vsi")
+    out, _ = zarrified(VSI / "vsi_metadata_edges.vsi")
     assert set(out.sizes) == {"vsi_metadata_edges.vsi", "_vsi_metadata_edges_/stack10002/frame_t.ets"}
 
 
@@ -205,14 +205,14 @@ def test_the_second_tile_file_name_is_read_when_the_first_is_absent_and_the_firs
 def test_rejects(path):
     """Every `vsi_reject_*` fixture is rejected (rust/refkv-ir/tests/vsi.rs checks each message)."""
     with pytest.raises(Rejected):
-        virtualize(str(path), url=URL.format(path.name))
+        zarrify(str(path), url=URL.format(path.name))
 
 
 def test_a_url_that_does_not_name_the_file_is_rejected():
     with pytest.raises(Rejected, match="does not name the .vsi file"):
-        virtualize(str(VSI / "vsi_raw_tzc.vsi"), url=URL.format("other.vsi"))
+        zarrify(str(VSI / "vsi_raw_tzc.vsi"), url=URL.format("other.vsi"))
     with pytest.raises(Rejected, match="has a query or a fragment"):
-        virtualize(str(VSI / "vsi_raw_tzc.vsi"), url="https://data.test/vsi_raw_tzc.vsi?x")
+        zarrify(str(VSI / "vsi_raw_tzc.vsi"), url="https://data.test/vsi_raw_tzc.vsi?x")
 
 
 def test_split_input():
@@ -226,7 +226,7 @@ def test_split_input():
 def test_a_local_input_without_a_url_names_its_files_by_path(tmp_path):
     """The store URL of a local `.vsi` is its directory's path reference, so the archive's
     sources are the files' paths, which the reader opens."""
-    out, root = virtualized(VSI / "vsi_raw_bgr.vsi")
+    out, root = zarrified(VSI / "vsi_raw_bgr.vsi")
     urls = out.table()[0]
     d = path_reference(str(VSI))  # the path itself on POSIX, a file: URI on Windows
     d = d if d.endswith("/") else d + "/"
@@ -250,17 +250,17 @@ def test_over_http_the_tile_files_are_probed_and_a_404_is_absent(server, tmp_pat
     """The host opens each candidate file at the input's directory; a 404 is a file that does
     not exist (`frame_t.ets` for the Zenodo-like fixture), so the second name is read."""
     policy = Policy(allow_private_hosts=True)
-    fmt, out = virtualize(server + "vsi_raw_tzc.vsi", policy=policy)
+    fmt, out = zarrify(server + "vsi_raw_tzc.vsi", policy=policy)
     assert fmt == "vsi" and set(out.sizes) == {"vsi_raw_tzc.vsi", "_vsi_raw_tzc_/stack1/frame_t_0.ets"}
     assert out.url == server
     assert out.summary["listingRequests"] == 1  # one file opened besides the .vsi
     out.write(str(tmp_path / "a.vzip"))
     g = zarr.open_group(refkv.zarr.open(str(tmp_path / "a.vzip"), policy=policy), mode="r", zarr_format=3)
-    assert g.attrs["refkv_virtualized"]["source"] == {"url": server + "vsi_raw_tzc.vsi"}
+    assert g.attrs["refkv_zarrified"]["source"] == {"url": server + "vsi_raw_tzc.vsi"}
     assert np.array_equal(g["0/0"][...], expected_array("vsi_raw_tzc", 1))
     # a missing tile file over HTTP is a rejection, as it is locally
     with pytest.raises(Rejected, match="has no tile file"):
-        virtualize(server + "vsi_reject_missing_tile_file.vsi", policy=policy)
+        zarrify(server + "vsi_reject_missing_tile_file.vsi", policy=policy)
 
 
 def test_the_files_store(server):
@@ -295,7 +295,7 @@ def test_matches_bioformats(name):
     Reader = bioformats()
     if Reader is None:
         pytest.skip("Bio-Formats is not available (bioio-bioformats needs a JVM and Maven)")
-    out, root = virtualized(VSI / f"{name}.vsi")
+    out, root = zarrified(VSI / f"{name}.vsi")
     r = Reader(str(VSI / f"{name}.vsi"))
     ours = [(k, im) for k, im in enumerate(out.summary["images"]) if im["source"] == "tiles" or im["kind"] == "macro"]
     assert len(r.scenes) == len(ours)
@@ -317,7 +317,7 @@ def test_matches_bioformats(name):
             diff = np.abs(got.astype(np.int64) - want.astype(np.int64)).max()
             assert diff <= tolerance, (scene, level, diff)
         if im["kind"] == "stack" and im["samples"] == 1 and im["sizes"]["c"] > 1:
-            own = root[str(k)].attrs["refkv_virtualized"]["vsi"]
+            own = root[str(k)].attrs["refkv_zarrified"]["vsi"]
             assert list(r.channel_names) == [c["channel_name"] for c in own["channels"]]
         if im["kind"] == "stack":
             ms = root[str(k)].attrs["ome"]["multiscales"][0]
@@ -342,7 +342,7 @@ def test_public_samples_match_bioformats():
     for path in sorted(Path(os.environ["REFKV_VSI_SAMPLES"]).rglob("*.vsi")):
         if not (path.parent / f"_{path.stem}_").is_dir():
             continue  # the .vsi file alone, without its tile files
-        out, root = virtualized(path)
+        out, root = zarrified(path)
         r = Reader(str(path))
         ours = [(k, im) for k, im in enumerate(out.summary["images"]) if im["source"] == "tiles" or im["kind"] == "macro"]
         assert len(r.scenes) == len(ours), path.name

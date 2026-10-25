@@ -1,5 +1,5 @@
-//! The FITS projection (spec/virtualize/fits.md §2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#2-hdus-and-nodes>) from a
+//! The FITS projection (spec/zarrify/fits.md §2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#2-hdus-and-nodes>) from a
 //! valid IR: the root group with the table of HDUs and the primary header's cards, and one
 //! node per HDU at the path of its index: an array for an image (its chunks cut from the
 //! `data` element), a group with the arrays `rows` and `heap` for a table, and an empty
@@ -16,15 +16,15 @@ use serde_json::{json, Map, Value as J};
 
 const PROFILE: &str = "fits";
 /// The most bytes of a chunk of an image or of a table's rows (§3.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#31-the-array>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#31-the-array>).
 const CHUNK_BYTES: u64 = 1 << 20;
 /// The most bytes of JSON a node's cards may take (§5.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#53-cards>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>).
 const CARDS_BUDGET: usize = 65536;
 const MAX_SAFE: i128 = (1 << 53) - 1;
 
 /// A card's value as JSON (§5.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#53-cards>): an integer exactly, as a string past 2^53 − 1; a real as
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>): an integer exactly, as a string past 2^53 − 1; a real as
 /// its binary64 value; a complex as `[re, im]`; no value as null.
 fn value_json(v: &Value) -> J {
     match v {
@@ -67,7 +67,7 @@ fn cards_of(ir: &Ir, h: &J) -> Result<Vec<Card>, String> {
 }
 
 /// An HDU node's source metadata (§5.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#52-an-hdus-node>): its index, its cards (null past the budget), an
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#52-an-hdus-node>): its index, its cards (null past the budget), an
 /// image's scaling members, a table's columns.
 fn own_json(h: &J, cards: &[Card]) -> J {
     let mut own = Map::new();
@@ -157,7 +157,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let hdus = facts["hdus"].as_array().cloned().unwrap_or_default();
     let mut out = Out::new(url);
     // the root: the table of HDUs and the primary header's cards (§5.1
-    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#51-the-root>)
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#51-the-root>)
     let mut table = Vec::with_capacity(hdus.len());
     let mut kinds: Map<String, J> = Map::new();
     let (mut cards_total, mut tables) = (0u64, 0u64);
@@ -225,7 +225,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         }
     }
     // the tile-compressed images (§3.3
-    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>):
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>):
     // the array's chunks are a literal prefix of the tiles' records, then the heap element's
     // ranges; the `refkv.fits_tiles` codec decodes them
     for (h, own) in tiled {
@@ -265,7 +265,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
 }
 
 /// The root table's `compression` member of a tile-compressed image (§5.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#51-the-root>): null for
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#51-the-root>): null for
 /// any other HDU.
 fn compression_json(c: &J) -> J {
     if c.is_null() {
@@ -276,7 +276,7 @@ fn compression_json(c: &J) -> J {
 }
 
 /// Every tile's record for the chunks' prefixes (§3.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>),
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>),
 /// from the main table's rows: its
 /// stream's length and column, its quantization.
 fn tile_records(c: &J, table: &[u8]) -> Result<Vec<TileRecord>, String> {

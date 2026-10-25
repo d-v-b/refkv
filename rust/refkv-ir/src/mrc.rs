@@ -1,7 +1,7 @@
 //! A sans-IO parser of MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks)
-//! into the IR (spec/virtualize/mrc.md §8
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#8-mrc-profile>, and the
-//! source model of §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#53-elements>).
+//! into the IR (spec/zarrify/mrc.md §8
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#8-mrc-profile>, and the
+//! source model of §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#53-elements>).
 //!
 //! One round: the 1024-byte header. The schema (`schema/mrc.json`) holds every check, in
 //! the profile's order. The IR is the header (one record value), the extended header
@@ -26,7 +26,7 @@ pub const IMOD: i64 = 1146047817;
 
 /// The header's fields (`i4`, `f4`, `u1`, `b` for opaque bytes, `c` for text, or `l` for the
 /// ten 80-byte labels), in the standard's order
-/// (spec/virtualize/mrc.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#2-the-header>).
+/// (spec/zarrify/mrc.md §2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#2-the-header>).
 pub const FIELDS: [Field; 30] = [
     ("nx", 0, "i4", 1), ("ny", 4, "i4", 1), ("nz", 8, "i4", 1), ("mode", 12, "i4", 1),
     ("nxstart", 16, "i4", 1), ("nystart", 20, "i4", 1), ("nzstart", 24, "i4", 1),
@@ -40,8 +40,8 @@ pub const FIELDS: [Field; 30] = [
     ("rms", 216, "f4", 1), ("nlabl", 220, "i4", 1), ("label", 224, "l", 10),
 ];
 
-/// Whether a file's first bytes are an MRC file's (spec/virtualize.md §1.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>): `MAP` at 208.
+/// Whether a file's first bytes are an MRC file's (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): `MAP` at 208.
 pub fn detect(head: &[u8]) -> bool {
     head.len() >= 212 && &head[208..211] == b"MAP"
 }
@@ -92,8 +92,8 @@ impl Mrc {
         }
     }
 
-    /// The header and its checks (spec/virtualize/mrc.md §8.1
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#81-header>), then the
+    /// The header and its checks (spec/zarrify/mrc.md §8.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#81-header>), then the
     /// elements of the header, the extended header and the data.
     fn head(&mut self) -> Res<()> {
         let got = self.fed.get(0, self.size.min(HEADER)).ok_or("internal: no header")?.to_vec();
@@ -115,8 +115,8 @@ impl Mrc {
         self.rules.check("mode", rules::env([("code", num(code as f64))]))?;
         let spec = &self.rules.table("modes")[code.to_string()];
         let bytes = spec["bytes"].as_u64().unwrap_or(1);
-        // IMOD marks a mode 0 file whose bytes are unsigned (spec/virtualize/mrc.md §3
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#3-data-types>)
+        // IMOD marks a mode 0 file whose bytes are unsigned (spec/zarrify/mrc.md §3
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>)
         let imod_unsigned = code == 0 && h.number(IMOD_STAMP, "i4").i() == IMOD && h.number(IMOD_FLAGS, "i4").i() & 1 == 1;
         let dtype = if imod_unsigned { "uint8" } else { spec["dtype"].as_str().unwrap_or("int8") };
         let nsymbt = h.get("nsymbt").i();
@@ -159,7 +159,7 @@ impl Mrc {
 
 crate::parser!(Mrc);
 
-/// The MRC profile's file run (spec/virtualize/mrc.md).
+/// The MRC profile's file run (spec/zarrify/mrc.md).
 pub struct Profile;
 
 impl crate::run::FileProfile for Profile {

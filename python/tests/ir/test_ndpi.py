@@ -1,4 +1,4 @@
-"""NDPI on the IR (spec/virtualize/ndpi.md): the Rust TIFF parser's NDPI variant and the
+"""NDPI on the IR (spec/zarrify/ndpi.md): the Rust TIFF parser's NDPI variant and the
 NDPI projection against the frozen profile, the mirror, the header's data sources, and
 the hostile probes (gen_probes.py)."""
 
@@ -11,9 +11,9 @@ import pytest
 import zarr
 
 from ir_helpers import FIXTURES, REVISED, as_the_reference, assert_rebuilds, same_hierarchy
-from refkv.ir import virtualize as via_ir
-from refkv.virtualize import Rejected
-from refkv.virtualize import virtualize as shipped
+from refkv.ir import zarrify as via_ir
+from refkv.zarrify import Rejected
+from refkv.zarrify import zarrify as shipped
 from refkv.zarr import ZarrStore
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
@@ -26,7 +26,7 @@ def test_projects_as_today_and_rebuilds(path, tmp_path):
 
 
 def test_omero_is_rgb():
-    """§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>: the
+    """§4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>: the
     JPEG strips decode to RGB, so `omero` has R, G and B, each with uint8's range as its window."""
     _, out, _ = via_ir(str(FIXTURES / "ndpi" / "ndpi_levels.ndpi"), "u", mirror=False)
     ome = json.loads(out.bytes_entries["zarr.json"])["attributes"]["ome"]
@@ -36,7 +36,7 @@ def test_omero_is_rgb():
 
 
 def test_header_pieces_are_data_sources():
-    """§7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>: the
+    """§7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>: the
     header before and after SOF0 are data sources, one per distinct byte string in order of
     first use, shared by every chunk and level; the strip's own SOF0, which each chunk
     replaces, is in the mirror (the strip is an element, rebuilt byte for byte)."""
@@ -60,7 +60,7 @@ def test_header_pieces_are_data_sources():
 
 
 def test_every_ifd_and_high_word_is_an_element():
-    """§5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#51-elements>: the
+    """§5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#51-elements>: the
     12-byte header, each IFD's entries and their high words, the pointer tags' IFDs read in
     NDPI's layout, a duplicate tag, and the strips."""
     _, _, ir = via_ir(str(FIXTURES / "ndpi" / "ndpi_pointers.ndpi"), "u")
@@ -75,7 +75,7 @@ def test_every_ifd_and_high_word_is_an_element():
 
 
 def test_reads_only_the_values_it_uses():
-    """§7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>: the
+    """§7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>: the
     values of an IFD that is not a level are not checked, so the macro image's McuStarts
     (LONG8, above 2^53 - 1) does not reject."""
     _, out, _ = via_ir(str(FIXTURES / "ndpi" / "ndpi_unused_values.ndpi"), "u")
@@ -83,7 +83,7 @@ def test_reads_only_the_values_it_uses():
 
 
 def test_a_frame_not_the_level_size_gets_the_level_size(tmp_path):
-    """§7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>
+    """§7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>
     (d-v-b/refkv#100): of edge_ndpi_frames.ndpi's strips without McuStarts, level 0's frame is its
     size, and its chunk the strip; level 1's is one row short and level 2's two columns wider,
     in the same MCU rows and columns, so their chunks are the strip with the level's height and
@@ -114,7 +114,7 @@ def test_a_frame_not_the_level_size_gets_the_level_size(tmp_path):
 
 
 def test_a_level_0_frame_with_other_mcu_rows_is_rejected():
-    """§7 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>: a
+    """§7 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>: a
     level 0 whose frame needs other MCU rows than its size is rejected."""
     with pytest.raises(Rejected, match="NDPI level 0's JPEG frame of 64 × 16 pixels has other MCU rows"):
         via_ir(str(FIXTURES / "ndpi" / "edge_reject_ndpi_frame.ndpi"), "u")

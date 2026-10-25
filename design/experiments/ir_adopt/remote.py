@@ -6,8 +6,8 @@ are started here and stopped at the end.
 Usage: remote.py <out.json> <profiles: ebi,ebi1> <connections: 8,32> [--no-today] [--today <cmd>] <name>...
 REFKV_ADOPT_TAG suffixes the IR's keys (`ir_c8<tag>`); REFKV_BYTE_COST and REFKV_WHOLE_BELOW
 set the planner's byte cost (s per MB) and small-source size for experiments.
-`--today` names today's command (default `python -m refkv.virtualize`; after the
-switch-over, the frozen reference: `python conformance/virtualize/reference/cli.py`)."""
+`--today` names today's command (default `python -m refkv.zarrify`; after the
+switch-over, the frozen reference: `python conformance/zarrify/reference/cli.py`)."""
 import ast, json, os, re, subprocess, sys, time, urllib.request
 from pathlib import Path
 W = Path(__file__).resolve().parents[3]
@@ -45,7 +45,7 @@ def _planner(stdout: str):
 
 def main():
     args = sys.argv[1:]
-    today = ["uv", "run", "python", "-m", "refkv.virtualize"]
+    today = ["uv", "run", "python", "-m", "refkv.zarrify"]
     if "--today" in args:
         i = args.index("--today")
         today = args[i + 1].split()
@@ -72,7 +72,7 @@ def main():
                 if not no_today:
                     r["today"] = run(today + [url], out / "t.vzip", port)
                 for c in concs:
-                    r[f"ir_c{c}{TAG}"] = run(["uv", "run", "python", "-m", "refkv.virtualize", "--allow-private-hosts",
+                    r[f"ir_c{c}{TAG}"] = run(["uv", "run", "python", "-m", "refkv.zarrify", "--allow-private-hosts",
                                               "--connections", str(c), url], out / "i.vzip", port)
                 res[f"{name}|{pr}"] = r
                 res_path.write_text(json.dumps(res, indent=1))

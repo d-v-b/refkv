@@ -1,5 +1,5 @@
-//! A sans-IO parser of Sentinel-2 SAFE products into the IR (spec/virtualize/safe.md, the
-//! profile's §8 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#8-safe-profile>),
+//! A sans-IO parser of Sentinel-2 SAFE products into the IR (spec/zarrify/safe.md, the
+//! profile's §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#8-safe-profile>),
 //! in both forms:
 //!
 //! - **the directory form**, a store ([`crate::store::StoreParser`]): a store IR whose objects
@@ -45,8 +45,8 @@ pub fn is_xml(key: &str) -> bool {
     key == "manifest.safe" || key.ends_with(".xml") || key.ends_with(".xsd")
 }
 
-/// (the folder markers among `keys`, the empty directories, sorted) (spec/virtualize/safe.md
-/// §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#21-objects>): a folder
+/// (the folder markers among `keys`, the empty directories, sorted) (spec/zarrify/safe.md
+/// §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#21-objects>): a folder
 /// marker is a key `d_$folder$` with `d` not empty; `directories` are the keys, ending in `/`,
 /// of a zip file's directory entries or of a listing's empty `d/` objects. The directories they
 /// name are empty when no key (theirs and the markers' included) is under them.
@@ -194,7 +194,7 @@ impl Safe {
         self.by_key.get(key).is_some_and(|o| !self.markers.contains(o))
     }
 
-    // ---- the zip form's own structures (§8.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>)
+    // ---- the zip form's own structures (§8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#84-the-zip-form>)
 
     fn zip_step(&mut self) -> Result<(), String> {
         let n = self.size;
@@ -298,7 +298,7 @@ impl Safe {
         Ok(())
     }
 
-    // ---- the product (§2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#2-the-source>)
+    // ---- the product (§2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#2-the-source>)
 
     fn start(&mut self) -> Result<(), String> {
         let keys: Vec<&str> = self.objs.iter().map(|o| o.key.as_str()).collect();
@@ -399,7 +399,7 @@ impl Safe {
     }
 
     /// Each band's resolution and band name, and its chunks' empty tiles, checked (§2.5
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#25-band-files>, §8.6 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#86-chunks>).
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#25-band-files>, §8.6 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#86-chunks>).
     fn finish_bands(&mut self) -> Result<(), String> {
         let geo = self.geo.as_ref().unwrap();
         let mut names: HashSet<(u64, String)> = HashSet::new();
@@ -637,8 +637,8 @@ const ZIP64_END_TYPE: &str = "{signature:<u4,size:<u8,version_made:<u2,version_n
 const ZIP64_LOCATOR_TYPE: &str = "{signature:<u4,cd_disk:<u4,record_offset:<u8,disks:<u4}";
 const END_TYPE: &str = "{signature:<u4,disk:<u2,cd_disk:<u2,entries_here:<u2,entries:<u2,cd_size:<u4,cd_offset:<u4,comment_length:<u2}";
 
-/// A band file's elements under `parent`, its offsets from `base` (spec/virtualize/safe.md §6.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>).
+/// A band file's elements under `parent`, its offsets from `base` (spec/zarrify/safe.md §6.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>).
 fn emit_band(ir: &mut Ir, parent: u32, base: u64, cs: &Codestream) -> Result<(), String> {
     for (i, b) in cs.boxes.iter().enumerate() {
         let bx = ir.struct_(parent, "boxes/", i as u64, 0, Some((base + b.at, b.len)))?;
@@ -700,13 +700,13 @@ impl StoreParser for Safe {
 
 crate::parser!(Safe);
 
-/// The SAFE profile's file run, of a product's zip form (`.SAFE.zip`; spec/virtualize/safe.md).
+/// The SAFE profile's file run, of a product's zip form (`.SAFE.zip`; spec/zarrify/safe.md).
 pub struct Profile;
 
 impl crate::run::FileProfile for Profile {
     /// A zip local file header: any zip file is taken for a SAFE product's zip form, which
-    /// then rejects one that is not (spec/virtualize/safe.md §8.1
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#81-choosing-the-profile>).
+    /// then rejects one that is not (spec/zarrify/safe.md §8.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#81-choosing-the-profile>).
     fn detect(&self, head: &[u8]) -> bool {
         head.len() >= 4 && &head[..4] == b"PK\x03\x04"
     }

@@ -1,5 +1,5 @@
 """What the js/test/<format>/verify.py scripts share: the reader policy their archives are opened
-under, and the loop that virtualizes each fixture with the browser code under Node and checks it.
+under, and the loop that zarrifies each fixture with the browser code under Node and checks it.
 
 A script imports it once `js/test` is on `sys.path` (as it is for `ir_mirror`):
 
@@ -30,8 +30,8 @@ from refkv.policy import Policy  # noqa: E402
 # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3 refuses by
 # default.
 LOOPBACK_SOURCES = Policy(allow_private_hosts=True)
-# The browser code under Node (js/conformance/virtualize.ts), allowed to read 127.0.0.1.
-WEB = ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"]
+# The browser code under Node (js/conformance/zarrify.ts), allowed to read 127.0.0.1.
+WEB = ["node", str(ROOT / "js" / "conformance" / "zarrify.ts"), "--allow-private-hosts"]
 
 # What a check gives: the problems of an accepted input (none: it passed), or the problems and a
 # note to print beside the verdict.
@@ -55,14 +55,14 @@ def serve(paths: Iterable[Path]) -> Callable[[Path], str]:
 
 def rejected_by_name(name: str) -> bool:
     """Whether a fixture is one the profile must reject: its name says so (`<format>_reject_*`,
-    conformance/virtualize/HARNESS.md)."""
+    conformance/zarrify/HARNESS.md)."""
     return "reject" in name
 
 
 def run(inputs: Iterable[Path], check: Check, *, url: Callable[[Path], str],
         rejected: Callable[[str], bool] = rejected_by_name, command: list[str] | None = None,
         width: int = 44, failure_tail: int = 300) -> int:
-    """Virtualizes each input (a file, or a store's directory) at `url(input)` with `command`
+    """Zarrifies each input (a file, or a store's directory) at `url(input)` with `command`
     (the browser code under Node, by default) into an archive in a temporary directory of its
     own; an input `rejected` by its name must be rejected (exit status 3, no archive), any other
     accepted, and then `check(input, archive, process)` must give no problems. Prints a line

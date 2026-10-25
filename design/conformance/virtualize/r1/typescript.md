@@ -2,7 +2,7 @@
 
 These notes come from an independent TypeScript implementation (`main.ts`,
 `util.ts`, `xml.ts`, `tiff.ts`, `lv.ts`, `nd2.ts` in this directory). The
-only inputs used were VIRTUALIZE.md, conformance/virtualize/HARNESS.md,
+only inputs used were VIRTUALIZE.md, conformance/zarrify/HARNESS.md,
 SPEC.md, the fixtures and the three public files. Each item gives the
 section, the text, the question, what this implementation does, and why.
 Items marked **[risk]** are rules that I think are wrong or likely to cause

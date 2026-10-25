@@ -1,16 +1,16 @@
-"""Checks the browser VSI virtualizer's output against the synthetic slides' known pixels, and
+"""Checks the browser VSI zarrifier's output against the synthetic slides' known pixels, and
 against Bio-Formats when it is at hand.
 
 Each fixtures/vsi/*.vsi is served over local HTTP, with the tile files beside it (probed by the
-virtualizer: a file that does not exist is a 404), and virtualized by
-js/conformance/virtualize.ts (the browser code, run under Node). Every stack's level 0, read
+zarrifier: a file that does not exist is a 404), and zarrified by
+js/conformance/zarrify.ts (the browser code, run under Node). Every stack's level 0, read
 through the reference reader and zarr-python, must equal the array the generator encoded
 (fixtures/vsi/expected/<name>/<stack>.npy, in TCZYX order, the samples last; a missing tile the
 background), and, when bioio-bioformats can start a JVM, every level of every stack and the
 macro image must be what Bio-Formats reads (within 1 for JPEG 2000, whose decoders round
 differently). Every file of the input must be rebuilt from the archive's IR mirror (the files are
-described in place: their leaves partition them, spec/virtualize/vsi.md §6.2
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#62-the-ir-mirror>).
+described in place: their leaves partition them, spec/zarrify/vsi.md §6.2
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#62-the-ir-mirror>).
 `vsi_reject_*` slides must be rejected.
 
 Usage: uv run python js/test/vsi/verify.py [<dir of .vsi files>] [--no-bioformats]

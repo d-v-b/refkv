@@ -1,6 +1,6 @@
 //! The reader policy of spec/refkv.md §6.7
 //! <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>, as
-//! python/src/refkv/policy.py has it for `python -m refkv.virtualize`: rule 1 (the schemes an
+//! python/src/refkv/policy.py has it for `python -m refkv.zarrify`: rule 1 (the schemes an
 //! archive may name), and rule 3 (no loopback, private, link-local or special address unless
 //! `allow_private_hosts`, the UNSAFE opt-out `--allow-private-hosts` asks for by name). The input
 //! is read under it, every connection's resolved addresses checked (`http.rs`), and the archive's

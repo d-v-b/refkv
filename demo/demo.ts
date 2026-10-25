@@ -423,7 +423,7 @@ async function showView(view: View) {
   ng.href = new URL(`neuroglancer/#!${encodeURIComponent(JSON.stringify(state))}`, location.href).href;
 }
 
-async function virtualize(url: string) {
+async function zarrify(url: string) {
   $("result").hidden = true;
   // Record the URL in the address bar, so the page can be shared or reloaded.
   const here = new URL(location.href);
@@ -443,10 +443,10 @@ async function virtualize(url: string) {
   const picker = $<HTMLSelectElement>("view");
   map.hidden = true;
   $("view-row").hidden = true;
-  if (attrs.refkv_virtualized?.profile === "safe") {
+  if (attrs.refkv_zarrified?.profile === "safe") {
     // A Sentinel-2 product: GeoZarr groups of JPEG 2000 bands, for a map
     // viewer (map.html) rather than Neuroglancer.
-    const safe = attrs.refkv_virtualized.safe ?? {};
+    const safe = attrs.refkv_zarrified.safe ?? {};
     views = [];
     $("name").textContent = `${safe.PRODUCT_URI ?? url.split("/").pop()} (${safe.PROCESSING_LEVEL ?? "Sentinel-2"})`;
     $("zarr-url").textContent = zarrUrl;
@@ -459,11 +459,11 @@ async function virtualize(url: string) {
     const ms0 = attrs.ome?.multiscales?.[0];
     if (root.node_type === "array") {
       views = [arrayView(zarrUrl, "", root)];
-    } else if (attrs.refkv_virtualized?.profile === "mp4") {
-      views = await videoViews(zarrUrl, attrs.refkv_virtualized.mp4 ?? {});
+    } else if (attrs.refkv_zarrified?.profile === "mp4") {
+      views = await videoViews(zarrUrl, attrs.refkv_zarrified.mp4 ?? {});
       if (views.length === 0) throw new Error("no video track to show (audio is not displayed)");
     } else if (ms0 !== undefined) {
-      views = [await omeView(zarrUrl, ms0, ms0.name ?? "image", attrs.refkv_virtualized?.profile === "ome-zarr")];
+      views = [await omeView(zarrUrl, ms0, ms0.name ?? "image", attrs.refkv_zarrified?.profile === "ome-zarr")];
     } else if (attrs.ome?.["bioformats2raw.layout"] !== undefined) {
       views = await seriesViews(zarrUrl);
     } else {
@@ -487,7 +487,7 @@ $("view").addEventListener("change", () => {
 });
 $("form").addEventListener("submit", (event) => {
   event.preventDefault();
-  virtualize(input.value.trim()).catch((e) => setStatus(String(e.message ?? e), true));
+  zarrify(input.value.trim()).catch((e) => setStatus(String(e.message ?? e), true));
 });
 for (const link of document.querySelectorAll<HTMLAnchorElement>("a[data-url]")) {
   link.addEventListener("click", (event) => {

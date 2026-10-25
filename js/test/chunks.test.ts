@@ -1,10 +1,10 @@
 // The cutting of contiguous values into chunks (spec/conventions.md §7
 // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>,
-// "Contiguous values"); python/tests/test_virtualize_chunks.py has the same cases.
+// "Contiguous values"); python/tests/test_zarrify_chunks.py has the same cases.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { gridChunks, planGrid, rowChunks } from "../src/virtualize/common.ts";
+import { gridChunks, planGrid, rowChunks } from "../src/zarrify/common.ts";
 
 const seven = async (_o: number, n: number) => new Uint8Array(n).fill(7);
 const MAX_CHUNK = 2 ** 24;

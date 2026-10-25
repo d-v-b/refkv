@@ -799,7 +799,7 @@ fn sniff(head: &[u8]) -> Option<&'static str> {
     refkv_ir::run::Format::sniff(head).map(|f| f.name())
 }
 
-/// The profile registry (spec/virtualize/profiles/, as the core holds it): its entries, by
+/// The profile registry (spec/zarrify/profiles/, as the core holds it): its entries, by
 /// name, as a JSON array.
 #[pyfunction]
 fn registry() -> String {
@@ -813,8 +813,8 @@ fn plan_spans(ranges: Vec<(u64, u64)>, threshold: u64, cap: f64, concurrency: us
     refkv_ir::plan::plan_spans(&ranges, threshold, cap, concurrency)
 }
 
-/// The `refkv.fits_tiles` codec (spec/virtualize/fits.md §3.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>): a
+/// The `refkv.fits_tiles` codec (spec/zarrify/fits.md §3.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>): a
 /// chunk's pixels, as little-endian bytes of the array's data type in C order over
 /// `chunk_shape`, from the chunk's bytes and the codec's configuration (JSON).
 #[pyfunction]
@@ -826,10 +826,10 @@ fn fits_tiles_decode<'py>(py: Python<'py>, chunk: &[u8], config: &str, chunk_sha
 }
 
 /// For tests: the reference payload past which a NIfTI or MRC edge chunk is copied (None:
-/// the payload limit), so that small files reach the copy (spec/virtualize/nifti.md §7.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>,
-/// spec/virtualize/mrc.md §8.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#82-chunks>).
+/// the payload limit), so that small files reach the copy (spec/zarrify/nifti.md §7.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>,
+/// spec/zarrify/mrc.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#82-chunks>).
 #[pyfunction]
 #[pyo3(signature = (n=None))]
 fn _set_copy_threshold(n: Option<usize>) {
@@ -837,8 +837,8 @@ fn _set_copy_threshold(n: Option<usize>) {
 }
 
 /// For tests: the frames of an MP3 chunk (None: 256), so that small files have several chunks,
-/// each with its lead-in (spec/virtualize/mp3.md §8.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#82-chunks>).
+/// each with its lead-in (spec/zarrify/mp3.md §8.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#82-chunks>).
 #[pyfunction]
 #[pyo3(signature = (n=None))]
 fn _set_chunk_frames(n: Option<usize>) {
