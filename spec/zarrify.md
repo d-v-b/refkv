@@ -2,6 +2,11 @@
 
 Profiles version: 0 (**draft**)
 
+Changed 2026-10-25: the NIfTI, MRC and FITS profiles pad an edge chunk's reference with a range
+of the output's one **zero data source**, a data source a reference names a prefix of, in place
+of a literal range per reference ([§1.2](#12-input)); an output that still pads with literal
+ranges is not equivalent to theirs ([§1.1](#11-output-and-equivalence)).
+
 Changed 2026-10-25: this document, its profiles and the conventions say **zarrify** for what
 they called virtualize, and the conventions' property is `refkv_zarrified`, in place of
 `refkv_virtualized` ([conventions §2](conventions.md#2-attributes)); nothing else in any output
@@ -162,11 +167,17 @@ shared byte strings of the output, numbered from 1 **in order of first
 use**: in the order in which the profile lists the references, and within a
 reference in order of its ranges, the first range that uses a byte string
 not yet in the table adds it as the next source. A range that uses a shared
-byte string `d` in data source `i` is `(i, 0, len(d))`, the whole source.
-Every other range of a reference is a range of source 0 or a literal range.
-A profile that defines shared byte strings says so, as the TIFF
-([tiff.md §7](zarrify/tiff.md#7-tiff-profile), JPEG tiles) and SAFE ([safe.md §8](zarrify/safe.md#8-safe-profile), JPEG 2000 main headers) profiles do; for a
-profile that defines none, the table is source 0 alone.
+byte string `d` in data source `i` is `(i, 0, len(d))`, the whole source,
+but for a **zero data source**: `n` zero bytes, `n` the most zero padding
+any reference of the output holds, of which a reference padded with `p`
+zero bytes names the first `p`, `(i, 0, p)`. Every other range of a
+reference is a range of source 0 or a literal range. A profile that defines
+shared byte strings says so, as the TIFF
+([tiff.md §7](zarrify/tiff.md#7-tiff-profile), JPEG tiles) and SAFE ([safe.md §8](zarrify/safe.md#8-safe-profile), JPEG 2000 main headers) profiles do, and as the
+NIfTI ([nifti.md §7.2](zarrify/nifti.md#72-chunks)), MRC
+([mrc.md §8.2](zarrify/mrc.md#82-chunks)) and FITS
+([fits.md §9.4](zarrify/fits.md#94-chunks)) profiles do for a zero data
+source; for a profile that defines none, the table is source 0 alone.
 
 **Choosing the profile.** The file's first bytes decide. `H` is the file's first
 `min(552, size)` bytes; a test that needs a byte beyond `H` does not match. Each file profile's
