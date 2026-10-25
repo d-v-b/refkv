@@ -24,6 +24,7 @@ who each one is for, what you get, and how to run it.
 | FITS | FITS images and tables (`.fits`, `.fz`) | [fits](fits/README.md) | [fits.md §9](../../spec/zarrify/fits.md#9-fits-profile) |
 | FLAC | FLAC audio files, as a sharded array of samples (`.flac`) | [flac](flac/README.md) | [flac.md §8](../../spec/zarrify/flac.md#8-flac-profile) |
 | IMS | Imaris `.ims` files | [ims](ims/README.md) | [ims.md §7](../../spec/zarrify/ims.md#7-ims-profile) |
+| LIF | Leica LIF files (`.lif`) | [lif](lif/README.md) | [lif.md §7](../../spec/zarrify/lif.md#7-lif-profile) |
 | MP3 | MP3 audio files, as an array of samples (`.mp3`) | [mp3](mp3/README.md) | [mp3.md §8](../../spec/zarrify/mp3.md#8-mp3-profile) |
 | MP4 | MP4 and QuickTime video and audio, as arrays of planes and samples (`.mp4`, `.mov`) | [mp4](mp4/README.md) | [mp4.md §8](../../spec/zarrify/mp4.md#8-mp4-profile) |
 | MRC | MRC2014 maps, image stacks, volumes and volume stacks (`.mrc`, `.map`) | [mrc](mrc/README.md) | [mrc.md §8](../../spec/zarrify/mrc.md#8-mrc-profile) |
@@ -270,11 +271,16 @@ each format's metadata is:
   the data type, the axis map and the voxel size. The archive also holds the
   file as a dataset for xarray under `dataset/`, declared by its own
   convention ([conventions §9](../../spec/conventions.md#9-dataset-layouts)).
+- **LIF:** the IR mirror on `refkv_source`: the XML header, every memory
+  block (an image's or not) and any bytes after them. The root keeps the
+  file's version; each image keeps its element of the XML (its name, its path
+  in the file's tree), its memory block, and every attribute of its dimensions
+  and channels, as text, and a tile of a tile scan its stage position.
 - **NRRD:** the IR mirror on `refkv_source`: the header file, line by line,
   and the data (in the header file, or in a detached header's data file):
   the files the chunks reference described in place, and a detached
-  header's file held, its bytes in the archive. The root keeps every field as written,
-  every key/value pair and comment, and what the layout derives from them
+  header's file held, its bytes in the archive. The root keeps every field
+  as written, every key/value pair and comment, and what the layout derives from them
   (the data type, the encoding, each axis's image axis, whether the
   orientation is applied).
 - **VSI:** the IR mirror on `refkv_source`: the `.vsi` file (its metadata

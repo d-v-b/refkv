@@ -1,0 +1,16 @@
+{
+  "name": "lif",
+  "title": "LIF",
+  "uuid": "b099ab1f-f9d4-4276-9006-9ff1193a34b2",
+  "version": 0,
+  "kind": "file",
+  "sniff": 55,
+  "chosen_by": null,
+  "suffixes": [
+    ".lif"
+  ],
+  "reference": null,
+  "source": "Leica LIF",
+  "inputs": "Leica LIF files (LAS X and LAS AF, versions 1 and 2): every image of the file's element tree, with interleaved or planar channels, z-stacks, time series and mosaics, uncompressed",
+  "for": "Leica LIF files (`.lif`)"
+}

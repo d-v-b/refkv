@@ -47,6 +47,7 @@ The table, generated from the registry, lists them:
 | [FITS](zarrify/fits.md#part-2-the-profile) | file | FITS files: images, multi-extension files, binary and ASCII tables |
 | [FLAC](zarrify/flac.md#part-2-the-profile) | file | FLAC files (`.flac`) of a fixed block size, with their metadata blocks and ID3v2 and ID3v1 tags; one sharded array of integer samples, not an image |
 | [IMS](zarrify/ims.md#part-2-the-profile) | file | Imaris IMS files (HDF5) |
+| [LIF](zarrify/lif.md#part-2-the-profile) | file | Leica LIF files (LAS X and LAS AF, versions 1 and 2): every image of the file's element tree, with interleaved or planar channels, z-stacks, time series and mosaics, uncompressed |
 | [MP3](zarrify/mp3.md#part-2-the-profile) | file | MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio files (`.mp3`), with their ID3v2, ID3v1 and APE tags; one array of samples, not an image |
 | [MP4](zarrify/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.mov`) with H.264 video and AAC or MP3 audio tracks; a group per track, not an image |
 | [MRC](zarrify/mrc.md#part-2-the-profile) | file | MRC2014 files (CCP4 maps, image stacks, volumes and volume stacks) |
@@ -198,6 +199,7 @@ profile name:
 | FITS ([fits.md §9](zarrify/fits.md#9-fits-profile)) | 110 |
 | FLAC ([flac.md §8](zarrify/flac.md#8-flac-profile)) | 95 |
 | IMS ([ims.md §7](zarrify/ims.md#7-ims-profile)) | 70 |
+| LIF ([lif.md §7](zarrify/lif.md#7-lif-profile)) | 55 |
 | MP3 ([mp3.md §8](zarrify/mp3.md#8-mp3-profile)) | 100 |
 | MP4 ([mp4.md §8](zarrify/mp4.md#8-mp4-profile)) | 85 |
 | MRC ([mrc.md §8](zarrify/mrc.md#8-mrc-profile)) | 90 |
@@ -651,6 +653,7 @@ else. The profiles, generated from the registry:
 - the FITS profile: [spec/zarrify/fits.md §9](zarrify/fits.md#9-fits-profile);
 - the FLAC profile: [spec/zarrify/flac.md §8](zarrify/flac.md#8-flac-profile);
 - the IMS profile: [spec/zarrify/ims.md §7](zarrify/ims.md#7-ims-profile);
+- the LIF profile: [spec/zarrify/lif.md §7](zarrify/lif.md#7-lif-profile);
 - the MP3 profile: [spec/zarrify/mp3.md §8](zarrify/mp3.md#8-mp3-profile);
 - the MP4 profile: [spec/zarrify/mp4.md §8](zarrify/mp4.md#8-mp4-profile);
 - the MRC profile: [spec/zarrify/mrc.md §8](zarrify/mrc.md#8-mrc-profile);

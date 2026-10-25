@@ -1,0 +1,112 @@
+{
+  "source_model": "lif",
+  "version": 1,
+  "about": "The source model of a Leica LIF file (spec/zarrify/lif.md §5.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#54-elements>): the elements a parser emits, and the roles the file, its header block, its XML header, an image, a dimension, a channel, an image's layout, its memory block and the series play, each with the constraints a file must meet to have the LIF convention's layout (spec/zarrify/lif.md §7.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#73-rejection>). The parser checks them in this order, the images in document order; projections read a valid IR and check nothing.",
+  "limits": {
+    "max_safe": 9007199254740991,
+    "head": 13,
+    "max_xml": 134217728,
+    "max_dimensions": 16,
+    "max_channels": 1024,
+    "max_extent": 2147483648,
+    "max_series": 65536
+  },
+  "elements": {
+    "about": "The IR of a LIF file. n is the XML header's length in bytes (twice its characters), i a memory block's index in file order, H its fixed part (18 bytes for version 1, 22 for version 2), m its ID's length in bytes, D its data's size.",
+    "header": {"kind": "struct", "extent": "(0, 13 + n): the header block"},
+    "header/fields": {"kind": "value", "type": "{test:<u4,length:<u4,magic:u1,characters:<u4}", "extent": "(0, 13)"},
+    "header/xml": {"kind": "value", "type": "utf16[n]", "extent": "(13, n), when n > 0: the XML header"},
+    "blocks/<i>": {"kind": "struct", "extent": "the block: its fixed part, its ID and its data"},
+    "blocks/<i>/fields": {"kind": "value", "type": "{test:<u4,length:<u4,magic:u1,size:<u4,magic2:u1,characters:<u4} (version 1) or {test:<u4,length:<u4,magic:u1,size:<u8,magic2:u1,characters:<u4} (version 2)", "extent": "the fixed part, H bytes"},
+    "blocks/<i>/id": {"kind": "value", "type": "utf16[m]", "extent": "the ID, when m > 0"},
+    "blocks/<i>/data": {"kind": "data or value", "form": "{geometry: {image}, codec: {endian: little}, recipe: [[src, 0, null]]} for the block of an image; else a value of type bytes[D]", "extent": "the data, when D > 0"},
+    "tail": {"kind": "value", "type": "bytes[k]", "about": "the bytes from where the walk ends to the end of the file"}
+  },
+  "roles": {
+    "file": {
+      "given": {"size": "the file's size"},
+      "constraints": [
+        {"require": "size >= head", "message": "the {size}-byte file is too short for a LIF header block"}
+      ]
+    },
+    "header": {
+      "about": "the header block's fixed part (spec/zarrify/lif.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#21-blocks>)",
+      "given": {"test": "its test value", "magic": "its magic byte", "chars": "the XML header's characters", "size": "the file's size"},
+      "constraints": [
+        {"require": "test == 112 && magic == 42", "message": "not a LIF file: the header block's test value is {test} and its magic byte {magic}, not 112 and 42"},
+        {"require": "head + 2 * chars <= size", "message": "the XML header of {chars} characters runs past the end of the {size}-byte file"},
+        {"require": "2 * chars <= max_xml", "message": "the XML header of {chars} characters is longer than 2^27 bytes"}
+      ]
+    },
+    "xml": {
+      "about": "the XML header (spec/zarrify/lif.md §2.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#22-the-xml-header>)",
+      "given": {"utf16": "its bytes are well-formed UTF-16", "lof": "its text is LMS_Object_File", "root": "the root element's name", "version": "the root's Version, an integer or its text"},
+      "constraints": [
+        {"require": "utf16", "message": "the XML header is not well-formed UTF-16"},
+        {"require": "!lof", "message": "a Leica object file (LOF): the profile reads LIF files only"},
+        {"require": "root == 'LMSDataContainerHeader'", "message": "the XML header's root element is {root}, not LMSDataContainerHeader"},
+        {"require": "in(version, [1, 2])", "message": "unsupported LIF version {version}: the XML header's Version is not 1 or 2"}
+      ]
+    },
+    "image": {
+      "about": "an image element (spec/zarrify/lif.md §2.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#23-images>)",
+      "given": {"k": "its index", "name": "its Name", "memory": "it has a Memory element with a MemoryBlockID", "dimensions": "its DimensionDescription elements", "channels": "its ChannelDescription elements"},
+      "constraints": [
+        {"require": "memory", "message": "image {k} ({name}) has no Memory element with a MemoryBlockID"},
+        {"require": "dimensions >= 1 && dimensions <= max_dimensions", "message": "image {k} ({name}) has {dimensions} DimensionDescription elements, not 1 to 16"},
+        {"require": "channels >= 1 && channels <= max_channels", "message": "image {k} ({name}) has {channels} ChannelDescription elements, not 1 to 1024"}
+      ]
+    },
+    "dimension": {
+      "about": "a DimensionDescription (spec/zarrify/lif.md §2.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#24-dimensions-and-channels>)",
+      "given": {"k": "", "name": "", "j": "its index", "dim_id": "DimID", "elements": "NumberOfElements", "bytes_inc": "BytesInc", "bit_inc": "BitInc, absent when the attribute is"},
+      "constraints": [
+        {"require": "int(dim_id) && int(elements) && int(bytes_inc)", "message": "image {k} ({name}): dimension {j}'s DimID, NumberOfElements or BytesInc ({dim_id}, {elements}, {bytes_inc}) is not an integer"},
+        {"require": "elements >= 1", "message": "image {k} ({name}): dimension {j} has NumberOfElements 0"},
+        {"require": "!present(bit_inc) || bit_inc == 0", "message": "image {k} ({name}): dimension {j} has BitInc {bit_inc}: bit-packed data is not supported"}
+      ]
+    },
+    "channel": {
+      "about": "a ChannelDescription (spec/zarrify/lif.md §2.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#24-dimensions-and-channels>)",
+      "given": {"k": "", "name": "", "j": "its index", "data_type": "DataType", "resolution": "Resolution", "bytes_inc": "BytesInc", "bit_inc": "BitInc, absent when the attribute is"},
+      "constraints": [
+        {"require": "int(data_type) && int(resolution) && int(bytes_inc)", "message": "image {k} ({name}): channel {j}'s DataType, Resolution or BytesInc ({data_type}, {resolution}, {bytes_inc}) is not an integer"},
+        {"require": "in(data_type, [0, 1])", "message": "image {k} ({name}): channel {j} has an unsupported DataType {data_type}, not 0 (integer) or 1 (float)"},
+        {"require": "resolution >= 1 && resolution <= 64", "message": "image {k} ({name}): channel {j} has an unsupported Resolution of {resolution} bits, not 1 to 64"},
+        {"require": "data_type == 0 || resolution > 8", "message": "image {k} ({name}): channel {j} is an unsupported float of {resolution} bits"},
+        {"require": "!present(bit_inc) || bit_inc == 0", "message": "image {k} ({name}): channel {j} has BitInc {bit_inc}: bit-packed data is not supported"}
+      ]
+    },
+    "layout": {
+      "about": "an image's layout (spec/zarrify/lif.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#3-placement>)",
+      "given": {"k": "", "name": "", "x": "it has a dimension of DimID 1", "repeated": "a DimID two dimensions of more than one element have", "types": "the channels' distinct (DataType, bytes) pairs", "distinct": "no two channels have one BytesInc", "offsets": "the channels' BytesInc, ascending", "x_bytes_inc": "X's BytesInc", "arranged": "the channels are planar or interleaved", "rows_overlap": "Y has more than one element and a BytesInc below a row's bytes", "row": "a row's bytes", "y_bytes_inc": "Y's BytesInc", "extent": "the largest of the array's shape", "fields": "the fields", "planes": "the chunks of one row band: times, channels (1 when interleaved), depths and fields", "references": "2^22 + 4 x the file's size, the references a run makes at most"},
+      "constraints": [
+        {"require": "x", "message": "image {k} ({name}) has no X dimension (DimID 1)"},
+        {"require": "!present(repeated)", "message": "image {k} ({name}) has two dimensions of DimID {repeated} with more than one element"},
+        {"require": "types == 1", "message": "image {k} ({name}) has channels of different data types"},
+        {"require": "distinct", "message": "image {k} ({name}) has two channels at one BytesInc ({offsets})"},
+        {"require": "arranged", "message": "image {k} ({name}): channels at BytesInc {offsets} with an X BytesInc of {x_bytes_inc} are neither planar nor interleaved"},
+        {"require": "!rows_overlap", "message": "image {k} ({name}): rows of {row} bytes, {y_bytes_inc} bytes apart, overlap"},
+        {"require": "extent <= max_extent", "message": "image {k} ({name}) has an array extent of {extent}, more than 2^31"},
+        {"require": "fields <= max_series", "message": "image {k} ({name}) has {fields} fields, more than 65536"},
+        {"require": "planes <= references", "message": "image {k} ({name}) has {planes} planes, more than the {references} references the file may have"}
+      ]
+    },
+    "memory": {
+      "about": "the memory block an image names (spec/zarrify/lif.md §2.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#23-images>)",
+      "given": {"k": "", "name": "", "id": "its MemoryBlockID", "found": "the blocks of that ID the walk found", "other": "the earlier image that names the block", "need": "the bytes the image's layout reaches", "need_shown": "need in decimal", "held": "the block's data size"},
+      "constraints": [
+        {"require": "found >= 1", "message": "image {k} ({name}) names memory block {id}, which the file does not hold"},
+        {"require": "found == 1", "message": "image {k} ({name}) names memory block {id}, which the file holds {found} times"},
+        {"require": "!present(other)", "message": "image {k} ({name}) names memory block {id}, which image {other} names too"},
+        {"require": "need <= held", "message": "image {k} ({name}) reaches {need_shown} bytes into memory block {id}, which holds {held}"}
+      ]
+    },
+    "series": {
+      "given": {"count": "the series so far"},
+      "constraints": [
+        {"require": "count <= max_series", "message": "the file has more than 65536 series"}
+      ]
+    }
+  }
+}

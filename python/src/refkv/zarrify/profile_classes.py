@@ -52,6 +52,14 @@ class ImsSource(Source):
 
 
 @dataclass(frozen=True)
+class LifSource(Source):
+    """Leica LIF: a file the `lif` profile reads, its first bytes untested (`Source` lists its
+    read options)."""
+
+    profile: ClassVar[str] = "lif"
+
+
+@dataclass(frozen=True)
 class Mp3Source(Source):
     """MP3 (MPEG Layer III audio): a file the `mp3` profile reads, its first bytes untested
     (`Source` lists its read options)."""
@@ -178,6 +186,7 @@ CLASSES: dict[str, type[Source | Store]] = {
     "FitsSource": FitsSource,
     "FlacSource": FlacSource,
     "ImsSource": ImsSource,
+    "LifSource": LifSource,
     "Mp3Source": Mp3Source,
     "Mp4Source": Mp4Source,
     "MrcSource": MrcSource,
@@ -201,6 +210,7 @@ __all__ = [
     "FitsSource",
     "FlacSource",
     "ImsSource",
+    "LifSource",
     "Mp3Source",
     "Mp4Source",
     "MrcSource",

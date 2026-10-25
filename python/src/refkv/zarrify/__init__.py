@@ -42,8 +42,9 @@ every response for it gave the same strong one (spec/zarrify.md §1.2
 (spec/refkv.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>), which
 reads all the bytes the archive references: off by default.
 
-The archive's source is the input URL (or, with --url, the given one, which is
-how a local file is described by the URL it will be served from). A URL ending
+The archive's source is the input URL, or a local file's path as a
+percent-encoded URI reference (or, with --url, the given one, which is how a
+local file is described by the URL it will be served from). A URL ending
 in `/`, or a local directory, is a store input.
 """
 
@@ -221,8 +222,9 @@ def zarrify(location: str | Source | Store, url: str | None = None, *, checksums
     "tiff", "nifti" or "zarr2") and its summary of what it found, as `python -m
     refkv.zarrify` prints it. An input no profile accepts raises `Rejected`.
 
-    - `url`: the URL the archive names the source by (default: `location`); a
-      local directory needs one, the store URL (ending in `/`) it is served from.
+    - `url`: the URL the archive names the source by (default: `location`, a local
+      path percent-encoded as a URI reference); a local directory needs one, the
+      store URL (ending in `/`) it is served from.
     - `checksums`: each range of a url source carries the CRC-32C of its bytes
       (spec/refkv.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>),
       which reads every byte the store references.
