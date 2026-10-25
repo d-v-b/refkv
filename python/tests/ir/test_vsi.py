@@ -256,7 +256,7 @@ def test_a_local_input_without_a_url_names_its_files_by_path(tmp_path):
     sources are the files' paths, which the reader opens."""
     out, _root = zarrified(VSI / "vsi_raw_bgr.vsi")
     urls = out.table()[0]
-    d = path_reference(str(VSI))  # the path itself on POSIX, a file: URI on Windows
+    d = path_reference(str(VSI))  # the path, percent-encoded on POSIX; a file: URI on Windows
     d = d if d.endswith("/") else d + "/"
     assert urls == [object_url(d, "_vsi_raw_bgr_/stack10000/frame_t.ets"), object_url(d, "vsi_raw_bgr.vsi")]
     out.write(str(tmp_path / "a.vzip"))

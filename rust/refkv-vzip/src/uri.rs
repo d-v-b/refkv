@@ -340,15 +340,24 @@ pub fn file_uri(path: &std::path::Path) -> Result<String, String> {
 }
 
 /// The URI reference a source read from the local path `path` is named by, when no URL is given:
-/// on POSIX the path as it is (an absolute path is a path-absolute reference, a relative one is
-/// relative to the archive). On Windows, where `\` and a drive letter are not URI syntax, an
-/// absolute path is its `file_uri`, and a relative one its `/`-separated, percent-encoded
-/// segments.
+/// the path's `/`-separated segments, percent-encoded as spec/refkv.md §5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table> requires (so
+/// `/data/a b.nii` is `/data/a%20b.nii`). An absolute POSIX path is a path-absolute reference, a
+/// relative one is relative to the archive, and a relative one whose first segment holds `:` is
+/// written `./` first, so that the segment is not read as a scheme. On Windows, where a drive
+/// letter is not URI syntax, an absolute path is its `file_uri`.
 pub fn path_reference(path: &str) -> Result<String, String> {
     if !cfg!(windows) {
-        return Ok(path.to_string());
+        return Ok(posix_path_reference(path));
     }
     windows_path_reference(path, |p| file_uri(std::path::Path::new(p)))
+}
+
+/// `path_reference` on POSIX.
+pub fn posix_path_reference(path: &str) -> String {
+    // `//x` is `/x` on Linux and macOS, not an authority
+    let path = if path.starts_with("//") { format!("/{}", path.trim_start_matches('/')) } else { path.to_string() };
+    encoded_reference(&path)
 }
 
 /// `path_reference` on Windows, with `file_uri` the function that names an absolute path.
@@ -357,8 +366,14 @@ pub fn windows_path_reference(path: &str, file_uri: impl Fn(&str) -> Result<Stri
     if !drive.is_empty() || rest.starts_with(['\\', '/']) {
         return file_uri(path);
     }
-    let r = quote(path.replace('\\', "/").as_bytes(), PATH_SAFE);
-    Ok(if r.split('/').next().unwrap_or("").contains(':') { format!("./{r}") } else { r })
+    Ok(encoded_reference(&path.replace('\\', "/")))
+}
+
+/// The percent-encoded reference of a `/`-separated path, `./` first when its first segment
+/// holds `:`.
+fn encoded_reference(path: &str) -> String {
+    let r = quote(path.as_bytes(), PATH_SAFE);
+    if r.split('/').next().unwrap_or("").contains(':') { format!("./{r}") } else { r }
 }
 
 #[cfg(test)]
@@ -483,11 +498,24 @@ mod tests {
             ("d\\a b.tif", "d/a%20b.tif"),
             ("a:b\\c", "ABS:a:b\\c"),
             ("ab:c\\d", "./ab:c/d"),
+            ("d d\\100%#é.tif", "d%20d/100%25%23%C3%A9.tif"),
         ] {
             assert_eq!(windows_path_reference(path, abs).unwrap(), want, "{path:?}");
         }
+        for (path, want) in [
+            ("/data/a b.nii", "/data/a%20b.nii"),
+            ("x/y.nii", "x/y.nii"),
+            ("/d d/100%#1?.nii", "/d%20d/100%25%231%3F.nii"),
+            ("/é/ü.nii", "/%C3%A9/%C3%BC.nii"),
+            ("/a:b@c/x;y=z.nii", "/a:b@c/x;y=z.nii"),
+            ("a:b/c.nii", "./a:b/c.nii"),
+            ("//srv/a.nii", "/srv/a.nii"),
+            ("a\\b.nii", "a%5Cb.nii"),
+        ] {
+            assert_eq!(posix_path_reference(path), want, "{path:?}");
+        }
         if !cfg!(windows) {
-            assert_eq!(path_reference("fixtures/a b.tif").unwrap(), "fixtures/a b.tif");
+            assert_eq!(path_reference("fixtures/a b.tif").unwrap(), "fixtures/a%20b.tif");
         }
         assert_eq!(windows_split_drive("\\\\srv\\share\\x"), ("\\\\srv\\share", "\\x"));
         assert_eq!(windows_split_drive("\\\\srv"), ("\\\\srv", ""));
