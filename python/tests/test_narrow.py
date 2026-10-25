@@ -1,14 +1,11 @@
-"""The narrowing helpers (refkv._narrow, and refkv.zarr._narrow for zarr's nodes): each gives its
-value as the type it names, or raises TypeError naming where the value was found; `at` walks a path
-into a JSON document."""
+"""The narrowing helpers (refkv._narrow): each gives its value as the type it names, or raises
+TypeError naming where the value was found; `at` walks a path into a JSON document. (A zarr node
+needs none: Group.get_array and Group.get_group give one kind.)"""
 
 import numpy as np
 import pytest
-import zarr
-import zarr.storage
 
 from refkv._narrow import at, boolean, integer, mapping, ndarray, number, sequence, string
-from refkv.zarr import _narrow as zarr_narrow
 
 
 @pytest.mark.parametrize(
@@ -88,19 +85,3 @@ def test_at_index_out_of_range():
     with pytest.raises(IndexError, match=r"^ome\.series\[3\]: index out of range$"):
         at(DOC, "ome", "series", 3)
 
-
-def test_zarr_nodes():
-    root = zarr.group(store=zarr.storage.MemoryStore())
-    root.create_array("a", shape=(2,), dtype="u1")
-    root.create_group("g")
-    assert zarr_narrow.array(root["a"]).shape == (2,)
-    assert zarr_narrow.group(root["g"]).path == "g"
-
-
-@pytest.mark.parametrize(("narrow", "path"), [(zarr_narrow.array, "g"), (zarr_narrow.group, "a")])
-def test_zarr_node_of_the_other_kind(narrow, path):
-    root = zarr.group(store=zarr.storage.MemoryStore())
-    root.create_array("a", shape=(2,), dtype="u1")
-    root.create_group("g")
-    with pytest.raises(TypeError, match=f"{path}: expected an? "):
-        narrow(root[path], path)
