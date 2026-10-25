@@ -1,0 +1,771 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/flac/schema.json",
+  "title": "refkv FLAC convention, version 0",
+  "description": "The zarr.json of a node that declares the refkv FLAC convention (https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md)",
+  "type": "object",
+  "properties": {
+    "zarr_format": {
+      "type": "integer",
+      "const": 3
+    },
+    "node_type": {
+      "type": "string",
+      "enum": [
+        "group",
+        "array"
+      ]
+    },
+    "attributes": {
+      "type": "object",
+      "properties": {
+        "ome": {
+          "type": "object",
+          "description": "OME-NGFF 0.5 metadata"
+        },
+        "zarr_conventions": {
+          "type": "array",
+          "contains": {
+            "$ref": "#/$defs/conventionMetadata"
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        "refkv_zarrified": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/rootProperty"
+            },
+            {
+              "$ref": "#/$defs/nodeProperty"
+            }
+          ]
+        }
+      },
+      "required": [
+        "zarr_conventions",
+        "refkv_zarrified"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "zarr_format",
+    "node_type",
+    "attributes"
+  ],
+  "$defs": {
+    "conventionMetadata": {
+      "type": "object",
+      "description": "The FLAC convention's metadata object in zarr_conventions",
+      "properties": {
+        "uuid": {
+          "type": "string",
+          "const": "e9108d07-b24b-432f-a8ce-09d80c8073b4"
+        },
+        "schema_url": {
+          "type": "string",
+          "const": "https://raw.githubusercontent.com/d-v-b/refkv/refs/heads/main/spec/zarrify/flac/schema.json"
+        },
+        "spec_url": {
+          "type": "string",
+          "const": "https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md"
+        },
+        "name": {
+          "type": "string",
+          "const": "refkv_zarrified"
+        },
+        "description": {
+          "type": "string",
+          "const": "The Zarr layout of a FLAC source zarrified by refkv, and the source's metadata"
+        }
+      },
+      "required": [
+        "uuid"
+      ],
+      "additionalProperties": false
+    },
+    "rootProperty": {
+      "type": "object",
+      "description": "The root's property: the profile and version that produced the hierarchy, its source, and the root's source metadata",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "const": "flac"
+        },
+        "version": {
+          "type": "integer",
+          "const": 0
+        },
+        "source": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "The URL of the source file"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false
+        },
+        "layouts": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[^/]+(/[^/]+)*$"
+          },
+          "description": "The other layouts of the source in this hierarchy, by name, each the path of its node below the root (spec/conventions.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)"
+        },
+        "flac": {
+          "$ref": "#/$defs/sourceMetadata"
+        }
+      },
+      "required": [
+        "profile",
+        "version",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "sourceMetadata": {
+      "anyOf": [
+        {
+          "type": "object",
+          "description": "The root's: the stream's parameters, STREAMINFO's fields, and the decoded metadata blocks and tags (spec/zarrify/flac.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#51-the-root>)",
+          "properties": {
+            "sample_rate": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "channels": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "bits_per_sample": {
+              "type": "integer",
+              "minimum": 4,
+              "maximum": 32
+            },
+            "block_size": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535,
+              "description": "The first frame's block size: every frame's but the last's"
+            },
+            "frames": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "samples": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The samples per channel the frames hold"
+            },
+            "duration": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "samples / sample_rate, in seconds; null for a sample rate of 0"
+            },
+            "streaminfo": {
+              "type": "object",
+              "description": "The STREAMINFO block's fields",
+              "properties": {
+                "min_block_size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "max_block_size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "min_frame_size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "max_frame_size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sample_rate": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "channels": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "bits_per_sample": {
+                  "type": "integer",
+                  "minimum": 4,
+                  "maximum": 32
+                },
+                "total_samples": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "md5": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{32}$",
+                  "description": "The MD5 of the samples, as 32 lowercase hexadecimal digits"
+                }
+              },
+              "required": [
+                "min_block_size",
+                "max_block_size",
+                "min_frame_size",
+                "max_frame_size",
+                "sample_rate",
+                "channels",
+                "bits_per_sample",
+                "total_samples",
+                "md5"
+              ],
+              "additionalProperties": false
+            },
+            "blocks": {
+              "type": "array",
+              "minItems": 1,
+              "description": "The metadata blocks, in file order: each one's type and body length",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "STREAMINFO",
+                          "PADDING",
+                          "APPLICATION",
+                          "SEEKTABLE",
+                          "VORBIS_COMMENT",
+                          "CUESHEET",
+                          "PICTURE"
+                        ]
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 7,
+                        "maximum": 126
+                      }
+                    ]
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "type",
+                  "size"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "seek_table": {
+              "type": "object",
+              "description": "The SEEKTABLE block's seek points and placeholders (the points are in the mirror)",
+              "properties": {
+                "points": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "placeholders": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "points",
+                "placeholders"
+              ],
+              "additionalProperties": false
+            },
+            "vorbis_comment": {
+              "type": "object",
+              "description": "The VORBIS_COMMENT block: its vendor string and each field, whole, in order",
+              "properties": {
+                "vendor": {
+                  "$ref": "#/$defs/text"
+                },
+                "comments": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/text"
+                  }
+                }
+              },
+              "required": [
+                "vendor",
+                "comments"
+              ],
+              "additionalProperties": false
+            },
+            "cuesheets": {
+              "type": "array",
+              "minItems": 1,
+              "description": "The CUESHEET blocks' fields, in file order",
+              "items": {
+                "type": "object",
+                "description": "The CUESHEET block's fields",
+                "properties": {
+                  "catalog": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "lead_in": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "cd": {
+                    "type": "boolean"
+                  },
+                  "tracks": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "offset": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "number": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "isrc": {
+                          "$ref": "#/$defs/text"
+                        },
+                        "audio": {
+                          "type": "boolean"
+                        },
+                        "pre_emphasis": {
+                          "type": "boolean"
+                        },
+                        "indexes": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "offset": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "number": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": [
+                              "offset",
+                              "number"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "offset",
+                        "number",
+                        "isrc",
+                        "audio",
+                        "pre_emphasis",
+                        "indexes"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "catalog",
+                  "lead_in",
+                  "cd",
+                  "tracks"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "pictures": {
+              "type": "array",
+              "minItems": 1,
+              "description": "The PICTURE blocks' fields, in file order; the i-th one's data is the array pictures/<i>, absent for a size of 0",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "media_type": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "description": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "width": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "height": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "depth": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "colors": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "type",
+                  "media_type",
+                  "description",
+                  "width",
+                  "height",
+                  "depth",
+                  "colors",
+                  "size"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "applications": {
+              "type": "array",
+              "minItems": 1,
+              "description": "The APPLICATION blocks: each one's ID and the length of its data (in the mirror)",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "id",
+                  "size"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "id3v2": {
+              "type": "array",
+              "minItems": 1,
+              "description": "The ID3v2 tags at the start, in order: each header's version, flags and size, and whether it has a footer",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 255
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  "flags": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 255
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "footer": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "version",
+                  "flags",
+                  "size",
+                  "footer"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "id3v1": {
+              "type": "object",
+              "description": "The ID3v1 tag's fields: each text up to its first NUL",
+              "properties": {
+                "title": {
+                  "$ref": "#/$defs/text"
+                },
+                "artist": {
+                  "$ref": "#/$defs/text"
+                },
+                "album": {
+                  "$ref": "#/$defs/text"
+                },
+                "year": {
+                  "$ref": "#/$defs/text"
+                },
+                "comment": {
+                  "$ref": "#/$defs/text"
+                },
+                "track": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "An ID3v1.1 tag's track number"
+                },
+                "genre": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255
+                }
+              },
+              "required": [
+                "title",
+                "artist",
+                "album",
+                "year",
+                "comment",
+                "track",
+                "genre"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "sample_rate",
+            "channels",
+            "bits_per_sample",
+            "block_size",
+            "frames",
+            "samples",
+            "duration",
+            "streaminfo",
+            "blocks"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "$ref": "#/$defs/mirror"
+        },
+        {
+          "$ref": "#/$defs/mirrorView"
+        }
+      ]
+    },
+    "headerValue": {
+      "description": "A translated header value (spec/conventions.md §6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)",
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "text": {
+      "description": "A text value: a string (UTF-8), or its ISO 8859-1 reading when it is not UTF-8",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "latin1": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "latin1"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "mirror": {
+      "type": "object",
+      "description": "refkv_source's: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>)",
+      "properties": {
+        "ir": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "const": 2
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The source's size in bytes (a store IR's: its objects' sizes, summed)"
+            },
+            "objects": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "A store IR's objects (spec/conventions.md §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>); a file IR has none"
+            },
+            "elements": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The elements, column runs expanded"
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The rows the table stores"
+            },
+            "names": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "const": ""
+                }
+              ],
+              "description": "The interned names, sorted; the first, \"\", is the root's (conventions §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>)"
+            },
+            "types": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "prefixItems": [
+                {
+                  "const": ""
+                }
+              ],
+              "description": "The interned types (§8.6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#86-types>)"
+            },
+            "forms": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The interned forms, each a JSON text (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"
+            }
+          },
+          "required": [
+            "version",
+            "size",
+            "elements",
+            "rows",
+            "names",
+            "types",
+            "forms"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ir"
+      ],
+      "additionalProperties": false
+    },
+    "mirrorView": {
+      "type": "object",
+      "description": "A view group's (refkv_source/tree/...): a struct's view document (spec/conventions.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>)",
+      "properties": {
+        "$vz": {
+          "const": "derived",
+          "description": "A derived element's document"
+        },
+        "$form": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A derived element's form (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"
+        },
+        "$partial": {
+          "const": true,
+          "description": "The document stops short of the struct's children"
+        }
+      },
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/viewValue"
+      }
+    },
+    "viewValue": {
+      "description": "A child's view: a JSON value, a nested document, or a $vz form",
+      "anyOf": [
+        {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null",
+            "array"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$vz": {
+              "enum": [
+                "alias",
+                "group",
+                "element",
+                "derived",
+                "int",
+                "float",
+                "bytes",
+                "utf16"
+              ]
+            }
+          },
+          "required": [
+            "$vz"
+          ]
+        },
+        {
+          "type": "object"
+        }
+      ]
+    },
+    "nodeProperty": {
+      "type": "object",
+      "description": "Any other node's property: its source metadata only",
+      "properties": {
+        "flac": {
+          "$ref": "#/$defs/sourceMetadata"
+        }
+      },
+      "required": [
+        "flac"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

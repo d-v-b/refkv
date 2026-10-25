@@ -36,6 +36,14 @@ class FitsSource(Source):
 
 
 @dataclass(frozen=True)
+class FlacSource(Source):
+    """FLAC (Free Lossless Audio Codec): a file the `flac` profile reads, its first bytes
+    untested (`Source` lists its read options)."""
+
+    profile: ClassVar[str] = "flac"
+
+
+@dataclass(frozen=True)
 class ImsSource(Source):
     """Imaris IMS: a file the `ims` profile reads, its first bytes untested (`Source` lists its
     read options)."""
@@ -168,6 +176,7 @@ CLASSES: dict[str, type[Source | Store]] = {
     "CziSource": CziSource,
     "DicomSource": DicomSource,
     "FitsSource": FitsSource,
+    "FlacSource": FlacSource,
     "ImsSource": ImsSource,
     "LifSource": LifSource,
     "Mp3Source": Mp3Source,
@@ -190,6 +199,7 @@ __all__ = [
     "CziSource",
     "DicomSource",
     "FitsSource",
+    "FlacSource",
     "ImsSource",
     "LifSource",
     "Mp3Source",

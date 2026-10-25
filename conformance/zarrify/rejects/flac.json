@@ -1,0 +1,101 @@
+{
+  "about": "The inputs the flac profile rejects, each with the start of its message (the Rust tests' prefix), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/flac.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "edge_reject_flac_id3v2_outside",
+      "input": "edge_reject_flac_id3v2_outside.flac",
+      "message": "the 100010-byte ID3v2 tag at 0 is outside the 60-byte file"
+    },
+    {
+      "test": "edge_reject_flac_no_marker",
+      "input": "edge_reject_flac_no_marker.flac",
+      "message": "no fLaC marker at 0",
+      "host": "not a file of any supported format"
+    },
+    {
+      "test": "edge_reject_flac_streaminfo_not_first",
+      "input": "edge_reject_flac_streaminfo_not_first.flac",
+      "message": "the first metadata block (at 4) is not STREAMINFO: its type is 4"
+    },
+    {
+      "test": "edge_reject_flac_streaminfo_size",
+      "input": "edge_reject_flac_streaminfo_size.flac",
+      "message": "the STREAMINFO block at 4 is 30 bytes, not 34"
+    },
+    {
+      "test": "edge_reject_flac_second_streaminfo",
+      "input": "edge_reject_flac_second_streaminfo.flac",
+      "message": "a second STREAMINFO block at 42"
+    },
+    {
+      "test": "edge_reject_flac_block_outside",
+      "input": "edge_reject_flac_block_outside.flac",
+      "message": "the 1048580-byte metadata block at 42 runs past the end of the stream (110)"
+    },
+    {
+      "test": "edge_reject_flac_vorbis_comment",
+      "input": "edge_reject_flac_vorbis_comment.flac",
+      "message": "the VORBIS_COMMENT block at 42 is malformed: its lengths do not fit its body"
+    },
+    {
+      "test": "edge_reject_flac_picture",
+      "input": "edge_reject_flac_picture.flac",
+      "message": "the PICTURE block at 42 is malformed: its fields and data do not fit its body"
+    },
+    {
+      "test": "edge_reject_flac_no_frames",
+      "input": "edge_reject_flac_no_frames.flac",
+      "message": "no audio frames: the stream ends at 42, after the metadata"
+    },
+    {
+      "test": "edge_reject_flac_bad_sync",
+      "input": "edge_reject_flac_bad_sync.flac",
+      "message": "the frame header at 42 is not valid: no frame sync code"
+    },
+    {
+      "test": "edge_reject_flac_bad_crc8",
+      "input": "edge_reject_flac_bad_crc8.flac",
+      "message": "the frame header at 42 is not valid: a CRC-8 that does not match"
+    },
+    {
+      "test": "edge_reject_flac_variable_block_size",
+      "input": "edge_reject_flac_variable_block_size.flac",
+      "message": "a variable block size (the frame at 42) is not supported: only a fixed block size stream is"
+    },
+    {
+      "test": "edge_reject_flac_sample_rate_change",
+      "input": "edge_reject_flac_sample_rate_change.flac",
+      "message": "the frame at 180 changes the sample rate from 8000 to 16000"
+    },
+    {
+      "test": "edge_reject_flac_frame_number",
+      "input": "edge_reject_flac_frame_number.flac",
+      "message": "the frame at 42 is numbered 5, not 0"
+    },
+    {
+      "test": "edge_reject_flac_frame_number_later",
+      "input": "edge_reject_flac_frame_number_later.flac",
+      "message": "the frame at 318 is numbered 7, not 2"
+    },
+    {
+      "test": "edge_reject_flac_short_frame",
+      "input": "edge_reject_flac_short_frame.flac",
+      "message": "the frame at 180 holds 32 samples, not the first frame's 64: only the last frame may hold fewer"
+    },
+    {
+      "test": "edge_reject_flac_bad_crc16",
+      "input": "edge_reject_flac_bad_crc16.flac",
+      "message": "the frame at 3939 (frame 3) has no end: no CRC-16 holds before the next frame's header or the end of the stream (a corrupt or truncated stream)"
+    },
+    {
+      "test": "edge_reject_flac_truncated",
+      "input": "edge_reject_flac_truncated.flac",
+      "message": "the frame at 6542 (frame 5) has no end: no CRC-16 holds before the next frame's header or the end of the stream (a corrupt or truncated stream)"
+    },
+    {
+      "test": "edge_reject_flac_truncated_frames",
+      "input": "edge_reject_flac_truncated_frames.flac",
+      "message": "the frames hold 5120 samples per channel, not STREAMINFO's 8000"
+    }
+  ]
+}

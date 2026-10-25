@@ -155,7 +155,7 @@ fn convert(a: &Args) -> Result<serde_json::Value, Fail> {
         ("vsi".to_string(), summary, archive)
     } else {
         let t = transport::Transport::open(&a.input, &client)?;
-        let (fmt, out) = run::zarrify_file(&a.input, a.url.as_deref(), &t, a.connections, a.byte_cost)?;
+        let (fmt, out) = run::zarrify_file(&a.input, a.url.as_deref(), &t, a.connections, a.byte_cost, a.checksums)?;
         let summary = out.summary.clone();
         // the ETag is pinned only when the archive names the URL that was read
         let etag = if a.url.is_none() || a.url.as_deref() == Some(a.input.as_str()) { t.etag() } else { None };
