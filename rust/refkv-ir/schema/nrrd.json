@@ -8,18 +8,9 @@
     "max_skip": 16777216,
     "max_dimension": 16
   },
-  "table_about": {
-    "about": "what each table of tables holds: kept here, since every key of a table is an entry, and a descriptor may be any text",
-    "types": "the type field's descriptors, lower case: the Zarr data type and its bytes",
-    "unsupported_types": "types the profile names and rejects",
-    "encodings": "the encoding field's descriptors, lower case: the encoding",
-    "unsupported_encodings": "encodings the profile names and rejects, with the reason",
-    "fields": "the field identifiers, lower case (an alternate form names its field): the field each names",
-    "spaces": "the space field's descriptors, lower case: the space's dimension",
-    "kinds": "the kinds, lower case: the role of an axis of the kind (space, time or channel)"
-  },
   "tables": {
     "types": {
+      "about": "the type field's descriptors, lower case: the Zarr data type and its bytes",
       "signed char": {"dtype": "int8", "bytes": 1},
       "int8": {"dtype": "int8", "bytes": 1},
       "int8_t": {"dtype": "int8", "bytes": 1},
@@ -62,14 +53,17 @@
       "double": {"dtype": "float64", "bytes": 8}
     },
     "unsupported_types": {
+      "about": "types the profile names and rejects",
       "block": "its blocks are opaque, of no data type"
     },
     "encodings": {
+      "about": "the encoding field's descriptors, lower case: the encoding",
       "raw": "raw",
       "gz": "gzip",
       "gzip": "gzip"
     },
     "unsupported_encodings": {
+      "about": "encodings the profile names and rejects, with the reason",
       "ascii": "its values are decimal text, which no chunk can reference as binary",
       "text": "its values are decimal text, which no chunk can reference as binary",
       "txt": "its values are decimal text, which no chunk can reference as binary",
@@ -78,6 +72,7 @@
       "bzip2": "no Zarr v3 codec that both hosts read decodes bzip2"
     },
     "fields": {
+      "about": "the field identifiers, lower case (an alternate form names its field): the field each names",
       "dimension": "dimension",
       "type": "type",
       "block size": "block size",
@@ -120,6 +115,7 @@
       "measurement frame": "measurement frame"
     },
     "spaces": {
+      "about": "the space field's descriptors, lower case: the space's dimension",
       "right-anterior-superior": 3, "ras": 3,
       "left-anterior-superior": 3, "las": 3,
       "left-posterior-superior": 3, "lps": 3,
@@ -131,6 +127,7 @@
       "3d-right-handed-time": 4, "3d-left-handed-time": 4
     },
     "kinds": {
+      "about": "the kinds, lower case: the role of an axis of the kind (space, time or channel)",
       "domain": "space", "space": "space", "time": "time",
       "list": "channel", "point": "channel", "vector": "channel", "covariant-vector": "channel", "normal": "channel",
       "stub": "channel", "scalar": "channel", "complex": "channel", "2-vector": "channel",

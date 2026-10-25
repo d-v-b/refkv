@@ -203,7 +203,7 @@ fn unit_of(u: Option<&Js>) -> Option<String> {
     if units.as_object().is_some_and(|m| m.iter().any(|(k, v)| k != "about" && v.as_str() == Some(u))) {
         return Some(u.to_string());
     }
-    units.get(u).filter(|_| u != "about").and_then(|v| v.as_str()).map(str::to_string)
+    crate::n5::schema().entry("units", u).and_then(|v| v.as_str()).map(str::to_string)
 }
 
 /// `n` numbers (each positive, with `positive`), as binary64 values.

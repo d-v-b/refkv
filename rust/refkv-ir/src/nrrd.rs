@@ -39,12 +39,6 @@ fn shown(b: &[u8]) -> String {
     utf8_or_latin1(b)
 }
 
-/// The entry `key` of the schema's table `table` (whose description is not in it, but in
-/// `table_about`: every key of a table is an entry).
-fn entry<'a>(rules: &'a Rules, table: &str, key: &str) -> Option<&'a J> {
-    rules.table(table).get(key)
-}
-
 /// A problem as a role's given value: absent when there is none.
 fn problem(p: Option<String>) -> V {
     p.map_or(V::Absent, |p| text(&p))
@@ -181,7 +175,7 @@ fn line(rules: &Rules, h: &mut Header, t: &[u8]) -> Option<String> {
     if !rest.is_empty() && rest[0] != b' ' {
         return Some(format!("the field identifier \"{}\" is not followed by \": \"", shown(id)));
     }
-    let Some(name) = entry(rules, "fields", &shown(id).to_ascii_lowercase()).and_then(J::as_str) else {
+    let Some(name) = rules.entry("fields", &shown(id).to_ascii_lowercase()).and_then(J::as_str) else {
         return Some(format!("\"{}\" is not a NRRD field", shown(id)));
     };
     if h.field(name).is_some() {
@@ -393,13 +387,13 @@ pub fn fields(rules: &Rules, h: &Header, header_key: &str) -> Res<Fields> {
     let d = required(rules, h, "type", "")?;
     let name = shown(trim(d)).to_ascii_lowercase();
     rules.check("type", rules::env([("name", text(&name))]))?;
-    let spec = entry(rules, "types", &name).ok_or("internal: a type the schema does not name")?;
+    let spec = rules.entry("types", &name).ok_or("internal: a type the schema does not name")?;
     let (data_type, item) = (spec["dtype"].as_str().unwrap_or("uint8").to_string(), spec["bytes"].as_u64().unwrap_or(1));
 
     let d = required(rules, h, "encoding", "")?;
     let name = shown(trim(d)).to_ascii_lowercase();
     rules.check("encoding", rules::env([("name", text(&name))]))?;
-    let encoding = entry(rules, "encodings", &name).and_then(J::as_str).ok_or("internal: an encoding the schema does not name")?.to_string();
+    let encoding = rules.entry("encodings", &name).and_then(J::as_str).ok_or("internal: an encoding the schema does not name")?.to_string();
 
     let little = match h.field("endian") {
         Some(d) => {
@@ -442,7 +436,7 @@ pub fn fields(rules: &Rules, h: &Header, header_key: &str) -> Res<Fields> {
             None
         }
         (Some(d), None) => {
-            let sd = entry(rules, "spaces", &shown(trim(d)).to_ascii_lowercase()).and_then(J::as_u64);
+            let sd = rules.entry("spaces", &shown(trim(d)).to_ascii_lowercase()).and_then(J::as_u64);
             check_value(rules, "space", d, sd.is_none().then(|| "is not a NRRD space".into()))?;
             sd.map(|v| v as usize)
         }
@@ -488,7 +482,7 @@ pub fn fields(rules: &Rules, h: &Header, header_key: &str) -> Res<Fields> {
     let units = values(rules, h, "units", strings(n, "the dimension"), |w| Some(w.to_vec()))?;
     let kinds = values(rules, h, "kinds", per_axis("NRRD kinds"), |w| {
         let k = shown(w).to_ascii_lowercase();
-        entry(rules, "kinds", &k).map(|_| k)
+        rules.entry("kinds", &k).map(|_| k)
     })?;
     let number = |field: &str| h.field(field).and_then(|d| float(trim(d)));
     Ok(Fields {
@@ -520,7 +514,7 @@ fn data_file(rules: &Rules, d: &[u8], header_key: &str) -> Res<String> {
 /// axis order (fastest first): `x`, `y` and `z` for the spatial axes in that order, `t` and `c`.
 pub fn axes(rules: &Rules, f: &Fields) -> Res<Vec<&'static str>> {
     let roles: Vec<&str> = (0..f.dimension)
-        .map(|i| match f.kinds.as_ref().and_then(|k| entry(rules, "kinds", &k[i])).and_then(J::as_str).unwrap_or("unknown") {
+        .map(|i| match f.kinds.as_ref().and_then(|k| rules.entry("kinds", &k[i])).and_then(J::as_str).unwrap_or("unknown") {
             "unknown" => match &f.directions {
                 Some(d) if d[i].is_none() => "channel",
                 _ => "space",
