@@ -72,7 +72,7 @@ pub fn grid_lengths(lengths: &[u64]) -> J {
     J::Array(runs.into_iter().map(|(v, r)| if r > 1 { json!([v, r]) } else { json!(v) }).collect())
 }
 
-/// The samples of a video chunk of the presented frames `[a, b)` (§18.3
+/// The samples of a video chunk of the presented frames `[a, b)` (§8.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>): in decode order,
 /// from the last sync sample at or before the first of them in decode order (or, while the
 /// chunk holds a leading picture of that sync sample, the one before it) to the last of
@@ -84,7 +84,8 @@ pub fn video_units(a: usize, b: usize, order: &[usize], rank: &[usize], sync: &[
     let hi = order[a..b].iter().copied().max().unwrap_or(0);
     // the last sync sample at or before the first of them in decode order; while the chunk
     // holds a leading picture of it (decoded after it, presented before it), which may
-    // reference the group before (an open group), the sync sample before that
+    // reference the group before (an open group), the sync sample before that; that one's
+    // own leading pictures are decoded before this one (`mp4::gops`), so it walks back once
     let mut k = sync.partition_point(|&x| x as usize <= lo).saturating_sub(1);
     let leads = |s: usize| order[a..b].iter().any(|&d| d > s && rank[d] < rank[s]);
     while k > 0 && leads(sync[k] as usize) {

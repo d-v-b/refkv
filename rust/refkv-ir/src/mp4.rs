@@ -801,17 +801,23 @@ fn presentation(t: &Track) -> Vec<i64> {
     out
 }
 
-/// Whether the groups of pictures are closed (spec/zarrify/mp4.md §8.2
+/// Whether the groups of pictures are ones the profile zarrifies (spec/zarrify/mp4.md §8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>): the first sample
-/// is a sync sample, no two samples share a presentation time, and no group is longer than
-/// `max_group` samples. A sample after a sync sample in decode order may be presented before
-/// it (a leading picture: a camera's B-frames after an IDR picture, or an open group's, which
-/// may reference the group before); a chunk that holds one decodes from the sync sample before
-/// (project/mp4.rs, `video_units`).
+/// is a sync sample, the sync samples increase and are samples of the track, no two samples
+/// share a presentation time, no group is longer than `max_group` samples, every sample before
+/// a sync sample in decode order is presented before it, and every sample after it is
+/// presented after the sync sample before it. So a sample after a sync sample in decode order
+/// may be presented before it (a leading picture: a camera's B-frames after an IDR picture, or
+/// an open group's, which may reference the group before) but not before the sync sample
+/// before; a chunk that holds one decodes from that sync sample (project/mp4.rs,
+/// `video_units`), and never from one further back.
 pub fn gops(pts: &[i64], sync: &[u64]) -> Result<(), String> {
     let n = pts.len();
     if sync.first() != Some(&0) {
         return Err("the first sample is not a sync sample".into());
+    }
+    if sync.windows(2).any(|w| w[0] >= w[1]) || sync.last().is_some_and(|&s| s as usize >= n) {
+        return Err("the sync samples do not increase, or one is past the last sample".into());
     }
     let mut sorted = pts.to_vec();
     sorted.sort_unstable();
@@ -825,6 +831,29 @@ pub fn gops(pts: &[i64], sync: &[u64]) -> Result<(), String> {
             return Err(format!("a group of pictures of {} samples, more than {limit}", s - prev));
         }
         prev = s;
+    }
+    // the most presentation time before each decode index, and the least from it on
+    let mut before = vec![i64::MIN; n + 1];
+    for d in 0..n {
+        before[d + 1] = before[d].max(pts[d]);
+    }
+    let mut after = vec![i64::MAX; n + 1];
+    for d in (0..n).rev() {
+        after[d] = after[d + 1].min(pts[d]);
+    }
+    for (k, &s) in sync.iter().enumerate() {
+        let s = s as usize;
+        if before[s] > pts[s] {
+            let late = (0..s).find(|&d| pts[d] > pts[s]).unwrap_or(s);
+            return Err(format!("sample {late}, before the sync sample {s} in decode order, is presented after it"));
+        }
+        if k > 0 {
+            let p = sync[k - 1] as usize;
+            if after[s + 1] < pts[p] {
+                let early = (s + 1..n).find(|&d| pts[d] < pts[p]).unwrap_or(s);
+                return Err(format!("sample {early}, after the sync sample {s} in decode order, is presented before the sync sample {p}"));
+            }
+        }
     }
     Ok(())
 }
@@ -997,19 +1026,74 @@ impl crate::run::FileProfile for Profile {
 mod tests {
     use super::*;
 
-    /// Closed groups and groups with leading pictures pass; a first sample that is not a sync
-    /// sample, two samples of one time, and a group longer than the limit fail.
+    /// Closed groups, and groups with leading pictures presented after the sync sample before,
+    /// pass.
     #[test]
     fn groups_of_pictures_are_checked() {
         // I0 P3 B1 B2 | I4 P7 B5 B6, in decode order
         assert_eq!(gops(&[0, 3, 1, 2, 4, 7, 5, 6], &[0, 4]), Ok(()));
         // I4 is followed in decode order by B3, presented before it: a leading picture
         assert_eq!(gops(&[0, 2, 1, 4, 3, 5], &[0, 3]), Ok(()));
-        let limit = rules::of("mp4").limit("max_group") as usize;
-        let long: Vec<i64> = (0..limit as i64 + 2).collect();
+        // I0 P3 B1 B2 | I6 B4 B5 P9 B7 B8: an open group, B4 and B5 leading pictures of I6
+        assert_eq!(gops(&[0, 3, 1, 2, 6, 4, 5, 9, 7, 8], &[0, 4]), Ok(()));
+        // every sample a sync sample, and one group up to the limit
+        assert_eq!(gops(&[0, 1, 2], &[0, 1, 2]), Ok(()));
+        let limit = rules::of("mp4").limit("max_group") as i64;
+        assert_eq!(gops(&(0..limit).collect::<Vec<_>>(), &[0]), Ok(()));
+    }
+
+    #[test]
+    fn a_group_longer_than_the_limit_fails() {
+        let limit = rules::of("mp4").limit("max_group") as i64;
+        let long: Vec<i64> = (0..limit + 2).collect();
         assert!(gops(&long, &[0]).unwrap_err().starts_with("a group of pictures of"));
+    }
+
+    #[test]
+    fn a_first_sample_that_is_not_a_sync_sample_fails() {
         assert_eq!(gops(&[0, 1], &[1]), Err("the first sample is not a sync sample".into()));
+    }
+
+    #[test]
+    fn sync_samples_out_of_order_or_past_the_end_fail() {
+        let msg = Err("the sync samples do not increase, or one is past the last sample".into());
+        assert_eq!(gops(&[0, 1, 2], &[0, 2, 1]), msg);
+        assert_eq!(gops(&[0, 1, 2], &[0, 1, 1]), msg);
+        assert_eq!(gops(&[0, 1, 2], &[0, 3]), msg);
+    }
+
+    #[test]
+    fn two_samples_of_one_time_fail() {
         assert_eq!(gops(&[0, 0], &[0]), Err("two samples share a presentation time".into()));
+    }
+
+    /// I0 P4 B1 | I3 P5: P4, decoded before I3, is presented after it.
+    #[test]
+    fn a_sample_before_a_sync_sample_presented_after_it_fails() {
+        assert_eq!(
+            gops(&[0, 4, 1, 3, 5], &[0, 3]),
+            Err("sample 1, before the sync sample 3 in decode order, is presented after it".into())
+        );
+    }
+
+    /// I2 B3 | I5 B1 B4: B1, a leading picture of I5, is presented before I2.
+    #[test]
+    fn a_leading_picture_presented_before_the_sync_sample_before_fails() {
+        assert_eq!(
+            gops(&[2, 3, 5, 1, 4], &[0, 2]),
+            Err("sample 3, after the sync sample 2 in decode order, is presented before the sync sample 0".into())
+        );
+    }
+
+    /// Samples presented in reverse decode order (a crafted `ctts` box), a sync sample every 4:
+    /// sample 0 is presented after every sync sample, so every chunk would decode from it.
+    #[test]
+    fn presentation_in_reverse_decode_order_fails() {
+        let pts: Vec<i64> = (0..16).rev().collect();
+        assert_eq!(
+            gops(&pts, &[0, 4, 8, 12]),
+            Err("sample 0, before the sync sample 4 in decode order, is presented after it".into())
+        );
     }
 
     /// x264's avcC boxes for a High profile 8-bit and a High 10 profile 10-bit 4:2:0 stream

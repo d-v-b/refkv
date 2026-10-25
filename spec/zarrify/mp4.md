@@ -17,8 +17,10 @@ Added 2026-10-23, after
 
 **2026-10-25.** A track whose sync samples are followed in decode order by pictures presented
 before them (leading pictures: a camera's B-frames after each IDR picture, or an open group's)
-is zarrified, not refused; a chunk that holds a leading picture of the sync sample it would
-decode from decodes from the sync sample before that ([§8.2](#82-tracks), [§8.3](#83-chunks)).
+is zarrified, not refused, while each leading picture is presented after the sync sample
+before; a chunk that holds a leading picture of the sync sample it would decode from decodes
+from the sync sample before that ([§8.2](#82-tracks), [§8.3](#83-chunks)). A track whose sync
+sample table does not increase, or names a sample past the last, is refused.
 
 **2026-10-24.** A video chunk holds whole groups of pictures, from a sync sample, in place of
 `F` pictures from a multiple of `F`; a group longer than `F` pictures is split. Where the
@@ -391,11 +393,15 @@ and the track is kept in the mirror but has no group:
   holds no SPS, or an SPS the profile cannot read; or the SPS is not 8-bit
   4:2:0 (`chroma_format_idc` 1 and both bit depths 8; profiles below High
   are); or its width or height is 0; or its first sample is not a sync
+  sample; or its sync samples do not increase, or one is past its last
   sample; or two samples share a presentation time; or two sync samples
-  (or the last one and the end) are more than 1024 samples apart. A sample
-  after a sync sample in decode order may be presented before it (a
-  **leading picture**): a camera's B-frames after each IDR picture are, and
-  an open group's, which may reference the group before ([§8.3](#83-chunks));
+  (or the last one and the end) are more than 1024 samples apart; or a
+  sample before a sync sample in decode order is presented after it; or a
+  sample after a sync sample in decode order is presented before the sync
+  sample before it. So a sample after a sync sample in decode order may be
+  presented before it (a **leading picture**), but after the sync sample
+  before: a camera's B-frames after each IDR picture are, and an open
+  group's, which may reference the group before ([§8.3](#83-chunks));
 - **audio:** its sample entry is a QuickTime sound description of version 2;
   or it is neither `mp4a` nor `.mp3`; or, for `mp4a`, its `esds` box (or the
   one in its `wave` box) is absent or cannot be read, or its object type
@@ -408,9 +414,16 @@ The channel count and sample rate of an AAC track are its
 AudioSpecificConfig's (the sample entry's channel count when its channel
 configuration is 0); those of an MP3 track its sample entry's.
 
-The spacing rule makes every chunk decodable from a sync sample at most two
-groups before it, with a header of at most a few thousand frames, so its
-reference fits in a payload ([§1.2](../zarrify.md#12-input)).
+The presentation-order rules bound the samples a chunk decodes
+([§8.3](#83-chunks)). Its pictures are decoded at or after the last sync
+sample presented at or before its first picture, since a sample decoded
+before a sync sample is presented before it. And it decodes from the last
+sync sample at or before its first picture in decode order or from the sync
+sample before that, never further back, since the earlier sync sample's
+leading pictures are decoded before the later one and so are not in the
+chunk. With the spacing rule, a chunk decodes fewer than 2048 samples before
+its first picture in decode order, so its reference fits in a payload
+([§1.2](../zarrify.md#12-input)).
 
 ### 8.3 Chunks
 
