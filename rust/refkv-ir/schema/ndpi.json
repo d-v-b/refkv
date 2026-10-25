@@ -98,7 +98,7 @@
       ]
     },
     "values": {
-      "about": "an integer tag's values as the profile reads them (a scalar's first value, an array's every value; an inline LONG or IFD of count 1 with its high word)",
+      "about": "an integer tag's values as the profile reads them (a scalar's first value, an array's every value; an inline LONG or IFD of count 1 with its high word, but OffsetHighBytes's and ByteCountHighBytes's)",
       "given": {"tag": "", "safe": "every value read is at most 2^53 - 1"},
       "constraints": [{"require": "safe", "message": "tag {tag} has a value above 2^53 - 1"}]
     },
@@ -155,12 +155,12 @@
         "tiles": "ceil(H / TileLength) × ceil(W / TileWidth)",
         "offsets": "TileOffsets' values",
         "counts": "TileByteCounts' values",
-        "high": "OffsetHighBytes and ByteCountHighBytes are absent or have as many values as TileOffsets",
+        "high": "OffsetHighBytes and ByteCountHighBytes are absent or have as many values as TileOffsets, and that of a table of one in-line LONG is its entry's high word",
         "within": "every tile of a byte count above 0 ends within the file"
       },
       "constraints": [
         {"require": "offsets == tiles && counts == tiles", "message": "an NDPI level has {offsets} tile offsets and {counts} byte counts, not its {tiles} tiles"},
-        {"require": "high", "message": "an NDPI level's tile high bytes differ in length from its tiles"},
+        {"require": "high", "message": "an NDPI level's tile high bytes do not match its tiles"},
         {"require": "within", "message": "an NDPI tile is outside the file"}
       ]
     },

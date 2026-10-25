@@ -14,7 +14,8 @@ YCbCr with 3 samples, whatever its JPEG XR streams hold.
   Its red samples are the brightest and its blue ones the darkest, so that their order shows.
 - `ndpi_jpegxr_bgr.ndpi`: the same, its streams labeled 24bppBGR, which decodes in R, G, B
   order too. Level 0 is a single tile: its tile tables are one value in line, whose high bits
-  are its entries' high words (0), so its high tables, of 1s, are not added to them.
+  are its entries' high words, which its high tables hold (0s). OffsetHighBytes's own entry has
+  a high word of 1, which is no part of its value.
 - `edge_reject_ndpi_jpegxr_*.ndpi`, `edge_reject_ndpi_compressions.ndpi`: inputs §3 and §7
   reject.
 
@@ -25,6 +26,7 @@ Usage: uv run python fixtures/generators/ndpi/write_jpegxr_fixtures.py
 
 from __future__ import annotations
 
+import struct
 from pathlib import Path
 from typing import cast
 
@@ -64,6 +66,13 @@ def bgr(stream: bytes) -> bytes:
     guid = bytes.fromhex("24c3dd6f034efe4bb1853d77768dc90d")
     at = stream.index(guid)
     return stream[: at + 15] + b"\x0c" + stream[at + 16 :]
+
+
+def set_high_word(f: Ndpi, ifd: int, tag: int, word: int) -> None:
+    """Sets the high word of tag `tag`'s entry in the IFD at `ifd`, after its next-IFD offset."""
+    n = struct.unpack_from("<H", f.buf, ifd)[0]
+    tags = [struct.unpack_from("<H", f.buf, ifd + 2 + 12 * i)[0] for i in range(n)]
+    struct.pack_into("<I", f.buf, ifd + 2 + 12 * n + 8 + 4 * tags.index(tag), word)
 
 
 def tiles(pixels: np.ndarray, tile_height: int, tile_width: int) -> list[bytes]:
@@ -144,7 +153,9 @@ def main() -> None:
     strip(f, jxr(rgb[::2, ::2]), 45, 30, 10.0)
     f.write("ndpi_jpegxr_rgb.ndpi")
     f = Ndpi()
-    tiled(f, [bgr(jxr(rgb[:32, :48]))], 48, 32, (32, 48), 20.0, extra={65324: (LONG, [1]), 65325: (LONG, [1])})
+    single = [bgr(jxr(rgb[:32, :48]))]
+    tiled(f, single, 48, 32, (32, 48), 20.0)
+    set_high_word(f, f.ifds[0], 65324, 1)
     strip(f, bgr(jxr(rgb[:16:2, :24:2])), 12, 8, 10.0)
     f.write("ndpi_jpegxr_bgr.ndpi")
 
@@ -168,6 +179,9 @@ def main() -> None:
     f = Ndpi()  # OffsetHighBytes has one value too few
     tiled(f, l0, 160, 100, (64, 64), 20.0, extra={65324: (LONG, [0] * (len(l0) - 1))})
     f.write("edge_reject_ndpi_jpegxr_high_length.ndpi")
+    f = Ndpi()  # a single in-line tile whose OffsetHighBytes, 1, is not its entry's high word, 0
+    tiled(f, single, 48, 32, (32, 48), 20.0, extra={65324: (LONG, [1])})
+    f.write("edge_reject_ndpi_jpegxr_high_word.ndpi")
     f = Ndpi()  # a stream that is not a JPEG XR file (a JPEG stream)
     jpeg = cast("bytes", imagecodecs.jpeg8_encode(image("uint8", 25, 40, 3), level=85))
     strip(f, jpeg, 40, 25, 20.0)

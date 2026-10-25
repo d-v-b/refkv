@@ -144,7 +144,7 @@ JPEGXR_SLIDES = {
     "ndpi_jpegxr_rgb.ndpi": ("uint8", 3, [([3, 60, 90], [3, 32, 48]), ([3, 30, 45], [3, 30, 45])], None, None,
                              set()),
     # 24bppBGR, decoding in R, G, B order too; level 0 a single tile, in line, whose high tables
-    # (1s) are not added to it
+    # hold its entries' high words
     "ndpi_jpegxr_bgr.ndpi": ("uint8", 3, [([3, 32, 48], [3, 32, 48]), ([3, 8, 12], [3, 8, 12])], None, None, set()),
 }
 

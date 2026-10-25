@@ -409,7 +409,8 @@ not NDPI). Otherwise it is a TIFF ([tiff.md §7](tiff.md#7-tiff-profile)). This 
 `n` `u32` **high words**, one per entry. An entry's value field is its 4
 bytes plus its high word `h`: an out-of-line value is at offset
 `low + h × 2^32`, and an inline value of count 1 and type LONG (4) or IFD
-(13) is `low + h × 2^32`. Other inline values ignore `h`. Only the main
+(13) is `low + h × 2^32`, but for OffsetHighBytes and ByteCountHighBytes
+(**Tiles** below). Other inline values ignore `h`. Only the main
 chain is read for the layout: an NDPI's SubIFDs, like the IFDs of its other
 pointer tags, are read in this layout for the IR only, and
 never reject the input ([the convention
@@ -520,10 +521,12 @@ pixel data ([§1.2](../zarrify.md#12-input), **Structure only**).
 
 **Tiles.** A JPEG XR level's tile `j` is at offset `TileOffsets[j] +
 OffsetHighBytes[j] × 2^32` and is `TileByteCounts[j] + ByteCountHighBytes[j]
-× 2^32` bytes long, each high table counting as 0s when absent. A high table
-that is present MUST have as many values as TileOffsets. A table of one value
+× 2^32` bytes long, each high table counting as 0s when absent. A high table's values are the
+32-bit values it stores: one value in line is its 4 bytes, without its entry's high word.
+A high table that is present MUST have as many values as TileOffsets. A table of one value
 in line, of type LONG, already has its high bits from its entry's high word
-(**IFDs** above), so its high table is not added to it. (TileOffsets, a LONG
+(**IFDs** above): its high table, when present, MUST hold that word, and is
+not added to it. (TileOffsets, a LONG
 array, holds only offsets below 2^32, so Hamamatsu writes the high tables
 with it; in a file of less than 4 GiB they are 0s.) The sums are
 what the layout and the source model's `tiles` use ([the convention
