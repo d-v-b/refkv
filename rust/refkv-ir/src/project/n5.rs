@@ -30,6 +30,11 @@ fn table(name: &str) -> &'static J {
     crate::n5::schema().table(name)
 }
 
+/// The entry `key` of the schema's table `name` (`Rules::entry`: `about` names none).
+fn entry(name: &str, key: &str) -> Option<&'static J> {
+    crate::n5::schema().entry(name, key)
+}
+
 fn obj(m: Vec<(Js, Jv)>) -> Jv {
     Jv::Obj(m)
 }
@@ -79,9 +84,9 @@ fn int(v: Option<&Jv>) -> i64 {
 
 /// The level of a gzip or zstd compression: the member `level` (gzip's −1 is 6), or the default.
 fn level(t: &str, c: &Jv) -> i64 {
-    let l = &table("levels")[t];
+    let l = entry("levels", t);
     match c.get("level") {
-        None => l[2].as_i64().unwrap_or(0),
+        None => l.and_then(|l| l[2].as_i64()).unwrap_or(0),
         Some(v) => match int(Some(v)) {
             -1 if t == "gzip" => 6,
             x => x,
@@ -131,7 +136,7 @@ fn dataset(doc: &Jv) -> (Vec<(Js, Jv)>, Vec<(Js, Jv)>, usize) {
     let (shape, chunks) = (ints("dimensions"), ints("blockSize"));
     let n = shape.len();
     let dtype = doc.get("dataType").and_then(Jv::as_str).unwrap_or("");
-    let b = table("data_types")[dtype].as_i64().unwrap_or(1);
+    let b = entry("data_types", dtype).and_then(J::as_i64).unwrap_or(1);
     let c = compression(doc).unwrap_or(Jv::Null);
     let mut inner = vec![
         Jv::obj(vec![("name", Jv::str("transpose")),
@@ -170,7 +175,7 @@ fn dataset(doc: &Jv) -> (Vec<(Js, Jv)>, Vec<(Js, Jv)>, usize) {
 // ---- multiscale images (spec/zarrify/n5.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#4-multiscale-images>)
 
 fn axis_type(a: &Js) -> Option<&'static str> {
-    a.as_str().and_then(|a| table("axis_types")[a].as_str()).map(|t| match t {
+    a.as_str().and_then(|a| entry("axis_types", a)).and_then(J::as_str).map(|t| match t {
         "space" => "space",
         "time" => "time",
         _ => "channel",
@@ -199,11 +204,10 @@ fn valid_axes(names: &[Js]) -> bool {
 
 fn unit_of(u: Option<&Js>) -> Option<String> {
     let u = u?.as_str()?;
-    let schema = crate::n5::schema();
-    if schema.entries("units").any(|(_, v)| v.as_str() == Some(u)) {
+    if crate::n5::schema().entries("units").any(|(_, v)| v.as_str() == Some(u)) {
         return Some(u.to_string());
     }
-    schema.entry("units", u).and_then(|v| v.as_str()).map(str::to_string)
+    entry("units", u).and_then(J::as_str).map(str::to_string)
 }
 
 /// `n` numbers (each positive, with `positive`), as binary64 values.
