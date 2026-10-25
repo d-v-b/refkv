@@ -94,11 +94,12 @@ def test_a_local_input_is_named_by_its_percent_encoded_path(tmp_path, monkeypatc
         ("d", "a b.nii", nifti, False),
         ("d d", "a.nii", nifti, False),
         ("100%", "#1.nii", nifti, True),
-        ("é ü", "ß?.nii", nifti, False),
-        ("x:y", "a.nii", nifti, True),
+        ("é ü", "ß.nii", nifti, False),
         ("s p%#é", vsi.name, vsi, False),
         ("s p%#é", vsi.name, vsi, True),
     ]
+    if sys.platform != "win32":  # Windows forbids `?` and `:` in a file name
+        table += [("é ü", "ß?.nii", nifti, False), ("x:y", "a.nii", nifti, True)]
     for i, (dirname, name, fixture, relative) in enumerate(table):
         d = tmp_path / f"{i}{dirname}"  # the first segment of a relative path
         d.mkdir()
