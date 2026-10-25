@@ -67,36 +67,40 @@ SCHEMA = {"anyOf": [
                 "required": ["vendor", "comments"],
                 "additionalProperties": False,
             },
-            "cuesheet": {
-                "type": "object",
-                "description": "The CUESHEET block's fields",
-                "properties": {
-                    "catalog": {"$ref": "#/$defs/text"},
-                    "lead_in": _COUNT,
-                    "cd": {"type": "boolean"},
-                    "tracks": {"type": "array", "items": {
-                        "type": "object",
-                        "properties": {
-                            "offset": _COUNT, "number": _COUNT, "isrc": {"$ref": "#/$defs/text"},
-                            "audio": {"type": "boolean"}, "pre_emphasis": {"type": "boolean"},
-                            "indexes": {"type": "array", "items": {
-                                "type": "object",
-                                "properties": {"offset": _COUNT, "number": _COUNT},
-                                "required": ["offset", "number"],
-                                "additionalProperties": False,
-                            }},
-                        },
-                        "required": ["offset", "number", "isrc", "audio", "pre_emphasis", "indexes"],
-                        "additionalProperties": False,
-                    }},
+            "cuesheets": {
+                "type": "array", "minItems": 1,
+                "description": "The CUESHEET blocks' fields, in file order",
+                "items": {
+                    "type": "object",
+                    "description": "The CUESHEET block's fields",
+                    "properties": {
+                        "catalog": {"$ref": "#/$defs/text"},
+                        "lead_in": _COUNT,
+                        "cd": {"type": "boolean"},
+                        "tracks": {"type": "array", "items": {
+                            "type": "object",
+                            "properties": {
+                                "offset": _COUNT, "number": _COUNT, "isrc": {"$ref": "#/$defs/text"},
+                                "audio": {"type": "boolean"}, "pre_emphasis": {"type": "boolean"},
+                                "indexes": {"type": "array", "items": {
+                                    "type": "object",
+                                    "properties": {"offset": _COUNT, "number": _COUNT},
+                                    "required": ["offset", "number"],
+                                    "additionalProperties": False,
+                                }},
+                            },
+                            "required": ["offset", "number", "isrc", "audio", "pre_emphasis", "indexes"],
+                            "additionalProperties": False,
+                        }},
+                    },
+                    "required": ["catalog", "lead_in", "cd", "tracks"],
+                    "additionalProperties": False,
                 },
-                "required": ["catalog", "lead_in", "cd", "tracks"],
-                "additionalProperties": False,
             },
             "pictures": {
                 "type": "array", "minItems": 1,
                 "description": "The PICTURE blocks' fields, in file order; the i-th one's data is the array "
-                               "pictures/<i>",
+                               "pictures/<i>, absent for a size of 0",
                 "items": {
                     "type": "object",
                     "properties": {

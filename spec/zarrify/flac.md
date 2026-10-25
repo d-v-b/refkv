@@ -224,7 +224,8 @@ Everything the file holds is on `refkv_source`, the file's **IR mirror**
   in order and whole (`"TITLE=A tone"`), as text values (UTF-8, or
   `{"latin1": ...}`). Names repeat, and their case differs from file to
   file, so the fields stay a list.
-- `cuesheet`: when the file has a CUESHEET block, `{"catalog": t,
+- `cuesheets`: when the file has CUESHEET blocks, one object per block, in
+  file order (RFC 9639 does not limit them to one), `{"catalog": t,
   "lead_in": n, "cd": b, "tracks": [{"offset": n, "number": n, "isrc": t,
   "audio": b, "pre_emphasis": b, "indexes": [{"offset": n, "number": n},
   ...]}, ...]}`, the catalog number and each ISRC up to the first NUL as
@@ -232,7 +233,8 @@ Everything the file holds is on `refkv_source`, the file's **IR mirror**
 - `pictures`: when the file has PICTURE blocks, one object per block, in
   file order, `{"type": n, "media_type": t, "description": t, "width": n,
   "height": n, "depth": n, "colors": n, "size": n}`, `size` the data's
-  length; the data is the array `pictures/<i>` ([§4.2](#42-the-pictures)).
+  length; the data is the array `pictures/<i>` ([§4.2](#42-the-pictures)),
+  which a picture of size 0 does not have.
 - `applications`: when the file has APPLICATION blocks, one object per
   block, `{"id": t, "size": n}`, its ID as text and the length of its data,
   which the mirror holds.

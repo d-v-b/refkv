@@ -307,88 +307,93 @@
               ],
               "additionalProperties": false
             },
-            "cuesheet": {
-              "type": "object",
-              "description": "The CUESHEET block's fields",
-              "properties": {
-                "catalog": {
-                  "$ref": "#/$defs/text"
-                },
-                "lead_in": {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                "cd": {
-                  "type": "boolean"
-                },
-                "tracks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "offset": {
-                        "type": "integer",
-                        "minimum": 0
-                      },
-                      "number": {
-                        "type": "integer",
-                        "minimum": 0
-                      },
-                      "isrc": {
-                        "$ref": "#/$defs/text"
-                      },
-                      "audio": {
-                        "type": "boolean"
-                      },
-                      "pre_emphasis": {
-                        "type": "boolean"
-                      },
-                      "indexes": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "properties": {
-                            "offset": {
-                              "type": "integer",
-                              "minimum": 0
+            "cuesheets": {
+              "type": "array",
+              "minItems": 1,
+              "description": "The CUESHEET blocks' fields, in file order",
+              "items": {
+                "type": "object",
+                "description": "The CUESHEET block's fields",
+                "properties": {
+                  "catalog": {
+                    "$ref": "#/$defs/text"
+                  },
+                  "lead_in": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "cd": {
+                    "type": "boolean"
+                  },
+                  "tracks": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "offset": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "number": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "isrc": {
+                          "$ref": "#/$defs/text"
+                        },
+                        "audio": {
+                          "type": "boolean"
+                        },
+                        "pre_emphasis": {
+                          "type": "boolean"
+                        },
+                        "indexes": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "offset": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "number": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
                             },
-                            "number": {
-                              "type": "integer",
-                              "minimum": 0
-                            }
-                          },
-                          "required": [
-                            "offset",
-                            "number"
-                          ],
-                          "additionalProperties": false
+                            "required": [
+                              "offset",
+                              "number"
+                            ],
+                            "additionalProperties": false
+                          }
                         }
-                      }
-                    },
-                    "required": [
-                      "offset",
-                      "number",
-                      "isrc",
-                      "audio",
-                      "pre_emphasis",
-                      "indexes"
-                    ],
-                    "additionalProperties": false
+                      },
+                      "required": [
+                        "offset",
+                        "number",
+                        "isrc",
+                        "audio",
+                        "pre_emphasis",
+                        "indexes"
+                      ],
+                      "additionalProperties": false
+                    }
                   }
-                }
-              },
-              "required": [
-                "catalog",
-                "lead_in",
-                "cd",
-                "tracks"
-              ],
-              "additionalProperties": false
+                },
+                "required": [
+                  "catalog",
+                  "lead_in",
+                  "cd",
+                  "tracks"
+                ],
+                "additionalProperties": false
+              }
             },
             "pictures": {
               "type": "array",
               "minItems": 1,
-              "description": "The PICTURE blocks' fields, in file order; the i-th one's data is the array pictures/<i>",
+              "description": "The PICTURE blocks' fields, in file order; the i-th one's data is the array pictures/<i>, absent for a size of 0",
               "items": {
                 "type": "object",
                 "properties": {

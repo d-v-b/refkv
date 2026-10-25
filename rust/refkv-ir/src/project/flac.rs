@@ -52,10 +52,13 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
     own.insert("duration".into(), if rate > 0 { json!(samples as f64 / rate as f64) } else { J::Null });
     own.insert("streaminfo".into(), si.clone());
     own.insert("blocks".into(), facts["blocks"].clone());
-    for k in ["seek_table", "vorbis_comment", "cuesheet"] {
+    for k in ["seek_table", "vorbis_comment"] {
         if !facts[k].is_null() {
             own.insert(k.into(), facts[k].clone());
         }
+    }
+    if !arr(&facts["cuesheets"]).is_empty() {
+        own.insert("cuesheets".into(), facts["cuesheets"].clone());
     }
     let pictures = arr(&facts["pictures"]);
     if !pictures.is_empty() {
@@ -99,10 +102,11 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
     let shards = count.div_ceil(per);
 
     // the pictures (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#42-the-pictures>)
+    if pictures.iter().any(|p| p["element"].is_u64()) {
+        refs.out.json(&format!("{PICTURES}/zarr.json"), &group_doc(Map::new()));
+    }
     for (i, p) in pictures.iter().enumerate() {
-        if i == 0 {
-            refs.out.json(&format!("{PICTURES}/zarr.json"), &group_doc(Map::new()));
-        }
+        // a picture of no data has no array (conventions §7: bytes are at least 1)
         let Some(e) = p["element"].as_u64() else { continue };
         let (start, size) = (ir.start[e as usize], ir.len[e as usize]);
         let (chunk, chunks) = blob_chunks(start, size);
@@ -110,7 +114,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
         refs.out.json(&format!("{path}/zarr.json"), &array_json(&[size], "uint8", json!([chunk]), json!([bytes_codec(1, "little")]), &["byte"]));
         for (c, k) in chunks {
             if let Chunk::Ranges(parts) = k {
-                refs.chunk(format!("{path}/c/{}", c[0]), start, size, form, Some(parts), c[0])?;
+                // its own ranges, so no form's recipe is read (u32::MAX: none)
+                refs.chunk(format!("{path}/c/{}", c[0]), start, size, u32::MAX, Some(parts), c[0])?;
             }
         }
     }

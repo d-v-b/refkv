@@ -414,6 +414,7 @@ pub struct Flac {
     info: Option<StreamInfo>,
     info_value: u32,
     meta: J,
+    cuesheets: Vec<J>,
     pictures: Vec<J>,
     applications: Vec<J>,
     /// where the frames start
@@ -429,7 +430,7 @@ impl Flac {
         Flac {
             size, phase: Phase::Start, fed: Fed::new(Overlap::MergeNew), asked: Asked::default(), ir: Ir::new(size),
             rules: rules::of("flac"), a: 0, e: size, id3v2: Vec::new(), id3v1: None, m: 0, blocks: Vec::new(), info: None,
-            info_value: 0, meta: json!({}), pictures: Vec::new(), applications: Vec::new(), f0: 0, scan: None,
+            info_value: 0, meta: json!({}), cuesheets: Vec::new(), pictures: Vec::new(), applications: Vec::new(), f0: 0, scan: None,
             frames: Vec::new(), facts: J::Null,
         }
     }
@@ -612,7 +613,7 @@ impl Flac {
                 let v = cuesheet_json(&b);
                 self.rules.check("cuesheet", rules::env([("at", num(m as f64)), ("valid", flag(v.is_ok()))]))?;
                 self.ir.value(s, "cuesheet", NO_INDEX, &bytes(len), 0, (body, len), None)?;
-                self.meta["cuesheet"] = v.unwrap_or(J::Null);
+                self.cuesheets.push(v.unwrap_or(J::Null));
             }
             6 => {
                 let v = picture_fields(&b, len);
@@ -735,6 +736,8 @@ impl Flac {
         let Some(q) = end else {
             let longer = sc.s - sc.p > max;
             if reach < e && !longer {
+                // the bytes before the frame are done with: dropped once a window, not per frame
+                self.fed.keep_from(sc.p);
                 self.scan = Some(sc);
                 return Ok(Some((reach, (e - reach).min(WINDOW))));
             }
@@ -749,7 +752,6 @@ impl Flac {
             self.rules.check("short", rules::env([("at", num(o as f64)), ("samples", num(b as f64)), ("block", num(first as f64))]))?;
         }
         self.frames.push((sc.p, q - sc.p, sc.head.block));
-        self.fed.keep_from(q);
         if q == e {
             self.scan = None;
             self.finish_frames()?;
@@ -792,11 +794,12 @@ impl Flac {
         }).collect();
         let mut facts = json!({
             "frames": first, "count": self.frames.len(), "block": self.frames[0].2, "samples": samples,
-            "streaminfo": si.json(), "info_value": self.info_value, "blocks": blocks, "pictures": self.pictures,
+            "streaminfo": si.json(), "info_value": self.info_value, "blocks": blocks, "cuesheets": self.cuesheets,
+            "pictures": self.pictures,
             "applications": self.applications, "id3v2": self.id3v2, "id3v1": id3v1, "shard_frames": shard_frames(),
             "frame_bytes": self.frames.iter().map(|f| f.1).sum::<u64>(),
         });
-        for k in ["seek_table", "vorbis_comment", "cuesheet"] {
+        for k in ["seek_table", "vorbis_comment"] {
             facts[k] = self.meta[k].clone();
         }
         self.asked.put(&mut facts);

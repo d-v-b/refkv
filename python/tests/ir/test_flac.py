@@ -48,6 +48,14 @@ def md5(samples: np.ndarray, bits: int) -> str:
     return hashlib.md5(raw, usedforsecurity=False).hexdigest()
 
 
+# the fixtures' cue sheet: a CD's two tracks and its lead-out
+CUESHEET = {"catalog": "1234567890123", "lead_in": 88200, "cd": True, "tracks": [
+    {"offset": 0, "number": 1, "isrc": "USABC2600001", "audio": True, "pre_emphasis": False,
+     "indexes": [{"offset": 0, "number": 1}]},
+    {"offset": 2940, "number": 2, "isrc": "", "audio": True, "pre_emphasis": False,
+     "indexes": [{"offset": 0, "number": 0}, {"offset": 588, "number": 1}]},
+    {"offset": 8820, "number": 170, "isrc": "", "audio": True, "pre_emphasis": False, "indexes": []}]}
+
 # (summary members, root metadata members) each file must have
 CASES = {
     "flac_mono_16": ({"sampleRate": 16000, "channels": 1, "bitsPerSample": 16, "blockSize": 1024, "frames": 8,
@@ -59,12 +67,15 @@ CASES = {
                                                                   "COMMENT=Zarrified, not copied"]}}),
     "flac_stereo_24": ({"bitsPerSample": 24, "channels": 2, "blockSize": 1152}, {}),
     "flac_mono_24": ({"bitsPerSample": 24, "sampleRate": 96000, "frames": 2}, {}),
-    "flac_blocks": ({"pictures": 2},
+    "flac_blocks": ({"pictures": 3},
                     {"applications": [{"id": "riff", "size": 14}],
+                     "cuesheets": [CUESHEET, CUESHEET],
                      "pictures": [{"type": 3, "media_type": "image/png", "description": "Front cover", "width": 4,
                                    "height": 2, "depth": 24, "colors": 0, "size": 88},
                                   {"type": 4, "media_type": "-->", "description": "", "width": 0, "height": 0,
-                                   "depth": 0, "colors": 0, "size": 28}]}),
+                                   "depth": 0, "colors": 0, "size": 28},
+                                  {"type": 0, "media_type": "image/png", "description": "no data", "width": 0,
+                                   "height": 0, "depth": 0, "colors": 0, "size": 0}]}),
     "flac_id3v2": ({"tags": ["id3v2"]}, {"id3v2": [{"version": [4, 0], "flags": 0, "size": 55, "footer": False}]}),
     "flac_id3v1": ({"tags": ["id3v1"]}, {"id3v1": {"title": "A tone", "artist": "refkv", "album": "Fixtures",
                                                    "year": "2026", "comment": "FLAC", "track": 3, "genre": 12}}),
@@ -98,7 +109,7 @@ def test_zarrifies_the_synthetic_files(tmp_path, shard_frames):
             assert meta.get(k) == v, (name, k)
         keys = ["sample_rate", "channels", "bits_per_sample", "block_size", "frames", "samples", "duration",
                 "streaminfo", "blocks"]
-        keys += [k for k in ("seek_table", "vorbis_comment", "cuesheet", "pictures", "applications", "id3v2", "id3v1")
+        keys += [k for k in ("seek_table", "vorbis_comment", "cuesheets", "pictures", "applications", "id3v2", "id3v1")
                  if k in meta]
         assert list(meta) == keys, name
         frames, block, channels = integer(meta["frames"]), integer(meta["block_size"]), integer(meta["channels"])
@@ -136,6 +147,9 @@ def test_zarrifies_the_synthetic_files(tmp_path, shard_frames):
                 assert n == len(head) + fn
         for i, picture in enumerate(sequence(meta.get("pictures", []))):
             size = integer(mapping(picture)["size"])
+            if size == 0:
+                assert f"pictures/{i}/zarr.json" not in out.bytes_entries
+                continue
             pic = ndarray(root.get_array(f"pictures/{i}")[...])
             assert pic.dtype == np.uint8
             assert pic.tobytes() in data

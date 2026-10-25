@@ -314,13 +314,14 @@ def main() -> None:
     write("flac_stereo_24.flac", flac(info, frames, (VORBIS_COMMENT, comments)))
     info, frames = split(ffmpeg(signal(96000, 0.05, 1, 24, 4), 96000, 24, "-frame_size", "4096"))
     write("flac_mono_24.flac", flac(info, frames))
-    # every block type: a picture, an application block, a cue sheet, a reserved type
+    # every block type: pictures (one of no data), an application block, two cue sheets, a reserved type
     info, frames = split(stereo16)
     art = picture(3, "image/png", "Front cover", png(), (4, 2, 24, 0))
     link = picture(4, "-->", "", b"https://example.org/back.png", (0, 0, 0, 0))
+    empty = picture(0, "image/png", "no data", b"", (0, 0, 0, 0))
     write("flac_blocks.flac", flac(info, frames, (VORBIS_COMMENT, comments), (PICTURE, art), (PICTURE, link),
-                                   (APPLICATION, b"riff" + b"WAVE fmt chunk"), (CUESHEET, cuesheet()), (9, b"reserved"),
-                                   (PADDING, b"")))
+                                   (PICTURE, empty), (APPLICATION, b"riff" + b"WAVE fmt chunk"), (CUESHEET, cuesheet()),
+                                   (CUESHEET, cuesheet()), (9, b"reserved"), (PADDING, b"")))
     # tags around the stream
     info, frames = split(mono16)
     write("flac_id3v2.flac", id3v2(b"TIT2\0\0\0\x05\0\0\x03Tone" + bytes(40)) + flac(info, frames))
