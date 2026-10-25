@@ -76,6 +76,9 @@ CASES = {
                                    "depth": 0, "colors": 0, "size": 28},
                                   {"type": 0, "media_type": "image/png", "description": "no data", "width": 0,
                                    "height": 0, "depth": 0, "colors": 0, "size": 0}]}),
+    "flac_picture_empty": ({"pictures": 1},
+                           {"pictures": [{"type": 0, "media_type": "image/png", "description": "no data", "width": 0,
+                                          "height": 0, "depth": 0, "colors": 0, "size": 0}]}),
     "flac_id3v2": ({"tags": ["id3v2"]}, {"id3v2": [{"version": [4, 0], "flags": 0, "size": 55, "footer": False}]}),
     "flac_id3v1": ({"tags": ["id3v1"]}, {"id3v1": {"title": "A tone", "artist": "refkv", "album": "Fixtures",
                                                    "year": "2026", "comment": "FLAC", "track": 3, "genre": 12}}),
@@ -145,6 +148,8 @@ def test_zarrifies_the_synthetic_files(tmp_path, shard_frames):
                 assert positions == [0]
                 assert len(units[0]) == fn
                 assert n == len(head) + fn
+        sizes = [integer(mapping(p)["size"]) for p in sequence(meta.get("pictures", []))]
+        assert ("pictures/zarr.json" in out.bytes_entries) == any(sizes), name
         for i, picture in enumerate(sequence(meta.get("pictures", []))):
             size = integer(mapping(picture)["size"])
             if size == 0:

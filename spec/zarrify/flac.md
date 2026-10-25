@@ -164,7 +164,7 @@ Since frames decode alone, no inner chunk needs another's frames.
 ### 4.2 The pictures
 
 The `pictures` group, `{"zarr_format": 3, "node_type": "group",
-"attributes": {}}`, holds for the `i`-th PICTURE block of the file, counted
+"attributes": {}}`, present when a PICTURE block's data is not empty, holds for the `i`-th PICTURE block of the file, counted
 from 0, whose picture data is not empty, the array `pictures/<i>`: the data,
 as **bytes** ([conventions §7](../conventions.md#7-source-values-as-arrays):
 `uint8`, dimension `byte`). Its fields are in `pictures` of

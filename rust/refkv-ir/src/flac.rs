@@ -22,8 +22,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The first read, and the most a metadata read asks for beyond what it needs.
 const HEAD: u64 = 1 << 16;
-/// The bytes of frames a round reads.
-const WINDOW: u64 = 1 << 24;
+/// The bytes of frames a round reads (`Flac::with_window`, in tests).
+pub const WINDOW: u64 = 1 << 24;
 /// The longest a frame header is: sync and codes (4), a 7-byte coded number, an uncommon
 /// block size and sample rate (2 each), the CRC-8.
 const MAX_HEADER: u64 = 16;
@@ -422,6 +422,8 @@ pub struct Flac {
     scan: Option<Scan>,
     /// each frame's offset, length and block size
     frames: Vec<(u64, u64, u64)>,
+    /// the bytes of frames a round reads
+    window: u64,
     facts: J,
 }
 
@@ -431,8 +433,14 @@ impl Flac {
             size, phase: Phase::Start, fed: Fed::new(Overlap::MergeNew), asked: Asked::default(), ir: Ir::new(size),
             rules: rules::of("flac"), a: 0, e: size, id3v2: Vec::new(), id3v1: None, m: 0, blocks: Vec::new(), info: None,
             info_value: 0, meta: json!({}), cuesheets: Vec::new(), pictures: Vec::new(), applications: Vec::new(), f0: 0, scan: None,
-            frames: Vec::new(), facts: J::Null,
+            frames: Vec::new(), window: WINDOW, facts: J::Null,
         }
+    }
+
+    /// For tests: a parser that reads `window` bytes of frames a round, so that small files'
+    /// frames and headers straddle its reads.
+    pub fn with_window(size: u64, window: u64) -> Self {
+        Flac { window: window.max(1), ..Flac::new(size) }
     }
 
     pub fn feed(&mut self, offset: u64, data: Vec<u8>) {
@@ -688,7 +696,11 @@ impl Flac {
                 let b = &b[..b.len().min(e.saturating_sub(p).min(MAX_HEADER) as usize)];
                 let h = match Head::parse(b) {
                     Some(h) => h,
-                    None if (b.len() as u64) < (e - p).min(MAX_HEADER) => return Ok(Some((p, (e - p).min(WINDOW)))),
+                    // the header's bytes are not all held: read on from what is
+                    None if (b.len() as u64) < (e - p).min(MAX_HEADER) => {
+                        let at = p + b.len() as u64;
+                        return Ok(Some((at, (e - at).min(self.window))));
+                    }
                     None => Err("a header that ends with the frames"),
                 };
                 let j = self.frames.len() as u64;
@@ -739,7 +751,7 @@ impl Flac {
                 // the bytes before the frame are done with: dropped once a window, not per frame
                 self.fed.keep_from(sc.p);
                 self.scan = Some(sc);
-                return Ok(Some((reach, (e - reach).min(WINDOW))));
+                return Ok(Some((reach, (e - reach).min(self.window))));
             }
             self.rules.check("end", rules::env([
                 ("at", num(sc.p as f64)), ("index", num(j as f64)), ("found", flag(false)), ("longer", flag(longer)),

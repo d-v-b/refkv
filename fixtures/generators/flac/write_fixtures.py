@@ -322,6 +322,7 @@ def main() -> None:
     write("flac_blocks.flac", flac(info, frames, (VORBIS_COMMENT, comments), (PICTURE, art), (PICTURE, link),
                                    (PICTURE, empty), (APPLICATION, b"riff" + b"WAVE fmt chunk"), (CUESHEET, cuesheet()),
                                    (CUESHEET, cuesheet()), (9, b"reserved"), (PADDING, b"")))
+    write("flac_picture_empty.flac", flac(info, frames, (PICTURE, empty)))
     # tags around the stream
     info, frames = split(mono16)
     write("flac_id3v2.flac", id3v2(b"TIT2\0\0\0\x05\0\0\x03Tone" + bytes(40)) + flac(info, frames))

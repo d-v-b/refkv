@@ -76,3 +76,38 @@ fn the_host_says_whether_it_records_checksums() {
     }
 }
 
+/// The frames, and the IR, of a parse that reads `window` bytes of frames a round (from the
+/// file's first 64 KiB on: `data` is padded past it with metadata), and its rounds.
+fn windowed(data: &[u8], window: u64) -> (refkv_ir::ir::Ir, u64) {
+    let mut p = Flac::with_window(data.len() as u64, window);
+    let mut rounds = 0;
+    while let refkv_ir::nd2::Step::Read(r) = p.step().unwrap() {
+        rounds += 1;
+        for (o, n) in r {
+            p.feed(o, data[o as usize..(o + n) as usize].to_vec());
+        }
+    }
+    (p.finish().unwrap().0, rounds)
+}
+
+/// A file whose frames start past its first 64 KiB (a padding block before them), read in
+/// windows of 1 byte, 7, 100 (frames of about 46 bytes, so that frames and headers straddle the
+/// reads) and the default: the same IR, frame for frame, in more rounds for smaller windows.
+#[test]
+fn frames_found_across_windows_are_the_same() {
+    let src = std::fs::read(common::fixtures().join("flac/flac_many_frames.flac")).unwrap();
+    let (info, frames) = (&src[8..42], &src[42..]);
+    let mut data = b"fLaC\x00\x00\x00\x22".to_vec();
+    data.extend_from_slice(info);
+    data.extend_from_slice(&[0x81, 0x01, 0x00, 0x00]);
+    data.extend_from_slice(&[0; 1 << 16]);
+    data.extend_from_slice(frames);
+    let (want, _) = windowed(&data, refkv_ir::flac::WINDOW);
+    let mut rounds = Vec::new();
+    for window in [1, 7, 100] {
+        let (ir, n) = windowed(&data, window);
+        assert_eq!((&ir.start, &ir.len, &ir.kind), (&want.start, &want.len, &want.kind), "{window}");
+        rounds.push(n);
+    }
+    assert!(rounds[0] > rounds[1] && rounds[1] > rounds[2] && rounds[2] > 2, "{rounds:?}");
+}
