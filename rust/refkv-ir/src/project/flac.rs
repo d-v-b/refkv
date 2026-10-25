@@ -106,7 +106,9 @@ pub fn project(ir: &Ir, facts: &J, url: &str, _copied: &Copied) -> Result<Out, S
         refs.out.json(&format!("{PICTURES}/zarr.json"), &group_doc(Map::new()));
     }
     for (i, p) in pictures.iter().enumerate() {
-        // a picture of no data has no array (conventions §7: bytes are at least 1)
+        // a picture of no data has no array (conventions §7
+        // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>:
+        // bytes are at least 1)
         let Some(e) = p["element"].as_u64() else { continue };
         let (start, size) = (ir.start[e as usize], ir.len[e as usize]);
         let (chunk, chunks) = blob_chunks(start, size);

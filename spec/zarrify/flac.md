@@ -209,7 +209,8 @@ Everything the file holds is on `refkv_source`, the file's **IR mirror**
   "max_block_size": n, "min_frame_size": n, "max_frame_size": n,
   "sample_rate": n, "channels": n, "bits_per_sample": n, "total_samples": n,
   "md5": h}`, `h` the MD5 as 32 lowercase hexadecimal digits, as `md5sum`
-  and `metaflac --show-md5sum` print it (not base64: conventions §6 allows a
+  and `metaflac --show-md5sum` print it (not base64:
+  [conventions §6](../conventions.md#6-source-metadata-as-json) allows a
   convention its own form).
 - `blocks`: one object per metadata block, in file order, `{"type": t,
   "size": n}`: its type's name (`"STREAMINFO"`, `"PADDING"`,

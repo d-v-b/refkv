@@ -1,8 +1,10 @@
 """The FLAC IR: the Rust parser and its schema, the projection (spec/zarrify/flac.md) and its
-virtual shards (spec/zarrify.md §2.1), the `refkv.stream` codec's FLAC decoder, and the mirror's
-rebuild, on every synthetic file. The samples are checked against two readings independent of
-refkv's frame search: STREAMINFO's MD5 of the stream's samples, and libsndfile's decoding of the
-whole file (through soundfile; it reads 8, 16 and 24 bits, not 12, 20 or 32)."""
+virtual shards (spec/zarrify.md §2.1
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>), the
+`refkv.stream` codec's FLAC decoder, and the mirror's rebuild, on every synthetic file. The
+samples are checked against two readings independent of refkv's frame search: STREAMINFO's MD5
+of the stream's samples, and libsndfile's decoding of the whole file (through soundfile; it
+reads 8, 16 and 24 bits, not 12, 20 or 32)."""
 
 import base64
 import hashlib
