@@ -170,8 +170,8 @@ document states its **signature**, a test on `H`, and its registry entry
 (`zarrify/profiles/<name>.json`) the signature's precedence, `sniff`. The signatures are
 tested in ascending precedence, those of equal precedence in order of the profiles' names,
 and the first that matches chooses the profile. A file that no signature matches is rejected.
-A profile whose `sniff` is null has no signature: the reading of another profile chooses it
-(the TIFF profile's chooses NDPI and QPTIFF). The precedences, generated from the registry, by
+A profile whose `sniff` is null has no signature: the reading of another profile, its registry
+entry's `chosen_by`, chooses it (the TIFF profile's chooses NDPI and QPTIFF). The precedences, generated from the registry, by
 profile name:
 
 <!-- profiles:sniff-table -->
@@ -515,6 +515,30 @@ copied as these rules read it, except that a number written as an integer
 2^53 − 1; any other number is its binary64 value. [§1.1](#11-output-and-equivalence) compares them the
 same way: an integer literal by its exact value, any other number by its
 binary64 value.
+
+### 1.7 Named inputs and layouts
+
+A zarrifier MAY be told, with its input, the input's profile, and the layouts its output
+holds. Neither changes what a profile accepts or what it writes for a layout.
+
+- **A named profile.** The input is read by the named profile without the test that would
+  otherwise choose one: a file's signature ([§1.2](#12-input)) or a store's root keys
+  ([§1.4](#14-store-inputs)). An input that is not the profile's format is rejected by the
+  profile's own rules. A file named as a TIFF variant's (`ndpi`, `qptiff`) is read by the
+  TIFF profile, which finds the variant, and is rejected unless it finds that one; a file
+  named as `tiff` is the variant it finds. A store named as `ome-zarr` is read as Zarr v2
+  and is rejected unless that profile finds OME-NGFF 0.4 metadata at its root; a store
+  named as `zarr2` is OME-Zarr's when it holds that metadata. A named store input's URL
+  need not end in `/`: the zarrifier appends one when it does not.
+- **Layouts.** The image layout ([§2](#2-the-zarr-layout)) is the hierarchy's root and is
+  always written. A format's dataset layout ([conventions §9](conventions.md#9-dataset-layouts))
+  is written unless the zarrifier is told to leave it out: the output then has no
+  dataset node, and its root's property no `layouts` member
+  ([conventions §2](conventions.md#2-attributes)). A zarrifier told to write a dataset
+  layout for a format that has none rejects the request.
+
+Two outputs of one input are equivalent ([§1.1](#11-output-and-equivalence)) when their
+zarrifiers wrote the same layouts.
 
 ## 2. The Zarr layout
 

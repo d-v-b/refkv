@@ -167,11 +167,16 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     if voxel.iter().all(|v| v.is_some()) {
         own.insert("voxel_size".into(), json!({"x": voxel[0], "y": voxel[1], "z": voxel[2]}));
     }
+    // the dataset layout, unless the run's layouts leave it out (spec/zarrify/mrc.md §8
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#8-mrc-profile>)
+    let dataset = facts["layouts"].as_array().is_none_or(|l| l.iter().any(|v| v == DATASET));
     let mut out = Out::new(url);
     let mut root = root_json(ome, "mrc", url, Some(J::Object(own.clone())));
-    // the root names the dataset layout (conventions §2
-    // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), after `source`
-    root["attributes"]["refkv_zarrified"] = insert_after(&root["attributes"]["refkv_zarrified"], "source", "layouts", json!({DATASET: DATASET}));
+    if dataset {
+        // the root names the dataset layout (conventions §2
+        // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), after `source`
+        root["attributes"]["refkv_zarrified"] = insert_after(&root["attributes"]["refkv_zarrified"], "source", "layouts", json!({DATASET: DATASET}));
+    }
     out.json("zarr.json", &root);
     let codecs = vec![bytes_codec(item, endian)];
     let mut array = array_json(&shape, data_type, json!(grid), J::Array(codecs), &axes);
@@ -194,19 +199,23 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     if window {
         data["attributes"]["actual_range"] = json!([lo, hi]);
     }
-    out.json(&format!("{DATASET}/zarr.json"), &declared_group(Map::new(), "mrc-dataset", Some(url), Some(J::Object(own))));
-    out.json(&format!("{DATASET}/data/zarr.json"), &data);
+    if dataset {
+        out.json(&format!("{DATASET}/zarr.json"), &declared_group(Map::new(), "mrc-dataset", Some(url), Some(J::Object(own))));
+        out.json(&format!("{DATASET}/data/zarr.json"), &data);
+    }
     let count = chunks.len();
     let mut refs = Refs::new(ir, out);
     // the data variable's chunks are the image's, not charged again
-    contiguous::emit(&mut refs, chunks, (offset, length, form), copied, &["0/c/", &format!("{DATASET}/data/c/")], |c| c)?;
+    let data_chunks = format!("{DATASET}/data/c/");
+    let prefixes: Vec<&str> = if dataset { vec!["0/c/", &data_chunks] } else { vec!["0/c/"] };
+    contiguous::emit(&mut refs, chunks, (offset, length, form), copied, &prefixes, |c| c)?;
     let mut out = refs.out;
     // the coordinates (spec/zarrify/mrc-dataset.md §3
     // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc-dataset.md#3-coordinates>): the
     // index along each spatial dimension with a voxel size, which CF's scale_factor and
     // add_offset make o + i * s; delta-coded and deflated (conventions §9
     // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)
-    for (k, a) in dims.iter().enumerate() {
+    for (k, a) in dims.iter().enumerate().filter(|_| dataset) {
         let Some(s) = ["x", "y", "z"].contains(a).then(|| voxel[index(a)]).flatten() else { continue };
         let o = if placed { origin[index(a)] } else { 0.0 };
         let filters = vec![json!({"name": "numcodecs.delta", "configuration": {"dtype": "<u4"}})];
@@ -219,7 +228,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
         "chunkShape": grid, "chunks": count,
         "voxelSize": if voxel.iter().all(|v| v.is_some()) { json!(voxel) } else { J::Null },
         "translation": placed, "axisMap": mapped, "extendedHeader": nsymbt,
-        "extendedType": json_text(h.bytes("exttyp")), "layouts": [DATASET],
+        "extendedType": json_text(h.bytes("exttyp")), "layouts": if dataset { json!([DATASET]) } else { json!([]) },
     });
     Ok(out)
 }

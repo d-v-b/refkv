@@ -5,6 +5,7 @@
   "version": 0,
   "kind": "store",
   "sniff": null,
+  "chosen_by": null,
   "suffixes": [],
   "reference": 25,
   "source": "Zarr v2",

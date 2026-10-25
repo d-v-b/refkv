@@ -49,43 +49,68 @@ in `/`, or a local directory, is a store input.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 
+# the package, not its names: refkv.ir imports refkv.zarrify.common, so it is still loading when
+# refkv.ir is imported first
+from refkv import ir
 from refkv._narrow import string
 from refkv.ir.planner import Transport, open_transport
 from refkv.ir.store import StoreIrOutput, run_store
 from refkv.policy import Policy, crc32c
 from refkv.refstore import ReferenceStore
+from refkv.zarrify import profile_classes
 from refkv.zarrify.common import Output, Rejected
+from refkv.zarrify.profile_classes import *  # noqa: F403 (one class per profile: profile_classes.__all__)
+from refkv.zarrify.sources import Dataset, Image, Source, Store, layout_names
 from refkv.zarrify.store import WORKERS, choose_profile, object_url, open_store
 from refkv.zarrify.vsi import VsiFiles
 
 NOT_SUPPORTED = "not a file of any supported format"
 
-__all__ = ["Rejected", "zarrify", "zarrify_store"]
+__all__ = ["Dataset", "Image", "Rejected", "Source", "Store", "zarrify", "zarrify_store"]
+__all__ += profile_classes.__all__  # the source and store classes, one per profile
+
+
+def _no_store_layouts(layouts: Iterable[Image | Dataset] | None, fmt: str) -> None:
+    """Checks `layouts` for the store profile `fmt`. No store profile has a dataset layout
+    (`DATASET_LAYOUTS`), and a store projection takes none, so one the registry gave would be
+    refused here, not dropped."""
+    if layout_names(layouts, fmt):
+        raise NotImplementedError(f"{fmt}: a store profile writes no dataset layout yet")
 
 
 def _zarrify_store(location: str, url: str | None = None, *, max_objects: int | None = None,
-                     checksums: bool = False, workers: int = WORKERS,
-                     policy: Policy | None = None) -> tuple[str, StoreIrOutput]:
+                   checksums: bool = False, workers: int = WORKERS, policy: Policy | None = None,
+                   fmt: str | None = None,
+                   layouts: Iterable[Image | Dataset] | None = None) -> tuple[str, StoreIrOutput]:
     """(format, output) for the store at `location` (§1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), its documents
     read by up to `workers` requests at a time; with `checksums`, the output's ranges
     carry the CRC-32C of their bytes (spec/refkv.md §4.2
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>). A store at an http(s) URL
-    is listed and read under the reader policy `policy` (default: `Policy()`)."""
+    is listed and read under the reader policy `policy` (default: `Policy()`). The store
+    profile is `fmt`, when given, else the one its root keys select (§1.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#17-named-inputs-and-layouts>);
+    `layouts` the layouts it writes (`refkv.zarrify.sources.layout_names`)."""
+    if fmt is not None:
+        _no_store_layouts(layouts, fmt)  # before the store is listed
     store = open_store(location, url, max_objects=max_objects, workers=workers, policy=policy)
     try:
-        fmt = choose_profile(store)
-        if fmt == "n5":
-            # the core's N5 store format
-            out = run_store(store, "n5")[0]
-        else:
-            # the core's store formats: a SAFE directory, a Zarr v2 store, which the core decides
-            # is OME-Zarr 0.4's or not (its summary's `format`)
-            out = run_store(store, "safe" if fmt == "safe" else "zarr2")[0]
-            if fmt != "safe":
-                fmt = string(out.summary["format"], "summary.format")
+        named = fmt
+        if fmt is None:
+            fmt = choose_profile(store)
+            _no_store_layouts(layouts, fmt)  # a named profile's were checked before the store was listed
+        # the core's store formats: N5, a SAFE directory, and Zarr v2, which the core decides is
+        # OME-Zarr 0.4's or not (its summary's `format`)
+        out = run_store(store, {"ome-zarr": "zarr2"}.get(fmt, fmt))[0]
+        if fmt in ("zarr2", "ome-zarr"):
+            found = string(out.summary["format"], "summary.format")
+            if named == "ome-zarr" and found != "ome-zarr":
+                raise Rejected("not an OME-Zarr 0.4 store: the Zarr v2 store format found no OME-NGFF 0.4 "
+                               "image, plate or bioformats2raw layout at its root")
+            fmt = found
     finally:
         store.close()
     if checksums:
@@ -95,7 +120,7 @@ def _zarrify_store(location: str, url: str | None = None, *, max_objects: int | 
 
 
 def _zarrify_vsi(location: str, url: str | None, transport: Transport, *, checksums: bool = False,
-                    policy: Policy | None = None, connections: int | None = None) -> tuple[str, StoreIrOutput]:
+                 policy: Policy | None = None, connections: int | None = None) -> tuple[str, StoreIrOutput]:
     """(format, output) for the VSI input at `location`, a `.vsi` file (opened as `transport`)
     whose tile files lie beside it (spec/zarrify/vsi.md §9.2
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>): a store
@@ -114,16 +139,22 @@ def _zarrify_vsi(location: str, url: str | None, transport: Transport, *, checks
 
 
 def is_store(location: str) -> bool:
+    """Whether `location` is a store input (§1.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): an http(s) URL whose path
+    ends in `/`, or a local directory."""
     if location.startswith(("http://", "https://")):
         return location.split("?", 1)[0].split("#", 1)[0].endswith("/")
     return Path(location).is_dir()
 
 
 def _zarrify(location: str, url: str | None = None, *, checksums: bool = False,
-               policy: Policy | None = None, connections: int | None = None,
-               byte_cost: float | None = None, workers: int = WORKERS) -> tuple[str, Output | StoreIrOutput]:
+             policy: Policy | None = None, connections: int | None = None,
+             byte_cost: float | None = None, workers: int = WORKERS, fmt: str | None = None,
+             layouts: Iterable[Image | Dataset] | None = None) -> tuple[str, Output | StoreIrOutput]:
     """(format, output) for the file at `location`, by its first bytes, or for
-    the store at `location` (a URL ending in `/`, or a directory).
+    the store at `location` (a URL ending in `/`, or a directory); for the file at `location`
+    by the file profile `fmt`, when given, its first bytes untested (§1.7
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#17-named-inputs-and-layouts>).
 
     Source 0 pins the file's size, and its ETag when every response gave the
     same strong one and the output names the URL that was read (§1.2
@@ -136,39 +167,34 @@ def _zarrify(location: str, url: str | None = None, *, checksums: bool = False,
     For a file input, `connections` is how many requests run at a time to a
     remote source (default 8), and `byte_cost` the seconds of wall time the read
     planner charges a byte fetched beyond those asked (default 0.1 s per MB).
-    A store's documents are read by up to `workers` requests at a time."""
-    if is_store(location):
-        return _zarrify_store(location, url, checksums=checksums, workers=workers, policy=policy)
-    from refkv.ir import sniff  # noqa: PLC0415 (import cycle: refkv.ir imports refkv.zarrify)
-
+    A store's documents are read by up to `workers` requests at a time. `layouts`: the
+    layouts the output holds (`refkv.zarrify.sources.layout_names`)."""
+    if fmt is None and is_store(location):
+        return _zarrify_store(location, url, checksums=checksums, workers=workers, policy=policy, layouts=layouts)
+    # the names, before the file is read when the profile is named (once: `layouts` may be an iterator)
+    names = layout_names(layouts, fmt) if fmt is not None else None
     transport = open_transport(location, policy)
-    size = transport.size
-    held = transport.head[1]
-
-    def first(offset: int, length: int) -> bytes:
-        """The source's bytes, from those the transport opened it with when it holds them."""
-        if offset < 0 or offset + length > size:
-            raise Rejected(f"read of [{offset}, {offset + length}) outside the {size}-byte file")
-        if offset + length <= len(held):
-            return held[offset:offset + length]
-        return transport.get(offset, offset + length)
-
-    ir_format = sniff(first(0, min(552, size)))
-    if ir_format is None:
-        raise Rejected(NOT_SUPPORTED)
-    if ir_format == "vsi":
+    if fmt is None:
+        want = min(552, transport.size)
+        held = transport.head[1]
+        head = held[:want] if want <= len(held) else transport.get(0, want)
+        fmt = ir.sniff(head)
+        if fmt is None:
+            raise Rejected(NOT_SUPPORTED)
+        names = layout_names(layouts, fmt)
+    if fmt == "vsi":
         return _zarrify_vsi(location, url, transport, checksums=checksums, policy=policy, connections=connections)
-    from refkv.ir import zarrify as via_ir  # noqa: PLC0415 (import cycle: refkv.ir imports refkv.zarrify)
-
-    fmt, out, _ = via_ir(location, url, transport=transport, connections=connections, byte_cost=byte_cost)
+    found, out, _ = ir.zarrify(location, url, transport=transport, connections=connections, byte_cost=byte_cost,
+                               fmt=fmt, layouts=names)
     if checksums:
         out.checksum = lambda _u, offset, length: crc32c(transport.get(offset, offset + length))
-    return fmt, out
+    return found, out
 
 
-def zarrify(location: str, url: str | None = None, *, checksums: bool = False,
-               policy: Policy | None = None, connections: int | None = None,
-               byte_cost: float | None = None, workers: int = WORKERS) -> ReferenceStore:
+def zarrify(location: str | Source | Store, url: str | None = None, *, checksums: bool | None = None,
+            policy: Policy | None = None, connections: int | None = None,
+            byte_cost: float | None = None, workers: int | None = None,
+            layouts: Iterable[Image | Dataset] | None = None) -> ReferenceStore:
     """The file at `location` (a local path or an http(s) URL), by its first bytes, or
     the store at `location` (a URL ending in `/`, or a directory), zarrified
     (spec/zarrify.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md>), as a
@@ -200,20 +226,45 @@ def zarrify(location: str, url: str | None = None, *, checksums: bool = False,
       requests at a time to a remote source (default 8), and the seconds of wall
       time the read planner charges a byte fetched beyond those asked (default
       0.1 s per MB).
-    - `workers`: how many of a store's documents are read at a time."""
-    fmt, out = _zarrify(location, url, checksums=checksums, policy=policy, connections=connections,
-                           byte_cost=byte_cost, workers=workers)
+    - `workers`: how many of a store's documents are read at a time (default 16).
+    - `layouts`: the layouts the hierarchy holds, `[Image()]` or `[Image(), Dataset()]`
+      (`refkv.zarrify.sources`); by default, the image and every dataset layout the format
+      has (conventions §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>).
+
+    `location` may instead be a source or store class's instance, such as
+    `TiffSource(url)` or `Zarr2Store(url)` (`refkv.zarrify.sources`), which names the profile,
+    so that the input is not tested for one, and holds the read options: `url`,
+    `checksums`, `policy`, `connections`, `byte_cost` and `workers` are then its own, and
+    passing one beside it, even its default, raises `TypeError`."""
+    if isinstance(location, (Source, Store)):
+        given = {"url": url, "checksums": checksums, "policy": policy, "connections": connections,
+                 "byte_cost": byte_cost, "workers": workers}
+        if any(v is not None for v in given.values()):
+            options = ", ".join(k for k, v in given.items() if v is not None)
+            raise TypeError(f"{options}: a source's read options are its own, {type(location).__name__}(location, ...)")
+        source = location
+        if isinstance(source, Store):
+            fmt, out = _zarrify_store(source.store_url, source.url, max_objects=source.max_objects,
+                                      checksums=source.checksums, workers=source.workers, policy=source.policy,
+                                      fmt=source.profile, layouts=layouts)
+        else:
+            fmt, out = _zarrify(source.location, source.url, checksums=source.checksums, policy=source.policy,
+                                connections=source.connections, byte_cost=source.byte_cost, fmt=source.profile,
+                                layouts=layouts)
+        return out.to_store(policy=source.policy, info={"format": fmt, **out.summary})
+    fmt, out = _zarrify(location, url, checksums=bool(checksums), policy=policy, connections=connections,
+                        byte_cost=byte_cost, workers=WORKERS if workers is None else workers, layouts=layouts)
     return out.to_store(policy=policy, info={"format": fmt, **out.summary})
 
 
 def zarrify_store(location: str, url: str | None = None, *, max_objects: int | None = None,
-                     checksums: bool = False, workers: int = WORKERS,
-                     policy: Policy | None = None) -> ReferenceStore:
+                  checksums: bool = False, workers: int = WORKERS, policy: Policy | None = None,
+                  layouts: Iterable[Image | Dataset] | None = None) -> ReferenceStore:
     """The store at `location` (§1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), zarrified: what
     `zarrify` does for a store, with the same `url` (needed for a local directory),
-    `checksums`, `policy` and `workers`; `max_objects` caps how many objects the
+    `checksums`, `policy`, `workers` and `layouts`; `max_objects` caps how many objects the
     store may list."""
     fmt, out = _zarrify_store(location, url, max_objects=max_objects, checksums=checksums,
-                                 workers=workers, policy=policy)
+                              workers=workers, policy=policy, layouts=layouts)
     return out.to_store(policy=policy, info={"format": fmt, **out.summary})

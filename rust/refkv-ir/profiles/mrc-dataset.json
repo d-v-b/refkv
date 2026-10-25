@@ -5,6 +5,7 @@
   "version": 0,
   "kind": "layout",
   "sniff": null,
+  "chosen_by": null,
   "suffixes": [],
   "reference": null,
   "source": "MRC2014, as a dataset",

@@ -36,7 +36,10 @@ def test_every_profile_has_its_documents():
 def test_the_registry_is_validated():
     for bad, message in (({"kind": "image"}, "is not one of"), ({"sniff": "10"}, "signature"),
                          ({"kind": "store", "suffixes": []}, "signature"), ({"suffixes": []}, "suffixes"),
-                         ({"uuid": "x"}, "not a UUID"), ({"name": "Tiff"}, "not a profile name")):
+                         ({"uuid": "x"}, "not a UUID"), ({"name": "Tiff"}, "not a profile name"),
+                         ({"chosen_by": "tiff"}, "names the profile that chooses it"),
+                         ({"sniff": None}, "names the profile that chooses it"),
+                         ({"sniff": None, "chosen_by": "ndpi"}, "not a profile with a signature")):
         entries = profiles.load()
         entries[0].update(bad)
         with pytest.raises(ValueError, match=message):

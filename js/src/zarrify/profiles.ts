@@ -17,6 +17,9 @@ export interface ProfileEntry {
   /** Where the file profile's signature is tested among the others (lower first; ties by name),
    * or null for one a file's first bytes never select. */
   sniff: number | null;
+  /** The profile whose reading chooses a file profile with no signature (the TIFF profile's
+   * chooses NDPI and QPTIFF), or null. */
+  chosen_by: Profile | null;
   suffixes: string[];
   reference: number | null;
   source: string;
