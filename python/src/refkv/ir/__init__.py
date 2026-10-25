@@ -48,7 +48,7 @@ def parse(fmt: str, transport: Transport,
 def zarrify(location: str, url: str | None = None, mirror: bool = True, policy: Policy | None = None,
             transport: Transport | None = None, connections: int | None = None,
             byte_cost: float | None = None, fmt: str | None = None,
-            layouts: list[str] | None = None) -> tuple[str, Output, _core.Ir]:
+            layouts: list[str] | None = None, checksums: bool = False) -> tuple[str, Output, _core.Ir]:
     """(format, output, IR): the source read through the read planner, parsed by the
     Rust parser of its format (`fmt`, else the one its first bytes give; a TIFF variant's
     file, rejected unless the TIFF parser finds that variant), projected and
@@ -56,7 +56,9 @@ def zarrify(location: str, url: str | None = None, mirror: bool = True, policy: 
     ETag when every response gave the same strong one. `connections`: requests at a time to
     a remote source (default 8); `byte_cost`: seconds of wall time the planner charges a
     byte fetched (default 0.1 s per MB); `layouts`: the layouts the projection writes beside
-    the image ("dataset"; default: every one the format has)."""
+    the image ("dataset"; default: every one the format has); `checksums`: the host will record
+    the ranges' checksums, so that a sharded array's ranges are not joined across inner chunks
+    (spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>)."""
     transport = transport or open_transport(location, policy)
     if fmt is None:
         want = min(552, transport.size)
@@ -73,7 +75,7 @@ def zarrify(location: str, url: str | None = None, mirror: bool = True, policy: 
         raise Rejected(f"not {TIFF_VARIANTS[named]}: the TIFF parser read it as {fmt}")
     try:
         t, ir = run.output(url or (location if transport.remote else path_reference(location)),
-                           mirror, layouts)
+                           mirror, layouts, checksums)
     except _core.Rejected as e:
         raise Rejected(str(e)) from None
     out = from_rust(t)

@@ -327,17 +327,18 @@ pub unsafe extern "C" fn vz_run_stats(p: *mut Run) -> i64 {
     set_out(unsafe { &*p }.planner.stats_json().to_string().into_bytes()) as i64
 }
 
-/// Finishes the run (consumed), projects it and, with `mirror`, mirrors it: the
-/// output (`Out::encode`) at `vz_out()`, its length, or minus the length of a
-/// rejection's message. `url` (UTF-8, from `vz_alloc`, consumed) is the source's.
+/// Finishes the run (consumed), projects it and, with `flags` bit 0, mirrors it, for a host
+/// that records the ranges' checksums with bit 1 (`Run::into_output`): the output
+/// (`Out::encode`) at `vz_out()`, its length, or minus the length of a rejection's message.
+/// `url` (UTF-8, from `vz_alloc`, consumed) is the source's.
 ///
 /// # Safety
 /// `p` from `vz_run_new`; `url`, `n` from `vz_alloc(n)`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vz_run_output(p: *mut Run, url: *mut u8, n: usize, mirror: u32) -> i64 {
+pub unsafe extern "C" fn vz_run_output(p: *mut Run, url: *mut u8, n: usize, flags: u32) -> i64 {
     let r = *unsafe { Box::from_raw(p) };
     let url = String::from_utf8(unsafe { Vec::from_raw_parts(url, n, n) }).unwrap_or_default();
-    match r.into_output(&url, mirror != 0) {
+    match r.into_output(&url, flags & 1 != 0, flags & 2 != 0) {
         Ok(o) => set_out(o.encode()) as i64,
         Err(e) => err_out(e),
     }

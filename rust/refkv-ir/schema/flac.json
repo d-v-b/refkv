@@ -1,0 +1,118 @@
+{
+  "source_model": "flac",
+  "version": 1,
+  "about": "The source model of a FLAC file (spec/zarrify/flac.md §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#53-elements>): the elements a parser emits, and the roles each ID3v2 tag, the fLaC marker, each metadata block, the frames and the stream play, each with the constraints a file must meet to have the FLAC convention's layout (spec/zarrify/flac.md §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#81-the-stream>). The parser checks them in this order; projections read a valid IR and check nothing.",
+  "limits": {
+    "max_frame": 16777216,
+    "shard_frames": 512
+  },
+  "elements": {
+    "about": "The IR of a FLAC file. n is a tag's or a block's body's size, f a picture's fields' length and d its data's, L a frame's length, B its block size, C the channel count and T the samples' data type (int8, int16 or int32 by the bit depth).",
+    "id3v2/<k>": {"kind": "struct", "about": "the k-th ID3v2 tag at the front of the file, k from 0; its extent the whole tag"},
+    "id3v2/<k>/header": {"kind": "value", "type": "{id:ascii[3],version:u1[2],flags:u1,size:u1[4]}", "extent": "(at, 10): the tag's header"},
+    "id3v2/<k>/data": {"kind": "value", "type": "bytes[n]", "extent": "(at + 10, n), when n > 0: the tag's frames and padding, opaque"},
+    "id3v2/<k>/footer": {"kind": "value", "type": "bytes[10]", "extent": "(at + 10 + n, 10), when the header's footer flag (0x10) is set"},
+    "marker": {"kind": "value", "type": "ascii[4]", "extent": "(A, 4): fLaC"},
+    "metadata/<k>": {"kind": "struct", "about": "the k-th metadata block, k from 0; its extent the whole block, header included"},
+    "metadata/<k>/header": {"kind": "value", "type": "{type:u1,length:u1[3]}", "extent": "the block's 4-byte header: the last-block flag and the type, then the body's length"},
+    "metadata/<k>/streaminfo": {"kind": "value", "type": "{min_block_size:>u2,max_block_size:>u2,min_frame_size:u1[3],max_frame_size:u1[3],rate_channels_bits_samples:>u8,md5:bytes[16]}", "extent": "a STREAMINFO block's 34-byte body"},
+    "metadata/<k>/padding": {"kind": "value", "type": "bytes[n]", "extent": "a PADDING block's body, when n > 0"},
+    "metadata/<k>/id": {"kind": "value", "type": "ascii[4]", "extent": "an APPLICATION block's ID"},
+    "metadata/<k>/data": {"kind": "value", "type": "bytes[n]", "extent": "an APPLICATION block's data after its ID, a PICTURE block's picture (d bytes), or a reserved type's body, when not empty, opaque"},
+    "metadata/<k>/seek_points": {"kind": "value", "type": "{sample:>u8,offset:>u8,samples:>u2}[n / 18]", "extent": "a SEEKTABLE block's body, when n > 0"},
+    "metadata/<k>/vorbis_comment": {"kind": "value", "type": "bytes[n]", "extent": "a VORBIS_COMMENT block's body, opaque (decoded in the root)"},
+    "metadata/<k>/cuesheet": {"kind": "value", "type": "bytes[n]", "extent": "a CUESHEET block's body, opaque (decoded in the root)"},
+    "metadata/<k>/fields": {"kind": "value", "type": "bytes[f]", "extent": "a PICTURE block's fields before its picture, opaque (decoded in the root)"},
+    "frames": {"kind": "struct", "about": "the frames; its extent from the first frame's start to the last frame's end"},
+    "frames/<j>": {"kind": "data", "form": "{geometry: {samples: B, channels: C, data_type: T}, codec: {name: flac, sample_rate, bits_per_sample}, recipe: [[src, 0, null]]}", "extent": "(offset, L): frame j, j from 0, header and footer included"},
+    "id3v1": {"kind": "value", "type": "{tag:ascii[3],title:cstr[30],artist:cstr[30],album:cstr[30],year:ascii[4],comment:cstr[30],genre:u1}", "extent": "(size - 128, 128), when the file ends with TAG there"}
+  },
+  "roles": {
+    "id3v2": {
+      "given": {"at": "the tag's offset", "size": "the file's size", "have": "size - at", "total": "10 + the size field + 10 for a footer", "syncsafe": "whether every size byte is below 0x80", "byte": "the first size byte that is not, when one is"},
+      "constraints": [
+        {"require": "have >= 10", "message": "the ID3v2 tag at {at} has no 10-byte header: the file ends at {size}"},
+        {"require": "syncsafe", "message": "the ID3v2 tag at {at} has a size byte that is not syncsafe ({byte})"},
+        {"require": "at + total <= size", "message": "the {total}-byte ID3v2 tag at {at} is outside the {size}-byte file"}
+      ]
+    },
+    "marker": {
+      "given": {"at": "the offset after the ID3v2 tags", "marker": "whether the 4 bytes there, before the ID3v1 tag, are fLaC"},
+      "constraints": [
+        {"require": "marker", "message": "no fLaC marker at {at}"}
+      ]
+    },
+    "block": {
+      "given": {"at": "the block's offset", "end": "where the stream ends: the file's size, or the ID3v1 tag's offset", "have": "the bytes of its header before end (4, or fewer)", "index": "the block's index, from 0", "type": "its type", "length": "its body's length", "total": "4 + length", "again": "whether it is a second STREAMINFO, SEEKTABLE or VORBIS_COMMENT block", "aligned": "whether length is a multiple of 18", "name": "its type's name"},
+      "constraints": [
+        {"require": "have == 4", "message": "the metadata block header at {at} runs past the end of the stream ({end})"},
+        {"require": "type != 127", "message": "the metadata block at {at} has the forbidden type 127"},
+        {"require": "index > 0 || type == 0", "message": "the first metadata block (at {at}) is not STREAMINFO: its type is {type}"},
+        {"require": "!again", "message": "a second {name} block at {at}"},
+        {"require": "type != 0 || length == 34", "message": "the STREAMINFO block at {at} is {length} bytes, not 34"},
+        {"require": "type != 3 || aligned", "message": "the SEEKTABLE block at {at} is {length} bytes, not a multiple of 18"},
+        {"require": "type != 2 || length >= 4", "message": "the APPLICATION block at {at} is {length} bytes, shorter than its 4-byte ID"},
+        {"require": "at + total <= end", "message": "the {total}-byte metadata block at {at} runs past the end of the stream ({end})"}
+      ]
+    },
+    "streaminfo": {
+      "given": {"at": "the block's offset", "bits": "its bits per sample", "rate": "its sample rate"},
+      "constraints": [
+        {"require": "bits >= 4", "message": "the STREAMINFO block at {at} gives {bits} bits per sample: FLAC's are 4 to 32"}
+      ]
+    },
+    "vorbis_comment": {
+      "given": {"at": "the block's offset", "valid": "whether its lengths fit its body exactly"},
+      "constraints": [
+        {"require": "valid", "message": "the VORBIS_COMMENT block at {at} is malformed: its lengths do not fit its body"}
+      ]
+    },
+    "cuesheet": {
+      "given": {"at": "the block's offset", "valid": "whether its tracks fit its body exactly"},
+      "constraints": [
+        {"require": "valid", "message": "the CUESHEET block at {at} is malformed: its tracks do not fit its body"}
+      ]
+    },
+    "picture": {
+      "given": {"at": "the block's offset", "valid": "whether its fields and data fit its body exactly"},
+      "constraints": [
+        {"require": "valid", "message": "the PICTURE block at {at} is malformed: its fields and data do not fit its body"}
+      ]
+    },
+    "header": {
+      "given": {"at": "the first frame's offset, right after the last metadata block", "frames": "whether the stream has bytes there", "valid": "whether a valid frame header starts there", "why": "what is wrong with it", "index": "0"},
+      "constraints": [
+        {"require": "frames", "message": "no audio frames: the stream ends at {at}, after the metadata"},
+        {"require": "valid", "message": "the frame header at {at} is not valid: {why}"}
+      ]
+    },
+    "frame": {
+      "given": {"at": "a frame's offset", "variable": "its blocking strategy bit", "same": "whether its sample rate, channel count and bit depth are STREAMINFO's", "what": "the first that is not", "from": "STREAMINFO's value", "to": "the frame's", "index": "the frame's index", "number": "its coded number", "samples": "its block size", "block": "the first frame's block size"},
+      "constraints": [
+        {"require": "!variable", "message": "a variable block size (the frame at {at}) is not supported: only a fixed block size stream is"},
+        {"require": "same", "message": "the frame at {at} changes the {what} from {from} to {to}"},
+        {"require": "number == index", "message": "the frame at {at} is numbered {number}, not {index}"},
+        {"require": "samples <= block", "message": "the frame at {at} holds {samples} samples, more than the first frame's {block}"}
+      ]
+    },
+    "short": {
+      "given": {"at": "a frame that another follows", "samples": "its block size", "block": "the first frame's"},
+      "constraints": [
+        {"require": "samples == block", "message": "the frame at {at} holds {samples} samples, not the first frame's {block}: only the last frame may hold fewer"}
+      ]
+    },
+    "end": {
+      "given": {"at": "a frame's offset", "index": "its index", "found": "whether its end was found", "longer": "whether the search passed max_frame bytes"},
+      "constraints": [
+        {"require": "!longer", "message": "the frame at {at} has no end within 16 MiB"},
+        {"require": "found", "message": "the frame at {at} (frame {index}) has no end: no CRC-16 holds before the next frame's header or the end of the stream (a corrupt or truncated stream)"}
+      ]
+    },
+    "total": {
+      "given": {"samples": "the samples per channel the frames hold", "total": "STREAMINFO's total samples (0: unknown)"},
+      "constraints": [
+        {"require": "total == 0 || samples == total", "message": "the frames hold {samples} samples per channel, not STREAMINFO's {total}"}
+      ]
+    }
+  }
+}
