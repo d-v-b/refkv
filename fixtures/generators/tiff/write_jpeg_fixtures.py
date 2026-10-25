@@ -26,8 +26,9 @@ import imagecodecs
 import numpy as np
 import tifffile
 
-# the script's directory, on sys.path when it runs, is not on pyrefly's search-path
-from write_edge_fixtures import LONG, SHORT, UNDEFINED, Tiff  # pyrefly: ignore[missing-import] (its directory, on sys.path when run; every generator directory has a write_fixtures, so none is on the search path)
+# the script's directory, on sys.path when it runs; not on pyrefly's search-path, since every
+# generator directory has a write_fixtures module
+from write_edge_fixtures import LONG, SHORT, UNDEFINED, Tiff  # pyrefly: ignore[missing-import]
 
 OUT = Path(__file__).parents[2] / "tiff"
 rng = np.random.default_rng(7)

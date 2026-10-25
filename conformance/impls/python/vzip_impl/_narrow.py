@@ -37,29 +37,3 @@ def integer(v: object, where: str = "") -> int:
     if not isinstance(v, int) or isinstance(v, bool):
         raise _wrong(v, where, "an integer")
     return v
-
-
-def at(doc: object, *path: str | int) -> JSON:
-    """The value at `path` in `doc`: a str step indexes a mapping, an int step a sequence."""
-    if not path:
-        if doc is None or isinstance(doc, (str, int, float, dict, list)):
-            return doc
-        raise _wrong(doc, "", "a JSON value")
-    v: object = doc
-    out: JSON = None
-    where = ""
-    for step in path:
-        if isinstance(step, str):
-            m = mapping(v, where)
-            where = f"{where}.{step}" if where else step
-            if step not in m:
-                raise KeyError(f"{where}: missing")
-            out = m[step]
-        else:
-            s = sequence(v, where)
-            where = f"{where}[{step}]"
-            if not -len(s) <= step < len(s):
-                raise IndexError(f"{where}: index out of range")
-            out = s[step]
-        v = out
-    return out

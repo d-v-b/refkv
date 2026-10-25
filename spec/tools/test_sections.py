@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-# spec/tools (inserted above) is not on pyrefly's search-path
 import sections
 
 URL = sections.URL

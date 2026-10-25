@@ -46,7 +46,8 @@ class Source:
         u = urllib.parse.urlsplit(url)
         if u.scheme != "http":
             raise ReadError(f"unsupported URL scheme: {u.scheme}")
-        assert u.hostname is not None  # as before: no host fails at the first request
+        if u.hostname is None:
+            raise ReadError(f"no host in the URL: {url}")
         self.host: str = u.hostname
         self.port = u.port or 80
         self.path = (u.path or "/") + (("?" + u.query) if u.query else "")

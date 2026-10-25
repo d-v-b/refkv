@@ -4,7 +4,6 @@ import json
 import re
 from pathlib import Path
 
-# spec/tools, on sys.path under pytest, is not on pyrefly's search-path
 import profiles
 import pytest
 
