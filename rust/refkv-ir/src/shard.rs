@@ -141,7 +141,9 @@ pub fn apply(out: &mut Out, path: &str, shard: &[u64], merge: bool) -> Result<()
         chunks.insert(c, vec![Part::Lit(v)]);
     }
     for (k, v) in out.take_refs(&prefix) {
-        chunks.insert(coords(&k[prefix.len()..])?, v);
+        if chunks.insert(coords(&k[prefix.len()..])?, v).is_some() {
+            return Err(format!("internal: {k} is both copied and referenced"));
+        }
     }
     let per: u64 = shard.iter().product();
     let count: u64 = shards.iter().product();
@@ -348,6 +350,16 @@ mod tests {
     #[test]
     fn rejects_a_chunk_key_that_is_not_coordinates() {
         assert_eq!(sharded(doc(&[4], &[2]), &["a/c/x"], &[2]), Err("internal: x is not a chunk key".into()));
+    }
+
+    #[test]
+    fn rejects_a_chunk_both_copied_and_referenced() {
+        let mut out = Out::new("u");
+        out.json("a/zarr.json", &doc(&[2], &[1]));
+        out.bytes("a/c/0", vec![1]);
+        out.refs("a/c/0", vec![Part::Src(0, 1)]);
+        out.shard("a", &[2]);
+        assert_eq!(apply_all(&mut out, true), Err("internal: a/c/0 is both copied and referenced".into()));
     }
 
     #[test]
