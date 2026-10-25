@@ -278,6 +278,8 @@ jobs:
       - run: just sections
       # every Python file passes ruff (pyproject.toml's [tool.ruff])
       - run: just lint
+      # every Python file type-checks (pyproject.toml's [tool.pyrefly]; refkv._core through its stub)
+      - run: just typecheck
 
   fixtures-reproducible:
     runs-on: ubuntu-latest

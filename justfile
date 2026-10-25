@@ -97,6 +97,11 @@ sections:
 lint:
     uv run ruff check .
 
+# Type-check every Python file of the repository with pyrefly (pyproject.toml's [tool.pyrefly]: the strict
+# preset for the package; the tests and scripts checked with what they leave unannotated as Any)
+typecheck:
+    uv run pyrefly check
+
 # Regenerate what derives from the profile registry, spec/zarrify/profiles/<name>.json (the one
 # place a profile's identity is written, one file per profile): the Rust core's copies, and the
 # index tables of spec/zarrify.md, spec/conventions.md and docs/zarrify/README.md

@@ -37,6 +37,7 @@ dev = [
     "bioio-bioformats>=1.3.0",
     "astropy>=8.0",
     "ruff>=0.17.2",
+    "pyrefly>=1.4.0",
 ]
 # the comparison with kerchunk and Icechunk (design/comparison, design/experiments)
 bench = [
@@ -113,3 +114,134 @@ ignore = [
 [tool.ruff.lint.isort]
 # the package (python/src), wherever the file importing it is
 known-first-party = ["refkv"]
+
+# pyrefly (`just typecheck`): its strict preset over the repository's Python
+[tool.pyrefly]
+preset = "strict"
+# as ruff's (above): the frozen reference and the experiments' records
+project-excludes = ["conformance/zarrify/reference/**", "design/experiments/**"]
+# the directories the tests and scripts put on sys.path to import their neighbors
+search-path = [
+    "python/src",
+    "python/tests",
+    "python/tests/ir",
+    "js/test",
+    "conformance/zarrify",
+    "conformance/zarrify/reference",
+    "conformance/vzip",
+    "conformance/impls/python",
+    "conformance/impls/python/tests",
+    "rust/refkv-phkv/bench",
+    "spec",
+]
+
+# the tests and the scripts are not annotated (ruff's ANN, above, is the package's alone): what
+# they leave unannotated is Any; and they index the JSON and NumPy values zarr and the package
+# return (attributes, array elements) as the values they know them to be, without narrowing
+[[tool.pyrefly.sub-config]]
+matches = "python/tests/**"
+
+[tool.pyrefly.sub-config.errors]
+implicit-any-parameter = false
+implicit-any-lambda = false
+implicit-any-type-argument = false
+implicit-any-empty-container = false
+implicit-any-attribute = false
+bad-index = false
+unsupported-operation = false
+
+[[tool.pyrefly.sub-config]]
+matches = "python/tools/**"
+
+[tool.pyrefly.sub-config.errors]
+implicit-any-parameter = false
+implicit-any-lambda = false
+implicit-any-type-argument = false
+implicit-any-empty-container = false
+implicit-any-attribute = false
+bad-index = false
+unsupported-operation = false
+
+[[tool.pyrefly.sub-config]]
+matches = "conformance/**"
+
+[tool.pyrefly.sub-config.errors]
+implicit-any-parameter = false
+implicit-any-lambda = false
+implicit-any-type-argument = false
+implicit-any-empty-container = false
+implicit-any-attribute = false
+bad-index = false
+unsupported-operation = false
+
+[[tool.pyrefly.sub-config]]
+matches = "fixtures/**"
+
+[tool.pyrefly.sub-config.errors]
+implicit-any-parameter = false
+implicit-any-lambda = false
+implicit-any-type-argument = false
+implicit-any-empty-container = false
+implicit-any-attribute = false
+bad-index = false
+unsupported-operation = false
+
+[[tool.pyrefly.sub-config]]
+matches = "js/**"
+
+[tool.pyrefly.sub-config.errors]
+implicit-any-parameter = false
+implicit-any-lambda = false
+implicit-any-type-argument = false
+implicit-any-empty-container = false
+implicit-any-attribute = false
+bad-index = false
+unsupported-operation = false
+
+[[tool.pyrefly.sub-config]]
+matches = "spec/**"
+
+[tool.pyrefly.sub-config.errors]
+implicit-any-parameter = false
+implicit-any-lambda = false
+implicit-any-type-argument = false
+implicit-any-empty-container = false
+implicit-any-attribute = false
+bad-index = false
+unsupported-operation = false
+
+[[tool.pyrefly.sub-config]]
+matches = "rust/**"
+
+[tool.pyrefly.sub-config.errors]
+implicit-any-parameter = false
+implicit-any-lambda = false
+implicit-any-type-argument = false
+implicit-any-empty-container = false
+implicit-any-attribute = false
+bad-index = false
+unsupported-operation = false
+
+[[tool.pyrefly.sub-config]]
+matches = "design/**"
+
+[tool.pyrefly.sub-config.errors]
+implicit-any-parameter = false
+implicit-any-lambda = false
+implicit-any-type-argument = false
+implicit-any-empty-container = false
+implicit-any-attribute = false
+bad-index = false
+unsupported-operation = false
+
+[[tool.pyrefly.sub-config]]
+matches = "docs/**"
+
+[tool.pyrefly.sub-config.errors]
+implicit-any-parameter = false
+implicit-any-lambda = false
+implicit-any-type-argument = false
+implicit-any-empty-container = false
+implicit-any-attribute = false
+bad-index = false
+unsupported-operation = false
