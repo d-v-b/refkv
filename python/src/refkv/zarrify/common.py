@@ -5,39 +5,48 @@
 from __future__ import annotations
 
 import base64
+import bisect
+import http.client
+import json
+import math
+import mmap
 import os
 import re
 import struct
-import json
-import http.client
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import math
+from collections import OrderedDict
+from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Callable
+from email.message import Message
 
-from refkv.zarrify.profiles import REGISTRY
-from refkv.vzip.archive import VZipWriter
 from refkv.errors import ResolutionError
-from refkv.pb import Range, Source
+from refkv.pb import Concat, Range, Source
 from refkv.policy import Policy
+from refkv.reader import _check_http_url, _send, new_connection
+from refkv.refstore import ReferenceStore, bulk
+from refkv.uri import is_uri_reference
+from refkv.vzip.archive import VZipWriter
+from refkv.zarrify.profiles import REGISTRY
 
 
-class Rejected(Exception):
+class Rejected(Exception):  # noqa: N818 (public name)
     """The input is not accepted by the profile (spec/zarrify.md §1.2
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>). `format`: the Rust
     core's store format that refused it once a store run was started, or the profile that run
     decided (`ome-zarr` once the 0.4 test passed) for a rejection of the output's checks; else
     None."""
 
-    def __init__(self, *args, format: str | None = None) -> None:
+    def __init__(self, *args: object, format: str | None = None) -> None:  # noqa: A002 (the public keyword)
         super().__init__(*args)
         self.format = format
 
 
-def same(a, b) -> bool:
+def same(a: object, b: object) -> bool:
     """JSON values equal as spec/zarrify.md §1.1
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence> compares
     them: a number written as an integer
@@ -53,7 +62,7 @@ def same(a, b) -> bool:
     if isinstance(a, dict) and isinstance(b, dict):
         return a.keys() == b.keys() and all(same(a[k], b[k]) for k in a)
     if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
-        return len(a) == len(b) and all(same(x, y) for x, y in zip(a, b))
+        return len(a) == len(b) and all(same(x, y) for x, y in zip(a, b, strict=True))
     return type(a) is type(b) and a == b
 
 
@@ -88,7 +97,7 @@ class Output:
     etag: str | None = None
     checksum: Callable[[str, int, int], int] | None = None
 
-    def json(self, key: str, value) -> None:
+    def json(self, key: str, value: object) -> None:
         # UTF-8, not \u escapes: the documents are the size the budgets count, as JSON.stringify writes them.
         self.bytes_entries[key] = json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode()
 
@@ -124,7 +133,7 @@ class Output:
                 w.add_bytes(key, self.bytes_entries[key], compress=not late, late=late)
             w.close()
 
-    def to_store(self, *, policy: Policy | None = None, info: dict | None = None):
+    def to_store(self, *, policy: Policy | None = None, info: dict | None = None) -> ReferenceStore:
         """The output as a `refkv.ReferenceStore`, which `save` writes as the archive
         `write` writes, byte for byte (`reference_store`)."""
         sources = [Source(url=self.url, size=self.size, etag=self.etag)]
@@ -151,8 +160,9 @@ PAGE_SIZE = 1 << 16  # the page index of a zarrified archive (spec/bindings/vzip
 # <https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md#12-page-index-optional>)
 
 
-def reference_store(refs, entries, sources: list[Source], *, checksum=None,
-                    policy: Policy | None = None, info: dict | None = None):
+def reference_store(refs: Iterable[tuple[str, list[Range]]], entries: Iterable[tuple[str, bytes, bool]],
+                    sources: list[Source], *, checksum: Callable[[str, int, int], int] | None = None,
+                    policy: Policy | None = None, info: dict | None = None) -> ReferenceStore:
     """A profile output as a `refkv.ReferenceStore`, in the layout every output's
     `write` gives its archive: the references (key, ranges) first, then the bytes
     entries (key, bytes, late), in the order given; a late entry is read when the
@@ -161,9 +171,6 @@ def reference_store(refs, entries, sources: list[Source], *, checksum=None,
     of its bytes (spec/refkv.md §4.2
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>). The store
     reads its sources under `policy`."""
-    from refkv.pb import Concat
-    from refkv.refstore import ReferenceStore, bulk
-
     def checked(r: Range) -> Range:
         if checksum is None or r.data is not None or r.crc32c is not None:
             return r
@@ -177,8 +184,8 @@ def reference_store(refs, entries, sources: list[Source], *, checksum=None,
         for key, ranges in refs:
             if key in mapping:
                 raise ValueError(f"duplicate key {key!r}")
-            ranges = [checked(r) for r in ranges]
-            mapping[key] = ranges[0] if len(ranges) == 1 else Concat(tuple(ranges))
+            done = [checked(r) for r in ranges]
+            mapping[key] = done[0] if len(done) == 1 else Concat(tuple(done))
         for key, data, is_late in entries:
             if key in mapping:
                 raise ValueError(f"duplicate key {key!r}")
@@ -208,7 +215,7 @@ class Plan:
     compressor: dict | None = None  # a codec after `bytes`
 
 
-def emit_plans(out: "Output", plans: list[Plan], node_attributes: dict | None) -> None:
+def emit_plans(out: Output, plans: list[Plan], node_attributes: dict | None) -> None:
     """The source metadata node, its groups and its arrays."""
     metadata_group(out, SOURCE_NODE, node_attributes)
     groups = sorted({"/".join(a.path.split("/")[:k]) for a in plans for k in range(1, a.path.count("/") + 1)})
@@ -219,8 +226,8 @@ def emit_plans(out: "Output", plans: list[Plan], node_attributes: dict | None) -
                        a.fill, a.attributes, a.endian, a.compressor)
 
 
-def metadata_array(out: "Output", path: str, data_type: str, shape: list[int], chunk_shape: list[int],
-                   dims: list[str], chunks: dict, fill=0, attributes: dict | None = None,
+def metadata_array(out: Output, path: str, data_type: str, shape: list[int], chunk_shape: list[int],
+                   dims: list[str], chunks: dict, fill: object = 0, attributes: dict | None = None,
                    endian: str = "little", compressor: dict | None = None) -> None:
     """An array of the source metadata node, each chunk the ranges of the source
     that hold it, or its bytes when copied; `dims` None gives no dimension names."""
@@ -243,7 +250,7 @@ def metadata_array(out: "Output", path: str, data_type: str, shape: list[int], c
             out.refs[key] = list(c)
 
 
-def metadata_group(out: "Output", path: str, attributes: dict | None = None) -> None:
+def metadata_group(out: Output, path: str, attributes: dict | None = None) -> None:
     out.json(f"{path}/zarr.json", {"zarr_format": 3, "node_type": "group", "attributes": attributes or {}})
 
 
@@ -255,7 +262,7 @@ SMALL_PADDING = 1 << 10  # edge padding small enough to take the fewest chunks
 MAX_TOTAL_PADDING = 1 << 20  # the most zero bytes all edge chunks of a cut hold
 
 
-def grid_chunks(offset: int, shape: list[int], item: int, read: "Reader | None" = None,
+def grid_chunks(offset: int, shape: list[int], item: int, read: Reader | None = None,
                 deepen: bool = True, limit: int = MAX_CHUNK) -> tuple[list[int], dict]:
     """The C-order array of `shape`, of `item`-byte elements contiguous at
     `offset`, cut as spec/conventions.md §7
@@ -316,7 +323,7 @@ def grid_chunks(offset: int, shape: list[int], item: int, read: "Reader | None" 
         outer = [(*o, i) for o in outer for i in range(v)]
     for o in outer:
         base = 0
-        for i, v in zip(o, shape[:a]):
+        for i, v in zip(o, shape[:a], strict=True):
             base = base * v + i
         for q in range(-(-n // c)):
             m = min(c, n - q * c)
@@ -331,7 +338,7 @@ def grid_chunks(offset: int, shape: list[int], item: int, read: "Reader | None" 
     return [1] * a + [c, *shape[a + 1 :]], chunks
 
 
-def row_chunks(offset: int, rows: int, row_bytes: int, row_shape: tuple = (), read: "Reader | None" = None
+def row_chunks(offset: int, rows: int, row_bytes: int, row_shape: tuple = (), read: Reader | None = None
                ) -> tuple[int, dict]:
     """`rows` values of `row_bytes` bytes each (at most 2^24), contiguous at
     `offset`, as the chunks of an array along its first axis: grid_chunks of
@@ -342,7 +349,7 @@ def row_chunks(offset: int, rows: int, row_bytes: int, row_shape: tuple = (), re
     return shape[0], {(k[0], *row_shape): v for k, v in chunks.items()}
 
 
-def family_plans(path: str, members: list[tuple[int, int, int]], read: "Reader",
+def family_plans(path: str, members: list[tuple[int, int, int]], read: Reader,
                  count: int | None = None, ragged: bool = False) -> list[Plan]:
     """A family of byte values (index, offset, length), as spec/conventions.md §7
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays> says,
@@ -425,7 +432,7 @@ def blob_chunks(offset: int, length: int) -> tuple[int, dict]:
 MAX_SAFE = 2**53 - 1
 
 
-def json_number(v):
+def json_number(v: float) -> float | str:
     """A number as source metadata (spec/conventions.md §6
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>)."""
     if isinstance(v, float):
@@ -446,7 +453,7 @@ def decode_text(b: bytes) -> str:
         return b.decode("latin-1")
 
 
-def text_json(b: bytes):
+def text_json(b: bytes) -> str | dict[str, str]:
     """A text value (spec/conventions.md §6
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json>): UTF-8
     if valid, else {"latin1": ...}, so that the bytes can always be recovered."""
@@ -456,7 +463,7 @@ def text_json(b: bytes):
         return {"latin1": b.decode("latin-1")}
 
 
-def json_text(b: bytes):
+def json_text(b: bytes) -> str | dict[str, str]:
     """A fixed-size character field: its bytes up to the first NUL, as a text value."""
     return text_json(b.split(b"\0", 1)[0])
 
@@ -507,7 +514,7 @@ def centred(cx: float, cy: float, w0: int, h0: int, sx: float, sy: float) -> dic
     return {"x": cx - w0 * sx / 2, "y": cy - h0 * sy / 2}
 
 
-def array_json(shape, data_type: str, chunk_shape, codecs: list, axes: list[str]) -> dict:
+def array_json(shape: Sequence[int], data_type: str, chunk_shape: Sequence[int], codecs: list, axes: list[str]) -> dict:
     """An array's zarr.json (conventions §3
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#3-arrays>)."""
     return {
@@ -623,11 +630,8 @@ def image_ome(axes: list[str], units: dict, scales: list[list[float]], name: str
 Reader = Callable[[int, int], bytes]
 
 
-def _retry(f):
+def _retry[T](f: Callable[[], T]) -> T | None:
     """Calls f, retrying transient network errors with backoff."""
-    import time
-    import urllib.error
-
     for attempt in range(5):
         try:
             return f()
@@ -638,6 +642,7 @@ def _retry(f):
             if attempt == 4:
                 raise
         time.sleep(2**attempt)
+    return None
 
 
 class _ThreadConnections:
@@ -655,15 +660,13 @@ class _ThreadConnections:
             conns = self._local.conns = {}
         return conns
 
-    def get(self, scheme: str, host: str, port: int | None):
-        from refkv.reader import new_connection
-
+    def get(self, scheme: str, host: str, port: int | None) -> tuple[http.client.HTTPConnection, bool]:
         conn = self._conns().pop((scheme, host, port), None)
         if conn is not None:
             return conn, True
         return new_connection(scheme, host, port, timeout=120), False
 
-    def put(self, scheme: str, host: str, port: int | None, conn) -> None:
+    def put(self, scheme: str, host: str, port: int | None, conn: http.client.HTTPConnection) -> None:
         old = self._conns().pop((scheme, host, port), None)
         if old is not None:
             old.close()
@@ -678,13 +681,11 @@ class _ThreadConnections:
 REDIRECTS = (301, 302, 303, 307, 308)
 
 
-def follow(base: str, url: str, send: Callable, policy: Policy):
+def follow(base: str, url: str, send: Callable[[str], tuple[int, Message | None, bytes]],
+           policy: Policy) -> tuple[str, int, Message | None, bytes]:
     """(url, status, headers, body) of the request `send(url)` makes, following at
     most 5 redirects: the policy checks `url`, and each redirect's target before it
     is requested, for the input at `base`. `send` does not follow redirects."""
-    from refkv.reader import _check_http_url
-    from refkv.uri import is_uri_reference
-
     for hop in range(6):
         policy.check(base, url)
         status, msg, body = send(url)
@@ -715,23 +716,21 @@ def http_reader(url: str, block: int = 1 << 16, policy: Policy | None = None) ->
     address each request is sent to is checked, on a new connection and on a
     kept-alive one; and a request that would go through a proxy is refused unless
     the policy has `allow_unchecked_proxy`."""
-    from refkv import reader
-
     policy = policy or Policy()
     etags = EtagLog()
     # A kept-alive connection per thread: a new TLS connection per range costs a
     # round trip or more each, which dominates many small reads.
     conns = _ThreadConnections()
 
-    def request(method: str, headers: dict[str, str]):
+    def request(method: str, headers: dict[str, str]) -> tuple[int, Message, bytes]:
         """(status, headers, body) of one request of the object, redirects followed.
         A status worth retrying is an HTTPError, as is a network error a URLError."""
         headers = {"User-Agent": UA, **headers}
 
-        def send(u: str):
+        def send(u: str) -> tuple[int, Message, bytes]:
             check = None if policy.allow_private_hosts else (lambda ip: policy.check_address(u, ip))
             try:
-                return reader._send(u, headers, check, policy.allow_unchecked_proxy, conns, method)
+                return _send(u, headers, check, policy.allow_unchecked_proxy, conns, method)
             except (OSError, http.client.HTTPException) as e:
                 if isinstance(e, urllib.error.URLError):
                     raise
@@ -744,7 +743,7 @@ def http_reader(url: str, block: int = 1 << 16, policy: Policy | None = None) ->
             etags.saw(msg.get("ETag"))
         return status, msg, body
 
-    def head():
+    def head() -> int:
         status, msg, _ = request("HEAD", {})
         length = (msg.get("Content-Length") or "").strip()
         if status == 200 and length.isdigit():
@@ -759,11 +758,7 @@ def http_reader(url: str, block: int = 1 << 16, policy: Policy | None = None) ->
         return int(total)
 
     size = _retry(head)
-    from collections import OrderedDict
-    from concurrent.futures import ThreadPoolExecutor
-    import bisect
-
-    cache: "OrderedDict[int, bytes]" = OrderedDict()  # recently used blocks, at most MAX_BLOCKS
+    cache: OrderedDict[int, bytes] = OrderedDict()  # recently used blocks, at most MAX_BLOCKS
     exact: dict[int, bytes] = {}  # prefetched ranges, by start
     starts: list[int] = []
     # The reader is shared by threads (a profile's parallel reads, prefetch's pool): the
@@ -778,7 +773,7 @@ def http_reader(url: str, block: int = 1 << 16, policy: Policy | None = None) ->
             requests[0] += 1
             requests[1] += end - start
 
-        def get():
+        def get() -> bytes:
             status, msg, body = request("GET", {"Range": f"bytes={start}-{end - 1}"})
             if status not in (200, 206):
                 raise urllib.error.HTTPError(url, status, f"HTTP {status}", msg, None)
@@ -789,7 +784,7 @@ def http_reader(url: str, block: int = 1 << 16, policy: Policy | None = None) ->
             raise OSError(f"{url}: short read at {start}")
         return data
 
-    def prefetch(ranges) -> None:
+    def prefetch(ranges: Iterable[tuple[int, int]]) -> None:
         """Fetch many small (offset, length) ranges at once, in parallel: scattered
         reads, such as one per frame header, then cost one round trip each in
         parallel rather than one whole block each in turn."""
@@ -910,8 +905,6 @@ MAX_BLOCKS = 2048  # cached blocks of an http reader (128 MiB at 64 KiB)
 
 
 def file_reader(path: str) -> tuple[Reader, int]:
-    import mmap
-
     with open(path, "rb") as fh:
         size = os.fstat(fh.fileno()).st_size
         # Mapped, not read: a file larger than memory is read only where it is used.

@@ -19,7 +19,7 @@ def image(shape, dtype):
     y, x = np.mgrid[0 : shape[-2], 0 : shape[-1]]
     base = (x * 3 + y * 5) % 251
     out = np.broadcast_to(base, shape).astype(np.float64)
-    out = out + np.arange(np.prod(shape[:-2]) or 1).reshape(shape[:-2] + (1, 1)) * 17
+    out = out + np.arange(np.prod(shape[:-2]) or 1).reshape((*shape[:-2], 1, 1)) * 17
     out = out + rng.integers(0, 4, shape)
     return out.astype(dtype)
 

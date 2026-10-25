@@ -5,12 +5,17 @@ through zarr and xarray (`refkv.zarr`)."""
 import dataclasses
 import threading
 import time
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import numpy as np
+import obstore.store
 import pytest
 import xarray as xr
 import zarr
+from helpers import zarrify
+from obspec_utils.registry import ObjectStoreRegistry
+from obstore.store import LocalStore, MemoryStore
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
@@ -19,9 +24,8 @@ import refkv.zarr
 from refkv.convert import write_vzip
 from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Source
+from refkv.reader import Resolver
 from refkv.uri import file_uri
-
-from helpers import zarrify
 
 PROTO = default_buffer_prototype()
 
@@ -53,7 +57,8 @@ def test_store_reads_what_its_saved_archive_reads(netcdf_files, tmp_path):
         store = refkv.ReferenceStore.from_virtualizarr(vds)
         in_memory = _values(store)
         xr.testing.assert_identical(xr.open_zarr(refkv.zarr.store(store)).load(), exp.load())
-        assert store.stats.archive_requests == 0 and store.stats.external_requests > 0
+        assert store.stats.archive_requests == 0
+        assert store.stats.external_requests > 0
         for page_size in [None, 256]:
             for mirror_refs in [True, False]:
                 for relative_to in [None, file_uri(tmp_path) + "/"]:
@@ -83,7 +88,8 @@ def test_write_vzip_is_the_store_in_one_step(netcdf_files, tmp_path, capsys):
     stats = refkv.Stats()
     xr.testing.assert_identical(
         xr.open_zarr(refkv.zarr.open(tmp_path / "a.vzip", stats=stats)).load(), expected.load())
-    assert stats.archive_requests > 0 and stats.external_requests > 0
+    assert stats.archive_requests > 0
+    assert stats.external_requests > 0
 
 
 def test_from_virtualizarr_rewrites_urls(netcdf_files, tmp_path):
@@ -145,12 +151,12 @@ def test_save_follows_the_store_layout(tmp_path):
     """`save` writes the values in the mapping's order, `read_at_open` last, deflates
     those of `compressed`, and writes the store's page index unless given another;
     `info` is the builder's, kept out of the archive."""
-    import zipfile
-
     mapping = {"z": b"z" * 64, "r": Range(source=0, offset=0, length=4), "a/zarr.json": b"{}", "m": b"m" * 64}
     store = refkv.ReferenceStore(mapping, [Source(url="https://data.test/x")], read_at_open=["a/zarr.json"],
                                 compressed=["m"], page_size=1 << 16, info={"format": "x", "n": [1]})
-    assert store.info == {"format": "x", "n": [1]} and store.compressed == {"m"} and store.page_size == 1 << 16
+    assert store.info == {"format": "x", "n": [1]}
+    assert store.compressed == {"m"}
+    assert store.page_size == 1 << 16
     store.info["n"].append(2)  # a copy
     assert store.info == {"format": "x", "n": [1]}
     for page_size, index in ((..., True), (None, False)):
@@ -163,7 +169,8 @@ def test_save_follows_the_store_layout(tmp_path):
                 and not e.filename.startswith("__vz__/")] == ["m"]
         assert any(e.filename == "__vz__/index" for e in entries) == index
         saved = refkv.open(path)
-        assert {k: saved.get(k) for k in ("z", "a/zarr.json", "m")} == {k: mapping[k] for k in ("z", "a/zarr.json", "m")}
+        keys = ("z", "a/zarr.json", "m")
+        assert {k: saved.get(k) for k in keys} == {k: mapping[k] for k in keys}
 
 
 # ------------------------------------------------------------ the reader policy
@@ -183,7 +190,7 @@ def test_reading_a_refused_scheme_says_how_to_fix_it():
     store = _s3_store()
     with pytest.raises(ResolutionError, match=r"'s3' is not allowed .*refkv\.public_s3_url.*"
                                               r"registry=\{'s3://some-bucket': S3Store.*refkv\[obstore\]"):
-        xr.open_zarr(refkv.zarr.store(store), consolidated=False).x.values
+        _ = xr.open_zarr(refkv.zarr.store(store), consolidated=False).x.values
 
 
 def test_save_refuses_sources_the_reader_policy_refuses(tmp_path):
@@ -241,11 +248,6 @@ def test_registry_reads_registered_sources(netcdf_files, tmp_path):
     `Policy(schemes=...)`: for a store built from a virtual dataset, a store built
     from a mapping (an unpinned and a size-pinned source, a bucket and a path
     prefix of it), and the archive each saves, opened with the same registry."""
-    from obspec_utils.registry import ObjectStoreRegistry
-    from obstore.store import MemoryStore
-
-    from refkv.reader import Resolver
-
     paths, expected = netcdf_files
     vds = xr.concat([zarrify(p) for p in paths], dim="time", coords="minimal",
                     compat="override")
@@ -287,9 +289,7 @@ def test_unregistered_s3_source_is_refused_without_credential_lookup(monkeypatch
     query credential sources, the cloud metadata address among them), and says to
     register one, naming the extra that has obstore's stores. refkv does not import
     obstore (test_imports.py); the patches catch a store built through it anyway."""
-    import obstore.store
-
-    def no_lookup(*a, **k):
+    def no_lookup(*_args, **_kwargs):
         raise AssertionError("refkv built a store from a URL")
 
     for name in ["from_url", "S3Store", "GCSStore", "AzureStore"]:
@@ -297,23 +297,19 @@ def test_unregistered_s3_source_is_refused_without_credential_lookup(monkeypatch
     store = _s3_store(policy=refkv.Policy(schemes={"s3"}))
     with pytest.raises(ResolutionError, match=r"no store is registered for s3://some-bucket\. "
                                               r".*registry=\{'s3://some-bucket': store\}.*refkv\[obstore\]"):
-        xr.open_zarr(refkv.zarr.store(store), consolidated=False).x.values
+        _ = xr.open_zarr(refkv.zarr.store(store), consolidated=False).x.values
 
 
 def test_registry_does_not_lift_a_prefix_list():
     """Rule 2 replaces rule 1: a registered URL outside the policy's prefixes is refused."""
-    from obstore.store import MemoryStore
-
     store = _s3_store(registry={"s3://some-bucket": MemoryStore()},
                       policy=refkv.Policy(prefixes=("https://data.example/",)))
     with pytest.raises(ResolutionError, match="not under an allowed URL prefix"):
-        xr.open_zarr(refkv.zarr.store(store), consolidated=False).x.values
+        _ = xr.open_zarr(refkv.zarr.store(store), consolidated=False).x.values
 
 
 def test_registry_does_not_let_a_remote_store_read_files(tmp_path):
     """Registering a store for file: URLs does not let a remote store read local files."""
-    from obstore.store import LocalStore
-
     (tmp_path / "obj.bin").write_bytes(b"1234")
     mem = zarr.storage.MemoryStore()
     zarr.create_array(mem, name="x", shape=(4,), chunks=(4,), dtype="u1", compressors=None)
@@ -381,7 +377,8 @@ def counting_server():
     srv.server_close()
 
 
-def test_max_concurrency_caps_requests_in_flight(counting_server, tmp_path, no_proxy):
+@pytest.mark.usefixtures("no_proxy")
+def test_max_concurrency_caps_requests_in_flight(counting_server, tmp_path):
     """With zarr reading 32 chunks at once, each chunk a reference to its own range of
     a served file, a store keeps at most `max_concurrency` requests in flight: the
     in-memory store, and the saved archive read over HTTP, its own reads (tail,
@@ -447,6 +444,11 @@ def test_constructor_rejects_a_format_entry_key():
 def test_constructor_rejects_an_empty_key():
     with pytest.raises(ValueError, match="non-empty"):
         refkv.ReferenceStore({"": b""})
+
+
+def test_constructor_rejects_a_key_that_is_not_a_string():
+    with pytest.raises(TypeError, match="keys are non-empty strings"):
+        refkv.ReferenceStore({1: b""})
 
 
 def test_constructor_rejects_compressed_naming_no_bytes_value():
@@ -533,13 +535,13 @@ def test_with_read_only_false_raises(store):
 
 
 def test_to_zarr_into_the_store_raises(store):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=READ_ONLY):
         xr.Dataset({"y": ("i", np.arange(3))}).to_zarr(store, zarr_format=3)
     assert "y/zarr.json" not in _values(store.reader)
 
 
 def test_zarr_open_for_writing_raises(store):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=READ_ONLY):
         zarr.open_group(store, mode="w")
     assert "x/zarr.json" in _values(store.reader)
 
@@ -582,7 +584,7 @@ def test_public_api():
     assert refkv.zarr.open("x.vzip").reader == refkv.open("x.vzip")
     store = refkv.ReferenceStore({})
     assert refkv.zarr.store(store).reader is store
-    from refkv.convert import write_vzip  # the older name still imports
+    from refkv.convert import write_vzip  # noqa: PLC0415 (the test: the older name still imports)
     assert callable(write_vzip)
 
 

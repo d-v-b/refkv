@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 DOCS = Path(__file__).resolve().parents[2] / "docs"
-INCLUDE = re.compile(r"<!-- include: (\S+) -->\n```\w*\n(.*?)^```$", re.S | re.M)
+INCLUDE = re.compile(r"<!-- include: (\S+) -->\n```\w*\n(.*?)^```$", re.DOTALL | re.MULTILINE)
 
 
 def test_pages_quote_their_examples_verbatim():

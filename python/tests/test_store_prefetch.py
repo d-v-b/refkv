@@ -4,6 +4,7 @@ and a bounded number of reads in flight. The browser implementation has the
 same tests in js/test/store.test.ts.
 """
 
+import io
 import json
 import threading
 import time
@@ -17,7 +18,8 @@ import pytest
 
 import refkv.zarrify
 from refkv.policy import Policy
-from refkv.zarrify import Rejected, _zarrify_store as zarrify_store  # the profile output, not the store
+from refkv.zarrify import Rejected
+from refkv.zarrify import _zarrify_store as zarrify_store  # the profile output, not the store
 from refkv.zarrify.store import _Prefetch, object_url, open_store
 
 FIXTURES = Path(__file__).parents[2] / "fixtures"
@@ -45,9 +47,7 @@ class FakeS3:
         return (f'<?xml version="1.0"?><ListBucketResult><IsTruncated>false</IsTruncated>{contents}'
                 "</ListBucketResult>").encode()
 
-    def __call__(self, req, timeout=None):
-        import io
-
+    def __call__(self, req, timeout=None):  # noqa: ARG002 (urlopen's signature)
         class R(io.BytesIO):
             status = 200
 
@@ -114,7 +114,8 @@ def test_reads_in_flight_are_bounded(monkeypatch):
     s3 = FakeS3(objects, delay=0.01)
     assert outcome(monkeypatch, s3, 4)[0] == "ok"
     assert s3.most == 4
-    assert set(s3.reads.values()) == {1} and len(s3.reads) == 81
+    assert set(s3.reads.values()) == {1}
+    assert len(s3.reads) == 81
 
 
 def test_bytes_held_ahead_are_bounded():
@@ -129,11 +130,11 @@ def test_bytes_held_ahead_are_bounded():
         return b"x" * sizes[key]
 
     p = _Prefetch(read, list(sizes.items()), workers=8, budget=35, wanted=None)
-    for key in sizes:
+    for key, size in sizes.items():
         time.sleep(0.005)
         assert p.take(key) == (True, b"x" * 10)
         with lock:
-            held[0] -= sizes[key]
+            held[0] -= size
     assert most[0] <= 35
 
 
@@ -152,7 +153,8 @@ def test_a_short_read_is_the_same_failure(monkeypatch):
     objects = {".zgroup": b'{"zarr_format": 2}', "a/.zarray": ZARRAY, "b/.zarray": ZARRAY}
     failed = outcome(monkeypatch, FakeS3(objects, short=frozenset({"b/.zarray"})), 8)
     assert failed == outcome(monkeypatch, FakeS3(objects, short=frozenset({"b/.zarray"})), 1)
-    assert failed[:2] == ("failed", "OSError") and "the listing says" in failed[2]
+    assert failed[:2] == ("failed", "OSError")
+    assert "the listing says" in failed[2]
 
 
 def test_a_failed_read_of_a_document_fails_the_run_whatever_the_others_say(monkeypatch):

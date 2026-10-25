@@ -49,7 +49,7 @@ QUIRKS = ("norange", "nototal", "gzip", "nocond", "noetag", "redirect", "oldate"
 
 def etag_for(data: bytes) -> str:
     """The strong entity tag the server sends for `data` (with its quotes)."""
-    return '"' + hashlib.sha1(data).hexdigest()[:16] + '"'
+    return '"' + hashlib.sha1(data, usedforsecurity=False).hexdigest()[:16] + '"'
 
 
 class Server:
@@ -148,8 +148,8 @@ class Server:
                 return self._reply(206, body,
                                    {**meta, "Content-Range": f"{unit} {start}-{end - 1}/{total}"})
 
-            do_GET = _serve
-            do_HEAD = _serve
+            do_GET = _serve  # noqa: N815 (BaseHTTPRequestHandler's name)
+            do_HEAD = _serve  # noqa: N815 (BaseHTTPRequestHandler's name)
 
         self._srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.port = self._srv.server_address[1]

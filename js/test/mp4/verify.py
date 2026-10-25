@@ -35,6 +35,7 @@ from ir_mirror import mirror_problems  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
+
 NOISE = {"mp4_aac_pns.mp4"}
 
 
@@ -70,7 +71,8 @@ def problems_of(path: Path, out: Path) -> list[str]:
                                  [:, :f.planes[k].width] for f in frames])
                 got = g[name][...]
                 if got.shape != want.shape or not np.array_equal(got, want):
-                    problems.append(f"track {track['id']}'s {name} plane differs from ffmpeg's ({got.shape} vs {want.shape})")
+                    problems.append(f"track {track['id']}'s {name} plane differs from ffmpeg's "
+                                    f"({got.shape} vs {want.shape})")
             shift = next((e["media_time"] for e in tm["edits"] if e["media_time"] >= 0), 0)
             if g["time"][...].tolist() != [t + shift for t in pts]:
                 problems.append(f"track {track['id']}'s times differ from ffmpeg's")

@@ -64,7 +64,8 @@ def _build():
 
     pool = descriptor_pool.DescriptorPool()
     pool.Add(fdp)
-    get = lambda n: message_factory.GetMessageClass(pool.FindMessageTypeByName(f"refkv.v0.{n}"))
+    def get(n):
+        return message_factory.GetMessageClass(pool.FindMessageTypeByName(f"refkv.v0.{n}"))
     return get("Range"), get("Concat"), get("Source"), get("SourceTable"), get("CdIndex")
 
 

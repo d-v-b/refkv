@@ -6,6 +6,7 @@ is the independent reader."""
 import base64
 import gzip
 import json
+import math
 import struct
 import warnings
 
@@ -13,10 +14,10 @@ import mrcfile
 import numpy as np
 import pytest
 import xarray as xr
-
-import refkv.zarr
 from ir_helpers import FIXTURES
 from ir_helpers import zarrified as shared_zarrified
+
+import refkv.zarr
 from refkv import _core
 
 MRCS = sorted((FIXTURES / "mrc").glob("*.mrc"))
@@ -39,7 +40,7 @@ def as_json(v):
         return [as_json(x) for x in v]
     if isinstance(v, np.floating):
         bits = int(np.asarray(v).astype(v.dtype.newbyteorder("=")).view("=u4"))
-        if bits == 1 << 31 or (v != v and bits != CANONICAL_NAN):
+        if bits == 1 << 31 or (np.isnan(v) and bits != CANONICAL_NAN):
             return {"bits": f"{bits:08x}"}
     if isinstance(v, (bytes, np.bytes_)):
         b = bytes(v).split(b"\0", 1)[0]
@@ -49,7 +50,9 @@ def as_json(v):
             return {"latin1": b.decode("latin-1")}
     v = v.item() if hasattr(v, "item") else v
     if isinstance(v, float):
-        return "NaN" if v != v else "Infinity" if v == float("inf") else "-Infinity" if v == float("-inf") else v
+        if math.isnan(v):
+            return "NaN"
+        return "Infinity" if v == float("inf") else "-Infinity" if v == float("-inf") else v
     return v
 
 
@@ -100,7 +103,8 @@ def test_matches_mrcfile_and_rebuilds(path, tmp_path):
     assert meta["data_type"] == str(want.dtype.newbyteorder("="))
     kind = {2: "image", 4: "volume_stack"}.get(want.ndim, "image_stack" if header.ispg == 0 else "volume")
     assert meta["kind"] == kind
-    assert out.summary["kind"] == kind and out.summary["extendedHeader"] == int(header.nsymbt)
+    assert out.summary["kind"] == kind
+    assert out.summary["extendedHeader"] == int(header.nsymbt)
     # the extended header is never read: the run reads the header alone
     assert out.summary["planner"]["bytes"] == 1024
     dataset_is_the_file(out, root, header, want, kind, meta)
@@ -124,7 +128,8 @@ def dataset_is_the_file(out, root, header, want, kind, meta):
             "volume_stack": ["volume", *spatial]}[kind]
     assert list(ds["data"].dims) == dims
     assert np.array_equal(ds["data"].values, want, equal_nan=want.dtype.kind in "fc")
-    assert out.refs.get("dataset/data/c/" + "0/" * (want.ndim - 1) + "0") == out.refs.get("0/c/" + "0/" * (want.ndim - 1) + "0")
+    first = "0/" * (want.ndim - 1) + "0"
+    assert out.refs.get("dataset/data/c/" + first) == out.refs.get("0/c/" + first)
     for axis in "xyz":
         cella = float(header.cella[axis])
         grid = int(header[f"m{axis}"])
@@ -144,7 +149,8 @@ def dataset_is_the_file(out, root, header, want, kind, meta):
         # stored as the delta-coded, deflated index with CF scale and offset (conventions §9
         # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)
         doc = json.loads(out.bytes_entries[f"dataset/{axis}/zarr.json"])
-        assert doc["data_type"] == "uint32" and doc["attributes"] == {"units": "angstrom", "scale_factor": voxel, "add_offset": o}, axis
+        assert doc["data_type"] == "uint32", axis
+        assert doc["attributes"] == {"units": "angstrom", "scale_factor": voxel, "add_offset": o}, axis
         assert [c["name"] for c in doc["codecs"]] == ["numcodecs.delta", "bytes", "gzip"], axis
         c = min(n, 1 << 17)
         for q in range(-(-n // c)):
@@ -164,31 +170,38 @@ CASES = {
         [("z", A), ("y", A), ("x", A)], [1.5, 1.5, 1.5], [7.25, 2, -1.5],
         {"voxel_size": {"x": 1.5, "y": 1.5, "z": 1.5}, "axis_map": {"applied": True}},
         {"min": -100, "max": 150, "start": -100, "end": 150}, ("0/c/0/0/0", [(1024, 96)])),
-    "mrc_volume_int16_be": ({"byteOrder": "big", "dataType": "int16", "voxelSize": [0.5, 0.5, 0.5]}, None, [0.5, 0.5, 0.5], None,
-                            None, {"min": -100, "max": 100, "start": -100, "end": 100}, ("0/c/0/0/0", [(1024, 48)])),
-    "mrc_image_int8": ({"kind": "image", "sizes": {"y": 3, "x": 5}, "chunkShape": [3, 5]}, [("y", A), ("x", A)], [2, 2], None,
-                       {"kind": "image"}, {"min": -100, "max": 100, "start": -100, "end": 100}, ("0/c/0/0", [(1024, 15)])),
+    "mrc_volume_int16_be": ({"byteOrder": "big", "dataType": "int16", "voxelSize": [0.5, 0.5, 0.5]}, None,
+                            [0.5, 0.5, 0.5], None, None, {"min": -100, "max": 100, "start": -100, "end": 100},
+                            ("0/c/0/0/0", [(1024, 48)])),
+    "mrc_image_int8": ({"kind": "image", "sizes": {"y": 3, "x": 5}, "chunkShape": [3, 5]}, [("y", A), ("x", A)],
+                       [2, 2], None, {"kind": "image"}, {"min": -100, "max": 100, "start": -100, "end": 100},
+                       ("0/c/0/0", [(1024, 15)])),
     "mrc_image_stack_uint16": ({"kind": "image_stack", "sizes": {"z": 5, "y": 3, "x": 4}, "dataType": "uint16"},
                                [("z", A), ("y", A), ("x", A)], [1, 1, 1], None, None, None, None),
-    "mrc_volume_stack_float16": ({"kind": "volume_stack", "sizes": {"t": 2, "z": 3, "y": 2, "x": 3}, "dataType": "float16",
-                                  "chunkShape": [2, 3, 2, 3]}, [("t", None), ("z", A), ("y", A), ("x", A)], [1, 1, 1, 1], None,
-                                 None, {"min": -100, "max": 100, "start": -100, "end": 100}, ("0/c/0/0/0/0", [(1024, 72)])),
+    "mrc_volume_stack_float16": ({"kind": "volume_stack", "sizes": {"t": 2, "z": 3, "y": 2, "x": 3},
+                                  "dataType": "float16", "chunkShape": [2, 3, 2, 3]},
+                                 [("t", None), ("z", A), ("y", A), ("x", A)], [1, 1, 1, 1], None,
+                                 None, {"min": -100, "max": 100, "start": -100, "end": 100},
+                                 ("0/c/0/0/0/0", [(1024, 72)])),
     # a complex array has no display window
-    "mrc_volume_complex64": ({"dataType": "complex64", "mode": 4}, None, None, None, None, None, ("0/c/0/0/0", [(1024, 96)])),
+    "mrc_volume_complex64": ({"dataType": "complex64", "mode": 4}, None, None, None, None, None,
+                             ("0/c/0/0/0", [(1024, 96)])),
     # the axis map: sections along x, columns along z
-    "mrc_axis_map_permuted": ({"sizes": {"x": 2, "y": 3, "z": 4}, "axisMap": True}, [("x", A), ("y", A), ("z", A)], [2, 2, 2],
-                              [1, 2, 3], {"axis_map": {"applied": True}}, None, None),
+    "mrc_axis_map_permuted": ({"sizes": {"x": 2, "y": 3, "z": 4}, "axisMap": True}, [("x", A), ("y", A), ("z", A)],
+                              [2, 2, 2], [1, 2, 3], {"axis_map": {"applied": True}}, None, None),
     "mrc_axis_map_permuted_image": ({"sizes": {"x": 3, "y": 4}}, [("x", A), ("y", A)], [2, 2], None, None, None, None),
-    "mrc_axis_map_zero": ({"sizes": {"z": 2, "y": 3, "x": 4}, "axisMap": False}, [("z", A), ("y", A), ("x", A)], None, None,
-                          {"axis_map": {"applied": False}}, None, None),
+    "mrc_axis_map_zero": ({"sizes": {"z": 2, "y": 3, "x": 4}, "axisMap": False}, [("z", A), ("y", A), ("x", A)],
+                          None, None, {"axis_map": {"applied": False}}, None, None),
     "mrc_axis_map_duplicate": ({"axisMap": False}, [("z", A), ("y", A), ("x", A)], None, None, None, None, None),
     "mrc_axis_map_out_of_range": ({"axisMap": False}, [("z", A), ("y", A), ("x", A)], None, None, None, None, None),
     # windows, cell sizes and origins that give no window, scale or translation
     "mrc_edge_window_reversed": ({}, None, None, None, None, None, None),
     "mrc_edge_window_nan": ({}, None, None, None, None, None, None),
     "mrc_edge_window_inf": ({}, None, None, None, None, None, None),
-    "mrc_edge_cella_zero": ({"voxelSize": None}, [("z", A), ("y", A), ("x", None)], [1, 1, 1], None, {"voxel_size": None}, None, None),
-    "mrc_edge_cella_negative": ({"voxelSize": None}, [("z", A), ("y", None), ("x", A)], [1, 1, 1], None, None, None, None),
+    "mrc_edge_cella_zero": ({"voxelSize": None}, [("z", A), ("y", A), ("x", None)], [1, 1, 1], None,
+                            {"voxel_size": None}, None, None),
+    "mrc_edge_cella_negative": ({"voxelSize": None}, [("z", A), ("y", None), ("x", A)], [1, 1, 1], None,
+                                None, None, None),
     "mrc_edge_cella_nan": ({"voxelSize": None}, [("z", None), ("y", A), ("x", A)], [1, 1, 1], None, None, None, None),
     "mrc_edge_m_zero": ({"voxelSize": None}, [("z", A), ("y", A), ("x", None)], [1, 1, 1], None, None, None, None),
     "mrc_edge_m_negative": ({"voxelSize": None}, [("z", A), ("y", None), ("x", A)], [1, 1, 1], None, None, None, None),
@@ -206,13 +219,17 @@ CASES = {
     "mrc_imod_uint8_be": ({"dataType": "uint8", "byteOrder": "big"}, None, None, None, None, None, None),
     "mrc_imod_int8": ({"dataType": "int8"}, None, None, None, None, None, None),
     "mrc_imod_flag_no_stamp": ({"dataType": "int8"}, None, None, None, None, None, None),
-    "mrc_edge_volume_stack_one": ({"kind": "volume_stack", "sizes": {"t": 1, "z": 3, "y": 2, "x": 3}}, None, None, None, None, None, None),
+    "mrc_edge_volume_stack_one": ({"kind": "volume_stack", "sizes": {"t": 1, "z": 3, "y": 2, "x": 3}},
+                                  None, None, None, None, None, None),
     "mrc_edge_ispg_230": ({"kind": "volume"}, None, None, None, None, None, None),
     "mrc_edge_ispg_negative": ({"kind": "volume"}, None, None, None, None, None, None),
-    "mrc_edge_nz_one_volume": ({"kind": "volume", "sizes": {"z": 1, "y": 2, "x": 3}}, None, None, None, None, None, None),
+    "mrc_edge_nz_one_volume": ({"kind": "volume", "sizes": {"z": 1, "y": 2, "x": 3}},
+                               None, None, None, None, None, None),
     # extended headers: described, never read
-    "mrc_extended_ccp4": ({"extendedHeader": 160, "extendedType": "CCP4"}, None, None, None, None, None, ("0/c/0/0/0", [(1184, 48)])),
-    "mrc_extended_fei1": ({"extendedHeader": 768, "extendedType": "FEI1"}, None, None, None, None, None, ("0/c/0/0/0", [(1792, 48)])),
+    "mrc_extended_ccp4": ({"extendedHeader": 160, "extendedType": "CCP4"}, None, None, None, None, None,
+                          ("0/c/0/0/0", [(1184, 48)])),
+    "mrc_extended_fei1": ({"extendedHeader": 768, "extendedType": "FEI1"}, None, None, None, None, None,
+                          ("0/c/0/0/0", [(1792, 48)])),
     "mrc_extended_large": ({"extendedHeader": 5000, "extendedType": "SERI"}, None, None, None, None, None, None),
     # chunks (spec/zarrify/mrc.md §4.1
     # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#41-the-array>): blocks of sections,
@@ -223,16 +240,17 @@ CASES = {
                        ("0/c/1/0", [(1024 + 550000, 550000)])),
     "mrc_chunk_edge_literal": ({"chunkShape": [1, 524289], "chunks": 2}, None, None, None, None, None,
                                ("0/c/0/1", [(1024 + 524289, 524288), b"\0"])),
-    "mrc_mrcfile_volume": ({"kind": "volume", "voxelSize": [1.25, 1.25, 1.25], "translation": True}, None, [1.25, 1.25, 1.25],
-                           [10, 2.5, -3], None, ..., None),
-    "mrc_mrcfile_stack": ({"kind": "image_stack", "voxelSize": [0.5, 0.5, 1]}, None, [1, 0.5, 0.5], None, None, ..., None),
+    "mrc_mrcfile_volume": ({"kind": "volume", "voxelSize": [1.25, 1.25, 1.25], "translation": True}, None,
+                           [1.25, 1.25, 1.25], [10, 2.5, -3], None, ..., None),
+    "mrc_mrcfile_stack": ({"kind": "image_stack", "voxelSize": [0.5, 0.5, 1]}, None, [1, 0.5, 0.5], None, None, ...,
+                          None),
     "mrc_mrcfile_image": ({"kind": "image", "dataType": "uint16"}, None, [2, 2], None, None, ..., None),
 }
 
 
 def test_zarrifies_the_synthetic_files(tmp_path):
     for name, (summary, axes, scale, translation, members, window, chunk) in CASES.items():
-        out, root = zarrified(FIXTURES / "mrc" / f"{name}.mrc", tmp_path)
+        out, _root = zarrified(FIXTURES / "mrc" / f"{name}.mrc", tmp_path)
         assert {**out.summary, **summary} == out.summary, name
         attributes = json.loads(out.bytes_entries["zarr.json"])["attributes"]
         ms = attributes["ome"]["multiscales"][0]
@@ -244,7 +262,8 @@ def test_zarrifies_the_synthetic_files(tmp_path):
         assert (transforms[1]["translation"] if len(transforms) > 1 else None) == translation, name
         assert set(attributes) == {"ome", "zarr_conventions", "refkv_zarrified"}, name
         meta = attributes["refkv_zarrified"]["mrc"]
-        assert list(meta) == ["byte_order", "kind", "data_type", "header", "axis_map"] + (["voxel_size"] if "voxel_size" in meta else []), name
+        assert list(meta) == ["byte_order", "kind", "data_type", "header", "axis_map"] + (
+            ["voxel_size"] if "voxel_size" in meta else []), name
         for k, v in (members or {}).items():
             assert meta.get(k) == v, (name, k)
         omero = attributes["ome"].get("omero")
@@ -272,7 +291,8 @@ def test_edge_chunks_past_the_payload_are_copied(tmp_path):
         out, root = zarrified(path, tmp_path)
     finally:
         _core._set_copy_threshold(None)
-    assert "0/c/0/1" in out.bytes_entries and "0/c/0/1" not in out.refs
+    assert "0/c/0/1" in out.bytes_entries
+    assert "0/c/0/1" not in out.refs
     assert len(out.bytes_entries["0/c/0/1"]) == 524289
     assert out.bytes_entries["dataset/data/c/0/1"] == out.bytes_entries["0/c/0/1"]
     _, want = load(path)

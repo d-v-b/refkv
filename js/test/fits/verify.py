@@ -34,11 +34,13 @@ from ir_mirror import mirror_problems  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
+
 MAX_SAFE = (1 << 53) - 1
 COMMENTARY = ("COMMENT", "HISTORY", "")
 # hand-built tile-compressed fixtures astropy cannot read: the fixture with the same image, and
 # the rows an absent tile leaves at 0
-SAME_IMAGE = {"fits_comp_hand_absent_tile": ("fits_comp_hand_one_column", slice(3, 6)), "fits_comp_hand_no_ztile": ("fits_comp_hand_one_column", None)}
+SAME_IMAGE = {"fits_comp_hand_absent_tile": ("fits_comp_hand_one_column", slice(3, 6)),
+              "fits_comp_hand_no_ztile": ("fits_comp_hand_one_column", None)}
 
 
 def card_value(v):
@@ -61,7 +63,7 @@ def card_problems(ours, cards) -> list[str]:
     if len(ours) != len(cards):
         return [f"{len(ours)} cards, astropy reads {len(cards)}"]
     problems = []
-    for (keyword, value, comment), card in zip(ours, cards):
+    for (keyword, value, comment), card in zip(ours, cards, strict=True):
         if keyword != card.keyword:
             problems.append(f"card {keyword!r} is astropy's {card.keyword!r}")
         elif card.keyword in COMMENTARY:
@@ -69,7 +71,8 @@ def card_problems(ours, cards) -> list[str]:
                 problems.append(f"commentary card {keyword!r}: {comment!r} != {card.value!r}")
         else:
             want = card_value(card.value)
-            same = float(value) == want if isinstance(want, float) and isinstance(value, (int, float)) else value == want
+            same = (float(value) == want if isinstance(want, float) and isinstance(value, (int, float))
+                    else value == want)
             if not same:
                 problems.append(f"card {keyword}: {value!r} != astropy's {want!r}")
     return problems
@@ -81,7 +84,8 @@ def pixel_problems(ours, theirs, table) -> list[str]:
     if ours.shape != theirs.shape or ours.dtype != theirs.dtype.newbyteorder("="):
         return [f"array {ours.shape} {ours.dtype} is astropy's {theirs.shape} {theirs.dtype}"]
     if theirs.dtype.kind == "f" and table is not None and "ZSCALE" in table.dtype.names:
-        bound = 8 * np.finfo(np.float64).eps * (np.max(np.abs(table["ZZERO"])) + 2.0**31 * np.max(np.abs(table["ZSCALE"])))
+        bound = 8 * np.finfo(np.float64).eps * (np.max(np.abs(table["ZZERO"]))
+                                                + 2.0**31 * np.max(np.abs(table["ZSCALE"])))
         ok = np.allclose(ours, theirs, rtol=np.finfo(theirs.dtype).eps, atol=bound, equal_nan=True)
     else:
         ok = np.array_equal(ours, theirs, equal_nan=theirs.dtype.kind == "f")
@@ -104,13 +108,16 @@ def problems_of(path: Path, out: Path) -> list[str]:
             for i, hdu in enumerate(hdul):
                 entry, info = meta["hdus"][i], hdu.fileinfo()
                 if entry["offset"] != info["hdrLoc"] or entry["data_offset"] != info["datLoc"]:
-                    problems.append(f"HDU {i} offsets {entry['offset']}, {entry['data_offset']} != {info['hdrLoc']}, {info['datLoc']}")
+                    problems.append(f"HDU {i} offsets {entry['offset']}, {entry['data_offset']} "
+                                    f"!= {info['hdrLoc']}, {info['datLoc']}")
                 node = root[str(i)]
-                problems += [f"HDU {i} {p}" for p in card_problems(node.attrs["refkv_zarrified"]["fits"]["cards"], hdu.header.cards)]
+                problems += [f"HDU {i} {p}" for p in card_problems(node.attrs["refkv_zarrified"]["fits"]["cards"],
+                                                                   hdu.header.cards)]
                 if hdu.header.get("ZIMAGE"):
                     if same is not None:
                         ref, absent = same
-                        with fits.open(ROOT / "fixtures" / "fits" / f"{ref}.fits", do_not_scale_image_data=True) as other:
+                        with fits.open(ROOT / "fixtures" / "fits" / f"{ref}.fits",
+                                       do_not_scale_image_data=True) as other:
                             want = other[1].data.copy()
                         if absent is not None:
                             want[absent] = 0
@@ -123,7 +130,8 @@ def problems_of(path: Path, out: Path) -> list[str]:
                         problems.append(f"HDU {i} rows differ")
                     theap = hdu.header.get("THEAP", n1 * n2)
                     heap = hdu.header["PCOUNT"] - (theap - n1 * n2)
-                    if heap and node["heap"][...].tobytes() != raw[info["datLoc"] + theap:info["datLoc"] + theap + heap]:
+                    at = info["datLoc"] + theap
+                    if heap and node["heap"][...].tobytes() != raw[at:at + heap]:
                         problems.append(f"HDU {i} heap differs")
                 elif hdu.header["NAXIS"] == 0:
                     if entry["kind"] != "empty" or not isinstance(node, zarr.Group):

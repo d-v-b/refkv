@@ -8,17 +8,21 @@ included, is conformance/zarrify/compare.py's.
 """
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
 import pytest
 
-from refkv.zarrify import Rejected, _zarrify as zarrify  # the profile output, not the store
+from refkv import _core
+from refkv.zarrify import Rejected
+from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store
 from refkv.zarrify.common import CONVENTION_KEY
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "zarrify" / "reference"))
-from refkv_reference import virtualize as reference  # noqa: E402
-from refkv_reference.legacy import SOURCE_NODE as LEGACY_NODE, current_names  # noqa: E402
+from refkv_reference import virtualize as reference
+from refkv_reference.legacy import SOURCE_NODE as LEGACY_NODE
+from refkv_reference.legacy import current_names
 
 FIXTURES = Path(__file__).parents[2] / "fixtures" / "ome-zarr"
 URL = "https://data.test/ome-zarr/{}/"
@@ -28,13 +32,15 @@ STORES = sorted(p for p in FIXTURES.iterdir() if p.is_dir())
 def whole_object(parts) -> str:
     """The key of the one listed object a reference's parts are, from its first byte."""
     (kind, key, offset, _), = parts
-    assert kind == "object" and offset == 0
+    assert kind == "object"
+    assert offset == 0
     return key
 
 
 def hierarchy(out) -> dict:
     """The IR path's documents outside refkv_source, and its references (entry key -> object key)."""
-    docs = {k: json.loads(v) for k, v in out.entries.items() if k.endswith("zarr.json") and not k.startswith("refkv_source/")}
+    docs = {k: json.loads(v) for k, v in out.entries.items()
+            if k.endswith("zarr.json") and not k.startswith("refkv_source/")}
     return {"docs": docs, "refs": {k: whole_object(v) for k, v in out.refs.items()}}
 
 
@@ -61,20 +67,20 @@ def test_the_ir_gives_the_reference_hierarchy(store):
     assert fmt == expected[0] == "ome-zarr"
     assert hierarchy(out) == reference_hierarchy(expected[1])
     assert out.sources == expected[1].sources
-    for k in ("images", "labels", "droppedLabelLevels", "plates", "wells", "fields", "omeXml", "otherObjects", "chunks"):
+    for k in ("images", "labels", "droppedLabelLevels", "plates", "wells", "fields", "omeXml", "otherObjects",
+              "chunks"):
         assert out.summary[k] == expected[1].summary[k], k
 
 
 def test_the_mirror_rebuilds_each_node_document():
-    from refkv import _core
-
     for store in STORES:
         if "_reject_" in store.name:
             continue
         _, out = zarrify(str(store), URL.format(store.name))
         rebuilt = _core.rebuild_store(out.entries.get)
         held = {k: b for k, _, b in rebuilt if b is not None}
-        assert held and all(Path(k).name in (".zgroup", ".zarray", ".zattrs") for k in held), store.name
+        assert held, store.name
+        assert all(Path(k).name in (".zgroup", ".zarray", ".zattrs") for k in held), store.name
         for k, b in held.items():
             assert (store / k).read_bytes() == b, (store.name, k)
         assert {k for k, _, _ in rebuilt} == {p.relative_to(store).as_posix() for p in store.rglob("*") if p.is_file()}
@@ -88,7 +94,6 @@ def test_a_rejection_names_the_profile_the_store_was_decided_to_be(tmp_path):
     with pytest.raises(Rejected) as e:
         zarrify(str(FIXTURES / "ome_zarr_reject_axes_count"), URL.format("a"))
     assert e.value.format == "ome-zarr"
-    import shutil
 
     store = tmp_path / "s"
     shutil.copytree(FIXTURES / "ome_zarr_image_2d", store)

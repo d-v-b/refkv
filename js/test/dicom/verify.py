@@ -42,10 +42,11 @@ from pydicom.tag import BaseTag
 from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
-import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg and imagecodecs_jpeg2k)
+import refkv.zarr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
-from verify_common import LOOPBACK_SOURCES  # noqa: E402
+from verify_common import LOOPBACK_SOURCES
+
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
@@ -78,7 +79,8 @@ def expected(ds: pydicom.Dataset) -> np.ndarray:
                 colorspace = None
                 if spp == 3:
                     colorspace = "RGB" if ds.PhotometricInterpretation == "RGB" else "YCBCR"
-                decoded.append(imagecodecs.jpeg8_decode(frame, colorspace=colorspace, outcolorspace="RGB" if spp == 3 else None))
+                decoded.append(imagecodecs.jpeg8_decode(frame, colorspace=colorspace,
+                                                        outcolorspace="RGB" if spp == 3 else None))
             else:
                 decoded.append(imagecodecs.jpeg2k_decode(frame))
         frames = np.stack(decoded).astype(dtype)
@@ -121,7 +123,7 @@ def pydicom_json(ds: pydicom.Dataset, little: bool = True) -> dict:
                 out[f"{tag:08X}"] = {"vr": "SQ", "Value": [pydicom_json(x, little) for x in ds[tag].value]}
                 continue
             out[f"{tag:08X}"] = ds[tag].to_json_dict(None, 1 << 30)
-        except Exception:
+        except Exception:  # noqa: BLE001 (whatever pydicom cannot convert is compared as its bytes)
             out[f"{tag:08X}"] = {"vr": raw.VR, "InlineBinary": base64.b64encode(raw.value).decode()}
     return out
 
@@ -226,7 +228,7 @@ def header_problems(root, data: bytes) -> list[str]:
     preamble = base64.b64decode(source["preamble"]) if "preamble" in source else bytes(128)
     if preamble != data[:128]:
         problems.append("preamble")
-    node = root["refkv_source"] if "refkv_source" in root else None
+    node = root.get("refkv_source", None)
     meta, dataset = dict(source["meta"]), dict(source["dataset"])
     if node is not None and "refkv_zarrified" in node.attrs:
         meta.update(node.attrs["refkv_zarrified"]["dicom"].get("meta", {}))
@@ -291,7 +293,7 @@ def header_problems(root, data: bytes) -> list[str]:
         values = a.get("Value", [])
         if len(values) != len(parts):
             return False
-        for x, p in zip(values, parts):
+        for x, p in zip(values, parts, strict=True):
             if isinstance(x, str):
                 digits = p.lstrip("+-").lstrip("0")
                 if x not in (p, ("-" if p.startswith("-") else "") + digits):
@@ -327,7 +329,7 @@ def header_problems(root, data: bytes) -> list[str]:
                 continue
             if a.get("vr") == "SQ" and b.get("vr") == "SQ" and len(a.get("Value", [])) == len(b.get("Value", [])):
                 inner = at if "Structures" in ours[k][0] else sequence
-                for i, (x, y) in enumerate(zip(a.get("Value", []), b.get("Value", []))):
+                for i, (x, y) in enumerate(zip(a.get("Value", []), b.get("Value", []), strict=True)):
                     out += compare(strip(x), strip(y), f"{where}{k}[{i}]/", charsets, f"{at}/{i}", inner)
             elif not same(a, b):
                 out.append(f"{where}{k}: {str(a)[:60]} vs {str(b)[:60]}")
@@ -341,7 +343,8 @@ def header_problems(root, data: bytes) -> list[str]:
     fp = io.BytesIO(data)
     read_preamble(fp, False)
     _read_file_meta_info(fp)
-    walked = Counter(f"{e.tag:08X}" for e in data_element_generator(fp, ds.file_meta.TransferSyntaxUID == "1.2.840.10008.1.2", little))
+    implicit = ds.file_meta.TransferSyntaxUID == "1.2.840.10008.1.2"
+    walked = Counter(f"{e.tag:08X}" for e in data_element_generator(fp, implicit, little))
     ours = Counter(k for k in dataset if k != "duplicates")
     ours.update(k for d in dataset.get("duplicates", []) for k in d)
     walked = Counter({k: n for k, n in walked.items() if k in strip({k: 0})})
@@ -363,10 +366,11 @@ def header_problems(root, data: bytes) -> list[str]:
         offsets = struct.unpack(f"<{n}Q", ds.ExtendedOffsetTable)
         lengths = struct.unpack(f"<{n}Q", ds.ExtendedOffsetTableLengths)
         fragments = ds.PixelData[8:]  # after the empty Basic Offset Table
-        headers = all(fragments[o:o + 8] == struct.pack("<HHI", 0xFFFE, 0xE000, m) for o, m in zip(offsets, lengths))
+        headers = all(fragments[o:o + 8] == struct.pack("<HHI", 0xFFFE, 0xE000, m)
+                      for o, m in zip(offsets, lengths, strict=True))
         if source.get("pixel_unreferenced_headers", False) == headers:
             problems.append(f"pixel_unreferenced_headers: {source.get('pixel_unreferenced_headers')}")
-        items = [(o, 8 + m) if headers else (o + 8, m) for o, m in zip(offsets, lengths)]
+        items = [(o, 8 + m) if headers else (o + 8, m) for o, m in zip(offsets, lengths, strict=True)]
         cursor, gaps = 0, []
         for o, length in sorted(items):
             gaps.append(fragments[cursor:o])
@@ -384,8 +388,8 @@ def header_problems(root, data: bytes) -> list[str]:
 def check(name: str, url: str, data: bytes, tmp: Path) -> tuple[bool, str]:
     out = tmp / "out.vzip"
     out.unlink(missing_ok=True)
-    p = subprocess.run(["node", str(ROOT / "js" / "conformance" / "zarrify.ts"), "--allow-private-hosts", url, str(out)],
-                       capture_output=True, text=True)
+    p = subprocess.run(["node", str(ROOT / "js" / "conformance" / "zarrify.ts"), "--allow-private-hosts", url,
+                        str(out)], capture_output=True, text=True, check=False)
     if name.startswith("dicom_reject"):
         ok = p.returncode == 3 and not out.exists()
         return ok, ("rejected: " + p.stderr.strip()[-90:]) if ok else "NOT REJECTED " + p.stderr[-200:]
@@ -416,8 +420,9 @@ def main(argv: list[str]) -> int:
         if argv:
             for target in argv:
                 if target.startswith(("http://", "https://")):
-                    req = urllib.request.Request(target, headers={"User-Agent": "refkv-verify"})
-                    data = urllib.request.urlopen(req, timeout=600).read()
+                    # an http(s) URL, as checked above
+                    req = urllib.request.Request(target, headers={"User-Agent": "refkv-verify"})  # noqa: S310
+                    data = urllib.request.urlopen(req, timeout=600).read()  # noqa: S310
                     url = target
                 else:
                     data = Path(target).read_bytes()

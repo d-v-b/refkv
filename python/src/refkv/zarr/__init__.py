@@ -19,6 +19,7 @@ grid of some archives' arrays needs (an MP4 file's video planes, a clipped CZI l
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Iterable
 
 from refkv._extras import missing
@@ -36,7 +37,8 @@ try:
 except ImportError as e:
     raise missing("zarr", "refkv.zarr", e) from e
 
-import refkv.zarr.codecs  # noqa: E402,F401  registers the codecs vzip archives use
+import refkv
+import refkv.zarr.codecs  # registers the codecs vzip archives use
 
 zarr.config.set({"array.rectilinear_chunks": True})
 from refkv.reader import (  # noqa: E402
@@ -93,7 +95,7 @@ class ZarrStore(Store):
         return f"refkv.zarr.store({self.reader!r})"
 
     async def _open(self) -> None:
-        await self.reader._ensure_open()
+        await self.reader._ensure_open()  # noqa: SLF001 (the reference store's open)
         self._is_open = True
 
     # ------------------------------------------------------------ reads
@@ -109,8 +111,6 @@ class ZarrStore(Store):
         prototype: BufferPrototype,
         key_ranges: Iterable[tuple[str, ByteRequest | None]],
     ) -> list[Buffer | None]:
-        import asyncio
-
         return await asyncio.gather(*(self.get(k, prototype, br) for k, br in key_ranges))
 
     async def exists(self, key: str) -> bool:
@@ -139,22 +139,24 @@ class ZarrStore(Store):
             self._check_writable()
         return self
 
-    async def set(self, key: str, value: Buffer) -> None:
+    async def set(self, key: str, value: Buffer) -> None:  # noqa: ARG002 (zarr's Store signature)
         self._check_writable()
 
-    async def set_if_not_exists(self, key: str, value: Buffer) -> None:
+    async def set_if_not_exists(self, key: str, value: Buffer) -> None:  # noqa: ARG002 (zarr's Store signature)
         self._check_writable()
 
-    async def _set_many(self, values) -> None:
+    async def _set_many(self, values: Iterable[tuple[str, Buffer]]) -> None:  # noqa: ARG002 (zarr's Store signature)
         self._check_writable()
 
-    async def set_partial_values(self, key_start_values) -> None:
+    async def set_partial_values(
+        self, key_start_values: Iterable[tuple[str, int, bytes]]  # noqa: ARG002 (zarr's Store signature)
+    ) -> None:
         self._check_writable()
 
-    async def delete(self, key: str) -> None:
+    async def delete(self, key: str) -> None:  # noqa: ARG002 (zarr's Store signature)
         self._check_writable()
 
-    async def delete_dir(self, prefix: str) -> None:
+    async def delete_dir(self, prefix: str) -> None:  # noqa: ARG002 (zarr's Store signature)
         self._check_writable()
 
     async def clear(self) -> None:
@@ -167,15 +169,13 @@ def store(reader: ReferenceReader) -> ZarrStore:
     return ZarrStore(reader)
 
 
-def open(url: str, **kwargs) -> ZarrStore:  # noqa: A001 - like refkv.open, zarr.open
+def open(url: str, **kwargs: object) -> ZarrStore:  # noqa: A001 (refkv.zarr.open, the public name)
     """The store saved at `url` (a local path or an `http(s)` URL), opened by `refkv.open`
     (by default with the ZIP binding), as a read-only zarr store:
     `xr.open_zarr(refkv.zarr.open("data.vzip"))`.
 
     Keyword arguments go to `refkv.open`: `binding`, `policy`, `registry`, `stats`,
     `max_concurrency` (8 by default; None for no cap) and `resolve`."""
-    import refkv
-
     return ZarrStore(refkv.open(url, **kwargs))
 
 

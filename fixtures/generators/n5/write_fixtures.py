@@ -95,11 +95,11 @@ def dataset(root: Path, path: str, data: np.ndarray, block: list[int], compressi
     write_json(d / "attributes.json", attrs)
     if not write_blocks:
         return
-    grid = [-(-s // b) for s, b in zip(data.shape, block)]
+    grid = [-(-s // b) for s, b in zip(data.shape, block, strict=True)]
     for idx in np.ndindex(*grid):
         if idx in skip:
             continue
-        sl = tuple(slice(i * b, min((i + 1) * b, s)) for i, b, s in zip(idx, block, data.shape))
+        sl = tuple(slice(i * b, min((i + 1) * b, s)) for i, b, s in zip(idx, block, data.shape, strict=True))
         part = data[sl]
         if padded and part.shape != tuple(block):
             full = np.zeros(block, dtype=data.dtype)
@@ -202,8 +202,9 @@ def main() -> None:
     # COSEM, transforms on the group's multiscales (as on OpenOrganelle).
     d = store("n5_cosem", {"n5": "2.0.0"})
     base = arr((12, 10, 8), "u1")
-    datasets = [{"path": f"s{i}", "transform": cosem_transform([4.0 * 2**i, 4.0 * 2**i, 5.24 * 2**i],
-                                                                [2.0 * (2**i - 1), 2.0 * (2**i - 1), 2.62 * (2**i - 1)])}
+    datasets = [{"path": f"s{i}",
+                 "transform": cosem_transform([4.0 * 2**i, 4.0 * 2**i, 5.24 * 2**i],
+                                              [2.0 * (2**i - 1), 2.0 * (2**i - 1), 2.62 * (2**i - 1)])}
                 for i in range(3)]
     write_json(d / "em/fibsem-uint8/attributes.json", {
         "axes": ["x", "y", "z"], "units": ["nm"] * 3, "n5": "2.0.0",
@@ -306,7 +307,8 @@ def main() -> None:
     reject("json_nan", None, raw=b'{"dimensions": [4, 4], "blockSize": [2, 2], "dataType": "uint8", '
                                  b'"compression": {"type": "raw"}, "offset": NaN}')
     reject("json_bom", None, raw=b"\xef\xbb\xbf" + json.dumps(ok).encode())
-    reject("json_not_utf8", None, raw=json.dumps({**ok, "name": "é"}, ensure_ascii=False).encode().replace(b"\xc3\xa9", b"\xe9"))
+    reject("json_not_utf8", None,
+           raw=json.dumps({**ok, "name": "é"}, ensure_ascii=False).encode().replace(b"\xc3\xa9", b"\xe9"))
     reject("json_trailing_comma", None, raw=b'{"dimensions": [4, 4], "blockSize": [2, 2],}')
     reject("json_overflow", None, raw=json.dumps(ok).encode()[:-1] + b', "big": 1e400}')
     reject("json_too_deep", None, raw=json.dumps(ok).encode()[:-1] + b', "deep": ' + b"[" * 300 + b"]" * 300 + b"}")

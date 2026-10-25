@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-import sections  # noqa: E402
+import sections
 
 URL = sections.URL
 
@@ -94,7 +94,8 @@ def test_slug():
     assert {t: sections.slug(t) for t in cases} == cases
 
 
-def test_headings(repo):
+@pytest.mark.usefixtures("repo")
+def test_headings():
     hs = sections.headings("spec/refkv.md")
     assert [(h.number, h.anchor) for h in hs] == [
         (None, "a-spec"),
@@ -145,7 +146,8 @@ def test_headings(repo):
         ("somewhere/else.py", "# §1\n", "unresolved", ""),
     ],
 )
-def test_resolve(repo, path, text, status, target):
+@pytest.mark.usefixtures("repo")
+def test_resolve(path, text, status, target):
     ref = sections.analyze(path, text)[-1]
     got = f"{ref.target.doc}#{ref.target.anchor}" if ref.target else ""
     assert (ref.status, got) == (status, target)
@@ -170,7 +172,8 @@ def test_override(repo, monkeypatch):
     assert (ref.status, ref.target.anchor) == ("ok", "3-ome-xml")
 
 
-def test_rewrite(repo):
+@pytest.mark.usefixtures("repo")
+def test_rewrite():
     cases = [
         (
             "spec/refkv.md",
@@ -248,7 +251,9 @@ def test_regions():
     assert [rs[r.start : r.end] for r in sections.c_like_regions(rs, rust=True)] == ['"§1"', "/// §2\n"[:-1]]
     md = "§1 `§2`\n```\n§3\n```\n<!-- §4 -->§5\n"
     found = [md[r.start : r.end] for r in sections.md_regions(md)]
-    assert "".join(found).count("§") == 2 and "§1" in found[0] and "§5" in found[-1]
+    assert "".join(found).count("§") == 2
+    assert "§1" in found[0]
+    assert "§5" in found[-1]
 
 
 # ---------------------------------------------------------------- the check

@@ -20,9 +20,10 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from jsonschema import Draft202012Validator
+from jsonschema import Draft7Validator, Draft202012Validator
 
-from refkv.zarrify import Rejected, _zarrify as zarrify  # the profile output, not the store
+from refkv.zarrify import Rejected
+from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store
 from refkv.zarrify.common import CONVENTION_KEY, PROFILES, UUIDS, convention, declare, same
 from refkv.zarrify.profiles import REGISTRY
 
@@ -46,9 +47,8 @@ _tool.loader.exec_module(spec_profiles)
 
 
 def geozarr_schema(name: str) -> Draft202012Validator:
-    from jsonschema import Draft7Validator
-
-    return Draft7Validator(json.loads((ROOT / "spec" / "zarrify" / "safe" / "geozarr" / f"{name}.schema.json").read_text()))
+    path = ROOT / "spec" / "zarrify" / "safe" / "geozarr" / f"{name}.schema.json"
+    return Draft7Validator(json.loads(path.read_text()))
 
 
 def schema(profile: str) -> Draft202012Validator:
@@ -58,7 +58,8 @@ def schema(profile: str) -> Draft202012Validator:
 def inputs() -> list[tuple[Path, str]]:
     out = []
     for d, patterns in FILES.items():
-        out += [(p, f"https://data.test/{d}/{p.name}") for p in sorted(q for pattern in patterns for q in (FIXTURES / d).glob(pattern))]
+        out += [(p, f"https://data.test/{d}/{p.name}")
+                for p in sorted(q for pattern in patterns for q in (FIXTURES / d).glob(pattern))]
     for d in STORES:
         out += [(p, f"https://data.test/{d}/{p.name}/") for p in sorted((FIXTURES / d).iterdir()) if p.is_dir()]
     return out
@@ -116,7 +117,6 @@ def test_every_output_declares_its_profile_where_the_convention_says():
             continue
         fmt, docs = py
         assert fmt == w["format"], path.name
-        validator = schema(fmt)
         for impl, d in (("py", docs), ("web", w["docs"])):
             assert d["zarr.json"]["attributes"][CONVENTION_KEY]["source"] == {"url": url}, (impl, path.name)
             layouts = tuple(f"{p}/" for p in d["zarr.json"]["attributes"][CONVENTION_KEY].get("layouts", {}).values())
@@ -174,7 +174,8 @@ def test_same():
         ([1, 2], [1, 2, 3], False), ([1, 2], (1, 2), True), ({"a": 1}, [1], False),
     ]
     for a, b, want in cases:
-        assert same(a, b) == want and same(b, a) == want, (a, b)
+        assert same(a, b) == want, (a, b)
+        assert same(b, a) == want, (a, b)
 
 
 def test_schemas_reject_an_unknown_version():

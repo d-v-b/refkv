@@ -16,6 +16,7 @@ Usage: uv run python js/test/mrc/verify.py [<dir of .mrc files>]
 from __future__ import annotations
 
 import base64
+import math
 import struct
 import sys
 import warnings
@@ -37,6 +38,7 @@ from ir_mirror import mirror_problems  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
+
 CANONICAL_NAN = 0x7FC00000
 
 
@@ -56,7 +58,7 @@ def as_json(v):
         return [as_json(x) for x in v]
     if isinstance(v, np.floating):
         bits = int(np.asarray(v).astype(v.dtype.newbyteorder("=")).view("=u4"))
-        if bits == 1 << 31 or (v != v and bits != CANONICAL_NAN):
+        if bits == 1 << 31 or (np.isnan(v) and bits != CANONICAL_NAN):
             return {"bits": f"{bits:08x}"}
     if isinstance(v, (bytes, np.bytes_)):
         b = bytes(v).split(b"\0", 1)[0]
@@ -66,7 +68,7 @@ def as_json(v):
             return {"latin1": b.decode("latin-1")}
     v = v.item() if hasattr(v, "item") else v
     if isinstance(v, float):
-        return "NaN" if v != v else "Infinity" if v == float("inf") else "-Infinity" if v == float("-inf") else v
+        return "NaN" if math.isnan(v) else "Infinity" if v == float("inf") else "-Infinity" if v == float("-inf") else v
     return v
 
 
@@ -105,9 +107,8 @@ def problems_of(path: Path, out: Path) -> list[str]:
         problems.append(f"data_type {meta['data_type']} != {want.dtype}")
     if list(meta["header"]) != list(header.dtype.names):
         problems.append(f"header fields {list(meta['header'])} != mrcfile's {list(header.dtype.names)}")
-    for name in header.dtype.names:
-        if meta["header"].get(name) != as_json(header[name]):
-            problems.append(f"header {name} {meta['header'].get(name)!r} != mrcfile's {as_json(header[name])!r}")
+    problems += [f"header {name} {meta['header'].get(name)!r} != mrcfile's {as_json(header[name])!r}"
+                 for name in header.dtype.names if meta["header"].get(name) != as_json(header[name])]
     kind = {2: "image", 4: "volume_stack"}.get(want.ndim, "image_stack" if header.ispg == 0 else "volume")
     if meta["kind"] != kind:
         problems.append(f"kind {meta['kind']} != {kind}")
@@ -130,7 +131,8 @@ def problems_of(path: Path, out: Path) -> list[str]:
         expected = o + np.arange(ds.sizes[axis], dtype=np.float64) * (cella / grid)
         if not np.array_equal(ds[axis].values, expected) or ds[axis].attrs != {"units": "angstrom"}:
             problems.append(f"coordinate {axis} is not {expected[:3]}...")
-        if ds[axis].encoding.get("dtype") != np.dtype("uint32") or ds[axis].encoding.get("scale_factor") != cella / grid:
+        if (ds[axis].encoding.get("dtype") != np.dtype("uint32")
+                or ds[axis].encoding.get("scale_factor") != cella / grid):
             problems.append(f"coordinate {axis} is not the index with a scale factor: {ds[axis].encoding}")
     return problems + mirror_problems(out, path)
 

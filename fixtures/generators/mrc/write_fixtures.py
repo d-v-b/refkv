@@ -151,7 +151,8 @@ def main() -> None:
     mrc("mrc_edge_origin_image_stack", (3, 3, 2), 2, ispg=0, origin=[1.0, 2.0, 0.0])
     mrc("mrc_edge_origin_image", (3, 3, 1), 2, ispg=0, origin=[1.0, 2.0, 0.0])
     # IMOD's stamp and flags at bytes 152 and 156: bit 0 makes mode 0 unsigned.
-    imod = lambda flags: bytes(40) + struct.pack("<ii", 1146047817, flags) + bytes(36)
+    def imod(flags):
+        return bytes(40) + struct.pack("<ii", 1146047817, flags) + bytes(36)
     mrc("mrc_imod_uint8", (4, 3, 2), 0, extra2=imod(1), dmin=0.0, dmax=255.0)
     mrc("mrc_imod_uint8_other_flags", (4, 3, 2), 0, extra2=imod(7))
     mrc("mrc_imod_int8", (4, 3, 2), 0, extra2=imod(2))

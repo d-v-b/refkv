@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "zarrify"))
-import corpus_hash  # noqa: E402
-from proxy import BLOCK, Upstream  # noqa: E402
+import corpus_hash
+from proxy import BLOCK, Upstream
 
 
 def test_parse():
@@ -59,9 +59,9 @@ def test_fingerprint(tmp_path):
 def test_fingerprint_of_an_uncached_input_is_not_read(tmp_path):
     upstream = Upstream(tmp_path)
     for url in ("https://a.test/x.tif", "https://a.test/s.zarr/"):
-        with pytest.raises(corpus_hash.NotCached):
+        with pytest.raises(corpus_hash.NotCachedError):
             corpus_hash.fingerprint(upstream, url, cache_only=True)
     cached(tmp_path, "https://a.test/x.tif", ".size", str(3 * BLOCK))
     cached(tmp_path, "https://a.test/x.tif", ".0", b"\0" * BLOCK)  # the last block is not cached
-    with pytest.raises(corpus_hash.NotCached):
+    with pytest.raises(corpus_hash.NotCachedError):
         corpus_hash.fingerprint(upstream, "https://a.test/x.tif", cache_only=True)

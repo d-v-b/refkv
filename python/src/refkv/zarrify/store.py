@@ -16,13 +16,28 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
+from email.message import Message
 from pathlib import Path
-from typing import Callable
+from typing import NoReturn
 
+from refkv.pb import Range, Source
 from refkv.policy import Policy
+from refkv.reader import _send
+from refkv.refstore import ReferenceStore
 from refkv.uri import is_uri_reference
-from refkv.zarrify.common import CONVENTION_KEY, UA, Rejected, _ThreadConnections, _retry, declare, follow
+from refkv.vzip.archive import VZipWriter
+from refkv.zarrify.common import (
+    CONVENTION_KEY,
+    UA,
+    Rejected,
+    _retry,
+    _ThreadConnections,
+    declare,
+    follow,
+    reference_store,
+)
 
 MAX_SAFE = 2**53 - 1
 MAX_DOCUMENT = 1 << 24
@@ -33,12 +48,12 @@ _UNRESERVED = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01
 _PATH_SAFE = _UNRESERVED | frozenset(b"!$&'()*+,;=:@/")
 
 
-class ListingFailed(OSError):
+class ListingFailed(OSError):  # noqa: N818 (public name)
     """The listing could not be read (a network error or a 408/429/5xx status): a failure, §1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>."""
 
 
-class StoreLimit(OSError):
+class StoreLimit(OSError):  # noqa: N818 (public name)
     """An implementation's resource limit (§1.2
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>, Appendix A
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#appendix-a-conformance>): a failure, not a
@@ -102,11 +117,7 @@ def listing_endpoint(url: str) -> tuple[str, str]:
     """(endpoint, prefix P) of a store URL (§1.5
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)."""
     scheme, authority, path = check_store_url(url)
-    host = authority
-    if host.startswith("["):
-        host = host[: host.index("]") + 1]
-    else:
-        host = host.rsplit(":", 1)[0] if ":" in host else host
+    host = authority[: authority.index("]") + 1] if authority.startswith("[") else authority.rsplit(":", 1)[0]
     host = host.lower()
     labels = host.split(".")
     virtual = host.endswith(".amazonaws.com") and any(
@@ -163,7 +174,7 @@ class _Xml:
         self.what = what
         self.depth = 0  # of the element being read
 
-    def fail(self, why: str):
+    def fail(self, why: str) -> NoReturn:
         raise Rejected(f"{self.what} is not well formed: {why} at {self.pos}")
 
     def ws(self) -> None:
@@ -213,7 +224,7 @@ class _Xml:
         if body in _ENTITIES:
             return _ENTITIES[body]
         if body.startswith("#x") and len(body) > 2 and all(c in _HEX for c in body[2:]):
-            v = int(body[2:], 16) if len(body) < 12 else -1
+            v = int(body[2:], 16) if len(body) < 12 else -1  # noqa: FURB166 (an XML reference, &#x41;, not 0x41)
         elif body.startswith("#") and len(body) > 1 and all(c in _DEC for c in body[1:]):
             v = int(body[1:]) if len(body) < 12 else -1
         else:
@@ -378,7 +389,7 @@ def parse_listing(body: bytes, prefix: str) -> tuple[list[tuple[str, int]], str 
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents>)
 
 
-def _bad_constant(name: str):
+def _bad_constant(name: str) -> NoReturn:
     raise Rejected(f"JSON literal {name} is not allowed")
 
 
@@ -405,10 +416,13 @@ def _int(s: str) -> int:
     return v
 
 
-_TOKENS = re.compile(r'"(?:[^"\\]|\\.)*"|[\[\]{}]', re.S)
+_TOKENS = re.compile(r'"(?:[^"\\]|\\.)*"|[\[\]{}]', re.DOTALL)
+
+type JSON = dict[str, JSON] | list[JSON] | str | int | float | bool | None
+"""A parsed JSON value."""
 
 
-def parse_json(data: bytes):
+def parse_json(data: bytes) -> JSON:
     """A metadata document by §1.6
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents>, or Rejected."""
     if len(data) > MAX_DOCUMENT:
@@ -435,7 +449,7 @@ def parse_json(data: bytes):
         raise Rejected(f"invalid JSON: {e}") from None
 
 
-def as_int(v, lo: int = -MAX_SAFE, hi: int = MAX_SAFE) -> int | None:
+def as_int(v: JSON, lo: int = -MAX_SAFE, hi: int = MAX_SAFE) -> int | None:
     """`v` as an integer of §1.6
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents> within [lo, hi],
     or None."""
@@ -450,11 +464,11 @@ def as_int(v, lo: int = -MAX_SAFE, hi: int = MAX_SAFE) -> int | None:
     return v if lo <= v <= hi else None
 
 
-def is_number(v) -> bool:
+def is_number(v: JSON) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
-def num(v):
+def num(v: JSON) -> JSON:
     """A number as the layout reads it (§1.6
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents>): its binary64
     value. Integers beyond
@@ -537,7 +551,7 @@ class _Prefetch:
             while (key := self._next()) is not None:
                 try:
                     r = (True, self._read(key))
-                except Exception as e:  # handed over as is by take()
+                except Exception as e:  # noqa: BLE001 - handed over as is by take()
                     r = (False, e)
                 with self._cv:
                     self._state[key] = "done"
@@ -606,7 +620,7 @@ class Store:
         probe (`refkv.ir.store.drive_store`). A listed store has the objects it listed."""
         return self.objects.get(key)
 
-    def prefetch(self, keys, wanted: Callable[[str], bool | None] | None = None) -> None:
+    def prefetch(self, keys: Iterable[str], wanted: Callable[[str], bool | None] | None = None) -> None:
         """Starts reading the documents `keys`, in that order (the order the
         profile reads them), concurrently if `workers` > 1; once per store.
         `wanted(key)`, asked before a read starts, is False for a key the
@@ -630,7 +644,7 @@ class Store:
             self._prefetch.close()
         self._release()
 
-    def document(self, key: str, *, keep: bool = False):
+    def document(self, key: str, *, keep: bool = False) -> JSON:
         """The JSON document at `key` (§1.6
         <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents>). With
         `keep`, its bytes are kept for the next read of `key` (each document is read once)."""
@@ -647,7 +661,7 @@ class Store:
         if r is None:
             try:
                 r = (True, self.read(key))
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 (kept, and raised below)
                 r = (False, e)
         if keep:
             self._kept[key] = r
@@ -719,19 +733,17 @@ class HttpStore(Store):
                 raise Rejected(f"the listing gives the continuation token {token[:80]!r} again")
             tokens.add(token)
 
-    def _send(self, url: str, headers: dict[str, str]):
+    def _send(self, url: str, headers: dict[str, str]) -> tuple[int, Message | None, bytes]:
         """One GET of `url`, not following redirects: (status, headers, body). A
         network error is a URLError, as urllib's; a refusal a ResolutionError."""
         if self._opener is not None:  # it follows redirects, and raises HTTPError, as urlopen does
-            with self._opener(urllib.request.Request(url, headers=headers)) as r:
+            with self._opener(urllib.request.Request(url, headers=headers)) as r:  # noqa: S310 (an http(s) URL)
                 return r.status, getattr(r, "headers", None), r.read()
-        from refkv import reader
-
         check = None
         if not self.policy.allow_private_hosts:
             check = lambda ip: self.policy.check_address(url, ip)  # noqa: E731
         try:
-            return reader._send(url, headers, check, self.policy.allow_unchecked_proxy, self._conns)
+            return _send(url, headers, check, self.policy.allow_unchecked_proxy, self._conns)
         except (OSError, http.client.HTTPException) as e:
             if isinstance(e, urllib.error.URLError):
                 raise
@@ -747,7 +759,7 @@ class HttpStore(Store):
     def _get_listing(self, url: str) -> bytes:
         self.requests += 1
 
-        def get():
+        def get() -> bytes:
             status, body = self._get(url, {})
             if status != 200:
                 raise urllib.error.HTTPError(url, status, f"HTTP {status}", None, None)
@@ -766,7 +778,7 @@ class HttpStore(Store):
         """The bytes [start, end) of the object at `url`, over the calling thread's
         kept-alive connection to its host."""
 
-        def get():
+        def get() -> bytes:
             status, body = self._get(url, {"Range": f"bytes={start}-{end - 1}"})
             if status not in (200, 206):
                 raise urllib.error.HTTPError(url, status, f"HTTP {status}", None, None)
@@ -811,12 +823,10 @@ class DirStore(Store):
         listed = []
         for dirpath, dirnames, filenames in os.walk(path):
             # symbolic links, and on Windows junctions, are not followed
-            dirnames[:] = [d for d in dirnames if not (os.path.islink(p := os.path.join(dirpath, d))
-                                                       or os.path.isjunction(p))]
+            dirnames[:] = [d for d in dirnames if not ((p := Path(dirpath, d)).is_symlink() or p.is_junction())]
             rel_dir = os.path.relpath(dirpath, path)
             for name in filenames:
-                full = os.path.join(dirpath, name)
-                st = os.lstat(full)
+                st = Path(dirpath, name).lstat()
                 if not stat.S_ISREG(st.st_mode):
                     continue
                 rel = name if rel_dir == "." else f"{rel_dir}/{name}"
@@ -877,7 +887,7 @@ def choose_profile(store: Store) -> str:
 # ---------------------------------------------------------------- hierarchy and output
 
 
-def directories_of(keys) -> set[str]:
+def directories_of(keys: Iterable[str]) -> set[str]:
     """Every directory of the store (§1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>): the root and each
     proper key prefix before a `/`."""
@@ -913,7 +923,7 @@ class PathTrie:
         self.children: dict[str, PathTrie] = {}
         self.value = None
 
-    def add(self, path: str, value) -> None:
+    def add(self, path: str, value: object) -> None:
         node = self
         if path:
             for s in path.split("/"):
@@ -938,7 +948,7 @@ class PathTrie:
         return best
 
 
-def implicit_groups(nodes) -> set[str]:
+def implicit_groups(nodes: Iterable[str]) -> set[str]:
     """The proper ancestors of `nodes` that are not nodes. Each walk stops at a
     path already seen, so the time is that of the paths it adds."""
     nodes = set(nodes)
@@ -982,8 +992,8 @@ def canonical_index(s: str, limit: int) -> bool:
             and len(s) <= 17 and int(s) < limit)
 
 
-def grid(shape, chunks) -> list[int]:
-    return [-(-s // c) for s, c in zip(shape, chunks)]
+def grid(shape: Sequence[int], chunks: Sequence[int]) -> list[int]:
+    return [-(-s // c) for s, c in zip(shape, chunks, strict=True)]
 
 
 def find_chunks(objects: dict[str, int], arrays: dict[str, Callable[[str], bool]]) -> list[tuple[str, int]]:
@@ -1086,7 +1096,8 @@ class StoreOutput:
             if key.startswith("__vz__/"):
                 raise Rejected(f"output key {key!r} is in the reserved __vz__/ space")
 
-    def keep_objects(self, objects: dict[str, int], used: set[str], nodes, ignored=()) -> int:
+    def keep_objects(self, objects: dict[str, int], used: set[str], nodes: Iterable[str],
+                     ignored: Iterable[str] = ()) -> int:
         """Adds every nonempty object of the store that is not in `used` (the node
         documents the hierarchy represents, the nonempty chunk objects, the objects
         referenced under their own key, and those the convention leaves out), whole,
@@ -1116,7 +1127,7 @@ class StoreOutput:
         elif own:
             # An array has no children: under a root array, the keys are plain keys of the archive.
             self.docs[EMPTY_KEY] = own
-        for k, n in kept:
+        for k, _ in kept:
             self.origins[object_key(k)] = k
         self.chunks = sorted(self.chunks + [(object_key(k), n) for k, n in kept])
         return len(kept)
@@ -1129,8 +1140,6 @@ class StoreOutput:
         return {k: [(i, 0, n)] for i, (k, n) in enumerate(self.chunks)}
 
     def write(self, out_path: str) -> None:
-        from refkv.vzip.archive import VZipWriter
-
         with open(out_path, "wb") as fh:
             w = VZipWriter(fh, page_size=1 << 16, checksum=self.checksum)
             # each source pins its object's listed size (§1.4
@@ -1147,12 +1156,9 @@ class StoreOutput:
                 w.add_bytes(key, data, compress=source, late=not source)
             w.close()
 
-    def to_store(self, *, policy: Policy | None = None, info: dict | None = None):
+    def to_store(self, *, policy: Policy | None = None, info: dict | None = None) -> ReferenceStore:
         """The output as a `refkv.ReferenceStore`, which `save` writes as the archive
         `write` writes, byte for byte (`refkv.zarrify.common.reference_store`)."""
-        from refkv.pb import Range, Source
-        from refkv.zarrify.common import reference_store
-
         sources = [Source(url=object_url(self.url, self.origins.get(k, k)), size=n) for k, n in self.chunks]
         refs = [(k, [Range(source=i, offset=0, length=n)]) for i, (k, n) in enumerate(self.chunks)]
         entries = [(key, json.dumps(self.docs[key], separators=(",", ":"), ensure_ascii=key != EMPTY_KEY).encode(),

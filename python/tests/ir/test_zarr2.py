@@ -12,7 +12,6 @@ import zipfile
 from pathlib import Path
 
 from refkv import _core
-
 from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store
 from refkv.zarrify.common import declare
 from refkv.zarrify.store import object_url
@@ -106,7 +105,8 @@ def test_zarrifies_the_synthetic_stores(tmp_path):
             assert (doc["data_type"], doc["codecs"], doc["chunk_key_encoding"], doc["fill_value"]) == \
                 (dtype, codecs, {"name": "v2", "configuration": {"separator": sep}}, fill), (name, path)
         keys = [k for k, _ in out.chunks]
-        assert keys == sorted(keys) and all(n > 0 for _, n in out.chunks), name
+        assert keys == sorted(keys), name
+        assert all(n > 0 for _, n in out.chunks), name
         assert out.sources == [object_url(URL.format(name), out.origins.get(k, k)) for k in keys], name
     # Chunk keys follow each array's separator and grid (two chunks, with a partial edge chunk,
     # along the first axis in C order and along the second in F order).
@@ -161,7 +161,8 @@ def test_zarrifies_the_synthetic_stores(tmp_path):
     assert out.docs["zarr.json"]["attributes"] == declare({}, "zarr2", url, {
         "attributes": {"id": 18446744073709551615, "neg": -9007199254740993, "safe": 9007199254740991},
         "metadata": {"creator": {"name": "a writer"}}})
-    assert out.docs["null_fill/zarr.json"]["attributes"] == declare({}, "zarr2", None, {"metadata": {"fill_value": None}})
+    assert out.docs["null_fill/zarr.json"]["attributes"] == declare({}, "zarr2", None,
+                                                                    {"metadata": {"fill_value": None}})
     assert out.docs["extra_members/zarr.json"]["attributes"] == declare({}, "zarr2", None, {
         "attributes": {"_ARRAY_DIMENSIONS": ["x"]}, "metadata": {"custom": {"x": 1}, "compressor": {"nthreads": 2}}})
     for path in ("neg_zero_f4", "zlib_9", "zstd_checksum"):
@@ -188,7 +189,8 @@ def test_zarrifies_the_synthetic_stores(tmp_path):
     assert set(out.docs["refkv_source/zarr.json"]["attributes"]["refkv_zarrified"]["zarr2"]) == {"ir"}
     assert listing(out, tmp_path)["empty.txt"] == (0, None)
     assert "zarr2" not in out.docs["zarr.json"]["attributes"]["refkv_zarrified"]
-    assert "sub/zarr.json" in out.docs and out.docs["sub/zarr.json"]["attributes"] == {}
+    assert "sub/zarr.json" in out.docs
+    assert out.docs["sub/zarr.json"]["attributes"] == {}
     # Escaping is one to one: one ~ more on each last segment that is a node document's name and ~s.
     _, out = zarrify(str(FIXTURES / "zarr2_node_names"), url=URL.format("n"))
     assert {k: out.origins[k] for k, _ in out.chunks if k.startswith("refkv_source/")} == {

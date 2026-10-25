@@ -5,10 +5,10 @@ rebuild, and the hostile probes (python/tests/ir/gen_ims_probes.py)."""
 import json
 
 import pytest
-
 from ir_helpers import FIXTURES, as_the_reference
-from refkv.ir import zarrify as via_ir
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
+
+from refkv.ir import zarrify as via_ir
 
 IMS = sorted((FIXTURES / "ims").rglob("*.ims"))
 
@@ -24,7 +24,7 @@ def test_projects_as_the_reference_and_rebuilds(path, tmp_path):
     assert same_as_reference(path, tmp_path) == (not path.name.startswith("ims_reject"))
 
 
-@pytest.mark.parametrize("name, accepted", [
+@pytest.mark.parametrize(("name", "accepted"), [
     ("ims_amp_times", True),  # time points that are one group: its chunks referenced once each
     ("ims_btree_loop_extra", True),  # a loop where the layout does not read: not described
     ("ims_btree_loop_root", False),
@@ -68,7 +68,7 @@ def test_an_implicit_index_outside_the_image_is_one_range(ims_probes):
     _, _, ir = via_ir(str(ims_probes / "ims_implicit_extra.ims"), "https://data.test/x")
     data = [i for i in range(len(ir)) if ir.path(i).endswith("/data") and ir.kind(i) == 2]
     forms = [json.loads(ir.form(i)) for i in data]
-    implicit = [(i, f) for i, f in zip(data, forms) if "grid" in f["geometry"]]
+    implicit = [(i, f) for i, f in zip(data, forms, strict=True) if "grid" in f["geometry"]]
     assert len(implicit) == 1
     i, f = implicit[0]
     assert f["geometry"] == {"chunk": [4, 6], "size": 2, "grid": [16, 1]}

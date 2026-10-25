@@ -54,7 +54,8 @@ SCHEMA = {"anyOf": [
     },
     {
         "type": "object",
-        "description": "A tile array's: its tile position, the planes at its index 0, and its copy (spec/zarrify/czi.md §4.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#44-tiles>)",
+        "description": "A tile array's: its tile position, the planes at its index 0, and its copy "
+                       "(spec/zarrify/czi.md §4.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#44-tiles>)",
         "properties": {
             "dimensions": _DIMENSIONS,
             "x": {"type": "integer"},

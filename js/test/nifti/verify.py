@@ -52,12 +52,10 @@ def expected(img) -> tuple[np.ndarray, list[str]]:
     n = int(img.header["dim"][0])
     data = np.asarray(img.dataobj.get_unscaled())
     color = data.dtype.names is not None
-    if color:
-        data = np.stack([data[name] for name in data.dtype.names], axis=-1)
-    else:
-        data = data[..., np.newaxis]  # the samples
+    # the samples, on a last axis
+    data = np.stack([data[name] for name in data.dtype.names], axis=-1) if color else data[..., np.newaxis]
     sizes = list(data.shape[:-1]) + [1] * (7 - data.ndim + 1)
-    data = data.reshape(sizes[:5] + [data.shape[-1]])  # x, y, z, t, k, samples
+    data = data.reshape([*sizes[:5], data.shape[-1]])  # x, y, z, t, k, samples
     # Color samples are the channel axis; dimension 5 is otherwise.
     data = data[..., 0, :] if color else data[..., 0]
     axes = (["t"] if n >= 4 else []) + (["c"] if n >= 5 or color else []) + (["z"] if n >= 3 else []) + ["y", "x"]
@@ -135,7 +133,7 @@ def as_json(v):
     if isinstance(v, np.floating):
         size = v.dtype.itemsize
         bits = int(np.asarray(v).astype(v.dtype.newbyteorder("=")).view(f"=u{size}"))
-        if bits == 1 << (8 * size - 1) or (v != v and bits != CANONICAL_NAN[size]):
+        if bits == 1 << (8 * size - 1) or (np.isnan(v) and bits != CANONICAL_NAN[size]):
             return {"bits": f"{bits:0{2 * size}x}"}
     if isinstance(v, (bytes, np.bytes_)):
         b = bytes(v).split(b"\0", 1)[0]
@@ -145,7 +143,7 @@ def as_json(v):
             return {"latin1": b.decode("latin-1")}
     v = v.item() if hasattr(v, "item") else v
     if isinstance(v, float):
-        return "NaN" if v != v else "Infinity" if v == float("inf") else "-Infinity" if v == float("-inf") else v
+        return "NaN" if math.isnan(v) else "Infinity" if v == float("inf") else "-Infinity" if v == float("-inf") else v
     return v if abs(v) <= 2**53 - 1 else str(v)
 
 
@@ -167,7 +165,8 @@ def header_problems(nii: Path, meta: dict, out: Path) -> list[str]:
     for name, value in want.items():
         if meta["header"].get(name) != value:
             problems.append(f"header {name} {meta['header'].get(name)!r} != nibabel's {value!r}")
-    if meta["nifti_version"] != (2 if two else 1) or meta["byte_order"] != ("little" if raw.endianness == "<" else "big"):
+    if (meta["nifti_version"] != (2 if two else 1)
+            or meta["byte_order"] != ("little" if raw.endianness == "<" else "big")):
         problems.append(f"version or byte order {meta['nifti_version']}, {meta['byte_order']}")
     problems += mirror_problems(out, nii)
 
@@ -196,7 +195,8 @@ def header_problems(nii: Path, meta: dict, out: Path) -> list[str]:
             full = type(raw).from_fileobj(io.BytesIO(data), check=False)
             nib_exts = [(e.get_code(), e._raw.rstrip(b"\0")) for e in full.extensions]
             if [(c, d.rstrip(b"\0")) for c, d in chain] != nib_exts:  # nibabel drops trailing NULs
-                problems.append(f"the chain {[(c, len(d)) for c, d in chain]} != nibabel's {[(c, len(r)) for c, r in nib_exts]}")
+                problems.append(f"the chain {[(c, len(d)) for c, d in chain]} "
+                                f"!= nibabel's {[(c, len(r)) for c, r in nib_exts]}")
         except (ValueError, nib.spatialimages.HeaderDataError):
             pass  # nibabel cannot read the chain
     return problems

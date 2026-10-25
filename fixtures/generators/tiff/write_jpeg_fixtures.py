@@ -24,7 +24,6 @@ from pathlib import Path
 import imagecodecs
 import numpy as np
 import tifffile
-
 from write_edge_fixtures import LONG, SHORT, UNDEFINED, Tiff
 
 OUT = Path(__file__).parents[2] / "tiff"
@@ -100,7 +99,8 @@ def main() -> None:
     # a tile of 2 bytes; 16-bit samples.
     small = rgb[:32, :32]
     planar = tifffile.TiffWriter(OUT / "edge_reject_jpeg_planar.tif")
-    planar.write(np.moveaxis(small, -1, 0), tile=(32, 32), compression="jpeg", photometric="rgb", planarconfig="separate")
+    planar.write(np.moveaxis(small, -1, 0), tile=(32, 32), compression="jpeg", photometric="rgb",
+                 planarconfig="separate")
     planar.close()
 
     def one_tile(name: str, entries_change, tile_bytes: bytes | None = None) -> None:
@@ -116,7 +116,7 @@ def main() -> None:
 
     one_tile("edge_reject_jpeg_no_photometric.tif", lambda e: e.pop(262))
     one_tile("edge_reject_jpeg_tables.tif", lambda e: e.update({347: (UNDEFINED, b"\x00\x01\x02\x03\x04\x05")}))
-    one_tile("edge_reject_jpeg_short_tile.tif", lambda e: None, tile_bytes=b"\xff\xd8")
+    one_tile("edge_reject_jpeg_short_tile.tif", lambda _e: None, tile_bytes=b"\xff\xd8")
     one_tile("edge_reject_jpeg_16bit.tif", lambda e: e.update({258: (SHORT, [16, 16, 16])}))
     for p in sorted(OUT.glob("*jpeg*.tif")):
         print(p.name, p.stat().st_size)

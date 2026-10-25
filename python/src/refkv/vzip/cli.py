@@ -13,14 +13,14 @@ HTTP sources on 127.0.0.1.
 from __future__ import annotations
 
 import json
-import os
 import sys
+from pathlib import Path
 
 from refkv._sync import run
-from refkv.vzip.archive import RESERVED_PREFIX, VZipWriter
 from refkv.pb import Range, Source
 from refkv.policy import Policy
 from refkv.reader import OffsetRequest, RangeRequest, Request, SuffixRequest
+from refkv.vzip.archive import RESERVED_PREFIX, VZipWriter
 from refkv.vzip.store import VZipStore
 
 
@@ -34,25 +34,26 @@ def _request(r: dict | None) -> Request | None:
     return RangeRequest(r["start"], r["end"])
 
 
+def _answer(store: VZipStore, q: dict) -> dict:
+    if q["op"] == "classify":
+        return {"ok": True, "kind": store.classify(q["key"])}
+    if q["op"] in ("get", "get_raw"):
+        value = store.get(q["key"], _request(q.get("range"))) if q["op"] == "get" else store.raw(q["key"])
+        return {"ok": True, "value": None if value is None else value.hex()}
+    if q["op"] == "list":
+        return {"ok": True, "keys": store.list(q["prefix"])}
+    raise ValueError(f"unknown op {q['op']!r}")
+
+
 def _run_query(store: VZipStore, q: dict) -> dict:
     try:
-        if q["op"] == "classify":
-            return {"ok": True, "kind": store.classify(q["key"])}
-        if q["op"] in ("get", "get_raw"):
-            if q["op"] == "get":
-                value = store.get(q["key"], _request(q.get("range")))
-            else:
-                value = store.raw(q["key"])
-            return {"ok": True, "value": None if value is None else value.hex()}
-        if q["op"] == "list":
-            return {"ok": True, "keys": store.list(q["prefix"])}
-        raise ValueError(f"unknown op {q['op']!r}")
-    except Exception as e:  # noqa: BLE001 - every failure is reported per query
+        return _answer(store, q)
+    except Exception as e:  # noqa: BLE001
         return {"ok": False, "class": getattr(e, "cls", "error"),
                 "error": f"{type(e).__name__}: {e}"}
 
 
-def _no_duplicates(pairs):
+def _no_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
     keys = [k for k, _ in pairs]
     if len(keys) != len(set(keys)):
         raise ValueError(f"duplicate JSON member names: {keys}")
@@ -62,12 +63,12 @@ def _no_duplicates(pairs):
 def _well_formed(text: str) -> bool:
     try:
         text.encode("utf-8")
-        return True
     except UnicodeEncodeError:  # a lone surrogate from a JSON "\udXXX" escape
         return False
+    return True
 
 
-def _check_query(q) -> None:
+def _check_query(q: object) -> None:
     """HARNESS: a malformed query makes the whole queries file invalid."""
     if not isinstance(q, dict) or q.get("op") not in ("classify", "get", "get_raw", "list"):
         raise ValueError(f"malformed query {q!r}")
@@ -99,7 +100,7 @@ def read(archive: str, queries_path: str, policy: Policy | None = None) -> dict:
         _check_query(q)
     store = VZipStore(archive, policy=policy)
     try:
-        run(store._ensure_open())
+        run(store._ensure_open())  # noqa: SLF001 (open now, to report a bad archive apart from the queries)
     except Exception as e:  # noqa: BLE001
         return {"open": {"ok": False, "class": "archive", "error": f"{type(e).__name__}: {e}"},
                 "results": []}
@@ -109,13 +110,13 @@ def read(archive: str, queries_path: str, policy: Policy | None = None) -> dict:
 _PINS = ("size", "etag", "modified_not_after")
 
 
-def _hex(v) -> bytes:
+def _hex(v: object) -> bytes:
     if not isinstance(v, str) or v != v.lower() or len(v) % 2:
         raise ValueError(f"not lowercase even-length hex: {v!r}")
     return bytes.fromhex(v)
 
 
-def _int(v, what: str) -> int:
+def _int(v: object, what: str) -> int:
     if not isinstance(v, int) or isinstance(v, bool) or v < 0:
         raise ValueError(f"{what} must be a non-negative JSON integer, not {v!r}")
     return v
@@ -150,7 +151,7 @@ def _range(r: dict) -> Range:
 
 def _reject_nulls(desc: dict) -> None:
     """HARNESS: null is allowed only for page_size."""
-    def walk(v, path):
+    def walk(v: object, path: str) -> None:
         if v is None and path != "page_size":
             raise ValueError(f"null not allowed at {path}")
         if isinstance(v, dict):
@@ -178,33 +179,35 @@ def write(desc_path: str, out: str) -> None:
             for src in desc.get("sources", []):
                 w.source(_source(src))
             for e in desc["entries"]:
-                key = e["key"]
-                if ("bytes" in e) == ("ranges" in e):
-                    raise ValueError(f"{key!r}: an entry has exactly one of bytes, ranges")
-                if "ranges" in e:
-                    if e.get("pinned"):
-                        raise ValueError(f"{key!r}: only bytes entries can be pinned")
-                    if e.get("compress"):
-                        raise ValueError(f"{key!r}: reference entries are never compressed")
-                    w.add_ranges(key, [_range(r) for r in e["ranges"]])
-                    continue
-                data = _hex(e["bytes"])
-                compress = e.get("compress", False)
-                for flag in ("compress", "pinned"):
-                    if not isinstance(e.get(flag, False), bool):
-                        raise ValueError(f"{flag} must be a JSON boolean")
-                if e.get("pinned") and page_size is None:
-                    raise ValueError(f"{key!r}: pinned requires page_size")
-                if key.startswith(RESERVED_PREFIX):
-                    w.add_hidden(key[len(RESERVED_PREFIX):], data, compress=compress,
-                                 late=e.get("pinned", False))
-                else:
-                    w.add_bytes(key, data, compress=compress, late=e.get("pinned", False))
+                _add_entry(w, e, page_size)
             w.close()
     except Exception:
-        if os.path.exists(out):
-            os.remove(out)
+        Path(out).unlink(missing_ok=True)
         raise
+
+
+def _add_entry(w: VZipWriter, e: dict, page_size: int | None) -> None:
+    key = e["key"]
+    if ("bytes" in e) == ("ranges" in e):
+        raise ValueError(f"{key!r}: an entry has exactly one of bytes, ranges")
+    if "ranges" in e:
+        if e.get("pinned"):
+            raise ValueError(f"{key!r}: only bytes entries can be pinned")
+        if e.get("compress"):
+            raise ValueError(f"{key!r}: reference entries are never compressed")
+        w.add_ranges(key, [_range(r) for r in e["ranges"]])
+        return
+    data = _hex(e["bytes"])
+    compress = e.get("compress", False)
+    for flag in ("compress", "pinned"):
+        if not isinstance(e.get(flag, False), bool):
+            raise ValueError(f"{flag} must be a JSON boolean")
+    if e.get("pinned") and page_size is None:
+        raise ValueError(f"{key!r}: pinned requires page_size")
+    if key.startswith(RESERVED_PREFIX):
+        w.add_hidden(key[len(RESERVED_PREFIX):], data, compress=compress, late=e.get("pinned", False))
+    else:
+        w.add_bytes(key, data, compress=compress, late=e.get("pinned", False))
 
 
 def main(argv: list[str]) -> int:

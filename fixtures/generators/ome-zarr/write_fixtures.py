@@ -68,7 +68,7 @@ def multiscale(axes: str, levels: int, *, base=None, translation=None, name="ima
     base = base or [1.0] * n
     datasets = []
     for i in range(levels):
-        scale = [b * (2**i if a in "yx" else 1) for a, b in zip(axes, base)]
+        scale = [b * (2**i if a in "yx" else 1) for a, b in zip(axes, base, strict=True)]
         ct = [{"type": "scale", "scale": scale}]
         if translation is not None:
             ct.append({"type": "translation", "translation": translation})
@@ -421,12 +421,14 @@ def exact_members() -> None:
     array(d, "0/0", np.arange(4, dtype="|u1").reshape(2, 2), [2, 2], sep="/")
     d = store("ome_zarr_plate_unversioned")
     rows, cols = ["A", "B"], ["1", "2", "3"]
-    wells = [{"path": f"{r}/{c}", "rowIndex": i, "columnIndex": j} for i, r in enumerate(rows) for j, c in enumerate(cols)]
+    wells = [{"path": f"{r}/{c}", "rowIndex": i, "columnIndex": j}
+             for i, r in enumerate(rows) for j, c in enumerate(cols)]
     group(d, "", {"plate": {"version": "0.4", "rows": [{"name": r} for r in rows],
                             "columns": [{"name": c} for c in cols], "wells": wells, "field_count": 1}})
     for w in wells:
         group(d, w["path"], {"well": {"images": [{"path": "0"}]}})
-        group(d, f"{w['path']}/0", {"multiscales": [ms], "omero": {k: v for k, v in omero(1).items() if k != "version"}})
+        group(d, f"{w['path']}/0",
+              {"multiscales": [ms], "omero": {k: v for k, v in omero(1).items() if k != "version"}})
         array(d, f"{w['path']}/0/0", np.arange(4, dtype="|u1").reshape(2, 2), [2, 2], sep="/", write_chunks=False)
 
 

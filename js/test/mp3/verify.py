@@ -28,14 +28,15 @@ HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
-from refkv.ir.cmirror import Archive, load  # noqa: E402
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
+from refkv.ir.cmirror import Archive, load  # noqa: E402
 
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import mirror_problems  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
+
 FFMPEG_MAX, FFMPEG_MEAN = 1, 0.6
 
 
@@ -49,7 +50,7 @@ def audio_frames(path: Path, out: Path) -> list[bytes]:
     kind = np.frombuffer(cols["kind"], np.uint8)
     start, length = np.frombuffer(cols["start"], "<u8"), np.frombuffer(cols["len"], "<u8")
     data_elements = np.flatnonzero(kind == 2)
-    frames = sorted(zip(start[data_elements].tolist(), length[data_elements].tolist()))
+    frames = sorted(zip(start[data_elements].tolist(), length[data_elements].tolist(), strict=True))
     return [data[o:o + n] for o, n in frames]
 
 
@@ -64,7 +65,8 @@ def problems_of(path: Path, out: Path) -> list[str]:
     ctx = av.CodecContext.create("mp3float", "r")
     decoded = [d for p in audio_frames(path, out) for d in ctx.decode(av.Packet(p))] + ctx.decode(None)
     if {f.sample_rate for f in decoded} != {meta["sample_rate"]}:
-        problems.append(f"sample rate {meta['sample_rate']} is not the decoder's {sorted({f.sample_rate for f in decoded})}")
+        problems.append(f"sample rate {meta['sample_rate']} is not the decoder's "
+                        f"{sorted({f.sample_rate for f in decoded})}")
     want = np.concatenate([f.to_ndarray().T if f.format.is_planar else f.to_ndarray().reshape(f.samples, -1)
                            for f in decoded]).astype(np.float32)
     if want.shape != got.shape or not np.array_equal(got, want):

@@ -5,10 +5,14 @@ from __future__ import annotations
 
 import json
 
-from refkv.zarrify.common import Output
+from refkv.zarrify.common import Output, Part
+
+type RustOutput = tuple[str, list[tuple[str, bytes]], list[tuple[str, list[Part]]], list[bytes], list[str], str]
+"""An output as the Rust core gives it: (url, entries, refs, data sources, lazy prefixes,
+summary JSON)."""
 
 
-def from_rust(t) -> Output:
+def from_rust(t: RustOutput) -> Output:
     """(url, entries, refs, data sources, lazy prefixes, summary JSON) as an Output."""
     url, entries, refs, data, lazy, summary = t
     out = Output(url)

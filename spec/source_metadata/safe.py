@@ -24,18 +24,19 @@ SCHEMA = {"oneOf": [
     },
     {
         "type": "object",
-        "description": "A band array's: a derived convenience copied from the product metadata (§6.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#62-band-arrays>), and the band "
-                       "file's SIZ segment",
+        "description": "A band array's: a derived convenience copied from the product metadata "
+                       "(§6.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#62-band-arrays>),"
+                       " and the band file's SIZ segment",
         "properties": {
             "IMAGE_FILE": {"type": "string"},
             "bandId": {"type": "integer", "minimum": 0},
             "physicalBand": {"type": "string"},
             "RESOLUTION": _VALUE,
-            "Wavelength": {"type": "object", "properties": {k: _MEASURE for k in ("MIN", "MAX", "CENTRAL")},
+            "Wavelength": {"type": "object", "properties": dict.fromkeys(("MIN", "MAX", "CENTRAL"), _MEASURE),
                            "additionalProperties": False, "minProperties": 1},
-            **{k: _VALUE for k in ("PHYSICAL_GAINS", "RADIO_ADD_OFFSET", "BOA_ADD_OFFSET")},
-            **{k: _MEASURE for k in ("SOLAR_IRRADIANCE", "QUANTIFICATION_VALUE", "BOA_QUANTIFICATION_VALUE",
-                                     "AOT_QUANTIFICATION_VALUE", "WVP_QUANTIFICATION_VALUE")},
+            **dict.fromkeys(("PHYSICAL_GAINS", "RADIO_ADD_OFFSET", "BOA_ADD_OFFSET"), _VALUE),
+            **dict.fromkeys(("SOLAR_IRRADIANCE", "QUANTIFICATION_VALUE", "BOA_QUANTIFICATION_VALUE",
+                             "AOT_QUANTIFICATION_VALUE", "WVP_QUANTIFICATION_VALUE"), _MEASURE),
             "Scene_Classification_List": _RECORDS,
             "siz": {"type": "string", "contentEncoding": "base64",
                     "description": "The band file's SIZ marker segment, which its chunks replace"},

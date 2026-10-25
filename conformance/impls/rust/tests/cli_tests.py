@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """End-to-end tests of the vzip CLI (HARNESS.md), derived from spec/bindings/vzip.md.
 
 Run: python3 tests/cli_tests.py   (after `cargo build --release`)
@@ -14,25 +13,25 @@ import sys
 import tempfile
 import threading
 import zlib
+from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CLI = os.path.join(ROOT, "vzip")
+ROOT = Path(__file__).resolve().parents[1]
+CLI = ROOT / "vzip"
 TMP = tempfile.mkdtemp(prefix="vzip-tests-")
 FAILS = []
-PASSES = 0
+PASSES = []
 
 
 def check(name, cond, info=""):
-    global PASSES
     if cond:
-        PASSES += 1
+        PASSES.append(name)
     else:
         FAILS.append(f"{name}: {info}")
         print(f"FAIL {name}: {info}")
 
 
 def path(n):
-    return os.path.join(TMP, n)
+    return str(Path(TMP, n))
 
 
 def write(desc, name):
@@ -40,7 +39,7 @@ def write(desc, name):
     with open(dp, "w") as f:
         f.write(desc if isinstance(desc, str) else json.dumps(desc))
     out = path(name)
-    r = subprocess.run([CLI, "write", dp, out], capture_output=True, text=True, errors="replace")
+    r = subprocess.run([CLI, "write", dp, out], capture_output=True, text=True, errors="replace", check=False)
     return r, out
 
 
@@ -48,7 +47,7 @@ def read(archive, queries, cwd=None):
     qp = path("q.json")
     with open(qp, "w") as f:
         f.write(queries if isinstance(queries, str) else json.dumps(queries))
-    r = subprocess.run([CLI, "read", archive, qp], capture_output=True, text=True, cwd=cwd)
+    r = subprocess.run([CLI, "read", archive, qp], capture_output=True, text=True, cwd=cwd, check=False)
     if r.returncode != 0:
         return r.returncode, r.stderr
     return 0, json.loads(r.stdout)
@@ -61,7 +60,7 @@ def results(archive, queries, cwd=None):
     return out["results"]
 
 
-def H(b):
+def hx(b):
     return b.hex()
 
 
@@ -147,7 +146,8 @@ def build_zip(entries, sources_pb, comment=None, extra_cd=b""):
         flags = e.get("flags", 0x800)
         crc = e.get("crc", zlib.crc32(body) if method == 0 else 0)
         lho = len(out)
-        out += struct.pack("<IHHHHHIIIHH", 0x04034B50, 20, flags, method, 0, 0x21, crc, csize, usize, len(name), 0) + name + body
+        out += struct.pack("<IHHHHHIIIHH", 0x04034B50, 20, flags, method, 0, 0x21, crc, csize, usize,
+                           len(name), 0) + name + body
         extra = e.get("extra", b"")
         cd += struct.pack("<IHHHHHHIIIHHHHHII", 0x02014B50, 20, 20, flags, method, 0, 0x21, crc, csize, usize,
                           len(name), len(extra), 0, 0, 0, 0, e.get("lho", lho)) + name + extra
@@ -171,11 +171,12 @@ def end_records(at, n, cd_size, cd_offset, comment):
     locator, then the EOCD, whose counts, size and offset are all ones."""
     return (struct.pack("<IQHHIIQQQQ", 0x06064B50, 44, 20, 45, 0, 0, n, n, cd_size, cd_offset)
             + struct.pack("<IIQI", 0x07064B50, 0, at, 1)
-            + struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, 0xFFFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFF, len(comment)) + comment)
+            + struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, 0xFFFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFF, len(comment))
+            + comment)
 
 
-def ref_extra(payload, id=0x7A76):
-    return struct.pack("<HH", id, len(payload)) + payload
+def ref_extra(payload, hid=0x7A76):
+    return struct.pack("<HH", hid, len(payload)) + payload
 
 
 def save(name, data):
@@ -190,10 +191,10 @@ def save(name, data):
 def test_roundtrip():
     with open(path("data.bin"), "wb") as f:
         f.write(bytes(range(256)) * 4)
-    os.makedirs(path("sub dir"), exist_ok=True)
+    Path(path("sub dir")).mkdir(parents=True, exist_ok=True)
     with open(path("sub dir/é.bin"), "wb") as f:
         f.write(b"hello world")
-    st = os.stat(path("data.bin"))
+    st = Path(path("data.bin")).stat()
     for page_size in [None, 1, 120, 100000]:
         for mirror in [True, False]:
             desc = {
@@ -207,12 +208,13 @@ def test_roundtrip():
                     {"url": "file://" + path("data.bin").replace(" ", "%20")},
                 ],
                 "entries": [
-                    {"key": "x/zarr.json", "bytes": H(b'{"zarr_format":3}'), "compress": True,
+                    {"key": "x/zarr.json", "bytes": hx(b'{"zarr_format":3}'), "compress": True,
                      "pinned": page_size is not None},
-                    {"key": "__vz__/hdr", "bytes": H(b"HEADER"), "pinned": page_size is not None},
+                    {"key": "__vz__/hdr", "bytes": hx(b"HEADER"), "pinned": page_size is not None},
                     {"key": "x/c/0", "ranges": [{"source": 0, "offset": 10, "length": 4}]},
                     {"key": "x/c/1", "ranges": [{"source": 2, "offset": 0, "length": 3}, {"data": "00ff"}]},
-                    {"key": "x/c/2", "ranges": [{"source": 1, "offset": 1, "length": 3}, {"source": 3, "offset": 6, "length": 5}]},
+                    {"key": "x/c/2", "ranges": [{"source": 1, "offset": 1, "length": 3},
+                                                {"source": 3, "offset": 6, "length": 5}]},
                     {"key": "x/c/3", "ranges": []},
                     {"key": "x/c/4", "ranges": [{"data": ""}]},
                     {"key": "x/c/5", "ranges": [{"source": 4, "offset": 1020, "length": 4}], "compress": False},
@@ -222,7 +224,7 @@ def test_roundtrip():
                     {"key": "﻿bom", "bytes": "03"},
                     {"key": "\U0001F600", "bytes": "04"},
                     {"key": "～", "bytes": "05"},
-                    {"key": "big", "bytes": H(os.urandom(5000)), "compress": True},
+                    {"key": "big", "bytes": hx(os.urandom(5000)), "compress": True},
                 ],
             }
             r, out = write(desc, f"rt-{page_size}-{mirror}.vzip")
@@ -230,7 +232,7 @@ def test_roundtrip():
             check(tag + " write", r.returncode == 0, r.stderr)
             if r.returncode:
                 continue
-            u = subprocess.run(["unzip", "-t", out], capture_output=True, text=True, errors="replace")
+            u = subprocess.run(["unzip", "-t", out], capture_output=True, text=True, errors="replace", check=False)
             check(tag + " unzip -t", u.returncode == 0, u.stdout + u.stderr)
             big = bytes.fromhex(desc["entries"][-1]["bytes"])
             qs = [
@@ -265,17 +267,16 @@ def test_roundtrip():
             res = results(out, qs)
             vals = [x.get("value") for x in res]
             exp_c2 = b"EAD" + b"world"
-            payload0 = bytes.fromhex("0a")  # placeholder
             expect = [
-                H(b'{"zarr_format":3}'), H(bytes([10, 11, 12, 13])), H(b"HDR\x00\xff"), H(exp_c2), "", "",
-                H(bytes([252, 253, 254, 255])), H(exp_c2[2:5]), H(exp_c2[6:]), H(exp_c2), "", H(big[-3:]),
+                hx(b'{"zarr_format":3}'), hx(bytes([10, 11, 12, 13])), hx(b"HDR\x00\xff"), hx(exp_c2), "", "",
+                hx(bytes([252, 253, 254, 255])), hx(exp_c2[2:5]), hx(exp_c2[6:]), hx(exp_c2), "", hx(big[-3:]),
             ]
             check(tag + " values", vals[:12] == expect, f"{vals[:12]} != {expect}")
             kinds = [x.get("kind") for x in res[12:16]]
             check(tag + " classify", kinds == ["reference", "bytes", "missing", "missing"], kinds)
             check(tag + " hidden get", res[16] == {"ok": True, "value": None}, res[16])
-            check(tag + " raw hidden", res[17].get("value") == H(b"HEADER"), res[17])
-            want_raw = H(b"\x18\x0a\x20\x04") if mirror else ""
+            check(tag + " raw hidden", res[17].get("value") == hx(b"HEADER"), res[17])
+            want_raw = hx(b"\x18\x0a\x20\x04") if mirror else ""
             check(tag + " raw ref", res[18].get("value") == want_raw, res[18])
             check(tag + " raw index", (res[19]["value"] is None) == (page_size is None), res[19])
             allk = sorted([e["key"] for e in desc["entries"] if not e["key"].startswith("__vz__/")],
@@ -288,8 +289,8 @@ def test_roundtrip():
             check(tag + " missing", res[25] == {"ok": True, "value": None}, res[25])
             check(tag + " empty bytes", res[26].get("value") == "", res[26])
             # relative path open from another cwd gives same base
-            res2 = results(os.path.basename(out), [{"op": "get", "key": "x/c/0"}], cwd=TMP)
-            check(tag + " relative open", res2[0].get("value") == H(bytes([10, 11, 12, 13])), res2)
+            res2 = results(Path(out).name, [{"op": "get", "key": "x/c/0"}], cwd=TMP)
+            check(tag + " relative open", res2[0].get("value") == hx(bytes([10, 11, 12, 13])), res2)
 
 
 def test_writer_rejects():
@@ -308,14 +309,17 @@ def test_writer_rejects():
         "absent key source": {"sources": [{"key": "zz"}], "entries": base_entries},
         "ref key source": {"sources": [{"key": "r"}], "entries": [{"key": "r", "ranges": []}]},
         "format key source": {"sources": [{"key": "__vz__/sources"}]},
-        "key range past end": {"sources": [{"key": "k"}], "entries": base_entries + [{"key": "r", "ranges": [{"source": 0, "offset": 0, "length": 2}]}]},
-        "data range past end": {"sources": [{"data": "0011"}], "entries": [{"key": "r", "ranges": [{"source": 0, "offset": 1, "length": 2}]}]},
+        "key range past end": {"sources": [{"key": "k"}], "entries": [
+            *base_entries, {"key": "r", "ranges": [{"source": 0, "offset": 0, "length": 2}]}]},
+        "data range past end": {"sources": [{"data": "0011"}], "entries": [
+            {"key": "r", "ranges": [{"source": 0, "offset": 1, "length": 2}]}]},
         "pin on data": {"sources": [{"data": "00", "size": 1}]},
-        "pin on key": {"sources": [{"key": "k", "etag": "\"a\""}], "entries": base_entries},
-        "weak etag": {"sources": [{"url": "a", "etag": "W/\"a\""}]},
+        "pin on key": {"sources": [{"key": "k", "etag": '"a"'}], "entries": base_entries},
+        "weak etag": {"sources": [{"url": "a", "etag": 'W/"a"'}]},
         "unquoted etag": {"sources": [{"url": "a", "etag": "abc"}]},
         "payload too big": {"entries": [{"key": "r", "ranges": [{"data": "00" * 65520}]}]},
-        "offset+length overflow": {"sources": [{"url": "a"}], "entries": [{"key": "r", "ranges": [{"source": 0, "offset": 2**64 - 1, "length": 1}] }]},
+        "offset+length overflow": {"sources": [{"url": "a"}], "entries": [
+            {"key": "r", "ranges": [{"source": 0, "offset": 2**64 - 1, "length": 1}]}]},
         "pinned no index": {"entries": [{"key": "k", "bytes": "00", "pinned": True}]},
         "pinned reference": {"page_size": 10, "entries": [{"key": "k", "ranges": [], "pinned": True}]},
         "compress on ref": {"entries": [{"key": "k", "ranges": [], "compress": True}]},
@@ -325,7 +329,8 @@ def test_writer_rejects():
         "null sources": {"sources": None},
         "both bytes ranges": {"entries": [{"key": "k", "bytes": "", "ranges": []}]},
         "neither": {"entries": [{"key": "k"}]},
-        "mixed range": {"sources": [{"data": "00"}], "entries": [{"key": "k", "ranges": [{"data": "00", "source": 0}]}]},
+        "mixed range": {"sources": [{"data": "00"}],
+                        "entries": [{"key": "k", "ranges": [{"data": "00", "source": 0}]}]},
         "uppercase hex": {"entries": [{"key": "k", "bytes": "FF"}]},
         "odd hex": {"entries": [{"key": "k", "bytes": "f"}]},
         "string flag": {"entries": [{"key": "k", "bytes": "", "compress": "yes"}]},
@@ -336,11 +341,11 @@ def test_writer_rejects():
     }
     for name, d in bad.items():
         r, out = write(d, "bad.vzip")
-        check(f"writer rejects {name}", r.returncode != 0 and not os.path.exists(out), r.stderr)
-        if os.path.exists(out):
-            os.remove(out)
+        check(f"writer rejects {name}", r.returncode != 0 and not Path(out).exists(), r.stderr)
+        if Path(out).exists():
+            Path(out).unlink()
     r, out = write('{"entries": [], "entries": []}', "dupmember.vzip")
-    check("writer rejects duplicate member", r.returncode != 0 and not os.path.exists(out))
+    check("writer rejects duplicate member", r.returncode != 0 and not Path(out).exists())
     # accepted edge cases
     ok = {
         "unknown members": {"foo": None, "entries": [{"key": "k", "bytes": "", "bar": 1}]},
@@ -356,13 +361,13 @@ def test_writer_rejects():
         r, out = write(d, "ok.vzip")
         check(f"writer accepts {name}", r.returncode == 0, r.stderr)
         if r.returncode == 0:
-            u = subprocess.run(["unzip", "-tq", out], capture_output=True, text=True, errors="replace")
+            u = subprocess.run(["unzip", "-tq", out], capture_output=True, text=True, errors="replace", check=False)
             if name != "max key":  # Info-ZIP warns about (and truncates) names this long
                 check(f"unzip -t {name}", u.returncode == 0, u.stdout)
             rc, o = read(out, [{"op": "list", "prefix": ""}])
             check(f"read back {name}", rc == 0 and o["open"]["ok"], o)
-        if os.path.exists(out):
-            os.remove(out)
+        if Path(out).exists():
+            Path(out).unlink()
 
 
 def test_many_entries_zip64():
@@ -370,13 +375,13 @@ def test_many_entries_zip64():
     for ps in [None, 4096]:
         r, out = write({"page_size": ps, "entries": entries}, f"many-{ps}.vzip")
         check(f"many entries write {ps}", r.returncode == 0, r.stderr)
-        data = open(out, "rb").read()
+        data = Path(out).read_bytes()
         check(f"zip64 eocd present {ps}", data.find(struct.pack("<I", 0x06064B50)) > 0)
         res = results(out, [{"op": "classify", "key": "k65534"}, {"op": "list", "prefix": "k6553"},
                             {"op": "classify", "key": "k65535"}])
         check(f"many entries read {ps}", res[0].get("kind") == "bytes" and len(res[1]["keys"]) == 5
               and res[2].get("kind") == "missing", res)
-        u = subprocess.run(["unzip", "-tq", out], capture_output=True, text=True, errors="replace")
+        u = subprocess.run(["unzip", "-tq", out], capture_output=True, text=True, errors="replace", check=False)
         check(f"many entries unzip -t {ps}", u.returncode == 0, u.stdout[-300:])
 
 
@@ -385,7 +390,7 @@ def test_reader_errors():
     # baseline
     p = save("base.vzip", build_zip([{"name": "a", "body": b"xyz"}], ok_src))
     res = results(p, [{"op": "get", "key": "a"}])
-    check("python-built baseline", res[0].get("value") == H(b"xyz"), res)
+    check("python-built baseline", res[0].get("value") == hx(b"xyz"), res)
 
     def open_err(name, data):
         p = save(name + ".vzip", data)
@@ -411,7 +416,7 @@ def test_reader_errors():
     open_err("no zip64 end records", without_zip64_records(good))
     # bad url at open is fine (checked at resolution)
     p = save("badurl.vzip", build_zip([], pb_table([pb_source(url="a b")])))
-    rc, out = read(p, [])
+    _rc, out = read(p, [])
     check("bad url not checked at open", out["open"]["ok"], out)
 
     # entry/body/payload/resolution errors
@@ -430,10 +435,13 @@ def test_reader_errors():
         {"name": "storeddiff", "body": b"hi", "usize": 3},
         {"name": "outside", "body": b"hi", "lho": 10**6},
         {"name": "badpayload", "body": b"", "extra": ref_extra(b"\x0b")},
-        {"name": "oob", "body": b"", "extra": ref_extra(pb_concat([pb_range(data=b"a"), pb_range(source=7)]), 0x7A77)},
+        {"name": "oob", "body": b"",
+         "extra": ref_extra(pb_concat([pb_range(data=b"a"), pb_range(source=7)]), 0x7A77)},
         {"name": "litfields", "body": b"", "extra": ref_extra(pb_range(offset=1, data=b"a"))},
         {"name": "bigpayload", "body": b"", "extra": ref_extra(pb_range(data=b"a" * 65520))},
-        {"name": "ok", "body": b"", "extra": ref_extra(pb_concat([pb_range(source=0, offset=1, length=2), pb_range(data=b"!"), pb_range(source=1, length=3)]), 0x7A77)},
+        {"name": "ok", "body": b"",
+         "extra": ref_extra(pb_concat([pb_range(source=0, offset=1, length=2), pb_range(data=b"!"),
+                                       pb_range(source=1, length=3)]), 0x7A77)},
         {"name": "past", "body": b"", "extra": ref_extra(pb_range(source=0, offset=4, length=5))},
         {"name": "z64ok", "body": b"", "extra": ref_extra(pb_range(data=b"Z")) + struct.pack("<HHQ", 1, 8, 7)},
         {"name": "keysrc", "body": b"", "extra": ref_extra(pb_range(source=2, offset=0, length=1))},
@@ -441,12 +449,13 @@ def test_reader_errors():
         {"name": "keymissing", "body": b"", "extra": ref_extra(pb_range(source=4, offset=0, length=1))},
         {"name": "keyformat", "body": b"", "extra": ref_extra(pb_range(source=5, offset=0, length=1))},
         {"name": "keybody", "body": b"", "extra": ref_extra(pb_range(source=6, offset=0, length=1))},
-        {"name": "zerolen", "body": b"", "extra": ref_extra(pb_concat([pb_range(source=1, offset=99, length=0), pb_range(data=b"q")]), 0x7A77)},
+        {"name": "zerolen", "body": b"",
+         "extra": ref_extra(pb_concat([pb_range(source=1, offset=99, length=0), pb_range(data=b"q")]), 0x7A77)},
         {"name": "garbage-body", "body": b"not the payload", "extra": ref_extra(pb_range(data=b"G"))},
     ]
     src = pb_table([pb_source(data=b"abcdef"), pb_source(url="nonexistent.bin"), pb_source(key="__vz__/h"),
                     pb_source(key="ok"), pb_source(key="gone"), pb_source(key="__vz__/sources"),
-                    pb_source(key="trail"), ])
+                    pb_source(key="trail") ])
     entries.append({"name": "__vz__/h", "body": b"HHH"})
     p = save("errs.vzip", build_zip(entries, src))
     q = []
@@ -473,26 +482,26 @@ def test_reader_errors():
         add("get", k, "payload", range={"start": 0, "end": 0})
         add("get_raw", k, None, "")
     add("get", "ok", "resolution")  # source 1 missing file
-    add("get", "ok", None, H(b"bc!"), range={"start": 0, "end": 3})
-    add("get", "ok", None, H(b"!"), range={"start": 2, "end": 3})
+    add("get", "ok", None, hx(b"bc!"), range={"start": 0, "end": 3})
+    add("get", "ok", None, hx(b"!"), range={"start": 2, "end": 3})
     add("get", "ok", "resolution", range={"start": 2, "end": 4})
     add("get", "past", "resolution")
     add("get", "past", None, "", range={"offset": 100})
-    add("get", "z64ok", None, H(b"Z"))
-    add("get", "zb", None, H(b"QQ"))
-    add("get", "keysrc", None, H(b"H"))
+    add("get", "z64ok", None, hx(b"Z"))
+    add("get", "zb", None, hx(b"QQ"))
+    add("get", "keysrc", None, hx(b"H"))
     add("get", "keyref", "resolution")
     add("get", "keymissing", "resolution")
     add("get", "keyformat", "resolution")
     add("get", "keybody", "resolution")
-    add("get", "zerolen", None, H(b"q"))
-    add("get", "garbage-body", None, H(b"G"))
-    add("get_raw", "garbage-body", None, H(b"not the payload"))
-    add("get_raw", "__vz__/sources", None, H(src))
+    add("get", "zerolen", None, hx(b"q"))
+    add("get", "garbage-body", None, hx(b"G"))
+    add("get_raw", "garbage-body", None, hx(b"not the payload"))
+    add("get_raw", "__vz__/sources", None, hx(src))
     add("get_raw", "__vz__/index", None, None)
     q.append({"op": "list", "prefix": ""})
     rs = results(p, q)
-    for (name, cls, val), r in zip(expect, rs):
+    for (name, cls, val), r in zip(expect, rs[:-1], strict=True):
         if cls:
             check(f"error {name}", r.get("ok") is False and r.get("class") == cls, r)
         else:
@@ -504,12 +513,12 @@ def test_reader_errors():
 
 def make_trailing():
     pb = pb_table([])
-    out = build_zip([], pb)
-    # rebuild with trailing byte in the sources body: patch the comment size +1 and insert a byte
+    # build with a trailing byte in the sources body: patch the comment size +1 and insert a byte
     sname = b"__vz__/sources"
     body = raw_deflate(pb) + b"\x00"
     lh = struct.pack("<IHHHHHIIIHH", 0x04034B50, 20, 0x800, 8, 0, 0x21, 0, len(body), 0, len(sname), 0) + sname + body
-    cd = struct.pack("<IHHHHHHIIIHHHHHII", 0x02014B50, 20, 20, 0x800, 8, 0, 0x21, 0, len(body), 0, len(sname), 0, 0, 0, 0, 0, 0) + sname
+    cd = struct.pack("<IHHHHHHIIIHHHHHII", 0x02014B50, 20, 20, 0x800, 8, 0, 0x21, 0, len(body), 0, len(sname),
+                     0, 0, 0, 0, 0, 0) + sname
     comment = b"vzip/0" + struct.pack("<QQ", 30 + len(sname), len(body))
     return lh + cd + end_records(len(lh) + len(cd), 1, len(cd), len(lh), comment)
 
@@ -534,7 +543,7 @@ def without_zip64_records(data):
 
 
 def test_paged_lookup():
-    entries = [{"key": f"a/{i}", "bytes": H(bytes([i]))} for i in range(10)] + [{"key": "b/0", "bytes": "ff"}]
+    entries = [{"key": f"a/{i}", "bytes": hx(bytes([i]))} for i in range(10)] + [{"key": "b/0", "bytes": "ff"}]
     r, out = write({"page_size": 100, "entries": entries}, "paged.vzip")
     check("paged write", r.returncode == 0, r.stderr)
     res = results(out, [{"op": "get", "key": "a/7"}, {"op": "list", "prefix": "a/"}, {"op": "classify", "key": "0"},
@@ -544,7 +553,7 @@ def test_paged_lookup():
     check("paged before first", res[2].get("kind") == "missing", res)
     check("paged list b", res[3].get("keys") == ["b/0"], res)
     # Corrupt one page's record signature -> entry error for keys routed there, list fails
-    data = bytearray(open(out, "rb").read())
+    data = bytearray(Path(out).read_bytes())
     i = data.find(b"PK\x01\x02")
     data[i + 3] = 0
     p = save("paged-bad.vzip", bytes(data))
@@ -558,7 +567,7 @@ def test_paged_lookup():
 
 
 def test_queries_file():
-    r, out = write({"entries": [{"key": "k", "bytes": "00"}]}, "q.vzip")
+    _r, out = write({"entries": [{"key": "k", "bytes": "00"}]}, "q.vzip")
     for name, q in {
         "unknown op": [{"op": "frob", "key": "k"}],
         "missing key": [{"op": "get"}],
@@ -570,7 +579,7 @@ def test_queries_file():
         "negative": [{"op": "get", "key": "k", "range": {"offset": -1}}],
         "float": [{"op": "get", "key": "k", "range": {"offset": 1.5}}],
         "dup member": '[{"op": "get", "key": "k", "key": "j"}]',
-        "not array": '{}',
+        "not array": "{}",
     }.items():
         rc, o = read(out, q)
         check(f"invalid queries: {name}", rc != 0, o)
@@ -630,7 +639,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return
             if ius is not None:
                 t = email.utils.parsedate_to_datetime(ius).timestamp()
-                if LM_TS > t:
+                if t < LM_TS:
                     self.send_response(412)
                     self.send_header("Content-Length", "0")
                     self.end_headers()
@@ -730,7 +739,7 @@ def test_http():
         ("/plain", {"modified_not_after": -62135596801}, "resolution"),  # year 0 cannot be sent
     ]
     sources = [dict({"url": base + u}, **pins) for u, pins, _ in cases]
-    sources.append({"url": "http://user@127.0.0.1:%d/plain" % port})
+    sources.append({"url": f"http://user@127.0.0.1:{port}/plain"})
     sources.append({"url": "http:///plain"})
     entries = [{"key": f"e{i}", "ranges": [{"source": i, "offset": 100, "length": 20}]} for i in range(len(sources))]
     r, out = write({"sources": sources, "entries": entries}, "http.vzip")
@@ -738,10 +747,10 @@ def test_http():
     LOG.clear()
     res = results(out, [{"op": "get", "key": f"e{i}"} for i in range(len(sources))])
     exp_cls = [c for _, _, c in cases] + ["resolution", "resolution"]
-    for i, (rr, c) in enumerate(zip(res, exp_cls)):
+    for i, (rr, c) in enumerate(zip(res, exp_cls, strict=True)):
         name = f"http {sources[i]}"
         if c is None:
-            check(name, rr.get("value") == H(OBJ[100:120]), rr)
+            check(name, rr.get("value") == hx(OBJ[100:120]), rr)
         else:
             check(name, rr.get("class") == c, rr)
     check("http no HEAD", all(m == "GET" for m, _, _ in LOG))
@@ -758,7 +767,7 @@ def test_http():
                                                         {"source": 1, "offset": 0, "length": 10}]}]}, "http2.vzip")
     res = results(out, [{"op": "get", "key": "w", "range": {"start": 2, "end": 5}},
                         {"op": "get", "key": "w"}])
-    check("http window", res[0].get("value") == H(OBJ[2:5]), res[0])
+    check("http window", res[0].get("value") == hx(OBJ[2:5]), res[0])
     check("http window second range fails", res[1].get("class") == "resolution", res[1])
     check("http single request for window", [p for _, p, _ in LOG][:1] == ["/plain"] and
           LOG[0][2].get("Range") == "bytes=2-4", LOG)
@@ -786,17 +795,18 @@ def test_file_pins():
     r, out = write({"sources": srcs, "entries": entries}, "fpins.vzip")
     check("file pins write", r.returncode == 0, r.stderr)
     res = results(out, [{"op": "get", "key": f"f{i}"} for i in range(len(srcs))])
-    exp = [H(b"234"), "resolution", "resolution", "resolution", "resolution", "resolution", "resolution",
-           "resolution", "resolution", H(b"234"), H(b"234")]
-    for i, (rr, e) in enumerate(zip(res, exp)):
+    exp = [hx(b"234"), "resolution", "resolution", "resolution", "resolution", "resolution", "resolution",
+           "resolution", "resolution", hx(b"234"), hx(b"234")]
+    for i, (rr, e) in enumerate(zip(res, exp, strict=True)):
         if e == "resolution":
             check(f"file source {srcs[i]}", rr.get("class") == "resolution", rr)
         else:
             check(f"file source {srcs[i]}", rr.get("value") == e, rr)
     # '#x' resolves to the archive itself
-    r, out = write({"sources": [{"url": "#x"}], "entries": [{"key": "self", "ranges": [{"source": 0, "offset": 0, "length": 4}]}]}, "self.vzip")
+    r, out = write({"sources": [{"url": "#x"}],
+                    "entries": [{"key": "self", "ranges": [{"source": 0, "offset": 0, "length": 4}]}]}, "self.vzip")
     res = results(out, [{"op": "get", "key": "self"}])
-    check("fragment-only url reads archive", res[0].get("value") == H(b"PK\x03\x04"), res)
+    check("fragment-only url reads archive", res[0].get("value") == hx(b"PK\x03\x04"), res)
 
 
 def main():
@@ -809,7 +819,7 @@ def main():
     test_file_pins()
     test_http()
     test_many_entries_zip64()
-    print(f"{PASSES} passed, {len(FAILS)} failed")
+    print(f"{len(PASSES)} passed, {len(FAILS)} failed")
     shutil.rmtree(TMP, ignore_errors=True)
     sys.exit(1 if FAILS else 0)
 

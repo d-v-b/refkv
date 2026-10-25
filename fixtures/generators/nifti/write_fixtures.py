@@ -115,7 +115,7 @@ def by_nibabel() -> None:
     img.to_filename(OUT / "nifti_nibabel_n2_vector_ext.nii")
     # RGB24, which nibabel stores from a structured array.
     rgb = np.zeros((4, 3, 2), dtype=[("R", "u1"), ("G", "u1"), ("B", "u1")])
-    for k, c in enumerate("RGB"):
+    for c in "RGB":
         rgb[c] = rng.integers(0, 255, rgb.shape)
     nib.Nifti1Image(rgb, np.eye(4)).to_filename(OUT / "nifti_nibabel_rgb24.nii")
 

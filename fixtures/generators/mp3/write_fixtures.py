@@ -264,7 +264,8 @@ def main() -> None:
     with_crc = lame(signal(22050, 0.6, 2, 3), 22050, "-b", "48", "-p", "--nores", "-t")
     without = lame(signal(22050, 0.6, 2, 3), 22050, "-b", "48", "--nores", "-t")
     crc_frames, plain_frames = frames_of(with_crc), frames_of(without)
-    mixed = b"".join(with_crc[o:o + n] for o, n, _ in crc_frames[:5]) + b"".join(without[o:o + n] for o, n, _ in plain_frames[5:])
+    mixed = (b"".join(with_crc[o:o + n] for o, n, _ in crc_frames[:5])
+             + b"".join(without[o:o + n] for o, n, _ in plain_frames[5:]))
     write("mp3_crc_mixed", mixed)
     # junk: between frames, after the last frame, and a false sync (a header-like byte pair
     # followed by garbage) between frames; a truncated last frame

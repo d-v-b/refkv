@@ -13,14 +13,20 @@ sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "
 
 import json
 import math
+import random
 import struct
 import zlib
 from pathlib import Path
 
 import pytest
+from refkv_reference import virtualize
+from refkv_reference.legacy import file_reader, grid_chunks
+from refkv_reference.nd2 import virtualize_nd2
+from refkv_reference.nd2.lv import Lossy, LVList, Scalar, TooLarge, decode_lv
+from refkv_reference.nd2.source import grid_chunk, grid_cut, json_size, lv_json, variant_json
+from refkv_reference.nd2.virtualize import flatten_experiment
 
 from refkv.zarrify import Rejected
-from refkv_reference import virtualize
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "nd2"
 
@@ -29,7 +35,8 @@ def test_virtualizes_the_synthetic_files():
     cases = {
         "nd2_tz_uint16.nd2": {"sizes": {"t": 3, "z": 4, "c": 2, "y": 6, "x": 5}, "channels": ["DAPI", "GFP"]},
         "nd2_padded_rgb.nd2": {"paddedRows": True, "channels": ["Brightfield R", "Brightfield G", "Brightfield B"]},
-        "nd2_compressed_positions.nd2": {"sizes": {"t": 3, "p": 3, "c": 1, "y": 5, "x": 7}, "compressed": True, "missing": 1},
+        "nd2_compressed_positions.nd2": {"sizes": {"t": 3, "p": 3, "c": 1, "y": 5, "x": 7}, "compressed": True,
+                                         "missing": 1},
         "nd2_float_uncalibrated.nd2": {"dataType": "float32", "channels": ["C0"]},
     }
     for name, expected in cases.items():
@@ -41,27 +48,29 @@ def test_virtualizes_the_synthetic_files():
 
 def test_frame_headers_are_prefetched_with_a_padded_name():
     """Real files pad frame names to 4072 bytes: the prefetch covers the header and a 4 KiB name."""
-    from refkv_reference.legacy import file_reader
-    from refkv_reference.nd2 import virtualize_nd2
-
     for name, frames in (("nd2_tz_uint16.nd2", 12), ("nd2_compressed_positions.nd2", 8)):
         read, size = file_reader(str(FIXTURES / name))
         asked = []
 
-        def reader(offset, length):
+        def reader(offset, length, read=read):
             return read(offset, length)
 
         reader.prefetch = asked.extend
         url = f"https://data.test/{name}"
         assert virtualize_nd2(url, reader, size) == virtualize_nd2(url, read, size), name
-        assert len(asked) == frames and all(n == 16 + 4096 for _, n in asked), name
+        assert len(asked) == frames, name
+        assert all(n == 16 + 4096 for _, n in asked), name
 
 
 def test_padded_rows_become_one_range_per_row():
     _, out = virtualize(str(FIXTURES / "nd2_padded_rgb.nd2"), url="https://data.test/x.nd2")
     rows = out.refs["0/0/c/0/1/0/0"]
-    assert len(rows) == 4 and rows[0][1] == 39 and rows[1][0] - rows[0][0] == 40
-    assert rows == [(rows[0][0] + 40 * r, 39) for r in range(4)] and rows[-1] == rows[3] and rows[1:3] == list(rows)[1:3]
+    assert len(rows) == 4
+    assert rows[0][1] == 39
+    assert rows[1][0] - rows[0][0] == 40
+    assert rows == [(rows[0][0] + 40 * r, 39) for r in range(4)]
+    assert rows[-1] == rows[3]
+    assert rows[1:3] == list(rows)[1:3]
 
 
 def test_more_than_2_16_positions_are_rejected():
@@ -82,7 +91,7 @@ def test_the_profile_chunks_share_a_record_budget():
         virtualize(str(FIXTURES / "nd2_reject_profile_records.nd2"), url="https://data.test/x")
 
 
-@pytest.mark.parametrize("name,message", [
+@pytest.mark.parametrize(("name", "message"), [
     ("nd2_reject_lossy.nd2", "lossy"),
     ("nd2_reject_tiled.nd2", "tiled"),
     ("nd2_reject_loop_type.nd2", "loop type 7"),
@@ -101,11 +110,10 @@ def test_rejects(name, message):
 
 def test_variant_json():
     """An XML variant document as JSON (spec/zarrify/nd2.md §5)."""
-    from refkv_reference.nd2.source import variant_json
-
     doc = (b'<?xml version="1.0"?><variant version="1.0"><a runtype="CLxListVariant">'
            b'<i runtype="lx_int32" value="-7"/><u runtype="lx_uint64" value="18446744073709551615"/>'
-           b'<d runtype="double" value="2.5"/><b runtype="bool" value="true"/><s runtype="CLxStringW" value="x &amp; y"/>'
+           b'<d runtype="double" value="2.5"/><b runtype="bool" value="true"/>'
+           b'<s runtype="CLxStringW" value="x &amp; y"/>'
            b'<bad runtype="lx_int32" value="7.5"/><e runtype="CLxListVariant"></e></a></variant>')
     assert variant_json(doc) == {"a": {"i": -7, "u": {"int": "18446744073709551615"}, "d": 2.5, "b": True, "s": "x & y",
                                        "bad": "7.5", "e": {}}}
@@ -133,7 +141,8 @@ def test_every_chunk_is_in_the_hierarchy():
     assert {k: (a["data_type"], a["shape"]) for k, a in arrays.items()} == {
         "CustomData/AcqTimesCache": ("float64", [2, 3]), "CustomData/X": ("float64", [2, 3]),
         "CustomData/PFS_OFFSET": ("int32", [2, 3]), "ImageDataSeq": ("float64", [2, 3]),
-        "CustomData/Y": ("uint8", [8]), "CustomData/Blob": ("uint8", [37]), "CustomDataSeq/STREAM_0": ("uint8", [1, 16])}
+        "CustomData/Y": ("uint8", [8]), "CustomData/Blob": ("uint8", [37]),
+        "CustomDataSeq/STREAM_0": ("uint8", [1, 16])}
     # The z loop flips, so streams are copies in the flipped order: frame f = t * 3 + z at [t, 2 - z].
     times = struct.unpack("<6d", out.bytes_entries["vzip_source/CustomData/AcqTimesCache/c/0/0"])
     assert times == (200.0, 100.0, 0.0, 500.0, 400.0, 300.0)
@@ -143,9 +152,6 @@ def test_every_chunk_is_in_the_hierarchy():
 
 def test_a_multi_phase_time_loop_has_a_period_only_when_its_phases_agree():
     """spec/zarrify/nd2.md §3, eType 8."""
-    from refkv_reference.nd2.lv import LVList, Scalar
-    from refkv_reference.nd2.virtualize import flatten_experiment
-
     def phase(n, ms):
         return {"uiCount": Scalar((3, n)), "dPeriod": Scalar((6, ms))}
 
@@ -158,7 +164,8 @@ def _source(name: str):
     """The root's and vzip_source's source metadata, and the arrays of vzip_source, of a fixture."""
     _, out = virtualize(str(FIXTURES / name), url=f"https://data.test/{name}")
     root = json.loads(out.bytes_entries["zarr.json"])["attributes"]["vzip_virtualized"]["nd2"]
-    node = json.loads(out.bytes_entries["vzip_source/zarr.json"])["attributes"].get("vzip_virtualized", {}).get("nd2", {})
+    attributes = json.loads(out.bytes_entries["vzip_source/zarr.json"])["attributes"]
+    node = attributes.get("vzip_virtualized", {}).get("nd2", {})
     arrays = {k[len("vzip_source/"):-len("/zarr.json")]: json.loads(v) for k, v in out.bytes_entries.items()
               if k.startswith("vzip_source/") and k.endswith("/zarr.json") and json.loads(v)["node_type"] == "array"}
     return out, root, node, arrays
@@ -189,11 +196,13 @@ def test_source_metadata_keeps_every_value():
     assert control["Ref"] == "A&#" + "9" * 5000 + ";"
     assert control["Long"] == {"int": "-" + "7" * 30}
     # The declared stream is an array, not decoded; the tag whose Type is an element declares nothing.
-    assert "CustomData|S!" not in chunks and arrays["CustomData/S"]["data_type"] == "int32"
+    assert "CustomData|S!" not in chunks
+    assert arrays["CustomData/S"]["data_type"] == "int32"
     assert "CustomData/T" not in arrays
     assert list(node["chunks"]) == ["ImageCalibrationLV|0!"]
     # An XML element at depth 101 keeps its document from decoding; at depth 100 it does not.
-    assert "CustomDataVar|DeepEnoughV1_0!" in chunks and "CustomDataVar|DeepV1_0!" not in chunks
+    assert "CustomDataVar|DeepEnoughV1_0!" in chunks
+    assert "CustomDataVar|DeepV1_0!" not in chunks
     assert arrays["CustomDataVar/DeepV1_0"]["data_type"] == "uint8"
     trailing = out.bytes_entries["vzip_source/ImageDataSeq.trailing/offsets/c/0"]
     assert struct.unpack("<4q", trailing) == (0, 0, 5, 8)
@@ -220,22 +229,21 @@ def test_source_metadata_keeps_every_chunk():
 
 def test_a_chunk_over_16_kib_of_json_is_on_vzip_source():
     """The size is that of JSON.stringify's text, in UTF-8 (spec/zarrify/nd2.md §5.1)."""
-    from refkv_reference.nd2.source import json_size
-
     cases = {0.1: 3, 1e-7: 4, 1e21: 5, 123456789.125: 13, 5e-324: 6, -2.5e-300: 9, 2.0: 1, 1e16: 17,
              1.5e-6: 9, 1e-6: 8, 123e20: 8, -0.0: 1, 1e-5: 7, 123.456e-10: 10, 1.7976931348623157e308: 23}
     assert {v: json_size(v) for v in cases} == cases
     assert json_size('é\n\t"\\\x01\x7f 😀') == 26
     assert json_size({"a": [1, 2.5, True, None, {"\0x": "y"}]}) == 39
     _, root, node, _ = _source("nd2_source_json_size_tagged.nd2")
-    assert "AtLimitLV!" in root["chunks"] and list(node["chunks"]) == ["OverLimitLV!"]
+    assert "AtLimitLV!" in root["chunks"]
+    assert list(node["chunks"]) == ["OverLimitLV!"]
 
 
 def test_values_json_cannot_hold_are_tags():
     """Integers beyond 2^53 - 1 and non-finite binary64s are tags, and an object
     that would read as a tag is pairs; integer-like member names keep their order
     (spec/zarrify/nd2.md §5.1, §5.2)."""
-    out, root, node, arrays = _source("nd2_source_tags.nd2")
+    _out, root, node, arrays = _source("nd2_source_tags.nd2")
     chunks = root["chunks"]
     assert chunks["ImageTextInfoLV!"] == {"SLxTags": {
         "big": {"int": "18446744073709551615"}, "neg": {"int": "-9007199254740992"}, "safe": 2**53 - 1,
@@ -248,7 +256,8 @@ def test_values_json_cannot_hold_are_tags():
     # The first declaration of S, under Tag_b, is before the one under "5".
     assert arrays["CustomData/S"]["data_type"] == "int32"
     # ImageMetadataSeqLV|00! is picture metadata of frame 0, at the root.
-    assert "ImageMetadataSeqLV|00!" in chunks and list(node["chunks"]) == ["ImageMetadataSeqLV|01!"]
+    assert "ImageMetadataSeqLV|00!" in chunks
+    assert list(node["chunks"]) == ["ImageMetadataSeqLV|01!"]
 
 
 def test_custom_data_decodes_when_its_json_keeps_every_byte():
@@ -264,7 +273,7 @@ def test_custom_data_decodes_when_its_json_keeps_every_byte():
     assert root["chunks"]["ImageLossyLV!"] == {"a": True}
 
 
-@pytest.mark.parametrize("name,data", [
+@pytest.mark.parametrize(("name", "data"), [
     ("BoolByte", b"\x01\x02a\0\0\0\x05"),
     ("EmptyNul", None),
     ("AfterNul", b"\x03\x03a\0\0\0b\0\x01\0\0\0"),
@@ -276,7 +285,8 @@ def test_custom_data_decodes_when_its_json_keeps_every_byte():
 ])
 def test_lossy_custom_data_is_bytes(name, data):
     out, root, _, arrays = _source("nd2_source_tags.nd2")
-    assert f"CustomData|{name}!" not in root["chunks"] and arrays[f"CustomData/{name}"]["data_type"] == "uint8"
+    assert f"CustomData|{name}!" not in root["chunks"]
+    assert arrays[f"CustomData/{name}"]["data_type"] == "uint8"
     if data is not None:
         assert _bytes(out, f"CustomData/{name}") == data
 
@@ -289,21 +299,24 @@ def test_sparse_frames_and_families_are_bounded():
     times = arrays["ImageDataSeq"]
     # Copied values: chunks of at most 64 KiB, cut as contiguous values with that limit.
     assert (times["shape"], times["chunk_grid"]["configuration"]["chunk_shape"]) == ([3_000_000], [8043])
-    assert [k for k in out.bytes_entries if k.startswith("vzip_source/ImageDataSeq/c/")] == ["vzip_source/ImageDataSeq/c/0"]
+    assert [k for k in out.bytes_entries
+            if k.startswith("vzip_source/ImageDataSeq/c/")] == ["vzip_source/ImageDataSeq/c/0"]
     chunk = out.bytes_entries["vzip_source/ImageDataSeq/c/0"]
     # Frames 0, 1 and 2000 have their timestamps (1.5); frame 2 is missing (NaN).
-    values = struct.unpack_from("<2d", chunk) + struct.unpack_from("<d", chunk, 8 * 2000) + struct.unpack_from("<d", chunk, 16)
-    assert len(chunk) == 8 * 8043 and values[:3] == (1.5, 1.5, 1.5) and math.isnan(values[3])
+    values = (struct.unpack_from("<2d", chunk) + struct.unpack_from("<d", chunk, 8 * 2000)
+              + struct.unpack_from("<d", chunk, 16))
+    assert len(chunk) == 8 * 8043
+    assert values[:3] == (1.5, 1.5, 1.5)
+    assert math.isnan(values[3])
     assert node["other"] == ["ImageDataSeq|2000!", "ImageDataSeq|3003000!", "CustomDataSeq|x|5000!"]
     assert _bytes(out, "other/0") == b"T2000"
-    assert arrays["ImageDataSeq.beyond"]["shape"][0] == 2 and arrays["CustomDataSeq/x"]["shape"] == [1, 1]
+    assert arrays["ImageDataSeq.beyond"]["shape"][0] == 2
+    assert arrays["CustomDataSeq/x"]["shape"] == [1, 1]
     assert arrays["ImageDataSeq.trailing"]["shape"] == [1, 2]
 
 
 def test_the_root_keeps_at_most_64_kib_of_chunks():
     """spec/zarrify/nd2.md §5.1: the largest move first, of equal sizes the first in map order."""
-    from refkv_reference.nd2.source import json_size
-
     _, root, node, _ = _source("nd2_source_root_budget.nd2")
     assert list(node["chunks"]) == ["BLV!"]
     assert list(root["chunks"]) == ["ImageAttributesLV!", "ALV!", "CLV!", "DLV!", "ELV!"]
@@ -314,9 +327,7 @@ def test_the_node_keeps_at_most_64_kib_of_chunks():
     """spec/zarrify/nd2.md §5.1: vzip_source's chunks in map order while they
     fit (a later, smaller one too); byte arrays as JSON arrays; names that are
     array indices make pairs; -0 is a tag, guessed, named and in XML."""
-    from refkv_reference.nd2.source import json_size
-
-    out, root, node, arrays = _source("nd2_source_node_budget.nd2")
+    _out, root, node, _arrays = _source("nd2_source_node_budget.nd2")
     assert list(node["chunks"]) == ["ImageMetadataSeqLV|1!", "ImageMetadataSeqLV|2!", "ImageMetadataSeqLV|4!"]
     assert json_size(node["chunks"]) <= 65536
     assert root["chunks"]["BytesLV!"] == {"b": list(range(100))}
@@ -341,9 +352,7 @@ def test_a_chunk_that_does_not_fit_the_node_is_bytes():
 def test_other_and_empty_past_the_node_budget_are_arrays():
     """spec/zarrify/nd2.md §5.4: each list over what is left of vzip_source's
     64 KiB is the path of an array holding its JSON text."""
-    from refkv_reference.nd2.source import json_size
-
-    out, _, node, arrays = _source("nd2_source_names_spill.nd2")
+    out, _, node, _arrays = _source("nd2_source_names_spill.nd2")
     assert node == {"other": "other/names", "empty": "other/empty"}
     assert json.loads(_bytes(out, "other/names")) == [f"CustomData|a/{i}!" for i in range(4000)]
     assert json.loads(_bytes(out, "other/empty")) == [f"Empty|{i}!" for i in range(6000)]
@@ -355,19 +364,19 @@ def test_a_failed_decode_is_charged():
     """Chunks that inflate and are not lossless spend the budget as if they
     decoded; the one that inflates past what is left spends the rest
     (spec/zarrify/nd2.md §5.1)."""
-    out, root, _, arrays = _source("nd2_source_charged.nd2")
+    _out, root, _, arrays = _source("nd2_source_charged.nd2")
     assert list(root["chunks"]) == ["ImageAttributesLV!"]
     assert arrays["CustomData/Ok"]["data_type"] == "uint8"
 
 
 def test_an_invalid_stream_is_charged_the_most_it_could_inflate_to():
     """1032 bytes per byte of the chunk, capped at what is left (spec/zarrify/nd2.md §5.1)."""
-    out, root, _, arrays = _source("nd2_source_charged_invalid.nd2")
+    _out, root, _, arrays = _source("nd2_source_charged_invalid.nd2")
     assert list(root["chunks"]) == ["ImageAttributesLV!"]
     assert arrays["CustomData/Ok"]["data_type"] == "uint8"
 
 
-@pytest.mark.parametrize("name,chunk_shape,keys,value", [
+@pytest.mark.parametrize(("name", "chunk_shape", "keys", "value"), [
     # dense: the cut at 64 KiB
     ("nd2_streams.nd2", [2, 3], ["0/0"], None),
     # a placed frame per time point of a [40, 2^21] grid: 40 chunks of 64 KiB are
@@ -395,27 +404,24 @@ def test_a_declared_tag_over_16_kib_is_its_index():
     """spec/zarrify/nd2.md §5.2: a member of at most 16384 bytes of JSON is
     kept; a larger one is its index among CustomTagDescription_v1.0's members."""
     _, _, _, arrays = _source("nd2_source_tag_index.nd2")
-    tag = lambda path: arrays[path]["attributes"]["vzip_virtualized"]["nd2"]
+    def tag(path):
+        return arrays[path]["attributes"]["vzip_virtualized"]["nd2"]
     assert tag("CustomData/Small") == {"tag": {"ID": "Small", "Type": 3, "Desc": "small"}}
     assert tag("CustomData/Big") == {"tag_index": 2}
 
 
 def test_path_segments_a_store_cannot_hold_go_to_other():
     """spec/zarrify/nd2.md §5.4: zarr.json, .zarray, .zgroup and U+0000."""
-    out, _, node, arrays = _source("nd2_source_document_names.nd2")
+    out, _, node, _arrays = _source("nd2_source_document_names.nd2")
     assert node["other"] == ["zarr.json!", "Foo|zarr.json!", "Foo|.zarray!", ".zgroup|x!", "Foo\0Baz!"]
     assert _bytes(out, "other/4") == b"\x01\x02\x03"
-    assert _bytes(out, "Foo/Bar") == b"Foo|Bar!" and _bytes(out, "zarr.json~") == b"zarr.json~!"
+    assert _bytes(out, "Foo/Bar") == b"Foo|Bar!"
+    assert _bytes(out, "zarr.json~") == b"zarr.json~!"
 
 
 def test_grid_cut_is_the_cut_of_contiguous_values():
     """source.grid_cut gives the chunk shape of common.grid_chunks, with each chunk
     limit (spec/conventions.md §7), on chosen and on random shapes."""
-    import random
-
-    from refkv_reference.legacy import grid_chunks
-    from refkv_reference.nd2.source import grid_chunk, grid_cut
-
     cases = [([1], 8), ([5, 7], 4), ([3_000_000], 8), ([2_097_153], 8), ([4096, 1024], 8), ([3, 5_000_000], 4),
              ([1000, 3, 7000], 8), ([2**21 + 1, 3], 8), ([65537, 257], 8), ([4195, 1000], 8), ([40, 2**21], 8)]
     rng = random.Random(3)
@@ -429,11 +435,12 @@ def test_grid_cut_is_the_cut_of_contiguous_values():
             a, c = grid_cut(shape, item, limit)
             if math.prod(shape[:a]) > 2**16:
                 continue  # too many chunks for grid_chunks to list
-            expected, chunks = grid_chunks(0, shape, item, lambda o, n: bytes(n), limit=limit)
+            expected, chunks = grid_chunks(0, shape, item, lambda _o, n: bytes(n), limit=limit)
             assert [1] * a + [c] + shape[a + 1:] == expected, (shape, item, limit)
             # The last grid index is in the last chunk, at its last element within the array.
             key, i, m = grid_chunk(shape, a, c, math.prod(shape) - 1)
-            assert key == max(chunks) and i == m - 1, shape
+            assert key == max(chunks), shape
+            assert i == m - 1, shape
 
 
 def _level(name: bytes, records: list[bytes], table: bytes | None = None) -> bytes:
@@ -447,11 +454,6 @@ def _level(name: bytes, records: list[bytes], table: bytes | None = None) -> byt
 def test_lv_exact_decoding():
     """decode_lv with `exact`: lossless data decodes as without it, with zero or
     name-ordered offset tables, k = 0 empty names, and compression."""
-    import zlib
-
-    from refkv_reference.nd2.lv import decode_lv
-    from refkv_reference.nd2.source import lv_json
-
     b_rec, a_rec = b"\x03\x02b\0\0\0\x01\0\0\0", b"\x03\x02a\0\0\0\x02\0\0\0"
     head = 2 + 4 + 12  # level "t"
     data = (b"\x01\x02a\0\0\0\x01" + b"\x06\x02n\0\0\0" + struct.pack("<Q", 0x7FF8000000000000)
@@ -464,20 +466,18 @@ def test_lv_exact_decoding():
     assert lv_json(decode_lv(zipped, exact=True)) == expected
     # A byte array is one value, a JSON array of its bytes; the inflated size is reported.
     inflated: list[int] = []
-    assert lv_json(decode_lv(b"\x4c\x00" + bytes(10) + zlib.compress(b"\x09\x02b\0\0\0" + struct.pack("<Q", 3) + b"\1\2\3"),
-                             100, inflated, room=5)) == {"b": [1, 2, 3]}
+    stream = b"\x4c\x00" + bytes(10) + zlib.compress(b"\x09\x02b\0\0\0" + struct.pack("<Q", 3) + b"\1\2\3")
+    assert lv_json(decode_lv(stream, 100, inflated, room=5)) == {"b": [1, 2, 3]}
     assert inflated == [17]
 
 
-@pytest.mark.parametrize("data,limit", [
+@pytest.mark.parametrize(("data", "limit"), [
     (b"\x4c\x00" + bytes(10) + zlib.compress(bytes(1000))[:-3], 10**6),  # truncated
     (b"\x4c\x00" + bytes(10) + zlib.compress(bytes(1000)) + b"x", 10**6),  # bytes after the stream
     (b"\x4c\x00" + bytes(10) + zlib.compress(bytes(1000)), 999),  # past the limit
 ])
 def test_a_stream_that_does_not_inflate_is_charged_the_most_it_could(data, limit):
     """min(limit, 1032 x the data's length) (spec/zarrify/nd2.md §5.1, the budget)."""
-    from refkv_reference.nd2.lv import decode_lv
-
     inflated: list[int] = []
     with pytest.raises(Rejected):
         decode_lv(data, limit, inflated)
@@ -486,15 +486,13 @@ def test_a_stream_that_does_not_inflate_is_charged_the_most_it_could(data, limit
 
 def test_lv_data_past_its_room_is_too_large():
     """1 per record and 1 per byte of a byte array (each at least a byte of JSON)."""
-    from refkv_reference.nd2.lv import TooLarge, decode_lv
-
     data = b"\x09\x02b\0\0\0" + struct.pack("<Q", 3) + b"\1\2\3"
     decode_lv(data, room=4)
     with pytest.raises(TooLarge):
         decode_lv(data, room=3)
 
 
-@pytest.mark.parametrize("data,message", [
+@pytest.mark.parametrize(("data", "message"), [
     (b"\x01\x02a\0\0\0\x02", "bool"),
     (b"\x03\x01\0\0\x01\0\0\0", "k = 0 when empty"),
     (b"\x03\x02a\0b\0\x01\0\0\0", "one NUL"),
@@ -508,8 +506,6 @@ def test_lv_data_past_its_room_is_too_large():
     (b"\x4c\x00" + bytes(10) + __import__("zlib").compress(b"\x01\x02a\0\0\0\x02"), "bool"),
 ])
 def test_lv_exact_decoding_rejects(data, message):
-    from refkv_reference.nd2.lv import Lossy, decode_lv
-
     decode_lv(data)  # it decodes, with a loss
     with pytest.raises(Lossy, match=message):
         decode_lv(data, exact=True)

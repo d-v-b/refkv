@@ -17,11 +17,11 @@ import zipfile
 from functools import partial
 
 import pytest
+from refkv_reference import virtualize
+from refkv_reference.legacy import declare as declare_now
+from refkv_reference.revision import STORES_REVISION
 
 from refkv.zarrify import Rejected
-from refkv_reference.legacy import declare as declare_now
-from refkv_reference import virtualize
-from refkv_reference.revision import STORES_REVISION
 
 # the frozen profile's root records revision 25
 declare = partial(declare_now, revision=STORES_REVISION)
@@ -46,7 +46,8 @@ CASES = {
             "raw_u16": ([10, 7], [10, 4], "uint16", n5(T(2), BIG), None),
             "gzip_i32_padded": ([9, 5, 3], [5, 6, 3], "int32",
                                 n5(T(3), BIG, {"name": "gzip", "configuration": {"level": 6}}), None),
-            "zlib_f64": ([6, 6], [6, 6], "float64", n5(T(2), BIG, {"name": "zlib", "configuration": {"level": 6}}), None),
+            "zlib_f64": ([6, 6], [6, 6], "float64",
+                         n5(T(2), BIG, {"name": "zlib", "configuration": {"level": 6}}), None),
             "zstd_f32": ([5, 9], [6, 9], "float32",
                          n5(T(2), BIG, {"name": "zstd", "configuration": {"level": 3, "checksum": False}}), None),
             "blosc_u8": ([8, 6, 5], [8, 6, 5], "uint8", n5(T(3), ONE, {"name": "blosc", "configuration": {
@@ -60,8 +61,8 @@ CASES = {
                                None),
         },
         {"": None}, ("blosc_i16_bitshuffle/0/0", None)),
-    "n5_root_dataset": ({"arrays": 1, "groups": 0, "chunks": 1}, {"": ([11, 3, 2], [11, 3, 2], "uint16", None, None)}, {},
-                        ("0/0/0", None)),
+    "n5_root_dataset": ({"arrays": 1, "groups": 0, "chunks": 1}, {"": ([11, 3, 2], [11, 3, 2], "uint16", None, None)},
+                        {}, ("0/0/0", None)),
     "n5_hierarchy": (
         {"arrays": 3, "groups": 6, "chunks": 3, "emptyChunks": 1},
         {"a/b/sparse": ([8, 8], [3, 8], "uint16", None, None), "c/d/e": ([3], [4], "float32", None, None),
@@ -147,7 +148,8 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
             assert not {"dimensions", "blockSize", "dataType", "compression", "n5"} & set(kept), (name, path)
         for path, ms in groups.items():
             doc = out.docs[key(path)]
-            assert doc["node_type"] == "group" and "n5" not in doc["attributes"], (name, path)
+            assert doc["node_type"] == "group", (name, path)
+            assert "n5" not in doc["attributes"], (name, path)
             if ms is None:
                 assert "ome" not in doc["attributes"], (name, path)
             else:
@@ -157,7 +159,8 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
                 assert got == ms, (name, path)
         # One source per chunk entry, in key order, each the whole object.
         keys = [k for k, _ in out.chunks]
-        assert keys == sorted(keys) and all(n > 0 for _, n in out.chunks), name
+        assert keys == sorted(keys), name
+        assert all(n > 0 for _, n in out.chunks), name
         assert out.sources == [URL.format(name) + k.removeprefix("vzip_source/objects/").replace(" ", "%20")
                                .replace("é", "%C3%A9") for k in keys]
         assert out.refs() == {k: [(i, 0, n)] for i, (k, n) in enumerate(out.chunks)}
@@ -185,7 +188,8 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     assert out.docs["c/zarr.json"]["attributes"] == declare(
         {}, "n5", None, {"attributes": {"kind": "explicit group"}, "metadata": {"n5": "x"}})
     assert out.docs["a/zarr.json"] == {"zarr_format": 3, "node_type": "group", "attributes": {}}
-    assert "a/b/sparse/0/zarr.json" not in out.docs and "docs/zarr.json" not in out.docs
+    assert "a/b/sparse/0/zarr.json" not in out.docs
+    assert "docs/zarr.json" not in out.docs
     assert [k for k, _ in out.chunks if k.startswith("vzip_source/")] == [
         "vzip_source/objects/a/b/sparse/0/attributes.json", "vzip_source/objects/a/b/sparse/01/0",
         "vzip_source/objects/a/b/sparse/9/9", "vzip_source/objects/c/notes.txt", "vzip_source/objects/docs/README.txt"]
@@ -207,7 +211,8 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     _, out = virtualize(str(FIXTURES / "n5_multiscales_unrecognized"), url=URL.format("x"))
     # A group whose attributes.json already has `ome` is not recognized; that `ome` is copied.
     attrs = out.docs["has_ome/zarr.json"]["attributes"]
-    assert "ome" not in attrs and attrs["vzip_virtualized"]["n5"]["attributes"]["ome"] == {"version": "0.5",
+    assert "ome" not in attrs
+    assert attrs["vzip_virtualized"]["n5"]["attributes"]["ome"] == {"version": "0.5",
                                                                                           "custom": True}
     # A compression's members that its codec does not carry are metadata, as are the version n5 and
     # a compressionType next to a compression; integers beyond 2^53 are kept exact.
@@ -219,7 +224,8 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     assert s("zstd_extra") == {"metadata": {"compression": {"nbWorkers": 2}}}
     assert s("both") == {"metadata": {"n5": "4.0.0", "compressionType": "gzip"}}
     assert s("version_only") == {"metadata": {"n5": "4.0.0"}}
-    assert s("gzip_9") is None and out.docs["layout_only/zarr.json"]["attributes"] == {}
+    assert s("gzip_9") is None
+    assert out.docs["layout_only/zarr.json"]["attributes"] == {}
     archive = tmp_path / "s.vzip"
     out.write(str(archive))
     with zipfile.ZipFile(archive) as z:
@@ -246,7 +252,7 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     assert out.docs["vzip_source/zarr.json"]["attributes"] == declare({}, "n5", None, {"empty": ["e"]})
 
 
-@pytest.mark.parametrize("name,message", [
+@pytest.mark.parametrize(("name", "message"), [
     ("n5_reject_datatype_string", "dataType 'string'"),
     ("n5_reject_datatype_object", "dataType 'object'"),
     ("n5_reject_compression_lz4", "compression 'lz4'"),

@@ -3,14 +3,16 @@ spec/generate_schemas.py."""
 
 SCHEMA = {"anyOf": [{
     "type": "object",
-    "description": "The root's: the byte order, the kind of file, the data type, the header, and what the layout derives from it (spec/zarrify/mrc.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#5-source-metadata>)",
+    "description": "The root's: the byte order, the kind of file, the data type, the header, and what the layout "
+                   "derives from it (spec/zarrify/mrc.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#5-source-metadata>)",
     "properties": {
         "byte_order": {"enum": ["little", "big"]},
         "kind": {"enum": ["image", "image_stack", "volume", "volume_stack"]},
         "data_type": {"enum": ["int8", "uint8", "int16", "float32", "complex64", "uint16", "float16"]},
         "header": {
             "type": "object",
-            "description": "Every header field, by its MRC2014 name, in the standard's order; the extra space as base64, the labels as an array of ten texts",
+            "description": "Every header field, by its MRC2014 name, in the standard's order; the extra space as "
+                           "base64, the labels as an array of ten texts",
             "additionalProperties": {"anyOf": [
                 {"$ref": "#/$defs/headerValue"},
                 {"type": "object", "properties": {"bits": {"type": "string", "pattern": "^[0-9a-f]{8}$"}},
@@ -18,9 +20,12 @@ SCHEMA = {"anyOf": [{
                  "description": "A float's IEEE 754 bits, most significant first: a negative zero, or a NaN "
                                 "other than the canonical one"},
                 {"type": "array", "items": {"anyOf": [{"type": "number"}, {"$ref": "#/$defs/text"},
-                                                      {"type": "object", "properties": {"bits": {"type": "string", "pattern": "^[0-9a-f]{8}$"}},
+                                                      {"type": "object",
+                                                       "properties": {"bits": {"type": "string",
+                                                                               "pattern": "^[0-9a-f]{8}$"}},
                                                        "required": ["bits"], "additionalProperties": False,
-                                                       "description": "A float's IEEE 754 bits, most significant first: a negative zero, or a NaN "
+                                                       "description": "A float's IEEE 754 bits, most significant "
+                                                                      "first: a negative zero, or a NaN "
                                                                       "other than the canonical one"}]}},
             ]},
         },

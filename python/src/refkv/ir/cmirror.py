@@ -11,15 +11,20 @@ from __future__ import annotations
 
 import struct
 import zipfile
+from collections.abc import Callable
+
+from refkv import _core
+from refkv.pb import Concat, Range, decode_source_table
+
+type ReadSource = Callable[[int, int], bytes]
+"""`read_source(offset, length)`: bytes of the archive's source 0."""
 
 
 class Archive:
     """A vzip archive's entries, references resolved: `read_source(offset, length)`
     reads the archive's source 0 (the file the archive describes)."""
 
-    def __init__(self, path: str, read_source) -> None:
-        from refkv.pb import Concat, Range, decode_source_table
-
+    def __init__(self, path: str, read_source: ReadSource) -> None:
         self.z = zipfile.ZipFile(path)
         self.sources = decode_source_table(self.z.read("__vz__/sources"))
         self.read_source = read_source
@@ -51,10 +56,8 @@ class Archive:
             return None
 
 
-def load(archive: Archive):
+def load(archive: Archive) -> _core.Ir:
     """The IR the mirror's table describes, as a Rust IR (for check and leaves)."""
-    from refkv import _core
-
     return _core.Ir.from_archive(archive.get, archive.read_source)
 
 
@@ -62,8 +65,6 @@ def canonical_problem(archive: Archive) -> str | None:
     """What makes the archive's mirror non-canonical (conventions §8.8
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#88-canonical-form>), or None: the
     validator's check, which rebuilds the table from what it loads and the source."""
-    from refkv import _core
-
     return _core.canonical_problem(archive.get, archive.read_source)
 
 
@@ -71,18 +72,17 @@ def view_problem(archive: Archive) -> str | None:
     """Where the archive's view differs from the one its table and source give
     (conventions §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>), or
     None: the validator's check of the view."""
-    from refkv import _core
-
     return _core.view_problem(archive.z.namelist(), archive.get, archive.read_source)
 
 
-def rebuild_from_archive(path: str, read_source, write) -> int:
+def rebuild_from_archive(path: str, read_source: ReadSource, write: Callable[[bytes], object]) -> int:
     """The source, from the archive alone: the table's leaves (checked by the Rust
     checker), read from the archive's source 0. No format code is involved."""
     ir = load(Archive(path, read_source))
     ir.check()
     total = 0
-    for o, n in ir.leaves():
+    for offset, length in ir.leaves():
+        o, n = offset, length
         while n:
             k = min(n, 1 << 24)
             write(read_source(o, k))

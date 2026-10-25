@@ -28,12 +28,14 @@ try:
     from virtualizarr.writers.icechunk import extract_codecs, update_attributes
 except ImportError as e:
     raise missing("virtualizarr", "Converting VirtualiZarr datasets (refkv.convert)", e) from e
-from zarr.storage import MemoryStore  # noqa: E402
+from zarr.abc.store import Store
+from zarr.core.buffer import Buffer
+from zarr.storage import MemoryStore
 
-from refkv.refstore import Summary
+from refkv.refstore import ReferenceStore, Summary
 
 
-def consolidate(store) -> None:
+def consolidate(store: Store) -> None:
     """Write Zarr consolidated metadata into the root zarr.json, so readers
     that know it find every array there instead of listing the archive's
     every key to discover them. It is a zarr-python convention, not part of
@@ -43,7 +45,7 @@ def consolidate(store) -> None:
         zarr.consolidate_metadata(store, zarr_format=3)
 
 
-def _write_loadable(vds: xr.Dataset, loadable: dict, store) -> None:
+def _write_loadable(vds: xr.Dataset, loadable: dict, store: Store) -> None:
     """Write the loadable (non-virtual) variables of `vds` into the zarr `store`
     with xarray's CF encoding, through the class of `vds` itself, so that refkv
     never imports xarray.
@@ -61,7 +63,8 @@ def split_virtual_dataset(
 
     References are (url, offset, length): virtualizarr only has single ranges.
     """
-    mem = MemoryStore()
+    contents: dict[str, Buffer] = {}
+    mem = MemoryStore(contents)
     virtual = {k: v for k, v in vds.variables.items() if isinstance(v.data, ManifestArray)}
     loadable = {k: v for k, v in vds.variables.items() if k not in virtual}
     if loadable:
@@ -90,12 +93,12 @@ def split_virtual_dataset(
         for idx, entry in ma.manifest.iter_refs():
             key = f"{name}/{arr.metadata.encode_chunk_key(idx)}"
             refs[key] = (entry["path"], entry["offset"], entry["length"])
-        for idx, data in ma.manifest._inlined.items():
+        for idx, data in ma.manifest._inlined.items():  # noqa: SLF001 (virtualizarr has no public accessor)
             inlined[f"{name}/{arr.metadata.encode_chunk_key(idx)}"] = bytes(data)
     update_attributes(group, vds.attrs, coords=vds.coords)
     consolidate(mem)
 
-    concrete = {k: v.to_bytes() for k, v in mem._store_dict.items()}
+    concrete = {k: v.to_bytes() for k, v in contents.items()}
     concrete.update(inlined)
     return concrete, refs
 
@@ -139,8 +142,6 @@ def write_vzip(
 
     Raises ValueError if the default reader policy would refuse a source, such as
     an `s3://` URL; `ReferenceStore.save` says how to fix it."""
-    from refkv.refstore import ReferenceStore
-
     return ReferenceStore.from_virtualizarr(vds).save(
         path, mirror_refs=mirror_refs, relative_to=relative_to, page_size=page_size)
 
