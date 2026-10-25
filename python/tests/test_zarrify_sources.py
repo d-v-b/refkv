@@ -82,6 +82,7 @@ CASES = [
     (lambda _p: MrcSource(MRC), [Image(), Dataset()], "mrc", True),
     (lambda _p: MrcSource(MRC), [Image()], "mrc", False),
     (lambda _p: MRC, [Image()], "mrc", False),
+    (lambda _p: MrcSource(MRC), (layout for layout in [Image()]), "mrc", False),  # an iterator, read once
     (lambda p: Zarr2Store(store_url(p, "zarr2/zarr2_hierarchy"), policy=LOOPBACK), None, "zarr2", False),
     (lambda p: Zarr2Store(store_url(p, "ome-zarr/ome_zarr_image_2d"), policy=LOOPBACK), None, "ome-zarr", False),
     (lambda p: OmeZarrStore(store_url(p, "ome-zarr/ome_zarr_image_2d"), policy=LOOPBACK), [Image()], "ome-zarr", False),

@@ -73,6 +73,14 @@ __all__ = ["Dataset", "Image", "Rejected", "Source", "Store", "zarrify", "zarrif
 __all__ += profile_classes.__all__  # the source and store classes, one per profile
 
 
+def _no_store_layouts(layouts: Iterable[Image | Dataset] | None, fmt: str) -> None:
+    """Checks `layouts` for the store profile `fmt`. No store profile has a dataset layout
+    (`DATASET_LAYOUTS`), and a store projection takes none, so one the registry gave would be
+    refused here, not dropped."""
+    if layout_names(layouts, fmt):
+        raise NotImplementedError(f"{fmt}: a store profile writes no dataset layout yet")
+
+
 def _zarrify_store(location: str, url: str | None = None, *, max_objects: int | None = None,
                    checksums: bool = False, workers: int = WORKERS, policy: Policy | None = None,
                    fmt: str | None = None,
@@ -87,13 +95,13 @@ def _zarrify_store(location: str, url: str | None = None, *, max_objects: int | 
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#17-named-inputs-and-layouts>);
     `layouts` the layouts it writes (`refkv.zarrify.sources.layout_names`)."""
     if fmt is not None:
-        layout_names(layouts, fmt)  # before the store is listed
+        _no_store_layouts(layouts, fmt)  # before the store is listed
     store = open_store(location, url, max_objects=max_objects, workers=workers, policy=policy)
     try:
         named = fmt
         if fmt is None:
             fmt = choose_profile(store)
-            layout_names(layouts, fmt)  # a named profile's were checked before the store was listed
+            _no_store_layouts(layouts, fmt)  # a named profile's were checked before the store was listed
         # the core's store formats: N5, a SAFE directory, and Zarr v2, which the core decides is
         # OME-Zarr 0.4's or not (its summary's `format`)
         out = run_store(store, {"ome-zarr": "zarr2"}.get(fmt, fmt))[0]
@@ -163,8 +171,8 @@ def _zarrify(location: str, url: str | None = None, *, checksums: bool = False,
     layouts the output holds (`refkv.zarrify.sources.layout_names`)."""
     if fmt is None and is_store(location):
         return _zarrify_store(location, url, checksums=checksums, workers=workers, policy=policy, layouts=layouts)
-    if fmt is not None:
-        layout_names(layouts, fmt)  # before the file is read
+    # the names, before the file is read when the profile is named (once: `layouts` may be an iterator)
+    names = layout_names(layouts, fmt) if fmt is not None else None
     transport = open_transport(location, policy)
     if fmt is None:
         want = min(552, transport.size)
@@ -173,7 +181,7 @@ def _zarrify(location: str, url: str | None = None, *, checksums: bool = False,
         fmt = ir.sniff(head)
         if fmt is None:
             raise Rejected(NOT_SUPPORTED)
-    names = layout_names(layouts, fmt)
+        names = layout_names(layouts, fmt)
     if fmt == "vsi":
         return _zarrify_vsi(location, url, transport, checksums=checksums, policy=policy, connections=connections)
     found, out, _ = ir.zarrify(location, url, transport=transport, connections=connections, byte_cost=byte_cost,
