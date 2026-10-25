@@ -228,6 +228,25 @@ def test_without_source():
     assert compare.without_source(a) == want == compare.without_source(b)
 
 
+def test_literal_padding():
+    """A NIfTI output's ranges of its zero data source read as literal ranges of their bytes,
+    and the source then drops out of `without_source`, as the frozen reference writes it; a data
+    source of other bytes, and another profile's output, are unchanged."""
+    def out(profile, sources, ranges):
+        root = ("json", {"attributes": {"refkv_zarrified": {"profile": profile}}})
+        return {"sources": sources, "entries": {"zarr.json": root, "0/c/0": ("ranges", ranges)}}
+
+    zeros, other = {"data": "AAAA"}, {"data": "AAE="}
+    padded = out("nifti", ["u", zeros], [[0, 8, 16], [1, 0, 2]])
+    literal = out("nifti", ["u", zeros], [[0, 8, 16], ["data", "AAA="]])
+    assert compare.literal_padding(padded) == literal
+    frozen = out("nifti", ["u"], [[0, 8, 16], ["data", "AAA="]])
+    assert compare.without_source(literal) == compare.without_source(frozen)
+    for kept in (out("nifti", ["u", other], [[0, 8, 16], [1, 0, 2]]),
+                 out("mrc", ["u", zeros], [[0, 8, 16], [1, 0, 2]])):
+        assert compare.literal_padding(kept) == kept
+
+
 def test_mirror_problem_finds_a_view_that_is_not_the_tables(tmp_path):
     """A view whose root document lost a member: the validator's view check flags it."""
     def drop(out):

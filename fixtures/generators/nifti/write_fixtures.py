@@ -290,7 +290,8 @@ def chunks_and_extensions() -> None:
     # 100 channels of 3 time points of a 2 x 2 slice: one chunk across c and t, transposed,
     # and, with over 64 channels, no display windows.
     nifti("nifti_chunk_many_channels", [5, 2, 2, 1, 3, 100], 4, version=2, order=">", cal_min=0.0, cal_max=100.0)
-    # A row of 131073 bytes: 2 chunks of 65537 voxels, the second padded with a literal zero byte.
+    # A row of 131073 bytes: 2 chunks of 65537 voxels, the second padded with a zero byte (a range of the
+    # zero data source).
     nifti("nifti_chunk_edge_literal", [1, 131073], 2, version=2)
     # Over the budget: a binary extension, a long comment and 900 short ones. The long comment
     # and the first short ones fit on the root as text; the others' data is a family.

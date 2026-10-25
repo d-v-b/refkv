@@ -7,7 +7,10 @@ How refkv produces this layout as a reference store, and which files it
 accepts, is the NIfTI profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` ·
-Schema: [schema.json](nifti/schema.json)
+Schema: [schema.json](nifti/schema.json) · Changed 2026-10-25: an edge chunk's zero padding
+is a range of the output's one zero data source, not a literal range of each reference, so that
+the archive holds the zeros once ([§7.2](#72-chunks)); no chunk's values change, nor which
+chunks are copied
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -507,10 +510,15 @@ the chunk of `V` with those coords along the same axes, and is referenced
 as [conventions §7](../conventions.md#7-source-values-as-arrays)
 references a chunk of contiguous values (with the chunk limit 2^17 bytes):
 one range of source 0, the chunk's bytes in the file, followed for an edge
-chunk by its zero padding as a literal range; when that reference does not
-fit in a payload ([§1.2](../zarrify.md#12-input)), the chunk is copied, with its padding. The ranges
-lie within the file (by the data size check). The output has no data
-sources: its source table is source 0 alone.
+chunk by its zero padding. Where [conventions §7](../conventions.md#7-source-values-as-arrays) makes that padding a literal
+range, it is instead the range `(1, 0, p)` of the output's **zero data
+source** ([§1.2](../zarrify.md#12-input)), `p` the padding's bytes: the
+source holds as many zero bytes as the most padding any reference of the
+output holds. Where [conventions §7](../conventions.md#7-source-values-as-arrays) copies the chunk (when its reference, with
+the padding as a literal range, would not fit in a payload), the chunk is
+copied, with its padding. The ranges lie within the file (by the data size
+check). The output's source table is source 0, followed by the zero data
+source when a reference is padded; it has no other data source.
 
 `refkv_source` is the IR mirror ([the convention §5.2](#52-the-ir-mirror)). The
 archive has no other entries than the root's and the array's `zarr.json`, the

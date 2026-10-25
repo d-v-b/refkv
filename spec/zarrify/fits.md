@@ -8,7 +8,10 @@ which files it accepts, is the FITS profile, [Part 2](#part-2-the-profile)
 below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` ·
-Schema: [schema.json](fits/schema.json)
+Schema: [schema.json](fits/schema.json) · Changed 2026-10-25: an edge chunk's zero padding
+is a range of the output's one zero data source, not a literal range of each reference, so that
+the archive holds the zeros once ([§9.4](#94-chunks)); no chunk's values change, nor which
+chunks are copied
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -457,11 +460,17 @@ at that offset. Every chunk of the array is present. The chunk with coords
 `c`, at `<i>/c/<coords>`, is the chunk of `V` with those coords, referenced
 as [conventions §7](../conventions.md#7-source-values-as-arrays) references
 a chunk of contiguous values with the chunk limit `2^20`: one range of
-source 0, followed for an edge chunk by its zero padding as a literal
-range; when that reference does not fit in a payload
-([spec/zarrify.md §1.2](../zarrify.md#12-input)), the chunk is copied,
-with its padding. A table's `rows` are cut the same way, with an element
-of one byte and rows as the array's rows; its `heap` as bytes.
+source 0, followed for an edge chunk by its zero padding. Where
+[conventions §7](../conventions.md#7-source-values-as-arrays) makes that padding a literal range, it is instead the range
+`(1, 0, p)` of the output's **zero data source**
+([spec/zarrify.md §1.2](../zarrify.md#12-input)), `p` the padding's
+bytes. Where [conventions §7](../conventions.md#7-source-values-as-arrays) copies the chunk (when its reference, with the
+padding as a literal range, would not fit in a payload), the chunk is
+copied, with its padding. A table's `rows` are cut the same way, with an
+element of one byte and rows as the array's rows; its `heap` as bytes,
+the last chunk's padding a range of the zero data source too. The zero data
+source holds as many zero bytes as the most padding any reference of the
+output holds, over all its arrays.
 
 A tile-compressed image's chunk ([the convention §3.3](#33-tile-compressed-images))
 is referenced as its prefix, a literal range, followed by its tiles'
@@ -469,8 +478,9 @@ streams: one range of source 0 from the first present tile's start to the
 last's end when every present tile starts where the one before it ends
 (as `fpack` and astropy write them), else one range per present tile, in
 storage order. The prefix is built from the main table's rows. The ranges
-lie within the file (by the data size check). The output has no data
-sources: its source table is source 0 alone. `refkv_source` is the IR
+lie within the file (by the data size check). The output's source table
+is source 0, followed by the zero data source when a reference is padded;
+it has no other data source. `refkv_source` is the IR
 mirror ([the convention §6](#6-the-ir-mirror)). The archive has no other
 entries than the root's and the nodes' `zarr.json`, the arrays' chunks and
 the mirror's.

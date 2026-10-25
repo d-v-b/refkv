@@ -7,7 +7,10 @@ How refkv produces this layout as a reference store, and which files it
 accepts, is the MRC profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` ·
-Schema: [schema.json](mrc/schema.json) · Changed 2026-10-25: a zarrifier may leave the dataset
+Schema: [schema.json](mrc/schema.json) · Changed 2026-10-25: an edge chunk's zero padding is
+a range of the output's one zero data source, not a literal range of each reference, so that
+the archive holds the zeros once ([§8.2](#82-chunks)); no chunk's values change, nor which
+chunks are copied · Changed 2026-10-25: a zarrifier may leave the dataset
 layout out ([§1](#1-declaration), [spec/zarrify.md §1.7](../zarrify.md#17-named-inputs-and-layouts)).
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
@@ -429,10 +432,15 @@ Every chunk of the convention's array is present. The chunk with coords
 with those coords, and is referenced as [conventions §7](../conventions.md#7-source-values-as-arrays)
 references a chunk of contiguous values (with the chunk limit 2^20 bytes):
 one range of source 0, the chunk's bytes in the file, followed for an edge
-chunk by its zero padding as a literal range; when that reference does not
-fit in a payload ([§1.2](../zarrify.md#12-input)), the chunk is copied, with its padding. The ranges
-lie within the file (by the data size check). The output has no data
-sources: its source table is source 0 alone.
+chunk by its zero padding. Where [conventions §7](../conventions.md#7-source-values-as-arrays) makes that padding a literal
+range, it is instead the range `(1, 0, p)` of the output's **zero data
+source** ([§1.2](../zarrify.md#12-input)), `p` the padding's bytes: the
+source holds as many zero bytes as the most padding any reference of the
+output holds. Where [conventions §7](../conventions.md#7-source-values-as-arrays) copies the chunk (when its reference, with
+the padding as a literal range, would not fit in a payload), the chunk is
+copied, with its padding. The ranges lie within the file (by the data size
+check). The output's source table is source 0, followed by the zero data
+source when a reference is padded; it has no other data source.
 
 `refkv_source` is the IR mirror ([the convention §5.2](#52-the-ir-mirror)). The
 dataset layout ([mrc-dataset.md](mrc-dataset.md)) is written from the same
