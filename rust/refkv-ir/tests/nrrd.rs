@@ -73,15 +73,21 @@ fn doc(out: &Out, k: &str) -> J {
     serde_json::from_slice(&entry(out)(k).unwrap_or_else(|| panic!("no {k}"))).unwrap()
 }
 
-/// Every object is described in place, its leaves rebuild it from its own bytes, the mirror is
-/// canonical and its view is the one the table and the files give, and every reference lies
-/// within a file of the input.
+/// Every object the chunks reference is described in place, and a detached header's file is held
+/// (no chunk references it); the leaves rebuild every file from its own bytes, the mirror is
+/// canonical and its view is the one the table and the files give, every reference lies within a
+/// file of the input, and every file but a held one is a source of the output.
 fn check_input(path: &Path, files: &BTreeMap<String, Vec<u8>>, out: &Out, ir: &Ir) {
     check::check(ir).unwrap_or_else(|m| panic!("{path:?}: {m}"));
     let src = ir.sources();
     assert_eq!(src.objects.len(), files.len(), "{path:?}");
+    let referenced: std::collections::HashSet<&str> = out.refs.iter().flat_map(|r| &r.1)
+        .filter_map(|p| if let Part::Obj(k, _, _) = p { Some(k.as_str()) } else { None }).collect();
     for &o in &src.objects {
-        assert!(ir.kind[o as usize] == OBJECT && ir.in_place(o), "{path:?}: {} is not described in place", ir.key(o));
+        let key = ir.key(o);
+        let detached_header = key.ends_with(".nhdr");
+        assert!(ir.kind[o as usize] == OBJECT && ir.in_place(o) != detached_header, "{path:?}: {key} is held or not as it should be");
+        assert_eq!(referenced.contains(key.as_str()), !detached_header, "{path:?}: {key}");
     }
     let mut rebuilt: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     for (mut v, mut n) in check::leaves(ir).unwrap() {
@@ -280,6 +286,23 @@ fn about_names_no_field_type_encoding_or_space() {
         assert_eq!(run_files("a.nrrd", input(lines)).err().as_deref(), Some(message), "{lines}");
     }
     assert!(run_files("a.nrrd", input(fields)).is_ok());
+}
+
+/// A detached header's file over 64 KiB, which its first read does not hold whole, is read whole
+/// again, and held.
+#[test]
+fn a_long_detached_header_is_read_whole_and_held() {
+    let mut header = b"NRRD0004\ntype: uchar\ndimension: 2\nsizes: 3 2\nencoding: raw\ndata file: d.raw\n".to_vec();
+    while header.len() <= 1 << 16 {
+        header.extend_from_slice(b"# a long comment, as some writers' provenance is\n");
+    }
+    header.extend_from_slice(b"\n");
+    let files = BTreeMap::from([("h.nhdr".to_string(), header.clone()), ("d.raw".to_string(), vec![7; 6])]);
+    let (out, ir, files) = run_files("h.nhdr", files).unwrap();
+    check_input(Path::new("h.nhdr"), &files, &out, &ir);
+    let h = ir.sources().objects.iter().copied().find(|&o| ir.key(o) == "h.nhdr").unwrap();
+    assert!(!ir.in_place(h));
+    assert_eq!(out.refs, vec![("0/c/0/0".to_string(), vec![Part::Obj("d.raw".into(), 0, 6)])]);
 }
 
 #[test]

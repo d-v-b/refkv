@@ -1,13 +1,15 @@
 //! A sans-IO parser of NRRD inputs (spec/zarrify/nrrd.md, the profile's §8
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#8-nrrd-profile>) as a store run
 //! ([`crate::store::StoreParser`]) whose objects are the header file and, for a detached header,
-//! the data file its `data file` field names, probed by key; each is described in place
-//! (conventions §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>).
+//! the data file its `data file` field names, probed by key (conventions §8.9
+//! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>). The files the chunks
+//! reference are described in place; a detached header's file, which no chunk references, is held.
 //!
 //! **Batches.** The header file's first 64 KiB, then as much again each time, until a blank
 //! line ends the header or the file ends; for a detached header, the probe of its data file;
 //! the 64 KiB windows that hold the lines `line skip` passes over; the first bytes of a gzip
-//! stream; and the edge chunks the projection copies. The schema (`schema/nrrd.json`) is checked
+//! stream; and the edge chunks the projection copies, and a detached header's file whole when its
+//! first read did not hold it all. The schema (`schema/nrrd.json`) is checked
 //! as the profile meets each role. The IR is emitted at the end, from what was read.
 
 use crate::expr::V;
@@ -714,7 +716,11 @@ impl Nrrd {
         let f = self.fields.clone().ok_or("internal: no fields")?;
         let mut ir = self.ir.take().ok_or("internal: no IR")?;
         let mut claimed: Vec<Vec<(u64, u64)>> = vec![Vec::new(); self.keys.len()];
-        ir.describe_in_place(self.elems[0])?;
+        // an attached header's file is described in place, its data referenced; a detached header's
+        // file, which no chunk references, is held: the archive's mirror keeps its bytes
+        if self.data == 0 {
+            ir.describe_in_place(self.elems[0])?;
+        }
         for (i, &(o, n)) in h.lines.iter().enumerate() {
             ir.value(self.elems[0], "lines/", i as u64, &format!("ascii[{n}]"), 0, (o, n), Some(&self.head[o as usize..(o + n) as usize]))?;
             claimed[0].push((o, n));
@@ -838,6 +844,13 @@ impl Nrrd {
                         }).collect();
                         self.asked.extend(self.copies.iter().map(|&(o, n)| (self.data, o, n)));
                     }
+                    // a detached header file is held (§5.2
+                    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#52-the-ir-mirror>):
+                    // read whole, in one request, when its first read did not hold it all
+                    let size = self.keys[0].1;
+                    if self.data != 0 && size > WINDOW {
+                        self.asked.push((0, 0, size));
+                    }
                     self.phase = Phase::Copies;
                 }
                 Phase::Copies => {
@@ -845,6 +858,7 @@ impl Nrrd {
                         let b = self.got.remove(&(self.data, o, n)).ok_or("internal: a copied chunk was not read")?;
                         self.copied.push((o, b));
                     }
+                    self.got.remove(&(0, 0, self.keys[0].1)); // the held header, which the run keeps
                     self.phase = Phase::Done;
                     return Ok(StoreStep::Done);
                 }

@@ -12,7 +12,7 @@ scales and translation (§4.3
 Every field and key/value pair pynrrd reads must be on the root, the same text or the same
 numbers (pynrrd strips a pair's spaces and leaves its escapes, which the NRRD format keeps and
 reads). Every file of the input must be rebuilt from the archive's IR mirror (the files are
-described in place, spec/zarrify/nrrd.md §5.2
+described in place, but a detached header's, which is held: spec/zarrify/nrrd.md §5.2
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#52-the-ir-mirror>).
 `nrrd_reject_*` inputs must be rejected.
 
@@ -185,8 +185,12 @@ def problems_of(path: Path, out: Path) -> list[str]:
         rebuilt = _core.rebuild_store(lambda k: z.read(k) if k in keys else None)
     for key, size, held in rebuilt:
         f = path.parent / key
-        if held is not None or not f.is_file() or f.stat().st_size != size:
-            problems.append(f"{key}: not described in place as a {size}-byte file")
+        if not f.is_file() or f.stat().st_size != size:
+            problems.append(f"{key}: not a {size}-byte file of the input")
+        elif key.endswith(".nhdr") and held != f.read_bytes():
+            problems.append(f"{key}: the detached header is not held, byte for byte")
+        elif not key.endswith(".nhdr") and held is not None:
+            problems.append(f"{key}: not described in place")
     return problems
 
 

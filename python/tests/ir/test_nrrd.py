@@ -23,6 +23,7 @@ from refkv.ir.store import StoreIrOutput
 from refkv.policy import Policy
 from refkv.zarrify import Rejected
 from refkv.zarrify import _zarrify as zarrify
+from refkv.zarrify.store import object_url
 
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from proxy import Proxy
@@ -59,8 +60,9 @@ def expected(path: Path, root: zarr.Group) -> np.ndarray:
 @pytest.mark.parametrize("path", INPUTS, ids=lambda p: p.name)
 def test_inputs_match_pynrrd_and_rebuild(path, tmp_path):
     """Every accepted input's array, read back through zarr-python, is pynrrd's (values, data
-    type, axes in the image's order); every file of the input is rebuilt from the mirror alone
-    (the files are described in place: from their own bytes, nothing held)."""
+    type, axes in the image's order); every file of the input is rebuilt from the mirror alone:
+    the files the chunks reference are described in place (from their own bytes, each a source of
+    the archive), and a detached header's file, which no chunk references, is held."""
     out, root = zarrified(path)
     got = ndarray(root.get_array("0")[...])
     want = expected(path, root)
@@ -69,9 +71,15 @@ def test_inputs_match_pynrrd_and_rebuild(path, tmp_path):
     assert np.array_equal(got, want, equal_nan=got.dtype.kind == "f")
     rebuilt = _core.rebuild_store(out.entries.get)
     assert {k for k, _, _ in rebuilt} == set(out.sizes)
+    sources = out.table()[0]
     for key, size, held in rebuilt:
-        assert held is None, key
-        assert size == (path.parent / key).stat().st_size, key
+        data = (path.parent / key).read_bytes()
+        assert size == len(data), key
+        if key.endswith(".nhdr"):
+            assert held == data, key
+        else:
+            assert held is None, key
+            assert object_url(out.url, key) in sources, key
     out.write(str(tmp_path / "a.vzip"))
 
 

@@ -270,8 +270,9 @@ each format's metadata is:
   file as a dataset for xarray under `dataset/`, declared by its own
   convention ([conventions §9](../../spec/conventions.md#9-dataset-layouts)).
 - **NRRD:** the IR mirror on `refkv_source`: the header file, line by line,
-  and the data (in the header file, or in a detached header's data file),
-  each file described in place. The root keeps every field as written,
+  and the data (in the header file, or in a detached header's data file):
+  the files the chunks reference described in place, and a detached
+  header's file held, its bytes in the archive. The root keeps every field as written,
   every key/value pair and comment, and what the layout derives from them
   (the data type, the encoding, each axis's image axis, whether the
   orientation is applied).

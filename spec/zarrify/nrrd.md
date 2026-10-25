@@ -297,9 +297,13 @@ wrote it. The other members are derived from them, so that a reader need not rep
 `refkv_source` is the input's **IR mirror** ([conventions §8](../conventions.md#8-the-ir-mirror)),
 a **store IR** ([conventions §8.9](../conventions.md#89-stores)) whose objects are the files the
 profile read: the header file, at its key, and a detached header's data file, at its key below
-the header's directory. Every object is **described in place**: its leaves partition it, and its
-bytes stay in the file (the table holds none of them). The view, `refkv_source/tree`, shows the
-header's lines; the data and the gaps are not shown.
+the header's directory. Its leaves partition each object. A file the chunks reference (an attached
+header's, which holds the data, and a detached header's data file) is **described in place**: its
+bytes stay in the file, which is a source of the archive ([§8.5](#85-chunks)), and the table holds
+none of them. A detached header's file, which no chunk references and so no source names, is
+**held**: the table holds its bytes (`refkv_source/ir/held`), as a store's documents are held
+([conventions §8.9](../conventions.md#89-stores)), so that the mirror alone rebuilds it. The view,
+`refkv_source/tree`, shows the header's lines; the data and the gaps are not shown.
 
 ### 5.3 Elements
 
@@ -432,7 +436,9 @@ file's key holds no `/`; its URL has no query or fragment.
 
 The header file is read from its start: its first `min(size, 65536)` bytes, then, while the
 bytes read hold no blank line after the magic and do not reach the file's end, as many bytes
-again as are held (each read doubling them), up to 2^24 bytes in all. The header
+again as are held (each read doubling them), up to 2^24 bytes in all. A detached header's file,
+which the mirror holds ([the convention §5.2](#52-the-ir-mirror)), is read whole, in one request:
+by its first read when it is at most 65536 bytes, else again, whole, in the run's last batch. The header
 ([§2](#2-the-header)) is the bytes through the blank line that ends it, or, when none does, the
 whole file. The input is rejected when:
 
@@ -546,8 +552,9 @@ and references the data's file; the output copies no data, but an edge chunk bel
 - **Gzip:** the one chunk, `0/c/0/.../0`, is one range of the data's file: `(D, size − D)`.
 
 The source table is one url source per file some reference uses, its size pinned
-([spec/zarrify.md §1.4](../zarrify.md#14-store-inputs)): the data's file. The output has no data
-sources. `refkv_source` is the IR mirror ([the convention §5.2](#52-the-ir-mirror)). The archive
+([spec/zarrify.md §1.4](../zarrify.md#14-store-inputs)): the data's file, which is the header
+file for an attached header. A detached header's file is no source: the mirror holds it
+([the convention §5.2](#52-the-ir-mirror)). The output has no data sources. `refkv_source` is the IR mirror ([the convention §5.2](#52-the-ir-mirror)). The archive
 has no other entries than the root's and the array's `zarr.json`, the array's chunks, and the
 mirror's.
 
