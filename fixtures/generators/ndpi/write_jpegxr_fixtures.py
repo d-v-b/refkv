@@ -11,6 +11,10 @@ YCbCr with 3 samples, whatever its JPEG XR streams hold.
   Wavelength and ExposureTime, tag 65433, and CaptureMode 17 (from which tifffile, like
   Bio-Formats, takes the levels to be 16-bit grayscale).
 - `ndpi_jpegxr_rgb.ndpi`: a brightfield slide in 24bppRGB: one tiled level and one single strip.
+  Its red samples are the brightest and its blue ones the darkest, so that their order shows.
+- `ndpi_jpegxr_bgr.ndpi`: the same, its streams labeled 24bppBGR, which decodes in R, G, B
+  order too. Level 0 is a single tile: its tile tables are one value in line, whose high bits
+  are its entries' high words (0), so its high tables, of 1s, are not added to them.
 - `edge_reject_ndpi_jpegxr_*.ndpi`, `edge_reject_ndpi_compressions.ndpi`: inputs §3 and §7
   reject.
 
@@ -52,6 +56,14 @@ def image(dtype: str, height: int, width: int, samples: int = 1) -> np.ndarray:
     planes = [base * (1 - 0.25 * s) + rng.normal(0, top * 0.02, base.shape) for s in range(samples)]
     stack = np.stack(planes, axis=-1) if samples > 1 else planes[0]
     return np.clip(stack, 1, top).astype(dtype)
+
+
+def bgr(stream: bytes) -> bytes:
+    """A 24bppRGB JPEG XR file relabeled 24bppBGR: its pixel format GUID's last byte 0C for 0D.
+    The codestream's color is the codec's own, so it decodes to the same pixels."""
+    guid = bytes.fromhex("24c3dd6f034efe4bb1853d77768dc90d")
+    at = stream.index(guid)
+    return stream[: at + 15] + b"\x0c" + stream[at + 16 :]
 
 
 def tiles(pixels: np.ndarray, tile_height: int, tile_width: int) -> list[bytes]:
@@ -131,6 +143,10 @@ def main() -> None:
     tiled(f, tiles(rgb, 32, 48), 90, 60, (32, 48), 20.0)
     strip(f, jxr(rgb[::2, ::2]), 45, 30, 10.0)
     f.write("ndpi_jpegxr_rgb.ndpi")
+    f = Ndpi()
+    tiled(f, [bgr(jxr(rgb[:32, :48]))], 48, 32, (32, 48), 20.0, extra={65324: (LONG, [1]), 65325: (LONG, [1])})
+    strip(f, bgr(jxr(rgb[:16:2, :24:2])), 12, 8, 10.0)
+    f.write("ndpi_jpegxr_bgr.ndpi")
 
     # Rejected.
     f = Ndpi()  # a pixel format the profile does not read (Gray32Float)

@@ -521,7 +521,9 @@ pixel data ([§1.2](../zarrify.md#12-input), **Structure only**).
 **Tiles.** A JPEG XR level's tile `j` is at offset `TileOffsets[j] +
 OffsetHighBytes[j] × 2^32` and is `TileByteCounts[j] + ByteCountHighBytes[j]
 × 2^32` bytes long, each high table counting as 0s when absent. A high table
-that is present MUST have as many values as TileOffsets. (TileOffsets, a LONG
+that is present MUST have as many values as TileOffsets. A table of one value
+in line, of type LONG, already has its high bits from its entry's high word
+(**IFDs** above), so its high table is not added to it. (TileOffsets, a LONG
 array, holds only offsets below 2^32, so Hamamatsu writes the high tables
 with it; in a file of less than 4 GiB they are 0s.) The sums are
 what the layout and the source model's `tiles` use ([the convention

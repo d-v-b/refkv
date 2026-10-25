@@ -143,6 +143,9 @@ JPEGXR_SLIDES = {
                                 {"1/c/0/1/1"}),
     "ndpi_jpegxr_rgb.ndpi": ("uint8", 3, [([3, 60, 90], [3, 32, 48]), ([3, 30, 45], [3, 30, 45])], None, None,
                              set()),
+    # 24bppBGR, decoding in R, G, B order too; level 0 a single tile, in line, whose high tables
+    # (1s) are not added to it
+    "ndpi_jpegxr_bgr.ndpi": ("uint8", 3, [([3, 32, 48], [3, 32, 48]), ([3, 8, 12], [3, 8, 12])], None, None, set()),
 }
 
 
@@ -153,8 +156,9 @@ def test_jpegxr_levels_are_their_streams_pixels(tmp_path):
     format, not the 8-bit YCbCr its tags say; each tile (with its high bytes) or the strip is a
     chunk as it is, one of byte count 0 none; `omero` is R, G, B or the one channel labeled
     with the Fluorescence, the windows the type's range; the root's source metadata is level 0's
-    acquisition tags. Read through zarr, each chunk is its stream as imagecodecs decodes it, and
-    the mirror rebuilds the file."""
+    acquisition tags. Read through zarr, each chunk is its stream as imagecodecs decodes it, an
+    RGB slide's samples in R, G, B order (the fixtures' red is the brightest, blue the darkest),
+    and the mirror rebuilds the file."""
     for name, (data_type, samples, levels, label, own, absent) in JPEGXR_SLIDES.items():
         path = FIXTURES / "ndpi" / name
         data = path.read_bytes()
@@ -174,6 +178,9 @@ def test_jpegxr_levels_are_their_streams_pixels(tmp_path):
             codecs = [c["name"] for c in meta["codecs"]]
             assert codecs == (["transpose", "imagecodecs_jpegxr"] if samples == 3 else ["imagecodecs_jpegxr"]), name
             got = ndarray(g.get_array(str(li))[...])
+            if samples == 3:
+                means = got.reshape(3, -1).mean(axis=1)
+                assert means[0] > means[1] > means[2], (name, li, means)
             down, across = -(-shape[1] // chunk[1]), -(-shape[2] // chunk[2])
             for row in range(down):
                 for col in range(across):

@@ -121,6 +121,13 @@ fn unsigned(t: u16) -> bool {
     matches!(t, 1 | 3 | 4 | 13 | 16 | 18)
 }
 
+/// An NDPI entry whose value is its 4 bytes plus its high word: an in-line LONG or IFD of
+/// count 1 (spec/zarrify/ndpi.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>).
+fn ndpi_high_word(e: &Ent) -> bool {
+    e.inline && e.count == 1 && matches!(e.typ, 4 | 13)
+}
+
 
 fn label(tag: u16) -> String {
     match tag {
@@ -1005,7 +1012,7 @@ impl Tiff {
     fn ints(&self, e: &Ent, first: bool) -> Option<Vec<u64>> {
         let z = type_size(e.typ)?;
         let n = if first { 1.min(e.count) } else { e.count };
-        if self.ndpi && e.inline && e.count == 1 && matches!(e.typ, 4 | 13) {
+        if self.ndpi && ndpi_high_word(e) {
             // an NDPI LONG or IFD of count 1 in line: its 4 bytes plus its high word
             return Some(vec![u32::at(&e.field, 0, true) as u64 + (e.high << 32)]);
         }
@@ -1956,7 +1963,10 @@ impl Tiff {
             // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>)
             let mut highs = String::new();
             if self.ndpi && name == "tiles" {
-                for (t, v) in [(65324u16, &mut offsets), (65325, &mut counts)] {
+                for (t, v, table) in [(65324u16, &mut offsets, &eo), (65325, &mut counts, &ec)] {
+                    if ndpi_high_word(table) {
+                        continue; // its value has its high word
+                    }
                     let Some(e) = f.field(t).filter(|e| unsigned(e.typ)) else { continue };
                     if let Some(h) = self.ints(e, false).filter(|h| h.len() == eo.count as usize) {
                         *v = ndpi::combine(std::mem::take(v), Some(&h));
@@ -2347,24 +2357,28 @@ impl Tiff {
         }
     }
 
-    /// A JPEG XR level's tiles (spec/zarrify/ndpi.md §7
+    /// A JPEG XR level's tiles, of IFD `k` and its values `m` (spec/zarrify/ndpi.md §7
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>): its
-    /// offsets and byte counts, each with its high bytes when they are as many, and whether they
-    /// are; None until TileOffsets and TileByteCounts are read.
-    fn ndpi_tiles(m: &NVals) -> Option<(Vec<u64>, Vec<u64>, bool)> {
+    /// offsets and byte counts, each with its high bytes when they are as many (but a table of
+    /// one in-line LONG, whose value has its entry's high word), and whether they are; None
+    /// until TileOffsets and TileByteCounts are read.
+    fn ndpi_tiles(&self, k: usize, m: &NVals) -> Option<(Vec<u64>, Vec<u64>, bool)> {
         let (o, c) = (m.get(&324)?.ints()?, m.get(&325)?.ints()?);
         let (ho, hc) = (m.get(&65324).and_then(|v| v.ints()), m.get(&65325).and_then(|v| v.ints()));
         let same = ho.is_none_or(|h| h.len() == o.len()) && hc.is_none_or(|h| h.len() == o.len());
         if !same {
             return Some((o.to_vec(), c.to_vec(), false));
         }
+        let f = &self.ifds[k];
+        let own = |t: u16| f.field(t).is_some_and(ndpi_high_word);
+        let (ho, hc) = (ho.filter(|_| !own(324)), hc.filter(|_| !own(325)));
         Some((ndpi::combine(o.to_vec(), ho), ndpi::combine(c.to_vec(), hc), true))
     }
 
     /// A JPEG XR level's first stream: its strip, or its first tile whose byte count is above 0.
-    fn ndpi_first(m: &NVals, tiled: bool) -> Option<(u64, u64)> {
+    fn ndpi_first(&self, k: usize, m: &NVals, tiled: bool) -> Option<(u64, u64)> {
         if tiled {
-            let (o, c, _) = Self::ndpi_tiles(m)?;
+            let (o, c, _) = self.ndpi_tiles(k, m)?;
             o.iter().zip(&c).find(|x| *x.1 > 0).map(|(&o, &c)| (o, c))
         } else {
             Some((Self::nint(m, 273)?, Self::nint(m, 279)?))
@@ -2463,7 +2477,7 @@ impl Tiff {
             let fits = (s0 as u128 + n as u128) <= self.size as u128;
             if Self::nint(&m, 259) == Some(ndpi::JPEGXR) {
                 // a JPEG XR level: its first stream's first bytes, for its header
-                if let Some((o, c)) = Self::ndpi_first(&m, tiled_of(k, &m)).filter(|&(o, c)| c > 0 && self.within(o, c)) {
+                if let Some((o, c)) = self.ndpi_first(k, &m, tiled_of(k, &m)).filter(|&(o, c)| c > 0 && self.within(o, c)) {
                     if let Err(r) = self.ndpi_stream(o, c) {
                         need.push(r);
                     }
@@ -2583,7 +2597,7 @@ impl Tiff {
                 // a JPEG XR level: its tiles, or its strip, each a chunk
                 let (cw, ch) = if tiled {
                     let (tw, th) = (Self::nint(m, 322).unwrap_or(1), Self::nint(m, 323).unwrap_or(1));
-                    let (offsets, counts, high) = Self::ndpi_tiles(m).ok_or_else(|| Stop::Reject("internal: an NDPI level's tile tables were not read".into()))?;
+                    let (offsets, counts, high) = self.ndpi_tiles(k, m).ok_or_else(|| Stop::Reject("internal: an NDPI level's tile tables were not read".into()))?;
                     let within = offsets.iter().zip(&counts).all(|(&o, &c)| c == 0 || self.within(o, c));
                     self.rules.check(
                         "tiles",
@@ -2601,7 +2615,7 @@ impl Tiff {
                     self.rules.check("strip", rules::env([("within", flag(within)), ("length", num(n as f64))]))?;
                     (w, h)
                 };
-                let first = Self::ndpi_first(m, tiled).filter(|x| x.1 > 0);
+                let first = self.ndpi_first(k, m, tiled).filter(|x| x.1 > 0);
                 let header = match first {
                     Some((o, c)) => match self.ndpi_stream(o, c) {
                         Ok(x) => x,

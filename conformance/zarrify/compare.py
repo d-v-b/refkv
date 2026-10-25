@@ -134,7 +134,7 @@ ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>), and its JPEG XR levels
 # (spec/zarrify/ndpi.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>).
 REVISED = {"edge_ndpi_frames.ndpi", "edge_reject_ndpi_frame.ndpi", "ndpi_jpegxr_gray16.ndpi",
-           "ndpi_jpegxr_rgb.ndpi"}
+           "ndpi_jpegxr_rgb.ndpi", "ndpi_jpegxr_bgr.ndpi"}
 
 
 class UnreadableError(Exception):
