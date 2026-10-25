@@ -306,13 +306,15 @@ pub fn unread_shown(ir: &Ir, profile: &str) -> Vec<(u32, u64, u64)> {
         .collect()
 }
 
-/// The output of a parse: the image projection of `format`, the mirror under
-/// `refkv_source` when `mirror`, and a summary with the planner's counts, the IR's
-/// element count and what the mirror's table folded. `copied` holds the bytes of the
-/// ranges the projection copies (`project::reads`).
+/// The output of a parse: the image projection of `format`, its arrays sharded as it asked
+/// (`shard::apply_all`; ranges adjacent across inner chunks joined unless the facts' `checksums`
+/// is true: the host records checksums), the mirror under `refkv_source` when `mirror`, and a
+/// summary with the planner's counts, the IR's element count and what the mirror's table
+/// folded. `copied` holds the bytes of the ranges the projection copies (`project::reads`).
 pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_json::Value, url: &str, mirror: bool,
               copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
     let mut out = crate::project::project(format, ir, facts, url, copied)?;
+    crate::shard::apply_all(&mut out, !facts["checksums"].as_bool().unwrap_or(false))?;
     if let Some(m) = out.summary.as_object_mut() {
         m.insert("format".into(), format.name().into());
         m.insert("planner".into(), stats);
@@ -329,10 +331,12 @@ pub fn output(format: Format, ir: &Ir, facts: &serde_json::Value, stats: serde_j
 }
 
 impl Run {
-    /// Finishes, projects and mirrors: the output (`output`).
-    pub fn into_output(self, url: &str, mirror: bool) -> Result<crate::out::Out, String> {
+    /// Finishes, projects and mirrors: the output (`output`), for a host that records the
+    /// ranges' checksums when `checksums`.
+    pub fn into_output(self, url: &str, mirror: bool, checksums: bool) -> Result<crate::out::Out, String> {
         let format = self.format;
-        let (ir, facts, stats, copied) = self.finish_copied()?;
+        let (ir, mut facts, stats, copied) = self.finish_copied()?;
+        facts["checksums"] = checksums.into();
         output(format, &ir, &facts, stats, url, mirror, &copied)
     }
 }

@@ -1,6 +1,38 @@
 """The MP3 convention's source metadata (spec/zarrify/mp3.md), for
 spec/generate_schemas.py."""
 
+# the ID3v2 and ID3v1 tags' fields, which the FLAC convention writes too
+ID3V2 = {
+    "type": "array", "minItems": 1,
+    "description": "The ID3v2 tags at the start, in order: each header's version, flags and size, and "
+                   "whether it has a footer",
+    "items": {
+        "type": "object",
+        "properties": {
+            "version": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 255},
+                        "minItems": 2, "maxItems": 2},
+            "flags": {"type": "integer", "minimum": 0, "maximum": 255},
+            "size": {"type": "integer", "minimum": 0},
+            "footer": {"type": "boolean"},
+        },
+        "required": ["version", "flags", "size", "footer"],
+        "additionalProperties": False,
+    },
+}
+ID3V1 = {
+    "type": "object",
+    "description": "The ID3v1 tag's fields: each text up to its first NUL",
+    "properties": {
+        "title": {"$ref": "#/$defs/text"}, "artist": {"$ref": "#/$defs/text"},
+        "album": {"$ref": "#/$defs/text"},
+        "year": {"$ref": "#/$defs/text"}, "comment": {"$ref": "#/$defs/text"},
+        "track": {"type": ["integer", "null"], "description": "An ID3v1.1 tag's track number"},
+        "genre": {"type": "integer", "minimum": 0, "maximum": 255},
+    },
+    "required": ["title", "artist", "album", "year", "comment", "track", "genre"],
+    "additionalProperties": False,
+}
+
 SCHEMA = {"anyOf": [
     {
         "type": "object",
@@ -40,36 +72,8 @@ SCHEMA = {"anyOf": [
                 "required": ["tag", "frames", "bytes", "quality", "encoder", "delay", "padding"],
                 "additionalProperties": False,
             },
-            "id3v2": {
-                "type": "array", "minItems": 1,
-                "description": "The ID3v2 tags at the start, in order: each header's version, flags and size, and "
-                               "whether it has a footer",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "version": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 255},
-                                    "minItems": 2, "maxItems": 2},
-                        "flags": {"type": "integer", "minimum": 0, "maximum": 255},
-                        "size": {"type": "integer", "minimum": 0},
-                        "footer": {"type": "boolean"},
-                    },
-                    "required": ["version", "flags", "size", "footer"],
-                    "additionalProperties": False,
-                },
-            },
-            "id3v1": {
-                "type": "object",
-                "description": "The ID3v1 tag's fields: each text up to its first NUL",
-                "properties": {
-                    "title": {"$ref": "#/$defs/text"}, "artist": {"$ref": "#/$defs/text"},
-                    "album": {"$ref": "#/$defs/text"},
-                    "year": {"$ref": "#/$defs/text"}, "comment": {"$ref": "#/$defs/text"},
-                    "track": {"type": ["integer", "null"], "description": "An ID3v1.1 tag's track number"},
-                    "genre": {"type": "integer", "minimum": 0, "maximum": 255},
-                },
-                "required": ["title", "artist", "album", "year", "comment", "track", "genre"],
-                "additionalProperties": False,
-            },
+            "id3v2": ID3V2,
+            "id3v1": ID3V1,
             "ape": {
                 "type": "object",
                 "description": "The APE tag's footer fields, and the tag's whole size",

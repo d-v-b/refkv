@@ -22,6 +22,7 @@ who each one is for, what you get, and how to run it.
 | CZI | Zeiss CZI files | [czi](czi/README.md) | [czi.md §7](../../spec/zarrify/czi.md#7-czi-profile) |
 | DICOM | DICOM files, including whole-slide images | [dicom](dicom/README.md) | [dicom.md §7](../../spec/zarrify/dicom.md#7-dicom-profile) |
 | FITS | FITS images and tables (`.fits`, `.fz`) | [fits](fits/README.md) | [fits.md §9](../../spec/zarrify/fits.md#9-fits-profile) |
+| FLAC | FLAC audio files, as a sharded array of samples (`.flac`) | [flac](flac/README.md) | [flac.md §8](../../spec/zarrify/flac.md#8-flac-profile) |
 | IMS | Imaris `.ims` files | [ims](ims/README.md) | [ims.md §7](../../spec/zarrify/ims.md#7-ims-profile) |
 | MP3 | MP3 audio files, as an array of samples (`.mp3`) | [mp3](mp3/README.md) | [mp3.md §8](../../spec/zarrify/mp3.md#8-mp3-profile) |
 | MP4 | MP4 and QuickTime video and audio, as arrays of planes and samples (`.mp4`, `.mov`) | [mp4](mp4/README.md) | [mp4.md §8](../../spec/zarrify/mp4.md#8-mp4-profile) |
@@ -45,9 +46,9 @@ anonymously, such as a public S3 bucket. SAFE reads either: a product's
 `.SAFE` directory as a store, or its `.SAFE.zip` as a file. VSI is named by
 its `.vsi` file and reads the tile files beside it by name, without listing
 the directory, and NRRD by its header file, a detached header's data file
-read beside it by name. MP3 is the one format that is not an image: its archive holds
-a plain Zarr array of audio samples, decoded from the file's frames when a
-chunk is read ([mp3](mp3/README.md)).
+read beside it by name. MP3 and FLAC are not images: their archives hold a plain Zarr
+array of audio samples, decoded from the file's frames when a chunk is read
+([mp3](mp3/README.md), [flac](flac/README.md)).
 
 SAFE and CZI have no user-story page yet; their conventions describe the
 output. A Sentinel-2 product becomes a GeoZarr hierarchy (one group per
@@ -288,6 +289,11 @@ each format's metadata is:
   file is rebuilt from the archive. The root keeps the stream's parameters
   (version, sample rate, channels, frames, bitrate), the info frame's
   counts and LAME fields, and the ID3v1 tag's fields.
+- **FLAC:** the IR mirror on `refkv_source`: the ID3v2 tags, every metadata
+  block and every frame, and the ID3v1 tag, so that the file is rebuilt from
+  the archive. The root keeps the stream's parameters, STREAMINFO (with its
+  MD5), the Vorbis comments, the cue sheet, the pictures' fields and the tags'
+  fields; each picture's data is an array of bytes under `pictures`.
 - **N5, Zarr v2 and OME-Zarr:** each node's own attributes and the layout
   members its `zarr.json` does not reproduce, on the node, as
   `{"attributes": ..., "metadata": ...}` (with `"unversioned"` for an

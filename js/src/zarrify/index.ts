@@ -109,7 +109,7 @@ async function zarrifyWith(url: string, input: Input, pins: PinOptions): Promise
     }
     return { format: beside, ...desc };
   }
-  const desc = await zarrifyIr(format, url, input.source);
+  const desc = await zarrifyIr(format, url, input.source, { checksums: pins.checksums === true });
   const etag = pins.etag?.();
   desc.sources[0] = { ...desc.sources[0], size: BigInt(input.size), ...(etag !== undefined ? { etag } : {}) };
   if (pins.checksums) await addChecksums(desc, (_u, o, n) => (input.exact ?? input.read)(o, n));

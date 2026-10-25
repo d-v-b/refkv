@@ -60,7 +60,7 @@ images = [
     "refkv[zarr]",
     "imagecodecs>=2026.8.16",
 ]
-# the decoders of refkv.zarr's refkv.stream codec, which reads zarrified MP3 and MP4 files:
+# the decoders of refkv.zarr's refkv.stream codec, which reads zarrified MP3, FLAC and MP4 files:
 # ffmpeg's, through PyAV
 media = [
     "refkv[zarr]",

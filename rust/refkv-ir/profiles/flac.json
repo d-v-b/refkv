@@ -1,0 +1,16 @@
+{
+  "name": "flac",
+  "title": "FLAC",
+  "uuid": "e9108d07-b24b-432f-a8ce-09d80c8073b4",
+  "version": 0,
+  "kind": "file",
+  "sniff": 95,
+  "chosen_by": null,
+  "suffixes": [
+    ".flac"
+  ],
+  "reference": null,
+  "source": "FLAC (Free Lossless Audio Codec)",
+  "inputs": "FLAC files (`.flac`) of a fixed block size, with their metadata blocks and ID3v2 and ID3v1 tags; one sharded array of integer samples, not an image",
+  "for": "FLAC audio files, as a sharded array of samples (`.flac`)"
+}

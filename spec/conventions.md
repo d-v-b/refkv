@@ -14,6 +14,7 @@ its JSON Schema `zarrify/<format>/schema.json`. (Changed 2026-10-25: the propert
 | Zeiss CZI | [czi](zarrify/czi.md) | `7a0733c7-d4be-4482-a64f-6904d9354ea5` |
 | DICOM | [dicom](zarrify/dicom.md) | `acf17198-e5a5-48d3-8187-22ec4bb40ea5` |
 | FITS | [fits](zarrify/fits.md) | `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` |
+| FLAC (Free Lossless Audio Codec) | [flac](zarrify/flac.md) | `e9108d07-b24b-432f-a8ce-09d80c8073b4` |
 | Imaris IMS | [ims](zarrify/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
 | MP3 (MPEG Layer III audio) | [mp3](zarrify/mp3.md) | `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` |
 | MP4 and QuickTime (H.264 video, AAC and MP3 audio) | [mp4](zarrify/mp4.md) | `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` |
@@ -182,11 +183,12 @@ nests its own record.
 Unless the format's convention says otherwise (the store conventions, N5,
 Zarr v2 and OME-Zarr, define their arrays themselves; the CZI convention
 gives clipped levels the zarr-extensions `rectilinear` chunk grid and adds
-the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle`; the MP3 and MP4
+the codecs `imagecodecs_jpegxr` and `numcodecs.shuffle`; the MP3, MP4 and FLAC
 conventions give their arrays the codec `refkv.stream` of [§10](#10-coded-streams) and dimension
 names of their own, the MP4 convention gives video planes whose chunks differ in length the
-`rectilinear` chunk grid, and the NRRD convention compresses a gzip-encoded array with the
-`gzip` codec), every array's
+`rectilinear` chunk grid, the FLAC convention shards its array, as
+[spec/zarrify.md §2.1](zarrify.md#21-virtual-shards) says, and the NRRD convention compresses a
+gzip-encoded array with the `gzip` codec), every array's
 `zarr.json` is the JSON object:
 
 ```json
@@ -1127,12 +1129,15 @@ array-to-bytes codec `refkv.stream` decodes such a chunk.
 **The codec.** `{"name": "refkv.stream", "configuration": C}`, where `C` has:
 
 - `format`: the coding of the frames: `"mp3"` (MPEG-1, 2 or 2.5 Layer III
-  frames), `"aac"` (raw AAC frames, without ADTS headers) or `"h264"`
-  (H.264 access units as an MP4 file holds them: each NAL unit preceded by
-  its length, in the length's size the setup gives);
+  frames), `"aac"` (raw AAC frames, without ADTS headers), `"flac"` (FLAC
+  frames, [RFC 9639 §9](https://www.rfc-editor.org/rfc/rfc9639#section-9)) or
+  `"h264"` (H.264 access units as an MP4 file holds them: each NAL unit
+  preceded by its length, in the length's size the setup gives);
 - `setup`, when the format has one: the decoder's configuration, base64
   ([RFC 4648 §4](https://www.rfc-editor.org/rfc/rfc4648#section-4)): for
-  `"aac"` the AudioSpecificConfig (ISO/IEC 14496-3 §1.6.2.1), for `"h264"`
+  `"aac"` the AudioSpecificConfig (ISO/IEC 14496-3 §1.6.2.1), for `"flac"`
+  `fLaC` and the stream's STREAMINFO block, header included (42 bytes: the
+  form ffmpeg's decoder and WebCodecs' `description` take), for `"h264"`
   the AVCDecoderConfigurationRecord (an MP4 file's avcC box, ISO/IEC
   14496-15 §5.3.3.1), which holds the parameter sets;
 - `plane`, for `"h264"`: the plane of a decoded picture the array holds,
@@ -1169,8 +1174,11 @@ the fill value: the rows past the array's end in its last chunk, and the
 rows of a frame the decoder gives no output for. An output that does not
 fit its rows, or whose shape is not the array's, is an error. The outputs
 are the decoder's own samples, with no conversion: `float32` for MP3 and
-AAC, and the 8-bit planes of a 4:2:0 picture for H.264 (`u` and `v` half
-the size of `y` along each axis, rounded up).
+AAC, the stream's integer samples for FLAC (of the bits per sample the
+setup gives, in the array's signed integer type: a decoder that gives them
+in the high bits of a wider integer is shifted back), and the 8-bit planes
+of a 4:2:0 picture for H.264 (`u` and `v` half the size of `y` along each
+axis, rounded up).
 
 The outputs are placed by the frame each comes from, whatever order the
 decoder gives them in: an H.264 decoder outputs pictures in presentation
@@ -1180,12 +1188,13 @@ this codec. Nor does one whose output for a frame depends on more than a
 bounded run of the frames before it, such as ffmpeg's fixed-point MP3
 decoder, which carries its rounding error from frame to frame, so a chunk
 it decodes from the lead-in differs from the stream by a unit here and
-there. ffmpeg's float MP3 decoder, its AAC decoder and its H.264 decoder
-(the implementations' decoders, through PyAV) decode it.
+there. ffmpeg's float MP3 decoder, its AAC decoder, its FLAC decoder and its
+H.264 decoder (the implementations' decoders, through PyAV) decode it.
 
 **Determinism.** A chunk decodes to the same values every time, and, for
-MP3 and H.264, to the values a decoder of the whole stream gives (H.264
-decoding is exact by its standard). AAC's perceptual noise substitution
+MP3, FLAC and H.264, to the values a decoder of the whole stream gives
+(FLAC and H.264 decoding is exact by their standards; a FLAC frame depends
+on no other, so it needs no lead-in). AAC's perceptual noise substitution
 fills a band with noise from a pseudo-random generator whose state runs on
 from frame to frame, so a chunk's noise bands differ from those of a
 decoder of the whole stream; every other value is the same.
@@ -1193,7 +1202,8 @@ decoder of the whole stream; every other value is the same.
 **Producing a chunk.** A convention says which frames are a chunk's own,
 where each one's output goes, and which frames before them are its
 lead-in ([zarrify/mp3.md §8.2](zarrify/mp3.md#82-chunks),
-[zarrify/mp4.md §8.3](zarrify/mp4.md#83-chunks)). A zarrifier
+[zarrify/mp4.md §8.3](zarrify/mp4.md#83-chunks),
+[zarrify/flac.md §8.2](zarrify/flac.md#82-shards)). A zarrifier
 writes the header as a literal range, then the frames as ranges of the
 source, a frame that starts where the one before it ends extending that
 one's range. The bytes between two frames of the source are in no range,

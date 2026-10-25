@@ -608,9 +608,12 @@ impl PyRun {
     /// the IR). `layouts`, when given, names the layouts the projection writes beside the
     /// image (a format's dataset layout, "dataset"; conventions §9
     /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>); by
-    /// default, every one.
-    #[pyo3(signature = (url, mirror=true, layouts=None))]
-    fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool, layouts: Option<Vec<String>>) -> PyResult<(Bound<'py, PyAny>, PyIr)> {
+    /// default, every one. `checksums`: the host records the ranges' checksums, so that a
+    /// sharded array's ranges are not joined across inner chunks (spec/zarrify.md §2.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>).
+    #[pyo3(signature = (url, mirror=true, layouts=None, checksums=false))]
+    fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool, layouts: Option<Vec<String>>, checksums: bool)
+        -> PyResult<(Bound<'py, PyAny>, PyIr)> {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
         let format = r.format;
         let (o, ir) = py
@@ -619,6 +622,7 @@ impl PyRun {
                 if let Some(l) = layouts {
                     facts["layouts"] = serde_json::json!(l);
                 }
+                facts["checksums"] = checksums.into();
                 Ok((refkv_ir::run::output(format, &ir, &facts, stats, url, mirror, &copied)?, ir))
             })
             .map_err(Rejected::new_err)?;
@@ -842,6 +846,14 @@ fn _set_copy_threshold(n: Option<usize>) {
     refkv_ir::out::set_copy_threshold(n);
 }
 
+/// For tests: the frames of a FLAC shard (None: 512), so that small files have several shards
+/// (spec/zarrify/flac.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#82-shards>).
+#[pyfunction]
+#[pyo3(signature = (n=None))]
+fn _set_shard_frames(n: Option<usize>) {
+    refkv_ir::flac::set_shard_frames(n);
+}
+
 /// For tests: the frames of an MP3 chunk (None: 256), so that small files have several chunks,
 /// each with its lead-in (spec/zarrify/mp3.md §8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#82-chunks>).
@@ -867,6 +879,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fits_tiles_decode, m)?)?;
     m.add_function(wrap_pyfunction!(_set_copy_threshold, m)?)?;
     m.add_function(wrap_pyfunction!(_set_chunk_frames, m)?)?;
+    m.add_function(wrap_pyfunction!(_set_shard_frames, m)?)?;
     m.add_function(wrap_pyfunction!(project, m)?)?;
     m.add_function(wrap_pyfunction!(mirror, m)?)?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;

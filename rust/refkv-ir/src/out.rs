@@ -66,6 +66,9 @@ pub struct Out {
     /// documents under these prefixes are read only when asked for, like chunks
     pub lazy: Vec<String>,
     pub summary: J,
+    /// the arrays the run shards after the projection, each with the inner chunks a shard
+    /// holds along each axis (`shard::apply_all`)
+    pub shards: Vec<(String, Vec<u64>)>,
 }
 
 /// JSON text as the hosts write documents: compact, UTF-8 (no \u escapes but
@@ -115,6 +118,29 @@ impl Out {
                 self.refs.push((key.to_string(), parts));
             }
         }
+    }
+
+    /// Asks that the array at `path`, written unsharded, be sharded, `shard[i]` inner chunks a
+    /// shard along axis i (spec/zarrify.md §2.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>).
+    pub fn shard(&mut self, path: &str, shard: &[u64]) {
+        self.shards.push((path.to_string(), shard.to_vec()));
+    }
+
+    /// The bytes entries whose keys start with `prefix`, taken out, in order.
+    pub fn take_entries(&mut self, prefix: &str) -> Vec<(String, Vec<u8>)> {
+        let (taken, kept) = std::mem::take(&mut self.entries).into_iter().partition(|e| e.0.starts_with(prefix));
+        self.entries = kept;
+        self.entry_at = self.entries.iter().enumerate().map(|(i, e)| (e.0.clone(), i)).collect();
+        taken
+    }
+
+    /// The references whose keys start with `prefix`, taken out, in order.
+    pub fn take_refs(&mut self, prefix: &str) -> Vec<(String, Vec<Part>)> {
+        let (taken, kept) = std::mem::take(&mut self.refs).into_iter().partition(|e| e.0.starts_with(prefix));
+        self.refs = kept;
+        self.ref_at = self.refs.iter().enumerate().map(|(i, e)| (e.0.clone(), i)).collect();
+        taken
     }
 
     /// A range of all of `value`, as a data source: added the first time it is used.

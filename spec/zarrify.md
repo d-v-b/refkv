@@ -40,6 +40,7 @@ The table, generated from the registry, lists them:
 | [CZI](zarrify/czi.md#part-2-the-profile) | file | Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids |
 | [DICOM](zarrify/dicom.md#part-2-the-profile) | file | DICOM Part 10 files with native or JPEG-encapsulated pixel data, including whole-slide images |
 | [FITS](zarrify/fits.md#part-2-the-profile) | file | FITS files: images, multi-extension files, binary and ASCII tables |
+| [FLAC](zarrify/flac.md#part-2-the-profile) | file | FLAC files (`.flac`) of a fixed block size, with their metadata blocks and ID3v2 and ID3v1 tags; one sharded array of integer samples, not an image |
 | [IMS](zarrify/ims.md#part-2-the-profile) | file | Imaris IMS files (HDF5) |
 | [MP3](zarrify/mp3.md#part-2-the-profile) | file | MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio files (`.mp3`), with their ID3v2, ID3v1 and APE tags; one array of samples, not an image |
 | [MP4](zarrify/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.mov`) with H.264 video and AAC or MP3 audio tracks; a group per track, not an image |
@@ -119,7 +120,9 @@ with the message `budget: the mirror would have more than N rows`.
 The archive's byte layout (entry order, compression, page index) is the
 writer's choice and is not part of the output. Neither are the sources'
 pins and the ranges' checksums ([§1.2](#12-input)): an `etag` pin depends on what the
-server sent, and checksums are optional. Two zarrifiers conform to
+server sent, and checksums are optional. A zarrifier that records checksums
+does not join a shard's ranges across its inner chunks ([§2.1](#21-virtual-shards)), so
+outputs are compared between zarrifiers that both record checksums or both do not. Two zarrifiers conform to
 the same profile revision if they produce equivalent outputs for every input
 that the profile accepts, and both reject every input it rejects.
 
@@ -181,6 +184,7 @@ profile name:
 | CZI ([czi.md §7](zarrify/czi.md#7-czi-profile)) | 50 |
 | DICOM ([dicom.md §7](zarrify/dicom.md#7-dicom-profile)) | 10 |
 | FITS ([fits.md §9](zarrify/fits.md#9-fits-profile)) | 110 |
+| FLAC ([flac.md §8](zarrify/flac.md#8-flac-profile)) | 95 |
 | IMS ([ims.md §7](zarrify/ims.md#7-ims-profile)) | 70 |
 | MP3 ([mp3.md §8](zarrify/mp3.md#8-mp3-profile)) | 100 |
 | MP4 ([mp4.md §8](zarrify/mp4.md#8-mp4-profile)) | 85 |
@@ -567,6 +571,59 @@ states, with:
 - the documents as JSON (`zarr.json`, compared by [§1.1](#11-output-and-equivalence)), and no other
   entries than those the profile names.
 
+### 2.1 Virtual shards
+
+A convention may make an array a **sharded** array (Zarr v3's
+[`sharding_indexed` codec](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html)):
+it gives the array's **inner chunks**, which are what an unsharded array's
+chunks would be (their shape, their codecs, and each one's reference), and
+the **shard shape** `K`, the inner chunks a shard holds along each axis. A
+reader that reads a few inner chunks reads the shard's index and those
+chunks' bytes, nothing else, and the store holds one key per shard: a
+shard's index is bytes no source holds, which its reference carries as a
+literal range ([spec/refkv.md §4.5](refkv.md#45-where-bytes-that-no-source-holds-go-informative)).
+The array is then, with `c` the inner chunk shape, `D` its codecs, `S` the
+array's shape and `G = ceil(S / c)` the inner grid (each per axis):
+
+- **Its document.** As the unsharded array's
+  ([conventions §3](conventions.md#3-arrays)), but for the chunk grid's
+  chunk shape, `c × K` (the shard's), and the codecs, `[{"name":
+  "sharding_indexed", "configuration": {"chunk_shape": c, "codecs": D,
+  "index_codecs": [{"name": "bytes", "configuration": {"endian":
+  "little"}}, {"name": "crc32c"}], "index_location": "end"}}]`.
+- **Its shards.** The shard grid is `ceil(G / K)`; shard `s` holds the inner
+  chunks `s × K + i` for each `i` of the `K` grid, those within `G` that the
+  unsharded array has. Its key is the array's chunk key of `s`
+  (`<path>/c/<s0>/<s1>/...`); a shard that holds no inner chunk has no
+  entry.
+- **A shard's reference** is its inner chunks' ranges, in row-major order of
+  `i` (the last axis fastest), each inner chunk's ranges as the unsharded
+  array's reference to it has them (an inner chunk the profile copies is one
+  literal range of its bytes), then one literal range of the **index**:
+  for each `i` in that order, two 8-byte little-endian integers, the offset
+  in the shard of the inner chunk's first byte and its length, or
+  `(2^64 − 1, 2^64 − 1)` for an inner chunk the shard does not hold; then
+  the CRC-32C ([spec/refkv.md §4.2](refkv.md#42-range)) of those entries,
+  4 bytes little-endian, as the `crc32c` codec writes it.
+- **Joined ranges.** Where an inner chunk's first range is a source range
+  that starts where the range before it (the previous inner chunk's last)
+  ends, in the same source, the two are one range: inner chunks that lie
+  one after another in the source, laid out in its order, are one range.
+  A zarrifier that records checksums ([§1.2](#12-input)) does not join them:
+  a range with a checksum is read whole, and a joined range would make a
+  reader of one inner chunk read its neighbors.
+
+The offsets and lengths in the index are those of the inner chunks'
+bytes, whichever ranges they are in. A profile chooses `K` so that a
+shard's payload ([§1.2](#12-input)) stays within the 65519 bytes past which
+the input is rejected: an inner chunk costs its ranges and 16 bytes of index,
+an inner chunk a shard does not hold 16 bytes, and a shard 4 bytes of
+CRC-32C. An inner chunk the profile copies is a literal range of all its
+bytes, so a profile shards an array only where its copied inner chunks fit
+in their shards' payloads. Only file profiles shard: the hosts of a store
+input's zarrifier do not yet tell the pass that joins ranges whether they
+record checksums.
+
 ## Profiles
 
 Each profile is Part 2 of its format's document in [zarrify/](zarrify/), whose Part 1
@@ -580,6 +637,7 @@ else. The profiles, generated from the registry:
 - the CZI profile: [spec/zarrify/czi.md §7](zarrify/czi.md#7-czi-profile);
 - the DICOM profile: [spec/zarrify/dicom.md §7](zarrify/dicom.md#7-dicom-profile);
 - the FITS profile: [spec/zarrify/fits.md §9](zarrify/fits.md#9-fits-profile);
+- the FLAC profile: [spec/zarrify/flac.md §8](zarrify/flac.md#8-flac-profile);
 - the IMS profile: [spec/zarrify/ims.md §7](zarrify/ims.md#7-ims-profile);
 - the MP3 profile: [spec/zarrify/mp3.md §8](zarrify/mp3.md#8-mp3-profile);
 - the MP4 profile: [spec/zarrify/mp4.md §8](zarrify/mp4.md#8-mp4-profile);
