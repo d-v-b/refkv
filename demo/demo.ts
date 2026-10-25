@@ -354,9 +354,15 @@ async function listArrays(zarrUrl: string): Promise<{ path: string; meta: ArrayM
 }
 
 let prefix: Promise<string> | undefined;
-let views: View[] = [];
-/** The input shown: its URL, its Zarr URL under the worker's prefix, and whether it is a .vzip archive. */
-let shownInput = { url: "", zarrUrl: "", isArchive: false };
+/** An input: its URL, its Zarr URL under the worker's prefix, and whether it is a .vzip archive. */
+interface Input {
+  url: string;
+  zarrUrl: string;
+  isArchive: boolean;
+}
+
+/** The views of the input shown, each with that input. */
+let views: (View & { input: Input })[] = [];
 
 /**
  * The Neuroglancer data source of the node at `url`, a Zarr URL under `shown.zarrUrl`. For a
@@ -365,7 +371,7 @@ let shownInput = { url: "", zarrUrl: "", isArchive: false };
  * worker's URL, `<url>|zarr3:`, which opens only on this site, in a browser where the page has
  * zarrified the input: a link to share names an archive of it, downloaded and hosted.
  */
-function neuroglancerSource(shown: typeof shownInput, url: string): string {
+function neuroglancerSource(shown: Input, url: string): string {
   if (!shown.isArchive) return `${url}|zarr3:`;
   if (!url.startsWith(shown.zarrUrl)) throw new Error(`${url} is not under ${shown.zarrUrl}`);
   const path = url.slice(shown.zarrUrl.length).split("/").map(encodeURIComponent).join("/");
@@ -395,10 +401,9 @@ function showLevels(rows: Omit<Level, "url">[]) {
 let shown: View | undefined;
 
 /** Shows `view`: its levels, and a Neuroglancer link. */
-async function showView(view: View) {
+async function showView(view: View & { input: Input }) {
   shown = view;
-  const at = shownInput;
-  const source = (url: string) => neuroglancerSource(at, url);
+  const source = (url: string) => neuroglancerSource(view.input, url);
   $("name").textContent = view.name;
   $("zarr-url").textContent = source(view.url);
   $("view-note").textContent = view.note ?? "";
@@ -457,7 +462,7 @@ async function zarrify(url: string) {
   const p = await prefix;
   const isArchive = /\.vzip(?:[?#]|$)/i.test(url);
   const zarrUrl = isArchive ? archiveZarrUrl(p, url) : imageZarrUrl(p, url);
-  shownInput = { url, zarrUrl, isArchive };
+  const opened: Input = { url, zarrUrl, isArchive };
   $("share-local").hidden = isArchive;
   $("share-archive").hidden = !isArchive;
   setStatus(isArchive ? "Opening the archive…" : "Reading the file's structure…");
@@ -475,7 +480,7 @@ async function zarrify(url: string) {
     const safe = attrs.refkv_zarrified.safe ?? {};
     views = [];
     $("name").textContent = `${safe.PRODUCT_URI ?? url.split("/").pop()} (${safe.PROCESSING_LEVEL ?? "Sentinel-2"})`;
-    $("zarr-url").textContent = neuroglancerSource(shownInput, zarrUrl);
+    $("zarr-url").textContent = neuroglancerSource(opened, zarrUrl);
     $("view-note").textContent = `${safe.SENSING_TIME ?? ""} ${attrs["proj:code"] ?? ""}`;
     showLevels(await listArrays(zarrUrl));
     $("open-ng").hidden = true;
@@ -485,20 +490,22 @@ async function zarrify(url: string) {
     map.href = new URL(`map.html?url=${encodeURIComponent(url)}`, location.href).href;
   } else {
     const ms0 = attrs.ome?.multiscales?.[0];
+    let found: View[];
     if (root.node_type === "array") {
-      views = [arrayView(zarrUrl, "", root)];
+      found = [arrayView(zarrUrl, "", root)];
     } else if (attrs.refkv_zarrified?.profile === "mp4") {
-      views = await videoViews(zarrUrl, attrs.refkv_zarrified.mp4 ?? {});
-      if (views.length === 0) throw new Error("no video track to show (audio is not displayed)");
+      found = await videoViews(zarrUrl, attrs.refkv_zarrified.mp4 ?? {});
+      if (found.length === 0) throw new Error("no video track to show (audio is not displayed)");
     } else if (ms0 !== undefined) {
-      views = [await omeView(zarrUrl, ms0, ms0.name ?? "image", attrs.refkv_zarrified?.profile === "ome-zarr")];
+      found = [await omeView(zarrUrl, ms0, ms0.name ?? "image", attrs.refkv_zarrified?.profile === "ome-zarr")];
     } else if (attrs.ome?.["bioformats2raw.layout"] !== undefined) {
-      views = await seriesViews(zarrUrl);
+      found = await seriesViews(zarrUrl);
     } else {
       // No OME-Zarr image (a Zarr v2 or N5 hierarchy without one): its arrays.
-      views = (await listArrays(zarrUrl)).map(({ path, meta }) => arrayView(`${zarrUrl}${path}/`, path, meta));
-      if (views.length === 0) throw new Error("no arrays to show");
+      found = (await listArrays(zarrUrl)).map(({ path, meta }) => arrayView(`${zarrUrl}${path}/`, path, meta));
+      if (found.length === 0) throw new Error("no arrays to show");
     }
+    views = found.map((v) => ({ ...v, input: opened }));
     if (views.length > 1) {
       picker.replaceChildren(...views.map((v, i) => new Option(v.label, String(i))));
       $("view-row").hidden = false;
