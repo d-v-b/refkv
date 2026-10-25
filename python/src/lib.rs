@@ -605,14 +605,20 @@ impl PyRun {
         Ok(self.get()?.planner.stats_json().to_string())
     }
     /// Finishes, projects and (with `mirror`) mirrors: (the output in `out_py`'s form,
-    /// the IR).
-    #[pyo3(signature = (url, mirror=true))]
-    fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool) -> PyResult<(Bound<'py, PyAny>, PyIr)> {
+    /// the IR). `layouts`, when given, names the layouts the projection writes beside the
+    /// image (a format's dataset layout, "dataset"; conventions §9
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>); by
+    /// default, every one.
+    #[pyo3(signature = (url, mirror=true, layouts=None))]
+    fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool, layouts: Option<Vec<String>>) -> PyResult<(Bound<'py, PyAny>, PyIr)> {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
         let format = r.format;
         let (o, ir) = py
             .detach(|| -> Result<_, String> {
-                let (ir, facts, stats, copied) = r.finish_copied()?;
+                let (ir, mut facts, stats, copied) = r.finish_copied()?;
+                if let Some(l) = layouts {
+                    facts["layouts"] = serde_json::json!(l);
+                }
                 Ok((refkv_ir::run::output(format, &ir, &facts, stats, url, mirror, &copied)?, ir))
             })
             .map_err(Rejected::new_err)?;

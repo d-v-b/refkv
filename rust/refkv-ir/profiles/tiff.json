@@ -5,6 +5,7 @@
   "version": 0,
   "kind": "file",
   "sniff": 40,
+  "chosen_by": null,
   "suffixes": [
     ".tif"
   ],

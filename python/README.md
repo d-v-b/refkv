@@ -20,6 +20,12 @@ store = zarrify("https://example.org/slide.ndpi")  # a refkv.ReferenceStore
 store.save("slide.vzip")                               # one vzip archive
 ```
 
+The format comes from the file's first bytes, not its name. A source or store
+class requires one format instead, and carries the input's read options
+([more](https://github.com/d-v-b/refkv/blob/main/docs/zarrify/README.md)):
+`zarrify(NdpiSource(url))` reads an NDPI slide or raises `Rejected`, and
+`zarrify(Zarr2Store(url))` reads a store whose URL has no trailing `/`.
+
 For netCDF, HDF5 and the other files
 [VirtualiZarr](https://virtualizarr.readthedocs.io/) reads,
 `refkv.ReferenceStore.from_virtualizarr(vds)` turns a virtual dataset into a

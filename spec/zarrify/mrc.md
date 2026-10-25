@@ -7,7 +7,8 @@ How refkv produces this layout as a reference store, and which files it
 accepts, is the MRC profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` ·
-Schema: [schema.json](mrc/schema.json)
+Schema: [schema.json](mrc/schema.json) · Changed 2026-10-25: a zarrifier may leave the dataset
+layout out ([§1](#1-declaration), [spec/zarrify.md §1.7](../zarrify.md#17-named-inputs-and-layouts)).
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -36,7 +37,9 @@ which declares the MRC dataset convention
 ([mrc-dataset.md](mrc-dataset.md), [conventions §9](../conventions.md#9-dataset-layouts))
 and which xarray opens with named dimensions and coordinates in angstroms.
 The root's property names it: `"layouts": {"dataset": "dataset"}`, after
-`source`.
+`source`. A zarrifier told to write the image layout alone
+([spec/zarrify.md §1.7](../zarrify.md#17-named-inputs-and-layouts)) writes no group `dataset`, and
+the root's property has no `layouts`.
 
 ## 2. The header
 
@@ -447,4 +450,4 @@ axis's size), `chunkShape` (the array's chunk shape, in its axis order),
 `chunks` (the array's), `voxelSize` (`[sx, sy, sz]` when every axis has
 one, else `null`), `translation` (whether the image has one), `axisMap`
 (whether the map was applied), `extendedHeader` (`nsymbt`), `extendedType`
-(`exttyp` as text) and `layouts` (`["dataset"]`).
+(`exttyp` as text) and `layouts` (`["dataset"]`, or `[]` without the dataset layout).

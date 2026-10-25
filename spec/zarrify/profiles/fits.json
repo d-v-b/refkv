@@ -5,6 +5,7 @@
   "version": 0,
   "kind": "file",
   "sniff": 110,
+  "chosen_by": null,
   "suffixes": [
     ".fits",
     ".fz"

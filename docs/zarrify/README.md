@@ -163,6 +163,40 @@ given. `save` checks the sources against the policy the archive's readers will
 use, `Policy()` unless it is given one, so for sources on a private host pass
 that one too: `store.save(path, policy=policy)`.
 
+**Naming the input's format.** Given a string, `zarrify` decides what the input
+is. It is a store when it is a directory or a URL ending in `/`, and otherwise a
+file whose first bytes, not its name, select the profile. A source or store class
+names the profile instead
+([spec](../../spec/zarrify.md#17-named-inputs-and-layouts)). The input must then
+be in that format, and a store's URL needs no trailing `/`. There is one class
+per profile in the registry. `<Name>Source` is for a file (`TiffSource`,
+`Mp4Source`, `NdpiSource`, ...). `<Name>Store` is for a store (`Zarr2Store`,
+`OmeZarrStore`, `N5Store`). SAFE has both, `SafeSource` for a `.SAFE.zip` file
+and `SafeStore` for a `.SAFE` directory. The input's read options belong to the
+class (`url`, `checksums`, `policy`, and `connections` and `byte_cost` for a
+file, or `workers` and `max_objects` for a store), so `zarrify` raises
+`TypeError` when one is also passed beside it:
+
+```python
+from refkv.zarrify import zarrify, NdpiSource, Zarr2Store, MrcSource, Image
+
+zarrify(NdpiSource("https://example.org/slide", checksums=True))  # an NDPI slide, or rejected
+zarrify(Zarr2Store("https://example.org/data.zarr"))  # a store, though its URL has no trailing "/"
+zarrify(MrcSource("emd_1234.map"), layouts=[Image()])  # the image, without the dataset layout
+```
+
+A named input skips sniffing, so the profile's parser reads the input and
+rejects it with its own message when the input is not in that format.
+`TiffSource` accepts the TIFF variant the parser finds (`ndpi`, `qptiff`).
+`NdpiSource` and `QptiffSource` reject a TIFF file that is not that variant.
+`OmeZarrStore` rejects a Zarr v2 store with no OME-NGFF 0.4 layout at its root,
+and `Zarr2Store` reads either kind. `layouts` lists the layouts the hierarchy
+holds. It must contain `Image()`, the convention's hierarchy at the root.
+`Dataset()` adds the format's [dataset layout](../../spec/conventions.md#9-dataset-layouts)
+next to the image (MRC's `dataset` group). By default every layout the format
+has is written, so `layouts=[Image()]` leaves the dataset layout out.
+`zarrify_store` and a string `location` take `layouts` too.
+
 **The browser.** The same zarrifiers run in a service worker
 ([js/](../../js/README.md)): the Rust core, built for WebAssembly. The
 service worker serves the

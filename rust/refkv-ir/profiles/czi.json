@@ -5,6 +5,7 @@
   "version": 0,
   "kind": "file",
   "sniff": 50,
+  "chosen_by": null,
   "suffixes": [
     ".czi"
   ],

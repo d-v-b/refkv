@@ -18,6 +18,12 @@ from refkv.ir.planner import Transport, drive, new_run, open_transport
 from refkv.policy import Policy
 from refkv.uri import path_reference
 from refkv.zarrify.common import Output, Rejected
+from refkv.zarrify.profiles import REGISTRY
+
+# the TIFF variants, by name and title: the profiles the TIFF profile's reading chooses (their
+# registry entries' `chosen_by`; spec/zarrify.md §1.2
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)
+TIFF_VARIANTS = {e["name"]: e["title"] for e in REGISTRY if e["chosen_by"] == "tiff"}
 
 
 def sniff(head: bytes) -> str | None:
@@ -41,26 +47,33 @@ def parse(fmt: str, transport: Transport,
 
 def zarrify(location: str, url: str | None = None, mirror: bool = True, policy: Policy | None = None,
             transport: Transport | None = None, connections: int | None = None,
-            byte_cost: float | None = None) -> tuple[str, Output, _core.Ir]:
+            byte_cost: float | None = None, fmt: str | None = None,
+            layouts: list[str] | None = None) -> tuple[str, Output, _core.Ir]:
     """(format, output, IR): the source read through the read planner, parsed by the
-    Rust parser of its format, projected and mirrored under refkv_source by the Rust
-    core. The output pins source 0's size, and its ETag when every response gave the
-    same strong one. `connections`: requests at a time to a remote source (default 8);
-    `byte_cost`: seconds of wall time the planner charges a byte fetched (default 0.1 s
-    per MB)."""
+    Rust parser of its format (`fmt`, else the one its first bytes give; a TIFF variant's
+    file, rejected unless the TIFF parser finds that variant), projected and
+    mirrored under refkv_source by the Rust core. The output pins source 0's size, and its
+    ETag when every response gave the same strong one. `connections`: requests at a time to
+    a remote source (default 8); `byte_cost`: seconds of wall time the planner charges a
+    byte fetched (default 0.1 s per MB); `layouts`: the layouts the projection writes beside
+    the image ("dataset"; default: every one the format has)."""
     transport = transport or open_transport(location, policy)
-    want = min(552, transport.size)
-    held = transport.head[1] or b""
-    head = held[:want] if len(held) >= want else transport.get(0, want)
-    fmt = sniff(head)
     if fmt is None:
-        raise Rejected("not a file of any supported format")
-    run = new_run(fmt, transport, connections, byte_cost)
+        want = min(552, transport.size)
+        held = transport.head[1] or b""
+        head = held[:want] if len(held) >= want else transport.get(0, want)
+        fmt = sniff(head)
+        if fmt is None:
+            raise Rejected("not a file of any supported format")
+    named = fmt
+    run = new_run("tiff" if fmt in TIFF_VARIANTS else fmt, transport, connections, byte_cost)
     drive(run, transport, connections)
     fmt = run.format  # a TIFF the core found to be NDPI is "ndpi"
+    if named in TIFF_VARIANTS and fmt != named:  # before the projection reads more
+        raise Rejected(f"not {TIFF_VARIANTS[named]}: the TIFF parser read it as {fmt}")
     try:
         t, ir = run.output(url or (location if transport.remote else path_reference(location)),
-                           mirror)
+                           mirror, layouts)
     except _core.Rejected as e:
         raise Rejected(str(e)) from None
     out = from_rust(t)

@@ -9,9 +9,10 @@ The registry is the one place a profile's identity is written, one file per prof
 two profiles added at once never touch the same file: its name (the file's), its convention's
 title, UUID and version, its kind (a file input, a store input, both, or a dataset layout,
 which is a convention but no profile), the precedence of its signature among the file
-profiles' (`sniff`, lower first, ties by name; null for none), the suffixes of its fixture
-files, the revision its frozen reference twin records (null: none), and the phrases the
-indexes describe it by. Everything else is derived from it:
+profiles' (`sniff`, lower first, ties by name; null for none), for a file profile with none the
+profile whose reading chooses it (`chosen_by`: the TIFF profile's chooses NDPI and QPTIFF), the
+suffixes of its fixture files, the revision its frozen reference twin records (null: none), and
+the phrases the indexes describe it by. Everything else is derived from it:
 
 - at build or load time, by each host, from the files themselves: the Rust core's
   `build.rs` (from its copies, `rust/refkv-ir/profiles/<name>.json`, which this writes: the
@@ -23,10 +24,13 @@ indexes describe it by. Everything else is derived from it:
   the profile tables of spec/zarrify.md, spec/conventions.md and docs/zarrify/README.md,
   each between a pair of marker comments (`<!-- profiles:<block> -->` and `<!-- /profiles -->`),
   one row per profile, by name, so that two profiles added at once conflict only when their
-  names sort next to each other.
+  names sort next to each other;
+- and the Python package's source and store classes, one per profile
+  (python/src/refkv/zarrify/profile_classes.py, written whole, which refkv.zarrify re-exports):
+  code, so that a type checker reads them.
 
 Adding a format is its registry file and its own files; `just profiles` then regenerates the
-indexes. `spec/tools/test_profiles.py` checks that the derived files are current (`just
+indexes and the classes. `spec/tools/test_profiles.py` checks that the derived files are current (`just
 sections` runs it).
 
 The documents also write out each convention's metadata object (CMO, spec/conventions.md §1
@@ -45,6 +49,7 @@ import contextlib
 import json
 import re
 import sys
+import textwrap
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -55,7 +60,8 @@ CONVENTION_KEY = "refkv_zarrified"
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 # A flat JSON object with a member "uuid", as a CMO is written (its members are strings).
 CMO_TEXT = re.compile(r'\{[^{}]*"uuid"\s*:[^{}]*\}')
-FIELDS = ("name", "title", "uuid", "version", "kind", "sniff", "suffixes", "reference", "source", "inputs", "for")
+FIELDS = ("name", "title", "uuid", "version", "kind", "sniff", "chosen_by", "suffixes", "reference", "source", "inputs",
+          "for")
 
 
 def load() -> list[dict]:
@@ -79,10 +85,17 @@ def validate(entries: list[dict]) -> list[dict]:
             raise ValueError(f"{e['name']}: kind {e['kind']!r} is not one of {KINDS}")
         if e["sniff"] is not None and (type(e["sniff"]) is not int or e["kind"] not in ("file", "both")):
             raise ValueError(f"{e['name']}: only a file profile has a signature, whose precedence is an integer")
+        if (e["chosen_by"] is None) != (e["sniff"] is not None or e["kind"] != "file"):
+            raise ValueError(f"{e['name']}: a file profile with no signature names the profile that chooses it, "
+                             "and no other profile does")
         if bool(e["suffixes"]) != (e["kind"] in ("file", "both")):
             raise ValueError(f"{e['name']}: a file input has suffixes, a store or layout none")
         if not UUID.fullmatch(e["uuid"]):
             raise ValueError(f"{e['name']}: {e['uuid']!r} is not a UUID")
+    signed = {e["name"] for e in entries if e["sniff"] is not None}
+    for e in entries:
+        if e["chosen_by"] is not None and e["chosen_by"] not in signed:
+            raise ValueError(f"{e['name']}: chosen by {e['chosen_by']!r}, which is not a profile with a signature")
     for key in ("name", "uuid"):
         values = [e[key] for e in entries]
         if len(set(values)) != len(values):
@@ -160,11 +173,53 @@ def docs_table(entries: list[dict]) -> str:
     return "\n".join(rows)
 
 
+def class_name(name: str, suffix: str) -> str:
+    """A profile's class: its name's parts, capitalized, and `suffix` (`ome-zarr`, "Store": `OmeZarrStore`)."""
+    return "".join(part[:1].upper() + part[1:] for part in name.split("-")) + suffix
+
+
+def classes(entries: list[dict]) -> list[tuple[str, str, dict]]:
+    """(class, base, entry) of each profile's source and store classes, by class name: a file
+    profile's `<Name>Source`, a store profile's `<Name>Store`, and both for a profile of both."""
+    bases = {"file": ["Source"], "store": ["Store"], "both": ["Source", "Store"]}
+    return sorted(((class_name(e["name"], b), b, e) for e in entries for b in bases.get(e["kind"], [])),
+                  key=lambda c: c[0])
+
+
+def classes_module(entries: list[dict]) -> str:
+    """python/src/refkv/zarrify/profile_classes.py: the classes, as code a type checker reads."""
+    out = ['"""The source and store classes, one per profile of the registry (spec/zarrify.md §1.7',
+           "<https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#17-named-inputs-and-layouts>):",
+           "written by spec/tools/profiles.py from spec/zarrify/profiles/ (`just profiles`; `just sections`",
+           'checks that it is current). Edit the registry, not this file."""',
+           "",
+           "from __future__ import annotations",
+           "",
+           "from dataclasses import dataclass",
+           "from typing import ClassVar",
+           "",
+           "from refkv.zarrify.sources import Source, Store"]
+    for cls, base, e in classes(entries):
+        what = "a file" if base == "Source" else "a store"
+        untested = "its first bytes" if base == "Source" else "its root's keys"
+        doc = textwrap.wrap(f'"""{e["source"]}: {what} the `{e["name"]}` profile reads, {untested} untested '
+                            f'(`{base}` lists its read options)."""', 96, initial_indent="    ",
+                            subsequent_indent="    ")
+        out += ["", "", "@dataclass(frozen=True)", f"class {cls}({base}):", *doc, "",
+                f'    profile: ClassVar[str] = "{e["name"]}"']
+    names = [cls for cls, _, _ in classes(entries)]
+    out += ["", "", "# each class, by its name", "CLASSES: dict[str, type[Source | Store]] = {"]
+    out += [f'    "{n}": {n},' for n in names] + ["}", "", "__all__ = ["] + [f'    "{n}",' for n in names] + ["]", ""]
+    return "\n".join(out)
+
+
 BLOCKS = {
     "spec/zarrify.md": {"spec-table": spec_table, "sniff-table": sniff_table, "spec-list": spec_list},
     "spec/conventions.md": {"conventions-table": conventions_table},
     "docs/zarrify/README.md": {"docs-table": docs_table},
 }
+# the files written whole
+FILES = {"python/src/refkv/zarrify/profile_classes.py": classes_module}
 
 
 def with_blocks(text: str, blocks: dict, entries: list[dict]) -> str:
@@ -183,14 +238,15 @@ def copies() -> dict[Path, str]:
 
 
 def derived(entries: list[dict]) -> dict[str, str]:
-    """Each derived index page's path and content."""
+    """Each derived file's path and content: the index pages, and the files written whole."""
     return {path: with_blocks((ROOT / path).read_text(encoding="utf-8"), blocks, entries)
-            for path, blocks in BLOCKS.items()}
+            for path, blocks in BLOCKS.items()} | {path: make(entries) for path, make in FILES.items()}
 
 
 def stale() -> list[str]:
     """The derived files whose content is not the registry's, and the copies of no profile."""
-    out = [path for path, text in derived(load()).items() if (ROOT / path).read_text(encoding="utf-8") != text]
+    out = [path for path, text in derived(load()).items()
+           if not (ROOT / path).is_file() or (ROOT / path).read_text(encoding="utf-8") != text]
     want = copies()
     out += [p.relative_to(ROOT).as_posix() for p, text in want.items()
             if not p.is_file() or p.read_text(encoding="utf-8") != text]
@@ -299,7 +355,7 @@ def main(argv: list[str]) -> int:
         # unchanged files keep their times, so that nothing rebuilds for them
         if not p.is_file() or p.read_text(encoding="utf-8") != text:
             p.write_text(text, encoding="utf-8")
-    print(f"wrote {len(BLOCKS)} index pages and {len(copies())} copies from {len(entries)} entries")
+    print(f"wrote {len(BLOCKS) + len(FILES)} derived files and {len(copies())} copies from {len(entries)} entries")
     return 0
 
 
