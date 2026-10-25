@@ -1,0 +1,10 @@
+# url|name|no-ref of the public LIF files in the corpus (the frozen reference has no LIF profile, so each
+# compares py with web alone): OME's sample files, each under CC BY 4.0: four images of 12 planes, a tile
+# scan, (c) Michael Goelzer; eight series of a FRET experiment, (c) Nicolas Chiaruttini; FRAP series in
+# folders, (c) Sean Warren; z-stacks and a tile scan with its merged image, Zenodo 6606445, (c) Peter
+# Zentis; a 3 GB slide of tile scans, merged and processed images, Zenodo 15353569, (c) Pamela Young
+https://downloads.openmicroscopy.org/images/Leica-LIF/michael/PR2729_frameOrderCombinedScanTypes.lif|goelzer_pr2729|no-ref|ends-sha256=0bc71cfc8e515e332da5d5271d28520764a0bf2902792b51b92a7e3b6a214346
+https://downloads.openmicroscopy.org/images/Leica-LIF/imagesc-30856/20191025%20Test%20FRET%20585.%20423%2C%20426.lif|chiaruttini_fret|no-ref|ends-sha256=4e94cca76df4a54fab93ca58df9973312cc87c0eca4d7fcc5ccb3edaf495be73
+https://downloads.openmicroscopy.org/images/Leica-LIF/seanwarren/150519_FRAP_test_ROIs_chromagreen/150519_FRAP_test_ROIs_chromagreen.lif|warren_frap|no-ref|ends-sha256=3b3d27a09a87f452205665d4a8b5b3f288dc6ec1feed8daaa52d6882793a96cb
+https://downloads.openmicroscopy.org/images/Leica-LIF/zenodo-6606445/Project007.lif|zentis_project007|no-ref|ends-sha256=8dfd101058d61b66471a8807c9447dc063b3250c9dfd9c3b8b308f66c556349c
+https://downloads.openmicroscopy.org/images/Leica-LIF/imagesc-110520/AMR1.lif|young_amr1|no-ref|ends-sha256=5831923fe7c5d0a730de572618131ede0e0b4872ab161698234cf9916e1019ac

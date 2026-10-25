@@ -1434,6 +1434,18 @@ wheels = [
 ]
 
 [[package]]
+name = "liffile"
+version = "2026.10.14"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4e/c7/ebd6c3938c6de7aa3fbbfb20f0ca574331b7685e40fa765fa5b0bece7846/liffile-2026.10.14.tar.gz", hash = "sha256:e0f06086b6b14280d9d85493760bf89ecc022aed009bee781bf566d84d9fc794", size = 61746, upload-time = "2026-10-14T18:41:14.133Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/73/97/976df02762f1c27253d9d1a82e91b3c931fff980da5d44ccfe950afae7c2/liffile-2026.10.14-py3-none-any.whl", hash = "sha256:b3a447d3feb16fa9e478d608d5167ab70699163439a7df968eab214a838ef739", size = 39288, upload-time = "2026-10-14T18:41:13.091Z" },
+]
+
+[[package]]
 name = "locket"
 version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3151,6 +3163,7 @@ dev = [
     { name = "h5netcdf" },
     { name = "h5py" },
     { name = "jsonschema" },
+    { name = "liffile" },
     { name = "matplotlib" },
     { name = "mrcfile" },
     { name = "nd2" },
@@ -3191,6 +3204,7 @@ dev = [
     { name = "h5netcdf", specifier = ">=1.8.1" },
     { name = "h5py", specifier = ">=3.16.0" },
     { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "liffile", specifier = ">=2026.10.14" },
     { name = "matplotlib", specifier = ">=3.10" },
     { name = "mrcfile", specifier = ">=1.5.0" },
     { name = "nd2", specifier = ">=0.12.0" },
