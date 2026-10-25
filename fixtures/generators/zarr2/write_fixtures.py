@@ -93,14 +93,14 @@ def array(root: Path, path: str, data: np.ndarray, chunks: list[int], *, compres
     if data.ndim == 0:
         put(d / "0", c.encode(data.tobytes()) if c else data.tobytes())
         return
-    grid = [-(-s // n) for s, n in zip(data.shape, chunks)]
+    grid = [-(-s // n) for s, n in zip(data.shape, chunks, strict=True)]
     padding = 0 if fill is None or isinstance(fill, str) else fill
     if isinstance(fill, str):
         padding = float(fill.replace("Infinity", "inf"))
     for idx in np.ndindex(*grid):
         if idx in skip:
             continue
-        sl = tuple(slice(i * n, min((i + 1) * n, s)) for i, n, s in zip(idx, chunks, data.shape))
+        sl = tuple(slice(i * n, min((i + 1) * n, s)) for i, n, s in zip(idx, chunks, data.shape, strict=True))
         block = np.full(chunks, padding, dtype=data.dtype)
         block[tuple(slice(0, e.stop - e.start) for e in sl)] = data[sl]
         raw = block.tobytes(order=order)

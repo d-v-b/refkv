@@ -6,13 +6,15 @@ import json
 import os
 import struct
 import time
+from pathlib import Path
 
 import pytest
-
 from ir_helpers import FIXTURES, as_the_reference, assert_rebuilds, same_hierarchy
-from refkv.ir import zarrify as via_ir
-from refkv.zarrify import Rejected
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
+
+from refkv import _core
+from refkv.ir import zarrify as via_ir
+from refkv.zarrify import Rejected, common
 
 NIIS = sorted((FIXTURES / "nifti").glob("*.nii"))
 
@@ -29,10 +31,6 @@ def test_edge_chunks_past_the_payload_are_copied_as_the_reference_copies_them(tm
     NIfTI's chunk limit no file reaches it in practice, so both sides take a payload limit
     of 8 bytes here: every padded edge chunk is copied, by the run's last batch, and the
     hierarchy is the frozen reference's."""
-    from refkv import _core
-
-    from refkv.zarrify import common
-
     monkeypatch.setattr(common, "MAX_PAYLOAD", 8)
     _core._set_copy_threshold(8)
     copied = 0
@@ -86,7 +84,8 @@ def test_a_million_empty_extensions_are_described_and_folded(tmp_path):
     n = 1 << 20
     chain = struct.pack("<ii", 8, 6) * n
     out, seconds = probe(tmp_path, nifti1(chain, 352 + 8 * n))
-    assert out.summary["elements"] >= n and out.summary["folded"]["cruns"] >= 1
+    assert out.summary["elements"] >= n
+    assert out.summary["folded"]["cruns"] >= 1
     assert seconds < 30
 
 
@@ -150,10 +149,8 @@ def test_more_than_2_22_chunks_are_cut_as_the_reference_cuts_them(tmp_path, monk
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#41-the-array>). The IR
     cuts them all, as the frozen reference does: the archives are equivalent outside
     refkv_source."""
-    from pathlib import Path
-
     monkeypatch.syspath_prepend(str(Path(__file__).parents[3] / "conformance" / "zarrify"))
-    import compare
+    import compare  # noqa: PLC0415 (after syspath_prepend)
 
     x, y, z = 4096, 43, 97542
     h = bytearray(540)

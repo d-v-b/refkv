@@ -54,4 +54,5 @@ def test_rejects_an_unrecognized_file(server, tmp_path, monkeypatch):
         with pytest.raises(Rejected) as e:
             zarrify(location, policy=policy)
         assert str(e.value) == NOT_SUPPORTED
-    assert len(ranges) == 1 and ranges[0].startswith("bytes=0-")
+    assert len(ranges) == 1
+    assert ranges[0].startswith("bytes=0-")

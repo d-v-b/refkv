@@ -15,7 +15,7 @@ from refkv.zarrify import _zarrify, zarrify
 from refkv.zarrify.common import reference_store
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "zarrify"))
-from proxy import Proxy  # noqa: E402
+from proxy import Proxy
 
 FIXTURES = Path(__file__).parents[2] / "fixtures"
 LOOPBACK = Policy(allow_private_hosts=True)  # the proxy serves the stores on 127.0.0.1
@@ -56,7 +56,7 @@ INPUTS = [
 ]
 
 
-@pytest.mark.parametrize("name, is_store, checksums, fmt", INPUTS, ids=lambda v: str(v))
+@pytest.mark.parametrize(("name", "is_store", "checksums", "fmt"), INPUTS, ids=str)
 def test_zarrify_returns_the_store_it_saves(proxy, tmp_path, name, is_store, checksums, fmt):
     location, policy = (proxy.local_store(name), LOOPBACK) if is_store else (str(FIXTURES / name), None)
     store = zarrify(location, checksums=checksums, policy=policy)
@@ -70,7 +70,8 @@ def test_zarrify_returns_the_store_it_saves(proxy, tmp_path, name, is_store, che
 
     saved = refkv.open(str(tmp_path / "new.vzip"), policy=policy)
     keys = store.list()
-    assert keys == saved.list() and any(store.classify(k) == "reference" for k in keys)
+    assert keys == saved.list()
+    assert any(store.classify(k) == "reference" for k in keys)
     for k in keys:
         assert store.classify(k) == saved.classify(k), k
         assert store.get(k) == saved.get(k), k
@@ -87,13 +88,17 @@ def test_reference_store_rejects_a_duplicate_key(entries):
 def test_cli_refuses_to_save_sources_its_policy_refuses(tmp_path, module):
     out = tmp_path / "out.vzip"
     p = subprocess.run([sys.executable, "-m", module, str(FIXTURES / "nifti/nifti_block_x_split.nii"),
-                        str(out), "--url", "http://127.0.0.1/x.nii"], capture_output=True, text=True)
-    assert p.returncode == 1 and "error: not saving" in p.stderr and not out.exists(), p.stderr
+                        str(out), "--url", "http://127.0.0.1/x.nii"], capture_output=True, text=True, check=False)
+    assert p.returncode == 1, p.stderr
+    assert "error: not saving" in p.stderr, p.stderr
+    assert not out.exists(), p.stderr
 
 
 @pytest.mark.parametrize("module", ["refkv.zarrify", "refkv.ir"])
 def test_cli_refuses_to_read_an_input_its_policy_refuses(tmp_path, module):
     out = tmp_path / "out.vzip"
     p = subprocess.run([sys.executable, "-m", module, "http://127.0.0.1:9/x.nii", str(out)],
-                       capture_output=True, text=True)
-    assert p.returncode == 1 and p.stderr.startswith("error: ") and not out.exists(), p.stderr
+                       capture_output=True, text=True, check=False)
+    assert p.returncode == 1, p.stderr
+    assert p.stderr.startswith("error: "), p.stderr
+    assert not out.exists(), p.stderr

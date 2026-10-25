@@ -15,13 +15,12 @@ sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "
 import json
 
 import pytest
+from refkv_reference import virtualize
+from refkv_reference.legacy import DirStore, declare
+from refkv_reference.revision import STORES_REVISION as STORE_REVISION
+from refkv_reference.zarr2 import virtualize_zarr2
 
 from refkv.zarrify import Rejected
-from refkv_reference.legacy import declare
-from refkv_reference import virtualize
-from refkv_reference.revision import STORES_REVISION as STORE_REVISION
-from refkv_reference.legacy import DirStore
-from refkv_reference.zarr2 import virtualize_zarr2
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "ome-zarr"
 URL = "https://data.test/ome-zarr/{}/"
@@ -99,14 +98,15 @@ def inverse(ome: dict, a: dict, unversioned: list[str]) -> dict:
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#8-source-metadata>)."""
     out = {}
     for k, v in ome.items():
+        value = v
         if k in unversioned:
             pass
         elif k == "multiscales":
-            v = [{"version": "0.4", **m} for m in v]
+            value = [{"version": "0.4", **m} for m in v]
         elif k in VERSIONED:
-            v = {"version": "0.4", **v}
+            value = {"version": "0.4", **v}
         if k != "version":
-            out[k] = v
+            out[k] = value
     return {**out, **a}
 
 
@@ -129,10 +129,12 @@ def test_virtualizes_the_synthetic_stores():
             assert set(s.get("attributes", {})) == outer, (name, path)
             declared = {"zarr_conventions", "vzip_virtualized"} if path == "" or s else set()
             if ome is None:
-                assert "ome" not in attrs and set(attrs) == declared, (name, path)
+                assert "ome" not in attrs, (name, path)
+                assert set(attrs) == declared, (name, path)
                 continue
             assert set(attrs) == declared | {"ome"}, (name, path)
-            assert attrs["ome"]["version"] == "0.5" and set(attrs["ome"]) == ome | {"version"}, (name, path)
+            assert attrs["ome"]["version"] == "0.5", (name, path)
+            assert set(attrs["ome"]) == ome | {"version"}, (name, path)
             for m in attrs["ome"].get("multiscales", []):
                 assert "version" not in m, (name, path)
             for k in ("omero", "image-label", "plate", "well"):
@@ -212,13 +214,14 @@ def test_virtualizes_the_synthetic_stores():
     s = lambda p: out.docs[key(p)]["attributes"].get("vzip_virtualized", {}).get("ome-zarr")  # noqa: E731
     assert s("")["metadata"] == {"creator": "a writer"}
     assert s("0")["attributes"]["note"] == {"big": 18446744073709551615}
-    assert s("1") is None and s("1/0") == {"metadata": {"fill_value": None}}
+    assert s("1") is None
+    assert s("1/0") == {"metadata": {"fill_value": None}}
     assert [k for k, _ in out.chunks if k.startswith("vzip_source/")] == [
         "vzip_source/objects/OME/METADATA.ome.xml", "vzip_source/objects/README.md"]
     assert out.sources[-1] == url + "README.md"
 
 
-@pytest.mark.parametrize("name,message", [
+@pytest.mark.parametrize(("name", "message"), [
     ("has_ome", "already has an `ome` attribute"),
     ("version", "old: multiscales\\[0\\]: version '0.3' is not 0.4"),
     ("multiscales_empty", "g: multiscales is not a nonempty array"),
@@ -278,5 +281,5 @@ def test_rejects(name, message):
 
 def test_every_rejection_fixture_is_tested():
     names = {d.name.removeprefix("ome_zarr_reject_") for d in FIXTURES.iterdir() if "_reject_" in d.name}
-    params = [m for m in test_rejects.pytestmark if m.name == "parametrize"][0].args[1]
+    params = next(m for m in test_rejects.pytestmark if m.name == "parametrize").args[1]
     assert names == {n for n, _ in params}

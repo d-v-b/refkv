@@ -17,6 +17,7 @@ Usage: uv run python js/test/ims/verify.py [<file.ims> ...]
 from __future__ import annotations
 
 import base64
+import itertools
 import json
 import math
 import os
@@ -42,6 +43,7 @@ import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
+
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import is_mirror, mirror_problems  # noqa: E402
 
@@ -176,16 +178,16 @@ def holds_addresses(d: dict) -> bool:
 
 
 def numeric(d: dict) -> bool:
-    return (d["class"] == "integer" and "offset" not in d and d["size"] in (1, 2, 4, 8)
-            or d["class"] == "float" and "layout" not in d and d["size"] in (2, 4, 8)) and d["order"] != "vax"
+    return ((d["class"] == "integer" and "offset" not in d and d["size"] in (1, 2, 4, 8))
+            or (d["class"] == "float" and "layout" not in d and d["size"] in (2, 4, 8))) and d["order"] != "vax"
 
 
 def supported_column(d: dict) -> bool:
     """Whether §5.4 <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>
     maps a dataset of datatype `d`, which holds addresses."""
     def column(t: dict) -> bool:
-        return (t["class"] == "variable-length" and not holds_addresses(t["base"])
-                or t["class"] == "reference" and (t["kind"], t["size"]) in ((0, 8), (1, 12)))
+        return ((t["class"] == "variable-length" and not holds_addresses(t["base"]))
+                or (t["class"] == "reference" and (t["kind"], t["size"]) in ((0, 8), (1, 12))))
     if d["class"] == "compound":
         return all(column(m["type"]) or not holds_addresses(m["type"]) for m in d["members"])
     return column(d)
@@ -209,8 +211,8 @@ def same_selection(sel: dict, space) -> bool:
         return want == sel["blocks"]
     blocks = []
     for index in np.ndindex(*sel["count"]):
-        start = [s + i * t for s, i, t in zip(sel["start"], index, sel["stride"])]
-        blocks.append([start, [a + b - 1 for a, b in zip(start, sel["block"])]])
+        start = [s + i * t for s, i, t in zip(sel["start"], index, sel["stride"], strict=True)]
+        blocks.append([start, [a + b - 1 for a, b in zip(start, sel["block"], strict=True)]])
     return sorted(want) == sorted(blocks)
 
 
@@ -258,7 +260,7 @@ class Checker:
         # each object's path, from its parent's and its key.
         parents, names = np.asarray(source["objects/parent"][...]), self.family(source["objects/name"])
         self.table: list[str] = []
-        for parent, name in zip(parents, names):
+        for parent, name in zip(parents, names, strict=True):
             self.table.append("/" if parent < 0 else self.table[parent].rstrip("/") + "/" + name.decode())
 
     @staticmethod
@@ -269,7 +271,7 @@ class Checker:
         if isinstance(node, zarr.Group):
             starts = node["offsets"][...]
             data = bytes(node["data"][...]) if "data" in node else b""
-            return [data[a:b] for a, b in zip(starts[:-1], starts[1:])]
+            return [data[a:b] for a, b in itertools.pairwise(starts)]
         return [bytes(r) for r in node[...]]
 
     def load(self, node) -> dict:
@@ -329,7 +331,8 @@ class Checker:
             names = sorted(h5py.h5a.open(obj.id, index=i).name for i in range(h5py.h5a.get_num_attrs(obj.id)))
         except OSError as e:
             if "invalid datatype size" in str(e):
-                return  # a string of no bytes, which h5py cannot open (python/tests/reference/test_zarrify_ims.py checks it)
+                # a string of no bytes, which h5py cannot open (python/tests/reference/test_zarrify_ims.py checks it)
+                return
             raise
         keys: set[str] = set()
         for name in names:
@@ -394,7 +397,7 @@ class Checker:
             flat = np.asarray(aid_value(aid)).reshape(-1)
             if len(values) != len(flat):
                 self.problems.append(f"{where}: {len(values)} values, not {len(flat)}")
-            for v, want in zip(values, flat):
+            for v, want in zip(values, flat, strict=False):
                 self.structured(where, d, v, want, aid.get_type())
             return
         buf = np.empty(dims, dtype=np.dtype(f"V{d['size']}"))
@@ -421,7 +424,7 @@ class Checker:
         if len(got) != len(flat):
             self.problems.append(f"{where}: {len(got)} values, not {len(flat)}")
             return
-        for v, want in zip(got, flat):
+        for v, want in zip(got, flat, strict=True):
             if d["class"] == "reference":
                 at = address_of(self.f[want].id) if want else None
                 self.pending.append((where, v, at))
@@ -476,14 +479,14 @@ class Checker:
                 return
             if len(v) != len(items):
                 self.problems.append(f"{where}: {len(v)} elements, not {len(items)}")
-            for x, w in zip(v, items):
+            for x, w in zip(v, items, strict=False):
                 self.structured(where, d["base"], x, w, tid.get_super())
         elif cls == "compound":
             for i, m in enumerate(d["members"]):
                 self.structured(f"{where}.{m['name']}", m["type"], v[m["name"]], want[i], tid.get_member_type(i))
         else:
             flat = np.asarray(want).reshape(-1)
-            for x, w in zip(v, flat):
+            for x, w in zip(v, flat, strict=False):
                 self.structured(where, d["base"], x, w, tid.get_super())
 
     def named(self, where: str, entry: dict, tid) -> None:
@@ -538,11 +541,11 @@ class Checker:
         if "fill" in s:
             # A reader fills the chunks that are absent with the fill value's bytes.
             got = got.copy()
-            grid = [-(-n // c) for n, c in zip(node.shape, node.chunks)]
+            grid = [-(-n // c) for n, c in zip(node.shape, node.chunks, strict=True)]
             for index in np.ndindex(*grid):
                 key = f"{node.path}/c/" + "/".join(map(str, index))
                 if not sync(node.store.exists(key)):
-                    sl = tuple(slice(i * c, (i + 1) * c) for i, c in zip(index, node.chunks))
+                    sl = tuple(slice(i * c, (i + 1) * c) for i, c in zip(index, node.chunks, strict=True))
                     region = got[sl]
                     endian = node.metadata.codecs[0].to_dict().get("configuration", {}).get("endian")
                     pattern = np.frombuffer(base64.b64decode(s["fill"]), dtype=got.dtype.newbyteorder(
@@ -582,7 +585,7 @@ class Checker:
             values = [json.loads(r) for r in rows]
             if len(values) != len(flat):
                 self.problems.append(f"{where}: {len(values)} regions, not {len(flat)}")
-            for v, w in zip(values, flat):
+            for v, w in zip(values, flat, strict=False):
                 self.structured(where, d, v, w, None)
             return
         self.addressed(where, d, flat, rows)
@@ -657,12 +660,13 @@ class Checker:
                     # does not map: other filters, external or virtual data,
                     # addresses inside other datatypes than its columns, and what is
                     # over its limits.
-                    if not (key in ("zarr.json",) or key.startswith("__")
+                    if not (key == "zarr.json" or key.startswith("__")
                             or unsupported[key]["reason"] in LIMITS
-                            or isinstance(obj, h5py.Dataset) and (
-                                obj.external or obj.is_virtual or obj.compression in ("lzf",) or obj.scaleoffset is not None
-                                or holds_addresses(self.described(unsupported[key]))
-                                and not supported_column(self.described(unsupported[key])))):
+                            or (isinstance(obj, h5py.Dataset) and (
+                                obj.external or obj.is_virtual or obj.compression == "lzf"
+                                or obj.scaleoffset is not None
+                                or (holds_addresses(self.described(unsupported[key]))
+                                and not supported_column(self.described(unsupported[key])))))):
                         self.problems.append(f"{child}: unsupported: {unsupported[key]['reason']}")
                 elif isinstance(obj, h5py.Datatype):
                     entry = datatypes.get(key)
@@ -707,11 +711,12 @@ def mirror_check(path: Path, url: str, out: Path) -> list[str]:
     its source metadata node must rebuild every HDF5 object (`tree_problems`), and the
     IR's mirror must rebuild the source byte for byte."""
     sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
-    from compare import at_revision, differences, from_vzip, without_source
+    # compare puts the frozen reference's paths on sys.path: imported only for a mirror
+    from compare import at_revision, differences, from_vzip, without_source  # noqa: PLC0415 (it edits sys.path)
 
     ref = out.with_suffix(".ref.vzip")
-    p = subprocess.run(["node", str(ROOT / "conformance" / "zarrify" / "reference" / "ts" / "zarrify.ts"), url, str(ref)],
-                       capture_output=True, text=True, cwd=ROOT)
+    p = subprocess.run(["node", str(ROOT / "conformance" / "zarrify" / "reference" / "ts" / "zarrify.ts"), url,
+                        str(ref)], capture_output=True, text=True, cwd=ROOT, check=False)
     if p.returncode:
         return [f"the reference failed: {(p.stderr or p.stdout)[-200:]}"]
     problems = [f"differs from the reference: {d}" for d in
@@ -733,7 +738,7 @@ def check(path: Path, out: Path, url: str) -> list[str]:
         for r in range(len(levels)):
             arr = root[str(r)]
             axes = list(arr.metadata.dimension_names)
-            sizes = dict(zip(axes, arr.shape))
+            sizes = dict(zip(axes, arr.shape, strict=True))
             for t in range(sizes.get("t", 1)):
                 for c in range(sizes.get("c", 1)):
                     group = f[f"DataSet/ResolutionLevel {r}/TimePoint {t}/Channel {c}"]

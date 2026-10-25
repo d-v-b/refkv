@@ -10,9 +10,9 @@ import json
 import av
 import numpy as np
 import pytest
-
 from ir_helpers import FIXTURES, core_setting
 from ir_helpers import zarrified as shared_zarrified
+
 from refkv import _core
 from refkv.zarr.codecs.stream import stream_units
 
@@ -41,13 +41,15 @@ def chunk_parts(out, q, data):
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#82-chunks>), which hold the
     frames the header sizes."""
     lit, *ranges = out.refs[f"samples/c/{q}/0"]
-    assert isinstance(lit, bytes) and all(len(r) == 2 for r in ranges)
+    assert isinstance(lit, bytes)
+    assert all(len(r) == 2 for r in ranges)
     frames = b"".join(data[o:o + n] for o, n in ranges)
     units, positions = stream_units(lit + frames)
     assert sum(len(u) for u in units) == sum(length for _, length in ranges)
     own = [p for p in positions if p >= 0]
     lead = len(positions) - len(own)
-    assert all(p == -1 for p in positions[:lead]) and own[0] == 0
+    assert all(p == -1 for p in positions[:lead])
+    assert own[0] == 0
     per = own[1] - own[0] if len(own) > 1 else None
     assert per is None or own == [k * per for k in range(len(own))]
     return (len(own) * per if per else None), ranges
@@ -61,7 +63,7 @@ def frames_of(ir):
     kind = np.frombuffer(cols["kind"], np.uint8)
     start, length = np.frombuffer(cols["start"], "<u8"), np.frombuffer(cols["len"], "<u8")
     data = np.flatnonzero(kind == 2)
-    return sorted(zip(start[data].tolist(), length[data].tolist()))
+    return sorted(zip(start[data].tolist(), length[data].tolist(), strict=True))
 
 
 def audio_frames(path, ir):
@@ -96,11 +98,13 @@ def test_chunks_decode_as_the_stream_does(path, tmp_path):
     got = arr[...]
     frames = frames_of(ir)
     assert len(frames) == meta["frames"]
-    assert got.dtype == np.float32 and got.shape == (meta["samples"], meta["channels"])
+    assert got.dtype == np.float32
+    assert got.shape == (meta["samples"], meta["channels"])
     assert meta["samples"] == meta["frames"] * meta["samples_per_frame"]
     assert arr.chunks == (4 * meta["samples_per_frame"], meta["channels"])
     chunks = -(-meta["frames"] // 4)
-    assert out.summary["chunks"] == chunks and out.summary["chunkFrames"] == 4
+    assert out.summary["chunks"] == chunks
+    assert out.summary["chunkFrames"] == 4
     assert set(root.attrs) == {"zarr_conventions", "refkv_zarrified"}
     want = sequential(audio_frames(path, ir), meta["channels"])
     assert want.shape == got.shape
@@ -110,17 +114,19 @@ def test_chunks_decode_as_the_stream_does(path, tmp_path):
     for q in range(chunks):
         a, b = 4 * q, min(4 * q + 4, len(frames))
         keep, ranges = chunk_parts(out, q, path.read_bytes())
-        assert keep in (None, (b - a) * meta["samples_per_frame"]) and (keep is not None or b - a == 1)
-        l = next(j for j, (o, _) in enumerate(frames) if o == ranges[0][0])
-        assert (l == 0) if q == 0 else (l < a)
+        assert keep in (None, (b - a) * meta["samples_per_frame"])
+        assert (keep is not None or b - a == 1)
+        first = next(j for j, (o, _) in enumerate(frames) if o == ranges[0][0])
+        assert (first == 0) if q == 0 else (first < a)
         assert ranges[-1][0] + ranges[-1][1] == frames[b - 1][0] + frames[b - 1][1]
-        assert sum(n for _, n in ranges) == sum(n for _, n in frames[l:b])
+        assert sum(n for _, n in ranges) == sum(n for _, n in frames[first:b])
         assert all(ranges[k][0] > ranges[k - 1][0] + ranges[k - 1][1] for k in range(1, len(ranges)))
     assert out.data == {}  # no data sources
     doc = json.loads(out.bytes_entries["samples/zarr.json"])
     assert doc["codecs"] == [{"name": "refkv.stream", "configuration": {"format": "mp3"}}]
     assert doc["dimension_names"] == ["time", "channel"]
-    assert doc["fill_value"] == 0 and doc["data_type"] == "float32"
+    assert doc["fill_value"] == 0
+    assert doc["data_type"] == "float32"
 
 
 @pytest.mark.parametrize("path", [p for p in ACCEPTED if (EXPECTED / f"{p.stem}.npy").exists()], ids=lambda p: p.name)
@@ -134,7 +140,8 @@ def test_matches_ffmpeg(path, chunk_frames, tmp_path):
     want = np.load(EXPECTED / f"{path.stem}.npy").astype(np.int32)
     assert got.shape == want.shape
     diff = np.abs(got - want)
-    assert diff.max() <= FFMPEG_MAX and diff.mean() <= FFMPEG_MEAN, (diff.max(), diff.mean())
+    assert diff.max() <= FFMPEG_MAX, (diff.max(), diff.mean())
+    assert diff.mean() <= FFMPEG_MEAN, (diff.max(), diff.mean())
 
 
 def test_a_long_stream_has_chunks_of_256_frames(tmp_path):
@@ -143,7 +150,8 @@ def test_a_long_stream_has_chunks_of_256_frames(tmp_path):
     path = FIXTURES / "mp3" / "mp3_mpeg25_long.mp3"
     out, root, ir = zarrified(path, tmp_path)
     meta = root.attrs["refkv_zarrified"]["mp3"]
-    assert meta["frames"] > 256 and out.summary["chunks"] == 2
+    assert meta["frames"] > 256
+    assert out.summary["chunks"] == 2
     arr = root["samples"]
     assert arr.chunks == (256 * 576, 1)
     keep1, ranges1 = chunk_parts(out, 1, path.read_bytes())
@@ -158,25 +166,29 @@ def test_a_long_stream_has_chunks_of_256_frames(tmp_path):
 
 # (summary members, root metadata members) each file must have
 CASES = {
-    "mp3_mpeg1_stereo_cbr": ({"version": "MPEG-1", "sampleRate": 44100, "channels": 2, "bitrate": 128, "info": None, "tags": [],
-                              "strayBytes": 0},
-                             {"samples_per_frame": 1152, "channel_mode": "joint_stereo", "crc_frames": 0, "bitrate_mode": "constant"}),
+    "mp3_mpeg1_stereo_cbr": ({"version": "MPEG-1", "sampleRate": 44100, "channels": 2, "bitrate": 128, "info": None,
+                              "tags": [], "strayBytes": 0},
+                             {"samples_per_frame": 1152, "channel_mode": "joint_stereo", "crc_frames": 0,
+                              "bitrate_mode": "constant"}),
     "mp3_mpeg1_mono_vbr": ({"version": "MPEG-1", "channels": 1, "bitrate": "variable", "info": "Xing"},
                            {"bitrate_mode": "variable", "bitrate_kbps": None}),
     "mp3_mpeg2_stereo_crc": ({"version": "MPEG-2", "sampleRate": 22050, "channels": 2}, {"samples_per_frame": 576}),
     "mp3_mpeg2_mono_nores": ({"version": "MPEG-2", "sampleRate": 16000, "bitrate": 32}, {}),
-    "mp3_mpeg25_mono_8k": ({"version": "MPEG-2.5", "sampleRate": 8000, "channels": 1, "bitrate": 16}, {"samples_per_frame": 576}),
+    "mp3_mpeg25_mono_8k": ({"version": "MPEG-2.5", "sampleRate": 8000, "channels": 1, "bitrate": 16},
+                           {"samples_per_frame": 576}),
     "mp3_mpeg25_long": ({"version": "MPEG-2.5", "sampleRate": 8000, "bitrate": 8, "chunks": 2}, {}),
     "mp3_mpeg2_mono_16k": ({"frames": 22, "samples": 12672, "duration": 0.792, "tags": []}, {"stray_bytes": 0}),
     "mp3_tags_id3v2_id3v1": ({"tags": ["id3v2", "id3v1"]},
                              {"id3v1": {"title": "A title", "artist": "An artist", "album": "An album", "year": "2021",
                                         "comment": "Some comment", "track": 7, "genre": 0}}),
     "mp3_tags_id3v1_only": ({"tags": ["id3v1"]}, {}),
-    "mp3_tags_ape": ({"tags": ["ape"]}, {"ape": {"version": 2000, "items": 2, "size": 32 + 32 + 2 * 8 + 6 + 9 + 7 + 10}}),
+    "mp3_tags_ape": ({"tags": ["ape"]},
+                     {"ape": {"version": 2000, "items": 2, "size": 32 + 32 + 2 * 8 + 6 + 9 + 7 + 10}}),
     "mp3_tags_ape_id3v1": ({"tags": ["id3v1", "ape"]}, {"ape": {"version": 2000, "items": 1, "size": 32 + 8 + 6 + 9}}),
     "mp3_info_lavc": ({"tags": ["id3v2"], "info": "Info"}, {}),
     "mp3_abr_xing": ({"info": "Xing", "bitrate": "variable"}, {}),
-    "mp3_id3v2_footer": ({"tags": ["id3v2"]}, {"id3v2": [{"version": [4, 0], "flags": 16, "size": 40, "footer": True}]}),
+    "mp3_id3v2_footer": ({"tags": ["id3v2"]},
+                         {"id3v2": [{"version": [4, 0], "flags": 16, "size": 40, "footer": True}]}),
     "mp3_id3v2_twice": ({}, {"id3v2": [{"version": [3, 0], "flags": 0, "size": 16, "footer": False},
                                        {"version": [4, 0], "flags": 0, "size": 24, "footer": False}]}),
     "mp3_id3v2_padding": ({"strayBytes": 64}, {}),
@@ -212,10 +224,16 @@ def test_the_info_frame_is_read_and_not_audio(tmp_path):
     the first audio frame is the frame after them (the first chunk's range starts there)."""
     out, root, _ = zarrified(FIXTURES / "mp3" / "mp3_abr_xing.mp3", tmp_path)
     info = root.attrs["refkv_zarrified"]["mp3"]["info"]
-    assert info["tag"] == "Xing" and info["encoder"].startswith("LAME") and info["frames"] == out.summary["frames"]
-    assert isinstance(info["delay"], int) and isinstance(info["padding"], int)
+    assert info["tag"] == "Xing"
+    assert info["encoder"].startswith("LAME")
+    assert info["frames"] == out.summary["frames"]
+    assert isinstance(info["delay"], int)
+    assert isinstance(info["padding"], int)
     _, ranges = chunk_parts(out, 0, (FIXTURES / "mp3" / "mp3_abr_xing.mp3").read_bytes())
-    assert ranges[0][0] > 0 and out.summary["strayBytes"] == 0
+    assert ranges[0][0] > 0
+    assert out.summary["strayBytes"] == 0
     out, root, _ = zarrified(FIXTURES / "mp3" / "mp3_info_lavc.mp3", tmp_path)
     info = root.attrs["refkv_zarrified"]["mp3"]["info"]
-    assert info["tag"] == "Info" and info["encoder"].startswith("Lavc") and info["frames"] == out.summary["frames"]
+    assert info["tag"] == "Info"
+    assert info["encoder"].startswith("Lavc")
+    assert info["frames"] == out.summary["frames"]

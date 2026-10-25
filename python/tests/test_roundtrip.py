@@ -1,14 +1,15 @@
 import itertools
+import zipfile
 
 import numpy as np
 import xarray as xr
 import zarr
+from helpers import zarrify
 
 import refkv.zarr
-from refkv.convert import split_virtual_dataset, write_vzip
+from refkv.convert import read_at_open, split_virtual_dataset, write_vzip
+from refkv.pb import Range
 from refkv.vzip.store import VZipStore
-
-from helpers import zarrify
 
 
 def test_roundtrip_single_and_combined(netcdf_files, tmp_path):
@@ -32,15 +33,11 @@ def test_roundtrip_single_and_combined(netcdf_files, tmp_path):
         xr.testing.assert_identical(ds.load(), exp.load())
 
 
-def _no_listing(*args):
+def _no_listing(*_args):
     raise AssertionError("listed the archive")
 
 
 def test_naive_view_is_a_plain_zip(netcdf_files, tmp_path):
-    import zipfile
-
-    from refkv.pb import Range
-
     paths, _ = netcdf_files
     out = tmp_path / "one.vzip"
     write_vzip(zarrify(paths[0]), out)
@@ -52,8 +49,6 @@ def test_naive_view_is_a_plain_zip(netcdf_files, tmp_path):
 
 
 def test_what_xarray_reads_at_open_is_written_late(netcdf_files, tmp_path):
-    from refkv.convert import read_at_open
-
     paths, _ = netcdf_files
     vds = xr.concat([zarrify(p) for p in paths], dim="time", coords="minimal",
                     compat="override")

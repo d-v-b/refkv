@@ -29,9 +29,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-import cases  # noqa: E402
-from model import Model  # noqa: E402
-from validate import validate  # noqa: E402
+import cases
+from http_server import Server
+from model import Model
+from validate import validate
 
 TIMEOUT = 900
 
@@ -51,8 +52,8 @@ def run_read(cli: list[str], archive: Path, queries: list[dict], workdir: Path) 
     qpath.write_text(json.dumps(queries))
     t0 = time.perf_counter()
     try:
-        p = subprocess.run(cli + ["read", str(archive), str(qpath)], capture_output=True,
-                           text=True, timeout=TIMEOUT)
+        p = subprocess.run([*cli, "read", str(archive), str(qpath)], capture_output=True,
+                           text=True, timeout=TIMEOUT, check=False)
     except subprocess.TimeoutExpired:
         return {"crash": "timeout"}
     dt = time.perf_counter() - t0
@@ -83,7 +84,7 @@ def grade(out: dict, queries: list[dict], accepts: list[list[dict]], open_must: 
         return [{"query": "<results>", "got": f"{len(res)} results", "accept": f"{len(queries)}"}]
     return [
         {"query": q, "got": r, "accept": a}
-        for q, r, a in zip(queries, res, accepts)
+        for q, r, a in zip(queries, res, accepts, strict=True)
         if not _matches(r, a)
     ]
 
@@ -125,7 +126,9 @@ def http_accounting(cli, arc: Path, http, out: Path) -> list[dict]:
             if pinned and not ("if-match" in h and "if-unmodified-since" in h):
                 problems.append("pinned source read without If-Match / If-Unmodified-Since")
         if problems:
-            fails.append({"query": q, "got": problems, "accept": "spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http> request rules"})
+            fails.append({"query": q, "got": problems,
+                          "accept": "spec §5.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md"
+                                    "#52-reading-over-http> request rules"})
     return fails
 
 
@@ -148,7 +151,8 @@ def build_vectors(root: Path, ref_cli: list[str], http=None) -> dict[str, dict]:
         dpath = vdir / f"{name}.json"
         dpath.write_text(json.dumps(desc))
         arc = vdir / f"{name}.vzip"
-        p = subprocess.run(ref_cli + ["write", str(dpath), str(arc)], capture_output=True, text=True)
+        p = subprocess.run([*ref_cli, "write", str(dpath), str(arc)], capture_output=True, text=True,
+                           check=False)
         if p.returncode:
             raise RuntimeError(f"reference writer failed on {name}: {p.stderr}")
         qs = cases.queries_for(name, desc)
@@ -180,8 +184,6 @@ def main() -> int:
     ref_cli = shlex.split(args.ref)
     readers = {"ref": ref_cli, **impls}
 
-    from http_server import Server
-
     http = Server(out)  # serves out/ (vectors/data/...) for the http profile
     vectors = build_vectors(out, ref_cli, http)
     report: dict = {"read": {}, "write": {}, "reject": {}, "cross": {}, "divergence": []}
@@ -206,12 +208,12 @@ def main() -> int:
     for vname, v in vectors.items():
         outs = {n: raw_results.get((n, vname), {}) for n in names}
         opens = {n: _shape(o.get("open")) if "crash" not in o else "crash" for n, o in outs.items()}
-        if len(set(json.dumps(x, sort_keys=True) for x in opens.values())) > 1:
+        if len({json.dumps(x, sort_keys=True) for x in opens.values()}) > 1:
             report["divergence"].append({"vector": vname, "query": "<open>", "by_impl": opens})
             continue
         for i, q in enumerate(v["queries"]):
             got = {n: _shape((o.get("results") or [None] * (i + 1))[i]) for n, o in outs.items()}
-            if len(set(json.dumps(x, sort_keys=True) for x in got.values())) > 1:
+            if len({json.dumps(x, sort_keys=True) for x in got.values()}) > 1:
                 report["divergence"].append({"vector": vname, "query": q, "by_impl": got})
 
     # 1c. malformed queries files must make the CLI exit non-zero (HARNESS)
@@ -235,8 +237,8 @@ def main() -> int:
         for name, q in bad_queries.items():
             qp = out / "vectors" / f"bad_{name}.json"
             qp.write_text(q if isinstance(q, str) else json.dumps(q))
-            p = subprocess.run(cli + ["read", str(any_vec), str(qp)], capture_output=True,
-                               text=True, timeout=TIMEOUT)
+            p = subprocess.run([*cli, "read", str(any_vec), str(qp)], capture_output=True,
+                               text=True, timeout=TIMEOUT, check=False)
             report["reject"][f"{impl}:queries/{name}"] = {
                 "ok": p.returncode != 0, "exit": p.returncode, "file_left": False,
                 "stderr": p.stderr.strip()[-200:]}
@@ -263,8 +265,8 @@ def main() -> int:
             dpath = wdir / f"{name}.json"
             dpath.write_text(json.dumps(desc))
             arc = wdir / f"{name}.vzip"
-            p = subprocess.run(cli + ["write", str(dpath), str(arc)], capture_output=True,
-                               text=True, timeout=TIMEOUT)
+            p = subprocess.run([*cli, "write", str(dpath), str(arc)], capture_output=True,
+                               text=True, timeout=TIMEOUT, check=False)
             if p.returncode or not arc.exists():
                 report["write"][f"{impl}:{name}"] = {"problems": [
                     f"write failed (exit {p.returncode}): {p.stderr.strip()[-500:]}"]}
@@ -292,8 +294,8 @@ def main() -> int:
             dpath = wdir / f"invalid_{name}.json"
             dpath.write_text(json.dumps(desc))
             arc = wdir / f"invalid_{name}.vzip"
-            p = subprocess.run(cli + ["write", str(dpath), str(arc)], capture_output=True,
-                               text=True, timeout=TIMEOUT)
+            p = subprocess.run([*cli, "write", str(dpath), str(arc)], capture_output=True,
+                               text=True, timeout=TIMEOUT, check=False)
             ok = p.returncode != 0 and not arc.exists()
             report["reject"][f"{impl}:{name}"] = {
                 "ok": ok, "exit": p.returncode, "file_left": arc.exists(),
@@ -313,7 +315,7 @@ def _summary(report: dict, impls: dict, out: Path) -> None:
     is_http = lambda k: "http" in k.split(":", 1)[1]  # noqa: E731
     for impl in impls:
         hr = [v for k, v in list(report["read"].items()) + list(report["cross"].items())
-              if (k.startswith(impl + ":") or k.startswith(impl + "->")) and is_http(k)]
+              if (k.startswith((impl + ":", impl + "->"))) and is_http(k)]
         hq = sum(v["queries"] for v in hr)
         hf = sum(len(v["failures"]) for v in hr)
         rd = [v for k, v in report["read"].items() if k.startswith(impl + ":") and not is_http(k)]
@@ -334,9 +336,9 @@ def _summary(report: dict, impls: dict, out: Path) -> None:
         for k, v in report[section].items():
             if v["failures"]:
                 lines.append(f"\n### {section} {k} ({len(v['failures'])} failures)")
-                for f in v["failures"][:3]:
-                    lines.append(f"- query `{json.dumps(f['query'])}`\n  - got `{json.dumps(f['got'])[:300]}`"
-                                 f"\n  - accept `{json.dumps(f['accept'])[:300]}`")
+                lines.extend(f"- query `{json.dumps(f['query'])}`\n  - got `{json.dumps(f['got'])[:300]}`"
+                             f"\n  - accept `{json.dumps(f['accept'])[:300]}`"
+                             for f in v["failures"][:3])
     for k, v in report["write"].items():
         if v["problems"]:
             lines.append(f"\n### write {k}")

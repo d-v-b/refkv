@@ -14,6 +14,7 @@ Usage: uv run python fixtures/generators/nd2/write_fixtures.py
 from __future__ import annotations
 
 import struct
+import sys
 import zlib
 from pathlib import Path
 
@@ -35,7 +36,9 @@ def lv(name: str, value) -> bytes:
     if isinstance(value, bool):
         return bytes([1]) + _name(name) + bytes([int(value)])
     if isinstance(value, int):
-        return bytes([3]) + _name(name) + struct.pack("<I", value) if value >= 0 else bytes([2]) + _name(name) + struct.pack("<i", value)
+        if value >= 0:
+            return bytes([3]) + _name(name) + struct.pack("<I", value)
+        return bytes([2]) + _name(name) + struct.pack("<i", value)
     if isinstance(value, float):
         return bytes([6]) + _name(name) + struct.pack("<d", value)
     if isinstance(value, str):
@@ -145,7 +148,8 @@ def tz_uint16() -> None:
     f = Nd2()
     f.chunk("ImageAttributesLV!", attributes(w, h, c, 16, sequence=t * z, significant=12))
     f.chunk("ImageMetadataLV!", experiment(node(1, {"uiCount": t, "dPeriod": 2500.0, "dStart": 0.0, "dDuration": 0.0},
-                                                [node(4, {"uiCount": z, "dZStep": -0.5, "dZLow": 0.0, "dZHigh": 1.5})])))
+                                                [node(4, {"uiCount": z, "dZStep": -0.5,
+                                                          "dZLow": 0.0, "dZHigh": 1.5})])))
     f.chunk("ImageMetadataSeqLV|0!", picture([("DAPI", 0xFF0000, 1), ("GFP", 0x00FF00, 1)], 0.25))
     expected = {}
     for i in range(t * z):
@@ -208,14 +212,15 @@ def float_uncalibrated() -> None:
 
 
 def rejected() -> None:
-    base = dict(width=4, height=3, comp=1, bpc=16, sequence=1)
+    base = {"width": 4, "height": 3, "comp": 1, "bpc": 16, "sequence": 1}
     cases = {
-        "nd2_reject_lossy": dict(attrs=attributes(**base, compression=1)),
-        "nd2_reject_tiled": dict(attrs=attributes(**base, tile_width=2)),
-        "nd2_reject_loop_type": dict(attrs=attributes(**base), exp=experiment(node(7, {"uiCount": 2}))),
-        "nd2_reject_version2": dict(attrs=attributes(**base), version=b"Ver2.0"),
-        "nd2_reject_header_lengths": dict(attrs=attributes(4, 3, 1, 16, sequence=2),
-                                          exp=experiment(node(1, {"uiCount": 2, "dPeriod": 1.0})), pads=[NAME_PAD, 64]),
+        "nd2_reject_lossy": {"attrs": attributes(**base, compression=1)},
+        "nd2_reject_tiled": {"attrs": attributes(**base, tile_width=2)},
+        "nd2_reject_loop_type": {"attrs": attributes(**base), "exp": experiment(node(7, {"uiCount": 2}))},
+        "nd2_reject_version2": {"attrs": attributes(**base), "version": b"Ver2.0"},
+        "nd2_reject_header_lengths": {"attrs": attributes(4, 3, 1, 16, sequence=2),
+                                      "exp": experiment(node(1, {"uiCount": 2, "dPeriod": 1.0})),
+                                      "pads": [NAME_PAD, 64]},
     }
     for name, c in cases.items():
         f = Nd2(c.get("version", b"Ver3.0"))
@@ -275,7 +280,8 @@ def edges() -> None:
     # string member where a number is not needed. Last of duplicate map names
     # wins (frame 0 is written twice).
     f = Nd2()
-    f.chunk("ImageAttributesLV!", lv("SLxImageAttributes", {"uiWidth": w, "uiWidthBytes": w * 4, "uiHeight": h, "uiComp": 2,
+    f.chunk("ImageAttributesLV!",
+            lv("SLxImageAttributes", {"uiWidth": w, "uiWidthBytes": w * 4, "uiHeight": h, "uiComp": 2,
                                       "uiBpcInMemory": 16, "uiBpcSignificant": 0, "ePixelType": "x"}))
     planes = level("sPlaneNew", [
         level("a0", [record(8, "sDescription", b"A\x00\x42\xd8B\x00\0\0")]),
@@ -307,21 +313,25 @@ def edges() -> None:
     base = attributes(w, h, 1, 16, sequence=1)
     good_level = lv("SLxImageAttributes", {"uiWidth": w})
     cases = {
-        "nd2_reject_etype_without_pars": dict(exp=experiment({"eType": 7})),
-        "nd2_reject_missing_etype": dict(exp=experiment({"uLoopPars": {"uiCount": 2}})),
-        "nd2_reject_trailing_byte": dict(attrs=base + b"\0"),
-        "nd2_reject_level_short": dict(attrs=good_level[:1 + 1 + 2 * 19 + 4] + struct.pack("<Q", 5) + good_level[1 + 1 + 2 * 19 + 12:]),
-        "nd2_reject_nested_compression": dict(attrs=compressed(compressed(base))),
-        "nd2_reject_zlib_trailing": dict(attrs=compressed(base) + b"\0"),
-        "nd2_reject_lv_type": dict(attrs=base + record(10, "x", b"")),
-        "nd2_reject_number_type": dict(attrs=lv("SLxImageAttributes", {"uiWidth": "4", "uiHeight": h, "uiWidthBytes": 8,
-                                                                       "uiComp": 1, "uiBpcInMemory": 16, "uiBpcSignificant": 16})),
-        "nd2_reject_missing_width_bytes": dict(attrs=lv("SLxImageAttributes", {"uiWidth": w, "uiHeight": h, "uiComp": 1,
-                                                                               "uiBpcInMemory": 16, "uiBpcSignificant": 16})),
-        "nd2_reject_width_bytes": dict(attrs=attributes(w, h, 1, 16, sequence=1, width_bytes=6)),
-        "nd2_reject_compression": dict(attrs=attributes(w, h, 1, 16, sequence=1, compression=3)),
-        "nd2_reject_width_zero": dict(attrs=attributes(0, h, 1, 16, sequence=1, width_bytes=8)),
-        "nd2_reject_two_time_loops": dict(exp=experiment(node(1, {"uiCount": 2}, [node(8, {"pPeriod": [{"uiCount": 2}]})]))),
+        "nd2_reject_etype_without_pars": {"exp": experiment({"eType": 7})},
+        "nd2_reject_missing_etype": {"exp": experiment({"uLoopPars": {"uiCount": 2}})},
+        "nd2_reject_trailing_byte": {"attrs": base + b"\0"},
+        "nd2_reject_level_short": {"attrs": good_level[:1 + 1 + 2 * 19 + 4] + struct.pack("<Q", 5)
+                                   + good_level[1 + 1 + 2 * 19 + 12:]},
+        "nd2_reject_nested_compression": {"attrs": compressed(compressed(base))},
+        "nd2_reject_zlib_trailing": {"attrs": compressed(base) + b"\0"},
+        "nd2_reject_lv_type": {"attrs": base + record(10, "x", b"")},
+        "nd2_reject_number_type": {"attrs": lv("SLxImageAttributes", {"uiWidth": "4", "uiHeight": h, "uiWidthBytes": 8,
+                                                                      "uiComp": 1, "uiBpcInMemory": 16,
+                                                                      "uiBpcSignificant": 16})},
+        "nd2_reject_missing_width_bytes": {"attrs": lv("SLxImageAttributes", {"uiWidth": w, "uiHeight": h, "uiComp": 1,
+                                                                              "uiBpcInMemory": 16,
+                                                                              "uiBpcSignificant": 16})},
+        "nd2_reject_width_bytes": {"attrs": attributes(w, h, 1, 16, sequence=1, width_bytes=6)},
+        "nd2_reject_compression": {"attrs": attributes(w, h, 1, 16, sequence=1, compression=3)},
+        "nd2_reject_width_zero": {"attrs": attributes(0, h, 1, 16, sequence=1, width_bytes=8)},
+        "nd2_reject_two_time_loops": {"exp": experiment(node(1, {"uiCount": 2},
+                                                             [node(8, {"pPeriod": [{"uiCount": 2}]})]))},
     }
     for name, c in cases.items():
         f = Nd2()
@@ -349,7 +359,8 @@ def edges() -> None:
     f.chunk("ImageAttributesLV!", attributes(1, tall, 1, 8, sequence=1, width_bytes=4))
     px = rng.integers(0, 256, (tall, 1, 1), dtype=np.uint8)
     f.chunk("ImageDataSeq|0!", frame_bytes(px, 4, False))
-    write("nd2_edge_tall_padded", f, {f"0/0/c/{j}/0": px[j * block : (j + 1) * block, :, 0] for j in range(tall // block)})
+    write("nd2_edge_tall_padded", f,
+          {f"0/0/c/{j}/0": px[j * block : (j + 1) * block, :, 0] for j in range(tall // block)})
     # A chunk map entry pointing at bytes without the magic.
     f = Nd2()
     f.chunk("ImageAttributesLV!", base)
@@ -402,17 +413,17 @@ def revision3() -> None:
 
     time_loop = lambda pars: experiment(node(1, pars))  # noqa: E731
     cases = {
-        "nd2_reject_pointer_number": dict(attrs=attrs(uiWidth=record(7, "uiWidth", struct.pack("<Q", w)))),
-        "nd2_reject_fraction": dict(attrs=attrs(uiHeight=lv("uiHeight", 3.5))),
-        "nd2_reject_negative_count": dict(exp=time_loop({"uiCount": -1})),
-        "nd2_reject_nan_period": dict(exp=time_loop({"uiCount": 1, "dPeriod": float("nan")})),
-        "nd2_reject_path_through_scalar": dict(exp=experiment({"eType": 1, "uLoopPars": 5})),
-        "nd2_reject_validity_object": dict(exp=experiment(node(2, {"Points": [{"x": 1.0}]}, item_valid=None) | {
-            "pItemValid": {"a": 1}})),
-        "nd2_reject_unused_calibration": dict(pic=level("SLxPictureMetadata", [
-            lv("bCalibrated", False), lv("dCalibration", "0.5")])),
-        "nd2_reject_unused_plane_color": dict(pic=level("SLxPictureMetadata", [level("sPicturePlanes", [
-            lv("uiCount", 2), level("sPlaneNew", [level("a0", [lv("uiColor", "red")])])])])),
+        "nd2_reject_pointer_number": {"attrs": attrs(uiWidth=record(7, "uiWidth", struct.pack("<Q", w)))},
+        "nd2_reject_fraction": {"attrs": attrs(uiHeight=lv("uiHeight", 3.5))},
+        "nd2_reject_negative_count": {"exp": time_loop({"uiCount": -1})},
+        "nd2_reject_nan_period": {"exp": time_loop({"uiCount": 1, "dPeriod": float("nan")})},
+        "nd2_reject_path_through_scalar": {"exp": experiment({"eType": 1, "uLoopPars": 5})},
+        "nd2_reject_validity_object": {"exp": experiment(node(2, {"Points": [{"x": 1.0}]}, item_valid=None) | {
+            "pItemValid": {"a": 1}})},
+        "nd2_reject_unused_calibration": {"pic": level("SLxPictureMetadata", [
+            lv("bCalibrated", False), lv("dCalibration", "0.5")])},
+        "nd2_reject_unused_plane_color": {"pic": level("SLxPictureMetadata", [level("sPicturePlanes", [
+            lv("uiCount", 2), level("sPlaneNew", [level("a0", [lv("uiColor", "red")])])])])},
     }
     for name, c in cases.items():
         f = Nd2()
@@ -446,7 +457,8 @@ def revision4() -> None:
         for _ in range(depth):
             inner = level("d", [inner])
         return level("SLxImageAttributes", [lv("uiWidth", w), lv("uiHeight", h), lv("uiWidthBytes", w * 2),
-                                            lv("uiComp", 1), lv("uiBpcInMemory", 16), lv("uiBpcSignificant", 16), inner])
+                                            lv("uiComp", 1), lv("uiBpcInMemory", 16), lv("uiBpcSignificant", 16),
+                                            inner])
 
     # pPlanes is not read when the spectral node has uiCount.
     write_case("nd2_edge_spectral_unread_pplanes",
@@ -490,7 +502,7 @@ def revision6() -> None:
         f.chunk("ImageMetadataLV!", experiment(node(2, {"Points": points}, item_valid=valid)))
         pic = [lv("dCalibration", 0.5), lv("bCalibrated", True)]
         if camera is not None:
-            pic += [lv(f"dStgLgCT{k}", float(v)) for k, v in zip(("11", "12", "21", "22"), camera)]
+            pic += [lv(f"dStgLgCT{k}", float(v)) for k, v in zip(("11", "12", "21", "22"), camera, strict=True)]
         f.chunk("ImageMetadataSeqLV|0!", level("SLxPictureMetadata", pic))
         expected = {}
         positions = len(points) if valid is None else sum(valid)
@@ -523,7 +535,8 @@ def streams() -> None:
     f = Nd2()
     f.chunk("ImageAttributesLV!", attributes(w, h, 1, 8, sequence=n))
     f.chunk("ImageMetadataLV!", experiment(node(1, {"uiCount": t, "dPeriod": 1000.0, "dStart": 0.0, "dDuration": 0.0},
-                                                [node(4, {"uiCount": z, "dZStep": -1.0, "dZLow": 0.0, "dZHigh": 2.0})])))
+                                                [node(4, {"uiCount": z, "dZStep": -1.0,
+                                                          "dZLow": 0.0, "dZHigh": 2.0})])))
     f.chunk("ImageMetadataSeqLV|0!", picture([("BF", 0xFFFFFF, 1)], 0.5))
     f.chunk("ImageMetadataSeqLV|1!", picture([("BF", 0xFFFFFF, 1)], 0.5))  # per frame: on refkv_source
     f.chunk("ImageEventsLV!", lv("RLxExperimentRecord", {"uiCount": 1}))  # events: on refkv_source
@@ -646,20 +659,18 @@ def revision7() -> None:
 def sized_level(target: int, legacy: bool = True) -> bytes:
     """A level with `target` bytes of JSON, of numbers and strings that JSON
     writers format differently."""
-    import sys
-
     # the frozen reference twin of the ND2 profile (conformance/zarrify/reference)
     sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
-    from refkv_reference.nd2.lv import decode_lv
-    from refkv_reference.nd2.source import json_size, lv_json
+    from refkv_reference.nd2.lv import decode_lv  # noqa: PLC0415 (importable once its path is on sys.path)
+    from refkv_reference.nd2.source import json_size, lv_json  # noqa: PLC0415 (as above)
 
     members = [lv(f"f{i}", x) for i, x in enumerate(
         [0.1, 1e-7, 1e21, 123456789.125, 5e-324, -2.5e-300, 2.0, 1e16, 1.5e-6, 1e-6, 123e20, -0.0])]
     members += [lv("s", 'é\n\t"\\\x01\x7f\u2028😀'), lv("i", 2**31)]
-    base = json_size(lv_json(decode_lv(level("SLxT", members + [lv("pad", "")]))))
+    base = json_size(lv_json(decode_lv(level("SLxT", [*members, lv("pad", "")]))))
     if legacy:  # nd2_source_json_size was written when -0 was JSON's 0 (1 byte), not the tag {"float":"-0"} (14)
         base -= json_size({"float": "-0"}) - 1
-    return level("SLxT", members + [lv("pad", "x" * (target - base))])
+    return level("SLxT", [*members, lv("pad", "x" * (target - base))])
 
 
 def revision8() -> None:
@@ -670,7 +681,7 @@ def revision8() -> None:
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#5-source-metadata>)."""
     h, w = 3, 4
 
-    def frame(i: int, trailing: bytes = b"") -> tuple[bytes, np.ndarray]:
+    def frame(trailing: bytes = b"") -> tuple[bytes, np.ndarray]:
         px = rng.integers(0, 200, (h, w, 1)).astype(np.uint16)
         return frame_bytes(px, w * 2, False) + trailing, px[:, :, 0]
 
@@ -681,7 +692,7 @@ def revision8() -> None:
         f.chunk("ImageAttributesLV!", attributes(w, h, 1, 16, sequence=3))
         f.chunk("ImageMetadataLV!", experiment(node(1, {"uiCount": 3})))
         for i in range(3):
-            data, _ = frame(i)
+            data, _ = frame()
             if i == 1 and name.endswith("short"):
                 data = data[:-1]
             f.chunk(f"ImageDataSeq|{i}!", data, name_pad=64 if i == 1 and name.endswith("length") else NAME_PAD)
@@ -704,7 +715,8 @@ def revision8() -> None:
     f.chunk("ImageTagLV!", lv("int", 5))
     f.chunk("CustomDataVar|CustomDataV2_0!", variant(
         '<CustomTagDescription_v1.0 runtype="CLxListVariant">'
-        '<Tag_b runtype="CLxListVariant"><ID runtype="CLxStringW" value="S"/><Type runtype="lx_int32" value="2"/></Tag_b>'
+        '<Tag_b runtype="CLxListVariant"><ID runtype="CLxStringW" value="S"/>'
+        '<Type runtype="lx_int32" value="2"/></Tag_b>'
         '<5 runtype="CLxListVariant"><ID runtype="CLxStringW" value="S"/><Type runtype="lx_int32" value="3"/></5>'
         "</CustomTagDescription_v1.0>"))
     f.chunk("CustomDataVar|TagsV1_0!", variant(
@@ -751,7 +763,7 @@ def revision8() -> None:
     f.chunk("ImageLossyLV!", record(1, "a", b"\x05"))  # named LV: decoded, as true
     f.chunk("ImageMetadataSeqLV|00!", picture([("A", 255, 1)], None))  # n = 0: at the root
     f.chunk("ImageMetadataSeqLV|01!", picture([("A", 255, 1)], None))  # n = 1: on refkv_source
-    data, px = frame(0)
+    data, px = frame()
     f.chunk("ImageDataSeq|0!", data)
     write("nd2_source_tags", f, {"0/0/c/0/0": px})
 
@@ -766,11 +778,11 @@ def revision8() -> None:
     f.chunk("ImageMetadataLV!", experiment(node(1, {"uiCount": n, "dPeriod": 1.0})))
     expected = {}
     for i, trailing in ((0, b"T0"), (1, b""), (2000, b"T2000")):
-        data, px = frame(i, trailing)
+        data, px = frame(trailing)
         f.chunk(f"ImageDataSeq|{i}!", data)
         expected[f"0/0/c/{i}/0/0"] = px
     for i in (n + 1, n + 3000):
-        f.chunk(f"ImageDataSeq|{i}!", frame(i)[0])
+        f.chunk(f"ImageDataSeq|{i}!", frame()[0])
     f.chunk("CustomDataSeq|x|0!", b"a")
     f.chunk("CustomDataSeq|x|5000!", b"bb")
     write("nd2_source_sparse", f, expected)
@@ -782,7 +794,7 @@ def revision8() -> None:
     f.chunk("ImageAttributesLV!", attributes(w, h, 1, 16, sequence=1))
     for name, size in (("ALV!", 12000), ("BLV!", 15000), ("CLV!", 15000), ("DLV!", 14000), ("ELV!", 13000)):
         f.chunk(name, lv("s", "x" * (size - 8)))
-    data, px = frame(0)
+    data, px = frame()
     f.chunk("ImageDataSeq|0!", data)
     write("nd2_source_root_budget", f, {"0/0/c/0/0": px})
 
@@ -823,7 +835,8 @@ def revision9() -> None:
     f.chunk("IndexLV!", lv("L", {"x": 1, "01": 2, "10": 3}))
     f.chunk("CustomData|NegZero!", lv("a", -0.0) + lv("b", 1.0))
     f.chunk("NegZeroLV!", lv("a", -0.0))
-    f.chunk("CustomDataVar|NegZeroV1_0!", variant('<z runtype="double" value="-0.0"/><one runtype="double" value="1"/>'))
+    f.chunk("CustomDataVar|NegZeroV1_0!",
+            variant('<z runtype="double" value="-0.0"/><one runtype="double" value="1"/>'))
     write("nd2_source_node_budget", f, frame0(f))
 
     # Charged decodes: three CustomData chunks that inflate to 30 MiB and are not
@@ -850,7 +863,8 @@ def revision9() -> None:
     # of each time point: each in its own chunk of 8192 values (64 KiB).
     f = Nd2()
     f.chunk("ImageAttributesLV!", attributes(1, 1, 1, 8, sequence=40))
-    f.chunk("ImageMetadataLV!", experiment(node(1, {"uiCount": 40, "dPeriod": 1.0}, [node(4, {"uiCount": 2**21, "dZStep": 1.0})])))
+    f.chunk("ImageMetadataLV!",
+            experiment(node(1, {"uiCount": 40, "dPeriod": 1.0}, [node(4, {"uiCount": 2**21, "dZStep": 1.0})])))
     expected = {}
     for t in range(40):
         f.chunk(f"ImageDataSeq|{t * 2**21}!", struct.pack("<d", t) + bytes([t]))
@@ -942,9 +956,11 @@ def revision11() -> None:
     f.chunk("ImageAttributesLV!", attributes(w, h, 1, 16, sequence=1))
     f.chunk("CustomDataVar|CustomDataV2_0!", variant(
         '<CustomTagDescription_v1.0 runtype="CLxListVariant">'
-        f'<T0 runtype="CLxListVariant"><ID runtype="CLxStringW" value="Small"/><Type runtype="lx_int32" value="3"/>{small}</T0>'
+        '<T0 runtype="CLxListVariant"><ID runtype="CLxStringW" value="Small"/>'
+        f'<Type runtype="lx_int32" value="3"/>{small}</T0>'
         '<T1 runtype="CLxStringW" value="not a member"/>'
-        f'<T2 runtype="CLxListVariant"><ID runtype="CLxStringW" value="Big"/><Type runtype="lx_int32" value="2"/>{big}</T2>'
+        '<T2 runtype="CLxListVariant"><ID runtype="CLxStringW" value="Big"/>'
+        f'<Type runtype="lx_int32" value="2"/>{big}</T2>'
         "</CustomTagDescription_v1.0>"))
     f.chunk("CustomData|Small!", struct.pack("<d", 1.5))
     f.chunk("CustomData|Big!", struct.pack("<i", -3))

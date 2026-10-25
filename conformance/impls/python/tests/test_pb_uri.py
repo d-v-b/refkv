@@ -1,20 +1,20 @@
-import os
 import sys
 import unittest
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vzip_impl import pb, uri  # noqa: E402
-from vzip_impl.httpfetch import format_imf_fixdate, parse_imf_fixdate  # noqa: E402
+from vzip_impl import pb, uri
+from vzip_impl.httpfetch import format_imf_fixdate, parse_imf_fixdate
 
 
 class TestProtobuf(unittest.TestCase):
     def test_encode_decode(self):
         cases = [
-            (dict(), b""),
-            (dict(source=1, offset=2, length=3), bytes.fromhex("080118022003")),
-            (dict(data=b""), bytes.fromhex("2a00")),
-            (dict(data=b"ab"), bytes.fromhex("2a026162")),
+            ({}, b""),
+            ({"source": 1, "offset": 2, "length": 3}, bytes.fromhex("080118022003")),
+            ({"data": b""}, bytes.fromhex("2a00")),
+            ({"data": b"ab"}, bytes.fromhex("2a026162")),
         ]
         for kw, enc in cases:
             self.assertEqual(pb.encode_range(**kw), enc)
@@ -34,7 +34,7 @@ class TestProtobuf(unittest.TestCase):
         self.assertEqual(pb.decode(bytes.fromhex("08010802"), pb.RANGE)["source"], 2)
 
     def _bad(self, hexs, schema=pb.RANGE):
-        with self.assertRaises(pb.Malformed):
+        with self.assertRaises(pb.MalformedError):
             pb.decode(bytes.fromhex(hexs), schema)
 
     def test_group_wire_type(self):
@@ -113,7 +113,7 @@ class TestURI(unittest.TestCase):
         self.assertEqual(uri.path_to_file_uri("/data/my file.vzip"), "file:///data/my%20file.vzip")
         self.assertEqual(uri.path_to_file_uri("/a//b/./c/../d é#?.v"), "file:///a/b/d%20%C3%A9%23%3F.v")
         self.assertEqual(uri.path_to_file_uri("/../x"), "file:///x")
-        cwd = os.getcwd()
+        cwd = str(Path.cwd())
         self.assertEqual(uri.path_to_file_uri("q.vzip"), uri.path_to_file_uri(cwd + "/q.vzip"))
 
     def test_file_mapping(self):

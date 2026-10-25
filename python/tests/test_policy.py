@@ -5,19 +5,23 @@
 recorded revision (§1.3 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#13-versioning>), in
 the reference reader and writer."""
 
+import socket
 import sys
 import threading
+import zipfile
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
 
-from refkv.vzip.archive import SPEC_REVISION, VZipWriter
-from refkv.errors import ArchiveError, RequestError, ResolutionError
+import refkv.reader
+from refkv._sync import run
+from refkv.errors import ArchiveError, BodyError, RequestError, ResolutionError
 from refkv.pb import Range, Source, decode_table
 from refkv.policy import Policy, address_class, crc32c, matches_prefix
-from refkv._sync import run
-from refkv.reader import RangeRequest
+from refkv.reader import RangeRequest, http_range
+from refkv.vzip.archive import SPEC_REVISION, VZipWriter
 from refkv.vzip.store import VZipStore
 
 BLOB = bytes(range(256)) * 64  # 16 KiB
@@ -132,7 +136,7 @@ def test_address_class():
         "10.0.0.1": "private", "172.16.0.1": "private", "172.31.255.255": "private",
         "192.168.1.1": "private", "fc00::1": "private", "fdff::1": "private",
         "169.254.169.254": "link-local", "fe80::1": "link-local", "fe80::1%en0": "link-local",
-        "0.0.0.0": "special", "::": "special", "100.64.0.1": "special", "192.0.2.1": "special",
+        "0.0.0.0": "special", "::": "special", "100.64.0.1": "special", "192.0.2.1": "special",  # noqa: S104 (classified, not bound)
         "198.18.0.1": "special", "224.0.0.1": "special", "239.1.2.3": "special",
         "240.0.0.1": "special", "255.255.255.255": "special", "ff02::1": "special",
         "2001:db8::1": "special", "::a00:1": "special", "fec0::1": "special",
@@ -166,7 +170,7 @@ def test_reads_with_checksums_pins_and_revision(tmp_path, server):
     """Valid reads: checksummed ranges (whole and partial windows), pinned
     sources, a source of another scheme that the policy allows, and the
     recorded revision."""
-    base, state = server
+    base, _state = server
     local = tmp_path / "blob.bin"
     local.write_bytes(BLOB)
     good = crc32c(BLOB[100:200])
@@ -204,7 +208,6 @@ def test_writer_records_revision_and_bulk_size_pins(tmp_path):
     path = tmp_path / "a.vzip"
     with open(path, "wb") as f, VZipWriter(f) as w:
         w.add_url_refs([("a", "https://h/a", 5), ("b", "https://h/b", 0)], pin_size=True)
-    import zipfile
     with zipfile.ZipFile(path) as z:
         sources, revision = decode_table(z.read("__vz__/sources"))
     assert revision == SPEC_REVISION
@@ -339,7 +342,6 @@ def test_refuses_a_bytes_entry_that_inflates_past_its_size(tmp_path):
     with open(path, "wb") as f, VZipWriter(f) as w:
         c = zlib.compressobj(9, zlib.DEFLATED, -15)
         w._entry_raw("bomb", b"x" * 10, c.compress(b"x" * (1 << 20)) + c.flush())
-    from refkv.errors import BodyError
     with pytest.raises(BodyError, match="inflates to more than 10 bytes"):
         _get(VZipStore(str(path)), "bomb")
 
@@ -381,10 +383,10 @@ def test_detects_a_crc_mismatch(tmp_path, server):
 
 def test_rejects_an_unknown_format_version(tmp_path):
     arc = _archive(tmp_path / "a.vzip", [], {})
-    data = bytearray(open(arc, "rb").read())
+    data = bytearray(Path(arc).read_bytes())
     i = data.rindex(b"vzip/0")
     data[i + 5] = ord("1")
-    open(arc, "wb").write(bytes(data))
+    Path(arc).write_bytes(bytes(data))
     with pytest.raises(ArchiveError, match="unsupported vzip format version"):
         run(VZipStore(arc)._ensure_open())
 
@@ -394,10 +396,6 @@ def test_rejects_an_unknown_format_version(tmp_path):
 @pytest.fixture
 def resolver(monkeypatch):
     """Maps host names to addresses for the reader (`names`), passing others on."""
-    import socket
-
-    import refkv.reader
-
     names: dict[str, str] = {}
     looked_up: list[str] = []
     real = socket.getaddrinfo
@@ -414,8 +412,6 @@ def resolver(monkeypatch):
 
 def _range(policy, base, url):
     """Bytes 0-4 of `url`, read for an archive at `base` under `policy`, as the store does."""
-    from refkv.reader import http_range
-
     address = None if policy.allow_private_hosts else policy.check_address
     return http_range(url, 0, 4, Source(url=url), lambda u: policy.check(base, u), address,
                       policy.allow_unchecked_proxy)[0]
@@ -429,8 +425,6 @@ def _loopback_only(url, ip):
 
 def _read(url, seen=None):
     """Bytes 0-4 of `url` through http_range with `_loopback_only`, recording checked addresses."""
-    from refkv.reader import http_range
-
     def address(u, ip):
         if seen is not None:
             seen.append(ip)
@@ -477,7 +471,7 @@ def test_refuses_a_name_that_resolves_to_a_refused_address(tmp_path, server, res
         ("rebind.test", "127.0.0.1", "loopback", "file:///d/a.vzip"),
         ("rebind.test", "10.0.0.1", "private", "file:///d/a.vzip"),
         ("metadata.test", "169.254.169.254", "link-local", "file:///d/a.vzip"),
-        ("zero.test", "0.0.0.0", "special", f"{base}/a.vzip"),
+        ("zero.test", "0.0.0.0", "special", f"{base}/a.vzip"),  # noqa: S104 (a resolved address, not a bind)
     ]:
         names[name] = address
         with pytest.raises(ResolutionError, match=f"at {address}.*is a {cls} address"):
@@ -491,7 +485,7 @@ def test_refuses_a_name_that_resolves_to_a_refused_address(tmp_path, server, res
     assert state["requests"] == 0
 
 
-def test_refuses_an_address_written_in_another_form(server):
+def test_refuses_an_address_written_in_another_form():
     """A decimal, hexadecimal or octal IPv4 host is the address it denotes. Windows'
     resolver reads none of these forms, so there the name does not resolve, and the
     read fails before any request."""
@@ -525,7 +519,7 @@ def test_refuses_a_reused_connection_to_a_refused_address(server, resolver):
     url = f"http://reuse.test:{base.rsplit(':', 1)[1]}/blob.bin"
     assert _range(SERVED, "file:///d/a.vzip", url) == BLOB[:4]
     n = len(looked_up)
-    with pytest.raises(ResolutionError, match="at 127.0.0.1.*is a loopback address"):
+    with pytest.raises(ResolutionError, match=r"at 127.0.0.1.*is a loopback address"):
         _range(Policy(), "file:///d/a.vzip", url)
     assert len(looked_up) == n  # the pooled connection, not a new one
     assert state["requests"] == 1
@@ -557,7 +551,7 @@ def test_refuses_a_request_through_a_proxy(server, resolver, no_proxy_env):
         no_proxy_env.delenv("http_proxy", raising=False)
         no_proxy_env.delenv("HTTP_PROXY", raising=False)
         no_proxy_env.setenv(var, base)
-        with pytest.raises(ResolutionError, match="through the proxy.*allow_unchecked_proxy=True"):
+        with pytest.raises(ResolutionError, match=r"through the proxy.*allow_unchecked_proxy=True"):
             _range(Policy(), "https://h.example/a.vzip", "http://public.test/blob.bin")
     no_proxy_env.setenv("https_proxy", base)
     with pytest.raises(ResolutionError, match="through the proxy"):
@@ -580,7 +574,7 @@ def test_refuses_a_refused_address_through_an_allowed_proxy(server, resolver, no
 def test_checks_a_request_the_proxy_settings_send_directly(server, resolver, no_proxy_env):
     """no_proxy exempts a host, and all_proxy is not used: the reader connects itself,
     and checks the address."""
-    base, state = server
+    base, _state = server
     port = base.rsplit(":", 1)[1]
     names, _ = resolver
     names["direct.test"] = "127.0.0.1"
@@ -589,7 +583,7 @@ def test_checks_a_request_the_proxy_settings_send_directly(server, resolver, no_
                 {"ALL_PROXY": "http://127.0.0.1:9"}]:
         for k, v in env.items():
             no_proxy_env.setenv(k, v)
-        with pytest.raises(ResolutionError, match="at 127.0.0.1.*is a loopback address"):
+        with pytest.raises(ResolutionError, match=r"at 127.0.0.1.*is a loopback address"):
             _range(Policy(), "https://h.example/a.vzip", url)
         assert _read(url) == BLOB[:4]  # direct, not through the (closed) proxy port
         for k in env:

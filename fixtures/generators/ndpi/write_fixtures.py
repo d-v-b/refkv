@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import struct
 import urllib.request
+from itertools import pairwise
 from pathlib import Path
 
 import imagecodecs
@@ -32,12 +33,12 @@ import numpy as np
 
 OUT = Path(__file__).parents[2] / "ndpi"
 SOURCE = "https://openslide.cs.cmu.edu/download/openslide-testdata/Hamamatsu/CMU-1.ndpi"
-CACHE = Path("/tmp/vzip-fixture-cache/CMU-1-level2.bin")
+CACHE = Path("/tmp/vzip-fixture-cache/CMU-1-level2.bin")  # noqa: S108 (a download cache, kept between runs)
 
 
 def fetch(offset: int, length: int) -> bytes:
     req = urllib.request.Request(SOURCE, headers={"Range": f"bytes={offset}-{offset + length - 1}"})
-    with urllib.request.urlopen(req, timeout=120) as r:
+    with urllib.request.urlopen(req, timeout=120) as r:  # noqa: S310 (SOURCE is a fixed https URL)
         return r.read()
 
 
@@ -142,7 +143,8 @@ class Ndpi:
             elif typ == 5:
                 raw = b"".join(struct.pack("<II", *v) for v in values)
             else:
-                raw = struct.pack(f"<{len(values)}{ {3: 'H', 4: 'I', 9: 'i', 11: 'f', 13: 'I', 16: 'Q'}[typ] }", *values)
+                raw = struct.pack(f"<{len(values)}{ {3: 'H', 4: 'I', 9: 'i', 11: 'f', 13: 'I', 16: 'Q'}[typ] }",
+                                  *values)
             field = raw.ljust(4, b"\x00") if len(raw) <= 4 else struct.pack("<I", self.blob(raw))
             entries.append(struct.pack("<HHI", tag, typ, len(values)) + field)
         n = len(entries)
@@ -150,7 +152,7 @@ class Ndpi:
 
     def write(self, name: str) -> None:
         struct.pack_into("<Q", self.buf, 4, self.ifds[0])
-        for a, b in zip(self.ifds, self.ifds[1:]):
+        for a, b in pairwise(self.ifds):
             n = struct.unpack_from("<H", self.buf, a)[0]
             struct.pack_into("<Q", self.buf, a + 2 + 12 * n, b)
         (OUT / name).write_bytes(bytes(self.buf))

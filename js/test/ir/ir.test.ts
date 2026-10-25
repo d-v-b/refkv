@@ -14,7 +14,7 @@ import { HttpResolutionError } from "../../src/http.ts";
 import { blockReader, ImageError } from "../../src/zarrify/common.ts";
 import { irFormat, zarrifyImage, zarrifySource } from "../../src/zarrify/index.ts";
 import { zarrifyIr } from "../../src/zarrify/ir/run.ts";
-import { bytesSource, openHttpSource } from "../../src/zarrify/ir/source.ts";
+import { bytesSource, OPEN, openHttpSource } from "../../src/zarrify/ir/source.ts";
 import { IMS_REVISION, REVISION as FROZEN_REVISION } from "../../../conformance/zarrify/reference/ts/revision.ts";
 import { hierarchy } from "./compare.ts";
 
@@ -184,6 +184,54 @@ test("retries a server error, then fails", async () => {
     (e) => e instanceof HttpResolutionError && /HTTP 503 after 3 attempts/.test(e.message),
   );
   assert.equal(state.requests - before, 3);
+});
+
+/** Runs `f` with `respond` as fetch, under Node or, with `browser`, as in a page
+ * (`inBrowser` in http.ts: a `document`). */
+async function withFetch(respond: (url: string, init: RequestInit) => Promise<Response>, browser: boolean, f: () => Promise<void>): Promise<void> {
+  const g = globalThis as { fetch: typeof fetch; document?: unknown };
+  const saved = g.fetch;
+  g.fetch = respond as typeof fetch;
+  if (browser) g.document = {};
+  try {
+    await f();
+  } finally {
+    g.fetch = saved;
+    delete g.document;
+  }
+}
+
+const NO_RETRY_DELAY = { policy: { allowPrivateHosts: true }, attempts: 2, baseDelay: 0 };
+
+test("a request that gets no response fails with fetch's message, and names CORS as a cause in a browser", async () => {
+  const url = "https://data.test/x.tif";
+  let calls = 0;
+  const failing = async (): Promise<Response> => {
+    calls++;
+    throw new TypeError("Failed to fetch");
+  };
+  await withFetch(failing, false, () => assert.rejects(openHttpSource(url, NO_RETRY_DELAY),
+    (e) => e instanceof HttpResolutionError && e.message === `${url}: Failed to fetch`));
+  assert.equal(calls, 2);
+  await withFetch(failing, true, () => assert.rejects(openHttpSource(url, NO_RETRY_DELAY),
+    (e) => e instanceof HttpResolutionError &&
+      e.message.startsWith(`${url}: Failed to fetch. A browser reports this for a server that does not allow cross-origin reads`)));
+});
+
+test("a body cut short after a response does not name CORS as a cause", async () => {
+  const url = "https://data.test/x.tif";
+  const size = 2 * OPEN;
+  // the opening read answers; a later range's body breaks off after its headers
+  const cutShort = async (_u: string, init: RequestInit) => {
+    const [a, b] = (init.headers as Record<string, string>).Range.slice(6).split("-").map(Number);
+    const headers = { "Content-Range": `bytes ${a}-${b}/${size}` };
+    if (a === 0) return new Response(new Uint8Array(b + 1), { status: 206, headers });
+    return new Response(new ReadableStream({ pull: (c) => c.error(new TypeError("terminated")) }), { status: 206, headers });
+  };
+  await withFetch(cutShort, true, async () => {
+    const source = await openHttpSource(url, NO_RETRY_DELAY);
+    await assert.rejects(source.read(OPEN, 16), (e) => e instanceof HttpResolutionError && e.message === `${url}: terminated`);
+  });
 });
 
 test("a file the core refuses is an ImageError", async () => {

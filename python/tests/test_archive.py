@@ -4,13 +4,13 @@ import zipfile
 
 import pytest
 
-from refkv.vzip.archive import VZipWriter, parse_central_directory, parse_tail
+from refkv._sync import run
 from refkv.errors import ArchiveError, EntryError
 from refkv.pb import Pinned, Range
-from refkv._sync import run
 from refkv.reader import OffsetRequest, RangeRequest, SuffixRequest
-from refkv.vzip.store import VZipStore, _check_index
 from refkv.uri import file_uri
+from refkv.vzip.archive import VZipWriter, parse_central_directory, parse_tail
+from refkv.vzip.store import VZipStore, _check_index
 
 U32 = 0xFFFFFFFF
 
@@ -88,7 +88,8 @@ def test_zip64_many_entries_paged(tmp_path):
     run(s._ensure_open())
     opened = s.stats.archive_requests
     assert _get(s, "zarr.json") == b"{}"  # pinned: no page load
-    assert s.classify("c/69999") == "reference" and s.classify("c/69999x") == "missing"
+    assert s.classify("c/69999") == "reference"
+    assert s.classify("c/69999x") == "missing"
     assert s.entry("c/69999").ref.offset == 69999
     assert s.stats.archive_requests - opened == 1  # one page, shared by both lookups
     assert len(s._loaded) == 1 < len(s._pages)
@@ -109,9 +110,9 @@ def test_dangling_internal_reference_rejected():
 
 
 def test_duplicate_key_rejected():
+    w = VZipWriter(io.BytesIO())
+    w.add_bytes("k", b"1")
     with pytest.raises(ValueError, match="duplicate"):
-        w = VZipWriter(io.BytesIO())
-        w.add_bytes("k", b"1")
         w.add_ref("k", "u", 0, 1)
 
 
@@ -176,25 +177,25 @@ def _break_tail(tmp_path, mutate):
 
 
 def test_open_fails_without_zip64_locator(tmp_path):
-    arc = _break_tail(tmp_path, lambda b, z, loc, eocd: b[:z] + b[eocd:])
+    arc = _break_tail(tmp_path, lambda b, z, _loc, eocd: b[:z] + b[eocd:])
     with pytest.raises(ArchiveError, match="locator"):
         run(VZipStore(arc)._ensure_open())
 
 
 def test_open_fails_with_bad_zip64_record_signature(tmp_path):
-    arc = _break_tail(tmp_path, lambda b, z, loc, eocd: struct.pack_into("<I", b, z, 0x06064B51))
+    arc = _break_tail(tmp_path, lambda b, z, _loc, _eocd: struct.pack_into("<I", b, z, 0x06064B51))
     with pytest.raises(ArchiveError, match="zip64"):
         run(VZipStore(arc)._ensure_open())
 
 
 def test_open_fails_with_zip64_record_size_not_44(tmp_path):
-    arc = _break_tail(tmp_path, lambda b, z, loc, eocd: struct.pack_into("<Q", b, z + 4, 45))
+    arc = _break_tail(tmp_path, lambda b, z, _loc, _eocd: struct.pack_into("<Q", b, z + 4, 45))
     with pytest.raises(ArchiveError, match="zip64"):
         run(VZipStore(arc)._ensure_open())
 
 
 def test_open_fails_with_zip64_record_outside_file(tmp_path):
-    arc = _break_tail(tmp_path, lambda b, z, loc, eocd: struct.pack_into("<Q", b, loc + 8, len(b) - 55))
+    arc = _break_tail(tmp_path, lambda b, _z, loc, _eocd: struct.pack_into("<Q", b, loc + 8, len(b) - 55))
     with pytest.raises(ArchiveError, match="zip64"):
         run(VZipStore(arc)._ensure_open())
 
@@ -270,7 +271,7 @@ def _patched(tmp_path, key, mutate):
     and method that `mutate(size, csize, offset, extra, method)` returns."""
     path = tmp_path / "a.vzip"
     b = _small(path)
-    z, loc, eocd = _tail(b)
+    z, _loc, _eocd = _tail(b)
     cd_size, cd_off = struct.unpack_from("<QQ", b, z + 40)
     i = b.index(b"PK\x01\x02", cd_off)
     while b[i + 46 : i + 46 + struct.unpack_from("<H", b, i + 28)[0]] != key.encode():
@@ -300,25 +301,25 @@ def _z64(*values):
 
 
 def test_entry_error_exactly_one_size_all_ones(tmp_path):
-    s = _patched(tmp_path, "z", lambda n, c, o, x, m: (U32, c, o, _z64(U32, c) + x, m))
+    s = _patched(tmp_path, "z", lambda _n, c, o, x, m: (U32, c, o, _z64(U32, c) + x, m))
     with pytest.raises(EntryError, match="exactly one size"):
         _get(s, "z")
 
 
 def test_entry_error_zip64_block_too_short_for_sizes(tmp_path):
-    s = _patched(tmp_path, "z", lambda n, c, o, x, m: (U32, U32, o, _z64(n) + x, m))
+    s = _patched(tmp_path, "z", lambda n, _c, o, x, m: (U32, U32, o, _z64(n) + x, m))
     with pytest.raises(EntryError, match="ZIP64 extra block"):
         _get(s, "z")
 
 
 def test_entry_error_zip64_block_without_offset(tmp_path):
-    s = _patched(tmp_path, "z", lambda n, c, o, x, m: (U32, U32, U32, _z64(n, c) + x, m))
+    s = _patched(tmp_path, "z", lambda n, c, _o, x, m: (U32, U32, U32, _z64(n, c) + x, m))
     with pytest.raises(EntryError, match="ZIP64 extra block"):
         _get(s, "z")
 
 
 def test_entry_error_large_without_zip64_block(tmp_path):
-    s = _patched(tmp_path, "z", lambda n, c, o, x, m: (U32, U32, o, x, m))
+    s = _patched(tmp_path, "z", lambda _n, _c, o, x, m: (U32, U32, o, x, m))
     with pytest.raises(EntryError, match="ZIP64 extra block"):
         _get(s, "z")
 
@@ -331,7 +332,7 @@ def test_entry_error_large_reference(tmp_path):
 
 def test_entry_error_large_deflate(tmp_path):
     # "hello" DEFLATEd is 7 bytes: a well-formed body, refused because the entry is large
-    s = _patched(tmp_path, "z", lambda n, c, o, x, m: (U32, U32, o, _z64(5, 7) + x, 8))
+    s = _patched(tmp_path, "z", lambda _n, _c, o, x, _m: (U32, U32, o, _z64(5, 7) + x, 8))
     with pytest.raises(EntryError, match="large entry is not STORED"):
         _get(s, "z")
 

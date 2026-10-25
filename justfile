@@ -92,6 +92,11 @@ sections:
     uv run python spec/tools/sections.py check
     uv run python spec/tools/profiles.py check
 
+# Lint every Python file of the repository with ruff (pyproject.toml's [tool.ruff]: every rule, less
+# the ones it names with their reasons)
+lint:
+    uv run ruff check .
+
 # Regenerate what derives from the profile registry, spec/zarrify/profiles/<name>.json (the one
 # place a profile's identity is written, one file per profile): the Rust core's copies, and the
 # index tables of spec/zarrify.md, spec/conventions.md and docs/zarrify/README.md

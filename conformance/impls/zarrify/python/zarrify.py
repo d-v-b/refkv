@@ -21,7 +21,7 @@ MAX_PAYLOAD = 65519
 WS = " \t\r\n"
 
 
-class Reject(Exception):
+class RejectedError(Exception):
     pass
 
 
@@ -31,7 +31,7 @@ class ReadError(Exception):
 
 def need(cond, msg):
     if not cond:
-        raise Reject(msg)
+        raise RejectedError(msg)
 
 
 # --------------------------------------------------------------------------
@@ -71,6 +71,7 @@ class Source:
                 self.conn = None
                 if attempt == 2:
                     raise ReadError(str(e)) from e
+        return None
 
     def _fetch(self, first: int, last: int) -> None:
         start = first * self.BLOCK
@@ -83,7 +84,7 @@ class Source:
 
     def read(self, off: int, n: int) -> bytes:
         if off < 0 or n < 0 or off > MAX or n > MAX or off + n > self.size:
-            raise Reject(f"read outside the file ({off}+{n} > {self.size})")
+            raise RejectedError(f"read outside the file ({off}+{n} > {self.size})")
         if n == 0:
             return b""
         first, last = off // self.BLOCK, (off + n - 1) // self.BLOCK
@@ -399,7 +400,7 @@ class Tiff:
             if spp > 1:
                 if SC == 1:
                     SC = spp
-                need(SC == spp, f"SizeC {SC} differs from SamplesPerPixel {spp}")
+                need(spp == SC, f"SizeC {SC} differs from SamplesPerPixel {spp}")
                 Cp = 1
             else:
                 Cp = SC
@@ -499,7 +500,7 @@ class Tiff:
             elif comp == 50000:
                 compressor = {"name": "zstd", "configuration": {"level": 0, "checksum": False}}
             else:
-                raise Reject(f"Compression {comp}")
+                raise RejectedError(f"Compression {comp}")
             a2b = bytes_codec(bits // 8, endian)
 
         # §3.6
@@ -532,7 +533,7 @@ class Tiff:
                     units[ax] = UNITS.get(px.get(f"PhysicalSize{ax.upper()}Unit", "µm"))
         W0, H0 = geo[0][0], geo[0][1]
         datasets = []
-        for L, (W, H, TW, TL) in enumerate(geo):
+        for L, (W, H, _TW, _TL) in enumerate(geo):
             sc = {
                 "t": 1,
                 "c": 1,
@@ -548,13 +549,15 @@ class Tiff:
             ms["name"] = ome["name"]
         ms["axes"] = [axis_json(d, units.get(d)) for d in dims]
         ms["datasets"] = datasets
-        self.out.json("zarr.json", {"zarr_format": 3, "node_type": "group", "attributes": {"ome": {"version": "0.5", "multiscales": [ms]}}})
+        self.out.json("zarr.json", {"zarr_format": 3, "node_type": "group",
+                                    "attributes": {"ome": {"version": "0.5", "multiscales": [ms]}}})
 
         nsp = spp if (spp > 1 and planar == 2) else 1
         for L, (W, H, TW, TL) in enumerate(geo):
             full = {"t": ST, "c": nchan, "z": SZ, "y": H, "x": W}
             chunk = {"t": 1, "c": spp if interleaved else 1, "z": 1, "y": TL, "x": TW}
-            self.out.json(f"{L}/zarr.json", array_json([full[d] for d in dims], dtype, [chunk[d] for d in dims], codecs, dims))
+            self.out.json(f"{L}/zarr.json",
+                          array_json([full[d] for d in dims], dtype, [chunk[d] for d in dims], codecs, dims))
             across = -(-W // TW)
             T = -(-H // TL) * across
             for p in positions:
@@ -624,7 +627,7 @@ def decode_refs(s: str) -> str:
 
 
 class Tag:
-    __slots__ = ("start", "end", "is_end", "name", "attrs", "self_closing")
+    __slots__ = ("attrs", "end", "is_end", "name", "self_closing", "start")
 
 
 def scan_tags(X: str):
@@ -865,7 +868,7 @@ class LVParser:
             pos += 8 * c
             v = make_level(recs)
         else:
-            raise Reject(f"LV record type {typ}")
+            raise RejectedError(f"LV record type {typ}")
         return pos, (name, v)
 
     def top(self):
@@ -874,19 +877,13 @@ class LVParser:
         while pos < self.n:
             pos, r = self.record(pos, 0)
             recs.append(r)
-        m = {}
-        for name, v in recs:
-            m[name] = v
-        return LVObj(m)
+        return LVObj(dict(recs))
 
 
 def make_level(recs):
     if recs and all(name == "" for name, _ in recs):
         return LVList([v for _, v in recs])
-    m = {}
-    for name, v in recs:
-        m[name] = v
-    return LVObj(m)
+    return LVObj(dict(recs))
 
 
 def parse_lv_chunk(data: bytes) -> LVObj:
@@ -896,7 +893,7 @@ def parse_lv_chunk(data: bytes) -> LVObj:
         try:
             inner = d.decompress(data[12:])
         except zlib.error as e:
-            raise Reject(f"bad zlib stream in LV chunk: {e}")
+            raise RejectedError(f"bad zlib stream in LV chunk: {e}") from e
         need(d.eof and not d.unused_data, "zlib stream does not end at the end of the chunk")
         need(inner[:1] != b"\x4c", "nested compressed LV record")
         return LVParser(inner).top()
@@ -976,7 +973,7 @@ def as_obj_or_list(v, what):
 def validity(lst, what):
     """Return a function i -> valid, given an optional validity list."""
     if lst is MISSING:
-        return lambda i: True
+        return lambda _i: True
     flags = [as_flag(x, what) for x in members(as_list(lst, what))]
     return lambda i: i < len(flags) and flags[i]
 
@@ -1066,7 +1063,7 @@ def flatten(root: Node):
             visit(ch, depth + 1)
 
     visit(root, 0)
-    kinds = [l[0] for l in loops]
+    kinds = [lp[0] for lp in loops]
     need(len(set(kinds)) == len(kinds), "two loops of the same kind")
     return loops
 
@@ -1188,7 +1185,7 @@ class ND2:
         # §4.4
         # <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#44-frames>
         # frames
-        counts = [l[2] for l in loops]
+        counts = [lp[2] for lp in loops]
         N = 1
         for c in counts:
             N *= c
@@ -1267,8 +1264,8 @@ class ND2:
         # §4.6
         # <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/VIRTUALIZE.r4.md#46-output>
         # output
-        kinds = [l[0] for l in loops]
-        loop_of = {l[0]: l for l in loops}
+        kinds = [lp[0] for lp in loops]
+        loop_of = {lp[0]: lp for lp in loops}
         dims = []
         if "time" in loop_of:
             dims.append("t")
@@ -1314,10 +1311,12 @@ class ND2:
 
         npos = loop_of["position"][2] if "position" in loop_of else 1
         out = self.out
-        out.json("zarr.json", {"zarr_format": 3, "node_type": "group", "attributes": {"ome": {"version": "0.5", "bioformats2raw.layout": 3}}})
+        out.json("zarr.json", {"zarr_format": 3, "node_type": "group",
+                               "attributes": {"ome": {"version": "0.5", "bioformats2raw.layout": 3}}})
         out.json(
             "OME/zarr.json",
-            {"zarr_format": 3, "node_type": "group", "attributes": {"ome": {"version": "0.5", "series": [str(p) for p in range(npos)]}}},
+            {"zarr_format": 3, "node_type": "group",
+             "attributes": {"ome": {"version": "0.5", "series": [str(p) for p in range(npos)]}}},
         )
         arr = array_json([shape[d] for d in dims], dtype, [chunk[d] for d in dims], codecs, dims)
         for p in range(npos):
@@ -1328,7 +1327,8 @@ class ND2:
                         "name": f"position {p}",
                         "axes": [axis_json(d, units.get(d)) for d in dims],
                         "datasets": [
-                            {"path": "0", "coordinateTransformations": [{"type": "scale", "scale": [scale[d] for d in dims]}]}
+                            {"path": "0",
+                             "coordinateTransformations": [{"type": "scale", "scale": [scale[d] for d in dims]}]}
                         ],
                     }
                 ],
@@ -1339,7 +1339,7 @@ class ND2:
         for f in present:
             rem = f
             coord = {}
-            for k, cnt in zip(reversed(kinds), reversed(counts)):
+            for k, cnt in zip(reversed(kinds), reversed(counts), strict=True):
                 coord[k] = rem % cnt
                 rem //= cnt
             p = coord.get("position", 0)
@@ -1351,11 +1351,21 @@ class ND2:
             if "z" in dims:
                 pre.append(coord["z"])
             for j, rng in enumerate(franges[f]):
-                key = f"{p}/0/c/" + "/".join(str(x) for x in pre + [j, 0])
+                key = f"{p}/0/c/" + "/".join(str(x) for x in [*pre, j, 0])
                 out.ref(key, rng)
 
 
 # --------------------------------------------------------------------------
+
+
+def zarrify(src, out):
+    head = src.read(0, min(src.size, 12)) if src.size else b""
+    if head[:4] in (b"II*\0", b"MM\0*", b"II+\0", b"MM\0+"):
+        Tiff(src, out).run()
+    elif head[:4] == b"\xda\xce\xbe\x0a":
+        ND2(src, out).run()
+    else:
+        raise RejectedError("unrecognized file type")
 
 
 def main(argv):
@@ -1366,15 +1376,9 @@ def main(argv):
     try:
         src = Source(url)
         out = Output(url, src.size)
-        head = src.read(0, min(src.size, 12)) if src.size else b""
-        if head[:4] in (b"II*\0", b"MM\0*", b"II+\0", b"MM\0+"):
-            Tiff(src, out).run()
-        elif head[:4] == b"\xda\xce\xbe\x0a":
-            ND2(src, out).run()
-        else:
-            raise Reject("unrecognized file type")
+        zarrify(src, out)
         text = out.dump()
-    except Reject as e:
+    except RejectedError as e:
         print(f"rejected: {e}", file=sys.stderr)
         return 3
     except ReadError as e:

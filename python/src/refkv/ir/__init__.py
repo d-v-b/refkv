@@ -12,24 +12,23 @@ from __future__ import annotations
 
 import json
 
-from refkv.zarrify.common import Rejected
+from refkv import _core
+from refkv.ir.output import from_rust
+from refkv.ir.planner import Transport, drive, new_run, open_transport
+from refkv.policy import Policy
+from refkv.uri import path_reference
+from refkv.zarrify.common import Output, Rejected
 
 
 def sniff(head: bytes) -> str | None:
     """The IR format a file's first bytes (up to 552 of them) give, if any: the Rust core's
     `Format::sniff`, which tests each file profile's signature in the registry's `sniff` order
     (spec/zarrify.md §1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)."""
-    from refkv import _core
-
     return _core.sniff(head)
 
 
-def parse(fmt: str, transport, conc: int | None = None):
+def parse(fmt: str, transport: Transport, conc: int | None = None) -> tuple[_core.Ir, dict, dict]:
     """(IR, facts, planner counts) of the source the transport reads, or Rejected."""
-    from refkv import _core
-
-    from refkv.ir.planner import drive, new_run
-
     run = new_run(fmt, transport, conc)
     drive(run, transport, conc)
     try:
@@ -39,20 +38,15 @@ def parse(fmt: str, transport, conc: int | None = None):
     return ir, json.loads(facts), json.loads(stats)
 
 
-def zarrify(location: str, url: str | None = None, mirror: bool = True, policy=None, transport=None,
-               connections: int | None = None, byte_cost: float | None = None):
+def zarrify(location: str, url: str | None = None, mirror: bool = True, policy: Policy | None = None,
+            transport: Transport | None = None, connections: int | None = None,
+            byte_cost: float | None = None) -> tuple[str, Output, _core.Ir]:
     """(format, output, IR): the source read through the read planner, parsed by the
     Rust parser of its format, projected and mirrored under refkv_source by the Rust
     core. The output pins source 0's size, and its ETag when every response gave the
     same strong one. `connections`: requests at a time to a remote source (default 8);
     `byte_cost`: seconds of wall time the planner charges a byte fetched (default 0.1 s
     per MB)."""
-    from refkv import _core
-
-    from refkv.ir.output import from_rust
-    from refkv.ir.planner import drive, new_run, open_transport
-    from refkv.uri import path_reference
-
     transport = transport or open_transport(location, policy)
     want = min(552, transport.size)
     held = transport.head[1] or b""

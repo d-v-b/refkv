@@ -14,13 +14,9 @@ from pathlib import Path
 
 import pytest
 
-# the frozen reference twins (conformance/zarrify/reference), for one test
-REFERENCE = str(Path(__file__).parents[2] / "conformance" / "zarrify" / "reference")
-
-from refkv.vzip.archive import VZipWriter
 from refkv.pb import Range, decode_source_table
+from refkv.vzip.archive import VZipWriter
 from refkv.zarrify import Rejected
-from refkv.zarrify.common import declare
 from refkv.zarrify.store import (
     HttpStore,
     ListingFailed,
@@ -34,8 +30,11 @@ from refkv.zarrify.store import (
     parse_listing,
 )
 
-# the frozen reference twins (conformance/zarrify/reference/refkv_reference): the N5 profile
+# the frozen reference twins (conformance/zarrify/reference/refkv_reference), for one test
 sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "zarrify" / "reference"))
+from refkv_reference.legacy import declare  # the frozen profiles' names: vzip_source
+from refkv_reference.n5.virtualize import virtualize_n5  # the frozen N5 profile (revision 25)
+from refkv_reference.zarr2.virtualize import virtualize_zarr2  # the frozen profile: revision 25's rules
 
 XML = '<?xml version="1.0" encoding="UTF-8"?>\n<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">{}</ListBucketResult>'
 
@@ -155,7 +154,7 @@ def nested(depth: int) -> list:
 def test_reads_json():
     cases = [
         (b'{"a": 1, "a": 2}', {"a": 2}),  # the last member wins
-        (b' [1, 1.0, 6.4e1, -0, 1e-400] ', [1, 1.0, 64.0, 0, 0.0]),
+        (b" [1, 1.0, 6.4e1, -0, 1e-400] ", [1, 1.0, 64.0, 0, 0.0]),
         # beyond 2^53: an integer literal is kept exact, a float is its binary64 value
         (b'{"x": 9007199254740993, "y": 9007199254740993.0}', {"x": 9007199254740993, "y": 9007199254740992.0}),
         (b'"\\ud800"', "\ud800"),
@@ -225,30 +224,32 @@ def test_reads_from_the_listed_location_when_renamed():
     assert store.read("attributes.json") == b"{}"
 
 
-@pytest.mark.parametrize("pages,error", [
+@pytest.mark.parametrize(("pages", "error"), [
     ({"http://h/b/?list-type=2&prefix=s%2F": 404}, Rejected),
     ({"http://h/b/?list-type=2&prefix=s%2F": 403}, Rejected),
     ({"http://h/b/?list-type=2&prefix=s%2F": b"<html>a directory index</html>"}, Rejected),
     ({"http://h/b/?list-type=2&prefix=s%2F": (204, b"")}, Rejected),
     ({"http://h/b/?list-type=2&prefix=s%2F": 400}, Rejected),
     ({"http://h/b/?list-type=2&prefix=s%2F": listing(obj("s/a") + obj("s/a"))}, Rejected),
-    ({"http://h/b/?list-type=2&prefix=s%2F": listing(obj("s/a"), "true", "<NextContinuationToken>t</NextContinuationToken>"),
+    ({"http://h/b/?list-type=2&prefix=s%2F":
+          listing(obj("s/a"), "true", "<NextContinuationToken>t</NextContinuationToken>"),
       "http://h/b/?list-type=2&prefix=s%2F&continuation-token=t": listing(obj("s/a"))}, Rejected),
     # A truncated page that gives a continuation token again (§1.5
     # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>).
-    ({"http://h/b/?list-type=2&prefix=s%2F": listing(obj("s/a"), "true", "<NextContinuationToken>t</NextContinuationToken>"),
+    ({"http://h/b/?list-type=2&prefix=s%2F":
+          listing(obj("s/a"), "true", "<NextContinuationToken>t</NextContinuationToken>"),
       "http://h/b/?list-type=2&prefix=s%2F&continuation-token=t":
           listing(obj("s/b"), "true", "<NextContinuationToken>t</NextContinuationToken>")}, Rejected),
     ({"http://h/b/?list-type=2&prefix=s%2F": 408}, ListingFailed),
 ])
 def test_listing_errors(pages, error, monkeypatch):
-    monkeypatch.setattr("time.sleep", lambda s: None)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
     with pytest.raises(error):
         HttpStore("http://h/b/s/", opener=opener(pages))
 
 
 def test_listing_fails_on_server_errors(monkeypatch):
-    monkeypatch.setattr("time.sleep", lambda s: None)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
     with pytest.raises(ListingFailed):
         HttpStore("http://h/b/s/", opener=opener({"http://h/b/?list-type=2&prefix=s%2F": 503}))
 
@@ -272,7 +273,7 @@ def test_writer_bulk_url_sources():
         assert Range.decode(info.extra[4:]) == Range(source=i, offset=0, length=i)
 
 
-def test_records_ignored_keys_and_empty_chunks(monkeypatch):
+def test_records_ignored_keys_and_empty_chunks():
     """The recorded ignored keys (spec/zarrify.md §1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>) and the empty
     chunk objects' keys are
@@ -280,13 +281,8 @@ def test_records_ignored_keys_and_empty_chunks(monkeypatch):
     array (spec/zarrify/zarr2.md §5
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>); in UTF-8
     byte order, each member only when not empty."""
-    monkeypatch.syspath_prepend(REFERENCE)
-    from refkv_reference.n5.virtualize import virtualize_n5  # the frozen N5 profile (revision 25)
-    from refkv_reference.zarr2.virtualize import virtualize_zarr2  # the frozen profile: revision 25's rules
-    from refkv_reference.legacy import declare  # the frozen profiles' names: vzip_source
-
-    zarray = b'{"zarr_format": 2, "shape": [4], "chunks": [2], "dtype": "|u1", "compressor": null, ' \
-             b'"fill_value": 7, "order": "C", "filters": null}'
+    zarray = (b'{"zarr_format": 2, "shape": [4], "chunks": [2], "dtype": "|u1", "compressor": null, '
+              b'"fill_value": 7, "order": "C", "filters": null}')
     n5 = b'{"dimensions": [4], "blockSize": [2], "dataType": "uint8", "compression": {"type": "raw"}}'
 
     def store(keys: str, docs: dict[str, bytes]) -> HttpStore:
@@ -320,7 +316,8 @@ def test_records_ignored_keys_and_empty_chunks(monkeypatch):
         if where is None:
             assert not any(k.startswith("vzip_source/") for k in [*out.docs, *(k for k, _ in out.chunks)]), keys
         elif where == "vzip_source/empty.json":
-            assert out.docs[where] == want and "vzip_source/zarr.json" not in out.docs, keys
+            assert out.docs[where] == want, keys
+            assert "vzip_source/zarr.json" not in out.docs, keys
         else:
             profile = "n5" if fn is virtualize_n5 else "zarr2"
             assert out.docs[where]["attributes"] == declare({}, profile, None, want), keys
@@ -355,4 +352,6 @@ def test_finds_nearest_arrays_and_nodes():
     assert (nodes, implicit) == ({"": "array"}, set())
     deep = "/".join(["q"] * 500)
     nodes, implicit = classify({deep: "group"})
-    assert len(implicit) == 500 and "" in implicit and deep not in implicit
+    assert len(implicit) == 500
+    assert "" in implicit
+    assert deep not in implicit

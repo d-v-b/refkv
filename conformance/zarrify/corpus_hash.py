@@ -31,7 +31,7 @@ HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 from proxy import BLOCK, RemoteListings, Upstream  # noqa: E402
 
-CACHE = Path("/tmp/vzip-proxy-cache")
+CACHE = Path("/tmp/vzip-proxy-cache")  # noqa: S108 (the cache the runs share, by design)
 KINDS = ("ends-sha256", "listing-sha256")
 
 
@@ -49,7 +49,7 @@ def entries(path: Path) -> list[tuple[str, str, list[str], str | None]]:
     return [parse(line) for line in path.read_text().split("\n") if line and not line.startswith("#")]
 
 
-class NotCached(Exception):
+class NotCachedError(Exception):
     pass
 
 
@@ -63,17 +63,17 @@ def fingerprint(upstream: Upstream, url: str, cache_only: bool = False) -> str:
         listings = RemoteListings(upstream)
         key = hashlib.sha256(f"list:{url}|".encode()).hexdigest() + ".json"
         if cache_only and not (upstream.cache / key).exists():
-            raise NotCached(url)
+            raise NotCachedError(url)
         h = hashlib.sha256()
         for k, n in listings.keys(url, ""):
             h.update(f"{k}\t{n}\n".encode())
         return f"listing-sha256={h.hexdigest()}"
     if cache_only and not _cached(upstream, url, ".size"):
-        raise NotCached(url)
+        raise NotCachedError(url)
     size = upstream.size(url)
     blocks = sorted({0, max(size - 1, 0) // BLOCK}) if size else []
     if cache_only and not all(_cached(upstream, url, f".{i}") for i in blocks):
-        raise NotCached(url)
+        raise NotCachedError(url)
     h = hashlib.sha256(f"{size}\n".encode())
     for i in blocks:
         h.update(upstream.block(url, i))
@@ -96,7 +96,7 @@ def main(argv: list[str]) -> int:
             url, name, flags, old = parse(line)
             try:
                 new = fingerprint(upstream, url, urllib.parse.urlsplit(url).hostname in cache_only)
-            except NotCached:
+            except NotCachedError:
                 print(f"{path.name} {name}: not cached (host {urllib.parse.urlsplit(url).hostname} is --cache-only)")
                 bad += mode == "check" and old is None
                 continue

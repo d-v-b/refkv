@@ -46,7 +46,8 @@ def symtab_btree(f: Hdf5, at: int) -> int:
 
 
 # Time points that are one group by hard links: every chunk referenced once per time point.
-for name, n, size in (("ims_amp_times", 4, (2, 64, 64)), *(() if small else (("ims_amp_times_big", 128, (16, 512, 512)),))):
+for name, n, size in (("ims_amp_times", 4, (2, 64, 64)),
+                      *(() if small else (("ims_amp_times_big", 128, (16, 512, 512)),))):
     with wf.open_file(name, "latest") as f:
         wf.imaris(f, [{"size": size, "dims": size, "chunks": (1, 16, 16)}], dtype="u1")
         tp = f["DataSet/ResolutionLevel 0"]
@@ -143,4 +144,5 @@ assert layout.data[0] == 3, "layout version"
 ndims = layout.data[2]
 patch(p, layout.offset + 11 + 4 * (ndims - 1), struct.pack("<I", 1))  # the chunk's last dimension
 fill = msgs[0x05]
-assert len(fill_value_bytes := fill.data[8:8 + struct.unpack_from("<I", fill.data, 4)[0]]) == 2 and not any(fill_value_bytes)
+assert len(fill_value_bytes := fill.data[8:8 + struct.unpack_from("<I", fill.data, 4)[0]]) == 2
+assert not any(fill_value_bytes)

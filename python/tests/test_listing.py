@@ -3,9 +3,9 @@ import itertools
 
 import pytest
 
-from refkv.vzip.archive import VZipWriter
-from refkv.errors import EntryError
 from refkv._sync import run
+from refkv.errors import EntryError
+from refkv.vzip.archive import VZipWriter
 from refkv.vzip.store import VZipStore
 
 

@@ -8,18 +8,22 @@ one of the rejected fixtures (each rejected by both)."""
 
 import io
 import json
+import subprocess
+import sys
+import time
 from pathlib import Path
 from xml.sax.saxutils import escape
 
 import pytest
+from ir_helpers import LEGACY_SOURCE, as_current, current_names
+from refkv_reference import virtualize as frozen
+from refkv_reference.revision import STORES_REVISION
 
 from refkv import _core
 from refkv.ir.store import StoreIrOutput, zarrify_store
-from refkv.zarrify import Rejected, _zarrify as zarrify  # the profile output, not the store
+from refkv.zarrify import Rejected
+from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store
 from refkv.zarrify.common import same
-from refkv_reference.revision import STORES_REVISION
-
-from ir_helpers import LEGACY_SOURCE, as_current, current_names
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "n5"
 STORES = sorted(p for p in FIXTURES.iterdir() if p.is_dir())
@@ -31,8 +35,6 @@ def files(root: Path) -> dict[str, bytes]:
 
 
 def test_accepted_stores_have_the_reference_hierarchy_and_a_store_mirror():
-    from refkv_reference import virtualize as frozen
-
     accepted = 0
     for root in STORES:
         if root.name.startswith("n5_reject_"):
@@ -40,7 +42,8 @@ def test_accepted_stores_have_the_reference_hierarchy_and_a_store_mirror():
         url = URL.format(root.name)
         _, ref = frozen(str(root), url)
         fmt, out = zarrify(str(root), url=url)
-        assert fmt == "n5" and isinstance(out, StoreIrOutput), root.name
+        assert fmt == "n5", root.name
+        assert isinstance(out, StoreIrOutput), root.name
         docs = {k: json.loads(v) for k, v in out.entries.items() if not k.startswith("refkv_source/")}
         want = current_names({k: v for k, v in ref.docs.items() if not k.startswith(LEGACY_SOURCE)})
         assert want["zarr.json"]["attributes"]["refkv_zarrified"].pop("revision") == STORES_REVISION
@@ -50,12 +53,14 @@ def test_accepted_stores_have_the_reference_hierarchy_and_a_store_mirror():
         # refkv_source: the mirror, which rebuilds the listing and each node's document
         own = json.loads(out.entries["refkv_source/zarr.json"])["attributes"]["refkv_zarrified"]["n5"]
         stored = files(root)
-        assert own["ir"]["objects"] == len(stored) and "empty" not in own, root.name
+        assert own["ir"]["objects"] == len(stored), root.name
+        assert "empty" not in own, root.name
         held = 0
         for key, size, data in _core.rebuild_store(out.entries.get):
             assert size == len(stored[key]), (root.name, key)
             if data is not None:
-                assert key.endswith("attributes.json") and data == stored[key], (root.name, key)
+                assert key.endswith("attributes.json"), (root.name, key)
+                assert data == stored[key], (root.name, key)
                 held += 1
         # held: exactly the documents of the nodes (a node's attributes.json beside its zarr.json)
         nodes = [k for k in stored if k.endswith("attributes.json")
@@ -72,7 +77,7 @@ def test_ignored_keys_are_recorded_beside_the_mirror():
     doc = b'{"dimensions": [4], "blockSize": [2], "dataType": "uint8", "compression": {"type": "raw"}}'
     objects = {"attributes.json": doc, "0": b"x", "1": b"", "é/./x": b"y", "a//0": b"z", "m/": b""}
 
-    def opener(req, timeout=None):
+    def opener(req, timeout=None):  # noqa: ARG001 (urlopen's signature)
         class R(io.BytesIO):
             status = 200
 
@@ -99,8 +104,6 @@ def test_ignored_keys_are_recorded_beside_the_mirror():
 
 @pytest.mark.parametrize("root", [p for p in STORES if p.name.startswith("n5_reject_")], ids=lambda p: p.name)
 def test_rejects_what_the_reference_rejects(root):
-    from refkv_reference import virtualize as frozen
-
     url = URL.format(root.name)
     with pytest.raises(Rejected):
         frozen(str(root), url)
@@ -111,9 +114,6 @@ def test_rejects_what_the_reference_rejects(root):
 @pytest.fixture(scope="module")
 def n5_probes(tmp_path_factory) -> Path:
     """The hostile N5 stores at the tests' sizes (python/tests/ir/gen_n5_probes.py --small)."""
-    import subprocess
-    import sys
-
     out = tmp_path_factory.mktemp("n5_probes")
     subprocess.run([sys.executable, "python/tests/ir/gen_n5_probes.py", str(out), "--small"],
                    cwd=Path(__file__).parents[3], check=True, capture_output=True)
@@ -123,10 +123,6 @@ def n5_probes(tmp_path_factory) -> Path:
 def test_hostile_stores_are_refused_or_zarrified_as_the_reference_does(n5_probes):
     """Each probe store is rejected by both, or gives the reference's hierarchy outside
     refkv_source and a mirror that rebuilds every node's document; none takes long."""
-    import time
-
-    from refkv_reference import virtualize as frozen
-
     seen = 0
     for root in sorted(n5_probes.iterdir()):
         url = URL.format(root.name)
@@ -151,7 +147,8 @@ def test_hostile_stores_are_refused_or_zarrified_as_the_reference_does(n5_probes
         assert out.refs == {as_current(k): [("object", ref.origins.get(k, k), 0, n)] for k, n in ref.chunks}, root.name
         stored = files(root)
         for key, size, data in _core.rebuild_store(out.entries.get):
-            assert size == len(stored[key]) and data in (None, stored[key]), (root.name, key)
+            assert size == len(stored[key]), (root.name, key)
+            assert data in (None, stored[key]), (root.name, key)
     assert seen == 13
 
 
@@ -163,8 +160,10 @@ def test_under_a_root_dataset_the_mirror_and_the_other_objects_are_keys_of_refkv
     for name in ("n5_root_dataset_objects", "n5_root_dataset_empty_block"):
         _, out = zarrify(str(FIXTURES / name), url=URL.format(name))
         assert json.loads(out.entries["zarr.json"])["node_type"] == "array", name
-        assert [k for k in out.entries if k.endswith("zarr.json") and not k.startswith("refkv_source/")] == ["zarr.json"]
-        assert "refkv_source/zarr.json" in out.entries and "refkv_source/empty.json" not in out.entries, name
+        assert [k for k in out.entries
+                if k.endswith("zarr.json") and not k.startswith("refkv_source/")] == ["zarr.json"]
+        assert "refkv_source/zarr.json" in out.entries, name
+        assert "refkv_source/empty.json" not in out.entries, name
         listing = {k: n for k, n, _ in _core.rebuild_store(out.entries.get)}
         assert listing == {k: len(v) for k, v in files(FIXTURES / name).items()}, name
     _, out = zarrify(str(FIXTURES / "n5_root_dataset_objects"), url=URL.format("x"))

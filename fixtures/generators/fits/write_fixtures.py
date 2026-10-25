@@ -16,7 +16,6 @@ Usage: uv run python fixtures/generators/fits/write_fixtures.py
 from __future__ import annotations
 
 import bz2
-import gzip
 import itertools
 import re
 import struct
@@ -88,7 +87,8 @@ def hdu_extent(data: bytes, offset: int) -> tuple[int, int]:
     header_end = -(-pos // BLOCK) * BLOCK
     naxis = int(cards.get("NAXIS", 0))
     axes = [int(cards[f"NAXIS{k}"]) for k in range(1, naxis + 1)]
-    size = abs(int(cards["BITPIX"])) // 8 * int(cards.get("GCOUNT", 1)) * (int(cards.get("PCOUNT", 0)) + int(np.prod(axes))) if naxis else 0
+    size = (abs(int(cards["BITPIX"])) // 8 * int(cards.get("GCOUNT", 1))
+            * (int(cards.get("PCOUNT", 0)) + int(np.prod(axes)))) if naxis else 0
     return header_end, header_end + -(-size // BLOCK) * BLOCK
 
 
@@ -140,7 +140,8 @@ def accepted() -> None:
     write("fits_primary_scaled", [p])
     write("fits_primary_1d", [primary(ramp((2048,), "f4", 10))])
     cube = primary(ramp((1, 5, 4, 3), "f4", 11))  # (Stokes, freq, dec, ra) as a radio cube
-    cube.header["CTYPE1"], cube.header["CTYPE2"], cube.header["CTYPE3"], cube.header["CTYPE4"] = "RA---SIN", "DEC--SIN", "FREQ", "STOKES"
+    cube.header["CTYPE1"], cube.header["CTYPE2"] = "RA---SIN", "DEC--SIN"
+    cube.header["CTYPE3"], cube.header["CTYPE4"] = "FREQ", "STOKES"
     cube.header["CRVAL3"], cube.header["CDELT3"], cube.header["CRPIX3"], cube.header["CUNIT3"] = 1.4e9, 1e6, 1.0, "Hz"
     write("fits_primary_cube", [cube])
 
@@ -164,12 +165,15 @@ def accepted() -> None:
     # Four chips named alike, in a WFPC2 file's shape: names repeat, EXTVER tells them apart.
     write("fits_mef_same_name", [primary()] + [image(ramp((3, 4), "i2", 60 + k), "SCI", k) for k in range(1, 5)])
     # Two primaries' worth of images with no EXTNAME at all.
-    write("fits_mef_unnamed", [primary(ramp((3, 3), "u1", 70)), fits.ImageHDU(ramp((2, 2), "u1", 71)), fits.ImageHDU(ramp((2, 3), "i2", 72))])
+    write("fits_mef_unnamed",
+          [primary(ramp((3, 3), "u1", 70)), fits.ImageHDU(ramp((2, 2), "u1", 71)),
+           fits.ImageHDU(ramp((2, 3), "i2", 72))])
 
     # Headers: long strings, HIERARCH, commentary cards, blank cards, duplicates, D exponents, complex values.
     p = primary(ramp((2, 3), "i2", 80))
     h = p.header
-    h["LONGSTR"] = ("A string value that goes on past the eighty columns of one card, so astropy continues it. " * 3, "a comment")
+    h["LONGSTR"] = ("A string value that goes on past the eighty columns of one card, so astropy continues it. " * 3,
+                    "a comment")
     h.append(fits.Card("HIERARCH ESO INS OPTI-3 ID", "ESO#427", "a HIERARCH card"), end=True)
     h.append(fits.Card("HIERARCH ESO DET DIT", 0.1), end=True)
     h.add_comment("a comment card")
@@ -212,10 +216,13 @@ def accepted() -> None:
     # column 4 (c_i) scaled by TSCAL/TZERO, patched in: astropy cannot write a scaled integer column
     data = _append_card(path.read_bytes(), 1, "TSCAL4  =                  0.5 / scaling of c_i")
     path.write_bytes(_append_card(data, 1, "TZERO4  =                 10.0 / offset of c_i"))
-    var = fits.Column(name="var", format="PI()", array=np.array([np.array([1, 2, 3], dtype=np.int16), np.array([], dtype=np.int16), np.array([4], dtype=np.int16)], dtype=object))
+    var = fits.Column(name="var", format="PI()",
+                      array=np.array([np.array([1, 2, 3], dtype=np.int16), np.array([], dtype=np.int16),
+                                      np.array([4], dtype=np.int16)], dtype=object))
     fixed = fits.Column(name="xyz", format="2I", array=np.array([[1, 2], [3, 4], [5, 6]], dtype=np.int16))
     write("fits_bintable_heap", [primary(), fits.BinTableHDU.from_columns([var, fixed], name="VLA")])
-    q = fits.Column(name="varq", format="QJ()", array=np.array([np.array([1, 2], dtype=np.int32), np.array([3], dtype=np.int32)], dtype=object))
+    q = fits.Column(name="varq", format="QJ()",
+                    array=np.array([np.array([1, 2], dtype=np.int32), np.array([3], dtype=np.int32)], dtype=object))
     write("fits_bintable_q", [primary(), fits.BinTableHDU.from_columns([q])])
     # A heap that starts past the rows: THEAP with a gap, patched in after the write.
     path = write("fits_bintable_theap", [primary(), fits.BinTableHDU.from_columns([var, fixed], name="GAP")])
@@ -223,7 +230,7 @@ def accepted() -> None:
     with fits.open(path) as hdul:
         rows = hdul[1].header["NAXIS1"] * hdul[1].header["NAXIS2"]
         pcount = hdul[1].header["PCOUNT"]
-    header_end, data_end = hdu_extent(data, hdu_extent(data, 0)[1])
+    header_end, _data_end = hdu_extent(data, hdu_extent(data, 0)[1])
     heap = data[header_end + rows : header_end + rows + pcount]
     gap = b"\xaa" * 16
     body = data[header_end : header_end + rows] + gap + heap
@@ -235,7 +242,8 @@ def accepted() -> None:
     # A one-row table with one byte column holding YAML: the JWST ASDF extension's shape.
     yaml = b"#ASDF 1.0.0\n%YAML 1.1\n--- !core/asdf-1.1.0\nmeta: {telescope: JWST}\n...\n"
     asdf = fits.Column(name="ASDF_METADATA", format=f"{len(yaml)}B", array=np.frombuffer(yaml, dtype=np.uint8)[None, :])
-    write("fits_bintable_asdf", [primary(), image(ramp((3, 3), "f4", 90), "SCI", 1), fits.BinTableHDU.from_columns([asdf], name="ASDF")])
+    write("fits_bintable_asdf",
+          [primary(), image(ramp((3, 3), "f4", 90), "SCI", 1), fits.BinTableHDU.from_columns([asdf], name="ASDF")])
     ascii_cols = [
         fits.Column(name="a_i", format="I6", array=np.array([1, 22, 333])),
         fits.Column(name="a_f", format="F8.3", array=np.array([1.5, 2.25, -3.125])),
@@ -243,7 +251,9 @@ def accepted() -> None:
     ]
     write("fits_asciitable", [primary(), fits.TableHDU.from_columns(ascii_cols, name="ASCII")])
     # An empty table (no rows) and a table with no columns.
-    write("fits_bintable_empty", [primary(), fits.BinTableHDU.from_columns([fits.Column(name="a", format="J", array=np.array([], dtype=np.int32))])])
+    write("fits_bintable_empty",
+          [primary(),
+           fits.BinTableHDU.from_columns([fits.Column(name="a", format="J", array=np.array([], dtype=np.int32))])])
 
     # Chunking (conventions §7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>,
     # with the profile's 2^20 limit): 20 planes of 64 KiB, cut into 2 chunks of 10 planes; a plane of 1.1 MB,
@@ -266,7 +276,10 @@ def rejected() -> None:
     mef = write("fits_reject_base", [primary(), image(ramp((3, 4), "i2", 301), "SCI", 1)])
     mefdata = mef.read_bytes()
     mef.unlink()
-    table = write("fits_reject_base", [primary(), fits.BinTableHDU.from_columns([fits.Column(name="a", format="J", array=np.array([1, 2], dtype=np.int32))])])
+    table = write("fits_reject_base",
+                  [primary(),
+                   fits.BinTableHDU.from_columns([fits.Column(name="a", format="J",
+                                                              array=np.array([1, 2], dtype=np.int32))])])
     tabdata = table.read_bytes()
     table.unlink()
 
@@ -278,7 +291,8 @@ def rejected() -> None:
     out("not_fits", b"NOTFITS " + data[8:])
     out("no_end", patch_card(data[:BLOCK], 0, "END", "COMMENT the END card is missing") + b" " * BLOCK)
     out("header_nul", patch_card(data, 0, "NAXIS2", b"NAXIS2  = \0                  4"))
-    out("mandatory_order", data[:CARD] + data[2 * CARD : 3 * CARD] + data[CARD : 2 * CARD] + data[3 * CARD :])  # BITPIX and NAXIS swapped
+    out("mandatory_order",
+        data[:CARD] + data[2 * CARD : 3 * CARD] + data[CARD : 2 * CARD] + data[3 * CARD :])  # BITPIX and NAXIS swapped
     out("bitpix", patch_card(data, 0, "BITPIX", "BITPIX  =                   12 / wrong"))
     out("bitpix_text", patch_card(data, 0, "BITPIX", "BITPIX  = 'sixteen'"))
     out("naxis_negative", patch_card(data, 0, "NAXIS", "NAXIS   =                   -1"))
@@ -299,7 +313,9 @@ def rejected() -> None:
     ])
     out("groups", groups + bytes(BLOCK))
     out("data_outside", data[: len(data) - (BLOCK - 24 + 1)])  # the 24 data bytes, less one
-    out("data_overflow", patch_card(patch_card(data, 0, "NAXIS1", "NAXIS1  =     4000000000000000"), 0, "NAXIS2", "NAXIS2  =     4000000000000000"))
+    out("data_overflow",
+        patch_card(patch_card(data, 0, "NAXIS1", "NAXIS1  =     4000000000000000"), 0, "NAXIS2",
+                   "NAXIS2  =     4000000000000000"))
     out("table_bitpix", patch_card(tabdata, 1, "BITPIX", "BITPIX  =                   16"))
     out("table_naxis", remove_card(patch_card(tabdata, 1, "NAXIS", "NAXIS   =                    1"), 1, "NAXIS2"))
     out("tfields", patch_card(tabdata, 1, "TFIELDS", "TFIELDS =                 1000"))
@@ -325,7 +341,7 @@ def remove_card(data: bytes, hdu: int, keyword: str) -> bytes:
 
 def header_of(cards: list[str]) -> bytes:
     """A header's blocks from card texts (each padded to 80), with END and space padding."""
-    text = b"".join(c.encode().ljust(CARD, b" ") for c in cards + ["END"])
+    text = b"".join(c.encode().ljust(CARD, b" ") for c in [*cards, "END"])
     return text.ljust(-(-len(text) // BLOCK) * BLOCK, b" ")
 
 
@@ -374,14 +390,16 @@ def table_layout(header) -> tuple[list[tuple[str, str, int]], int]:
         form = header[f"TFORM{n}"].strip()
         m = re.match(r"(\d*)([LXBIJKAEDCMPQ])", form)
         count, letter = int(m.group(1) or 1), m.group(2)
-        width = {"L": 1, "X": 0, "B": 1, "I": 2, "J": 4, "K": 8, "A": 1, "E": 4, "D": 8, "C": 8, "M": 16, "P": 8, "Q": 16}[letter]
+        width = {"L": 1, "X": 0, "B": 1, "I": 2, "J": 4, "K": 8, "A": 1, "E": 4, "D": 8, "C": 8, "M": 16, "P": 8,
+                 "Q": 16}[letter]
         size = -(-count // 8) if letter == "X" else count * width if letter not in "PQ" else width
         cols.append((header.get(f"TTYPE{n}", "").strip(), form, at))
         at += size
     return cols, at
 
 
-def descriptors(data: bytes, hdu_index: int) -> tuple[int, int, dict[str, list[tuple[int, int]]], list[tuple[str, str, int]]]:
+def descriptors(data: bytes, hdu_index: int) -> tuple[int, int, dict[str, list[tuple[int, int]]],
+                                                      list[tuple[str, str, int]]]:
     """(data offset, heap offset, {column: [(length, offset) per row]}, columns) of a
     tile-compressed HDU of `data`, from the raw bytes."""
     offset = 0
@@ -395,7 +413,8 @@ def descriptors(data: bytes, hdu_index: int) -> tuple[int, int, dict[str, list[t
     for name, form, at in cols:
         if "P" in form or "Q" in form:
             fmt, width = (">qq", 16) if "Q" in form else (">ii", 8)
-            out[name] = [struct.unpack(fmt, data[header_end + r * row_bytes + at : header_end + r * row_bytes + at + width]) for r in range(h["NAXIS2"])]
+            starts = [header_end + r * row_bytes + at for r in range(h["NAXIS2"])]
+            out[name] = [struct.unpack(fmt, data[s : s + width]) for s in starts]
     return header_end, heap, out, cols
 
 
@@ -434,14 +453,14 @@ def gzip_stored(data: bytes) -> bytes:
 def tiles_of(shape, tile):
     """The slices of each tile of an image of `shape` cut by `tile`, in storage order (the
     last axis fastest; edge tiles smaller)."""
-    grids = [-(-s // t) for s, t in zip(shape, tile)]
+    grids = [-(-s // t) for s, t in zip(shape, tile, strict=True)]
     for idx in itertools.product(*[range(g) for g in grids]):
-        yield tuple(slice(i * t, min((i + 1) * t, s)) for i, t, s in zip(idx, tile, shape))
+        yield tuple(slice(i * t, min((i + 1) * t, s)) for i, t, s in zip(idx, tile, shape, strict=True))
 
 
-def quantized(shape, tile, *, method: int, seed: int = 0, zbitpix: int = -32, codec: str = "RICE_1", blank: bool = False,
-              zero_value: bool = False, near_min: bool = False, blank_column: bool = False, extname: str = "COMPRESSED_IMAGE",
-              extra_cards=()) -> bytes:
+def quantized(shape, tile, *, method: int, seed: int = 0, zbitpix: int = -32, codec: str = "RICE_1",
+              blank: bool = False, zero_value: bool = False, near_min: bool = False, blank_column: bool = False,
+              extname: str = "COMPRESSED_IMAGE", extra_cards=()) -> bytes:
     """A quantized float image built by hand: random 32-bit integers per tile (RICE_1 with
     BYTEPIX 4, or GZIP_1 stored members), per-tile ZSCALE and ZZERO, ZQUANTIZ and ZDITHER0, a
     ZBLANK card or column. astropy's quantization is not used: its noise estimate depends on
@@ -472,8 +491,8 @@ def quantized(shape, tile, *, method: int, seed: int = 0, zbitpix: int = -32, co
     columns = [("COMPRESSED_DATA", "1PB"), ("GZIP_COMPRESSED_DATA", "1PB"), ("ZSCALE", "1D"), ("ZZERO", "1D")]
     if blank_column:
         columns.append(("ZBLANK", "1J"))
-    return hand_comp(ints, tile, tiles, zcmptype=codec, columns=tuple(columns), zvals=(("BLOCKSIZE", 32), ("BYTEPIX", 4)),
-                     extra_cards=cards, zbitpix=zbitpix, extname=extname)
+    return hand_comp(ints, tile, tiles, zcmptype=codec, columns=tuple(columns),
+                     zvals=(("BLOCKSIZE", 32), ("BYTEPIX", 4)), extra_cards=cards, zbitpix=zbitpix, extname=extname)
 
 
 def comp(name: str, data: np.ndarray, *, hdus=None, extname: str = "COMPRESSED_IMAGE", **kw) -> Path:
@@ -491,9 +510,9 @@ def tile_bytes(tile: np.ndarray, algorithm: str, **settings) -> bytes:
 
 
 def hand_comp(image: np.ndarray, ztile: tuple[int, ...], tiles: list, *, zcmptype: str = "RICE_1",
-              columns=(("COMPRESSED_DATA", "1PB"), ("GZIP_COMPRESSED_DATA", "1PB")), zvals=(("BLOCKSIZE", 32), ("BYTEPIX", 2)),
-              heap_order: list[int] | None = None, gap: int = 0, extra_cards=(), rows: int | None = None,
-              zbitpix: int = 16, extname: str = "HAND") -> bytes:
+              columns=(("COMPRESSED_DATA", "1PB"), ("GZIP_COMPRESSED_DATA", "1PB")),
+              zvals=(("BLOCKSIZE", 32), ("BYTEPIX", 2)), heap_order: list[int] | None = None, gap: int = 0,
+              extra_cards=(), rows: int | None = None, zbitpix: int = 16, extname: str = "HAND") -> bytes:
     """A tile-compressed BINTABLE built by hand: `tiles` is one (column index or None, stream
     bytes, [zscale, zzero]) per tile; the heap holds the streams in `heap_order` (tile indexes,
     default in order) with `gap` unused bytes between them."""
@@ -511,13 +530,13 @@ def hand_comp(image: np.ndarray, ztile: tuple[int, ...], tiles: list, *, zcmptyp
     cards = ["XTENSION= 'BINTABLE'", "BITPIX  =                    8", "NAXIS   =                    2"]
     width = sum(16 if "Q" in f else 8 if "P" in f else 8 if f == "1D" else 4 for _, f in columns)
     nrows = len(tiles) if rows is None else rows
-    cards += [f"NAXIS1  = {width:>20}", f"NAXIS2  = {nrows:>20}", f"PCOUNT  = {len(heap):>20}", "GCOUNT  =                    1",
-              f"TFIELDS = {len(columns):>20}"]
+    cards += [f"NAXIS1  = {width:>20}", f"NAXIS2  = {nrows:>20}", f"PCOUNT  = {len(heap):>20}",
+              "GCOUNT  =                    1", f"TFIELDS = {len(columns):>20}"]
     for k, (name, form) in enumerate(columns, 1):
         cards += [f"TTYPE{k:<3}= '{name}'", f"TFORM{k:<3}= '{form}'"]
-    cards += [f"EXTNAME = '{extname}'", "ZIMAGE  =                    T", f"ZCMPTYPE= '{zcmptype}'", f"ZBITPIX = {zbitpix:>20}",
-              f"ZNAXIS  = {len(shape):>20}"]
-    for n, (size, tile) in enumerate(zip(reversed(shape), reversed(ztile)), 1):
+    cards += [f"EXTNAME = '{extname}'", "ZIMAGE  =                    T", f"ZCMPTYPE= '{zcmptype}'",
+              f"ZBITPIX = {zbitpix:>20}", f"ZNAXIS  = {len(shape):>20}"]
+    for n, (size, tile) in enumerate(zip(reversed(shape), reversed(ztile), strict=True), 1):
         cards += [f"ZNAXIS{n:<2}= {size:>20}", f"ZTILE{n:<3}= {tile:>20}"]
     for k, (zname, zval) in enumerate(zvals, 1):
         cards += [f"ZNAME{k:<3}= '{zname}'", f"ZVAL{k:<4}= {zval:>20}"]
@@ -547,10 +566,13 @@ def compressed() -> None:
     comp("fits_comp_rice_1d", noisy((300,), "i2"), compression_type="RICE_1", tile_shape=(64,))
     # quantized floats, by hand: each ZQUANTIZ, blanks (a ZBLANK card, or a column), dither 2's
     # zero value with integers near -2^31 as cfitsio writes them, float64, GZIP_1 streams
-    pr = header_of(["SIMPLE  =                    T", "BITPIX  =                    8", "NAXIS   =                    0", "EXTEND  =                    T"])
-    hand = lambda name, body: (OUT / f"{name}.fits").write_bytes(pr + body)
+    pr = header_of(["SIMPLE  =                    T", "BITPIX  =                    8",
+                    "NAXIS   =                    0", "EXTEND  =                    T"])
+    def hand(name, body):
+        return (OUT / f"{name}.fits").write_bytes(pr + body)
     hand("fits_comp_rice_float_dither1", quantized((24, 40), (1, 40), method=1, seed=1234, blank=True))
-    hand("fits_comp_rice_float_dither2", quantized((24, 40), (1, 40), method=2, seed=4321, blank=True, zero_value=True, near_min=True))
+    hand("fits_comp_rice_float_dither2",
+         quantized((24, 40), (1, 40), method=2, seed=4321, blank=True, zero_value=True, near_min=True))
     hand("fits_comp_rice_float_nodither", quantized((24, 40), (1, 40), method=-1, blank=True))
     hand("fits_comp_rice_float64", quantized((10, 30), (1, 30), method=1, seed=77, zbitpix=-64))
     hand("fits_comp_zblank_column", quantized((12, 40), (2, 40), method=1, seed=31, blank_column=True))
@@ -564,7 +586,8 @@ def compressed() -> None:
     comp("fits_comp_gzip2", noisy((20, 30), "i4", 3000.0), compression_type="GZIP_2")
     comp("fits_comp_nocompress", noisy((20, 30), "i2"), compression_type="NOCOMPRESS")
     # many compressed HDUs with distinct dither seeds, as a DECam exposure's chips
-    many = b"".join(quantized((8, 40), (1, 40), method=1, seed=1000 + 7 * k, extname="S", extra_cards=[f"EXTVER  = {k:>20}"]) for k in range(1, 7))
+    many = b"".join(quantized((8, 40), (1, 40), method=1, seed=1000 + 7 * k, extname="S",
+                              extra_cards=[f"EXTVER  = {k:>20}"]) for k in range(1, 7))
     hand("fits_comp_many", many)
     # a large compressed image: 1100 x 1000 int16 row tiles, chunks of 476 rows (limit 2^20 / 2000)
     comp("fits_comp_chunk_rows", noisy((1100, 1000), "i2"), compression_type="RICE_1")
@@ -574,23 +597,33 @@ def compressed() -> None:
 
     # By hand: a 12 x 20 int16 image in 4 row-band tiles of 3 rows.
     img = noisy((12, 20), "i2")
-    rice = lambda k, blocksize=32: tile_bytes(img[3 * k : 3 * k + 3], "RICE_1", blocksize=blocksize, bytepix=2, tilesize=60)
-    gz = lambda k: gzip_stored(img[3 * k : 3 * k + 3].astype(">i2").tobytes())
-    hand("fits_comp_hand_gzip_fallback", hand_comp(img, (3, 20), [(0, rice(0)), (1, gz(1)), (0, rice(2)), (0, rice(3))]))
+    def rice(k, blocksize=32):
+        return tile_bytes(img[3 * k : 3 * k + 3], "RICE_1", blocksize=blocksize, bytepix=2, tilesize=60)
+    def gz(k):
+        return gzip_stored(img[3 * k : 3 * k + 3].astype(">i2").tobytes())
+    hand("fits_comp_hand_gzip_fallback",
+         hand_comp(img, (3, 20), [(0, rice(0)), (1, gz(1)), (0, rice(2)), (0, rice(3))]))
     hand("fits_comp_hand_absent_tile", hand_comp(img, (3, 20), [(0, rice(0)), (None, b""), (0, rice(2)), (0, rice(3))]))
     hand("fits_comp_hand_heap_gaps", hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)], gap=16))
-    hand("fits_comp_hand_q_descriptors", hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)], columns=(("COMPRESSED_DATA", "1QB"), ("GZIP_COMPRESSED_DATA", "1QB"))))
-    hand("fits_comp_hand_block16", hand_comp(img, (3, 20), [(0, rice(k, 16)) for k in range(4)], zvals=(("BLOCKSIZE", 16), ("BYTEPIX", 2))))
-    hand("fits_comp_hand_one_column", hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)], columns=(("COMPRESSED_DATA", "1PB"),)))
+    hand("fits_comp_hand_q_descriptors",
+         hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)],
+                   columns=(("COMPRESSED_DATA", "1QB"), ("GZIP_COMPRESSED_DATA", "1QB"))))
+    hand("fits_comp_hand_block16",
+         hand_comp(img, (3, 20), [(0, rice(k, 16)) for k in range(4)], zvals=(("BLOCKSIZE", 16), ("BYTEPIX", 2))))
+    hand("fits_comp_hand_one_column",
+         hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)], columns=(("COMPRESSED_DATA", "1PB"),)))
     # no ZTILEn cards: the defaults are row tiles (ZTILE1 = ZNAXIS1, ZTILE2 = 1)
     rows = [(0, tile_bytes(img[k : k + 1], "RICE_1", blocksize=32, bytepix=2, tilesize=20)) for k in range(12)]
     body = hand_comp(img, (1, 20), rows)
-    body = body.replace(b"ZTILE1  =                   20".ljust(80), b"COMMENT no ZTILE1 card: ZNAXIS1".ljust(80)).replace(b"ZTILE2  =                    1".ljust(80), b"COMMENT no ZTILE2 card: 1".ljust(80))
+    body = (body.replace(b"ZTILE1  =                   20".ljust(80), b"COMMENT no ZTILE1 card: ZNAXIS1".ljust(80))
+            .replace(b"ZTILE2  =                    1".ljust(80), b"COMMENT no ZTILE2 card: 1".ljust(80)))
     hand("fits_comp_hand_no_ztile", body)
 
     # Rejected
-    out = lambda name, body: (OUT / f"fits_reject_{name}.fits").write_bytes(body)
-    pr = header_of(["SIMPLE  =                    T", "BITPIX  =                    8", "NAXIS   =                    0", "EXTEND  =                    T"])
+    def out(name, body):
+        return (OUT / f"fits_reject_{name}.fits").write_bytes(body)
+    pr = header_of(["SIMPLE  =                    T", "BITPIX  =                    8",
+                    "NAXIS   =                    0", "EXTEND  =                    T"])
     path = comp("fits_reject_zcmptype_hcompress", noisy((20, 30), "i2"), compression_type="HCOMPRESS_1", hcomp_scale=0)
     path = comp("fits_reject_zcmptype_plio", noisy((20, 30), "i2", 20.0).clip(0, None), compression_type="PLIO_1")
     base = comp("fits_reject_base", noisy((12, 20), "i2"), compression_type="RICE_1")
@@ -602,13 +635,23 @@ def compressed() -> None:
     out("zbitpix", patch_card(data, 1, "ZBITPIX", "ZBITPIX =                   12"))
     out("bytepix8", patch_card(data, 1, "ZVAL2", "ZVAL2   =                    8"))
     out("zquantiz_unknown", _append_card(data, 1, "ZQUANTIZ= 'DITHER_9'"))
-    out("zdither0_range", _append_card(_append_card(data, 1, "ZQUANTIZ= 'SUBTRACTIVE_DITHER_1'"), 1, "ZDITHER0=                20000"))
+    out("zdither0_range",
+        _append_card(_append_card(data, 1, "ZQUANTIZ= 'SUBTRACTIVE_DITHER_1'"), 1, "ZDITHER0=                20000"))
     out("zdither0_missing", _append_card(data, 1, "ZQUANTIZ= 'SUBTRACTIVE_DITHER_2'"))
     out("row_count", pr + hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)], rows=5))
-    out("columns_extra", pr + hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)], columns=(("COMPRESSED_DATA", "1PB"), ("FOO", "1J"))))
-    out("uncompressed_data", pr + hand_comp(img, (3, 20), [(0, rice(k)) for k in range(3)] + [(1, img[9:12].astype(">i2").tobytes())], columns=(("COMPRESSED_DATA", "1PB"), ("UNCOMPRESSED_DATA", "1PI"))))
-    out("null_pixel_mask", pr + hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)], columns=(("COMPRESSED_DATA", "1PB"), ("NULL_PIXEL_MASK", "1PB"))))
-    out("descriptor_outside", pr + hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)]).replace(struct.pack(">ii", len(rice(3)), sum(len(rice(k)) for k in range(3))), struct.pack(">ii", len(rice(3)) + 100, sum(len(rice(k)) for k in range(3)))))
+    out("columns_extra",
+        pr + hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)],
+                       columns=(("COMPRESSED_DATA", "1PB"), ("FOO", "1J"))))
+    out("uncompressed_data",
+        pr + hand_comp(img, (3, 20), [(0, rice(k)) for k in range(3)] + [(1, img[9:12].astype(">i2").tobytes())],
+                       columns=(("COMPRESSED_DATA", "1PB"), ("UNCOMPRESSED_DATA", "1PI"))))
+    out("null_pixel_mask",
+        pr + hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)],
+                       columns=(("COMPRESSED_DATA", "1PB"), ("NULL_PIXEL_MASK", "1PB"))))
+    out("descriptor_outside",
+        pr + hand_comp(img, (3, 20), [(0, rice(k)) for k in range(4)]).replace(
+            struct.pack(">ii", len(rice(3)), sum(len(rice(k)) for k in range(3))),
+            struct.pack(">ii", len(rice(3)) + 100, sum(len(rice(k)) for k in range(3)))))
     # tile 1's gzip descriptor copied over its COMPRESSED_DATA descriptor: both non-null (the
     # hand-built header is one block; a row of two P descriptors is 16 bytes)
     both = pr + hand_comp(img, (3, 20), [(0, rice(0)), (1, gz(1)), (0, rice(2)), (0, rice(3))])

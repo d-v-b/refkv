@@ -142,7 +142,8 @@ def remote(store_url: str, paths: list[str]) -> int:
             print("   ", x)
         failures = len(problems)
         for path in paths:
-            got = zarr.open_array(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), path=path, mode="r", zarr_format=3)[...]
+            got = zarr.open_array(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), path=path, mode="r",
+                                  zarr_format=3)[...]
             want = zarr.open_array(FsspecStore.from_url(store_url, read_only=True), path=path, mode="r",
                                    zarr_format=2)[...]
             ok = zarr2_verify.same(got, want)

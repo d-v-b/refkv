@@ -71,7 +71,7 @@ def run(inputs: Iterable[Path], check: Check, *, url: Callable[[Path], str],
     for item in inputs:
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / f"{item.stem if item.is_file() else item.name}.vzip"
-            p = subprocess.run([*(command or WEB), url(item), str(out)], capture_output=True, text=True)
+            p = subprocess.run([*(command or WEB), url(item), str(out)], capture_output=True, text=True, check=False)
             label = f"{item.name:{width}s}"
             if rejected(item.name):
                 ok = p.returncode == 3 and not out.exists()
@@ -85,6 +85,6 @@ def run(inputs: Iterable[Path], check: Check, *, url: Callable[[Path], str],
             result = check(item, out, p)
             problems, note = result if isinstance(result, tuple) else (result, "")
             failures += bool(problems)
-            print(f"{label} {'ok' if not problems else problems}{' ' + note if note else ''}")
+            print(f"{label} {problems or 'ok'}{' ' + note if note else ''}")
     print(f"\n{failures} failures")
     return 1 if failures else 0

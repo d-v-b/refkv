@@ -29,6 +29,7 @@ Usage: uv run python js/test/zarr2/verify.py [<store dir> ...]
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import re
 import shutil
@@ -40,6 +41,7 @@ from pathlib import Path
 
 import numpy as np
 import zarr
+from zarr.core.buffer import default_buffer_prototype
 from zarr.storage import FsspecStore, LocalStore
 
 HERE = Path(__file__).parent
@@ -49,10 +51,10 @@ sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from proxy import Proxy  # noqa: E402
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers zlib)
+from refkv import _core  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run  # noqa: E402
-
 
 NUMCODECS = {"blosc": {"id", "cname", "clevel", "shuffle", "blocksize"}, "zlib": {"id", "level"},
              "gzip": {"id", "level"}, "zstd": {"id", "level", "checksum"}}
@@ -66,8 +68,8 @@ def arrays_of(out: Path) -> list[str]:
 
 
 def zarrify(url: str, out: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(["node", str(ROOT / "js" / "conformance" / "zarrify.ts"), "--allow-private-hosts", url, str(out)],
-                          capture_output=True, text=True)
+    return subprocess.run(["node", str(ROOT / "js" / "conformance" / "zarrify.ts"), "--allow-private-hosts", url,
+                           str(out)], capture_output=True, text=True, check=False)
 
 
 def same(got, want) -> bool:
@@ -97,10 +99,9 @@ def objects_problems(store_dir: Path, out: Path) -> list[str]:
     kept = [n for n in names if n.startswith("refkv_source/objects/")]
 
     async def read_all():
-        from zarr.core.buffer import default_buffer_prototype
         return [(await vz.get(n, default_buffer_prototype())).to_bytes() for n in kept]
 
-    for name, data in zip(kept, asyncio.run(read_all())):
+    for name, data in zip(kept, asyncio.run(read_all()), strict=True):
         key = name.removeprefix("refkv_source/objects/")
         last = key.rpartition("/")[2]
         if NODE_NAME.match(last):
@@ -110,11 +111,9 @@ def objects_problems(store_dir: Path, out: Path) -> list[str]:
             problems.append(f"{name}: not the object {key}")
     for d in sorted({"/".join(n.split("/")[:i]) for n in kept for i in range(2, n.count("/") + 1)}):
         for fmt in (None, 2, 3):
-            try:
+            with contextlib.suppress(Exception):  # not a node, as it should be
                 zarr.open(vz, path=d, mode="r", zarr_format=fmt)
                 problems.append(f"{d} opens as a Zarr node (zarr_format={fmt})")
-            except Exception:  # noqa: BLE001 - not a node, as it should be
-                pass
     own = {}
     if "refkv_source/zarr.json" in names:
         attrs = json.loads(zipfile.ZipFile(out).read("refkv_source/zarr.json"))["attributes"].get("refkv_zarrified", {})
@@ -125,13 +124,11 @@ def objects_problems(store_dir: Path, out: Path) -> list[str]:
         # a store IR's mirror (spec/zarrify/zarr2.md §4.1
         # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#41-elements>): it lists
         # every object with its size, the empty ones included, and rebuilds each document it holds
-        from refkv import _core
-
         z = zipfile.ZipFile(out)
         try:
             rebuilt = _core.rebuild_store(lambda k: z.read(k) if k in names else None)
         except Exception as e:  # noqa: BLE001 - a broken mirror is a problem to report
-            return problems + [f"the mirror does not rebuild: {e}"]
+            return [*problems, f"the mirror does not rebuild: {e}"]
         files = {f.relative_to(store_dir).as_posix(): f for f in store_dir.rglob("*") if f.is_file()}
         if {k: n for k, n, _ in rebuilt} != {k: f.stat().st_size for k, f in files.items()}:
             problems.append("the mirror's listing is not the store's")
@@ -194,7 +191,8 @@ def remote(store_url: str, path: str) -> int:
             print(f"FAILED: {p.stderr[-300:]}")
             return 1
         print(p.stdout.strip()[:300])
-        got = zarr.open_array(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), path=path, mode="r", zarr_format=3)[...]
+        got = zarr.open_array(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), path=path, mode="r",
+                              zarr_format=3)[...]
         want = zarr.open_array(FsspecStore.from_url(store_url, read_only=True), path=path, mode="r",
                                zarr_format=2)[...]
         ok = same(got, want)

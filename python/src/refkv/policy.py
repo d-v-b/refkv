@@ -222,8 +222,10 @@ class Policy:
                         f"{url}: an archive opened from a URL may not read local files "
                         f"(spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>)")
             elif s != "http" and not registered and s not in {_scheme(x + ":") for x in self.schemes}:
-                raise ResolutionError(f"{url}: the scheme {s!r} is not allowed (spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>). "
-                                      + scheme_remedy(url))
+                raise ResolutionError(
+                    f"{url}: the scheme {s!r} is not allowed "
+                    f"(spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>). "
+                    + scheme_remedy(url))
         if _scheme(url) == "file" and not self.allow_file_hosts:
             try:
                 host = urlsplit(url).netloc

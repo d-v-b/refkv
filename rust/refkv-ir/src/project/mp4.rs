@@ -72,19 +72,26 @@ pub fn grid_lengths(lengths: &[u64]) -> J {
     J::Array(runs.into_iter().map(|(v, r)| if r > 1 { json!([v, r]) } else { json!(v) }).collect())
 }
 
-/// The samples of a video chunk of the presented frames `[a, b)` (§18.3
+/// The samples of a video chunk of the presented frames `[a, b)` (§8.3
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>): in decode order,
-/// from the last sync sample at or before the first of them in decode order to the last of
+/// from the last sync sample at or before the first of them in decode order (or, while the
+/// chunk holds a leading picture of that sync sample, the one before it) to the last of
 /// them, each with its position (its presentation index less `a`, or -1 when it is not in
 /// the chunk). `order` is the decode index of each presented frame, `rank` the presentation
 /// index of each decode index, `sync` the sync samples.
 pub fn video_units(a: usize, b: usize, order: &[usize], rank: &[usize], sync: &[u64]) -> Vec<(usize, i64)> {
     let lo = order[a..b].iter().copied().min().unwrap_or(0);
     let hi = order[a..b].iter().copied().max().unwrap_or(0);
-    let s = match sync.partition_point(|&x| x as usize <= lo) {
-        0 => 0,
-        k => sync[k - 1] as usize,
-    };
+    // the last sync sample at or before the first of them in decode order; while the chunk
+    // holds a leading picture of it (decoded after it, presented before it), which may
+    // reference the group before (an open group), the sync sample before that; that one's
+    // own leading pictures are decoded before this one (`mp4::gops`), so it walks back once
+    let mut k = sync.partition_point(|&x| x as usize <= lo).saturating_sub(1);
+    let leads = |s: usize| order[a..b].iter().any(|&d| d > s && rank[d] < rank[s]);
+    while k > 0 && leads(sync[k] as usize) {
+        k -= 1;
+    }
+    let s = sync.get(k).map_or(0, |&x| x as usize);
     (s..=hi).map(|d| (d, if (a..b).contains(&rank[d]) { (rank[d] - a) as i64 } else { -1 })).collect()
 }
 
@@ -254,6 +261,16 @@ mod tests {
         assert_eq!(video_units(2, 4, &order, &rank, &sync), vec![(0, -1), (1, 1), (2, -1), (3, 0)]);
         assert_eq!(video_units(3, 5, &order, &rank, &sync), vec![(0, -1), (1, 0), (2, -1), (3, -1), (4, 1)]);
         assert_eq!(video_units(5, 6, &order, &rank, &sync), vec![(4, -1), (5, -1), (6, 0)]);
+        // an open group: I0 P3 B1 B2 | I6 B4 B5 P9 B7 B8 in decode order, B4 and B5 leading
+        // pictures of I6 that may reference P3: a chunk of 4 and 5 decodes from I0; one of 6
+        // to 8 from I6, dropping B4, B5 and P9
+        let pts = [0usize, 3, 1, 2, 6, 4, 5, 9, 7, 8];
+        let mut order: Vec<usize> = (0..10).collect();
+        order.sort_by_key(|&d| pts[d]);
+        let (rank, sync) = (pts.to_vec(), [0u64, 4]);
+        let all: Vec<usize> = video_units(4, 6, &order, &rank, &sync).iter().map(|u| u.0).collect();
+        assert_eq!(all, (0..=6).collect::<Vec<_>>());
+        assert_eq!(video_units(6, 9, &order, &rank, &sync), vec![(4, 0), (5, -1), (6, -1), (7, -1), (8, 1), (9, 2)]);
         assert_eq!(video_chunk(256, 1920, 1080), 16);
         assert_eq!(video_chunk(256, 64, 48), 256);
     }

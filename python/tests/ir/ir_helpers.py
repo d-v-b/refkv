@@ -15,14 +15,18 @@ import zarr
 import refkv.zarr
 from refkv.ir import zarrify as via_ir
 from refkv.ir.cmirror import rebuild_from_archive
-from refkv.zarrify import Rejected, zarrify
 from refkv.zarr import ZarrStore
+from refkv.zarrify import Rejected, zarrify
 
 FIXTURES = Path(__file__).parents[3] / "fixtures"
 ROOT = Path(__file__).parents[3]
 # the frozen reference twins the IR is compared against (refkv_reference)
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify" / "reference"))
 from refkv_reference import virtualize as reference  # noqa: E402  (the frozen reference)
+from refkv_reference.legacy import SOURCE_NODE as LEGACY_NODE  # noqa: E402
+from refkv_reference.legacy import current_names  # noqa: E402  (a frozen twin's documents with the current names)
+from refkv_reference.revision import DICOM_REVISION, IMS_REVISION, REVISION_25  # noqa: E402
+from refkv_reference.revision import REVISION as FROZEN  # noqa: E402
 
 
 def assert_rebuilds(out, data: bytes, tmp_path, name: str = "a.vzip") -> None:
@@ -57,7 +61,7 @@ def as_the_reference(path, tmp_path, fmt: str, *, same_message: bool = False):
         with pytest.raises(Rejected) as got:
             via_ir(str(path), url)
         if same_message:
-            assert str(got.value) == str(e)
+            assert str(got.value) == str(e)  # noqa: PT017 (the reference's message, not the one raised here)
         return None
     out, _, _ = zarrified(path, tmp_path, fmt, url)
     same_hierarchy(ref, out)
@@ -98,11 +102,6 @@ def same_hierarchy(a, b) -> None:
     current ones, and its root records that revision (refkv_reference.revision: 20, or 25
     for DICOM, NIfTI, IMS and NDPI), which is dropped: the shipped code records none.
     The members of `b`'s root image the reference does not write (ADDED) are dropped."""
-    from refkv_reference.legacy import SOURCE_NODE as LEGACY_NODE
-    from refkv_reference.legacy import current_names
-    from refkv_reference.revision import DICOM_REVISION, IMS_REVISION, REVISION_25
-    from refkv_reference.revision import REVISION as FROZEN
-
     def node(o):
         # the source metadata node; under its old name only in the frozen reference's output
         return ("refkv_source", LEGACY_NODE) if o is a else ("refkv_source",)
@@ -114,7 +113,8 @@ def same_hierarchy(a, b) -> None:
             d = current_names(d)
         prop = d.get("zarr.json", {}).get("attributes", {}).get("refkv_zarrified", {})
         moved = MIRRORED.get(prop.get("profile"))
-        frozen = REVISION_25 if moved else {"dicom": DICOM_REVISION, "ims": IMS_REVISION, "ndpi": 25}.get(prop.get("profile"), FROZEN)
+        revisions = {"dicom": DICOM_REVISION, "ims": IMS_REVISION, "ndpi": 25}
+        frozen = REVISION_25 if moved else revisions.get(prop.get("profile"), FROZEN)
         if o is a and prop.get("revision") == frozen:
             del prop["revision"]
             for k in moved or ():
@@ -139,13 +139,6 @@ LEGACY_SOURCE = "vzip_source/"
 
 def as_current(key: str) -> str:
     return "refkv_source/" + key[len(LEGACY_SOURCE):] if key.startswith(LEGACY_SOURCE) else key
-
-
-def current_names(value):
-    """A frozen twin's documents with the current names (refkv_reference.legacy)."""
-    from refkv_reference.legacy import current_names
-
-    return current_names(value)
 
 
 # The codecs whose chunks the TIFF and QPTIFF profiles decode to sample their `omero` windows:
@@ -180,7 +173,7 @@ def omero_and_expected_windows(path, profile: str) -> tuple[dict | None, list]:
         window = None
         if decoded and not rgb:
             at = []
-            for name, n, k in zip(axes, a.shape, a.chunks):
+            for name, n, k in zip(axes, a.shape, a.chunks, strict=True):
                 start = 0 if name == "t" else ch if name == "c" else n // 2 // k * k
                 at.append(slice(start, start + (1 if name in "tc" else k)))
             v = np.sort(a[tuple(at)].ravel())

@@ -23,10 +23,20 @@ import imagecodecs
 import numpy as np
 from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.encaps import encapsulate, encapsulate_extended
+from pydicom.filebase import DicomBytesIO
+from pydicom.filewriter import write_dataset, write_file_meta_info
 from pydicom.sequence import Sequence
 from pydicom.uid import (
-    UID, ExplicitVRBigEndian, ExplicitVRLittleEndian, ImplicitVRLittleEndian, JPEG2000, JPEG2000Lossless,
-    JPEGBaseline8Bit, JPEGLSLossless, RLELossless, generate_uid,
+    JPEG2000,
+    UID,
+    ExplicitVRBigEndian,
+    ExplicitVRLittleEndian,
+    ImplicitVRLittleEndian,
+    JPEG2000Lossless,
+    JPEGBaseline8Bit,
+    JPEGLSLossless,
+    RLELossless,
+    generate_uid,
 )
 
 OUT = Path(__file__).parents[2] / "dicom"
@@ -134,7 +144,7 @@ def j2k(pixels: np.ndarray, mct: bool = True) -> bytes:
     return imagecodecs.jpeg2k_encode(pixels, level=0, codecformat="J2K", reversible=True, mct=mct)
 
 
-def sequences(ds: Dataset, implicit: bool = False) -> None:
+def sequences(ds: Dataset) -> None:
     """Nested sequences of undefined length (and one of defined length, and
     an empty one) before the pixel data."""
     inner = Dataset()
@@ -290,8 +300,7 @@ def main() -> None:
 
 def rejects() -> None:
     def mono(frames: int | None = None, bits: int = 8) -> Dataset:
-        ds = image(MULTIFRAME_GRAYSCALE if frames else SECONDARY_CAPTURE, 4, 4, bits=bits, frames=frames)
-        return ds
+        return image(MULTIFRAME_GRAYSCALE if frames else SECONDARY_CAPTURE, 4, 4, bits=bits, frames=frames)
 
     def pixels(ds: Dataset, n: int = 1) -> Dataset:
         return native(ds, ramp((n, 4, 4), np.uint8 if ds.BitsAllocated == 8 else np.uint16), vr="OB")
@@ -416,9 +425,6 @@ def reconstruction() -> None:
     """Values the source metadata keeps as arrays, on refkv_source, and elements
     after Pixel Data (spec/zarrify/dicom.md §5
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>)."""
-    from pydicom.dataelem import DataElement
-    from pydicom.sequence import Sequence
-
     ds = image(MULTIFRAME_GRAYSCALE, 4, 4, bits=8, frames=2)
     ds.add_new(0x00091010, "OB", bytes(range(200)))  # a large private binary value: an array
     ds.add_new(0x00090010, "LO", "VZIP TEST")
@@ -457,9 +463,6 @@ def review() -> None:
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata>):
     duplicate elements, values under a multibyte character set, large values,
     per-frame values, a preamble, and the pixel data that no frame holds."""
-    from pydicom.filebase import DicomBytesIO
-    from pydicom.filewriter import write_dataset, write_file_meta_info
-
     def encode(ds: Dataset) -> bytes:
         fp = DicomBytesIO()
         fp.is_little_endian, fp.is_implicit_VR = True, False
@@ -609,9 +612,6 @@ def review2() -> None:
     per-frame values whose paths nest, numbers too long to convert, a root
     kept small, and Extended Offset Table frames without their item headers;
     and a JPEG frame that is not a JPEG stream, which the profile rejects."""
-    from pydicom.filebase import DicomBytesIO
-    from pydicom.filewriter import write_dataset
-
     def encode(ds: Dataset) -> bytes:
         fp = DicomBytesIO()
         fp.is_little_endian, fp.is_implicit_VR = True, False
@@ -716,9 +716,6 @@ def review3() -> None:
     Table frames, which the profile rejects; group lengths and offset tables
     that are not layout; explicit UN values in big endian; per-frame values
     as columns; and a frame of several fragments, one of them empty."""
-    from pydicom.filebase import DicomBytesIO
-    from pydicom.filewriter import write_dataset
-
     def encode(ds: Dataset, little: bool = True) -> bytes:
         fp = DicomBytesIO()
         fp.is_little_endian, fp.is_implicit_VR = little, False
@@ -837,7 +834,8 @@ def review3() -> None:
                    + (element(0x00209057, "UL", struct.pack("<I", f + 1)) if f != 3 else b"")
                    + element(0x00209128, "IS", text(b"%d" % (10 * f))))
         position = element(0x00200032, "DS", text(b"-125.5\\130.25\\%d.5" % f))
-        voi = (element(0x00281050, "DS", text(b"40.00000000000000000%d" % (f == 2)))  # 40.000000000000000001: no binary64
+        # 40.000000000000000001: no binary64
+        voi = (element(0x00281050, "DS", text(b"40.00000000000000000%d" % (f == 2)))
                + element(0x00281051, "DS", text(b"400" + b"0" * f) if f != 4 else text(b"0.10000000000000001")))
         group = element(0x00289145, "SQ", item(voi))
         length = element(0x00280000, "UL", struct.pack("<I", len(group) if f else 1))  # layout but in item 0
@@ -897,8 +895,6 @@ def review4() -> None:
                 + element(0x00020003, "UI", uid(ds.SOPInstanceUID.encode()))
                 + element(0x00020010, "UI", uid(syntax.encode())))
         group = element(0x00020000, "UL", struct.pack("<I", len(meta)))
-        from pydicom.filebase import DicomBytesIO
-        from pydicom.filewriter import write_dataset
         fp = DicomBytesIO()
         fp.is_little_endian, fp.is_implicit_VR = little, False
         write_dataset(fp, ds)

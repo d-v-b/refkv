@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from refkv.vzip.archive import Entry, parse_central_directory, parse_tail
 from refkv.pb import Concat, Range, Source, decode_table
 from refkv.policy import Policy, crc32c
+from refkv.vzip.archive import Entry, parse_central_directory, parse_tail
 from refkv.vzip.store import VZipStore
 from refkv.zarrify import zarrify
 
@@ -22,14 +22,16 @@ TIFF = FIXTURES / "tiff" / "tczyx_uint16_deflate.ome.tif"
 JPEG = FIXTURES / "tiff" / "jpeg_ycbcr.tif"  # has data sources (shared JPEG tables)
 STORE = FIXTURES / "zarr2" / "zarr2_dtypes"
 N5_STORE = FIXTURES / "n5" / "n5_objects"
-LOOPBACK = Policy(allow_private_hosts=True)  # the test server is on 127.0.0.1 (spec/refkv.md §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3)
+# the test server is on 127.0.0.1 (spec/refkv.md §6.7
+# <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 3)
+LOOPBACK = Policy(allow_private_hosts=True)
 
 
 @pytest.fixture
 def server():
     """Serves files of the repository's fixtures with HEAD and range GETs, and
     the ETag `state["etag"](path, n)` for the n-th response (None: no ETag)."""
-    state = {"etag": lambda path, n: '"fixed"', "count": 0}
+    state = {"etag": lambda _path, _n: '"fixed"', "count": 0}
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -86,7 +88,7 @@ def _table(path) -> tuple[list[Source], dict[str, list[Range]]]:
 
 
 def test_pins_and_checksums(tmp_path, server):
-    base, state = server
+    base, _state = server
     tiff_size, jpeg_size = TIFF.stat().st_size, JPEG.stat().st_size
     cases = [
         # (location, url, checksums, expected pins of source 0)
@@ -120,7 +122,8 @@ def test_pins_and_checksums(tmp_path, server):
             sources, refs = _table(tmp_path / "s.vzip")
             sizes = {f"https://example.test/s/{p.relative_to(store).as_posix()}": p.stat().st_size
                      for p in store.rglob("*") if p.is_file()}
-            assert sources and all(s.size == sizes[s.url] and s.etag is None for s in sources)
+            assert sources
+            assert all(s.size == sizes[s.url] and s.etag is None for s in sources)
             for k, (r,) in refs.items():
                 obj = store / sources[r.source].url.removeprefix("https://example.test/s/")
                 assert r.crc32c == (crc32c(obj.read_bytes()) if checksums else None), k
@@ -128,13 +131,13 @@ def test_pins_and_checksums(tmp_path, server):
 
 def test_no_etag_pin_when_the_responses_disagree(tmp_path, server):
     base, state = server
-    state["etag"] = lambda path, n: '"fixed"' if n % 2 else None  # some responses have none
+    state["etag"] = lambda _path, n: '"fixed"' if n % 2 else None  # some responses have none
     zarrify(f"{base}/tiff/{TIFF.name}", policy=LOOPBACK).save(tmp_path / "out.vzip", policy=LOOPBACK)
     assert _table(tmp_path / "out.vzip")[0][0].etag is None
 
 
 def test_fails_when_the_etag_changes_while_reading(server):
     base, state = server
-    state["etag"] = lambda path, n: f'"v{n}"'
+    state["etag"] = lambda _path, n: f'"v{n}"'
     with pytest.raises(OSError, match="changed while it was read"):
         zarrify(f"{base}/tiff/{TIFF.name}", policy=LOOPBACK)

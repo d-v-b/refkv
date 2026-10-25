@@ -9,13 +9,13 @@ import imagecodecs
 import numpy as np
 import pytest
 import zarr
-
 from ir_helpers import FIXTURES, REVISED, as_the_reference, assert_rebuilds, same_hierarchy
+from refkv_reference import virtualize  # the frozen reference (ir_helpers)
+
 from refkv.ir import zarrify as via_ir
+from refkv.zarr import ZarrStore
 from refkv.zarrify import Rejected
 from refkv.zarrify import zarrify as shipped
-from refkv.zarr import ZarrStore
-from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
 NDPIS = sorted((FIXTURES / "ndpi").iterdir())
 
@@ -31,8 +31,8 @@ def test_omero_is_rgb():
     _, out, _ = via_ir(str(FIXTURES / "ndpi" / "ndpi_levels.ndpi"), "u", mirror=False)
     ome = json.loads(out.bytes_entries["zarr.json"])["attributes"]["ome"]
     window = {"min": 0, "max": 255, "start": 0, "end": 255}
-    assert ome["omero"] == {"channels": [{"label": l, "color": c, "active": True, "window": window}
-                                         for l, c in (("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF"))]}
+    assert ome["omero"] == {"channels": [{"label": label, "color": c, "active": True, "window": window}
+                                         for label, c in (("R", "FF0000"), ("G", "00FF00"), ("B", "0000FF"))]}
 
 
 def test_header_pieces_are_data_sources():
@@ -51,9 +51,12 @@ def test_header_pieces_are_data_sources():
             continue
         before, sof, after = ranges[:3]
         head, tail = data[before[0] - 1], data[after[0] - 1]
-        assert before[1:] == (0, len(head)) and after[1:] == (0, len(tail)) and isinstance(sof, bytes), key
+        assert before[1:] == (0, len(head)), key
+        assert after[1:] == (0, len(tail)), key
+        assert isinstance(sof, bytes), key
         p = file.rfind(head + b"\xff\xc0" + sof[2:4], 0, ranges[3][0])  # this level's strip
-        assert head.startswith(b"\xff\xd8") and p >= 0, key
+        assert head.startswith(b"\xff\xd8"), key
+        assert p >= 0, key
         assert file[p + len(head) + len(sof):].startswith(tail), key
         used |= {before[0], after[0]}
     assert used == set(range(1, len(data) + 1))
@@ -103,7 +106,8 @@ def test_a_frame_not_the_level_size_gets_the_level_size(tmp_path):
             want = imagecodecs.jpeg_decode(strip)
         else:
             (offset, at), size, (rest, length) = parts
-            assert size == struct.pack(">HH", h, w) and rest == offset + at + 4
+            assert size == struct.pack(">HH", h, w)
+            assert rest == offset + at + 4
             strip = data[offset:rest + length]
             assert strip[at - 5:at - 3] == b"\xff\xc0"  # the strip's own SOF0
             want = imagecodecs.jpeg_decode(strip[:at] + size + strip[at + 4:])
@@ -134,7 +138,8 @@ def test_probes_decide_as_today(probes):
     today rejects them; pointer loops and overlapping extents are aliases; many intervals and
     McuStartsHighBytes are projected as today; every IR the parser returns is checked."""
     names = sorted(p.name for p in probes.glob("ndpi_*"))
-    assert ACCEPTED <= set(names) and len(names) == 13
+    assert set(names) >= ACCEPTED
+    assert len(names) == 13
     for name in names:
         path, url = probes / name, f"https://data.test/{name}"
         if name not in ACCEPTED:

@@ -41,6 +41,7 @@ Rust core it would have to build).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import sys
@@ -100,8 +101,8 @@ def input_kind(e: dict) -> str:
 
 def spec_table(entries: list[dict]) -> str:
     rows = ["| profile | input | inputs |", "|---|---|---|"]
-    for e in profiles(entries):
-        rows.append(f"| [{e['title']}](zarrify/{e['name']}.md#part-2-the-profile) | {input_kind(e)} | {e['inputs']} |")
+    rows += [f"| [{e['title']}](zarrify/{e['name']}.md#part-2-the-profile) | {input_kind(e)} | {e['inputs']} |"
+             for e in profiles(entries)]
     return "\n".join(rows)
 
 
@@ -110,7 +111,7 @@ def profile_heading(e: dict) -> tuple[str, str]:
     first heading of its Part 2)."""
     text = (ROOT / "spec" / "zarrify" / f"{e['name']}.md").read_text(encoding="utf-8")
     part2 = text.find("\n# Part 2")
-    m = re.search(r"^## (\d+)\. (.* profile)$", text[part2:], re.M) if part2 >= 0 else None
+    m = re.search(r"^## (\d+)\. (.* profile)$", text[part2:], re.MULTILINE) if part2 >= 0 else None
     if m is None:
         raise ValueError(f"{e['name']}: spec/zarrify/{e['name']}.md has no Part 2 heading `## <n>. <T> profile`")
     return m.group(1), m.group(2)
@@ -132,9 +133,8 @@ def spec_list(entries: list[dict]) -> str:
 
 def sniff_table(entries: list[dict]) -> str:
     rows = ["| profile | `sniff` |", "|---|---|"]
-    for e in entries:
-        if e["sniff"] is not None:
-            rows.append(f"| {e['title']} ({profile_link(e, 'zarrify/')}) | {e['sniff']} |")
+    rows += [f"| {e['title']} ({profile_link(e, 'zarrify/')}) | {e['sniff']} |"
+             for e in entries if e["sniff"] is not None]
     return "\n".join(rows)
 
 
@@ -154,7 +154,8 @@ def docs_table(entries: list[dict]) -> str:
     rows = ["| format | for | README | profile |", "|---|---|---|---|"]
     for e in profiles(entries):
         f = e["name"]
-        readme = f"[{f}]({f}/README.md)" if (ROOT / "docs" / "zarrify" / f / "README.md").is_file() else f"[convention](../../spec/zarrify/{f}.md)"
+        readme = (f"[{f}]({f}/README.md)" if (ROOT / "docs" / "zarrify" / f / "README.md").is_file()
+                  else f"[convention](../../spec/zarrify/{f}.md)")
         rows.append(f"| {e['title']} | {e['for']} | {readme} | {profile_link(e, '../../spec/zarrify/')} |")
     return "\n".join(rows)
 
@@ -169,10 +170,10 @@ BLOCKS = {
 def with_blocks(text: str, blocks: dict, entries: list[dict]) -> str:
     """`text` with each marked block's content replaced by its generator's."""
     for name, make in blocks.items():
-        pattern = re.compile(rf"(<!-- profiles:{re.escape(name)} -->\n).*?(\n[ \t]*<!-- /profiles -->)", re.S)
+        pattern = re.compile(rf"(<!-- profiles:{re.escape(name)} -->\n).*?(\n[ \t]*<!-- /profiles -->)", re.DOTALL)
         if not pattern.search(text):
             raise ValueError(f"no block {name!r}")
-        text = pattern.sub(lambda m: m.group(1) + make(entries) + m.group(2), text, count=1)
+        text = pattern.sub(lambda m, make=make: m.group(1) + make(entries) + m.group(2), text, count=1)
     return text
 
 
@@ -183,14 +184,16 @@ def copies() -> dict[Path, str]:
 
 def derived(entries: list[dict]) -> dict[str, str]:
     """Each derived index page's path and content."""
-    return {path: with_blocks((ROOT / path).read_text(encoding="utf-8"), blocks, entries) for path, blocks in BLOCKS.items()}
+    return {path: with_blocks((ROOT / path).read_text(encoding="utf-8"), blocks, entries)
+            for path, blocks in BLOCKS.items()}
 
 
 def stale() -> list[str]:
     """The derived files whose content is not the registry's, and the copies of no profile."""
     out = [path for path, text in derived(load()).items() if (ROOT / path).read_text(encoding="utf-8") != text]
     want = copies()
-    out += [p.relative_to(ROOT).as_posix() for p, text in want.items() if not p.is_file() or p.read_text(encoding="utf-8") != text]
+    out += [p.relative_to(ROOT).as_posix() for p, text in want.items()
+            if not p.is_file() or p.read_text(encoding="utf-8") != text]
     out += [p.relative_to(ROOT).as_posix() for p in sorted(COPY_DIR.glob("*.json")) if p not in want]
     return out
 
@@ -223,7 +226,7 @@ def documents() -> dict[str, str]:
 
 def declaration(text: str) -> str:
     """A format's document's declaration: its section 1, up to its section 2."""
-    m = re.search(r"^## 1\. .*?(?=^## 2\. )", text, re.M | re.S)
+    m = re.search(r"^## 1\. .*?(?=^## 2\. )", text, re.MULTILINE | re.DOTALL)
     return m.group(0) if m else ""
 
 
@@ -254,10 +257,8 @@ def cmo_errors(entries: list[dict], texts: dict[str, str]) -> list[str]:
         path = f"spec/zarrify/{e['name']}.md"
         shown = []
         for m in CMO_TEXT.finditer(declaration(texts.get(path, ""))):
-            try:
+            with contextlib.suppress(json.JSONDecodeError):
                 shown.append(json.loads(m.group(0)))
-            except json.JSONDecodeError:
-                pass
         if cmo(e) not in shown:
             out.append(f"{path}: its declaration (section 1) does not show its CMO")
     return out

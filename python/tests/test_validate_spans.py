@@ -40,5 +40,5 @@ def test_an_entry_that_overlaps_the_central_directory():
 def test_a_local_header_signature_in_padding():
     buf = b"a" * 10 + b"\0\0PK\x03\x04\0\0" + b"b" * 5
     problems = check_spans(buf, [(0, 10), (18, 23)], len(buf))
-    assert problems == ["bytes [10, 18) belong to no entry but hold a local file header "
-                        "signature at 12"]
+    assert problems == [("bytes [10, 18) belong to no entry but hold a local file header "
+                        "signature at 12")]

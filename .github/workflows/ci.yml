@@ -276,6 +276,8 @@ jobs:
       - run: uv sync --all-groups --locked --no-install-package refkv
       # every "§n" is a link to its heading, and every such link resolves (spec/tools/sections.py)
       - run: just sections
+      # every Python file passes ruff (pyproject.toml's [tool.ruff])
+      - run: just lint
 
   fixtures-reproducible:
     runs-on: ubuntu-latest

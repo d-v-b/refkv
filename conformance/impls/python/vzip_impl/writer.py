@@ -6,8 +6,8 @@ import zlib
 
 from . import pb
 from . import uri as urimod
-from .errors import InvalidInput
-from .reader import ETAG_RE, FORMAT_KEYS, ID_CONCAT, ID_RANGE, MAX_PAYLOAD, MAX64
+from .errors import InvalidInputError
+from .reader import ETAG_RE, FORMAT_KEYS, ID_CONCAT, ID_RANGE, MAX64, MAX_PAYLOAD
 
 DOS_TIME = 0
 DOS_DATE = (0 << 9) | (1 << 5) | 1  # 1980-01-01
@@ -71,70 +71,71 @@ def _encode_payload(ranges):
 def validate(entries, sources, page_size):
     """Check writer input against spec §9.1
     <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#91-requirements>.
-    Returns {key_bytes: entry}. Raises InvalidInput."""
+    Returns {key_bytes: entry}. Raises InvalidInputError."""
     by_key = {}
     for e in entries:
         if not isinstance(e.key, str):
-            raise InvalidInput("key must be a string")
+            raise InvalidInputError("key must be a string")
         try:
             kb = e.key.encode("utf-8")
         except UnicodeEncodeError:
-            raise InvalidInput("key %r is not valid UTF-8" % e.key)
+            raise InvalidInputError(f"key {e.key!r} is not valid UTF-8") from None
         if not kb:
-            raise InvalidInput("empty key")
+            raise InvalidInputError("empty key")
         if len(kb) > 65535:
-            raise InvalidInput("key longer than 65535 bytes")
+            raise InvalidInputError("key longer than 65535 bytes")
         if kb in FORMAT_KEYS:
-            raise InvalidInput("key %r is reserved for a format entry" % e.key)
+            raise InvalidInputError(f"key {e.key!r} is reserved for a format entry")
         if kb in by_key:
-            raise InvalidInput("duplicate key %r" % e.key)
+            raise InvalidInputError(f"duplicate key {e.key!r}")
         by_key[kb] = e
         if (e.data is None) == (e.ranges is None):
-            raise InvalidInput("entry %r must have exactly one of bytes and ranges" % e.key)
+            raise InvalidInputError(f"entry {e.key!r} must have exactly one of bytes and ranges")
         if e.is_ref and e.compress:
-            raise InvalidInput("reference entry %r cannot be compressed" % e.key)
+            raise InvalidInputError(f"reference entry {e.key!r} cannot be compressed")
         if e.pinned:
             if page_size is None:
-                raise InvalidInput("pinned entry %r requires a page index" % e.key)
+                raise InvalidInputError(f"pinned entry {e.key!r} requires a page index")
             if e.is_ref:
-                raise InvalidInput("pinned entry %r is not a bytes entry" % e.key)
+                raise InvalidInputError(f"pinned entry {e.key!r} is not a bytes entry")
         if not e.is_ref and len(e.data) >= 0xFFFFFFFF:
-            raise InvalidInput("entry %r is 4 GiB or larger" % e.key)
+            raise InvalidInputError(f"entry {e.key!r} is 4 GiB or larger")
     if page_size is not None and (isinstance(page_size, bool) or not isinstance(page_size, int)
                                   or page_size < 1):
-        raise InvalidInput("page_size must be a positive integer")
+        raise InvalidInputError("page_size must be a positive integer")
 
     for i, s in enumerate(sources):
         if s.kind == "url":
             if not s.value:
-                raise InvalidInput("source %d: empty url" % i)
+                raise InvalidInputError(f"source {i}: empty url")
             if not urimod.is_uri_reference(s.value):
-                raise InvalidInput("source %d: url %r is not an RFC 3986 URI-reference" % (i, s.value))
-            if s.etag is not None and not (isinstance(s.etag, str) and ETAG_RE.fullmatch(s.etag.encode("utf-8", "surrogatepass"))):
-                raise InvalidInput("source %d: etag %r is not a strong entity tag" % (i, s.etag))
+                raise InvalidInputError(f"source {i}: url {s.value!r} is not an RFC 3986 URI-reference")
+            if s.etag is not None and not (
+                    isinstance(s.etag, str) and ETAG_RE.fullmatch(s.etag.encode("utf-8", "surrogatepass"))):
+                raise InvalidInputError(f"source {i}: etag {s.etag!r} is not a strong entity tag")
             if s.size is not None and not 0 <= s.size <= MAX64:
-                raise InvalidInput("source %d: size pin out of range" % i)
+                raise InvalidInputError(f"source {i}: size pin out of range")
             if s.mnf is not None and not INT64_MIN <= s.mnf <= INT64_MAX:
-                raise InvalidInput("source %d: modified_not_after out of range" % i)
+                raise InvalidInputError(f"source {i}: modified_not_after out of range")
         else:
             if s.size is not None or s.etag is not None or s.mnf is not None:
-                raise InvalidInput("source %d: pins are only allowed on url sources" % i)
+                raise InvalidInputError(f"source {i}: pins are only allowed on url sources")
             if s.kind == "key":
                 try:
                     kb = s.value.encode("utf-8")
                 except UnicodeEncodeError:
-                    raise InvalidInput("source %d: key is not valid UTF-8" % i)
+                    raise InvalidInputError(f"source {i}: key is not valid UTF-8") from None
                 if not kb:
-                    raise InvalidInput("source %d: empty key" % i)
+                    raise InvalidInputError(f"source {i}: empty key")
                 if kb in FORMAT_KEYS:
-                    raise InvalidInput("source %d: key names a format entry" % i)
+                    raise InvalidInputError(f"source {i}: key names a format entry")
                 tgt = by_key.get(kb)
                 if tgt is None:
-                    raise InvalidInput("source %d: key %r is absent" % (i, s.value))
+                    raise InvalidInputError(f"source {i}: key {s.value!r} is absent")
                 if tgt.is_ref:
-                    raise InvalidInput("source %d: key %r is a reference entry" % (i, s.value))
+                    raise InvalidInputError(f"source {i}: key {s.value!r} is a reference entry")
             elif s.kind != "data":
-                raise InvalidInput("source %d: unknown kind" % i)
+                raise InvalidInputError(f"source {i}: unknown kind")
 
     for e in entries:
         if not e.is_ref:
@@ -143,12 +144,12 @@ def validate(entries, sources, page_size):
         for r in e.ranges:
             if r.data is None:
                 if not 0 <= r.source < len(sources):
-                    raise InvalidInput("entry %r: range source %d out of bounds" % (e.key, r.source))
+                    raise InvalidInputError(f"entry {e.key!r}: range source {r.source} out of bounds")
                 if r.offset < 0 or r.length < 0:
-                    raise InvalidInput("entry %r: negative offset/length" % e.key)
+                    raise InvalidInputError(f"entry {e.key!r}: negative offset/length")
                 end = r.offset + r.length
                 if end > MAX64:
-                    raise InvalidInput("entry %r: range offset + length exceeds 2^64-1" % e.key)
+                    raise InvalidInputError(f"entry {e.key!r}: range offset + length exceeds 2^64-1")
                 s = sources[r.source]
                 if s.kind == "data":
                     n = len(s.value)
@@ -157,13 +158,13 @@ def validate(entries, sources, page_size):
                 else:
                     n = None
                 if n is not None and end > n:
-                    raise InvalidInput("entry %r: range extends past the end of source %d" % (e.key, r.source))
+                    raise InvalidInputError(f"entry {e.key!r}: range extends past the end of source {r.source}")
             total += r.size
         if total > MAX64:
-            raise InvalidInput("entry %r: reference size exceeds 2^64-1" % e.key)
+            raise InvalidInputError(f"entry {e.key!r}: reference size exceeds 2^64-1")
         _id, payload = _encode_payload(e.ranges)
         if len(payload) > MAX_PAYLOAD:
-            raise InvalidInput("entry %r: reference payload is %d bytes (max %d)" % (e.key, len(payload), MAX_PAYLOAD))
+            raise InvalidInputError(f"entry {e.key!r}: reference payload is {len(payload)} bytes (max {MAX_PAYLOAD})")
     return by_key
 
 
@@ -184,13 +185,13 @@ def _cd_record(name, method, crc, csize, usize, offset, ref=None):
         rid, payload = ref
         extra += struct.pack("<HH", rid, len(payload)) + payload
     if len(extra) > 0xFFFF:
-        raise InvalidInput("extra field too large")
+        raise InvalidInputError("extra field too large")
     return struct.pack("<IHHHHHHIIIHHHHHII", CD_SIG, 20, ver, FLAG_UTF8, method, DOS_TIME, DOS_DATE,
                        crc, csize, usize, len(name), len(extra), 0, 0, 0, 0, off32) + name + extra
 
 
 def build(entries, sources, page_size=None, mirror=True):
-    """Build a vzip archive and return it as bytes. Raises InvalidInput."""
+    """Build a vzip archive and return it as bytes. Raises InvalidInputError."""
     validate(entries, sources, page_size)
     out = bytearray()
     cd = []  # (name, method, crc, csize, usize, offset, ref)
@@ -198,7 +199,7 @@ def build(entries, sources, page_size=None, mirror=True):
 
     def add(name, method, body, usize, crc, ref=None):
         if len(body) >= 0xFFFFFFFF or usize >= 0xFFFFFFFF:
-            raise InvalidInput("entry %r is 4 GiB or larger" % name)
+            raise InvalidInputError(f"entry {name!r} is 4 GiB or larger")
         off = len(out)
         out.extend(_local_header(name, method, crc, len(body), usize))
         out.extend(body)

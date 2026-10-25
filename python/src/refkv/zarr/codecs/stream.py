@@ -9,10 +9,13 @@ from __future__ import annotations
 import base64
 import threading
 from collections import OrderedDict
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from typing import Self
+from types import ModuleType
+from typing import TYPE_CHECKING, Self
 
 import numpy as np
+import numpy.typing as npt
 from zarr.abc.codec import ArrayBytesCodec
 from zarr.core.array_spec import ArraySpec
 from zarr.core.buffer import Buffer, NDBuffer
@@ -20,12 +23,15 @@ from zarr.registry import register_codec
 
 from refkv._extras import missing
 
+if TYPE_CHECKING:
+    from av.frame import Frame
 
-def _av():
+
+def _av() -> ModuleType:
     """PyAV, whose ffmpeg decoders the refkv.stream codec uses, imported when a chunk is first
     decoded."""
     try:
-        import av
+        import av  # noqa: PLC0415 (the media extra)
     except ImportError as e:
         raise missing("media", "Reading MP3, AAC and H.264 chunks", e) from e
     return av
@@ -72,7 +78,8 @@ class StreamCodec(ArrayBytesCodec):
         shape, dtype = tuple(chunk_spec.shape), chunk_spec.dtype.to_native_dtype()
         if self.format == "h264":
             plane = self.plane or "y"
-            out = SHARED.take((self.setup, data, shape[0]), plane, lambda: decode_chunk(self, data, plane, shape, dtype))
+            out = SHARED.take((self.setup, data, shape[0]), plane,
+                              lambda: decode_chunk(self, data, plane, shape, dtype))
         else:
             out = decode_chunk(self, data, None, shape, dtype)[None]
         return chunk_spec.prototype.nd_buffer.from_ndarray_like(out)
@@ -82,6 +89,13 @@ class StreamCodec(ArrayBytesCodec):
 
     def compute_encoded_size(self, input_byte_length: int, chunk_spec: ArraySpec) -> int:
         raise NotImplementedError
+
+
+type Planes = dict[str | None, np.ndarray]
+"""A chunk's or a frame's arrays, by plane (None for audio's one array)."""
+
+type Decoder = Callable[[StreamCodec, list[bytes], list[int]], Iterator[tuple[int | None, Planes]]]
+"""A format's decoder: (frame index, its arrays) per frame decoded from a chunk's frames."""
 
 
 def _varint(b: bytes, at: int) -> tuple[int, int]:
@@ -119,7 +133,8 @@ def stream_units(b: bytes) -> tuple[list[bytes], list[int]]:
     return units, positions
 
 
-def decode_chunk(codec: StreamCodec, data: bytes, plane: str | None, shape: tuple, dtype) -> dict:
+def decode_chunk(codec: StreamCodec, data: bytes, plane: str | None, shape: tuple[int, ...],
+                 dtype: np.dtype) -> Planes:
     """The arrays a chunk decodes to, by plane (None for audio's one array): the plane `plane`
     of shape `shape`, and for video the other planes of their pictures' sizes. Each frame is
     placed as the decoder gives it, and a lead-in frame's dropped."""
@@ -144,7 +159,8 @@ def decode_chunk(codec: StreamCodec, data: bytes, plane: str | None, shape: tupl
     return out
 
 
-def _av_frames(codec: StreamCodec, units: list[bytes], positions: list[int], name: str):
+def _av_frames(codec: StreamCodec, units: list[bytes], positions: list[int],
+               name: str) -> Iterator[tuple[int | None, Frame | None]]:
     """(frame index, decoded frame) per frame PyAV's decoder `name` outputs, as it outputs it:
     each packet is tagged with its index as its timestamp, which the decoder passes on to the
     frame it decodes to, in whatever order it outputs them. A frame of a packet at position -1
@@ -153,7 +169,7 @@ def _av_frames(codec: StreamCodec, units: list[bytes], positions: list[int], nam
     ctx = av.CodecContext.create(name, "r")
     if codec.setup is not None:
         ctx.extradata = base64.b64decode(codec.setup)
-    for k, unit in enumerate(units + [None]):
+    for k, unit in enumerate([*units, None]):
         if unit is None:
             frames = ctx.decode(None)
         else:
@@ -165,13 +181,13 @@ def _av_frames(codec: StreamCodec, units: list[bytes], positions: list[int], nam
             yield f.pts, None if lead else f
 
 
-def _audio_frames(name: str, dtype):
+def _audio_frames(name: str, dtype: npt.DTypeLike) -> Decoder:
     """The decoder of an audio format: (frame index, {None: samples}) per frame PyAV's decoder
     `name` outputs, [samples, channels] of `dtype`: float32, as ffmpeg's float MP3 and AAC
     decoders give (its fixed-point MP3 decoder carries rounding error from frame to frame, so a
     chunk decoded from its lead-in would differ from the stream by a unit here and there)."""
 
-    def decode(codec: StreamCodec, units: list[bytes], positions: list[int]):
+    def decode(codec: StreamCodec, units: list[bytes], positions: list[int]) -> Iterator[tuple[int | None, Planes]]:
         for k, f in _av_frames(codec, units, positions, name):
             if f is None:
                 yield k, {}
@@ -185,7 +201,7 @@ def _audio_frames(name: str, dtype):
 PLANES = {"y": 0, "u": 1, "v": 2}
 
 
-def _h264_frames(codec: StreamCodec, units: list[bytes], positions: list[int]):
+def _h264_frames(codec: StreamCodec, units: list[bytes], positions: list[int]) -> Iterator[tuple[int | None, Planes]]:
     """(frame index, {plane: [1, height, width] uint8}) per H.264 frame PyAV's decoder outputs:
     the Y, U and V planes of the 8-bit 4:2:0 picture."""
     for k, f in _av_frames(codec, units, positions, "h264"):
@@ -207,7 +223,7 @@ class Shared:
     first. A plane is given once, then dropped. While one reader decodes a chunk, another
     asking for one of its planes waits for it."""
 
-    def __init__(self, limit: int):
+    def __init__(self, limit: int) -> None:
         self.limit = limit
         self.kept: OrderedDict = OrderedDict()
         self.decoding: dict = {}
@@ -216,7 +232,7 @@ class Shared:
     def held(self) -> int:
         return sum(a.nbytes for planes in self.kept.values() for a in planes.values())
 
-    def take(self, key, plane: str, decode):
+    def take(self, key: tuple[str | None, bytes, int], plane: str, decode: Callable[[], Planes]) -> np.ndarray:
         """The plane `plane` of the chunk `key`: kept, or decoded by `decode` (which gives
         every plane)."""
         while True:
@@ -251,7 +267,8 @@ class Shared:
 SHARED = Shared(1 << 26)
 
 
-STREAM_FORMATS = {"mp3": _audio_frames("mp3float", np.float32), "aac": _audio_frames("aac", np.float32), "h264": _h264_frames}
+STREAM_FORMATS: dict[str, Decoder] = {
+    "mp3": _audio_frames("mp3float", np.float32), "aac": _audio_frames("aac", np.float32), "h264": _h264_frames}
 
 
 register_codec("refkv.stream", StreamCodec)

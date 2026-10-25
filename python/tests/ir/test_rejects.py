@@ -8,9 +8,10 @@ the profile is reached; and every fixture named as rejected is in its table."""
 import json
 
 import pytest
-
 from ir_helpers import FIXTURES, ROOT
-from refkv.zarrify import Rejected, _zarrify as zarrify
+
+from refkv.zarrify import Rejected
+from refkv.zarrify import _zarrify as zarrify
 
 TABLES = sorted((ROOT / "conformance" / "zarrify" / "rejects").glob("*.json"))
 
@@ -29,7 +30,7 @@ def table(path) -> list[dict]:
 CASES = [pytest.param(FIXTURES / t.stem, case, id=f"{t.stem}/{case['input']}") for t in TABLES for case in table(t)]
 
 
-@pytest.mark.parametrize("directory,case", CASES)
+@pytest.mark.parametrize(("directory", "case"), CASES)
 def test_the_host_rejects(directory, case):
     path = directory / case["input"]
     url = f"https://data.test/{directory.name}/{case['input']}" + ("/" if path.is_dir() else "")

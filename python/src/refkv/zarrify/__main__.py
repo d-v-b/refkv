@@ -1,6 +1,6 @@
 import json
-import os
 import sys
+from pathlib import Path
 
 from refkv.errors import ResolutionError
 from refkv.policy import Policy
@@ -11,7 +11,8 @@ from refkv.zarrify.store import WORKERS
 def main(argv: list[str]) -> int:
     args = list(argv)
     url = None
-    checksums = "--checksums" in args  # spec/refkv.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>: reads every referenced byte
+    # spec/refkv.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>: reads every referenced byte
+    checksums = "--checksums" in args
     if checksums:
         args.remove("--checksums")
     # spec/refkv.md §6.7
@@ -45,8 +46,9 @@ def main(argv: list[str]) -> int:
               f"a store's documents are read by up to N requests at a time, default {WORKERS})",
               file=sys.stderr)
         return 2
-    if url is None and os.path.isdir(args[0]):
-        print("a local directory needs --url, the store URL (ending in /) it is served from", file=sys.stderr)
+    if url is None and Path(args[0]).is_dir():
+        print("a local directory needs --url, the store URL (ending in /) it is served from",
+              file=sys.stderr)
         return 2
     policy = Policy(allow_private_hosts=private)
     try:

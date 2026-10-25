@@ -30,8 +30,9 @@ spec = importlib.util.spec_from_file_location("tiff_verify", HERE.parent / "tiff
 tiff_verify = sys.modules["tiff_verify"] = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tiff_verify)
 
-import refkv.zarr  # noqa: E402
 from ir_mirror import is_mirror, mirror_problems  # noqa: E402  (on sys.path through tiff_verify)
+
+import refkv.zarr  # noqa: E402
 
 zarr.config.set({"array.rectilinear_chunks": True})
 
@@ -66,8 +67,8 @@ def main(fixtures: Path = HERE.parents[2] / "fixtures" / "qptiff") -> int:
     with tempfile.TemporaryDirectory() as tmp:
         for path in sorted(fixtures.glob("*.qptiff")):
             out = Path(tmp) / (path.stem + ".vzip")
-            p = subprocess.run(tiff_verify.CLI + [str(path), str(out), path.resolve().as_uri()],
-                               capture_output=True, text=True)
+            p = subprocess.run([*tiff_verify.CLI, str(path), str(out), path.resolve().as_uri()],
+                               capture_output=True, text=True, check=False)
             if path.name.startswith("edge_reject"):
                 ok = p.returncode == 1 and not out.exists()
                 failures += not ok
@@ -89,12 +90,13 @@ def main(fixtures: Path = HERE.parents[2] / "fixtures" / "qptiff") -> int:
             want = expected_levels(path)
             if len(want) != len(ms["datasets"]):
                 problems.append(f"{len(ms['datasets'])} levels, tifffile has {len(want)}")
-            for level, d in zip(want, ms["datasets"]):
+            for level, d in zip(want, ms["datasets"], strict=False):
                 got = group[d["path"]][...]
                 if got.dtype != level.dtype or got.shape != level.shape or not np.array_equal(got, level):
-                    problems.append(f"level {d['path']} differs ({got.dtype} {got.shape} vs {level.dtype} {level.shape})")
+                    problems.append(f"level {d['path']} differs "
+                                    f"({got.dtype} {got.shape} vs {level.dtype} {level.shape})")
             failures += bool(problems)
-            print(f"{path.name:46s} {'ok' if not problems else problems} format={summary.get('format')} "
+            print(f"{path.name:46s} {problems or 'ok'} format={summary.get('format')} "
                   f"levels={summary['levels']} channels={summary.get('channels')}")
     print(f"\n{failures} failures")
     return 1 if failures else 0

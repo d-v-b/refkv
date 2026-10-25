@@ -37,7 +37,8 @@ assert mode in ("base", "zarr"), f"usage: check_base_install.py [base|zarr], not
 absent = ["xarray", "virtualizarr", "imagecodecs", "pytest", "obstore"] + (["zarr"] if mode == "base" else [])
 for name in absent:
     assert importlib.util.find_spec(name) is None, f"{name} is installed: not a {mode} install"
-assert "xarray" not in sys.modules and "zarr" not in sys.modules, "importing refkv imported zarr"
+assert "xarray" not in sys.modules, "importing refkv imported xarray"
+assert "zarr" not in sys.modules, "importing refkv imported zarr"
 assert not {"refkv.vzip.archive", "refkv.vzip.store"} & set(sys.modules), "importing refkv imported the ZIP code"
 
 
@@ -45,7 +46,7 @@ def expect_import_error(extra: str, attempt) -> None:
     try:
         attempt()
     except ImportError as e:
-        assert f"refkv[{extra}]" in str(e), e
+        assert f"refkv[{extra}]" in str(e), e  # noqa: PT017 (pytest is not installed here)
         print(f"ImportError naming refkv[{extra}]: {e}")
     else:
         sys.exit(f"expected an ImportError naming refkv[{extra}]")
@@ -71,7 +72,8 @@ with tempfile.TemporaryDirectory() as d:
         assert s.get("y") == b"<\x00\x01"
         assert [s.classify(k) for k in ("x/zarr.json", "x/c/0", "nope")] == [
             "bytes", "reference", "missing"]
-        assert s.list() == ["x/c/0", "x/zarr.json", "y"] and s.list_dir("") == ["x", "y"]
+        assert s.list() == ["x/c/0", "x/zarr.json", "y"]
+        assert s.list_dir("") == ["x", "y"]
         assert s.raw("x/c/0") == Range(source=0, offset=4, length=4).encode()
     assert reopened.max_concurrency == 8
 
@@ -104,13 +106,14 @@ with tempfile.TemporaryDirectory() as d:
     try:
         refkv.open(f"{base}/h.vzip").list()
     except ArchiveError as e:
-        assert "loopback address" in str(e), e
+        assert "loopback address" in str(e), e  # noqa: PT017 (pytest is not installed here)
     else:
         sys.exit("an archive on the loopback interface was opened without allow_private_hosts")
     over_http = refkv.open(f"{base}/h.vzip", policy=refkv.Policy(allow_private_hosts=True))
     assert over_http.list() == store.list()
     assert {k: over_http.get(k) for k in store.list()} == {k: store.get(k) for k in store.list()}
-    assert over_http.stats.archive_requests >= 2 and over_http.stats.external_requests >= 1
+    assert over_http.stats.archive_requests >= 2
+    assert over_http.stats.external_requests >= 1
     server.shutdown()
     server.server_close()
     assert "obstore" not in sys.modules, "reading over http imported obstore"
@@ -122,8 +125,10 @@ with tempfile.TemporaryDirectory() as d:
                    {"op": "classify", "key": "y"}, {"op": "get_raw", "key": "__vz__/sources"},
                    {"op": "list", "prefix": "x/"}], f)
     out = cli.read("m.vzip", "q.json")
-    assert out["open"]["ok"] and [r["ok"] for r in out["results"]] == [True] * 4, out
-    assert out["results"][0]["value"] == "0607" and out["results"][1]["kind"] == "reference"
+    assert out["open"]["ok"], out
+    assert [r["ok"] for r in out["results"]] == [True] * 4, out
+    assert out["results"][0]["value"] == "0607"
+    assert out["results"][1]["kind"] == "reference"
     assert out["results"][3]["keys"] == ["x/c/0", "x/zarr.json"]
 
     from refkv.zarrify import zarrify, zarrify_store
@@ -135,17 +140,20 @@ with tempfile.TemporaryDirectory() as d:
     assert (n.info["format"], z.info["format"]) == ("nifti", "zarr2")
     saved = refkv.open("n.vzip")
     for key in ("zarr.json", "0/c/0/0"):  # in memory as saved
-        assert n.get(key) is not None and n.get(key) == saved.get(key)
+        assert n.get(key) is not None
+        assert n.get(key) == saved.get(key)
     from refkv import _core  # noqa: F401  (a dependency: installing refkv built it)
 
     # the install holds the bindings as refkv._core (refkv/_core.abi3.so, or .pyd), and no
     # module of the earlier name, refkv._ir
     package = Path(refkv.__file__).parent
-    assert list(package.glob("_core.*")) and not list(package.glob("_ir*")), sorted(p.name for p in package.iterdir())
+    assert list(package.glob("_core.*")), sorted(p.name for p in package.iterdir())
+    assert not list(package.glob("_ir*")), sorted(p.name for p in package.iterdir())
 
     t = zarrify(str(FIXTURES / "tiff" / "jpeg_gray.tif"))
     t.save("t.vzip")
-    assert t.info["format"] == "tiff" and refkv.open("t.vzip").get("zarr.json") == t.get("zarr.json")
+    assert t.info["format"] == "tiff"
+    assert refkv.open("t.vzip").get("zarr.json") == t.get("zarr.json")
 
     if mode == "zarr":
         import zarr
