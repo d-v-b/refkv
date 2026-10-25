@@ -97,6 +97,16 @@ class Transient extends Error {
   }
 }
 
+/** A request that got no response (`error`, the transport's): the only failure whose
+ * message may name a server that does not allow cross-origin reads (`fetchFailed`). */
+class NoResponse extends Error {
+  readonly error: unknown;
+  constructor(error: unknown) {
+    super((error as Error).message);
+    this.error = error;
+  }
+}
+
 const isNode = typeof process !== "undefined" && process.versions?.node !== undefined;
 
 /**
@@ -242,7 +252,7 @@ export class HttpSource implements RangeSource {
       (signal ?? this.signal)?.throwIfAborted();
       // a network error (fetch's TypeError, a Node socket error) is retried; others (a
       // proxy the reader cannot check, a bad redirect) are not
-      if (e instanceof TypeError || typeof (e as { code?: unknown }).code === "string") throw e;
+      if (e instanceof TypeError || typeof (e as { code?: unknown }).code === "string") throw new NoResponse(e);
       throw new HttpResolutionError(`${this.url}: ${(e as Error).message}`);
     }
     if (response.redirected && response.url) this.at = response.url; // later requests go where the redirects led
@@ -281,7 +291,11 @@ export class HttpSource implements RangeSource {
           if (last) throw new HttpResolutionError(`${this.url}: HTTP ${e.status} after ${this.attempts} attempts`);
           await this.wait(attempt, e.retryAfter);
         } else {
-          if (last) throw new HttpResolutionError(`${fetchFailed(this.url, e)}${causeOf(e)}`);
+          if (last) {
+            // only a request that got no response may be a CORS refusal, not a body cut short
+            if (e instanceof NoResponse) throw new HttpResolutionError(`${fetchFailed(this.url, e.error)}${causeOf(e.error)}`);
+            throw new HttpResolutionError(`${this.url}: ${(e as Error).message}${causeOf(e)}`);
+          }
           await this.wait(attempt, null);
         }
       }
