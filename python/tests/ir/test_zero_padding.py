@@ -98,7 +98,7 @@ def test_padding_is_a_range_of_one_zero_data_source(case, tmp_path):
 
 
 def test_nrrd_padding_is_a_range_of_one_zero_data_source(tmp_path):
-    """NRRD's store run pads as the file profiles do: the data of `nifti`'s volumes after a NRRD
+    """NRRD's store run pads as the file profiles do: volumes of `nifti`'s shape after a NRRD
     header, each volume's last chunk its range of the header file then a prefix of the output's
     one data source, numbered after the one url source; the array is the file's values; and the
     archive is smaller than with the padding as literal ranges."""
@@ -130,4 +130,3 @@ def test_nrrd_padding_is_a_range_of_one_zero_data_source(tmp_path):
     refs = {k: [bytes(p[2]) if p[:1] == (1,) else p for p in v] for k, v in out.refs.items()}
     dataclasses.replace(out, refs=refs, data=[]).write(str(literal))
     assert shared.stat().st_size + 7 * 4096 <= literal.stat().st_size
-

@@ -1,10 +1,9 @@
 //! The chunks of contiguous values (conventions §7
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>), as
 //! the projections that cut them with `out::grid_chunks` write them (NIfTI, MRC, FITS, and NRRD's
-//! store run, through `padded`): the copy
-//! threshold of a run's facts, the source's ranges of the edge chunks a projection copies, and
-//! the chunks' references, copies and bytes. A reference's zero padding is a range of the
-//! output's zero data source (spec/zarrify.md §1.2
+//! store run through `padded`): the copy threshold of a run's facts, the source's ranges of the
+//! edge chunks a projection copies, and the chunks' references, copies and bytes. A reference's
+//! zero padding is a range of the output's zero data source (spec/zarrify.md §1.2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), not a literal.
 
 use super::{key, Copied};
@@ -31,10 +30,15 @@ pub fn copy_reads(chunks: &[(Vec<u64>, Chunk)]) -> impl Iterator<Item = (u64, u6
 /// `out::grid_chunks` and `out::blob_chunks` pad an edge chunk.
 fn padding_of(chunk: &Chunk) -> Option<u64> {
     match chunk {
-        Chunk::Ranges(parts) => match parts.as_slice() {
-            [Part::Src(..), Part::Lit(z)] if z.iter().all(|&b| b == 0) => Some(z.len() as u64),
-            _ => None,
-        },
+        Chunk::Ranges(parts) => zero_tail(parts),
+        _ => None,
+    }
+}
+
+/// The bytes of a reference's zero literal after its one range, if it ends so.
+fn zero_tail(parts: &[Part]) -> Option<u64> {
+    match parts {
+        [Part::Src(..), Part::Lit(z)] if z.iter().all(|&b| b == 0) => Some(z.len() as u64),
         _ => None,
     }
 }
@@ -70,20 +74,15 @@ impl Zeros {
     }
 }
 
-/// A chunk's reference `parts` with its zero padding, a literal of zero bytes after its range
-/// (`padding`), as a range of the output's zero data source `zeros`; any other `parts` as they are.
-pub fn padded(parts: Vec<Part>, padding: Option<u64>, zeros: &mut Zeros, out: &mut Out) -> Result<Vec<Part>, String> {
-    let Some(n) = padding else { return Ok(parts) };
-    let mut parts = parts;
-    parts.pop();
-    parts.push(zeros.range(out, n)?);
+/// A chunk's reference `parts` with its zero padding, a literal of zero bytes after its range (as
+/// `padding_of` reads it), as a range of the output's zero data source `zeros`; any other `parts`
+/// as they are.
+pub fn padded(mut parts: Vec<Part>, zeros: &mut Zeros, out: &mut Out) -> Result<Vec<Part>, String> {
+    if let Some(n) = zero_tail(&parts) {
+        parts.pop();
+        parts.push(zeros.range(out, n)?);
+    }
     Ok(parts)
-}
-
-/// The zero padding of a chunk's reference (`padding_of`), for a projection that writes its own
-/// references, as NRRD's store run does.
-pub fn padding(chunk: &Chunk) -> Option<u64> {
-    padding_of(chunk)
 }
 
 /// Writes `chunks`, cut from the element `(start, length, form)`: the i-th at the key of each of
@@ -97,10 +96,9 @@ pub fn emit(refs: &mut Refs, chunks: Vec<(Vec<u64>, Chunk)>, (start, length, for
         let c = coords(c);
         let keys: Vec<String> = prefixes.iter().map(|p| key(p, c.iter().copied())).collect();
         let Some((first, rest)) = keys.split_first() else { return Err("internal: a chunk without a key".into()) };
-        let pad = padding_of(&chunk);
         let bytes = match chunk {
             Chunk::Ranges(parts) => {
-                let parts = padded(parts, pad, zeros, &mut refs.out)?;
+                let parts = padded(parts, zeros, &mut refs.out)?;
                 let same = (!rest.is_empty()).then(|| parts.clone());
                 refs.chunk(first.clone(), start, length, form, Some(parts), piece as u64)?;
                 for k in rest {

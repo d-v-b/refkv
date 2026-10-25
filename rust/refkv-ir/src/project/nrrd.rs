@@ -189,7 +189,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     out.json("0/zarr.json", &array_json(&shape, data_type, json!(chunk_shape), J::Array(codecs), &axes));
 
     // the chunks (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#85-chunks>):
-    // ranges of the data's object, an edge chunk's padding a literal, or copied with it
+    // ranges of the data's object, an edge chunk's padding a range of the zero data source, or
+    // copied with it
     let copied: Vec<(u64, Vec<u8>)> = arr(&facts["copied"]).iter()
         .map(|c| (n(&c[0]), arr(&c[1]).iter().map(|b| n(b) as u8).collect()))
         .collect();
@@ -198,11 +199,10 @@ pub fn project(ir: &Ir, facts: &J, url: &str) -> Result<Out, String> {
     let mut refs = Refs::new(ir, out);
     for (piece, (coords, chunk)) in chunks.into_iter().enumerate() {
         let k = key("0/c/", axes.iter().map(|x| coords[pos(x)]));
-        let pad = contiguous::padding(&chunk);
         match chunk {
             Chunk::Ranges(parts) => {
                 // the data's ranges are its file's; an edge chunk's padding, the zero data source's
-                let parts = contiguous::padded(parts, pad, &mut zeros, &mut refs.out)?.into_iter().map(|p| match p {
+                let parts = contiguous::padded(parts, &mut zeros, &mut refs.out)?.into_iter().map(|p| match p {
                     Part::Src(o, len) => Part::Obj(data_key.clone(), o, len),
                     other => other,
                 }).collect();
