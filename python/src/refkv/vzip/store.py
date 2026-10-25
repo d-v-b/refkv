@@ -224,7 +224,7 @@ class VZipStore(ReferenceReader):
         else:
             # Unpaged: the vzip comment locates the URL table, so one more read (at
             # most) gets both it and the whole central directory.
-            want = d.cd_offset if d.sources_offset is None else min(d.cd_offset, d.sources_offset)
+            want = min(d.cd_offset, d.sources_offset)
             if want < tail_start:
                 head = await self._read(self.url, want, tail_start, external=False)
                 tail, tail_start = head + tail, want
@@ -233,12 +233,7 @@ class VZipStore(ReferenceReader):
             self._entries = parse_central_directory(cd, trust_offsets=True)
             if INDEX_KEY in self._entries:
                 raise ValueError("__vz__/index entry in an archive without a page index")
-            if d.sources_offset is not None:
-                self._sources, self.revision = read_table(
-                    self._slice(d.sources_offset, d.sources_size, 8))
-            elif SOURCES_KEY in self._entries:
-                e = self._entries[SOURCES_KEY]
-                self._sources, self.revision = read_table(await self._entry_bytes(e, 0, e.size))
+            self._sources, self.revision = read_table(self._slice(d.sources_offset, d.sources_size, 8))
         # spec §6.7 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy> rule 4
         if len(self._sources) > self.policy.max_sources:
             raise ArchiveError(f"the source table has {len(self._sources)} sources; this reader "

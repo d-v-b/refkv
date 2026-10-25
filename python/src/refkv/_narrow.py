@@ -58,7 +58,9 @@ def boolean(v: object, where: str = "") -> bool:
 
 
 def at(doc: object, *path: str | int) -> JSON:
-    """The value at `path` in `doc`: a str step indexes a mapping, an int step a sequence."""
+    """The value at `path` in `doc`: a str step indexes a mapping, an int step a sequence (any
+    Mapping or Sequence); with no path, `doc` itself, which must then be a JSON value (a dict or a
+    list, not another Mapping or Sequence)."""
     if not path:
         if doc is None or isinstance(doc, (str, int, float, dict, list)):
             return doc

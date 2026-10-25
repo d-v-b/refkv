@@ -952,7 +952,7 @@ class PathTrie[V]:
             for s in path.split("/"):
                 child = node.children.get(s)
                 if child is None:
-                    child = node.children[s] = PathTrie[V]()
+                    child = node.children[s] = PathTrie()
                 node = child
         node.value = value
 

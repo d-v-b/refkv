@@ -335,8 +335,10 @@ class VZipWriter:
 
     def _with_checksum(self, r: Range) -> Range:
         """`r`, with the CRC-32C of its bytes if it is a range of a url source."""
-        checksum = self._checksum  # set: the caller checked
-        if checksum is None or r.data is not None or r.crc32c is not None or (url := self._url_of(r.source)) is None:
+        checksum = self._checksum
+        if checksum is None:
+            raise AssertionError("_with_checksum without a checksum: the caller checks")
+        if r.data is not None or r.crc32c is not None or (url := self._url_of(r.source)) is None:
             return r
         return Range(r.source, r.offset, r.length, None, checksum(url, r.offset, r.length))
 
