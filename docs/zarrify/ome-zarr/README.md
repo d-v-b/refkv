@@ -44,6 +44,14 @@ arrays, chunks and codecs, with the `v2` chunk key encoding), with:
 
 ## Try it
 
+[example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
+dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
+which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+
+```bash
+uv run docs/zarrify/ome-zarr/example.py
+```
+
 An IDR image with a label image (idr0062, 1475 objects; CC BY 4.0), from
 [corpus_ome_zarr.txt](../../../conformance/zarrify/corpus_ome_zarr.txt).
 Note the trailing `/`:

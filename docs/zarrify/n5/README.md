@@ -55,6 +55,14 @@ A Zarr v3 hierarchy with a node at the path of every N5 group and dataset.
 
 ## Try it
 
+[example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
+dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
+which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+
+```bash
+uv run docs/zarrify/n5/example.py
+```
+
 A segmentation from OpenOrganelle's HeLa-2 dataset, a COSEM multiscale group
 of 5 levels and 1612 blocks (CC BY 4.0), from
 [corpus_n5.txt](../../../conformance/zarrify/corpus_n5.txt). Note the

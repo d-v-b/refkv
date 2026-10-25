@@ -49,6 +49,14 @@ resolution level.
 
 ## Try it
 
+[example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
+dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
+which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+
+```bash
+uv run docs/zarrify/ims/example.py
+```
+
 `retina_large.ims` from the OME sample images (47 MB, 4 levels, 2 channels,
 deflate; CC BY 4.0), from
 [corpus_ims.txt](../../../conformance/zarrify/corpus_ims.txt):

@@ -61,6 +61,14 @@ lists them.
 
 ## Try it
 
+[example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
+dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
+which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+
+```bash
+uv run docs/zarrify/vsi/example.py
+```
+
 Evident's brightfield sample from the OME sample images, from
 [corpus_vsi.txt](../../../conformance/zarrify/corpus_vsi.txt): a label,
 an overview and two 20× scans of 16589 × 14663 pixels, JPEG tiles, 7 levels

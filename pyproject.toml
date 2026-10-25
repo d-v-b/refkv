@@ -40,6 +40,7 @@ dev = [
     "pyrefly>=1.4.0",
     "types-protobuf>=7.35.1.20260906",
     "types-jsonschema>=4.26.0.20261006",
+    "matplotlib>=3.10",
 ]
 # the comparison with kerchunk and Icechunk (design/comparison, design/experiments)
 bench = [

@@ -41,6 +41,32 @@ jobs:
           restore-keys: proxy-fingerprints-
       - run: uv run python conformance/zarrify/corpus_hash.py check
 
+  examples:
+    # each format's example as a user runs it, its PEP 723 header building refkv from main, so
+    # that a change on main that breaks one shows here (docs/zarrify/<format>/example.py)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run the examples
+        run: |
+          mkdir -p examples-out && cd examples-out
+          failed=()
+          for f in ../docs/zarrify/*/example.py; do
+            echo "== $f"
+            MPLBACKEND=Agg uv run --script "$f" || failed+=("$f")
+          done
+          if [ ${#failed[@]} -gt 0 ]; then printf "failed: %s\n" "${failed[@]}"; exit 1; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: examples
+          path: examples-out/*.png
+
   corpus:
     runs-on: ubuntu-latest
     timeout-minutes: 360

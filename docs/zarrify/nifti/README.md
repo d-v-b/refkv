@@ -56,6 +56,14 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
 
 ## Try it
 
+[example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
+dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
+which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+
+```bash
+uv run docs/zarrify/nifti/example.py
+```
+
 SPM's `avg152T1.nii` template (903 KB, GPL-2.0), from
 [corpus_nifti.txt](../../../conformance/zarrify/corpus_nifti.txt):
 
