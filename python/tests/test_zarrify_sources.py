@@ -82,7 +82,6 @@ CASES = [
     (lambda _p: MrcSource(MRC), [Image(), Dataset()], "mrc", True),
     (lambda _p: MrcSource(MRC), [Image()], "mrc", False),
     (lambda _p: MRC, [Image()], "mrc", False),
-    (lambda _p: MrcSource(MRC), (layout for layout in [Image()]), "mrc", False),  # an iterator, read once
     (lambda p: Zarr2Store(store_url(p, "zarr2/zarr2_hierarchy"), policy=LOOPBACK), None, "zarr2", False),
     (lambda p: Zarr2Store(store_url(p, "ome-zarr/ome_zarr_image_2d"), policy=LOOPBACK), None, "ome-zarr", False),
     (lambda p: OmeZarrStore(store_url(p, "ome-zarr/ome_zarr_image_2d"), policy=LOOPBACK), [Image()], "ome-zarr", False),
@@ -100,6 +99,12 @@ def test_named_inputs_and_layouts(proxy, make, layouts, fmt, dataset):
     assert any(k.startswith("dataset/") for k in keys) == dataset
     if fmt == "mrc":
         assert store.info["layouts"] == (["dataset"] if dataset else [])
+
+
+def test_layouts_may_be_an_iterator():
+    # read once: the check before the file is read and the projection share its names
+    store = zarrify(MrcSource(MRC), layouts=(layout for layout in [Image()]))
+    assert store.info["layouts"] == []
 
 
 def test_layouts_without_the_image_are_rejected():
