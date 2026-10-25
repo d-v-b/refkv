@@ -43,7 +43,11 @@ interface OmeroChannel {
   window?: { min?: number; max?: number; start: number; end: number };
 }
 
-/** One image to show: its Zarr URL, a name, and its translation (one number per axis, in the axes' units). */
+/**
+ * One image to show: its URL (in a {@link View}, its Zarr URL under the worker's prefix; given to
+ * {@link imageState}, its Neuroglancer data source), a name, and its translation (one number per
+ * axis, in the axes' units).
+ */
 interface ShownImage {
   url: string;
   name: string;
@@ -123,7 +127,7 @@ function imageState(
     return {
       layers: images.map((img) => ({
         type: "image",
-        source: { url: `${img.url}|zarr3:`, transform: { outputDimensions } },
+        source: { url: img.url, transform: { outputDimensions } },
         name: many ? img.name : rgb ? "image" : "channels",
         opacity: 1,
         shader,
@@ -132,7 +136,7 @@ function imageState(
     };
   }
   return {
-    layers: images.map((img) => ({ type: "image", source: `${img.url}|zarr3:`, name: many ? img.name : "image" })),
+    layers: images.map((img) => ({ type: "image", source: img.url, name: many ? img.name : "image" })),
     ...view,
   };
 }
@@ -149,7 +153,7 @@ function neuroglancerState(...args: Parameters<typeof imageState>) {
   const state = imageState(...args);
   const labels = args[6] ?? [];
   state.layers.push(...labels.map((l) => ({
-    type: "segmentation", source: `${l.url}|zarr3:`, name: `labels ${l.name}`,
+    type: "segmentation", source: l.url, name: `labels ${l.name}`,
   })) as never[]);
   return state;
 }
@@ -351,6 +355,22 @@ async function listArrays(zarrUrl: string): Promise<{ path: string; meta: ArrayM
 
 let prefix: Promise<string> | undefined;
 let views: View[] = [];
+/** The input shown: its URL, its Zarr URL under the worker's prefix, and whether it is a .vzip archive. */
+let shownInput = { url: "", zarrUrl: "", isArchive: false };
+
+/**
+ * The Neuroglancer data source of the node at `url`, a Zarr URL under `shown.zarrUrl`. For a
+ * .vzip input it names the archive itself, `<archive url>|vzip:<path>|zarr3:`, which any
+ * deployment of the Neuroglancer fork opens, wherever the link is shared. Otherwise it is the
+ * worker's URL, `<url>|zarr3:`, which opens only on this site, in a browser where the page has
+ * zarrified the input: a link to share names an archive of it, downloaded and hosted.
+ */
+function neuroglancerSource(shown: typeof shownInput, url: string): string {
+  if (!shown.isArchive) return `${url}|zarr3:`;
+  if (!url.startsWith(shown.zarrUrl)) throw new Error(`${url} is not under ${shown.zarrUrl}`);
+  const path = url.slice(shown.zarrUrl.length).split("/").map(encodeURIComponent).join("/");
+  return `${shown.url}|vzip:${path}|zarr3:`;
+}
 
 function showLevels(rows: Omit<Level, "url">[]) {
   $("levels").replaceChildren(
@@ -377,8 +397,10 @@ let shown: View | undefined;
 /** Shows `view`: its levels, and a Neuroglancer link. */
 async function showView(view: View) {
   shown = view;
+  const at = shownInput;
+  const source = (url: string) => neuroglancerSource(at, url);
   $("name").textContent = view.name;
-  $("zarr-url").textContent = view.url;
+  $("zarr-url").textContent = source(view.url);
   $("view-note").textContent = view.note ?? "";
   showLevels(view.levels);
   const level0 = view.levels[0].meta;
@@ -405,7 +427,8 @@ async function showView(view: View) {
     });
   }
   const state = neuroglancerState(
-    view.images, view.axes, view.scale, level0.shape, dataType, omero, view.labels,
+    view.images.map((img) => ({ ...img, url: source(img.url) })), view.axes, view.scale, level0.shape, dataType, omero,
+    view.labels.map((l) => ({ ...l, url: source(l.url) })),
   );
   // An image shown with Neuroglancer's default shader gets a sampled range too.
   const plain = state.layers.filter((l) => l.type === "image" && !("shader" in l));
@@ -434,6 +457,9 @@ async function zarrify(url: string) {
   const p = await prefix;
   const isArchive = /\.vzip(?:[?#]|$)/i.test(url);
   const zarrUrl = isArchive ? archiveZarrUrl(p, url) : imageZarrUrl(p, url);
+  shownInput = { url, zarrUrl, isArchive };
+  $("share-local").hidden = isArchive;
+  $("share-archive").hidden = !isArchive;
   setStatus(isArchive ? "Opening the archive…" : "Reading the file's structure…");
   const t0 = performance.now();
   const root = await getJson(`${zarrUrl}zarr.json`);
@@ -449,10 +475,12 @@ async function zarrify(url: string) {
     const safe = attrs.refkv_zarrified.safe ?? {};
     views = [];
     $("name").textContent = `${safe.PRODUCT_URI ?? url.split("/").pop()} (${safe.PROCESSING_LEVEL ?? "Sentinel-2"})`;
-    $("zarr-url").textContent = zarrUrl;
+    $("zarr-url").textContent = neuroglancerSource(shownInput, zarrUrl);
     $("view-note").textContent = `${safe.SENSING_TIME ?? ""} ${attrs["proj:code"] ?? ""}`;
     showLevels(await listArrays(zarrUrl));
     $("open-ng").hidden = true;
+    $("share-local").hidden = true;
+    $("share-archive").hidden = true;
     map.hidden = false;
     map.href = new URL(`map.html?url=${encodeURIComponent(url)}`, location.href).href;
   } else {
