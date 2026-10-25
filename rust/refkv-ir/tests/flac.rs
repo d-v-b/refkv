@@ -78,7 +78,7 @@ fn the_host_says_whether_it_records_checksums() {
 
 /// The frames, and the IR, of a parse that reads `window` bytes of frames a round (from the
 /// file's first 64 KiB on: `data` is padded past it with metadata), and its rounds.
-fn windowed(data: &[u8], window: u64) -> (refkv_ir::ir::Ir, u64) {
+fn windowed(data: &[u8], window: u64) -> (refkv_ir::ir::Ir, serde_json::Value, u64) {
     let mut p = Flac::with_window(data.len() as u64, window);
     let mut rounds = 0;
     while let refkv_ir::nd2::Step::Read(r) = p.step().unwrap() {
@@ -87,12 +87,18 @@ fn windowed(data: &[u8], window: u64) -> (refkv_ir::ir::Ir, u64) {
             p.feed(o, data[o as usize..(o + n) as usize].to_vec());
         }
     }
-    (p.finish().unwrap().0, rounds)
+    let (ir, mut facts) = p.finish().unwrap();
+    // the reads' counts differ with the window; the rest must not
+    for k in ["requests", "requested", "rounds"] {
+        facts[k] = serde_json::Value::Null;
+    }
+    (ir, facts, rounds)
 }
 
 /// A file whose frames start past its first 64 KiB (a padding block before them), read in
 /// windows of 1 byte, 7, 100 (frames of about 46 bytes, so that frames and headers straddle the
-/// reads) and the default: the same IR, frame for frame, in more rounds for smaller windows.
+/// reads) and the default: the same IR and facts (each frame's offset, length and block size,
+/// the samples), in more rounds for smaller windows.
 #[test]
 fn frames_found_across_windows_are_the_same() {
     let src = std::fs::read(common::fixtures().join("flac/flac_many_frames.flac")).unwrap();
@@ -102,11 +108,13 @@ fn frames_found_across_windows_are_the_same() {
     data.extend_from_slice(&[0x81, 0x01, 0x00, 0x00]);
     data.extend_from_slice(&[0; 1 << 16]);
     data.extend_from_slice(frames);
-    let (want, _) = windowed(&data, refkv_ir::flac::WINDOW);
+    let (want, want_facts, _) = windowed(&data, refkv_ir::flac::WINDOW);
     let mut rounds = Vec::new();
     for window in [1, 7, 100] {
-        let (ir, n) = windowed(&data, window);
+        let (ir, facts, n) = windowed(&data, window);
         assert_eq!((&ir.start, &ir.len, &ir.kind), (&want.start, &want.len, &want.kind), "{window}");
+        assert_eq!(ir.digest(), want.digest(), "{window}");
+        assert_eq!(facts, want_facts, "{window}");
         rounds.push(n);
     }
     assert!(rounds[0] > rounds[1] && rounds[1] > rounds[2] && rounds[2] > 2, "{rounds:?}");
