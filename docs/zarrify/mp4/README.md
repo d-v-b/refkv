@@ -59,6 +59,14 @@ lists them.
 
 ## Try it
 
+[example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
+dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
+which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+
+```bash
+uv run docs/zarrify/mp4/example.py
+```
+
 *About Bananas* (1935), from the Prelinger Archives on the Internet Archive
 (public domain, 46 MB), from
 [corpus_mp4.txt](../../../conformance/zarrify/corpus_mp4.txt):

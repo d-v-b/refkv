@@ -68,6 +68,14 @@ level, `0` the full resolution.
 
 ## Try it
 
+[example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
+dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
+which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+
+```bash
+uv run docs/zarrify/qptiff/example.py
+```
+
 Akoya's LuCa-7color scan (2.0 GB, CC BY 4.0, 5 channels):
 
 ```bash

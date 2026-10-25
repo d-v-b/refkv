@@ -54,6 +54,14 @@ gives its own archive.
 
 ## Try it
 
+[example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
+dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
+which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+
+```bash
+uv run docs/zarrify/dicom/example.py
+```
+
 A CT slice from pydicom's test data (39 KB), from
 [corpus_dicom.txt](../../../conformance/zarrify/corpus_dicom.txt):
 

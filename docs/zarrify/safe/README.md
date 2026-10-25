@@ -15,3 +15,13 @@ The browser code ([js/](../../../js/README.md)) reads Sentinel-2 SAFE (Level-1C 
   one chunk per JPEG 2000 tile, with the zarr-conventions `proj` and
   `spatial` metadata; the radiometric offsets and quantification values on
   each band, and every file of the product kept on `refkv_source`.
+
+## Try it
+
+[example.py](example.py) zarrifies a public file and plots it with matplotlib. Its
+dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
+which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+
+```bash
+uv run docs/zarrify/safe/example.py
+```
