@@ -18,7 +18,7 @@ pub const ARRAY: &str = "samples";
 
 /// The ID3v1 tag's fields as the root's source metadata writes them (§5.1
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#51-the-root>).
-fn id3v1_json(b: &[u8]) -> J {
+pub(super) fn id3v1_json(b: &[u8]) -> J {
     let mut m = Map::new();
     m.insert("title".into(), json_text(&b[3..33]));
     m.insert("artist".into(), json_text(&b[33..63]));

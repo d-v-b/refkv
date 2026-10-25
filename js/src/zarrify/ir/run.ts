@@ -38,7 +38,7 @@ export async function zarrifyIr(
   format: IrFormat,
   url: string,
   source: RangeSource,
-  options: { mirror?: boolean; signal?: AbortSignal } = {},
+  options: { mirror?: boolean; checksums?: boolean; signal?: AbortSignal } = {},
 ): Promise<IrOutput> {
   const w = await ir();
   const f = utf8.encode(format);
@@ -64,7 +64,9 @@ export async function zarrifyIr(
     }
     live = false; // vz_run_output consumes the run
     const u = utf8.encode(url);
-    const n = Number(w.vz_run_output(p, put(w, u), u.length, options.mirror === false ? 0 : 1));
+    // bit 0: mirror; bit 1: the ranges will carry checksums, so a shard's are not joined
+    const flags = (options.mirror === false ? 0 : 1) | (options.checksums ? 2 : 0);
+    const n = Number(w.vz_run_output(p, put(w, u), u.length, flags));
     if (n < 0) throw rejection(w, n);
     const o = decodeOutput(out(w, n));
     return { format: (o.summary.format as IrFormat | undefined) ?? format, ...o };

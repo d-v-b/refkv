@@ -185,7 +185,7 @@ def _zarrify(location: str, url: str | None = None, *, checksums: bool = False,
     if fmt == "vsi":
         return _zarrify_vsi(location, url, transport, checksums=checksums, policy=policy, connections=connections)
     found, out, _ = ir.zarrify(location, url, transport=transport, connections=connections, byte_cost=byte_cost,
-                               fmt=fmt, layouts=names)
+                               fmt=fmt, layouts=names, checksums=checksums)
     if checksums:
         out.checksum = lambda _u, offset, length: crc32c(transport.get(offset, offset + length))
     return found, out

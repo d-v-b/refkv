@@ -1,7 +1,8 @@
 """`refkv.stream`: a run of coded audio or video frames (conventions §10
 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#10-coded-streams>), as zarrified MP3
-files' chunks and MP4 tracks' are: a header giving each frame's size and output position, then the
-frames, decoded by ffmpeg's decoders through PyAV (the `media` extra). It has no encoder.
+files' chunks, MP4 tracks' and FLAC files' inner chunks are: a header giving each frame's size and
+output position, then the frames, decoded by ffmpeg's decoders through PyAV (the `media` extra). It
+has no encoder.
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ def _av() -> ModuleType:
     try:
         import av  # noqa: PLC0415 (the media extra)
     except ImportError as e:
-        raise missing("media", "Reading MP3, AAC and H.264 chunks", e) from e
+        raise missing("media", "Reading MP3, AAC, FLAC and H.264 chunks", e) from e
     return av
 
 
@@ -48,11 +49,12 @@ class StreamCodec(ArrayBytesCodec):
     frames depend on earlier ones (conventions §10
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#10-coded-streams>): a header
     that gives each frame's size and output position, then the frames. The frames are decoded
-    in one pass by ffmpeg's decoder of `format` (through PyAV: MP3, AAC or H.264), each
+    in one pass by ffmpeg's decoder of `format` (through PyAV: MP3, AAC, FLAC or H.264), each
     frame's output placed at its position in the chunk as the decoder gives it, a frame with
     position -1 (the chunk's lead-in) decoded and dropped at once, so that a chunk holds no
     more than its own values and the decoder's reference frames; what no frame fills is zero.
-    `setup` is the decoder's configuration (AAC's AudioSpecificConfig, H.264's avcC), `plane`
+    `setup` is the decoder's configuration (AAC's AudioSpecificConfig, FLAC's STREAMINFO block,
+    H.264's avcC), `plane`
     the plane of a video frame the array holds ("y", "u" or "v"). A video chunk's three planes
     are one chunk's bytes: decoding one keeps the other two (`SHARED`), so that reading a
     picture's Y, U and V decodes it once."""
@@ -213,6 +215,26 @@ def _audio_frames(name: str, dtype: npt.DTypeLike) -> Decoder:
     return decode
 
 
+def _flac_frames(codec: StreamCodec, units: list[bytes], positions: list[int]) -> Iterator[tuple[int | None, Planes]]:
+    """(frame index, {None: samples}) per FLAC frame PyAV's decoder outputs, [samples, channels]:
+    the stream's integer samples. ffmpeg's decoder gives them in the high bits of 16 or 32 (an
+    8-bit sample as a 16-bit one, a 24-bit one as a 32-bit one), so they are shifted back by
+    the bits per sample of the setup's STREAMINFO block (`fLaC`, its 4-byte header, its body:
+    RFC 9639 §8.2 <https://www.rfc-editor.org/rfc/rfc9639#section-8.2>)."""
+    setup = base64.b64decode(codec.setup or "")
+    if len(setup) != 42 or setup[:4] != b"fLaC":
+        raise ValueError("refkv.stream: a FLAC setup is fLaC and a STREAMINFO block, 42 bytes")
+    bits = ((setup[20] & 1) << 4 | setup[21] >> 4) + 1
+    for k, frame in _av_frames(codec, units, positions, "flac"):
+        if frame is None:
+            yield k, {}
+            continue
+        f = cast("AudioFrame", frame)  # an audio decoder's
+        a = f.to_ndarray()
+        a = a.T if f.format.is_planar else a.reshape(f.samples, -1)
+        yield k, {None: np.right_shift(a, 8 * a.dtype.itemsize - bits)}
+
+
 PLANES = {"y": 0, "u": 1, "v": 2}
 
 
@@ -284,7 +306,8 @@ SHARED = Shared(1 << 26)
 
 
 STREAM_FORMATS: dict[str, Decoder] = {
-    "mp3": _audio_frames("mp3float", np.float32), "aac": _audio_frames("aac", np.float32), "h264": _h264_frames}
+    "mp3": _audio_frames("mp3float", np.float32), "aac": _audio_frames("aac", np.float32), "flac": _flac_frames,
+    "h264": _h264_frames}
 
 
 register_codec("refkv.stream", StreamCodec)
