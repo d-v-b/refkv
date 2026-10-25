@@ -33,11 +33,12 @@ import mmap
 import os
 import random
 import re
+import socket
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from email.message import Message
-from typing import Protocol
+from typing import Protocol, cast
 from urllib.parse import urljoin, urlparse
 
 from refkv import _core
@@ -62,7 +63,7 @@ class FileTransport:
             self.size = os.fstat(fh.fileno()).st_size
             self.data = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ) if self.size else b""
         self.head = (0, b"", 0.0)
-        self.etag = lambda: None
+        self.etag: Callable[[], str | None] = lambda: None
 
     def get(self, start: int, end: int) -> bytes:
         return bytes(self.data[start:end])
@@ -216,15 +217,17 @@ def _send(url: str, headers: dict[str, str], check: Check | None, unchecked_prox
         return reader_send(url, headers, check, unchecked_proxy)
     pu = urlparse(url)
     rest = url.split("://", 1)[1]
-    target = rest[re.match(r"[^/?#]*", rest).end():].split("#", 1)[0]
+    origin = cast("re.Match[str]", re.match(r"[^/?#]*", rest))  # which every string matches
+    target = rest[origin.end():].split("#", 1)[0]
     target = target if target.startswith("/") else "/" + target
+    host = cast("str", pu.hostname)  # a checked http(s) URL has one (_check_http_url)
     for attempt in (0, 1):
-        conn, reused = _POOL.get(pu.scheme, pu.hostname, pu.port)
+        conn, reused = _POOL.get(pu.scheme, host, pu.port)
         try:
             if conn.sock is None:
                 _connect(conn, check)
             if check is not None:
-                check(conn.sock.getpeername()[0])
+                check(cast("socket.socket", conn.sock).getpeername()[0])  # connected
             conn.request("GET", target, headers=headers)
             r = conn.getresponse()
             if r.status != 206 or (multipart and "multipart/byteranges" not in (r.getheader("Content-Type") or "")):
@@ -242,7 +245,7 @@ def _send(url: str, headers: dict[str, str], check: Check | None, unchecked_prox
         if r.will_close:
             conn.close()
         else:
-            _POOL.put(pu.scheme, pu.hostname, pu.port, conn)
+            _POOL.put(pu.scheme, host, pu.port, conn)
         return r.status, r.msg, body
     raise AssertionError("unreachable")
 
@@ -250,7 +253,8 @@ def _send(url: str, headers: dict[str, str], check: Check | None, unchecked_prox
 def _parts(body: bytes, ctype: str) -> dict[tuple[int, int], bytes]:
     """The parts of a multipart/byteranges body, by (start, end)."""
     boundary = ctype.split("boundary=", 1)[1].strip().strip('"').encode()
-    out, pos, sep = {}, 0, b"--" + boundary
+    out: dict[tuple[int, int], bytes] = {}
+    pos, sep = 0, b"--" + boundary
     while True:
         k = body.find(sep, pos)
         if k < 0 or body[k + len(sep):k + len(sep) + 2] == b"--":
@@ -265,7 +269,7 @@ def _parts(body: bytes, ctype: str) -> dict[tuple[int, int], bytes]:
                 rng = value.strip().split()[1].split(b"/")[0]
                 a, b = rng.split(b"-")
                 start, end = int(a), int(b) + 1
-        if start is None:
+        if start is None or end is None:  # set together
             return out
         out[(start, end)] = body[head_end + 4:head_end + 4 + end - start]
         pos = head_end + 4 + end - start

@@ -19,7 +19,7 @@ import itertools
 import math
 from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
 
@@ -98,7 +98,8 @@ def write_vzip_sharded(
     """
     contents: dict[str, Buffer] = {}
     mem = MemoryStore(contents)
-    virtual = {k: v for k, v in vds.variables.items() if isinstance(v.data, ManifestArray)}
+    # a virtual dataset's names are strings (xarray's stubs say Hashable)
+    virtual = {cast("str", k): v for k, v in vds.variables.items() if isinstance(v.data, ManifestArray)}
     loadable = {k: v for k, v in vds.variables.items() if k not in virtual}
     if loadable:
         _write_loadable(vds, loadable, mem)
@@ -106,7 +107,7 @@ def write_vzip_sharded(
 
     refs: dict[str, tuple[str, int, bytes]] = {}
     for name, var in virtual.items():
-        ma: ManifestArray = var.data
+        ma = cast("ManifestArray", var.data)  # as `virtual` holds
         md = ma.metadata
         cps = chunks_per_shard[name]
         sharding = ShardingCodec(
@@ -123,7 +124,7 @@ def write_vzip_sharded(
             serializer=sharding,
             compressors=None,
             filters=None,
-            dimension_names=var.dims,
+            dimension_names=cast("tuple[str, ...]", var.dims),
             fill_value=md.fill_value,
         )
         update_attributes(arr, var.attrs, encoding=var.encoding)

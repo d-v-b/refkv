@@ -8,6 +8,7 @@ import os
 import re
 from pathlib import Path
 from types import ModuleType
+from typing import cast
 from urllib.parse import quote, unquote, urlsplit
 
 _PCT = r"%[0-9A-Fa-f]{2}"
@@ -90,8 +91,8 @@ def resolve(base: str, ref: str) -> str:
     """Strict RFC 3986 §5.2.2 resolution (urllib's urljoin drops empty queries)."""
     if not is_uri_reference(ref):
         raise ValueError(f"not a valid URI reference: {ref!r}")
-    bs, ba, bp, bq, _ = _SPLIT.match(base).groups()
-    rs, ra, rp, rq, rf = _SPLIT.match(ref).groups()
+    bs, ba, bp, bq, _ = cast("re.Match[str]", _SPLIT.match(base)).groups()  # which every string matches
+    rs, ra, rp, rq, rf = cast("re.Match[str]", _SPLIT.match(ref)).groups()
     if rs is not None:
         return _compose(rs, ra, _remove_dot_segments(rp), rq, rf)
     if ra is not None:
@@ -128,7 +129,7 @@ def is_url(location: str, *, pathmod: ModuleType = os.path) -> bool:
     return bool(urlsplit(location).scheme)
 
 
-def file_uri(path: str | os.PathLike, *, pathmod: ModuleType = os.path, cwd: str | None = None) -> str:
+def file_uri(path: str | os.PathLike[str], *, pathmod: ModuleType = os.path, cwd: str | None = None) -> str:
     """Base URI of a local path (spec §5
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>): absolute, lexical,
     percent-encoded. `pathmod` is the path flavor, `os.path` by default (posixpath or
@@ -199,7 +200,7 @@ def file_path(url: str, *, pathmod: ModuleType = os.path, allow_host: bool = Fal
     policy's `allow_file_hosts`), and then `file://server/share/x` maps to
     `\\\\server\\share\\x`. A POSIX reader has no such mapping and refuses it always."""
     windows = _windows(pathmod)
-    m = _SPLIT.match(url)
+    m = cast("re.Match[str]", _SPLIT.match(url))  # which every string matches
     scheme, authority, path, query, _ = m.groups()
     if (scheme or "").lower() != "file":
         raise ValueError(f"not a file: URI: {url!r}")

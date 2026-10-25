@@ -7,6 +7,7 @@ chunk object).
 
 from __future__ import annotations
 
+import functools
 import http.client
 import json
 import os
@@ -16,12 +17,14 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from email.message import Message
 from pathlib import Path
-from typing import NoReturn
+from typing import Literal, NoReturn, Protocol, override
 
+from refkv._narrow import JSON, at, mapping, string
 from refkv.pb import Range, Source
 from refkv.policy import Policy
 from refkv.reader import _send
@@ -65,7 +68,7 @@ class StoreLimit(OSError):  # noqa: N818 (public name)
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>)
 
 
-def _pct(data: bytes, safe: frozenset) -> str:
+def _pct(data: bytes, safe: frozenset[int]) -> str:
     return "".join(chr(b) if b in safe else f"%{b:02X}" for b in data)
 
 
@@ -418,10 +421,6 @@ def _int(s: str) -> int:
 
 _TOKENS = re.compile(r'"(?:[^"\\]|\\.)*"|[\[\]{}]', re.DOTALL)
 
-type JSON = dict[str, JSON] | list[JSON] | str | int | float | bool | None
-"""A parsed JSON value."""
-
-
 def parse_json(data: bytes) -> JSON:
     """A metadata document by §1.6
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#16-json-documents>, or Rejected."""
@@ -496,6 +495,9 @@ def _folder_marker(rel: str, size: int) -> bool:
 WORKERS = 16
 PREFETCH_BYTES = 64 << 20
 
+type Read = tuple[Literal[True], bytes] | tuple[Literal[False], Exception]
+"""The result of reading an object: (True, its bytes), or (False, the exception the read raised)."""
+
 
 class _Prefetch:
     """Reads the objects of `plan` (keys, in the order a profile will read them)
@@ -514,7 +516,7 @@ class _Prefetch:
         self._queue = [k for k, _ in reversed(plan)]  # popped from the end: the next key in plan order
         self._size = dict(plan)
         self._state: dict[str, str] = {k: "queued" for k, _ in plan}  # queued, running, done
-        self._result: dict[str, tuple[bool, object]] = {}
+        self._result: dict[str, Read] = {}
         self._held = 0
         self._closed = False
         self._cv = threading.Condition()
@@ -549,6 +551,7 @@ class _Prefetch:
     def _work(self) -> None:
         try:
             while (key := self._next()) is not None:
+                r: Read
                 try:
                     r = (True, self._read(key))
                 except Exception as e:  # noqa: BLE001 - handed over as is by take()
@@ -561,7 +564,7 @@ class _Prefetch:
             if self._release is not None:
                 self._release()
 
-    def take(self, key: str) -> tuple[bool, object] | None:
+    def take(self, key: str) -> Read | None:
         """The result of reading `key`, waiting for it; None if `key` was not
         planned, was taken already, or was not started (the caller reads it)."""
         with self._cv:
@@ -605,7 +608,7 @@ class Store:
     workers: int = 1
     prefetch_bytes: int = PREFETCH_BYTES
     _prefetch: _Prefetch | None = None
-    _kept: dict[str, tuple[bool, object]] | None = None
+    _kept: dict[str, Read] | None = None
 
     def read(self, key: str) -> bytes:  # pragma: no cover - interface
         raise NotImplementedError
@@ -667,10 +670,9 @@ class Store:
             self._kept[key] = r
         else:
             self._kept.pop(key, None)
-        ok, value = r
-        if not ok:
-            raise value
-        return parse_json(value)
+        if r[0] is False:
+            raise r[1]
+        return parse_json(r[1])
 
     def _add(self, listed: list[tuple[str, int]], prefix: str, seen: set[str]) -> None:
         for key, size in listed:
@@ -687,6 +689,20 @@ class Store:
         self.listed = len(seen)
 
 
+class Response(Protocol):
+    """What an opener's response gives: urlopen's, or a test's stand-in."""
+
+    status: int
+
+    def read(self) -> bytes:
+        """The body."""
+        ...
+
+
+type Opener = Callable[[urllib.request.Request], AbstractContextManager[Response]]
+"""A urlopen, in place of the network (a test's)."""
+
+
 class HttpStore(Store):
     """A store listed by S3 ListObjectsV2 (§1.5
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>), every request
@@ -701,7 +717,7 @@ class HttpStore(Store):
     `allow_unchecked_proxy`."""
 
     def __init__(self, url: str, *, max_objects: int | None = None,
-                 opener: Callable | None = None, workers: int = WORKERS, policy: Policy | None = None) -> None:
+                 opener: Opener | None = None, workers: int = WORKERS, policy: Policy | None = None) -> None:
         self.workers = workers  # concurrent document reads (prefetch)
         self.policy = policy or Policy()
         # Where the store is listed and read; `url`, the store's name in the
@@ -741,7 +757,7 @@ class HttpStore(Store):
                 return r.status, getattr(r, "headers", None), r.read()
         check = None
         if not self.policy.allow_private_hosts:
-            check = lambda ip: self.policy.check_address(url, ip)  # noqa: E731
+            check = functools.partial(self.policy.check_address, url)
         try:
             return _send(url, headers, check, self.policy.allow_unchecked_proxy, self._conns)
         except (OSError, http.client.HTTPException) as e:
@@ -762,7 +778,8 @@ class HttpStore(Store):
         def get() -> bytes:
             status, body = self._get(url, {})
             if status != 200:
-                raise urllib.error.HTTPError(url, status, f"HTTP {status}", None, None)
+                # urllib takes no headers, whatever typeshed says
+                raise urllib.error.HTTPError(url, status, f"HTTP {status}", None, None)  # pyrefly: ignore[bad-argument-type]
             return body
 
         try:
@@ -781,14 +798,17 @@ class HttpStore(Store):
         def get() -> bytes:
             status, body = self._get(url, {"Range": f"bytes={start}-{end - 1}"})
             if status not in (200, 206):
-                raise urllib.error.HTTPError(url, status, f"HTTP {status}", None, None)
+                # urllib takes no headers, whatever typeshed says
+                raise urllib.error.HTTPError(url, status, f"HTTP {status}", None, None)  # pyrefly: ignore[bad-argument-type]
             return body
 
         return _retry(get)
 
+    @override
     def _release(self) -> None:
         self._conns.release()
 
+    @override
     def read(self, key: str) -> bytes:
         size = self.objects[key]
         if size == 0:
@@ -799,6 +819,7 @@ class HttpStore(Store):
             raise OSError(f"{url}: read {len(data)} bytes, the listing says {size}")
         return data
 
+    @override
     def read_range(self, key: str, offset: int, length: int) -> bytes:
         if length == 0:
             return b""
@@ -838,12 +859,14 @@ class DirStore(Store):
                 listed.append((rel, st.st_size))
         self._add(listed, "", set())
 
+    @override
     def read(self, key: str) -> bytes:
         data = (self.root / key).read_bytes()
         if len(data) != self.objects[key]:
             raise OSError(f"{key}: the file changed while it was read")
         return data
 
+    @override
     def read_range(self, key: str, offset: int, length: int) -> bytes:
         with open(self.root / key, "rb") as fh:
             fh.seek(offset)
@@ -854,7 +877,7 @@ class DirStore(Store):
 
 
 def open_store(location: str, url: str | None = None, *, max_objects: int | None = None,
-               opener: Callable | None = None, workers: int = WORKERS, policy: Policy | None = None) -> Store:
+               opener: Opener | None = None, workers: int = WORKERS, policy: Policy | None = None) -> Store:
     """The store at an http(s) URL ending in `/` (listed and read there under the
     reader policy `policy`, default `Policy()`, and named `url` in the output if
     given, its documents read by up to `workers` requests at a time), or a local
@@ -912,7 +935,7 @@ def parent_of(path: str) -> str:
     return path.rpartition("/")[0]
 
 
-class PathTrie:
+class PathTrie[V]:
     """Paths (the root `""` included), each with a value, as a tree of their
     segments: finding a key's nearest ancestor among them takes time linear in
     the key's length, without rebuilding any prefix."""
@@ -920,29 +943,31 @@ class PathTrie:
     __slots__ = ("children", "value")
 
     def __init__(self) -> None:
-        self.children: dict[str, PathTrie] = {}
-        self.value = None
+        self.children: dict[str, PathTrie[V]] = {}
+        self.value: V | None = None
 
-    def add(self, path: str, value: object) -> None:
+    def add(self, path: str, value: V) -> None:
         node = self
         if path:
             for s in path.split("/"):
                 child = node.children.get(s)
                 if child is None:
-                    child = node.children[s] = PathTrie()
+                    child = node.children[s] = PathTrie[V]()
                 node = child
         node.value = value
 
-    def nearest(self, segs: list[str]) -> tuple[object, int] | None:
+    def nearest(self, segs: list[str]) -> tuple[V, int] | None:
         """(value, j) of the nearest proper ancestor of the key with segments
         `segs` that has a value, at the path `segs[:j]`; or None."""
-        node, best = self, None
+        node = self
+        best: tuple[V, int] | None = None
         if self.value is not None and segs != [""]:
             best = (self.value, 0)
         for j in range(len(segs) - 1):
-            node = node.children.get(segs[j])
-            if node is None:
+            child = node.children.get(segs[j])
+            if child is None:
                 break
+            node = child
             if node.value is not None:
                 best = (node.value, j + 1)
         return best
@@ -973,7 +998,7 @@ def classify(candidates: dict[str, str]) -> tuple[dict[str, str], set[str]]:
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#2-nodes>): candidates inside
     an array are dropped. Returns ({path: kind}, implicit groups)."""
     nodes: dict[str, str] = {}
-    arrays = PathTrie()
+    arrays = PathTrie[bool]()
     for path in sorted(candidates, key=lambda p: (depth(p), p)):
         if arrays.nearest(path.split("/")) is not None:
             continue
@@ -1001,7 +1026,7 @@ def find_chunks(objects: dict[str, int], arrays: dict[str, Callable[[str], bool]
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>): for each object,
     the array that is its nearest ancestor decides with `is_chunk(rest)` whether the rest of the key
     is one of its chunk keys. Returns [(key, size)] in key order."""
-    trie = PathTrie()
+    trie = PathTrie[Callable[[str], bool]]()
     for path, test in arrays.items():
         trie.add(path, test)
     out = []
@@ -1014,7 +1039,7 @@ def find_chunks(objects: dict[str, int], arrays: dict[str, Callable[[str], bool]
     return out
 
 
-GROUP_IMPLICIT = {"zarr_format": 3, "node_type": "group", "attributes": {}}
+GROUP_IMPLICIT: dict[str, object] = {"zarr_format": 3, "node_type": "group", "attributes": {}}
 SOURCE_GROUP = "refkv_source"
 OBJECTS = "refkv_source/objects/"
 EMPTY_KEY = "refkv_source/empty.json"  # the empty objects' keys under a root array (spec/zarrify/zarr2.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>)
@@ -1033,7 +1058,8 @@ def object_key(key: str) -> str:
     return OBJECTS + key + ("~" if _NODE_NAME.match(key.rpartition("/")[2]) else "")
 
 
-def source_metadata(attributes: dict, metadata: dict, unversioned: list[str] | None = None) -> dict:
+def source_metadata(attributes: Mapping[str, object], metadata: Mapping[str, object],
+                    unversioned: list[str] | None = None) -> dict[str, object]:
     """A store node's source metadata S (spec/zarrify/zarr2.md §4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#4-source-metadata>,
     spec/zarrify/n5.md §5
@@ -1041,7 +1067,7 @@ def source_metadata(attributes: dict, metadata: dict, unversioned: list[str] | N
     spec/zarrify/ome-zarr.md §8
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#8-source-metadata>):
     `{"attributes": A, "metadata": M, "unversioned": U}`, each member only when it is not empty."""
-    s = {}
+    s: dict[str, object] = {}
     if attributes:
         s["attributes"] = attributes
     if metadata:
@@ -1062,9 +1088,9 @@ class StoreOutput:
     and the chunk entries, each referencing its whole object through its own url source."""
 
     url: str
-    docs: dict[str, object] = field(default_factory=dict)
+    docs: dict[str, dict[str, object]] = field(default_factory=dict)
     chunks: list[tuple[str, int]] = field(default_factory=list)  # (key, size), sorted, size > 0
-    summary: dict = field(default_factory=dict)
+    summary: dict[str, object] = field(default_factory=dict)
     # The source key of each entry whose key is not its object's (the objects under refkv_source/objects/).
     origins: dict[str, str] = field(default_factory=dict)
     # The CRC-32C of a url source's bytes, when the references are to carry
@@ -1073,7 +1099,7 @@ class StoreOutput:
     # refkv.zarrify._zarrify_store.
     checksum: Callable[[str, int, int], int] | None = None
 
-    def declare(self, profile: str, omes: dict[str, dict] | None = None) -> None:
+    def declare(self, profile: str, omes: Mapping[str, Mapping[str, object]] | None = None) -> None:
         """Declares the profile's convention (conventions §2
         <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>). Each document's
         `attributes` holds, until then, the attributes copied from the source;
@@ -1087,7 +1113,8 @@ class StoreOutput:
             path = key[: -len("zarr.json")].rstrip("/")
             target = {"ome": omes[path]} if path in omes else {}
             url = self.url if path == "" else None
-            self.docs[key] = {**doc, "attributes": declare(target, profile, url, doc["attributes"])}
+            attributes = mapping(doc["attributes"], f"{key}: attributes")
+            self.docs[key] = {**doc, "attributes": declare(target, profile, url, attributes)}
 
     def check_keys(self) -> None:
         for key in [*self.docs, *(k for k, _ in self.chunks)]:
@@ -1116,13 +1143,14 @@ class StoreOutput:
         ignored = sorted(ignored)
         if not kept and not empty and not ignored:
             return 0
-        own = {**({"empty": empty} if empty else {}), **({"ignored": ignored} if ignored else {})} or None
+        own: dict[str, object] | None = {**({"empty": empty} if empty else {}),
+                                         **({"ignored": ignored} if ignored else {})} or None
         if self.docs.get(doc_key(""), {}).get("node_type") != "array":
             for p in nodes:
                 if p == SOURCE_GROUP or p.startswith(SOURCE_GROUP + "/"):
                     raise Rejected(f"the node {p} is where the store's other objects go ({OBJECTS}...)")
             # The keys of empty and ignored objects are the source metadata of refkv_source.
-            profile = self.docs[doc_key("")]["attributes"][CONVENTION_KEY]["profile"]
+            profile = string(at(self.docs[doc_key("")], "attributes", CONVENTION_KEY, "profile"), "profile")
             self.docs[doc_key(SOURCE_GROUP)] = dict(GROUP_IMPLICIT, attributes=declare({}, profile, None, own))
         elif own:
             # An array has no children: under a root array, the keys are plain keys of the archive.
@@ -1156,7 +1184,7 @@ class StoreOutput:
                 w.add_bytes(key, data, compress=source, late=not source)
             w.close()
 
-    def to_store(self, *, policy: Policy | None = None, info: dict | None = None) -> ReferenceStore:
+    def to_store(self, *, policy: Policy | None = None, info: dict[str, object] | None = None) -> ReferenceStore:
         """The output as a `refkv.ReferenceStore`, which `save` writes as the archive
         `write` writes, byte for byte (`refkv.zarrify.common.reference_store`)."""
         sources = [Source(url=object_url(self.url, self.origins.get(k, k)), size=n) for k, n in self.chunks]
@@ -1172,7 +1200,7 @@ BLOSC_NAMES = ("blosclz", "lz4", "lz4hc", "snappy", "zlib", "zstd")
 MAX_BLOCK = 2**31 - 1
 
 
-def blosc_codec(c: dict, typesize: int, shuffles: dict) -> dict:
+def blosc_codec(c: Mapping[str, JSON], typesize: int, shuffles: Mapping[int, str]) -> dict[str, object]:
     """The Zarr v3 blosc codec of an n5-blosc or numcodecs Blosc configuration
     (spec/zarrify/n5.md §3
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#3-datasets>,
@@ -1184,7 +1212,7 @@ def blosc_codec(c: dict, typesize: int, shuffles: dict) -> dict:
         raise Rejected(f"blosc cname {cname!r} is not supported")
     if clevel is None:
         raise Rejected(f"blosc clevel {c.get('clevel')!r} is not an integer from 0 to 9")
-    if shuffle not in shuffles:
+    if shuffle is None or shuffle not in shuffles:
         raise Rejected(f"blosc shuffle {c.get('shuffle')!r} is not supported")
     if blocksize is None:
         raise Rejected(f"blosc blocksize {c.get('blocksize')!r} is not supported")
