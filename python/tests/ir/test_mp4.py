@@ -151,6 +151,26 @@ def test_video_chunks_start_at_keyframes(tmp_path):
     assert out.summary["tracks"][0]["chunks"] == 10
 
 
+def test_an_open_group_s_leading_pictures_decode_from_the_group_before(tmp_path):
+    """mp4_h264_open_gop.mp4 (40 pictures, x264's open groups of 12: each keyframe after the
+    first a non-IDR I picture, followed in decode order by two B-frames presented before it that
+    reference the group before) in chunks of at most 11: chunk 1 is picture 11 alone, a leading
+    picture of the keyframe presented at 12, so it decodes from the keyframe before, at 0
+    (spec/zarrify/mp4.md §8.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#83-chunks>); every picture is
+    ffmpeg's."""
+    path = FIXTURES / "mp4" / "mp4_h264_open_gop.mp4"
+    out, root = zarrified(path, tmp_path, 11)
+    grid = json.loads(out.bytes_entries["tracks/1/y/zarr.json"])["chunk_grid"]
+    assert grid["configuration"]["chunk_shapes"][0][:2] == [11, 1]
+    units, positions = chunk_units(out, "tracks/1/y/c/1/0/0", path.read_bytes())
+    assert positions[0] == -1 and sorted(p for p in positions if p >= 0) == [0]
+    assert len(units) > 12  # the group before, the keyframe, and the leading picture
+    kind, frames, _ = decoded(path, 0)
+    for k, p in enumerate("yuv"):
+        assert np.array_equal(root["tracks/1"][p][...], np.stack([plane(f, k) for f in frames])), p
+
+
 def test_a_video_chunk_s_planes_decode_once(tmp_path, monkeypatch):
     """Reading a chunk's Y, U and V decodes it once: the codec keeps the planes not asked for
     (refkv.zarr.codecs.stream); and the lead-in's pictures are dropped as the decoder gives
