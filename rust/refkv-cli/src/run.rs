@@ -114,9 +114,10 @@ pub fn is_vsi(t: &Transport) -> Result<bool, Fail> {
 
 /// (format, output) of the file at `location`, read through `t`: the format its first bytes give
 /// ("tiff" becomes "ndpi" once the parser finds the file is NDPI), its output naming the source
-/// `url` (default: `location`, or for a local file the path's URI reference).
-pub fn zarrify_file(location: &str, url: Option<&str>, t: &Transport, connections: Option<usize>, byte_cost: Option<f64>)
-    -> Result<(Format, refkv_ir::out::Out), Fail> {
+/// `url` (default: `location`, or for a local file the path's URI reference), for ranges that
+/// will carry checksums when `checksums`.
+pub fn zarrify_file(location: &str, url: Option<&str>, t: &Transport, connections: Option<usize>, byte_cost: Option<f64>,
+                    checksums: bool) -> Result<(Format, refkv_ir::out::Out), Fail> {
     let want = t.size().min(552);
     let (held, _) = t.head();
     let head = if held.len() as u64 >= want { held[..want as usize].to_vec() } else { t.get(0, want)? };
@@ -129,7 +130,7 @@ pub fn zarrify_file(location: &str, url: Option<&str>, t: &Transport, connection
         None if t.remote() => location.to_string(),
         None => refkv_vzip::uri::path_reference(location).map_err(Fail::Other)?,
     };
-    let out = run.into_output(&name, true).map_err(Fail::Rejected)?;
+    let out = run.into_output(&name, true, checksums).map_err(Fail::Rejected)?;
     Ok((fmt, out))
 }
 

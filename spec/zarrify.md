@@ -118,7 +118,9 @@ with the message `budget: the mirror would have more than N rows`.
 The archive's byte layout (entry order, compression, page index) is the
 writer's choice and is not part of the output. Neither are the sources'
 pins and the ranges' checksums ([§1.2](#12-input)): an `etag` pin depends on what the
-server sent, and checksums are optional. Two zarrifiers conform to
+server sent, and checksums are optional. A zarrifier that records checksums
+does not join a shard's ranges across its inner chunks ([§2.1](#21-virtual-shards)), so
+outputs are compared between zarrifiers that both record checksums or both do not. Two zarrifiers conform to
 the same profile revision if they produce equivalent outputs for every input
 that the profile accepts, and both reject every input it rejects.
 
@@ -564,6 +566,55 @@ states, with:
   profile specifies, and no other chunk entry;
 - the documents as JSON (`zarr.json`, compared by [§1.1](#11-output-and-equivalence)), and no other
   entries than those the profile names.
+
+### 2.1 Virtual shards
+
+A convention may make an array a **sharded** array (Zarr v3's
+[`sharding_indexed` codec](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/index.html)):
+it gives the array's **inner chunks**, which are what an unsharded array's
+chunks would be (their shape, their codecs, and each one's reference), and
+the **shard shape** `K`, the inner chunks a shard holds along each axis. A
+reader that reads a few inner chunks reads the shard's index and those
+chunks' bytes, nothing else, and the store holds one key per shard: a
+shard's index is bytes no source holds, which its reference carries as a
+literal range ([spec/refkv.md §4.5](refkv.md#45-where-bytes-that-no-source-holds-go-informative)).
+The array is then, with `c` the inner chunk shape, `D` its codecs, `S` the
+array's shape and `G = ceil(S / c)` the inner grid (each per axis):
+
+- **Its document.** As the unsharded array's
+  ([conventions §3](conventions.md#3-arrays)), but for the chunk grid's
+  chunk shape, `c × K` (the shard's), and the codecs, `[{"name":
+  "sharding_indexed", "configuration": {"chunk_shape": c, "codecs": D,
+  "index_codecs": [{"name": "bytes", "configuration": {"endian":
+  "little"}}, {"name": "crc32c"}], "index_location": "end"}}]`.
+- **Its shards.** The shard grid is `ceil(G / K)`; shard `s` holds the inner
+  chunks `s × K + i` for each `i` of the `K` grid, those within `G` that the
+  unsharded array has. Its key is the array's chunk key of `s`
+  (`<path>/c/<s0>/<s1>/...`); a shard that holds no inner chunk has no
+  entry.
+- **A shard's reference** is its inner chunks' ranges, in row-major order of
+  `i` (the last axis fastest), each inner chunk's ranges as the unsharded
+  array's reference to it has them (an inner chunk the profile copies is one
+  literal range of its bytes), then one literal range of the **index**:
+  for each `i` in that order, two 8-byte little-endian integers, the offset
+  in the shard of the inner chunk's first byte and its length, or
+  `(2^64 − 1, 2^64 − 1)` for an inner chunk the shard does not hold; then
+  the CRC-32C ([spec/refkv.md §4.2](refkv.md#42-range)) of those entries,
+  4 bytes little-endian, as the `crc32c` codec writes it.
+- **Joined ranges.** Where an inner chunk's first range is a source range
+  that starts where the range before it (the previous inner chunk's last)
+  ends, in the same source, the two are one range: inner chunks that lie
+  one after another in the source, laid out in its order, are one range.
+  A zarrifier that records checksums ([§1.2](#12-input)) does not join them:
+  a range with a checksum is read whole, and a joined range would make a
+  reader of one inner chunk read its neighbors.
+
+The offsets and lengths in the index are those of the inner chunks'
+bytes, whichever ranges they are in. A profile chooses `K` so that a
+shard's payload ([§1.2](#12-input)) stays within the 65519 bytes past which
+the input is rejected: an inner chunk costs its ranges and 16 bytes of index,
+an inner chunk a shard does not hold 16 bytes, and a shard 4 bytes of
+CRC-32C.
 
 ## Profiles
 

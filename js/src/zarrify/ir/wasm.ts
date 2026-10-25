@@ -20,7 +20,7 @@ export interface IrExports {
   vz_run_poll(p: number): bigint;
   vz_run_complete(p: number, k: number, ok: number, data: number, n: number, seconds: number): bigint;
   vz_run_stats(p: number): bigint;
-  vz_run_output(p: number, url: number, n: number, mirror: number): bigint;
+  vz_run_output(p: number, url: number, n: number, flags: number): bigint;
   vz_run_free(p: number): void;
   vz_store_new(format: number, nf: number, listing: number, nl: number, concurrency: number): bigint;
   vz_store_ignore(p: number, json: number, n: number): bigint;

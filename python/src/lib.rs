@@ -608,9 +608,12 @@ impl PyRun {
     /// the IR). `layouts`, when given, names the layouts the projection writes beside the
     /// image (a format's dataset layout, "dataset"; conventions §9
     /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>); by
-    /// default, every one.
-    #[pyo3(signature = (url, mirror=true, layouts=None))]
-    fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool, layouts: Option<Vec<String>>) -> PyResult<(Bound<'py, PyAny>, PyIr)> {
+    /// default, every one. `checksums`: the host records the ranges' checksums, so that a
+    /// sharded array's ranges are not joined across inner chunks (spec/zarrify.md §2.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>).
+    #[pyo3(signature = (url, mirror=true, layouts=None, checksums=false))]
+    fn output<'py>(&mut self, py: Python<'py>, url: &str, mirror: bool, layouts: Option<Vec<String>>, checksums: bool)
+        -> PyResult<(Bound<'py, PyAny>, PyIr)> {
         let r = self.r.take().ok_or_else(|| PyValueError::new_err("finished"))?;
         let format = r.format;
         let (o, ir) = py
@@ -619,6 +622,7 @@ impl PyRun {
                 if let Some(l) = layouts {
                     facts["layouts"] = serde_json::json!(l);
                 }
+                facts["checksums"] = checksums.into();
                 Ok((refkv_ir::run::output(format, &ir, &facts, stats, url, mirror, &copied)?, ir))
             })
             .map_err(Rejected::new_err)?;
