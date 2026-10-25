@@ -110,7 +110,9 @@ def field_problems(header: dict, own: dict) -> list[str]:
 
 def placement(header: dict) -> tuple[list[str], dict[str, float], dict[str, float] | None]:
     """Each axis's image axis (fastest first), each image axis's scale, and the translation when
-    the orientation is axis-aligned, from pynrrd's header (spec/zarrify/nrrd.md §4.1, §4.3)."""
+    the orientation is axis-aligned, from pynrrd's header (spec/zarrify/nrrd.md §4.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#41-the-array>, §4.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#43-scales-units-and-position>)."""
     n = int(header["dimension"])
     kinds = [k.lower() for k in header.get("kinds", ["???"] * n)]
     dirs = header.get("space directions")
@@ -132,8 +134,8 @@ def placement(header: dict) -> tuple[list[str], dict[str, float], dict[str, floa
         return float(v) if math.isfinite(v) and v > 0 else None
 
     aligned = dirs is not None and all(
-        not np.all(np.isnan(dirs[i])) and all((dirs[i][k] > 0) if k == "xyz".index(names[i]) else dirs[i][k] == 0
-                                              for k in range(len(dirs[i])))
+        not np.all(np.isnan(dirs[i])) and "xyz".index(names[i]) < len(dirs[i])
+        and all((dirs[i][k] > 0) if k == "xyz".index(names[i]) else dirs[i][k] == 0 for k in range(len(dirs[i])))
         for i in range(n) if names[i] in "xyz")
     scale, translation = {}, None
     for i, a in enumerate(names):

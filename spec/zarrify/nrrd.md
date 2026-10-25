@@ -51,8 +51,9 @@ tests:
   value the text after it, each unescaped (`\n` is a LF and `\\` a backslash; any other
   backslash is itself). A key given twice keeps its last value, at its first place;
 - otherwise a **field**: its **identifier** is the text before the first `:`, in any case, and
-  its **descriptor** the text after the `:` and the space that follows it, without the
-  whitespace (space, tab, CR, LF, VT, FF) that ends it.
+  its **descriptor** the text after the `:` (which a space follows, [§8.1](#81-the-header)),
+  without the spaces and tabs that start it and the whitespace (space, tab, CR, LF, VT, FF) that
+  ends it.
 
 The header of an **attached** input ends with a **blank line**, a line of no text after the
 magic, and the data follows it in the same file. A **detached** header (one with a `data file`
@@ -145,7 +146,7 @@ a name, with one array at path `"0"`: the root `zarr.json` is `{"zarr_format": 3
 The profile accepts 2 or 3 axes of the role space, at most one of time and at most one of
 channel ([§8.2](#82-the-fields)). The axes of the role space are, in the header's order, `x`,
 `y` and `z`; the axis of the role time is `t` and that of the role channel `c`. The array's
-axes are `t`, `c`, `z`, `y`, `x`, each only when present, in that order (conventions §4), and
+axes are `t`, `c`, `z`, `y`, `x`, each only when present, in that order ([conventions §4](../conventions.md#4-images)), and
 the root's source metadata records each header axis's image axis ([§5.1](#51-the-root)).
 
 - **Shape:** each axis's size, in the array's order.
@@ -167,7 +168,7 @@ the root's source metadata records each header axis's image axis ([§5.1](#51-th
   {"level": 1}}`, whose level, which decoding ignores, is written as the `zlib` codec's is.
 - **Chunks:** every chunk is present. The chunk with coords `q_a` along each axis `a` is the
   chunk of `V` with the same coords along the same axes: for the raw encoding, the bytes that
-  conventions §7 gives it, in the order of `V`, which the transpose codec puts in the array's
+  [conventions §7](../conventions.md#7-source-values-as-arrays) gives it, in the order of `V`, which the transpose codec puts in the array's
   order, an edge chunk along the cut axis followed by zero bytes up to the whole chunk; for the
   gzip encoding, the gzip stream.
 
@@ -207,7 +208,8 @@ along it) and `space origin` (the first sample's position), and otherwise by `sp
 OME-NGFF 0.5 places an image only by a scale and a translation per axis, so the orientation is
 **applied** only when it is **axis-aligned**: when the header has `space directions`, every axis
 of the role space has a vector, and the vector of the axis `x`, `y` or `z` (the `j`-th, from 0)
-has a valid component `j` and every other component 0. (A space of more coordinates than spatial
+has a component `j` (the space has more than `j` coordinates), which is valid, and every other
+component 0. (A space of more coordinates than spatial
 axes, such as a 2-D image in a 3-D space, or a space with a time coordinate, is axis-aligned when
 those components are 0.)
 
@@ -234,7 +236,7 @@ flipped, and has no translation. The directions themselves are always in the sou
 - an axis without a vector, or `t`: its `units` value is a length symbol (`x`, `y`, `z`) or a
   time symbol (`s`, `ms`, `min`, `h`; `t`).
 
-The unit is the symbol's, as conventions §5 maps it; any other symbol gives no unit.
+The unit is the symbol's, as [conventions §5](../conventions.md#5-units) maps it; any other symbol gives no unit.
 
 **Translation.** With an applied orientation and a `space origin` whose components are all
 finite, the image has a translation ([conventions §5](../conventions.md#5-units)): component `j`
@@ -273,7 +275,7 @@ with the members of [§5.1](#51-the-root), in that order, translated by
   `thicknesses`, `measurement frame`, ...), and as written: `"space directions": "(0.5,0,0)
   (0,0.75,0) (0,0,1.25)"`.
 - `key_values`: an object with one member per key/value pair, named by its key (unescaped, a
-  name as conventions §6 reads one), whose value is the pair's last value, unescaped, as a text
+  name as [conventions §6](../conventions.md#6-source-metadata-as-json) reads one), whose value is the pair's last value, unescaped, as a text
   value. Spaces around `:=` belong to the key and the value, as the NRRD definition says.
 - `comments`: the comments, in order, as text values.
 - `data_type`: the Zarr data type; `encoding`: `"raw"` or `"gzip"`; `byte_order`: `"little"` or
@@ -446,6 +448,10 @@ whole file. The input is rejected when:
 - the header has no `data file` field and no blank line ends it: `the header ends at the end of
   the file, without the blank line before the data`.
 
+The lines after a `data file` field whose descriptor's first word is `LIST` are the names of the
+data files (the NRRD definition's third form, which ends the header), not fields: they are not
+read as lines of the header, and [§8.3](#83-the-data-file) rejects the input.
+
 ### 8.2 The fields
 
 The fields are checked in this order, each only by what the layout reads of it; the descriptor
@@ -485,15 +491,17 @@ are recorded as written ([§5.1](#51-the-root)).
 
 ### 8.3 The data file
 
-A detached header's `data file` descriptor names its one data file: a path relative to the header
-file's directory. Its **key** is the descriptor's segments (the parts between `/`) without the
-segments `.`, joined by `/`. The input is rejected when:
+A detached header's `data file` descriptor names its one data file: a path relative to the header file's directory. Its **key** is the descriptor's
+segments (the parts between `/`) without the segments `.`, joined by `/`. The input is rejected
+when:
 
 - the descriptor's words (separated by spaces and tabs) are `LIST` and any others, or are 4 or 5
   words of which the first holds `%` and the others are integers: `the data file field
   "<descriptor>" names several data files, which the profile does not read`;
-- the descriptor is not UTF-8, starts with `/`, has no segment but `.`, or has an empty segment
-  or a segment `..`: `the data file "<descriptor>" is not a path below the header's directory`;
+- the descriptor is not UTF-8, starts with `/`, has no segment but `.`, or has an empty segment,
+  a segment `..`, or a segment that holds `\` or `:` (a Windows path, a drive, a URL's scheme,
+  which could name a file outside the directory): `the data file "<descriptor>" is not a path
+  below the header's directory`;
 - the key is the header file's: `the data file "<descriptor>" is the header's own file`.
 
 The data file is then **probed**, as the VSI profile probes a tile file

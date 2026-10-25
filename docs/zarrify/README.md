@@ -30,7 +30,7 @@ who each one is for, what you get, and how to run it.
 | ND2 | Nikon NIS-Elements ND2 files | [nd2](nd2/README.md) | [nd2.md §7](../../spec/zarrify/nd2.md#7-nd2-profile) |
 | NDPI | Hamamatsu NDPI whole-slide images | [ndpi](ndpi/README.md) | [ndpi.md §7](../../spec/zarrify/ndpi.md#7-ndpi-profile) |
 | NIfTI | NIfTI-1 and NIfTI-2 volumes (`.nii`) | [nifti](nifti/README.md) | [nifti.md §7](../../spec/zarrify/nifti.md#7-nifti-profile) |
-| NRRD | NRRD volumes, attached or detached, raw or gzip (`.nrrd`, `.nhdr`) | [convention](../../spec/zarrify/nrrd.md) | [nrrd.md §8](../../spec/zarrify/nrrd.md#8-nrrd-profile) |
+| NRRD | NRRD volumes, attached or detached, raw or gzip (`.nrrd`, `.nhdr`) | [nrrd](nrrd/README.md) | [nrrd.md §8](../../spec/zarrify/nrrd.md#8-nrrd-profile) |
 | OME-Zarr | OME-Zarr 0.4 hierarchies, migrated to OME-Zarr 0.5 in place | [ome-zarr](ome-zarr/README.md) | [ome-zarr.md §11](../../spec/zarrify/ome-zarr.md#11-ome-zarr-profile) |
 | QPTIFF | Akoya (PerkinElmer) Vectra multiplex scans and inForm component data | [qptiff](qptiff/README.md) | [qptiff.md §7](../../spec/zarrify/qptiff.md#7-qptiff-profile) |
 | Sentinel-2 SAFE | Sentinel-2 Level-1C and Level-2A products, as a `.SAFE` directory or a `.SAFE.zip` | [safe](safe/README.md) | [safe.md §8](../../spec/zarrify/safe.md#8-safe-profile) |

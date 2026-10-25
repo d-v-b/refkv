@@ -30,8 +30,14 @@ from proxy import Proxy
 NRRD = FIXTURES / "nrrd"
 INPUTS = sorted(p for p in NRRD.iterdir() if p.suffix in (".nrrd", ".nhdr") and "reject" not in p.name)
 URL = "https://data.test/nrrd/{}"
-nrrd.reader.ALLOW_DUPLICATE_FIELD = True  # nrrd_header_everything's repeated key, which NRRD allows
 pytestmark = pytest.mark.filterwarnings("ignore:Duplicate header field")
+
+
+@pytest.fixture(autouse=True)
+def duplicate_keys(monkeypatch):
+    """pynrrd reads nrrd_header_everything's repeated key, which NRRD allows (its last value
+    counts), within each test alone."""
+    monkeypatch.setattr(nrrd.reader, "ALLOW_DUPLICATE_FIELD", True)
 
 
 def zarrified(path: Path, url: str | None = None, policy: Policy | None = None) -> tuple[StoreIrOutput, zarr.Group]:

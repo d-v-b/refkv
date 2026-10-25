@@ -22,6 +22,11 @@
       "message": "the data file \"/data/image.raw\" is not a path below the header's directory"
     },
     {
+      "test": "reject_detached_backslash",
+      "input": "nrrd_reject_detached_backslash.nhdr",
+      "message": "the data file \"..\\image.raw\" is not a path below the header's directory"
+    },
+    {
       "test": "reject_detached_itself",
       "input": "nrrd_reject_detached_itself.nhdr",
       "message": "the data file \"./nrrd_reject_detached_itself.nhdr\" is the header's own file"
@@ -65,6 +70,11 @@
       "test": "reject_hex",
       "input": "nrrd_reject_hex.nrrd",
       "message": "the NRRD encoding hex is not supported: its bytes are hexadecimal text, which no chunk can reference as binary"
+    },
+    {
+      "test": "reject_kind_about",
+      "input": "nrrd_reject_kind_about.nrrd",
+      "message": "the kinds field \"domain domain about\" is not NRRD kinds"
     },
     {
       "test": "reject_line_skip_past_end",

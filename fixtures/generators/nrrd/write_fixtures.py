@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import gzip
 import math
+import re
 import shutil
 from pathlib import Path
 
@@ -109,6 +110,10 @@ def accepted() -> None:
         'space units: "mm" "mm" "mm"'))
     attached("nrrd_space_dimension_2d", [6, 5], "float", extra=(
         "space dimension: 2", "space directions: (2,0) (0,3)", 'space units: "um" "um"'))
+    # three spatial axes in a 2-D space: the third's direction has no component of its own, so the
+    # orientation is not applied
+    attached("nrrd_space_dimension_short", [4, 3, 2], extra=(
+        "space dimension: 2", "space directions: (1,0) (0,1) (0,0)", "space origin: (5,6)"))
     # kinds: a color axis (interleaved samples), a list axis (diffusion), a time axis
     attached("nrrd_kinds_rgb", [3, 8, 6], extra=("kinds: RGB-color domain domain", "spacings: nan 0.1 0.1",
                                                   'labels: "rgb" "x" "y"'))
@@ -133,8 +138,10 @@ def accepted() -> None:
     attached("nrrd_byte_skip", [6, 5], "short", extra=("byte skip: 17",), prefix=bytes(range(17)))
     attached("nrrd_line_skip", [6, 5], "short", extra=("line skip: 2", "byte skip: 3"),
              prefix=b"first skipped line\nsecond\r\nabc")
-    detached("nrrd_detached_byte_skip_end", [5, 4], "float", "nrrd_detached_byte_skip_end.dat",
-             extra=("byte skip: -1",), prefix=b"P5 a header of another format\n" + bytes(40))
+    # (the data file's name after two spaces, which its descriptor does not keep)
+    detached("nrrd_detached_byte_skip_end", [5, 4], "float", " nrrd_detached_byte_skip_end.dat",
+             write="nrrd_detached_byte_skip_end.dat", extra=("byte skip: -1",),
+             prefix=b"P5 a header of another format\n" + bytes(40))
     # gzip, attached and detached
     attached("nrrd_gzip_3d", [6, 5, 4], "short", encoding="gzip", extra=("space: LPS",
              "space directions: (1,0,0) (0,1,0) (0,0,2)", "space origin: (0,0,0)"))
@@ -152,8 +159,12 @@ def accepted() -> None:
     nrrd.write(str(OUT / "nrrd_pynrrd_gzip.nrrd"), data, {"space": "left-posterior-superior",
                "space directions": np.diag([0.5, 0.5, 1.0]), "space origin": np.array([1.0, 2.0, 3.0]),
                "kinds": ["domain", "domain", "domain"]}, index_order="F")
-    # pynrrd writes the header's time-free fields only; its gzip member has no time either
     nrrd.write(str(OUT / "nrrd_pynrrd_raw.nrrd"), data.astype(np.float32), {"encoding": "raw"}, index_order="C")
+    for name in ("nrrd_pynrrd_gzip.nrrd", "nrrd_pynrrd_raw.nrrd"):
+        # pynrrd's comment of the time it wrote the file, at a fixed time
+        path = OUT / name
+        fixed = re.sub(rb"# on [^\n]*\(GMT\)\.\n", b"# on 2026-10-25 00:00:00(GMT).\n", path.read_bytes(), count=1)
+        path.write_bytes(fixed)
 
 
 def rejected() -> None:
@@ -176,11 +187,16 @@ def rejected() -> None:
     attached("nrrd_reject_gzip_byte_skip", [3, 2], encoding="gzip", extra=("byte skip: 4",))
     attached("nrrd_reject_gzip_not_gzip", [6, 5], encoding="gzip", data=bytes(40))
     attached("nrrd_reject_one_axis", [12])
+    attached("nrrd_reject_kind_about", [3, 2, 2], extra=("kinds: domain domain about",))
     attached("nrrd_reject_two_channel_axes", [3, 2, 4, 5], extra=("kinds: RGB-color vector domain domain",))
     attached("nrrd_reject_line_skip_past_end", [3, 2], extra=("line skip: 3",), data=b"one\n" + bytes(6))
     attached("nrrd_reject_space_directions_count", [3, 2], extra=("space: RAS", "space directions: (1,0,0) (0,1)"))
     # detached headers whose data file is not one file below the header's directory, or is missing
     detached("nrrd_reject_detached_list", [3, 2], "uchar", "LIST", data=False)
+    # as a LIST header is written: the data files' names after it, to the end of the header file
+    path = OUT / "nrrd_reject_detached_list.nhdr"
+    path.write_bytes(path.read_bytes().removesuffix(b"\n") + b"slice1.raw\nslice2.raw\n")
+    detached("nrrd_reject_detached_backslash", [3, 2], "uchar", "..\\image.raw", data=False)
     detached("nrrd_reject_detached_pattern", [3, 2, 2], "uchar", "slice%03d.raw 1 2 1 2", data=False)
     detached("nrrd_reject_detached_absolute", [3, 2], "uchar", "/data/image.raw", data=False)
     detached("nrrd_reject_detached_parent", [3, 2], "uchar", "../image.raw", data=False)

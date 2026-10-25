@@ -34,7 +34,8 @@ fn length_unit(s: &str) -> Option<&'static str> {
     })
 }
 
-/// A time unit's symbol as conventions §5 maps it.
+/// A time unit's symbol as conventions §5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units> maps it.
 fn time_unit(s: &str) -> Option<&'static str> {
     Some(match s {
         "s" => "second",
@@ -74,7 +75,7 @@ fn placement(a: &J) -> (Map<String, J>, Map<String, J>, Option<[f64; 3]>, Option
     };
     // representable: every spatial axis's vector lies along its own space coordinate, positive
     let representable = !dirs.is_null() && spatial.iter().all(|&(i, j)| {
-        vector(i).is_some_and(|v| v.iter().enumerate().all(|(k, c)| if k == j { valid(*c).is_some() } else { *c == Some(0.0) }))
+        vector(i).is_some_and(|v| j < v.len() && v.iter().enumerate().all(|(k, c)| if k == j { valid(*c).is_some() } else { *c == Some(0.0) }))
     });
     let same_unit = arr(space_units).iter().filter_map(J::as_str).collect::<Vec<_>>();
     let shared = same_unit.first().filter(|u| same_unit.iter().all(|x| x == *u)).copied();

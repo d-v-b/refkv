@@ -136,7 +136,7 @@ fn accepted_inputs_are_valid_store_irs_whose_mirrors_rebuild_their_files() {
         assert_eq!(files.len(), if name.ends_with(".nhdr") { 2 } else { 1 }, "{name}");
         n += 1;
     }
-    assert_eq!(n, 39);
+    assert_eq!(n, 40);
 }
 
 /// An axis-aligned orientation is applied: the scales are the directions' diagonal, the
@@ -239,13 +239,42 @@ fn the_root_keeps_every_field_pair_and_comment() {
     assert_eq!(ch[0]["window"], json!({"min": 3.0, "max": 249.5, "start": 3.0, "end": 249.5}));
 }
 
-/// The cut of contiguous values (conventions §7), with an edge chunk's padding as a literal.
+/// The cut of contiguous values (conventions §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>), with an
+/// edge chunk's padding as a literal.
 #[test]
 fn the_data_is_cut_into_chunks_of_at_most_128_kib() {
     let (out, _, _) = run(&fixtures().join("nrrd_chunk_edge.nrrd")).unwrap();
     assert_eq!(doc(&out, "0/zarr.json")["chunk_grid"]["configuration"]["chunk_shape"], json!([16, 30, 100]));
     let last = out.refs.iter().find(|r| r.0 == "0/c/2/0/0").unwrap();
     assert!(matches!(last.1.as_slice(), [Part::Obj(_, _, 90000), Part::Lit(pad)] if pad.len() == 6000));
+}
+
+/// A spatial axis whose direction has no component of its own (three axes in a 2-D space) is
+/// placed by the directions' lengths: the orientation is not applied.
+#[test]
+fn a_direction_without_the_axis_component_is_not_applied() {
+    let (out, _, _) = run(&fixtures().join("nrrd_space_dimension_short.nrrd")).unwrap();
+    let root = doc(&out, "zarr.json");
+    assert_eq!(root["attributes"]["refkv_zarrified"]["nrrd"]["orientation"], json!({"applied": false}));
+    assert_eq!(root["attributes"]["ome"]["multiscales"][0]["datasets"][0]["coordinateTransformations"],
+               json!([{"type": "scale", "scale": [1, 1.0, 1.0]}]));
+}
+
+/// The schema's tables describe themselves under `about`, which names no field, type or encoding.
+#[test]
+fn about_names_no_field_type_or_encoding() {
+    let input = |lines: &str| BTreeMap::from([("a.nrrd".to_string(), format!("NRRD0004\n{lines}\n\nx").into_bytes())]);
+    let fields = "type: uchar\ndimension: 2\nsizes: 1 1\nencoding: raw";
+    let cases = [
+        ("about: x", "line 2 of the header: \"about\" is not a NRRD field"),
+        ("type: about\ndimension: 2\nsizes: 1 1\nencoding: raw", "unknown NRRD type \"about\""),
+        ("type: uchar\ndimension: 2\nsizes: 1 1\nencoding: about", "unknown NRRD encoding \"about\""),
+    ];
+    for (lines, message) in cases {
+        assert_eq!(run_files("a.nrrd", input(lines)).err().as_deref(), Some(message), "{lines}");
+    }
+    assert!(run_files("a.nrrd", input(fields)).is_ok());
 }
 
 #[test]

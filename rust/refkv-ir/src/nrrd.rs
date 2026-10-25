@@ -39,6 +39,12 @@ fn shown(b: &[u8]) -> String {
     utf8_or_latin1(b)
 }
 
+/// The entry `key` of the schema's table `table`, but its description (`about`), which names no
+/// entry.
+fn entry<'a>(rules: &'a Rules, table: &str, key: &str) -> Option<&'a J> {
+    rules.table(table).get(key).filter(|_| key != "about")
+}
+
 /// A problem as a role's given value: absent when there is none.
 fn problem(p: Option<String>) -> V {
     p.map_or(V::Absent, |p| text(&p))
@@ -139,6 +145,9 @@ pub fn parse(rules: &Rules, b: &[u8]) -> Res<Header> {
         }
         let p = line(rules, &mut h, t);
         rules.check("line", rules::env([("number", num((k + 1) as f64)), ("problem", problem(p))]))?;
+        if h.field("data file").is_some_and(|d| words(d).first() == Some(&&b"LIST"[..])) {
+            break; // the lines after `data file: LIST` name the data files, which the profile rejects
+        }
     }
     Ok(h)
 }
@@ -172,13 +181,13 @@ fn line(rules: &Rules, h: &mut Header, t: &[u8]) -> Option<String> {
     if !rest.is_empty() && rest[0] != b' ' {
         return Some(format!("the field identifier \"{}\" is not followed by \": \"", shown(id)));
     }
-    let Some(name) = rules.table("fields").get(shown(id).to_ascii_lowercase()).and_then(J::as_str) else {
+    let Some(name) = entry(rules, "fields", &shown(id).to_ascii_lowercase()).and_then(J::as_str) else {
         return Some(format!("\"{}\" is not a NRRD field", shown(id)));
     };
     if h.field(name).is_some() {
         return Some(format!("the {name} field is given twice"));
     }
-    h.fields.push((name.to_string(), trim_end(rest.get(1..).unwrap_or_default()).to_vec()));
+    h.fields.push((name.to_string(), trim(trim_end(rest)).to_vec()));
     None
 }
 
@@ -384,13 +393,13 @@ pub fn fields(rules: &Rules, h: &Header, header_key: &str) -> Res<Fields> {
     let d = required(rules, h, "type", "")?;
     let name = shown(trim(d)).to_ascii_lowercase();
     rules.check("type", rules::env([("name", text(&name))]))?;
-    let spec = &rules.table("types")[&name];
+    let spec = entry(rules, "types", &name).ok_or("internal: a type the schema does not name")?;
     let (data_type, item) = (spec["dtype"].as_str().unwrap_or("uint8").to_string(), spec["bytes"].as_u64().unwrap_or(1));
 
     let d = required(rules, h, "encoding", "")?;
     let name = shown(trim(d)).to_ascii_lowercase();
     rules.check("encoding", rules::env([("name", text(&name))]))?;
-    let encoding = rules.table("encodings")[&name].as_str().unwrap_or("raw").to_string();
+    let encoding = entry(rules, "encodings", &name).and_then(J::as_str).ok_or("internal: an encoding the schema does not name")?.to_string();
 
     let little = match h.field("endian") {
         Some(d) => {
@@ -433,7 +442,7 @@ pub fn fields(rules: &Rules, h: &Header, header_key: &str) -> Res<Fields> {
             None
         }
         (Some(d), None) => {
-            let sd = rules.table("spaces")[shown(trim(d)).to_ascii_lowercase()].as_u64();
+            let sd = entry(rules, "spaces", &shown(trim(d)).to_ascii_lowercase()).and_then(J::as_u64);
             check_value(rules, "space", d, sd.is_none().then(|| "is not a NRRD space".into()))?;
             sd.map(|v| v as usize)
         }
@@ -477,10 +486,9 @@ pub fn fields(rules: &Rules, h: &Header, header_key: &str) -> Res<Fields> {
     let space_units = values(rules, h, "space units", strings(sd, "the space's dimension"), |w| Some(w.to_vec()))?;
     let spacings = values(rules, h, "spacings", per_axis("numbers"), float)?;
     let units = values(rules, h, "units", strings(n, "the dimension"), |w| Some(w.to_vec()))?;
-    let kinds_table = rules.table("kinds");
     let kinds = values(rules, h, "kinds", per_axis("NRRD kinds"), |w| {
         let k = shown(w).to_ascii_lowercase();
-        kinds_table.get(&k).map(|_| k)
+        entry(rules, "kinds", &k).map(|_| k)
     })?;
     let number = |field: &str| h.field(field).and_then(|d| float(trim(d)));
     Ok(Fields {
@@ -493,13 +501,14 @@ pub fn fields(rules: &Rules, h: &Header, header_key: &str) -> Res<Fields> {
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#83-the-data-file>), relative to
 /// the header's directory: its descriptor without `.` segments.
 fn data_file(rules: &Rules, d: &[u8], header_key: &str) -> Res<String> {
+    let d = trim(d);
     let s = shown(d);
     let w = words(d);
     let several = w.first().is_some_and(|f| *f == b"LIST")
         || ((4..=5).contains(&w.len()) && w[0].contains(&b'%') && w[1..].iter().all(|x| integer(x).is_some()));
     let segments: Vec<&str> = s.split('/').filter(|x| *x != ".").collect();
     let relative = std::str::from_utf8(d).is_ok() && !s.starts_with('/') && !segments.is_empty()
-        && segments.iter().all(|x| !x.is_empty() && *x != "..");
+        && segments.iter().all(|x| !x.is_empty() && *x != ".." && !x.contains(['\\', ':']));
     let key = segments.join("/");
     rules.check("data_file", rules::env([("shown", text(&s)), ("several", flag(several)), ("relative", flag(relative)),
                                           ("itself", flag(key == header_key))]))?;
@@ -511,7 +520,7 @@ fn data_file(rules: &Rules, d: &[u8], header_key: &str) -> Res<String> {
 /// axis order (fastest first): `x`, `y` and `z` for the spatial axes in that order, `t` and `c`.
 pub fn axes(rules: &Rules, f: &Fields) -> Res<Vec<&'static str>> {
     let roles: Vec<&str> = (0..f.dimension)
-        .map(|i| match f.kinds.as_ref().and_then(|k| rules.table("kinds")[&k[i]].as_str()).unwrap_or("unknown") {
+        .map(|i| match f.kinds.as_ref().and_then(|k| entry(rules, "kinds", &k[i])).and_then(J::as_str).unwrap_or("unknown") {
             "unknown" => match &f.directions {
                 Some(d) if d[i].is_none() => "channel",
                 _ => "space",
@@ -522,11 +531,12 @@ pub fn axes(rules: &Rules, f: &Fields) -> Res<Vec<&'static str>> {
     let count = |r: &str| roles.iter().filter(|x| **x == r).count() as f64;
     rules.check("axes", rules::env([("spatial", num(count("space"))), ("times", num(count("time"))), ("channels", num(count("channel")))]))?;
     let mut spatial = ["x", "y", "z"].into_iter();
-    Ok(roles.iter().map(|r| match *r {
-        "time" => "t",
-        "channel" => "c",
-        _ => spatial.next().unwrap_or("z"),
-    }).collect())
+    roles.iter().map(|r| match *r {
+        "time" => Ok("t"),
+        "channel" => Ok("c"),
+        "space" => spatial.next().ok_or_else(|| "internal: more than 3 spatial axes".to_string()),
+        other => Err(format!("internal: the role {other:?}")),
+    }).collect()
 }
 
 // ---- the run (§8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#84-the-data>)

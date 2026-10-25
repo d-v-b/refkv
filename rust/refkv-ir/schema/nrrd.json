@@ -184,7 +184,7 @@
     },
     "type": {
       "given": {"name": "the type field's descriptor, lower case"},
-      "derive": {"spec": "at(types, name)", "named": "at(unsupported_types, name)"},
+      "derive": {"spec": "name == 'about' ? at(types, '') : at(types, name)", "named": "name == 'about' ? at(unsupported_types, '') : at(unsupported_types, name)"},
       "constraints": [
         {"require": "!present(named)", "message": "the NRRD type {name} is not supported: {named}"},
         {"require": "present(spec)", "message": "unknown NRRD type \"{name}\""}
@@ -192,7 +192,7 @@
     },
     "encoding": {
       "given": {"name": "the encoding field's descriptor, lower case"},
-      "derive": {"encoding": "at(encodings, name)", "named": "at(unsupported_encodings, name)"},
+      "derive": {"encoding": "name == 'about' ? at(encodings, '') : at(encodings, name)", "named": "name == 'about' ? at(unsupported_encodings, '') : at(unsupported_encodings, name)"},
       "constraints": [
         {"require": "!present(named)", "message": "the NRRD encoding {name} is not supported: {named}"},
         {"require": "present(encoding)", "message": "unknown NRRD encoding \"{name}\""}
@@ -205,7 +205,7 @@
       ]
     },
     "data_file": {
-      "given": {"shown": "the data file field's descriptor", "several": "whether it names several files (LIST, or a %d pattern)", "relative": "whether it is a relative path whose segments are none of empty and ..", "itself": "whether it names the header's own file"},
+      "given": {"shown": "the data file field's descriptor", "several": "whether it names several files (LIST, or a %d pattern)", "relative": "whether it is a relative path whose segments are none of empty and .., and hold no \\ or :", "itself": "whether it names the header's own file"},
       "constraints": [
         {"require": "!several", "message": "the data file field \"{shown}\" names several data files, which the profile does not read"},
         {"require": "relative", "message": "the data file \"{shown}\" is not a path below the header's directory"},
