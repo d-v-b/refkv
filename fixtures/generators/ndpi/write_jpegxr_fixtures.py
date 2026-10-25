@@ -16,8 +16,9 @@ YCbCr with 3 samples, whatever its JPEG XR streams hold.
   order too. Level 0 is a single tile: its tile tables are one value in line, whose high bits
   are its entries' high words, which its high tables hold (0s). OffsetHighBytes's own entry has
   a high word of 1, which is no part of its value.
-- `edge_reject_ndpi_jpegxr_*.ndpi`, `edge_reject_ndpi_compressions.ndpi`: inputs §3 and §7
-  reject.
+- `edge_reject_ndpi_jpegxr_*.ndpi`, `edge_reject_ndpi_compressions.ndpi`: inputs §3
+  <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels> and §7
+  <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile> reject.
 
 Pixels are checked against tifffile by verify.py.
 
@@ -182,6 +183,9 @@ def main() -> None:
     f = Ndpi()  # a single in-line tile whose OffsetHighBytes, 1, is not its entry's high word, 0
     tiled(f, single, 48, 32, (32, 48), 20.0, extra={65324: (LONG, [1])})
     f.write("edge_reject_ndpi_jpegxr_high_word.ndpi")
+    f = Ndpi()  # its ByteCountHighBytes, 1, is not its entry's high word, 0
+    tiled(f, single, 48, 32, (32, 48), 20.0, extra={65325: (LONG, [1])})
+    f.write("edge_reject_ndpi_jpegxr_high_count_word.ndpi")
     f = Ndpi()  # a stream that is not a JPEG XR file (a JPEG stream)
     jpeg = cast("bytes", imagecodecs.jpeg8_encode(image("uint8", 25, 40, 3), level=85))
     strip(f, jpeg, 40, 25, 20.0)

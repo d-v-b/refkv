@@ -42,6 +42,11 @@
       "message": "an NDPI tile is outside the file"
     },
     {
+      "test": "ndpi_edge_reject_jpegxr_high_count_word",
+      "input": "edge_reject_ndpi_jpegxr_high_count_word.ndpi",
+      "message": "an NDPI level's tile high bytes do not match its tiles"
+    },
+    {
       "test": "ndpi_edge_reject_jpegxr_high_length",
       "input": "edge_reject_ndpi_jpegxr_high_length.ndpi",
       "message": "an NDPI level's tile high bytes do not match its tiles"
