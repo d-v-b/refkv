@@ -147,10 +147,12 @@ examples dir="examples-out": ir-build
     set -euo pipefail
     root="$PWD"
     mkdir -p "{{dir}}" && cd "{{dir}}"
+    failed=()  # every example runs; the recipe fails after, naming the ones that failed
     for f in "$root"/docs/zarrify/*/example.py; do
         echo "== $f"
-        MPLBACKEND=Agg uv run --project "$root" --with matplotlib python "$f"
+        MPLBACKEND=Agg uv run --project "$root" --with matplotlib python "$f" || failed+=("$f")
     done
+    if [ ${#failed[@]} -gt 0 ]; then printf "failed: %s\n" "${failed[@]}"; exit 1; fi
 
 # Run every format's example as a user does, `uv run <script>`: each in the environment its PEP 723
 # header gives, with refkv built from GitHub's main (network; a Rust toolchain), each figure saved
@@ -160,10 +162,12 @@ examples-standalone dir="examples-out":
     set -euo pipefail
     root="$PWD"
     mkdir -p "{{dir}}" && cd "{{dir}}"
+    failed=()  # every example runs; the recipe fails after, naming the ones that failed
     for f in "$root"/docs/zarrify/*/example.py; do
         echo "== $f"
-        MPLBACKEND=Agg uv run --script "$f"
+        MPLBACKEND=Agg uv run --script "$f" || failed+=("$f")
     done
+    if [ ${#failed[@]} -gt 0 ]; then printf "failed: %s\n" "${failed[@]}"; exit 1; fi
 
 # Check the browser zarrifier's pixels against an independent reader, for every format that has
 # one: every js/test/<format>/verify.py (each says which reader it needs)

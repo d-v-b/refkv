@@ -55,10 +55,12 @@ jobs:
       - name: Run the examples
         run: |
           mkdir -p examples-out && cd examples-out
+          failed=()
           for f in ../docs/zarrify/*/example.py; do
             echo "== $f"
-            MPLBACKEND=Agg uv run --script "$f"
+            MPLBACKEND=Agg uv run --script "$f" || failed+=("$f")
           done
+          if [ ${#failed[@]} -gt 0 ]; then printf "failed: %s\n" "${failed[@]}"; exit 1; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
