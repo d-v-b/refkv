@@ -2,7 +2,7 @@
 (spec/zarrify/mp4.md §8
 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#8-mp4-profile>): H.264 video
 with and without B-frames, intra-only, odd sizes, a variable frame rate, long enough for
-several chunks, groups of pictures of unequal lengths, two video tracks; AAC and MP3 audio,
+several chunks, groups of pictures of unequal lengths, open groups, two video tracks; AAC and MP3 audio,
 alone and beside video; the moov box before and after the media data, a 64-bit mdat size and an
 mdat that runs to the end of the file; tracks the profile does not zarrify (HEVC, 10-bit
 H.264) beside ones it does; and the inputs it rejects (`mp4_reject_*`).
@@ -104,6 +104,10 @@ def main() -> None:
                                      "-enc_time_base", "1/1000", "-video_track_timescale", "1000", *X264, "-g", "9", "-bf", "2"))
     write("mp4_h264_long.mp4", ffmpeg(*video("32x32", 25, 16), *X264, "-g", "50", "-bf", "3"))
     write("mp4_h264_irregular_groups.mp4", irregular_groups())
+    # open groups: each keyframe after the first a non-IDR I picture, followed in decode order
+    # by two B-frames presented before it that reference the group before
+    write("mp4_h264_open_gop.mp4", ffmpeg(*video(seconds=4), *X264, "-bf", "2",
+                                          "-x264-params", "keyint=12:min-keyint=12:scenecut=0:open-gop=1"))
     write("mp4_h264_two_tracks.mp4", ffmpeg(*video(), "-filter_complex", "[0:v]split[a][b];[b]scale=32:24[c]",
                                             "-map", "[a]", "-map", "[c]", *X264, "-g", "6", "-bf", "1"))
     # audio, alone and beside video: AAC without noise substitution (whose noise a chunk
