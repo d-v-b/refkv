@@ -59,6 +59,15 @@ says so.
 
 ## Try it
 
+[example.py](example.py) zarrifies a public file and plots it with matplotlib: a tile scan's
+four tiles, each drawn at its stage position, beside the image LAS X merged from them. Its
+dependencies are in its header (PEP 723), so it runs on its own (uv builds refkv from GitHub,
+which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
+
+```bash
+uv run docs/zarrify/lif/example.py
+```
+
 A tile scan of four tiles, two channels, three planes and two time points
 (227 KB, CC BY 4.0, Michael Goelzer), from
 [corpus_lif.txt](../../../conformance/zarrify/corpus_lif.txt):
