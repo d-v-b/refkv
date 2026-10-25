@@ -47,6 +47,7 @@ FIXTURES = ROOT / "fixtures"
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 
 from proxy import Upstream, make_handler  # noqa: E402
+
 from refkv.zarrify.profiles import REGISTRY  # noqa: E402
 
 STORE_FORMATS = tuple(e["name"] for e in REGISTRY if e["kind"] in ("store", "both"))
@@ -69,11 +70,11 @@ def server(cache: Path):
     base = make_handler(FIXTURES, Upstream(cache), page_size=PAGE)
 
     class Handler(base):
-        def do_GET(self):
+        def do_GET(self):  # noqa: N802 (http.server's name)
             if self.path.startswith("/r/"):
                 return self._send(302, {"Location": self.path[2:]})
             if self._listing():
-                return
+                return None
             t = self._target()
             rng = self.headers.get("Range", "")
             if t is None or not rng.startswith("bytes=") or "," not in rng:
@@ -90,13 +91,15 @@ def server(cache: Path):
                          f"Content-Range: bytes {a}-{b - 1}/{size}\r\n\r\n").encode() + read(a, b) + b"\r\n"
             body += f"--{boundary}--\r\n".encode()
             self._send(206, {"Content-Type": f"multipart/byteranges; boundary={boundary}"}, body)
+            return None
 
         def _send(self, status, headers, body=b""):
             parts = self.path.split("?")[0].split("/")
             if status in (200, 206) and len(parts) >= 3 and parts[1] == "f" and not self.path.endswith("/"):
                 path = FIXTURES / urllib.parse.unquote("/".join(parts[2:]))
                 if path.is_file():
-                    headers = {**headers, "ETag": '"' + hashlib.sha1(path.read_bytes()).hexdigest()[:16] + '"'}
+                    etag = hashlib.sha1(path.read_bytes(), usedforsecurity=False).hexdigest()[:16]
+                    headers = {**headers, "ETag": f'"{etag}"'}
             super()._send(status, headers, body)
 
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -122,7 +125,8 @@ def cases(files: list[str], stores: list[str], base: str, modes: set[str]) -> li
             out.append((f"local {s}/", [f"fixtures/{s}", "--url", url], False, {}))
         if "http" in modes:
             extra = ["--url", url] if i % 4 == 2 else []
-            out.append((f"http {s}/", [base + "f/" + urllib.parse.quote(s) + "/", "--allow-private-hosts", *extra], True, {}))
+            out.append((f"http {s}/", [base + "f/" + urllib.parse.quote(s) + "/", "--allow-private-hosts", *extra],
+                        True, {}))
     if "checksums" in modes:
         out += [(f"checksums {n}", [*args, "--checksums"], remote, env)
                 for n, args, remote, env in cases(files, stores, base, {"local", "http"})]
@@ -168,7 +172,7 @@ def summary(stdout: str, remote: bool):
 def convert(cmd: list[str], args: list[str], out: Path, env: dict) -> tuple[int, bytes | None, str, str]:
     argv = args[1:] if args[0] == NO_OUTPUT else [args[0], str(out), *args[1:]]
     p = subprocess.run([*cmd, *argv], cwd=ROOT, capture_output=True, text=True, timeout=900,
-                       env={**os.environ, **env})
+                       env={**os.environ, **env}, check=False)
     data = out.read_bytes() if out.exists() else None
     return p.returncode, data, p.stdout, p.stderr
 
@@ -185,8 +189,8 @@ def main() -> int:
         vzip = vzip.with_suffix(".exe")
     files, stores = corpus()
     EMPTY.write_bytes(b"")
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp = Path(tmp)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
         srv, base = server(tmp / "cache")
         todo = [c for c in cases(files, stores, base, set(opts.modes.split(","))) if opts.only in c[0]]
 
@@ -196,7 +200,8 @@ def main() -> int:
             rs = convert([str(vzip), "convert"], args, tmp / f"{k}.rs.vzip", env)
             problems = []
             if py[0] != rs[0]:
-                problems.append(f"exit {py[0]} (python) != {rs[0]} (rust)\n  python: {py[3].strip()[-400:]}\n  rust: {rs[3].strip()[-400:]}")
+                problems.append(f"exit {py[0]} (python) != {rs[0]} (rust)\n  python: {py[3].strip()[-400:]}"
+                                f"\n  rust: {rs[3].strip()[-400:]}")
             elif py[0] == 0:
                 if py[1] != rs[1]:
                     problems.append(f"the archives differ ({len(py[1] or b'')} and {len(rs[1] or b'')} bytes)")
@@ -205,7 +210,8 @@ def main() -> int:
             for p in (tmp / f"{k}.py.vzip", tmp / f"{k}.rs.vzip"):
                 p.unlink(missing_ok=True)
             if py[0] not in (0, 3) and not problems:  # both failed alike: shown, not a difference
-                print(f"both exit {py[0]}: {name}\n  python: {py[3].strip()[-300:]}\n  rust: {rs[3].strip()[-300:]}", flush=True)
+                print(f"both exit {py[0]}: {name}\n  python: {py[3].strip()[-300:]}\n  rust: {rs[3].strip()[-300:]}",
+                      flush=True)
             return name, py[0], problems
 
         counts: dict[int, int] = {}

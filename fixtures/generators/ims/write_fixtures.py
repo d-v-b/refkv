@@ -88,10 +88,10 @@ def write_data(group, dims, chunks, dtype, *, compression=None, skip=(), maxshap
     d = group.create_dataset("Data", shape=dims, chunks=chunks, dtype=dtype, compression=compression,
                              maxshape=maxshape, **kw)
     values = data_array(dims, dtype)
-    for index in np.ndindex(*[-(-n // c) for n, c in zip(dims, chunks)]):
+    for index in np.ndindex(*[-(-n // c) for n, c in zip(dims, chunks, strict=True)]):
         if index in skip:
             continue
-        sl = tuple(slice(i * c, min((i + 1) * c, n)) for i, c, n in zip(index, chunks, dims))
+        sl = tuple(slice(i * c, min((i + 1) * c, n)) for i, c, n in zip(index, chunks, dims, strict=True))
         d[sl] = values[sl]
     return d
 
@@ -285,7 +285,7 @@ def rejected() -> None:
         imaris(f, level, extras=False)
         f["DataSet/ResolutionLevel 0/TimePoint 0/Channel 0"].attrs["ImageSizeX"] = 7
     with open_file("ims_reject_missing_channel", "latest") as f:
-        imaris(f, level + [{"size": (1, 3, 4), "dims": (1, 4, 4), "chunks": (1, 4, 4)}], channels=2, extras=False)
+        imaris(f, [*level, {"size": (1, 3, 4), "dims": (1, 4, 4), "chunks": (1, 4, 4)}], channels=2, extras=False)
         del f["DataSet/ResolutionLevel 1/TimePoint 0/Channel 1"]
     with open_file("ims_reject_contiguous", "latest") as f:
         imaris(f, level, extras=False)
@@ -327,8 +327,7 @@ def reconstruction() -> None:
             x.attrs["sequence"] = np.array([np.arange(3, dtype="i2"), np.arange(1, dtype="i2")],
                                            dtype=h5py.vlen_dtype(np.dtype("i2")))
             x.create_dataset("contiguous", data=np.arange(24, dtype=">f8").reshape(2, 3, 4))
-            x.create_dataset("compact", data=np.arange(5, dtype="i1"),
-                             dcpl=_compact(np.arange(5, dtype="i1")))
+            x.create_dataset("compact", data=np.arange(5, dtype="i1"), dcpl=_compact())
             x.create_dataset("scalar", data=np.uint32(7))
             x.create_dataset("empty", shape=(0, 4), dtype="u2")
             x.create_dataset("unallocated", shape=(3,), dtype="i4", fillvalue=-1)
@@ -644,7 +643,8 @@ def review3() -> None:
         for i in range(400):
             over[i] = many
         # Variable-length data with shuffle, which HDF5 skips (filter mask bit 0).
-        names = r.create_dataset("names", (4,), dtype=h5py.string_dtype(), chunks=(4,), shuffle=True, compression="gzip")
+        names = r.create_dataset("names", (4,), dtype=h5py.string_dtype(), chunks=(4,), shuffle=True,
+                                 compression="gzip")
         names[...] = ["a", "bb", "", "dddd"]
         # References in a chunk of more than 2^24 bytes.
         big = r.create_dataset("bigchunk", (1,), maxshape=(None,), chunks=((1 << 21) + 1,), dtype=h5py.ref_dtype,
@@ -672,7 +672,7 @@ def review3() -> None:
                image={"Name": "y" * 256}, channel_meta=[{"Name": "first"}])
 
 
-def _compact(data: np.ndarray):
+def _compact():
     dcpl = h5py.h5p.create(h5py.h5p.DATASET_CREATE)
     dcpl.set_layout(h5py.h5d.COMPACT)
     return dcpl
@@ -712,7 +712,8 @@ def _raw_edges(group, name: str, shape, chunks, dtype, data, maxshape=None, shuf
     dcpl.set_deflate(6)
     if fletcher32:
         dcpl.set_fletcher32()
-    if _hdf5_library().H5Pset_chunk_opts(ctypes.c_int64(dcpl.id), ctypes.c_uint(2)) < 0:  # H5D_CHUNK_DONT_FILTER_PARTIAL_CHUNKS
+    # H5D_CHUNK_DONT_FILTER_PARTIAL_CHUNKS
+    if _hdf5_library().H5Pset_chunk_opts(ctypes.c_int64(dcpl.id), ctypes.c_uint(2)) < 0:
         raise RuntimeError("H5Pset_chunk_opts failed")
     space = h5py.h5s.create_simple(shape, maxshape or shape)
     h5py.h5d.create(group.id, name.encode(), dtype, space, dcpl=dcpl)
@@ -752,7 +753,7 @@ def review4() -> None:
     with open_file("ims_reject_raw_edges_image", "latest") as f:
         f.attrs["ImarisDataSet"] = text("ImarisDataSet")
         g = f.create_group("DataSet/ResolutionLevel 0/TimePoint 0/Channel 0")
-        for axis, n in zip("ZYX", (2, 5, 6)):
+        for axis, n in zip("ZYX", (2, 5, 6), strict=True):
             g.attrs[f"ImageSize{axis}"] = text(str(n))
         _raw_edges(g, "Data", (2, 5, 6), (2, 4, 4), h5py.h5t.STD_U8LE, data_array((2, 5, 6), "u1"))
 
@@ -770,7 +771,8 @@ def table_color() -> None:
     with open_file("ims_latest_table_color", "latest") as f:
         meta = [
             {"ColorMode": "TableColor", "ColorTableLength": "4", "ColorTable": color_table((0, 1, 0))},
-            {"ColorMode": "TableColor", "Color": "1 1 0", "ColorTableLength": "4", "ColorTable": color_table((0, 0, 1))},
+            {"ColorMode": "TableColor", "Color": "1 1 0", "ColorTableLength": "4",
+             "ColorTable": color_table((0, 0, 1))},
             {"ColorMode": "BaseColor", "Color": "1 0 1", "ColorTableLength": "4", "ColorTable": color_table((0, 1, 1))},
             {"ColorTableLength": " 0003 ", "ColorTable": color_table((1, 0, 0), 3)},
             {"ColorMode": "TableColor", "Color": "0.5 0.5 0.5", "ColorTableLength": "4",
@@ -785,7 +787,7 @@ def table_color() -> None:
         # strings, n × 1: contiguous, compact, and the ones that give no table color.
         datasets = [
             lambda g: g.create_dataset("ColorTable", data=text(color_table((0, 1, 1))).reshape(-1, 1)),
-            lambda g: g.create_dataset("ColorTable", data=text(color_table((1, 1, 0))), dcpl=_compact(None)),
+            lambda g: g.create_dataset("ColorTable", data=text(color_table((1, 1, 0))), dcpl=_compact()),
             lambda g: g.create_dataset("ColorTable", data=text(color_table((0, 1, 0))), chunks=(8,)),
             lambda g: g.create_dataset("ColorTable", data=np.zeros(12, dtype="<f4")),
             lambda g: g.create_group("ColorTable"),

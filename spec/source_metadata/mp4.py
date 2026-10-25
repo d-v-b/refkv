@@ -1,7 +1,8 @@
 """The MP4 convention's source metadata (spec/zarrify/mp4.md), for
 spec/generate_schemas.py."""
 
-_MP4_EDITS = {"type": "array", "description": "The track's edit list (its elst box's entries), recorded and not applied",
+_MP4_EDITS = {"type": "array",
+              "description": "The track's edit list (its elst box's entries), recorded and not applied",
               "items": {"type": "object", "properties": {"duration": {"type": "integer", "minimum": 0},
                                                          "media_time": {"type": "integer"}, "rate": {"type": "number"}},
                         "required": ["duration", "media_time", "rate"], "additionalProperties": False}}
@@ -12,13 +13,15 @@ _MP4_TRACK_COMMON = {
     "timescale": {"type": "integer", "minimum": 1, "description": "The media timescale: time units a second"},
     "duration": {"type": "integer", "minimum": 0, "description": "The media duration, in the timescale"},
     "edits": _MP4_EDITS,
-    "frames": {"type": "integer", "minimum": 1, "description": "The track's samples: coded pictures, or coded audio frames"},
+    "frames": {"type": "integer", "minimum": 1,
+               "description": "The track's samples: coded pictures, or coded audio frames"},
     "chunk_frames": {"type": "integer", "minimum": 1, "description": "The frames of a chunk of the track's arrays"},
 }
 SCHEMA = {"anyOf": [
     {
         "type": "object",
-        "description": "The root's: the file's brands, the movie's timescale and duration, and every track, with where it is or why it is not zarrified (spec/zarrify/mp4.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#51-the-root>)",
+        "description": "The root's: the file's brands, the movie's timescale and duration, and every track, with where "
+                       "it is or why it is not zarrified (spec/zarrify/mp4.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#51-the-root>)",
         "properties": {
             "brand": {"type": "object", "properties": {"major": {"type": "string"}, "minor": {"type": "integer"},
                                                        "compatible": {"type": "array", "items": {"type": "string"}}},
@@ -28,7 +31,8 @@ SCHEMA = {"anyOf": [
             "tracks": {"type": "array", "items": {
                 "type": "object",
                 "properties": {"id": {"type": "integer"}, "handler": {"type": "string"}, "codec": {"type": "string"},
-                               "path": {"type": ["string", "null"], "description": "The track's group, when it is zarrified"},
+                               "path": {"type": ["string", "null"],
+                                        "description": "The track's group, when it is zarrified"},
                                "reason": {"type": ["string", "null"], "description": "Why it is not, when it is not"}},
                 "required": ["id", "handler", "codec", "path", "reason"], "additionalProperties": False}},
         },

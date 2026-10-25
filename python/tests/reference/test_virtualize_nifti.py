@@ -15,8 +15,9 @@ import pytest
 # the frozen reference twins (conformance/zarrify/reference/refkv_reference)
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
 
-from refkv.zarrify import Rejected  # noqa: E402
-from refkv_reference import virtualize  # noqa: E402
+from refkv_reference import virtualize
+
+from refkv.zarrify import Rejected
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "nifti"
 
@@ -36,7 +37,8 @@ CASES = {
     "nifti_n1_le_qform_identity": (
         {"affine": "qform", "dataType": "uint16"}, [("z", "micrometer"), ("y", "micrometer"), ("x", "micrometer")],
         [2, 0.5, 0.25], [0.125, -50.5, 100], None, None, None),
-    "nifti_n1_be_qform_oblique": ({"affine": "qform", "translation": False}, None, [1.2999999523162842, 1.2000000476837158, 1.100000023841858], None, None, None, None),
+    "nifti_n1_be_qform_oblique": ({"affine": "qform", "translation": False}, None,
+                                  [1.2999999523162842, 1.2000000476837158, 1.100000023841858], None, None, None, None),
     "nifti_n1_le_qfac_negative": ({"affine": "qform", "translation": False}, None, [1, 1, 1], None, None, None, None),
     "nifti_n2_le_float32_4d": (
         {"version": 2, "dataType": "float32"}, [("t", "millisecond"), ("z", MM), ("y", MM), ("x", MM)],
@@ -54,7 +56,8 @@ CASES = {
                            {"min": 0, "max": 255, "start": 0, "end": 255}, None),
     "nifti_n1_le_rgba32_2d": ({"extensions": True, "sizes": {"c": 4, "y": 2, "x": 3}}, None, None, None, None,
                               {"min": 0, "max": 255, "start": 0, "end": 255}, ("0/c/0/0/0", [(400, 24)])),
-    "nifti_nibabel_n2_vector_ext": ({"version": 2, "extensions": True, "sizes": {"t": 2, "c": 3, "z": 3, "y": 4, "x": 5}},
+    "nifti_nibabel_n2_vector_ext": ({"version": 2, "extensions": True,
+                                     "sizes": {"t": 2, "c": 3, "z": 3, "y": 4, "x": 5}},
                                     None, [250, 1, 2, 2, 2], [0, 0, 0, 0, 0], None, None, None),
     "nifti_nibabel_rgb24": ({"color": True, "sizes": {"c": 3, "z": 2, "y": 3, "x": 4}}, None, None, [0, 0, 0, 0], None,
                             {"min": 0, "max": 255, "start": 0, "end": 255}, None),
@@ -63,10 +66,14 @@ CASES = {
     "nifti_dims_1d": ({"sizes": {"y": 1, "x": 7}}, None, None, None, None, None, None),
     "nifti_dims_7d_ones": ({"sizes": {"t": 2, "c": 2, "z": 2, "y": 2, "x": 3}}, None, None, None, None, None, None),
     "nifti_dims_unread_beyond_n": ({"sizes": {"z": 2, "y": 2, "x": 3}}, None, None, None, None, None, None),
-    "nifti_edge_pixdim_invalid": ({}, [("t", None), ("z", None), ("y", None), ("x", None)], [1, 1, 1, 1], None, None, None, None),
-    "nifti_edge_units_unknown": ({}, [("t", None), ("z", None), ("y", None), ("x", None)], [2, 2, 2, 2], None, None, None, None),
-    "nifti_edge_n2_units_negative": ({}, [("t", None), ("z", None), ("y", None), ("x", None)], None, None, None, None, None),
-    "nifti_edge_slope_zero": ({"scaling": None}, None, None, None, None, {"min": 1, "max": 2, "start": 1, "end": 2}, None),
+    "nifti_edge_pixdim_invalid": ({}, [("t", None), ("z", None), ("y", None), ("x", None)], [1, 1, 1, 1],
+                                  None, None, None, None),
+    "nifti_edge_units_unknown": ({}, [("t", None), ("z", None), ("y", None), ("x", None)], [2, 2, 2, 2],
+                                 None, None, None, None),
+    "nifti_edge_n2_units_negative": ({}, [("t", None), ("z", None), ("y", None), ("x", None)], None,
+                                     None, None, None, None),
+    "nifti_edge_slope_zero": ({"scaling": None}, None, None, None, None,
+                              {"min": 1, "max": 2, "start": 1, "end": 2}, None),
     "nifti_edge_slope_nan": ({"scaling": None}, None, None, None, None, None, None),
     "nifti_edge_inter_inf": ({}, None, None, None, {"slope": 2, "inter": 0},
                              {"min": -2, "max": 4, "start": -2, "end": 4}, None),
@@ -74,7 +81,8 @@ CASES = {
                                   {"min": -3.5, "max": 2.5, "start": -3.5, "end": 2.5}, None),
     "nifti_edge_slope_trivial": ({"scaling": None}, None, None, None, None, None, None),
     "nifti_edge_cal_reversed": ({}, None, None, None, None, None, None),
-    "nifti_edge_sform_set_not_representable": ({"affine": "sform", "translation": False}, None, None, None, None, None, None),
+    "nifti_edge_sform_set_not_representable": ({"affine": "sform", "translation": False},
+                                               None, None, None, None, None, None),
     "nifti_edge_sform_nan": ({"affine": "sform", "translation": False}, None, None, None, None, None, None),
     "nifti_edge_sform_code_negative": ({"affine": "qform"}, None, [1, 1, 1], [3.5, 2.5, 1.5], None, None, None),
     "nifti_edge_qform_2d": ({}, [("y", MM), ("x", MM)], [1, 1], [2, 1], None, None, None),
@@ -137,7 +145,7 @@ def test_virtualizes_the_synthetic_files():
         assert transpose == ([order] if order else []), name
 
 
-@pytest.mark.parametrize("name,message", [
+@pytest.mark.parametrize(("name", "message"), [
     ("nifti_reject_dim0", "dim\\[0\\] = 0"),
     ("nifti_reject_dim0_8", "dim\\[0\\] = 8"),
     ("nifti_reject_dim_zero", "dim\\[2\\] = 0"),
@@ -188,8 +196,9 @@ def test_the_bytes_between_the_header_and_the_voxels():
     header_rest, extender, extensions (as a list, or over the
     root's budget as ecodes, texts and a family), extensions_truncated and unparsed, for each kind
     of region."""
-    rest = {"descrip": "aGlkZGVuIGFmdGVyIHRoZSBOVUwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-            "aux_file": "AABtb3JlAAAAAAAAAAAAAAAAAAA=", "intent_name": "eAAAAAAAAAAAAAAAAAAA"}
+    rest = {
+        "descrip": "aGlkZGVuIGFmdGVyIHRoZSBOVUwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "aux_file": "AABtb3JlAAAAAAAAAAAAAAAAAAA=", "intent_name": "eAAAAAAAAAAAAAAAAAAA"}
     abc = [{"ecode": 6, "text": "abcdefg"}]
     compact = {"ecode": "vzip_source/extensions/ecode", "esize": "vzip_source/extensions/esize",
                "data": "vzip_source/extensions/data"}
@@ -229,9 +238,10 @@ def test_the_bytes_between_the_header_and_the_voxels():
             {"extensions": {**compact, "text": {str(i): f"note {i}" for i in range(700)}}},
             {"extensions/esize": ([700], struct.pack("<700i", *[48] * 700))}),
         # Over the budget once built: every empty comment is on the root, and the family has no data.
-        "nifti_region_extensions_built_over": ({"extensions": {**compact, "text": dict.fromkeys(map(str, range(760)), "")}},
-                                               {"extensions/ecode": ([760], struct.pack("<760i", *[6] * 760)),
-                                                "extensions/data/offsets": ([761], bytes(8 * 761))}),
+        "nifti_region_extensions_built_over": (
+            {"extensions": {**compact, "text": dict.fromkeys(map(str, range(760)), "")}},
+            {"extensions/ecode": ([760], struct.pack("<760i", *[6] * 760)),
+             "extensions/data/offsets": ([761], bytes(8 * 761))}),
         # Over the budget by the count alone: the first 1736 empty comments fit on the root.
         "nifti_region_extensions_count_over": (
             {"extensions": {**compact, "text": dict.fromkeys(map(str, range(1736)), "")}},
@@ -272,7 +282,9 @@ def test_the_bytes_between_the_header_and_the_voxels():
     second = out.bytes_entries["vzip_source/extensions/data/data/c/1"]
     large = bytes(range(256)) * 4100 + bytes(8)
     tail = large[632584 - 1996 * 9:]
-    assert len(second) == 632584 and second[:len(tail)] == tail and second[-1:] == b"\0"
+    assert len(second) == 632584
+    assert second[:len(tail)] == tail
+    assert second[-1:] == b"\0"
     assert second[len(tail):len(tail) + 9] == bytes([2001 % 251]) * 9
 
 

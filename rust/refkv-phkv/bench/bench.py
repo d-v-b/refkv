@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Benchmarks phkv against vzip on a local file system and over HTTP, counting requests and bytes
 and timing lookups. See README.md. Needs the repository's environment (`uv run`, for refkv) and a
 built `examples/bench` (`cargo build --release --example bench`).
@@ -19,7 +18,6 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-import refkv
 from refkv.policy import Policy
 from refkv.reader import Stats
 from refkv.vzip.store import VZipStore
@@ -60,7 +58,8 @@ class Server:
                 size = path.stat().st_size
                 spec = (self.headers.get("Range") or "bytes=0-").removeprefix("bytes=")
                 a, _, b = spec.partition("-")
-                start, end = (max(0, size - int(b)), size) if a == "" else (int(a), min(size, int(b) + 1) if b else size)
+                start, end = ((max(0, size - int(b)), size) if a == ""
+                              else (int(a), min(size, int(b) + 1) if b else size))
                 with open(path, "rb") as f:
                     f.seek(start)
                     body = f.read(end - start)
@@ -148,7 +147,8 @@ def read_python(url: str, workload: str, n: int, reps: int, lookups: int = 200) 
 def read_rust(target: str, workload: str, n: int, reps: int, *limits: int) -> dict:
     """`limits`: the reader's tail, record_read, slots_at_open and slot_block, then the number of
     later lookups, if not the defaults."""
-    out = subprocess.run([str(BENCH), "read", target, workload, str(n), str(reps), *map(str, limits)], check=True, capture_output=True, text=True).stdout
+    out = subprocess.run([str(BENCH), "read", target, workload, str(n), str(reps), *map(str, limits)], check=True,
+                         capture_output=True, text=True).stdout
     d = json.loads(out)
     # the Rust reader opens and then looks up; the Python one does both in its first lookup
     d["first_get_ms"] += d["open_ms"]
@@ -176,7 +176,8 @@ def main():
     ap.add_argument("--reps", type=int, default=5)
     args = ap.parse_args()
     if not BENCH.exists():
-        sys.exit(f"build the example first: cargo build --release --example bench --manifest-path {HERE.parent}/Cargo.toml")
+        sys.exit("build the example first: cargo build --release --example bench "
+                 f"--manifest-path {HERE.parent}/Cargo.toml")
     server = Server(args.out)
     rows = []
     plan = [("refs", n) for n in args.sizes] + [("bytes", n) for n in args.bytes_sizes]
@@ -201,9 +202,12 @@ def main():
                 row = {"workload": workload, "n": n, "format": label, "reader": "python" if reader == "py" else "rust",
                        "transport": transport, "file_bytes": size, "server_requests": server.totals()[0], **res}
                 rows.append(row)
-                print(f"{workload:5} {n:>8} {label:22} {transport:12} cold {row['first_get_requests']}req {row['first_get_bytes']:>9}B {row['first_get_ms']:9.2f}ms"
-                      f" | warm {row['warm_requests_per_get']:.2f}req {row['warm_bytes_per_get']:8.0f}B {row['warm_ms_median']:8.3f}ms"
-                      f" | list {row['list_requests']}req {row['list_bytes']:>8}B {row['list_ms']:8.2f}ms  ({time.time() - t:.0f}s)", flush=True)
+                print(f"{workload:5} {n:>8} {label:22} {transport:12} cold {row['first_get_requests']}req "
+                      f"{row['first_get_bytes']:>9}B {row['first_get_ms']:9.2f}ms"
+                      f" | warm {row['warm_requests_per_get']:.2f}req {row['warm_bytes_per_get']:8.0f}B "
+                      f"{row['warm_ms_median']:8.3f}ms"
+                      f" | list {row['list_requests']}req {row['list_bytes']:>8}B {row['list_ms']:8.2f}ms  "
+                      f"({time.time() - t:.0f}s)", flush=True)
         (args.out / "results.json").write_text(json.dumps(rows, indent=1))
 
 

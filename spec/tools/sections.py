@@ -213,7 +213,7 @@ def md_regions(text: str) -> list[Region]:
         pos += len(line)
     if fence is None:
         out.append(Region(start, len(text), "md"))
-    holes = [(m.start(), m.end()) for m in re.finditer(r"(`+)(?:(?!\1).)+?\1|<!--.*?-->", text, re.S)]
+    holes = [(m.start(), m.end()) for m in re.finditer(r"(`+)(?:(?!\1).)+?\1|<!--.*?-->", text, re.DOTALL)]
     cut: list[Region] = []
     for r in out:
         s = r.start
@@ -630,9 +630,9 @@ _FORMAT_NAMES = sorted({e["title"] for e in REGISTRY}
                        key=len, reverse=True)
 Q_PATH = re.compile(r"(?<![\w/.\-\[])(\[?((?:\.{1,2}/)*[\w.\-]+(?:/[\w.\-]+)*\.md)(?:\]\([^()\s]*\))?)(?:'s)?,?\s*$")
 Q_OLD = re.compile(r"(?<![\w/])(SPEC|ZARRIFY)(?:'s)?\s*$")
-Q_CONVENTIONS = re.compile(r"(?<![\w/\-])(conventions)(?:'s?)?\s*$", re.I)
-Q_CONVENTION = re.compile(r"(?<![\w/\-])(" + _FMT + r"convention)(?:'s)?\s*$", re.I)
-Q_PROFILE = re.compile(r"(?<![\w/\-])(" + _FMT + r"profile)(?:'s)?\s*$", re.I)
+Q_CONVENTIONS = re.compile(r"(?<![\w/\-])(conventions)(?:'s?)?\s*$", re.IGNORECASE)
+Q_CONVENTION = re.compile(r"(?<![\w/\-])(" + _FMT + r"convention)(?:'s)?\s*$", re.IGNORECASE)
+Q_PROFILE = re.compile(r"(?<![\w/\-])(" + _FMT + r"profile)(?:'s)?\s*$", re.IGNORECASE)
 # A format's name alone ("TIFF §3"): its convention.
 Q_FORMAT = re.compile(r"(?<![\w/\-])(" + "|".join(re.escape(w) for w in _FORMAT_NAMES) + r")\s*$")
 Q_SPEC = re.compile(r"(?<![\w/\-])((?:the\s+)?(?:archive\s+)?spec)(?:'s)?\s*$")
@@ -966,7 +966,7 @@ def analyze(path: str, text: str) -> list[Ref]:
 
 
 def files_with_refs() -> list[str]:
-    out = subprocess.run(["git", "grep", "-lI", "§"], cwd=ROOT, capture_output=True, text=True)
+    out = subprocess.run(["git", "grep", "-lI", "§"], cwd=ROOT, capture_output=True, text=True, check=False)
     return sorted(out.stdout.split())
 
 
@@ -1078,8 +1078,8 @@ def check_files(paths: list[str]) -> list[str]:
         except (UnicodeDecodeError, FileNotFoundError, IsADirectoryError):
             continue
         if not excluded(path):
-            for ref in bare_refs(path, text):
-                problems.append(f"{path}:{ref.line}: bare reference {text[ref.start : ref.end]!r}")
+            problems += [f"{path}:{ref.line}: bare reference {text[ref.start : ref.end]!r}"
+                         for ref in bare_refs(path, text)]
         if not matches(path, "spec/history/**"):
             for line, link, why in broken_links(path, text):
                 problems.append(f"{path}:{line}: broken link {link} ({why})")

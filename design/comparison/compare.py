@@ -29,9 +29,11 @@ from __future__ import annotations
 
 import argparse
 import glob
+import gzip
 import heapq
 import json
 import multiprocessing
+import os
 import shutil
 import sys
 import threading
@@ -41,6 +43,7 @@ import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib.metadata import version as installed_version
 from pathlib import Path
 
 import numpy as np
@@ -73,7 +76,7 @@ class Server:
 
     def take(self) -> dict:
         """Requests since the last call: index (format files) and data (sources)."""
-        with urllib.request.urlopen(f"{self.base}{_LOG_PATH}") as r:
+        with urllib.request.urlopen(f"{self.base}{_LOG_PATH}") as r:  # noqa: S310 (the local server's URL)
             entries = json.loads(r.read())
         index = [e for e in entries if not e[1].startswith("/sources/")]
         data = [e for e in entries if e[1].startswith("/sources/")]
@@ -171,6 +174,7 @@ def _serve(root: Path, latency: float, bandwidth: float, conn) -> None:
                     data = f.read(end - start)
             delay.wait(latency + (len(data) / bandwidth if bandwidth else 0))
             self._send(status, headers, data, len(data))
+            return None
 
         def do_GET(self):
             self._serve(True)
@@ -266,28 +270,25 @@ def virtualize(paths: list[Path], url_prefix: str, concat_dim: str, src_root: Pa
 # gzip, as kerchunk's documentation suggests for large reference sets.
 
 
-def write_kerchunk_json(vds, out, ctx, cfg) -> None:
+def write_kerchunk_json(vds, out, _ctx, cfg) -> None:
     if cfg == "default":
         vds.vz.to_kerchunk(str(out), format="json")
         return
-    import gzip
-    import os
-
     refs = vds.vz.to_kerchunk(format="dict")
     urls = [v[0] for v in refs["refs"].values() if isinstance(v, list)]
-    prefix = os.path.commonprefix(urls)
+    prefix = os.path.commonprefix(urls)  # noqa: RUF071 (URLs: the common string, not a common path)
     refs["templates"] = {"u": prefix}
     refs["refs"] = {k: ["{{u}}" + v[0][len(prefix):], *v[1:]] if isinstance(v, list) else v
                     for k, v in refs["refs"].items()}
     out.write_bytes(gzip.compress(json.dumps(refs, separators=(",", ":")).encode(), 6))
 
 
-def write_kerchunk_parquet(vds, out, ctx, cfg) -> None:
+def write_kerchunk_parquet(vds, out, _ctx, cfg) -> None:
     vds.vz.to_kerchunk(str(out), format="parquet",
                        record_size=100_000 if cfg == "default" else 10_000)
 
 
-def open_kerchunk(url, ctx, cfg):
+def open_kerchunk(url, _ctx, _cfg):
     import fsspec
 
     target = {"compression": "gzip"} if url.endswith(".gz") else {}
@@ -333,7 +334,7 @@ def _icechunk_access(ctx):
     return {ctx["sources_url"]: icechunk.Credentials.HttpAccess()}
 
 
-def write_vzip(vds, out, ctx, cfg) -> None:
+def write_vzip(vds, out, _ctx, cfg) -> None:
     from refkv import Policy, ReferenceStore
 
     # the sources are served on 127.0.0.1, which the default policy refuses (see open_vzip)
@@ -342,7 +343,7 @@ def write_vzip(vds, out, ctx, cfg) -> None:
         policy=Policy(allow_private_hosts=True))
 
 
-def open_vzip(url, ctx, cfg):
+def open_vzip(url, _ctx, _cfg):
     import refkv.zarr
     from refkv.policy import Policy
 
@@ -407,18 +408,18 @@ def patterns(ds_expected: xr.Dataset, var: str, full: bool) -> dict[str, Callabl
     point = dict(mid)
     series = {d: i for d, i in mid.items() if d != "time"}
     out = {
-        "point": lambda ds: ds[var].isel(point).values,
-        "time series": lambda ds: ds[var].isel(series).values,
-        "map": lambda ds: ds[var].isel(time=mid["time"]).values,
+        "point": lambda ds: ds[var].isel(point).to_numpy(),
+        "time series": lambda ds: ds[var].isel(series).to_numpy(),
+        "map": lambda ds: ds[var].isel(time=mid["time"]).to_numpy(),
     }
     if full:
-        out["everything"] = lambda ds: {n: ds[n].values for n in ds.variables}
+        out["everything"] = lambda ds: {n: ds[n].to_numpy() for n in ds.variables}
     return out
 
 
 def same(got, want) -> bool:
     if isinstance(want, dict):
-        return all(n in got and np.array_equal(got[n], want[n], equal_nan=n not in ("time",))
+        return all(n in got and np.array_equal(got[n], want[n], equal_nan=n != "time")
                    for n in want)
     return np.array_equal(got, want, equal_nan=True)
 
@@ -490,7 +491,7 @@ def main() -> int:
     shutil.rmtree(work / "formats", ignore_errors=True)
     src_root = work / "sources"
     if args.input:
-        paths = [Path(p) for p in sorted(glob.glob(args.input))]
+        paths = [Path(p) for p in sorted(glob.glob(args.input))]  # noqa: PTH207 (Path.glob refuses absolute patterns, and --input may be one)
         if not paths:
             sys.exit(f"no files match {args.input}")
         shutil.rmtree(src_root, ignore_errors=True)
@@ -561,9 +562,7 @@ def main() -> int:
 
 
 def version(module: str) -> str:
-    from importlib.metadata import version as v
-
-    return v(module)
+    return installed_version(module)
 
 
 def _med(samples: list[dict], key: str) -> float:

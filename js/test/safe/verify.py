@@ -54,6 +54,7 @@ import numpy as np
 import rasterio
 import zarr
 from pyproj import CRS
+from zarr.core.buffer import default_buffer_prototype
 
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
@@ -62,8 +63,14 @@ sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 # the frozen SAFE twin's zip reader, for reading remote zip files' entries
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify" / "reference"))
 from proxy import Proxy  # noqa: E402
+from refkv_reference.safe import zipdir  # noqa: E402
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg2k)
+from refkv import _core  # noqa: E402
+from refkv.ir.cmirror import Archive, canonical_problem, rebuild_from_archive, view_problem  # noqa: E402
+from refkv.pb import decode_source_table  # noqa: E402
+from refkv.zarrify.common import http_reader  # noqa: E402
+from refkv.zarrify.store import object_url, open_store  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES  # noqa: E402
@@ -74,7 +81,7 @@ ESCAPED = re.compile(r"(?:zarr\.json|\.zarray|\.zgroup)~+\Z")
 def run(impl: str, url: str, out: Path) -> subprocess.CompletedProcess:
     cmd = (["uv", "run", "python", "-m", "refkv.zarrify", "--allow-private-hosts"] if impl == "py"
            else ["node", str(ROOT / "js" / "conformance" / "zarrify.ts"), "--allow-private-hosts"])
-    return subprocess.run(cmd + [url, str(out)], capture_output=True, text=True, cwd=ROOT)
+    return subprocess.run([*cmd, url, str(out)], capture_output=True, text=True, cwd=ROOT, check=False)
 
 
 def product_files(path: Path) -> dict[str, bytes]:
@@ -91,7 +98,8 @@ def product_dirs(path: Path) -> set[str]:
     if path.is_dir():
         return {p.relative_to(path).as_posix()[: -len("_$folder$")] for p in path.rglob("*_$folder$")
                 if p.is_file() and p.name != "_$folder$"}
-    return {n.partition("/")[2][:-1] for n in zipfile.ZipFile(path).namelist() if n.endswith("/") and n.partition("/")[2]}
+    return {n.partition("/")[2][:-1] for n in zipfile.ZipFile(path).namelist()
+            if n.endswith("/") and n.partition("/")[2]}
 
 
 def parents(keys) -> set[str]:
@@ -99,8 +107,6 @@ def parents(keys) -> set[str]:
 
 
 def get_all(vz: refkv.zarr.ZarrStore, keys: list[str]) -> list[bytes]:
-    from zarr.core.buffer import default_buffer_prototype
-
     async def go():
         return [(await vz.get(k, default_buffer_prototype())).to_bytes() for k in keys]
 
@@ -140,7 +146,8 @@ def check_bands(out: Path, docs: dict, read_band, only: list[str] | None = None)
         if got.shape != want.shape or got.dtype != want.dtype or not np.array_equal(got, want):
             problems.append(f"{path}: {got.dtype}{got.shape} differs from GDAL's {want.dtype}{want.shape}")
         if group["spatial:transform"] != list(transform)[:6]:
-            problems.append(f"{path}: spatial:transform {group['spatial:transform']} is not GDAL's {list(transform)[:6]}")
+            problems.append(f"{path}: spatial:transform {group['spatial:transform']} "
+                            f"is not GDAL's {list(transform)[:6]}")
         if group["spatial:shape"] != [h, w]:
             problems.append(f"{path}: spatial:shape {group['spatial:shape']} is not GDAL's {[h, w]}")
         if crs is None or group["proj:code"] != f"EPSG:{crs.to_epsg()}":
@@ -176,7 +183,7 @@ def band_codestreams(out: Path, docs: dict, bands_only: list[str] | None = None)
         chunks = get_all(vz, chunk_keys)
         parts = [b"\xff\x4f", siz]
         rest = None
-        for key, c in zip(chunk_keys, chunks):
+        for key, c in zip(chunk_keys, chunks, strict=True):
             *_, v, u = (int(x) for x in key.split("/c/")[1].split("/"))
             lsiz = struct.unpack_from(">H", c, 4)[0]
             sot = c.index(b"\xff\x90\x00\x0a", 4 + lsiz)
@@ -206,14 +213,12 @@ def rebuild_store(out: Path, docs: dict, read) -> dict[str, bytes]:
     `refkv_source/objects/`, and each band file, described in place, from its own source
     (`read(key, offset, length)`) up to its codestream, then its codestream from its chunks.
     The folder markers are not rebuilt."""
-    from refkv import _core
-
     vz = refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES)
     files: dict[str, bytes] = {}
     objects = _core.rebuild_store(_get(out))
     kept = [n for n in zipfile.ZipFile(out).namelist() if n.startswith("refkv_source/objects/")]
     whole = {}
-    for n, data in zip(kept, get_all(vz, kept)):
+    for n, data in zip(kept, get_all(vz, kept), strict=True):
         key = n.removeprefix("refkv_source/objects/")
         whole[key[:-1] if ESCAPED.match(key.rpartition("/")[2]) else key] = data
     bands = band_codestreams(out, docs)
@@ -237,19 +242,15 @@ def check_rebuild(item: Path, product: dict[str, bytes], out: Path, docs: dict, 
     (`rebuild_store`), and its directories (`dirs`, those its folder markers name): each must be
     a directory of a rebuilt object, or one of the empty directories rebuilt from `empty_dirs`.
     The folder markers are layout of the mirror, and are not rebuilt as objects."""
-    from refkv.ir.cmirror import rebuild_from_archive
-    from refkv.zarrify.store import object_url
-
     def ranged(u: str, o: int, n: int) -> bytes:
         if n == 0:
             return b""
-        req = urllib.request.Request(u, headers={"Range": f"bytes={o}-{o + n - 1}"})
-        with urllib.request.urlopen(req, timeout=120) as r:
+        # an http URL: the proxy's, or the product's
+        req = urllib.request.Request(u, headers={"Range": f"bytes={o}-{o + n - 1}"})  # noqa: S310
+        with urllib.request.urlopen(req, timeout=120) as r:  # noqa: S310 (as above)
             return r.read()
 
     if not item.is_dir():
-        from refkv.ir.cmirror import Archive, canonical_problem, view_problem
-
         # the leaves partition the zip file (read from source 0); the values the mirror shows
         # (the end records, the central directory's and local headers, the band files' SIZ,
         # marker and SOT segments) are the source's bytes
@@ -264,8 +265,6 @@ def check_rebuild(item: Path, product: dict[str, bytes], out: Path, docs: dict, 
         return problems
     # a band file is read through the url source the archive records for it, whose size pin must
     # be the product's object's
-    from refkv.pb import decode_source_table
-
     with zipfile.ZipFile(out) as z:
         pins = {s.url: s.size for s in decode_source_table(z.read("__vz__/sources")) if s.url is not None}
     problems = [f"{k}: its url source pins {pins.get(object_url(url, k))} bytes, not {len(v)}"
@@ -305,7 +304,8 @@ def fixtures(argv: list[str], impls: list[str]) -> int:
                 if item.name.startswith("safe_reject"):
                     ok = p.returncode == 3 and not out.exists()
                     failures += not ok
-                    print(f"{label} {'rejected: ' + p.stderr.strip()[-80:] if ok else 'NOT REJECTED ' + p.stderr[-200:]}")
+                    print(f"{label} "
+                          f"{'rejected: ' + p.stderr.strip()[-80:] if ok else 'NOT REJECTED ' + p.stderr[-200:]}")
                     continue
                 if p.returncode:
                     failures += 1
@@ -313,7 +313,7 @@ def fixtures(argv: list[str], impls: list[str]) -> int:
                     continue
                 product = product_files(item)
                 docs = documents(out)
-                problems, n = check_bands(out, docs, lambda key: gdal_read(product[key]))
+                problems, n = check_bands(out, docs, lambda key, product=product: gdal_read(product[key]))
                 problems += check_rebuild(item, product, out, docs, url, product_dirs(item))
                 failures += bool(problems)
                 print(f"{label} {problems[:4] if problems else 'ok'} ({n} bands, {len(product)} objects rebuilt)")
@@ -355,7 +355,8 @@ def sentinel2(url: str, docs: dict, out: Path, groups: list[str]) -> list[str]:
                         v = band[member]["value"] if isinstance(band[member], dict) else band[member]
                         if float(tags[tag]) != float(v):
                             problems.append(f"SENTINEL2 {array}: {tag} {tags[tag]} != {v}")
-                print(f"    SENTINEL2 {array}: compared, metadata {sorted(set(tags) & {'SOLAR_IRRADIANCE', 'BOA_ADD_OFFSET', 'RADIO_ADD_OFFSET', 'WAVELENGTH'})}")
+                compared = set(tags) & {"SOLAR_IRRADIANCE", "BOA_ADD_OFFSET", "RADIO_ADD_OFFSET", "WAVELENGTH"}
+                print(f"    SENTINEL2 {array}: compared, metadata {sorted(compared)}")
     return problems
 
 
@@ -364,7 +365,7 @@ def remote(url: str, only: list[str], impls: list[str]) -> int:
     if not url.endswith("/"):
         # A zip file is read through the harness proxy, which retries and caches its blocks: the
         # many range requests of the reads below otherwise meet dropped connections at some hosts.
-        url = Proxy(FIXTURES, Path("/tmp/vzip-proxy-cache")).remote(url)
+        url = Proxy(FIXTURES, Path("/tmp/vzip-proxy-cache")).remote(url)  # noqa: S108 (the proxy cache, kept between runs)
     with tempfile.TemporaryDirectory() as tmp:
         for impl in impls:
             out = Path(tmp) / f"remote.{impl}.vzip"
@@ -384,8 +385,8 @@ def remote(url: str, only: list[str], impls: list[str]) -> int:
             else:
                 # A zip file: GDAL reads its band files through /vsizip/ over /vsicurl/.
                 root = zip_entries(url)[0]
-                problems, n = check_bands(out, docs, lambda key: gdal_read(f"/vsizip/{{/vsicurl/{url}}}/{root}/{key}"),
-                                          groups)
+                problems, n = check_bands(
+                    out, docs, lambda key, root=root: gdal_read(f"/vsizip/{{/vsicurl/{url}}}/{root}/{key}"), groups)
             files = band_codestreams(out, docs, groups)
             problems += check_dirs(url, out, docs)
             bad = [k for k, data in files.items() if not fetch(url, k).endswith(data)]
@@ -401,8 +402,6 @@ def described_keys(out: Path, docs: dict, url: str) -> set[str]:
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>):
     a directory's listing, from the mirror alone; or a zip file's objects, which its file IR
     covers whole (its leaves partition the file), read from its central directory."""
-    from refkv import _core
-
     desc = docs["refkv_source/zarr.json"]["attributes"]["refkv_zarrified"]["safe"]["ir"]
     if "objects" in desc:
         return {k for k, _, _ in _core.rebuild_store(_get(out))}
@@ -413,13 +412,8 @@ def check_dirs(url: str, out: Path, docs: dict) -> list[str]:
     """Each directory a remote product names (by its folder markers, or its zip directory entries)
     is a directory of a rebuilt object or a rebuilt empty directory."""
     if url.endswith("/"):
-        from refkv.zarrify.store import open_store
-
         dirs = {k[: -len("_$folder$")] for k in open_store(url).objects if k.endswith("_$folder$") and len(k) > 9}
     else:
-        from refkv.zarrify.common import http_reader
-        from refkv_reference.safe import zipdir
-
         read, size = http_reader(url)
         dirs = {k[:-1] for k in zipdir.product_entries(zipdir.central_directory(read, size))[3]}
     empty = docs["refkv_source/zarr.json"]["attributes"]["refkv_zarrified"]["safe"].get("empty_dirs", [])
@@ -433,9 +427,6 @@ _ZIPS: dict[str, tuple] = {}
 def zip_entries(url: str) -> tuple:
     """(root, entries by key, reader) of a remote zip file, read once."""
     if url not in _ZIPS:
-        from refkv.zarrify.common import http_reader
-        from refkv_reference.safe import zipdir
-
         read, size = http_reader(url)
         d = zipdir.central_directory(read, size)
         root, entries, _, _ = zipdir.product_entries(d)
@@ -446,13 +437,9 @@ def zip_entries(url: str) -> tuple:
 
 def fetch(url: str, key: str) -> bytes:
     """An object of a remote product: by its URL (directory form), or by its entry's range."""
-    from refkv.zarrify.store import object_url
-
     if url.endswith("/"):
-        with urllib.request.urlopen(object_url(url, key), timeout=300) as r:
+        with urllib.request.urlopen(object_url(url, key), timeout=300) as r:  # noqa: S310 (the product's URL)
             return r.read()
-    from refkv_reference.safe import zipdir
-
     _, entries, read = zip_entries(url)
     e = entries[key]
     data = read(e.ds, e.cs)

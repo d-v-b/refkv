@@ -2,11 +2,10 @@ import itertools
 
 import pytest
 import xarray as xr
+from helpers import zarrify
 
 import refkv.zarr
 from refkv.shards import write_vzip_sharded
-
-from helpers import zarrify
 
 
 def test_virtual_shards_roundtrip(netcdf_files, tmp_path):

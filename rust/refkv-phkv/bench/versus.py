@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Paged vzip against phkv, over HTTP: the open and first lookup, and later lookups, with phkv's
 reader's first defaults (slots one at a time, a 64 KiB first read, a 512 B record read), with slot
 blocks the size of a vzip page alone, and with today's defaults (slot blocks, 512 KiB, 4.5 KiB).
@@ -26,6 +25,7 @@ def human(b):
         if b < 1024 or u == "MiB":
             return f"{b:.0f} {u}" if u == "B" else f"{b:.1f} {u}"
         b /= 1024
+    return None
 
 
 def main():
@@ -41,11 +41,14 @@ def main():
     rows = []
     for workload, n in cases:
         readers = [("vzip, paged", "paged.vzip", None)]
-        readers += [("phkv, the first defaults (slots one at a time, 64 KiB first read, 512 B record read)", "phkv", (OLD_TAIL, 512, 0))]
+        readers += [("phkv, the first defaults (slots one at a time, 64 KiB first read, 512 B record read)", "phkv",
+                     (OLD_TAIL, 512, 0))]
         readers += [("phkv, 4 KiB slot blocks only", "phkv", (OLD_TAIL, 512, PAGE))]
-        readers += [("phkv, defaults (4 KiB slot blocks, 512 KiB first read, 4.5 KiB record read)", "phkv", (DEFAULT_TAIL, DEFAULT_RECORD_READ, PAGE))]
+        readers += [("phkv, defaults (4 KiB slot blocks, 512 KiB first read, 4.5 KiB record read)", "phkv",
+                     (DEFAULT_TAIL, DEFAULT_RECORD_READ, PAGE))]
         print(f"\n### {n:,} keys, `{workload}`: over HTTP, {args.rtt_ms:g} ms per request\n")
-        print(f"| reader | open + first lookup | later lookup ({args.short} lookups) | later lookup ({args.long:,} lookups, counted) |\n|---|---|---|---|")
+        print(f"| reader | open + first lookup | later lookup ({args.short} lookups) "
+              f"| later lookup ({args.long:,} lookups, counted) |\n|---|---|---|---|")
         for label, suffix, limits in readers:
             url = f"http://127.0.0.1:{server.port}/{workload}/{n}.{suffix}"
             res = []
@@ -58,8 +61,10 @@ def main():
                     res.append(read_rust(url, workload, n, args.reps, tail, record_read, 0, block, lookups))
             a, b = res
             rows.append({"workload": workload, "n": n, "reader": label, "short": a, "long": b})
-            print(f"| {label} | {a['first_get_requests']} req, {human(a['first_get_bytes'])}, {a['first_get_ms']:.0f} ms "
-                  f"| {a['warm_requests_per_get']:.2f} req, {human(a['warm_bytes_per_get'])}, {a['warm_ms_mean']:.0f} ms "
+            print(f"| {label} | {a['first_get_requests']} req, {human(a['first_get_bytes'])}, "
+                  f"{a['first_get_ms']:.0f} ms "
+                  f"| {a['warm_requests_per_get']:.2f} req, {human(a['warm_bytes_per_get'])}, "
+                  f"{a['warm_ms_mean']:.0f} ms "
                   f"| {b['warm_requests_per_get']:.2f} req, {human(b['warm_bytes_per_get'])} |", flush=True)
     with open(f"{args.data}/versus.json", "w") as f:
         json.dump(rows, f, indent=1)

@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import os
 import threading
+from pathlib import Path
 from urllib.parse import unquote
 
-from refkv.ir.planner import FileTransport, HttpTransport, _Fatal
+from refkv.ir.planner import FileTransport, HttpTransport, Transport, _FatalError
+from refkv.policy import Policy
 from refkv.uri import path_reference
 from refkv.zarrify.common import Rejected
 from refkv.zarrify.store import Store, check_store_url, object_url
@@ -45,8 +47,8 @@ class VsiFiles(Store):
     input URL, or, for a local path, `url` as given (the URL the directory will be served
     from, ending in `/`), else the path's URI reference."""
 
-    def __init__(self, location: str, url: str | None = None, *, policy=None, workers: int | None = None,
-                 transport=None) -> None:
+    def __init__(self, location: str, url: str | None = None, *, policy: Policy | None = None,
+                 workers: int | None = None, transport: Transport | None = None) -> None:
         self.remote = location.startswith(("http://", "https://"))
         self.location, self.key = split_input(location)
         if url is not None:
@@ -77,20 +79,20 @@ class VsiFiles(Store):
         self.transports[self.key] = t
         self.objects[self.key] = t.size
 
-    def _open(self, key: str):
+    def _open(self, key: str) -> FileTransport | HttpTransport | None:
         """A transport of the object `key`, or None when it does not exist."""
         if self.remote:
             try:
                 t = HttpTransport(object_url(self.location, key), self.policy)
-            except _Fatal as e:
+            except _FatalError as e:
                 if " HTTP 404 " in str(e):
                     return None
                 raise
             return t
-        path = os.path.join(self.location or os.curdir, *key.split("/"))
-        if not os.path.isfile(path):
+        path = Path(self.location or os.curdir, *key.split("/"))
+        if not path.is_file():
             return None
-        return FileTransport(path)
+        return FileTransport(str(path))
 
     def probe(self, key: str) -> int | None:
         with self._lock:

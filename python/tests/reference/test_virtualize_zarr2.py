@@ -13,11 +13,11 @@ import zipfile
 from functools import partial
 
 import pytest
+from refkv_reference import virtualize
+from refkv_reference.legacy import declare as _declare
+from refkv_reference.revision import STORES_REVISION as REVISION
 
 from refkv.zarrify import Rejected
-from refkv_reference.legacy import declare as _declare
-from refkv_reference import virtualize
-from refkv_reference.revision import STORES_REVISION as REVISION
 
 # the reference's roots record the revision it is frozen at
 declare = partial(_declare, revision=REVISION)
@@ -102,7 +102,8 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
             assert (doc["data_type"], doc["codecs"], doc["chunk_key_encoding"], doc["fill_value"]) == \
                 (dtype, codecs, {"name": "v2", "configuration": {"separator": sep}}, fill), (name, path)
         keys = [k for k, _ in out.chunks]
-        assert keys == sorted(keys) and all(n > 0 for _, n in out.chunks), name
+        assert keys == sorted(keys), name
+        assert all(n > 0 for _, n in out.chunks), name
         assert out.refs() == {k: [(i, 0, n)] for i, (k, n) in enumerate(out.chunks)}
     # Chunk keys follow each array's separator and grid (two chunks, with a partial edge chunk,
     # along the first axis in C order and along the second in F order).
@@ -122,7 +123,8 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     # .zmetadata is not.
     _, out = virtualize(str(FIXTURES / "zarr2_hierarchy"), url=URL.format("h"))
     assert [k for k, _ in out.chunks] == [
-        "a/b/zero_d/0", "a/c/0/0", "a/c/1/0", "g/h/0", "sp ace/é/x y/0.0", "vzip_source/objects/.zmetadata", "vzip_source/objects/a/c/0.0",
+        "a/b/zero_d/0", "a/c/0/0", "a/c/1/0", "g/h/0", "sp ace/é/x y/0.0", "vzip_source/objects/.zmetadata",
+        "vzip_source/objects/a/c/0.0",
         "vzip_source/objects/a/c/0/9", "vzip_source/objects/a/c/00/1", "vzip_source/objects/a/c/inside/.zgroup~",
         "vzip_source/objects/g/h/0.0", "vzip_source/objects/notes/README.md", "vzip_source/objects/orphan/.zattrs"]
     assert out.sources[4] == "https://data.test/zarr2/h/sp%20ace/%C3%A9/x%20y/0.0"
@@ -157,7 +159,8 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     assert out.docs["zarr.json"]["attributes"] == declare({}, "zarr2", url, {
         "attributes": {"id": 18446744073709551615, "neg": -9007199254740993, "safe": 9007199254740991},
         "metadata": {"creator": {"name": "a writer"}}})
-    assert out.docs["null_fill/zarr.json"]["attributes"] == declare({}, "zarr2", None, {"metadata": {"fill_value": None}})
+    assert out.docs["null_fill/zarr.json"]["attributes"] == declare({}, "zarr2", None,
+                                                                    {"metadata": {"fill_value": None}})
     assert out.docs["extra_members/zarr.json"]["attributes"] == declare({}, "zarr2", None, {
         "attributes": {"_ARRAY_DIMENSIONS": ["x"]}, "metadata": {"custom": {"x": 1}, "compressor": {"nthreads": 2}}})
     for path in ("neg_zero_f4", "zlib_9", "zstd_checksum"):
@@ -183,7 +186,8 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     assert out.sources == [url + out.origins.get(k, k) for k, _ in out.chunks]
     assert out.docs["vzip_source/zarr.json"]["attributes"] == declare({}, "zarr2", None, {"empty": ["empty.txt"]})
     assert "zarr2" not in out.docs["zarr.json"]["attributes"]["vzip_virtualized"]
-    assert "sub/zarr.json" in out.docs and out.docs["sub/zarr.json"]["attributes"] == {}
+    assert "sub/zarr.json" in out.docs
+    assert out.docs["sub/zarr.json"]["attributes"] == {}
     # Escaping is one to one: one ~ more on each last segment that is a node document's name and ~s.
     _, out = virtualize(str(FIXTURES / "zarr2_node_names"), url=URL.format("n"))
     assert {k: out.origins[k] for k, _ in out.chunks if k.startswith("vzip_source/")} == {
@@ -204,7 +208,7 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
         assert b'"fill_value":9007199254740993' in z.read("h/zarr.json")
 
 
-@pytest.mark.parametrize("name,message", [
+@pytest.mark.parametrize(("name", "message"), [
     ("zarr2_reject_filters", "filters"),
     ("zarr2_reject_compressor_lz4", "compressor 'lz4'"),
     ("zarr2_reject_compressor_bz2", "compressor 'bz2'"),

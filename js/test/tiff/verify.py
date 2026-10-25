@@ -19,10 +19,9 @@ import struct
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
-
 import zlib
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import tifffile
@@ -30,13 +29,13 @@ import zarr
 from zarr.abc.codec import BytesBytesCodec
 from zarr.registry import register_codec
 
-import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg2k)
+import refkv.zarr
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
-from ir_mirror import is_mirror, mirror_problems  # noqa: E402
+from ir_mirror import is_mirror, mirror_problems
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
-from verify_common import LOOPBACK_SOURCES  # noqa: E402
+from verify_common import LOOPBACK_SOURCES
 
 
 @dataclass(frozen=True)
@@ -201,14 +200,14 @@ def tag_problems(path: Path, root, key: str) -> list[str]:
                 if base64.b64encode(bytes(ours["value"])).decode() != as_json(t):
                     problems.append(f"{where} tag {code}: bytes differ")
             elif ours["value"] != as_json(t):
-                problems.append(f"{where} tag {code}: {str(ours['value']):.60} vs {str(as_json(t)):.60}")
+                problems.append(f"{where} tag {code}: {ours['value']!s:.60} vs {as_json(t)!s:.60}")
 
     def data(where, page, path, f, size, ifd, name="data", offsets=None, counts=None):
         """The IFD's strips or tiles, which MUST be the family <path>/<name> if any is present,
         or the earlier one that its same_as names."""
         offsets = page.dataoffsets if offsets is None else offsets
         counts = page.databytecounts if counts is None else counts
-        members = [(i, o, n) for i, (o, n) in enumerate(zip(offsets, counts)) if n > 0 and o + n <= size]
+        members = [(i, o, n) for i, (o, n) in enumerate(zip(offsets, counts, strict=False)) if n > 0 and o + n <= size]
         if not members:
             return
         family = ifd.get("same_as", {}).get(name, f"{path}/{name}")
@@ -267,7 +266,7 @@ def tag_problems(path: Path, root, key: str) -> list[str]:
                     continue
                 name = {"330": "subifds", "34665": "exif", "34853": "gps", "40965": "interoperability"}.get(
                     code, f"ifd_{code}")
-                for j, (child, o) in enumerate(zip(paths, offsets)):
+                for j, (child, o) in enumerate(zip(paths, offsets, strict=True)):
                     new = f"{path}/{name}/{j}" if code == "330" or len(offsets) > 1 else f"{path}/{name}"
                     if child is None:
                         continue
@@ -297,8 +296,8 @@ def main(fixtures: Path = HERE.parents[2] / "fixtures" / "tiff") -> int:
     with tempfile.TemporaryDirectory() as tmp:
         for tiff in sorted([*fixtures.glob("*.tif"), *fixtures.glob("*.ndpi")]):
             out = Path(tmp) / (tiff.stem + ".vzip")
-            p = subprocess.run(CLI + [str(tiff), str(out), tiff.resolve().as_uri()],
-                               capture_output=True, text=True)
+            p = subprocess.run([*CLI, str(tiff), str(out), tiff.resolve().as_uri()],
+                               capture_output=True, text=True, check=False)
             if p.returncode == 0:
                 if is_mirror(out):  # the IR's mirror (TIFF): the source rebuilt from it
                     tags = mirror_problems(out, tiff)
@@ -327,16 +326,16 @@ def main(fixtures: Path = HERE.parents[2] / "fixtures" / "tiff") -> int:
             want = expected_levels(tiff)
             if len(want) != len(ms["datasets"]):
                 problems.append(f"{len(ms['datasets'])} levels, tifffile has {len(want)}")
-            for (data, axes), d in zip(want, ms["datasets"]):
+            for (level, axes), d in zip(want, ms["datasets"], strict=False):
                 got = group[d["path"]][...]
                 # tifffile's axes, renamed and reordered to ours.
                 letters = [AXIS[a] for a in axes]
-                data = np.transpose(data, [letters.index(n) for n in names])
+                data = np.transpose(level, [letters.index(n) for n in names])
                 if got.dtype != data.dtype or not np.array_equal(got, data):
                     problems.append(f"level {d['path']} differs ({got.dtype} {got.shape} vs "
                                     f"{data.dtype} {data.shape})")
             failures += bool(problems)
-            print(f"{tiff.name:42s} {'ok' if not problems else problems} "
+            print(f"{tiff.name:42s} {problems or 'ok'} "
                   f"axes={''.join(names)} levels={summary['levels']} codec={summary.get('codec', '-')}")
     print(f"\n{failures} failures")
     return 1 if failures else 0

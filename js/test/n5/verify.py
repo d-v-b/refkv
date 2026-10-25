@@ -38,12 +38,14 @@ import sys
 import tempfile
 import urllib.error
 import urllib.request
+import zipfile
 import zlib
 from pathlib import Path
 
 import numcodecs
 import numpy as np
 import zarr
+from zarr.storage import LocalStore
 
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
@@ -52,6 +54,8 @@ sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from proxy import Proxy  # noqa: E402
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers n5_default and zlib)
+from refkv import _core  # noqa: E402
+from refkv.ir.cmirror import Archive  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run  # noqa: E402
@@ -85,7 +89,7 @@ def read_n5(attrs: dict, get) -> np.ndarray:
     compression = attrs.get("compression") or {"type": attrs["compressionType"]}
     dtype = np.dtype(attrs["dataType"]).newbyteorder(">")
     out = np.zeros(dims, dtype=dtype.newbyteorder("="))
-    for idx in np.ndindex(*[-(-d // b) for d, b in zip(dims, block)]):
+    for idx in np.ndindex(*[-(-d // b) for d, b in zip(dims, block, strict=True)]):
         raw = get("/".join(map(str, idx)))
         if not raw:
             continue
@@ -97,9 +101,9 @@ def read_n5(attrs: dict, get) -> np.ndarray:
         n = int(np.prod(shape))
         # Column-major: the first dimension varies fastest.
         values = np.frombuffer(body, dtype=dtype, count=n).reshape(shape[::-1]).T
-        dest = tuple(slice(i * b, min((i + 1) * b, d)) for i, b, d in zip(idx, block, dims))
-        take = tuple(slice(0, min(s.stop - s.start, m)) for s, m in zip(dest, shape))
-        dest = tuple(slice(s.start, s.start + t.stop) for s, t in zip(dest, take))
+        dest = tuple(slice(i * b, min((i + 1) * b, d)) for i, b, d in zip(idx, block, dims, strict=True))
+        take = tuple(slice(0, min(s.stop - s.start, m)) for s, m in zip(dest, shape, strict=True))
+        dest = tuple(slice(s.start, s.start + t.stop) for s, t in zip(dest, take, strict=True))
         out[dest] = values[take]
     return out
 
@@ -107,8 +111,7 @@ def read_n5(attrs: dict, get) -> np.ndarray:
 def zarr_n5_read(store_dir: Path, path: str) -> np.ndarray | None:
     """The dataset as zarr-n5 reads it, or None if it cannot."""
     try:
-        from zarr.storage import LocalStore
-        from zarr_n5 import N5WrapperStore
+        from zarr_n5 import N5WrapperStore  # noqa: PLC0415 (optional: the check is skipped without it)
     except ImportError:
         return None
     with zarr.config.set({"codecs.n5_default": "zarr_n5.codec.default.N5DefaultCodec"}):
@@ -122,8 +125,6 @@ def zarr_n5_read(store_dir: Path, path: str) -> np.ndarray | None:
 
 def arrays_of(out: Path) -> list[str]:
     """The arrays of the hierarchy (the mirror's, under refkv_source/, are not datasets)."""
-    import zipfile
-
     z = zipfile.ZipFile(out)
     paths = []
     for name in z.namelist():
@@ -135,8 +136,8 @@ def arrays_of(out: Path) -> list[str]:
 
 
 def zarrify(url: str, out: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(["node", str(ROOT / "js" / "conformance" / "zarrify.ts"), "--allow-private-hosts", url, str(out)],
-                          capture_output=True, text=True)
+    return subprocess.run(["node", str(ROOT / "js" / "conformance" / "zarrify.ts"), "--allow-private-hosts", url,
+                           str(out)], capture_output=True, text=True, check=False)
 
 
 def check_store(store_dir: Path, out: Path) -> list[str]:
@@ -148,7 +149,7 @@ def check_store(store_dir: Path, out: Path) -> list[str]:
         if store_dir.name == "n5_edge_varlength_block":
             try:
                 arr[...]
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001, S112 - the read must fail, by any error
                 continue
             problems.append(f"{path}: the varlength block was read")
             continue
@@ -170,13 +171,7 @@ def check_store(store_dir: Path, out: Path) -> list[str]:
 def mirror_problems(store_dir: Path, out: Path) -> list[str]:
     """The store IR's mirror against the store: its listing is the store's objects and sizes, and
     each object it holds (a node's attributes.json) is the store's, byte for byte."""
-    import zipfile
-
-    from refkv import _core
-
-    from refkv.ir.cmirror import Archive
-
-    def never(o: int, n: int) -> bytes:
+    def never(_o: int, _n: int) -> bytes:
         raise AssertionError("a store's mirror reads no source")
 
     stored = {f.relative_to(store_dir).as_posix(): f for f in store_dir.rglob("*") if f.is_file()}
@@ -206,11 +201,12 @@ def remote(store_url: str, path: str) -> int:
             return 1
         print(p.stdout.strip()[:300])
         base = store_url + path + "/"
-        attrs = json.loads(urllib.request.urlopen(base + "attributes.json", timeout=60).read())
+        # the store URL given on the command line
+        attrs = json.loads(urllib.request.urlopen(base + "attributes.json", timeout=60).read())  # noqa: S310
 
         def get(key):
             try:
-                return urllib.request.urlopen(base + key, timeout=120).read()
+                return urllib.request.urlopen(base + key, timeout=120).read()  # noqa: S310
             except urllib.error.HTTPError as e:
                 if e.code in (403, 404):
                     return None

@@ -6,7 +6,7 @@ class VzError(Exception):
         self.cls = cls
 
 
-class InvalidInput(Exception):
+class InvalidInputError(Exception):
     """Writer input rejected (spec §9.1
     <https://github.com/d-v-b/refkv/blob/main/spec/history/archive/SPEC.r7.md#91-requirements> /
     harness rules)."""

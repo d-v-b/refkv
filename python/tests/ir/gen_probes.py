@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, "fixtures/generators/czi")
-from write_fixtures import Att, Czi, Sb, plane, segment, time_stamps  # noqa: E402
+from write_fixtures import Att, Czi, Sb, plane, segment, time_stamps
 
 out = Path(sys.argv[1])
 out.mkdir(parents=True, exist_ok=True)
@@ -111,7 +111,8 @@ write("tiff_huge_entry_count.tif", b"II+\0" + struct.pack("<HHQ", 8, 0, 16) + st
 write("tiff_huge_table_count.tif", tiff([[*e[:8], (324, 4, 0xFFFFFFFF, 64), e[9]]], blobs))  # outside: rejected
 write("tiff_huge_other_count.tif", tiff([[*e, (65000, 7, 0xFFFFFFFF, 64)]], blobs))  # not read: accepted
 write("tiff_huge_bigtiff_value.tif", tiff([[*e[:8], (324, 16, 1, 1 << 60), e[9]]], blobs, big=True))  # > 2^53: rejected
-write("tiff_many_ifds.tif", tiff([[(256, 4, 1, 1)]] * (1000 if small else 100001)))  # too many IFDs: rejected past 100000
+# too many IFDs: rejected past 100000
+write("tiff_many_ifds.tif", tiff([[(256, 4, 1, 1)]] * (1000 if small else 100001)))
 write("tiff_amp_100_100.tif", amp(100, 100))
 write("tiff_shared_1000_1024.tif", shared(1000, 1024))
 if not small:
@@ -168,7 +169,8 @@ write("czi_attname.czi", Czi(subblocks=[plane(0, 0, 0, 0, 4, 4)],
                                           Att("Thumb\0\0\0\0\0\0x", "JPG\0junk", b"\xff\xd8\xff\xd9")]).build())
 # 9. Per-element cost: many empty segments after the directory
 n = 10000 if small else 2000000
-write("czi_walk0.czi", Czi(subblocks=[plane(0, 0, 0, 0, 4, 4)], late=[segment("DELETED", b"", allocated=0, used=0) * n]).build())
+write("czi_walk0.czi", Czi(subblocks=[plane(0, 0, 0, 0, 4, 4)],
+                           late=[segment("DELETED", b"", allocated=0, used=0) * n]).build())
 
 # ---- DICOM (revision 26): repeated items, depth, fragment chains, offset tables, skipped
 # values and per-element cost, at the sizes of a large file
@@ -200,8 +202,10 @@ def dcm(dataset: bytes, syntax: bytes = b"1.2.840.10008.1.2.1") -> bytes:
 
 
 def image(rows: int, columns: int, frames: int = 1) -> bytes:
-    return (us(0x28, 2, 1) + el(0x28, 4, b"CS", b"MONOCHROME2") + (el(0x28, 8, b"IS", str(frames).encode()) if frames > 1 else b"")
-            + us(0x28, 0x10, rows) + us(0x28, 0x11, columns) + us(0x28, 0x100, 8) + us(0x28, 0x101, 8) + us(0x28, 0x103, 0))
+    return (us(0x28, 2, 1) + el(0x28, 4, b"CS", b"MONOCHROME2")
+            + (el(0x28, 8, b"IS", str(frames).encode()) if frames > 1 else b"")
+            + us(0x28, 0x10, rows) + us(0x28, 0x11, columns) + us(0x28, 0x100, 8) + us(0x28, 0x101, 8)
+            + us(0x28, 0x103, 0))
 
 
 def encapsulated(fragments: list[bytes], bot: list[int] | None = None) -> bytes:
@@ -217,7 +221,8 @@ items = b"".join(item(el(0x0008, 0x0100, b"SH", b"CODE")) for _ in range(n))
 write("dicom_items_same.dcm", dcm(el(0x0040, 0x0275, b"SQ", items) + image(1, 1) + el(0x7FE0, 0x10, b"OB", b"\0\0")))
 # 2. n items of distinct values: no run, the mirror's column runs
 items = b"".join(item(el(0x0008, 0x0018, b"UI", f"1.2.3.{k}".encode())) for k in range(n))
-write("dicom_items_distinct.dcm", dcm(el(0x0040, 0x0275, b"SQ", items) + image(1, 1) + el(0x7FE0, 0x10, b"OB", b"\0\0")))
+write("dicom_items_distinct.dcm",
+      dcm(el(0x0040, 0x0275, b"SQ", items) + image(1, 1) + el(0x7FE0, 0x10, b"OB", b"\0\0")))
 # 3. sequences of defined length nested 200 deep: past 64, the innermost walked one keeps its bytes
 body = el(0x0008, 0x0100, b"SH", b"X")
 for _ in range(200):
@@ -248,7 +253,8 @@ write("dicom_frames_many.dcm", dcm(image(1, 1, n) + el(0x7FE0, 0x10, b"OB", byte
 # 9. n short private elements
 n = 10000 if small else 500000
 body = b"".join(el(0x0009 + 2 * (k >> 15), 0x1000 + (k & 0x7FFF), b"SH", b"ab") for k in range(n))
-write("dicom_many_elements.dcm", dcm(el(0x0009, 0x0010, b"LO", b"VZIP") + body + image(1, 1) + el(0x7FE0, 0x10, b"OB", b"\0\0")))
+write("dicom_many_elements.dcm",
+      dcm(el(0x0009, 0x0010, b"LO", b"VZIP") + body + image(1, 1) + el(0x7FE0, 0x10, b"OB", b"\0\0")))
 
 # ---- NDPI (spec/zarrify/ndpi.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md>)
 
@@ -269,12 +275,12 @@ def ndpi(ifds: list[list[tuple]], blobs: bytes, chain=None) -> bytes:
     body = bytearray()
     for k, e in enumerate(ifds):
         nxt = chain[k] if chain is not None else (k + 1 if k + 1 < len(ifds) else None)
-        e = sorted(e)
-        body += struct.pack("<H", len(e))
-        for tag, typ, count, value in e:
+        entries = sorted(e)
+        body += struct.pack("<H", len(entries))
+        for tag, typ, count, value in entries:
             body += struct.pack("<HHII", tag, typ, count, value & 0xFFFFFFFF)
         body += struct.pack("<Q", offs[nxt] if nxt is not None else 0)
-        for *_, value in e:
+        for *_, value in entries:
             body += struct.pack("<I", value >> 32)
     return b"II*\0" + struct.pack("<Q", offs[0]) + bytes(4) + blobs + bytes(body)
 
@@ -308,8 +314,9 @@ q, r = (256, 256) if small else (1024, 1024)
 blobs, e = ndpi_level(q, r)
 write(f"ndpi_intervals_{q}x{r}.ndpi", ndpi([e], blobs))
 blobs, e = ndpi_level(4, 4)
-macro = [(256, 4, 1, 8), (257, 4, 1, 8), (65420, 4, 1, 1), (65421, 11, 1, struct.unpack("<I", struct.pack("<f", -1.0))[0])]
-# loops: rejected
+macro = [(256, 4, 1, 8), (257, 4, 1, 8), (65420, 4, 1, 1),
+         (65421, 11, 1, struct.unpack("<I", struct.pack("<f", -1.0))[0])]
+# IFD loops: rejected
 write("ndpi_loop_chain.ndpi", ndpi([e, macro], blobs, chain=[1, 0]))
 write("ndpi_loop_self.ndpi", ndpi([e], blobs, chain=[0]))
 # pointer loops: the macro image's EXIF pointer to itself and to IFD 0, SubIFDs to both: aliases, accepted

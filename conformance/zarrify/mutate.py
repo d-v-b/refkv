@@ -59,10 +59,10 @@ def _paths(v, prefix=()):
     yield prefix, v
     if isinstance(v, dict):
         for k, x in v.items():
-            yield from _paths(x, prefix + (k,))
+            yield from _paths(x, (*prefix, k))
     elif isinstance(v, list):
         for i, x in enumerate(v):
-            yield from _paths(x, prefix + (i,))
+            yield from _paths(x, (*prefix, i))
 
 
 def mutate_json(data: bytes, rng: random.Random) -> bytes:
@@ -112,9 +112,9 @@ def mutate_store(src: Path, dst: Path, rng: random.Random) -> None:
     elif files and kind < 0.88:
         rng.choice(files).unlink()
     else:
-        dirs = [dst] + sorted(p for p in dst.rglob("*") if p.is_dir())
+        dirs = [dst, *sorted(p for p in dst.rglob("*") if p.is_dir())]
         d = rng.choice(dirs)
-        name = rng.choice(METADATA + ("0", "0.0", "0/0"))
+        name = rng.choice((*METADATA, "0", "0.0", "0/0"))
         target = d / name
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -131,8 +131,9 @@ def main(argv: list[str]) -> int:
     out.mkdir(parents=True, exist_ok=True)
     stores = sorted(d for f in STORE_FORMATS if (FIXTURES / f).is_dir() for d in (FIXTURES / f).iterdir()
                     if d.is_dir() and not d.name.startswith("safe_reject_"))
-    for p in sorted([*FIXTURES.rglob("*.tif"), *FIXTURES.rglob("*.ndpi"), *FIXTURES.rglob("*.nd2"), *FIXTURES.rglob("*.dcm"), *FIXTURES.rglob("*.nii"),
-                     *FIXTURES.rglob("*.ims"), *FIXTURES.rglob("*.SAFE.zip")]):
+    for p in sorted([*FIXTURES.rglob("*.tif"), *FIXTURES.rglob("*.ndpi"), *FIXTURES.rglob("*.nd2"),
+                     *FIXTURES.rglob("*.dcm"), *FIXTURES.rglob("*.nii"), *FIXTURES.rglob("*.ims"),
+                     *FIXTURES.rglob("*.SAFE.zip")]):
         if any(p.is_relative_to(s) for s in stores) or p.name.startswith("safe_reject_"):
             continue
         data = p.read_bytes()

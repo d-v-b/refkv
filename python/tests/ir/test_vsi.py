@@ -13,25 +13,27 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 import zarr
+from ir_helpers import FIXTURES, ROOT
 
 import refkv.zarr
-from ir_helpers import FIXTURES, ROOT
 from refkv import _core
 from refkv.ir.store import StoreIrOutput
 from refkv.policy import Policy
 from refkv.uri import path_reference
-from refkv.zarrify import Rejected, _zarrify as zarrify
+from refkv.zarrify import Rejected
+from refkv.zarrify import _zarrify as zarrify
 from refkv.zarrify.store import object_url
 from refkv.zarrify.vsi import VsiFiles, split_input
 
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
-from proxy import Proxy  # noqa: E402
+from proxy import Proxy
 
 VSI = FIXTURES / "vsi"
 SLIDES = sorted(p for p in VSI.glob("*.vsi") if not p.name.startswith("vsi_reject"))
@@ -60,7 +62,8 @@ def as_tczyx(arr: np.ndarray, axes: list[str], samples: int) -> np.ndarray:
 
 def zarrified(path: Path, url: str | None = None) -> tuple[StoreIrOutput, zarr.Group]:
     fmt, out = zarrify(str(path), url=url)
-    assert fmt == "vsi" and isinstance(out, StoreIrOutput)
+    assert fmt == "vsi"
+    assert isinstance(out, StoreIrOutput)
     return out, zarr.open_group(refkv.zarr.store(out.to_store()), mode="r", zarr_format=3)
 
 
@@ -79,23 +82,27 @@ def test_slides_match_their_known_pixels_and_rebuild(path, tmp_path):
     for k, im in enumerate(images):
         g = root[str(k)]
         ms = g.attrs["ome"]["multiscales"][0]
-        assert ms["name"] == im["name"] and len(ms["datasets"]) == len(im["levels"])
+        assert ms["name"] == im["name"]
+        assert len(ms["datasets"]) == len(im["levels"])
         if im["kind"] != "stack" or im.get("id") is None:
             continue
         want = expected_array(path.stem, im["id"])
         if want is None:
             continue
         got = as_tczyx(g["0"][...], im["axes"], im["samples"])
-        assert got.shape == want.shape and got.dtype == want.dtype, im["name"]
+        assert got.shape == want.shape, im["name"]
+        assert got.dtype == want.dtype, im["name"]
         assert np.array_equal(got, want), im["name"]
         checked += 1
     assert checked == len([im for im in images if im["source"] == "tiles"])
     # the rebuild: every object from its own bytes, through the mirror's table
-    rebuilt = _core.rebuild_store(lambda k: out.entries.get(k))
+    rebuilt = _core.rebuild_store(out.entries.get)
     files = {k: path.parent / k for k, _, _ in rebuilt}
-    assert set(files) == set(out.sizes) and path.name in files
+    assert set(files) == set(out.sizes)
+    assert path.name in files
     for key, size, held in rebuilt:
-        assert held is None and size == files[key].stat().st_size, key  # described in place: nothing held
+        assert held is None, key  # described in place: nothing held
+        assert size == files[key].stat().st_size, key
     out.write(str(tmp_path / "a.vzip"))
 
 
@@ -113,11 +120,16 @@ def test_the_rgb_jpeg_slide_layout():
     assert (a.shape, a.chunks, a.dtype, a.fill_value) == ((3, 200, 300), (3, 64, 64), np.uint8, 238)
     assert [c["name"] for c in json.loads(out.entries["1/0/zarr.json"])["codecs"]] == ["transpose", "imagecodecs_jpeg"]
     assert [root[f"1/{lv}"].shape for lv in range(3)] == [(3, 200, 300), (3, 100, 150), (3, 50, 75)]
-    assert "1/0/c/0/0/0" in out.refs and "1/0/c/0/1/2" not in out.refs
+    assert "1/0/c/0/0/0" in out.refs
+    assert "1/0/c/0/1/2" not in out.refs
     assert np.all(a[:, 64:128, 128:192] == 238)  # the missing tile
-    assert root["2/0"].shape == (5, 6) and root["2/0"].dtype == np.uint16
+    assert root["2/0"].shape == (5, 6)
+    assert root["2/0"].dtype == np.uint16
     macro = out.refs["3/0/c/0/0/0"]
-    assert len(macro) == 3 and macro[0][:2] == ("object", "vsi_rgb_jpeg.vsi") and macro[1][0] == 1 and len(out.data) == 1
+    assert len(macro) == 3
+    assert macro[0][:2] == ("object", "vsi_rgb_jpeg.vsi")
+    assert macro[1][0] == 1
+    assert len(out.data) == 1
     ms = root["1"].attrs["ome"]["multiscales"][0]
     assert ms["axes"][1] == {"name": "y", "type": "space", "unit": "micrometer"}
     assert ms["datasets"][1]["coordinateTransformations"][0]["scale"] == [1, 0.27 * 2, 0.27 * 2]
@@ -126,12 +138,17 @@ def test_the_rgb_jpeg_slide_layout():
     assert [c["label"] for c in channels] == ["R", "G", "B"]
     assert channels[0]["window"] == {"min": 0, "max": 255, "start": 0, "end": 255}
     own = root["1"].attrs["refkv_zarrified"]["vsi"]
-    assert own["tile_file"] == "_vsi_rgb_jpeg_/stack10002/frame_t.ets" and own["type_name"] == "Default image"
+    assert own["tile_file"] == "_vsi_rgb_jpeg_/stack10002/frame_t.ets"
+    assert own["type_name"] == "Default image"
     # the source table: one url source per file some reference uses, sizes pinned
-    urls, data, _ = out.table()
-    assert urls == [object_url(URL.format(""), k) for k in ("_vsi_rgb_jpeg_/stack10000/frame_t.ets", "_vsi_rgb_jpeg_/stack10002/frame_t.ets", "vsi_rgb_jpeg.vsi")]
+    urls, _data, _ = out.table()
+    assert urls == [object_url(URL.format(""), k) for k in ("_vsi_rgb_jpeg_/stack10000/frame_t.ets",
+                                                            "_vsi_rgb_jpeg_/stack10002/frame_t.ets",
+                                                            "vsi_rgb_jpeg.vsi")]
     assert out.sizes["vsi_rgb_jpeg.vsi"] == (VSI / "vsi_rgb_jpeg.vsi").stat().st_size
-    assert out.summary["tileFiles"] == 2 and out.summary["tiles"] == 37 - 2 and out.summary["chunks"] == 37
+    assert out.summary["tileFiles"] == 2
+    assert out.summary["tiles"] == 37 - 2
+    assert out.summary["chunks"] == 37
 
 
 def test_the_multidimensional_slide():
@@ -158,26 +175,33 @@ def test_the_root_metadata():
     """The root's source metadata: the file, the stacks, and the tree as JSON (spec/zarrify/vsi.md
     §6.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#61-the-root>): tags named
     as Bio-Formats names them, texts decoded from UTF-16, a blob over 1024 bytes as its length."""
-    out, root = zarrified(VSI / "vsi_metadata_edges.vsi")
+    _out, root = zarrified(VSI / "vsi_metadata_edges.vsi")
     own = root.attrs["refkv_zarrified"]["vsi"]
     assert set(own) == {"file", "stacks", "tree"}
-    assert own["file"]["key"] == "vsi_metadata_edges.vsi" and own["stacks"][0]["name"] == "µm édge"
+    assert own["file"]["key"] == "vsi_metadata_edges.vsi"
+    assert own["stacks"][0]["name"] == "µm édge"
     top = own["tree"]["fields"]
     doc = top[0]
-    assert doc["tag"] == 2 and doc["type"] == 1 and doc["fields"][0] == {"tag": 11, "type": 8192, "name": "Document Name", "value": "vsi_metadata_edges"}
+    assert doc["tag"] == 2
+    assert doc["type"] == 1
+    assert doc["fields"][0] == {"tag": 11, "type": 8192, "name": "Document Name", "value": "vsi_metadata_edges"}
     coll = top[1]
     assert (coll["tag"], coll["tag2"], coll["name"]) == (2000, 0, "Collection volume")
     stack = next(f for f in coll["fields"] if f["tag"] == 2001)
     props = next(f for f in stack["fields"] if f["tag"] == 2005)
     by_tag = {f["tag"]: f for f in props["fields"]}
-    assert by_tag[2024]["value"] == {"bytes": 1280} and by_tag[175307]["value"] == "Défaut"
+    assert by_tag[2024]["value"] == {"bytes": 1280}
+    assert by_tag[175307]["value"] == "Défaut"
     assert by_tag[2020] == {"tag": 2020, "type": 13, "name": "Calibration units", "value": "10^-3m^1"}
     assert by_tag[2074] == {"tag": 2074, "type": 5, "name": "Image Type", "inline": True, "value": 4096}
     ifd = next(f for f in coll["fields"] if f["tag"] == 2016)
-    assert ifd["ifd"]["index"] == 0 and ifd["ifd"]["bytes"] > 0
+    assert ifd["ifd"]["index"] == 0
+    assert ifd["ifd"]["bytes"] > 0
     ms = root["0"].attrs["ome"]["multiscales"][0]
-    assert ms["axes"][0]["unit"] == "millimeter" and len(ms["datasets"][0]["coordinateTransformations"]) == 1
-    assert "omero" not in root["0"].attrs["ome"] or root["0"].attrs["ome"]["omero"]["channels"][0]["window"]["start"] == 0
+    assert ms["axes"][0]["unit"] == "millimeter"
+    assert len(ms["datasets"][0]["coordinateTransformations"]) == 1
+    ome = root["0"].attrs["ome"]
+    assert "omero" not in ome or ome["omero"]["channels"][0]["window"]["start"] == 0
     assert root["0"].attrs["refkv_zarrified"]["vsi"]["type_name"] is None
 
 
@@ -209,7 +233,7 @@ def test_rejects(path):
 
 
 def test_a_url_that_does_not_name_the_file_is_rejected():
-    with pytest.raises(Rejected, match="does not name the .vsi file"):
+    with pytest.raises(Rejected, match=re.escape("does not name the .vsi file")):
         zarrify(str(VSI / "vsi_raw_tzc.vsi"), url=URL.format("other.vsi"))
     with pytest.raises(Rejected, match="has a query or a fragment"):
         zarrify(str(VSI / "vsi_raw_tzc.vsi"), url="https://data.test/vsi_raw_tzc.vsi?x")
@@ -226,7 +250,7 @@ def test_split_input():
 def test_a_local_input_without_a_url_names_its_files_by_path(tmp_path):
     """The store URL of a local `.vsi` is its directory's path reference, so the archive's
     sources are the files' paths, which the reader opens."""
-    out, root = zarrified(VSI / "vsi_raw_bgr.vsi")
+    out, _root = zarrified(VSI / "vsi_raw_bgr.vsi")
     urls = out.table()[0]
     d = path_reference(str(VSI))  # the path itself on POSIX, a file: URI on Windows
     d = d if d.endswith("/") else d + "/"
@@ -251,7 +275,8 @@ def test_over_http_the_tile_files_are_probed_and_a_404_is_absent(server, tmp_pat
     not exist (`frame_t.ets` for the Zenodo-like fixture), so the second name is read."""
     policy = Policy(allow_private_hosts=True)
     fmt, out = zarrify(server + "vsi_raw_tzc.vsi", policy=policy)
-    assert fmt == "vsi" and set(out.sizes) == {"vsi_raw_tzc.vsi", "_vsi_raw_tzc_/stack1/frame_t_0.ets"}
+    assert fmt == "vsi"
+    assert set(out.sizes) == {"vsi_raw_tzc.vsi", "_vsi_raw_tzc_/stack1/frame_t_0.ets"}
     assert out.url == server
     assert out.summary["listingRequests"] == 1  # one file opened besides the .vsi
     out.write(str(tmp_path / "a.vzip"))
@@ -265,7 +290,9 @@ def test_over_http_the_tile_files_are_probed_and_a_404_is_absent(server, tmp_pat
 
 def test_the_files_store(server):
     s = VsiFiles(server + "vsi_raw_bgr.vsi", policy=Policy(allow_private_hosts=True))
-    assert s.probe("nope.ets") is None and s.probe("_vsi_raw_bgr_/stack10000/frame_t.ets") == (VSI / "_vsi_raw_bgr_/stack10000/frame_t.ets").stat().st_size
+    assert s.probe("nope.ets") is None
+    ets = "_vsi_raw_bgr_/stack10000/frame_t.ets"
+    assert s.probe(ets) == (VSI / ets).stat().st_size
     assert s.read_range("vsi_raw_bgr.vsi", 0, 4) == b"II*\0"
     assert s.etag("vsi_raw_bgr.vsi") is None or isinstance(s.etag("vsi_raw_bgr.vsi"), str)
 
@@ -278,15 +305,16 @@ def bioformats():
     if os.environ.get("REFKV_NO_BIOFORMATS"):
         return None
     try:
-        from bioio_bioformats import Reader
+        from bioio_bioformats import Reader  # noqa: PLC0415 (optional, and it starts a JVM)
 
         Reader(str(VSI / "vsi_no_stacks.vsi"))
-        return Reader
     except Exception:  # noqa: BLE001 - no JVM, no Maven, no network: not a failure of the profile
         return None
+    return Reader
 
 
-@pytest.mark.parametrize("name", ["vsi_rgb_jpeg", "vsi_raw_tzc", "vsi_jpeg2000_c", "vsi_raw_bgr", "vsi_raw_gray_pyramid"])
+@pytest.mark.parametrize("name", ["vsi_rgb_jpeg", "vsi_raw_tzc", "vsi_jpeg2000_c", "vsi_raw_bgr",
+                                  "vsi_raw_gray_pyramid"])
 def test_matches_bioformats(name):
     """Every level of every stack Bio-Formats reads from the synthetic slides is our array
     (within 1 for JPEG 2000, whose decoders round differently), and so is the macro image;
@@ -326,12 +354,14 @@ def test_matches_bioformats(name):
             scale = ms["datasets"][0]["coordinateTransformations"][0]["scale"]
             axes = [a["name"] for a in ms["axes"]]
             if px.X is not None:
-                assert scale[axes.index("x")] == pytest.approx(px.X) and scale[axes.index("y")] == pytest.approx(px.Y)
+                assert scale[axes.index("x")] == pytest.approx(px.X)
+                assert scale[axes.index("y")] == pytest.approx(px.Y)
             if px.Z is not None and "z" in axes:
                 assert scale[axes.index("z")] == pytest.approx(px.Z)
 
 
-@pytest.mark.skipif(not os.environ.get("REFKV_VSI_SAMPLES"), reason="set REFKV_VSI_SAMPLES to a directory of public .vsi samples")
+@pytest.mark.skipif(not os.environ.get("REFKV_VSI_SAMPLES"),
+                    reason="set REFKV_VSI_SAMPLES to a directory of public .vsi samples")
 def test_public_samples_match_bioformats():
     """A public sample (its `.vsi` and sidecar directory under REFKV_VSI_SAMPLES, such as the
     OME CellSens samples) against Bio-Formats: every plane of every level, raw and JPEG exactly,
@@ -344,7 +374,8 @@ def test_public_samples_match_bioformats():
             continue  # the .vsi file alone, without its tile files
         out, root = zarrified(path)
         r = Reader(str(path))
-        ours = [(k, im) for k, im in enumerate(out.summary["images"]) if im["source"] == "tiles" or im["kind"] == "macro"]
+        ours = [(k, im) for k, im in enumerate(out.summary["images"])
+                if im["source"] == "tiles" or im["kind"] == "macro"]
         assert len(r.scenes) == len(ours), path.name
         for (k, im), scene in zip(ours, r.scenes, strict=True):
             r.set_scene(scene)

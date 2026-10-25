@@ -86,9 +86,9 @@ def description(image_type, *, name=None, color=None, slide_id="Fixture-Slide", 
 def page(tif, data, image_type, *, tile=None, rps=None, compression="lzw", photometric="minisblack",
          reduced=False, position=True, resolution=RESOLUTION, unit="CENTIMETER", desc=None, **kw) -> None:
     """One IFD: tiled (`tile`) or stripped (`rps` rows per strip)."""
-    args = dict(photometric=photometric, compression=compression, software=SOFTWARE, metadata=None,
-                resolution=resolution, resolutionunit=unit, subfiletype=1 if reduced else 0,
-                extratags=POSITION if position else [])
+    args = {"photometric": photometric, "compression": compression, "software": SOFTWARE, "metadata": None,
+                "resolution": resolution, "resolutionunit": unit, "subfiletype": 1 if reduced else 0,
+                "extratags": POSITION if position else []}
     if desc is not False:
         args["description"] = desc if desc is not None else description(image_type, **kw)
     if tile is not None:
@@ -103,12 +103,13 @@ def rgb(h, w, seed=0):
     return np.stack([g, (g // 2).astype(np.uint8), (255 - g).astype(np.uint8)], axis=-1)
 
 
-def pyramid(tif, channels, names, colors, *, tile, levels, rps=None, stripped_last=True, reduced_rps=16, slide_id="Fixture-Slide",
-            compression="lzw", photometric="minisblack", unmixed=False, position=True, resolution=RESOLUTION, unit="CENTIMETER",
-            thumbnail=True, extras=True, reduced_names=True):
+def pyramid(tif, channels, names, colors, *, tile, levels, rps=None, stripped_last=True, reduced_rps=16,
+            slide_id="Fixture-Slide", compression="lzw", photometric="minisblack", unmixed=False, position=True,
+            resolution=RESOLUTION, unit="CENTIMETER", thumbnail=True, extras=True, reduced_names=True):
     """The QPTIFF arrangement: channels (tiled, or in strips of `rps` rows), thumbnail, levels (each
     channel again), overview, label."""
-    kw = dict(compression=compression, photometric=photometric, position=position, resolution=resolution, unit=unit)
+    kw = {"compression": compression, "photometric": photometric, "position": position, "resolution": resolution,
+          "unit": unit}
     for c, data in enumerate(channels):
         page(tif, data, "FullResolution", tile=tile, rps=rps, name=names[c], color=colors[c], slide_id=slide_id,
              unmixed=unmixed, scan_profile=(c == 0), **kw)
@@ -168,7 +169,8 @@ def narrow_eoi(path: Path, page_index: int, tile: int = 0) -> None:
         for code, bit, width in lzw_codes(stream):
             last = (code, bit, width)
         code, bit, width = last
-        assert code == 257 and width >= 10, (code, width)
+        assert code == 257, (code, width)
+        assert width >= 10, (code, width)
         # clear the bits from the end code on, then write 257 in width - 1 bits
         for b in range(bit, len(stream) * 8):
             stream[b // 8] &= ~(1 << (7 - b % 8)) & 0xFF

@@ -27,7 +27,8 @@ Implementations are `name=command`, where the command is run as
 reference, the frozen Python profiles of conformance/zarrify/reference/ for
 TIFF, ND2, CZI, DICOM, NIfTI, IMS, NDPI, SAFE, Zarr v2, N5 and OME-Zarr and the shipped ones
 for the others; a profile added since, whose registry entry's `reference` is null, has no
-reference: its inputs compare `py` with `web` alone), `py` (`python -m refkv.zarrify`) and `web` (the browser code under Node).
+reference: its inputs compare `py` with `web` alone), `py` (`python -m refkv.zarrify`) and `web` (the browser code
+under Node).
 Others write HARNESS.md's JSON description; give them as `--impl name=command`.
 
 `py` and `web` zarrify every profile through one Rust core (rust/refkv-ir, natively and as
@@ -62,6 +63,7 @@ counts as a crash of the implementation that wrote it.
 from __future__ import annotations
 
 import base64
+import bisect
 import hashlib
 import json
 import re
@@ -82,15 +84,17 @@ sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 sys.path.insert(0, str(ROOT / "conformance" / "impls" / "python"))
 from corpus_hash import entries as corpus_entries  # noqa: E402
 from proxy import Proxy  # noqa: E402
+from refkv_reference import legacy  # noqa: E402
 from validate import validate  # noqa: E402
 from vzip_impl import reader as strict_reader  # noqa: E402
 from vzip_impl.errors import VzError  # noqa: E402
 
-from refkv_reference import legacy  # noqa: E402
-
+from refkv import _core  # noqa: E402
+from refkv.ir.cmirror import Archive, canonical_problem, load, view_problem  # noqa: E402
 from refkv.pb import Concat, Range, Source, decode_source_table  # noqa: E402
 from refkv.zarrify.common import CONVENTION_KEY, SOURCE_NODE, same  # noqa: E402
 from refkv.zarrify.profiles import REGISTRY  # noqa: E402
+from refkv.zarrify.store import object_url  # noqa: E402
 
 IDR = "https://ftp.ebi.ac.uk/pub/databases/IDR/idr0096-tratwal-marrowquant/20210609-ftp-ome-tiffs/"
 BUILTIN = {
@@ -128,14 +132,15 @@ ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
 REVISED = {"edge_ndpi_frames.ndpi", "edge_reject_ndpi_frame.ndpi"}
 
 
-class Unreadable(Exception):
+class UnreadableError(Exception):
     """An archive that spec/bindings/vzip.md's strict reading refuses, or that breaks a writer requirement."""
 
 
 def _no_duplicates(pairs: list) -> dict:
     keys = [k for k, _ in pairs]
     if len(set(keys)) != len(keys):
-        raise Unreadable(f"a JSON document has a duplicate member: {sorted(k for k in keys if keys.count(k) > 1)[:3]}")
+        dups = sorted(k for k in keys if keys.count(k) > 1)[:3]
+        raise UnreadableError(f"a JSON document has a duplicate member: {dups}")
     return dict(pairs)
 
 
@@ -146,11 +151,11 @@ def from_vzip(path: Path) -> dict:
     try:  # first, so that zipfile never reads what spec/bindings/vzip.md does not
         strict_reader.Archive(str(path)).close()
     except VzError as e:
-        raise Unreadable(f"strict reader: {e.cls} error: {e}") from e
+        raise UnreadableError(f"strict reader: {e.cls} error: {e}") from e
     view = _zip_view(path)
     problems = strict(path, view)
     if problems:
-        raise Unreadable("; ".join(problems[:5]))
+        raise UnreadableError("; ".join(problems[:5]))
     return view
 
 
@@ -229,8 +234,8 @@ def strict(path: Path, view: dict) -> list[str]:
                 else:
                     value = archive.get(key)
                     kind, seen = view["entries"].get(key, (None, None))
-                    if kind == "json" and json.loads(value) != seen or kind == "bytes" and (
-                            hashlib.sha256(value).hexdigest() != seen) or kind not in ("json", "bytes"):
+                    if (kind == "json" and json.loads(value) != seen) or (kind == "bytes" and (
+                            hashlib.sha256(value).hexdigest() != seen)) or kind not in ("json", "bytes"):
                         problems.append(f"strict reader: {key}: bytes differ from zipfile's")
                     entries.append({"key": key, "bytes": value.hex(), "compress": e.method == 8,
                                     "pinned": archive.paged and key.encode() in archive.pinned})
@@ -282,7 +287,8 @@ def differences(a: dict, b: dict) -> list[str]:
     if ka != kb:
         out.append(f"keys only in reference: {sorted(ka - kb)[:5]}, only in this one: {sorted(kb - ka)[:5]}")
     for k in sorted(ka & kb):
-        if not same(a["entries"][k], b["entries"][k]):  # §1.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence>: integers exactly
+        # §1.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence>: integers exactly
+        if not same(a["entries"][k], b["entries"][k]):
             out.append(f"{k}: reference {json.dumps(a['entries'][k], default=str)[:400]} != "
                        f"{json.dumps(b['entries'][k], default=str)[:400]}")
             if len(out) > 6:
@@ -293,7 +299,8 @@ def differences(a: dict, b: dict) -> list[str]:
 def run(impl: tuple[str, list[str]], url: str, out: Path) -> tuple[str, object]:
     kind, cmd = impl
     try:
-        p = subprocess.run(cmd + [url, str(out)], capture_output=True, text=True, timeout=1800)
+        p = subprocess.run([*cmd, url, str(out)], capture_output=True, text=True, timeout=1800,
+                           check=False)
     except subprocess.TimeoutExpired:
         return "crashed", "timeout"
     try:
@@ -306,9 +313,10 @@ def run(impl: tuple[str, list[str]], url: str, out: Path) -> tuple[str, object]:
             problem = mirror_problem(out, view)
             if problem:
                 return "crashed", f"invalid IR mirror: {problem}"
-        return "ok", view
     except Exception as e:  # noqa: BLE001
         return "crashed", f"unreadable output: {type(e).__name__}: {e}"
+    else:
+        return "ok", view
     finally:
         out.unlink(missing_ok=True)
 
@@ -333,13 +341,12 @@ def mirror_problem(path: Path, view: dict, read=None, fetch=None) -> str | None:
         return None
     if any(isinstance(v, dict) and isinstance(v.get("ir"), dict) and "objects" in v["ir"] for v in own.values()):
         return store_mirror_problem(path, view, fetch)
-    from refkv.ir.cmirror import Archive, canonical_problem, load, view_problem
 
     url = view["sources"][0]
 
     def read_source(o: int, n: int) -> bytes:
-        req = urllib.request.Request(url, headers={"Range": f"bytes={o}-{o + n - 1}"})
-        with urllib.request.urlopen(req, timeout=120) as r:
+        req = urllib.request.Request(url, headers={"Range": f"bytes={o}-{o + n - 1}"})  # noqa: S310 (an http(s) corpus URL)
+        with urllib.request.urlopen(req, timeout=120) as r:  # noqa: S310 (as above)
             return r.read()
 
     read = read or read_source
@@ -373,19 +380,12 @@ def store_mirror_problem(path: Path, view: dict, fetch=None) -> str | None:
     `source.url`) by `fetch(url, offset, length)`, by default over HTTP: the held objects whole,
     and the values the view shows of an object described in place (a SAFE band file) exactly,
     each its own range, at the object's virtual offsets. No source 0 is read."""
-    import bisect
-
-    from refkv import _core
-
-    from refkv.ir.cmirror import Archive, canonical_problem, load, view_problem
-    from refkv.zarrify.store import object_url
-
     def never(o: int, n: int) -> bytes:
         raise AssertionError(f"a store's mirror read [{o}, {o + n}) of a source 0")
 
     def get_url(url: str, o: int, n: int) -> bytes:
-        req = urllib.request.Request(url, headers={"Range": f"bytes={o}-{o + n - 1}"})
-        with urllib.request.urlopen(req, timeout=120) as r:
+        req = urllib.request.Request(url, headers={"Range": f"bytes={o}-{o + n - 1}"})  # noqa: S310 (an http(s) corpus URL)
+        with urllib.request.urlopen(req, timeout=120) as r:  # noqa: S310 (as above)
             return r.read()
 
     fetch = fetch or get_url
@@ -460,7 +460,8 @@ def check(item: tuple, impls: dict, out_dir: Path) -> dict:
     name, url = item[:2]
     if len(item) > 2 and item[2] == "py-only":  # past the browser's limit: every implementation but web
         impls = {k: v for k, v in impls.items() if k != "web"}
-    if len(item) > 2 and item[2] == "no-ref":  # a profile the frozen reference never had (its `reference` is null), or REVISED: py and web alone
+    # a profile the frozen reference never had (its `reference` is null), or REVISED: py and web alone
+    if len(item) > 2 and item[2] == "no-ref":
         impls = {k: v for k, v in impls.items() if k != "ref"}
     results = {n: run(impl, url, out_dir / f"{name}.{n}.out") for n, impl in impls.items()}
     ref_name = next(iter(impls))
@@ -535,7 +536,8 @@ def without_added(output: dict) -> dict:
         return output
     attrs = root[1]["attributes"]
     ome = {k: v for k, v in attrs["ome"].items() if k not in drop}
-    return {**output, "entries": {**output["entries"], "zarr.json": (root[0], {**root[1], "attributes": {**attrs, "ome": ome}})}}
+    root = (root[0], {**root[1], "attributes": {**attrs, "ome": ome}})
+    return {**output, "entries": {**output["entries"], "zarr.json": root}}
 
 
 def without_source(output: dict) -> dict:
@@ -621,7 +623,7 @@ def main(argv: list[str]) -> int:
             impls.pop(opts[i + 1], None)
     only = opts[opts.index("--only") + 1] if "--only" in opts else None
     fixtures = Path(opts[opts.index("--fixtures") + 1]) if "--fixtures" in opts else ROOT / "fixtures"
-    proxy = Proxy(fixtures, Path("/tmp/vzip-proxy-cache"))
+    proxy = Proxy(fixtures, Path("/tmp/vzip-proxy-cache"))  # noqa: S108 (the cache the runs share, by design)
     listing = opts[opts.index("--idr-listing") + 1] if "--idr-listing" in opts else None
     items = corpus(proxy, fixtures, "--quick" in opts, "--fixtures" in opts, "--large" in opts, listing)
     if only:
@@ -638,7 +640,7 @@ def main(argv: list[str]) -> int:
             results.append(r)
             line = "  ".join(f"{n}:{v[0]}" for n, v in r["verdicts"].items())
             print(f"{r['name'][:44]:44s} {line}", flush=True)
-            for n, (verdict, details) in r["verdicts"].items():
+            for n, (_verdict, details) in r["verdicts"].items():
                 for d in details[:4]:
                     print(f"      {n}: {d}", flush=True)
     (out / "results.json").write_text(json.dumps(results, indent=1, default=str))

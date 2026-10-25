@@ -5,6 +5,7 @@ Windows cases run on every system."""
 
 import ntpath
 import posixpath
+import re
 
 import pytest
 
@@ -144,7 +145,7 @@ def test_file_path_refuses_an_encoded_slash_or_nul():
 
 def test_file_path_refuses_an_encoded_dot_segment():
     for flavor, url in ((P, "file:///a/%2E%2E/b"), (W, "file:///C:/a/%2e/b")):
-        with pytest.raises(ValueError, match="encoded '.' or '..' segment"):
+        with pytest.raises(ValueError, match=re.escape("encoded '.' or '..' segment")):
             file_path(url, pathmod=flavor)
 
 

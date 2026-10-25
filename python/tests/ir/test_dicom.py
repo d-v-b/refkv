@@ -4,8 +4,8 @@ DICOM probes of gen_probes.py at the tests' sizes."""
 
 
 import pytest
-
 from ir_helpers import FIXTURES, as_the_reference
+
 from refkv.ir import zarrify as via_ir
 
 DICOMS = sorted((FIXTURES / "dicom").glob("*.dcm"))

@@ -10,10 +10,12 @@ from __future__ import annotations
 import math
 import os
 import re
+import zipfile
 from pathlib import Path
 from urllib.parse import quote, unquote, urljoin, urlparse
 
 import pbref
+from http_server import QUIRKS, etag_for
 
 RESERVED = "__vz__/"
 ERROR = {"ok": False}
@@ -33,8 +35,6 @@ def _utf8_key(k: str) -> bytes:
 
 def _recorded_revision(archive_path) -> int | None:
     """The spec revision the archive's writer recorded in its source table, if any."""
-    import zipfile
-
     try:
         with zipfile.ZipFile(archive_path) as z:
             t = pbref.SourceTable.FromString(z.read(RESERVED + "sources"))
@@ -44,14 +44,13 @@ def _recorded_revision(archive_path) -> int | None:
 
 
 class Model:
-    def __init__(self, desc: dict, archive_path: Path, index_body: bytes | None = None,
-                 http: tuple[str, Path] | None = None):
+    def __init__(self, desc: dict, archive_path: Path, http: tuple[str, Path] | None = None):
         self.http = http  # (server base URL, directory it serves)
         self.desc = desc
         # spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>:
-        # absolute, lexically normalised, symlinks not resolved, and
+        # absolute, lexically normalized, symlinks not resolved, and
         # every byte other than unreserved / sub-delims / ":" "@" "/" percent-encoded
-        abs_path = os.path.normpath(os.path.join(os.getcwd(), str(archive_path)))
+        abs_path = os.path.normpath(Path.cwd() / archive_path)
         self.base = "file://" + quote(abs_path.encode(), safe="/:@!$&'()*+,;=")
         self.entries = {e["key"]: e for e in desc["entries"]}
         self.sources = desc.get("sources", [])
@@ -108,9 +107,7 @@ class Model:
         """What a §5.2
         <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#52-reading-over-http> reader gets
         from conformance/vzip/http_server.py for this source."""
-        from http_server import QUIRKS, etag_for
-
-        rel = unquote(url[len(self.http[0]):].split("?")[0])
+        rel = unquote(url[len(self.http[0]):].split("?", maxsplit=1)[0])
         quirk, _, rest = rel.partition("/")
         if quirk not in QUIRKS:
             quirk, rest = None, rel
@@ -254,11 +251,10 @@ def standard_queries(desc: dict, extra_keys: list[str] = ()) -> list[dict]:
         qs.append({"op": "classify", "key": k})
         qs.append({"op": "get", "key": k})
         qs.append({"op": "get_raw", "key": k})
-        for r in ({"start": 1, "end": 3}, {"start": 0, "end": 10**9}, {"offset": 2},
-                  {"suffix": 3}, {"suffix": 10**9}, {"start": 4, "end": 4}):
-            qs.append({"op": "get", "key": k, "range": r})
+        qs.extend({"op": "get", "key": k, "range": r}
+                  for r in ({"start": 1, "end": 3}, {"start": 0, "end": 10**9}, {"offset": 2},
+                            {"suffix": 3}, {"suffix": 10**9}, {"start": 4, "end": 4}))
     qs.append({"op": "get", "key": keys[0] if keys else "x", "range": {"start": 5, "end": 2}})
     qs.append({"op": "get", "key": "nope", "range": {"start": 5, "end": 2}})
-    for p in ["", "r/", "unicode/", "__vz__/", "zz"]:
-        qs.append({"op": "list", "prefix": p})
+    qs.extend({"op": "list", "prefix": p} for p in ["", "r/", "unicode/", "__vz__/", "zz"])
     return qs

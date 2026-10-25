@@ -66,7 +66,7 @@ class Upstream:
     def _open(self, req):
         for attempt in range(6):
             try:
-                return urllib.request.urlopen(req, timeout=120)
+                return urllib.request.urlopen(req, timeout=120)  # noqa: S310 (an http(s) corpus URL)
             except urllib.error.HTTPError as e:
                 if e.code not in (429, 500, 502, 503, 504) or attempt == 5:
                     raise
@@ -74,6 +74,7 @@ class Upstream:
                 if attempt == 5:
                     raise
             time.sleep(2**attempt)
+        return None
 
     def size(self, url: str) -> int:
         if url not in self.sizes:
@@ -81,7 +82,7 @@ class Upstream:
             if f.exists():
                 self.sizes[url] = int(f.read_text())
             else:
-                req = urllib.request.Request(url, headers={"Range": "bytes=0-0", "User-Agent": UA})
+                req = urllib.request.Request(url, headers={"Range": "bytes=0-0", "User-Agent": UA})  # noqa: S310 (an http(s) corpus URL)
                 with self._open(req) as r:
                     total = (r.headers.get("Content-Range") or "").rpartition("/")[2]
                     self.sizes[url] = int(total) if total.isdecimal() else int(r.headers["Content-Length"])
@@ -94,7 +95,7 @@ class Upstream:
             return f.read_bytes()
         start = i * BLOCK
         end = min(self.size(url), start + BLOCK)
-        req = urllib.request.Request(url, headers={"Range": f"bytes={start}-{end - 1}", "User-Agent": UA})
+        req = urllib.request.Request(url, headers={"Range": f"bytes={start}-{end - 1}", "User-Agent": UA})  # noqa: S310 (an http(s) corpus URL)
         with self._open(req) as r:
             data = r.read()
         if len(data) != end - start:
@@ -122,7 +123,7 @@ def local_listing(fixtures: Path, prefix: str) -> list[tuple[str, int]]:
         return []
     out = []
     for dirpath, dirnames, filenames in os.walk(top):
-        dirnames[:] = [d for d in dirnames if not os.path.islink(os.path.join(dirpath, d))]
+        dirnames[:] = [d for d in dirnames if not (Path(dirpath) / d).is_symlink()]
         for name in filenames:
             full = Path(dirpath) / name
             if full.is_symlink() or not full.is_file():
@@ -155,7 +156,7 @@ class RemoteListings:
         """(relative key, size) of the objects of the store at `store_url` whose
         relative key starts with `rest`."""
         sys.path.insert(0, str(ROOT / "python" / "src"))
-        from refkv.zarrify.store import listing_endpoint, parse_listing, query_encode
+        from refkv.zarrify.store import listing_endpoint, parse_listing, query_encode  # noqa: PLC0415 (see above)
 
         f = self.upstream.cache / (hashlib.sha256(f"list:{store_url}|{rest}".encode()).hexdigest() + ".json")
         if f.exists():
@@ -167,7 +168,7 @@ class RemoteListings:
             q = f"?list-type=2&prefix={query_encode(full)}"
             if token is not None:
                 q += f"&continuation-token={query_encode(token)}"
-            req = urllib.request.Request(endpoint + q, headers={"User-Agent": UA})
+            req = urllib.request.Request(endpoint + q, headers={"User-Agent": UA})  # noqa: S310 (an http(s) corpus URL)
             with self.upstream._open(req) as r:
                 body = r.read()
             listed, token = parse_listing(body, full)
@@ -256,10 +257,11 @@ def make_handler(fixtures: Path, upstream: Upstream, page_size: int = 100):
             if t is None:
                 return self._send(404, {"Content-Length": "0"})
             self._send(200, {"Content-Length": str(t[0]), "Accept-Ranges": "bytes"})
+            return None
 
         def do_GET(self):
             if self._listing():
-                return
+                return None
             t = self._target()
             if t is None:
                 return self._send(404, {}, b"not found")
@@ -279,6 +281,7 @@ def make_handler(fixtures: Path, upstream: Upstream, page_size: int = 100):
             except Exception as e:  # noqa: BLE001
                 return self._send(502, {}, str(e).encode())
             self._send(206, {"Content-Range": f"bytes {start}-{end - 1}/{size}", "Accept-Ranges": "bytes"}, body)
+            return None
 
     return Handler
 
@@ -303,9 +306,9 @@ class Proxy:
         return f"{self.base}u/{encode_id(url)}/"
 
     def remote(self, url: str) -> str:
-        name = url.split("?")[0].rstrip("/").rsplit("/", 1)[-1] or "file"
+        name = url.split("?", maxsplit=1)[0].rstrip("/").rsplit("/", 1)[-1] or "file"
         if name == "content":  # Zenodo: .../files/<name>/content
-            name = url.split("/files/")[-1].split("/")[0]
+            name = url.rsplit("/files/", maxsplit=1)[-1].split("/", maxsplit=1)[0]
         return f"{self.base}u/{encode_id(url)}/{name}"
 
 

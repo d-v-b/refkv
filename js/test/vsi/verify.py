@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import sys
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -29,8 +30,8 @@ HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
-from refkv import _core  # noqa: E402
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
+from refkv import _core  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
@@ -49,12 +50,12 @@ def as_tczyx(arr: np.ndarray, axes: list[str], samples: int) -> np.ndarray:
 
 def bioformats():
     try:
-        from bioio_bioformats import Reader
+        from bioio_bioformats import Reader  # noqa: PLC0415 (optional, and it starts a JVM)
 
         Reader(str(ROOT / "fixtures" / "vsi" / "vsi_no_stacks.vsi"))
-        return Reader
     except Exception:  # noqa: BLE001
         return None
+    return Reader
 
 
 def problems_of(path: Path, out: Path, summary: dict, Reader) -> list[str]:
@@ -81,7 +82,7 @@ def problems_of(path: Path, out: Path, summary: dict, Reader) -> list[str]:
         ours = [(k, im) for k, im in enumerate(images) if im["source"] == "tiles" or im["kind"] == "macro"]
         if len(r.scenes) != len(ours):
             problems.append(f"Bio-Formats reads {len(r.scenes)} scenes, we have {len(ours)} images")
-        for (k, im), scene in zip(ours, r.scenes):
+        for (k, im), scene in zip(ours, r.scenes, strict=False):
             r.set_scene(scene)
             r.set_resolution_level(0)  # the level stays set across scenes
             rgb = "S" in str(r.dims)
@@ -98,8 +99,6 @@ def problems_of(path: Path, out: Path, summary: dict, Reader) -> list[str]:
                 elif np.abs(got.astype(np.int64) - want.astype(np.int64)).max() > tolerance:
                     problems.append(f"{scene} level {level}: values differ from Bio-Formats'")
     # the rebuild: every file of the input from the mirror's table and its own bytes
-    import zipfile
-
     with zipfile.ZipFile(out) as z:
         names = set(z.namelist())
 

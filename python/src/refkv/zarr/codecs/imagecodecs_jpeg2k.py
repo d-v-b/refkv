@@ -22,7 +22,7 @@ class Jpeg2kCodec(ArrayBytesCodec):
     is_fixed_size = False
 
     @classmethod
-    def from_dict(cls, data: dict) -> Self:
+    def from_dict(cls, _data: dict) -> Self:
         return cls()
 
     def to_dict(self) -> dict:

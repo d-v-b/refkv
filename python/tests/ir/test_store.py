@@ -18,7 +18,8 @@ from xml.sax.saxutils import escape
 import pytest
 
 from refkv import _core
-from refkv.ir.store import zarrify_store
+from refkv.ir.store import StoreIrOutput, zarrify_store
+from refkv.pb import decode_source_table
 from refkv.zarrify.common import Rejected
 from refkv.zarrify.store import object_url
 
@@ -40,7 +41,7 @@ class FakeS3:
         self.inflight = self.most = 0
         self.lock = threading.Lock()
 
-    def __call__(self, req, timeout=None):
+    def __call__(self, req, timeout=None):  # noqa: ARG002 (urlopen's signature)
         class R(io.BytesIO):
             status = 200
 
@@ -90,12 +91,14 @@ def test_a_store_run_reads_each_document_once_and_its_mirror_rebuilds_them(root,
             zarrify_store(URL, opener=s3, workers=4)
         assert all(is_doc(k, objects[k]) and n == 1 for k, n in s3.reads.items()), s3.reads
         return
-    out, ir, stats = zarrify_store(URL, opener=s3, workers=4)
+    out, _ir, stats = zarrify_store(URL, opener=s3, workers=4)
     # each document read once, in one batch, at most 4 at a time; no chunk object read
     docs = set(s3.reads)
-    assert s3.reads == {k: 1 for k in docs} and all(is_doc(k, objects[k]) for k in docs)
+    assert s3.reads == dict.fromkeys(docs, 1)
+    assert all(is_doc(k, objects[k]) for k in docs)
     assert s3.most <= 4
-    assert stats["batches"] == 1 and stats["objects"] == len(docs)
+    assert stats["batches"] == 1
+    assert stats["objects"] == len(docs)
     # the referenced objects: one url source each, in order of the entries' keys
     assert sorted(set(out.sources)) == sorted(object_url(URL, k) for k, v in objects.items() if v and k not in docs)
     assert len(out.sources) == len(set(out.sources))
@@ -158,8 +161,6 @@ def test_a_store_output_numbers_its_sources_by_first_use():
     """One url source per object a reference uses, in order of first use (references by
     key, ranges in order), each pinning its listed size; then the data sources, by first
     use too; literals stay."""
-    from refkv.ir.store import StoreIrOutput
-
     out = StoreIrOutput(URL, refs={
         "b/c/0": [b"\x01", ("object", "x.jp2", 10, 4), (2, 0, 3)],
         "a/c/0": [("object", "y.jp2", 0, 8), (2, 0, 3), (1, 0, 2)],
@@ -174,9 +175,6 @@ def test_a_store_output_numbers_its_sources_by_first_use():
 
 def test_a_store_output_pins_its_objects_listed_sizes(tmp_path):
     """Each url source pins its object's listed size, and an object the listing lacks pins none."""
-    from refkv.ir.store import StoreIrOutput
-    from refkv.pb import decode_source_table
-
     out = StoreIrOutput(URL, refs={"a": [("object", "x.jp2", 0, 4)], "b": [("object", "y.jp2", 0, 2)]},
                         sizes={"x.jp2": 20})
     out.write(str(tmp_path / "o.vzip"))
@@ -185,7 +183,5 @@ def test_a_store_output_pins_its_objects_listed_sizes(tmp_path):
 
 
 def test_a_store_output_refuses_a_reference_to_source_0():
-    from refkv.ir.store import StoreIrOutput
-
     with pytest.raises(AssertionError, match="source 0"):
         StoreIrOutput(URL, refs={"a": [(0, 4)]}).table()

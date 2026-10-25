@@ -35,8 +35,8 @@ def video(size: str = "64x48", rate: int = 10, seconds: float = 3) -> list[str]:
 
 def audio(rate: int = 16000, seconds: float = 3, channels: int = 1) -> list[str]:
     layout = "mono" if channels == 1 else "stereo"
-    return ["-f", "lavfi", "-i", f"sine=frequency=440:sample_rate={rate}:duration={seconds},"
-            f"aformat=channel_layouts={layout}"]
+    return ["-f", "lavfi", "-i", (f"sine=frequency=440:sample_rate={rate}:duration={seconds},"
+            f"aformat=channel_layouts={layout}")]
 
 
 X264 = ["-c:v", "libx264", "-threads", "1", "-pix_fmt", "yuv420p"]
@@ -100,8 +100,9 @@ def main() -> None:
     write("mp4_h264_baseline.mp4", ffmpeg(*video(), *X264, "-profile:v", "baseline", "-g", "5"))
     write("mp4_h264_intra.mp4", ffmpeg(*video(seconds=1.5), *X264, "-g", "1"))
     write("mp4_h264_odd_size.mp4", ffmpeg(*video("62x46"), *X264, "-g", "8", "-bf", "3"))
-    write("mp4_h264_vfr.mp4", ffmpeg(*video(), "-vf", "settb=1/1000,setpts='N*0.1/TB+0.03*mod(N,3)/TB'", "-fps_mode", "passthrough",
-                                     "-enc_time_base", "1/1000", "-video_track_timescale", "1000", *X264, "-g", "9", "-bf", "2"))
+    write("mp4_h264_vfr.mp4",
+          ffmpeg(*video(), "-vf", "settb=1/1000,setpts='N*0.1/TB+0.03*mod(N,3)/TB'", "-fps_mode", "passthrough",
+                 "-enc_time_base", "1/1000", "-video_track_timescale", "1000", *X264, "-g", "9", "-bf", "2"))
     write("mp4_h264_long.mp4", ffmpeg(*video("32x32", 25, 16), *X264, "-g", "50", "-bf", "3"))
     write("mp4_h264_irregular_groups.mp4", irregular_groups())
     # open groups: each keyframe after the first a non-IDR I picture, followed in decode order
@@ -114,7 +115,8 @@ def main() -> None:
     # decodes from a generator of its own), AAC with it, and MP3
     write("mp4_h264_aac.mp4", ffmpeg(*video(), *audio(), *X264, "-g", "10", "-bf", "2", *AAC))
     write("mp4_aac_stereo.mp4", ffmpeg(*audio(44100, 2, 2), *AAC))
-    write("mp4_aac_pns.mp4", ffmpeg("-f", "lavfi", "-i", "anoisesrc=d=2:c=pink:r=16000:a=0.3", "-c:a", "aac", "-b:a", "24k"))
+    write("mp4_aac_pns.mp4",
+          ffmpeg("-f", "lavfi", "-i", "anoisesrc=d=2:c=pink:r=16000:a=0.3", "-c:a", "aac", "-b:a", "24k"))
     write("mp4_h264_mp3.mp4", ffmpeg(*video(), *audio(), *X264, "-g", "10", "-c:a", "libmp3lame", "-b:a", "32k"))
     write("mov_h264_aac.mov", ffmpeg(*video(), *audio(), *X264, "-g", "10", "-bf", "2", *AAC, fmt="mov"))
     # boxes: a 64-bit mdat size (the 8-byte free box ffmpeg writes before mdat, so that the
@@ -142,10 +144,11 @@ def main() -> None:
     write("mp4_reject_fragmented.mp4", ffmpeg(*video(), *X264, "-g", "10", "-movflags", "frag_keyframe+empty_moov"))
     o, _, _ = find(plain, "/moov")
     write("mp4_reject_no_moov.mp4", plain[:o])
-    write("mp4_reject_hevc_only.mp4", ffmpeg(*video(), "-c:v", "libx265", "-x265-params", "log-level=error:pools=1", "-g", "10"))
+    write("mp4_reject_hevc_only.mp4",
+          ffmpeg(*video(), "-c:v", "libx265", "-x265-params", "log-level=error:pools=1", "-g", "10"))
     o, _, n = find(fast, "/moov")
     write("mp4_reject_box_outside.mp4", fast[:o] + struct.pack(">I", n + len(fast)) + fast[o + 4:])
-    f, _, fn = find(fast, "/ftyp")
+    _f, _, fn = find(fast, "/ftyp")
     write("mp4_reject_box_too_small.mp4", fast[:fn] + struct.pack(">I4s", 4, b"free") + fast[fn:])
     o, _, n = find(plain, "/moov")
     write("mp4_reject_moov_twice.mp4", plain + plain[o:o + n])
@@ -160,8 +163,8 @@ def irregular_groups() -> bytes:
     """60 pictures with B-frames whose groups start at pictures 0, 7, 9, 23 and 40: keyframes
     forced (as IDR pictures, closing each group) and none other, so that the profile's video
     chunks of whole groups have unequal lengths (a rectilinear grid)."""
-    return ffmpeg(*video(seconds=6), *X264, "-bf", "2", "-x264-params", "keyint=200:min-keyint=1:scenecut=0:forced-idr=1",
-                  "-force_key_frames", "0,0.7,0.9,2.3,4.0")
+    return ffmpeg(*video(seconds=6), *X264, "-bf", "2", "-x264-params",
+                  "keyint=200:min-keyint=1:scenecut=0:forced-idr=1", "-force_key_frames", "0,0.7,0.9,2.3,4.0")
 
 
 def subprocess_title(*args: str) -> bytes:

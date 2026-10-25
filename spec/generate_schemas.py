@@ -51,14 +51,16 @@ MIRROR_DEFS = {
                 "size": {"type": "integer", "minimum": 0,
                          "description": "The source's size in bytes (a store IR's: its objects' sizes, summed)"},
                 "objects": {"type": "integer", "minimum": 0,
-                            "description": "A store IR's objects (spec/conventions.md §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>); a file IR has none"},
+                            "description": "A store IR's objects (spec/conventions.md §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>);"
+                                           " a file IR has none"},
                 "elements": {"type": "integer", "minimum": 1, "description": "The elements, column runs expanded"},
                 "rows": {"type": "integer", "minimum": 1, "description": "The rows the table stores"},
                 "names": {"type": "array", "items": {"type": "string"}, "minItems": 1,
                           "prefixItems": [{"const": ""}],
                           "description": "The interned names, sorted; the first, \"\", is the root's (conventions §8.1 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#81-elements>)"},
                 "types": {"type": "array", "items": {"type": "string"}, "minItems": 1,
-                          "prefixItems": [{"const": ""}], "description": "The interned types (§8.6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#86-types>)"},
+                          "prefixItems": [{"const": ""}],
+                          "description": "The interned types (§8.6 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#86-types>)"},
                 "forms": {"type": "array", "items": {"type": "string"},
                           "description": "The interned forms, each a JSON text (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"},
             },
@@ -73,7 +75,8 @@ MIRROR_DEFS = {
         "description": "A view group's (refkv_source/tree/...): a struct's view document (spec/conventions.md §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>)",
         "properties": {
             "$vz": {"const": "derived", "description": "A derived element's document"},
-            "$form": {"type": ["string", "null"], "description": "A derived element's form (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"},
+            "$form": {"type": ["string", "null"],
+                      "description": "A derived element's form (§8.5 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#85-forms-and-recipes>)"},
             "$partial": {"const": True, "description": "The document stops short of the struct's children"},
         },
         "minProperties": 1,
@@ -101,14 +104,18 @@ MIRROR_DEFS = {
 STORE_MIRROR_DEFS = {
     "storeMirror": {
         "type": "object",
-        "description": "refkv_source's, for a store convention: the IR mirror's description (spec/conventions.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>, §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), and the members the convention keeps beside it",
+        "description": "refkv_source's, for a store convention: the IR mirror's description "
+                       "(spec/conventions.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#82-the-table>,"
+                       " §8.9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>),"
+                       " and the members the convention keeps beside it",
         "properties": {
             "ir": {"$ref": "#/$defs/mirror/properties/ir"},
             "empty_dirs": {"type": "array", "items": {"type": "string"}, "minItems": 1,
                            "description": "A SAFE product's empty directories (spec/zarrify/safe.md §6.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>)"},
             "ignored": {"type": "array", "items": {"type": "string"}, "minItems": 1,
                         "description": "The recorded keys of the listed objects that spec/zarrify.md "
-                                       "§1.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs> ignores"},
+                                       "§1.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>"
+                                       " ignores"},
         },
         "required": ["ir"],
         "additionalProperties": False,
@@ -134,7 +141,8 @@ def schema(profile: str) -> dict:
                        "additionalProperties": False},
             "layouts": {"type": "object", "minProperties": 1,
                         "additionalProperties": {"type": "string", "pattern": "^[^/]+(/[^/]+)*$"},
-                        "description": "The other layouts of the source in this hierarchy, by name, each the path of its node below the root (spec/conventions.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)"},
+                        "description": "The other layouts of the source in this hierarchy, by name, each the path of "
+                                       "its node below the root (spec/conventions.md §9 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#9-dataset-layouts>)"},
             profile: {"$ref": "#/$defs/sourceMetadata"},
         },
         "required": ["profile", "version", "source"],

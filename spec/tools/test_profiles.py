@@ -4,9 +4,8 @@ import json
 import re
 from pathlib import Path
 
-import pytest
-
 import profiles
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -22,24 +21,25 @@ def test_every_profile_has_its_documents():
     for e in profiles.load():
         doc = ROOT / "spec" / "zarrify" / f"{e['name']}.md"
         text = doc.read_text(encoding="utf-8")
-        assert re.search(rf"^Convention version: {e['version']} .*UUID: `{e['uuid']}`", text, re.M), doc
+        assert re.search(rf"^Convention version: {e['version']} .*UUID: `{e['uuid']}`", text, re.MULTILINE), doc
         assert (ROOT / "spec" / "zarrify" / e["name"] / "schema.json").is_file(), doc
         if e["kind"] == "layout":
             assert "# Part 2" not in text, doc
             continue
         part1 = text[: text.index("\n# Part 2")]
-        last = max(int(n) for n in re.findall(r"^## (\d+)\. ", part1, re.M))
+        last = max(int(n) for n in re.findall(r"^## (\d+)\. ", part1, re.MULTILINE))
         assert profiles.profile_heading(e)[0] == str(last + 1), doc
         assert (ROOT / "rust" / "refkv-ir" / "schema" / f"{e['name']}.json").is_file(), doc
         assert (ROOT / "fixtures" / e["name"]).is_dir(), doc
 
 
 def test_the_registry_is_validated():
-    for bad in ({"kind": "image"}, {"sniff": "10"}, {"kind": "store", "suffixes": []}, {"suffixes": []}, {"uuid": "x"},
-                {"name": "Tiff"}):
+    for bad, message in (({"kind": "image"}, "is not one of"), ({"sniff": "10"}, "signature"),
+                         ({"kind": "store", "suffixes": []}, "signature"), ({"suffixes": []}, "suffixes"),
+                         ({"uuid": "x"}, "not a UUID"), ({"name": "Tiff"}, "not a profile name")):
         entries = profiles.load()
         entries[0].update(bad)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=message):
             profiles.validate(entries)
 
 

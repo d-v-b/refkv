@@ -9,15 +9,16 @@ import json
 import logging
 import re
 
+import imagecodecs
 import numpy as np
 import pytest
 import tifffile
 import zarr
-
 from ir_helpers import FIXTURES, assert_rebuilds, omero_and_expected_windows
+
 from refkv.ir import zarrify as via_ir
-from refkv.zarrify import Rejected, zarrify
 from refkv.zarr import ZarrStore
+from refkv.zarrify import Rejected, zarrify
 
 logging.getLogger("tifffile").setLevel(logging.ERROR)  # its warnings on the rejected fixtures
 
@@ -73,7 +74,8 @@ def test_accepted_fixtures_are_valid_irs_that_rebuild(path, tmp_path):
     assert fmt == "qptiff"
     ir.check()
     root = docs(out)["zarr.json"]["attributes"]["refkv_zarrified"]
-    assert root["profile"] == "qptiff" and root["qptiff"] == {"byte_order": "little", "bigtiff": "bigtiff" in path.name}
+    assert root["profile"] == "qptiff"
+    assert root["qptiff"] == {"byte_order": "little", "bigtiff": "bigtiff" in path.name}
     assert_rebuilds(out, data, tmp_path)
 
 
@@ -89,7 +91,8 @@ def test_levels_read_as_tifffile_decodes_them(path):
     assert [d["path"] for d in g.attrs["ome"]["multiscales"][0]["datasets"]] == [str(i) for i in range(len(want))]
     for i, level in enumerate(want):
         got = g[str(i)][...]
-        assert got.dtype == level.dtype and got.shape == level.shape, (path.name, i)
+        assert got.dtype == level.dtype, (path.name, i)
+        assert got.shape == level.shape, (path.name, i)
         assert np.array_equal(got, level), (path.name, i)
 
 
@@ -109,7 +112,8 @@ def test_layout_of_the_fluorescence_scan():
     assert [a["name"] for a in ms["axes"]] == ["c", "y", "x"]
     assert [a.get("unit") for a in ms["axes"]] == [None, "micrometer", "micrometer"]
     scales = [ds["coordinateTransformations"][0]["scale"] for ds in ms["datasets"]]
-    assert scales[0] == [1, 10000 / 20080, 10000 / 20080] and scales[1][1] == 2 * scales[0][1]
+    assert scales[0] == [1, 10000 / 20080, 10000 / 20080]
+    assert scales[1][1] == 2 * scales[0][1]
     assert all(ds["coordinateTransformations"][1] == {"type": "translation", "translation": [0, 484400.0, 88600.0]}
                for ds in ms["datasets"])
     assert [{k: v for k, v in c.items() if k != "window"} for c in ome["omero"]["channels"]] == [
@@ -124,9 +128,13 @@ def test_layout_of_the_fluorescence_scan():
     assert d["2/zarr.json"]["chunk_grid"] == {"name": "regular", "configuration": {"chunk_shape": [1, 16, 32]}}
     chunks = sorted(k for k in out.refs if not k.startswith("refkv_source/"))
     assert len(chunks) == 3 * (12 + 4 + 2)
-    assert chunks[-1] == "2/c/2/1/0" and len(out.refs["0/c/1/2/3"]) == 1 and len(out.refs["0/c/1/2/3"][0]) == 2  # one range of source 0
+    assert chunks[-1] == "2/c/2/1/0"
+    assert len(out.refs["0/c/1/2/3"]) == 1
+    assert len(out.refs["0/c/1/2/3"][0]) == 2  # one range of source 0
     first, second = out.refs["2/c/0/0/0"], out.refs["2/c/0/1/0"]
-    assert len(first) == 1 and len(second) == 2 and isinstance(second[1], bytes)  # the strip's prefix, then the tail
+    assert len(first) == 1
+    assert len(second) == 2
+    assert isinstance(second[1], bytes)  # the strip's prefix, then the tail
     assert second[0][0] == first[0][0] + first[0][1]  # the last strip follows the first
     assert len(out.data) == 0  # no JPEG, no zeros: no data sources
 
@@ -143,8 +151,11 @@ def test_layout_of_an_rgb_scan_and_of_component_data():
     assert d["0/zarr.json"]["chunk_grid"]["configuration"]["chunk_shape"] == [3, 32, 32]
     labels = [c["label"] for c in d["zarr.json"]["attributes"]["ome"]["omero"]["channels"]]
     assert labels == ["BrightField R", "BrightField G", "BrightField B"]
-    assert len(out.data) == 1 and out.data and len(out.refs["0/c/0/0/0"]) == 3  # SOI, the Adobe marker, the rest
-    assert "2/zarr.json" not in d and not any(k.startswith("2/") for k in out.refs)  # 24 rows in JPEG strips of 16
+    assert len(out.data) == 1
+    assert out.data
+    assert len(out.refs["0/c/0/0/0"]) == 3  # SOI, the Adobe marker, the rest
+    assert "2/zarr.json" not in d
+    assert not any(k.startswith("2/") for k in out.refs)  # 24 rows in JPEG strips of 16
     assert out.summary["levels"] == [[3, 96, 128], [3, 48, 64]]
 
     _, out, _ = via_ir(str(FIXTURES / "qptiff" / "qptiff_bf_rgb_uncompressed.qptiff"), "u")
@@ -152,17 +163,24 @@ def test_layout_of_an_rgb_scan_and_of_component_data():
     assert d["1/zarr.json"]["chunk_grid"] == {"name": "regular", "configuration": {"chunk_shape": [3, 24, 32]}}
     assert sorted(k for k in out.refs if k.startswith("1/")) == ["1/c/0/0/0", "1/c/0/1/0"]
     whole, last = out.refs["1/c/0/0/0"], out.refs["1/c/0/1/0"]
-    assert len(whole) == 1 and len(last) == 2 and last[0][1] == 8 * 32 * 3 and last[1] == (1, 0, 16 * 32 * 3)
+    assert len(whole) == 1
+    assert len(last) == 2
+    assert last[0][1] == 8 * 32 * 3
+    assert last[1] == (1, 0, 16 * 32 * 3)
     assert list(out.data) == [bytes(16 * 32 * 3)]  # the zeros, one data source
 
     _, out, _ = via_ir(str(FIXTURES / "qptiff" / "qptiff_component_float32_strips.qptiff"), "u")
     d = docs(out)
-    assert d["0/zarr.json"]["data_type"] == "float32" and "1/zarr.json" not in d
+    assert d["0/zarr.json"]["data_type"] == "float32"
+    assert "1/zarr.json" not in d
     assert d["0/zarr.json"]["chunk_grid"] == {"name": "regular", "configuration": {"chunk_shape": [1, 16, 48]}}
-    assert len(out.refs["0/c/1/2/0"]) == 2 and isinstance(out.refs["0/c/1/2/0"][1], bytes)
+    assert len(out.refs["0/c/1/2/0"]) == 2
+    assert isinstance(out.refs["0/c/1/2/0"][1], bytes)
     assert d["zarr.json"]["attributes"]["ome"]["multiscales"][0]["name"] == "HnE_3"
-    assert [{k: v for k, v in c.items() if k != "window"} for c in d["zarr.json"]["attributes"]["ome"]["omero"]["channels"]] == [
-        {"label": "Eosin", "color": "FF3C9D", "active": True}, {"label": "Hematoxylin", "color": "32459D", "active": True}]
+    channels = d["zarr.json"]["attributes"]["ome"]["omero"]["channels"]
+    assert [{k: v for k, v in c.items() if k != "window"} for c in channels] == [
+        {"label": "Eosin", "color": "FF3C9D", "active": True},
+        {"label": "Hematoxylin", "color": "32459D", "active": True}]
 
 
 @pytest.mark.parametrize("path", QPTIFFS, ids=lambda p: p.name)
@@ -201,14 +219,16 @@ def test_a_chunk_that_does_not_decode_gives_the_type_range(tmp_path):
     not decoding gives that channel uint8's range; the others are sampled."""
     windows = broken(tmp_path, "qptiff_fl_uint8_lzw.qptiff", "2/c/1/0/0")
     assert windows[1] == {"min": 0, "max": 255, "start": 0, "end": 255}
-    assert windows[0]["start"] > 0 and windows[2]["start"] > 0
+    assert windows[0]["start"] > 0
+    assert windows[2]["start"] > 0
 
 
 def test_a_float_chunk_that_does_not_decode_gives_no_window(tmp_path):
     """Channel 0's sampled strip of the float32 component data (40 rows in strips of 16: strip 1)
     not decoding leaves that channel without a window, which a float type has no range for."""
     windows = broken(tmp_path, "qptiff_component_float32_strips.qptiff", "0/c/0/1/0")
-    assert windows[0] is None and windows[1] is not None
+    assert windows[0] is None
+    assert windows[1] is not None
 
 
 def test_unknown_and_undescribed_images_are_ignored_and_96_dpi_is_no_pixel_size():
@@ -217,11 +237,13 @@ def test_unknown_and_undescribed_images_are_ignored_and_96_dpi_is_no_pixel_size(
     _, out, ir = via_ir(str(FIXTURES / "qptiff" / "qptiff_fl_uint16_lzw_bigtiff.qptiff"), "u")
     d = docs(out)
     ms = d["zarr.json"]["attributes"]["ome"]["multiscales"][0]
-    assert "name" not in ms and [a.get("unit") for a in ms["axes"]] == [None, None, None]
+    assert "name" not in ms
+    assert [a.get("unit") for a in ms["axes"]] == [None, None, None]
     assert ms["datasets"][1]["coordinateTransformations"] == [{"type": "scale", "scale": [1, 2.0, 2.0]}]
     assert out.summary["levels"] == [[2, 64, 80], [2, 32, 40]]
     paths = {ir.path(i) for i in range(len(ir))}
-    assert "ifds/5/strips" in paths and "ifds/6/strips" in paths  # the ignored images' strips
+    assert "ifds/5/strips" in paths
+    assert "ifds/6/strips" in paths  # the ignored images' strips
 
 
 def test_a_stream_past_its_tile_decodes_to_the_tile():
@@ -229,8 +251,6 @@ def test_a_stream_past_its_tile_decodes_to_the_tile():
     the first tile of qptiff_fl_lzw_narrow_eoi.qptiff ends with its end code one bit too narrow,
     as some Vectra scanners write (code 514 to a reader), so a whole-stream decode gives 1026
     bytes for a 1024-byte tile; the codec decodes into the chunk's size and gives the tile."""
-    import imagecodecs
-
     path = FIXTURES / "qptiff" / "qptiff_fl_lzw_narrow_eoi.qptiff"
     _, out, _ = via_ir(str(path), "u")
     (offset, length), = out.refs["0/c/0/0"]

@@ -15,9 +15,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
 
 import pytest
+from refkv_reference import ndpi, virtualize
 
 from refkv.zarrify import Rejected
-from refkv_reference import ndpi, virtualize
 
 
 def _jpeg_header(factors: list[int]) -> bytes:
@@ -59,25 +59,30 @@ def test_ndpi_header_pieces_are_data_sources():
         if len(ranges) == 1:  # a level without McuStarts: its whole strip
             continue
         before, sof, after = ranges[:3]
-        assert len(before) == 3 and len(after) == 3 and isinstance(sof, bytes), key
-        assert before[1:] == (0, len(data[before[0] - 1])) and after[1:] == (0, len(data[after[0] - 1])), key
+        assert len(before) == 3, key
+        assert len(after) == 3, key
+        assert isinstance(sof, bytes), key
+        assert before[1:] == (0, len(data[before[0] - 1])), key
+        assert after[1:] == (0, len(data[after[0] - 1])), key
         head, tail = data[before[0] - 1], data[after[0] - 1]
         # In the file, the strip's SOF0 (of the literal's length) separates them.
         p = file.rfind(head + b"\xff\xc0" + sof[2:4], 0, ranges[3][0])  # this level's strip
-        assert head.startswith(b"\xff\xd8") and p >= 0, key
+        assert head.startswith(b"\xff\xd8"), key
+        assert p >= 0, key
         assert file[p + len(head) + len(sof) :].startswith(tail), key
         used |= {before[0], after[0]}
         # The strip's own SOF0, which the literal replaces, is in its IFD's source metadata.
         level = key.split("/")[0]
         group = json.loads(out.bytes_entries[f"vzip_source/ifds/{level}/zarr.json"])["attributes"]
         original = base64.b64decode(group["vzip_virtualized"]["ndpi"]["sof0"])
-        assert original[:2] == b"\xff\xc0" and file[p + len(head) : p + len(head) + len(sof)] == original, key
+        assert original[:2] == b"\xff\xc0", key
+        assert file[p + len(head) : p + len(head) + len(sof)] == original, key
     assert used == set(range(1, len(data) + 1))
     assert "sof0" not in json.loads(out.bytes_entries["vzip_source/ifds/2/zarr.json"])["attributes"][
         "vzip_virtualized"]["ndpi"]  # a level without McuStarts: its strip is referenced whole
 
 
-@pytest.mark.parametrize("name,message", [
+@pytest.mark.parametrize(("name", "message"), [
     ("edge_reject_ndpi_wide_interval.ndpi", "65536 pixels wide"),
     ("edge_reject_ndpi_short_strip.ndpi", "3 bytes is shorter than 4"),
 ])
@@ -93,8 +98,6 @@ def test_ndpi_records_every_ifd_in_its_own_group():
     its own group of vzip_source, the
     pointer tags' IFDs read in NDPI's layout, a duplicate tag, an unknown field type
     (its value field and high word), and the macro image's contiguous strips as one range."""
-    import json
-
     path = Path(__file__).parents[3] / "fixtures" / "ndpi" / "ndpi_pointers.ndpi"
     _, out = virtualize(str(path), url="https://data.test/x.ndpi")
 
@@ -111,7 +114,8 @@ def test_ndpi_records_every_ifd_in_its_own_group():
     assert source("ifds/1/exif")["tags"]["36867"]["value"] == "2026:01:01 00:00:00"
     assert source("ifds/1/ifd_65449")["tags"]["305"]["value"] == "private"
     (start, n), = out.refs["vzip_source/ifds/1/data/data/c/0"]
-    assert path.read_bytes()[start:start + n].startswith(b"\xff\xd8") and n > 2
+    assert path.read_bytes()[start:start + n].startswith(b"\xff\xd8")
+    assert n > 2
 
 
 def test_ndpi_reads_only_the_values_it_uses():

@@ -1,13 +1,13 @@
 """Low-level archive crafting helpers for tests (allows building invalid archives)."""
 
-import os
 import struct
 import sys
 import zlib
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vzip_impl import pb  # noqa: E402
+from vzip_impl import pb
 
 
 def deflate(b):
@@ -47,7 +47,7 @@ def cd_rec(e, off):
 
 def build(entries, sources_pb=b"", sources_body=None, index_pb=None, index_body=None,
           magic=b"vzip/0", comment=None, cd_override=None, cd_extra=b"", eocd_counts=None,
-          prefix_cd=None, cd_sort=False):
+          cd_sort=False):
     """Assemble an archive. Entries are written in order, then sources, then index, then CD."""
     out = bytearray()
     recs = []

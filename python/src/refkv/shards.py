@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import itertools
 import math
-from typing import TYPE_CHECKING, Literal
+from collections.abc import Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -34,17 +35,19 @@ try:
 except ImportError as e:
     raise missing("virtualizarr", "Sharded archives of VirtualiZarr datasets (refkv.shards)",
                   e) from e
-from zarr.codecs import BytesCodec, ShardingCodec  # noqa: E402
-from zarr.storage import MemoryStore  # noqa: E402
+from zarr.codecs import BytesCodec, ShardingCodec
+from zarr.core.buffer import Buffer
+from zarr.storage import MemoryStore
 
-from refkv.vzip.archive import VZipWriter
-from refkv.convert import consolidate, read_at_open, _write_loadable
+from refkv.convert import _write_loadable, consolidate, read_at_open
 from refkv.pb import Range
+from refkv.vzip.archive import VZipWriter
 
 _MISSING = np.uint64(2**64 - 1)
 
 
-def _shard_refs(ma: ManifestArray, chunks_per_shard: tuple[int, ...], shift: int = 0):
+def _shard_refs(ma: ManifestArray, chunks_per_shard: tuple[int, ...],
+                shift: int = 0) -> Iterator[tuple[tuple[int, ...], str, int, bytes]]:
     """Yield (shard index, url, end of last chunk, shard index bytes) per non-empty shard.
 
     `shift` is added to every chunk offset in the index: the number of bytes that
@@ -52,11 +55,11 @@ def _shard_refs(ma: ManifestArray, chunks_per_shard: tuple[int, ...], shift: int
     is at the start).
     """
     m = ma.manifest
-    paths, offsets, lengths = m._paths, m._offsets, m._lengths
+    paths, offsets, lengths = m._paths, m._offsets, m._lengths  # noqa: SLF001 (virtualizarr's arrays)
     grid = m.shape_chunk_grid
-    n_shards = [-(-g // c) for g, c in zip(grid, chunks_per_shard)]
+    n_shards = [-(-g // c) for g, c in zip(grid, chunks_per_shard, strict=True)]
     for sidx in itertools.product(*map(range, n_shards)):
-        block = tuple(slice(i * c, (i + 1) * c) for i, c in zip(sidx, chunks_per_shard))
+        block = tuple(slice(i * c, (i + 1) * c) for i, c in zip(sidx, chunks_per_shard, strict=True))
         p, o, n = paths[block], offsets[block], lengths[block]
         present = p != ""
         if not present.any():
@@ -67,8 +70,8 @@ def _shard_refs(ma: ManifestArray, chunks_per_shard: tuple[int, ...], shift: int
         # pad partial edge shards to the full shard shape
         idx = np.full((*chunks_per_shard, 2), _MISSING, dtype="<u8")
         sl = tuple(slice(0, s) for s in p.shape)
-        idx[sl + (0,)] = np.where(present, o + np.uint64(shift), _MISSING)
-        idx[sl + (1,)] = np.where(present, n, _MISSING)
+        idx[(*sl, 0)] = np.where(present, o + np.uint64(shift), _MISSING)
+        idx[(*sl, 1)] = np.where(present, n, _MISSING)
         end = int((o[present] + n[present]).max())
         yield sidx, str(urls[0]), end, idx.tobytes()
 
@@ -93,7 +96,8 @@ def write_vzip_sharded(
     value is built to match: `[file] ++ [index]` for "end", `[index] ++ [file]`
     for "start" (with chunk offsets shifted past the index).
     """
-    mem = MemoryStore()
+    contents: dict[str, Buffer] = {}
+    mem = MemoryStore(contents)
     virtual = {k: v for k, v in vds.variables.items() if isinstance(v.data, ManifestArray)}
     loadable = {k: v for k, v in vds.variables.items() if k not in virtual}
     if loadable:
@@ -114,7 +118,7 @@ def write_vzip_sharded(
         arr = group.create_array(
             name=name,
             shape=md.shape,
-            chunks=tuple(c * k for c, k in zip(md.chunks, cps)),
+            chunks=tuple(c * k for c, k in zip(md.chunks, cps, strict=True)),
             dtype=md.data_type.to_native_dtype(),
             serializer=sharding,
             compressors=None,
@@ -123,7 +127,7 @@ def write_vzip_sharded(
             fill_value=md.fill_value,
         )
         update_attributes(arr, var.attrs, encoding=var.encoding)
-        if ma.manifest._inlined:
+        if ma.manifest._inlined:  # noqa: SLF001 (virtualizarr has no public accessor)
             raise NotImplementedError("inlined chunks + virtual shards")
         # 16 bytes (offset, nbytes as u64) per inner chunk; no index checksum
         shift = 16 * math.prod(cps) if index_location == "start" else 0
@@ -133,7 +137,7 @@ def write_vzip_sharded(
     consolidate(mem)
 
     with open(path, "wb") as f, VZipWriter(f, page_size=page_size) as w:
-        for k, v in sorted(mem._store_dict.items()):
+        for k, v in sorted(contents.items()):
             w.add_bytes(k, v.to_bytes(), late=read_at_open(k, vds))
         for k in sorted(refs):
             url, end, index = refs[k]

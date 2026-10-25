@@ -44,17 +44,21 @@ import os
 import re
 import types
 from collections import Counter
-from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Reference, Source, parts
 from refkv.policy import Policy
-from refkv.reader import DEFAULT_CONCURRENCY, Kind, ReferenceReader, Request, Stats, _abs_range
+from refkv.reader import DEFAULT_CONCURRENCY, Kind, ReferenceReader, Registry, Request, Stats, _abs_range
 from refkv.uri import file_uri, is_uri_reference
 from refkv.uri import resolve as resolve_reference
 from refkv.vzip.names import INDEX_KEY, RESERVED_PREFIX, SOURCES_KEY
+
+if TYPE_CHECKING:
+    import xarray as xr
 
 
 @dataclass(frozen=True)
@@ -80,14 +84,14 @@ class Summary:
                 f"to {self.sources:,} sources; {self.bytes:,} bytes")
 
 
-def _page_size(page_size):
+def _page_size(page_size: int | None) -> int | None:
     if page_size is not None and (type(page_size) is not int or page_size <= 0):
         raise ValueError(f"page_size is a positive number of bytes or None, not {page_size!r}")
     return page_size
 
 
 @contextlib.contextmanager
-def bulk():
+def bulk() -> Iterator[None]:
     """Pauses the cyclic garbage collector, for the whole process, while
     millions of acyclic objects (a store's ranges and sources, a writer's
     records) are built: each collection would scan them all again, which made
@@ -108,7 +112,7 @@ def bulk():
 _ORIGIN = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*")
 
 
-def _rewrite(rewrite_urls: Mapping[str, str] | Callable[[str], str | None] | None):
+def _rewrite(rewrite_urls: Mapping[str, str] | Callable[[str], str | None] | None) -> Callable[[str], str]:
     """`rewrite_urls` as a function of a URL."""
     if rewrite_urls is None:
         return lambda url: url
@@ -188,17 +192,19 @@ class ReferenceStore(ReferenceReader):
         compressed: Iterable[str] = (),
         page_size: int | None = None,
         info: Mapping | None = None,
-        registry=None,
+        registry: Registry | None = None,
         stats: Stats | None = None,
         policy: Policy | None = None,
         max_concurrency: int | None = DEFAULT_CONCURRENCY,
     ) -> None:
-        super().__init__(url if url is not None else file_uri(os.getcwd()) + "/",
+        super().__init__(url if url is not None else file_uri(Path.cwd()) + "/",
                          registry=registry, stats=stats, policy=policy,
                          max_concurrency=max_concurrency)
         values: dict[str, bytes | Reference] = {}
         for key, v in mapping.items():
-            if not isinstance(key, str) or not key:
+            if not isinstance(key, str):
+                raise TypeError(f"keys are non-empty strings, not {key!r}")
+            if not key:
                 raise ValueError(f"keys are non-empty strings, not {key!r}")
             if key in (SOURCES_KEY, INDEX_KEY):
                 raise ValueError(f"{key!r} is a format entry, written by `save` itself")
@@ -228,7 +234,8 @@ class ReferenceStore(ReferenceReader):
         self._compressed = frozenset(compressed)
         for key in self._compressed:
             if not isinstance(values.get(key), bytes):
-                raise ValueError(f"compressed names {key!r}, which is not a key of a bytes value")
+                raise ValueError(  # noqa: TRY004 (the key's value is wrong, not its type)
+                    f"compressed names {key!r}, which is not a key of a bytes value")
         self._page_size = _page_size(page_size)
         self._info = copy.deepcopy(dict(info or {}))
 
@@ -237,10 +244,10 @@ class ReferenceStore(ReferenceReader):
     @classmethod
     def from_virtualizarr(
         cls,
-        vds,
+        vds: xr.Dataset,
         *,
         rewrite_urls: Mapping[str, str] | Callable[[str], str | None] | None = None,
-        **kwargs,
+        **kwargs: object,
     ) -> ReferenceStore:
         """The store of a VirtualiZarr virtual dataset: its Zarr v3 metadata
         (consolidated in the root `zarr.json`) and its loadable variables as
@@ -271,7 +278,7 @@ class ReferenceStore(ReferenceReader):
         - Other keyword arguments go to the `ReferenceStore` constructor
           (`policy`, `stats`, `max_concurrency`, `url`).
         """
-        from refkv.convert import read_at_open, split_virtual_dataset
+        from refkv.convert import read_at_open, split_virtual_dataset  # noqa: PLC0415 (the virtualizarr extra)
 
         concrete, refs = split_virtual_dataset(vds)
         rewrite = _rewrite(rewrite_urls)
@@ -331,7 +338,7 @@ class ReferenceStore(ReferenceReader):
         self,
         path: str | os.PathLike,
         *,
-        page_size: int | None | types.EllipsisType = ...,
+        page_size: int | types.EllipsisType | None = ...,
         mirror_refs: bool = True,
         relative_to: str | None = None,
         policy: Policy | None = None,
@@ -411,7 +418,7 @@ class ReferenceStore(ReferenceReader):
                                   f"{len(sources)} sources, so a reader could not read them. "
                                   f"The first: {refused[0]}")
         page_size = self._page_size if page_size is ... else _page_size(page_size)
-        from refkv.vzip.archive import VZipWriter
+        from refkv.vzip.archive import VZipWriter  # noqa: PLC0415 (`import refkv` imports no ZIP code)
 
         refs = 0
         with bulk(), open(path, "wb") as f, VZipWriter(f, mirror_refs=mirror_refs,
@@ -429,7 +436,7 @@ class ReferenceStore(ReferenceReader):
                                      dataclasses.replace(r, source=index[r.source])
                                      for r in parts(v)])
                     refs += 1
-            n_sources = len(w._source_list)
+            n_sources = w.n_sources
         return Summary(path, len(self._keys), refs, n_sources, Path(path).stat().st_size)
 
     # ------------------------------------------------------------ reading

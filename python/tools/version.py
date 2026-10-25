@@ -78,7 +78,7 @@ def pep440(version: str) -> str:
 
 
 def git(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *args], cwd=HERE, capture_output=True, text=True)
+    return subprocess.run(["git", *args], cwd=HERE, capture_output=True, text=True, check=False)
 
 
 def describe() -> tuple[str | None, int]:
@@ -119,7 +119,8 @@ def main(argv: list[str]) -> int:
     elif cmd == "write":
         v = version_for(argv[1], 0) if len(argv) > 1 and argv[1] else current()
         write(v)
-        print(f"version.py: refkv {v} ({pep440(v)}) written to {CARGO_TOML.name} and {CARGO_LOCK.name}", file=sys.stderr)
+        print(f"version.py: refkv {v} ({pep440(v)}) written to {CARGO_TOML.name} and {CARGO_LOCK.name}",
+              file=sys.stderr)
     elif cmd == "run":
         rest = argv[1:]
         if rest[:1] == ["--"]:
@@ -131,7 +132,7 @@ def main(argv: list[str]) -> int:
             v = current()
             write(v)
             print(f"version.py: building refkv {v} ({pep440(v)})", file=sys.stderr)
-            return subprocess.run(rest).returncode
+            return subprocess.run(rest, check=False).returncode
         finally:
             for p, b in saved.items():
                 p.write_bytes(b)

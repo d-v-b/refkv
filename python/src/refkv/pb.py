@@ -7,6 +7,7 @@ official protobuf runtime in python/tests/test_pb.py.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 _VARINT = 0
@@ -54,7 +55,7 @@ def _put_uint(out: bytearray, field_no: int, n: int) -> None:
         _put_varint(out, n)
 
 
-def _fields(buf: bytes | memoryview):
+def _fields(buf: bytes | memoryview) -> Iterator[tuple[int, int, int | memoryview | bytes]]:
     """Yield (field_no, wire type, value); value is int for varints, memoryview for LEN."""
     buf = memoryview(buf)
     pos, end = 0, len(buf)
@@ -80,7 +81,7 @@ def _fields(buf: bytes | memoryview):
         yield field_no, wire, val
 
 
-def _known(buf, schema: dict[int, int]):
+def _known(buf: bytes | memoryview, schema: dict[int, int]) -> Iterator[tuple[int, int | memoryview | bytes]]:
     """Yield (field_no, value) for fields in `schema` ({field_no: wire type}).
 
     Unknown field numbers are skipped; a known field with the wrong wire type
@@ -101,7 +102,9 @@ class Range:
     offset: int = 0
     length: int = 0
     data: bytes | None = None
-    crc32c: int | None = None  # CRC-32C of the range's bytes (spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>), source ranges only
+    # CRC-32C of the range's bytes (spec §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>),
+    # source ranges only
+    crc32c: int | None = None
 
     def encode(self) -> bytes:
         out = bytearray()
@@ -116,7 +119,7 @@ class Range:
         return bytes(out)
 
     @classmethod
-    def decode(cls, buf) -> Range:
+    def decode(cls, buf: bytes | memoryview) -> Range:
         source = offset = length = 0
         data = crc = None
         for f, v in _known(buf, {1: _VARINT, 3: _VARINT, 4: _VARINT, 5: _LEN, 6: _VARINT}):
@@ -156,7 +159,7 @@ class Concat:
         return bytes(out)
 
     @classmethod
-    def decode(cls, buf) -> Concat:
+    def decode(cls, buf: bytes | memoryview) -> Concat:
         c = cls(tuple(Range.decode(v) for _, v in _known(buf, {1: _LEN})))
         if c.size > 0xFFFFFFFFFFFFFFFF:
             raise ValueError("concat size exceeds 2^64 - 1")
@@ -218,13 +221,15 @@ class Source:
         return bytes(out)
 
     @classmethod
-    def decode(cls, buf) -> Source:
+    def decode(cls, buf: bytes | memoryview) -> Source:
         kind, pins = None, {}
         schema = {1: _LEN, 2: _LEN, 3: _LEN, 4: _VARINT, 5: _LEN, 6: _VARINT}
         for f, v in _known(buf, schema):
             if f in (1, 2, 3):
                 if f in (1, 2):
-                    _utf8(v)  # every occurrence must be valid, even if overridden (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#41-encoding>)
+                    # every occurrence must be valid, even if overridden
+                    # (§4.1 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#41-encoding>)
+                    _utf8(v)
                 kind = (f, v)  # oneof: the last member on the wire wins
             elif f == 4:
                 pins["size"] = v
@@ -252,7 +257,7 @@ def _u32(v: int) -> int:
     return v
 
 
-def _utf8(v) -> str:
+def _utf8(v: bytes | memoryview) -> str:
     try:
         return bytes(v).decode("utf-8")
     except UnicodeDecodeError as e:
@@ -263,17 +268,19 @@ def encode_source_table(sources: list[Source], revision: int | None = None) -> b
     out = bytearray()
     for src in sources:
         _put_bytes(out, 1, src.encode())
-    if revision is not None:  # optional: emitted whenever set (spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>, §1.3 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#13-versioning>)
+    # optional: emitted whenever set (spec §5 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>,
+    # §1.3 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#13-versioning>)
+    if revision is not None:
         _put_tag(out, 2, _VARINT)
         _put_varint(out, revision)
     return bytes(out)
 
 
-def decode_source_table(buf) -> list[Source]:
+def decode_source_table(buf: bytes | memoryview) -> list[Source]:
     return decode_table(buf)[0]
 
 
-def decode_table(buf) -> tuple[list[Source], int | None]:
+def decode_table(buf: bytes | memoryview) -> tuple[list[Source], int | None]:
     """The sources of a SourceTable, and the spec revision it records, if any (spec §5
     <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)."""
     sources, revision = [], None
@@ -324,7 +331,7 @@ def encode_cd_index(pages: list[Page], pinned: list[Pinned]) -> bytes:
     return bytes(out)
 
 
-def decode_cd_index(buf) -> tuple[list[Page], list[Pinned]]:
+def decode_cd_index(buf: bytes | memoryview) -> tuple[list[Page], list[Pinned]]:
     pages, pinned = [], []
     sub = {1: _LEN, 2: _VARINT, 3: _VARINT, 4: _VARINT, 5: _VARINT}
     for f, v in _known(buf, {1: _LEN, 2: _LEN}):

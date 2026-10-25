@@ -35,6 +35,7 @@ Usage: uv run python fixtures/generators/vsi/write_fixtures.py
 
 from __future__ import annotations
 
+import itertools
 import shutil
 import struct
 from pathlib import Path
@@ -51,17 +52,24 @@ SHORT, LONG, UNDEFINED, ASCII, RATIONAL = 3, 4, 7, 2, 5
 PACK = {1: "B", 2: "c", 3: "H", 4: "I", 5: "I", 7: "c"}
 
 # field types (the schema's table)
-UCHAR, SHORT_T, USHORT_T, INT, UINT, LONG_T, FLOAT, DOUBLE, BOOLEAN, TCHAR, DWORD, TIMESTAMP = 2, 3, 4, 5, 6, 7, 9, 10, 12, 13, 14, 17
-INT_RECT, DOUBLE_2, DOUBLE_INTERVAL, BGR, UNICODE_TCHAR, DIM_INDEX_1, DIM_INDEX_2, VOLUME_INDEX = 259, 260, 268, 270, 8192, 8195, 8199, 8200
+UCHAR, SHORT_T, USHORT_T, INT, UINT, LONG_T = 2, 3, 4, 5, 6, 7
+FLOAT, DOUBLE, BOOLEAN, TCHAR, DWORD, TIMESTAMP = 9, 10, 12, 13, 14, 17
+INT_RECT, DOUBLE_2, DOUBLE_INTERVAL, BGR = 259, 260, 268, 270
+UNICODE_TCHAR, DIM_INDEX_1, DIM_INDEX_2, VOLUME_INDEX = 8192, 8195, 8199, 8200
 EXT_VOLUME, EXT_PSET, EXT_MDIM, EXT_IFD = 0, 1, 2, 10
 
 # tags
 COLLECTION_VOLUME, MULTIDIM_IMAGE_VOLUME, IMAGE_FRAME_VOLUME, DIMENSION_SIZE = 2000, 2001, 2002, 2003
-IMAGE_COLLECTION_PROPERTIES, MULTIDIM_STACK_PROPERTIES, DIMENSION_DESCRIPTION_VOLUME, CHANNEL_PROPERTIES = 2004, 2005, 2007, 2008
-Z_START, Z_INCREMENT, CREATION_TIME, DEFAULT_SAMPLE_IFD, RWC_FRAME_ORIGIN, EXTERNAL_FILE_PROPERTIES = 2012, 2013, 2015, 2016, 2018, 2018
-RWC_FRAME_SCALE, COARSE_FRAME_IFD, RWC_FRAME_UNIT, DIMENSION_NAME, COARSE_PYRAMID_LEVEL, DIMENSION_MEANING = 2019, 2019, 2020, 2021, 2022, 2023
-DIMENSION_VALUE_ID, STACK_NAME, CHANNEL_DIM, DEFAULT_BACKGROUND_COLOR, VERSION_NUMBER, STACK_TYPE = 2027, 2030, 2031, 2034, 2035, 2074
-DISPLAY_LIMITS, STACK_DISPLAY_LUT, IMAGE_BOUNDARY, TILE_ORIGIN, TILE_SYSTEM, HAS_EXTERNAL_FILE, EXTERNAL_DATA_VOLUME = 2003, 2004, 2053, 2410, 20004, 20005, 20025
+IMAGE_COLLECTION_PROPERTIES, MULTIDIM_STACK_PROPERTIES = 2004, 2005
+DIMENSION_DESCRIPTION_VOLUME, CHANNEL_PROPERTIES = 2007, 2008
+Z_START, Z_INCREMENT, CREATION_TIME = 2012, 2013, 2015
+DEFAULT_SAMPLE_IFD, RWC_FRAME_ORIGIN, EXTERNAL_FILE_PROPERTIES = 2016, 2018, 2018
+RWC_FRAME_SCALE, COARSE_FRAME_IFD, RWC_FRAME_UNIT = 2019, 2019, 2020
+DIMENSION_NAME, COARSE_PYRAMID_LEVEL, DIMENSION_MEANING = 2021, 2022, 2023
+DIMENSION_VALUE_ID, STACK_NAME, CHANNEL_DIM = 2027, 2030, 2031
+DEFAULT_BACKGROUND_COLOR, VERSION_NUMBER, STACK_TYPE = 2034, 2035, 2074
+DISPLAY_LIMITS, STACK_DISPLAY_LUT, IMAGE_BOUNDARY, TILE_ORIGIN = 2003, 2004, 2053, 2410
+TILE_SYSTEM, HAS_EXTERNAL_FILE, EXTERNAL_DATA_VOLUME = 20004, 20005, 20025
 CHANNEL_WAVELENGTH, CHANNEL_NAME, UNITS, VALUE, OBJECTIVE_MAG = 2417, 2419, 268435456, 268435458, 120060
 DOCUMENT_NAME, DOCUMENT_TIME, DOCUMENT_AUTHOR, PRODUCT_NAME, PRODUCT_VERSION = 11, 14, 15, 34, 35
 
@@ -202,7 +210,8 @@ class TiffImage:
     JPEG strip with JPEGTables (and the Adobe marker's absence, as the real files have it)."""
 
     def __init__(self, pixels: np.ndarray, *, jpeg=False, rows=None, exif=False, extra=(), skip=(), two_strips=False):
-        self.pixels, self.jpeg, self.exif, self.extra, self.skip, self.two_strips = pixels, jpeg, exif, extra, skip, two_strips
+        self.pixels, self.jpeg, self.exif = pixels, jpeg, exif
+        self.extra, self.skip, self.two_strips = extra, skip, two_strips
         self.h, self.w = pixels.shape[:2]
         self.spp = pixels.shape[2] if pixels.ndim == 3 else 1
         self.rows = rows or self.h
@@ -244,7 +253,9 @@ class TiffImage:
             # as the real files: the EXIF pixel dimensions are the scanned area's, which Bio-Formats
             # caps the first stack's size by; `exif` is (width, height), or True for the image's own
             ew, eh = self.exif if isinstance(self.exif, tuple) else (self.w, self.h)
-            exif_at = self._ifd(out, at, [(36864, UNDEFINED, b"0220"), (40961, SHORT, [1]), (40962, LONG, [ew]), (40963, LONG, [eh])])
+            exif_at = self._ifd(out, at,
+                                [(36864, UNDEFINED, b"0220"), (40961, SHORT, [1]), (40962, LONG, [ew]),
+                                 (40963, LONG, [eh])])
             entries.append((34665, LONG, [exif_at]))
         entries.sort(key=lambda e: e[0])
         o = self._ifd(out, at, entries)
@@ -284,11 +295,11 @@ PIXEL_TYPES = {"int8": 1, "uint8": 2, "int16": 3, "uint16": 4, "int32": 5, "uint
 RAW, JPEG, JPEG2000 = 0, 2, 3
 
 
-def ets_file(tiles: list[tuple[tuple[int, ...], bytes]], *, coordinates: int, dtype: str, samples: int, compression: int,
-             tile: tuple[int, int], dims: list[int], pyramid: bool, background: bytes = b"", component_order=-1,
-             colorspace=None, quality=90, version=3, magic=b"SIS\0", header_size=64, ets_magic=b"ETS\0", ets_size=228,
-             tile_depth=1, pixel_type=None, tiles_count=None, tiles_offset=None, ets_offset=None, truncate=0,
-             dimensions=None, tile_offset=None) -> bytes:
+def ets_file(tiles: list[tuple[tuple[int, ...], bytes]], *, coordinates: int, dtype: str, samples: int,
+             compression: int, tile: tuple[int, int], dims: list[int], pyramid: bool, background: bytes = b"",
+             component_order=-1, colorspace=None, quality=90, version=3, magic=b"SIS\0", header_size=64,
+             ets_magic=b"ETS\0", ets_size=228, tile_depth=1, pixel_type=None, tiles_count=None, tiles_offset=None,
+             ets_offset=None, truncate=0, dimensions=None, tile_offset=None) -> bytes:
     """A tile file: the SIS header, the ETS header, the tiles' bytes in order, then the directory
     (`tile_offset`: (index, offset) of one record's offset written as given)."""
     data = bytearray()
@@ -303,13 +314,15 @@ def ets_file(tiles: list[tuple[tuple[int, ...], bytes]], *, coordinates: int, dt
         records.append(struct.pack(f"<i{n}iqii", n, *coords, o, len(b), k))
     dir_at = data_at + len(data) if tiles_offset is None else tiles_offset
     total = SIS_SIZE + ets_size + len(data) + len(records) * (20 + 4 * n)
-    sis = struct.pack("<4siiiqiiqiiq8s", magic, header_size, version, coordinates, SIS_SIZE if ets_offset is None else ets_offset,
-                      ets_size, 0, dir_at, len(tiles) if tiles_count is None else tiles_count, 0, total, b"\0" * 8)
+    sis = struct.pack("<4siiiqiiqiiq8s", magic, header_size, version, coordinates,
+                      SIS_SIZE if ets_offset is None else ets_offset, ets_size, 0, dir_at,
+                      len(tiles) if tiles_count is None else tiles_count, 0, total, b"\0" * 8)
     bg = background.ljust(40, b"\0")[:40]
     pt = PIXEL_TYPES[dtype] if pixel_type is None else pixel_type
     cs = (4 if samples == 3 else 1) if colorspace is None else colorspace
     sizes = (dims + [0] * 10)[:10]
-    ets = struct.pack("<4siiiiiiiii", ets_magic, 196614, pt, samples, cs, compression, quality, tile[0], tile[1], tile_depth)
+    ets = struct.pack("<4siiiiiiiii", ets_magic, 196614, pt, samples, cs, compression, quality, tile[0], tile[1],
+                      tile_depth)
     ets += b"\0" * 68 + bg + struct.pack("<ii", component_order, 1 if pyramid else 0) + b"\0" * 28
     ets += struct.pack("<i", len(dims) if dimensions is None else dimensions) + struct.pack("<10i", *sizes)
     ets = ets.ljust(ets_size, b"\0")
@@ -340,8 +353,8 @@ def downsample(a: np.ndarray) -> np.ndarray:
     return np.ascontiguousarray(a[::2, ::2])
 
 
-def plane_tiles(plane: np.ndarray, tw: int, th: int, compression: int, dtype: str, samples: int, *, bgr=False,
-                skip=(), quality=90) -> list[tuple[tuple[int, int], bytes]]:
+def plane_tiles(plane: np.ndarray, tw: int, th: int, compression: int, samples: int, *, bgr=False, skip=(),
+                quality=90) -> list[tuple[tuple[int, int], bytes]]:
     """A plane cut into full tiles (padded with zeros), each encoded."""
     h, w = plane.shape[:2]
     out = []
@@ -349,7 +362,7 @@ def plane_tiles(plane: np.ndarray, tw: int, th: int, compression: int, dtype: st
         for tx in range(-(-w // tw)):
             if (tx, ty) in skip:
                 continue
-            block = np.zeros((th, tw) + plane.shape[2:], plane.dtype)
+            block = np.zeros((th, tw, *plane.shape[2:]), plane.dtype)
             part = plane[ty * th:(ty + 1) * th, tx * tw:(tx + 1) * tw]
             block[:part.shape[0], :part.shape[1]] = part
             if compression == RAW:
@@ -364,13 +377,14 @@ def plane_tiles(plane: np.ndarray, tw: int, th: int, compression: int, dtype: st
     return out
 
 
-def decoded(tiles, tw, th, h, w, compression, dtype, samples, bgr=False) -> np.ndarray:
+def decoded(tiles, tw, th, h, w, compression, dtype, samples) -> np.ndarray:
     """The plane a tile list decodes to (what a reader gives): the lossy tiles' own pixels."""
     plane = np.zeros((h, w) + ((samples,) if samples > 1 else ()), dtype)
     for (tx, ty), b in tiles:
         if compression == RAW:
             # as stored: a BGR file's arrays hold B, G, R (its omero channels say so)
-            block = np.frombuffer(b, dtype=np.dtype(dtype).newbyteorder("<")).reshape((th, tw) + ((samples,) if samples > 1 else ()))
+            block = np.frombuffer(b, dtype=np.dtype(dtype).newbyteorder("<")).reshape(
+                (th, tw) + ((samples,) if samples > 1 else ()))
         elif compression == JPEG:
             block = imagecodecs.jpeg8_decode(b)
         else:
@@ -388,16 +402,18 @@ class Stack:
     samples, compression, tile size, levels, and what the tree says about it."""
 
     def __init__(self, id_, name, *, width, height, dtype="uint8", samples=1, compression=RAW, tile=(32, 32), levels=1,
-                 t=1, z=1, c=1, stack_type=0, scale=(0.5, 0.5), unit="10^-6m^1", origin=(100.0, 200.0), display=(0.0, 256.0),
-                 channels=None, z_step=None, bgr=False, skip=(), file_name="frame_t.ets", unused_coord=False,
-                 dim_meanings=None, background=b"", magnification=20.0, seed=1, extra_fields=(), tree_only=False,
-                 ifd_pixels=None, quality=90, extra_coords=0, declared_dims=None):
+                 t=1, z=1, c=1, stack_type=0, scale=(0.5, 0.5), unit="10^-6m^1", origin=(100.0, 200.0),
+                 display=(0.0, 256.0), channels=None, z_step=None, bgr=False, skip=(), file_name="frame_t.ets",
+                 unused_coord=False, dim_meanings=None, background=b"", magnification=20.0, seed=1, extra_fields=(),
+                 tree_only=False, ifd_pixels=None, quality=90, extra_coords=0, declared_dims=None):
         self.id, self.name, self.width, self.height = id_, name, width, height
         self.dtype, self.samples, self.compression, self.tile, self.levels = dtype, samples, compression, tile, levels
         self.t, self.z, self.c, self.stack_type = t, z, c, stack_type
-        self.scale, self.unit, self.origin, self.display, self.channels, self.z_step = scale, unit, origin, display, channels or [], z_step
+        self.scale, self.unit, self.origin = scale, unit, origin
+        self.display, self.channels, self.z_step = display, channels or [], z_step
         self.bgr, self.skip, self.file_name, self.unused_coord = bgr, skip, file_name, unused_coord
-        self.dim_meanings, self.background, self.magnification, self.seed = dim_meanings, background, magnification, seed
+        self.dim_meanings, self.background = dim_meanings, background
+        self.magnification, self.seed = magnification, seed
         self.extra_fields, self.tree_only, self.ifd_pixels, self.quality = extra_fields, tree_only, ifd_pixels, quality
         self.extra_coords, self.declared_dims = extra_coords, declared_dims
         self.planes = {}  # (t, c, z) -> level-0 plane (decoded)
@@ -426,11 +442,13 @@ class Stack:
                     plane = gradient(self.seed * 1000 + k, self.height, self.width, self.dtype, self.samples)
                     k += 1
                     for level in range(self.levels):
-                        tiles = plane_tiles(plane, tw, th, self.compression, self.dtype, self.samples, bgr=self.bgr,
+                        tiles = plane_tiles(plane, tw, th, self.compression, self.samples, bgr=self.bgr,
                                             skip=self.skip if level == 0 else (), quality=self.quality)
                         if level == 0:
-                            got = decoded(tiles, tw, th, self.height, self.width, self.compression, self.dtype, self.samples, self.bgr)
-                            fill = np.frombuffer(self.background.ljust(8, b"\0"), dtype=np.dtype(self.dtype).newbyteorder("<"), count=1)[0]
+                            got = decoded(tiles, tw, th, self.height, self.width, self.compression, self.dtype,
+                                          self.samples)
+                            fill = np.frombuffer(self.background.ljust(8, b"\0"),
+                                                 dtype=np.dtype(self.dtype).newbyteorder("<"), count=1)[0]
                             for (tx, ty) in self.skip:
                                 got[ty * th:(ty + 1) * th, tx * tw:(tx + 1) * tw] = fill
                             expected[ti, ci, zi] = got
@@ -449,12 +467,14 @@ class Stack:
 
     def ets_bytes(self, **kw) -> bytes:
         dims = self.dims
-        coordinates = 2 + len(dims) + self.extra_coords + (1 if self.unused_coord else 0) + (1 if self.levels > 1 else 0)
+        coordinates = (2 + len(dims) + self.extra_coords + (1 if self.unused_coord else 0)
+                       + (1 if self.levels > 1 else 0))
         sizes = [self.width, self.height] + [n for _, n in dims] + [1] * self.extra_coords
-        args = dict(coordinates=coordinates, dtype=self.dtype, samples=self.samples, compression=self.compression,
-                    tile=self.tile, dims=sizes, pyramid=self.levels > 1, background=self.background,
-                    component_order=1 if (self.bgr or (self.samples == 3 and self.compression == JPEG)) else -1,
-                    quality=self.quality)
+        args = {"coordinates": coordinates, "dtype": self.dtype, "samples": self.samples,
+                "compression": self.compression, "tile": self.tile, "dims": sizes, "pyramid": self.levels > 1,
+                "background": self.background,
+                "component_order": 1 if (self.bgr or (self.samples == 3 and self.compression == JPEG)) else -1,
+                "quality": self.quality}
         args.update(kw)
         return ets_file(self.tiles, **args)
 
@@ -467,13 +487,15 @@ class Stack:
         props = [value(IMAGE_BOUNDARY, INT_RECT, struct.pack("<4i", 0, 0, self.width, self.height)),
                  value(TILE_ORIGIN, DIM_INDEX_2, struct.pack("<2i", 0, 0)),
                  inline(TILE_SYSTEM, 13), inline(HAS_EXTERNAL_FILE, 1 if external else 0, BOOLEAN),
-                 value(EXTERNAL_DATA_VOLUME, VOLUME_INDEX, struct.pack("<8i", 0, 0, 0, 0, self.width, self.height, 0, 1))]
+                 value(EXTERNAL_DATA_VOLUME, VOLUME_INDEX,
+                       struct.pack("<8i", 0, 0, 0, 0, self.width, self.height, 0, 1))]
         if self.ifd_pixels is not None:
             # a stack stored as an IFD (a focus map): its size in a `2037` property set, then the IFD,
             # as the real files have it (no external file properties, which would make it a pyramid
             # to Bio-Formats)
             frame.append(pset(2037, [value(IMAGE_BOUNDARY, INT_RECT, struct.pack("<4i", 0, 0, self.width, self.height)),
-                                     value(EXTERNAL_DATA_VOLUME, VOLUME_INDEX, struct.pack("<8i", 0, 0, 0, 0, self.width, self.height, 0, 1))]))
+                                     value(EXTERNAL_DATA_VOLUME, VOLUME_INDEX,
+                                           struct.pack("<8i", 0, 0, 0, 0, self.width, self.height, 0, 1))]))
         else:
             frame.append(pset(EXTERNAL_FILE_PROPERTIES, props))
         if self.ifd_pixels is not None:
@@ -486,8 +508,9 @@ class Stack:
             k = ifd_index["next"]
             ifd_index["next"] += 1
             thumb = TiffImage(gradient(self.seed + 7, 6, 8, "uint8", self.samples), rows=4)
-            frame.append(ifd_field(COARSE_FRAME_IFD, k, lambda at: b""))
-            frame.append(Field(COARSE_PYRAMID_LEVEL, INT, inline=self.levels, rest=lambda at, thumb=thumb, k=k: thumb.region(at, b, k)))
+            frame.append(ifd_field(COARSE_FRAME_IFD, k, lambda _at: b""))
+            frame.append(Field(COARSE_PYRAMID_LEVEL, INT, inline=self.levels,
+                               rest=lambda at, thumb=thumb, k=k: thumb.region(at, b, k)))
         stack_props = [value(CREATION_TIME, LONG_T, struct.pack("<q", 1700000000 + self.id)),
                        value(RWC_FRAME_ORIGIN, DOUBLE_2, f64s(*self.origin)) if self.origin else None,
                        value(RWC_FRAME_UNIT, TCHAR, utf16(self.unit)) if self.unit else None,
@@ -496,7 +519,8 @@ class Stack:
                        inline(CHANNEL_DIM, 1),
                        value(STACK_NAME, UNICODE_TCHAR, utf16(self.name)) if self.name is not None else None,
                        mdim(2043, [inline(268435459, 671096836), value(268435457, DIM_INDEX_1, i32(2)),
-                                   pset(1, [value(120132, UNICODE_TCHAR, utf16("Objective 20x")), value(OBJECTIVE_MAG, DOUBLE, f64s(self.magnification))]),
+                                   pset(1, [value(120132, UNICODE_TCHAR, utf16("Objective 20x")),
+                                            value(OBJECTIVE_MAG, DOUBLE, f64s(self.magnification))]),
                                    pset(2, [value(120116, UNICODE_TCHAR, utf16("Camera"))])]),
                        inline(STACK_TYPE, self.stack_type) if self.stack_type is not None else None,
                        *self.extra_fields]
@@ -515,15 +539,19 @@ class Stack:
                 for ci in range(self.c):
                     ch = self.channels[ci] if ci < len(self.channels) else {}
                     name = ch.get("name", f"Channel {ci}")
-                    lut = bytes(sum(([int(ch.get("color", "FFFFFF")[4:6], 16) * i // 255, int(ch.get("color", "FFFFFF")[2:4], 16) * i // 255,
-                                      int(ch.get("color", "FFFFFF")[0:2], 16) * i // 255] for i in range(256)), []))
+                    color = ch.get("color", "FFFFFF")  # RRGGBB; the LUT's entries are B, G, R
+                    lut = bytes(int(color[k:k + 2], 16) * i // 255 for i in range(256) for k in (4, 2, 0))
                     fields_c = [inline(DIMENSION_MEANING, code) if ci == 0 else None,
                                 value(2005, DOUBLE, f64s(1.0)),
                                 value(DIMENSION_NAME, UNICODE_TCHAR, utf16(name)),
-                                mdim(STACK_DISPLAY_LUT, [inline(268435459, 536871182), value(268435457, DIM_INDEX_1, i32(256)),
+                                mdim(STACK_DISPLAY_LUT, [inline(268435459, 536871182),
+                                                         value(268435457, DIM_INDEX_1, i32(256)),
                                                          value(VALUE, BGR, lut)]),
-                                value(DISPLAY_LIMITS, DOUBLE_INTERVAL, f64s(*ch["display"])) if "display" in ch else None,
-                                mdim(CHANNEL_WAVELENGTH, [value(UNITS, TCHAR, utf16("10^-9m^1")), value(VALUE, DOUBLE, f64s(ch["wavelength"]))]) if "wavelength" in ch else None,
+                                (value(DISPLAY_LIMITS, DOUBLE_INTERVAL, f64s(*ch["display"]))
+                                 if "display" in ch else None),
+                                (mdim(CHANNEL_WAVELENGTH, [value(UNITS, TCHAR, utf16("10^-9m^1")),
+                                                           value(VALUE, DOUBLE, f64s(ch["wavelength"]))])
+                                 if "wavelength" in ch else None),
                                 value(CHANNEL_NAME, UNICODE_TCHAR, utf16(ch.get("channel_name", "Fluorescence")))]
                     psets.append(pset(CHANNEL_PROPERTIES, [f for f in fields_c if f is not None], tag2=ci))
             elif meaning == "z":
@@ -531,13 +559,20 @@ class Stack:
                                            value(268435457, DIM_INDEX_1, b""), value(VALUE, DOUBLE, f64s(1000.0))]),
                             inline(DIMENSION_MEANING, code), inline(2026, 2013), inline(2025, 2012)]
                 if self.z_step is not None:
-                    fields_z.append(mdim(Z_INCREMENT, [value(UNITS, TCHAR, utf16("10^-6m^1")), value(VALUE, DOUBLE, f64s(self.z_step))]))
+                    fields_z.append(mdim(Z_INCREMENT, [value(UNITS, TCHAR, utf16("10^-6m^1")),
+                                                       value(VALUE, DOUBLE, f64s(self.z_step))]))
                 psets.append(pset(CHANNEL_PROPERTIES, fields_z, tag2=0))
             elif meaning == "t":
-                psets.append(pset(CHANNEL_PROPERTIES, [inline(DIMENSION_MEANING, code), inline(DIMENSION_VALUE_ID, 2017),
-                                                       mdim(10019, [value(UNITS, TCHAR, utf16("10^0s^-1")), value(VALUE, DOUBLE, f64s(4.0))])], tag2=0))
+                psets.append(pset(CHANNEL_PROPERTIES,
+                                  [inline(DIMENSION_MEANING, code), inline(DIMENSION_VALUE_ID, 2017),
+                                   mdim(10019, [value(UNITS, TCHAR, utf16("10^0s^-1")),
+                                                value(VALUE, DOUBLE, f64s(4.0))])],
+                                  tag2=0))
             else:
-                psets.append(pset(CHANNEL_PROPERTIES, ([inline(DIMENSION_MEANING, code)] if code else []) + [value(DIMENSION_NAME, UNICODE_TCHAR, utf16(meaning))], tag2=0))
+                psets.append(pset(CHANNEL_PROPERTIES,
+                                  ([inline(DIMENSION_MEANING, code)] if code else [])
+                                  + [value(DIMENSION_NAME, UNICODE_TCHAR, utf16(meaning))],
+                                  tag2=0))
             fields.append(volume(DIMENSION_DESCRIPTION_VOLUME, d, psets))
         return volume(MULTIDIM_IMAGE_VOLUME, self.id, fields)
 
@@ -546,7 +581,8 @@ class Slide:
     def __init__(self, name: str, stacks: list[Stack], *, macro: TiffImage | None = None, document=True, root_extra=(),
                  collection_extra=(), top_extra=(), first_ifd=None):
         self.name, self.stacks, self.macro = name, stacks, macro
-        self.document, self.root_extra, self.collection_extra, self.top_extra, self.first_ifd = document, root_extra, collection_extra, top_extra, first_ifd
+        self.document, self.root_extra, self.collection_extra = document, root_extra, collection_extra
+        self.top_extra, self.first_ifd = top_extra, first_ifd
 
     def write(self, out: Path = OUT, *, ets_kw=None, patch=None, expected=True) -> None:
         b = Builder()
@@ -564,12 +600,14 @@ class Slide:
             coll.append(ifd_field(DEFAULT_SAMPLE_IFD, 0, lambda at: self.macro.region(at, b, 0)))
         coll += [s.fields(b, ifd_index) for s in self.stacks]
         coll += list(self.collection_extra)
-        coll.append(pset(IMAGE_COLLECTION_PROPERTIES, [pset(2109, [value(DOCUMENT_NAME, UNICODE_TCHAR, utf16(self.name)),
-                                                                   value(DOCUMENT_TIME, LONG_T, struct.pack("<q", 1700000000)),
-                                                                   value(DOCUMENT_AUTHOR, UNICODE_TCHAR, utf16("refkv fixtures")),
-                                                                   value(PRODUCT_NAME, UNICODE_TCHAR, utf16("synthetic cellSens")),
-                                                                   value(PRODUCT_VERSION, UNICODE_TCHAR, utf16("4.1"))])]))
-        top = ([pset(2, [value(DOCUMENT_NAME, UNICODE_TCHAR, utf16(self.name)), value(PRODUCT_NAME, UNICODE_TCHAR, utf16("synthetic cellSens"))])]
+        coll.append(pset(IMAGE_COLLECTION_PROPERTIES,
+                         [pset(2109, [value(DOCUMENT_NAME, UNICODE_TCHAR, utf16(self.name)),
+                                      value(DOCUMENT_TIME, LONG_T, struct.pack("<q", 1700000000)),
+                                      value(DOCUMENT_AUTHOR, UNICODE_TCHAR, utf16("refkv fixtures")),
+                                      value(PRODUCT_NAME, UNICODE_TCHAR, utf16("synthetic cellSens")),
+                                      value(PRODUCT_VERSION, UNICODE_TCHAR, utf16("4.1"))])]))
+        top = ([pset(2, [value(DOCUMENT_NAME, UNICODE_TCHAR, utf16(self.name)),
+                         value(PRODUCT_NAME, UNICODE_TCHAR, utf16("synthetic cellSens"))])]
                if self.document else [pset(2, [])])
         top += list(self.top_extra)
         top.append(volume(COLLECTION_VOLUME, 0, coll + list(self.root_extra)))
@@ -579,7 +617,7 @@ class Slide:
         chain = sorted(b.ifds)
         first = chain[0][1] if chain else 0
         struct.pack_into("<I", buf, 4, first if self.first_ifd is None else self.first_ifd)
-        for (_, o), nxt in zip(chain, chain[1:]):
+        for (_, o), nxt in itertools.pairwise(chain):
             n = struct.unpack_from("<H", buf, o)[0]
             struct.pack_into("<I", buf, o + 2 + 12 * n, nxt[1])
         if patch is not None:
@@ -615,47 +653,54 @@ def rgb_channels():
 def accepting() -> None:
     # like the brightfield sample: RGB JPEG pyramids, a focus map as an IFD, a macro with tables
     Slide("vsi_rgb_jpeg", [
-        Stack(10000, "Overview", width=150, height=100, samples=3, compression=JPEG, tile=(64, 64), levels=2, stack_type=1,
-              scale=(2.7, 2.7), origin=(300.0, 600.0), seed=2, background=b"\xee\xee\xee"),
-        Stack(10002, "20x_BF_01", width=300, height=200, samples=3, compression=JPEG, tile=(64, 64), levels=3, stack_type=0,
-              scale=(0.27, 0.27), origin=(37000.0, 4600.0), skip=((2, 1),), seed=3, background=b"\xee\xee\xee"),
-        Stack(10003, "20x FocusMap", width=6, height=5, dtype="uint16", stack_type=4, scale=(627.0, 376.0), origin=(37000.0, 4600.0),
-              ifd_pixels=gradient(9, 5, 6, "uint16"), display=None),
+        Stack(10000, "Overview", width=150, height=100, samples=3, compression=JPEG, tile=(64, 64), levels=2,
+              stack_type=1, scale=(2.7, 2.7), origin=(300.0, 600.0), seed=2, background=b"\xee\xee\xee"),
+        Stack(10002, "20x_BF_01", width=300, height=200, samples=3, compression=JPEG, tile=(64, 64), levels=3,
+              stack_type=0, scale=(0.27, 0.27), origin=(37000.0, 4600.0), skip=((2, 1),), seed=3,
+              background=b"\xee\xee\xee"),
+        Stack(10003, "20x FocusMap", width=6, height=5, dtype="uint16", stack_type=4, scale=(627.0, 376.0),
+              origin=(37000.0, 4600.0), ifd_pixels=gradient(9, 5, 6, "uint16"), display=None),
     ], macro=macro_image()).write()
     # like the Zenodo sample: a raw uint16 stack with T, Z and C, one tile a plane, frame_t_0.ets
     Slide("vsi_raw_tzc", [
-        Stack(1, "488/640_50um_1x", width=40, height=30, dtype="uint16", tile=(40, 30), t=2, z=3, c=2, scale=(0.065, 0.065),
-              origin=(-66211.0, -41421.0), display=(91.0, 138.0), z_step=0.2, file_name="frame_t_0.ets", unused_coord=True,
-              background=b"\xff\x0f", channels=[{"name": "Cy5", "color": "FF0000", "display": (88.0, 169.0), "wavelength": 670.0, "channel_name": "488/640_50um_1x"},
-                                                {"name": "GFP", "color": "00FF00", "display": (86.0, 170.0), "wavelength": 508.0, "channel_name": "488/640_50um_1x"}],
+        Stack(1, "488/640_50um_1x", width=40, height=30, dtype="uint16", tile=(40, 30), t=2, z=3, c=2,
+              scale=(0.065, 0.065), origin=(-66211.0, -41421.0), display=(91.0, 138.0), z_step=0.2,
+              file_name="frame_t_0.ets", unused_coord=True, background=b"\xff\x0f",
+              channels=[{"name": "Cy5", "color": "FF0000", "display": (88.0, 169.0), "wavelength": 670.0,
+                         "channel_name": "488/640_50um_1x"},
+                        {"name": "GFP", "color": "00FF00", "display": (86.0, 170.0), "wavelength": 508.0,
+                         "channel_name": "488/640_50um_1x"}],
               seed=4, magnification=40.0),
     ], macro=macro_image(seed=5, w=40, h=30)).write()
     # like the fluorescence sample: JPEG 2000 uint16 tiles with a channel dimension, in a pyramid
     Slide("vsi_jpeg2000_c", [
-        Stack(10002, "20x_DAPI, FITC, Cy5_01", width=70, height=50, dtype="uint16", compression=JPEG2000, tile=(32, 32), levels=2, c=3,
-              scale=(0.345, 0.345), origin=(44720.0, 4540.0), display=None, channels=rgb_channels(), file_name="frame_t_0.ets", seed=6),
+        Stack(10002, "20x_DAPI, FITC, Cy5_01", width=70, height=50, dtype="uint16", compression=JPEG2000, tile=(32, 32),
+              levels=2, c=3, scale=(0.345, 0.345), origin=(44720.0, 4540.0), display=None, channels=rgb_channels(),
+              file_name="frame_t_0.ets", seed=6),
     ], macro=macro_image(seed=7)).write()
     # raw RGB in BGR order
     Slide("vsi_raw_bgr", [
-        Stack(10000, "Overview", width=40, height=24, samples=3, tile=(16, 16), levels=2, stack_type=1, bgr=True, seed=8,
-              background=b"\x10\x20\x30"),
+        Stack(10000, "Overview", width=40, height=24, samples=3, tile=(16, 16), levels=2, stack_type=1, bgr=True,
+              seed=8, background=b"\x10\x20\x30"),
     ], macro=macro_image(seed=9, w=20, h=10)).write()
     # raw uint8 gray in a pyramid whose level 0 is sparse
     Slide("vsi_raw_gray_pyramid", [
-        Stack(10002, "10x", width=100, height=70, tile=(32, 32), levels=3, skip=((0, 0), (3, 2), (1, 1)), seed=10, background=b"\x7f"),
+        Stack(10002, "10x", width=100, height=70, tile=(32, 32), levels=3, skip=((0, 0), (3, 2), (1, 1)), seed=10,
+              background=b"\x7f"),
     ], macro=macro_image(seed=11)).write()
     # every raw pixel type the tables name
     types = ["int8", "int16", "int32", "uint32", "int64", "uint64", "float32", "float64"]
     Slide("vsi_raw_types", [
-        Stack(10000 + k, f"type {t}", width=12, height=9, dtype=t, tile=(8, 8), levels=1, seed=20 + k) for k, t in enumerate(types)
+        Stack(10000 + k, f"type {t}", width=12, height=9, dtype=t, tile=(8, 8), levels=1, seed=20 + k)
+        for k, t in enumerate(types)
     ], macro=macro_image(seed=12)).write()
     # the macro image alone
     Slide("vsi_no_stacks", [], macro=macro_image(seed=13)).write()
     # metadata edges: millimeters, no origin, no display limits, an unknown dimension of size 1
     # and a phase dimension of size 1, an unknown stack type, a blob with a second tag, an empty
     # container, text that is not ASCII, both tile file names present
-    s = Stack(10002, "µm édge", width=20, height=12, dtype="uint16", tile=(8, 8), levels=1, unit="10^-3m^1", origin=None,
-              display=None, stack_type=4096, scale=(0.001, 0.0015), seed=14, extra_coords=2,
+    s = Stack(10002, "µm édge", width=20, height=12, dtype="uint16", tile=(8, 8), levels=1, unit="10^-3m^1",
+              origin=None, display=None, stack_type=4096, scale=(0.001, 0.0015), seed=14, extra_coords=2,
               dim_meanings=[("unknown", 1), ("phase", 1)], declared_dims=[1, 1],
               extra_fields=(value(2024, UCHAR, bytes(range(256)) * 5, tag2=0, flags=1 << 29), pset(2038, []),
                             value(175307, UNICODE_TCHAR, utf16("Défaut"))))
@@ -667,7 +712,8 @@ def accepting() -> None:
 
 def rejecting() -> None:
     def base(name, **kw) -> Slide:
-        return Slide(name, [Stack(10002, "s", width=24, height=16, tile=(8, 8), levels=2, seed=30)], macro=macro_image(seed=31, w=16, h=8), **kw)
+        return Slide(name, [Stack(10002, "s", width=24, height=16, tile=(8, 8), levels=2, seed=30)],
+                     macro=macro_image(seed=31, w=16, h=8), **kw)
 
     def write_patched(name, patch, **kw):
         base(name).write(patch=patch, expected=False, **kw)
@@ -686,38 +732,46 @@ def rejecting() -> None:
         nested = volume(COLLECTION_VOLUME, 0, [nested])
     Slide("vsi_reject_container_depth", [], root_extra=(), top_extra=(nested,)).write(expected=False)
     # fields
-    base("vsi_reject_field_header", top_extra=(volume(99, 0, [Field(1, 5, inline=1, tag2=0)]),)).write(patch=_short_volume, expected=False)
+    base("vsi_reject_field_header",
+         top_extra=(volume(99, 0, [Field(1, 5, inline=1, tag2=0)]),)).write(patch=_short_volume, expected=False)
     base("vsi_reject_field_next_zero", top_extra=(value(99, INT, i32(1), next_=0),)).write(expected=False)
-    write_patched("vsi_reject_field_last_next", lambda b: _set_last_next(b))
+    write_patched("vsi_reject_field_last_next", _set_last_next)
     base("vsi_reject_field_next_outside", top_extra=(value(99, INT, i32(1), next_=1 << 30),)).write(expected=False)
     base("vsi_reject_field_data_outside", top_extra=(value(99, INT, i32(1), size=1 << 20),)).write(expected=False)
-    base("vsi_reject_field_extended_type", top_extra=(Field(99, 5, tag2=0, ext=True, children=[[]]),)).write(expected=False)
+    base("vsi_reject_field_extended_type",
+         top_extra=(Field(99, 5, tag2=0, ext=True, children=[[]]),)).write(expected=False)
     base("vsi_reject_field_pset_size", top_extra=(pset(99, [], size=4),)).write(expected=False)
     # IFDs: outside the file, a chain that loops, too many
     write_patched("vsi_reject_ifd_outside", lambda b: _set_first_ifd(b + struct.pack("<HI", 5, 0), len(b)))
-    write_patched("vsi_reject_ifd_loop", lambda b: _loop_chain(b))
+    write_patched("vsi_reject_ifd_loop", _loop_chain)
     many = TiffImage(gradient(1, 2, 2, "uint8", 3), jpeg=True, exif=False)
-    Slide("vsi_reject_ifd_count", [], macro=many, root_extra=(Field(99, UCHAR, b"\0" * 8, rest=_many_ifds),)).write(expected=False)
+    Slide("vsi_reject_ifd_count", [], macro=many,
+          root_extra=(Field(99, UCHAR, b"\0" * 8, rest=_many_ifds),)).write(expected=False)
     # a stack with a tile file but no size, and one whose tile file is missing
-    Slide("vsi_reject_stack_no_size", [Stack(10002, "s", width=0, height=0, tile=(8, 8), seed=30)], macro=macro_image(seed=31, w=16, h=8)).write(expected=False)
+    Slide("vsi_reject_stack_no_size", [Stack(10002, "s", width=0, height=0, tile=(8, 8), seed=30)],
+          macro=macro_image(seed=31, w=16, h=8)).write(expected=False)
     base("vsi_reject_missing_tile_file").write(expected=False)
     shutil.rmtree(OUT / "_vsi_reject_missing_tile_file_")
     # the SIS header
-    for name, kw in [("sis_magic", {"magic": b"SOS\0"}), ("sis_header_size", {"header_size": 48}), ("sis_coordinates", {"coordinates": 1}),
-                     ("sis_ets_outside", {"ets_offset": 1 << 30}), ("sis_tiles_negative", {"tiles_count": -1}),
-                     ("sis_directory_outside", {"tiles_offset": 1 << 30}),
+    for name, kw in [("sis_magic", {"magic": b"SOS\0"}), ("sis_header_size", {"header_size": 48}),
+                     ("sis_coordinates", {"coordinates": 1}), ("sis_ets_outside", {"ets_offset": 1 << 30}),
+                     ("sis_tiles_negative", {"tiles_count": -1}), ("sis_directory_outside", {"tiles_offset": 1 << 30}),
                      # the ETS header
-                     ("ets_magic", {"ets_magic": b"ETX\0"}), ("ets_pixel_type", {"pixel_type": 11}), ("ets_samples", {"samples": 2}),
-                     ("ets_compression_png", {"compression": 8}), ("ets_compression_unknown", {"compression": 7}),
-                     ("ets_tile_size", {"tile": (0, 8)}), ("ets_tile_depth", {"tile_depth": 2}), ("ets_dimensions", {"dimensions": 1})]:
+                     ("ets_magic", {"ets_magic": b"ETX\0"}), ("ets_pixel_type", {"pixel_type": 11}),
+                     ("ets_samples", {"samples": 2}), ("ets_compression_png", {"compression": 8}),
+                     ("ets_compression_unknown", {"compression": 7}), ("ets_tile_size", {"tile": (0, 8)}),
+                     ("ets_tile_depth", {"tile_depth": 2}), ("ets_dimensions", {"dimensions": 1})]:
         base(f"vsi_reject_{name}").write(ets_kw={10002: kw}, expected=False)
     # dimensions: a size of 0, and an unknown meaning with more than one value
     Slide("vsi_reject_dimension_size", [Stack(10002, "s", width=24, height=16, tile=(8, 8), levels=1, seed=30, c=2)],
           macro=macro_image(seed=31, w=16, h=8)).write(ets_kw={10002: {"dims": [24, 16, 0]}}, expected=False)
-    Slide("vsi_reject_dimension_unknown", [Stack(10002, "s", width=24, height=16, tile=(8, 8), levels=1, seed=30, dim_meanings=[("phase", 1)],
-                                                 declared_dims=[2])], macro=macro_image(seed=31, w=16, h=8)).write(ets_kw={10002: {"dims": [24, 16, 2]}}, expected=False)
+    Slide("vsi_reject_dimension_unknown",
+          [Stack(10002, "s", width=24, height=16, tile=(8, 8), levels=1, seed=30, dim_meanings=[("phase", 1)],
+                 declared_dims=[2])],
+          macro=macro_image(seed=31, w=16, h=8)).write(ets_kw={10002: {"dims": [24, 16, 2]}}, expected=False)
     # samples and a channel dimension together
-    Slide("vsi_reject_samples_channels", [Stack(10002, "s", width=24, height=16, samples=3, tile=(8, 8), levels=1, c=2, seed=30)],
+    Slide("vsi_reject_samples_channels",
+          [Stack(10002, "s", width=24, height=16, samples=3, tile=(8, 8), levels=1, c=2, seed=30)],
           macro=macro_image(seed=31, w=16, h=8)).write(expected=False)
     # tiles
     base("vsi_reject_tile_outside").write(ets_kw={10002: {"tile_offset": (3, 1 << 30)}}, expected=False)
@@ -744,7 +798,7 @@ def rejecting() -> None:
                       ("ifd_image_format", m(extra=((339, SHORT, [3]),))),
                       ("ifd_image_strips", m(two_strips=True))]:
         Slide(f"vsi_reject_{name}", [], macro=img).write(expected=False)
-    write_patched("vsi_reject_ifd_strip_outside", lambda b: _strip_outside(b))
+    write_patched("vsi_reject_ifd_strip_outside", _strip_outside)
 
 
 def _set_last_next(b: bytearray) -> bytearray:
@@ -815,7 +869,6 @@ def main() -> None:
     tail = struct.unpack_from("<I", b, first + 2 + 12 * n)[0]
     if tail == 0:
         # the rest region follows the field's data: locate the first empty IFD record
-        k = b.find(struct.pack("<HI", 0, 0) if False else b"\0\0", first + 2 + 12 * n + 4)
         struct.pack_into("<I", b, first + 2 + 12 * n, _first_empty_ifd(b))
     p.write_bytes(bytes(b))
 

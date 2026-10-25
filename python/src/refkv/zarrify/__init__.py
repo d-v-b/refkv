@@ -49,11 +49,15 @@ in `/`, or a local directory, is a store input.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from refkv.ir.planner import Transport, open_transport
+from refkv.ir.store import StoreIrOutput, run_store
 from refkv.policy import Policy, crc32c
 from refkv.refstore import ReferenceStore
 from refkv.zarrify.common import Output, Rejected
 from refkv.zarrify.store import WORKERS, choose_profile, object_url, open_store
-from refkv.ir.store import StoreIrOutput
+from refkv.zarrify.vsi import VsiFiles
 
 NOT_SUPPORTED = "not a file of any supported format"
 
@@ -72,8 +76,6 @@ def _zarrify_store(location: str, url: str | None = None, *, max_objects: int | 
     store = open_store(location, url, max_objects=max_objects, workers=workers, policy=policy)
     try:
         fmt = choose_profile(store)
-        from refkv.ir.store import run_store
-
         if fmt == "n5":
             # the core's N5 store format
             out = run_store(store, "n5")[0]
@@ -91,7 +93,7 @@ def _zarrify_store(location: str, url: str | None = None, *, max_objects: int | 
     return fmt, out
 
 
-def _zarrify_vsi(location: str, url: str | None, transport, *, checksums: bool = False,
+def _zarrify_vsi(location: str, url: str | None, transport: Transport, *, checksums: bool = False,
                     policy: Policy | None = None, connections: int | None = None) -> tuple[str, StoreIrOutput]:
     """(format, output) for the VSI input at `location`, a `.vsi` file (opened as `transport`)
     whose tile files lie beside it (spec/zarrify/vsi.md §9.2
@@ -99,9 +101,6 @@ def _zarrify_vsi(location: str, url: str | None, transport, *, checksums: bool =
     run of the core's `vsi` format over the files, probed as the run asks for them
     (`refkv.zarrify.vsi.VsiFiles`). `url`, when given, is the URL of the `.vsi` file's
     directory (ending in `/`), the store URL the output's object URLs are made from."""
-    from refkv.ir.store import run_store
-    from refkv.zarrify.vsi import VsiFiles
-
     store = VsiFiles(location, url, policy=policy, workers=connections, transport=transport)
     try:
         out = run_store(store, "vsi")[0]
@@ -116,9 +115,7 @@ def _zarrify_vsi(location: str, url: str | None, transport, *, checksums: bool =
 def is_store(location: str) -> bool:
     if location.startswith(("http://", "https://")):
         return location.split("?", 1)[0].split("#", 1)[0].endswith("/")
-    import os
-
-    return os.path.isdir(location)
+    return Path(location).is_dir()
 
 
 def _zarrify(location: str, url: str | None = None, *, checksums: bool = False,
@@ -141,8 +138,7 @@ def _zarrify(location: str, url: str | None = None, *, checksums: bool = False,
     A store's documents are read by up to `workers` requests at a time."""
     if is_store(location):
         return _zarrify_store(location, url, checksums=checksums, workers=workers, policy=policy)
-    from refkv.ir import sniff
-    from refkv.ir.planner import open_transport
+    from refkv.ir import sniff  # noqa: PLC0415 (import cycle: refkv.ir imports refkv.zarrify)
 
     transport = open_transport(location, policy)
     size = transport.size
@@ -161,11 +157,11 @@ def _zarrify(location: str, url: str | None = None, *, checksums: bool = False,
         raise Rejected(NOT_SUPPORTED)
     if ir_format == "vsi":
         return _zarrify_vsi(location, url, transport, checksums=checksums, policy=policy, connections=connections)
-    from refkv.ir import zarrify as via_ir
+    from refkv.ir import zarrify as via_ir  # noqa: PLC0415 (import cycle: refkv.ir imports refkv.zarrify)
 
     fmt, out, _ = via_ir(location, url, transport=transport, connections=connections, byte_cost=byte_cost)
     if checksums:
-        out.checksum = lambda u, offset, length: crc32c(transport.get(offset, offset + length))
+        out.checksum = lambda _u, offset, length: crc32c(transport.get(offset, offset + length))
     return fmt, out
 
 

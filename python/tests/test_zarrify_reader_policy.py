@@ -87,7 +87,7 @@ def names(monkeypatch):
     """Host names the reader resolves (name → address); others are refused here."""
     table: dict[str, str] = {}
 
-    def fake(host, port, *args, **kwargs):
+    def fake(host, port, *_args, **_kwargs):
         if host == "127.0.0.1":
             return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (table[host], port))]
@@ -155,22 +155,25 @@ def test_reads_a_file_the_policy_allows(server, names, env):
     assert len(outputs) == 1
 
 
-def test_refuses_a_private_host(server, env):
+@pytest.mark.usefixtures("env")
+def test_refuses_a_private_host(server):
     port, state = server
-    with pytest.raises(ResolutionError, match="is a loopback address.*allow_private_hosts"):
+    with pytest.raises(ResolutionError, match=r"is a loopback address.*allow_private_hosts"):
         http_reader(f"http://127.0.0.1:{port}/s/f.nii")
     assert state["paths"] == []
 
 
-def test_refuses_a_name_that_resolves_to_a_private_address(server, names, env):
+@pytest.mark.usefixtures("env")
+def test_refuses_a_name_that_resolves_to_a_private_address(server, names):
     port, state = server
     names["private.test"] = "127.0.0.1"
-    with pytest.raises(ResolutionError, match="at 127.0.0.1.*is a loopback address"):
+    with pytest.raises(ResolutionError, match=r"at 127.0.0.1.*is a loopback address"):
         http_reader(f"http://private.test:{port}/s/f.nii")
     assert state["paths"] == []
 
 
-def test_refuses_a_redirect_to_a_private_host_before_requesting_it(server, names, env):
+@pytest.mark.usefixtures("env")
+def test_refuses_a_redirect_to_a_private_host_before_requesting_it(server, names):
     """A prefetch thread's read is redirected to `localhost`, refused as written before
     it is requested (were it requested, the server would see it: under ServerIsPublic
     its address is allowed)."""
@@ -179,7 +182,7 @@ def test_refuses_a_redirect_to_a_private_host_before_requesting_it(server, names
     read, _ = http_reader(f"http://public.test:{port}/s/f.nii", block=64, policy=ServerIsPublic())
     state["redirect"] = f"http://localhost:{port}/r/f.nii"
     state["direct"] = len(state["paths"])
-    with pytest.raises(ResolutionError, match="http://localhost.*is a loopback address"):
+    with pytest.raises(ResolutionError, match=r"http://localhost.*is a loopback address"):
         read.prefetch([(o, 3) for o in range(0, 100, 5)])
     assert not any(urllib.parse.urlsplit(p).path.startswith("/r/") for _, p in state["paths"])
 
@@ -188,6 +191,6 @@ def test_refuses_a_request_through_a_proxy(server, names, env):
     port, state = server
     names["proxied.test"] = "93.184.215.14"
     env.setenv("http_proxy", f"http://127.0.0.1:{port}")
-    with pytest.raises(ResolutionError, match="through the proxy.*allow_unchecked_proxy=True"):
+    with pytest.raises(ResolutionError, match=r"through the proxy.*allow_unchecked_proxy=True"):
         http_reader("http://proxied.test/s/f.nii")
     assert state["paths"] == []

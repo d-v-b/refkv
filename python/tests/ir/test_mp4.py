@@ -9,9 +9,9 @@ import json
 import av
 import numpy as np
 import pytest
-
 from ir_helpers import FIXTURES, core_setting
 from ir_helpers import zarrified as shared_zarrified
+
 from refkv import _core
 from refkv.zarr.codecs import stream
 from refkv.zarr.codecs.stream import Shared, StreamCodec, stream_units
@@ -28,7 +28,7 @@ def zarrified(path, tmp_path, chunk_frames=None):
     """(the output, the hierarchy's root group), with at most `chunk_frames` frames a chunk (None: the
     profile's 256); the archive rebuilds the file (ir_helpers.zarrified)."""
     with core_setting(_core._set_chunk_frames, chunk_frames):
-        out, root, ir = shared_zarrified(path, tmp_path, "mp4")
+        out, root, _ir = shared_zarrified(path, tmp_path, "mp4")
     return out, root
 
 def decoded(path, index):
@@ -71,20 +71,24 @@ def test_tracks_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
     meta = root.attrs["refkv_zarrified"]["mp4"]
     assert set(root.attrs) == {"zarr_conventions", "refkv_zarrified"}
     paths = [t["path"] for t in meta["tracks"] if t["path"]]
-    assert paths == [t["path"] for t in out.summary["tracks"]] and paths
+    assert paths == [t["path"] for t in out.summary["tracks"]]
+    assert paths
     for track in meta["tracks"]:
         if track["path"] is None:
             continue
         g = root[track["path"]]
         tm = g.attrs["refkv_zarrified"]["mp4"]
-        assert tm["id"] == track["id"] and tm["format"] in ("h264", "aac", "mp3")
+        assert tm["id"] == track["id"]
+        assert tm["format"] in ("h264", "aac", "mp3")
         kind, frames, pts = decoded(path, track["id"] - 1)
         if kind == "video":
-            assert tm["frames"] == len(frames) and tm["width"] == frames[0].width
+            assert tm["frames"] == len(frames)
+            assert tm["width"] == frames[0].width
             for k, p in enumerate("yuv"):
                 want = np.stack([plane(f, k) for f in frames])
                 got = g[p][...]
-                assert got.dtype == np.uint8 and got.shape == want.shape, p
+                assert got.dtype == np.uint8, p
+                assert got.shape == want.shape, p
                 assert np.array_equal(got, want), p
             # the media timeline's times: ffmpeg's demuxer applies the edit list, which the
             # layout records and does not apply
@@ -94,7 +98,8 @@ def test_tracks_are_ffmpegs_decoding(path, chunk_frames, tmp_path):
         else:
             want = samples(frames)
             got = g["samples"][...]
-            assert got.dtype == np.float32 and got.shape == want.shape
+            assert got.dtype == np.float32
+            assert got.shape == want.shape
             assert tm["samples"] == len(got) == tm["frames"] * tm["samples_per_frame"]
             if path.name in NOISE and chunk_frames is not None:
                 # the noise bands differ; the signal's level does not
@@ -124,30 +129,34 @@ def test_video_chunks_start_at_keyframes(tmp_path):
     path = FIXTURES / "mp4" / "mp4_h264_long.mp4"
     out, root = zarrified(path, tmp_path)
     assert root["tracks/1/y"].chunks == (250, 32, 32)
-    units, positions = chunk_units(out, "tracks/1/y/c/1/0/0", path.read_bytes())
+    _units, positions = chunk_units(out, "tracks/1/y/c/1/0/0", path.read_bytes())
     assert sorted(positions) == list(range(150))
     assert out.refs["tracks/1/u/c/1/0/0"] == out.refs["tracks/1/y/c/1/0/0"] == out.refs["tracks/1/v/c/1/0/0"]
     codecs = json.loads(out.bytes_entries["tracks/1/u/zarr.json"])["codecs"]
-    assert codecs[0]["name"] == "refkv.stream" and codecs[0]["configuration"]["plane"] == "u"
-    assert codecs[0]["configuration"]["format"] == "h264" and codecs[0]["configuration"]["setup"]
+    assert codecs[0]["name"] == "refkv.stream"
+    assert codecs[0]["configuration"]["plane"] == "u"
+    assert codecs[0]["configuration"]["format"] == "h264"
+    assert codecs[0]["configuration"]["setup"]
 
     path = FIXTURES / "mp4" / "mp4_h264_irregular_groups.mp4"
     out, root = zarrified(path, tmp_path, chunk_frames=7)
     grid = json.loads(out.bytes_entries["tracks/1/y/zarr.json"])["chunk_grid"]
     assert grid == {"name": "rectilinear", "configuration": {"kind": "inline",
                                                              "chunk_shapes": [[7, 2, [7, 4], 3, [7, 2], 6], 48, 64]}}
-    assert json.loads(out.bytes_entries["tracks/1/u/zarr.json"])["chunk_grid"]["configuration"]["chunk_shapes"][1:] == [24, 32]
+    u_grid = json.loads(out.bytes_entries["tracks/1/u/zarr.json"])["chunk_grid"]
+    assert u_grid["configuration"]["chunk_shapes"][1:] == [24, 32]
     data = path.read_bytes()
     starts = [0, 7, 9, 16, 23, 30, 37, 40, 47, 54]
-    for q, (a, b) in enumerate(zip(starts, starts[1:] + [60])):
-        units, positions = chunk_units(out, f"tracks/1/y/c/{q}/0/0", data)
+    for q, (a, b) in enumerate(zip(starts, [*starts[1:], 60], strict=True)):
+        _units, positions = chunk_units(out, f"tracks/1/y/c/{q}/0/0", data)
         assert sorted(p for p in positions if p >= 0) == list(range(b - a)), q
         if a in (0, 7, 9, 23, 40):
             # the keyframe first (a P-frame its last B-frames need is decoded and dropped after them)
             assert positions[0] == 0, q
         else:
             # every picture back to the keyframe decoded and dropped: 9 to 15 for 16, 23 to 29 for 30
-            assert positions[0] == -1 and sum(p < 0 for p in positions) >= a - max(k for k in (0, 7, 9, 23, 40) if k <= a), q
+            assert positions[0] == -1, q
+            assert sum(p < 0 for p in positions) >= a - max(k for k in (0, 7, 9, 23, 40) if k <= a), q
     assert out.summary["tracks"][0]["chunks"] == 10
 
 
@@ -164,9 +173,10 @@ def test_an_open_group_s_leading_pictures_decode_from_the_group_before(tmp_path)
     grid = json.loads(out.bytes_entries["tracks/1/y/zarr.json"])["chunk_grid"]
     assert grid["configuration"]["chunk_shapes"][0][:2] == [11, 1]
     units, positions = chunk_units(out, "tracks/1/y/c/1/0/0", path.read_bytes())
-    assert positions[0] == -1 and sorted(p for p in positions if p >= 0) == [0]
+    assert positions[0] == -1
+    assert sorted(p for p in positions if p >= 0) == [0]
     assert len(units) > 12  # the group before, the keyframe, and the leading picture
-    kind, frames, _ = decoded(path, 0)
+    _kind, frames, _ = decoded(path, 0)
     for k, p in enumerate("yuv"):
         assert np.array_equal(root["tracks/1"][p][...], np.stack([plane(f, k) for f in frames])), p
 
@@ -181,7 +191,7 @@ def test_a_video_chunk_s_planes_decode_once(tmp_path, monkeypatch):
     monkeypatch.setattr(stream, "SHARED", Shared(1 << 26))
     path = FIXTURES / "mp4" / "mp4_h264_irregular_groups.mp4"
     out, root = zarrified(path, tmp_path, chunk_frames=7)
-    kind, frames, _ = decoded(path, 0)
+    _kind, frames, _ = decoded(path, 0)
     for k, p in enumerate("yuv"):
         assert np.array_equal(root["tracks/1"][p][16:23], np.stack([plane(f, k) for f in frames[16:23]])), p
     assert len(calls) == 1
@@ -208,7 +218,8 @@ def test_the_codec_keeps_each_plane_once_within_its_limit():
     assert set(shared.kept["a"]) == {"u", "v"}
     shared.take("a", "u", decode(100))
     shared.take("a", "v", decode(100))
-    assert runs == [100] and "a" not in shared.kept
+    assert runs == [100]
+    assert "a" not in shared.kept
     shared.take("a", "v", decode(100))  # given once: decoded again
     assert runs == [100, 100]
     shared.take("b", "y", decode(100))  # past 300 bytes: a's planes dropped
@@ -240,12 +251,15 @@ def test_reads_the_movie_and_track_metadata(tmp_path):
     """The brands, the timescales, the edit list (recorded, not applied) and a VFR track's
     presentation times (spec/zarrify/mp4.md §5
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#5-source-metadata>)."""
-    out, root = zarrified(FIXTURES / "mp4" / "mp4_h264_bframes.mp4", tmp_path)
+    _out, root = zarrified(FIXTURES / "mp4" / "mp4_h264_bframes.mp4", tmp_path)
     meta = root.attrs["refkv_zarrified"]["mp4"]
-    assert meta["brand"]["major"] == "isom" and "mp41" in meta["brand"]["compatible"]
+    assert meta["brand"]["major"] == "isom"
+    assert "mp41" in meta["brand"]["compatible"]
     track = root["tracks/1"].attrs["refkv_zarrified"]["mp4"]
-    assert track["edits"] and track["edits"][0]["media_time"] > 0  # B-frames: the composition delay
-    assert track["sync_samples"] == 3 and track["chunk_frames"] == 256
+    assert track["edits"]
+    assert track["edits"][0]["media_time"] > 0  # B-frames: the composition delay
+    assert track["sync_samples"] == 3
+    assert track["chunk_frames"] == 256
     _, root = zarrified(FIXTURES / "mp4" / "mp4_h264_vfr.mp4", tmp_path)
     times = root["tracks/1/time"][...]
     assert root["tracks/1"].attrs["refkv_zarrified"]["mp4"]["timescale"] == 1000
