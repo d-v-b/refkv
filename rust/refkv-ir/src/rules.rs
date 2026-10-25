@@ -152,6 +152,11 @@ impl Rules {
         self.table(name).get(key).filter(|_| key != "about")
     }
 
+    /// The entries of the table `name`, without its `about` (`Rules::entry`).
+    pub fn entries(&self, name: &str) -> impl Iterator<Item = (&String, &J)> {
+        self.table(name).as_object().into_iter().flatten().filter(|e| e.0 != "about")
+    }
+
     pub fn has_role(&self, role: &str) -> bool {
         self.roles.contains_key(role)
     }

@@ -199,11 +199,11 @@ fn valid_axes(names: &[Js]) -> bool {
 
 fn unit_of(u: Option<&Js>) -> Option<String> {
     let u = u?.as_str()?;
-    let units = table("units");
-    if units.as_object().is_some_and(|m| m.iter().any(|(k, v)| k != "about" && v.as_str() == Some(u))) {
+    let schema = crate::n5::schema();
+    if schema.entries("units").any(|(_, v)| v.as_str() == Some(u)) {
         return Some(u.to_string());
     }
-    crate::n5::schema().entry("units", u).and_then(|v| v.as_str()).map(str::to_string)
+    schema.entry("units", u).and_then(|v| v.as_str()).map(str::to_string)
 }
 
 /// `n` numbers (each positive, with `positive`), as binary64 values.
