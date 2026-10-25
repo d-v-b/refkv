@@ -803,9 +803,11 @@ fn presentation(t: &Track) -> Vec<i64> {
 
 /// Whether the groups of pictures are closed (spec/zarrify/mp4.md §8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#82-tracks>): the first sample
-/// is a sync sample, no two samples share a presentation time, no group is longer than
-/// `max_group` samples, and every sample before a sync sample in decode order is presented
-/// before it and every sample after it is presented after it.
+/// is a sync sample, no two samples share a presentation time, and no group is longer than
+/// `max_group` samples. A sample after a sync sample in decode order may be presented before
+/// it (a leading picture: a camera's B-frames after an IDR picture, or an open group's, which
+/// may reference the group before); a chunk that holds one decodes from the sync sample before
+/// (project/mp4.rs, `video_units`).
 pub fn gops(pts: &[i64], sync: &[u64]) -> Result<(), String> {
     let n = pts.len();
     if sync.first() != Some(&0) {
@@ -823,22 +825,6 @@ pub fn gops(pts: &[i64], sync: &[u64]) -> Result<(), String> {
             return Err(format!("a group of pictures of {} samples, more than {limit}", s - prev));
         }
         prev = s;
-    }
-    let mut suffix_min = vec![i64::MAX; n + 1];
-    for d in (0..n).rev() {
-        suffix_min[d] = suffix_min[d + 1].min(pts[d]);
-    }
-    let mut prefix_max = i64::MIN;
-    let mut next = 0usize;
-    for d in 0..n {
-        if next < sync.len() && sync[next] as usize == d {
-            next += 1;
-            if pts[d] < prefix_max || suffix_min[d] < pts[d] {
-                let lead = (d..n).find(|&x| pts[x] < pts[d]).unwrap_or(d);
-                return Err(format!("an open group of pictures: sample {lead}, after the sync sample {d} in decode order, is presented before it"));
-            }
-        }
-        prefix_max = prefix_max.max(pts[d]);
     }
     Ok(())
 }
@@ -1011,14 +997,17 @@ impl crate::run::FileProfile for Profile {
 mod tests {
     use super::*;
 
-    /// Closed groups pass; a sample after a sync sample presented before it, a first sample
-    /// that is not a sync sample, and two samples of one time fail.
+    /// Closed groups and groups with leading pictures pass; a first sample that is not a sync
+    /// sample, two samples of one time, and a group longer than the limit fail.
     #[test]
-    fn groups_of_pictures_are_closed() {
+    fn groups_of_pictures_are_checked() {
         // I0 P3 B1 B2 | I4 P7 B5 B6, in decode order
         assert_eq!(gops(&[0, 3, 1, 2, 4, 7, 5, 6], &[0, 4]), Ok(()));
-        // I4 is followed in decode order by B3, presented before it: open
-        assert!(gops(&[0, 2, 1, 4, 3, 5], &[0, 3]).unwrap_err().starts_with("an open group of pictures: sample 4"));
+        // I4 is followed in decode order by B3, presented before it: a leading picture
+        assert_eq!(gops(&[0, 2, 1, 4, 3, 5], &[0, 3]), Ok(()));
+        let limit = rules::of("mp4").limit("max_group") as usize;
+        let long: Vec<i64> = (0..limit as i64 + 2).collect();
+        assert!(gops(&long, &[0]).unwrap_err().starts_with("a group of pictures of"));
         assert_eq!(gops(&[0, 1], &[1]), Err("the first sample is not a sync sample".into()));
         assert_eq!(gops(&[0, 0], &[0]), Err("two samples share a presentation time".into()));
     }

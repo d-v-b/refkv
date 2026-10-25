@@ -15,6 +15,11 @@ Added 2026-10-23, after
 [revision 29](../history/virtualize/REVISIONS.md#revision-29-no-recorded-revision-the-profile-registry)
 (a profile's changes are recorded here, dated, from then on).
 
+**2026-10-25.** A track whose sync samples are followed in decode order by pictures presented
+before them (leading pictures: a camera's B-frames after each IDR picture, or an open group's)
+is zarrified, not refused; a chunk that holds a leading picture of the sync sample it would
+decode from decodes from the sync sample before that ([§8.2](#82-tracks), [§8.3](#83-chunks)).
+
 **2026-10-24.** A video chunk holds whole groups of pictures, from a sync sample, in place of
 `F` pictures from a multiple of `F`; a group longer than `F` pictures is split. Where the
 chunks' lengths differ, the planes' chunk grid is the zarr-extensions `rectilinear` grid
@@ -139,13 +144,14 @@ the sample with the `p`-th smallest presentation time.
   payload and `P` the array's name. A chunk holds at most
   `F = min(256, max(1, floor(2^25 / (W × H))))` pictures: at most 32 MiB of
   luma (16 pictures at 1920 × 1080), since a chunk decodes whole. The
-  chunks are cut at the sync samples, each presented at its own index (its
-  group of pictures is closed, [§8.2](#82-tracks)): chunk `q` holds the
-  pictures `a_q` to `a_{q+1} − 1`, from `a_0 = 0`, where `a_{q+1}` is `N`
-  when `N − a_q ≤ F`; else the greatest index of a sync sample that is
-  greater than `a_q` and at most `a_q + F`; else `a_q + F`. So a chunk holds
-  whole groups of pictures and the next starts with a sync sample, but
-  where a group longer than `F` is split. Its key is `<plane>/c/<q>/0/0`.
+  chunks are cut at the sync samples' presentation indexes: chunk `q` holds
+  the pictures `a_q` to `a_{q+1} − 1`, from `a_0 = 0`, where `a_{q+1}` is
+  `N` when `N − a_q ≤ F`; else the greatest presentation index of a sync
+  sample that is greater than `a_q` and at most `a_q + F`; else `a_q + F`.
+  So a chunk holds whole groups of pictures and the next starts with a
+  sync sample, but where a group longer than `F` is split. A sync sample's
+  leading pictures (those after it in decode order and presented before
+  it) are in the chunk before it. Its key is `<plane>/c/<q>/0/0`.
 - The chunk grid of `y`, `u` and `v`, `L_q` the length of chunk `q`: when
   every `L_q` but the last is `L_0` and the last at most `L_0`, the regular
   grid of chunk shape `[L_0, H, W]` (or the chroma planes' sizes);
@@ -386,9 +392,10 @@ and the track is kept in the mirror but has no group:
   4:2:0 (`chroma_format_idc` 1 and both bit depths 8; profiles below High
   are); or its width or height is 0; or its first sample is not a sync
   sample; or two samples share a presentation time; or two sync samples
-  (or the last one and the end) are more than 1024 samples apart; or a group
-  of pictures is **open**: a sample after a sync sample in decode order is
-  presented before it, or one before it after it;
+  (or the last one and the end) are more than 1024 samples apart. A sample
+  after a sync sample in decode order may be presented before it (a
+  **leading picture**): a camera's B-frames after each IDR picture are, and
+  an open group's, which may reference the group before ([§8.3](#83-chunks));
 - **audio:** its sample entry is a QuickTime sound description of version 2;
   or it is neither `mp4a` nor `.mp3`; or, for `mp4a`, its `esds` box (or the
   one in its `wave` box) is absent or cannot be read, or its object type
@@ -401,8 +408,8 @@ The channel count and sample rate of an AAC track are its
 AudioSpecificConfig's (the sample entry's channel count when its channel
 configuration is 0); those of an MP3 track its sample entry's.
 
-The open-group and spacing rules make every chunk decodable from a sync
-sample before it, with a header of at most a few thousand frames, so its
+The spacing rule makes every chunk decodable from a sync sample at most two
+groups before it, with a header of at most a few thousand frames, so its
 reference fits in a payload ([§1.2](../zarrify.md#12-input)).
 
 ### 8.3 Chunks
@@ -413,16 +420,18 @@ of these samples, in decode order, a range per run of samples that follow
 each other in the file:
 
 - **Video**, chunk `q` of the pictures `a = a_q` to `b − 1`, `b = a_{q+1}`
-  ([the convention §4.1](#41-video-tracks)): the samples from the last sync
-  sample at or before the first of those pictures in decode order, to the
-  last of them in decode order. A sample's position is
-  its presentation index less `a` when that is from 0 to `b − a − 1`, else
-  −1. So the chunk decodes the group of pictures it starts in from its sync
-  sample, and every picture its own pictures are predicted from; the
-  pictures it decodes and does not hold (before `a`, or after `b − 1` but
-  decoded before one of its own) are dropped. A chunk that starts with a
-  sync sample decodes from it, with no picture before `a`. The chunks of `u`
-  and `v` are `y`'s.
+  ([the convention §4.1](#41-video-tracks)): the samples from a sync sample
+  `s` to the last of those pictures in decode order, where `s` is the last
+  sync sample at or before the first of them in decode order, or, while
+  one of them is a leading picture of `s` ([§8.2](#82-tracks)), the sync
+  sample before `s`. A sample's position is its presentation index less `a`
+  when that is from 0 to `b − a − 1`, else −1. So the chunk decodes the
+  group of pictures it starts in from its sync sample, and every picture
+  its own pictures are predicted from, an open group's leading pictures
+  included; the pictures it decodes and does not hold (before `a`, or after
+  `b − 1` but decoded before one of its own) are dropped. A chunk that
+  starts with a sync sample decodes from it. The chunks of `u` and `v` are
+  `y`'s.
 - **Audio**, chunk `q` of the frames `a = q × 256` to `b − 1`: the frames
   `l` to `b − 1`, frame `j`'s position −1 when `j < a` and `(j − a) × S`
   otherwise. `l = a` for the first chunk; otherwise, for AAC, `l = a − 1`

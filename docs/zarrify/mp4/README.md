@@ -110,13 +110,15 @@ Supported:
 - MP4 and QuickTime files with the `moov` box before or after the media,
   64-bit box sizes and a media box that runs to the end of the file.
 - H.264 (`avc1`) video in any profile that is 8-bit 4:2:0, with or without
-  B-frames, at a constant or variable frame rate, any number of tracks.
+  B-frames, with open or closed groups of pictures (a camera's B-frames
+  presented before each keyframe included), at a constant or variable
+  frame rate, any number of tracks.
 - AAC-LC and MP3 audio tracks, mono or stereo, in either container.
 
 Not zarrified (listed with the reason, and kept in the mirror): HEVC,
 AV1 and other video codecs, `avc3` (parameter sets in the stream), 10-bit,
-4:2:2 and 4:4:4 H.264, open groups of pictures, groups of more than 1024
-pictures, HE-AAC and other audio codecs, timecode and text tracks.
+4:2:2 and 4:4:4 H.264, groups of more than 1024 pictures, HE-AAC and other
+audio codecs, timecode and text tracks.
 
 Rejected: fragmented MP4 (`moof` boxes), files without a `moov` box, files
 with none of the tracks above, and malformed boxes or sample tables.
