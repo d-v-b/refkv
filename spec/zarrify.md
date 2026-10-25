@@ -40,6 +40,7 @@ The table, generated from the registry, lists them:
 | [CZI](zarrify/czi.md#part-2-the-profile) | file | Zeiss CZI files (ZISRAW, file version 1), with uncompressed, JPEG, JPEG XR and Zstd subblocks, mosaics and pyramids |
 | [DICOM](zarrify/dicom.md#part-2-the-profile) | file | DICOM Part 10 files with native or JPEG-encapsulated pixel data, including whole-slide images |
 | [FITS](zarrify/fits.md#part-2-the-profile) | file | FITS files: images, multi-extension files, binary and ASCII tables |
+| [FLAC](zarrify/flac.md#part-2-the-profile) | file | FLAC files (`.flac`) of a fixed block size, with their metadata blocks and ID3v2 and ID3v1 tags; one sharded array of integer samples, not an image |
 | [IMS](zarrify/ims.md#part-2-the-profile) | file | Imaris IMS files (HDF5) |
 | [MP3](zarrify/mp3.md#part-2-the-profile) | file | MPEG-1, MPEG-2 and MPEG-2.5 Layer III audio files (`.mp3`), with their ID3v2, ID3v1 and APE tags; one array of samples, not an image |
 | [MP4](zarrify/mp4.md#part-2-the-profile) | file | MP4 and QuickTime files (`.mp4`, `.m4a`, `.mov`) with H.264 video and AAC or MP3 audio tracks; a group per track, not an image |
@@ -182,6 +183,7 @@ profile name:
 | CZI ([czi.md §7](zarrify/czi.md#7-czi-profile)) | 50 |
 | DICOM ([dicom.md §7](zarrify/dicom.md#7-dicom-profile)) | 10 |
 | FITS ([fits.md §9](zarrify/fits.md#9-fits-profile)) | 110 |
+| FLAC ([flac.md §8](zarrify/flac.md#8-flac-profile)) | 95 |
 | IMS ([ims.md §7](zarrify/ims.md#7-ims-profile)) | 70 |
 | MP3 ([mp3.md §8](zarrify/mp3.md#8-mp3-profile)) | 100 |
 | MP4 ([mp4.md §8](zarrify/mp4.md#8-mp4-profile)) | 85 |
@@ -629,6 +631,7 @@ else. The profiles, generated from the registry:
 - the CZI profile: [spec/zarrify/czi.md §7](zarrify/czi.md#7-czi-profile);
 - the DICOM profile: [spec/zarrify/dicom.md §7](zarrify/dicom.md#7-dicom-profile);
 - the FITS profile: [spec/zarrify/fits.md §9](zarrify/fits.md#9-fits-profile);
+- the FLAC profile: [spec/zarrify/flac.md §8](zarrify/flac.md#8-flac-profile);
 - the IMS profile: [spec/zarrify/ims.md §7](zarrify/ims.md#7-ims-profile);
 - the MP3 profile: [spec/zarrify/mp3.md §8](zarrify/mp3.md#8-mp3-profile);
 - the MP4 profile: [spec/zarrify/mp4.md §8](zarrify/mp4.md#8-mp4-profile);

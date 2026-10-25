@@ -846,6 +846,14 @@ fn _set_copy_threshold(n: Option<usize>) {
     refkv_ir::out::set_copy_threshold(n);
 }
 
+/// For tests: the frames of a FLAC shard (None: 512), so that small files have several shards
+/// (spec/zarrify/flac.md §8.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/flac.md#82-shards>).
+#[pyfunction]
+#[pyo3(signature = (n=None))]
+fn _set_shard_frames(n: Option<usize>) {
+    refkv_ir::flac::set_shard_frames(n);
+}
+
 /// For tests: the frames of an MP3 chunk (None: 256), so that small files have several chunks,
 /// each with its lead-in (spec/zarrify/mp3.md §8.2
 /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#82-chunks>).
@@ -871,6 +879,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fits_tiles_decode, m)?)?;
     m.add_function(wrap_pyfunction!(_set_copy_threshold, m)?)?;
     m.add_function(wrap_pyfunction!(_set_chunk_frames, m)?)?;
+    m.add_function(wrap_pyfunction!(_set_shard_frames, m)?)?;
     m.add_function(wrap_pyfunction!(project, m)?)?;
     m.add_function(wrap_pyfunction!(mirror, m)?)?;
     m.add_function(wrap_pyfunction!(canonical_problem, m)?)?;
