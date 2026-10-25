@@ -43,9 +43,18 @@ def values(sizes: list[int], np_type: str, order: str, seed: int = 0) -> bytes:
     return np.asarray(v).astype(order + np_type).tobytes()
 
 
+def portable(member: bytes) -> bytes:
+    """A gzip member with its header's OS byte (offset 9) at 255, "unknown": zlib writes its build's
+    OS code there (3 on Linux, 19 on macOS), so that fixtures differ between platforms. The member
+    has no header CRC (FHCRC, bit 1 of its flags), which the byte would change."""
+    if member[:3] != b"\x1f\x8b\x08" or member[3] & 2:
+        raise SystemExit("not a gzip member without a header CRC")
+    return member[:9] + b"\xff" + member[10:]
+
+
 def gz(data: bytes) -> bytes:
-    """`data` as one gzip member, of no name or time."""
-    return gzip.compress(data, compresslevel=6, mtime=0)
+    """`data` as one gzip member, of no name or time, its OS byte portable."""
+    return portable(gzip.compress(data, compresslevel=6, mtime=0))
 
 
 def header(fields: list[str], magic: str = "NRRD0004", eol: str = "\n") -> bytes:
@@ -166,6 +175,10 @@ def accepted() -> None:
         fixed, n = re.subn(rb"# on [^\n]*\(GMT\)\.\n", b"# on 2026-10-25 00:00:00(GMT).\n", path.read_bytes(), count=1)
         if n != 1:
             raise SystemExit(f"{name}: pynrrd's time comment was not found; its output is no longer fixed")
+        if name == "nrrd_pynrrd_gzip.nrrd":
+            # pynrrd's gzip member (zlib's, after the header's blank line) with its OS byte portable
+            at = fixed.index(b"\n\n") + 2
+            fixed = fixed[:at] + portable(fixed[at:])
         path.write_bytes(fixed)
 
 
