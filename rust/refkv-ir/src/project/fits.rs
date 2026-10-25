@@ -206,7 +206,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     let mut summary_arrays = Vec::new();
     let mut count = 0usize;
     // one zero data source for every array's padding
-    let zeros = contiguous::padding(all_arrays.iter().flat_map(|(_, _, arrays)| arrays.iter().flat_map(|a| &a.6)));
+    let mut zeros = contiguous::Zeros::of(all_arrays.iter().flat_map(|(_, _, arrays)| arrays.iter().flat_map(|a| &a.6)));
     let mut refs = Refs::new(ir, out);
     for (is_image, own, node_arrays) in all_arrays {
         for (path, data_type, shape, dims, element, grid, chunks) in node_arrays {
@@ -223,7 +223,7 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
                 None => (0, 0, 0),
             };
             count += chunks.len();
-            contiguous::emit(&mut refs, chunks, (start, length, form), copied, &[&format!("{path}/c/")], |c| c, zeros)?;
+            contiguous::emit(&mut refs, chunks, (start, length, form), copied, &[&format!("{path}/c/")], |c| c, &mut zeros)?;
         }
     }
     // the tile-compressed images (§3.3

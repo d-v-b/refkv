@@ -208,8 +208,8 @@ pub fn project(ir: &Ir, facts: &J, url: &str, copied: &Copied) -> Result<Out, St
     // the data variable's chunks are the image's, not charged again
     let data_chunks = format!("{DATASET}/data/c/");
     let prefixes: Vec<&str> = if dataset { vec!["0/c/", &data_chunks] } else { vec!["0/c/"] };
-    let zeros = contiguous::padding(&chunks);
-    contiguous::emit(&mut refs, chunks, (offset, length, form), copied, &prefixes, |c| c, zeros)?;
+    let mut zeros = contiguous::Zeros::of(&chunks);
+    contiguous::emit(&mut refs, chunks, (offset, length, form), copied, &prefixes, |c| c, &mut zeros)?;
     let mut out = refs.out;
     // the coordinates (spec/zarrify/mrc-dataset.md §3
     // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc-dataset.md#3-coordinates>): the
