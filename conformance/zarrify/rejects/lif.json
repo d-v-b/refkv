@@ -1,0 +1,151 @@
+{
+  "about": "The inputs the lif profile rejects, each with the start of its message (the Rust tests' prefix), and, where the Python host rejects it earlier, the host's message. rust/refkv-ir/build.rs writes a Rust test per case into tests/lif.rs; python/tests/ir/test_rejects.py checks each through the host and that every rejected fixture is listed here.",
+  "cases": [
+    {
+      "test": "edge_reject_lif_bad_block",
+      "input": "edge_reject_lif_bad_block.lif",
+      "message": "image 0 (a) names memory block MemBlock_1, which the file does not hold"
+    },
+    {
+      "test": "edge_reject_lif_bit_inc",
+      "input": "edge_reject_lif_bit_inc.lif",
+      "message": "image 0 (plane): dimension 0 has BitInc 4: bit-packed data is not supported"
+    },
+    {
+      "test": "edge_reject_lif_channel_bit_inc",
+      "input": "edge_reject_lif_channel_bit_inc.lif",
+      "message": "image 0 (plane): channel 0 has BitInc 4: bit-packed data is not supported"
+    },
+    {
+      "test": "edge_reject_lif_channels_one_offset",
+      "input": "edge_reject_lif_channels_one_offset.lif",
+      "message": "image 0 (two) has two channels at one BytesInc ([0, 0])"
+    },
+    {
+      "test": "edge_reject_lif_data_type",
+      "input": "edge_reject_lif_data_type.lif",
+      "message": "image 0 (plane): channel 0 has an unsupported DataType 2, not 0 (integer) or 1 (float)"
+    },
+    {
+      "test": "edge_reject_lif_duplicate_block",
+      "input": "edge_reject_lif_duplicate_block.lif",
+      "message": "image 0 (plane) names memory block MemBlock_1, which the file holds 2 times"
+    },
+    {
+      "test": "edge_reject_lif_float8",
+      "input": "edge_reject_lif_float8.lif",
+      "message": "image 0 (plane): channel 0 is an unsupported float of 8 bits"
+    },
+    {
+      "test": "edge_reject_lif_lof",
+      "input": "edge_reject_lif_lof.lif",
+      "message": "a Leica object file (LOF): the profile reads LIF files only"
+    },
+    {
+      "test": "edge_reject_lif_missing_block",
+      "input": "edge_reject_lif_missing_block.lif",
+      "message": "image 0 (plane) names memory block MemBlock_9, which the file does not hold"
+    },
+    {
+      "test": "edge_reject_lif_mixed_types",
+      "input": "edge_reject_lif_mixed_types.lif",
+      "message": "image 0 (two) has channels of different data types"
+    },
+    {
+      "test": "edge_reject_lif_no_dimensions",
+      "input": "edge_reject_lif_no_dimensions.lif",
+      "message": "image 0 (plane) has 0 DimensionDescription elements, not 1 to 16"
+    },
+    {
+      "test": "edge_reject_lif_no_memory",
+      "input": "edge_reject_lif_no_memory.lif",
+      "message": "image 0 (plane) has no Memory element with a MemoryBlockID"
+    },
+    {
+      "test": "edge_reject_lif_no_x",
+      "input": "edge_reject_lif_no_x.lif",
+      "message": "image 0 (plane) has no X dimension (DimID 1)"
+    },
+    {
+      "test": "edge_reject_lif_not_arranged",
+      "input": "edge_reject_lif_not_arranged.lif",
+      "message": "image 0 (gap): channels at BytesInc [0, 1] with an X BytesInc of 3 are neither planar nor interleaved"
+    },
+    {
+      "test": "edge_reject_lif_not_integer",
+      "input": "edge_reject_lif_not_integer.lif",
+      "message": "image 0 (plane): dimension 1's DimID, NumberOfElements or BytesInc (2, three, 4) is not an integer"
+    },
+    {
+      "test": "edge_reject_lif_repeated_dimension",
+      "input": "edge_reject_lif_repeated_dimension.lif",
+      "message": "image 0 (plane) has two dimensions of DimID 2 with more than one element"
+    },
+    {
+      "test": "edge_reject_lif_resolution_0",
+      "input": "edge_reject_lif_resolution_0.lif",
+      "message": "image 0 (plane): channel 0 has an unsupported Resolution of 0 bits, not 1 to 64"
+    },
+    {
+      "test": "edge_reject_lif_resolution_65",
+      "input": "edge_reject_lif_resolution_65.lif",
+      "message": "image 0 (plane): channel 0 has an unsupported Resolution of 65 bits, not 1 to 64"
+    },
+    {
+      "test": "edge_reject_lif_root",
+      "input": "edge_reject_lif_root.lif",
+      "message": "the XML header's root element is LMSDataContainerEnhancedHeader, not LMSDataContainerHeader"
+    },
+    {
+      "test": "edge_reject_lif_rows_overlap",
+      "input": "edge_reject_lif_rows_overlap.lif",
+      "message": "image 0 (plane): rows of 4 bytes, 3 bytes apart, overlap"
+    },
+    {
+      "test": "edge_reject_lif_shared_block",
+      "input": "edge_reject_lif_shared_block.lif",
+      "message": "image 1 (b) names memory block MemBlock_1, which image 0 names too"
+    },
+    {
+      "test": "edge_reject_lif_short",
+      "input": "edge_reject_lif_short.lif",
+      "message": "the 10-byte file is too short for a LIF header block"
+    },
+    {
+      "test": "edge_reject_lif_short_block",
+      "input": "edge_reject_lif_short_block.lif",
+      "message": "image 0 (plane) reaches 16 bytes into memory block MemBlock_1, which holds 12"
+    },
+    {
+      "test": "edge_reject_lif_test_value",
+      "input": "edge_reject_lif_test_value.lif",
+      "message": "not a LIF file: the header block's test value is 368 and its magic byte 42, not 112 and 42",
+      "host": "not a file of any supported format"
+    },
+    {
+      "test": "edge_reject_lif_truncated",
+      "input": "edge_reject_lif_truncated.lif",
+      "message": "image 1 (b) names memory block MemBlock_2, which the file does not hold"
+    },
+    {
+      "test": "edge_reject_lif_version_3",
+      "input": "edge_reject_lif_version_3.lif",
+      "message": "unsupported LIF version 3: the XML header's Version is not 1 or 2"
+    },
+    {
+      "test": "edge_reject_lif_xml_past_end",
+      "input": "edge_reject_lif_xml_past_end.lif",
+      "message": "the XML header of 1048576 characters runs past the end of the 2297-byte file"
+    },
+    {
+      "test": "edge_reject_lif_xml_utf16",
+      "input": "edge_reject_lif_xml_utf16.lif",
+      "message": "the XML header is not well-formed UTF-16"
+    },
+    {
+      "test": "edge_reject_lif_zero_elements",
+      "input": "edge_reject_lif_zero_elements.lif",
+      "message": "image 0 (plane): dimension 1 has NumberOfElements 0"
+    }
+  ]
+}
