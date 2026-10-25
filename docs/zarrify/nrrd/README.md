@@ -40,6 +40,15 @@ One OME-Zarr 0.5 image at the archive root, with one array, `0`.
 
 ## Try it
 
+[example.py](example.py) zarrifies two public files (a gzip `.nrrd`, and a detached `.nhdr` with
+its raw data file) and plots them with matplotlib. Its dependencies are in its header (PEP 723),
+so it runs on its own (uv builds refkv from GitHub, which needs a Rust toolchain, until a release
+on PyPI has `refkv.zarrify`):
+
+```bash
+uv run docs/zarrify/nrrd/example.py
+```
+
 pynrrd's test volume (MIT), from [corpus_nrrd.txt](../../../conformance/zarrify/corpus_nrrd.txt):
 
 ```bash
