@@ -83,9 +83,14 @@ fn check_input(path: &Path, files: &BTreeMap<String, Vec<u8>>, out: &Out, ir: &I
     assert_eq!(src.objects.len(), files.len(), "{path:?}");
     let referenced: std::collections::HashSet<&str> = out.refs.iter().flat_map(|r| &r.1)
         .filter_map(|p| if let Part::Obj(k, _, _) = p { Some(k.as_str()) } else { None }).collect();
+    // the header file is the one the root names; it is held when the header is detached
+    let root = doc(out, "zarr.json");
+    let p = &root["attributes"]["refkv_zarrified"];
+    let header = p["source"]["url"].as_str().unwrap().rsplit('/').next().unwrap().to_string();
+    let detached = p["nrrd"].get("data_file").is_some();
     for &o in &src.objects {
         let key = ir.key(o);
-        let detached_header = key.ends_with(".nhdr");
+        let detached_header = detached && key == header;
         assert!(ir.kind[o as usize] == OBJECT && ir.in_place(o) != detached_header, "{path:?}: {key} is held or not as it should be");
         assert_eq!(referenced.contains(key.as_str()), !detached_header, "{path:?}: {key}");
     }
@@ -288,21 +293,28 @@ fn about_names_no_field_type_encoding_or_space() {
     assert!(run_files("a.nrrd", input(fields)).is_ok());
 }
 
-/// A detached header's file over 64 KiB, which its first read does not hold whole, is read whole
-/// again, and held.
+/// A detached header's file over 64 KiB is held: when the header's reads reach its end, from
+/// them, with no read again; when bytes follow its blank line, read whole in the last batch.
 #[test]
-fn a_long_detached_header_is_read_whole_and_held() {
+fn a_long_detached_header_is_held() {
     let mut header = b"NRRD0004\ntype: uchar\ndimension: 2\nsizes: 3 2\nencoding: raw\ndata file: d.raw\n".to_vec();
     while header.len() <= 1 << 16 {
         header.extend_from_slice(b"# a long comment, as some writers' provenance is\n");
     }
     header.extend_from_slice(b"\n");
-    let files = BTreeMap::from([("h.nhdr".to_string(), header.clone()), ("d.raw".to_string(), vec![7; 6])]);
-    let (out, ir, files) = run_files("h.nhdr", files).unwrap();
-    check_input(Path::new("h.nhdr"), &files, &out, &ir);
-    let h = ir.sources().objects.iter().copied().find(|&o| ir.key(o) == "h.nhdr").unwrap();
-    assert!(!ir.in_place(h));
-    assert_eq!(out.refs, vec![("0/c/0/0".to_string(), vec![Part::Obj("d.raw".into(), 0, 6)])]);
+    let mut tailed = header.clone();
+    tailed.extend(vec![b'x'; 1 << 17]);
+    for (file, rereads) in [(header, false), (tailed, true)] {
+        let size = file.len() as u64;
+        let files = BTreeMap::from([("h.nhdr".to_string(), file), ("d.raw".to_string(), vec![7; 6])]);
+        let (out, ir, files) = run_files("h.nhdr", files).unwrap();
+        check_input(Path::new("h.nhdr"), &files, &out, &ir);
+        let h = ir.sources().objects.iter().copied().find(|&o| ir.key(o) == "h.nhdr").unwrap();
+        assert!(!ir.in_place(h));
+        assert_eq!(out.refs, vec![("0/c/0/0".to_string(), vec![Part::Obj("d.raw".into(), 0, 6)])]);
+        let read = out.summary["reads"]["bytes"].as_u64().unwrap();
+        assert_eq!(read > size + 6, rereads, "{read} bytes read of the {size}-byte header and the data");
+    }
 }
 
 #[test]

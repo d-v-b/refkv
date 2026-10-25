@@ -718,8 +718,12 @@ impl Nrrd {
         let mut claimed: Vec<Vec<(u64, u64)>> = vec![Vec::new(); self.keys.len()];
         // an attached header's file is described in place, its data referenced; a detached header's
         // file, which no chunk references, is held: the archive's mirror keeps its bytes
+        let size = self.keys[0].1;
         if self.data == 0 {
             ir.describe_in_place(self.elems[0])?;
+        } else if size > WINDOW && self.head.len() as u64 == size {
+            // a detached header's file the header's reads held to its end, in several reads
+            ir.put_value(self.elems[0], &self.head);
         }
         for (i, &(o, n)) in h.lines.iter().enumerate() {
             ir.value(self.elems[0], "lines/", i as u64, &format!("ascii[{n}]"), 0, (o, n), Some(&self.head[o as usize..(o + n) as usize]))?;
@@ -846,9 +850,10 @@ impl Nrrd {
                     }
                     // a detached header file is held (§5.2
                     // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#52-the-ir-mirror>):
-                    // read whole, in one request, when its first read did not hold it all
+                    // read whole, in one request, when the header's reads did not reach its end (a
+                    // first read of it all the run keeps; reads to its end, `emit` holds)
                     let size = self.keys[0].1;
-                    if self.data != 0 && size > WINDOW {
+                    if self.data != 0 && size > WINDOW && (self.head.len() as u64) < size {
                         self.asked.push((0, 0, size));
                     }
                     self.phase = Phase::Copies;

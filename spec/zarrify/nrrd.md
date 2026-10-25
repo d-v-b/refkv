@@ -437,8 +437,9 @@ file's key holds no `/`; its URL has no query or fragment.
 The header file is read from its start: its first `min(size, 65536)` bytes, then, while the
 bytes read hold no blank line after the magic and do not reach the file's end, as many bytes
 again as are held (each read doubling them), up to 2^24 bytes in all. A detached header's file,
-which the mirror holds ([the convention §5.2](#52-the-ir-mirror)), is read whole, in one request:
-by its first read when it is at most 65536 bytes, else again, whole, in the run's last batch. The header
+which the mirror holds ([the convention §5.2](#52-the-ir-mirror)), is read whole: by its first
+read when it is at most 65536 bytes, by the reads of its header when they reach its end, else in
+one request in the run's last batch. The header
 ([§2](#2-the-header)) is the bytes through the blank line that ends it, or, when none does, the
 whole file. The input is rejected when:
 

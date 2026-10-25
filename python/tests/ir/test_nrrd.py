@@ -72,10 +72,11 @@ def test_inputs_match_pynrrd_and_rebuild(path, tmp_path):
     rebuilt = _core.rebuild_store(out.entries.get)
     assert {k for k, _, _ in rebuilt} == set(out.sizes)
     sources = out.table()[0]
+    detached = "data_file" in mapping(at(root.attrs, "refkv_zarrified", "nrrd"))
     for key, size, held in rebuilt:
         data = (path.parent / key).read_bytes()
         assert size == len(data), key
-        if key.endswith(".nhdr"):
+        if detached and key == path.name:  # the header file, which no chunk references
             assert held == data, key
         else:
             assert held is None, key
