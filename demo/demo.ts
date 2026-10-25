@@ -404,6 +404,8 @@ let shown: View | undefined;
 async function showView(view: View & { input: Input }) {
   shown = view;
   const source = (url: string) => neuroglancerSource(view.input, url);
+  $("share-local").hidden = view.input.isArchive;
+  $("share-archive").hidden = !view.input.isArchive;
   $("name").textContent = view.name;
   $("zarr-url").textContent = source(view.url);
   $("view-note").textContent = view.note ?? "";
@@ -463,8 +465,6 @@ async function zarrify(url: string) {
   const isArchive = /\.vzip(?:[?#]|$)/i.test(url);
   const zarrUrl = isArchive ? archiveZarrUrl(p, url) : imageZarrUrl(p, url);
   const opened: Input = { url, zarrUrl, isArchive };
-  $("share-local").hidden = isArchive;
-  $("share-archive").hidden = !isArchive;
   setStatus(isArchive ? "Opening the archive…" : "Reading the file's structure…");
   const t0 = performance.now();
   const root = await getJson(`${zarrUrl}zarr.json`);

@@ -140,4 +140,4 @@ for (const e of errors.slice(0, 10)) console.log("  " + e.slice(0, 300));
 
 await browser.close();
 server?.kill();
-process.exitCode = sharedOk ? 0 : 1;
+process.exitCode = sharedOk && errors.length === 0 && controlled && zarrRequests.length > 0 ? 0 : 1;
