@@ -7,7 +7,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
 import { Archive, checkAddress, RefkvError } from "../src/archive.ts";
-import { readHttpRange } from "../src/http.ts";
+import { fetchFailed, HttpResolutionError, readHttpRange } from "../src/http.ts";
 import { checkedFetch, envProxy, resolver } from "../src/net_node.ts";
 import { writeVzip } from "../src/writer.ts";
 
@@ -179,4 +179,18 @@ test("refuses a request through a proxy", async () => {
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
     restore();
   }
+});
+
+test("a request that gets no response names CORS as a cause in a browser", async () => {
+  const url = "https://data.test/x";
+  const network = new TypeError("Failed to fetch");
+  // a browser's network error: the CORS cause too; under Node, or another error, the message alone
+  assert.match(fetchFailed(url, network, true), /^https:\/\/data\.test\/x: Failed to fetch\. A browser reports this for a server that does not allow cross-origin reads \(no Access-Control-Allow-Origin header/);
+  assert.equal(fetchFailed(url, network, false), "https://data.test/x: Failed to fetch");
+  assert.equal(fetchFailed(url, new Error("refused"), true), "https://data.test/x: refused");
+  // readHttpRange reports it so (here under Node, without the CORS cause)
+  await assert.rejects(
+    readHttpRange(url, 0, 4, {}, undefined, { fetch: async () => { throw network; } }),
+    (e: Error) => e instanceof HttpResolutionError && e.message === "https://data.test/x: Failed to fetch",
+  );
 });

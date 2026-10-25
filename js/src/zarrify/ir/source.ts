@@ -6,7 +6,7 @@
 // the twin of `HttpTransport` in python/src/refkv/ir/planner.py.
 
 import { checkAddress, checkPolicy, type Policy, RefkvError } from "../../archive.ts";
-import { EtagLog, HttpResolutionError } from "../../http.ts";
+import { EtagLog, fetchFailed, HttpResolutionError } from "../../http.ts";
 import { checkHttpUrl } from "../../uri.ts";
 import { checkedFetch } from "#net";
 import type { ByteReader } from "../common.ts";
@@ -281,7 +281,7 @@ export class HttpSource implements RangeSource {
           if (last) throw new HttpResolutionError(`${this.url}: HTTP ${e.status} after ${this.attempts} attempts`);
           await this.wait(attempt, e.retryAfter);
         } else {
-          if (last) throw new HttpResolutionError(`${this.url}: ${(e as Error).message}${causeOf(e)}`);
+          if (last) throw new HttpResolutionError(`${fetchFailed(this.url, e)}${causeOf(e)}`);
           await this.wait(attempt, null);
         }
       }
