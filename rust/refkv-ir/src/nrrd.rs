@@ -39,10 +39,10 @@ fn shown(b: &[u8]) -> String {
     utf8_or_latin1(b)
 }
 
-/// The entry `key` of the schema's table `table`, but its description (`about`), which names no
-/// entry.
+/// The entry `key` of the schema's table `table` (whose description is not in it, but in
+/// `table_about`: every key of a table is an entry).
 fn entry<'a>(rules: &'a Rules, table: &str, key: &str) -> Option<&'a J> {
-    rules.table(table).get(key).filter(|_| key != "about")
+    rules.table(table).get(key)
 }
 
 /// A problem as a role's given value: absent when there is none.

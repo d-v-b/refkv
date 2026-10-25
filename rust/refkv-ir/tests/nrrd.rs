@@ -261,15 +261,17 @@ fn a_direction_without_the_axis_component_is_not_applied() {
                json!([{"type": "scale", "scale": [1, 1.0, 1.0]}]));
 }
 
-/// The schema's tables describe themselves under `about`, which names no field, type or encoding.
+/// `about`, which describes a table in other schemas, names no field, type, encoding or space.
 #[test]
-fn about_names_no_field_type_or_encoding() {
+fn about_names_no_field_type_encoding_or_space() {
     let input = |lines: &str| BTreeMap::from([("a.nrrd".to_string(), format!("NRRD0004\n{lines}\n\nx").into_bytes())]);
     let fields = "type: uchar\ndimension: 2\nsizes: 1 1\nencoding: raw";
+    let space = format!("{fields}\nspace: about");
     let cases = [
         ("about: x", "line 2 of the header: \"about\" is not a NRRD field"),
         ("type: about\ndimension: 2\nsizes: 1 1\nencoding: raw", "unknown NRRD type \"about\""),
         ("type: uchar\ndimension: 2\nsizes: 1 1\nencoding: about", "unknown NRRD encoding \"about\""),
+        (space.as_str(), "the space field \"about\" is not a NRRD space"),
     ];
     for (lines, message) in cases {
         assert_eq!(run_files("a.nrrd", input(lines)).err().as_deref(), Some(message), "{lines}");

@@ -163,7 +163,9 @@ def accepted() -> None:
     for name in ("nrrd_pynrrd_gzip.nrrd", "nrrd_pynrrd_raw.nrrd"):
         # pynrrd's comment of the time it wrote the file, at a fixed time
         path = OUT / name
-        fixed = re.sub(rb"# on [^\n]*\(GMT\)\.\n", b"# on 2026-10-25 00:00:00(GMT).\n", path.read_bytes(), count=1)
+        fixed, n = re.subn(rb"# on [^\n]*\(GMT\)\.\n", b"# on 2026-10-25 00:00:00(GMT).\n", path.read_bytes(), count=1)
+        if n != 1:
+            raise SystemExit(f"{name}: pynrrd's time comment was not found; its output is no longer fixed")
         path.write_bytes(fixed)
 
 
