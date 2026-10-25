@@ -136,8 +136,7 @@ search-path = [
 ]
 
 # the tests and the scripts are not annotated (ruff's ANN, above, is the package's alone): what
-# they leave unannotated is Any; and they index the JSON and NumPy values zarr and the package
-# return (attributes, array elements) as the values they know them to be, without narrowing
+# they leave unannotated is Any (the values they index are narrowed: refkv._narrow)
 [[tool.pyrefly.sub-config]]
 matches = "python/tests/**"
 
@@ -147,8 +146,6 @@ implicit-any-lambda = false
 implicit-any-type-argument = false
 implicit-any-empty-container = false
 implicit-any-attribute = false
-bad-index = false
-unsupported-operation = false
 
 [[tool.pyrefly.sub-config]]
 matches = "python/tools/**"
@@ -159,8 +156,6 @@ implicit-any-lambda = false
 implicit-any-type-argument = false
 implicit-any-empty-container = false
 implicit-any-attribute = false
-bad-index = false
-unsupported-operation = false
 
 [[tool.pyrefly.sub-config]]
 matches = "conformance/**"
@@ -171,8 +166,6 @@ implicit-any-lambda = false
 implicit-any-type-argument = false
 implicit-any-empty-container = false
 implicit-any-attribute = false
-bad-index = false
-unsupported-operation = false
 
 [[tool.pyrefly.sub-config]]
 matches = "fixtures/**"
@@ -183,8 +176,6 @@ implicit-any-lambda = false
 implicit-any-type-argument = false
 implicit-any-empty-container = false
 implicit-any-attribute = false
-bad-index = false
-unsupported-operation = false
 
 [[tool.pyrefly.sub-config]]
 matches = "js/**"
@@ -195,8 +186,6 @@ implicit-any-lambda = false
 implicit-any-type-argument = false
 implicit-any-empty-container = false
 implicit-any-attribute = false
-bad-index = false
-unsupported-operation = false
 
 [[tool.pyrefly.sub-config]]
 matches = "spec/**"
@@ -207,8 +196,6 @@ implicit-any-lambda = false
 implicit-any-type-argument = false
 implicit-any-empty-container = false
 implicit-any-attribute = false
-bad-index = false
-unsupported-operation = false
 
 [[tool.pyrefly.sub-config]]
 matches = "rust/**"
@@ -219,8 +206,6 @@ implicit-any-lambda = false
 implicit-any-type-argument = false
 implicit-any-empty-container = false
 implicit-any-attribute = false
-bad-index = false
-unsupported-operation = false
 
 [[tool.pyrefly.sub-config]]
 matches = "design/**"
@@ -231,8 +216,6 @@ implicit-any-lambda = false
 implicit-any-type-argument = false
 implicit-any-empty-container = false
 implicit-any-attribute = false
-bad-index = false
-unsupported-operation = false
 
 [[tool.pyrefly.sub-config]]
 matches = "docs/**"
@@ -243,5 +226,3 @@ implicit-any-lambda = false
 implicit-any-type-argument = false
 implicit-any-empty-container = false
 implicit-any-attribute = false
-bad-index = false
-unsupported-operation = false
