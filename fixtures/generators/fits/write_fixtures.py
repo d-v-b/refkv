@@ -1,13 +1,13 @@
 """Writes synthetic FITS files to fixtures/fits/, covering the rules of the FITS profile
-(spec/virtualize/fits.md §9
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#9-fits-profile>): images of
+(spec/zarrify/fits.md §9
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#9-fits-profile>): images of
 every BITPIX, multi-extension files, empty HDUs, value scaling, long and odd headers,
 binary and ASCII tables with and without a heap, chunking, trailing bytes, a truncated
 final block, and the inputs the profile rejects (`fits_reject_*`).
 
 The well-formed files are written by astropy, as real files are; the malformed ones are
 astropy's files with their bytes patched, so that every other card is exactly what a
-writer produces. js/test/fits/verify.py compares each accepted file's virtualization
+writer produces. js/test/fits/verify.py compares each accepted file's zarrification
 with astropy's reading of it.
 
 Usage: uv run python fixtures/generators/fits/write_fixtures.py
@@ -350,8 +350,8 @@ def _append_card(data: bytes, hdu: int, card: str) -> bytes:
     return data[:offset] + cards.ljust(new_end - offset, b" ") + data[header_end:]
 
 
-# ---- tile-compressed images (spec/virtualize/fits.md §3.3
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>)
+# ---- tile-compressed images (spec/zarrify/fits.md §3.3
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>)
 
 RNG = np.random.default_rng(7)
 

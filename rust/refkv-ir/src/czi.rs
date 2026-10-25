@@ -1,6 +1,6 @@
-//! A sans-IO parser of Zeiss CZI files into the IR (spec/virtualize/czi.md §7
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#7-czi-profile>,
-//! spec/virtualize/czi.md): it never reads; it asks for batches of ranges (`step`), is
+//! A sans-IO parser of Zeiss CZI files into the IR (spec/zarrify/czi.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#7-czi-profile>,
+//! spec/zarrify/czi.md): it never reads; it asks for batches of ranges (`step`), is
 //! given their bytes (`feed`), and holds them only until the step that uses them.
 //!
 //! Rounds: (1) the file header; (2) the headers of the directory, the metadata
@@ -193,8 +193,8 @@ pub struct Czi {
 }
 
 /// A segment's id as text: its bytes up to the first NUL when the rest are all NUL
-/// (then it can equal an id of spec/virtualize/czi.md §2.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#21-segments>), else all 16
+/// (then it can equal an id of spec/zarrify/czi.md §2.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#21-segments>), else all 16
 /// bytes, escaped.
 fn seg_id(h: &[u8]) -> String {
     let n = h.iter().position(|&c| c == 0).unwrap_or(16);
@@ -950,8 +950,8 @@ impl Czi {
         Ok(None)
     }
 
-    /// The attachments' data by form (spec/virtualize/czi.md §5.3
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#53-elements>), for the IR.
+    /// The attachments' data by form (spec/zarrify/czi.md §5.3
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#53-elements>), for the IR.
     fn att_data(&mut self) -> Res<()> {
         let pending = std::mem::take(&mut self.att_pending);
         for (s, at, n, kind, read) in pending {
@@ -1021,8 +1021,8 @@ impl Czi {
         Ok(true)
     }
 
-    // ---- the walk (spec/virtualize/czi.md §7.2
-    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#72-structures-and-the-walk>
+    // ---- the walk (spec/zarrify/czi.md §7.2
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#72-structures-and-the-walk>
     // step 6)
 
     /// The segments nothing references, in file order, from windows read ahead;
@@ -1084,9 +1084,9 @@ impl Czi {
     }
 }
 
-// ---- the layout (spec/virtualize/czi.md §3.2
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#32-conforming-and-unplaced-subblocks>–§4.4
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#44-tiles>): placement, series,
+// ---- the layout (spec/zarrify/czi.md §3.2
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#32-conforming-and-unplaced-subblocks>–§4.4
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#44-tiles>): placement, series,
 // layers, levels, tiles
 
 const LAYERS_2: [(f64, f64, u32); 10] = [
@@ -1112,8 +1112,8 @@ fn layer(wl: i64, hl: i64, w: i64, h: i64) -> Option<(u32, u32)> {
     None
 }
 
-/// The level `b` is when it is regular (spec/virtualize/czi.md §3.5
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#35-regular-levels>), else None.
+/// The level `b` is when it is regular (spec/zarrify/czi.md §3.5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#35-regular-levels>), else None.
 fn classify(b: &[usize], ps: &[Placed]) -> Option<Level> {
     let f0 = ps[b[0]].form;
     if b.iter().any(|&i| ps[i].form != f0) {
@@ -1202,8 +1202,8 @@ fn row_band(h: u128, h2: u128, w: u128, q: u128, max_band: u128) -> u128 {
 }
 
 /// The y chunk lengths of `r` tile rows of height h (the last h2), and the bands:
-/// (rows a band holds, bands per tile row). Divisor bands (spec/virtualize/czi.md §4.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#43-image-arrays>)
+/// (rows a band holds, bands per tile row). Divisor bands (spec/zarrify/czi.md §4.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#43-image-arrays>)
 /// when they hold at least band_floor bytes; else bands of the most rows within
 /// max_band bytes, the last of each tile row shorter (a rectilinear grid), so that
 /// a prime height cannot make a chunk per row.
@@ -1283,8 +1283,8 @@ impl Czi {
     fn layout(&self) -> Res<J> {
         let max_band = self.rules.limit("max_band") as u64;
         let floor = self.rules.limit("band_floor") as u64;
-        // placement (spec/virtualize/czi.md §3.2
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#32-conforming-and-unplaced-subblocks>):
+        // placement (spec/zarrify/czi.md §3.2
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#32-conforming-and-unplaced-subblocks>):
         // an entry that read its subblock, whose copy agrees, with a coded size
         let mut ps: Vec<Placed> = Vec::new();
         for (i, e) in self.entries.iter().enumerate() {
@@ -1311,8 +1311,8 @@ impl Czi {
             });
         }
         // series, layers and levels (§3.3
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#33-series>–§3.5
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#35-regular-levels>)
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#33-series>–§3.5
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#35-regular-levels>)
         let mut by_series: BTreeMap<Vec<(u8, i64)>, Vec<usize>> = BTreeMap::new();
         for (k, p) in ps.iter().enumerate() {
             by_series.entry(p.series.clone()).or_default().push(k);
@@ -1347,8 +1347,8 @@ impl Czi {
         }
         self.rules.check("images", rules::env([("images", num(images.len() as f64))]))?;
         // the images (§4.2
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#42-images>, §4.3
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#43-image-arrays>)
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#42-images>, §4.3
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#43-image-arrays>)
         let um = 1.0 / 1e-6;
         let v = &self.values;
         let px = v.px.map(|x| x * um);
@@ -1437,7 +1437,7 @@ impl Czi {
             }));
         }
         // tiles, one array per tile position and copy (§4.4
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#44-tiles>)
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#44-tiles>)
         tiles.sort_by_key(|&k| ps[k].index);
         type G = (Vec<(u8, i64)>, i64, i64, i64, i64, i64, i64, u64, u64, (i32, i32, bool));
         let mut copies: HashMap<(G, (i64, i64, i64)), u64> = HashMap::new();
@@ -1511,7 +1511,7 @@ impl Czi {
 
 crate::parser!(Czi);
 
-/// The CZI profile's file run (spec/virtualize/czi.md).
+/// The CZI profile's file run (spec/zarrify/czi.md).
 pub struct Profile;
 
 impl crate::run::FileProfile for Profile {

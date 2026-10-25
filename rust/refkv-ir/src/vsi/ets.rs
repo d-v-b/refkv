@@ -1,9 +1,9 @@
-//! A tile file (`frame_t.ets`, spec/virtualize/vsi.md §3
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#3-the-tile-files>): the
+//! A tile file (`frame_t.ets`, spec/zarrify/vsi.md §3
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#3-the-tile-files>): the
 //! 64-byte SIS header, the 228-byte ETS header it points at (pixel type, samples, compression,
 //! tile size, background color, pyramid flag, dimension sizes) and the tile directory, one
 //! record per tile (its coordinates, offset and size). Its IR elements (§6.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#62-the-ir-mirror>): the
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#62-the-ir-mirror>): the
 //! headers and the directory as values, each tile as a data element.
 
 use crate::fed::Word;
@@ -226,7 +226,7 @@ pub fn emit(ir: &mut Ir, o: u32, size: u64, head: &[u8], s: &Sis, eh: &[u8], e: 
 }
 
 /// The header's source metadata (§6.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#61-the-root>).
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#61-the-root>).
 pub fn header_json(key: &str, s: &Sis, e: &Ets, size: u64) -> J {
     json!({
         "key": key, "size": size, "version": s.version, "coordinates": s.coordinates, "tiles": s.tiles,

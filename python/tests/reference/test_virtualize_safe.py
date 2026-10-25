@@ -1,7 +1,7 @@
-"""The Python SAFE virtualizer (spec/virtualize/safe.md) on the synthetic products.
+"""The Python SAFE virtualizer (spec/zarrify/safe.md) on the synthetic products.
 
 Equivalence with the browser virtualizer is checked by
-conformance/virtualize/compare.py, and pixel correctness, georeferencing and
+conformance/zarrify/compare.py, and pixel correctness, georeferencing and
 the rebuilding of every file against GDAL by js/test/safe/verify.py.
 """
 
@@ -15,10 +15,10 @@ import pytest
 
 import sys
 
-# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
-sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
+# the frozen reference twins (conformance/zarrify/reference/refkv_reference)
+sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
 
-from refkv.virtualize import Rejected
+from refkv.zarrify import Rejected
 from refkv_reference.legacy import text_json
 from refkv_reference import virtualize
 from refkv_reference.safe import jp2, zipdir
@@ -114,8 +114,8 @@ def test_georeferencing():
     assert root["multiscales"] == {"layout": [
         {"asset": f"r{r}m", "spatial:shape": [n, n], "spatial:transform": [float(r), 0.0, 499980.0, 0.0, -float(r), 5200020.0]}
         for r, n in ((10, 110), (20, 55), (60, 19))]}
-    # The band arrays carry neither proj nor spatial (spec/virtualize/safe.md §5.2
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#52-resolution-groups>).
+    # The band arrays carry neither proj nor spatial (spec/zarrify/safe.md §5.2
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#52-resolution-groups>).
     assert set(out.docs["r20m/B05/zarr.json"]["attributes"]) == {"zarr_conventions", "vzip_virtualized"}
     _, out = run("safe_l1c")
     assert "multiscales" not in out.docs["zarr.json"]["attributes"]
@@ -168,7 +168,7 @@ def test_source_metadata():
     _, out = run("safe_l1c_pb0207")
     assert "RADIO_ADD_OFFSET" not in out.docs["r10m/B02/zarr.json"]["attributes"]["vzip_virtualized"]["safe"]
     # Missing, non-numeric and repeated values are absent, not rejected (§6.1
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#61-values>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#61-values>).
     _, out = run("safe_metadata_gaps")
     s = {b: out.docs[f"r10m/{b}/zarr.json"]["attributes"]["vzip_virtualized"]["safe"] for b in ("B02", "B03", "B04")}
     assert "SOLAR_IRRADIANCE" not in s["B02"] and "SOLAR_IRRADIANCE" in s["B04"]
@@ -201,8 +201,8 @@ def test_vzip_source():
     assert s["empty"] == ["GRANULE/L1C_T32TNS_A035655_20240103T101328/AUX_DATA/AUX_EMPTY"]
     assert "GRANULE/L1C_T32TNS_A035655_20240103T101328/MTD_TL.xml" in s["xml_arrays"]
     assert json_size(s) <= BUDGET
-    # The budget (spec/virtualize/safe.md §6.3
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>),
+    # The budget (spec/zarrify/safe.md §6.3
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>),
     # restated: from every XML document an array,
     # the candidates, smallest first, become text while S stays within 65536 bytes of JSON.
     base = FIXTURES / "safe_l1c"
@@ -273,8 +273,8 @@ def test_the_two_forms_agree():
 
 def test_folders():
     """Folder markers and directory keys, and the empty directories they name
-    (spec/virtualize/safe.md §2.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#21-objects>)."""
+    (spec/zarrify/safe.md §2.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#21-objects>)."""
     cases = [
         (["a/x", "a_$folder$"], [], {"a_$folder$"}, []),
         (["a/x", "a_$folder$", "b_$folder$", "c/d_$folder$", "c_$folder$"], [],
@@ -288,8 +288,8 @@ def test_folders():
 
 
 def test_texts_are_read_only_while_they_can_fit():
-    """The candidates are read in order, and no longer once one cannot fit (spec/virtualize/safe.md §8.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#82-objects-and-reading>)."""
+    """The candidates are read in order, and no longer once one cannot fit (spec/zarrify/safe.md §8.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#82-objects-and-reading>)."""
     sizes = {f"d{i:02d}.xml": 30000 for i in range(40)} | {"small.xml": 10, "big.xml": 70000}
     read = []
 
@@ -351,8 +351,8 @@ def _plt_counts(data: bytes, cs: jp2.Codestream) -> list[int]:
 
 
 def test_empty_packets_match_the_plt_markers():
-    """The packet count of spec/virtualize/safe.md §8.6
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#86-chunks> against the PLT
+    """The packet count of spec/zarrify/safe.md §8.6
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#86-chunks> against the PLT
     markers' packet lengths of every tile of every fixture band file, edge tiles included."""
     checked = 0
     for name in ("safe_l1c", "safe_l2a", "safe_big_header"):

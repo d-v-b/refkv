@@ -1,5 +1,5 @@
-//! What NDPI adds to TIFF (spec/virtualize/ndpi.md §7
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>), beyond its
+//! What NDPI adds to TIFF (spec/zarrify/ndpi.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>), beyond its
 //! IFD layout (which `tiff.rs` reads in its NDPI variant): a level's strip is one JPEG stream
 //! whose restart intervals McuStarts locates, and each chunk is a JPEG stream rebuilt from the
 //! strip's header (its parts around SOF0 shared, a literal SOF0 of the chunk's size), `a × b`
@@ -132,8 +132,8 @@ pub enum Scan {
     None,
 }
 
-/// Scans the first bytes `b` of a strip without McuStarts (spec/virtualize/ndpi.md §7
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>): SOI, then
+/// Scans the first bytes `b` of a strip without McuStarts (spec/zarrify/ndpi.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>): SOI, then
 /// marker segments (each an `FF`, the marker and a length of at least 2, after any `FF` fill
 /// bytes) up to the first SOF0 segment. Unlike a McuStarts header (`header`), it never rejects.
 pub fn frame(b: &[u8]) -> Scan {
@@ -370,8 +370,8 @@ pub fn combine(starts: Vec<u64>, high: Option<&[u64]>) -> Vec<u64> {
     }
 }
 
-/// The NDPI profile's file run: a TIFF the TIFF parser found to be NDPI (spec/virtualize/ndpi.md §7
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>), so hosts
+/// The NDPI profile's file run: a TIFF the TIFF parser found to be NDPI (spec/zarrify/ndpi.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>), so hosts
 /// never test for NDPI themselves. Its files are not sniffed: they are TIFFs.
 pub struct Profile;
 

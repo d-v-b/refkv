@@ -1,19 +1,19 @@
-"""Checks the browser NIfTI virtualizer's output against nibabel.
+"""Checks the browser NIfTI zarrifier's output against nibabel.
 
-Each fixtures/nifti/*.nii is served over local HTTP and virtualized
-by js/conformance/virtualize.ts (the browser code, run under Node). The
+Each fixtures/nifti/*.nii is served over local HTTP and zarrified
+by js/conformance/zarrify.ts (the browser code, run under Node). The
 array is read through the reference reader and zarr-python and must equal
 nibabel's unscaled data (`img.dataobj.get_unscaled()`), with nibabel's
 (x, y, z, t, dimension 5) axes put in the output's order (t, c, z, y, x), and
 a color type's samples as the channel axis. A nontrivial scaling must be
 recorded as nibabel reads it, and every header field as nibabel reads the
 header. The file must be rebuilt byte for byte from the archive's IR mirror
-(refkv_source, spec/virtualize/nifti.md §5.2
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#52-the-ir-mirror>). The
+(refkv_source, spec/zarrify/nifti.md §5.2
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#52-the-ir-mirror>). The
 extension chain is parsed here, independently of nibabel (which fails on some
-chains) and of the virtualizers: the extender and each extension the view shows
+chains) and of the zarrifiers: the extender and each extension the view shows
 must be the file's (§5.3
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#53-elements>), and the
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#53-elements>), and the
 chain also matches nibabel's where nibabel reads it. `nifti_reject_*` files must be rejected.
 
 Usage: uv run python js/test/nifti/verify.py [<dir of .nii files>]
@@ -104,8 +104,8 @@ def load_copy(nii: Path, tmp: str):
 
 def region(data: bytes, raw) -> tuple[bytes, list[tuple[int, bytes]], int, int]:
     """The extender, the extension chain (ecode, data), where the chain ends, and
-    the voxel offset, read from the file (spec/virtualize/nifti.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>)."""
+    the voxel offset, read from the file (spec/zarrify/nifti.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#5-source-metadata>)."""
     length = raw.structarr.itemsize
     order = raw.endianness
     v = int(raw.structarr["vox_offset"])
@@ -126,8 +126,8 @@ CANONICAL_NAN = {4: 0x7FC00000, 8: 0x7FF8000000000000}
 def as_json(v):
     """A header value as spec/conventions.md §6
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#6-source-metadata-as-json> and
-    spec/virtualize/nifti.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata> write
+    spec/zarrify/nifti.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#5-source-metadata> write
     it, from nibabel's numpy value: a negative zero, or a NaN other than the canonical
     one, as {"bits": hex}."""
     if isinstance(v, np.ndarray) and v.dtype.kind != "S":
@@ -172,7 +172,7 @@ def header_problems(nii: Path, meta: dict, out: Path) -> list[str]:
     problems += mirror_problems(out, nii)
 
     with zipfile.ZipFile(out) as z:
-        view = json.loads(z.read("refkv_source/tree/zarr.json"))["attributes"]["refkv_virtualized"]["nifti"]
+        view = json.loads(z.read("refkv_source/tree/zarr.json"))["attributes"]["refkv_zarrified"]["nifti"]
     extender, chain, _, _ = region(data, raw)
     if view.get("extender") != list(extender):
         problems.append(f"extender {view.get('extender')} != {list(extender)}")
@@ -216,7 +216,7 @@ def shown_bytes(v) -> bytes:
 
 
 def check(nii: Path, out: Path, _) -> tuple[list, str]:
-    """A virtualized file's problems against nibabel's reading of it, and its chunks and axes."""
+    """A zarrified file's problems against nibabel's reading of it, and its chunks and axes."""
     img = load(nii, str(out.parent))
     want, axes = expected(img)
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
@@ -229,7 +229,7 @@ def check(nii: Path, out: Path, _) -> tuple[list, str]:
         problems.append(f"dtype {got.dtype} != {want.dtype}")
     if got.shape != want.shape or not np.array_equal(got, want, equal_nan=got.dtype.kind == "f"):
         problems.append(f"voxels differ ({got.shape} vs {want.shape})")
-    meta = root.attrs["refkv_virtualized"]["nifti"]  # spec/virtualize/nifti.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>
+    meta = root.attrs["refkv_zarrified"]["nifti"]  # spec/zarrify/nifti.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#5-source-metadata>
     slope, inter = img.dataobj.slope, img.dataobj.inter  # the header's are reset on load
     recorded = meta.get("scaling")
     # nibabel keeps a color type's scl_slope but cannot apply it; NIfTI does not scale color.

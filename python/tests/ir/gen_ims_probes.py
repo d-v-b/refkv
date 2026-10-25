@@ -1,5 +1,5 @@
-"""Hostile IMS probes for the IR (spec/virtualize/ims.md §5.3
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#53-the-walk>): amplification
+"""Hostile IMS probes for the IR (spec/zarrify/ims.md §5.3
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#53-the-walk>): amplification
 through hard links, loops in B-trees and object headers, deep and wide groups. Each is a
 synthetic Imaris file (fixtures/generators/ims/write_fixtures.py), some patched after h5py
 wrote them.
@@ -13,7 +13,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "fixtures" / "generators" / "ims"))
-sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify" / "reference"))
 import write_fixtures as wf  # noqa: E402
 from refkv_reference.ims.hdf5 import Hdf5, le  # noqa: E402
 

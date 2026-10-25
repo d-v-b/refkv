@@ -3,18 +3,18 @@ import fs from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { directoryStore } from "../../conformance/directory_store.ts";
-import { blockReader } from "../../../conformance/virtualize/reference/ts/legacy.ts";
-import { virtualizeImage, virtualizeStore } from "../../../conformance/virtualize/reference/ts/index.ts";
-import { chunkParts, emptyPackets, grid, readBand } from "../../../conformance/virtualize/reference/ts/safe/jp2.ts";
-import { jsonSize, MULTISCALES, typed, wkt2 } from "../../../conformance/virtualize/reference/ts/safe/metadata.ts";
-import { folders } from "../../../conformance/virtualize/reference/ts/safe/product.ts";
-import { SafeError } from "../../../conformance/virtualize/reference/ts/safe/virtualize.ts";
-import { StoreError } from "../../../conformance/virtualize/reference/ts/legacy.ts";
+import { blockReader } from "../../../conformance/zarrify/reference/ts/legacy.ts";
+import { virtualizeImage, virtualizeStore } from "../../../conformance/zarrify/reference/ts/index.ts";
+import { chunkParts, emptyPackets, grid, readBand } from "../../../conformance/zarrify/reference/ts/safe/jp2.ts";
+import { jsonSize, MULTISCALES, typed, wkt2 } from "../../../conformance/zarrify/reference/ts/safe/metadata.ts";
+import { folders } from "../../../conformance/zarrify/reference/ts/safe/product.ts";
+import { SafeError } from "../../../conformance/zarrify/reference/ts/safe/virtualize.ts";
+import { StoreError } from "../../../conformance/zarrify/reference/ts/legacy.ts";
 
 const FIXTURES = fileURLToPath(new URL("../../../fixtures/safe/", import.meta.url));
 const utf8 = new TextDecoder();
 
-async function virtualize(name: string) {
+async function zarrify(name: string) {
   const path = FIXTURES + name;
   if (fs.statSync(path).isDirectory()) return virtualizeStore(directoryStore(path, `https://data.test/safe/${name}/`));
   const bytes = new Uint8Array(fs.readFileSync(path));
@@ -22,7 +22,7 @@ async function virtualize(name: string) {
     bytes.length);
 }
 
-type V = Awaited<ReturnType<typeof virtualize>>;
+type V = Awaited<ReturnType<typeof zarrify>>;
 function doc(v: V, key: string) {
   const e = v.entries.find((x) => x.key === key);
   assert.ok(e && "bytes" in e, key);
@@ -32,7 +32,7 @@ function doc(v: V, key: string) {
 const J2K = [{ name: "imagecodecs_jpeg2k" }];
 const RGB = [{ name: "transpose", configuration: { order: [1, 2, 0] } }, { name: "imagecodecs_jpeg2k" }];
 
-test("virtualizes the synthetic SAFE products", async () => {
+test("zarrifies the synthetic SAFE products", async () => {
   const cases: [string, object, [string, number[], string, number[], object[]][]][] = [
     ["safe_l1c", {
       level: "L1C", form: "store", groups: 3, bands: 14, chunks: 215, edgeChunks: 92, dataSources: 12, objects: 52,
@@ -66,7 +66,7 @@ test("virtualizes the synthetic SAFE products", async () => {
     ["safe_metadata_many_records", { level: "L2A", bands: 2 }, []],
   ];
   for (const [name, summary, arrays] of cases) {
-    const v = await virtualize(name);
+    const v = await zarrify(name);
     assert.equal(v.format, "safe", name);
     assert.deepEqual({ ...v.summary, ...summary }, v.summary, name);
     for (const [path, shape, dtype, chunk, codecs] of arrays) {
@@ -76,7 +76,7 @@ test("virtualizes the synthetic SAFE products", async () => {
     const root = doc(v, "zarr.json").attributes;
     assert.equal("multiscales" in root, (v.summary as { level: string }).level === "L2A", name);
   }
-  const l2a = await virtualize("safe_l2a");
+  const l2a = await zarrify("safe_l2a");
   const root = doc(l2a, "zarr.json").attributes;
   assert.deepEqual(root.zarr_conventions[1], MULTISCALES);
   assert.deepEqual(root.multiscales.layout.map((l: { asset: string }) => l.asset), ["r10m", "r20m", "r60m"]);
@@ -89,10 +89,10 @@ test("virtualizes the synthetic SAFE products", async () => {
   const s = doc(l2a, "vzip_source/zarr.json").attributes.vzip_virtualized.safe;
   assert.ok(jsonSize(s) <= 65536);
   // The names of PSD 14.2 give the same members as the later ones; more than 64 records are absent.
-  const [old, now] = [await virtualize("safe_l2a_pb0206"), await virtualize("safe_l2a_pb0207")];
+  const [old, now] = [await zarrify("safe_l2a_pb0206"), await zarrify("safe_l2a_pb0207")];
   for (const key of ["r20m/B05/zarr.json", "r20m/SCL/zarr.json"]) assert.deepEqual(doc(old, key), doc(now, key), key);
   assert.equal(doc(old, "r20m/SCL/zarr.json").attributes.vzip_virtualized.safe.Scene_Classification_List.length, 12);
-  const many = await virtualize("safe_metadata_many_records");
+  const many = await zarrify("safe_metadata_many_records");
   assert.equal(doc(many, "zarr.json").attributes.vzip_virtualized.safe.Special_Values, undefined);
   assert.equal(doc(many, "r60m/SCL/zarr.json").attributes.vzip_virtualized.safe.Scene_Classification_List, undefined);
 });
@@ -101,17 +101,17 @@ test("the two forms give the same documents", async () => {
   const docs = (v: V) => new Map(v.entries.filter((e) => e.key.endsWith("zarr.json") && e.key !== "zarr.json")
     .map((e) => [e.key, utf8.decode((e as { bytes: Uint8Array }).bytes)]));
   for (const [d, z, n] of [["safe_l1c", "safe_l1c.SAFE.zip", 12], ["safe_l2a_pb0207", "safe_l2a_pb0207.SAFE.zip", 15]] as const) {
-    const a = await virtualize(d), b = await virtualize(z);
+    const a = await zarrify(d), b = await zarrify(z);
     assert.deepEqual(docs(a), docs(b));
-    // the zip file pins its size (spec/virtualize.md §1.2
-    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>), each object its
+    // the zip file pins its size (spec/zarrify.md §1.2
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), each object its
     // listed size (§1.4
-    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>)
+    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>)
     assert.deepEqual(b.sources[0], { url: `https://data.test/safe/${z}`, size: BigInt(fs.statSync(new URL(`../../../fixtures/safe/${z}`, import.meta.url)).size) });
     assert.ok(a.sources.every((x) => x.url === undefined || x.size !== undefined));
     assert.deepEqual(a.sources.slice(-n), b.sources.slice(-n)); // the same data sources
   }
-  const s = doc(await virtualize("safe_l2a_pb0207.SAFE.zip"), "vzip_source/zarr.json").attributes.vzip_virtualized.safe;
+  const s = doc(await zarrify("safe_l2a_pb0207.SAFE.zip"), "vzip_source/zarr.json").attributes.vzip_virtualized.safe;
   assert.deepEqual(s.empty_dirs, ["AUX_DATA"]);
 });
 
@@ -164,7 +164,7 @@ test("every rejection fixture is a case", () => {
 
 for (const name of REJECTIONS) {
   test(`rejects ${name}`, async () => {
-    await assert.rejects(virtualize(name), (e) => e instanceof SafeError || (name.endsWith("no_manifest") && e instanceof StoreError));
+    await assert.rejects(zarrify(name), (e) => e instanceof SafeError || (name.endsWith("no_manifest") && e instanceof StoreError));
   });
 }
 

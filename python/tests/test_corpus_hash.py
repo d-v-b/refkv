@@ -1,4 +1,4 @@
-"""conformance/virtualize/corpus_hash.py: the corpus lines' fingerprints."""
+"""conformance/zarrify/corpus_hash.py: the corpus lines' fingerprints."""
 
 import hashlib
 import json
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "virtualize"))
+sys.path.insert(0, str(Path(__file__).parents[2] / "conformance" / "zarrify"))
 import corpus_hash  # noqa: E402
 from proxy import BLOCK, Upstream  # noqa: E402
 

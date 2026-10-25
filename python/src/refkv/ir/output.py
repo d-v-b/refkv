@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 
-from refkv.virtualize.common import Output
+from refkv.zarrify.common import Output
 
 
 def from_rust(t) -> Output:

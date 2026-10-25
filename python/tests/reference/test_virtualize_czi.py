@@ -1,7 +1,7 @@
-"""The Python CZI virtualizer (spec/virtualize/czi.md) on the synthetic fixtures.
+"""The Python CZI virtualizer (spec/zarrify/czi.md) on the synthetic fixtures.
 
 Equivalence with the browser virtualizer is checked by
-conformance/virtualize/compare.py, and pixels and reconstruction against
+conformance/zarrify/compare.py, and pixels and reconstruction against
 czifile and libCZI by js/test/czi/verify.py.
 """
 
@@ -10,8 +10,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
-sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
+# the frozen reference twins (conformance/zarrify/reference/refkv_reference)
+sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
 
 
 import json
@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from refkv.virtualize import Rejected
+from refkv.zarrify import Rejected
 from refkv_reference import virtualize
 from refkv_reference.czi.coding import jpeg_frame, jpegxr_size, zstd1_header, zstd_content_size
 from refkv_reference.czi.layout import layer, row_band

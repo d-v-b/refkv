@@ -124,10 +124,10 @@ def test_the_zarr_guard_finds_a_planted_import(tmp_path):
     reader = pkg / "reader.py"
     n = reader.read_text().count("\n")
     reader.write_text(reader.read_text() + "\n\ndef planted():\n    from zarr.abc.store import Store\n")
-    (pkg / "virtualize" / "planted.py").write_text("import zarr.storage\n")
+    (pkg / "zarrify" / "planted.py").write_text("import zarr.storage\n")
     cli = pkg / "vzip" / "cli.py"
     cli.write_text("import refkv.zarr\n" + cli.read_text())
-    assert zarr_importers(pkg) == {"vzip/cli.py": [1], "reader.py": [n + 4], "virtualize/planted.py": [1]}
+    assert zarr_importers(pkg) == {"vzip/cli.py": [1], "reader.py": [n + 4], "zarrify/planted.py": [1]}
 
 
 def test_importing_the_core_imports_no_zarr():
@@ -141,7 +141,7 @@ def test_importing_the_core_imports_no_zarr():
 import importlib, sys
 for name in {names!r}:
     importlib.import_module(name)
-loaded = sorted(n for n in sys.modules if n == "zarr" or n.startswith(("zarr.", "refkv.zarr")))
+loaded = sorted(n for n in sys.modules if n in ("zarr", "refkv.zarr") or n.startswith(("zarr.", "refkv.zarr.")))
 print(len([n for n in sys.modules if n.startswith("refkv.")]), loaded)
 """
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)

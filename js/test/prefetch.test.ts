@@ -7,8 +7,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { virtualizeStore } from "../src/virtualize/index.ts";
-import { objectUrl, openHttpStore, Prefetch } from "../src/virtualize/store.ts";
+import { zarrifyStore } from "../src/zarrify/index.ts";
+import { objectUrl, openHttpStore, Prefetch } from "../src/zarrify/store.ts";
 
 const FIXTURES = path.join(import.meta.dirname, "../../fixtures");
 const URL = "http://h/b/s/";
@@ -67,7 +67,7 @@ function directory(root: string): Map<string, Uint8Array> {
 async function outcome(s3: FakeS3, concurrency: number): Promise<unknown[]> {
   try {
     const store = await openHttpStore(URL, { fetch: s3.fetch, concurrency });
-    return ["ok", await virtualizeStore(store)];
+    return ["ok", await zarrifyStore(store)];
   } catch (e) {
     const err = e as Error;
     return [/Store(Read|Limit)Error/.test(err.constructor.name) ? "failed" : "rejected", err.constructor.name, err.message];

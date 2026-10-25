@@ -8,7 +8,7 @@ installed, nor obstore, which no install without the virtualizarr or obstore
 extra has, and the operations work without them: build a ReferenceStore from a
 mapping, read a bytes value and a reference, save it, reopen the archive with
 refkv.open and read it again, open it over HTTP (from a server on the loopback
-interface, with its source served beside it), run the conformance CLI on it, and virtualize a
+interface, with its source served beside it), run the conformance CLI on it, and zarrify a
 NIfTI file and a TIFF, both through the Rust core (refkv._core), which the install
 must have built, and a Zarr v2 store. Each optional part names the extra it needs.
 
@@ -126,11 +126,11 @@ with tempfile.TemporaryDirectory() as d:
     assert out["results"][0]["value"] == "0607" and out["results"][1]["kind"] == "reference"
     assert out["results"][3]["keys"] == ["x/c/0", "x/zarr.json"]
 
-    from refkv.virtualize import virtualize, virtualize_store
+    from refkv.zarrify import zarrify, zarrify_store
 
-    n = virtualize(str(FIXTURES / "nifti" / "nifti_block_x_split.nii"))
+    n = zarrify(str(FIXTURES / "nifti" / "nifti_block_x_split.nii"))
     n.save("n.vzip")
-    z = virtualize_store(str(FIXTURES / "zarr2" / "zarr2_hierarchy"), "https://example.test/z/")
+    z = zarrify_store(str(FIXTURES / "zarr2" / "zarr2_hierarchy"), "https://example.test/z/")
     z.save("z.vzip")
     assert (n.info["format"], z.info["format"]) == ("nifti", "zarr2")
     saved = refkv.open("n.vzip")
@@ -143,7 +143,7 @@ with tempfile.TemporaryDirectory() as d:
     package = Path(refkv.__file__).parent
     assert list(package.glob("_core.*")) and not list(package.glob("_ir*")), sorted(p.name for p in package.iterdir())
 
-    t = virtualize(str(FIXTURES / "tiff" / "jpeg_gray.tif"))
+    t = zarrify(str(FIXTURES / "tiff" / "jpeg_gray.tif"))
     t.save("t.vzip")
     assert t.info["format"] == "tiff" and refkv.open("t.vzip").get("zarr.json") == t.get("zarr.json")
 

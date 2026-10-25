@@ -1,7 +1,7 @@
-//! The `omero` windows sampled from the data (spec/virtualize/tiff.md §4.4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>,
-//! spec/virtualize/qptiff.md §4.3
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#43-arrays>): for the
+//! The `omero` windows sampled from the data (spec/zarrify/tiff.md §4.4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>,
+//! spec/zarrify/qptiff.md §4.3
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#43-arrays>): for the
 //! compressions the core decodes, one chunk per channel of the coarsest level, the middle one,
 //! whose values inside the array have 5th and 99.9th percentiles, leaving out the fill value,
 //! that are the window's start and end. The run reads the chunks (`reads`) after the parser, as it reads the chunks NIfTI

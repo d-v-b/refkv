@@ -1,23 +1,23 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
-import { DicomError } from "../../../conformance/virtualize/reference/ts/dicom/virtualize.ts";
-import { virtualizeImage } from "../../../conformance/virtualize/reference/ts/index.ts";
+import { DicomError } from "../../../conformance/zarrify/reference/ts/dicom/virtualize.ts";
+import { virtualizeImage } from "../../../conformance/zarrify/reference/ts/index.ts";
 
 const FIXTURES = new URL("../../../fixtures/dicom/", import.meta.url);
 
-async function virtualize(name: string) {
+async function zarrify(name: string) {
   const bytes = new Uint8Array(fs.readFileSync(new URL(name, FIXTURES)));
   return virtualizeImage(`https://data.test/${name}`, async (o, n) => bytes.subarray(o, o + n), bytes.length);
 }
 
-const json = (v: Awaited<ReturnType<typeof virtualize>>, key: string) => {
+const json = (v: Awaited<ReturnType<typeof zarrify>>, key: string) => {
   const e = v.entries.find((e) => e.key === key);
   assert.ok(e && "bytes" in e, key);
   return JSON.parse(new TextDecoder().decode(e.bytes));
 };
 
-test("virtualizes the synthetic DICOM files", async () => {
+test("zarrifies the synthetic DICOM files", async () => {
   const cases: [string, object][] = [
     ["dicom_implicit_mono16.dcm", { axes: ["y", "x"], shape: [12, 10], dataType: "uint16", transferSyntax: "1.2.840.10008.1.2" }],
     ["dicom_explicit_signed16_frames.dcm", { axes: ["z", "y", "x"], shape: [4, 6, 9], dataType: "int16", photometric: "MONOCHROME1", frames: 4 }],
@@ -32,20 +32,20 @@ test("virtualizes the synthetic DICOM files", async () => {
     ["dicom_wsi_tiled_full_native.dcm", { axes: ["y", "x"], shape: [9, 13], wholeSlide: true, references: 4 }],
   ];
   for (const [name, expected] of cases) {
-    const v = await virtualize(name);
+    const v = await zarrify(name);
     assert.equal(v.format, "dicom", name);
     assert.deepEqual({ ...v.summary, ...expected }, v.summary, name);
   }
 
   // Pixel spacing (mm) from the shared functional groups, and the VOI window in stored values.
-  const ct = json(await virtualize("dicom_implicit_mono16.dcm"), "zarr.json").attributes.ome;
+  const ct = json(await zarrify("dicom_implicit_mono16.dcm"), "zarr.json").attributes.ome;
   assert.deepEqual(ct.multiscales[0].datasets[0].coordinateTransformations[0].scale, [0.5, 0.25]);
   assert.deepEqual(ct.omero.channels[0].window, { min: 0, max: 4095, start: 864, end: 1264 });
-  const sq = json(await virtualize("dicom_explicit_sequences_mono8.dcm"), "zarr.json").attributes.ome;
+  const sq = json(await zarrify("dicom_explicit_sequences_mono8.dcm"), "zarr.json").attributes.ome;
   assert.deepEqual(sq.multiscales[0].datasets[0].coordinateTransformations[0].scale, [0.2, 0.3]);
 
   // A JPEG frame of three fragments: the Adobe marker, then the fragments without their item headers.
-  const rgb = (await virtualize("dicom_jpeg_rgb_fragments_bot.dcm")).entries.find((e) => e.key === "0/c/0/1/0/0");
+  const rgb = (await zarrify("dicom_jpeg_rgb_fragments_bot.dcm")).entries.find((e) => e.key === "0/c/0/1/0/0");
   assert.ok(rgb && "ranges" in rgb && rgb.ranges.length === 4);
   const prefix = rgb.ranges[0];
   assert.ok("data" in prefix && prefix.data.at(-1) === 0); // transform 0: RGB as stored
@@ -53,7 +53,7 @@ test("virtualizes the synthetic DICOM files", async () => {
 
 test("the source metadata keeps what the file holds", async () => {
   const source = async (name: string) => {
-    const v = await virtualize(name);
+    const v = await zarrify(name);
     const docs = Object.fromEntries(v.entries.filter((e) => e.key.endsWith("zarr.json")).map((e) => [e.key, json(v, e.key)]));
     const node = docs["vzip_source/zarr.json"]?.attributes?.vzip_virtualized?.dicom ?? {};
     return { root: docs["zarr.json"].attributes.vzip_virtualized.dicom, node, docs };
@@ -96,7 +96,7 @@ test("the source metadata keeps what the file holds", async () => {
   // Columns of typed values, of text, and families; chunks of several rows.
   ({ node, docs } = await source("dicom_per_frame_columns.dcm"));
   assert.equal(node.dataset["52009230"].Structures.length, 4); // items 2 and 4 share one
-  const structure = (await virtualize("dicom_per_frame_columns.dcm")).entries.find((e) => e.key === `${base}/structure/c/0`);
+  const structure = (await zarrify("dicom_per_frame_columns.dcm")).entries.find((e) => e.key === `${base}/structure/c/0`);
   assert.ok(structure && "bytes" in structure);
   assert.deepEqual([...new Int32Array(structure.bytes.slice().buffer, 0, 5)], [0, 1, 2, 3, 2]);
   for (const [k, dataType, shape] of [
@@ -135,7 +135,7 @@ test("the source metadata keeps what the file holds", async () => {
   assert.deepEqual(docs["vzip_source/dataset/00082112/items/00091001/value/zarr.json"].chunk_grid.configuration.chunk_shape, [1, 2]);
   assert.equal(root.dataset["0040A730"].Value.length, 64);
   assert.deepEqual(docs[`${base}/00291001/value/zarr.json`].chunk_grid.configuration.chunk_shape, [1, 1]);
-  const sparse = (await virtualize("dicom_gathered_sequences.dcm")).entries.map((e) => e.key)
+  const sparse = (await zarrify("dicom_gathered_sequences.dcm")).entries.map((e) => e.key)
     .filter((k) => k.startsWith(`${base}/00291001/value/c/`)).sort();
   assert.deepEqual(sparse, [3, 40, 79].map((f) => `${base}/00291001/value/c/${f}/0`).sort());
   // An explicit UN value in big endian keeps its bytes in little endian, and says so.
@@ -153,7 +153,7 @@ test("the source metadata keeps what the file holds", async () => {
   // kept, with the bytes between the frames.
   ({ root } = await source("dicom_eot_item_headers.dcm"));
   assert.equal(root.pixel_unreferenced_headers, true);
-  const data = (await virtualize("dicom_eot_item_headers.dcm")).entries.find((e) => e.key === "vzip_source/pixel_unreferenced/data/c/0");
+  const data = (await zarrify("dicom_eot_item_headers.dcm")).entries.find((e) => e.key === "vzip_source/pixel_unreferenced/data/c/0");
   assert.ok(data && "ranges" in data);
   assert.deepEqual(data.ranges.map((r) => ("length" in r ? Number(r.length) : -1)), [8, 8, 10]); // 2 bytes of padding
   // Numbers too long to convert.
@@ -195,7 +195,7 @@ for (const [tag, what, length] of [
   ["00081140", "arrays that cost over 16 times its bytes", 65 * 8 + 64 * (10 + 12)],
 ] as const) {
   test(`a gathered sequence of ${what} keeps its bytes`, async () => {
-    const v = await virtualize("dicom_gathered_bounds.dcm");
+    const v = await zarrify("dicom_gathered_bounds.dcm");
     const root = json(v, "zarr.json").attributes.vzip_virtualized.dicom;
     const node = json(v, "vzip_source/zarr.json").attributes.vzip_virtualized.dicom;
     const attribute = { ...root.dataset, ...node.dataset }[tag];
@@ -232,6 +232,6 @@ for (const [name, message] of [
   ["dicom_reject_eot_overlap.dcm", /Extended Offset Table's frames overlap/],
 ] as const) {
   test(`rejects ${name}`, async () => {
-    await assert.rejects(virtualize(name), (e) => e instanceof DicomError && message.test(e.message));
+    await assert.rejects(zarrify(name), (e) => e instanceof DicomError && message.test(e.message));
   });
 }

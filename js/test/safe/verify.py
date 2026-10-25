@@ -1,9 +1,9 @@
-"""Checks the SAFE virtualizers' outputs against an independent reader (GDAL).
+"""Checks the SAFE zarrifiers' outputs against an independent reader (GDAL).
 
 Each product in fixtures/safe/ (a directory, served by the harness
-proxy with its S3 listing, or a `.SAFE.zip` file) is virtualized by the
-shipped Python code (`python -m refkv.virtualize`, the Rust core natively) and
-by the browser code (js/conformance/virtualize.ts, under Node, the core as
+proxy with its S3 listing, or a `.SAFE.zip` file) is zarrified by the
+shipped Python code (`python -m refkv.zarrify`, the Rust core natively) and
+by the browser code (js/conformance/zarrify.ts, under Node, the core as
 wasm32). Each archive is opened through
 refkv.zarr and zarr-python (with refkv.zarr.codecs' imagecodecs_jpeg2k), and:
 
@@ -13,8 +13,8 @@ refkv.zarr and zarr-python (with refkv.zarr.codecs' imagecodecs_jpeg2k), and:
   `proj:code` must be GDAL's geotransform, size and CRS of each of its band
   files (from their GML-in-JP2), and `proj:wkt2` must be the same CRS as
   pyproj's EPSG definition;
-- the product must be rebuilt from the hierarchy (spec/virtualize/safe.md
-  §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#64-reconstruction>): a
+- the product must be rebuilt from the hierarchy (spec/zarrify/safe.md
+  §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#64-reconstruction>): a
   zip file byte for byte from its IR mirror; a directory's held XML documents
   from its mirror alone, every other object from `refkv_source/objects/`, the
   empty objects from their keys, and every band file, described in place,
@@ -24,7 +24,7 @@ refkv.zarr and zarr-python (with refkv.zarr.codecs' imagecodecs_jpeg2k), and:
 - `safe_reject_*` products must be rejected by both.
 
 With `--remote <product URL> [<band path> ...]`, a public product (a `.SAFE/`
-directory, or a zip file, read through the harness proxy) is virtualized by
+directory, or a zip file, read through the harness proxy) is zarrified by
 both implementations,
 and the listed band arrays (default: the 60 m group) are compared with GDAL
 reading the band files over HTTP (/vsicurl/), and, for a directory, with
@@ -58,9 +58,9 @@ from pyproj import CRS
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 FIXTURES = ROOT / "fixtures"
-sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 # the frozen SAFE twin's zip reader, for reading remote zip files' entries
-sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify" / "reference"))
 from proxy import Proxy  # noqa: E402
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg2k)
@@ -72,8 +72,8 @@ ESCAPED = re.compile(r"(?:zarr\.json|\.zarray|\.zgroup)~+\Z")
 
 
 def run(impl: str, url: str, out: Path) -> subprocess.CompletedProcess:
-    cmd = (["uv", "run", "python", "-m", "refkv.virtualize", "--allow-private-hosts"] if impl == "py"
-           else ["node", str(ROOT / "js" / "conformance" / "virtualize.ts"), "--allow-private-hosts"])
+    cmd = (["uv", "run", "python", "-m", "refkv.zarrify", "--allow-private-hosts"] if impl == "py"
+           else ["node", str(ROOT / "js" / "conformance" / "zarrify.ts"), "--allow-private-hosts"])
     return subprocess.run(cmd + [url, str(out)], capture_output=True, text=True, cwd=ROOT)
 
 
@@ -132,7 +132,7 @@ def check_bands(out: Path, docs: dict, read_band, only: list[str] | None = None)
         arrays = [a for a in arrays if a in only or a.split("/")[0] in only]
     for path in arrays:
         group = docs[path.split("/")[0] + "/zarr.json"]["attributes"]
-        s = docs[f"{path}/zarr.json"]["attributes"]["refkv_virtualized"]["safe"]
+        s = docs[f"{path}/zarr.json"]["attributes"]["refkv_zarrified"]["safe"]
         want, transform, crs, w, h = read_band(s["IMAGE_FILE"] + ".jp2")
         got = zarr.open_array(vz, path=path, mode="r", zarr_format=3)[...]
         if got.ndim == 2:
@@ -155,8 +155,8 @@ def check_bands(out: Path, docs: dict, read_band, only: list[str] | None = None)
 
 
 def band_codestreams(out: Path, docs: dict, bands_only: list[str] | None = None) -> dict[str, bytes]:
-    """Each band file's codestream, rebuilt from its array's chunks and `siz` (spec/virtualize/safe.md
-    §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#64-reconstruction>):
+    """Each band file's codestream, rebuilt from its array's chunks and `siz` (spec/zarrify/safe.md
+    §6.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#64-reconstruction>):
     `FF 4F`, the SIZ segment, a chunk's main header after its SIZ, each tile's tile-part with
     its `Isot` restored, and `FF D9`. A band file ends with its codestream."""
     vz = refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES)
@@ -168,7 +168,7 @@ def band_codestreams(out: Path, docs: dict, bands_only: list[str] | None = None)
         path = k[: -len("/zarr.json")]
         if bands_only is not None and path not in bands_only and path.split("/")[0] not in bands_only:
             continue
-        band = d["attributes"]["refkv_virtualized"]["safe"]
+        band = d["attributes"]["refkv_zarrified"]["safe"]
         siz = base64.b64decode(band["siz"])
         chunk_keys = sorted((n for n in names if n.startswith(path + "/c/")),
                             key=lambda n: tuple(int(x) for x in n.split("/c/")[1].split("/")))
@@ -200,8 +200,8 @@ def _get(out: Path):
 
 
 def rebuild_store(out: Path, docs: dict, read) -> dict[str, bytes]:
-    """The directory form's objects, rebuilt from the hierarchy (spec/virtualize/safe.md §6.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#64-reconstruction>): the
+    """The directory form's objects, rebuilt from the hierarchy (spec/zarrify/safe.md §6.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#64-reconstruction>): the
     held ones from the mirror alone, the empty ones from their keys, the others from
     `refkv_source/objects/`, and each band file, described in place, from its own source
     (`read(key, offset, length)`) up to its codestream, then its codestream from its chunks.
@@ -238,7 +238,7 @@ def check_rebuild(item: Path, product: dict[str, bytes], out: Path, docs: dict, 
     a directory of a rebuilt object, or one of the empty directories rebuilt from `empty_dirs`.
     The folder markers are layout of the mirror, and are not rebuilt as objects."""
     from refkv.ir.cmirror import rebuild_from_archive
-    from refkv.virtualize.store import object_url
+    from refkv.zarrify.store import object_url
 
     def ranged(u: str, o: int, n: int) -> bytes:
         if n == 0:
@@ -282,7 +282,7 @@ def check_rebuild(item: Path, product: dict[str, bytes], out: Path, docs: dict, 
     problems += [f"{k}: not rebuilt" for k in sorted(set(want) - set(files))]
     problems += [f"{k}: rebuilt, but not in the product" for k in sorted(set(files) - set(want))]
     problems += [f"{k}: rebuilt with other bytes" for k in sorted(set(want) & set(files)) if want[k] != files[k]]
-    empty = docs["refkv_source/zarr.json"]["attributes"]["refkv_virtualized"]["safe"].get("empty_dirs", [])
+    empty = docs["refkv_source/zarr.json"]["attributes"]["refkv_zarrified"]["safe"].get("empty_dirs", [])
     kept = parents(files) | set(empty) | parents(empty)
     problems += [f"{d}/: a directory not rebuilt" for d in sorted(dirs - kept)]
     problems += [f"{d}/: rebuilt as an empty directory, but not one of the product" for d in empty
@@ -325,7 +325,7 @@ def sentinel2(url: str, docs: dict, out: Path, groups: list[str]) -> list[str]:
     """The bands of GDAL's SENTINEL2 driver at the groups' resolutions against the arrays, and
     its band metadata against the band arrays' source metadata."""
     problems = []
-    s = docs["zarr.json"]["attributes"]["refkv_virtualized"]["safe"]
+    s = docs["zarr.json"]["attributes"]["refkv_zarrified"]["safe"]
     level = "L2A" if s.get("PROCESSING_LEVEL", "").startswith("Level-2A") else "L1C"  # Level-2Ap: PSD 14.2
     code = docs["zarr.json"]["attributes"]["proj:code"].replace(":", "_")
     vz = refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES)
@@ -348,7 +348,7 @@ def sentinel2(url: str, docs: dict, out: Path, groups: list[str]) -> list[str]:
                 got = zarr.open_array(vz, path=array, mode="r", zarr_format=3)[...]
                 if got.shape != want.shape or not np.array_equal(got, want):
                     problems.append(f"SENTINEL2 {array}: differs ({got.shape} vs {want.shape})")
-                band = docs[f"{array}/zarr.json"]["attributes"]["refkv_virtualized"]["safe"]
+                band = docs[f"{array}/zarr.json"]["attributes"]["refkv_zarrified"]["safe"]
                 for tag, member in (("SOLAR_IRRADIANCE", "SOLAR_IRRADIANCE"), ("BOA_ADD_OFFSET", "BOA_ADD_OFFSET"),
                                     ("RADIO_ADD_OFFSET", "RADIO_ADD_OFFSET")):
                     if tag in tags and member in band:
@@ -397,13 +397,13 @@ def remote(url: str, only: list[str], impls: list[str]) -> int:
 
 
 def described_keys(out: Path, docs: dict, url: str) -> set[str]:
-    """The keys of every object the mirror describes (spec/virtualize/safe.md §6.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>):
+    """The keys of every object the mirror describes (spec/zarrify/safe.md §6.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>):
     a directory's listing, from the mirror alone; or a zip file's objects, which its file IR
     covers whole (its leaves partition the file), read from its central directory."""
     from refkv import _core
 
-    desc = docs["refkv_source/zarr.json"]["attributes"]["refkv_virtualized"]["safe"]["ir"]
+    desc = docs["refkv_source/zarr.json"]["attributes"]["refkv_zarrified"]["safe"]["ir"]
     if "objects" in desc:
         return {k for k, _, _ in _core.rebuild_store(_get(out))}
     return set(zip_entries(url)[1])
@@ -413,16 +413,16 @@ def check_dirs(url: str, out: Path, docs: dict) -> list[str]:
     """Each directory a remote product names (by its folder markers, or its zip directory entries)
     is a directory of a rebuilt object or a rebuilt empty directory."""
     if url.endswith("/"):
-        from refkv.virtualize.store import open_store
+        from refkv.zarrify.store import open_store
 
         dirs = {k[: -len("_$folder$")] for k in open_store(url).objects if k.endswith("_$folder$") and len(k) > 9}
     else:
-        from refkv.virtualize.common import http_reader
+        from refkv.zarrify.common import http_reader
         from refkv_reference.safe import zipdir
 
         read, size = http_reader(url)
         dirs = {k[:-1] for k in zipdir.product_entries(zipdir.central_directory(read, size))[3]}
-    empty = docs["refkv_source/zarr.json"]["attributes"]["refkv_virtualized"]["safe"].get("empty_dirs", [])
+    empty = docs["refkv_source/zarr.json"]["attributes"]["refkv_zarrified"]["safe"].get("empty_dirs", [])
     kept = parents(described_keys(out, docs, url)) | set(empty) | parents(empty)
     return [f"{d}/: a directory not rebuilt" for d in sorted(dirs - kept)]
 
@@ -433,7 +433,7 @@ _ZIPS: dict[str, tuple] = {}
 def zip_entries(url: str) -> tuple:
     """(root, entries by key, reader) of a remote zip file, read once."""
     if url not in _ZIPS:
-        from refkv.virtualize.common import http_reader
+        from refkv.zarrify.common import http_reader
         from refkv_reference.safe import zipdir
 
         read, size = http_reader(url)
@@ -446,7 +446,7 @@ def zip_entries(url: str) -> tuple:
 
 def fetch(url: str, key: str) -> bytes:
     """An object of a remote product: by its URL (directory form), or by its entry's range."""
-    from refkv.virtualize.store import object_url
+    from refkv.zarrify.store import object_url
 
     if url.endswith("/"):
         with urllib.request.urlopen(object_url(url, key), timeout=300) as r:

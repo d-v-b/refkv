@@ -1,8 +1,8 @@
 """`zlib`: a zlib stream (RFC 1950), as Neuroglancer names it (conventions §3
 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#3-arrays>,
-spec/virtualize/n5.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#3-datasets>,
-spec/virtualize/zarr2.md §3.1
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#31-compressors>).
+spec/zarrify/n5.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#3-datasets>,
+spec/zarrify/zarr2.md §3.1
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#31-compressors>).
 """
 
 from __future__ import annotations

@@ -117,7 +117,7 @@ values as an earlier IFD's (and whose codec and framing agree) names its
 `tiles` by alias. The parser rejects only a file whose header is not TIFF.
 
 The image projection is today's convention logic reading the IR: every check
-of spec/virtualize.md §3.1 (field types, counts and places of the table's tags
+of spec/zarrify.md §3.1 (field types, counts and places of the table's tags
 in every IFD read, IFDs read twice, IFD offsets in the header, values past
 2^53) is a check of IR values and of which elements exist.
 
@@ -154,7 +154,7 @@ last band per tile row (a rectilinear grid).
 ## 5. Results (2026-10-08)
 
 Equivalence is `compare.differences()` (§1.1) of the archives, without the
-entries under `vzip_source`, against `python -m refkv.virtualize`.
+entries under `vzip_source`, against `python -m refkv.zarrify`.
 
 | inputs | equivalent | both reject | rebuilt from the mirror archive |
 |---|---|---|---|
@@ -272,7 +272,7 @@ Round 2 takes the hardest format left (ND2: compressed LV chunks, XML
 variants, sparse frame indexes, budgets that depend on map order) through a
 Rust core, and addresses round 1's three open problems: per-element cost, the
 missing read planner, and rejections living in the projections. Nothing in
-`python/src/refkv/virtualize/` or the specs changes; today's ND2 profile is the
+`python/src/refkv/zarrify/` or the specs changes; today's ND2 profile is the
 reference.
 
 ## 8. What was built
@@ -284,7 +284,7 @@ reference.
 | `ir.rs` | the compact IR: dense columns (kind u8, parent u32, name u32, name index u64, type u32, space u32, start u64, len u64) and sparse tables sorted by element (value bytes, form, alias target, runs); names, types and forms interned; `fold`, `unfold`, rollback marks; the budget |
 | `check.rs` | `finish` (aliases, gaps, gap runs, unfolding), `check` (coverage, injectivity, parents, aliases, derived spaces), `leaves` (the rebuild's ranges) |
 | `types.rs` | round 1's type grammar and its one generic decoder, plus `utf16[n]` and the `xml:<runtype>` text type |
-| `lv.rs`, `xml.rs` | the LV decoder (positions kept, exactness checked, room spent) and the XML variant scan (spec/virtualize/tiff.md §3 tag scan, ported) |
+| `lv.rs`, `xml.rs` | the LV decoder (positions kept, exactness checked, room spent) and the XML variant scan (spec/zarrify/tiff.md §3 tag scan, ported) |
 | `schema.rs`, `expr.rs`, `schema/nd2.json` | the ND2 source model as data, and its checker |
 | `nd2.rs` | the sans-IO ND2 parser |
 | `czi.rs` | round 1's CZI segment layer, sans-IO, for the comparison on `walk0.czi` |
@@ -386,7 +386,7 @@ it is what a frame-time stream already is.
 
 **Equivalence** is `compare.differences()` of the archives without the
 entries under `vzip_source` (the fixture and fuzz runs compare the `Output`s
-directly, documents and references), against `python -m refkv.virtualize`.
+directly, documents and references), against `python -m refkv.zarrify`.
 
 | inputs | equivalent | both reject | rebuilt from the mirror archive alone |
 |---|---|---|---|
@@ -589,7 +589,7 @@ reads facts the schema derived.
 
 **Does schema-driven validation remove the duplication?** For the semantic
 layer, yes: every member check, derived quantity and constraint of
-spec/virtualize/nd2.md §3 and spec/virtualize.md §5.3 is stated once and checked once;
+spec/zarrify/nd2.md §3 and spec/zarrify.md §5.3 is stated once and checked once;
 round 1's split (a permissive parser, a projection that re-derives what must
 hold) is gone, and the rejections are the same set as today's on 43 fixtures
 and every probe. Three things stay code: the binary layer (chunk headers, the
@@ -601,7 +601,7 @@ replaces. The schema pays off only if it is shared: by a second
 implementation, or by a second format with the same kind of metadata.
 
 **Could the schema be the normative text** (design/ARCHITECTURE.md §6 Q1)? Its
-`objects`, `types` and `constraints` sections are spec/virtualize/nd2.md §3 in
+`objects`, `types` and `constraints` sections are spec/zarrify/nd2.md §3 in
 tabular form, unambiguous where the prose needed sentences like "read only
 from the valid members, and only from those" and "checked on every node,
 whether or not the flattening visits it". They could replace §3's member
@@ -672,7 +672,7 @@ Round 3 moves TIFF and CZI onto round 2's Rust core: sans-IO parsers, a
 source-model schema per format that holds every semantic check, Python
 projections that check nothing, the read planner for both formats, and the
 wasm32 build. It closes round 1's CZI review findings, each with a probe, and
-rebuilds round 1's TIFF amplification probes. Nothing in `python/src/refkv/virtualize/`,
+rebuilds round 1's TIFF amplification probes. Nothing in `python/src/refkv/zarrify/`,
 `js/` or the specs changes; today's profiles are the reference.
 
 ## 17. What was built
@@ -683,7 +683,7 @@ rebuilds round 1's TIFF amplification probes. Nothing in `python/src/refkv/virtu
 | `czi.rs` | the sans-IO CZI parser: the file header; the directory, its metadata segment and attachment directory; the directory's entries in windows of up to 16 MiB; the subblocks in groups of 16,384 (their headers, then their codec headers, growing within the first 2^16 bytes of their data until each gives its coded size); the metadata XML, streamed; the attachments by form; the walk over the segments nothing references; then the layout (placement, series, layers, levels, tiles, row bands, scales, translations) as facts |
 | `coding.rs`, `cxml.rs` | CZI's codec headers (Zstd0, Zstd1, JPEG, JPEG XR) and the metadata XML's values, one streaming pass with no tree (round 1's `czi/xml.py`, ported) |
 | `rules.rs`, `schema/tiff.json`, `schema/czi.json` | the role checker and the two source models (below) |
-| `fed.rs`, `xml.rs` | the fed bytes a parser holds; the tag scan of spec/virtualize/tiff.md §3 as an iterator that holds nothing but its position (round 2's scan built a list of every tag) |
+| `fed.rs`, `xml.rs` | the fed bytes a parser holds; the tag scan of spec/zarrify/tiff.md §3 as an iterator that holds nothing but its position (round 2's scan built a list of every tag) |
 | `lib.rs`, `wasm.rs`, `wasm/run.mjs` | a `Parser` trait for the three parsers; the C-ABI drives any of them (`vz_new(format, size)`), and `run.mjs` runs them from Node |
 | `ir.rs`, `types.rs`, `expr.rs` | shared data sources (a JPEG prefix, once), aliases emitted by parsers, the data members of an element with runs expanded, a digest of the rows; `cstr[n]` that keeps the bytes after its NUL; list and string literals, `in`, `distinct`, `first`, `at`, `min`, `max`, `present` |
 
@@ -859,7 +859,7 @@ numpy); "r1" is round 1's code (3042265) run the same way.
 | shared FilePosition amplification | **aliasing**, per the injectivity invariant: a segment two entries name is read and checked once; the second name is an alias, whose entry is checked but not placed again | `czi_dup.czi`: 100,000 entries naming one subblock | 3.7 s, 317 MB, 68.6 MB archive (100,000 tile arrays) | 5.8 s, 2.4 MB | 2.7 s, 186 MB, 0.17 MB: 99,999 aliases, one chunk |
 | coalesced prefetch reading the whole file | the planner's cap: at most 4 × the bytes asked (+64 KiB) a batch; batched subblock headers (16,384 a round) and codec heads | `czi_xt.czi`: 100,000 one-line subblocks of 4 KiB (447 MB) | reads all 447 MB (561 requests of up to 1 MiB) | — (round 2's planner: all 447 MB on a single-range server) | asks 38 MB; reads 138 MB locally, on the EBI profile with multi-range requests 41 MB in 1,006 requests (100,006 ranges), 25.4 s (today: 447 MB, 24.5 s at 32 connections); with single ranges 138 MB in 76,274 requests (§24) |
 | unchecked tile extent | a tile array's y and x (its coded size) go through the `extent` role, as an image's do | `czi_jxrbig.czi`: a JPEG XR subblock whose header says 2^32 − 1 × 2^32 − 1 | accepted: a tile array of shape [4294967295, 4294967295] | accepted | rejected: "an array dimension of 4294967295, more than 2^31" |
-| attachment-name bytes after the NUL | `cstr[n]` decodes to its text up to the first NUL, or to `{text, after}` when the bytes after it are not all NUL (`types.rs`), in the IR and the mirror's view; an attachment's kind is still its ContentFileType up to the NUL (spec/virtualize/czi.md §5.6); a segment id is compared by all 16 bytes (the fuzz found a subblock whose id had a byte after its NUL, which today rejects) | `czi_attname.czi`: names `Label\0hidden name`, `Thumb\0…x`, type `CZTIMS\0x` | the bytes after the NUL are not kept in `vzip_source` | the same | kept; hierarchy equivalent |
+| attachment-name bytes after the NUL | `cstr[n]` decodes to its text up to the first NUL, or to `{text, after}` when the bytes after it are not all NUL (`types.rs`), in the IR and the mirror's view; an attachment's kind is still its ContentFileType up to the NUL (spec/zarrify/czi.md §5.6); a segment id is compared by all 16 bytes (the fuzz found a subblock whose id had a byte after its NUL, which today rejects) | `czi_attname.czi`: names `Label\0hidden name`, `Thumb\0…x`, type `CZTIMS\0x` | the bytes after the NUL are not kept in `vzip_source` | the same | kept; hierarchy equivalent |
 
 Three of these change the hierarchy from today's, on these probes only, by
 design: `czi_bands1` (two chunks instead of 16.8 million), `czi_dup` (one image
@@ -918,7 +918,7 @@ schemas (embedded), the role checker and the XML scan.
 **Equivalence** is `compare.differences()` of the archives without the entries
 under `vzip_source` (corpora, through the caching proxy, one process each), or
 the `Output`s compared directly (fixtures, mutants, probes: documents,
-references and data sources), against `python -m refkv.virtualize`.
+references and data sources), against `python -m refkv.zarrify`.
 **Rebuild** is the source rebuilt from the IR archive alone
 (`cmirror.rebuild_from_archive`: the mirror's table, checked by the Rust
 checker, and `vzip_source/bytes`), compared byte for byte (sha-256 for the
@@ -1019,8 +1019,8 @@ Non-blank, non-comment lines, against today's Python and its TypeScript twin:
 
 | | today: Python | today: TypeScript | round 1 (Python) | round 3 |
 |---|---|---|---|---|
-| TIFF | 878 (`virtualize/tiff`; 299 of them `tags.py`, the source-metadata translator) | 1,216 (`js/src/virtualize/tiff`) | 618, plus 140 reused | Rust `tiff.rs` 1,712; schema 409; Python 65 (`tiff/image.py` 52, `tiff/parse.py` 13) |
-| CZI | 1,129 (`virtualize/czi`; 147 of them `source.py`) | 1,447 (`js/src/virtualize/czi`) | 616, plus about 470 reused | Rust `czi.rs` 1,344, `coding.rs` 219, `cxml.rs` 250; schema 313; Python 76 (`czi/image.py` 63, `czi/parse.py` 13) |
+| TIFF | 878 (`virtualize/tiff`; 299 of them `tags.py`, the source-metadata translator) | 1,216 (`js/src/zarrify/tiff`) | 618, plus 140 reused | Rust `tiff.rs` 1,712; schema 409; Python 65 (`tiff/image.py` 52, `tiff/parse.py` 13) |
+| CZI | 1,129 (`virtualize/czi`; 147 of them `source.py`) | 1,447 (`js/src/zarrify/czi`) | 616, plus about 470 reused | Rust `czi.rs` 1,344, `coding.rs` 219, `cxml.rs` 250; schema 313; Python 76 (`czi/image.py` 63, `czi/parse.py` 13) |
 | shared, new in round 3 | | | | Rust `rules.rs` 139, `fed.rs` 56; Python `crefs.py` 32; and additions to `ir.rs`, `expr.rs`, `xml.rs`, `types.rs`, `py.rs`, `wasm.rs` (about 450) |
 
 Per format, round 3's code (Rust, schema and Python) is about today's two
@@ -1099,7 +1099,7 @@ On `feat/virtualize-conventions-v2-work`, after round 2's ad3b714:
 # Adoption: the IR becomes the production path for TIFF, ND2 and CZI
 
 The adoption makes the Rust core the only implementation of TIFF (but NDPI), ND2
-and CZI in both `refkv.virtualize` (Python) and `js/src/virtualize` (browser and
+and CZI in both `refkv.zarrify` (Python) and `js/src/zarrify` (browser and
 Node): it parses, plans the reads, projects the convention's hierarchy and writes
 the mirror; each host performs the I/O and writes the archive. Today's Python and
 TypeScript profiles for the three formats are kept, unchanged but for their import
@@ -1108,7 +1108,7 @@ paths, as frozen reference oracles out of the shipped trees.
 ## 29. The read cap, per server
 
 `rust/refkv-ir/src/plan.rs` (the policy, sans-IO) and `python/src/refkv/ir/planner.py` /
-`js/src/virtualize/ir/source.ts` (the I/O). The cost model: a request costs a
+`js/src/zarrify/ir/source.ts` (the I/O). The cost model: a request costs a
 latency `L`, a byte `1 / B` per connection; merging two ranges pays when the gap
 `g < L × B`. What the planner learns about the server sets the threshold and the
 amplification cap (a batch fetches at most cap × the bytes it asks, plus 64 KiB,
@@ -1244,10 +1244,10 @@ Round 3: SVS 1.04–1.37×, IDR 1.08–1.47× of today.
 
 | | before (4a4e08e) | after |
 |---|---|---|
-| TIFF, ND2, CZI profiles, Python | 3,121 (`refkv/virtualize/{tiff,nd2,czi}`) | 299 shipped (`tiff/tags.py`, for NDPI); 3,199 frozen in `conformance/virtualize/reference` |
-| the same, TypeScript | 3,883 | 627 shipped (`tiff/{ifd,tags}.ts`, for NDPI); 4,030 frozen in `conformance/virtualize/reference/ts` |
+| TIFF, ND2, CZI profiles, Python | 3,121 (`refkv/zarrify/{tiff,nd2,czi}`) | 299 shipped (`tiff/tags.py`, for NDPI); 3,199 frozen in `conformance/zarrify/reference` |
+| the same, TypeScript | 3,883 | 627 shipped (`tiff/{ifd,tags}.ts`, for NDPI); 4,030 frozen in `conformance/zarrify/reference/ts` |
 | Python IR host (planner, mirror, projections, refs, parse drivers) | 1,020 | 341 (`planner.py` 237: the I/O; `cmirror.py`, `output.py`, `__init__`, `__main__`) |
-| TypeScript IR host | — | 523 (`js/src/virtualize/ir`: wasm loading, range sources, the driver) |
+| TypeScript IR host | — | 523 (`js/src/zarrify/ir`: wasm loading, range sources, the driver) |
 | Rust core | 8,735 | 12,004: + `plan.rs`/`run.rs` 608, `project/` and `refs.rs` 984, `mirror.rs` 1,027, `out.rs` 408, `wasm.rs` 202 (C-ABI), `py.rs` 594 |
 
 (Non-blank, non-comment lines.) The planner's policy, the three image projections
@@ -1263,17 +1263,17 @@ over entries, references and data sources, and each host writes them.
 
 ## 32. The switch-over
 
-- `refkv.virtualize.virtualize` opens a file through the IR's transport (under the
+- `refkv.zarrify.virtualize` opens a file through the IR's transport (under the
   reader policy for http(s): `Policy()`, private hosts and proxies refused; the CLI
   takes `--allow-private-hosts`), sniffs its first bytes, and sends TIFF (but NDPI),
   ND2 and CZI to `refkv.ir.virtualize`; the other profiles keep their code and
-  readers. `js/src/virtualize/index.ts` does the same with the wasm32 build
+  readers. `js/src/zarrify/index.ts` does the same with the wasm32 build
   (`virtualizeSource`, and `virtualizeImage` for callers with byte readers); its
   http source honors the TypeScript reader policy, through `#net`'s checked fetch
   under Node.
-- The frozen oracles: `conformance/virtualize/reference/refkv_reference` (Python,
+- The frozen oracles: `conformance/zarrify/reference/refkv_reference` (Python,
   with `cli.py` and the old tests in `python/tests/reference`) and
-  `conformance/virtualize/reference/ts` (TypeScript, with CLIs; the old Node tests import it).
+  `conformance/zarrify/reference/ts` (TypeScript, with CLIs; the old Node tests import it).
   They are not deleted.
 - `compare.py`'s implementations are now `ref` (the frozen Python, the reference),
   `py` and `web`. For TIFF, ND2 and CZI, `ref` is compared with `py` and `web`
@@ -1284,10 +1284,10 @@ over entries, references and data sources, and each host writes them.
   parsers, checks and projections exist once, and the frozen reference stops
   changing); the mirror has no second implementation, and its check is the
   byte-exact rebuild.
-- **The conventions' §5.** spec/virtualize/{tiff,nd2,czi}.md §5 and their
+- **The conventions' §5.** spec/zarrify/{tiff,nd2,czi}.md §5 and their
   schema.json describe the source metadata the frozen reference writes under
   `vzip_source`. The IR writes its mirror there instead, which does not declare the
-  convention and names itself (`vzip_ir`); `python/tests/test_virtualize_conventions.py`
+  convention and names itself (`vzip_ir`); `python/tests/test_zarrify_conventions.py`
   checks exactly that for these profiles. The specs were not changed: a revision
   that makes the mirror normative (or keeps §5 and ports the translators) is the
   user's decision.
@@ -1314,7 +1314,7 @@ ready in 51 ms, the module's fetch and compilation included.
 |---|---|
 | fixtures, 4 shards of `compare.py` (`ref`, `py`, `web`) | 667 inputs: 293 equivalent, 374 rejected by all, 0 divergent; `py` and `web` identical, `vzip_source` included |
 | mutants (`just compare-mutants`: 10 per fixture, seed 0) | 5,290 inputs: 1,895 equivalent, 3,395 rejected by all, 0 divergent |
-| SVS (4), IDR idr0096 (205, the saved listing), CZI corpus (24), through the caching proxy offline (`design/experiments/ir_adopt/corpus.py`), `ref` against `python -m refkv.virtualize`, and against the browser code (`js/conformance/virtualize.ts`) | 233 of 233 equivalent, both |
+| SVS (4), IDR idr0096 (205, the saved listing), CZI corpus (24), through the caching proxy offline (`design/experiments/ir_adopt/corpus.py`), `ref` against `python -m refkv.zarrify`, and against the browser code (`js/conformance/zarrify.ts`) | 233 of 233 equivalent, both |
 | ND2 corpus through the proxy (both hosts) | 6 equivalent; 11 not comparable offline (the frozen reference reads blocks the cache lacks, 2,378 of them; the IR none; EBI was not contacted) |
 | ND2 local copies (3 whole files from EBI, the 27 GB sparse copy) | 4 of 4 equivalent, rebuilt byte for byte (sha-256) |
 | byte-exact rebuild from the mirror | every accepted fixture (`tests/mirror.rs`, python/tests/ir), 33 of 33 accepted probes, the 4 ND2 copies, SVS/IDR/CZI sparse copies |
@@ -1367,11 +1367,11 @@ table and `vzip_source`'s source metadata `{"ir": {...}}` (§8.2), column runs
 and their four encodings (§8.3), the checks and the byte-exact rebuild (§8.4),
 forms and recipes (§8.5), types (§8.6), the view (§8.7). Each format's §5 is
 its root's source metadata (unchanged) and its source model, the elements of
-its IR: [TIFF §5](../spec/virtualize/tiff.md#5-source-metadata),
-[ND2 §5](../spec/virtualize/nd2.md#5-source-metadata) (the root keeps
-its decoded chunks as before), [CZI §5](../spec/virtualize/czi.md#5-source-metadata).
+its IR: [TIFF §5](../spec/zarrify/tiff.md#5-source-metadata),
+[ND2 §5](../spec/zarrify/nd2.md#5-source-metadata) (the root keeps
+its decoded chunks as before), [CZI §5](../spec/zarrify/czi.md#5-source-metadata).
 `vzip_source` declares the convention with `{"<p>": {"ir": {...}}}`, and so
-does each view group with its document; `vzip_ir` is gone. spec/virtualize.md
+does each view group with its document; `vzip_ir` is gone. spec/zarrify.md
 §1.1 compares these profiles outside `vzip_source` and a mirror by its
 validity and what it rebuilds (two producers may fold and encode one IR
 differently); `compare.py` loads `py`'s and `web`'s mirrors and checks them
@@ -1472,7 +1472,7 @@ same archives on every fixture and mutant.
 | mutants (`just compare-mutants`) | 5,290: 1,895 equivalent, 3,395 rejected by all, 0 divergent |
 | corpora through the offline proxy against the frozen reference | SVS 4/4, IDR 205/205, CZI 24/24 equivalent; ND2 6 equivalent, 11 not comparable offline (the reference needs uncached blocks) |
 | archive size against today | CZI 0.884, SVS 0.999, IDR 0.999 (27 IDR files up to 450 bytes above: each view group now carries the convention's metadata object) |
-| schemas | 250 IR archives of the corpora, 6,390 declaring nodes, 0 invalid; every fixture (`python/tests/test_virtualize_conventions.py`) |
+| schemas | 250 IR archives of the corpora, 6,390 declaring nodes, 0 invalid; every fixture (`python/tests/test_zarrify_conventions.py`) |
 | hostile probes and copies (50) | 31 equivalent, 10 rejected by both, the 9 by-design differences of §21; 37 of 37 accepted rebuilt byte for byte |
 | native and wasm32 parity | 1,971 of 1,971 |
 | verify scripts, CZI and SAFE verifiers | 0 failures |
@@ -1525,7 +1525,7 @@ and §8.7 makes the view a function of the IR too. In short:
   addition to comparing `py` and `web` entry for entry; VIRTUALIZE §1.1 now
   compares mirrors entry for entry.
 - **The frozen reference** records revision 20 through its own constant
-  (`refkv_reference/revision.py`, `conformance/virtualize/reference/ts/revision.ts`);
+  (`refkv_reference/revision.py`, `conformance/zarrify/reference/ts/revision.ts`);
   `compare.py`, the IR tests, the corpus and probe scripts and the CZI
   verifier read its root at the current revision.
 
@@ -1901,11 +1901,11 @@ translator).
 IMS moves to the Rust core: `hdf5.rs`, a format-free sans-IO HDF5 metadata
 reader (rounds replayed over structures memoized by address, misses
 collected across independent structures so that a round asks for all of
-them), and `ims.rs`, the layout of [IMS §2–§4](../spec/virtualize/ims.md#2-the-source)
+them), and `ims.rs`, the layout of [IMS §2–§4](../spec/zarrify/ims.md#2-the-source)
 against `schema/ims.json` and the walk of
-[IMS §5.3](../spec/virtualize/ims.md#53-the-walk), whose elements are every HDF5
+[IMS §5.3](../spec/zarrify/ims.md#53-the-walk), whose elements are every HDF5
 structure it reads. The revision-25 Python and TypeScript profiles are frozen
-in `conformance/virtualize/reference/` (`IMS_REVISION`).
+in `conformance/zarrify/reference/` (`IMS_REVISION`).
 
 **Read-ahead.** A version 1 B-tree node (a chunk index's or a group's) or a
 symbol table node that a round misses is asked for at its allocated size

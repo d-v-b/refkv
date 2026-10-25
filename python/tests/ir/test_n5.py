@@ -1,7 +1,7 @@
-"""N5 stores through the IR (refkv.virtualize → refkv.ir.store → rust/refkv-ir/src/n5.rs;
-spec/virtualize/n5.md <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md>). One test
+"""N5 stores through the IR (refkv.zarrify → refkv.ir.store → rust/refkv-ir/src/n5.rs;
+spec/zarrify/n5.md <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md>). One test
 of the accepted fixture stores: the hierarchy outside refkv_source is the frozen reference's
-(conformance/virtualize/reference/refkv_reference/n5, revision 25), the references are each a
+(conformance/zarrify/reference/refkv_reference/n5, revision 25), the references are each a
 whole object at the reference's keys, and refkv_source is the store IR's mirror, which rebuilds
 every node's document byte for byte and the listing. One test of the recorded ignored keys, and
 one of the rejected fixtures (each rejected by both)."""
@@ -14,9 +14,9 @@ from xml.sax.saxutils import escape
 import pytest
 
 from refkv import _core
-from refkv.ir.store import StoreIrOutput, virtualize_store
-from refkv.virtualize import Rejected, _virtualize as virtualize  # the profile output, not the store
-from refkv.virtualize.common import same
+from refkv.ir.store import StoreIrOutput, zarrify_store
+from refkv.zarrify import Rejected, _zarrify as zarrify  # the profile output, not the store
+from refkv.zarrify.common import same
 from refkv_reference.revision import STORES_REVISION
 
 from ir_helpers import LEGACY_SOURCE, as_current, current_names
@@ -39,16 +39,16 @@ def test_accepted_stores_have_the_reference_hierarchy_and_a_store_mirror():
             continue
         url = URL.format(root.name)
         _, ref = frozen(str(root), url)
-        fmt, out = virtualize(str(root), url=url)
+        fmt, out = zarrify(str(root), url=url)
         assert fmt == "n5" and isinstance(out, StoreIrOutput), root.name
         docs = {k: json.loads(v) for k, v in out.entries.items() if not k.startswith("refkv_source/")}
         want = current_names({k: v for k, v in ref.docs.items() if not k.startswith(LEGACY_SOURCE)})
-        assert want["zarr.json"]["attributes"]["refkv_virtualized"].pop("revision") == STORES_REVISION
+        assert want["zarr.json"]["attributes"]["refkv_zarrified"].pop("revision") == STORES_REVISION
         assert same(docs, want), root.name
         assert out.refs == {as_current(k): [("object", ref.origins.get(k, k), 0, n)] for k, n in ref.chunks}, root.name
         assert out.sources == ref.sources, root.name
         # refkv_source: the mirror, which rebuilds the listing and each node's document
-        own = json.loads(out.entries["refkv_source/zarr.json"])["attributes"]["refkv_virtualized"]["n5"]
+        own = json.loads(out.entries["refkv_source/zarr.json"])["attributes"]["refkv_zarrified"]["n5"]
         stored = files(root)
         assert own["ir"]["objects"] == len(stored) and "empty" not in own, root.name
         held = 0
@@ -66,8 +66,8 @@ def test_accepted_stores_have_the_reference_hierarchy_and_a_store_mirror():
 
 
 def test_ignored_keys_are_recorded_beside_the_mirror():
-    """The listing's recorded ignored keys (spec/virtualize.md §1.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>) are the member
+    """The listing's recorded ignored keys (spec/zarrify.md §1.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>) are the member
     `ignored` of refkv_source's source metadata, in UTF-8 byte order; a folder marker is not."""
     doc = b'{"dimensions": [4], "blockSize": [2], "dataType": "uint8", "compression": {"type": "raw"}}'
     objects = {"attributes.json": doc, "0": b"x", "1": b"", "é/./x": b"y", "a//0": b"z", "m/": b""}
@@ -90,8 +90,8 @@ def test_ignored_keys_are_recorded_beside_the_mirror():
         a, b = req.headers["Range"].removeprefix("bytes=").split("-")
         return R(objects[key][int(a):int(b) + 1])
 
-    out, _, _ = virtualize_store("http://h/b/s/", fmt="n5", opener=opener)
-    own = json.loads(out.entries["refkv_source/zarr.json"])["attributes"]["refkv_virtualized"]["n5"]
+    out, _, _ = zarrify_store("http://h/b/s/", fmt="n5", opener=opener)
+    own = json.loads(out.entries["refkv_source/zarr.json"])["attributes"]["refkv_zarrified"]["n5"]
     assert own["ignored"] == ["a//0", "é/./x"]
     assert "refkv_source/empty.json" not in out.entries
     assert out.refs == {"0": [("object", "0", 0, 1)]}
@@ -105,7 +105,7 @@ def test_rejects_what_the_reference_rejects(root):
     with pytest.raises(Rejected):
         frozen(str(root), url)
     with pytest.raises(Rejected):
-        virtualize(str(root), url=url)
+        zarrify(str(root), url=url)
 
 
 @pytest.fixture(scope="module")
@@ -120,7 +120,7 @@ def n5_probes(tmp_path_factory) -> Path:
     return out
 
 
-def test_hostile_stores_are_refused_or_virtualized_as_the_reference_does(n5_probes):
+def test_hostile_stores_are_refused_or_zarrified_as_the_reference_does(n5_probes):
     """Each probe store is rejected by both, or gives the reference's hierarchy outside
     refkv_source and a mirror that rebuilds every node's document; none takes long."""
     import time
@@ -136,7 +136,7 @@ def test_hostile_stores_are_refused_or_virtualized_as_the_reference_does(n5_prob
             ref = None
         t = time.monotonic()
         try:
-            _, out = virtualize(str(root), url=url)
+            _, out = zarrify(str(root), url=url)
         except Rejected:
             out = None
         assert time.monotonic() - t < 20, root.name
@@ -146,7 +146,7 @@ def test_hostile_stores_are_refused_or_virtualized_as_the_reference_does(n5_prob
             continue
         docs = {k: json.loads(v) for k, v in out.entries.items() if not k.startswith("refkv_source/")}
         want = current_names({k: v for k, v in ref.docs.items() if not k.startswith(LEGACY_SOURCE)})
-        del want["zarr.json"]["attributes"]["refkv_virtualized"]["revision"]
+        del want["zarr.json"]["attributes"]["refkv_zarrified"]["revision"]
         assert same(docs, want), root.name
         assert out.refs == {as_current(k): [("object", ref.origins.get(k, k), 0, n)] for k, n in ref.chunks}, root.name
         stored = files(root)
@@ -157,16 +157,16 @@ def test_hostile_stores_are_refused_or_virtualized_as_the_reference_does(n5_prob
 
 def test_under_a_root_dataset_the_mirror_and_the_other_objects_are_keys_of_refkv_source():
     """An array has no children: the root dataset's mirror and other objects are plain keys
-    under refkv_source/ (spec/virtualize/n5.md §6
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>), and an empty
+    under refkv_source/ (spec/zarrify/n5.md §6
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects>), and an empty
     block is in the mirror's listing, not in a refkv_source/empty.json."""
     for name in ("n5_root_dataset_objects", "n5_root_dataset_empty_block"):
-        _, out = virtualize(str(FIXTURES / name), url=URL.format(name))
+        _, out = zarrify(str(FIXTURES / name), url=URL.format(name))
         assert json.loads(out.entries["zarr.json"])["node_type"] == "array", name
         assert [k for k in out.entries if k.endswith("zarr.json") and not k.startswith("refkv_source/")] == ["zarr.json"]
         assert "refkv_source/zarr.json" in out.entries and "refkv_source/empty.json" not in out.entries, name
         listing = {k: n for k, n, _ in _core.rebuild_store(out.entries.get)}
         assert listing == {k: len(v) for k, v in files(FIXTURES / name).items()}, name
-    _, out = virtualize(str(FIXTURES / "n5_root_dataset_objects"), url=URL.format("x"))
+    _, out = zarrify(str(FIXTURES / "n5_root_dataset_objects"), url=URL.format("x"))
     size = (FIXTURES / "n5_root_dataset_objects" / "README").stat().st_size
     assert out.refs["refkv_source/objects/README"] == [("object", "README", 0, size)]

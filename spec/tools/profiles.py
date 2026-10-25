@@ -1,4 +1,4 @@
-"""The profile registry, spec/virtualize/profiles/<name>.json (one file per profile), and what
+"""The profile registry, spec/zarrify/profiles/<name>.json (one file per profile), and what
 derives from it.
 
     uv run python spec/tools/profiles.py          # write the derived files
@@ -16,11 +16,11 @@ indexes describe it by. Everything else is derived from it:
 - at build or load time, by each host, from the files themselves: the Rust core's
   `build.rs` (from its copies, `rust/refkv-ir/profiles/<name>.json`, which this writes: the
   crate cannot include a file outside itself in its package), which the Python host reads
-  through `refkv._core.registry`; the browser code's `#profiles` (js/src/virtualize/); and the
+  through `refkv._core.registry`; the browser code's `#profiles` (js/src/zarrify/); and the
   demo page's formats sentence, examples and credits (js/build.mjs, from each profile's
   demo/examples/<name>.html);
 - here, the index pages of the documents, where the profiles' own documents come together:
-  the profile tables of spec/virtualize.md, spec/conventions.md and docs/virtualize/README.md,
+  the profile tables of spec/zarrify.md, spec/conventions.md and docs/zarrify/README.md,
   each between a pair of marker comments (`<!-- profiles:<block> -->` and `<!-- /profiles -->`),
   one row per profile, by name, so that two profiles added at once conflict only when their
   names sort next to each other.
@@ -34,8 +34,8 @@ The documents also write out each convention's metadata object (CMO, spec/conven
 derived from the registry but copied by hand, to be read in place. `check` checks the copies:
 every CMO of refkv's conventions in spec/ (but its history, spec/history/) and docs/ MUST be
 the one the registry gives (`cmo`), and each format's document MUST show its own in its
-declaration, its section 1. `cmo` is what refkv writes, `refkv.virtualize.common.convention`,
-as python/tests/test_virtualize_conventions.py checks (this tool does not import refkv, whose
+declaration, its section 1. `cmo` is what refkv writes, `refkv.zarrify.common.convention`,
+as python/tests/test_zarrify_conventions.py checks (this tool does not import refkv, whose
 Rust core it would have to build).
 """
 
@@ -47,10 +47,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-REGISTRY_DIR = ROOT / "spec" / "virtualize" / "profiles"
+REGISTRY_DIR = ROOT / "spec" / "zarrify" / "profiles"
 COPY_DIR = ROOT / "rust" / "refkv-ir" / "profiles"
 KINDS = ("file", "store", "both", "layout")
-CONVENTION_KEY = "refkv_virtualized"
+CONVENTION_KEY = "refkv_zarrified"
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 # A flat JSON object with a member "uuid", as a CMO is written (its members are strings).
 CMO_TEXT = re.compile(r'\{[^{}]*"uuid"\s*:[^{}]*\}')
@@ -101,23 +101,23 @@ def input_kind(e: dict) -> str:
 def spec_table(entries: list[dict]) -> str:
     rows = ["| profile | input | inputs |", "|---|---|---|"]
     for e in profiles(entries):
-        rows.append(f"| [{e['title']}](virtualize/{e['name']}.md#part-2-the-profile) | {input_kind(e)} | {e['inputs']} |")
+        rows.append(f"| [{e['title']}](zarrify/{e['name']}.md#part-2-the-profile) | {input_kind(e)} | {e['inputs']} |")
     return "\n".join(rows)
 
 
 def profile_heading(e: dict) -> tuple[str, str]:
     """The number and text of the profile's heading in its document (`## <n>. <T> profile`, the
     first heading of its Part 2)."""
-    text = (ROOT / "spec" / "virtualize" / f"{e['name']}.md").read_text(encoding="utf-8")
+    text = (ROOT / "spec" / "zarrify" / f"{e['name']}.md").read_text(encoding="utf-8")
     part2 = text.find("\n# Part 2")
     m = re.search(r"^## (\d+)\. (.* profile)$", text[part2:], re.M) if part2 >= 0 else None
     if m is None:
-        raise ValueError(f"{e['name']}: spec/virtualize/{e['name']}.md has no Part 2 heading `## <n>. <T> profile`")
+        raise ValueError(f"{e['name']}: spec/zarrify/{e['name']}.md has no Part 2 heading `## <n>. <T> profile`")
     return m.group(1), m.group(2)
 
 
 def profile_link(e: dict, base: str) -> str:
-    """A link to the profile's heading, from a document at `base` (the path to spec/virtualize/)."""
+    """A link to the profile's heading, from a document at `base` (the path to spec/zarrify/)."""
     n, heading = profile_heading(e)
     return f"[{e['name']}.md §{n}]({base}{e['name']}.md#{n}-{slug(heading)})"
 
@@ -126,7 +126,7 @@ def spec_list(entries: list[dict]) -> str:
     items = []
     for e in profiles(entries):
         n, heading = profile_heading(e)
-        items.append(f"- the {heading}: [spec/virtualize/{e['name']}.md §{n}](virtualize/{e['name']}.md#{n}-{slug(heading)})")
+        items.append(f"- the {heading}: [spec/zarrify/{e['name']}.md §{n}](zarrify/{e['name']}.md#{n}-{slug(heading)})")
     return ";\n".join(items) + "."
 
 
@@ -134,7 +134,7 @@ def sniff_table(entries: list[dict]) -> str:
     rows = ["| profile | `sniff` |", "|---|---|"]
     for e in entries:
         if e["sniff"] is not None:
-            rows.append(f"| {e['title']} ({profile_link(e, 'virtualize/')}) | {e['sniff']} |")
+            rows.append(f"| {e['title']} ({profile_link(e, 'zarrify/')}) | {e['sniff']} |")
     return "\n".join(rows)
 
 
@@ -146,7 +146,7 @@ def conventions_table(entries: list[dict]) -> str:
     rows = ["| format | convention | UUID |", "|---|---|---|"]
     for e in entries:
         source = e["source"] + (" ([§9](#9-dataset-layouts))" if e["kind"] == "layout" else "")
-        rows.append(f"| {source} | [{e['name']}](virtualize/{e['name']}.md) | `{e['uuid']}` |")
+        rows.append(f"| {source} | [{e['name']}](zarrify/{e['name']}.md) | `{e['uuid']}` |")
     return "\n".join(rows)
 
 
@@ -154,15 +154,15 @@ def docs_table(entries: list[dict]) -> str:
     rows = ["| format | for | README | profile |", "|---|---|---|---|"]
     for e in profiles(entries):
         f = e["name"]
-        readme = f"[{f}]({f}/README.md)" if (ROOT / "docs" / "virtualize" / f / "README.md").is_file() else f"[convention](../../spec/virtualize/{f}.md)"
-        rows.append(f"| {e['title']} | {e['for']} | {readme} | {profile_link(e, '../../spec/virtualize/')} |")
+        readme = f"[{f}]({f}/README.md)" if (ROOT / "docs" / "zarrify" / f / "README.md").is_file() else f"[convention](../../spec/zarrify/{f}.md)"
+        rows.append(f"| {e['title']} | {e['for']} | {readme} | {profile_link(e, '../../spec/zarrify/')} |")
     return "\n".join(rows)
 
 
 BLOCKS = {
-    "spec/virtualize.md": {"spec-table": spec_table, "sniff-table": sniff_table, "spec-list": spec_list},
+    "spec/zarrify.md": {"spec-table": spec_table, "sniff-table": sniff_table, "spec-list": spec_list},
     "spec/conventions.md": {"conventions-table": conventions_table},
-    "docs/virtualize/README.md": {"docs-table": docs_table},
+    "docs/zarrify/README.md": {"docs-table": docs_table},
 }
 
 
@@ -200,13 +200,13 @@ def cmo(e: dict) -> dict:
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#1-conventions>): at version 0,
     which has no tag, its URLs name the development branch."""
     p, n = e["name"], e["version"]
-    ref, blob = ("heads/main", "main") if n == 0 else (f"tags/virtualize-{p}-v{n}",) * 2
+    ref, blob = ("heads/main", "main") if n == 0 else (f"tags/zarrify-{p}-v{n}",) * 2
     return {
         "uuid": e["uuid"],
-        "schema_url": f"https://raw.githubusercontent.com/d-v-b/refkv/refs/{ref}/spec/virtualize/{p}/schema.json",
-        "spec_url": f"https://github.com/d-v-b/refkv/blob/{blob}/spec/virtualize/{p}.md",
+        "schema_url": f"https://raw.githubusercontent.com/d-v-b/refkv/refs/{ref}/spec/zarrify/{p}/schema.json",
+        "spec_url": f"https://github.com/d-v-b/refkv/blob/{blob}/spec/zarrify/{p}.md",
         "name": CONVENTION_KEY,
-        "description": f"The Zarr layout of a {e['title']} source virtualized by refkv, and the source's metadata",
+        "description": f"The Zarr layout of a {e['title']} source zarrified by refkv, and the source's metadata",
     }
 
 
@@ -231,7 +231,7 @@ def cmo_errors(entries: list[dict], texts: dict[str, str]) -> list[str]:
     """In `texts` (each document's path and Markdown): each copy of a CMO of refkv's conventions
     that is not the registry's, and each format's document whose declaration does not show its
     own. A copy of refkv's is a flat object with a member "uuid" that is an entry's UUID, or that
-    names the key `refkv_virtualized` and has a UUID (not a placeholder, as conventions §1's)."""
+    names the key `refkv_zarrified` and has a UUID (not a placeholder, as conventions §1's)."""
     by_uuid = {e["uuid"]: e for e in entries}
     out = []
     for path, text in texts.items():
@@ -251,7 +251,7 @@ def cmo_errors(entries: list[dict], texts: dict[str, str]) -> list[str]:
             elif isinstance(value, dict) and value.get("name") == CONVENTION_KEY and UUID.fullmatch(str(uuid)):
                 out.append(f"{where}: a CMO of refkv's whose UUID is no registry entry's")
     for e in entries:
-        path = f"spec/virtualize/{e['name']}.md"
+        path = f"spec/zarrify/{e['name']}.md"
         shown = []
         for m in CMO_TEXT.finditer(declaration(texts.get(path, ""))):
             try:
@@ -266,7 +266,7 @@ def cmo_errors(entries: list[dict], texts: dict[str, str]) -> list[str]:
 def sample(entries: list[dict]) -> list[str]:
     """One fixture of each profile that reads a file, as a path from the repository's root: the
     first, by name, of its suffixes under fixtures/<p> that is not named as rejected
-    (`unsupported_*`, `*_reject_*`; conformance/virtualize/HARNESS.md)."""
+    (`unsupported_*`, `*_reject_*`; conformance/zarrify/HARNESS.md)."""
     out = []
     for e in entries:
         files = sorted(p for s in e["suffixes"] for p in (ROOT / "fixtures" / e["name"]).glob(f"*{s}")

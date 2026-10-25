@@ -1,4 +1,4 @@
-"""The MRC IR: the Rust parser and its schema, the image projection (spec/virtualize/mrc.md)
+"""The MRC IR: the Rust parser and its schema, the image projection (spec/zarrify/mrc.md)
 against mrcfile's reading of every synthetic file, the mirror's rebuild, the inputs the
 profile rejects, and the edge chunks it copies. MRC has no frozen Python reference: mrcfile
 is the independent reader."""
@@ -16,7 +16,7 @@ import xarray as xr
 
 import refkv.zarr
 from ir_helpers import FIXTURES
-from ir_helpers import virtualized as shared_virtualized
+from ir_helpers import zarrified as shared_zarrified
 from refkv import _core
 
 MRCS = sorted((FIXTURES / "mrc").glob("*.mrc"))
@@ -25,8 +25,8 @@ CANONICAL_NAN = 0x7FC00000
 
 
 def as_json(v):
-    """A header value as spec/virtualize/mrc.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#5-source-metadata> writes it,
+    """A header value as spec/zarrify/mrc.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#5-source-metadata> writes it,
     from mrcfile's numpy value: a negative zero, or a NaN other than the canonical one, as
     {"bits": hex}; opaque bytes as base64; text up to its first NUL."""
     if isinstance(v, np.ndarray) and v.ndim == 0:
@@ -58,8 +58,8 @@ IMOD = 1146047817
 
 def load(path):
     """mrcfile's reading (its warnings, such as a zero grid size, are not failures). mrcfile
-    does not read IMOD's unsigned-byte flag (spec/virtualize/mrc.md §3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#3-data-types>): a mode 0
+    does not read IMOD's unsigned-byte flag (spec/zarrify/mrc.md §3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#3-data-types>): a mode 0
     file with IMOD's stamp and bit 0 of its flags is its bytes as uint8."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -73,26 +73,26 @@ def load(path):
     return header, data
 
 
-def virtualized(path, tmp_path):
+def zarrified(path, tmp_path):
     """(the output, the hierarchy's root group); the archive rebuilds the file
-    (ir_helpers.virtualized)."""
-    out, root, _ = shared_virtualized(path, tmp_path, "mrc")
+    (ir_helpers.zarrified)."""
+    out, root, _ = shared_zarrified(path, tmp_path, "mrc")
     return out, root
 
 @pytest.mark.parametrize("path", [p for p in MRCS if not p.name.startswith("mrc_reject")], ids=lambda p: p.name)
 def test_matches_mrcfile_and_rebuilds(path, tmp_path):
     """The array is mrcfile's data, in its shape and type; every header field is mrcfile's
-    reading of it (spec/virtualize/mrc.md §5.1
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#51-the-root>); the file is
+    reading of it (spec/zarrify/mrc.md §5.1
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#51-the-root>); the file is
     rebuilt from the mirror."""
     header, want = load(path)
-    out, root = virtualized(path, tmp_path)
+    out, root = zarrified(path, tmp_path)
     arr = root["0"]
     got = arr[...]
     assert got.shape == want.shape
     assert got.dtype == want.dtype.newbyteorder("=")
     assert np.array_equal(got, want, equal_nan=got.dtype.kind in "fc")
-    meta = root.attrs["refkv_virtualized"]["mrc"]
+    meta = root.attrs["refkv_zarrified"]["mrc"]
     assert list(meta["header"]) == list(header.dtype.names)
     for name in header.dtype.names:
         assert meta["header"][name] == as_json(header[name]), name
@@ -107,15 +107,15 @@ def test_matches_mrcfile_and_rebuilds(path, tmp_path):
 
 
 def dataset_is_the_file(out, root, header, want, kind, meta):
-    """The dataset layout (spec/virtualize/mrc-dataset.md): the root names it, its group
+    """The dataset layout (spec/zarrify/mrc-dataset.md): the root names it, its group
     declares the mrc-dataset convention with the root's source metadata, xarray opens it with
     the kind's dimensions and the file's values, and each spatial dimension with a voxel size
     has the coordinate o + i * s in angstroms, o the origin of a placed volume."""
-    assert root.attrs["refkv_virtualized"]["layouts"] == {"dataset": "dataset"}
+    assert root.attrs["refkv_zarrified"]["layouts"] == {"dataset": "dataset"}
     group = json.loads(out.bytes_entries["dataset/zarr.json"])["attributes"]
-    assert group["refkv_virtualized"]["profile"] == "mrc-dataset"
-    assert group["refkv_virtualized"]["mrc-dataset"] == meta
-    assert set(group) == {"zarr_conventions", "refkv_virtualized"}
+    assert group["refkv_zarrified"]["profile"] == "mrc-dataset"
+    assert group["refkv_zarrified"]["mrc-dataset"] == meta
+    assert set(group) == {"zarr_conventions", "refkv_zarrified"}
     ds = xr.open_zarr(refkv.zarr.store(out.to_store()), group="dataset", consolidated=False)
     names = {1: "x", 2: "y", 3: "z"}
     m = [int(header.maps), int(header.mapr), int(header.mapc)]
@@ -214,8 +214,8 @@ CASES = {
     "mrc_extended_ccp4": ({"extendedHeader": 160, "extendedType": "CCP4"}, None, None, None, None, None, ("0/c/0/0/0", [(1184, 48)])),
     "mrc_extended_fei1": ({"extendedHeader": 768, "extendedType": "FEI1"}, None, None, None, None, None, ("0/c/0/0/0", [(1792, 48)])),
     "mrc_extended_large": ({"extendedHeader": 5000, "extendedType": "SERI"}, None, None, None, None, None, None),
-    # chunks (spec/virtualize/mrc.md §4.1
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#41-the-array>): blocks of sections,
+    # chunks (spec/zarrify/mrc.md §4.1
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#41-the-array>): blocks of sections,
     # blocks of rows, and an edge chunk padded with a literal zero byte
     "mrc_chunk_sections": ({"chunkShape": [10, 128, 256], "chunks": 2}, None, None, None, None, None,
                            ("0/c/1/0/0", [(1024 + 655360, 655360)])),
@@ -230,9 +230,9 @@ CASES = {
 }
 
 
-def test_virtualizes_the_synthetic_files(tmp_path):
+def test_zarrifies_the_synthetic_files(tmp_path):
     for name, (summary, axes, scale, translation, members, window, chunk) in CASES.items():
-        out, root = virtualized(FIXTURES / "mrc" / f"{name}.mrc", tmp_path)
+        out, root = zarrified(FIXTURES / "mrc" / f"{name}.mrc", tmp_path)
         assert {**out.summary, **summary} == out.summary, name
         attributes = json.loads(out.bytes_entries["zarr.json"])["attributes"]
         ms = attributes["ome"]["multiscales"][0]
@@ -242,8 +242,8 @@ def test_virtualizes_the_synthetic_files(tmp_path):
         if scale is not None:
             assert transforms[0]["scale"] == scale, name
         assert (transforms[1]["translation"] if len(transforms) > 1 else None) == translation, name
-        assert set(attributes) == {"ome", "zarr_conventions", "refkv_virtualized"}, name
-        meta = attributes["refkv_virtualized"]["mrc"]
+        assert set(attributes) == {"ome", "zarr_conventions", "refkv_zarrified"}, name
+        meta = attributes["refkv_zarrified"]["mrc"]
         assert list(meta) == ["byte_order", "kind", "data_type", "header", "axis_map"] + (["voxel_size"] if "voxel_size" in meta else []), name
         for k, v in (members or {}).items():
             assert meta.get(k) == v, (name, k)
@@ -261,15 +261,15 @@ def test_virtualizes_the_synthetic_files(tmp_path):
 
 def test_edge_chunks_past_the_payload_are_copied(tmp_path):
     """An edge chunk whose reference (its range and its zero padding) does not fit in a
-    payload is copied into the archive, padding included (spec/virtualize/mrc.md §8.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#82-chunks>). With the
+    payload is copied into the archive, padding included (spec/zarrify/mrc.md §8.2
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#82-chunks>). With the
     chunk limit no file reaches it in practice, so the core takes a payload limit of 8
     bytes here: the padded edge chunk is copied, by the run's last batch, and the array
     is still mrcfile's."""
     path = FIXTURES / "mrc" / "mrc_chunk_edge_literal.mrc"
     _core._set_copy_threshold(8)
     try:
-        out, root = virtualized(path, tmp_path)
+        out, root = zarrified(path, tmp_path)
     finally:
         _core._set_copy_threshold(None)
     assert "0/c/0/1" in out.bytes_entries and "0/c/0/1" not in out.refs

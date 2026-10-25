@@ -1,4 +1,4 @@
-"""The FITS IR: the Rust parser and its schema, the projection (spec/virtualize/fits.md) against
+"""The FITS IR: the Rust parser and its schema, the projection (spec/zarrify/fits.md) against
 astropy's reading of every synthetic file, the mirror's rebuild, and the inputs the profile
 rejects. FITS has no frozen Python reference: astropy is the independent reader."""
 
@@ -11,9 +11,9 @@ import zarr
 from astropy.io import fits
 
 from ir_helpers import FIXTURES
-from ir_helpers import virtualized as shared_virtualized
-from refkv.ir import virtualize as via_ir
-from refkv.virtualize import Rejected
+from ir_helpers import zarrified as shared_zarrified
+from refkv.ir import zarrify as via_ir
+from refkv.zarrify import Rejected
 
 FILES = sorted(p for p in (FIXTURES / "fits").iterdir() if p.name.endswith((".fits", ".fz")))
 ACCEPTED = [p for p in FILES if "reject" not in p.name]
@@ -25,15 +25,15 @@ SAME_IMAGE = {"fits_comp_hand_absent_tile": ("fits_comp_hand_one_column", slice(
 COMMENTARY = ("COMMENT", "HISTORY", "")
 
 
-def virtualized(path, tmp_path):
+def zarrified(path, tmp_path):
     """(the output, the hierarchy's root group); the archive rebuilds the file
-    (ir_helpers.virtualized)."""
-    out, root, _ = shared_virtualized(path, tmp_path, "fits")
+    (ir_helpers.zarrified)."""
+    out, root, _ = shared_zarrified(path, tmp_path, "fits")
     return out, root
 
 def card_value(v):
-    """astropy's card value as the convention writes it (spec/virtualize/fits.md §5.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#53-cards>)."""
+    """astropy's card value as the convention writes it (spec/zarrify/fits.md §5.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>)."""
     if isinstance(v, fits.card.Undefined):
         return None
     if isinstance(v, bool):
@@ -67,8 +67,8 @@ def same_cards(ours, theirs):
 def same_pixels(ours, theirs, what, table=None):
     """Integers equal, and unquantized floats; quantized floats equal within the rounding of
     `(I - R + 0.5) * scale + zero`, NaNs in the same places: the convention computes it in
-    binary64 with each operation rounded (spec/virtualize.md §1.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#13-arithmetic>), while astropy's
+    binary64 with each operation rounded (spec/zarrify.md §1.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#13-arithmetic>), while astropy's
     build may fuse the multiply and the add; the two differ by a few units in the last place of
     the intermediate `I * scale`, which SUBTRACTIVE_DITHER_2 (integers near -2^31, a zero of
     the same size) makes about 1e-6 absolute after the cancellation, and the cast to the
@@ -85,9 +85,9 @@ def test_matches_astropy_and_rebuilds(path, tmp_path):
     """Every HDU is a node of its index: an image's array is astropy's data (stored values),
     a table's rows and heap are the file's bytes, every node's cards are astropy's, the root
     lists the HDUs with their offsets, and the file is rebuilt from the mirror."""
-    out, root = virtualized(path, tmp_path)
+    out, root = zarrified(path, tmp_path)
     raw = path.read_bytes()
-    meta = root.attrs["refkv_virtualized"]["fits"]
+    meta = root.attrs["refkv_zarrified"]["fits"]
     same = SAME_IMAGE.get(path.stem)
     with warnings.catch_warnings(), fits.open(path, do_not_scale_image_data=True, disable_image_compression=True) as hdul, \
             fits.open(path, do_not_scale_image_data=True) as decoded:
@@ -103,7 +103,7 @@ def test_matches_astropy_and_rebuilds(path, tmp_path):
             assert entry["index"] == i and entry["offset"] == info["hdrLoc"] and entry["data_offset"] == info["datLoc"]
             assert entry["name"] == (hdu.name if hdu.name and hdu.name != "PRIMARY" else None) or (i == 0 and entry["name"] is None)
             node = root[str(i)]
-            own = node.attrs["refkv_virtualized"]["fits"]
+            own = node.attrs["refkv_zarrified"]["fits"]
             assert own["index"] == i
             if own["cards"] is not None:
                 same_cards(own["cards"], hdu.header.cards)
@@ -145,7 +145,7 @@ def test_matches_astropy_and_rebuilds(path, tmp_path):
                 want = hdu.data
                 assert node.shape == tuple(hdu.header[f"NAXIS{k}"] for k in range(hdu.header["NAXIS"], 0, -1))
                 assert node.dtype == want.dtype.newbyteorder("=")
-                assert node.attrs["refkv_virtualized"]["fits"]["bzero"] == hdu.header.get("BZERO")
+                assert node.attrs["refkv_zarrified"]["fits"]["bzero"] == hdu.header.get("BZERO")
                 if want.size:
                     assert np.array_equal(node[...], want, equal_nan=want.dtype.kind == "f")
 
@@ -171,14 +171,14 @@ def test_chunks(name, tmp_path):
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>);
     an edge chunk is one range and a literal padding."""
     path, shape, count, (key, parts) = CHUNKS[name]
-    out, root = virtualized(FIXTURES / "fits" / f"{name}.fits", tmp_path)
+    out, root = zarrified(FIXTURES / "fits" / f"{name}.fits", tmp_path)
     assert list(root[path].chunks) == shape
     assert sum(1 for k in out.refs if k.startswith(f"{path}/c/")) == count
     assert len(out.refs[key]) == parts
 
 
 def test_summary(tmp_path):
-    out, _ = virtualized(FIXTURES / "fits" / "fits_mef_sci_err_dq.fits", tmp_path)
+    out, _ = zarrified(FIXTURES / "fits" / "fits_mef_sci_err_dq.fits", tmp_path)
     s = out.summary
     assert s["hdus"] == 7 and s["kinds"] == {"empty": 1, "image": 6} and s["tables"] == 0
     assert s["planner"]["bytes"] <= (FIXTURES / "fits" / "fits_mef_sci_err_dq.fits").stat().st_size  # one window holds the file

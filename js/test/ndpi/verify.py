@@ -1,4 +1,4 @@
-"""Checks the browser NDPI virtualizer against tifffile.
+"""Checks the browser NDPI zarrifier against tifffile.
 
 The NDPI fixtures in fixtures/ndpi/ go through the same check as the
 TIFFs (js/test/tiff/verify.py): every level must equal what tifffile reads.

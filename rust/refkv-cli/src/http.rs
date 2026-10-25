@@ -18,7 +18,7 @@ use ureq::http::{HeaderMap, Uri};
 use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver};
 use ureq::unversioned::transport::{DefaultConnector, NextTimeout};
 
-pub const UA: &str = "refkv-virtualize";
+pub const UA: &str = "refkv-zarrify";
 pub const REDIRECTS: [u16; 5] = [301, 302, 303, 307, 308];
 
 /// A resolver error: rule 3 refused every address of the host.

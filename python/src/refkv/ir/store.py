@@ -3,7 +3,7 @@
 input that the Rust core parses, projects and mirrors.
 
 The core is sans-IO. The host lists the store and reads its objects through the store readers
-of `refkv.virtualize.store` (`HttpStore`: S3 `ListObjectsV2` and range requests, every request
+of `refkv.zarrify.store` (`HttpStore`: S3 `ListObjectsV2` and range requests, every request
 under the reader policy of spec/refkv.md §6.7
 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>; `DirStore`: a local
 directory), and drives the run:
@@ -14,20 +14,20 @@ directory), and drives the run:
   spans, a whole object being one span), made at most `store.workers` at a time (the
   concurrency of #37's prefetch of documents), then `complete()`.
 - `run_store(store, fmt)`: a listed store run (its ignored keys given to the core), and its
-  output; `virtualize_store(location, url, fmt)`: the store listed under the policy, then
+  output; `zarrify_store(location, url, fmt)`: the store listed under the policy, then
   run. The output (`StoreIrOutput`) references objects through one url source per object
   some reference uses, its size pinned, in order of first use, and its data sources follow
-  (spec/virtualize.md §1.4
-  <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>).
+  (spec/zarrify.md §1.4
+  <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>).
 
-The core's store formats: `zarr2` (rust/refkv-ir/src/zarr2.rs, spec/virtualize/zarr2.md), which
-`refkv.virtualize` sends Zarr v2 stores to (deciding which are OME-Zarr 0.4's,
-spec/virtualize/ome-zarr.md), `safe` (rust/refkv-ir/src/safe/,
-spec/virtualize/safe.md), a SAFE product's directory form, `n5`, and `vsi`
-(rust/refkv-ir/src/vsi/, spec/virtualize/vsi.md), whose run starts from the `.vsi` file alone
+The core's store formats: `zarr2` (rust/refkv-ir/src/zarr2.rs, spec/zarrify/zarr2.md), which
+`refkv.zarrify` sends Zarr v2 stores to (deciding which are OME-Zarr 0.4's,
+spec/zarrify/ome-zarr.md), `safe` (rust/refkv-ir/src/safe/,
+spec/zarrify/safe.md), a SAFE product's directory form, `n5`, and `vsi`
+(rust/refkv-ir/src/vsi/, spec/zarrify/vsi.md), whose run starts from the `.vsi` file alone
 and **probes** for its tile files: a `poll()` that gives an empty list is a batch of probes,
 each key of `run.probes()` answered by `run.found(size)` with the key's size, or None when it
-does not exist (`Store.probe`; `refkv.virtualize.vsi.VsiFiles` opens the files beside the
+does not exist (`Store.probe`; `refkv.zarrify.vsi.VsiFiles` opens the files beside the
 `.vsi`).
 """
 
@@ -39,8 +39,8 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from refkv.virtualize.common import Rejected
-from refkv.virtualize.store import Store, object_url, open_store
+from refkv.zarrify.common import Rejected
+from refkv.zarrify.store import Store, object_url, open_store
 
 
 def listing(store: Store) -> list[tuple[str, int]]:
@@ -88,8 +88,8 @@ def drive_store(run, store: Store, workers: int | None = None, fmt: str | None =
             if reqs is None:
                 return
             if not reqs:
-                # a batch of probes (a VSI input's tile files, spec/virtualize/vsi.md §9.2
-                # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>):
+                # a batch of probes (a VSI input's tile files, spec/zarrify/vsi.md §9.2
+                # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>):
                 # each key answered with its size, or None when it does not exist
                 for key in run.probes():
                     try:
@@ -141,7 +141,7 @@ class StoreIrOutput:
     sizes: dict[str, int] = field(default_factory=dict)
     # The CRC-32C of a url source's bytes, when the ranges are to carry checksums
     # (spec/refkv.md §4.2 <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>);
-    # set by refkv.virtualize._virtualize_store.
+    # set by refkv.zarrify._zarrify_store.
     checksum: Callable[[str, int, int], int] | None = None
 
     @property
@@ -174,11 +174,11 @@ class StoreIrOutput:
         """The source table and the references numbered by it: one url source per object
         some reference uses, in order of first use (the references in order of their keys,
         each one's ranges in order), then the data sources, also in order of first use
-        (spec/virtualize.md §1.4
-        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>; a Zarr v2
+        (spec/zarrify.md §1.4
+        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>; a Zarr v2
         or N5 store's objects are each one reference's, so this is one source per reference,
-        in order of the entries' keys; spec/virtualize/safe.md §8.8
-        <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#88-the-source-table>).
+        in order of the entries' keys; spec/zarrify/safe.md §8.8
+        <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#88-the-source-table>).
         A reference's parts become (source, offset, length) or bytes."""
         objects, data, refs = self._numbered()
         return [object_url(self.url, k) for k in objects], data, refs
@@ -244,9 +244,9 @@ class StoreIrOutput:
 
     def to_store(self, *, policy=None, info: dict | None = None):
         """The output as a `refkv.ReferenceStore`, which `save` writes as the archive
-        `write` writes, byte for byte (`refkv.virtualize.common.reference_store`)."""
+        `write` writes, byte for byte (`refkv.zarrify.common.reference_store`)."""
         from refkv.pb import Range, Source
-        from refkv.virtualize.common import reference_store
+        from refkv.zarrify.common import reference_store
 
         objects, data, table = self._numbered()
         sources = [Source(url=object_url(self.url, k), size=self.sizes.get(k)) for k in objects] + \
@@ -307,7 +307,7 @@ def run_store(store: Store, fmt: str = "zarr2", mirror: bool = True):
     return out, ir, stats
 
 
-def virtualize_store(location: str, url: str | None = None, fmt: str = "zarr2", mirror: bool = True,
+def zarrify_store(location: str, url: str | None = None, fmt: str = "zarr2", mirror: bool = True,
                      policy=None, workers: int | None = None, opener=None):
     """(output, IR, run counts) of the store at `location` (an http(s) store URL, listed and
     read under `policy`, or a local directory served at `url`), parsed by the core's store

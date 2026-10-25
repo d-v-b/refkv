@@ -1,5 +1,5 @@
 // Runs every example of the demo page (the links with a data-url) in headless
-// Chromium, one fresh browser context each: the input is virtualized by the
+// Chromium, one fresh browser context each: the input is zarrified by the
 // service worker until the page reports Ready, and the viewer it offers
 // (Neuroglancer, or the map for a Sentinel-2 product) is opened. For each
 // example this records the time to Ready, the requests made, the viewer's
@@ -52,8 +52,8 @@ try {
     results.push(result);
     const context = await browser.newContext({ viewport: { width: 1000, height: 760 } });
     const requests = { source: 0, zarr: 0, hosts: {} };
-    let phase = "virtualize";
-    const sourceByPhase = { virtualize: 0, viewer: 0 };
+    let phase = "zarrify";
+    const sourceByPhase = { zarrify: 0, viewer: 0 };
     context.on("request", (r) => {
       const u = new URL(r.url());
       if (u.href.startsWith(base)) {
@@ -79,7 +79,7 @@ try {
       }, null, { timeout: readyTimeout, polling: 500 });
       result.readyMs = Date.now() - t0;
       result.status = await page.textContent("#status");
-      result.requestsToReady = sourceByPhase.virtualize;
+      result.requestsToReady = sourceByPhase.zarrify;
       console.log(`  ${result.status} (${result.readyMs} ms wall, ${result.requestsToReady} requests)`);
       await page.screenshot({ path: path.join(outDir, `${example.id}-demo.png`), fullPage: true });
       if (await page.$eval("#status", (s) => s.classList.contains("error"))) throw new Error(result.status);

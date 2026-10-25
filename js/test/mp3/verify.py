@@ -1,15 +1,15 @@
-"""Checks the browser MP3 virtualizer's output against two decodings of its frames.
+"""Checks the browser MP3 zarrifier's output against two decodings of its frames.
 
-Each fixtures/mp3/*.mp3 is served over local HTTP and virtualized by
-js/conformance/virtualize.ts (the browser code, run under Node). The array is read
+Each fixtures/mp3/*.mp3 is served over local HTTP and zarrified by
+js/conformance/zarrify.ts (the browser code, run under Node). The array is read
 through the reference reader, zarr-python and the `refkv.stream` codec, and must equal
 ffmpeg's float decoder (through PyAV, the codec's own) decoding the audio frames in one
-pass, sample for sample (spec/virtualize/mp3.md §4.1
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#41-the-array>), and ffmpeg's
+pass, sample for sample (spec/zarrify/mp3.md §4.1
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#41-the-array>), and ffmpeg's
 (fixtures/mp3/expected, written by the generator) within a few units where the generator
 stored it. The root's metadata must agree with the array, and the file must be rebuilt byte
 for byte from the archive's IR mirror (refkv_source, §5.2
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#52-the-ir-mirror>).
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#52-the-ir-mirror>).
 `mp3_reject_*` files must be rejected.
 
 Usage: uv run python js/test/mp3/verify.py [<dir of .mp3 files>]
@@ -41,8 +41,8 @@ FFMPEG_MAX, FFMPEG_MEAN = 1, 0.6
 
 def audio_frames(path: Path, out: Path) -> list[bytes]:
     """The audio frames' bytes, in order, from the archive's mirror: its data
-    elements (spec/virtualize/mp3.md §5.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#53-elements>)."""
+    elements (spec/zarrify/mp3.md §5.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#53-elements>)."""
     data = path.read_bytes()
     ir = load(Archive(str(out), lambda o, n: data[o:o + n]))
     cols = ir.columns()
@@ -55,7 +55,7 @@ def audio_frames(path: Path, out: Path) -> list[bytes]:
 
 def problems_of(path: Path, out: Path) -> list[str]:
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
-    meta = root.attrs["refkv_virtualized"]["mp3"]
+    meta = root.attrs["refkv_zarrified"]["mp3"]
     got = root["samples"][...]
     problems = []
     if got.dtype != np.float32 or got.shape != (meta["samples"], meta["channels"]):

@@ -1,7 +1,7 @@
 {
   "source_model": "safe",
   "version": 1,
-  "about": "The source model of a Sentinel-2 Level-1C or Level-2A product in the SAFE format (spec/virtualize/safe.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#8-safe-profile>), in its directory form (a store IR: one object per listed key) or its zip form (a file IR of the .SAFE.zip): the elements a parser emits, and the roles the product metadata, the tile geocoding, a band file's codestream, its tile-parts and a zip entry play, each with the constraints a product must meet to have the SAFE convention's layout. A parser checks this schema while it parses, at the point the profile meets each role; projections read a valid IR and check nothing but the archive's own limits (reference payloads, output keys).",
+  "about": "The source model of a Sentinel-2 Level-1C or Level-2A product in the SAFE format (spec/zarrify/safe.md §8 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#8-safe-profile>), in its directory form (a store IR: one object per listed key) or its zip form (a file IR of the .SAFE.zip): the elements a parser emits, and the roles the product metadata, the tile geocoding, a band file's codestream, its tile-parts and a zip entry play, each with the constraints a product must meet to have the SAFE convention's layout. A parser checks this schema while it parses, at the point the profile meets each role; projections read a valid IR and check nothing but the archive's own limits (reference payloads, output keys).",
   "limits": {
     "max_xml": 16777216,
     "max_rest": 65536,
@@ -52,7 +52,7 @@
   },
   "roles": {
     "product": {
-      "about": "the product's root objects (spec/virtualize/safe.md §2.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#22-the-product-metadata>)",
+      "about": "the product's root objects (spec/zarrify/safe.md §2.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#22-the-product-metadata>)",
       "given": {
         "metadata": "how many of MTD_MSIL1C.xml and MTD_MSIL2A.xml it has",
         "manifest": "it has manifest.safe"
@@ -98,7 +98,7 @@
       ]
     },
     "image_file": {
-      "about": "an IMAGE_FILE of a granule (spec/virtualize/safe.md §2.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#23-image-files>)",
+      "about": "an IMAGE_FILE of a granule (spec/zarrify/safe.md §2.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#23-image-files>)",
       "given": {
         "what": "",
         "file": "its text",
@@ -202,7 +202,7 @@
       ]
     },
     "siz": {
-      "about": "a band file's SIZ segment (spec/virtualize/safe.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#83-band-files>)",
+      "about": "a band file's SIZ segment (spec/zarrify/safe.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#83-band-files>)",
       "given": {
         "lsiz": "",
         "csiz": "",
@@ -390,7 +390,7 @@
       ]
     },
     "band": {
-      "about": "a band file's resolution and band name (spec/virtualize/safe.md §2.5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#25-band-files>)",
+      "about": "a band file's resolution and band name (spec/zarrify/safe.md §2.5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#25-band-files>)",
       "given": {
         "key": "",
         "w": "",
@@ -473,7 +473,7 @@
       ]
     },
     "zip_method": {
-      "about": "a nonempty object's method (spec/virtualize/safe.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>)",
+      "about": "a nonempty object's method (spec/zarrify/safe.md §8.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#84-the-zip-form>)",
       "given": {
         "key": "",
         "method": "",

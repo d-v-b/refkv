@@ -1,0 +1,14 @@
+[package]
+name = "zarrify"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "zarrify"
+path = "src/main.rs"
+
+[dependencies]
+flate2 = "1"
+
+[profile.release]
+opt-level = 2

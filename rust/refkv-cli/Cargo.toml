@@ -1,5 +1,5 @@
-# The `vzip` command: `vzip convert`, a legacy image file or store virtualized into a .vzip
-# archive, the archive python -m refkv.virtualize writes, byte for byte. The host of the Rust core
+# The `vzip` command: `vzip convert`, a legacy image file or store zarrified into a .vzip
+# archive, the archive python -m refkv.zarrify writes, byte for byte. The host of the Rust core
 # (rust/refkv-ir, sans-IO), ported from refkv's Python host: the reads (a local file or directory,
 # or http(s) under the reader policy), the store listings, and the archive (rust/refkv-vzip). A
 # crate of its own, not a member of a Cargo workspace (python/Cargo.toml says why).
@@ -7,7 +7,7 @@
 name = "refkv-cli"
 version = "0.1.0"
 edition = "2024"
-description = "vzip convert: legacy image files and stores virtualized into vzip archives"
+description = "vzip convert: legacy image files and stores zarrified into vzip archives"
 license = "MIT OR Apache-2.0"
 publish = false
 

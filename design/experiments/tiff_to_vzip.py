@@ -1,7 +1,7 @@
 """Virtualize a remote tiled (pyramidal, OME-) TIFF as a vzip archive, with pins.
 
-This is the original experiment. The TIFF profile of spec/virtualize.md, which
-two implementations follow, is `python -m refkv.virtualize`; this script
+This is the original experiment. The TIFF profile of spec/zarrify.md, which
+two implementations follow, is `python -m refkv.zarrify`; this script
 differs from it in its OME metadata (no units or physical scales) and in
 pinning the source by default.
 

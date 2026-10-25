@@ -1,8 +1,8 @@
-"""The FITS convention's source metadata (spec/virtualize/fits.md), for
+"""The FITS convention's source metadata (spec/zarrify/fits.md), for
 spec/generate_schemas.py."""
 
-# The FITS convention's cards (spec/virtualize/fits.md §5.3
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#53-cards>): [keyword, value,
+# The FITS convention's cards (spec/zarrify/fits.md §5.3
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#53-cards>): [keyword, value,
 # comment] triples in header order, duplicates kept; null past the 65536-byte budget of a node's document.
 FITS_CARDS = {
     "description": "The header's cards, [keyword, value, comment] each, in order: a string, a logical, an integer "
@@ -31,7 +31,7 @@ FITS_STRING = {"type": ["string", "null"]}
 SCHEMA = {"anyOf": [
     {
         "type": "object",
-        "description": "The root's: the table of HDUs and the primary header's cards (spec/virtualize/fits.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#51-the-root>)",
+        "description": "The root's: the table of HDUs and the primary header's cards (spec/zarrify/fits.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#51-the-root>)",
         "properties": {
             "hdus": {"type": "array", "items": {
                 "type": "object",
@@ -47,7 +47,7 @@ SCHEMA = {"anyOf": [
                     "data_offset": {"type": "integer", "minimum": 2880}, "data_bytes": {"type": "integer", "minimum": 0},
                     "compression": {"anyOf": [{"type": "null"}, {
                         "type": "object",
-                        "description": "A tile-compressed image's compression (spec/virtualize/fits.md §3.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>)",
+                        "description": "A tile-compressed image's compression (spec/zarrify/fits.md §3.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>)",
                         "properties": {
                             "type": {"enum": ["RICE_1", "GZIP_1", "GZIP_2", "NOCOMPRESS"]},
                             "parameters": {"type": "object", "properties": {"BLOCKSIZE": {"enum": [16, 32]}, "BYTEPIX": {"enum": [1, 2, 4]}},

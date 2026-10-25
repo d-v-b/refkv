@@ -1,15 +1,15 @@
-"""Checks the browser MP4 virtualizer's output against ffmpeg's decoding of each file.
+"""Checks the browser MP4 zarrifier's output against ffmpeg's decoding of each file.
 
-Each fixtures/mp4/*.mp4 and *.mov is served over local HTTP and virtualized by
-js/conformance/virtualize.ts (the browser code, run under Node). Every virtualized track is read
+Each fixtures/mp4/*.mp4 and *.mov is served over local HTTP and zarrified by
+js/conformance/zarrify.ts (the browser code, run under Node). Every zarrified track is read
 through the reference reader, zarr-python and the `refkv.stream` codec, and must equal ffmpeg's
 decoding of the track (through PyAV, whose demuxer reads the file's tables itself), value for
 value: a video track's Y, U and V planes and its presentation times on the media timeline, an
-audio track's samples (spec/virtualize/mp4.md §4
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#4-the-layout>; AAC with noise
+audio track's samples (spec/zarrify/mp4.md §4
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#4-the-layout>; AAC with noise
 substitution only in its level, since a chunk decodes its noise from a generator of its own).
 The file must be rebuilt byte for byte from the archive's IR mirror (refkv_source, §5.3
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp4.md#53-elements>). `mp4_reject_*`
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp4.md#53-elements>). `mp4_reject_*`
 files must be rejected.
 
 Usage: uv run python js/test/mp4/verify.py [<dir of .mp4 and .mov files>]
@@ -58,11 +58,11 @@ def decoded(path: Path, index: int):
 def problems_of(path: Path, out: Path) -> list[str]:
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
     problems = []
-    for track in root.attrs["refkv_virtualized"]["mp4"]["tracks"]:
+    for track in root.attrs["refkv_zarrified"]["mp4"]["tracks"]:
         if track["path"] is None:
             continue
         g = root[track["path"]]
-        tm = g.attrs["refkv_virtualized"]["mp4"]
+        tm = g.attrs["refkv_zarrified"]["mp4"]
         kind, frames, pts = decoded(path, track["id"] - 1)
         if kind == "video":
             for k, name in enumerate("yuv"):

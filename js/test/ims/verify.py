@@ -1,7 +1,7 @@
-"""Checks the browser IMS virtualizer against h5py.
+"""Checks the browser IMS zarrifier against h5py.
 
 Each fixtures/ims/*.ims (or each .ims file given as an argument) is
-served over local HTTP and virtualized by js/conformance/virtualize.ts (the
+served over local HTTP and zarrified by js/conformance/zarrify.ts (the
 browser code, run under Node). Every level of the archive is read through the
 reference reader and zarr-python, and must equal, for every time point and
 channel, what h5py reads from `/DataSet/ResolutionLevel r/TimePoint t/Channel
@@ -101,7 +101,7 @@ def shaped(dims: tuple, values: list):
 
 def plain(dt: np.dtype) -> bool:
     """Whether h5py reads a datatype as the numbers that §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata> writes as
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata> writes as
     JSON."""
     return dt.kind in "iuf" and dt.names is None and dt.subdtype is None and h5py.check_enum_dtype(dt) is None
 
@@ -125,13 +125,13 @@ CLASSES = {H5T.INTEGER: "integer", H5T.FLOAT: "float", H5T.TIME: "time", H5T.STR
            H5T.BITFIELD: "bitfield", H5T.OPAQUE: "opaque", H5T.COMPOUND: "compound", H5T.REFERENCE: "reference",
            H5T.ENUM: "enum", H5T.VLEN: "variable-length", H5T.ARRAY: "array"}
 IMARIS_TEXT = {"class": "string", "size": 1, "padding": "null-terminated", "charset": "ascii"}
-# The reasons of datasets over the limits of spec/virtualize/ims.md §5.4
+# The reasons of datasets over the limits of spec/zarrify/ims.md §5.4
 # <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#54-datasets>.
 LIMITS = ("a chunk of more than 2^24 bytes to decode", "over the budget of region selections")
 
 
 def type_ok(d: dict, tid) -> bool:
-    """Whether the description `d` (spec/virtualize/ims.md §5.2
+    """Whether the description `d` (spec/zarrify/ims.md §5.2
     <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#52-datatypes>) is the datatype
     `tid`."""
     cls = tid.get_class()
@@ -192,7 +192,7 @@ def supported_column(d: dict) -> bool:
 
 
 def same_selection(sel: dict, space) -> bool:
-    """A selection's description (spec/virtualize/ims.md §5.3
+    """A selection's description (spec/zarrify/ims.md §5.3
     <https://github.com/d-v-b/refkv/blob/main/spec/history/virtualize/ims.r25.md#53-attributes>) against an h5py
     dataspace's."""
     kind = space.get_select_type()
@@ -244,11 +244,11 @@ def aid_value(aid):
 
 
 class Checker:
-    """Rebuilds every HDF5 object from the source metadata node (spec/virtualize/ims.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>)
+    """Rebuilds every HDF5 object from the source metadata node (spec/zarrify/ims.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata>)
     and compares it with h5py."""
 
-    def __init__(self, f, source, key: str = "refkv_virtualized") -> None:
+    def __init__(self, f, source, key: str = "refkv_zarrified") -> None:
         self.f, self.source, self.key = f, source, key
         self.paths: dict[int, str] = {}  # object header address -> the path where the walk met it
         self.problems: list[str] = []
@@ -329,7 +329,7 @@ class Checker:
             names = sorted(h5py.h5a.open(obj.id, index=i).name for i in range(h5py.h5a.get_num_attrs(obj.id)))
         except OSError as e:
             if "invalid datatype size" in str(e):
-                return  # a string of no bytes, which h5py cannot open (python/tests/reference/test_virtualize_ims.py checks it)
+                return  # a string of no bytes, which h5py cannot open (python/tests/reference/test_zarrify_ims.py checks it)
             raise
         keys: set[str] = set()
         for name in names:
@@ -692,9 +692,9 @@ class Checker:
         return self.problems
 
 
-def tree_problems(root, path: Path, node: str = "refkv_source", key: str = "refkv_virtualized") -> list[str]:
-    """Rebuilds every HDF5 object from the source metadata node (spec/virtualize/ims.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ims.md#5-source-metadata>)
+def tree_problems(root, path: Path, node: str = "refkv_source", key: str = "refkv_zarrified") -> list[str]:
+    """Rebuilds every HDF5 object from the source metadata node (spec/zarrify/ims.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ims.md#5-source-metadata>)
     and compares it with h5py; `node` and `key` are the names the archive's writer used."""
     with h5py.File(path, "r") as f:
         return Checker(f, root[node], key).tree()
@@ -706,11 +706,11 @@ def mirror_check(path: Path, url: str, out: Path) -> list[str]:
     refkv_source (its root read at the current revision, compare.py's `at_revision`),
     its source metadata node must rebuild every HDF5 object (`tree_problems`), and the
     IR's mirror must rebuild the source byte for byte."""
-    sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
+    sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
     from compare import at_revision, differences, from_vzip, without_source
 
     ref = out.with_suffix(".ref.vzip")
-    p = subprocess.run(["node", str(ROOT / "conformance" / "virtualize" / "reference" / "ts" / "virtualize.ts"), url, str(ref)],
+    p = subprocess.run(["node", str(ROOT / "conformance" / "zarrify" / "reference" / "ts" / "zarrify.ts"), url, str(ref)],
                        capture_output=True, text=True, cwd=ROOT)
     if p.returncode:
         return [f"the reference failed: {(p.stderr or p.stdout)[-200:]}"]
@@ -753,7 +753,7 @@ def main(paths: list[str]) -> int:
     files = [Path(p) for p in paths] or sorted((ROOT / "fixtures" / "ims").rglob("ims_*.ims"))
     url = serve(files)
     # VERIFY_PY=1 runs the reference implementation instead of the browser code.
-    command = [sys.executable, "-m", "refkv.virtualize", "--allow-private-hosts"] if os.environ.get("VERIFY_PY") else None
+    command = [sys.executable, "-m", "refkv.zarrify", "--allow-private-hosts"] if os.environ.get("VERIFY_PY") else None
     return run(files, lambda path, out, p: (check(path, out, url(path))[:3], p.stdout.strip()[:160]), url=url,
                command=command, width=36)
 

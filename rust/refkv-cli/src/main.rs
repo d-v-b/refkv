@@ -1,5 +1,5 @@
-//! `vzip convert`: a legacy image file or store virtualized into a vzip archive, the archive
-//! `python -m refkv.virtualize` writes, byte for byte (python/src/refkv/virtualize/__main__.py).
+//! `vzip convert`: a legacy image file or store zarrified into a vzip archive, the archive
+//! `python -m refkv.zarrify` writes, byte for byte (python/src/refkv/zarrify/__main__.py).
 //!
 //! ```text
 //! vzip convert <url or path> <out.vzip> [--url <source url>] [--checksums] [--allow-private-hosts]
@@ -9,9 +9,9 @@
 //! `--format` chooses the container: a vzip archive (the default), a standalone phkv store, or a
 //! vzip archive that also carries a phkv container (spec/bindings/phkv.md §16.2
 //! <https://github.com/d-v-b/refkv/blob/main/spec/bindings/phkv.md#162-profiles>). Only vzip
-//! archives match the Python virtualizer's output byte for byte.
+//! archives match the Python zarrifier's output byte for byte.
 //!
-//! Every format of docs/virtualize/README.md goes through the Rust core (rust/refkv-ir): a
+//! Every format of docs/zarrify/README.md goes through the Rust core (rust/refkv-ir): a
 //! file (a URL or a path), or a store (an http(s) URL ending in `/`, listed by S3
 //! `ListObjectsV2`, or a local directory, which needs `--url`, the store URL it is served
 //! from). An input at an http(s) URL is read under the reader policy (spec/refkv.md
@@ -45,7 +45,7 @@ use std::time::Duration;
 /// How a conversion fails, and so its exit status.
 #[derive(Debug)]
 pub enum Fail {
-    /// the input is not one the virtualizers accept (status 3)
+    /// the input is not one the zarrifiers accept (status 3)
     Rejected(String),
     /// the reader policy refuses the input, or a source the archive would name (status 1)
     Refused(String),
@@ -99,7 +99,7 @@ fn number<T: std::str::FromStr>(flag: &str, v: &str) -> Result<T, Fail> {
     v.trim().parse().map_err(|_| Fail::Other(format!("{flag} {v:?} is not a number")))
 }
 
-/// `convert`'s arguments, the flags anywhere, as python -m refkv.virtualize reads them.
+/// `convert`'s arguments, the flags anywhere, as python -m refkv.zarrify reads them.
 fn parse(argv: &[String]) -> Result<Args, Fail> {
     let mut args = argv.to_vec();
     let checksums = flag(&mut args, "--checksums");
@@ -125,7 +125,7 @@ fn parse(argv: &[String]) -> Result<Args, Fail> {
     Ok(Args { input, out, url, checksums, allow_private_hosts, connections, byte_cost, workers: workers.max(1) as usize, format })
 }
 
-/// Virtualizes the input, and writes the archive; the summary.
+/// Zarrifies the input, and writes the archive; the summary.
 fn convert(a: &Args) -> Result<serde_json::Value, Fail> {
     if a.url.is_none() && std::path::Path::new(&a.input).is_dir() {
         return Err(Fail::Usage("a local directory needs --url, the store URL (ending in /) it is served from".into()));
@@ -134,7 +134,7 @@ fn convert(a: &Args) -> Result<serde_json::Value, Fail> {
     let client = http::Client::new(policy, Duration::from_secs(60));
     let (fmt, summary, archive) = if store::is_store(&a.input) {
         let s = store::Store::open(&a.input, a.url.as_deref(), &client, a.workers)?;
-        let (fmt, out) = store::virtualize_store(&s)?;
+        let (fmt, out) = store::zarrify_store(&s)?;
         let summary = out.summary.clone();
         let (mut archive, objects) = output::store_archive(out, &s.listing().objects)?;
         if a.checksums {
@@ -145,7 +145,7 @@ fn convert(a: &Args) -> Result<serde_json::Value, Fail> {
         // a VSI file is read with its tile files, as a store (vsi.rs): its sources are the files
         // some reference uses, their sizes pinned
         let t = transport::Transport::open(&a.input, &client)?;
-        let (out, files) = vsi::virtualize_vsi(&a.input, a.url.as_deref(), t, &client, a.connections)?;
+        let (out, files) = vsi::zarrify_vsi(&a.input, a.url.as_deref(), t, &client, a.connections)?;
         let summary = out.summary.clone();
         let (mut archive, objects) = output::store_archive(out, &files.sizes)?;
         if a.checksums {
@@ -155,7 +155,7 @@ fn convert(a: &Args) -> Result<serde_json::Value, Fail> {
         ("vsi".to_string(), summary, archive)
     } else {
         let t = transport::Transport::open(&a.input, &client)?;
-        let (fmt, out) = run::virtualize_file(&a.input, a.url.as_deref(), &t, a.connections, a.byte_cost)?;
+        let (fmt, out) = run::zarrify_file(&a.input, a.url.as_deref(), &t, a.connections, a.byte_cost)?;
         let summary = out.summary.clone();
         // the ETag is pinned only when the archive names the URL that was read
         let etag = if a.url.is_none() || a.url.as_deref() == Some(a.input.as_str()) { t.etag() } else { None };

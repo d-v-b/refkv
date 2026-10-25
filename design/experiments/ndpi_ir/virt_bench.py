@@ -44,10 +44,10 @@ try:
         for pr in profiles:
             port = PROFILES[pr][0]
             url = f"http://127.0.0.1:{port}/{name}"
-            r = {"today": run(["uv", "run", "python", "conformance/virtualize/reference/cli.py", "--allow-private-hosts", url],
+            r = {"today": run(["uv", "run", "python", "conformance/zarrify/reference/cli.py", "--allow-private-hosts", url],
                               sparse.parent / "t.vzip", port)}
             for c in (6, 8):
-                r[f"ir{c}"] = run(["uv", "run", "python", "-m", "refkv.virtualize", "--allow-private-hosts", "--connections", str(c), url],
+                r[f"ir{c}"] = run(["uv", "run", "python", "-m", "refkv.zarrify", "--allow-private-hosts", "--connections", str(c), url],
                                   sparse.parent / "i.vzip", port)
             res[f"{name}|{pr}"] = r
             res_path.write_text(json.dumps(res, indent=1))

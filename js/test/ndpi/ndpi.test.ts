@@ -1,5 +1,5 @@
-// NDPI in the browser virtualizer, through the Rust core (spec/virtualize/ndpi.md §7
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>): the
+// NDPI in the browser zarrifier, through the Rust core (spec/zarrify/ndpi.md §7
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>): the
 // data sources that hold the strips' headers, and rejections. The JPEG header parser is
 // tested in Rust (rust/refkv-ir/src/ndpi.rs); whole files are checked against tifffile
 // by ndpi/verify.py.
@@ -7,15 +7,15 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
-import { virtualizeImage } from "../../src/virtualize/index.ts";
+import { zarrifyImage } from "../../src/zarrify/index.ts";
 
-async function virtualizeFixture(name: string) {
+async function zarrifyFixture(name: string) {
   const bytes = new Uint8Array(fs.readFileSync(new URL(`../../../fixtures/ndpi/${name}`, import.meta.url)));
-  return virtualizeImage(`https://data.test/${name}`, async (o, n) => bytes.subarray(o, o + n), bytes.length);
+  return zarrifyImage(`https://data.test/${name}`, async (o, n) => bytes.subarray(o, o + n), bytes.length);
 }
 
-test("an NDPI is virtualized as NDPI, the header around SOF0 in data sources numbered in order of first use", async () => {
-  const out = await virtualizeFixture("ndpi_levels.ndpi");
+test("an NDPI is zarrified as NDPI, the header around SOF0 in data sources numbered in order of first use", async () => {
+  const out = await zarrifyFixture("ndpi_levels.ndpi");
   assert.equal(out.format, "ndpi");
   assert.equal(out.sources[0].url, "https://data.test/ndpi_levels.ndpi");
   const data = out.sources.slice(1).map((s) => s.data!);
@@ -40,11 +40,11 @@ for (const [name, message] of [
   ["edge_reject_ndpi_short_strip.ndpi", /3 bytes is shorter than 4/],
 ] as const) {
   test(`rejects ${name}`, async () => {
-    await assert.rejects(virtualizeFixture(name), message);
+    await assert.rejects(zarrifyFixture(name), message);
   });
 }
 
 test("the values of an IFD that is not a level are not checked", async () => {
-  const out = await virtualizeFixture("ndpi_unused_values.ndpi");
+  const out = await zarrifyFixture("ndpi_unused_values.ndpi");
   assert.deepEqual((out.summary as { levels: number[][] }).levels, [[3, 48, 64]]);
 });

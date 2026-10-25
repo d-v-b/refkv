@@ -1,4 +1,4 @@
-// Service worker: serves vzip archives and virtualized TIFFs under
+// Service worker: serves vzip archives and zarrified TIFFs under
 // `<scope>vz/` as plain HTTP (see server.ts). Archives are kept in memory
 // and rebuilt if the worker restarts.
 

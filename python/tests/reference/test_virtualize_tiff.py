@@ -1,15 +1,15 @@
-"""The Python TIFF virtualizer (spec/virtualize/tiff.md) on the synthetic fixtures.
+"""The Python TIFF virtualizer (spec/zarrify/tiff.md) on the synthetic fixtures.
 
 Equivalence with the browser virtualizer is checked by
-conformance/virtualize/compare.py, and pixel correctness by
+conformance/zarrify/compare.py, and pixel correctness by
 js/test/tiff/verify.py.
 """
 
 import sys
 from pathlib import Path
 
-# the frozen reference twins (conformance/virtualize/reference/refkv_reference)
-sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "virtualize" / "reference"))
+# the frozen reference twins (conformance/zarrify/reference/refkv_reference)
+sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
 
 import json
 import struct
@@ -20,7 +20,7 @@ import tifffile
 
 from refkv_reference.tiff.tags import LAYOUT, json_size
 
-from refkv.virtualize import Rejected
+from refkv.zarrify import Rejected
 from refkv_reference import virtualize
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "tiff"
@@ -43,7 +43,7 @@ def test_virtualizes_the_synthetic_files():
         prop = json.loads(out.bytes_entries["zarr.json"])["attributes"]["vzip_virtualized"]
         node = source(out, "")
         # Every IFD's tags but the layout and pointer ones, by number, with tifffile's
-        # types and counts, each IFD on its own group of vzip_source (spec/virtualize/tiff.md §5).
+        # types and counts, each IFD on its own group of vzip_source (spec/zarrify/tiff.md §5).
         with tifffile.TiffFile(FIXTURES / name) as tf:
             assert node == {"ifd_count": len(tf.pages)}, name
             for i, page in enumerate(tf.pages):
@@ -64,7 +64,7 @@ def source(out, path: str) -> dict:
 
 
 def test_records_every_ifd_in_its_own_group():
-    """spec/virtualize/tiff.md §5: pointer tags, nested SubIFDs, a shared EXIF IFD,
+    """spec/zarrify/tiff.md §5: pointer tags, nested SubIFDs, a shared EXIF IFD,
     duplicate tags, an unknown field type, a JPEG interchange stream, contiguous strips."""
     _, out = virtualize(str(FIXTURES / "edge_pointers.tif"), url="https://data.test/p.tif")
     ifd0 = source(out, "ifds/0")
@@ -163,7 +163,7 @@ def test_rejects(name, message):
 
 
 def test_jpeg_prefix_is_a_data_source():
-    # spec/virtualize.md §3.3: every JPEG tile is its first 2 bytes (SOI), its IFD's prefix P,
+    # spec/zarrify.md §3.3: every JPEG tile is its first 2 bytes (SOI), its IFD's prefix P,
     # a data source (one per distinct P, in order of first use), then the rest of the tile:
     # every byte of the tile is referenced. Without a prefix (one sample, no JPEGTables),
     # the tile is one range.
@@ -185,7 +185,7 @@ def test_jpeg_prefix_is_a_data_source():
 
 
 def test_resolution_tags_give_a_pixel_size_only_when_it_is_microscopic(tmp_path):
-    """An explicit ResolutionUnit and a pixel under 25.4 µm (spec/virtualize/tiff.md §4.4)."""
+    """An explicit ResolutionUnit and a pixel under 25.4 µm (spec/zarrify/tiff.md §4.4)."""
     import numpy as np
 
     cases = [
@@ -210,8 +210,8 @@ def test_resolution_tags_give_a_pixel_size_only_when_it_is_microscopic(tmp_path)
 
 
 def test_bounds_the_source_metadata_and_shares_tables():
-    """spec/virtualize/tiff.md §5: the budget of values as JSON, shared tables kept once,
-    a tiled IFD's strips, the offsets tried through pointer tags; spec/virtualize.md §3.1:
+    """spec/zarrify/tiff.md §5: the budget of values as JSON, shared tables kept once,
+    a tiled IFD's strips, the offsets tried through pointer tags; spec/zarrify.md §3.1:
     the values of an IFD that is not used are not read."""
     # A value's size is its compact JSON's, numbers as ECMAScript writes them (from node).
     sizes = [([1e21, 1.5e-7, -0.0, 0.1, 123.456, 1e-6], 37),

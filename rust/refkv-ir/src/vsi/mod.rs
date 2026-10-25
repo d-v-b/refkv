@@ -1,11 +1,11 @@
-//! A sans-IO parser of Olympus VSI slides (spec/virtualize/vsi.md, the profile's §9
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#9-vsi-profile>) as a store
+//! A sans-IO parser of Olympus VSI slides (spec/zarrify/vsi.md, the profile's §9
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#9-vsi-profile>) as a store
 //! run ([`crate::store::StoreParser`]) whose objects are the `.vsi` file and the tile files
 //! beside it, every one described in place (conventions §8.9
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>).
 //!
 //! **Batches.** The `.vsi` file, whole; then the tile files are **probed** (§9.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>): for each
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>): for each
 //! stack the tree says has one, `_<name>_/stack<N>/frame_t.ets`, then `frame_t_0.ets`, and the
 //! first that exists is the stack's tile file; then every tile file's 64-byte SIS header, in
 //! one batch; then every one's ETS header and tile directory, in one batch. The schema
@@ -57,12 +57,12 @@ const OBJECTIVE_MAG: u32 = 120060;
 
 pub const VSI_HEADER_TYPE: &str = "{byte_order:ascii[2],magic:<u2,first_ifd:<u4}";
 /// The name of the image the root's default sample IFD gives (§4.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#43-the-macro-image>), as
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#43-the-macro-image>), as
 /// Bio-Formats names it.
 pub const MACRO_NAME: &str = "macro image";
 
-/// Whether a file's first bytes are a VSI file's (spec/virtualize.md §1.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>): a little-endian
+/// Whether a file's first bytes are a VSI file's (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): a little-endian
 /// classic TIFF whose bytes 8 to 11 are a container header's size and version, `18 00 49 53`.
 pub fn detect(head: &[u8]) -> bool {
     head.len() >= 12 && head[..4] == *b"II*\0" && head[8..12] == [0x18, 0x00, 0x49, 0x53]
@@ -78,7 +78,7 @@ enum Phase {
     Done,
 }
 
-/// A channel of a stack (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#42-channels>).
+/// A channel of a stack (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#42-channels>).
 #[derive(Clone, Debug, Default)]
 struct Channel {
     /// the dimension name (the dye), else the channel name (the optical path)
@@ -199,7 +199,7 @@ impl Vsi {
         self.got.remove(&k).ok_or_else(|| format!("internal: the read {k:?} was not fed"))
     }
 
-    // ---- the .vsi file (§9.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#91-the-vsi-file>)
+    // ---- the .vsi file (§9.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#91-the-vsi-file>)
 
     fn read_vsi(&mut self) -> Res<Vec<String>> {
         let size = self.keys[self.vsi].1;
@@ -213,7 +213,7 @@ impl Vsi {
         self.file = b;
         self.stacks = self.find_stacks(&root)?;
         self.tree = Some(root);
-        // the tile files to probe (§9.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>)
+        // the tile files to probe (§9.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>)
         let dir = format!("_{}_", self.base());
         let mut keys = Vec::new();
         for (k, s) in self.stacks.iter_mut().enumerate() {
@@ -230,7 +230,7 @@ impl Vsi {
     }
 
     /// The stacks of the tree: each `Multidimensional image volume` of the collection volume
-    /// (§2.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#22-stacks>).
+    /// (§2.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#22-stacks>).
     fn find_stacks(&self, root: &Container) -> Res<Vec<Stack>> {
         let (rules, b) = (self.rules, self.file.as_slice());
         let mut out = Vec::new();
@@ -260,7 +260,7 @@ impl Vsi {
                 s.creation_time = tree::number_of(rules, b, pc, CREATION_TIME).map(|v| v as i64);
                 s.magnification = find_number(rules, b, pc, OBJECTIVE_MAG);
             }
-            // the dimensions (§2.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#22-stacks>): the description volumes, by their second tag
+            // the dimensions (§2.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#22-stacks>): the description volumes, by their second tag
             for d in sc.fields.iter().filter(|x| x.tag == DIMENSION_DESCRIPTION_VOLUME && x.kind == Kind::Volume) {
                 let Some(dc) = d.child() else { continue };
                 let index = d.tag2.unwrap_or(0) as usize;
@@ -308,7 +308,7 @@ impl Vsi {
         Ok(out)
     }
 
-    // ---- the tile files (§9.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>)
+    // ---- the tile files (§9.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>)
 
     /// After the probes: each stack's tile file, and the reads of their SIS headers.
     fn resolve(&mut self) -> Res<()> {
@@ -372,7 +372,7 @@ impl Vsi {
 
     /// The sizes of a stack's coordinates beyond x and y (the ETS header's dimension sizes; 1
     /// past them), the level coordinate when the file has a pyramid, and each tile checked
-    /// (§9.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#93-tiles-and-levels>).
+    /// (§9.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#93-tiles-and-levels>).
     fn check_tiles(&self, f: usize) -> Res<()> {
         let file = &self.files[f];
         let s = &self.stacks[file.stack];
@@ -430,7 +430,7 @@ impl Vsi {
         Ok(parent)
     }
 
-    /// The facts of the images (§4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#4-the-images>):
+    /// The facts of the images (§4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#4-the-images>):
     /// each stack with pixels (a tile file, or an IFD) in the tree's order, then the macro image.
     fn images(&self, tiles_of: &[Vec<u32>], strips_of: &HashMap<usize, Vec<u32>>) -> Res<Vec<J>> {
         let b = self.file.as_slice();
@@ -488,7 +488,7 @@ impl Vsi {
     }
 
     /// A tile file's facts: its headers, the level sizes (§4.1
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#41-the-pyramid>) and
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#41-the-pyramid>) and
     /// every tile as `[element, x, y, level, t, c, z]`.
     fn ets_facts(&self, file: &EtsFile, els: &[u32]) -> Res<J> {
         let s = &self.stacks[file.stack];
@@ -644,7 +644,7 @@ impl StoreParser for Vsi {
     fn found(&mut self, key: &str, index: usize, size: Option<u64>) -> Res<Option<u32>> {
         let Some(size) = size else { return Ok(None) };
         // the first candidate found is the stack's tile file: a later one is not read, nor an
-        // object of the input (§9.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>)
+        // object of the input (§9.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>)
         if let Some(&(stack, c, _)) = self.probes.iter().find(|p| p.2 == key)
             && c > 0
             && self.probes.iter().any(|p| p.0 == stack && p.1 < c && self.found.contains_key(&p.2))
@@ -681,7 +681,7 @@ fn coord_size(e: &ets::Ets, c: usize) -> i64 {
 }
 
 /// The fill value of a tile file's arrays (§4.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#41-the-pyramid>): the
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#41-the-pyramid>): the
 /// background color's first sample, as the pixel type reads it.
 fn fill_value(e: &ets::Ets) -> J {
     let b = &e.background;
@@ -705,7 +705,7 @@ fn fill_value(e: &ets::Ets) -> J {
     }
 }
 
-/// A channel's color (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#42-channels>):
+/// A channel's color (§4.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#42-channels>):
 /// the last entry of its display LUT (a BGR array), as `RRGGBB`.
 fn lut_color(rules: &Rules, b: &[u8], p: &Container) -> Option<String> {
     let v = p.fields.iter().find(|f| f.tag == STACK_DISPLAY_LUT && f.kind == Kind::MdimVolume)?.child()?;
@@ -728,9 +728,9 @@ fn find_number(rules: &Rules, b: &[u8], c: &Container, tag: u32) -> Option<f64> 
     c.fields.iter().filter_map(|f| f.child()).find_map(|child| find_number(rules, b, child, tag))
 }
 
-/// An Olympus VSI slide's file run: a `.vsi` file whose tile files lie beside it, virtualized as a
-/// store run of the `vsi` store format (spec/virtualize/vsi.md §9.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>), never
+/// An Olympus VSI slide's file run: a `.vsi` file whose tile files lie beside it, zarrified as a
+/// store run of the `vsi` store format (spec/zarrify/vsi.md §9.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>), never
 /// as a file run: `Format::sniff` names it so that a host sends the file to
 /// [`crate::store::StoreRun`].
 pub struct Profile;
@@ -741,12 +741,12 @@ impl crate::run::FileProfile for Profile {
         detect(head)
     }
     fn parser(&self, _size: u64) -> crate::run::AnyParser {
-        crate::run::AnyParser::refused("a VSI file is virtualized as a store run, with its tile files")
+        crate::run::AnyParser::refused("a VSI file is zarrified as a store run, with its tile files")
     }
     fn store_run(&self) -> bool {
         true
     }
     fn project(&self, _: &crate::ir::Ir, _: &serde_json::Value, _: &str, _: &crate::project::Copied) -> Result<crate::out::Out, String> {
-        Err("a VSI input is virtualized as a store run".into())
+        Err("a VSI input is zarrified as a store run".into())
     }
 }

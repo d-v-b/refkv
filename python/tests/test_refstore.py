@@ -21,7 +21,7 @@ from refkv.errors import ResolutionError
 from refkv.pb import Concat, Range, Source
 from refkv.uri import file_uri
 
-from helpers import virtualize
+from helpers import zarrify
 
 PROTO = default_buffer_prototype()
 
@@ -46,7 +46,7 @@ def test_store_reads_what_its_saved_archive_reads(netcdf_files, tmp_path):
     memory as after it is saved and reopened, for every way of saving it; the summary
     describes the archive written."""
     paths, expected = netcdf_files
-    vdss = [virtualize(p) for p in paths]
+    vdss = [zarrify(p) for p in paths]
     combined = xr.concat(vdss, dim="time", coords="minimal", compat="override")
     cases = [(vdss[0], xr.open_dataset(paths[0], engine="h5netcdf"), 1), (combined, expected, 3)]
     for i, (vds, exp, n_sources) in enumerate(cases):
@@ -73,7 +73,7 @@ def test_store_reads_what_its_saved_archive_reads(netcdf_files, tmp_path):
 
 def test_write_vzip_is_the_store_in_one_step(netcdf_files, tmp_path, capsys):
     paths, expected = netcdf_files
-    vds = xr.concat([virtualize(p) for p in paths], dim="time", coords="minimal",
+    vds = xr.concat([zarrify(p) for p in paths], dim="time", coords="minimal",
                     compat="override")
     summary = write_vzip(vds, tmp_path / "a.vzip", page_size=256)
     assert capsys.readouterr().out == ""
@@ -90,7 +90,7 @@ def test_from_virtualizarr_rewrites_urls(netcdf_files, tmp_path):
     """`rewrite_urls` as a prefix mapping (the longest prefix wins) or a function; the
     rewritten store reads the files at their new URLs."""
     paths, expected = netcdf_files
-    vds = xr.concat([virtualize(p) for p in paths], dim="time", coords="minimal",
+    vds = xr.concat([zarrify(p) for p in paths], dim="time", coords="minimal",
                     compat="override")
     moved = tmp_path / "moved"
     moved.mkdir()
@@ -247,7 +247,7 @@ def test_registry_reads_registered_sources(netcdf_files, tmp_path):
     from refkv.reader import Resolver
 
     paths, expected = netcdf_files
-    vds = xr.concat([virtualize(p) for p in paths], dim="time", coords="minimal",
+    vds = xr.concat([zarrify(p) for p in paths], dim="time", coords="minimal",
                     compat="override")
     bucket = MemoryStore()
     for p in paths:

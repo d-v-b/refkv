@@ -34,7 +34,7 @@ def make_netcdf(path, t0: int, nt: int = 4) -> xr.Dataset:
     return ds
 
 
-def virtualize(path, loadable_variables=("time", "lat", "lon")) -> xr.Dataset:
+def zarrify(path, loadable_variables=("time", "lat", "lon")) -> xr.Dataset:
     registry = ObjectStoreRegistry({"file://": LocalStore()})
     return open_virtual_dataset(
         url=file_uri(path),

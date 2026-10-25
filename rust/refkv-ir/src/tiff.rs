@@ -1,7 +1,7 @@
 //! A sans-IO parser of TIFF, BigTIFF and OME-TIFF files into the IR
-//! (spec/virtualize/tiff.md §7
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#7-tiff-profile>,
-//! spec/virtualize/tiff.md): it never reads; it asks for batches
+//! (spec/zarrify/tiff.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#7-tiff-profile>,
+//! spec/zarrify/tiff.md): it never reads; it asks for batches
 //! of ranges (`step`), is given their bytes (`feed`), and holds them only until
 //! the step that uses them.
 //!
@@ -13,21 +13,21 @@
 //! for the IR only. The schema (`schema/tiff.json`) is checked as the profile
 //! meets each role: a file that fails is rejected there, and nowhere else.
 //!
-//! **The QPTIFF variant** (spec/virtualize/qptiff.md
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md>). After the header (and
+//! **The QPTIFF variant** (spec/zarrify/qptiff.md
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md>). After the header (and
 //! the NDPI test), the first IFD's Software tag decides whether the file is an Akoya QPTIFF
-//! (`detect_qptiff`, spec/virtualize/qptiff.md §7
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#7-qptiff-profile>, which
+//! (`detect_qptiff`, spec/zarrify/qptiff.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#7-qptiff-profile>, which
 //! never rejects). A QPTIFF is read as a TIFF, with the table of `QPTIFF_TABLE` (the strip
 //! tables, RowsPerStrip and the position tags added), the schema `schema/qptiff.json`, and its
 //! own layout (`derive_qptiff`: the channels are the FullResolution images, the levels the runs
 //! of ReducedResolution images, tiled or in strips), whose facts the QPTIFF projection
 //! (`project/qptiff.rs`) reads; `self.qptiff` marks it.
 //!
-//! **The NDPI variant** (spec/virtualize/ndpi.md
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md>). After the header, the
+//! **The NDPI variant** (spec/zarrify/ndpi.md
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md>). After the header, the
 //! parser tests the file for NDPI (§7
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>, which never
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>, which never
 //! rejects): a little-endian magic-42 TIFF whose IFD at the u64 at bytes 4–11 has tag 65420. An
 //! NDPI is read by the same rounds with these extension points, each a method that asks
 //! `self.ndpi`:
@@ -71,24 +71,24 @@ fn is_table(tag: u16) -> bool {
     TABLE.contains(&tag)
 }
 
-/// The tags of NDPI's table (spec/virtualize/ndpi.md §2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#2-the-source>), and the tags
+/// The tags of NDPI's table (spec/zarrify/ndpi.md §2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#2-the-source>), and the tags
 /// NDPI adds to TIFF's layout tags (McuStarts and McuStartsHighBytes).
 const NDPI_TABLE: [u16; 17] = [
     256, 257, 258, 259, 262, 273, 277, 279, 282, 283, 296, 65420, 65421, 65422, 65423, 65426, 65432,
 ];
 const NDPI_SCALARS: [u16; 14] = [256, 257, 259, 262, 273, 277, 279, 282, 283, 296, 65420, 65421, 65422, 65423];
 const NDPI_LAYOUT: [u16; 2] = [65426, 65432];
-/// The tags of QPTIFF's table (spec/virtualize/qptiff.md §2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#2-the-source>): TIFF's, with
+/// The tags of QPTIFF's table (spec/zarrify/qptiff.md §2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#2-the-source>): TIFF's, with
 /// the strip tables, RowsPerStrip and the position tags.
 const QPTIFF_TABLE: [u16; 26] = [
     256, 257, 258, 259, 262, 266, 270, 273, 277, 278, 279, 282, 283, 284, 286, 287, 296, 317, 322, 323, 324, 325, 330, 339, 347,
     530,
 ];
 const QPTIFF_SCALARS: [u16; 16] = [256, 257, 259, 262, 266, 277, 278, 282, 283, 284, 286, 287, 296, 317, 322, 323];
-/// What a QPTIFF's Software tag starts with (spec/virtualize/qptiff.md §7
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#7-qptiff-profile>).
+/// What a QPTIFF's Software tag starts with (spec/zarrify/qptiff.md §7
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#7-qptiff-profile>).
 const QPI_SOFTWARE: &[u8] = b"PerkinElmer-QPI";
 const MAX_SAFE: u64 = (1 << 53) - 1;
 
@@ -295,8 +295,8 @@ struct Level {
     ifds: Vec<usize>,
     /// the level is in strips (QPTIFF)
     strips: bool,
-    /// how a short last strip is padded to the chunk (QPTIFF, spec/virtualize/qptiff.md §4.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#42-tiles-and-strips>):
+    /// how a short last strip is padded to the chunk (QPTIFF, spec/zarrify/qptiff.md §4.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>):
     /// `{"zeros": n}` (uncompressed) or `{"lzw": [{c, k, prefix, tail}, ...]}`; null when none
     pad: J,
 }
@@ -378,8 +378,8 @@ impl Tiff {
         LAYOUT.contains(&tag) || (self.ndpi && NDPI_LAYOUT.contains(&tag))
     }
 
-    /// A pointer tag (spec/virtualize/tiff.md §5.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#52-which-ifds>), of the
+    /// A pointer tag (spec/zarrify/tiff.md §5.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#52-which-ifds>), of the
     /// variant's table and layout tags.
     fn is_pointer(&self, tag: u16, typ: u16) -> bool {
         match tag {
@@ -429,8 +429,8 @@ impl Tiff {
                     let n = 16.min(self.size);
                     let h = self.fed.get(0, n).ok_or("internal: no header")?.to_vec();
                     self.fed.clear();
-                    // the NDPI test (spec/virtualize/ndpi.md §7
-                    // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>):
+                    // the NDPI test (spec/zarrify/ndpi.md §7
+                    // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>):
                     // the IFD at V, the u64 at bytes 4–11, of a little-endian classic TIFF
                     if h.len() >= 12 && h[..4] == *b"II*\0" {
                         let v = u64::at(&h, 4, true);
@@ -693,8 +693,8 @@ impl Tiff {
         Ok(())
     }
 
-    /// The QPTIFF test (spec/virtualize/qptiff.md §7
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#7-qptiff-profile>): the
+    /// The QPTIFF test (spec/zarrify/qptiff.md §7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#7-qptiff-profile>): the
     /// first IFD's Software tag (305), ASCII, whose value starts with `PerkinElmer-QPI`. Asks for
     /// the bytes it needs (the IFD's count and entries, then the value's first 15 bytes); a file
     /// that fails any part of the test is a TIFF, so the test never rejects.
@@ -1085,14 +1085,14 @@ impl Tiff {
     }
 }
 
-// ---- the layout (spec/virtualize/tiff.md §4
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#4-the-image>), as the profile
+// ---- the layout (spec/zarrify/tiff.md §4
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#4-the-image>), as the profile
 // reads it
 
 type Vals = HashMap<u16, Loaded>;
 
-/// The OME-XML of spec/virtualize/tiff.md §3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-ome-xml>: the first image's
+/// The OME-XML of spec/zarrify/tiff.md §3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#3-ome-xml>: the first image's
 /// name, its Pixels' attributes, its TiffData elements, its first Plane at (0, 0, 0), and the
 /// attributes of its first `MAX_OMERO` Channels.
 #[derive(Default, Debug)]
@@ -1104,8 +1104,8 @@ struct Ome {
     channels: Vec<Vec<(String, String)>>,
 }
 
-/// The most channels an image's `omero` lists (spec/virtualize/tiff.md §4.4
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>), so that the root
+/// The most channels an image's `omero` lists (spec/zarrify/tiff.md §4.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>), so that the root
 /// does not grow with the channel count.
 pub const MAX_OMERO: u64 = 64;
 
@@ -1271,8 +1271,8 @@ fn int_attr(rules: &Rules, attrs: &[(String, String)], key: &str, default: u64, 
     Ok(value as u64)
 }
 
-/// The `name = value` fields of an Aperio ImageDescription (spec/virtualize/tiff.md §4.4
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>), or None.
+/// The `name = value` fields of an Aperio ImageDescription (spec/zarrify/tiff.md §4.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>), or None.
 fn aperio_fields(d: &str) -> Option<Vec<(String, String)>> {
     if !d.starts_with("Aperio") {
         return None;
@@ -1289,8 +1289,8 @@ fn aperio_fields(d: &str) -> Option<Vec<(String, String)>> {
     Some(out)
 }
 
-/// An IFD's JPEG prefix (spec/virtualize/tiff.md §7.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#73-chunks>): the Adobe marker
+/// An IFD's JPEG prefix (spec/zarrify/tiff.md §7.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#73-chunks>): the Adobe marker
 /// for 3 samples, then JPEGTables without its SOI and EOI; whether the IFD has JPEGTables, and
 /// whether they are well formed (the `plane` role). Empty when the compression is not JPEG.
 fn jpeg_prefix(m: &Vals, jpeg: bool, spp: u64, photometric: Option<u64>) -> (Vec<u8>, bool, bool) {
@@ -1305,8 +1305,8 @@ fn jpeg_prefix(m: &Vals, jpeg: bool, spp: u64, photometric: Option<u64>) -> (Vec
     (prefix, tables.is_some(), tables_ok)
 }
 
-/// What a JPEG stream of a TIFF image starts with (spec/virtualize/tiff.md §7.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#73-chunks>): the Adobe
+/// What a JPEG stream of a TIFF image starts with (spec/zarrify/tiff.md §7.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#73-chunks>): the Adobe
 /// marker for 3 samples (transform 0 when the image is RGB, else 1), then the JPEGTables
 /// `tables` without their SOI and EOI; and whether the tables are well formed (tables that are
 /// not are left out).
@@ -1580,9 +1580,9 @@ impl Tiff {
         let f0 = self.fmt(i0, &m0)?;
         let (bits, spp, sample_format, planar, compression, predictor, photometric) = f0;
         self.rules.check("predictor", rules::env([("compression", num(compression as f64)), ("predictor", num(predictor as f64))]))?;
-        // the planes (spec/virtualize/tiff.md §3
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-ome-xml>, §4.1
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#41-planes>), in (t, c,
+        // the planes (spec/zarrify/tiff.md §3
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#3-ome-xml>, §4.1
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#41-planes>), in (t, c,
         // z) order, as main-chain IFD indices
         let empty = vec![];
         let px = ome.as_ref().map(|o| &o.pixels).unwrap_or(&empty);
@@ -1672,8 +1672,8 @@ impl Tiff {
         let mapped = plane_ifd.iter().all(|&i| i >= 0 && (i as usize) < self.chain.len());
         self.rules.check("plane_map", rules::env([("mapped", flag(mapped))]))?;
         let planes: Vec<usize> = plane_ifd.iter().map(|&i| self.chain[i as usize]).collect();
-        // the levels (spec/virtualize/tiff.md §4.2
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#42-pyramid-levels>)
+        // the levels (spec/zarrify/tiff.md §4.2
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#42-pyramid-levels>)
         let mut levels: Vec<Level> = Vec::new();
         let subs0 = self.ifds[i0].subs.clone();
         if !subs0.is_empty() {
@@ -1718,8 +1718,8 @@ impl Tiff {
                 self.rules.check("pyramid", rules::env([("same", flag(same))]))?;
             }
         }
-        // data type and codecs (spec/virtualize/tiff.md §4.3
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#43-data-types-and-codecs>)
+        // data type and codecs (spec/zarrify/tiff.md §4.3
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#43-data-types-and-codecs>)
         let mut env = rules::env([
             ("bits", num(bits as f64)),
             ("sample_format", num(sample_format as f64)),
@@ -1781,8 +1781,8 @@ impl Tiff {
                 }
             }
         }
-        // pixel size and position (spec/virtualize/tiff.md §4.4
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>)
+        // pixel size and position (spec/zarrify/tiff.md §4.4
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>)
         let unit_of = |u: &str| self.rules.table("units").get(u).and_then(|x| x.as_str()).map(|x| x.to_string());
         let length = |u: &str| self.rules.table("lengths").get(u).and_then(|x| x.as_f64());
         let mut units: BTreeMap<char, String> = BTreeMap::new();
@@ -2032,8 +2032,8 @@ impl Tiff {
         Ok(())
     }
 
-    /// The pointer tags of the IFDs read, in tree order (spec/virtualize/tiff.md §5
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#5-source-metadata>).
+    /// The pointer tags of the IFDs read, in tree order (spec/zarrify/tiff.md §5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#5-source-metadata>).
     fn start_pointers(&mut self) {
         self.todo.clear();
         let mut ks: Vec<usize> = (0..self.ifds.len()).collect();
@@ -2182,9 +2182,9 @@ impl Tiff {
     }
 }
 
-// ---- the NDPI layout (spec/virtualize/ndpi.md §3
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#3-levels>, §4
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>), as the profile
+// ---- the NDPI layout (spec/zarrify/ndpi.md §3
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>, §4
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>), as the profile
 // reads it
 
 /// An NDPI tag's values, as the profile reads them.
@@ -2362,8 +2362,8 @@ impl Tiff {
         if !need.is_empty() {
             return Err(Stop::Need(need));
         }
-        // the levels (spec/virtualize/ndpi.md §3
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#3-levels>)
+        // the levels (spec/zarrify/ndpi.md §3
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#3-levels>)
         let mut tags: Vec<(usize, NVals)> = Vec::new();
         let mut levels: Vec<(usize, f64, u64, u64)> = Vec::new(); // (IFD, magnification, w, h)
         for (j, &k) in self.chain.iter().enumerate() {
@@ -2403,8 +2403,8 @@ impl Tiff {
         }
         self.rules.check("images", rules::env([("levels", num(levels.len() as f64))]))?;
         let vals = |k: usize| &tags.iter().find(|t| t.0 == k).unwrap().1;
-        // scale and position (spec/virtualize/ndpi.md §4
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>)
+        // scale and position (spec/zarrify/ndpi.md §4
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>)
         let (k0, _, bw, bh) = levels[0];
         let m0 = vals(k0);
         let per_unit = self
@@ -2460,8 +2460,8 @@ impl Tiff {
                 )?;
             }
             // a strip without McuStarts whose frame is not the level's size, but has its MCU rows
-            // and columns, is spliced the level's (spec/virtualize/ndpi.md §7
-            // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>); with
+            // and columns, is spliced the level's (spec/zarrify/ndpi.md §7
+            // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>); with
             // others, the level is not a level
             let mut frame = J::Null;
             if head.is_none() {
@@ -2530,9 +2530,9 @@ impl Tiff {
     }
 }
 
-// ---- the QPTIFF layout (spec/virtualize/qptiff.md §3
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#3-images-and-channels>, §4
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#4-the-image>), as the profile
+// ---- the QPTIFF layout (spec/zarrify/qptiff.md §3
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#3-images-and-channels>, §4
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#4-the-image>), as the profile
 // reads it
 
 /// What the layout reads of a `PerkinElmer-QPI-ImageDescription`: the root element's direct
@@ -2554,7 +2554,7 @@ impl Qpi {
 
 /// The ImageDescription text `x` as a QPI description, or None when it has no
 /// `PerkinElmer-QPI-ImageDescription` start tag. Read with the tag scan of
-/// spec/virtualize/tiff.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#3-ome-xml>,
+/// spec/zarrify/tiff.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#3-ome-xml>,
 /// tracking depth: an element nested deeper than the root's children (a ScanProfile's `Name`)
 /// is not read. A child's text runs from its start tag to the next tag, skipped sections
 /// removed.
@@ -2723,8 +2723,8 @@ impl Tiff {
             let lv = self.qlevel(i + 1, g, &vals, &f0, levels.last())?;
             levels.push(lv);
         }
-        // data type and codecs (spec/virtualize/qptiff.md §4.1
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#41-data-types-and-codecs>)
+        // data type and codecs (spec/zarrify/qptiff.md §4.1
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#41-data-types-and-codecs>)
         let mut env = rules::env([
             ("bits", num(bits as f64)),
             ("sample_format", num(sample_format as f64)),
@@ -2794,8 +2794,8 @@ impl Tiff {
                 prefixes.insert(k, prefix);
             }
         }
-        // a level in strips whose last strip is short (spec/virtualize/qptiff.md §4.2
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#42-tiles-and-strips>):
+        // a level in strips whose last strip is short (spec/zarrify/qptiff.md §4.2
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>):
         // padded to the chunk, with zeros when uncompressed, or with a literal tail spliced into
         // the strip's LZW stream, which is read for that; of another compression, not a level
         let row_bytes = |lv: &Level| lv.w * (bits / 8) * if contig { spp } else { 1 };
@@ -2865,8 +2865,8 @@ impl Tiff {
             self.rules.check("padding", rules::env([("level", num(li as f64)), ("compression", num(compression as f64)), ("kept", flag(keep[li]))]))?;
         }
         let levels: Vec<Level> = levels.into_iter().zip(keep).filter(|(_, k)| *k).map(|(l, _)| l).collect();
-        // pixel size (the TIFF convention's resolution tags) and position (spec/virtualize/qptiff.md §4.3
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#43-arrays>)
+        // pixel size (the TIFF convention's resolution tags) and position (spec/zarrify/qptiff.md §4.3
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#43-arrays>)
         let per_unit = self
             .rules
             .table("resolution_units")
@@ -2968,7 +2968,7 @@ impl crate::Parser for Tiff {
     }
 }
 
-/// The TIFF profile's file run (spec/virtualize/tiff.md); a run of it becomes one of NDPI or
+/// The TIFF profile's file run (spec/zarrify/tiff.md); a run of it becomes one of NDPI or
 /// QPTIFF when its parser finds the file is one (`Parser::found`).
 pub struct Profile;
 

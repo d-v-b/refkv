@@ -2,7 +2,7 @@
 
 The daily netCDF files stay on AWS: the archive records where each chunk lives,
 and xarray reads the chunks from those files. This takes the 1st of each month,
-60 files: 1 to 1.5 minutes in all, about 40 s of it to virtualize them.
+60 files: 1 to 1.5 minutes in all, about 40 s of it to zarrify them.
 """
 
 from concurrent.futures import ThreadPoolExecutor
@@ -30,7 +30,7 @@ class EightThreads(ThreadPoolExecutor):  # parallel= takes a class, which Virtua
         super().__init__(max_workers=8)
 
 
-# 1. Virtualize the files, 8 at a time, reading only their metadata, and concatenate along time.
+# 1. Zarrify the files, 8 at a time, reading only their metadata, and concatenate along time.
 registry = ObjectStoreRegistry({f"s3://{bucket}": S3Store(bucket, region="us-east-1", skip_signature=True)})
 parser = HDFParser(reader_factory=partial(BlockStoreReader, block_size=2**16))
 vds = vz.open_virtual_mfdataset(

@@ -12,7 +12,7 @@ name = "refkv"
 # from Cargo.toml, whose committed version is a placeholder: tools/version.py writes the
 # one `git describe` gives, for a build (RELEASING.md)
 dynamic = ["version"]
-description = "refkv: a reference value type for key-value stores, its ZIP binding (vzip archives), and virtualization of image files and stores"
+description = "refkv: a reference value type for key-value stores, its ZIP binding (vzip archives), and zarrifying image files and stores without copying them"
 # the PyPI page; it links to the repository's files by URL
 readme = "README.md"
 authors = [
@@ -32,7 +32,7 @@ classifiers = [
     "Operating System :: Microsoft :: Windows",
 ]
 # The base install reads and writes vzip archives, local and over http(s) (with refkv's
-# own HTTP client), holds a ReferenceStore and virtualizes image files and stores,
+# own HTTP client), holds a ReferenceStore and zarrifies image files and stores,
 # without Zarr (numpy: refkv.shards), through the Rust core this package builds and
 # ships as the module refkv._core (below); the extras add the rest (src/refkv/_extras.py).
 dependencies = [
@@ -45,9 +45,13 @@ Repository = "https://github.com/d-v-b/refkv"
 Documentation = "https://github.com/d-v-b/refkv/tree/main/docs"
 Issues = "https://github.com/d-v-b/refkv/issues"
 
+[project.scripts]
+# `refkv zarrify <file or store> <out.vzip>` (refkv/__main__.py)
+refkv = "refkv.__main__:main"
+
 [project.optional-dependencies]
 # refkv.zarr: a reference store as a read-only zarr store, for zarr and xarray, and the codecs
-# of archives of virtualized image files and stores
+# of archives of zarrified image files and stores
 zarr = [
     "zarr>=3.4.0",
 ]
@@ -56,7 +60,7 @@ images = [
     "refkv[zarr]",
     "imagecodecs>=2026.8.16",
 ]
-# the decoders of refkv.zarr's refkv.stream codec, which reads virtualized MP3 and MP4 files:
+# the decoders of refkv.zarr's refkv.stream codec, which reads zarrified MP3 and MP4 files:
 # ffmpeg's, through PyAV
 media = [
     "refkv[zarr]",

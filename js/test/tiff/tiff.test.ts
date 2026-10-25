@@ -1,20 +1,20 @@
-// The source metadata of the browser TIFF virtualizer (spec/virtualize/tiff.md §5
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#5-source-metadata>):
+// The source metadata of the browser TIFF zarrifier (spec/zarrify/tiff.md §5
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#5-source-metadata>):
 // one group per IFD, pointer tags and the IFDs they lead to. Equivalence with the
-// Python virtualizer is checked by conformance/virtualize/compare.py.
+// Python zarrifier is checked by conformance/zarrify/compare.py.
 
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
-import { virtualizeImage } from "../../../conformance/virtualize/reference/ts/index.ts";
+import { virtualizeImage } from "../../../conformance/zarrify/reference/ts/index.ts";
 
-async function virtualizeFixture(name: string) {
+async function zarrifyFixture(name: string) {
   const bytes = new Uint8Array(fs.readFileSync(new URL(`../../../fixtures/tiff/${name}`, import.meta.url)));
   return virtualizeImage(`https://data.test/${name}`, async (o, n) => bytes.subarray(o, o + n), bytes.length);
 }
 
 test("every IFD has its own group, and pointer tags name the IFDs they lead to", async () => {
-  const out = await virtualizeFixture("edge_pointers.tif");
+  const out = await zarrifyFixture("edge_pointers.tif");
   const docs = new Map<string, unknown>();
   for (const e of out.entries) {
     if ("bytes" in e && e.key.startsWith("vzip_source") && e.key.endsWith("zarr.json")) {
@@ -41,7 +41,7 @@ test("every IFD has its own group, and pointer tags name the IFDs they lead to",
 });
 
 test("a pointer tag of more than 64 values is an int32 array of record numbers", async () => {
-  const out = await virtualizeFixture("edge_pointer_list.tif");
+  const out = await zarrifyFixture("edge_pointer_list.tif");
   const entry = (key: string) => out.entries.find((e) => e.key === key);
   const doc = (path: string) => {
     const e = entry(`vzip_source/${path}/zarr.json`) as { bytes: Uint8Array } | undefined;
@@ -62,24 +62,24 @@ test("a pointer tag of more than 64 values is an int32 array of record numbers",
 });
 
 test("rejects a subsampled YCbCr image that is not JPEG", async () => {
-  await assert.rejects(virtualizeFixture("edge_reject_ycbcr_subsampled.tif"), /YCbCr with subsampling 2,2/);
+  await assert.rejects(zarrifyFixture("edge_reject_ycbcr_subsampled.tif"), /YCbCr with subsampling 2,2/);
 });
 
 test("rejects a YCbCr image without YCbCrSubsampling (TIFF 6.0's default is [2, 2])", async () => {
-  await assert.rejects(virtualizeFixture("edge_reject_ycbcr_default.tif"), /YCbCr with subsampling 2,2/);
+  await assert.rejects(zarrifyFixture("edge_reject_ycbcr_default.tif"), /YCbCr with subsampling 2,2/);
 });
 
 test("rejects TiffData that step through more than 4 × the planes + 1000", async () => {
-  await assert.rejects(virtualizeFixture("edge_reject_tiffdata_steps.tif"), /cover more than 1008 planes/);
+  await assert.rejects(zarrifyFixture("edge_reject_tiffdata_steps.tif"), /cover more than 1008 planes/);
 });
 
 test("rejects FillOrder 2 for uncompressed data", async () => {
-  await assert.rejects(virtualizeFixture("edge_reject_fill_order.tif"), /FillOrder 2/);
+  await assert.rejects(zarrifyFixture("edge_reject_fill_order.tif"), /FillOrder 2/);
 });
 
 test("shared tables are kept once, a tiled IFD keeps its strips, and values as JSON have a budget", async () => {
   const docs = async (name: string) => {
-    const out = await virtualizeFixture(name);
+    const out = await zarrifyFixture(name);
     const source = (path: string) => {
       const e = out.entries.find((x) => x.key === `vzip_source/${path}/zarr.json`) as { bytes: Uint8Array };
       return JSON.parse(new TextDecoder().decode(e.bytes)).attributes.vzip_virtualized?.tiff;

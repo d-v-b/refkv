@@ -1,8 +1,8 @@
-"""The DICOM convention's source metadata (spec/virtualize/dicom.md), for
+"""The DICOM convention's source metadata (spec/zarrify/dicom.md), for
 spec/generate_schemas.py."""
 
-# A dataset in the DICOM JSON Model (PS3.18 §F.2), as spec/virtualize/dicom.md §5
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#5-source-metadata> writes it.
+# A dataset in the DICOM JSON Model (PS3.18 §F.2), as spec/zarrify/dicom.md §5
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#5-source-metadata> writes it.
 DEFS = {
     "dataset": {
         "type": "object",
@@ -48,7 +48,7 @@ DEFS = {
 
 SCHEMA = {"anyOf": [{
     "type": "object",
-    "description": "The root's (spec/virtualize/dicom.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/dicom.md#51-the-root>); a path refkv_source/<p> names the IR's element at <p>",
+    "description": "The root's (spec/zarrify/dicom.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#51-the-root>); a path refkv_source/<p> names the IR's element at <p>",
     "properties": {
         "preamble": {"type": "string", "contentEncoding": "base64",
                      "description": "The 128-byte preamble, unless all zero"},

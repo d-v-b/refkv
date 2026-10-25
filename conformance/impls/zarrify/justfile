@@ -1,0 +1,20 @@
+# The spec/zarrify.md implementations of the latest spec round (python/,
+# typescript/, rust/), each run as `<dir>/zarrify <url> <out.json>`. The
+# directories are replaced every round; this file stays.
+
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+[private]
+default:
+    @just --list
+
+# Build the Rust zarrifier (offline; flate2 is its only dependency)
+build:
+    cargo build --release --offline --quiet --manifest-path rust/Cargo.toml
+
+# Compare this round's implementations with the maintained ones (`--quick`, `--fixtures <dir>`, ...)
+compare *args: build
+    cd ../../.. && uv run python conformance/zarrify/compare.py conformance/results/zarrify-round \
+        --impl python=conformance/impls/zarrify/python/zarrify \
+        --impl typescript=conformance/impls/zarrify/typescript/zarrify \
+        --impl rust=conformance/impls/zarrify/rust/zarrify {{args}}

@@ -1,10 +1,10 @@
-"""The MP3 convention's source metadata (spec/virtualize/mp3.md), for
+"""The MP3 convention's source metadata (spec/zarrify/mp3.md), for
 spec/generate_schemas.py."""
 
 SCHEMA = {"anyOf": [
     {
         "type": "object",
-        "description": "The root's: the stream's parameters, derived from its frames, and the fields of its info frame and tags (spec/virtualize/mp3.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mp3.md#51-the-root>)",
+        "description": "The root's: the stream's parameters, derived from its frames, and the fields of its info frame and tags (spec/zarrify/mp3.md §5.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mp3.md#51-the-root>)",
         "properties": {
             "version": {"enum": ["MPEG-1", "MPEG-2", "MPEG-2.5"]},
             "layer": {"const": 3},

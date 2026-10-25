@@ -1,9 +1,9 @@
-"""The NIfTI convention's source metadata (spec/virtualize/nifti.md), for
+"""The NIfTI convention's source metadata (spec/zarrify/nifti.md), for
 spec/generate_schemas.py."""
 
 SCHEMA = {"anyOf": [{
     "type": "object",
-    "description": "The root's: the version, the byte order, the header, and what the layout derives from it (spec/virtualize/nifti.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>)",
+    "description": "The root's: the version, the byte order, the header, and what the layout derives from it (spec/zarrify/nifti.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#5-source-metadata>)",
     "properties": {
         "nifti_version": {"enum": [1, 2]},
         "byte_order": {"enum": ["little", "big"]},

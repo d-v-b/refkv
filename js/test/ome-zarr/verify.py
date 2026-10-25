@@ -1,8 +1,8 @@
-"""Checks the browser OME-Zarr virtualizer's output (spec/virtualize/ome-zarr.md)
+"""Checks the browser OME-Zarr zarrifier's output (spec/zarrify/ome-zarr.md)
 against ome-zarr-models and zarr-python.
 
 Each store in fixtures/ome-zarr/ is served by the harness proxy (with
-its S3 listing) and virtualized by js/conformance/virtualize.ts (the browser
+its S3 listing) and zarrified by js/conformance/zarrify.ts (the browser
 code, run under Node). Then:
 
 * every group of the output whose attributes have `ome` is validated with the
@@ -18,9 +18,9 @@ code, run under Node). Then:
   zarr-python as Zarr v2 (js/test/zarr2/verify.py's check).
 
 With `--remote <store URL> [<array path> ...]`, a public OME-Zarr 0.4 store
-is virtualized directly, every output group is validated with the 0.5
+is zarrified directly, every output group is validated with the 0.5
 models, and each named array is compared with zarr-python reading the Zarr v2
-array over HTTP (the checks of conformance/virtualize/corpus_ome_zarr.txt).
+array over HTTP (the checks of conformance/zarrify/corpus_ome_zarr.txt).
 
 Usage: uv run python js/test/ome-zarr/verify.py [<store dir> ...]
        uv run python js/test/ome-zarr/verify.py --remote <store URL> [<array path> ...]
@@ -44,7 +44,7 @@ from zarr.storage import FsspecStore, LocalStore
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
 FIXTURES = ROOT / "fixtures"
-sys.path.insert(0, str(ROOT / "conformance" / "virtualize"))
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 from proxy import Proxy  # noqa: E402
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers zlib)
@@ -131,7 +131,7 @@ def v04_check(store_dir: Path) -> tuple[list[str], list[str], int]:
 def remote(store_url: str, paths: list[str]) -> int:
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "remote.vzip"
-        p = zarr2_verify.virtualize(store_url, out)
+        p = zarr2_verify.zarrify(store_url, out)
         if p.returncode:
             print(f"{'REJECTED' if p.returncode == 3 else 'FAILED'}: {p.stderr.strip()[-300:]}")
             return 1
@@ -162,7 +162,7 @@ def main(argv: list[str]) -> int:
     with tempfile.TemporaryDirectory() as tmp:
         for store_dir in stores:
             out = Path(tmp) / f"{store_dir.name}.vzip"
-            p = zarr2_verify.virtualize(
+            p = zarr2_verify.zarrify(
                 proxy.local_store(store_dir.resolve().relative_to(FIXTURES.resolve()).as_posix()), out)
             in_problems, _, _ = v04_check(store_dir)
             if "_reject_" in store_dir.name:

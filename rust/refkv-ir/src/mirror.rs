@@ -1428,7 +1428,7 @@ pub fn table_from(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Table, String
     };
     let ints = |b: Vec<u8>| -> Vec<i64> { b.chunks(8).map(|c| i64::le_at(c, 0)).collect() };
     let node = doc("")?;
-    let attrs = node["attributes"]["refkv_virtualized"].as_object().and_then(|m| m.values().next())
+    let attrs = node["attributes"]["refkv_zarrified"].as_object().and_then(|m| m.values().next())
         .map(|v| &v["ir"]).ok_or("refkv_source declares no mirror")?;
     let strs = |k: &str| -> Result<Vec<String>, String> {
         attrs[k].as_array().ok_or(format!("no {k}"))?.iter()
@@ -1761,7 +1761,7 @@ pub fn view_problem(keys: &[String], get: &dyn Fn(&str) -> Option<Vec<u8>>,
         if a == b {
             continue;
         }
-        let doc = |x: &J| x["attributes"]["refkv_virtualized"][profile.as_str()].clone();
+        let doc = |x: &J| x["attributes"]["refkv_zarrified"][profile.as_str()].clone();
         if let Some(d) = first_difference(&doc(&a), &doc(&b), String::new()) {
             return Some(format!("view {group}: {d}"));
         }
@@ -1802,7 +1802,7 @@ fn first_difference(a: &J, b: &J, path: String) -> Option<String> {
 fn stored_profile(get: &dyn Fn(&str) -> Option<Vec<u8>>) -> String {
     get(&format!("{SOURCE_NODE}/zarr.json"))
         .and_then(|b| serde_json::from_slice::<J>(&b).ok())
-        .and_then(|d| d["attributes"]["refkv_virtualized"].as_object().and_then(|m| m.keys().next().cloned()))
+        .and_then(|d| d["attributes"]["refkv_zarrified"].as_object().and_then(|m| m.keys().next().cloned()))
         .unwrap_or_default()
 }
 

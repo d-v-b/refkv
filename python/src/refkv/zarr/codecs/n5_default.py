@@ -1,5 +1,5 @@
 """`n5_default`: an N5 default-mode block, header included (zarr-extensions `codecs/n5_default`;
-spec/virtualize/n5.md).
+spec/zarrify/n5.md).
 """
 
 from __future__ import annotations

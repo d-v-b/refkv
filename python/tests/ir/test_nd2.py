@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from ir_helpers import FIXTURES, as_the_reference
-from refkv.ir import virtualize as via_ir
+from refkv.ir import zarrify as via_ir
 from refkv.errors import ResolutionError
 from refkv.ir import parse
 from refkv.ir.planner import FileTransport, HttpTransport

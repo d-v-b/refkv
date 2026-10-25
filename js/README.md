@@ -6,7 +6,7 @@ its single-file binding. This package reads and writes vzip archives
 ([spec/bindings/vzip.md](../spec/bindings/vzip.md)) in the browser and in Node.
 
 A service worker that turns a remote image file or store of any format of
-[docs/virtualize/README.md](../docs/virtualize/README.md#formats) (a store: a
+[docs/zarrify/README.md](../docs/zarrify/README.md#formats) (a store: a
 URL ending in `/`), or a `.vzip` archive, into a plain HTTP Zarr store,
 without a server and without copying pixel data:
 
@@ -14,7 +14,7 @@ without a server and without copying pixel data:
    base64url encoding of the file's or store's URL.
 2. The service worker reads the file's structure with a few range requests
    (batched by the Rust core's read planner) and
-   writes a vzip archive in memory by [spec/virtualize.md](../spec/virtualize.md): an
+   writes a vzip archive in memory by [spec/zarrify.md](../spec/zarrify.md): an
    OME-NGFF 0.5 dataset (or, for a store, its Zarr v3 hierarchy; for SAFE,
    a GeoZarr hierarchy) whose chunks are references to the source's tiles,
    frames, strips, subblocks or chunk objects. The
@@ -67,31 +67,31 @@ in a directory and lists them at https://d-v-b.github.io/vzip-demo/).
 
 ## What is supported
 
-The rules are [spec/virtualize.md](../spec/virtualize.md)'s profiles, one per
-format (the table in [docs/virtualize/README.md](../docs/virtualize/README.md#formats)
-links each). Every format is virtualized by the
-Rust core (`rust/refkv-ir`) built for wasm32: `src/virtualize/ir/` performs the
+The rules are [spec/zarrify.md](../spec/zarrify.md)'s profiles, one per
+format (the table in [docs/zarrify/README.md](../docs/zarrify/README.md#formats)
+links each). Every format is zarrified by the
+Rust core (`rust/refkv-ir`) built for wasm32: `src/zarrify/ir/` performs the
 requests its read planner asks for (several at once, multi-range ones under
 Node), under the reader policy, and writes its output. `just js::wasm` builds
 the module, which `just js::build` copies to `dist/refkv_ir.wasm` (beside the
 service worker, which fetches it) and which the Node tests and CLIs read from
-cargo's target directory (or `$REFKV_IR_WASM`). `src/virtualize/store.ts` holds
+cargo's target directory (or `$REFKV_IR_WASM`). `src/zarrify/store.ts` holds
 the store machinery (the listing, the object and JSON readers). The TypeScript
-virtualizers the core replaced are kept, frozen, in `conformance/virtualize/reference/ts/` (with CLIs
-`conformance/virtualize/reference/ts/virtualize.ts` and `virtualize_file.ts`), for
-comparisons. The Python implementation (`python -m refkv.virtualize`)
-produces equivalent archives; `conformance/virtualize/compare.py` checks that.
+zarrifiers the core replaced are kept, frozen, in `conformance/zarrify/reference/ts/` (with CLIs
+`conformance/zarrify/reference/ts/virtualize.ts` and `virtualize_file.ts`), for
+comparisons. The Python implementation (`python -m refkv.zarrify`)
+produces equivalent archives; `conformance/zarrify/compare.py` checks that.
 
 A file or a store at an http(s) URL is read under the reader policy (spec/refkv.md
 [§6.7](../spec/refkv.md#67-reader-policy)), a store's listing, object reads and redirects included: loopback,
 private, link-local and other special hosts are refused unless the caller
 opts in (`allowPrivateHosts`, given to `openHttpSource`, `openHttpStore` or
-`virtualizeStore`; `--allow-private-hosts` in the Node CLIs). Each source pins its size, and the input file's its ETag when every
+`zarrifyStore`; `--allow-private-hosts` in the Node CLIs). Each source pins its size, and the input file's its ETag when every
 response exposed the same strong one.
 
 What each file format gives in the browser, and what it refuses with HTTP 422, is in the
-format's own page, `docs/virtualize/<format>/README.md` ("In the browser"; the index is
-[docs/virtualize/README.md](../docs/virtualize/README.md#formats)).
+format's own page, `docs/zarrify/<format>/README.md` ("In the browser"; the index is
+[docs/zarrify/README.md](../docs/zarrify/README.md#formats)).
 
 N5, Zarr v2 and OME-Zarr 0.4 stores (a URL ending in `/`, listed with S3 ListObjectsV2):
 
@@ -114,7 +114,7 @@ web server), N5 lz4, xz, bzip2 and jpeg blocks, Zarr v2 filters, lz4 and other
 compressors, string, object, structured, complex and date-time types, and
 OME-Zarr 0.4 stores that break a rule of OME-NGFF 0.4 that 0.5 also has.
 A store that lists more than 100000 objects is refused with HTTP 507 (a
-limit of this implementation, [spec/virtualize.md Appendix A](../spec/virtualize.md#appendix-a-conformance)).
+limit of this implementation, [spec/zarrify.md Appendix A](../spec/zarrify.md#appendix-a-conformance)).
 
 ## Limits
 
@@ -139,7 +139,7 @@ node --test js/test/                                        # unit tests
 uv run python js/conformance/run_write.py /tmp/vzip-write   # the kit's write cases
 just verify                                                 # every format's fixtures vs an independent reader
 uv run python js/test/<format>/verify.py                    # one format's (`just verify-of <format>`)
-uv run python conformance/virtualize/compare.py /tmp/vcmp    # reference vs Python vs browser virtualizer
+uv run python conformance/zarrify/compare.py /tmp/vcmp    # reference vs Python vs browser zarrifier
 node demo/e2e.mjs <image file url> <out dir>             # demo + Neuroglancer in Chromium
 node demo/e2e_examples.mjs <out dir> [example id …]      # every demo example, with its viewer
 ```
@@ -147,15 +147,15 @@ node demo/e2e_examples.mjs <out dir> [example id …]      # every demo example,
 - `run_write.py` checks every unpaged write case with `conformance/vzip/validate.py`
   and the reference reader, plus an unpaged archive of 70,000 entries and every
   invalid description.
-- `<format>/verify.py` virtualizes each of the format's fixtures with the browser code and
+- `<format>/verify.py` zarrifies each of the format's fixtures with the browser code and
   compares what zarr-python reads through the reference implementation (`python/src/refkv`)
   with an independent reader of the format; its docstring says which reader, and what else it
   checks (such as the rebuild of the file from the archive's IR mirror, byte for byte).
-- `compare.py` runs three virtualizers (`ref`, the frozen reference, which
+- `compare.py` runs three zarrifiers (`ref`, the frozen reference, which
   a format added since the core, such as MRC, does not have; `py`, the
   Python command; `web`, this code under Node) on the synthetic files, every
   OME-TIFF of IDR idr0096 and the public files of every format
-  (`conformance/virtualize/corpus_*.txt`), and compares their outputs
-  ([HARNESS.md](../conformance/virtualize/HARNESS.md)).
+  (`conformance/zarrify/corpus_*.txt`), and compares their outputs
+  ([HARNESS.md](../conformance/zarrify/HARNESS.md)).
 - The verify scripts and `compare.py` serve fixtures from 127.0.0.1, so they
-  run the virtualizers with private hosts allowed.
+  run the zarrifiers with private hosts allowed.

@@ -32,8 +32,8 @@ pub enum StoreStep {
     /// (object, offset, length): `object` indexes the listing.
     Read(Vec<(usize, u64, u64)>),
     /// Keys the parser needs to know about, which the listing does not have (a VSI input's
-    /// tile files, spec/virtualize/vsi.md §9.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md#92-the-tile-files>): the
+    /// tile files, spec/zarrify/vsi.md §9.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>): the
     /// host tells which exist, and their sizes ([`StoreRun::found`]), each found one becoming an
     /// object of the run and of the IR ([`StoreParser::found`]).
     Probe(Vec<String>),
@@ -46,8 +46,8 @@ pub trait StoreParser: Send + Sync {
     fn step(&mut self) -> Res<StoreStep>;
     fn feed(&mut self, object: usize, offset: u64, data: &[u8]);
     /// The empty objects whose keys end in `/` (each with its `/`), which the listing ignores
-    /// and does not record (spec/virtualize.md §1.4
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>), told before
+    /// and does not record (spec/zarrify.md §1.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), told before
     /// the first step ([`StoreRun::ignore`]): a SAFE directory's are its directories. The
     /// recorded ignored keys reach the projection in the facts instead.
     fn folders(&mut self, _folders: &[String]) {}
@@ -70,17 +70,17 @@ pub trait StoreParser: Send + Sync {
 /// The store formats the core reads (the store profiles move onto the IR one by one).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum StoreFormat {
-    /// A Zarr v2 store (`zarr2.rs`; spec/virtualize/zarr2.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md>).
+    /// A Zarr v2 store (`zarr2.rs`; spec/zarrify/zarr2.md
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md>).
     Zarr2,
-    /// A Sentinel-2 SAFE product's directory (`safe/`; spec/virtualize/safe.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md>).
+    /// A Sentinel-2 SAFE product's directory (`safe/`; spec/zarrify/safe.md
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md>).
     Safe,
-    /// An N5 container (`n5.rs`; spec/virtualize/n5.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md>).
+    /// An N5 container (`n5.rs`; spec/zarrify/n5.md
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md>).
     N5,
-    /// An Olympus VSI slide (`vsi/`; spec/virtualize/vsi.md
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/vsi.md>): the `.vsi` file, listed
+    /// An Olympus VSI slide (`vsi/`; spec/zarrify/vsi.md
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md>): the `.vsi` file, listed
     /// alone, and the tile files the run probes for.
     Vsi,
 }
@@ -202,8 +202,8 @@ impl StoreRun {
         })
     }
 
-    /// The keys the listing ignores (spec/virtualize.md §1.4
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>), which are
+    /// The keys the listing ignores (spec/zarrify.md §1.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), which are
     /// not objects of the IR, given before the first poll: `keys`, the relative keys of the
     /// ignored objects the store reader recorded, and `folders`, those of the empty objects
     /// whose keys end in `/` (each with its `/`), which are not recorded. The parser is told

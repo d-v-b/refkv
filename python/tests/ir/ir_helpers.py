@@ -13,15 +13,15 @@ import tifffile
 import zarr
 
 import refkv.zarr
-from refkv.ir import virtualize as via_ir
+from refkv.ir import zarrify as via_ir
 from refkv.ir.cmirror import rebuild_from_archive
-from refkv.virtualize import Rejected, virtualize
+from refkv.zarrify import Rejected, zarrify
 from refkv.zarr import ZarrStore
 
 FIXTURES = Path(__file__).parents[3] / "fixtures"
 ROOT = Path(__file__).parents[3]
 # the frozen reference twins the IR is compared against (refkv_reference)
-sys.path.insert(0, str(ROOT / "conformance" / "virtualize" / "reference"))
+sys.path.insert(0, str(ROOT / "conformance" / "zarrify" / "reference"))
 from refkv_reference import virtualize as reference  # noqa: E402  (the frozen reference)
 
 
@@ -35,7 +35,7 @@ def assert_rebuilds(out, data: bytes, tmp_path, name: str = "a.vzip") -> None:
     assert buf.getvalue() == data
 
 
-def virtualized(path, tmp_path, fmt: str, url: str | None = None):
+def zarrified(path, tmp_path, fmt: str, url: str | None = None):
     """(the output, the hierarchy's root group, read in memory from the output, the IR) of the
     file at `path`, which the IR reads as `fmt`; the IR is valid and the archive rebuilds the
     file."""
@@ -59,7 +59,7 @@ def as_the_reference(path, tmp_path, fmt: str, *, same_message: bool = False):
         if same_message:
             assert str(got.value) == str(e)
         return None
-    out, _, _ = virtualized(path, tmp_path, fmt, url)
+    out, _, _ = zarrified(path, tmp_path, fmt, url)
     same_hierarchy(ref, out)
     return out
 
@@ -76,18 +76,18 @@ def core_setting(setter, value):
 
 
 # The members of a frozen root's source metadata the IR's mirror holds instead, for the
-# profiles frozen at revision 25 (conformance/virtualize/compare.py's MIRRORED).
+# profiles frozen at revision 25 (conformance/zarrify/compare.py's MIRRORED).
 MIRRORED = {"nifti": ("header_rest", "extender", "extensions", "extensions_truncated", "unparsed", "trailing")}
 # The members of the root image's `ome` the IR writes and the frozen reference does not, by
-# profile (conformance/virtualize/compare.py's ADDED): TIFF's and NDPI's `omero`, added after
-# the freeze (spec/virtualize/tiff.md §4.4
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>, spec/virtualize/ndpi.md §4
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#4-the-image>).
+# profile (conformance/zarrify/compare.py's ADDED): TIFF's and NDPI's `omero`, added after
+# the freeze (spec/zarrify/tiff.md §4.4
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>, spec/zarrify/ndpi.md §4
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#4-the-image>).
 ADDED = {"tiff": ("omero",), "ndpi": ("omero",)}
 # The fixtures whose layout the profile changed after the freeze, which the frozen reference
-# does not give (conformance/virtualize/compare.py's REVISED): NDPI's frames that are not their
-# level's size (spec/virtualize/ndpi.md §7
-# <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ndpi.md#7-ndpi-profile>).
+# does not give (conformance/zarrify/compare.py's REVISED): NDPI's frames that are not their
+# level's size (spec/zarrify/ndpi.md §7
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ndpi.md#7-ndpi-profile>).
 REVISED = {"edge_ndpi_frames.ndpi", "edge_reject_ndpi_frame.ndpi"}
 
 
@@ -112,7 +112,7 @@ def same_hierarchy(a, b) -> None:
              if not k.startswith(node(o))}
         if o is a:
             d = current_names(d)
-        prop = d.get("zarr.json", {}).get("attributes", {}).get("refkv_virtualized", {})
+        prop = d.get("zarr.json", {}).get("attributes", {}).get("refkv_zarrified", {})
         moved = MIRRORED.get(prop.get("profile"))
         frozen = REVISION_25 if moved else {"dicom": DICOM_REVISION, "ims": IMS_REVISION, "ndpi": 25}.get(prop.get("profile"), FROZEN)
         if o is a and prop.get("revision") == frozen:
@@ -154,17 +154,17 @@ DECODED = {"transpose", "bytes", "zlib", "imagecodecs_lzw"}
 
 
 def omero_and_expected_windows(path, profile: str) -> tuple[dict | None, list]:
-    """The `omero` of the file at `path` virtualized, and each channel's window as the TIFF and
-    QPTIFF profiles give it (spec/virtualize/tiff.md §4.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>,
-    spec/virtualize/qptiff.md §4.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#43-arrays>), computed here
+    """The `omero` of the file at `path` zarrified, and each channel's window as the TIFF and
+    QPTIFF profiles give it (spec/zarrify/tiff.md §4.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>,
+    spec/zarrify/qptiff.md §4.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#43-arrays>), computed here
     with numpy from the coarsest level read through zarr-python: for a channel of a decoded codec
     whose samples are not RGB, the 5th and 99.9th percentiles of the middle chunk's values inside
     the array, without the fill value 0 (and values that are not finite), when they differ;
     `min`, `max` an integer type's range or the float values' extremes. Otherwise an integer
     type's range, else None."""
-    g = zarr.open_group(ZarrStore(virtualize(str(path))), mode="r", zarr_format=3)
+    g = zarr.open_group(ZarrStore(zarrify(str(path))), mode="r", zarr_format=3)
     ms = g.attrs["ome"]["multiscales"][0]
     a = g[ms["datasets"][-1]["path"]]
     axes = [x["name"] for x in ms["axes"]]

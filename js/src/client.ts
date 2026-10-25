@@ -43,12 +43,12 @@ export async function registerVzipWorker(
   return new URL("vz/", registration.scope).href;
 }
 
-/** The Zarr URL of the virtualized TIFF or ND2 file at `url` (a directory URL, ending in "/"). */
+/** The Zarr URL of the zarrified TIFF or ND2 file at `url` (a directory URL, ending in "/"). */
 export function imageZarrUrl(prefix: string, url: string): string {
   return `${prefix}image/${encodeId(new URL(url).href)}/`;
 }
 
-/** The Zarr URL of the virtualized TIFF at `url` (a directory URL, ending in "/"). */
+/** The Zarr URL of the zarrified TIFF at `url` (a directory URL, ending in "/"). */
 export function tiffZarrUrl(prefix: string, url: string): string {
   return `${prefix}tiff/${encodeId(new URL(url).href)}/`;
 }

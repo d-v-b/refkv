@@ -1,5 +1,5 @@
 """`refkv.stream`: a run of coded audio or video frames (conventions §10
-<https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#10-coded-streams>), as virtualized MP3
+<https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#10-coded-streams>), as zarrified MP3
 files' chunks and MP4 tracks' are: a header giving each frame's size and output position, then the
 frames, decoded by ffmpeg's decoders through PyAV (the `media` extra). It has no encoder.
 """

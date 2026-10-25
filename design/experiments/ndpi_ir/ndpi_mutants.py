@@ -2,7 +2,7 @@
 (the IFDs, high words, McuStarts and the strips' JPEG headers). Seeded."""
 import random, struct, sys
 from pathlib import Path
-sys.path.insert(0, "conformance/virtualize")
+sys.path.insert(0, "conformance/zarrify")
 from mutate import mutate
 
 out = Path(sys.argv[1]); count = int(sys.argv[2]); rng = random.Random(int(sys.argv[3]))

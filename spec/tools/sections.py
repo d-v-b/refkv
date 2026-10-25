@@ -54,7 +54,7 @@ EXCLUDED = (
     "python/tests/reference/**",
     "design/conformance/**",
     "conformance/impls/**",
-    "conformance/virtualize/reference/**",
+    "conformance/zarrify/reference/**",
     "design/IR_NOTES.md",
     "design/plans/**",
 )
@@ -64,18 +64,18 @@ LEFT_ALONE = (
     "spec/history/**",
     "spec/tools/**",  # this tool, whose examples and tests are bare references
     "python/tests/reference/**",
-    "conformance/virtualize/reference/**",
+    "conformance/zarrify/reference/**",
     "design/IR_NOTES.md",
     "design/plans/**",
 )
 # Written by spec/generate_schemas.py.
-GENERATED = ("spec/virtualize/*/schema.json",)
+GENERATED = ("spec/zarrify/*/schema.json",)
 
-# The profile registry (spec/virtualize/profiles/<name>.json, one file per profile): the format
+# The profile registry (spec/zarrify/profiles/<name>.json, one file per profile): the format
 # documents, each numbered on its own (its profile is its Part 2, numbered after its Part 1), and
 # the dataset layouts' conventions (spec/conventions.md §9), a document each without a profile.
 REGISTRY: list[dict] = sorted(
-    (json.loads(p.read_text(encoding="utf-8")) for p in (ROOT / "spec" / "virtualize" / "profiles").glob("*.json")),
+    (json.loads(p.read_text(encoding="utf-8")) for p in (ROOT / "spec" / "zarrify" / "profiles").glob("*.json")),
     key=lambda e: e["name"],
 )
 FORMATS = tuple(e["name"] for e in REGISTRY if e["kind"] != "layout")
@@ -86,7 +86,7 @@ DOCS = FORMATS + LAYOUTS
 OLD_NAMES = {
     "SPEC.md": "spec",
     "spec/archive.md": "spec",
-    "VIRTUALIZE.md": "spec/virtualize.md",
+    "ZARRIFY.md": "spec/zarrify.md",
     "conventions/README.md": "spec/conventions.md",
     "TECHNIQUES.md": "spec/TECHNIQUES.md",
     "ARCHITECTURE.md": "design/ARCHITECTURE.md",
@@ -177,7 +177,7 @@ def anchors(doc: str) -> frozenset[str]:
 
 
 def format_of_doc(doc: str) -> str | None:
-    m = re.fullmatch(r"spec/virtualize/([\w-]+)\.md", doc)
+    m = re.fullmatch(r"spec/zarrify/([\w-]+)\.md", doc)
     return m.group(1) if m and m.group(1) in DOCS else None
 
 
@@ -470,14 +470,14 @@ def fmt_of_path(path: str) -> str | None:
     for f in sorted(DOCS, key=len, reverse=True):
         if re.search(rf"(?:^|/){re.escape(f)}(?:/|\.rs$|\.json$)", p):
             return f
-        if re.search(rf"(?:^|/)test_virtualize_{re.escape(f)}\.py$", p):
+        if re.search(rf"(?:^|/)test_zarrify_{re.escape(f)}\.py$", p):
             return f
     return None
 
 
 # The default document of a bare reference, by the file it is in: (glob, rule). A
 # rule is "self" (the file's own headings), "fmt" (the document of the file's format,
-# by fmt_of_path, then spec/virtualize.md), "history:<archive|virtualize>" (the
+# by fmt_of_path, then spec/zarrify.md), "history:<archive|zarrify>" (the
 # snapshot of the round, by the file's rN directory), "spec" (the specification's two
 # documents, spec/refkv.md and spec/bindings/vzip.md, numbered as one), or a document.
 CONTEXTS: list[tuple[str, str]] = [
@@ -485,43 +485,43 @@ CONTEXTS: list[tuple[str, str]] = [
     ("spec/bindings/vzip.md", "spec"),
     ("spec/*.md", "self"),
     ("spec/bindings/*.md", "self"),
-    ("spec/virtualize/*.md", "self"),
+    ("spec/zarrify/*.md", "self"),
     ("design/ARCHITECTURE.md", "self"),
     ("design/conformance/archive/**", "history:archive"),
-    ("design/conformance/virtualize/**", "history:virtualize"),
-    ("conformance/impls/virtualize/**", "spec/history/virtualize/VIRTUALIZE.r4.md"),
+    ("design/conformance/zarrify/**", "history:zarrify"),
+    ("conformance/impls/zarrify/**", "spec/history/virtualize/VIRTUALIZE.r4.md"),
     ("conformance/impls/**", "spec/history/archive/SPEC.r7.md"),
     ("conformance/vzip/**", "spec"),
-    ("conformance/virtualize/**", "spec/virtualize.md"),
+    ("conformance/zarrify/**", "spec/zarrify.md"),
     ("design/comparison/**", "spec"),
     ("design/experiments/**", "spec"),
     ("design/*.md", "spec"),
-    ("python/src/refkv/virtualize/*/**", "fmt"),
-    ("python/src/refkv/virtualize/**", "spec/virtualize.md"),
+    ("python/src/refkv/zarrify/*/**", "fmt"),
+    ("python/src/refkv/zarrify/**", "spec/zarrify.md"),
     ("python/src/refkv/ir/**", "spec/conventions.md"),
     ("python/src/refkv/**", "spec"),
-    ("js/src/virtualize/ir/**", "spec/conventions.md"),
-    ("js/src/virtualize/*/**", "fmt"),
-    ("js/src/virtualize/**", "spec/virtualize.md"),
+    ("js/src/zarrify/ir/**", "spec/conventions.md"),
+    ("js/src/zarrify/*/**", "fmt"),
+    ("js/src/zarrify/**", "spec/zarrify.md"),
     ("js/src/**", "spec"),
-    ("demo/map/**", "spec/virtualize/safe.md"),
-    ("js/conformance/**", "spec/virtualize.md"),
+    ("demo/map/**", "spec/zarrify/safe.md"),
+    ("js/conformance/**", "spec/zarrify.md"),
     ("js/test/*/**", "fmt"),
     ("js/test/ir_mirror.py", "spec/conventions.md"),
-    ("js/test/store.test.ts", "spec/virtualize.md"),
-    ("js/test/chunks.test.ts", "spec/virtualize.md"),
+    ("js/test/store.test.ts", "spec/zarrify.md"),
+    ("js/test/chunks.test.ts", "spec/zarrify.md"),
     ("js/test/**", "spec"),
     ("python/tests/ir/**", "spec/conventions.md"),
     ("python/tests/reference/**", "fmt"),
-    ("python/tests/test_virtualize_*.py", "fmt"),
-    ("python/tests/test_compare.py", "spec/virtualize.md"),
+    ("python/tests/test_zarrify_*.py", "fmt"),
+    ("python/tests/test_compare.py", "spec/zarrify.md"),
     ("python/tests/**", "spec"),
     ("fixtures/**", "fmt"),
     ("rust/refkv-ir/**", "fmt:spec/conventions.md"),
-    ("spec/generate_schemas.py", "spec/virtualize.md"),
-    ("docs/**", "spec/virtualize.md"),
-    (".github/**", "spec/virtualize.md"),
-    ("justfile", "spec/virtualize.md"),
+    ("spec/generate_schemas.py", "spec/zarrify.md"),
+    ("docs/**", "spec/zarrify.md"),
+    (".github/**", "spec/zarrify.md"),
+    ("justfile", "spec/zarrify.md"),
     ("js/README.md", "spec"),
 ]
 
@@ -548,7 +548,7 @@ def history_doc(path: str, which: str) -> str | None:
     m = re.search(r"/r(\d+)/", path)
     if not m:
         return None
-    name = "SPEC" if which == "archive" else "VIRTUALIZE"
+    name = "SPEC" if which == "archive" else "ZARRIFY"
     doc = f"spec/history/{which}/{name}.r{m.group(1)}.md"
     return doc if (ROOT / doc).is_file() else None
 
@@ -560,10 +560,10 @@ def snapshots(path: str) -> dict[str, str] | None:
     if matches(path, "design/conformance/archive/**") and m:
         spec, harness = f"SPEC.r{m.group(1)}", f"HARNESS.r{m.group(1)}"
         which = "archive"
-    elif matches(path, "design/conformance/virtualize/**") and m:
-        spec, harness, which = f"VIRTUALIZE.r{m.group(1)}", None, "virtualize"
-    elif matches(path, "conformance/impls/virtualize/**"):
-        spec, harness, which = "VIRTUALIZE.r4", None, "virtualize"
+    elif matches(path, "design/conformance/zarrify/**") and m:
+        spec, harness, which = f"ZARRIFY.r{m.group(1)}", None, "zarrify"
+    elif matches(path, "conformance/impls/zarrify/**"):
+        spec, harness, which = "ZARRIFY.r4", None, "zarrify"
     elif matches(path, "conformance/impls/**"):
         spec, harness, which = "SPEC.r7", "HARNESS.r7", "archive"
     else:
@@ -603,9 +603,9 @@ def doc_for_name(name: str, path: str) -> str | None:
     m = re.fullmatch(r"(?:\.\./)*conventions/([\w-]+)/README\.md", name)
     if m:
         f = m.group(1).replace("_", "-")
-        return f"spec/virtualize/{f}.md" if f in DOCS else None
+        return f"spec/zarrify/{f}.md" if f in DOCS else None
     if re.fullmatch(r"(?:\.\./)*profiles/([\w-]+)\.md", name):
-        return "spec/virtualize.md"
+        return "spec/zarrify.md"
     here = PurePosixPath(path).parent
     for cand in (here / name, PurePosixPath(name)):
         norm = "/".join(_normalize(cand.parts))
@@ -629,7 +629,7 @@ _FORMAT_NAMES = sorted({e["title"] for e in REGISTRY}
                        | {e["name"].upper() for e in REGISTRY if re.search(rf"\b{e['name'].upper()}\b", e["title"])},
                        key=len, reverse=True)
 Q_PATH = re.compile(r"(?<![\w/.\-\[])(\[?((?:\.{1,2}/)*[\w.\-]+(?:/[\w.\-]+)*\.md)(?:\]\([^()\s]*\))?)(?:'s)?,?\s*$")
-Q_OLD = re.compile(r"(?<![\w/])(SPEC|VIRTUALIZE)(?:'s)?\s*$")
+Q_OLD = re.compile(r"(?<![\w/])(SPEC|ZARRIFY)(?:'s)?\s*$")
 Q_CONVENTIONS = re.compile(r"(?<![\w/\-])(conventions)(?:'s?)?\s*$", re.I)
 Q_CONVENTION = re.compile(r"(?<![\w/\-])(" + _FMT + r"convention)(?:'s)?\s*$", re.I)
 Q_PROFILE = re.compile(r"(?<![\w/\-])(" + _FMT + r"profile)(?:'s)?\s*$", re.I)
@@ -665,7 +665,7 @@ def qualify(path: str, text: str, ref: Ref) -> tuple[str | None, str | None, int
         return doc, m.group(2), offset(m), None
     m = Q_OLD.search(pre)
     if m:
-        return ("spec" if m.group(1) == "SPEC" else "spec/virtualize.md"), m.group(1), offset(m), None
+        return ("spec" if m.group(1) == "SPEC" else "spec/zarrify.md"), m.group(1), offset(m), None
     m = Q_CONVENTIONS.search(pre)
     if m:
         return "spec/conventions.md", m.group(1), offset(m), None
@@ -673,10 +673,10 @@ def qualify(path: str, text: str, ref: Ref) -> tuple[str | None, str | None, int
         m = q.search(pre)
         if m:
             f = FORMAT_WORDS.get((m.group(2) or "").lower()) or format_of_doc(path) or fmt_of_path(path)
-            return (f"spec/virtualize/{f}.md" if f else "unknown"), m.group(1), offset(m), part
+            return (f"spec/zarrify/{f}.md" if f else "unknown"), m.group(1), offset(m), part
     m = Q_FORMAT.search(pre)
     if m:
-        return f"spec/virtualize/{FORMAT_WORDS[m.group(1).lower()]}.md", m.group(1), offset(m), 1
+        return f"spec/zarrify/{FORMAT_WORDS[m.group(1).lower()]}.md", m.group(1), offset(m), 1
     m = Q_SPEC.search(pre)
     if m:
         return "spec", m.group(1), offset(m), None
@@ -705,8 +705,8 @@ def tiers(path: str, ref: Ref) -> list[list[tuple[str, int | None]]]:
     if rule == "self":
         if format_of_doc(path):
             if part_at(path, ref.line) == 2:
-                return [[(path, 2)], [("spec/virtualize.md", None)], [(path, 1)]]
-            return [[(path, 1)], [(path, 2)], [("spec/virtualize.md", None)]]
+                return [[(path, 2)], [("spec/zarrify.md", None)], [(path, 1)]]
+            return [[(path, 1)], [(path, 2)], [("spec/zarrify.md", None)]]
         return [[(path, None)]]
     if rule == "spec":
         return [SPEC]
@@ -714,13 +714,13 @@ def tiers(path: str, ref: Ref) -> list[list[tuple[str, int | None]]]:
         doc = history_doc(path, rule.split(":", 1)[1])
         return [[(doc, None)]] if doc else []
     if rule.startswith("fmt"):
-        # the format's document, else (a file of no format) the fallback, then spec/virtualize.md
+        # the format's document, else (a file of no format) the fallback, then spec/zarrify.md
         f = fmt_of_path(path)
         if f is None:
             fallback = rule.partition(":")[2]
-            return ([[(fallback, None)]] if fallback else []) + [[("spec/virtualize.md", None)]]
-        doc = f"spec/virtualize/{f}.md"
-        return [[(doc, 1), (doc, 2)], [("spec/virtualize.md", None)]]
+            return ([[(fallback, None)]] if fallback else []) + [[("spec/zarrify.md", None)]]
+        doc = f"spec/zarrify/{f}.md"
+        return [[(doc, 1), (doc, 2)], [("spec/zarrify.md", None)]]
     return [[(rule, None)]]
 
 
@@ -764,7 +764,7 @@ def resolve(path: str, text: str, ref: Ref, prev: Ref | None) -> None:
         if doc == "spec":
             order = [SPEC]
         elif format_of_doc(doc) and part is None:
-            # a format's document by its path: Part 1 (its profile is cited as spec/virtualize.md §n)
+            # a format's document by its path: Part 1 (its profile is cited as spec/zarrify.md §n)
             order: list[list[tuple[str, int | None]]] = [[(doc, 1)], [(doc, 2)]]
         else:
             order = [[(doc, part)]]

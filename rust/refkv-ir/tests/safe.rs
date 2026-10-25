@@ -1,4 +1,4 @@
-//! The SAFE parser in both forms (src/safe/; spec/virtualize/safe.md): every product fixture
+//! The SAFE parser in both forms (src/safe/; spec/zarrify/safe.md): every product fixture
 //! it accepts is a valid IR whose mirror is canonical, whose view is the one it rebuilds, and
 //! that rebuilds its source (a directory's held documents from the mirror alone, a zip file
 //! byte for byte from its leaves); its band files are described in place; and one test per
@@ -126,7 +126,7 @@ macro_rules! reject {
     };
 }
 
-// one test per case of conformance/virtualize/rejects/safe.json (build.rs)
+// one test per case of conformance/zarrify/rejects/safe.json (build.rs)
 include!(concat!(env!("OUT_DIR"), "/rejects_safe.rs"));
 
 #[test]

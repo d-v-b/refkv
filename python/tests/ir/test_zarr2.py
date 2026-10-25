@@ -1,9 +1,9 @@
-"""Zarr v2 stores through the Rust IR (rust/refkv-ir/src/zarr2.rs; spec/virtualize/zarr2.md) on
+"""Zarr v2 stores through the Rust IR (rust/refkv-ir/src/zarr2.rs; spec/zarrify/zarr2.md) on
 the synthetic stores: the hierarchy outside `refkv_source` as the convention gives it, and the
 IR's mirror under `refkv_source`, which rebuilds the listing and every document read.
 
-Equivalence with the frozen reference (python/tests/reference/test_virtualize_zarr2.py) and the
-browser virtualizer is checked by conformance/virtualize/compare.py, and pixel correctness against
+Equivalence with the frozen reference (python/tests/reference/test_zarrify_zarr2.py) and the
+browser zarrifier is checked by conformance/zarrify/compare.py, and pixel correctness against
 zarr-python's Zarr v2 reader by js/test/zarr2/verify.py.
 """
 
@@ -13,9 +13,9 @@ from pathlib import Path
 
 from refkv import _core
 
-from refkv.virtualize import _virtualize as virtualize  # the profile output, not the store
-from refkv.virtualize.common import declare
-from refkv.virtualize.store import object_url
+from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store
+from refkv.zarrify.common import declare
+from refkv.zarrify.store import object_url
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "zarr2"
 URL = "https://data.test/zarr2/{}/"
@@ -96,9 +96,9 @@ def listing(out, tmp_path: Path) -> dict[str, tuple[int, bytes | None]]:
         return {k: (n, b) for k, n, b in _core.rebuild_store(lambda k: z.read(k) if k in names else None)}
 
 
-def test_virtualizes_the_synthetic_stores(tmp_path):
+def test_zarrifies_the_synthetic_stores(tmp_path):
     for name, (arrays, summary) in CASES.items():
-        fmt, out = virtualize(str(FIXTURES / name), url=URL.format(name))
+        fmt, out = zarrify(str(FIXTURES / name), url=URL.format(name))
         assert fmt == "zarr2", name
         assert {**out.summary, **summary} == out.summary, name
         for path, (dtype, codecs, sep, fill) in arrays.items():
@@ -110,20 +110,20 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
         assert out.sources == [object_url(URL.format(name), out.origins.get(k, k)) for k in keys], name
     # Chunk keys follow each array's separator and grid (two chunks, with a partial edge chunk,
     # along the first axis in C order and along the second in F order).
-    _, out = virtualize(str(FIXTURES / "zarr2_compressors"), url=URL.format("c"))
+    _, out = zarrify(str(FIXTURES / "zarr2_compressors"), url=URL.format("c"))
     assert [k for k, _ in out.chunks if k.startswith(("raw_c/", "zstd_f_nested/"))] == [
         "raw_c/0.0", "raw_c/1.0", "zstd_f_nested/0/0/0", "zstd_f_nested/0/1/0"]
     # A missing chunk and an empty one have no entry.
-    _, out = virtualize(str(FIXTURES / "zarr2_fill_values"), url=URL.format("f"))
+    _, out = zarrify(str(FIXTURES / "zarr2_fill_values"), url=URL.format("f"))
     assert [k for k, _ in out.chunks if k.startswith(("nan/", "inf/"))] == ["inf/1.0", "nan/1.0"]
     # The empty one is an object of the mirror's listing, of size 0 (§4.1
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#41-elements>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#41-elements>).
     assert listing(out, tmp_path)["nan/0.0"] == (0, None)
     # Stray objects and nodes inside arrays are kept whole under refkv_source/objects/
-    # (spec/virtualize/zarr2.md §5
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>);
+    # (spec/zarrify/zarr2.md §5
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>);
     # .zmetadata is not.
-    _, out = virtualize(str(FIXTURES / "zarr2_hierarchy"), url=URL.format("h"))
+    _, out = zarrify(str(FIXTURES / "zarr2_hierarchy"), url=URL.format("h"))
     assert [k for k, _ in out.chunks] == [
         "a/b/zero_d/0", "a/c/0/0", "a/c/1/0", "g/h/0", "refkv_source/objects/.zmetadata",
         "refkv_source/objects/a/c/0.0", "refkv_source/objects/a/c/0/9", "refkv_source/objects/a/c/00/1",
@@ -135,29 +135,29 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     assert out.docs["a/c/zarr.json"]["attributes"] == declare({}, "zarr2", None,
                                                               {"attributes": {"_ARRAY_DIMENSIONS": ["y", "x"]}})
     assert not {"a/c/inside/zarr.json", "orphan/zarr.json", "ghost/zarr.json", "notes/zarr.json"} & set(out.docs)
-    # Attributes are copied unchanged under the convention (spec/virtualize.md conventions §2
+    # Attributes are copied unchanged under the convention (spec/zarrify.md conventions §2
     # <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>), OME-NGFF 0.4
     # ones included: the root does not declare OME-NGFF 0.4 (§1.4
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>), so the store is
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>), so the store is
     # not read by the OME-Zarr profile.
-    _, out = virtualize(str(FIXTURES / "zarr2_ome_attrs"), url=URL.format("o"))
+    _, out = zarrify(str(FIXTURES / "zarr2_ome_attrs"), url=URL.format("o"))
     for path in ("", "0", "0/labels", "0/labels/cells", "v03", "has_ome", "mixed", "dup_axes"):
         zattrs = json.loads((FIXTURES / "zarr2_ome_attrs" / path / ".zattrs").read_text())
         expected = declare({}, "zarr2", URL.format("o") if path == "" else None, {"attributes": zattrs})
         assert out.docs[key(path)]["attributes"] == expected, path
     assert not any("dimension_names" in d for k, d in out.docs.items() if not k.startswith("refkv_source/"))
     # Other conventions, a refkv declaration and a malformed zarr_conventions are all copied as they are.
-    _, out = virtualize(str(FIXTURES / "zarr2_conventions"), url=URL.format("c"))
+    _, out = zarrify(str(FIXTURES / "zarr2_conventions"), url=URL.format("c"))
     for path in ("", "x", "v", "bad"):
         zattrs = json.loads((FIXTURES / "zarr2_conventions" / path / ".zattrs").read_text())
         assert out.docs[key(path)]["attributes"] == declare({}, "zarr2", URL.format("c") if path == "" else None,
                                                             {"attributes": zattrs}), path
-    # Source metadata (spec/virtualize/zarr2.md §4
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>): the
+    # Source metadata (spec/zarrify/zarr2.md §4
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#4-source-metadata>): the
     # attributes, with integers beyond 2^53
     # kept exact, and the members of .zarray and .zgroup the Zarr v3 metadata does not reproduce.
     url = URL.format("zarr2_source_metadata")
-    _, out = virtualize(str(FIXTURES / "zarr2_source_metadata"), url=url)
+    _, out = zarrify(str(FIXTURES / "zarr2_source_metadata"), url=url)
     assert out.docs["zarr.json"]["attributes"] == declare({}, "zarr2", url, {
         "attributes": {"id": 18446744073709551615, "neg": -9007199254740993, "safe": 9007199254740991},
         "metadata": {"creator": {"name": "a writer"}}})
@@ -167,7 +167,7 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     for path in ("neg_zero_f4", "zlib_9", "zstd_checksum"):
         assert out.docs[key(path)]["attributes"] == {}, path
     # A float fill written as an integer beyond 2^53 - 1 is kept as written (§4
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#4-source-metadata>).
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#4-source-metadata>).
     assert out.docs[key("big_fill_f8")]["attributes"] == declare(
         {}, "zarr2", None, {"metadata": {"fill_value": 18446744073709551616}})
     # The archive holds the integers' every digit, and the hex fill.
@@ -180,17 +180,17 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     # node document's name escaped with ~); the node documents and the chunks are not; empty
     # objects are the mirror's, of size 0, and refkv_source's source metadata is the mirror.
     url = URL.format("zarr2_objects")
-    _, out = virtualize(str(FIXTURES / "zarr2_objects"), url=url)
+    _, out = zarrify(str(FIXTURES / "zarr2_objects"), url=url)
     others = [".zmetadata", "OME/METADATA.ome.xml", "README.md", "a/inner/.zgroup~", "a/notes.txt", "sub/.zattrs"]
     assert out.chunks == sorted([("a/0", 4), ("a/1", 4), ("sub/b/0", 2)] + [
         ("refkv_source/objects/" + k, (FIXTURES / "zarr2_objects" / k.rstrip("~")).stat().st_size) for k in others])
     assert out.sources == [url + out.origins.get(k, k) for k, _ in out.chunks]
-    assert set(out.docs["refkv_source/zarr.json"]["attributes"]["refkv_virtualized"]["zarr2"]) == {"ir"}
+    assert set(out.docs["refkv_source/zarr.json"]["attributes"]["refkv_zarrified"]["zarr2"]) == {"ir"}
     assert listing(out, tmp_path)["empty.txt"] == (0, None)
-    assert "zarr2" not in out.docs["zarr.json"]["attributes"]["refkv_virtualized"]
+    assert "zarr2" not in out.docs["zarr.json"]["attributes"]["refkv_zarrified"]
     assert "sub/zarr.json" in out.docs and out.docs["sub/zarr.json"]["attributes"] == {}
     # Escaping is one to one: one ~ more on each last segment that is a node document's name and ~s.
-    _, out = virtualize(str(FIXTURES / "zarr2_node_names"), url=URL.format("n"))
+    _, out = zarrify(str(FIXTURES / "zarr2_node_names"), url=URL.format("n"))
     assert {k: out.origins[k] for k, _ in out.chunks if k.startswith("refkv_source/")} == {
         "refkv_source/objects/zarr.json~": "zarr.json", "refkv_source/objects/zarr.json~~": "zarr.json~",
         "refkv_source/objects/g/zarr.json~": "g/zarr.json", "refkv_source/objects/a/zarr.json~": "a/zarr.json",
@@ -199,8 +199,8 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     sizes = listing(out, tmp_path)
     assert (sizes["e"], sizes["g/e2"]) == ((0, None), (0, None))
     # A float fill written as an integer beyond 2^53 - 1 keeps its digits in M; F is its binary64 value.
-    _, out = virtualize(str(FIXTURES / "zarr2_fill_float_int"), url=URL.format("i"))
-    m = {p: out.docs[key(p)]["attributes"].get("refkv_virtualized", {}).get("zarr2") for p in ("h", "k", "s")}
+    _, out = zarrify(str(FIXTURES / "zarr2_fill_float_int"), url=URL.format("i"))
+    m = {p: out.docs[key(p)]["attributes"].get("refkv_zarrified", {}).get("zarr2") for p in ("h", "k", "s")}
     assert m == {"h": {"metadata": {"fill_value": 9007199254740993}},
                  "k": {"metadata": {"fill_value": -18446744073709551616}}, "s": None}
     assert [out.docs[key(p)]["fill_value"] for p in ("h", "k", "s")] == [2.0**53, -(2.0**64), 2**53 - 1]
@@ -212,19 +212,19 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
 
 def test_root_array_keeps_other_objects_without_a_group(tmp_path):
     """An array has no children: under a root array, the other objects and the mirror are plain
-    keys under refkv_source/ (spec/virtualize/zarr2.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/zarr2.md#5-other-objects>)."""
+    keys under refkv_source/ (spec/zarrify/zarr2.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/zarr2.md#5-other-objects>)."""
     name = "zarr2/zarr2_root_array_objects"
-    _, out = virtualize(str(FIXTURES.parent / name), url=f"https://data.test/{name}/")
+    _, out = zarrify(str(FIXTURES.parent / name), url=f"https://data.test/{name}/")
     assert out.docs["zarr.json"]["node_type"] == "array"
     assert "refkv_source/objects/README.md" in {k for k, _ in out.chunks}
     # Empty objects, an empty chunk object among them, are the mirror's objects of size 0.
     name = "zarr2/zarr2_root_array_empty"
-    _, out = virtualize(str(FIXTURES.parent / name), url=f"https://data.test/{name}/")
+    _, out = zarrify(str(FIXTURES.parent / name), url=f"https://data.test/{name}/")
     sizes = listing(out, tmp_path)
     assert (sizes["empty"], sizes["\u00e9mpty"]) == ((0, None), (0, None))
     assert "refkv_source/empty.json" not in out.docs
     name = "zarr2/zarr2_root_array_empty_chunk"
-    _, out = virtualize(str(FIXTURES.parent / name), url=f"https://data.test/{name}/")
+    _, out = zarrify(str(FIXTURES.parent / name), url=f"https://data.test/{name}/")
     assert [k for k, _ in out.chunks] == ["0"]
     assert listing(out, tmp_path)["1"] == (0, None)

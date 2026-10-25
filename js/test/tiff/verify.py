@@ -1,7 +1,7 @@
-"""Checks the browser TIFF virtualizer against tifffile.
+"""Checks the browser TIFF zarrifier against tifffile.
 
 Each supported fixture in fixtures/tiff/ (or, given as an argument,
-another directory) is virtualized by js/conformance/virtualize_file.ts (the browser code, run under Node). The archive is
+another directory) is zarrified by js/conformance/zarrify_file.ts (the browser code, run under Node). The archive is
 then read by the reference reader (python/src/refkv) and zarr-python, and every
 pyramid level must equal what tifffile reads from the TIFF directly. The
 unsupported fixtures must be refused.
@@ -67,7 +67,7 @@ register_codec("zlib", ZlibCodec)
 logging.getLogger("tifffile").setLevel(logging.CRITICAL)  # its warnings on the odd fixtures
 
 HERE = Path(__file__).parent
-CLI = ["node", str(HERE.parents[1] / "conformance" / "virtualize_file.ts")]
+CLI = ["node", str(HERE.parents[1] / "conformance" / "zarrify_file.ts")]
 AXIS = {"T": "t", "C": "c", "S": "c", "Z": "z", "Y": "y", "X": "x"}
 
 
@@ -86,8 +86,8 @@ STRUCTURE = {273, 279, 288, 289, 324, 325, 330, 513, 514, 519, 520, 521, 34665, 
 
 
 def as_json(tag):
-    """tifffile's value of a tag, as spec/virtualize/tiff.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#5-source-metadata> writes
+    """tifffile's value of a tag, as spec/zarrify/tiff.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#5-source-metadata> writes
     it."""
     v = tag.value
     if tag.dtype in (1, 7):
@@ -149,8 +149,8 @@ def pointer_offsets(f, entry: tuple[int, int, bytes], big: bool, order: str) -> 
 
 
 def tag_problems(path: Path, root, key: str) -> list[str]:
-    """Reconstruction (spec/virtualize/tiff.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#5-source-metadata>): every tag
+    """Reconstruction (spec/zarrify/tiff.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#5-source-metadata>): every tag
     of every IFD recorded
     (the main chain, and the IFDs that SubIFDs and the other pointer tags lead to) but
     the layout and pointer tags, in JSON or in an array, on the IFD's group, against
@@ -158,10 +158,10 @@ def tag_problems(path: Path, root, key: str) -> list[str]:
     and the strips or tiles of every IFD that is not an image are present."""
     problems = []
     node = root["refkv_source"]
-    source = node.attrs["refkv_virtualized"][key]
+    source = node.attrs["refkv_zarrified"][key]
 
     def meta(p):
-        return node[p].attrs["refkv_virtualized"][key]
+        return node[p].attrs["refkv_zarrified"][key]
 
     def compare(where, ifd, page, path):
         theirs = {}
@@ -229,7 +229,7 @@ def tag_problems(path: Path, root, key: str) -> list[str]:
     records = {}  # record number -> path, for the pointer tags whose IFDs are an array
     for name, member in node.members(max_depth=None):
         if isinstance(member, zarr.Group):
-            r = member.attrs.get("refkv_virtualized", {}).get(key, {}).get("record")
+            r = member.attrs.get("refkv_zarrified", {}).get(key, {}).get("record")
             if r is not None:
                 records[r] = name
 
@@ -309,7 +309,7 @@ def main(fixtures: Path = HERE.parents[2] / "fixtures" / "tiff") -> int:
                 if tags:
                     print(f"{tiff.name:42s} TAGS: {tags[:5]}")
             if tiff.name.startswith("edge_") and not tiff.name.startswith("edge_reject"):
-                continue  # compared between implementations by conformance/virtualize/compare.py
+                continue  # compared between implementations by conformance/zarrify/compare.py
             if tiff.name.startswith(("unsupported", "edge_reject")):
                 ok = p.returncode == 1 and not out.exists()
                 failures += not ok

@@ -10,11 +10,11 @@ import pytest
 from refkv import _core
 
 from ir_helpers import FIXTURES, as_the_reference, same_hierarchy
-from refkv.ir import virtualize as via_ir
+from refkv.ir import zarrify as via_ir
 from refkv.ir import parse
 from refkv.ir.planner import HttpTransport
 from refkv.policy import Policy
-from refkv.virtualize import Rejected
+from refkv.zarrify import Rejected
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 from refkv_reference.czi.xml import read_xml_values
 
@@ -65,8 +65,8 @@ def test_streaming_xml_values_are_the_tree_s():
 
 
 def test_bands_have_a_floor():
-    """Divisor bands (spec/virtualize/czi.md §4.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#43-image-arrays>) when they hold
+    """Divisor bands (spec/zarrify/czi.md §4.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#43-image-arrays>) when they hold
     at least 1 MiB; else bands of the
     most rows within 2^24 bytes, the last of each tile row shorter."""
     cases = [

@@ -5,7 +5,7 @@ import pytest
 
 from ir_helpers import FIXTURES
 
-from refkv.virtualize.common import Rejected
+from refkv.zarrify.common import Rejected
 
 
 def test_a_mirror_past_the_row_budget_is_rejected():
@@ -111,13 +111,13 @@ def test_an_archive_whose_root_is_named_is_a_violation():
 
     from refkv import _core
 
-    from refkv.ir import virtualize as via_ir
+    from refkv.ir import zarrify as via_ir
 
     path = FIXTURES / "tiff" / "edge_duplicate_tags.tif"
     data = path.read_bytes()
     _, out, _ = via_ir(str(path), "https://data.test/a.tif")
     doc = json.loads(out.bytes_entries["refkv_source/zarr.json"])
-    ir = doc["attributes"]["refkv_virtualized"]["tiff"]["ir"]
+    ir = doc["attributes"]["refkv_zarrified"]["tiff"]["ir"]
     assert ir["names"][0] == ""
     ir["names"][0] = "!"  # still sorted first
     entries = dict(out.bytes_entries, **{"refkv_source/zarr.json": json.dumps(doc).encode()})
@@ -132,7 +132,7 @@ def test_the_fill_batch_is_empty_on_every_probe(probes):
     """Every parser keeps every value the view shows (conventions §8.7
     <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>): on every probe
     the run accepts, the batch that reads what a parser did not keep is empty."""
-    from refkv.ir import virtualize as via_ir
+    from refkv.ir import zarrify as via_ir
 
     seen = 0
     for path in sorted(probes.iterdir()):

@@ -4,7 +4,7 @@ Status: proposal, 2026-10-08. This document collects an adversarial design
 review of vzip as a whole (five independent reviews: the data model, the
 archive format, resource bounds, the two implementations, and remote I/O)
 and proposes one structural change, an intermediate representation, that
-addresses most of what they found. It changes no normative text; spec/virtualize.md,
+addresses most of what they found. It changes no normative text; spec/zarrify.md,
 spec/refkv.md and the conventions stay authoritative until a revision adopts parts
 of this.
 
@@ -33,7 +33,7 @@ about twenty tagged forms (`{"latin1"}`, `{"utf16"}`, `{"int"}`,
 `Gathered`/`Structures`, hex fills, base64 data forms, ...), several of which
 collide with user keys in copied attributes. Even so, some information is
 still lost: ND2's LV record types (so LV chunks cannot be rebuilt, as the ND2
-convention [§5.1](../spec/virtualize/nd2.md#51-decoded-chunks) admits), ND2 XML attributes and text, DICOM number spelling, IMS object
+convention [§5.1](../spec/zarrify/nd2.md#51-decoded-chunks) admits), ND2 XML attributes and text, DICOM number spelling, IMS object
 comments, and every colliding name under the shared [conventions §6](../spec/conventions.md#6-source-metadata-as-json) rule.
 
 SAFE and CZI took the other view: the source bytes are the record, kept by
@@ -205,7 +205,7 @@ shared spec. Options for delivering both Python and the browser:
 |---|---|---|
 | Keep two hand-written implementations | Ongoing: every change twice | What we have |
 | Pyodide in a browser worker, running the Python core | Low; drops about 14 k lines of TypeScript | Python is stdlib-only and synchronous; worker XHR allows sync reads. Needs a cold-start measurement (6–10 MB runtime) |
-| Rust core, WASM and PyO3 | High: a rewrite | Fastest; `conformance/impls/virtualize/rust` is a seed |
+| Rust core, WASM and PyO3 | High: a rewrite | Fastest; `conformance/impls/zarrify/rust` is a seed |
 | TypeScript core called from Python | Low | Python users then need Node |
 
 Recommendation: measure Pyodide's cold start on the CZI and ND2 corpus; if
@@ -229,7 +229,7 @@ These are small and right under any architecture:
 2. **Staleness**: let profiles pin `size` (always known) and `etag` when
    visible; add an optional per-range `crc32c` that readers check after the
    fetch, which works across CORS.
-3. **Conformance**: make [spec/virtualize.md §1.1](../spec/virtualize.md#11-output-and-equivalence) compare integer literals exactly (adopt
+3. **Conformance**: make [spec/zarrify.md §1.1](../spec/zarrify.md#11-output-and-equivalence) compare integer literals exactly (adopt
    `same()`); run SPEC's strict reader on every archive inside `compare.py`;
    fail the TypeScript reader when `JSON.parse` source text is unavailable;
    add CI (pytest, node tests, sharded fixture compare) and a nightly corpus
@@ -260,7 +260,7 @@ Before touching nine formats, prototype on two:
   structures).
 
 Success means: the image projection reproduces today's outputs (equivalent by
-[spec/virtualize.md §1.1](../spec/virtualize.md#11-output-and-equivalence)); the mirror projection rebuilds every corpus file byte for byte from
+[spec/zarrify.md §1.1](../spec/zarrify.md#11-output-and-equivalence)); the mirror projection rebuilds every corpus file byte for byte from
 the IR's extents with no format code; the amplification probes (shared IFDs,
 hard links) are refused or aliased by the shared check, not by format code;
 and the IR plus projections are smaller than today's profile.

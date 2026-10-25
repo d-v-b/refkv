@@ -1,10 +1,10 @@
 // Serves the values of vzip archives as plain HTTP, so that any Zarr reader
-// can read them. Archives are either virtualized TIFFs or existing .vzip
+// can read them. Archives are either zarrified TIFFs or existing .vzip
 // files, named by URL:
 //
 //   <prefix>image/<id>/<key>     the image file at decodeId(id), or the N5,
 //                                Zarr v2 or OME-Zarr 0.4 store if that URL ends in "/",
-//                                virtualized by spec/virtualize.md
+//                                zarrified by spec/zarrify.md
 //   <prefix>tiff/<id>/<key>      the same, for TIFF files only
 //   <prefix>archive/<id>/<key>   the .vzip archive at decodeId(id)
 //   .../__vz__/archive.vzip      the archive itself (keys under __vz__/ are
@@ -15,12 +15,12 @@
 
 import { Archive, type Policy, type RangeFetcher, RefkvError } from "./archive.ts";
 import { HttpResolutionError, openHttpFile, readHttpRange } from "./http.ts";
-import { ImageError } from "./virtualize/common.ts";
-import { isStoreUrl, virtualizeSource, virtualizeStore } from "./virtualize/index.ts";
-import { virtualizeIr } from "./virtualize/ir/run.ts";
-import { openHttpSource, type RangeSource, readerSource } from "./virtualize/ir/source.ts";
-import { openHttpStore, StoreError, StoreLimitError, StoreReadError } from "./virtualize/store.ts";
-import type { StoreProfile } from "./virtualize/ir/store.ts";
+import { ImageError } from "./zarrify/common.ts";
+import { isStoreUrl, zarrifySource, zarrifyStore } from "./zarrify/index.ts";
+import { zarrifyIr } from "./zarrify/ir/run.ts";
+import { openHttpSource, type RangeSource, readerSource } from "./zarrify/ir/source.ts";
+import { openHttpStore, StoreError, StoreLimitError, StoreReadError } from "./zarrify/store.ts";
+import type { StoreProfile } from "./zarrify/ir/store.ts";
 import { writeVzip } from "./writer.ts";
 
 /** The titles rejections of the Rust core's store profiles carry, as the profiles' own errors did;
@@ -55,13 +55,13 @@ export function decodeId(id: string): string {
 export interface HandlerOptions {
   /** Absolute URL that every served path starts with, ending in "/". */
   prefix: string;
-  /** Opens an image file for virtualizing; defaults to `openHttpSource` under `policy`. */
+  /** Opens an image file for zarrifying; defaults to `openHttpSource` under `policy`. */
   openSource?: (url: string) => Promise<RangeSource>;
   /** Opens an image file as a reader, in place of `openSource` (its requests are not planned as remote ones). */
   openFile?: typeof openHttpFile;
   /**
-   * Lists and reads store inputs (spec/virtualize.md §1.5
-   * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#15-listing-a-store>); defaults to
+   * Lists and reads store inputs (spec/zarrify.md §1.5
+   * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#15-listing-a-store>); defaults to
    * `storeFetch` under `policy`. A fetch given here is still checked by the policy on each URL
    * as written and on each response's final URL.
    */
@@ -72,9 +72,9 @@ export interface HandlerOptions {
    * The reader policy (spec §6.7
    * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#67-reader-policy>) for `.vzip`
    * archives named by URL, and for
-   * the image files and stores the handler virtualizes; the default allows http(s)
+   * the image files and stores the handler zarrifies; the default allows http(s)
    * sources on public hosts. Archives
-   * the handler virtualizes itself are read with the same policy, plus
+   * the handler zarrifies itself are read with the same policy, plus
    * `unverifiablePins`: their pins were taken from the responses the handler
    * has just read, and a cross-origin server may hide the headers that would
    * check them again.
@@ -148,17 +148,17 @@ export function makeHandler(options: HandlerOptions) {
         }
         let virtual;
         if (kind === "image" && isStoreUrl(url)) {
-          virtual = await virtualizeStore(await openHttpStore(url, { policy, ...(fetchStore ? { fetch: fetchStore } : {}) }));
+          virtual = await zarrifyStore(await openHttpStore(url, { policy, ...(fetchStore ? { fetch: fetchStore } : {}) }));
         } else {
           const source = await openSource(url);
           if (kind === "tiff") {
-            virtual = await virtualizeIr("tiff", url, source);
+            virtual = await zarrifyIr("tiff", url, source);
             const etag = source.etag?.();
-            // spec/virtualize.md §1.2
-            // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>
+            // spec/zarrify.md §1.2
+            // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>
             virtual.sources[0] = { ...virtual.sources[0], size: BigInt(source.size), ...(etag !== undefined ? { etag } : {}) };
           } else {
-            virtual = await virtualizeSource(url, source);
+            virtual = await zarrifySource(url, source);
           }
         }
         const bytes = await writeVzip(virtual);

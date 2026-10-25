@@ -8,8 +8,8 @@ import pytest
 import tifffile
 
 from ir_helpers import FIXTURES, as_the_reference, omero_and_expected_windows, same_hierarchy
-from refkv.ir import virtualize as via_ir
-from refkv.virtualize import Rejected
+from refkv.ir import zarrify as via_ir
+from refkv.zarrify import Rejected
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
 TIFFS = sorted((FIXTURES / "tiff").iterdir())
@@ -45,7 +45,7 @@ def root_ome(path) -> dict:
                                        ("C4", "FFFFFF"))),
 ])
 def test_omero(name, omero):
-    """§4.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>: the
+    """§4.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>: the
     samples, R, G, B when they decode to RGB; else the OME-XML Channels' names and colors
     (test_omero_windows_sample_the_coarsest_level checks the windows)."""
     ome = root_ome(FIXTURES / "tiff" / name)
@@ -55,7 +55,7 @@ def test_omero(name, omero):
 
 @pytest.mark.parametrize("path", TIFFS, ids=lambda p: p.name)
 def test_omero_windows_sample_the_coarsest_level(path):
-    """§4.4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#44-arrays>: each
+    """§4.4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#44-arrays>: each
     channel's window is the one numpy computes from the coarsest level read through zarr-python
     (ir_helpers.omero_and_expected_windows), and an image with a channel of a float type that
     has none has no omero."""

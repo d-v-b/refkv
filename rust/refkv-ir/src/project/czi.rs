@@ -1,9 +1,9 @@
-//! The CZI image projection (spec/virtualize/czi.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#4-output>) from a valid IR: each
+//! The CZI image projection (spec/zarrify/czi.md §4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#4-output>) from a valid IR: each
 //! image level's cells and each tile array's members name the IR's data elements. Row
 //! bands come from the facts: `rows` a band holds and `per` bands a tile row
-//! (spec/virtualize/czi.md §4.3
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#43-image-arrays>, with the
+//! (spec/zarrify/czi.md §4.3
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#43-image-arrays>, with the
 //! parser's band floor).
 
 use super::{along, arr, key, n, obj, strs, translations, truthy};
@@ -13,8 +13,8 @@ use crate::out::{bioformats2raw, bytes_codec, declare_array, declared_group, ima
 use crate::refs::Refs;
 use serde_json::{json, Map, Value as J};
 
-/// The node of the tile arrays (spec/virtualize/czi.md §4.4
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#44-tiles>).
+/// The node of the tile arrays (spec/zarrify/czi.md §4.4
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#44-tiles>).
 const TILES: &str = "tiles";
 /// The most channel indexes of an image that get `omero` metadata.
 const MAX_OMERO: u64 = 64;
@@ -30,8 +30,8 @@ fn form_of(v: &J) -> Result<(Form, &'static str, u64, u64), String> {
     Ok((f, dt, p, q))
 }
 
-/// The codecs of a form (spec/virtualize/czi.md §3.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#31-pixel-types-and-codecs>):
+/// The codecs of a form (spec/zarrify/czi.md §3.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#31-pixel-types-and-codecs>):
 /// `transpose` for samples, then the compression's.
 fn codecs(form: Form, data_type: &str, p: u64, axes: &[&str]) -> J {
     let mut out = if p > 1 { vec![transpose_codec(axes)] } else { vec![] };
@@ -82,8 +82,8 @@ fn times(v: &J, full: i64) -> J {
     }
 }
 
-/// The `omero` channels of an image (spec/virtualize/czi.md §4.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#42-images>), or None past 64
+/// The `omero` channels of an image (spec/zarrify/czi.md §4.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#42-images>), or None past 64
 /// channel indexes.
 fn omero(values: &J, form: Form, data_type: &str, p: u64, lo_c: i64, channels: u64) -> Option<J> {
     if channels * p > MAX_OMERO {

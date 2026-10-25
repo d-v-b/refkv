@@ -1,6 +1,6 @@
-//! The N5 projection (spec/virtualize/n5.md §2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#2-nodes>–§6
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>) from a valid
+//! The N5 projection (spec/zarrify/n5.md §2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#2-nodes>–§6
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects>) from a valid
 //! store IR: the nodes the parser classified (the facts), their documents read back from the
 //! held objects, the chunk objects and the other objects from the listing. It writes the
 //! hierarchy outside `refkv_source` (whose group is the mirror's), and the references: each
@@ -38,8 +38,8 @@ fn s(k: &str) -> Js {
     Js::new(k)
 }
 
-/// `{"attributes": A, "metadata": M}`, each member only when not empty (spec/virtualize/n5.md §5
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#5-source-metadata>).
+/// `{"attributes": A, "metadata": M}`, each member only when not empty (spec/zarrify/n5.md §5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#5-source-metadata>).
 fn source_metadata(attributes: Vec<(Js, Jv)>, metadata: Vec<(Js, Jv)>) -> Vec<(Js, Jv)> {
     let mut m = Vec::new();
     if !attributes.is_empty() {
@@ -71,7 +71,7 @@ fn declare(target: Vec<(Js, Jv)>, url: Option<&str>, own: Vec<(Js, Jv)>) -> Jv {
     obj(a)
 }
 
-// ---- datasets (spec/virtualize/n5.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#3-datasets>)
+// ---- datasets (spec/zarrify/n5.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#3-datasets>)
 
 fn int(v: Option<&Jv>) -> i64 {
     v.and_then(|x| x.int(i64::MIN, i64::MAX)).unwrap_or(0)
@@ -167,7 +167,7 @@ fn dataset(doc: &Jv) -> (Vec<(Js, Jv)>, Vec<(Js, Jv)>, usize) {
     (array, source_metadata(doc.without(&LAYOUT), meta), n)
 }
 
-// ---- multiscale images (spec/virtualize/n5.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#4-multiscale-images>)
+// ---- multiscale images (spec/zarrify/n5.md §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#4-multiscale-images>)
 
 fn axis_type(a: &Js) -> Option<&'static str> {
     a.as_str().and_then(|a| table("axis_types")[a].as_str()).map(|t| match t {
@@ -414,9 +414,9 @@ fn n5_viewer(g: &str, attrs: &Jv, ndim: &BTreeMap<String, usize>, docs: &HashMap
     Ok(Some(Found { ome: ome_multiscale(None, &axes, &units, &paths, &scales, &translations), levels, axes }))
 }
 
-// ---- chunks and other objects (spec/virtualize/n5.md §3.1
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#31-chunks>, §6
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/n5.md#6-other-objects>)
+// ---- chunks and other objects (spec/zarrify/n5.md §3.1
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#31-chunks>, §6
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects>)
 
 /// The proper ancestors of `nodes` that are not nodes.
 fn implicit_groups(nodes: &BTreeSet<String>) -> BTreeSet<String> {

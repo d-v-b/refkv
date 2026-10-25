@@ -1,6 +1,6 @@
-//! A sans-IO parser of NIfTI-1 and NIfTI-2 single files into the IR (spec/virtualize/nifti.md §7
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#7-nifti-profile>, and the
-//! source model of §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#53-elements>).
+//! A sans-IO parser of NIfTI-1 and NIfTI-2 single files into the IR (spec/zarrify/nifti.md §7
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#7-nifti-profile>, and the
+//! source model of §5.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#53-elements>).
 //!
 //! Rounds: (1) the first 552 bytes (the header and its extender); (2) the extension
 //! chain, a window of up to 1 MiB at a time from the extension it stopped at. The
@@ -21,8 +21,8 @@ use serde_json::{Value as J, json};
 /// For tests: the payload past which an edge chunk is copied (None: MAX_PAYLOAD), of
 /// every profile that cuts contiguous values (`out::set_copy_threshold`). With NIfTI's
 /// chunk limit no file pads an edge chunk past MAX_PAYLOAD in practice, so the copy
-/// (spec/virtualize/nifti.md §7.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#72-chunks>) is reached
+/// (spec/zarrify/nifti.md §7.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#72-chunks>) is reached
 /// this way.
 pub fn set_copy_threshold(n: Option<usize>) {
     crate::out::set_copy_threshold(n);
@@ -37,8 +37,8 @@ const SHOWN: u64 = 1024;
 pub const TEXT_CODES: [i32; 5] = [4, 6, 8, 32, 44];
 
 /// The header's fields of each version (`i2`, `i4`, `i8`, `u1`, `f4`, `f8`, or `c` for
-/// text), in the standard's order (spec/virtualize/nifti.md §2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#2-the-header>).
+/// text), in the standard's order (spec/zarrify/nifti.md §2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#2-the-header>).
 pub const NIFTI1: [Field; 43] = [
     ("sizeof_hdr", 0, "i4", 1), ("data_type", 4, "c", 10), ("db_name", 14, "c", 18), ("extents", 32, "i4", 1),
     ("session_error", 36, "i2", 1), ("regular", 38, "c", 1), ("dim_info", 39, "u1", 1), ("dim", 40, "i2", 8),
@@ -66,8 +66,8 @@ pub const NIFTI2: [Field; 37] = [
     ("unused_str", 525, "c", 15),
 ];
 
-/// The NIfTI version a file's first bytes select (spec/virtualize.md §1.2
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>), if one.
+/// The NIfTI version a file's first bytes select (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>), if one.
 pub fn detect(head: &[u8]) -> Option<u8> {
     if head.len() < 12 {
         return None;
@@ -164,8 +164,8 @@ impl Nifti {
         }
     }
 
-    /// The header and its checks (spec/virtualize/nifti.md §7.1
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#71-header>), then the
+    /// The header and its checks (spec/zarrify/nifti.md §7.1
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#71-header>), then the
     /// elements of the header, the extender and the voxel data.
     fn head(&mut self) -> Res<()> {
         let got = self.fed.get(0, self.size.min(552)).ok_or("internal: no header")?.to_vec();
@@ -234,8 +234,8 @@ impl Nifti {
         Ok(())
     }
 
-    /// The extensions in a window of the chain from `q` (spec/virtualize/nifti.md §5
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>):
+    /// The extensions in a window of the chain from `q` (spec/zarrify/nifti.md §5
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#5-source-metadata>):
     /// the chain stops at an `esize` below 8 or past the voxel data.
     fn chain(&mut self, block: &[u8]) -> Res<()> {
         let e = if self.little { "<" } else { ">" };
@@ -285,7 +285,7 @@ fn py_float(v: f64) -> String {
 
 crate::parser!(Nifti);
 
-/// The NIfTI profile's file run (spec/virtualize/nifti.md).
+/// The NIfTI profile's file run (spec/zarrify/nifti.md).
 pub struct Profile;
 
 impl crate::run::FileProfile for Profile {

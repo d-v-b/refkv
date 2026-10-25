@@ -8,15 +8,15 @@ a reference store in one ordinary ZIP file
 ([its binding](https://github.com/d-v-b/refkv/blob/main/spec/bindings/vzip.md)).
 
 This package holds reference stores in memory, reads and writes vzip archives,
-and virtualizes image files and chunked array stores
-([the formats](https://github.com/d-v-b/refkv/blob/main/docs/virtualize/README.md#formats))
+and zarrifies image files and chunked array stores
+([the formats](https://github.com/d-v-b/refkv/blob/main/docs/zarrify/README.md#formats))
 through its Rust core, without copying their pixels
 ([docs](https://github.com/d-v-b/refkv/blob/main/docs/README.md)).
 
 ```python
-from refkv.virtualize import virtualize
+from refkv.zarrify import zarrify
 
-store = virtualize("https://example.org/slide.ndpi")  # a refkv.ReferenceStore
+store = zarrify("https://example.org/slide.ndpi")  # a refkv.ReferenceStore
 store.save("slide.vzip")                               # one vzip archive
 ```
 
@@ -26,7 +26,7 @@ For netCDF, HDF5 and the other files
 store that xarray opens ([example](https://github.com/d-v-b/refkv/blob/main/docs/virtual-datasets.md)).
 
 ```bash
-pip install refkv                  # read (local or over http(s)), write, virtualize
+pip install refkv                  # read (local or over http(s)), write, zarrify
 pip install "refkv[zarr]"          # refkv.zarr: open a store with zarr-python and xarray
 pip install "refkv[images]"        # and the JPEG, JPEG 2000 and JPEG XR codecs
 pip install "refkv[virtualizarr]"  # virtual datasets from VirtualiZarr (with obstore)

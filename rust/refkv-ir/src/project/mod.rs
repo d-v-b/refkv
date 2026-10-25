@@ -1,14 +1,14 @@
 //! The image projections (design/ARCHITECTURE.md §3.4
 //! <https://github.com/d-v-b/refkv/blob/main/design/ARCHITECTURE.md#34-projections>): a valid IR and
 //! its facts into
-//! today's Zarr hierarchy (spec/virtualize/tiff.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/tiff.md#4-the-image>,
-//! spec/virtualize/czi.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/czi.md#4-output>,
-//! spec/virtualize/nd2.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#4-the-image>, and ND2's root
+//! today's Zarr hierarchy (spec/zarrify/tiff.md §4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/tiff.md#4-the-image>,
+//! spec/zarrify/czi.md §4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/czi.md#4-output>,
+//! spec/zarrify/nd2.md §4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#4-the-image>, and ND2's root
 //! source metadata of §5.1
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>). A
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>). A
 //! projection checks nothing (the parser checked the schema)
 //! and reads nothing (the IR holds what it needs).
 
@@ -83,10 +83,10 @@ fn float_json(bits: u64, width: usize, v: f64) -> J {
 }
 
 /// A count or index of the facts (an integer, or a number written as a float).
-/// A header value as the root's source metadata writes it (spec/virtualize/mrc.md §5
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#5-source-metadata>,
-/// spec/virtualize/nifti.md §5
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nifti.md#5-source-metadata>): an
+/// A header value as the root's source metadata writes it (spec/zarrify/mrc.md §5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#5-source-metadata>,
+/// spec/zarrify/nifti.md §5
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#5-source-metadata>): an
 /// integer exactly (as text past 2^53 - 1); a float as a number, "NaN", "Infinity" or
 /// "-Infinity", or {"bits": hex} for a negative zero or a NaN other than the canonical one.
 fn header_value(h: &Header, at: usize, kind: &str) -> J {

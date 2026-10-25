@@ -1,9 +1,9 @@
 """Writes synthetic Sentinel-2 SAFE products to fixtures/safe/: each a
 directory `<name>/` (the directory form, a store input), and some also as a
 zip file `<name>.SAFE.zip` (the zip form), covering the SAFE profile
-(spec/virtualize/safe.md §8
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#8-safe-profile>) and its
-convention (spec/virtualize/safe.md).
+(spec/zarrify/safe.md §8
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#8-safe-profile>) and its
+convention (spec/zarrify/safe.md).
 
 The products mimic real ones, scaled down. Band files are JPEG 2000 files
 written by rasterio's JP2OpenJPEG driver (OpenJPEG), tiled, with PLT markers
@@ -830,7 +830,7 @@ def rejections() -> dict[str, dict[str, bytes]]:
 
 def zip_rejections() -> dict[str, dict]:
     """Zip files that the profile rejects (§8.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#84-the-zip-form>): name ->
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#84-the-zip-form>): name ->
     write_zip keywords."""
     base = mini()
     root = PRODUCT_L1C + ".SAFE"
@@ -922,8 +922,8 @@ def old_l2a(baseline: str, *, psd: bool) -> dict[str, bytes]:
 
 def many_records() -> dict[str, bytes]:
     """65 Special_Values and 65 scene classes: more than the records copied (the convention §6.2
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#62-band-arrays>, §6.3
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/safe.md#63-the-source-metadata-node>)."""
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#62-band-arrays>, §6.3
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/safe.md#63-the-source-metadata-node>)."""
     files = mini("L2A", bands=[("B01", 60, 1, 15, 6), ("SCL", 60, 1, 8, 6)])
     xml = files["MTD_MSIL2A.xml"].decode()
     sv = xml.index("            <Special_Values>")

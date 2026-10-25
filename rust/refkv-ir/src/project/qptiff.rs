@@ -1,5 +1,5 @@
-//! The QPTIFF image projection (spec/virtualize/qptiff.md §4
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#4-the-image>) from a valid IR:
+//! The QPTIFF image projection (spec/zarrify/qptiff.md §4
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#4-the-image>) from a valid IR:
 //! one array per level, whose chunks are the tiles, or the strips, of each channel's IFD (a
 //! short last strip padded to the chunk by the facts' `pad`: a zero data source, or a literal
 //! tail spliced into its LZW stream); the facts hold the format, the channels' names and
@@ -30,8 +30,8 @@ fn label(v: &J) -> Option<&str> {
     v.as_str().filter(|s| !s.is_empty() && s.len() <= MAX_NAME)
 }
 
-/// The `omero` member (spec/virtualize/qptiff.md §4.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#43-arrays>): one channel per
+/// The `omero` member (spec/zarrify/qptiff.md §4.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#43-arrays>): one channel per
 /// channel image, or, for an RGB image, one per sample; channel `c`'s window `windows[c]` (sampled
 /// from the data, else an integer type's whole range), and none when it has neither.
 fn omero(channels: &[J], spp: u64, windows: &[Option<J>]) -> J {
@@ -67,8 +67,8 @@ fn level_shape(facts: &J, lv: &J) -> (Vec<u64>, Vec<u64>) {
     (shape, chunk)
 }
 
-/// The chunks the `omero` windows sample (spec/virtualize/qptiff.md §4.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#43-arrays>): one per
+/// The chunks the `omero` windows sample (spec/zarrify/qptiff.md §4.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#43-arrays>): one per
 /// channel of the coarsest level, unless the image is RGB (three samples) or the core does not
 /// decode its compression.
 fn samples(facts: &J) -> Vec<window::Sample> {
@@ -98,8 +98,8 @@ fn arrays(ir: &Ir, facts: &J, url: &str, only: Option<usize>) -> Result<(Out, Ve
         let strips = lv["strips"].as_bool().unwrap_or(false);
         let down = h.div_ceil(th);
         let across = if strips { 1 } else { w.div_ceil(tw) };
-        // a short last strip, padded to the chunk (spec/virtualize/qptiff.md §4.2
-        // <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#42-tiles-and-strips>)
+        // a short last strip, padded to the chunk (spec/zarrify/qptiff.md §4.2
+        // <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#42-tiles-and-strips>)
         let pad = &lv["pad"];
         let zeros = pad["zeros"].as_u64().map(|z| refs.out.shared(&vec![0u8; z as usize]));
         let lzw: HashMap<(u64, u64), (u64, Vec<u8>)> = arr(&pad["lzw"])

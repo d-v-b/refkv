@@ -18,9 +18,9 @@ from xml.sax.saxutils import escape
 import pytest
 
 from refkv import _core
-from refkv.ir.store import virtualize_store
-from refkv.virtualize.common import Rejected
-from refkv.virtualize.store import object_url
+from refkv.ir.store import zarrify_store
+from refkv.zarrify.common import Rejected
+from refkv.zarrify.store import object_url
 
 FIXTURES = Path(__file__).parents[3] / "fixtures"
 STORES = sorted(p for f in ("zarr2", "ome-zarr") for p in (FIXTURES / f).iterdir() if p.is_dir())
@@ -87,10 +87,10 @@ def test_a_store_run_reads_each_document_once_and_its_mirror_rebuilds_them(root,
         # listing, or after reading documents only (an OME-Zarr store is a Zarr v2 store to the
         # core's format, which decides it is OME-Zarr's from its documents)
         with pytest.raises(Rejected):
-            virtualize_store(URL, opener=s3, workers=4)
+            zarrify_store(URL, opener=s3, workers=4)
         assert all(is_doc(k, objects[k]) and n == 1 for k, n in s3.reads.items()), s3.reads
         return
-    out, ir, stats = virtualize_store(URL, opener=s3, workers=4)
+    out, ir, stats = zarrify_store(URL, opener=s3, workers=4)
     # each document read once, in one batch, at most 4 at a time; no chunk object read
     docs = set(s3.reads)
     assert s3.reads == {k: 1 for k in docs} and all(is_doc(k, objects[k]) for k in docs)
@@ -114,20 +114,20 @@ def test_a_store_run_reads_each_document_once_and_its_mirror_rebuilds_them(root,
     assert sorted((k, n) for k, n, _ in rebuilt) == sorted((k, len(v)) for k, v in objects.items())
     assert {k: b for k, _, b in rebuilt if b is not None} == {k: objects[k] for k in docs}
     # a local directory gives the same output
-    local, _, _ = virtualize_store(str(root), URL)
+    local, _, _ = zarrify_store(str(root), URL)
     assert (local.entries, local.refs) == (out.entries, out.refs)
 
 
 def test_a_document_the_store_refuses_fails_the_run():
     s3 = FakeS3({".zgroup": 404, "a/0": b"x"})
     with pytest.raises(urllib.error.HTTPError):
-        virtualize_store(URL, opener=s3, workers=2)
+        zarrify_store(URL, opener=s3, workers=2)
 
 
 def test_a_document_shorter_than_listed_fails_the_run():
     s3 = FakeS3({".zgroup": b'{"zarr_format": 2}', "a/.zarray": b"{}"}, short=frozenset({".zgroup"}))
     with pytest.raises(OSError, match="the listing says"):
-        virtualize_store(URL, opener=s3, workers=2)
+        zarrify_store(URL, opener=s3, workers=2)
 
 
 def test_an_unknown_store_format_is_refused():
@@ -136,13 +136,13 @@ def test_an_unknown_store_format_is_refused():
 
 
 def test_the_ignored_keys_are_refkv_source_s_member_ignored():
-    """The listed keys the store reader ignores and records (spec/virtualize.md §1.4
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>) are the member
+    """The listed keys the store reader ignores and records (spec/zarrify.md §1.4
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>) are the member
     `ignored` of refkv_source's source metadata, beside `ir`, in the order of their UTF-8 bytes."""
     root = FIXTURES / "zarr2" / "zarr2_hierarchy"
     s3 = FakeS3({**directory(root), "z//y": b"1", "./x": b"2", "é/../w": b"3"})
-    out, _, _ = virtualize_store(URL, opener=s3, workers=2)
-    own = json.loads(out.entries["refkv_source/zarr.json"])["attributes"]["refkv_virtualized"]["zarr2"]
+    out, _, _ = zarrify_store(URL, opener=s3, workers=2)
+    own = json.loads(out.entries["refkv_source/zarr.json"])["attributes"]["refkv_zarrified"]["zarr2"]
     assert set(own) == {"ir", "ignored"}
     assert own["ignored"] == sorted(["z//y", "./x", "é/../w"], key=str.encode)
 
@@ -150,7 +150,7 @@ def test_the_ignored_keys_are_refkv_source_s_member_ignored():
 def test_a_rejection_names_the_store_format():
     s3 = FakeS3({".zgroup": b'{"zarr_format": 2}', "a/.zarray": b'{"zarr_format": 3}'})
     with pytest.raises(Rejected, match="zarr_format is not 2") as e:
-        virtualize_store(URL, opener=s3, workers=2)
+        zarrify_store(URL, opener=s3, workers=2)
     assert e.value.format == "zarr2"
 
 

@@ -1,9 +1,9 @@
-"""The MRC convention's source metadata (spec/virtualize/mrc.md), for
+"""The MRC convention's source metadata (spec/zarrify/mrc.md), for
 spec/generate_schemas.py."""
 
 SCHEMA = {"anyOf": [{
     "type": "object",
-    "description": "The root's: the byte order, the kind of file, the data type, the header, and what the layout derives from it (spec/virtualize/mrc.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/mrc.md#5-source-metadata>)",
+    "description": "The root's: the byte order, the kind of file, the data type, the header, and what the layout derives from it (spec/zarrify/mrc.md §5 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/mrc.md#5-source-metadata>)",
     "properties": {
         "byte_order": {"enum": ["little", "big"]},
         "kind": {"enum": ["image", "image_stack", "volume", "volume_stack"]},

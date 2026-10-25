@@ -3,7 +3,7 @@
 //! for, writes their bytes into buffers it allocates here, and feeds them.
 //!
 //! `vz_new(format, n, size)` makes a parser of the format named by the UTF-8 `format` (a name of
-//! `Format::from_name`: the profile's in spec/virtualize/profiles/); `vz_step`, `vz_feed`
+//! `Format::from_name`: the profile's in spec/zarrify/profiles/); `vz_step`, `vz_feed`
 //! and `vz_finish` drive it. The `nd2_*` names are round 2's, kept.
 
 use crate::nd2::{Nd2, Step};
@@ -40,8 +40,8 @@ pub extern "C" fn vz_out() -> *const u8 {
     OUT.with(|o| o.borrow().as_ptr())
 }
 
-/// The `refkv.fits_tiles` codec (spec/virtualize/fits.md §3.3
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/fits.md#33-tile-compressed-images>):
+/// The `refkv.fits_tiles` codec (spec/zarrify/fits.md §3.3
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/fits.md#33-tile-compressed-images>):
 /// decodes the chunk at `chunk` (`n` bytes) with the configuration JSON at `config` (`nc`
 /// bytes) into the pixels of the chunk shape at `shape` (`rank` little-endian u64), in
 /// `vz_out`: the pixels' length, or minus a message's.

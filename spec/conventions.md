@@ -4,30 +4,31 @@ A Zarr hierarchy made from a source in another format (a TIFF, an ND2 file, an
 N5 store, ...) looks like any other Zarr hierarchy. These conventions make
 it describe itself: which source it presents, which format that source is
 in, and everything the source's own header or metadata says. There is one
-convention per source format, each specified in `virtualize/<format>.md` next to
-its JSON Schema `virtualize/<format>/schema.json`:
+convention per source format, each specified in `zarrify/<format>.md` next to
+its JSON Schema `zarrify/<format>/schema.json`. (Changed 2026-10-25: the property is
+`refkv_zarrified`, in place of `refkv_virtualized`, [§2](#2-attributes).)
 
 <!-- profiles:conventions-table -->
 | format | convention | UUID |
 |---|---|---|
-| Zeiss CZI | [czi](virtualize/czi.md) | `7a0733c7-d4be-4482-a64f-6904d9354ea5` |
-| DICOM | [dicom](virtualize/dicom.md) | `acf17198-e5a5-48d3-8187-22ec4bb40ea5` |
-| FITS | [fits](virtualize/fits.md) | `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` |
-| Imaris IMS | [ims](virtualize/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
-| MP3 (MPEG Layer III audio) | [mp3](virtualize/mp3.md) | `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` |
-| MP4 and QuickTime (H.264 video, AAC and MP3 audio) | [mp4](virtualize/mp4.md) | `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` |
-| MRC2014 | [mrc](virtualize/mrc.md) | `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` |
-| MRC2014, as a dataset ([§9](#9-dataset-layouts)) | [mrc-dataset](virtualize/mrc-dataset.md) | `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` |
-| N5 | [n5](virtualize/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
-| Nikon ND2 | [nd2](virtualize/nd2.md) | `59612f14-e314-4207-ba00-8f422ba71490` |
-| Hamamatsu NDPI | [ndpi](virtualize/ndpi.md) | `6cac71ef-dbb2-4acd-b60c-00389aa4238a` |
-| NIfTI-1 and NIfTI-2 | [nifti](virtualize/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
-| OME-Zarr 0.4 | [ome-zarr](virtualize/ome-zarr.md) | `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` |
-| Akoya QPTIFF | [qptiff](virtualize/qptiff.md) | `329ea136-2f55-4c27-b6f4-8e60ca2109b8` |
-| Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](virtualize/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
-| TIFF, OME-TIFF, Aperio SVS | [tiff](virtualize/tiff.md) | `48e9ac4e-1156-4a62-955e-20467d9c2700` |
-| Olympus VSI | [vsi](virtualize/vsi.md) | `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` |
-| Zarr v2 | [zarr2](virtualize/zarr2.md) | `8e792619-d671-4687-ab51-752885dd3ee6` |
+| Zeiss CZI | [czi](zarrify/czi.md) | `7a0733c7-d4be-4482-a64f-6904d9354ea5` |
+| DICOM | [dicom](zarrify/dicom.md) | `acf17198-e5a5-48d3-8187-22ec4bb40ea5` |
+| FITS | [fits](zarrify/fits.md) | `4b0d3a7e-1c52-4f6a-9b8e-2d7f0c6a1e93` |
+| Imaris IMS | [ims](zarrify/ims.md) | `5067a535-8261-4b25-a93c-1985ed333bde` |
+| MP3 (MPEG Layer III audio) | [mp3](zarrify/mp3.md) | `b6cb0047-9448-4fdc-b03e-10dd3d6aa829` |
+| MP4 and QuickTime (H.264 video, AAC and MP3 audio) | [mp4](zarrify/mp4.md) | `bbe3f6b9-488d-4d8d-85ce-60a1649dd27e` |
+| MRC2014 | [mrc](zarrify/mrc.md) | `2aacd010-2ed1-4748-bc3c-5dd5e840bbce` |
+| MRC2014, as a dataset ([§9](#9-dataset-layouts)) | [mrc-dataset](zarrify/mrc-dataset.md) | `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` |
+| N5 | [n5](zarrify/n5.md) | `ad5d4c39-c69e-48f7-a3ef-4cc8c607d416` |
+| Nikon ND2 | [nd2](zarrify/nd2.md) | `59612f14-e314-4207-ba00-8f422ba71490` |
+| Hamamatsu NDPI | [ndpi](zarrify/ndpi.md) | `6cac71ef-dbb2-4acd-b60c-00389aa4238a` |
+| NIfTI-1 and NIfTI-2 | [nifti](zarrify/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
+| OME-Zarr 0.4 | [ome-zarr](zarrify/ome-zarr.md) | `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` |
+| Akoya QPTIFF | [qptiff](zarrify/qptiff.md) | `329ea136-2f55-4c27-b6f4-8e60ca2109b8` |
+| Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](zarrify/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
+| TIFF, OME-TIFF, Aperio SVS | [tiff](zarrify/tiff.md) | `48e9ac4e-1156-4a62-955e-20467d9c2700` |
+| Olympus VSI | [vsi](zarrify/vsi.md) | `c0a1d4e6-5b7f-4f3a-9c2d-8e1f6a7b3c45` |
+| Zarr v2 | [zarr2](zarrify/zarr2.md) | `8e792619-d671-4687-ab51-752885dd3ee6` |
 <!-- /profiles -->
 
 A format's convention specifies the hierarchy's whole **Zarr layout**: which
@@ -38,7 +39,7 @@ source's header into JSON. It says what each chunk holds in terms of the
 source (for example, "the chunk at `0/c/t/0/z/0/0` is frame `f`"), but not
 how a store produces those bytes. refkv produces these hierarchies as
 reference stores whose chunks are byte ranges of the source; that is
-specified separately, in [spec/virtualize.md](virtualize.md) and its
+specified separately, in [spec/zarrify.md](zarrify.md) and its
 profiles, which refer to these conventions for the layout.
 
 Every convention is held to two requirements:
@@ -64,7 +65,7 @@ Every convention is held to two requirements:
 
 This document holds what every convention shares. The key words MUST, MUST
 NOT, SHOULD, SHOULD NOT and MAY are to be interpreted as described in RFC
-2119. Numbers follow [spec/virtualize.md §1.3](virtualize.md#13-arithmetic)
+2119. Numbers follow [spec/zarrify.md §1.3](zarrify.md#13-arithmetic)
 (IEEE 754 binary64, correctly rounded).
 
 ## 1. Conventions
@@ -79,13 +80,13 @@ document's header.
   Version 0 promises nothing: any change may change a layout; a convention's
   document records its changes.
 - **At the release**, every convention becomes version 1, tagged
-  `virtualize-<p>-v1` in the refkv repository. From then on a convention's
+  `zarrify-<p>-v1` in the refkv repository. From then on a convention's
   version increases by 1 whenever the layout it specifies, or the reference
   store that refkv's profile for that format specifies, changes for some
   source, including whether the source is accepted (a **breaking change**);
   an editorial change, or a change to another format, leaves it as it is.
   Version `N` of the convention for format `p` is tagged
-  `virtualize-<p>-v<N>`.
+  `zarrify-<p>-v<N>`.
 - A reader that relies on a convention MUST reject a hierarchy whose
   version it does not know, as each convention's JSON Schema does.
 
@@ -95,19 +96,19 @@ the Convention Metadata Object (CMO)
 ```json
 {
   "uuid": "<the UUID above>",
-  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/tags/virtualize-<p>-v<N>/spec/virtualize/<p>/schema.json",
-  "spec_url": "https://github.com/d-v-b/refkv/blob/virtualize-<p>-v<N>/spec/virtualize/<p>.md",
-  "name": "refkv_virtualized",
-  "description": "The Zarr layout of a <T> source virtualized by refkv, and the source's metadata"
+  "schema_url": "https://raw.githubusercontent.com/d-v-b/refkv/refs/tags/zarrify-<p>-v<N>/spec/zarrify/<p>/schema.json",
+  "spec_url": "https://github.com/d-v-b/refkv/blob/zarrify-<p>-v<N>/spec/zarrify/<p>.md",
+  "name": "refkv_zarrified",
+  "description": "The Zarr layout of a <T> source zarrified by refkv, and the source's metadata"
 }
 ```
 
 with no other members. At version 0, which has no tag, the URLs name the
-development branch instead: `.../refs/heads/main/spec/virtualize/<p>/schema.json`
-and `.../blob/main/spec/virtualize/<p>.md`. `T` is the format's title, the `title` of its
-entry in the profile registry ([virtualize/profiles/](virtualize/profiles/)`<p>.json`: `TIFF`,
+development branch instead: `.../refs/heads/main/spec/zarrify/<p>/schema.json`
+and `.../blob/main/spec/zarrify/<p>.md`. `T` is the format's title, the `title` of its
+entry in the profile registry ([zarrify/profiles/](zarrify/profiles/)`<p>.json`: `TIFF`,
 `Zarr v2`, `Sentinel-2 SAFE`, ...). The UUID is the same for every version; the version is in
-the URLs. All conventions nest their property under one key, `refkv_virtualized`, which is
+the URLs. All conventions nest their property under one key, `refkv_zarrified`, which is
 also their `name`: the framework asks a nesting convention's `name` to be
 its key, and a key without a colon is not mistaken for a namespace prefix.
 
@@ -119,9 +120,9 @@ and only when, the node has source metadata (below). A node that declares
 it has, in its attributes, the member `zarr_conventions`, whose value is
 `[C]` with `C` the format's CMO (for the SAFE convention, `C` followed by
 the CMOs of the GeoZarr conventions the node uses), and the member
-`refkv_virtualized`.
+`refkv_zarrified`.
 
-**The property.** On the root, `refkv_virtualized` is the object
+**The property.** On the root, `refkv_zarrified` is the object
 
 ```json
 {"profile": "<p>", "version": N, "source": {"url": "<U>"}, "<p>": S}
@@ -161,7 +162,7 @@ rebuilt byte for byte; for a store's, the store's
 ([§8.9](#89-stores)), from which the listing and the documents read are rebuilt: always
 present (under a root array, as plain keys of the archive).
 
-**Nothing else.** Outside `refkv_virtualized`, a node's attributes hold only
+**Nothing else.** Outside `refkv_zarrified`, a node's attributes hold only
 members that the hierarchy's target formats define, where the format's
 convention places them: `ome` (OME-NGFF 0.5, §4), the GeoZarr members of
 the zarr-conventions `proj`, `spatial` and `multiscales` conventions
@@ -304,7 +305,7 @@ fields and how each becomes a member of `S`. Unless it says otherwise:
   names the field, and members appear in the order the section lists them.
   A field the source does not have is absent (not `null`). The order of an
   object's members is not significant: producers compare JSON values
-  ([spec/virtualize.md §1.1](virtualize.md#11-output-and-equivalence)), and a
+  ([spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)), and a
   JavaScript producer cannot keep integer-like names in place.
 - **Integers** become JSON numbers when their magnitude is at most
   2^53 − 1, and otherwise the string of their decimal digits (with a
@@ -332,12 +333,12 @@ fields and how each becomes a member of `S`. Unless it says otherwise:
   padding).
 
 Producers compare these as JSON values: numbers by their binary64 values,
-strings by their characters ([spec/virtualize.md §1.1](virtualize.md#11-output-and-equivalence)).
+strings by their characters ([spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)).
 
 These rules apply to values the convention translates from the source's
 bytes. Members copied from a JSON document of the source (a store's
 attributes) are copied as JSON values, not translated: their numbers are
-read as [spec/virtualize.md §1.6](virtualize.md#16-json-documents) says. A
+read as [spec/zarrify.md §1.6](zarrify.md#16-json-documents) says. A
 number written as an integer (no fraction or exponent) is copied exactly,
 every digit, even beyond 2^53 − 1, and written back so; any other number is
 its binary64 value. Where a convention uses a number in the layout, it uses
@@ -386,7 +387,7 @@ declaration of the convention with the array's own source metadata.
   q × c)`, that start `((… (i_0 × S[1] + i_1) × … ) × S[a−1] + i_{a−1}) × n
   × s_a + q × c × s_a` bytes into the values; when `m < c` it is padded with
   `(c − m) × s_a` zero bytes, a literal of the reference when the reference
-  fits in a payload ([spec/virtualize.md §1.2](virtualize.md#12-input)), and otherwise the chunk is copied with
+  fits in a payload ([spec/zarrify.md §1.2](zarrify.md#12-input)), and otherwise the chunk is copied with
   its padding. An array of rank 0 is one chunk; an array with a size of 0
   has no chunks, and the chunk shape `max(1, S[j])`.
 - **A family of byte values** (one value per index `i`, such as a per-frame
@@ -472,7 +473,7 @@ invalid (8.3). A path
 therefore names one element; the view (8.7) gives an alias's target by its
 path. A format whose names come from the source (a chunk's name, a record's
 key, an XML tag), which may be empty, repeat, or hold `/`, names those
-elements so that this holds; [ND2 §5.3](virtualize/nd2.md#53-elements) gives one
+elements so that this holds; [ND2 §5.3](zarrify/nd2.md#53-elements) gives one
 rule for that, which any format may adopt.
 
 These rules are those of every file profile's IR (a `.SAFE.zip` included), and of any
@@ -625,7 +626,7 @@ A reader that rebuilds the source:
    source 0 at their extents.
 
 The result is the source, byte for byte: its length is `Z`, which source 0
-pins ([spec/virtualize.md §1.2](virtualize.md#12-input)), and a range checksum, when the archive carries
+pins ([spec/zarrify.md §1.2](zarrify.md#12-input)), and a range checksum, when the archive carries
 one, checks each range read. The extents index source 0 directly; there is
 no array of the source's bytes. (A store's IR rebuilds each of its held
 objects from the table alone: [§8.9](#89-stores).)
@@ -741,7 +742,7 @@ decoded bytes of the values the view shows), whatever order the producer
 found the elements in and however it folded them. Two conforming producers
 therefore write identical `ir/rows`, `ir/tables` and `ir/shared`, the same
 description in `refkv_source`'s source metadata and the same view for one
-source, and [spec/virtualize.md §1.1](virtualize.md#11-output-and-equivalence)
+source, and [spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)
 compares mirrors entry for entry. In order:
 
 1. **Runs.** Every run (8.1) is expanded into its members: member `j`'s root
@@ -862,7 +863,7 @@ columns of encoding 2, reading arrays from the source, a cost a reader that
 wants one value or a rebuild should not pay; and a reader that rejected a
 valid but non-canonical table would turn a producer's defect into a reader's
 loss of the data. So the check belongs where producers are checked:
-`conformance/virtualize/compare.py` loads each mirror, folds it again and
+`conformance/zarrify/compare.py` loads each mirror, folds it again and
 compares the result with what is stored, flagging the first difference (a
 run row, a compressed chunk, unsorted strings, rows out of order, a fold or
 an encoding other than the one this section gives, a different entry). A
@@ -884,7 +885,7 @@ revision of this section.
 
 ### 8.9 Stores
 
-A store input ([spec/virtualize.md §1.4](virtualize.md#14-store-inputs)) is
+A store input ([spec/zarrify.md §1.4](zarrify.md#14-store-inputs)) is
 a set of objects named by keys. Its IR, a **store IR**, has many sources: each
 object of the store is one. Sections [8.1](#81-elements) to
 [8.8](#88-canonical-form) hold for a store IR with the changes this section
@@ -901,13 +902,13 @@ directory: a struct named `""` with no name index, in space 0, with no extent
 (in place of 8.1's `(0, Z)`). Every other element outside every object is a
 **directory**: a struct with no extent, in space 0, that is not a run, one per
 directory of the store
-([spec/virtualize.md §1.4](virtualize.md#14-store-inputs)). An object's parent
+([spec/zarrify.md §1.4](zarrify.md#14-store-inputs)). An object's parent
 is the root or a directory. The path of an object or a directory is its key:
 the full name of each is its key's segment, by the rule below. So the tree is
 the listing: the paths of the objects are the store's keys, and the lengths of
 their extents its sizes. A key the listing does not have (a chunk an array
 does not store) has no element. The keys a store reader ignores
-([spec/virtualize.md §1.4](virtualize.md#14-store-inputs)) are not objects:
+([spec/zarrify.md §1.4](zarrify.md#14-store-inputs)) are not objects:
 the store conventions record them as they do without an IR.
 
 **Names.** A key segment `t` has the name and name index:
@@ -948,7 +949,7 @@ held: an object that has children and whose form ([8.5](#85-forms-and-recipes))
 is `{"bytes":"source"}` is **described in place**. Its leaves partition
 `[0, s)` of its bytes, as a held object's do, but the table does not hold its
 bytes: they are its own source's, which a reader reads at the object's URL
-([spec/virtualize.md §1.4](virtualize.md#14-store-inputs)), as it reads a file
+([spec/zarrify.md §1.4](zarrify.md#14-store-inputs)), as it reads a file
 IR's source 0 ([8.4](#84-reading-the-source-back)). A producer reads every value
 the view shows in such an object (its parser holds them). A held object is
 then an object with children that is not described in place.
@@ -1029,7 +1030,7 @@ directories at once, one column run for a full grid; flat keys (`i.j.k`) fold on
 column run per name (`i.j.`). The held objects' byte strings are in id order.
 
 **Producers.** A producer lists the store
-([spec/virtualize.md §1.5](virtualize.md#15-listing-a-store)), builds the
+([spec/zarrify.md §1.5](zarrify.md#15-listing-a-store)), builds the
 directories and objects from the listing, then reads the objects its format
 names, whole, in as few rounds as the format's structure allows: a round is the
 documents whose keys the listing and the documents read so far name (every
@@ -1046,7 +1047,7 @@ variables and coordinate variables, with dimensions named by
 layouts reference the same bytes of the source; neither copies the other's
 chunks. A format has a dataset layout when its dataset convention exists:
 a convention of its own, named `<p>-dataset` for the format `p`, with its
-own UUID, schema and document (`virtualize/<p>-dataset.md`), which
+own UUID, schema and document (`zarrify/<p>-dataset.md`), which
 specifies the layout's variables and where each comes from. This section
 holds what every dataset layout shares.
 
@@ -1054,7 +1055,7 @@ holds what every dataset layout shares.
 dataset convention gives (`dataset` unless it says otherwise). The root
 names it in `layouts` ([§2](#2-attributes)). The group declares the dataset
 convention as a root declares its format's ([§2](#2-attributes)): its
-`refkv_virtualized` has `profile` (`<p>-dataset`), `version`,
+`refkv_zarrified` has `profile` (`<p>-dataset`), `version`,
 `source` and the source metadata member `"<p>-dataset"`, so that the group
 describes itself when it is copied out of the hierarchy. OME-NGFF readers
 ignore it, as they do `refkv_source`. The group has no source metadata
@@ -1099,10 +1100,10 @@ node of its own: the source's mirror ([§8](#8-the-ir-mirror)) is the root's
   valid voxel size, a stack's index).
 
 Variables have no other attributes, and the group's attributes are
-`zarr_conventions` and `refkv_virtualized` alone.
+`zarr_conventions` and `refkv_zarrified` alone.
 
 **Equivalence.** A dataset layout is compared entry for entry with the rest
-of the hierarchy ([spec/virtualize.md §1.1](virtualize.md#11-output-and-equivalence)):
+of the hierarchy ([spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)):
 its coordinate values are the numbers its convention computes, in binary64,
 from the header's values, with the operations it gives in their order, so
 that every producer writes the same values. A deflated coordinate chunk is
@@ -1189,8 +1190,8 @@ decoder of the whole stream; every other value is the same.
 
 **Producing a chunk.** A convention says which frames are a chunk's own,
 where each one's output goes, and which frames before them are its
-lead-in ([virtualize/mp3.md §8.2](virtualize/mp3.md#82-chunks),
-[virtualize/mp4.md §8.3](virtualize/mp4.md#83-chunks)). A virtualizer
+lead-in ([zarrify/mp3.md §8.2](zarrify/mp3.md#82-chunks),
+[zarrify/mp4.md §8.3](zarrify/mp4.md#83-chunks)). A zarrifier
 writes the header as a literal range, then the frames as ranges of the
 source, a frame that starts where the one before it ends extending that
 one's range. The bytes between two frames of the source are in no range,
@@ -1198,17 +1199,17 @@ so a decoder never sees them: one that looked for a run of frames to lock
 onto would drop the frames before them, and one that reset its state would
 decode the frame after them from nothing. The header holds the frames'
 sizes and positions, which are the source's structure, not its samples
-([spec/virtualize.md §1.2](virtualize.md#12-input)).
+([spec/zarrify.md §1.2](zarrify.md#12-input)).
 
 ## 11. Format documents
 
-What every format's document, `virtualize/<p>.md`, would otherwise say in
+What every format's document, `zarrify/<p>.md`, would otherwise say in
 the same words is stated here once, and each document cites it.
 
 ### 11.1 Parts
 
 A format's document has two parts. Part 1 is the format's convention: the Zarr layout, which Part 2 cites as "the convention §n".
-Part 2 is the format's profile ([spec/virtualize.md, Profiles](virtualize.md#profiles)):
+Part 2 is the format's profile ([spec/zarrify.md, Profiles](zarrify.md#profiles)):
 how refkv reads the source, which inputs it rejects, and how each chunk
 references the source. The document is numbered on its own, Part 2 after
 Part 1, and other documents cite it by name. A dataset layout's document
@@ -1247,5 +1248,5 @@ The elements are determined by the source (a file, or a store's listing and
 the documents the profile reads), and the mirror by its elements
 ([§8.8](#88-canonical-form): one order, one folding, one encoding):
 hierarchies of one source are compared entry for entry, `refkv_source`
-included ([spec/virtualize.md §1.1](virtualize.md#11-output-and-equivalence)).
+included ([spec/zarrify.md §1.1](zarrify.md#11-output-and-equivalence)).
 

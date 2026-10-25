@@ -1,7 +1,7 @@
 # Implementation plan: the CZI profile
 
-This plan implements [README.md](../../spec/virtualize/czi.md) (the convention) and
-[spec/virtualize/czi.md](../../spec/virtualize/czi.md#part-2-the-profile) (the profile) in both
+This plan implements [README.md](../../spec/zarrify/czi.md) (the convention) and
+[spec/zarrify/czi.md](../../spec/zarrify/czi.md#part-2-the-profile) (the profile) in both
 implementations, with fixtures, a verifier and a public corpus. It is a
 design note, not normative.
 
@@ -48,8 +48,8 @@ Findings that shaped the design:
 
 ## 2. Modules
 
-Python, `python/src/refkv/virtualize/czi/`, and its TypeScript twin,
-`js/src/virtualize/czi/`, with the same module names and functions, as
+Python, `python/src/refkv/zarrify/czi/`, and its TypeScript twin,
+`js/src/zarrify/czi/`, with the same module names and functions, as
 for ND2:
 
 | module | functions | convention / profile |
@@ -80,14 +80,14 @@ Shared changes:
   Readers with rectilinear levels need
   `zarr.config.set({"array.rectilinear_chunks": True})` (zarr-python 3.4);
   the verifier and `refkv.reader` helpers set it.
-- `spec/virtualize.md`: the detection row (profile §13.1), the profile table
+- `spec/zarrify.md`: the detection row (profile §13.1), the profile table
   row, §13 = CZI and §14 = Conformance (update the `#13-conformance`
   anchors), revision 18 in `REVISIONS.md`.
 - `spec/conventions.md`: the table row and the title list in §1
   (`CZI`); `spec/generate_schemas.py`: `SOURCE_METADATA["czi"]`
   (root header, image `dimensions`, tile record, `vzip_source`
   attachments, the attachment arrays' `size`), then regenerate
-  `spec/virtualize/czi/schema.json`.
+  `spec/zarrify/czi/schema.json`.
 
 Order of work:
 
@@ -98,15 +98,15 @@ Order of work:
    row bands.
 4. `xml`: scales, names, colors, windows.
 5. The TypeScript twin, module by module, compared by
-   `conformance/virtualize/compare.py` after each.
+   `conformance/zarrify/compare.py` after each.
 6. Corpus run, verifier, schema, docs.
 
 ## 3. Tests
 
-`python/tests/reference/test_virtualize_czi.py`, following the house rule (one test for the
+`python/tests/reference/test_zarrify_czi.py`, following the house rule (one test for the
 accepted combinations, one per error):
 
-- `test_virtualize_czi_outputs`: parametrized over the accepted fixtures,
+- `test_zarrify_czi_outputs`: parametrized over the accepted fixtures,
   asserting each output's documents and references against expectations
   (axes, shapes, chunk grids, codecs, tiles, unplaced lists, families,
   attachment forms) and that both implementations agree.
@@ -124,7 +124,7 @@ accepted combinations, one per error):
 - Unit tests of `layer` (table edges), `classify` (each failing condition
   of conv. §3.5 gives tiles), `row_band`, the codec header parsers (each
   failure gives no coded size), and the GUID text form.
-- `python/tests/test_virtualize_conventions.py` picks up the new fixtures and
+- `python/tests/test_zarrify_conventions.py` picks up the new fixtures and
   schema automatically once the profile is registered.
 
 ## 4. Fixtures
@@ -208,7 +208,7 @@ sample of subblocks per file, to bound downloads).
 
 ## 6. Corpus
 
-`conformance/virtualize/corpus_czi.txt`, `url|name`. Every URL below was
+`conformance/zarrify/corpus_czi.txt`, `url|name`. Every URL below was
 checked on 2026-10-08 to answer a `Range: bytes=0-15` request with `206` and
 the `ZISRAWFILE` magic. Licenses: CC-BY-4.0 unless noted.
 
@@ -293,5 +293,5 @@ clipped levels; the Bgr24 Axioscan test files give tiles almost everywhere.
     `Interval/Increment` is absent.
 11. **omero windows** use the display settings' `Low` and `High`, scaled by
     the pixel type's range, when present.
-12. **Section numbering:** SAFE took spec/virtualize.md §12; CZI is §13,
+12. **Section numbering:** SAFE took spec/zarrify.md §12; CZI is §13,
     Conformance §14, and the CZI profile is revision 18.

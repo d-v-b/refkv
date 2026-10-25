@@ -1,6 +1,6 @@
-//! A projection's output (spec/virtualize.md §1.1
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#11-output-and-equivalence>, §1.2
-//! <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>): the entries of a refkv
+//! A projection's output (spec/zarrify.md §1.1
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#11-output-and-equivalence>, §1.2
+//! <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>): the entries of a refkv
 //! archive before it is written. The archive writer stays per host (Python's `Output.write`,
 //! the browser's `writeVzip`); an `Out` crosses to it as Python objects (python/src/lib.rs) or
 //! as one binary buffer (`encode`, for wasm hosts).
@@ -9,7 +9,7 @@
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>–§5
 //! <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>,
 //! §7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#7-source-values-as-arrays>;
-//! `refkv/virtualize/common.py` in Python): arrays' and groups' documents,
+//! `refkv/zarrify/common.py` in Python): arrays' and groups' documents,
 //! OME-NGFF multiscales, the convention's declaration, reference sizes, and the
 //! cuts of metadata arrays.
 
@@ -25,8 +25,8 @@ pub enum Part {
     Lit(Vec<u8>),
     /// (key, offset, length): bytes of a store's object (conventions §8.9
     /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#89-stores>), whose url source
-    /// the host makes (spec/virtualize.md §1.4
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#14-store-inputs>: one per
+    /// the host makes (spec/zarrify.md §1.4
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>: one per
     /// object referenced, its size pinned, in order of the entries' keys).
     Obj(String, u64, u64),
 }
@@ -203,7 +203,7 @@ impl Out {
     }
 }
 
-// ---- reference sizes (§1.2 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>)
+// ---- reference sizes (§1.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>)
 
 fn varint_size(v: u64) -> usize {
     let bits = 64 - v.leading_zeros() as usize;
@@ -235,12 +235,12 @@ pub fn payload_size(ranges: &[Part]) -> usize {
 // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#2-attributes>–§5
 // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#5-units>)
 
-pub const CONVENTION_KEY: &str = "refkv_virtualized";
+pub const CONVENTION_KEY: &str = "refkv_zarrified";
 
 // The registry's entries, by name (build.rs)
 include!(concat!(env!("OUT_DIR"), "/registry.rs"));
 
-/// The profile registry, spec/virtualize/profiles/<name>.json (the crate's profiles/ holds its
+/// The profile registry, spec/zarrify/profiles/<name>.json (the crate's profiles/ holds its
 /// copies, which spec/tools/profiles.py writes and checks): one entry per profile and dataset
 /// layout, with its `name`, convention `title`, `uuid` and `version`, `kind` ("file", "store",
 /// "both" or "layout"), `sniff` precedence, fixture `suffixes` and the rest the registry
@@ -261,15 +261,15 @@ pub fn convention(p: &str) -> J {
     let (r, blob) = if version == 0 {
         ("heads/main".to_string(), "main".to_string())
     } else {
-        let t = format!("tags/virtualize-{p}-v{version}");
+        let t = format!("tags/zarrify-{p}-v{version}");
         (t.clone(), t)
     };
     json!({
         "uuid": uuid,
-        "schema_url": format!("https://raw.githubusercontent.com/d-v-b/refkv/refs/{r}/spec/virtualize/{p}/schema.json"),
-        "spec_url": format!("https://github.com/d-v-b/refkv/blob/{blob}/spec/virtualize/{p}.md"),
+        "schema_url": format!("https://raw.githubusercontent.com/d-v-b/refkv/refs/{r}/spec/zarrify/{p}/schema.json"),
+        "spec_url": format!("https://github.com/d-v-b/refkv/blob/{blob}/spec/zarrify/{p}.md"),
         "name": CONVENTION_KEY,
-        "description": format!("The Zarr layout of a {title} source virtualized by refkv, and the source's metadata"),
+        "description": format!("The Zarr layout of a {title} source zarrified by refkv, and the source's metadata"),
     })
 }
 
@@ -398,8 +398,8 @@ pub fn item_size(data_type: &str) -> u64 {
 /// The codecs after `transpose` of a TIFF `compression` (the tag's value: JPEG 2000 and JPEG
 /// as their imagecodecs codecs; else `bytes`, with the byte order for samples of more than 8
 /// bits, then `imagecodecs_lzw` for LZW (which the QPTIFF convention reads,
-/// spec/virtualize/qptiff.md §4.1
-/// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/qptiff.md#41-data-types-and-codecs>),
+/// spec/zarrify/qptiff.md §4.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/qptiff.md#41-data-types-and-codecs>),
 /// `zlib` for Deflate or `zstd` for Zstandard).
 pub fn tiff_codecs(compression: u64, bits: u64, little: bool) -> Vec<J> {
     match compression {
@@ -758,8 +758,8 @@ pub fn grid_chunks(offset: u64, shape: &[u64], item: u64, limit: u64, max_payloa
     Some((cs, chunks))
 }
 
-// ---- JSON sizes, as ECMAScript's JSON.stringify writes values (spec/virtualize/nd2.md §5.1
-// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/nd2.md#51-decoded-chunks>,
+// ---- JSON sizes, as ECMAScript's JSON.stringify writes values (spec/zarrify/nd2.md §5.1
+// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#51-decoded-chunks>,
 // conventions §8.7 <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>)
 
 /// The length of ECMAScript's Number::toString of a finite binary64.

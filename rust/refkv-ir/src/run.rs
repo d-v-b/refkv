@@ -14,7 +14,7 @@ use serde_json::Value as J;
 include!(concat!(env!("OUT_DIR"), "/formats.rs"));
 
 impl Format {
-    /// Whether the format's input, a file, is virtualized by a store run rather than a file
+    /// Whether the format's input, a file, is zarrified by a store run rather than a file
     /// run (`FileProfile::store_run`).
     pub fn store_run(self) -> bool {
         self.profile().store_run()
@@ -26,8 +26,8 @@ impl Format {
     }
 
     /// The format a file's first bytes give, if one of these: the first, in the registry's
-    /// `sniff` order, whose profile's `detect` takes them (spec/virtualize.md §1.2
-    /// <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>).
+    /// `sniff` order, whose profile's `detect` takes them (spec/zarrify.md §1.2
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
     pub fn sniff(head: &[u8]) -> Option<Format> {
         Format::SNIFFED.iter().copied().find(|f| f.profile().detect(head))
     }
@@ -50,7 +50,7 @@ pub trait FileProfile: Sync {
     fn whole(&self) -> bool {
         true
     }
-    /// Whether the input, a file, is virtualized by a store run rather than a file run (a file
+    /// Whether the input, a file, is zarrified by a store run rather than a file run (a file
     /// run of it only rejects, so a host hands it to its store run).
     fn store_run(&self) -> bool {
         false

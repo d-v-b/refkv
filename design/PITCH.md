@@ -130,7 +130,7 @@ Two things in this repository write refkv stores, both as vzip archives:
   structure of TIFF, NDPI, ND2, CZI, DICOM, NIfTI and Imaris files, of N5
   and Zarr v2 stores, and of Sentinel-2 SAFE products, and writes a store
   that presents the pixels as OME-Zarr, with every chunk a reference to the
-  original bytes ([spec/virtualize.md](../spec/virtualize.md)).
+  original bytes ([spec/zarrify.md](../spec/zarrify.md)).
 
 Both are exercises of the model. Neither is a reason to adopt it.
 

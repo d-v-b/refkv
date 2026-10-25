@@ -1,15 +1,15 @@
 """Writes synthetic OME-Zarr 0.4 hierarchies (on Zarr v2) to
 fixtures/ome-zarr/<name>/, covering the OME-Zarr profile
-(spec/virtualize/ome-zarr.md §11
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#11-ome-zarr-profile>): 2-D, 3-D
+(spec/zarrify/ome-zarr.md §11
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#11-ome-zarr-profile>): 2-D, 3-D
 and 5-D images with and without
 translations, omero metadata, custom axes, labels (image-label colors,
 properties and source; a label image with an extra level), a plate with wells, fields and acquisitions, a well
 at the root, bioformats2raw collections (numbered images with a series and
 OME-XML, and a plate), F order and both separators, missing and empty
 chunks; and the inputs the profile rejects (`ome_zarr_reject_*`, one per
-rule of spec/virtualize/ome-zarr.md §4
-<https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#4-validation>).
+rule of spec/zarrify/ome-zarr.md §4
+<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#4-validation>).
 
 Each array is one chunk, except level 0 of ome_zarr_image_2d (three chunks:
 present, empty and missing), so that each store is a handful of objects.
@@ -202,8 +202,8 @@ def main() -> None:
     group(d, "labels/unlisted")  # an intermediate group, not listed: not an OME group
 
     # A label image with one more level than its image (as omero-zarr writes them): the extra
-    # level is dropped from the 0.5 multiscales and stays a plain array (spec/virtualize/ome-zarr.md
-    # §4 <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#4-validation>, L7).
+    # level is dropped from the 0.5 multiscales and stays a plain array (spec/zarrify/ome-zarr.md
+    # §4 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#4-validation>, L7).
     d = store("ome_zarr_labels_extra_level")
     labelled(d, label_levels=3)
 
@@ -240,8 +240,8 @@ def main() -> None:
     put(d / "OME/METADATA.ome.xml", b'<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06"/>\n')
 
     # ------------------------------------------------------------ rejected, one per rule of
-    # spec/virtualize/ome-zarr.md §4
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#4-validation>
+    # spec/zarrify/ome-zarr.md §4
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#4-validation>
 
     def reject(name: str, attrs_root=None, *, ms=None, shape=(4, 6), axes="yx", levels=1, setup=None):
         """A store whose root is an image of `levels` levels, with multiscale `ms` (default valid)
@@ -379,10 +379,10 @@ def main() -> None:
 
     # ------------------------------------------------------------ source metadata and other objects
 
-    # The attributes A of an OME group keep only what the inverse of spec/virtualize/ome-zarr.md §5
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>
+    # The attributes A of an OME group keep only what the inverse of spec/zarrify/ome-zarr.md §5
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#5-group-attributes>
     # does not give back from `ome` (§8
-    # <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>): an
+    # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#8-source-metadata>): an
     # omero without a version, and a non-OME member; an
     # OME group with only OME members of version 0.4 has no attributes there.
     # The Zarr v2 metadata M (a .zgroup member, a null fill value) is kept as in the Zarr v2
@@ -407,10 +407,10 @@ def main() -> None:
 def exact_members() -> None:
     """An empty OME-XML object, which is an empty object of the Zarr v2 convention, and a
     plate whose wells and images have no version: unversioned members, given back by name
-    (spec/virtualize/ome-zarr.md §5
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#5-group-attributes>, §7
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#7-chunks-and-ome-xml>, §8
-    <https://github.com/d-v-b/refkv/blob/main/spec/virtualize/ome-zarr.md#8-source-metadata>). Fixed
+    (spec/zarrify/ome-zarr.md §5
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#5-group-attributes>, §7
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#7-chunks-and-ome-xml>, §8
+    <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/ome-zarr.md#8-source-metadata>). Fixed
     data, no RNG."""
     d = store("ome_zarr_empty_xml")
     group(d, "", {"bioformats2raw.layout": 3})

@@ -283,8 +283,8 @@ export async function openHttpFile(
 const STRONG_ETAG = /^"[\x21\x23-\x7e]*"$/;
 
 /**
- * The ETag of every response for one object, for its `etag` pin (spec/virtualize.md §1.2
- * <https://github.com/d-v-b/refkv/blob/main/spec/virtualize.md#12-input>).
+ * The ETag of every response for one object, for its `etag` pin (spec/zarrify.md §1.2
+ * <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
  */
 export class EtagLog {
   private seen = new Set<string | null>();
