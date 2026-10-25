@@ -277,12 +277,12 @@ each format's metadata is:
   in the file's tree), its memory block, and every attribute of its dimensions
   and channels, as text, and a tile of a tile scan its stage position.
 - **NRRD:** the IR mirror on `refkv_source`: the header file, line by line,
-  and the data (in the header file, or in a detached header's data file):
-  the files the chunks reference described in place, and a detached
-  header's file held, its bytes in the archive. The root keeps every field
-  as written, every key/value pair and comment, and what the layout derives from them
-  (the data type, the encoding, each axis's image axis, whether the
-  orientation is applied).
+  and the data (in the header file, or in a detached header's data file): the
+  files the chunks reference described in place, and a detached header's file
+  held, its bytes in the archive. The root keeps every field as written, every
+  key/value pair and comment, and what the layout derives from them (the data
+  type, the encoding, each axis's image axis, whether the orientation is
+  applied).
 - **VSI:** the IR mirror on `refkv_source`: the `.vsi` file (its metadata
   tree field by field, and the IFDs inside it) and every tile file (its
   headers, tile directory and tiles), each described in place, so that the
