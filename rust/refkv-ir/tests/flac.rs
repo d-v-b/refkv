@@ -55,3 +55,24 @@ fn a_pictures_data_is_not_read() {
     assert!(asked.iter().all(|&(o, len)| o + len <= picture.0 || o >= picture.1 || o + len <= 1 << 16));
     assert_eq!(common::rebuilt(&ir, &data), data);
 }
+
+/// The run's output says whether a sharded array's ranges were joined: not for a host that
+/// records checksums (spec/zarrify.md §2.1
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>).
+#[test]
+fn the_host_says_whether_it_records_checksums() {
+    use refkv_ir::run::{Format, Run};
+    let data = std::fs::read(common::fixtures().join("flac/flac_blocks.flac")).unwrap();
+    for checksums in [false, true] {
+        let mut r = Run::new(Format::Flac, data.len() as u64, false, 4);
+        while let Some(reqs) = r.poll().unwrap() {
+            for (k, q) in reqs.iter().enumerate() {
+                let parts = q.spans.iter().map(|&(a, b)| data[a as usize..b as usize].to_vec()).collect();
+                r.complete(k, Some(parts), 0.0).unwrap();
+            }
+        }
+        let out = r.into_output("https://data.test/a.flac", false, checksums).unwrap();
+        assert_eq!(out.summary["joinRanges"], serde_json::json!(!checksums));
+    }
+}
+

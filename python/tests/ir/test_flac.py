@@ -196,6 +196,7 @@ def test_checksums_keep_each_frame_its_own_range(tmp_path):
     _, plain = _zarrify(str(path), "https://data.test/a.flac")
     _, checked = _zarrify(str(path), "https://data.test/a.flac", checksums=True)
     assert plain.refs == checked.refs
+    assert (plain.summary["joinRanges"], checked.summary["joinRanges"]) == (True, False)  # the host passed it on
     checked.write(str(tmp_path / "a.vzip"))
     data = path.read_bytes()
     refs = references(tmp_path / "a.vzip")

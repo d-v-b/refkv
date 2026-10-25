@@ -445,6 +445,7 @@ pub fn store_output(format: StoreFormat, ir: &Ir, facts: &J, stats: J, url: &str
         StoreFormat::N5 => crate::project::n5::project(ir, facts, url)?,
         StoreFormat::Vsi => crate::project::vsi::project(ir, facts, url, &Default::default())?,
     };
+    crate::shard::refuse(&out)?;
     let mut summary = std::mem::take(&mut out.summary);
     if let Some(m) = summary.as_object_mut() {
         if format != StoreFormat::Safe {

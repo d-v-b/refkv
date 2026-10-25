@@ -511,5 +511,7 @@ pictures' chunks, and the mirror's.
 This section is informative. Both implementations print a one-line JSON
 summary: `sampleRate`, `channels`, `bitsPerSample`, `blockSize`, `frames`,
 `samples`, `duration` (seconds), `shardFrames` (`F`), `shards`, `pictures`
-(the PICTURE blocks) and `tags` (those of `"id3v2"` and `"id3v1"` the file
-has, in that order).
+(the PICTURE blocks), `tags` (those of `"id3v2"` and `"id3v1"` the file
+has, in that order) and `joinRanges` (whether ranges adjacent across inner
+chunks would be joined: not when the zarrifier records checksums,
+[spec/zarrify.md §2.1](../zarrify.md#21-virtual-shards)).

@@ -146,4 +146,17 @@ mod tests {
         }
         assert!(map(&[] as &[u8], 4, |x| *x).is_empty());
     }
+
+    /// `--checksums` reaches the core: a sharded array's ranges are joined only without it
+    /// (spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>).
+    #[test]
+    fn passes_checksums_to_the_core() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/flac/flac_blocks.flac");
+        let client = crate::http::Client::new(crate::policy::Policy::default(), std::time::Duration::from_secs(5));
+        for checksums in [false, true] {
+            let t = Transport::open(path, &client).unwrap();
+            let (_, out) = zarrify_file(path, Some("https://data.test/a.flac"), &t, None, None, checksums).unwrap();
+            assert_eq!(out.summary["joinRanges"], serde_json::json!(!checksums));
+        }
+    }
 }

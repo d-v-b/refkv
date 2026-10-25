@@ -616,7 +616,11 @@ bytes, whichever ranges they are in. A profile chooses `K` so that a
 shard's payload ([§1.2](#12-input)) stays within the 65519 bytes past which
 the input is rejected: an inner chunk costs its ranges and 16 bytes of index,
 an inner chunk a shard does not hold 16 bytes, and a shard 4 bytes of
-CRC-32C.
+CRC-32C. An inner chunk the profile copies is a literal range of all its
+bytes, so a profile shards an array only where its copied inner chunks fit
+in their shards' payloads. Only file profiles shard: the hosts of a store
+input's zarrifier do not yet tell the pass that joins ranges whether they
+record checksums.
 
 ## Profiles
 

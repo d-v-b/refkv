@@ -83,3 +83,12 @@ test("fails when the ETag changes while reading", () => {
   log.saw('"v1"');
   assert.throws(() => log.saw('"v2"'), /changed while it was read/);
 });
+
+test("a sharded array's ranges are joined only without checksums", async () => {
+  // spec/zarrify.md §2.1 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#21-virtual-shards>:
+  // the host tells the core whether it records checksums (vz_run_output's flags, bit 1)
+  for (const checksums of [false, true]) {
+    const { v } = await image("flac/flac_blocks.flac", undefined, checksums);
+    assert.equal(v.summary.joinRanges, !checksums);
+  }
+});

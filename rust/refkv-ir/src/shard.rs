@@ -13,7 +13,9 @@ use std::collections::HashMap;
 /// The index entry of an inner chunk a shard does not hold (the sharding codec's).
 pub const EMPTY: u64 = u64::MAX;
 
-/// The CRC-32C (Castagnoli, reflected; RFC 3720 §B.4) of `b`, as the `crc32c` codec appends it.
+/// The CRC-32C (Castagnoli, reflected; RFC 3720 §B.4) of `b`, as the `crc32c` codec appends it:
+/// bitwise, over an index of at most a few KiB a shard, so that the core keeps to its two
+/// dependencies (the CLI's `crc32c` crate checksums the sources' ranges, which are large).
 pub fn crc32c(b: &[u8]) -> u32 {
     !b.iter().fold(!0u32, |mut c, &x| {
         c ^= x as u32;
@@ -138,10 +140,15 @@ pub fn apply(out: &mut Out, path: &str, shard: &[u64], merge: bool) -> Result<()
         if held.iter().all(Option::is_none) {
             continue;
         }
+        let copied: usize = held.iter().flatten().filter_map(|c| match c.as_slice() {
+            [Part::Lit(b)] => Some(b.len()),
+            _ => None,
+        }).sum();
         let parts = shard_parts(&held, merge);
         let k = key(path, &sc);
         if payload_size(&parts) > MAX_PAYLOAD {
-            return Err(format!("{k}: a shard's reference payload of more than {MAX_PAYLOAD} bytes"));
+            return Err(format!("{k}: a shard's reference payload of more than {MAX_PAYLOAD} bytes (of which {copied} \
+                                bytes of copied inner chunks)"));
         }
         out.refs(&k, parts);
     }
@@ -165,12 +172,30 @@ fn coords(s: &str) -> Result<Vec<u64>, String> {
     s.split('/').map(|x| x.parse::<u64>().map_err(|_| format!("internal: {s} is not a chunk key"))).collect()
 }
 
-/// Every shard request of `out` (`Out::shard`), in order.
+/// Every shard request of `out` (`Out::shard`), in order; and, when there is one, the summary's
+/// `joinRanges`: whether ranges adjacent across inner chunks were joined (`merge`: not when the
+/// host records checksums).
 pub fn apply_all(out: &mut Out, merge: bool) -> Result<(), String> {
-    for (path, shard) in std::mem::take(&mut out.shards) {
+    let requests = std::mem::take(&mut out.shards);
+    if requests.is_empty() {
+        return Ok(());
+    }
+    for (path, shard) in requests {
         apply(out, &path, &shard, merge)?;
     }
+    if let Some(m) = out.summary.as_object_mut() {
+        m.insert("joinRanges".into(), merge.into());
+    }
     Ok(())
+}
+
+/// Fails when `out` asks for shards: a store run's hosts do not pass whether they record
+/// checksums, so a store profile cannot shard until they do.
+pub fn refuse(out: &Out) -> Result<(), String> {
+    match out.shards.first() {
+        Some((path, _)) => Err(format!("internal: {path} asks to be sharded, which a store run does not do")),
+        None => Ok(()),
+    }
 }
 
 #[cfg(test)]
@@ -229,6 +254,86 @@ mod tests {
         }
     }
 
+    /// An output with the array `a` of `doc`'s grid and the chunk references `keys`, its shards
+    /// of `shard` inner chunks applied.
+    fn sharded(doc: J, keys: &[&str], shard: &[u64]) -> Result<(), String> {
+        let mut out = Out::new("u");
+        out.json("a/zarr.json", &doc);
+        for k in keys {
+            out.refs(k, vec![Part::Src(0, 1)]);
+        }
+        out.shard("a", shard);
+        apply_all(&mut out, true)
+    }
+
+    fn doc(shape: &[u64], chunks: &[u64]) -> J {
+        array_json(shape, "uint8", json!(chunks), json!([{"name": "bytes"}]), &["y", "x"][2 - shape.len()..])
+    }
+
+    #[test]
+    fn the_summary_says_whether_ranges_were_joined() {
+        for merge in [true, false] {
+            let mut out = Out::new("u");
+            out.json("a/zarr.json", &doc(&[2], &[1]));
+            out.refs("a/c/0", vec![Part::Src(0, 1)]);
+            out.shard("a", &[2]);
+            apply_all(&mut out, merge).unwrap();
+            assert_eq!(out.summary["joinRanges"], json!(merge));
+        }
+        let mut out = Out::new("u");
+        apply_all(&mut out, true).unwrap();
+        assert!(out.summary.get("joinRanges").is_none());
+    }
+
+    #[test]
+    fn rejects_an_array_without_a_document() {
+        let mut out = Out::new("u");
+        out.shard("a", &[2]);
+        assert_eq!(apply_all(&mut out, true), Err("internal: no array document a/zarr.json to shard".into()));
+    }
+
+    #[test]
+    fn rejects_an_irregular_grid() {
+        let mut d = doc(&[4], &[2]);
+        d["chunk_grid"]["name"] = json!("rectilinear");
+        assert_eq!(sharded(d, &[], &[2]), Err("internal: a cannot be sharded".into()));
+    }
+
+    #[test]
+    fn rejects_another_chunk_key_encoding() {
+        let mut d = doc(&[4], &[2]);
+        d["chunk_key_encoding"]["configuration"]["separator"] = json!(".");
+        assert_eq!(sharded(d, &[], &[2]), Err("internal: a cannot be sharded".into()));
+    }
+
+    #[test]
+    fn rejects_a_shard_shape_of_another_rank() {
+        assert_eq!(sharded(doc(&[4, 4], &[2, 2]), &[], &[2]), Err("internal: a cannot be sharded".into()));
+    }
+
+    #[test]
+    fn rejects_an_empty_shard_shape() {
+        assert_eq!(sharded(doc(&[4], &[2]), &[], &[0]), Err("internal: a cannot be sharded".into()));
+    }
+
+    #[test]
+    fn rejects_a_chunk_outside_the_grid() {
+        assert_eq!(sharded(doc(&[4], &[2]), &["a/c/0", "a/c/2"], &[2]), Err("internal: a/c/2 is outside a's grid".into()));
+    }
+
+    #[test]
+    fn rejects_a_chunk_key_that_is_not_coordinates() {
+        assert_eq!(sharded(doc(&[4], &[2]), &["a/c/x"], &[2]), Err("internal: x is not a chunk key".into()));
+    }
+
+    #[test]
+    fn a_store_run_refuses_a_shard_request() {
+        let mut out = Out::new("u");
+        assert_eq!(refuse(&out), Ok(()));
+        out.shard("a", &[2]);
+        assert_eq!(refuse(&out), Err("internal: a asks to be sharded, which a store run does not do".into()));
+    }
+
     #[test]
     fn rejects_a_shard_past_the_payload_limit() {
         let mut out = Out::new("u");
@@ -237,6 +342,7 @@ mod tests {
             out.refs(&format!("a/c/{i}"), vec![Part::Src((1 << 40) | (2 * i), 1)]);
         }
         out.shard("a", &[4096]);
-        assert_eq!(apply_all(&mut out, false), Err("a/c/0: a shard's reference payload of more than 65519 bytes".into()));
+        assert_eq!(apply_all(&mut out, false),
+                   Err("a/c/0: a shard's reference payload of more than 65519 bytes (of which 0 bytes of copied inner chunks)".into()));
     }
 }
