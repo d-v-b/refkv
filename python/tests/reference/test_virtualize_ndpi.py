@@ -15,7 +15,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[3] / "conformance" / "zarrify" / "reference"))
 
 import pytest
+from reference_helpers import ranges_of
 from refkv_reference import ndpi, virtualize
+from refkv_reference.legacy import Output
 
 from refkv.zarrify import Rejected
 
@@ -51,6 +53,7 @@ def test_ndpi_header_pieces_are_data_sources():
     # and level; the bytes are the strip's own.
     path = Path(__file__).parents[3] / "fixtures" / "ndpi" / "ndpi_levels.ndpi"
     _, out = virtualize(str(path), url="https://data.test/x.ndpi")
+    assert isinstance(out, Output)
     data = list(out.data)
     assert [out.data[d] for d in data] == list(range(1, len(data) + 1))
     file = path.read_bytes()
@@ -100,6 +103,7 @@ def test_ndpi_records_every_ifd_in_its_own_group():
     (its value field and high word), and the macro image's contiguous strips as one range."""
     path = Path(__file__).parents[3] / "fixtures" / "ndpi" / "ndpi_pointers.ndpi"
     _, out = virtualize(str(path), url="https://data.test/x.ndpi")
+    assert isinstance(out, Output)
 
     def source(p: str) -> dict:
         doc = json.loads(out.bytes_entries["/".join(["vzip_source", *filter(None, [p]), "zarr.json"])])
@@ -113,7 +117,7 @@ def test_ndpi_records_every_ifd_in_its_own_group():
     assert macro["duplicates"] == [{"tag": 65420, "type": 4, "count": 1, "value": [2]}]
     assert source("ifds/1/exif")["tags"]["36867"]["value"] == "2026:01:01 00:00:00"
     assert source("ifds/1/ifd_65449")["tags"]["305"]["value"] == "private"
-    (start, n), = out.refs["vzip_source/ifds/1/data/data/c/0"]
+    (start, n), = ranges_of(out, "vzip_source/ifds/1/data/data/c/0")
     assert path.read_bytes()[start:start + n].startswith(b"\xff\xd8")
     assert n > 2
 
@@ -125,5 +129,6 @@ def test_ndpi_reads_only_the_values_it_uses():
     macro image's McuStarts (LONG8, above 2^53 - 1) does not reject; its strip is kept."""
     path = Path(__file__).parents[3] / "fixtures" / "ndpi" / "ndpi_unused_values.ndpi"
     _, out = virtualize(str(path), url="https://data.test/x.ndpi")
+    assert isinstance(out, Output)
     assert out.summary["levels"] == [[3, 48, 64]]
     assert "vzip_source/ifds/1/data/zarr.json" in out.bytes_entries

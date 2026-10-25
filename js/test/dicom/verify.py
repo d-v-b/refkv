@@ -33,6 +33,7 @@ from pathlib import Path
 import imagecodecs
 import numpy as np
 import pydicom
+import pydicom.config
 import zarr
 from pydicom.charset import convert_encodings
 from pydicom.dataelem import RawDataElement, convert_raw_data_element
@@ -43,9 +44,10 @@ from zarr.core.buffer import default_buffer_prototype
 from zarr.core.sync import sync
 
 import refkv.zarr
+from refkv._narrow import ndarray
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
-from verify_common import LOOPBACK_SOURCES
+from verify_common import LOOPBACK_SOURCES, metadata_v3
 
 HERE = Path(__file__).parent
 ROOT = HERE.parents[2]
@@ -134,8 +136,8 @@ def array_bytes(root, uri: str) -> bytes:
     path, _, index = uri.partition("#")
     node = root[path]
     if isinstance(node, zarr.Group):  # a family: offsets and data
-        offsets = node["offsets"][...]
-        data = node["data"][...].tobytes() if "data" in node else b""
+        offsets = ndarray(node.get_array("offsets")[...])
+        data = ndarray(node.get_array("data")[...]).tobytes() if "data" in node else b""
         i = int(index)
         return data[offsets[i]:offsets[i + 1]]
     endian = getattr(node.metadata.codecs[0], "endian", None)
@@ -247,16 +249,20 @@ def header_problems(root, data: bytes) -> list[str]:
         """Our attribute as pydicom gives it from the bytes we keep: those of an
         array, or of a value we keep unsplit (a multibyte character set, or not
         whole values); a gathered DS or IS value's typed values as its numbers."""
-        uri = gathered_uri(path, sequence) if a.get("Gathered") else a.get("BulkDataURI")
+        if a.get("Gathered"):
+            assert sequence is not None, f"{path}: gathered outside a sequence"
+            uri = gathered_uri(path, sequence)
+        else:
+            uri = a.get("BulkDataURI")
         node = root[uri.partition("#")[0]] if uri is not None else None
-        if isinstance(node, zarr.Array) and a["vr"] in ("DS", "IS") and node.dtype != np.uint8:
+        if uri is not None and isinstance(node, zarr.Array) and a["vr"] in ("DS", "IS") and node.dtype != np.uint8:
             return {"vr": a["vr"], "Value": array_values(root, uri).tolist()}
         # The byte order of the bytes we keep: an array's own, else the
         # dataset's, unless they are an explicit UN value's (LittleEndian).
         order = little or bool(a.get("LittleEndian"))
         if uri is not None:
             raw = array_bytes(root, uri)
-            endian = getattr(node.metadata.codecs[0], "endian", None) if isinstance(node, zarr.Array) else None
+            endian = getattr(metadata_v3(node).codecs[0], "endian", None) if isinstance(node, zarr.Array) else None
             order = order if endian is None else getattr(endian, "value", endian) == "little"
         elif "InlineBinary" in a and a["vr"] not in BINARY:
             raw = base64.b64decode(a["InlineBinary"])
@@ -404,14 +410,16 @@ def check(name: str, url: str, data: bytes, tmp: Path) -> tuple[bool, str]:
         header = header_problems(root, data)
     if header:
         return False, f"HEADER: {header[:3]}"
-    arr = root["0"]
-    got = arr[...]
+    arr = root.get_array("0")
+    got = ndarray(arr[...])
     want = expected(pydicom.dcmread(io.BytesIO(data)))
     if got.dtype != want.dtype or got.shape != want.shape:
         return False, f"{got.dtype} {got.shape} != {want.dtype} {want.shape}"
     if not np.array_equal(got, want):
         return False, f"pixels differ in {np.count_nonzero(got != want)} of {got.size} values"
-    return True, f"ok {list(arr.metadata.dimension_names)} {got.shape} {got.dtype}"
+    names = metadata_v3(arr).dimension_names
+    assert names is not None
+    return True, f"ok {list(names)} {got.shape} {got.dtype}"
 
 
 def main(argv: list[str]) -> int:

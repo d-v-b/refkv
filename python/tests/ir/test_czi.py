@@ -5,6 +5,7 @@ review findings, each closed and probed."""
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import override
 
 import pytest
 from ir_helpers import FIXTURES, as_the_reference, same_hierarchy
@@ -12,6 +13,7 @@ from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 from refkv_reference.czi.xml import read_xml_values
 
 from refkv import _core
+from refkv._narrow import integer, mapping, number
 from refkv.ir import parse
 from refkv.ir import zarrify as via_ir
 from refkv.ir.planner import HttpTransport
@@ -85,7 +87,7 @@ def test_bands_have_a_floor():
 
 def test_entries_that_share_a_subblock_are_aliases_and_place_it_once(probes):
     _, out, ir = via_ir(str(probes / "czi_dup.czi"), "u", mirror=False)
-    subs = [ir.child(0, f"subblocks/{i}") for i in range(1000)]
+    subs = [integer(ir.child(0, f"subblocks/{i}")) for i in range(1000)]
     assert ir.kind(subs[0]) == 0
     assert all(ir.kind(s) == 4 and ir.target(s) == subs[0] for s in subs[1:])
     assert list(out.refs) == ["0/0/c/0/0"]
@@ -106,21 +108,23 @@ def test_unmatched_end_tags_and_flat_xml_stream(probes):
 
 def test_attachment_names_keep_their_bytes_after_the_nul(probes):
     _, _, ir = via_ir(str(probes / "czi_attname.czi"), "u", mirror=False)
-    d = ir.child(0, "attachment_directory")
-    e = ir.value(ir.child(d, "entries/0"))
+    d = integer(ir.child(0, "attachment_directory"))
+    e = mapping(ir.value(integer(ir.child(d, "entries/0"))))
     assert e["name"] == {"text": "Label", "after": b"\0hidden name" + bytes(80 - 17)}
     assert e["content_file_type"] == {"text": "CZTIMS", "after": b"\0x"}
-    e = ir.value(ir.child(d, "entries/1"))
+    e = mapping(ir.value(integer(ir.child(d, "entries/1"))))
     assert e["name"] == {"text": "Thumb", "after": b"\0" * 6 + b"x" + bytes(80 - 12)}
-    a = ir.child(0, "attachments/0")
-    assert ir.child(ir.child(a, "data"), "values") is not None  # read as CZTIMS, by its bytes up to the NUL
+    a = integer(ir.child(0, "attachments/0"))
+    assert ir.child(integer(ir.child(a, "data")), "values") is not None  # read as CZTIMS, by its bytes up to the NUL
 
 
 def test_empty_segments_fold_into_one_run(probes):
     _, _, ir = via_ir(str(probes / "czi_walk0.czi"), "u", mirror=False)
     segs = [i for i in ir.children(0) if ir.name(i).startswith("segments/")]
     assert len(segs) == 1
-    assert ir.run(segs[0])[0] == 10000
+    run = ir.run(segs[0])
+    assert run is not None
+    assert run[0] == 10000
     assert len(ir) < 100
 
 
@@ -136,7 +140,8 @@ class _Ranges:
         class H(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
 
-            def log_message(self, *a):
+            @override
+            def log_message(self, format, *args):
                 pass
 
             def do_GET(self):
@@ -176,8 +181,8 @@ def test_the_planner_reads_headers_not_the_whole_file(probes):
         # loaded machine they may cost more, and the ceiling of 16 applies
         assert st["packs"] is False
         assert st["cap"] in (4, 16)
-        assert st["bytes"] <= st["cap"] * st["asked"] + (1 << 16) * st["batches"]
+        assert number(st["bytes"]) <= number(st["cap"]) * number(st["asked"]) + (1 << 16) * number(st["batches"])
         assert facts["subblocks"] == 2000
-        assert facts["rounds"] < 12
+        assert number(facts["rounds"]) < 12
     finally:
         server.close()

@@ -20,11 +20,14 @@ from __future__ import annotations
 
 import struct
 from pathlib import Path
+from typing import cast
 
 import imagecodecs
 import numpy as np
 import tifffile
-from write_edge_fixtures import LONG, SHORT, UNDEFINED, Tiff
+
+# the script's directory, on sys.path when it runs, is not on pyrefly's search-path
+from write_edge_fixtures import LONG, SHORT, UNDEFINED, Tiff  # pyrefly: ignore[missing-import] (its directory, on sys.path when run; every generator directory has a write_fixtures, so none is on the search path)
 
 OUT = Path(__file__).parents[2] / "tiff"
 rng = np.random.default_rng(7)
@@ -71,7 +74,8 @@ def aperio(name: str, rgb: np.ndarray, tile: int) -> None:
             block = np.zeros((tile, tile, 3), np.uint8)
             part = rgb[y : y + tile, x : x + tile]
             block[: part.shape[0], : part.shape[1]] = part
-            full = imagecodecs.jpeg8_encode(block, level=90, colorspace="RGB", outcolorspace="RGB")
+            # imagecodecs' stubs: an encoder gives bytes, without out=
+            full = cast("bytes", imagecodecs.jpeg8_encode(block, level=90, colorspace="RGB", outcolorspace="RGB"))
             segs = segments(full)
             t_segs = b"".join(s for m, s in segs if m in (0xDB, 0xC4))
             tables = b"\xff\xd8" + t_segs + b"\xff\xd9"

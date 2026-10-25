@@ -32,6 +32,7 @@ sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
 from refkv import _core  # noqa: E402
+from refkv._narrow import at, ndarray  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
@@ -68,7 +69,7 @@ def problems_of(path: Path, out: Path, summary: dict, Reader) -> list[str]:
         if im["kind"] != "stack" or im.get("id") is None or not (expected / f"{im['id']}.npy").exists():
             continue
         want = np.load(expected / f"{im['id']}.npy")
-        got = as_tczyx(root[f"{k}/0"][...], im["axes"], im["samples"])
+        got = as_tczyx(ndarray(root.get_array(f"{k}/0")[...]), im["axes"], im["samples"])
         if got.shape != want.shape or got.dtype != want.dtype:
             problems.append(f"{im['name']}: {got.shape} {got.dtype} != expected {want.shape} {want.dtype}")
         elif not np.array_equal(got, want):
@@ -87,11 +88,11 @@ def problems_of(path: Path, out: Path, summary: dict, Reader) -> list[str]:
             r.set_resolution_level(0)  # the level stays set across scenes
             rgb = "S" in str(r.dims)
             tolerance = 1 if im.get("codec") == "jpeg2000" else 0
-            bgr = root[str(k)].attrs["ome"]["omero"]["channels"][0]["label"] == "B"
+            bgr = at(root[str(k)].attrs, "ome", "omero", "channels", 0, "label") == "B"
             for level in r.resolution_levels:
                 r.set_resolution_level(level)
                 want = r.get_image_data("TCZYXS" if rgb else "TCZYX")
-                got = as_tczyx(root[f"{k}/{level}"][...], im["axes"], im["samples"])
+                got = as_tczyx(ndarray(root.get_array(f"{k}/{level}")[...]), im["axes"], im["samples"])
                 if bgr:
                     got = got[..., ::-1]  # stored blue first; Bio-Formats reorders to RGB
                 if got.shape != want.shape:

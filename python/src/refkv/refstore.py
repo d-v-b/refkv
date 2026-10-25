@@ -44,7 +44,7 @@ import os
 import re
 import types
 from collections import Counter
-from collections.abc import AsyncIterator, Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Generator, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, Unpack, override
@@ -105,7 +105,7 @@ def _page_size(page_size: int | None) -> int | None:
 
 
 @contextlib.contextmanager
-def bulk() -> Iterator[None]:
+def bulk() -> Generator[None]:
     """Pauses the cyclic garbage collector, for the whole process, while
     millions of acyclic objects (a store's ranges and sources, a writer's
     records) are built: each collection would scan them all again, which made

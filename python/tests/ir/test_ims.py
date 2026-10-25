@@ -7,7 +7,9 @@ import json
 import pytest
 from ir_helpers import FIXTURES, as_the_reference
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
+from refkv_reference.legacy import Output
 
+from refkv._narrow import string
 from refkv.ir import zarrify as via_ir
 
 IMS = sorted((FIXTURES / "ims").rglob("*.ims"))
@@ -50,6 +52,7 @@ def reference_objects(path) -> int:
     """The number of objects the frozen reference's object table lists (under its revision's
     source metadata node, vzip_source)."""
     _, out = virtualize(str(path), "https://data.test/x")
+    assert isinstance(out, Output)
     return json.loads(out.bytes_entries["vzip_source/objects/parent/zarr.json"])["shape"][0]
 
 
@@ -67,7 +70,7 @@ def test_the_walk_stops_at_its_depth_and_reads_a_shared_group_once(ims_probes):
 def test_an_implicit_index_outside_the_image_is_one_range(ims_probes):
     _, _, ir = via_ir(str(ims_probes / "ims_implicit_extra.ims"), "https://data.test/x")
     data = [i for i in range(len(ir)) if ir.path(i).endswith("/data") and ir.kind(i) == 2]
-    forms = [json.loads(ir.form(i)) for i in data]
+    forms = [json.loads(string(ir.form(i))) for i in data]
     implicit = [(i, f) for i, f in zip(data, forms, strict=True) if "grid" in f["geometry"]]
     assert len(implicit) == 1
     i, f = implicit[0]

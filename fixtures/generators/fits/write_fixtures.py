@@ -26,6 +26,8 @@ import numpy as np
 from astropy.io import fits
 from astropy.io.fits.hdu.compressed._tiled_compression import _compress_tile
 
+from refkv._narrow import integer
+
 OUT = Path(__file__).parents[2] / "fits"
 BLOCK = 2880
 CARD = 80
@@ -146,7 +148,7 @@ def accepted() -> None:
     write("fits_primary_cube", [cube])
 
     # A multi-extension file in HST's shape: an empty primary, SCI/ERR/DQ per chip, EXTVER.
-    hdus = [primary(TELESCOP="HST", INSTRUME="WFC3", NEXTEND=6)]
+    hdus: list[fits.PrimaryHDU | fits.ImageHDU] = [primary(TELESCOP="HST", INSTRUME="WFC3", NEXTEND=6)]
     for chip in (1, 2):
         hdus.append(wcs(image(ramp((5, 6), "f4", 20 + chip), "SCI", chip, BUNIT="ELECTRONS"), crpix=(1.0 + chip, 2.0)))
         hdus.append(image(ramp((5, 6), "f4", 30 + chip), "ERR", chip, BUNIT="ELECTRONS"))
@@ -228,8 +230,10 @@ def accepted() -> None:
     path = write("fits_bintable_theap", [primary(), fits.BinTableHDU.from_columns([var, fixed], name="GAP")])
     data = path.read_bytes()
     with fits.open(path) as hdul:
-        rows = hdul[1].header["NAXIS1"] * hdul[1].header["NAXIS2"]
-        pcount = hdul[1].header["PCOUNT"]
+        tab = hdul[1]
+        assert isinstance(tab, fits.BinTableHDU)
+        rows = tab.header["NAXIS1"] * tab.header["NAXIS2"]
+        pcount = tab.header["PCOUNT"]
     header_end, _data_end = hdu_extent(data, hdu_extent(data, 0)[1])
     heap = data[header_end + rows : header_end + rows + pcount]
     gap = b"\xaa" * 16
@@ -389,6 +393,7 @@ def table_layout(header) -> tuple[list[tuple[str, str, int]], int]:
     for n in range(1, header["TFIELDS"] + 1):
         form = header[f"TFORM{n}"].strip()
         m = re.match(r"(\d*)([LXBIJKAEDCMPQ])", form)
+        assert m is not None
         count, letter = int(m.group(1) or 1), m.group(2)
         width = {"L": 1, "X": 0, "B": 1, "I": 2, "J": 4, "K": 8, "A": 1, "E": 4, "D": 8, "C": 8, "M": 16, "P": 8,
                  "Q": 16}[letter]
@@ -408,7 +413,7 @@ def descriptors(data: bytes, hdu_index: int) -> tuple[int, int, dict[str, list[t
     header_end, _ = hdu_extent(data, offset)
     h = fits.Header.fromstring(data[offset:header_end].decode("latin-1"))
     cols, row_bytes = table_layout(h)
-    heap = header_end + h.get("THEAP", h["NAXIS1"] * h["NAXIS2"])
+    heap = header_end + integer(h.get("THEAP", h["NAXIS1"] * h["NAXIS2"]))
     out = {}
     for name, form, at in cols:
         if "P" in form or "Q" in form:

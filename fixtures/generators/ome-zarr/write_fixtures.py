@@ -37,6 +37,8 @@ import numpy as np
 HERE = Path(__file__).parent
 OUT = HERE.parents[1] / "ome-zarr"
 _spec = importlib.util.spec_from_file_location("zarr2_fixtures", HERE.parent / "zarr2" / "write_fixtures.py")
+assert _spec is not None  # a .py file's
+assert _spec.loader is not None
 z2 = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(z2)
 array, group, put, write_json = z2.array, z2.group, z2.put, z2.write_json

@@ -1,4 +1,6 @@
 """The hand-written codec must agree with the official protobuf runtime."""
+from typing import Any
+
 import pytest
 from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
 
@@ -24,7 +26,7 @@ def _official():
                   label=F.LABEL_REPEATED)
     pool = descriptor_pool.DescriptorPool()
     pool.Add(fdp)
-    def get(n):
+    def get(n) -> type[Any]:  # the classes' fields are defined at runtime, in no stub
         return message_factory.GetMessageClass(pool.FindMessageTypeByName(f"refkv.v0.{n}"))
     return get("Range"), get("Concat"), get("Source"), get("SourceTable")
 

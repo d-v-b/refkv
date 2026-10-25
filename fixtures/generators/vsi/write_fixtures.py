@@ -38,7 +38,9 @@ from __future__ import annotations
 import itertools
 import shutil
 import struct
+from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import imagecodecs
 import numpy as np
@@ -85,8 +87,10 @@ class Field:
     callable giving the bytes between the field's data and the next field (the coarse IFDs
     sit there, after an inline `Coarse pyramid level` field)."""
 
-    def __init__(self, tag, ftype, data=None, *, inline=None, tag2=None, ext=None, children=None, region=None,
-                 rest=None, flags=0, size=None, next_=None):
+    def __init__(self, tag: int, ftype: int, data: bytes | None = None, *, inline: int | None = None,
+                 tag2: int | None = None, ext: bool | None = None, children: list[list[Field]] | None = None,
+                 region: Callable[[int], bytes] | None = None, rest: Callable[[int], bytes] | None = None,
+                 flags: int = 0, size: int | None = None, next_: int | None = None) -> None:
         self.tag, self.ftype, self.data, self.inline, self.tag2 = tag, ftype, data, inline, tag2
         self.ext, self.children, self.region, self.rest = ext, children, region, rest
         self.flags, self.size_override, self.next_override = flags, size, next_
@@ -148,6 +152,7 @@ class Builder:
                 for child in f.children:
                     body += self.container(q + len(body), child)
             else:
+                assert f.data is not None  # a plain value's
                 body = f.data
             rest = f.rest(q + len(body)) if f.rest is not None else b""
             end = q + len(body) + len(rest)
@@ -188,6 +193,7 @@ def jpeg_tables_and_body(rgb: np.ndarray) -> tuple[bytes, bytes]:
     """A JPEG stream split into its tables (as JPEGTables: SOI, DQT/DHT segments, EOI) and the
     rest (SOI, the frame and scan, EOI), RGB with no color transform."""
     full = imagecodecs.jpeg8_encode(rgb, level=90, colorspace="RGB", outcolorspace="RGB", subsampling="444")
+    full = cast("bytes", full)  # imagecodecs' stubs: bytes, without out=
     segs, p = [], 2
     while p < len(full):
         marker = full[p + 1]
@@ -230,10 +236,11 @@ class TiffImage:
             out.extend(data)
             return o
 
+        jpeg_tables = None  # the JPEGTables entry
         if self.jpeg:
             tables, body = jpeg_tables_and_body(self.pixels)
             strips = [body, body] if self.two_strips else [body]
-            tables_at = put(tables)
+            jpeg_tables = (347, UNDEFINED, ("at", len(tables), put(tables)))
         else:
             raw = np.ascontiguousarray(self.pixels.astype(self.pixels.dtype.newbyteorder("<"))).tobytes()
             row_bytes = self.w * self.spp * self.pixels.dtype.itemsize
@@ -245,8 +252,8 @@ class TiffImage:
                     (259, SHORT, [7 if self.jpeg else 1]), (262, SHORT, [2 if self.spp == 3 else 1]),
                     (273, LONG, offsets), (277, SHORT, [self.spp]), (278, LONG, [self.h if self.jpeg else self.rows]),
                     (279, LONG, counts), (284, SHORT, [1])]
-        if self.jpeg:
-            entries.append((347, UNDEFINED, ("at", len(tables), tables_at)))
+        if jpeg_tables is not None:
+            entries.append(jpeg_tables)
         entries = [e for e in entries if e[0] not in self.skip]
         entries += list(self.extra)
         if self.exif:
@@ -373,7 +380,7 @@ def plane_tiles(plane: np.ndarray, tw: int, th: int, compression: int, samples: 
                                              outcolorspace="YCBCR" if samples == 3 else "GRAY")
             else:
                 b = imagecodecs.jpeg2k_encode(block, level=0, reversible=True, codecformat="J2K")
-            out.append(((tx, ty), b))
+            out.append(((tx, ty), cast("bytes", b)))  # imagecodecs' stubs: bytes, without out=
     return out
 
 

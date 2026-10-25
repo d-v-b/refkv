@@ -17,6 +17,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import override
 
 from refkv.policy import Policy
 from refkv.reader import Stats
@@ -46,11 +47,13 @@ class Server:
             protocol_version = "HTTP/1.1"
             wbufsize = 1 << 20  # headers and body leave in one send: two sends stall on Nagle and delayed ACK (40 ms)
 
+            @override
             def setup(self):
                 super().setup()
                 self.request.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
-            def log_message(self, *a):
+            @override
+            def log_message(self, format, *args):
                 pass
 
             def do_GET(self):

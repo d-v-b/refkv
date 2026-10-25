@@ -41,6 +41,7 @@ import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from typing import override
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "fixtures"
@@ -48,10 +49,11 @@ sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 
 from proxy import Upstream, make_handler  # noqa: E402
 
+from refkv._narrow import sequence, string  # noqa: E402
 from refkv.zarrify.profiles import REGISTRY  # noqa: E402
 
-STORE_FORMATS = tuple(e["name"] for e in REGISTRY if e["kind"] in ("store", "both"))
-SUFFIXES = tuple(s for e in REGISTRY for s in e["suffixes"])
+STORE_FORMATS = tuple(string(e["name"]) for e in REGISTRY if e["kind"] in ("store", "both"))
+SUFFIXES = tuple(string(s) for e in REGISTRY for s in sequence(e["suffixes"]))
 PAGE = 7  # keys a listing page holds
 
 
@@ -70,7 +72,8 @@ def server(cache: Path):
     base = make_handler(FIXTURES, Upstream(cache), page_size=PAGE)
 
     class Handler(base):
-        def do_GET(self):  # noqa: N802 (http.server's name)
+        @override
+        def do_GET(self):
             if self.path.startswith("/r/"):
                 return self._send(302, {"Location": self.path[2:]})
             if self._listing():
@@ -93,6 +96,7 @@ def server(cache: Path):
             self._send(206, {"Content-Type": f"multipart/byteranges; boundary={boundary}"}, body)
             return None
 
+        @override
         def _send(self, status, headers, body=b""):
             parts = self.path.split("?")[0].split("/")
             if status in (200, 206) and len(parts) >= 3 and parts[1] == "f" and not self.path.endswith("/"):

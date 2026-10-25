@@ -17,6 +17,7 @@ import struct
 import sys
 import zlib
 from pathlib import Path
+from typing import NotRequired, TypedDict
 
 import numpy as np
 
@@ -113,7 +114,7 @@ def picture(planes: list[tuple[str, int, int]], calibration: float | None) -> by
 
 
 def node(e_type: int, pars: dict, children: list[dict] | None = None, item_valid: bytes | None = None) -> dict:
-    n = {"eType": e_type, "uLoopPars": pars}
+    n: dict[str, object] = {"eType": e_type, "uLoopPars": pars}
     if item_valid is not None:
         n["pItemValid"] = item_valid
     if children:
@@ -133,10 +134,20 @@ def frame_bytes(pixels: np.ndarray, width_bytes: int, compress: bool) -> bytes:
     return struct.pack("<d", 1.5) + (zlib.compress(data) if compress else data)
 
 
+class Case(TypedDict):
+    """A rejected file: its chunks' contents."""
+
+    attrs: bytes
+    exp: NotRequired[bytes]
+    version: NotRequired[bytes]
+    pads: NotRequired[list[int]]
+
+
 def write(name: str, f: Nd2, expected: dict[str, np.ndarray]) -> None:
     f.finish(OUT / f"{name}.nd2")
     if expected:
-        np.savez(OUT / f"{name}.npz", **{k.replace("/", "|"): v for k, v in expected.items()})
+        # allow_pickle, the default, given so that no array is taken for it
+        np.savez(OUT / f"{name}.npz", allow_pickle=True, **{k.replace("/", "|"): v for k, v in expected.items()})
 
 
 rng = np.random.default_rng(0)
@@ -213,7 +224,7 @@ def float_uncalibrated() -> None:
 
 def rejected() -> None:
     base = {"width": 4, "height": 3, "comp": 1, "bpc": 16, "sequence": 1}
-    cases = {
+    cases: dict[str, Case] = {
         "nd2_reject_lossy": {"attrs": attributes(**base, compression=1)},
         "nd2_reject_tiled": {"attrs": attributes(**base, tile_width=2)},
         "nd2_reject_loop_type": {"attrs": attributes(**base), "exp": experiment(node(7, {"uiCount": 2}))},

@@ -19,6 +19,7 @@ import json
 import sys
 from pathlib import Path
 
+from refkv._narrow import string
 from refkv.zarrify.common import CONVENTION_KEY, PROFILES, convention
 from refkv.zarrify.profiles import REGISTRY
 
@@ -28,7 +29,8 @@ STORES = {e["name"] for e in REGISTRY if e["kind"] == "store"}
 # Each profile's source-metadata schema (README "Source metadata"), and what it adds: its module of
 # spec/source_metadata/, named for it.
 sys.path.insert(0, str(HERE))
-MODULES = {e["name"]: importlib.import_module(f"source_metadata.{e['name'].replace('-', '_')}") for e in REGISTRY}
+MODULES = {e["name"]: importlib.import_module(f"source_metadata.{string(e['name']).replace('-', '_')}")
+           for e in REGISTRY}
 
 
 # The IR mirror (spec/conventions.md §8

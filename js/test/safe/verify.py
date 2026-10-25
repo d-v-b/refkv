@@ -67,6 +67,7 @@ from refkv_reference.safe import zipdir  # noqa: E402
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers imagecodecs_jpeg2k)
 from refkv import _core  # noqa: E402
+from refkv._narrow import ndarray  # noqa: E402
 from refkv.ir.cmirror import Archive, canonical_problem, rebuild_from_archive, view_problem  # noqa: E402
 from refkv.pb import decode_source_table  # noqa: E402
 from refkv.zarrify.common import http_reader  # noqa: E402
@@ -108,7 +109,13 @@ def parents(keys) -> set[str]:
 
 def get_all(vz: refkv.zarr.ZarrStore, keys: list[str]) -> list[bytes]:
     async def go():
-        return [(await vz.get(k, default_buffer_prototype())).to_bytes() for k in keys]
+        out = []
+        for k in keys:
+            b = await vz.get(k, default_buffer_prototype())
+            if b is None:
+                raise KeyError(k)
+            out.append(b.to_bytes())
+        return out
 
     return asyncio.run(go())
 
@@ -140,7 +147,7 @@ def check_bands(out: Path, docs: dict, read_band, only: list[str] | None = None)
         group = docs[path.split("/")[0] + "/zarr.json"]["attributes"]
         s = docs[f"{path}/zarr.json"]["attributes"]["refkv_zarrified"]["safe"]
         want, transform, crs, w, h = read_band(s["IMAGE_FILE"] + ".jp2")
-        got = zarr.open_array(vz, path=path, mode="r", zarr_format=3)[...]
+        got = ndarray(zarr.open_array(vz, path=path, mode="r", zarr_format=3)[...])
         if got.ndim == 2:
             got = got[None]
         if got.shape != want.shape or got.dtype != want.dtype or not np.array_equal(got, want):
@@ -236,7 +243,7 @@ def rebuild_store(out: Path, docs: dict, read) -> dict[str, bytes]:
 
 
 def check_rebuild(item: Path, product: dict[str, bytes], out: Path, docs: dict, url: str,
-                  dirs: set[str] = frozenset()) -> list[str]:
+                  dirs: set[str] | frozenset[str] = frozenset()) -> list[str]:
     """The product rebuilt from the hierarchy against the product: a zip file byte for byte from
     its mirror, and each band file's codestream from its chunks; or a directory's objects
     (`rebuild_store`), and its directories (`dirs`, those its folder markers name): each must be
@@ -345,7 +352,7 @@ def sentinel2(url: str, docs: dict, out: Path, groups: list[str]) -> list[str]:
                 if f"{array}/zarr.json" not in docs:
                     continue
                 want = ds.read(i)
-                got = zarr.open_array(vz, path=array, mode="r", zarr_format=3)[...]
+                got = ndarray(zarr.open_array(vz, path=array, mode="r", zarr_format=3)[...])
                 if got.shape != want.shape or not np.array_equal(got, want):
                     problems.append(f"SENTINEL2 {array}: differs ({got.shape} vs {want.shape})")
                 band = docs[f"{array}/zarr.json"]["attributes"]["refkv_zarrified"]["safe"]

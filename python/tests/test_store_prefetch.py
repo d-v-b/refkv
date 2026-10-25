@@ -10,8 +10,10 @@ import threading
 import time
 import urllib.error
 import urllib.parse
+from email.message import Message
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import override
 from xml.sax.saxutils import escape
 
 import pytest
@@ -51,10 +53,12 @@ class FakeS3:
         class R(io.BytesIO):
             status = 200
 
+            @override
             def __enter__(self):
                 return self
 
-            def __exit__(self, *a):
+            @override
+            def __exit__(self, exc_type, exc_val, exc_tb):
                 pass
 
         if req.full_url == LISTING:
@@ -68,7 +72,7 @@ class FakeS3:
             time.sleep(self.delay)
             v = self.objects[key]
             if isinstance(v, int):
-                raise urllib.error.HTTPError(req.full_url, v, "refused", {}, None)
+                raise urllib.error.HTTPError(req.full_url, v, "refused", Message(), None)
             return R(v[:-1] if key in self.short else v)
         finally:
             with self.lock:
@@ -154,6 +158,7 @@ def test_a_short_read_is_the_same_failure(monkeypatch):
     failed = outcome(monkeypatch, FakeS3(objects, short=frozenset({"b/.zarray"})), 8)
     assert failed == outcome(monkeypatch, FakeS3(objects, short=frozenset({"b/.zarray"})), 1)
     assert failed[:2] == ("failed", "OSError")
+    assert len(failed) == 3
     assert "the listing says" in failed[2]
 
 
@@ -177,7 +182,8 @@ def s3_server():
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *a):
+        @override
+        def log_message(self, format, *args):
             pass
 
         def do_GET(self):

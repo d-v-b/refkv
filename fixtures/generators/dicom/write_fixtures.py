@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import struct
 from pathlib import Path
+from typing import cast
 
 import imagecodecs
 import numpy as np
@@ -106,17 +107,19 @@ def smooth(frames: int, rows: int, columns: int, spp: int) -> np.ndarray:
 
 
 def jpeg(pixels: np.ndarray, photometric: str) -> bytes:
+    # imagecodecs' stubs: an encoder gives bytes, without out=
     if photometric == "RGB":
         # Stored as RGB, then made silent about it (no APP14, component ids
         # 1, 2, 3): a decoder that guesses would take it for YCbCr, so the
         # profile's Adobe marker decides (spec/zarrify/dicom.md §7.5
         # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/dicom.md#75-frames>).
-        return _strip_adobe(imagecodecs.jpeg8_encode(pixels, level=95, colorspace="RGB", outcolorspace="RGB"))
+        rgb = imagecodecs.jpeg8_encode(pixels, level=95, colorspace="RGB", outcolorspace="RGB")
+        return _strip_adobe(cast("bytes", rgb))
     if photometric == "YBR_FULL_422":
-        return imagecodecs.jpeg8_encode(pixels, level=95, subsampling="422")
+        return cast("bytes", imagecodecs.jpeg8_encode(pixels, level=95, subsampling="422"))
     if photometric == "YBR_FULL":
-        return imagecodecs.jpeg8_encode(pixels, level=95, subsampling="444")
-    return imagecodecs.jpeg8_encode(pixels, level=95)
+        return cast("bytes", imagecodecs.jpeg8_encode(pixels, level=95, subsampling="444"))
+    return cast("bytes", imagecodecs.jpeg8_encode(pixels, level=95))
 
 
 def _strip_adobe(stream: bytes) -> bytes:
@@ -141,7 +144,8 @@ def _strip_adobe(stream: bytes) -> bytes:
 
 
 def j2k(pixels: np.ndarray, mct: bool = True) -> bytes:
-    return imagecodecs.jpeg2k_encode(pixels, level=0, codecformat="J2K", reversible=True, mct=mct)
+    j = imagecodecs.jpeg2k_encode(pixels, level=0, codecformat="J2K", reversible=True, mct=mct)
+    return cast("bytes", j)  # imagecodecs' stubs: bytes, without out=
 
 
 def sequences(ds: Dataset) -> None:

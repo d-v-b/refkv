@@ -4,6 +4,7 @@ import zipfile
 import numpy as np
 import xarray as xr
 import zarr
+import zarr.storage
 from helpers import zarrify
 
 import refkv.zarr
@@ -12,7 +13,7 @@ from refkv.pb import Range
 from refkv.vzip.store import VZipStore
 
 
-def test_roundtrip_single_and_combined(netcdf_files, tmp_path):
+def test_roundtrip_single_and_combined(netcdf_files, tmp_path, monkeypatch):
     paths, expected = netcdf_files
     vdss = [zarrify(p) for p in paths]
     combined = xr.concat(vdss, dim="time", coords="minimal", compat="override")
@@ -28,7 +29,8 @@ def test_roundtrip_single_and_combined(netcdf_files, tmp_path):
         store = refkv.zarr.open(out)
         if consolidated:
             # the root zarr.json lists every array, so opening never lists the archive
-            store.list_dir = store.list_prefix = store.list = _no_listing
+            for method in ("list_dir", "list_prefix", "list"):
+                monkeypatch.setattr(store, method, _no_listing)
         ds = xr.open_zarr(store, consolidated=consolidated, zarr_format=3)
         xr.testing.assert_identical(ds.load(), exp.load())
 
@@ -48,6 +50,14 @@ def test_naive_view_is_a_plain_zip(netcdf_files, tmp_path):
     assert ref.length > 0
 
 
+def _data_offset(s: VZipStore, key: str) -> int:
+    """The offset of the body of the entry `key`, which the store knows."""
+    e = s.entry(key)
+    assert e is not None, key
+    assert e.data_offset is not None, key
+    return e.data_offset
+
+
 def test_what_xarray_reads_at_open_is_written_late(netcdf_files, tmp_path):
     paths, _ = netcdf_files
     vds = xr.concat([zarrify(p) for p in paths], dim="time", coords="minimal",
@@ -61,10 +71,10 @@ def test_what_xarray_reads_at_open_is_written_late(netcdf_files, tmp_path):
         write_vzip(vds, out, page_size=page_size)
         s = VZipStore(str(out), resolve=False)
         assert s.classify("__vz__/sources") == "bytes"
-        sources = s.entry("__vz__/sources").data_offset
+        sources = _data_offset(s, "__vz__/sources")
         for k in ["zarr.json", "time/zarr.json", "time/c/0", "lat/c/0", "temp/c/0/0/0"]:
             assert s.classify(k) == "bytes"
-            assert (s.entry(k).data_offset > sources) == read_at_open(k, vds), (page_size, k)
+            assert (_data_offset(s, k) > sources) == read_at_open(k, vds), (page_size, k)
 
 
 def test_loadable_variables_are_written_as_a_dataset_of_their_own(netcdf_files):

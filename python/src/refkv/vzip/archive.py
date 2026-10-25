@@ -65,7 +65,7 @@ FORMAT_VERSION = 0
 # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#13-versioning>, §5
 # <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#5-source-table>)
 SPEC_REVISION = 11
-MAGIC_COMMENT = b"vzip/%d" % FORMAT_VERSION
+MAGIC_COMMENT = f"vzip/{FORMAT_VERSION}".encode()
 
 _LFH = struct.Struct("<IHHHHHIIIHH")  # 30 bytes
 _CDH = struct.Struct("<IHHHHHHIIIHHHHHII")  # 46 bytes

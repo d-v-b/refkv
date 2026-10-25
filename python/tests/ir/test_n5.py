@@ -12,6 +12,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import override
 from xml.sax.saxutils import escape
 
 import pytest
@@ -24,6 +25,7 @@ from refkv.ir.store import StoreIrOutput, zarrify_store
 from refkv.zarrify import Rejected
 from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store
 from refkv.zarrify.common import same
+from refkv.zarrify.store import StoreOutput
 
 FIXTURES = Path(__file__).parents[3] / "fixtures" / "n5"
 STORES = sorted(p for p in FIXTURES.iterdir() if p.is_dir())
@@ -41,6 +43,7 @@ def test_accepted_stores_have_the_reference_hierarchy_and_a_store_mirror():
             continue
         url = URL.format(root.name)
         _, ref = frozen(str(root), url)
+        assert isinstance(ref, StoreOutput), root.name
         fmt, out = zarrify(str(root), url=url)
         assert fmt == "n5", root.name
         assert isinstance(out, StoreIrOutput), root.name
@@ -81,10 +84,12 @@ def test_ignored_keys_are_recorded_beside_the_mirror():
         class R(io.BytesIO):
             status = 200
 
+            @override
             def __enter__(self):
                 return self
 
-            def __exit__(self, *a):
+            @override
+            def __exit__(self, exc_type, exc_val, exc_tb):
                 pass
 
         if "list-type=2" in req.full_url:
@@ -140,6 +145,8 @@ def test_hostile_stores_are_refused_or_zarrified_as_the_reference_does(n5_probes
         seen += 1
         if out is None:
             continue
+        assert isinstance(out, StoreIrOutput), root.name
+        assert isinstance(ref, StoreOutput), root.name
         docs = {k: json.loads(v) for k, v in out.entries.items() if not k.startswith("refkv_source/")}
         want = current_names({k: v for k, v in ref.docs.items() if not k.startswith(LEGACY_SOURCE)})
         del want["zarr.json"]["attributes"]["refkv_zarrified"]["revision"]
@@ -159,6 +166,7 @@ def test_under_a_root_dataset_the_mirror_and_the_other_objects_are_keys_of_refkv
     block is in the mirror's listing, not in a refkv_source/empty.json."""
     for name in ("n5_root_dataset_objects", "n5_root_dataset_empty_block"):
         _, out = zarrify(str(FIXTURES / name), url=URL.format(name))
+        assert isinstance(out, StoreIrOutput), name
         assert json.loads(out.entries["zarr.json"])["node_type"] == "array", name
         assert [k for k in out.entries
                 if k.endswith("zarr.json") and not k.startswith("refkv_source/")] == ["zarr.json"]
@@ -167,5 +175,6 @@ def test_under_a_root_dataset_the_mirror_and_the_other_objects_are_keys_of_refkv
         listing = {k: n for k, n, _ in _core.rebuild_store(out.entries.get)}
         assert listing == {k: len(v) for k, v in files(FIXTURES / name).items()}, name
     _, out = zarrify(str(FIXTURES / "n5_root_dataset_objects"), url=URL.format("x"))
+    assert isinstance(out, StoreIrOutput)
     size = (FIXTURES / "n5_root_dataset_objects" / "README").stat().st_size
     assert out.refs["refkv_source/objects/README"] == [("object", "README", 0, size)]

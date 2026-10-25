@@ -20,11 +20,14 @@ import sys
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import override
 
 import nd2 as nd2lib
 import numpy as np
 import zarr
+from nd2._readers import ModernReader
 from zarr.abc.codec import BytesBytesCodec
+from zarr.core.common import JSON
 from zarr.registry import register_codec
 
 HERE = Path(__file__).parent
@@ -32,9 +35,10 @@ ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store)
+from refkv._narrow import at, integer, mapping, ndarray, sequence, string  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
-from verify_common import LOOPBACK_SOURCES, run, serve  # noqa: E402
+from verify_common import LOOPBACK_SOURCES, metadata_v3, run, serve  # noqa: E402
 
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import is_mirror, mirror_problems  # noqa: E402
@@ -53,17 +57,21 @@ class ZlibCodec(BytesBytesCodec):
     level: int = 1
 
     @classmethod
+    @override
     def from_dict(cls, data):
-        return cls(**data.get("configuration", {}))
+        return cls(**{k: integer(v, k) for k, v in mapping(data.get("configuration", {})).items()})
 
-    def to_dict(self):
+    @override
+    def to_dict(self) -> dict[str, JSON]:
         return {"name": "zlib", "configuration": {"level": self.level}}
 
-    async def _decode_single(self, chunk_bytes, chunk_spec):
-        return chunk_spec.prototype.buffer.from_bytes(zlib.decompress(chunk_bytes.to_bytes()))
+    @override
+    async def _decode_single(self, chunk_data, chunk_spec):
+        return chunk_spec.prototype.buffer.from_bytes(zlib.decompress(chunk_data.to_bytes()))
 
-    async def _encode_single(self, chunk_bytes, chunk_spec):
-        return chunk_spec.prototype.buffer.from_bytes(zlib.compress(chunk_bytes.to_bytes()))
+    @override
+    async def _encode_single(self, chunk_data, chunk_spec):
+        return chunk_spec.prototype.buffer.from_bytes(zlib.compress(chunk_data.to_bytes()))
 
     def compute_encoded_size(self, input_byte_length, chunk_spec):
         raise NotImplementedError
@@ -142,6 +150,15 @@ def family_member(node, i: int) -> bytes | None:
     return bytes(node["data"][offsets[i]:offsets[i + 1]]) if offsets[i + 1] > offsets[i] else b""
 
 
+def modern_reader(f: nd2lib.ND2File) -> ModernReader:
+    """`f`'s reader, whose chunk map, loader and decoder the checks read: the modern one (the
+    fixtures are not legacy JPEG 2000 files)."""
+    r = f._rdr
+    if not isinstance(r, ModernReader):
+        raise TypeError(f"expected a ModernReader, got {type(r).__name__}")
+    return r
+
+
 def frame_problems(root, loops: list[dict], frames: dict[int, bytes], attrs: dict) -> list[str]:
     """Each placed frame's pixels in the image, and its timestamp in ImageDataSeq,
     against its chunk's data (spec/zarrify/nd2.md §4.3
@@ -149,7 +166,9 @@ def frame_problems(root, loops: list[dict], frames: dict[int, bytes], attrs: dic
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nd2.md#53-elements>)."""
     h, w, comp = attrs["uiHeight"], attrs["uiWidth"], attrs["uiComp"]
     row, width_bytes = w * comp * attrs["uiBpcInMemory"] // 8, attrs["uiWidthBytes"]
-    times = root["refkv_source/ImageDataSeq"] if frames else None
+    if not frames:
+        return []
+    times = root["refkv_source/ImageDataSeq"]
     problems = []
     for f, raw in sorted(frames.items()):
         coords, rest = {}, f
@@ -182,7 +201,7 @@ def mirror_chunk_problems(path: Path, root, out: Path) -> list[str]:
     problems = mirror_problems(out, path)
     decoded = root.attrs["refkv_zarrified"]["nd2"]["chunks"]
     with nd2lib.ND2File(path) as f:
-        r = f._rdr
+        r = modern_reader(f)
         for k in r.chunkmap:
             name = read_text(k)
             if name in decoded and (k.endswith(b"LV!") or b"LV|" in k):
@@ -219,7 +238,7 @@ def chunk_problems(path: Path, root) -> list[str]:
     problems = []
     placed_frames: dict[int, bytes] = {}
     with nd2lib.ND2File(path) as f:
-        r = f._rdr
+        r = modern_reader(f)
         for k in r.chunkmap:
             name = read_text(k)
             raw = r._load_chunk(k)
@@ -287,8 +306,9 @@ def check(nd2: Path, out: Path, _) -> tuple[list, str]:
     expected = {k.replace("|", "/"): v for k, v in np.load(nd2.with_suffix(".npz")).items()}
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
     problems, chunks = [], 0
-    for series in root["OME"].attrs["ome"]["series"]:
-        arr = root[f"{series}/0"]
+    series_paths = [string(x) for x in sequence(at(root["OME"].attrs, "ome", "series"))]
+    for series in series_paths:
+        arr = root.get_array(f"{series}/0")
         grid = [s // c for s, c in zip(arr.shape, arr.chunks, strict=True)]
         # Every chunk, or for a large grid the chunks with data and the first ones.
         indices = list(np.ndindex(*grid)) if math.prod(grid) <= 100_000 else sorted(
@@ -297,7 +317,8 @@ def check(nd2: Path, out: Path, _) -> tuple[list, str]:
         for index in indices:
             key = f"{series}/0/c/" + "/".join(map(str, index))
             sel = tuple(slice(i * c, (i + 1) * c) for i, c in zip(index, arr.chunks, strict=True))
-            got = np.squeeze(arr[sel], axis=tuple(d for d, c in enumerate(arr.chunks) if c == 1 and d < arr.ndim - 2))
+            got = np.squeeze(ndarray(arr[sel]),
+                             axis=tuple(d for d, c in enumerate(arr.chunks) if c == 1 and d < arr.ndim - 2))
             want = expected.get(key)
             chunks += 1
             if want is None:
@@ -305,7 +326,7 @@ def check(nd2: Path, out: Path, _) -> tuple[list, str]:
                     problems.append(f"{key}: expected the fill value")
             elif got.dtype != want.dtype or not np.array_equal(got, want):
                 problems.append(f"{key}: differs ({got.dtype} {got.shape} vs {want.dtype} {want.shape})")
-    axes = root[root["OME"].attrs["ome"]["series"][0] + "/0"].metadata.dimension_names
+    axes = metadata_v3(root.get_array(series_paths[0] + "/0")).dimension_names
     return ([f"CHUNKS: {x}" for x in meta[:3]] + problems[:3],
             f"({chunks} chunks, {len(expected)} with data, axes {axes})")
 

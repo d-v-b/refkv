@@ -28,6 +28,7 @@ ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store, with the refkv.fits_tiles codec)
+from refkv._narrow import at, mapping, ndarray, sequence  # noqa: E402
 
 sys.path.insert(0, str(HERE.parent))
 from ir_mirror import mirror_problems  # noqa: E402
@@ -78,6 +79,13 @@ def card_problems(ours, cards) -> list[str]:
     return problems
 
 
+def one_hdu(hdul: fits.HDUList, i: int):
+    """HDU `i` of `hdul` (its indexing is typed to give a slice's HDUList too)."""
+    hdu = hdul[i]
+    assert not isinstance(hdu, fits.HDUList), i
+    return hdu
+
+
 def pixel_problems(ours, theirs, table) -> list[str]:
     """Quantized floats within the rounding of the dequantization (python/tests/ir/test_fits.py
     says why), everything else exact."""
@@ -95,43 +103,47 @@ def pixel_problems(ours, theirs, table) -> list[str]:
 def problems_of(path: Path, out: Path) -> list[str]:
     raw = path.read_bytes()
     root = zarr.open_group(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), mode="r", zarr_format=3)
-    meta = root.attrs["refkv_zarrified"]["fits"]
+    meta = mapping(at(root.attrs, "refkv_zarrified", "fits"))
+    hdus = sequence(meta["hdus"])
     problems = []
     same = SAME_IMAGE.get(path.stem)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with fits.open(path, do_not_scale_image_data=True, disable_image_compression=True) as hdul, \
                 fits.open(path, do_not_scale_image_data=True) as decoded:
-            if len(meta["hdus"]) != len(hdul):
-                return [f"{len(meta['hdus'])} HDUs, astropy reads {len(hdul)}"]
-            problems += [f"primary {p}" for p in card_problems(meta["cards"], hdul[0].header.cards)]
+            if len(hdus) != len(hdul):
+                return [f"{len(hdus)} HDUs, astropy reads {len(hdul)}"]
+            problems += [f"primary {p}" for p in card_problems(meta["cards"], one_hdu(hdul, 0).header.cards)]
             for i, hdu in enumerate(hdul):
-                entry, info = meta["hdus"][i], hdu.fileinfo()
+                entry, info = mapping(hdus[i], f"hdus[{i}]"), hdu.fileinfo()
                 if entry["offset"] != info["hdrLoc"] or entry["data_offset"] != info["datLoc"]:
                     problems.append(f"HDU {i} offsets {entry['offset']}, {entry['data_offset']} "
                                     f"!= {info['hdrLoc']}, {info['datLoc']}")
                 node = root[str(i)]
-                problems += [f"HDU {i} {p}" for p in card_problems(node.attrs["refkv_zarrified"]["fits"]["cards"],
+                problems += [f"HDU {i} {p}" for p in card_problems(at(node.attrs, "refkv_zarrified", "fits", "cards"),
                                                                    hdu.header.cards)]
                 if hdu.header.get("ZIMAGE"):
                     if same is not None:
                         ref, absent = same
                         with fits.open(ROOT / "fixtures" / "fits" / f"{ref}.fits",
                                        do_not_scale_image_data=True) as other:
-                            want = other[1].data.copy()
+                            want = one_hdu(other, 1).data.copy()
                         if absent is not None:
                             want[absent] = 0
-                        problems += [f"HDU {i} {p}" for p in pixel_problems(node[...], want, None)]
+                        problems += [f"HDU {i} {p}"
+                                     for p in pixel_problems(ndarray(root.get_array(str(i))[...]), want, None)]
                     else:
-                        problems += [f"HDU {i} {p}" for p in pixel_problems(node[...], decoded[i].data, hdu.data)]
+                        problems += [f"HDU {i} {p}" for p in pixel_problems(ndarray(root.get_array(str(i))[...]),
+                                                                            one_hdu(decoded, i).data, hdu.data)]
                 elif isinstance(hdu, (fits.BinTableHDU, fits.TableHDU)):
                     n1, n2 = hdu.header["NAXIS1"], hdu.header["NAXIS2"]
-                    if n1 * n2 and node["rows"][...].tobytes() != raw[info["datLoc"]:info["datLoc"] + n1 * n2]:
+                    rows = raw[info["datLoc"]:info["datLoc"] + n1 * n2]
+                    if n1 * n2 and ndarray(root.get_array(f"{i}/rows")[...]).tobytes() != rows:
                         problems.append(f"HDU {i} rows differ")
                     theap = hdu.header.get("THEAP", n1 * n2)
                     heap = hdu.header["PCOUNT"] - (theap - n1 * n2)
-                    at = info["datLoc"] + theap
-                    if heap and node["heap"][...].tobytes() != raw[at:at + heap]:
+                    heap_at = info["datLoc"] + theap
+                    if heap and ndarray(root.get_array(f"{i}/heap")[...]).tobytes() != raw[heap_at:heap_at + heap]:
                         problems.append(f"HDU {i} heap differs")
                 elif hdu.header["NAXIS"] == 0:
                     if entry["kind"] != "empty" or not isinstance(node, zarr.Group):
@@ -139,7 +151,8 @@ def problems_of(path: Path, out: Path) -> list[str]:
                 else:
                     want = hdu.data
                     if want.size:
-                        problems += [f"HDU {i} {p}" for p in pixel_problems(node[...], want, None)]
+                        problems += [f"HDU {i} {p}"
+                                     for p in pixel_problems(ndarray(root.get_array(str(i))[...]), want, None)]
     return problems + mirror_problems(out, path)
 
 

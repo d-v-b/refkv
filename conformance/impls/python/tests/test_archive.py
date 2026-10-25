@@ -8,6 +8,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from typing import override
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -23,9 +24,11 @@ VZIP = ROOT / "vzip"
 
 
 class Base(unittest.TestCase):
+    @override
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="vzt")
 
+    @override
     def tearDown(self):
         shutil.rmtree(self.dir, ignore_errors=True)
 

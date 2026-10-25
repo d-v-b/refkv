@@ -8,9 +8,11 @@ import threading
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any, override
 
 import pytest
 
+from refkv._narrow import string
 from refkv.pb import Concat, Range, Source, decode_table
 from refkv.policy import Policy, crc32c
 from refkv.vzip.archive import Entry, parse_central_directory, parse_tail
@@ -36,7 +38,8 @@ def server():
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *a):
+        @override
+        def log_message(self, format, *args):
             pass
 
         def _send(self, head: bool):
@@ -46,14 +49,16 @@ def server():
             rng = self.headers.get("Range")
             if rng and "," in rng:  # several ranges: the whole object, as a server without multipart answers
                 rng = None
+            content_range = None
             if rng:
                 a, b = (int(x) for x in rng[6:].split("-"))
                 data, status = body[a:b + 1], 206
+                content_range = f"bytes {a}-{a + len(data) - 1}/{len(body)}"
             else:
                 data, status = body, 200
             self.send_response(status)
-            if rng:
-                self.send_header("Content-Range", f"bytes {a}-{a + len(data) - 1}/{len(body)}")
+            if content_range:
+                self.send_header("Content-Range", content_range)
             self.send_header("Content-Length", str(len(data)))
             if etag:
                 self.send_header("ETag", etag)
@@ -82,15 +87,19 @@ def _table(path) -> tuple[list[Source], dict[str, list[Range]]]:
     d = parse_tail(data, len(data))
     cd = data[d.cd_offset:d.cd_offset + d.cd_size]
     entries: dict[str, Entry] = parse_central_directory(cd, trust_offsets=True)
-    refs = {k: list(e.ref.parts if isinstance(e.ref, Concat) else [e.ref])
-            for k, e in entries.items() if e.is_ref}
+    refs: dict[str, list[Range]] = {}
+    for k, e in entries.items():
+        if e.is_ref:
+            ref = e.ref
+            assert ref is not None, k
+            refs[k] = list(ref.parts if isinstance(ref, Concat) else [ref])
     return sources, refs
 
 
 def test_pins_and_checksums(tmp_path, server):
     base, _state = server
     tiff_size, jpeg_size = TIFF.stat().st_size, JPEG.stat().st_size
-    cases = [
+    cases: list[tuple[str, str | None, bool, dict[str, Any]]] = [
         # (location, url, checksums, expected pins of source 0)
         (str(TIFF), "https://example.test/a.tif", False, {"size": tiff_size}),
         (str(TIFF), "https://example.test/a.tif", True, {"size": tiff_size}),
@@ -123,9 +132,9 @@ def test_pins_and_checksums(tmp_path, server):
             sizes = {f"https://example.test/s/{p.relative_to(store).as_posix()}": p.stat().st_size
                      for p in store.rglob("*") if p.is_file()}
             assert sources
-            assert all(s.size == sizes[s.url] and s.etag is None for s in sources)
+            assert all(s.size == sizes[string(s.url)] and s.etag is None for s in sources)
             for k, (r,) in refs.items():
-                obj = store / sources[r.source].url.removeprefix("https://example.test/s/")
+                obj = store / string(sources[r.source].url).removeprefix("https://example.test/s/")
                 assert r.crc32c == (crc32c(obj.read_bytes()) if checksums else None), k
 
 

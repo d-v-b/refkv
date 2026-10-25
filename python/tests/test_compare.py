@@ -11,6 +11,7 @@ import tempfile
 import urllib.parse
 import zipfile
 import zlib
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ ROOT = Path(__file__).parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "zarrify"))
 import compare  # noqa: E402
 
+from refkv._narrow import string  # noqa: E402
 from refkv.pb import Range, Source  # noqa: E402
 from refkv.vzip.archive import VZipWriter  # noqa: E402
 from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store  # noqa: E402
@@ -136,7 +138,7 @@ def test_mirror_problem_finds_a_table_that_does_not_read(tmp_path):
 
     path = _mirror_archive(tmp_path, corrupt)
     problem = compare.mirror_problem(path, compare._zip_view(path), _jpeg_gray)
-    assert problem.startswith("Violation: refkv_source/ir/rows/c/0/0")
+    assert string(problem).startswith("Violation: refkv_source/ir/rows/c/0/0")
 
 
 def test_mirror_problem_finds_a_size_other_than_the_pin(tmp_path):
@@ -144,7 +146,7 @@ def test_mirror_problem_finds_a_size_other_than_the_pin(tmp_path):
         out.size += 1
 
     path = _mirror_archive(tmp_path, resize)
-    assert "source 0 pins 5320" in compare.mirror_problem(path, compare._zip_view(path), _jpeg_gray)
+    assert "source 0 pins 5320" in string(compare.mirror_problem(path, compare._zip_view(path), _jpeg_gray))
 
 
 def test_mirror_problem_finds_a_table_that_is_not_canonical(tmp_path):
@@ -183,9 +185,9 @@ def test_at_revision():
         key, node = ("vzip_virtualized", "vzip_source") if legacy else ("refkv_zarrified", "refkv_source")
         cmo = convention(profile)
         if legacy:
-            cmo = {**cmo, "name": key, "schema_url": cmo["schema_url"].replace("/refkv/", "/vzip/"),
-                   "spec_url": cmo["spec_url"].replace("/refkv/", "/vzip/"),
-                   "description": cmo["description"].replace("by refkv", "by vzip")}
+            cmo = {**cmo, "name": key, "schema_url": string(cmo["schema_url"]).replace("/refkv/", "/vzip/"),
+                   "spec_url": string(cmo["spec_url"]).replace("/refkv/", "/vzip/"),
+                   "description": string(cmo["description"]).replace("by refkv", "by vzip")}
         prop = {"profile": profile, "version": 0, **({} if revision is None else {"revision": revision}),
                 "source": {"url": "u"},
                 profile: {"at": f"{node}/x", "list": [f"{node}/y", "z"], **{m: f"{node}/{m}" for m in mirrored}}}
@@ -198,7 +200,7 @@ def test_at_revision():
     for profile, frozen in compare.REFERENCE_REVISIONS.items():
         assert compare.at_revision(root(frozen, profile)) == root(None, profile), profile
         # the old names read as the current ones, and the members the mirror holds dropped
-        legacy = compare.at_revision(named(frozen, profile, True, compare.MIRRORED.get(profile, ())))
+        legacy = compare.at_revision(named(frozen, profile, True, compare.MIRRORED.get(string(profile), ())))
         assert compare.without_source(legacy) == compare.without_source(named(None, profile, False))
     kept = {"nifti_version": 1, "header": {}, "scaling": {"slope": 2, "inter": 0}}
     frozen = {**kept, "extender": "AQAAAA==", "extensions": [], "unparsed": "refkv_source/unparsed"}
@@ -239,7 +241,8 @@ def test_mirror_problem_finds_a_view_that_is_not_the_tables(tmp_path):
     assert problem == 'view tree: member ["header"]["magic"] is missing'
 
 
-def _store_archive(tmp_path, name="zarr2_hierarchy", edit=None, kind="zarr2") -> tuple[Path, callable]:
+def _store_archive(tmp_path, name="zarr2_hierarchy", edit=None,
+                   kind="zarr2") -> tuple[Path, Callable[[str, int, int], bytes]]:
     """A fixture store's archive (a Zarr v2 store's or a SAFE directory's: its mirror a store
     IR's), and a fetch of ranges of its objects by URL."""
     url = f"https://data.test/{name}/"
@@ -276,7 +279,7 @@ def test_store_mirror_problem_finds_a_table_that_does_not_read(tmp_path):
         out.entries["refkv_source/ir/rows/c/0/0"] = b"not raw int64"
 
     path, fetch = _store_archive(tmp_path, edit=corrupt)
-    assert compare.store_mirror_problem(path, compare._zip_view(path), fetch).startswith("Violation")
+    assert string(compare.store_mirror_problem(path, compare._zip_view(path), fetch)).startswith("Violation")
 
 
 def test_store_mirror_problem_finds_a_size_other_than_the_pin(tmp_path):
@@ -307,7 +310,7 @@ def test_store_mirror_problem_finds_a_value_described_in_place_other_than_the_st
         b = fetch(u, o, n)
         return bytes(x ^ 0xFF for x in b) if u.endswith(".jp2") else b
 
-    assert compare.store_mirror_problem(path, compare._zip_view(path), other).startswith("view ")
+    assert string(compare.store_mirror_problem(path, compare._zip_view(path), other)).startswith("view ")
 
 
 def test_store_mirror_problem_finds_an_object_no_source_names(tmp_path):

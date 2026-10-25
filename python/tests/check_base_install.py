@@ -25,8 +25,10 @@ import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import override
 
 import refkv
+from refkv._narrow import at, ndarray, sequence
 from refkv.errors import ArchiveError
 from refkv.pb import Concat, Range, Source
 from refkv.uri import file_uri
@@ -82,7 +84,8 @@ with tempfile.TemporaryDirectory() as d:
 
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *a):
+        @override
+        def log_message(self, format, *args):
             pass
 
         def do_GET(self):
@@ -125,11 +128,11 @@ with tempfile.TemporaryDirectory() as d:
                    {"op": "classify", "key": "y"}, {"op": "get_raw", "key": "__vz__/sources"},
                    {"op": "list", "prefix": "x/"}], f)
     out = cli.read("m.vzip", "q.json")
-    assert out["open"]["ok"], out
-    assert [r["ok"] for r in out["results"]] == [True] * 4, out
-    assert out["results"][0]["value"] == "0607"
-    assert out["results"][1]["kind"] == "reference"
-    assert out["results"][3]["keys"] == ["x/c/0", "x/zarr.json"]
+    assert at(out, "open", "ok"), out
+    assert [at(r, "ok") for r in sequence(out["results"])] == [True] * 4, out
+    assert at(out, "results", 0, "value") == "0607"
+    assert at(out, "results", 1, "kind") == "reference"
+    assert at(out, "results", 3, "keys") == ["x/c/0", "x/zarr.json"]
 
     from refkv.zarrify import zarrify, zarrify_store
 
@@ -161,7 +164,7 @@ with tempfile.TemporaryDirectory() as d:
         import refkv.zarr
 
         for s in (refkv.zarr.store(store), refkv.zarr.open("m.vzip")):
-            assert list(zarr.open_array(s, path="x", mode="r")[:]) == [4, 5, 6, 7]
+            assert list(ndarray(zarr.open_array(s, path="x", mode="r")[:])) == [4, 5, 6, 7]
     os.chdir("/")
 
 if mode == "base":
@@ -169,11 +172,14 @@ if mode == "base":
     expect_import_error("zarr", lambda: refkv.zarr)
     expect_import_error("zarr", lambda: importlib.import_module("refkv.zarr"))
 else:
-    import refkv.zarr.codecs
+    import refkv.zarr.codecs.imagecodecs_jpeg
 
+    # the ImportError comes before the arguments are read: None stands for them
     expect_import_error("images", lambda: asyncio.run(
-        refkv.zarr.codecs.imagecodecs_jpeg.JpegCodec()._decode_single(None, None)))
-expect_import_error("virtualizarr", lambda: refkv.ReferenceStore.from_virtualizarr(None))
+        refkv.zarr.codecs.imagecodecs_jpeg.JpegCodec()._decode_single(
+            None, None)))  # pyrefly: ignore[bad-argument-type]
+expect_import_error(
+    "virtualizarr", lambda: refkv.ReferenceStore.from_virtualizarr(None))  # pyrefly: ignore[bad-argument-type]
 expect_import_error("virtualizarr", lambda: importlib.import_module("refkv.shards"))
 expect_import_error("virtualizarr", lambda: importlib.import_module("refkv.convert"))
 assert "xarray" not in sys.modules, "refkv imported xarray"

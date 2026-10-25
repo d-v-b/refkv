@@ -78,8 +78,8 @@ REGISTRY: list[dict] = sorted(
     (json.loads(p.read_text(encoding="utf-8")) for p in (ROOT / "spec" / "zarrify" / "profiles").glob("*.json")),
     key=lambda e: e["name"],
 )
-FORMATS = tuple(e["name"] for e in REGISTRY if e["kind"] != "layout")
-LAYOUTS = tuple(e["name"] for e in REGISTRY if e["kind"] == "layout")
+FORMATS: tuple[str, ...] = tuple(e["name"] for e in REGISTRY if e["kind"] != "layout")
+LAYOUTS: tuple[str, ...] = tuple(e["name"] for e in REGISTRY if e["kind"] == "layout")
 DOCS = FORMATS + LAYOUTS
 
 # Old names of the documents, from before the repository was reorganized.
@@ -356,6 +356,7 @@ def c_like_regions(text: str, rust: bool) -> list[Region]:
                 stack.pop()
         if c.isalnum() or c == "_":
             m = re.compile(r"\w+").match(text, i)
+            assert m is not None  # c is a word character
             prev = m.group(0)
             i = m.end()
             continue
@@ -619,13 +620,13 @@ def doc_for_name(name: str, path: str) -> str | None:
 
 
 # The words that name a format's document: its name and its title, lowercase (the registry's).
-FORMAT_WORDS = {w: e["name"] for e in REGISTRY for w in (e["name"], e["title"].lower())}
+FORMAT_WORDS: dict[str, str] = {w: e["name"] for e in REGISTRY for w in (e["name"], e["title"].lower())}
 # A format's words, the longest first (so that "mrc-dataset" is not read as "mrc").
 _FMT_WORDS = "|".join(re.escape(w) for w in sorted(FORMAT_WORDS, key=len, reverse=True))
 _FMT = r"(?:the\s+)?(?:(" + _FMT_WORDS + r")\s+)?"
 # A format's title as written ("TIFF", "Zarr v2"), or its name in capitals where its title holds
 # it ("SAFE" of "Sentinel-2 SAFE").
-_FORMAT_NAMES = sorted({e["title"] for e in REGISTRY}
+_FORMAT_NAMES: list[str] = sorted({e["title"] for e in REGISTRY}
                        | {e["name"].upper() for e in REGISTRY if re.search(rf"\b{e['name'].upper()}\b", e["title"])},
                        key=len, reverse=True)
 Q_PATH = re.compile(r"(?<![\w/.\-\[])(\[?((?:\.{1,2}/)*[\w.\-]+(?:/[\w.\-]+)*\.md)(?:\]\([^()\s]*\))?)(?:'s)?,?\s*$")
@@ -718,7 +719,8 @@ def tiers(path: str, ref: Ref) -> list[list[tuple[str, int | None]]]:
         f = fmt_of_path(path)
         if f is None:
             fallback = rule.partition(":")[2]
-            return ([[(fallback, None)]] if fallback else []) + [[("spec/zarrify.md", None)]]
+            first: list[list[tuple[str, int | None]]] = [[(fallback, None)]] if fallback else []
+            return [*first, [("spec/zarrify.md", None)]]
         doc = f"spec/zarrify/{f}.md"
         return [[(doc, 1), (doc, 2)], [("spec/zarrify.md", None)]]
     return [[(rule, None)]]
@@ -971,7 +973,7 @@ def files_with_refs() -> list[str]:
 
 
 def migrate(args: argparse.Namespace) -> int:
-    rows = []
+    rows: list[tuple[str, int, str, str, str, str, str, str, str, str]] = []
     for path in args.paths or files_with_refs():
         if any(matches(path, p) for p in GENERATED + LEFT_ALONE):
             continue
@@ -981,7 +983,7 @@ def migrate(args: argparse.Namespace) -> int:
             ls = text.rfind("\n", 0, ref.start) + 1
             le = text.find("\n", ref.end)
             rows.append(
-                [
+                (
                     path,
                     ref.line,
                     ref.kind,
@@ -992,7 +994,7 @@ def migrate(args: argparse.Namespace) -> int:
                     ref.target.title if ref.target else "",
                     ref.note,
                     text[ls : le if le >= 0 else None].strip()[:400],
-                ]
+                )
             )
         if args.write:
             new = rewrite(text, refs)

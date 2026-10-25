@@ -38,6 +38,8 @@ dev = [
     "astropy>=8.0",
     "ruff>=0.17.2",
     "pyrefly>=1.4.0",
+    "types-protobuf>=7.35.1.20260906",
+    "types-jsonschema>=4.26.0.20261006",
 ]
 # the comparison with kerchunk and Icechunk (design/comparison, design/experiments)
 bench = [
@@ -125,6 +127,7 @@ search-path = [
     "python/src",
     "python/tests",
     "python/tests/ir",
+    "python/tests/reference",
     "js/test",
     "conformance/zarrify",
     "conformance/zarrify/reference",
@@ -133,7 +136,19 @@ search-path = [
     "conformance/impls/python/tests",
     "rust/refkv-phkv/bench",
     "spec",
+    "spec/tools",
 ]
+
+[tool.pyrefly.errors]
+# warnings by default, errors here
+implicit-import = "error"
+untyped-import = "error"
+deprecated = "error"
+unreachable-except-clause = "error"
+division-by-zero = "error"
+# a conversion such as bytes(data) copies a buffer, or str(url) takes a PathLike: the annotation
+# states the value more narrowly than what callers pass
+unnecessary-type-conversion = false
 
 # the tests and the scripts are not annotated (ruff's ANN, above, is the package's alone): what
 # they leave unannotated is Any (the values they index are narrowed: refkv._narrow)

@@ -28,18 +28,19 @@ OUT = Path(__file__).parents[2] / "nifti"
 # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nifti.md#2-the-header>).
 LAYOUTS = {
     1: {
-        "length": 348, "magic": (344, "4s"), "dim": (40, "8h"), "datatype": (70, "h"), "bitpix": (72, "h"),
+        "magic": (344, "4s"), "dim": (40, "8h"), "datatype": (70, "h"), "bitpix": (72, "h"),
         "pixdim": (76, "8f"), "vox_offset": (108, "f"), "scl_slope": (112, "f"), "scl_inter": (116, "f"),
         "xyzt_units": (123, "B"), "cal_max": (124, "f"), "cal_min": (128, "f"), "qform_code": (252, "h"),
         "sform_code": (254, "h"), "quatern": (256, "3f"), "qoffset": (268, "3f"), "srow": (280, "12f"),
     },
     2: {
-        "length": 540, "magic": (4, "8s"), "dim": (16, "8q"), "datatype": (12, "h"), "bitpix": (14, "h"),
+        "magic": (4, "8s"), "dim": (16, "8q"), "datatype": (12, "h"), "bitpix": (14, "h"),
         "pixdim": (104, "8d"), "vox_offset": (168, "q"), "scl_slope": (176, "d"), "scl_inter": (184, "d"),
         "xyzt_units": (500, "i"), "cal_max": (192, "d"), "cal_min": (200, "d"), "qform_code": (344, "i"),
         "sform_code": (348, "i"), "quatern": (352, "3d"), "qoffset": (376, "3d"), "srow": (400, "12d"),
     },
 }
+LENGTHS = {1: 348, 2: 540}  # the header's bytes, by version
 MAGIC = {1: b"n+1\0", 2: b"n+2\0\r\n\x1a\n"}
 # datatype: (numpy type, bitpix)
 TYPES = {
@@ -63,7 +64,7 @@ def nifti(name: str, dims, datatype: int = 2, *, version: int = 1, order: str = 
           seed: int = 0, **fields) -> None:
     """Packs a single-file NIfTI: header, extender (and extensions), then the voxels."""
     layout = LAYOUTS[version]
-    length = layout["length"]
+    length = LENGTHS[version]
     header = bytearray(length)
     values = {
         "magic": MAGIC[version], "dim": list(dims) + [1] * (8 - len(dims)), "datatype": datatype,

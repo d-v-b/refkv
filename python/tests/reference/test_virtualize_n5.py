@@ -18,9 +18,11 @@ from functools import partial
 
 import pytest
 from refkv_reference import virtualize
+from refkv_reference.legacy import StoreOutput
 from refkv_reference.legacy import declare as declare_now
 from refkv_reference.revision import STORES_REVISION
 
+from refkv._narrow import at, mapping, sequence
 from refkv.zarrify import Rejected
 
 # the frozen profile's root records revision 25
@@ -132,29 +134,31 @@ def key(path: str) -> str:
 def test_virtualizes_the_synthetic_stores(tmp_path):
     for name, (summary, arrays, groups, chunk) in CASES.items():
         fmt, out = virtualize(str(FIXTURES / name), url=URL.format(name))
+        assert isinstance(out, StoreOutput)
         assert fmt == "n5", name
         assert {**out.summary, **summary} == out.summary, name
         for path, (shape, chunks, dtype, codecs, names) in arrays.items():
             doc = out.docs[key(path)]
-            assert (doc["shape"], doc["chunk_grid"]["configuration"]["chunk_shape"], doc["data_type"]) == \
+            assert (doc["shape"], at(doc, "chunk_grid", "configuration", "chunk_shape"), doc["data_type"]) == \
                 (shape, chunks, dtype), (name, path)
             assert doc["chunk_key_encoding"] == {"name": "v2", "configuration": {"separator": "/"}}
             assert doc["fill_value"] == 0
             if codecs is not None:
                 assert doc["codecs"] == codecs, (name, path)
             assert doc.get("dimension_names") == names, (name, path)
-            assert set(doc["attributes"]) <= {"zarr_conventions", "vzip_virtualized"}, (name, path)
-            kept = doc["attributes"].get("vzip_virtualized", {}).get("n5", {}).get("attributes", {})
+            attrs = mapping(doc["attributes"])
+            assert set(attrs) <= {"zarr_conventions", "vzip_virtualized"}, (name, path)
+            kept = mapping(mapping(mapping(attrs.get("vzip_virtualized", {})).get("n5", {})).get("attributes", {}))
             assert not {"dimensions", "blockSize", "dataType", "compression", "n5"} & set(kept), (name, path)
         for path, ms in groups.items():
             doc = out.docs[key(path)]
             assert doc["node_type"] == "group", (name, path)
-            assert "n5" not in doc["attributes"], (name, path)
+            assert "n5" not in mapping(doc["attributes"]), (name, path)
             if ms is None:
-                assert "ome" not in doc["attributes"], (name, path)
+                assert "ome" not in mapping(doc["attributes"]), (name, path)
             else:
-                got = dict(doc["attributes"]["ome"]["multiscales"][0])
-                assert doc["attributes"]["ome"]["version"] == "0.5"
+                got = dict(mapping(at(doc, "attributes", "ome", "multiscales", 0)))
+                assert at(doc, "attributes", "ome", "version") == "0.5"
                 del got["datasets"]
                 assert got == ms, (name, path)
         # One source per chunk entry, in key order, each the whole object.
@@ -170,19 +174,22 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
                 assert dict(out.chunks)[chunk[0]] == chunk[1], name
     for name, (group, scales, translations) in TRANSFORMS.items():
         _, out = virtualize(str(FIXTURES / name), url=URL.format(name))
-        datasets = out.docs[key(group)]["attributes"]["ome"]["multiscales"][0]["datasets"]
+        assert isinstance(out, StoreOutput)
+        datasets = sequence(at(out.docs[key(group)], "attributes", "ome", "multiscales", 0, "datasets"))
         flat = lambda xs: [v for x in xs for v in x]  # noqa: E731
-        assert flat(d["coordinateTransformations"][0]["scale"] for d in datasets) == pytest.approx(flat(scales)), name
+        assert flat(at(d, "coordinateTransformations", 0, "scale") for d in datasets) == pytest.approx(
+            flat(scales)), name
         if translations is None:
-            assert all(len(d["coordinateTransformations"]) == 1 for d in datasets), name
+            assert all(len(sequence(at(d, "coordinateTransformations"))) == 1 for d in datasets), name
         else:
-            got = flat(d["coordinateTransformations"][1]["translation"] for d in datasets)
+            got = flat(at(d, "coordinateTransformations", 1, "translation") for d in datasets)
             assert got == pytest.approx(flat(translations)), name
     # Every node's attributes.json is its source metadata (spec/zarrify/n5.md §5
     # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#5-source-metadata>): the
     # attributes, and the version n5; nodes inside datasets and stray objects are other objects (§6
     # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects>).
     _, out = virtualize(str(FIXTURES / "n5_hierarchy"), url=URL.format("n5_hierarchy"))
+    assert isinstance(out, StoreOutput)
     assert out.docs["zarr.json"]["attributes"] == declare(
         {}, "n5", URL.format("n5_hierarchy"), {"attributes": {"description": "groups"}, "metadata": {"n5": "4.0.0"}})
     assert out.docs["c/zarr.json"]["attributes"] == declare(
@@ -198,27 +205,32 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     # The empty block's key is listed with the empty objects (§3.1
     # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#31-chunks>, §6
     # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects>).
-    assert out.docs["vzip_source/zarr.json"]["attributes"]["vzip_virtualized"]["n5"] == {"empty": ["a/b/sparse/2/0"]}
+    assert at(out.docs["vzip_source/zarr.json"], "attributes", "vzip_virtualized", "n5") == {
+        "empty": ["a/b/sparse/2/0"]}
     # Block keys follow the grid in N5 dimension order (two blocks along the second, two along the first).
     _, out = virtualize(str(FIXTURES / "n5_compressions"), url=URL.format("n5_compressions"))
+    assert isinstance(out, StoreOutput)
     assert [k for k, _ in out.chunks if k.startswith(("raw_u16/", "gzip_i32_padded/"))] == [
         "gzip_i32_padded/0/0/0", "gzip_i32_padded/1/0/0", "raw_u16/0/0", "raw_u16/0/1"]
     _, out = virtualize(str(FIXTURES / "n5_root_dataset"), url=URL.format("n5_root_dataset"))
+    assert isinstance(out, StoreOutput)
     doc = {k: v for k, v in json.loads((FIXTURES / "n5_root_dataset" / "attributes.json").read_text()).items()
            if k not in ("dimensions", "blockSize", "dataType", "compression", "n5")}
     assert out.docs["zarr.json"]["attributes"] == declare({}, "n5", URL.format("n5_root_dataset"),
                                                           {"attributes": doc, "metadata": {"n5": "4.0.0"}})
     _, out = virtualize(str(FIXTURES / "n5_multiscales_unrecognized"), url=URL.format("x"))
+    assert isinstance(out, StoreOutput)
     # A group whose attributes.json already has `ome` is not recognized; that `ome` is copied.
-    attrs = out.docs["has_ome/zarr.json"]["attributes"]
+    attrs = mapping(out.docs["has_ome/zarr.json"]["attributes"])
     assert "ome" not in attrs
-    assert attrs["vzip_virtualized"]["n5"]["attributes"]["ome"] == {"version": "0.5",
+    assert at(attrs, "vzip_virtualized", "n5", "attributes", "ome") == {"version": "0.5",
                                                                                           "custom": True}
     # A compression's members that its codec does not carry are metadata, as are the version n5 and
     # a compressionType next to a compression; integers beyond 2^53 are kept exact.
     url = URL.format("n5_source_metadata")
     _, out = virtualize(str(FIXTURES / "n5_source_metadata"), url=url)
-    s = lambda p: out.docs[key(p)]["attributes"].get("vzip_virtualized", {}).get("n5")  # noqa: E731
+    assert isinstance(out, StoreOutput)
+    s = lambda p: mapping(mapping(out.docs[key(p)]["attributes"]).get("vzip_virtualized", {})).get("n5")  # noqa: E731
     assert s("") == {"attributes": {"id": 18446744073709551615, "neg": -9007199254740993},
                      "metadata": {"n5": "4.0.0"}}
     assert s("zstd_extra") == {"metadata": {"compression": {"nbWorkers": 2}}}
@@ -231,13 +243,15 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     with zipfile.ZipFile(archive) as z:
         assert b'"id":18446744073709551615,"neg":-9007199254740993' in z.read("zarr.json")
     _, out = virtualize(str(FIXTURES / "n5_compressions"), url=URL.format("n5_compressions"))
-    assert out.docs["blosc_u8/zarr.json"]["attributes"]["vzip_virtualized"]["n5"] == {
+    assert isinstance(out, StoreOutput)
+    assert at(out.docs["blosc_u8/zarr.json"], "attributes", "vzip_virtualized", "n5") == {
         "metadata": {"compression": {"nthreads": 1}}}
     # A dataset nested in a dataset, a stray object and a README are kept whole
     # (spec/zarrify/n5.md §6
     # <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/n5.md#6-other-objects>).
     url = URL.format("n5_objects")
     _, out = virtualize(str(FIXTURES / "n5_objects"), url=url)
+    assert isinstance(out, StoreOutput)
     assert [k for k, _ in out.chunks] == ["a/0", "vzip_source/objects/README", "vzip_source/objects/a/labels/0",
                                           "vzip_source/objects/a/labels/attributes.json",
                                           "vzip_source/objects/g/notes.txt"]
@@ -246,6 +260,7 @@ def test_virtualizes_the_synthetic_stores(tmp_path):
     assert "a/labels/zarr.json" not in out.docs
     # An object named zarr.json is escaped with ~ (one to one); empty objects are vzip_source's.
     _, out = virtualize(str(FIXTURES / "n5_node_names"), url=URL.format("n5_node_names"))
+    assert isinstance(out, StoreOutput)
     assert {k: out.origins[k] for k, _ in out.chunks if k.startswith("vzip_source/")} == {
         "vzip_source/objects/zarr.json~": "zarr.json", "vzip_source/objects/g/zarr.json~~": "g/zarr.json~",
         "vzip_source/objects/a/zarr.json~": "a/zarr.json"}

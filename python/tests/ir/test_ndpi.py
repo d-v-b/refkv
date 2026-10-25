@@ -12,6 +12,7 @@ import zarr
 from ir_helpers import FIXTURES, REVISED, as_the_reference, assert_rebuilds, same_hierarchy
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
+from refkv._narrow import ndarray
 from refkv.ir import zarrify as via_ir
 from refkv.zarr import ZarrStore
 from refkv.zarrify import Rejected
@@ -101,18 +102,27 @@ def test_a_frame_not_the_level_size_gets_the_level_size(tmp_path):
     for level, (h, w) in enumerate([(48, 64), (23, 40), (12, 18)]):
         parts = out.refs[f"{level}/c/0/0/0"]
         if level == 0:
-            (offset, length), = parts
+            span, = parts
+            assert isinstance(span, tuple)
+            assert len(span) == 2
+            offset, length = span
             strip = data[offset:offset + length]
             want = imagecodecs.jpeg_decode(strip)
         else:
-            (offset, at), size, (rest, length) = parts
+            head, size, tail = parts
+            assert isinstance(head, tuple)
+            assert len(head) == 2
+            assert isinstance(tail, tuple)
+            assert len(tail) == 2
+            (offset, at), (rest, length) = head, tail
             assert size == struct.pack(">HH", h, w)
+            assert isinstance(size, bytes)
             assert rest == offset + at + 4
             strip = data[offset:rest + length]
             assert strip[at - 5:at - 3] == b"\xff\xc0"  # the strip's own SOF0
             want = imagecodecs.jpeg_decode(strip[:at] + size + strip[at + 4:])
         assert want.shape == (h, w, 3)
-        got = g[str(level)][...]
+        got = ndarray(g.get_array(str(level))[...])
         assert np.array_equal(got, np.moveaxis(want, -1, 0))
     assert_rebuilds(out, data, tmp_path)
 

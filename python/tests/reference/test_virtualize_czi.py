@@ -21,10 +21,12 @@ import sys
 from pathlib import Path
 
 import pytest
+from reference_helpers import ranges_of
 from refkv_reference import virtualize
 from refkv_reference.czi.coding import jpeg_frame, jpegxr_size, zstd1_header, zstd_content_size
 from refkv_reference.czi.layout import layer, row_band
 from refkv_reference.czi.segments import guid
+from refkv_reference.legacy import Output
 
 from refkv.zarrify import Rejected
 
@@ -33,8 +35,10 @@ FIXTURES = ROOT / "fixtures" / "czi"
 WIC = bytes.fromhex("24C3DD6F034EFE4BB1853D77768DC9")
 
 
-def run(name: str):
-    return virtualize(str(FIXTURES / f"{name}.czi"), url=f"https://data.test/{name}.czi")[1]
+def run(name: str) -> Output:
+    out = virtualize(str(FIXTURES / f"{name}.czi"), url=f"https://data.test/{name}.czi")[1]
+    assert isinstance(out, Output)
+    return out
 
 
 def doc(out, key: str) -> dict:
@@ -308,12 +312,13 @@ def big(tmp_path_factory):
 
 def test_large_uncompressed_tiles_are_cut_in_row_bands(big):
     out = virtualize(str(big / "czi_big_bands.czi"), url="https://data.test/big.czi")[1]
+    assert isinstance(out, Output)
     a = doc(out, "0/0/zarr.json")
     assert a["shape"] == [3072, 4100]
     assert a["chunk_grid"] == {"name": "regular",
                                                                "configuration": {"chunk_shape": [1024, 4100]}}
     assert sorted(k for k in out.refs if k.startswith("0/0/c/")) == ["0/0/c/0/0", "0/0/c/1/0", "0/0/c/2/0"]
-    (start, n), = out.refs["0/0/c/1/0"]
+    (start, n), = ranges_of(out, "0/0/c/1/0")
     assert n == 1024 * 4100 * 2
     assert start == out.refs["0/0/c/0/0"][0][0] + n
     t = doc(out, "tiles/0/zarr.json")

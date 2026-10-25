@@ -12,7 +12,9 @@ import threading
 import time
 import urllib.error
 import zipfile
+from email.message import Message
 from pathlib import Path
+from typing import override
 from xml.sax.saxutils import escape
 
 import pytest
@@ -45,10 +47,12 @@ class FakeS3:
         class R(io.BytesIO):
             status = 200
 
+            @override
             def __enter__(self):
                 return self
 
-            def __exit__(self, *a):
+            @override
+            def __exit__(self, exc_type, exc_val, exc_tb):
                 pass
 
         if req.full_url == LISTING:
@@ -64,7 +68,7 @@ class FakeS3:
             time.sleep(0.002)
             v = self.objects[key]
             if isinstance(v, int):
-                raise urllib.error.HTTPError(req.full_url, v, "refused", {}, None)
+                raise urllib.error.HTTPError(req.full_url, v, "refused", Message(), None)
             return R(v[:-1] if key in self.short else v)
         finally:
             with self.lock:
@@ -184,4 +188,5 @@ def test_a_store_output_pins_its_objects_listed_sizes(tmp_path):
 
 def test_a_store_output_refuses_a_reference_to_source_0():
     with pytest.raises(AssertionError, match="source 0"):
-        StoreIrOutput(URL, refs={"a": [(0, 4)]}).table()
+        # a range of source 0, which a store's output has no type for
+        StoreIrOutput(URL, refs={"a": [(0, 4)]}).table()  # pyrefly: ignore[bad-assignment]

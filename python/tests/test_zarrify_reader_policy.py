@@ -10,6 +10,7 @@ import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import override
 
 import pytest
 
@@ -17,7 +18,7 @@ import refkv.reader
 from refkv.errors import ResolutionError
 from refkv.policy import Policy
 from refkv.zarrify import _zarrify as zarrify  # the profile output, not the store
-from refkv.zarrify.common import http_reader
+from refkv.zarrify.common import Output, http_reader
 
 ROOT = Path(__file__).parents[2]
 BODY = (ROOT / "fixtures" / "nifti" / "nifti_n1_le_qform_identity.nii").read_bytes()
@@ -26,6 +27,7 @@ BODY = (ROOT / "fixtures" / "nifti" / "nifti_n1_le_qform_identity.nii").read_byt
 class ServerIsPublic(Policy):
     """`Policy()`, except that the test server's address (127.0.0.1) counts as a public one."""
 
+    @override
     def check_address(self, url: str, address: str) -> None:
         if address != "127.0.0.1":
             super().check_address(url, address)
@@ -43,7 +45,8 @@ def server():
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *a):
+        @override
+        def log_message(self, format, *args):
             pass
 
         def respond(self, send_body: bool):
@@ -138,14 +141,17 @@ def test_reads_a_file_the_policy_allows(server, names, env):
         state["direct"] = 1
         fmt, out = zarrify(url, policy=policy)
         assert fmt == "nifti"
+        assert isinstance(out, Output)
         outputs.add(repr((sorted(out.bytes_entries.items()), sorted(out.refs.items()))).replace(url, "<url>"))
         # the reader itself: its size, block reads, uncached reads and prefetch
         state["direct"] = 0
         read, size = http_reader(url, block=64, policy=policy)
+        assert hasattr(read, "uncached")
         assert size == len(BODY)
         assert [read(o, n) for o, n in spans] == [BODY[o:o + n] for o, n in spans]
         assert [read.uncached(o, n) for o, n in spans] == [BODY[o:o + n] for o, n in spans]
         read, _ = http_reader(url, block=64, policy=policy)
+        assert hasattr(read, "prefetch")
         read.prefetch([(o, 3) for o in range(0, len(BODY), 5)])
         assert [read(o, 3) for o in range(0, len(BODY) - 3, 5)] == [BODY[o:o + 3] for o in range(0, len(BODY) - 3, 5)]
         if redirect is not None:  # every read after the first went where it was redirected
@@ -180,6 +186,7 @@ def test_refuses_a_redirect_to_a_private_host_before_requesting_it(server, names
     port, state = server
     names["public.test"] = "127.0.0.1"
     read, _ = http_reader(f"http://public.test:{port}/s/f.nii", block=64, policy=ServerIsPublic())
+    assert hasattr(read, "prefetch")
     state["redirect"] = f"http://localhost:{port}/r/f.nii"
     state["direct"] = len(state["paths"])
     with pytest.raises(ResolutionError, match=r"http://localhost.*is a loopback address"):

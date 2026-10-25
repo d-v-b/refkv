@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
+# spec/tools (inserted above) is not on pyrefly's search-path
 import sections
 
 URL = sections.URL
@@ -159,7 +160,9 @@ def test_resolve_by_part(repo):
     for text in (FORMAT + "\nas §3 says\n", FORMAT.replace("## 4. The image", "## 4. The image\n\nas §3 says")):
         (repo / "spec/zarrify/tiff.md").write_text(text)
         sections.headings.cache_clear()
-        got.append(sections.analyze("spec/zarrify/tiff.md", text)[0].target.anchor)
+        target = sections.analyze("spec/zarrify/tiff.md", text)[0].target
+        assert target is not None
+        got.append(target.anchor)
     assert got == ["3-tiff-profile", "3-ome-xml"]
 
 
@@ -169,6 +172,7 @@ def test_override(repo, monkeypatch):
     monkeypatch.setattr(sections, "OVERRIDES_FILE", repo / "o.tsv")
     sections.overrides.cache_clear()
     ref = sections.analyze("python/src/refkv/zarrify/tiff/x.py", "# §3\n")[0]
+    assert ref.target is not None
     assert (ref.status, ref.target.anchor) == ("ok", "3-ome-xml")
 
 

@@ -25,8 +25,10 @@ from __future__ import annotations
 
 import struct
 import urllib.request
+from collections.abc import Sequence
 from itertools import pairwise
 from pathlib import Path
+from typing import cast
 
 import imagecodecs
 import numpy as np
@@ -59,6 +61,7 @@ def level2() -> tuple[bytes, list[int], int]:
                 mcu_offset = struct.unpack("<I", entries[65426][8:12])[0]
                 break
             offset = struct.unpack("<Q", body[12 * n : 12 * n + 8])[0]
+        assert mcu_offset is not None
         starts = fetch(mcu_offset, 4 * mcu_count)
         CACHE.parent.mkdir(parents=True, exist_ok=True)
         CACHE.write_bytes(struct.pack("<I", len(starts)) + starts + fetch(strip_offset, strip_count))
@@ -119,7 +122,7 @@ class Ndpi:
         return offset
 
     def image(self, strip: bytes, width: int, height: int, mag: float, starts: list[int] | None = None,
-              extra: dict | None = None, duplicates: tuple = ()) -> None:
+              extra: dict | None = None, duplicates: Sequence[tuple[int, int, object]] = ()) -> None:
         so = self.blob(strip)
         tags = {
             256: (4, [width]), 257: (4, [height]), 258: (3, [8, 8, 8]), 259: (3, [7]), 262: (3, [6]),
@@ -164,8 +167,9 @@ def main() -> None:
     level0 = crop(strip, starts, per_row, 8, 60, 10, 150)
     level1 = crop(strip, starts, per_row, 10, 100, 3, 20)
     rng = np.random.default_rng(3)
-    small = imagecodecs.jpeg8_encode(rng.integers(0, 256, (48, 64, 3), dtype=np.uint8), level=85)
-    macro = imagecodecs.jpeg8_encode(rng.integers(0, 256, (16, 48, 3), dtype=np.uint8), level=85)
+    # imagecodecs' stubs: an encoder gives bytes, without out=
+    small = cast("bytes", imagecodecs.jpeg8_encode(rng.integers(0, 256, (48, 64, 3), dtype=np.uint8), level=85))
+    macro = cast("bytes", imagecodecs.jpeg8_encode(rng.integers(0, 256, (16, 48, 3), dtype=np.uint8), level=85))
 
     f = Ndpi()
     f.image(level0[0], level0[2], level0[3], 20.0, level0[1])
@@ -235,8 +239,9 @@ def frames() -> None:
     rng = np.random.default_rng(100)
 
     def jpeg(height: int, width: int, subsampling: str = "420") -> bytes:
-        return imagecodecs.jpeg8_encode(rng.integers(0, 256, (height, width, 3), dtype=np.uint8), level=90,
-                                        subsampling=subsampling)
+        pixels = rng.integers(0, 256, (height, width, 3), dtype=np.uint8)
+        # imagecodecs' stubs: an encoder gives bytes, without out=
+        return cast("bytes", imagecodecs.jpeg8_encode(pixels, level=90, subsampling=subsampling))
 
     f = Ndpi()
     f.image(jpeg(48, 64), 64, 48, 1.25)  # the frame is the level's size

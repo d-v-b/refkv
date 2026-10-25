@@ -4,6 +4,7 @@ rejects. FITS has no frozen Python reference: astropy is the independent reader.
 
 import json
 import warnings
+from typing import cast
 
 import numpy as np
 import pytest
@@ -12,8 +13,10 @@ from astropy.io import fits
 from ir_helpers import FIXTURES
 from ir_helpers import zarrified as shared_zarrified
 
+from refkv._narrow import at, integer, mapping, ndarray, sequence
 from refkv.ir import zarrify as via_ir
 from refkv.zarrify import Rejected
+from refkv.zarrify.common import Output
 
 FILES = sorted(p for p in (FIXTURES / "fits").iterdir() if p.name.endswith((".fits", ".fz")))
 ACCEPTED = [p for p in FILES if "reject" not in p.name]
@@ -26,7 +29,7 @@ SAME_IMAGE = {"fits_comp_hand_absent_tile": ("fits_comp_hand_one_column", slice(
 COMMENTARY = ("COMMENT", "HISTORY", "")
 
 
-def zarrified(path, tmp_path):
+def zarrified(path, tmp_path) -> tuple[Output, zarr.Group]:
     """(the output, the hierarchy's root group); the archive rebuilds the file
     (ir_helpers.zarrified)."""
     out, root, _ = shared_zarrified(path, tmp_path, "fits")
@@ -89,19 +92,21 @@ def test_matches_astropy_and_rebuilds(path, tmp_path):
     lists the HDUs with their offsets, and the file is rebuilt from the mirror."""
     out, root = zarrified(path, tmp_path)
     raw = path.read_bytes()
-    meta = root.attrs["refkv_zarrified"]["fits"]
+    meta = mapping(at(root.attrs, "refkv_zarrified", "fits"))
     same = SAME_IMAGE.get(path.stem)
     with (warnings.catch_warnings(),
           fits.open(path, do_not_scale_image_data=True, disable_image_compression=True) as hdul,
           fits.open(path, do_not_scale_image_data=True) as decoded):
         warnings.simplefilter("ignore")  # astropy's warnings about the odd fixtures (truncated, trailing bytes)
-        assert len(meta["hdus"]) == len(hdul)
+        assert len(sequence(meta["hdus"])) == len(hdul)
+        # astropy is unannotated: pyrefly takes an index of an HDUList for a slice of it
+        primary = cast("fits.PrimaryHDU", hdul[0])
         if meta["cards"] is None:
-            assert len(hdul[0].header) > 700  # past the cards budget
+            assert len(primary.header) > 700  # past the cards budget
         else:
-            same_cards(meta["cards"], hdul[0].header.cards)
+            same_cards(meta["cards"], primary.header.cards)
         for i, hdu in enumerate(hdul):
-            entry = meta["hdus"][i]
+            entry = mapping(at(meta, "hdus", i))
             info = hdu.fileinfo()
             assert entry["index"] == i
             assert entry["offset"] == info["hdrLoc"]
@@ -109,7 +114,7 @@ def test_matches_astropy_and_rebuilds(path, tmp_path):
             assert entry["name"] == (hdu.name if hdu.name and hdu.name != "PRIMARY" else None) or (
                 i == 0 and entry["name"] is None)
             node = root[str(i)]
-            own = node.attrs["refkv_zarrified"]["fits"]
+            own = mapping(at(node.attrs, "refkv_zarrified", "fits"))
             assert own["index"] == i
             if own["cards"] is not None:
                 same_cards(own["cards"], hdu.header.cards)
@@ -118,36 +123,41 @@ def test_matches_astropy_and_rebuilds(path, tmp_path):
             if hdu.header.get("ZIMAGE"):
                 # a tile-compressed image: the table's cards above, astropy's decoded pixels here
                 assert entry["kind"] == "image"
-                assert entry["compression"]["type"] == hdu.header["ZCMPTYPE"].replace("RICE_ONE", "RICE_1")
+                assert at(entry, "compression", "type") == hdu.header["ZCMPTYPE"].replace("RICE_ONE", "RICE_1")
                 if same is not None:
                     ref, absent = same
                     with fits.open(FIXTURES / "fits" / f"{ref}.fits", do_not_scale_image_data=True) as other:
-                        want = other[1].data.copy()
+                        # astropy is unannotated (as above)
+                        want = cast("fits.CompImageHDU", other[1]).data.copy()
                     if absent is not None:
                         want[absent] = 0
                 else:
-                    want = decoded[i].data
-                assert node.shape == want.shape
-                assert node.dtype == want.dtype.newbyteorder("=")
-                same_pixels(node[...], want, path.stem, hdu.data if same is None else None)
-                codec = json.loads(out.bytes_entries[f"{i}/zarr.json"])["codecs"][0]
+                    want = cast("fits.CompImageHDU", decoded[i]).data  # astropy is unannotated (as above)
+                image = root.get_array(str(i))
+                assert image.shape == want.shape
+                assert image.dtype == want.dtype.newbyteorder("=")
+                same_pixels(image[...], want, path.stem, hdu.data if same is None else None)
+                codec = mapping(at(json.loads(out.bytes_entries[f"{i}/zarr.json"]), "codecs", 0))
                 assert codec["name"] == "refkv.fits_tiles"
-                assert codec["configuration"]["compression"] == entry["compression"]["type"]
+                assert at(codec, "configuration", "compression") == at(entry, "compression", "type")
                 continue
             if isinstance(hdu, (fits.BinTableHDU, fits.TableHDU)):
                 assert entry["kind"] == "table"
                 n1, n2 = hdu.header["NAXIS1"], hdu.header["NAXIS2"]
                 forms = [hdu.header[f"TFORM{k}"] for k in range(1, hdu.header["TFIELDS"] + 1)]
-                assert [c["form"] for c in own["columns"]] == forms
+                assert [mapping(c)["form"] for c in sequence(own["columns"])] == forms
+                table = root.get_group(str(i))
                 if n1 * n2:
-                    assert node["rows"][...].tobytes() == raw[info["datLoc"]:info["datLoc"] + n1 * n2]
-                    assert node["rows"].shape == (n2, n1)
+                    rows = table.get_array("rows")
+                    assert ndarray(rows[...]).tobytes() == raw[info["datLoc"]:info["datLoc"] + n1 * n2]
+                    assert rows.shape == (n2, n1)
                 theap = hdu.header.get("THEAP", n1 * n2)
                 heap = hdu.header["PCOUNT"] - (theap - n1 * n2)
                 if heap:
-                    assert node["heap"][...].tobytes() == raw[info["datLoc"] + theap:info["datLoc"] + theap + heap]
+                    stored = ndarray(table.get_array("heap")[...])
+                    assert stored.tobytes() == raw[info["datLoc"] + theap:info["datLoc"] + theap + heap]
                 else:
-                    assert "heap" not in node
+                    assert "heap" not in table
             elif hdu.header["NAXIS"] == 0:
                 assert entry["kind"] == "empty"
                 assert isinstance(node, zarr.Group)
@@ -155,11 +165,12 @@ def test_matches_astropy_and_rebuilds(path, tmp_path):
             else:
                 assert entry["kind"] == "image"
                 want = hdu.data
-                assert node.shape == tuple(hdu.header[f"NAXIS{k}"] for k in range(hdu.header["NAXIS"], 0, -1))
-                assert node.dtype == want.dtype.newbyteorder("=")
-                assert node.attrs["refkv_zarrified"]["fits"]["bzero"] == hdu.header.get("BZERO")
+                image = root.get_array(str(i))
+                assert image.shape == tuple(hdu.header[f"NAXIS{k}"] for k in range(hdu.header["NAXIS"], 0, -1))
+                assert image.dtype == want.dtype.newbyteorder("=")
+                assert at(image.attrs, "refkv_zarrified", "fits", "bzero") == hdu.header.get("BZERO")
                 if want.size:
-                    assert np.array_equal(node[...], want, equal_nan=want.dtype.kind == "f")
+                    assert np.array_equal(ndarray(image[...]), want, equal_nan=want.dtype.kind == "f")
 
 
 # fixture: (chunk shape of the array at `path`, the number of its chunks, the parts of one chunk key)
@@ -184,7 +195,7 @@ def test_chunks(name, tmp_path):
     an edge chunk is one range and a literal padding."""
     path, shape, count, (key, parts) = CHUNKS[name]
     out, root = zarrified(FIXTURES / "fits" / f"{name}.fits", tmp_path)
-    assert list(root[path].chunks) == shape
+    assert list(root.get_array(path).chunks) == shape
     assert sum(1 for k in out.refs if k.startswith(f"{path}/c/")) == count
     assert len(out.refs[key]) == parts
 
@@ -196,7 +207,7 @@ def test_summary(tmp_path):
     assert s["kinds"] == {"empty": 1, "image": 6}
     assert s["tables"] == 0
     # one window holds the file
-    assert s["planner"]["bytes"] <= (FIXTURES / "fits" / "fits_mef_sci_err_dq.fits").stat().st_size
+    assert integer(at(s, "planner", "bytes")) <= (FIXTURES / "fits" / "fits_mef_sci_err_dq.fits").stat().st_size
 
 
 @pytest.mark.parametrize("path", REJECTED, ids=lambda p: p.name)

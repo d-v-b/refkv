@@ -7,6 +7,7 @@ import pytest
 from ir_helpers import FIXTURES
 
 from refkv import _core
+from refkv._narrow import at
 from refkv.ir import zarrify as via_ir
 from refkv.zarrify.common import Rejected
 
@@ -121,5 +122,5 @@ def test_the_fill_batch_is_empty_on_every_probe(probes):
         except Rejected:
             continue
         seen += 1
-        assert out.summary["planner"]["fill"] == {"ranges": 0, "requests": 0, "bytes": 0}, path.name
+        assert at(out.summary, "planner", "fill") == {"ranges": 0, "requests": 0, "bytes": 0}, path.name
     assert seen > 0

@@ -13,6 +13,7 @@ from ir_helpers import FIXTURES, as_the_reference, assert_rebuilds, same_hierarc
 from refkv_reference import virtualize  # the frozen reference (ir_helpers)
 
 from refkv import _core
+from refkv._narrow import at, integer
 from refkv.ir import zarrify as via_ir
 from refkv.zarrify import Rejected, common
 
@@ -84,8 +85,8 @@ def test_a_million_empty_extensions_are_described_and_folded(tmp_path):
     n = 1 << 20
     chain = struct.pack("<ii", 8, 6) * n
     out, seconds = probe(tmp_path, nifti1(chain, 352 + 8 * n))
-    assert out.summary["elements"] >= n
-    assert out.summary["folded"]["cruns"] >= 1
+    assert integer(out.summary["elements"]) >= n
+    assert integer(at(out.summary, "folded", "cruns")) >= 1
     assert seconds < 30
 
 
@@ -136,7 +137,7 @@ def test_a_large_extension_is_not_read(tmp_path):
     path = tmp_path / "l.nii"
     path.write_bytes(data)
     _, out, _ = via_ir(str(path), "https://data.test/l.nii")
-    assert out.summary["planner"]["asked"] < 1 << 21
+    assert integer(at(out.summary, "planner", "asked")) < 1 << 21
 
 
 @pytest.mark.skipif(os.environ.get("REFKV_LARGE_TESTS") != "1",

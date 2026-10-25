@@ -42,14 +42,14 @@ def entries(w: VZipWriter) -> None:
 
 
 def main() -> None:
-    cases = {
-        "basic": {"mirror_refs": True, "page_size": None},
-        "paged": {"mirror_refs": False, "page_size": 200},
-        "checksums": {"mirror_refs": True, "page_size": 65536, "checksum": crc},
+    cases = {  # mirror_refs, page_size, checksum
+        "basic": (True, None, None),
+        "paged": (False, 200, None),
+        "checksums": (True, 65536, crc),
     }
-    for name, kw in cases.items():
+    for name, (mirror_refs, page_size, checksum) in cases.items():
         with open(HERE / f"{name}.vzip", "wb") as f:
-            w = VZipWriter(f, **kw)
+            w = VZipWriter(f, mirror_refs=mirror_refs, page_size=page_size, checksum=checksum)
             entries(w)
             w.close()
     for name, page_size in (("empty", None), ("empty_paged", 1)):

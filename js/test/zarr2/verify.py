@@ -52,6 +52,7 @@ from proxy import Proxy  # noqa: E402
 
 import refkv.zarr  # noqa: E402  (a vzip archive as a zarr store; registers zlib)
 from refkv import _core  # noqa: E402
+from refkv._narrow import ndarray  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # js/test, for verify_common
 from verify_common import LOOPBACK_SOURCES, run  # noqa: E402
@@ -99,7 +100,13 @@ def objects_problems(store_dir: Path, out: Path) -> list[str]:
     kept = [n for n in names if n.startswith("refkv_source/objects/")]
 
     async def read_all():
-        return [(await vz.get(n, default_buffer_prototype())).to_bytes() for n in kept]
+        out = []
+        for n in kept:
+            b = await vz.get(n, default_buffer_prototype())
+            if b is None:
+                raise KeyError(n)
+            out.append(b.to_bytes())
+        return out
 
     for name, data in zip(kept, asyncio.run(read_all()), strict=True):
         key = name.removeprefix("refkv_source/objects/")
@@ -174,11 +181,12 @@ def check_store(store_dir: Path, out: Path, tmp: str) -> list[str]:
     for path in arrays_of(out):
         got_arr = zarr.open_array(vz, path=path, mode="r", zarr_format=3)
         want_arr = zarr.open_array(LocalStore(copy, read_only=True), path=path, mode="r", zarr_format=2)
-        got, want = got_arr[...], want_arr[...]
+        got, want = ndarray(got_arr[...]), ndarray(want_arr[...])
         if not same(got, want):
             problems.append(f"{path}: {got.dtype}{got.shape} differs from Zarr v2's {want.dtype}{want.shape}")
         fv, wf = got_arr.metadata.fill_value, want_arr.metadata.fill_value
-        if wf is not None and not (fv == wf or (np.isnan(fv) and np.isnan(wf)) if got.dtype.kind == "f" else fv == wf):
+        if wf is not None and not (fv == wf or (np.isnan(ndarray(fv)) and np.isnan(wf))
+                                   if got.dtype.kind == "f" else fv == wf):
             problems.append(f"{path}: fill value {fv} != {wf}")
     return problems + objects_problems(store_dir, out)
 
@@ -191,10 +199,10 @@ def remote(store_url: str, path: str) -> int:
             print(f"FAILED: {p.stderr[-300:]}")
             return 1
         print(p.stdout.strip()[:300])
-        got = zarr.open_array(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), path=path, mode="r",
-                              zarr_format=3)[...]
-        want = zarr.open_array(FsspecStore.from_url(store_url, read_only=True), path=path, mode="r",
-                               zarr_format=2)[...]
+        got = ndarray(zarr.open_array(refkv.zarr.open(str(out), policy=LOOPBACK_SOURCES), path=path, mode="r",
+                                      zarr_format=3)[...])
+        want = ndarray(zarr.open_array(FsspecStore.from_url(store_url, read_only=True), path=path, mode="r",
+                                       zarr_format=2)[...])
         ok = same(got, want)
         print(f"{path}: {got.dtype}{got.shape}, {'equal to' if ok else 'DIFFERS from'} zarr-python's Zarr v2 "
               f"reading, {int(np.count_nonzero(want))} nonzero values")

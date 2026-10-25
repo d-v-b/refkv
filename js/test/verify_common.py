@@ -20,6 +20,10 @@ import tempfile
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
+import tifffile
+import zarr
+from zarr.core.metadata import ArrayV3Metadata
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "conformance" / "vzip"))
 from http_server import Server  # noqa: E402
@@ -51,6 +55,22 @@ def serve(paths: Iterable[Path]) -> Callable[[Path], str]:
     for path in paths:
         url(path)
     return url
+
+
+def metadata_v3(arr: zarr.Array) -> ArrayV3Metadata:
+    """The metadata of an array of an archive, which the verifiers open as Zarr v3 (its
+    dimension names, its codecs)."""
+    if not isinstance(arr.metadata, ArrayV3Metadata):
+        raise TypeError(f"{arr.path}: expected Zarr v3 metadata, got {type(arr.metadata).__name__}")
+    return arr.metadata
+
+
+def tiff_page(page: object) -> tifffile.TiffPage:
+    """A page of tifffile's `pages`, which it types as a TiffFrame too (it gives frames only under
+    `useframes`)."""
+    if not isinstance(page, tifffile.TiffPage):
+        raise TypeError(f"expected a TiffPage, got {type(page).__name__}")
+    return page
 
 
 def rejected_by_name(name: str) -> bool:
