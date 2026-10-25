@@ -77,6 +77,11 @@
       "message": "image 0 (plane): dimension 1's DimID, NumberOfElements or BytesInc (2, three, 4) is not an integer"
     },
     {
+      "test": "edge_reject_lif_planes",
+      "input": "edge_reject_lif_planes.lif",
+      "message": "image 0 (plane) has 1073741824 planes, more than the 4204668 references the file may have"
+    },
+    {
       "test": "edge_reject_lif_repeated_dimension",
       "input": "edge_reject_lif_repeated_dimension.lif",
       "message": "image 0 (plane) has two dimensions of DimID 2 with more than one element"

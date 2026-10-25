@@ -12,7 +12,7 @@
 use crate::fed::{Fed, Word};
 use crate::ir::*;
 use crate::nd2::Step;
-use crate::out::{payload_size, Part, MAX_PAYLOAD};
+use crate::out::MAX_PAYLOAD;
 use crate::rules::{self, Rules, flag, num, text};
 use crate::sans;
 use crate::xml::{self, Ev, TagRef};
@@ -259,15 +259,20 @@ struct Predicted {
     size: u64,
 }
 
-/// One image element, read from the XML: what its checks and layout use.
+/// One image element, read from the XML: what its checks and layout use, and its source
+/// metadata (spec/zarrify/lif.md §5.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#52-the-images>).
 struct Image {
-    node: u32,
     name: Option<String>,
     memory: Option<String>,
     /// DimID, NumberOfElements, BytesInc, Origin, Length, Unit, BitInc (attributes as given)
-    dims: Vec<(u32, [Option<String>; 7])>,
+    dims: Vec<[Option<String>; 7]>,
     /// DataType, Resolution, BytesInc, ChannelTag, LUTName, BitInc (as given)
-    channels: Vec<(u32, [Option<String>; 6])>,
+    channels: Vec<[Option<String>; 6]>,
+    /// path, attributes, memory, dimensions and channels
+    meta: Map<String, J>,
+    /// the TileScanInfo attachment's attributes, and its tiles'
+    scan: Option<(Map<String, J>, Vec<J>)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -288,7 +293,10 @@ pub struct Lif {
     /// the XML header's characters
     chars: u64,
     head: Vec<u8>,
+    /// the XML header's bytes, when the view shows them (conventions §8.7
+    /// <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>)
     xml: Vec<u8>,
+    images: Vec<Image>,
     /// 1 or 2: the width of a block's data size
     version: u64,
     predicted: Vec<Predicted>,
@@ -311,6 +319,7 @@ impl Lif {
             chars: 0,
             head: Vec::new(),
             xml: Vec::new(),
+            images: Vec::new(),
             version: 2,
             predicted: Vec::new(),
             next_predicted: 0,
@@ -342,7 +351,6 @@ impl Lif {
                     }
                 }
                 Phase::Xml => {
-                    self.xml = self.fed.get(HEAD, 2 * self.chars).ok_or("internal: no XML")?.to_vec();
                     self.read_xml()?;
                     self.fed.clear();
                     self.at = HEAD + 2 * self.chars;
@@ -388,7 +396,11 @@ impl Lif {
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#22-the-xml-header>): its root
     /// and version, and the `Memory` elements the walk predicts.
     fn read_xml(&mut self) -> Res<()> {
-        let units: Vec<u16> = self.xml.chunks_exact(2).map(|c| u16::le_at(c, 0)).collect();
+        let xml = self.fed.get(HEAD, 2 * self.chars).ok_or("internal: no XML")?;
+        let units: Vec<u16> = xml.chunks_exact(2).map(|c| u16::le_at(c, 0)).collect();
+        if xml.len() as u64 <= SHOWN {
+            self.xml = xml.to_vec();
+        }
         let x = String::from_utf16(&units).ok();
         let lof = x.as_deref() == Some("LMS_Object_File");
         let tree = x.as_deref().map(Tree::build);
@@ -405,17 +417,22 @@ impl Lif {
         )?;
         self.version = integer(version.as_deref()).unwrap_or(2);
         let tree = tree.ok_or("internal: no XML tree")?;
-        // the blocks of data, each ID once: LAS X names empty and repeated IDs it writes no block for
+        // the file's own element's block, then the blocks of data, each ID once: LAS X names
+        // empty and repeated IDs it writes no block for
         let (r, end) = tree.root.ok_or("internal: no root")?;
         let mut seen = std::collections::HashSet::new();
         for n in r..end {
             let Some(m) = (tree.name(n) == "Element").then(|| tree.child(n, "Memory")).flatten() else { continue };
             let (Some(id), Some(size)) = (tree.attr(m, "MemoryBlockID"), integer(tree.attr(m, "Size").as_deref())) else { continue };
             let id: Vec<u8> = id.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
-            if size > 0 && seen.insert(id.clone()) {
+            if (size > 0 || seen.is_empty()) && seen.insert(id.clone()) {
                 self.predicted.push(Predicted { id, size });
             }
         }
+        self.images = (r..end)
+            .filter(|&n| tree.name(n) == "Element" && tree.at(n, &["Data", "Image"]).is_some())
+            .map(|n| read_image(&tree, n))
+            .collect();
         Ok(())
     }
 
@@ -455,7 +472,8 @@ impl Lif {
                 return None;
             }
             let Some(id) = self.fed.get(at + fixed, 2 * chars).map(|b| b.to_vec()) else {
-                return Some(self.predict(at, Some((at + fixed, 2 * chars))));
+                // the whole header: the round's reads replace what the last one held
+                return Some(self.predict(at, Some(fixed + 2 * chars)));
             };
             if let Some(k) = self.predicted[self.next_predicted..].iter().position(|p| p.id == id) {
                 self.next_predicted += k + 1;
@@ -465,11 +483,12 @@ impl Lif {
         }
     }
 
-    /// A round's reads: the block header at `at` (or, when its fixed part is held, its ID, `id`),
-    /// then the headers the XML's `Memory` elements predict after it, in document order.
-    fn predict(&self, at: u64, id: Option<(u64, u64)>) -> Vec<(u64, u64)> {
+    /// A round's reads: the block header at `at` (`header` bytes when its ID's length is known,
+    /// else its fixed part and a guess), then the headers the XML's `Memory` elements predict
+    /// after it, in document order.
+    fn predict(&self, at: u64, header: Option<u64>) -> Vec<(u64, u64)> {
         let fixed = self.fixed();
-        let mut out = vec![id.unwrap_or((at, (fixed + ID_GUESS).min(self.size - at)))];
+        let mut out = vec![(at, header.unwrap_or(fixed + ID_GUESS).min(self.size - at))];
         let mut o = at;
         for p in self.predicted[self.next_predicted..].iter().take(PREDICT) {
             let len = fixed + p.id.len() as u64;
@@ -488,15 +507,7 @@ impl Lif {
     /// The images, their checks and their layout (spec/zarrify/lif.md §3
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#3-placement>), then the IR.
     fn layout(&mut self) -> Res<()> {
-        let xml = std::mem::take(&mut self.xml);
-        let units: Vec<u16> = xml.chunks_exact(2).map(|c| u16::le_at(c, 0)).collect();
-        let x = String::from_utf16(&units).map_err(|_| "internal: the XML is not UTF-16")?;
-        let tree = Tree::build(&x);
-        let (r, end) = tree.root.ok_or("internal: no root")?;
-        let images: Vec<Image> = (r..end)
-            .filter(|&n| tree.name(n) == "Element" && tree.at(n, &["Data", "Image"]).is_some())
-            .map(|n| read_image(&tree, n))
-            .collect();
+        let images = std::mem::take(&mut self.images);
         let mut by_id: HashMap<Vec<u8>, Vec<usize>> = HashMap::new();
         for (i, b) in self.blocks.iter().enumerate() {
             by_id.entry(b.id.clone()).or_default().push(i);
@@ -533,9 +544,9 @@ impl Lif {
             f.place(self.blocks[b].data(), b);
             series += f.fields.len() as u64;
             self.rules.check("series", rules::env([("count", num(series as f64))]))?;
-            facts.push(image_facts(&tree, im, &f, k));
+            facts.push(image_facts(im, &f, k));
         }
-        self.emit(&xml)?;
+        self.emit()?;
         let mut facts = json!({"version": self.version, "blocks": self.blocks.len(), "images": facts, "series": series});
         self.asked.put(&mut facts);
         self.facts = facts;
@@ -562,7 +573,7 @@ impl Lif {
         )?;
         // (DimID, NumberOfElements, BytesInc)
         let mut dims: Vec<(u64, u64, u64)> = Vec::new();
-        for (j, (_, d)) in im.dims.iter().enumerate() {
+        for (j, d) in im.dims.iter().enumerate() {
             self.rules.check(
                 "dimension",
                 base(vec![
@@ -577,7 +588,7 @@ impl Lif {
         }
         let mut channels: Vec<(u64, u64, u64)> = Vec::new(); // (DataType, item size, BytesInc)
         let mut resolutions = Vec::new();
-        for (j, (_, c)) in im.channels.iter().enumerate() {
+        for (j, c) in im.channels.iter().enumerate() {
             self.rules.check(
                 "channel",
                 base(vec![
@@ -598,19 +609,21 @@ impl Lif {
             channels.push((dt, item, integer(c[2].as_deref()).unwrap()));
             resolutions.push(res);
         }
-        Layout::of(self.rules, base(vec![]), &dims, &channels, &resolutions, im)
+        // the references a run may make (refs.rs), which bound the planes before they are listed
+        let references = (1u128 << 22) + 4 * self.size as u128;
+        Layout::of(self.rules, base(vec![("references", num(references as f64))]), &dims, &channels, &resolutions, im)
     }
 
     /// The IR (spec/zarrify/lif.md §5.4
     /// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#54-elements>).
-    fn emit(&mut self, xml: &[u8]) -> Res<()> {
+    fn emit(&mut self) -> Res<()> {
         let xml_len = 2 * self.chars;
         let header = self.ir.struct_(0, "header", NO_INDEX, 0, Some((0, HEAD + xml_len)))?;
         self.ir.value(header, "fields", NO_INDEX, HEAD_TYPE, 0, (0, HEAD), Some(&self.head))?;
         if xml_len > 0 {
             // held when the view shows it (conventions §8.7
             // <https://github.com/d-v-b/refkv/blob/main/spec/conventions.md#87-the-view>)
-            let shown = (xml_len <= SHOWN).then_some(xml);
+            let shown = (xml_len <= SHOWN).then_some(self.xml.as_slice());
             self.ir.value(header, "xml", NO_INDEX, &format!("utf16[{xml_len}]"), 0, (HEAD, xml_len), shown)?;
         }
         let ty = BLOCK_TYPES[(self.version == 2) as usize];
@@ -654,19 +667,36 @@ fn read_image(t: &Tree, n: u32) -> Image {
     let list = |name, item| -> Vec<u32> {
         desc.and_then(|d| t.child(d, name)).map(|l| t.named(l, item).collect()).unwrap_or_default()
     };
-    let get = |c: u32, k: &str| t.attr(c, k);
+    let (dims, channels) = (list("Dimensions", "DimensionDescription"), list("Channels", "ChannelDescription"));
+    let mut path = Vec::new();
+    let mut e = n;
+    while e != NONE {
+        if t.name(e) == "Element" {
+            path.push(t.attr(e, "Name").map_or(J::Null, J::String));
+        }
+        e = t.nodes[e as usize].parent;
+    }
+    path.reverse();
+    let memory = t.child(n, "Memory");
+    let mut meta = Map::new();
+    meta.insert("path".into(), J::Array(path));
+    meta.insert("attributes".into(), J::Object(t.attrs(n)));
+    if let Some(m) = memory {
+        meta.insert("memory".into(), J::Object(t.attrs(m)));
+    }
+    meta.insert("dimensions".into(), J::Array(dims.iter().map(|&d| J::Object(t.attrs(d))).collect()));
+    meta.insert("channels".into(), J::Array(channels.iter().map(|&c| J::Object(t.attrs(c))).collect()));
+    let scan = t
+        .at(n, &["Data", "Image"])
+        .and_then(|i| t.named(i, "Attachment").find(|&a| t.attr(a, "Name").as_deref() == Some("TileScanInfo")))
+        .map(|s| (t.attrs(s), t.named(s, "Tile").map(|c| J::Object(t.attrs(c))).collect()));
     Image {
-        node: n,
         name: t.attr(n, "Name"),
-        memory: t.child(n, "Memory").and_then(|m| t.attr(m, "MemoryBlockID")),
-        dims: list("Dimensions", "DimensionDescription")
-            .into_iter()
-            .map(|c| (c, ["DimID", "NumberOfElements", "BytesInc", "Origin", "Length", "Unit", "BitInc"].map(|k| get(c, k))))
-            .collect(),
-        channels: list("Channels", "ChannelDescription")
-            .into_iter()
-            .map(|c| (c, ["DataType", "Resolution", "BytesInc", "ChannelTag", "LUTName", "BitInc"].map(|k| get(c, k))))
-            .collect(),
+        memory: memory.and_then(|m| t.attr(m, "MemoryBlockID")),
+        dims: dims.iter().map(|&c| ["DimID", "NumberOfElements", "BytesInc", "Origin", "Length", "Unit", "BitInc"].map(|k| t.attr(c, k))).collect(),
+        channels: channels.iter().map(|&c| ["DataType", "Resolution", "BytesInc", "ChannelTag", "LUTName", "BitInc"].map(|k| t.attr(c, k))).collect(),
+        meta,
+        scan,
     }
 }
 
@@ -706,7 +736,7 @@ impl Layout {
     fn of(rules: &Rules, mut env: rules::Vars<'static>, dims: &[(u64, u64, u64)], channels: &[(u64, u64, u64)],
           resolutions: &[u64], im: &Image) -> Res<Layout> {
         let used: Vec<usize> = (0..dims.len()).filter(|&j| dims[j].1 > 1).collect();
-        let x = dims.iter().position(|d| d.0 == 1);
+        let x = used.iter().copied().find(|&j| dims[j].0 == 1).or_else(|| dims.iter().position(|d| d.0 == 1));
         let mut seen: HashMap<u64, usize> = HashMap::new();
         let repeated = used.iter().find_map(|&j| seen.insert(dims[j].0, j).map(|_| dims[j].0));
         let types: Vec<(u64, u64)> = {
@@ -771,6 +801,9 @@ impl Layout {
         env.insert("y_bytes_inc", num(sy as f64));
         env.insert("extent", num(biggest as f64));
         env.insert("fields", num(field_count as f64));
+        let chunked = if interleaved { 1 } else { m as u128 };
+        let planes = t.map_or(1, |p| p.0 as u128) * chunked * z.map_or(1, |p| p.0 as u128) * field_count;
+        env.insert("planes", num(planes as f64));
         rules.check("layout", env)?;
         let data_type = match (dt, item) {
             (0, 1) => "uint8",
@@ -795,7 +828,7 @@ impl Layout {
                     _ => return json!(1),
                 };
                 let Some(j) = used.iter().copied().find(|&j| dims[j].0 == id) else { return json!(1) };
-                let d = &im.dims[j].1;
+                let d = &im.dims[j];
                 let step = decimal(d[4].as_deref()).map(|l| (l / (dims[j].1 - 1) as f64).abs());
                 let Some(step) = step.filter(|s| s.is_finite() && *s > 0.0) else { return json!(1) };
                 match (unit(d[5].as_deref().unwrap_or("")), a) {
@@ -872,62 +905,55 @@ impl Layout {
             + (self.t.0 - 1) * self.t.1
             + (self.z.0 - 1) * self.z.1
             + self.fields.last().map_or(0, |f| f.1);
-        self.band = (1..=ny)
+        let most = (BAND / row.max(1)).clamp(1, ny);
+        self.band = (1..=most)
             .rev()
-            .find(|&b| {
-                ny % b == 0
-                    && b.saturating_mul(row) <= BAND
-                    && (sy == row || {
-                        let start = far + (ny - b) * sy;
-                        let parts: Vec<Part> = (0..b).map(|r| Part::Src(start + r * sy, row)).collect();
-                        payload_size(&parts) <= MAX_PAYLOAD
-                    })
-            })
+            .find(|&b| ny % b == 0 && (sy == row || rows_payload(far + (ny - b) * sy, sy, row, b) <= MAX_PAYLOAD as u64))
             .unwrap_or(1);
         let n = self.chunk_shape.len();
         self.chunk_shape[n - 2] = self.band;
     }
 }
 
+/// The size of a varint (spec/zarrify.md §1.2
+/// <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#12-input>).
+fn varint_size(v: u64) -> u64 {
+    (64 - v.leading_zeros() as u64).div_ceil(7).max(1)
+}
+
+/// The reference payload of `count` ranges of `length` bytes, `stride` bytes apart from `start`
+/// (each offset and length above 0, `stride` too), as `out::payload_size` gives it, counted by
+/// the offsets' varint sizes rather than built.
+fn rows_payload(start: u64, stride: u64, length: u64, count: u64) -> u64 {
+    if count == 1 {
+        return 2 + varint_size(start) + varint_size(length);
+    }
+    // each range a Concat entry: tag, its length (one byte), then 0x18 varint(o) 0x20 varint(n)
+    let mut offsets = 0;
+    let mut below = 0;
+    for k in 1..=9u64 {
+        let limit = 1u64 << (7 * k);
+        let n = if start >= limit { 0 } else { count.min((limit - start).div_ceil(stride)) };
+        offsets += (n - below) * k;
+        below = n;
+    }
+    offsets += (count - below) * 10;
+    count * (4 + varint_size(length)) + offsets
+}
+
 /// An image's facts: its source metadata and its layout, for the projection.
-fn image_facts(t: &Tree, im: &Image, f: &Layout, k: usize) -> J {
-    let path: Vec<J> = {
-        let mut p = Vec::new();
-        let mut n = im.node;
-        while n != NONE {
-            if t.name(n) == "Element" {
-                p.push(t.attr(n, "Name").map_or(J::Null, J::String));
-            }
-            n = t.nodes[n as usize].parent;
-        }
-        p.reverse();
-        p
+fn image_facts(im: &Image, f: &Layout, k: usize) -> J {
+    // a mosaic's tiles: when its one field dimension is the mosaic's (DimID 10)
+    let tiles: &[J] = match &im.scan {
+        Some((_, tiles)) if f.field_dims.len() == 1 && f.field_dims[0].1 == 10 => tiles,
+        _ => &[],
     };
-    let image = t.at(im.node, &["Data", "Image"]);
-    let scan = image.and_then(|i| t.named(i, "Attachment").find(|&a| t.attr(a, "Name").as_deref() == Some("TileScanInfo")));
-    let tiles: Vec<J> = match scan {
-        Some(s) if f.field_dims.len() == 1 && f.field_dims[0].1 == 10 => t.named(s, "Tile").map(|c| J::Object(t.attrs(c))).collect(),
-        _ => Vec::new(),
-    };
-    let colors: Vec<&str> = f
-        .order
-        .iter()
-        .map(|&j| {
-            let c = &im.channels[j].1;
-            color(integer(c[3].as_deref()), c[4].as_deref())
-        })
-        .collect();
+    let colors: Vec<&str> = f.order.iter().map(|&j| color(integer(im.channels[j][3].as_deref()), im.channels[j][4].as_deref())).collect();
     let mut meta = Map::new();
     meta.insert("image".into(), json!(k));
-    meta.insert("path".into(), J::Array(path));
-    meta.insert("attributes".into(), J::Object(t.attrs(im.node)));
-    if let Some(m) = t.child(im.node, "Memory") {
-        meta.insert("memory".into(), J::Object(t.attrs(m)));
-    }
-    meta.insert("dimensions".into(), J::Array(im.dims.iter().map(|d| J::Object(t.attrs(d.0))).collect()));
-    meta.insert("channels".into(), J::Array(im.channels.iter().map(|c| J::Object(t.attrs(c.0))).collect()));
-    if let Some(s) = scan.filter(|_| !tiles.is_empty()) {
-        meta.insert("tile_scan".into(), J::Object(t.attrs(s)));
+    meta.extend(im.meta.clone());
+    if let Some((scan, _)) = im.scan.as_ref().filter(|_| !tiles.is_empty()) {
+        meta.insert("tile_scan".into(), J::Object(scan.clone()));
     }
     json!({
         "name": im.name, "meta": meta, "data_type": f.data_type, "item": f.item,
@@ -955,5 +981,19 @@ impl crate::run::FileProfile for Profile {
     }
     fn project(&self, ir: &crate::ir::Ir, facts: &serde_json::Value, url: &str, _copied: &crate::project::Copied) -> Result<crate::out::Out, String> {
         crate::project::lif::project(ir, facts, url)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::out::{payload_size, Part};
+
+    #[test]
+    fn rows_payload_is_the_references() {
+        for (start, stride, length, count) in [(1, 9, 6, 1), (100, 9, 6, 50), (16000, 9, 6, 200), (73728, 9, 6, 8192), (1 << 40, 1 << 20, 3, 7), (5, 300, 200, 4096)] {
+            let parts: Vec<Part> = (0..count).map(|r| Part::Src(start + r * stride, length)).collect();
+            assert_eq!(rows_payload(start, stride, length, count), payload_size(&parts) as u64, "{start} {stride} {count}");
+        }
     }
 }

@@ -79,7 +79,7 @@
     },
     "layout": {
       "about": "an image's layout (spec/zarrify/lif.md §3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#3-placement>)",
-      "given": {"k": "", "name": "", "x": "it has a dimension of DimID 1", "repeated": "a DimID two dimensions of more than one element have", "types": "the channels' distinct (DataType, bytes) pairs", "distinct": "no two channels have one BytesInc", "offsets": "the channels' BytesInc, ascending", "x_bytes_inc": "X's BytesInc", "arranged": "the channels are planar or interleaved", "rows_overlap": "Y has more than one element and a BytesInc below a row's bytes", "row": "a row's bytes", "y_bytes_inc": "Y's BytesInc", "extent": "the largest of the array's shape", "fields": "the fields"},
+      "given": {"k": "", "name": "", "x": "it has a dimension of DimID 1", "repeated": "a DimID two dimensions of more than one element have", "types": "the channels' distinct (DataType, bytes) pairs", "distinct": "no two channels have one BytesInc", "offsets": "the channels' BytesInc, ascending", "x_bytes_inc": "X's BytesInc", "arranged": "the channels are planar or interleaved", "rows_overlap": "Y has more than one element and a BytesInc below a row's bytes", "row": "a row's bytes", "y_bytes_inc": "Y's BytesInc", "extent": "the largest of the array's shape", "fields": "the fields", "planes": "the chunks of one row band: times, channels (1 when interleaved), depths and fields", "references": "2^22 + 4 x the file's size, the references a run makes at most"},
       "constraints": [
         {"require": "x", "message": "image {k} ({name}) has no X dimension (DimID 1)"},
         {"require": "!present(repeated)", "message": "image {k} ({name}) has two dimensions of DimID {repeated} with more than one element"},
@@ -88,7 +88,8 @@
         {"require": "arranged", "message": "image {k} ({name}): channels at BytesInc {offsets} with an X BytesInc of {x_bytes_inc} are neither planar nor interleaved"},
         {"require": "!rows_overlap", "message": "image {k} ({name}): rows of {row} bytes, {y_bytes_inc} bytes apart, overlap"},
         {"require": "extent <= max_extent", "message": "image {k} ({name}) has an array extent of {extent}, more than 2^31"},
-        {"require": "fields <= max_series", "message": "image {k} ({name}) has {fields} fields, more than 65536"}
+        {"require": "fields <= max_series", "message": "image {k} ({name}) has {fields} fields, more than 65536"},
+        {"require": "planes <= references", "message": "image {k} ({name}) has {planes} planes, more than the {references} references the file may have"}
       ]
     },
     "memory": {

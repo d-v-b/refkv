@@ -27,7 +27,8 @@ import numpy as np
 HERE = Path(__file__).parent
 OUT = HERE.parents[1] / "lif"
 TEST, MAGIC = 0x70, 0x2A
-# DimID by axis (spec/zarrify/lif.md §2.4): x, y, z, t, emission wavelength, mosaic
+# DimID by axis: x, y, z, t, emission wavelength, mosaic (spec/zarrify/lif.md §2.4
+# <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#24-dimensions-and-channels>)
 DIM_ID = {"x": 1, "y": 2, "z": 3, "t": 4, "w": 5, "m": 10}
 UNIT = {"x": "m", "y": "m", "z": "m", "t": "s", "w": "m", "m": ""}
 
@@ -237,6 +238,8 @@ def accepted() -> dict[str, Lif]:
         "lif_fields": Lif("m.lif", [Img("lambda", "xyw", {"x": 5, "y": 4, "w": 3}, lengths=yx)]),
         "lif_blocks_unordered": Lif("n.lif", [Img("one", "xy", {"x": 4, "y": 3}), Img("two", "xy", {"x": 3, "y": 4}),
                                               Img("three", "xy", {"x": 2, "y": 2})], order=[0, 3, 1, 2]),
+        # an ID past the walk's first guess at a header (128 characters)
+        "lif_long_block_id": Lif("o2.lif", [Img("long", "xy", {"x": 4, "y": 3}, memory="MemBlock_" + "9" * 300)]),
         "lif_tail": Lif("o.lif", [Img("plane", "xy", {"x": 5, "y": 5})], tail=bytes(37)),
         "lif_no_images": Lif("p.lif", []),
     }
@@ -297,6 +300,9 @@ def rejected() -> dict[str, bytes]:
                                                   channel_attrs={1: {"BytesInc": 0}})]).build(),
         "not_arranged": Lif("q.lif", [Img("gap", "cxy", {"c": 2, "x": 4, "y": 3},
                                           dim_attrs={"x": {"BytesInc": 3}, "y": {"BytesInc": 12}})]).build(),
+        # 2^30 time points of BytesInc 0: within the block, but more planes than references
+        "planes": Lif("q.lif", [Img("plane", "xyt", {"x": 4, "y": 3, "t": 2},
+                                    dim_attrs={"t": {"NumberOfElements": 1 << 30, "BytesInc": 0}})]).build(),
         "rows_overlap": plane(dim_attrs={"y": {"BytesInc": 3}}).build(),
         "no_dimensions": plane().build().replace(utf16("DimensionDescription"), utf16("DimensionDescript0n")),
     }

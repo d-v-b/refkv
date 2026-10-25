@@ -119,3 +119,18 @@ def test_bands_bound_a_chunk(tmp_path):
         with liffile.LifFile(path) as f:
             _, want = expected_fields(f.images[0])
         assert np.array_equal(ndarray(root.get_array("0/0")[...]).reshape(want.shape[1:]), want[0])
+
+
+def test_the_walk_reads_the_blocks_the_xml_predicts(tmp_path):
+    """The blocks' headers are read at the offsets the XML's Memory elements predict (spec/zarrify/lif.md
+    §7.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/lif.md#72-reading>): blocks in the
+    elements' order past the first read (64 KiB) take one round of requests, and each block the
+    prediction misses (here a folder's empty one) one more; no pixel is read."""
+    images = [Img(f"im{i}", "xy", {"x": 256, "y": 256}) for i in range(20)]
+    cases = [(Lif("a.lif", images), 2), (Lif("b.lif", images, folder=("folder", 10)), 3)]
+    for lif, batches in cases:
+        path = tmp_path / lif.name
+        path.write_bytes(lif.build())
+        out, _, _ = zarrified(path, tmp_path, "lif")
+        assert at(out.summary, "planner", "batches") == batches, lif.name
+        assert integer(at(out.summary, "planner", "bytes")) < (1 << 16) + (1 << 14), lif.name

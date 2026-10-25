@@ -68,8 +68,8 @@ which needs a Rust toolchain, until a release on PyPI has `refkv.zarrify`):
 uv run docs/zarrify/lif/example.py
 ```
 
-A tile scan of four tiles, two channels, three planes and two time points
-(227 KB, CC BY 4.0, Michael Goelzer), from
+Or, from the command line, a smaller tile scan: four tiles, two channels, three planes and two
+time points (227 KB, CC BY 4.0, Michael Goelzer), from
 [corpus_lif.txt](../../../conformance/zarrify/corpus_lif.txt):
 
 ```bash

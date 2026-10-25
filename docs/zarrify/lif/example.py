@@ -39,35 +39,44 @@ def multiscale(series: str) -> dict:
     return m
 
 
-def stage(series: str) -> tuple[float, float]:
-    """A tile's stage position (meters), from its source metadata."""
+def tile(series: str) -> dict | None:
+    """A tile's record (its stage position), from its source metadata; None for an image that is
+    no tile of a tile scan."""
     own = root.get_group(series).attrs["refkv_zarrified"]
     assert isinstance(own, dict)
     assert isinstance(own["lif"], dict)
-    tile = own["lif"]["tile"]
-    assert isinstance(tile, dict)
-    return float(str(tile["PosX"])), float(str(tile["PosY"]))
+    record = own["lif"].get("tile")
+    assert record is None or isinstance(record, dict)
+    return record
 
 
-print([multiscale(s)["name"] for s in "23456"])  # "Cell 1 (tile 0)" to "(tile 3)", then "Cell 1 Merged"
+ome = root.get_group("OME").attrs["ome"]
+assert isinstance(ome, dict)
+assert isinstance(ome["series"], list)
+names = {str(s): multiscale(str(s))["name"] for s in ome["series"]}
+tiles_of_cell = [s for s, name in names.items() if name.startswith("Cell 1 (tile ") and tile(s) is not None]
+(merged_image,) = (s for s, name in names.items() if name == "Cell 1 Merged")
+print(names)
 
 fig, (tiles, merged) = plt.subplots(1, 2, figsize=(10, 5))
 corners = []
-for s in ("2", "3", "4", "5"):
+for s in tiles_of_cell:
     image = root.get_array(f"{s}/0")  # [c, z, y, x]
-    plane = np.asarray(image[CHANNEL, image.shape[1] // 2])  # one chunk
+    plane = np.asarray(image[CHANNEL, image.shape[1] // 2])  # one plane
     transform = multiscale(s)["datasets"][0]["coordinateTransformations"][0]
-    pixel = float(transform["scale"][-1]) * 1e-6  # micrometers to meters
-    x0, y0 = stage(s)
-    x1, y1 = x0 + plane.shape[1] * pixel, y0 + plane.shape[0] * pixel
+    dy, dx = (float(v) * 1e-6 for v in transform["scale"][-2:])  # micrometers to meters
+    record = tile(s)
+    assert record is not None
+    x0, y0 = float(record["PosX"]), float(record["PosY"])
+    x1, y1 = x0 + plane.shape[1] * dx, y0 + plane.shape[0] * dy
     corners += [(x0, y0), (x1, y1)]
     tiles.imshow(plane, cmap="gray", extent=(x0, x1, y1, y0), alpha=0.6, vmax=np.percentile(plane, 99.5))
-    tiles.text(x0, y0, f" tile {int(s) - 2}", color="yellow", va="top")
+    tiles.text(x0, y0, f" {names[s].removeprefix('Cell 1 ')}", color="yellow", va="top")
 xs, ys = zip(*corners, strict=True)
 tiles.set_xlim(min(xs), max(xs))
 tiles.set_ylim(max(ys), min(ys))
 tiles.set_title("the tiles, at their stage positions")
-whole = root.get_array("6/0")
+whole = root.get_array(f"{merged_image}/0")
 plane = np.asarray(whole[CHANNEL, whole.shape[1] // 2])
 merged.imshow(plane, cmap="gray", vmax=np.percentile(plane, 99.5))
 merged.set_title("LAS X's merged image")

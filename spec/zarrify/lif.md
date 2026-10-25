@@ -142,7 +142,8 @@ little-endian.
 
 An image's channels are taken in ascending order of their `BytesInc` (two channels of one
 `BytesInc` reject the input): channel `c`, from 0, has the `c`-th, `o_c`. The image MUST have a
-dimension of `DimID` 1, its **X**, of `BytesInc` `s_x`, and its channels are:
+dimension of `DimID` 1: its **X** is the used one, else the first, of `BytesInc` `s_x`, and its
+channels are:
 
 - **planar** when `s_x = e`: each channel's samples are an image of their own, from `o_c`;
 - **interleaved** when there are `n > 1` channels, `s_x = n × e` and `o_c = c × e`: a pixel holds
@@ -165,7 +166,10 @@ scan over time, `x` and `t`, has none). Each number of the shape MUST be at most
 Its **field dimensions** are its used dimensions of any other `DimID`, in document order,
 `d_1, …, d_q`, and its **fields** the combinations of their indexes: field `f = i_1 + N_1 × (i_2 +
 N_2 × (…))` (the first fastest) has the **offset** `Σ i_j × s_j`; there are `F = N_1 × … × N_q`
-of them, one when `q` is 0, at most 65536. Each field is an image of the output
+of them, one when `q` is 0, at most 65536. The image's **planes** are `N_T × n' × N_Z × F`
+(`n'` the number of channels, or 1 when they are interleaved: a band of each is a chunk), at
+most the references a run makes, `2^22 + 4 ×` the file's size: a dimension whose `BytesInc`
+is 0 repeats a plane without growing the extent. Each field is an image of the output
 ([§4.2](#42-images)): OME-NGFF 0.5 has no axis for a mosaic's tile, a wavelength or a rotation.
 
 ### 3.4 Rows and bands
@@ -217,7 +221,7 @@ Otherwise:
   [conventions §5](../conventions.md#5-units): the step converted to micrometers,
   `step × (size(Unit) / 1e-6)` (`m`, as LAS X writes, gives `step × (1 / 1e-6)`), in
   `micrometer`, when finite and positive (else 1 without a unit);
-- along `t`, when `Unit` is a time symbol of conventions §5 (`s`, `ms`, `min`, `h`): the step in
+- along `t`, when `Unit` is a time symbol of [conventions §5](../conventions.md#5-units) (`s`, `ms`, `min`, `h`): the step in
   that unit;
 - otherwise the step, without a unit.
 
@@ -417,9 +421,10 @@ order):
 
 Nothing else is read: no byte of a block's data. (The implementations read the first 64 KiB,
 then the rest of the XML header when it is longer, then the blocks' fixed parts and IDs in
-batches at the offsets the XML's `Memory` elements predict, those with a `Size` above 0, each
-ID once, in document order: a file whose blocks follow its elements, as LAS X writes them, is
-walked in one or two rounds of requests. The prediction decides only what is read ahead, never
+batches at the offsets the XML's `Memory` elements predict: the first one's (the file's own
+element's), then those with a `Size` above 0, each ID once, in document order, since LAS X
+writes no block for its folders' empty and repeated IDs. A file whose blocks follow its elements
+is walked in one round of requests, and each block the prediction misses costs another. The prediction decides only what is read ahead, never
 the output.)
 
 ### 7.3 Rejection
@@ -430,7 +435,7 @@ something MUST hold: the header block ([§2.1](#21-blocks): test value, magic by
 within the file), the XML header ([§2.2](#22-the-xml-header): UTF-16, a LOF, the root, the
 version), each image ([§2.3](#23-images): its `Memory`, its memory block found once and named by
 it alone; [§2.4](#24-dimensions-and-channels): its dimensions and channels and their
-attributes; [§3](#3-placement): its data type, channels, X, rows, extent and shape), the images in
+attributes; [§3](#3-placement): its data type, channels, X, rows, extent, shape and planes), the images in
 document order. The walk ([§7.2](#72-reading) step 2) never
 rejects, and neither does what only the source metadata reads.
 
@@ -443,6 +448,7 @@ rejects, and neither does what only the source metadata reads.
 | channels of an image | 1024 | an image's documents (`omero` lists at most 64) |
 | array extent | each number of an image's shape at most 2^31 | shapes |
 | fields of an image, and series | 65536 | the `OME` series list, as for CZI and ND2 |
+| planes of an image | `2^22 + 4 ×` the file's size | its chunks, before they are listed |
 
 The walk stops at 2^20 blocks without rejecting. Every document is then bounded: the root's by
 its one member, each image's by its element's attributes, at most 16 dimensions and 1024
