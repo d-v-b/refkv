@@ -9,7 +9,11 @@ refkv produces this layout as a reference store is the DICOM profile,
 [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `acf17198-e5a5-48d3-8187-22ec4bb40ea5` ·
-Schema: [schema.json](dicom/schema.json)
+Schema: [schema.json](dicom/schema.json) · Changed 2026-10-26, with no change to any output: the
+layout is tabulated, its entries in [Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables)), among them the datasets as JSON
+([`DicomDataset`](#type-dicomdataset), [`DicomAttribute`](#type-dicomattribute)) and a
+chunk's ranges ([`DicomChunk`](#type-dicomchunk))
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -19,6 +23,25 @@ This convention gives a layout only to the files that meet its
 requirements. Where it says that "the input is rejected", or that
 something MUST hold, a file that fails has no layout under this
 convention, and the profile rejects it.
+
+## Layout
+
+The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)):
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | [`ImageGroup`](../conventions.md#type-imagegroup) | the root: the image ([§4](#4-output)) |
+| `zarr.json#/attributes/ome` | attribute | [`OmeImage`](../conventions.md#type-omeimage) | `M`: no `name`, one level, the array `0`, with the scales of [§4](#4-output) and no translation, and `omero`, whose channels are [`DicomChannel`](#type-dicomchannel)s |
+| `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"dicom"`, `version` `0`, `source.url` the file's URL |
+| `zarr.json#/attributes/refkv_zarrified/dicom` | attribute | [`DicomRoot`](#type-dicomroot) | the root's source metadata ([§5.1](#51-the-root)) |
+| `0/zarr.json` | array | [`DicomArray`](#type-dicomarray) | the pixels ([§4](#4-output)) |
+| `0/c/<coords>` | chunk | [`DicomChunk`](#type-dicomchunk) | a frame, or one sample of it when planar; every chunk is present ([§4](#4-output), [§7.6](#76-chunk-references)) |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§5.3](#53-the-ir-mirror)): its elements are [§5.4](#54-elements)'s |
+
+| placeholder | value |
+|---|---|
+| `<coords>` | the chunk's coordinates along the array's axes, in decimal, one key segment each: `<c>/<f>/<row>/<column>`, each of `<c>` and `<f>` only for the axes present (so it stands for two to four segments): `<c>` the sample `s` when planar, else 0; `<f>` the frame `f` along the frame axis; `<row>` and `<column>` the frame's tile row and column for a whole-slide image, else 0 and 0 |
 
 ## 1. Declaration
 
@@ -113,26 +136,16 @@ whether or not its value ends up in the output.
 - **Length:** an attribute of the table other than Pixel Data MUST NOT have
   an undefined length (in implicit VR, [§7.3](#73-datasets-and-sequences) walks such an element as a
   sequence; it is then rejected here).
-- **tag:** the value is `u16` group and `u16` element pairs in the dataset's
-  byte order; its length MUST be a multiple of 4, and the first pair is
-  used, as the tag `(group,element)`.
-- **integer:** the value is `u16` (US) or `u32` (UL) values in the dataset's
-  byte order; its length MUST be a multiple of 2 (4), and the first value
-  is used.
-- **64-bit integers:** `u64` values in the dataset's byte order; the length
-  MUST be a multiple of 8, and every value MUST be at most 2^53 − 1.
-- **string:** the value's bytes, split at each `\` (byte `5C`) into string
-  values, each with its leading and trailing bytes `20` (space) and `00`
-  removed. The first is used, as bytes (compared byte for byte with the
-  ASCII text given here).
-- **integer string:** the first string value MUST be one or more digits
-  ([spec/zarrify.md §1.3](../zarrify.md#13-arithmetic)), optionally preceded by `+` or `-`, and is read as a decimal
-  integer, which for Number of Frames MUST be from 1 to 2^53 − 1. Otherwise
-  the input is rejected.
-- **decimals:** the string values. A value is **valid** if it matches
-  `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?` and its binary64
-  value ([spec/zarrify.md §1.3](../zarrify.md#13-arithmetic)) is finite. Invalid values never reject the input; they make
-  the attribute unusable where [§4](#4-output) says so.
+- **Kind:** the value is read by the table's kind:
+
+  | kind | value |
+  |---|---|
+  | tag | `u16` group and `u16` element pairs in the dataset's byte order; its length MUST be a multiple of 4, and the first pair is used, as the tag `(group,element)` |
+  | integer | `u16` (US) or `u32` (UL) values in the dataset's byte order; its length MUST be a multiple of 2 (4), and the first value is used |
+  | 64-bit integers | `u64` values in the dataset's byte order; the length MUST be a multiple of 8, and every value MUST be at most 2^53 − 1 |
+  | string | the value's bytes, split at each backslash (byte `5C`) into string values, each with its leading and trailing bytes `20` (space) and `00` removed. The first is used, as bytes (compared byte for byte with the ASCII text given here) |
+  | integer string | the first string value MUST be one or more digits ([spec/zarrify.md §1.3](../zarrify.md#13-arithmetic)), optionally preceded by `+` or `-`, and is read as a decimal integer, which for Number of Frames MUST be from 1 to 2^53 − 1. Otherwise the input is rejected |
+  | decimals | the string values. A value is **valid** if it matches `[+-]?([0-9]+(\.[0-9]*)?\|\.[0-9]+)([eE][+-]?[0-9]+)?` and its binary64 value ([spec/zarrify.md §1.3](../zarrify.md#13-arithmetic)) is finite. Invalid values never reject the input; they make the attribute unusable where [§4](#4-output) says so |
 
 An **(FG)** attribute is taken from the Pixel Measures item if it is present
 there, else from the top-level dataset. (The choice is made by presence: an
@@ -196,59 +209,72 @@ angiography and fluoroscopy; otherwise `z` (space).
 One image at the archive root ([conventions §4](../conventions.md#4-images)), with no `name` and one level, the
 array `"0"`.
 
-- **Axes:** `c` if `S` = 3; the frame axis ([§3](#3-the-image)), `t` or `z`, if the image
-  is not a whole-slide image and `N > 1`; then `y`, `x`.
-- **Shape:** 3 for `c`, `N` for the frame axis; then `H`, `W` for a
-  whole-slide image, else Rows, Columns.
-- **Chunk shape:** for `c`, 1 if the pixel data is native with Planar
-  Configuration 1, else 3; 1 for the frame axis; then Rows, Columns.
-- **Codecs** ([conventions §3](../conventions.md#3-arrays)): `transpose` when `c` is present and its chunk size is
-  3 (interleaved, as every decoded JPEG and JPEG 2000 frame is); then
-  `bytes` (with `endian` `little` or `big` by the encoding when Bits
-  Allocated is above 8), `imagecodecs_jpeg` or `imagecodecs_jpeg2k`.
-- **Scale and units:**
-  - `y`, `x`: if Pixel Spacing (FG, [§2.2](#22-attributes)) is **usable**, the scales are its
-    first and second values (the spacing between rows, then between
-    columns), with unit `millimeter`. It is usable if it has exactly two
-    string values, both valid decimals and positive. Otherwise the scales
-    are 1 with no unit.
-  - `z`: if Spacing Between Slices (FG) has a first value that is a valid,
-    positive decimal, that value with unit `millimeter`; otherwise 1 with
-    no unit.
-  - `t`: if the Frame Increment Pointer is Frame Time and Frame Time's
-    first value is a valid, positive decimal `ms`, the scale `ms / 1000`
-    with unit `second`; otherwise 1 with no unit (a Frame Time Vector gives
-    each frame's own interval, which a scale cannot).
-  - `c`: scale 1, no unit.
-- **Translation:** none. A whole-slide image's origin is given in the slide
-  coordinate system, whose axes are rotated or mirrored against the image's
-  by Image Orientation (Slide); a cross-sectional image's position is in the
-  patient's frame, oriented by Image Orientation (Patient). Neither is a
-  translation along the image's own axes in general.
-- **omero:** `M` has `"omero": {"channels": [...]}`, one object per channel
-  (one when `S` = 1, even though there is no `c` axis):
-  `{"label": ..., "color": ..., "active": true, "window": {"min": A, "max": Z, "start": a, "end": e}}`.
-  - Labels and colors: `S` = 1 gives `gray`, `FFFFFF`; `S` = 3 gives `R`,
-    `G`, `B` with `FF0000`, `00FF00`, `0000FF`. For `MONOCHROME1` the
-    channel also has `"inverted": true`.
-  - `A` and `Z` are the stored values' range for Bits Stored `b`: 0 and
-    `2^b − 1` when unsigned, `−2^(b−1)` and `2^(b−1) − 1` when signed.
-  - `a` and `e` are `A` and `Z`, except when `S` = 1 and there is a **VOI
-    window**: Window Center and Window Width are present with valid first
-    values `c` and `w`, `w ≥ 1`, and Rescale Slope `m` and Rescale Intercept
-    `k` are each absent (taken as 1 and 0) or have a valid first value, with
-    `m ≠ 0`. The window, in rescaled units, is converted to stored values:
-    `a = (c − w / 2 − k) / m` and `e = (c + w / 2 − k) / m` (`w / 2` first,
-    then left to right), swapped if `m < 0`.
-- **Chunks:** frame `f` (or sample `s` of it) is the chunk at
-  `0/c/<coords>`. Coords are: for `c`, the sample `s` when planar, else 0;
-  for the frame axis, `f`; then the frame's tile row and column for a whole-slide
-  image, else 0 and 0. Every chunk is present. A chunk holds the frame's
-  pixel data: for native pixel data, its `Rows × Columns × S` cells (or one
-  sample's, when planar); for encapsulated pixel data, the frame's
-  fragments' data, concatenated, which is one JPEG or JPEG 2000 stream (a
-  JPEG stream with three samples made explicit about its color transform,
-  as [§7.5](#75-frames) says).
+<a id="type-dicomarray"></a>**`DicomArray`**, the array's `zarr.json`: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `dimension_names` | array of string | required | the axes: `c` if `S` = 3; the frame axis ([§3](#3-the-image)), `t` or `z`, if the image is not a whole-slide image and `N > 1`; then `y`, `x` |
+| `shape` | array of integer | required | 3 for `c`, `N` for the frame axis; then `H`, `W` for a whole-slide image, else Rows, Columns |
+| `data_type` | string | required | from [§3](#3-the-image) (**Data type**) |
+| `chunk_grid` | object | required | regular, its chunk shape: for `c`, 1 if the pixel data is native with Planar Configuration 1, else 3; 1 for the frame axis; then Rows, Columns |
+| `codecs` | array of object | required | ([conventions §3](../conventions.md#3-arrays)) `transpose` when `c` is present and its chunk size is 3 (interleaved, as every decoded JPEG and JPEG 2000 frame is); then `bytes` (with `endian` `little` or `big` by the encoding when Bits Allocated is above 8), `imagecodecs_jpeg` or `imagecodecs_jpeg2k` |
+| `attributes` | object | required | `{}` ([§1](#1-declaration)) |
+
+**Scale and units.** Each axis's scale and unit:
+
+| axis | scale | unit |
+|---|---|---|
+| `y`, `x` | if Pixel Spacing (FG, [§2.2](#22-attributes)) is **usable**, its first and second values (the spacing between rows, then between columns). It is usable if it has exactly two string values, both valid decimals and positive. Otherwise 1 | `millimeter` when Pixel Spacing is usable; otherwise none |
+| `z` | if Spacing Between Slices (FG) has a first value that is a valid, positive decimal, that value; otherwise 1 | `millimeter` with that value; otherwise none |
+| `t` | if the Frame Increment Pointer is Frame Time and Frame Time's first value is a valid, positive decimal `ms`, the scale `ms / 1000`; otherwise 1 (a Frame Time Vector gives each frame's own interval, which a scale cannot) | `second` with `ms / 1000`; otherwise none |
+| `c` | 1 | none |
+
+**Translation:** none. A whole-slide image's origin is given in the slide
+coordinate system, whose axes are rotated or mirrored against the image's
+by Image Orientation (Slide); a cross-sectional image's position is in the
+patient's frame, oriented by Image Orientation (Patient). Neither is a
+translation along the image's own axes in general.
+
+**omero:** `M` has `"omero"`, an [`Omero`](../conventions.md#type-omero) whose `channels`
+are one [`DicomChannel`](#type-dicomchannel) per channel (one when `S` = 1, even though
+there is no `c` axis).
+
+<a id="type-dicomchannel"></a>**`DicomChannel`**: an
+[`OmeroChannel`](../conventions.md#type-omerochannel) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `label` | string | required | `S` = 1: `gray`; `S` = 3: `R`, `G`, `B` |
+| `color` | string | required | `S` = 1: `FFFFFF`; `S` = 3: `FF0000`, `00FF00`, `0000FF` |
+| `active` | boolean | required | `true` |
+| `window` | [`Window`](../conventions.md#type-window) | required | `{"min": A, "max": Z, "start": a, "end": e}` (below) |
+| `inverted` | boolean | optional | `true`, present for `MONOCHROME1` |
+
+`A` and `Z` are the stored values' range for Bits Stored `b`:
+
+| Pixel Representation | `A` | `Z` |
+|---|---|---|
+| 0 (unsigned) | 0 | `2^b − 1` |
+| 1 (signed) | `−2^(b−1)` | `2^(b−1) − 1` |
+
+`a` and `e` are `A` and `Z`, except when `S` = 1 and there is a **VOI
+window**: Window Center and Window Width are present with valid first
+values `c` and `w`, `w ≥ 1`, and Rescale Slope `m` and Rescale Intercept
+`k` are each absent (taken as 1 and 0) or have a valid first value, with
+`m ≠ 0`. The window, in rescaled units, is converted to stored values:
+`a = (c − w / 2 − k) / m` and `e = (c + w / 2 − k) / m` (`w / 2` first,
+then left to right), swapped if `m < 0`.
+
+**Chunks:** frame `f` (or sample `s` of it) is the chunk at
+`0/c/<coords>` ([Layout](#layout)). Coords are: for `c`, the sample `s` when planar, else 0;
+for the frame axis, `f`; then the frame's tile row and column for a whole-slide
+image, else 0 and 0. Every chunk is present. A chunk holds the frame's
+pixel data: for native pixel data, its `Rows × Columns × S` cells (or one
+sample's, when planar); for encapsulated pixel data, the frame's
+fragments' data, concatenated, which is one JPEG or JPEG 2000 stream (a
+JPEG stream with three samples made explicit about its color transform,
+as [§7.5](#75-frames) says). Its ranges are a [`DicomChunk`](#type-dicomchunk).
 
 ## 5. Source metadata
 
@@ -268,30 +294,21 @@ The root's `S` ([conventions §2](../conventions.md#2-attributes)) has these
 members (unchanged from revision 25, whose `vzip_source` held the members
 the root leaves out, and arrays at the paths it names; since revision 26 each
 such path, `refkv_source/<p>`, names the IR's element at path `<p>`, [§5.4](#54-elements),
-except where this section says otherwise):
-- `preamble`: present when the 128 bytes before `DICM` are not all zero:
-  their base64 encoding;
-- `meta`: the File Meta Information, without the members that are
-  `refkv_source`'s (below);
-- `dataset`: the dataset, at every depth, including private attributes and
-  the elements after Pixel Data, without the members that are
-  `refkv_source`'s (below);
-- `pixel_extra`: present when native Pixel Data has extra bytes (below):
-  `refkv_source/pixel_extra`, the IR's element that holds them;
-- `pixel_unreferenced`: present when an Extended Offset Table skips bytes
-  (below): `refkv_source/pixel_unreferenced`, the IR's struct whose elements
-  hold them;
-- `pixel_unreferenced_headers`: `true`, present when that family also holds
-  the frames' item headers (below);
-- `pixel_fragments`: present when a frame of encapsulated pixel data has
-  more than one fragment (below): `refkv_source/pixel_fragments`, which names
-  no element: the fragments are the IR's elements
-  `dataset/7FE00010/fragments/<j>`;
-- `pixel_offset_table`: `true`, present when the Basic Offset Table of
-  encapsulated pixel data is not empty (below);
-- `trailing`: present when the bytes after the last element that parses
-  (below) are not empty: `refkv_source/trailing`, the IR's element that holds
-  them.
+except where this section says otherwise).
+
+<a id="type-dicomroot"></a>**`DicomRoot`**, the root's `S`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `preamble` | [`Base64`](../conventions.md#type-base64) | optional | present when the 128 bytes before `DICM` are not all zero: their base64 encoding |
+| `meta` | [`DicomDataset`](#type-dicomdataset) | required | the File Meta Information, without the members that are `refkv_source`'s (below) |
+| `dataset` | [`DicomDataset`](#type-dicomdataset) | required | the dataset, at every depth, including private attributes and the elements after Pixel Data, without the members that are `refkv_source`'s (below) |
+| `pixel_extra` | string | optional | present when native Pixel Data has extra bytes (**Pixel data that no frame holds**, [§5.2](#52-the-datasets-as-json)): `"refkv_source/pixel_extra"`, the IR's element that holds them |
+| `pixel_unreferenced` | string | optional | present when an Extended Offset Table skips bytes (**Pixel data that no frame holds**): `"refkv_source/pixel_unreferenced"`, the IR's struct whose elements hold them |
+| `pixel_unreferenced_headers` | boolean | optional | `true`, present when that family also holds the frames' item headers (**Pixel data that no frame holds**) |
+| `pixel_fragments` | string | optional | present when a frame of encapsulated pixel data has more than one fragment (**Fragments**, [§5.2](#52-the-datasets-as-json)): `"refkv_source/pixel_fragments"`, which names no element: the fragments are the IR's elements `dataset/7FE00010/fragments/<j>` |
+| `pixel_offset_table` | boolean | optional | `true`, present when the Basic Offset Table of encapsulated pixel data is not empty (**Fragments**) |
+| `trailing` | string | optional | present when the bytes after the last element that parses (**After Pixel Data**, [§5.2](#52-the-datasets-as-json)) are not empty: `"refkv_source/trailing"`, the IR's element that holds them |
 
 The members of the File Meta Information and of the top-level dataset that
 would make the root large are left out of the root's `meta` and `dataset`;
@@ -322,17 +339,56 @@ elements (**Layout**, below) are omitted, as PS3.18 §F.2 asks of group
 lengths; every other element is kept, a group length or an offset table
 included. Of elements with the same
 tag in a dataset, the first is the attribute; the later ones are the
-dataset's member `duplicates`, present only when there are any: an array, in
-file order, of objects that each have one member, named by the tag, whose
-value is the attribute. An attribute is `{"vr": VR}` with, when it has a
-value, `"Value"`, `"InlineBinary"` or `"BulkDataURI"` (or, in the items of
-a gathered sequence, `"Gathered"`; and, for a gathered sequence,
-`"Structures"` in place of `"Value"`: **Gathered sequences**, below), and
-`"LittleEndian"` where the next list says:
+dataset's member `duplicates`.
+
+<a id="type-dicomdataset"></a>**`DicomDataset`**, a dataset:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `"<tag>"` | [`DicomAttribute`](#type-dicomattribute) | optional | one member per attribute, named by its tag as eight uppercase hexadecimal digits (`"00280010"`): of elements with the same tag, the first |
+| `duplicates` | array of object of [`DicomAttribute`](#type-dicomattribute) | optional | present only when there are any: an array, in file order, of objects that each have one member, named by the tag, whose value is the attribute, the later elements with that tag |
+
+An attribute is `{"vr": VR}` with, when it has a value, `"Value"`,
+`"InlineBinary"` or `"BulkDataURI"` (or, in the items of a gathered sequence,
+`"Gathered"`; and, for a gathered sequence, `"Structures"` in place of `"Value"`:
+**Gathered sequences**, below), and `"LittleEndian"` where the next list says.
+
+<a id="type-dicomattribute"></a>**`DicomAttribute`**, an attribute (at most one of `Value`,
+`InlineBinary`, `BulkDataURI`, `Gathered` and `Structures` is present):
+
+| member | type | presence | value |
+|---|---|---|---|
+| `vr` | string | required | `VR`, two uppercase letters, by the next list |
+| `Value` | array of [`Text`](../conventions.md#type-text), `null`, number, [`Integer`](../conventions.md#type-integer), [`Float`](../conventions.md#type-float), string, [`DicomPersonName`](#type-dicompersonname) or [`DicomDataset`](#type-dicomdataset) | optional | the value, when it has one translated so: its items by its VR (**Explicit VR**, below); for a sequence, its items' datasets (`[]` when it has none, a gathered sequence without items included) |
+| `InlineBinary` | [`Base64`](../conventions.md#type-base64) | optional | the value's bytes, by its VR (**Explicit VR**, **Character sets**) or because it is a binary value of at most 64 bytes (**Large values**) |
+| `BulkDataURI` | string | optional | a large value (**Large values**), a sequence's bytes (**Sequences that the profile does not walk**) or nested Pixel Data (**Pixel Data**): `refkv_source/<p>`, the IR's element at `<p>` |
+| `Gathered` | boolean | optional | `true`: a value in the items of a gathered sequence, the IR's element `s/<i>/<p>` (**Gathered sequences**) |
+| `Structures` | array of [`DicomDataset`](#type-dicomdataset) | optional | a gathered sequence with at least one item, in place of `Value`: its items' distinct structures (**Structures**) |
+| `LittleEndian` | boolean | optional | `true`, present with `InlineBinary`, `BulkDataURI` or `Gathered` on an explicit `UN` element in explicit VR big endian (**Without a stated VR**) |
+
+<a id="type-dicompersonname"></a>**`DicomPersonName`**, a `PN` value (`null` when none of its
+groups is present):
+
+| member | type | presence | value |
+|---|---|---|---|
+| `Alphabetic` | [`Text`](../conventions.md#type-text) | optional | the text before the first `=`, present when not empty |
+| `Ideographic` | [`Text`](../conventions.md#type-text) | optional | the text between the first and second `=`, present when not empty |
+| `Phonetic` | [`Text`](../conventions.md#type-text) | optional | the text after the second `=`, present when not empty |
+
+The translation:
 
 - **Explicit VR.** `VR` is the element's. Its value is translated by VR:
-  - `AE AS CS DA DS DT IS LO PN SH TM UC UI`: the value's bytes are split
-    at each `\` (byte `5C`); `LT ST UT UR` are one value. Each value has
+
+  | VR | member | its items |
+  |---|---|---|
+  | `AE AS CS DA DS DT IS LO PN SH TM UC UI` | `Value` | the value's bytes split at each backslash (byte `5C`), each a text value (below) |
+  | `LT ST UT UR` | `Value` | one value, a text value (below) |
+  | `AT` | `Value` | each 4 bytes, a `u16` group and a `u16` element in the dataset's byte order, as eight uppercase hexadecimal digits |
+  | `FL FD SL SS UL US SV UV` | `Value` | the values, numbers by [conventions §6](../conventions.md#6-source-metadata-as-json) ([`Float`](../conventions.md#type-float) for `FL FD`, [`Integer`](../conventions.md#type-integer) for the others) |
+  | `OB OD OF OL OV OW UN` | `InlineBinary` | the bytes in base64, as stored (in the dataset's byte order; an explicit `UN` value in little endian, below) |
+  | `SQ` | `Value` | an array of its items' datasets ([`DicomDataset`](#type-dicomdataset)) |
+
+  - **Text values.** Each value of the first two rows has
     its trailing bytes `20` and `00` removed and, except for `LT ST UT UC
     UR`, its leading bytes `20`; it is then text by
     [conventions §6](../conventions.md#6-source-metadata-as-json) (UTF-8 if
@@ -356,15 +412,8 @@ a gathered sequence, `"Gathered"`; and, for a gathered sequence,
     (above it, or not zero and below every subnormal), and is not a number:
     the exponent is not converted. Any other `DS` or `IS` value stays text. A `PN` value is split at
     its first two `=` into the `Alphabetic`, `Ideographic` and `Phonetic`
-    groups, of which the non-empty ones are members of an object (`null` if
-    none is).
-  - `AT`: each 4 bytes, a `u16` group and a `u16` element in the dataset's
-    byte order, as eight uppercase hexadecimal digits.
-  - `FL FD SL SS UL US SV UV`: the values, numbers by [conventions §6](../conventions.md#6-source-metadata-as-json).
-  - `OB OD OF OL OV OW UN`: `"InlineBinary"`, the bytes in base64, as
-    stored (in the dataset's byte order; an explicit `UN` value in little
-    endian, below).
-  - `SQ`: `"Value"`, an array of its items' datasets.
+    groups, of which the non-empty ones are members of an object, a
+    [`DicomPersonName`](#type-dicompersonname) (`null` if none is).
   - **Not whole values.** An `AT` or numeric value whose length is not a
     multiple of its value size (4 for `AT`, else that of its data type
     below) is `"InlineBinary"`, its bytes as stored, keeping its VR.
@@ -379,14 +428,14 @@ a gathered sequence, `"Gathered"`; and, for a gathered sequence,
   (PS3.6 as pydicom 3.0.2 ships it, written by
   [generate_dictionary.py](dicom/generate_dictionary.py)); it is normative, and a
   new edition of it is a new version of this convention. A tag's VR is,
-  by the first that applies:
-  - in an odd (private) group, `LO` for elements `0010` to `00FF` (the
-    private creators), and none for the others;
-  - its entry in `tags` (each VR's tags, as 8 uppercase hexadecimal digits
-    in one string);
-  - the VR of the first entry of `masks` that matches it, where `x` matches
-    any hexadecimal digit (the repeating groups, such as `60xx0010`);
-  - none.
+  by the first row that applies:
+
+  | tag | VR |
+  |---|---|
+  | in an odd (private) group | `LO` for elements `0010` to `00FF` (the private creators), and none for the others |
+  | in `tags` (each VR's tags, as 8 uppercase hexadecimal digits in one string) | its entry's |
+  | matched by an entry of `masks`, where `x` matches any hexadecimal digit (the repeating groups, such as `60xx0010`) | the VR of the first entry that matches it |
+  | any other | none |
 
   Tags whose registered VR is ambiguous (`US or SS`, `OB or OW`, ...) are
   not in the dictionary, so they stay `UN`: their VR would depend on other
@@ -434,12 +483,14 @@ kept by [conventions §6](../conventions.md#6-source-metadata-as-json).
 attribute's path (**Paths**, below), which is the path of its element in the
 IR ([§5.4](#54-elements)): the value is that element's `v`. In the items of a
 gathered sequence, every value is gathered instead (below). The large values:
-- a binary VR (`OB OD OF OL OV OW UN`) whose value is more than 64 bytes;
-- an `AT` or numeric value that is not whole values and is more than 64
-  bytes;
-- a numeric VR (`FL FD SL SS UL US SV UV`) with more than 64 values;
-- a `DS` or `IS` value with more than 64 values (more than 63 bytes `5C`);
-- a text VR whose value is more than 2^16 bytes.
+
+| value | large when |
+|---|---|
+| a binary VR (`OB OD OF OL OV OW UN`) | its value is more than 64 bytes |
+| an `AT` or numeric value that is not whole values | it is more than 64 bytes |
+| a numeric VR (`FL FD SL SS UL US SV UV`) | it has more than 64 values |
+| a `DS` or `IS` value | it has more than 64 values (more than 63 bytes `5C`) |
+| a text VR | its value is more than 2^16 bytes |
 
 A binary value of at most 64 bytes is `"InlineBinary"`, in base64.
 
@@ -503,17 +554,17 @@ has `"LittleEndian"`). A gathered sequence without items is
 `{"vr": "SQ", "Value": []}`.
 
 The bounds below weigh each column as revision 25 stored it, as an array.
-Each value has **typed values**, of a data type: those of a numeric VR
-(`FL FD SL SS UL US SV UV`: `float32`, `float64`, `int32`, `int16`,
-`uint32`, `uint16`, `int64`, `uint64`) or a binary VR (`OB OD OF OL OV OW
-UN`: `uint8`, `float64`, `float32`, `uint32`, `uint64`, `uint16`, `uint8`),
-in the byte order in which it is stored; for a `DS` value of at most 2^16
-bytes whose every value (split and trimmed as above) is a number by the rule
-above, those numbers as `float64`; for an `IS` value of at most 2^16 bytes
-whose every value is of the form `[+-]?[0-9]+` and from −2^63 to 2^63 − 1,
-those integers as `int64` (both in little endian). A value of another VR
-(text, `AT`, the bytes of a sequence), or whose length is not a multiple of
-its value size, has as typed values its bytes as stored, as `uint8`. A
+Each value has **typed values**, of a data type:
+
+| value | typed values |
+|---|---|
+| a numeric VR: `FL`, `FD`, `SL`, `SS`, `UL`, `US`, `SV`, `UV` | its values as `float32`, `float64`, `int32`, `int16`, `uint32`, `uint16`, `int64`, `uint64` respectively, in the byte order in which it is stored |
+| a binary VR: `OB`, `OD`, `OF`, `OL`, `OV`, `OW`, `UN` | its values as `uint8`, `float64`, `float32`, `uint32`, `uint64`, `uint16`, `uint8` respectively, in the byte order in which it is stored |
+| a `DS` value of at most 2^16 bytes whose every value (split and trimmed as above) is a number by the rule above | those numbers as `float64`, in little endian |
+| an `IS` value of at most 2^16 bytes whose every value is of the form `[+-]?[0-9]+` and from −2^63 to 2^63 − 1 | those integers as `int64`, in little endian |
+| a value of another VR (text, `AT`, the bytes of a sequence), or whose length is not a multiple of its value size | its bytes as stored, as `uint8` |
+
+A
 column's **rows** are of `b` bytes when the values' typed values all have
 the same data type, length (`b`) and byte order, of at most 2^24 bytes, or
 else when the values' bytes as stored all have the same length (`b`), of at
@@ -538,11 +589,14 @@ way: these bounds decide its JSON only.)
 
 **Paths.** An attribute's path is that of its dataset, then its tag (the
 path of its element in the IR, [§5.4](#54-elements)):
-- the File Meta Information is `meta`, the dataset `dataset`;
-- item `i` of a sequence at path `p` is `p/i`;
-- the attribute `(0028,3006)` of the dataset is at `dataset/00283006`;
-- the `k`-th duplicate (from 0) of a dataset at path `d`, of tag `t`, is at
-  `d/duplicates/<k>/<t>`.
+
+| what | path |
+|---|---|
+| the File Meta Information | `meta` |
+| the dataset | `dataset` |
+| item `i` of a sequence at path `p` | `p/i` |
+| an attribute, for example `(0028,3006)` of the dataset | its dataset's path, then its tag: `dataset/00283006` |
+| the `k`-th duplicate (from 0) of a dataset at path `d`, of tag `t` | `d/duplicates/<k>/<t>` |
 
 **Sequences that the profile does not walk.** The profile checks the
 structure of every element it walks:
@@ -579,11 +633,11 @@ translated, and the bytes from its start to the end of the file, if any,
 are `trailing`.
 
 Pixel Data ends:
-- for native pixel data, after its value;
-- for encapsulated pixel data, after its sequence delimiter. With an
-  Extended Offset Table, whose fragments the profile does not walk, that is
-  after the frame's item that ends last, plus the delimiter if it follows
-  there.
+
+| pixel data | Pixel Data ends |
+|---|---|
+| native | after its value |
+| encapsulated | after its sequence delimiter. With an Extended Offset Table, whose fragments the profile does not walk, that is after the frame's item that ends last, plus the delimiter if it follows there |
 
 **Pixel data that no frame holds.**
 - **Native.** With `B`, `F` and `N` as in
@@ -660,17 +714,26 @@ as [§7.3](#73-datasets-and-sequences) and **Sequences that the profile does not
 | `trailing` | value | `bytes[n]` | the bytes from where the elements after Pixel Data stop to the end of the file |
 | `gaps/<offset>` | gap | | any other bytes no element claims |
 
-The header fields `H` are `group:Eu2,element:Eu2,vr:ascii[2],length:Eu2` in
-explicit VR, `group:Eu2,element:Eu2,vr:ascii[2],reserved:Eu2,length:Eu4`
-for the VRs with a 4-byte length, and `group:Eu2,element:Eu2,length:Eu4` in
-implicit VR. A value's type `T` is by its VR (the element's, or for one in
+The header fields `H`:
+
+| element | `H` |
+|---|---|
+| explicit VR | `group:Eu2,element:Eu2,vr:ascii[2],length:Eu2` |
+| explicit VR, the VRs with a 4-byte length | `group:Eu2,element:Eu2,vr:ascii[2],reserved:Eu2,length:Eu4` |
+| implicit VR | `group:Eu2,element:Eu2,length:Eu4` |
+
+A value's type `T` is by its VR (the element's, or for one in
 implicit VR or of VR `UN` the data dictionary's, [§5.2](#52-the-datasets-as-json),
-else `UN`), for its `n` bytes: `cstr[n]` for a text VR (`AE AS CS DA DS DT
-IS LO LT PN SH ST TM UC UI UR UT`: its text to its padding NUL, and any byte
-after it kept); `Eu2[n/4,2]` for `AT`; `Ef4`, `Ef8`, `Ei4`, `Ei2`, `Eu4`,
-`Eu2`, `Ei8`, `Eu8` (`FL FD SL SS UL US SV UV`) of `n` over the value size
-values; else, and when the length is not a multiple of the value size,
-`bytes[n]`. A value of explicit VR `UN` is in little endian (`E` is `<` for
+else `UN`), for its `n` bytes:
+
+| VR | `T` |
+|---|---|
+| a text VR: `AE AS CS DA DS DT IS LO LT PN SH ST TM UC UI UR UT` | `cstr[n]` (its text to its padding NUL, and any byte after it kept) |
+| `AT` | `Eu2[n/4,2]` |
+| `FL`, `FD`, `SL`, `SS`, `UL`, `US`, `SV`, `UV` | `Ef4`, `Ef8`, `Ei4`, `Ei2`, `Eu4`, `Eu2`, `Ei8`, `Eu8` respectively, of `n` over the value size values |
+| any other, and when the length is not a multiple of the value size | `bytes[n]` |
+
+A value of explicit VR `UN` is in little endian (`E` is `<` for
 its `v`), as [§5.2](#52-the-datasets-as-json) reads it. The view shows such a
 record by its `v` ([conventions §8.7](../conventions.md#87-the-view)); the
 header, its VR among it, is in the table.
@@ -919,17 +982,18 @@ All integers below are unsigned. An **element** at offset `p` is read in an
 
 - **Tag:** a `u16` group and a `u16` element number, in the encoding's byte
   order; the tag is written `(gggg,eeee)`.
-- **Items and delimiters:** a tag of group `FFFE` is followed by a `u32`
-  length in the encoding's byte order, in every encoding (without a VR); the
-  value starts at `p + 8`.
-- **Implicit VR:** the tag is followed by a `u32` length; the value starts at
-  `p + 8`. The element has no VR.
-- **Explicit VR:** the tag is followed by a VR, two bytes that MUST be one
-  of `AE AS AT CS DA DS DT FD FL IS LO LT OB OD OF OL OV OW PN SH SL SQ SS
-  ST SV TM UC UI UL UN UR US UT UV`, else the input is rejected. For `OB OD
-  OF OL OV OW SQ SV UC UN UR UT UV`, two bytes follow that are not read, then
-  a `u32` length, and the value starts at `p + 12`; for the others, a `u16`
-  length, and the value starts at `p + 8`.
+- **Explicit VR:** the tag of an element that is not an item or a delimiter is
+  followed by a VR, two bytes that MUST be one of `AE AS AT CS DA DS DT FD FL IS
+  LO LT OB OD OF OL OV OW PN SH SL SQ SS ST SV TM UC UI UL UN UR US UT UV`, else
+  the input is rejected.
+- **Header:** after the tag come, by the element:
+
+  | element | after the tag | the value starts at |
+  |---|---|---|
+  | **items and delimiters:** a tag of group `FFFE`, in every encoding | a `u32` length in the encoding's byte order (without a VR) | `p + 8` |
+  | **implicit VR** (the element has no VR) | a `u32` length | `p + 8` |
+  | **explicit VR**, VR `OB OD OF OL OV OW SQ SV UC UN UR UT UV` | the VR, two bytes that are not read, then a `u32` length | `p + 12` |
+  | **explicit VR**, the other VRs | the VR, then a `u16` length | `p + 8` |
 
 A length of `FFFFFFFF` is **undefined**. An element's header (its 8 or 12
 bytes) MUST lie within its **container** ([§7.3](#73-datasets-and-sequences)), and so MUST a value of
@@ -1090,6 +1154,19 @@ Frame `f` (or sample `s` of it) is the entry `0/c/<coords>` of
 [the convention §4](#4-output), with its ranges ([§7.5](#75-frames)). Coords are: for `c`, the sample `s` when planar,
 else 0; for the frame axis, `f`; then the frame's tile row and column for a
 whole-slide image, else 0 and 0.
+
+<a id="type-dicomchunk"></a>**`DicomChunk`**, the reference of frame `f` (or of sample `s` of
+it), with `v`, `F`, `q`, `EOT` and `EOTL` as in [§7.5](#75-frames). Its ranges are those of
+one of the rows below, but for the Adobe prefix, which precedes the fragments' data:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the frame | source range `(0, v + f × F, F)` | optional | native pixel data, unless `S` is 3 and Planar Configuration is 1 |
+| sample `s` of the frame | source range `(0, v + f × F + s × F / 3, F / 3)` | optional | native pixel data with `S` 3 and Planar Configuration 1 |
+| the Adobe prefix | literal range `P` | optional | `jpeg` with `S` = 3: the 18 bytes `FF D8 FF EE 00 0E 41 64 6F 62 65 00 64 00 00 00 00 T`, SOI and an Adobe APP14 marker with transform `T` = 0 for `RGB` and 1 for `YBR_FULL` and `YBR_FULL_422` (**JPEG color**, [§7.5](#75-frames)) |
+| the fragments' data | source ranges `(0, start of data, length of data)` | optional | encapsulated pixel data: one range for each of the frame's fragments whose data is not empty, in order, at least one; with an Extended Offset Table, the one range `(0, q + EOT[f] + 8, EOTL[f])`. After the Adobe prefix, the first range `(0, o, m)` is instead `(0, o + 2, m − 2)`, without its SOI |
+
+No chunk is copied: every chunk is a reference.
 
 
 ### 7.7 Limits
