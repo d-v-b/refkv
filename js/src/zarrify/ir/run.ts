@@ -13,8 +13,8 @@ import type { RangeSource, Span } from "./source.ts";
 import { ir, type IrExports, out, put } from "./wasm.ts";
 
 /** The formats of the core's file runs (`Format::from_name` in rust/refkv-ir/src/run.rs): the
- * names of the registry's file profiles, `FILE_FORMATS`. (`vsi` is sniffed as a file but
- * zarrified by the store run of vsi.ts; its file run only rejects.) */
+ * names of the registry's file profiles, `FILE_FORMATS`. (`vsi` and `nrrd` are sniffed as files
+ * but zarrified by the store run of vsi.ts; their file runs only reject.) */
 export type IrFormat = Profile;
 
 export interface IrOutput extends ArchiveDesc {

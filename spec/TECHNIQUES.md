@@ -53,6 +53,7 @@ own with a standard codec. The same few techniques recur:
 | the unit omits shared headers (JPEG tables, color transform) | prepend a shared byte string, held once in the archive (a data source), to every reference | TIFF/SVS JPEG tiles, DICOM JPEG frames, NDPI, SAFE (a JPEG 2000 main header) |
 | the unit is one tile of a codestream (a JPEG 2000 tile-part) | a standalone codestream per tile: a literal SIZ that places the tile where the file does on the reference grid, the shared main header, a literal SOT, and the tile-part's body | SAFE |
 | the unit is smaller than the chunk at the edge | pad the codestream with empty tiles on the same reference grid (each a tile-part of empty packets, one per layer, component, resolution and precinct), so that it decodes to the chunk shape with any decoder | SAFE |
+| the whole array is one compressed stream with no index of its blocks (a gzip-encoded NRRD) | one chunk of the whole array, referencing the stream, decoded by the `gzip` codec: coarse, but nothing is copied | NRRD (`gzip`) |
 | the unit is too large to be a chunk (one JPEG strip per level) | cut it at the format's own resynchronization points (restart markers), and rewrite each piece's header as literal bytes | NDPI |
 | rows have padding | one byte range per row, gathered into one chunk | ND2 |
 | units carry a per-unit header | a codec that parses it, rather than layout tricks | N5 (`n5_default`) |
@@ -187,6 +188,7 @@ From [§1](#1-three-kinds-of-information), [§4](#4-numeric-metadata-as-arrays) 
 | ND2 | the file-level lite-variant chunks: attributes, experiment, text info, calibration, picture metadata of frame 0 | events, the per-frame `ImageMetadataSeqLV\|n!` | the known `CustomData` streams (frame times, X/Y/Z, PFS, exposure), reshaped to the frame grid; frame timestamps inline when `AcqTimesCache` is absent; other binary chunks omitted |
 | DICOM | the dataset without Per-frame Functional Groups and without binary-VR values | Per-frame Functional Groups | `OF`/`OD`/`OL`/`OV` values; optionally derived per-frame position and time arrays |
 | NIfTI | the header; text extensions (comment, AFNI and CIFTI XML, JSON) as text; a derived orientation (which affine, whether it is applied) | none | none |
+| NRRD | every field (its descriptor as text), every key/value pair and comment; the data type, encoding, byte order, each axis's image axis, whether the orientation is applied | none | none |
 | MRC | the header; the kind of file, the data type, whether the axis map is applied, the voxel size; the extended header by reference | none | none |
 | LIF | the version | none | none; each image's element, memory block, dimensions and channels (and a tile's stage position) on its image group; the XML header and every block by reference |
 | MP4 | the brands, the movie's timescale and duration, and every track (its handler, codec, and why it is not zarrified when it is not); each track's timescale, edit list, size or sample rate, and the SPS's profile and level, on its group | none | every box, field by field, with its tables (sample sizes, offsets, times, sync samples); each sample by reference |

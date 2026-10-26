@@ -12,7 +12,7 @@ import { type IrFormat, zarrifyIr } from "./ir/run.ts";
 import { ir, out, put } from "./ir/wasm.ts";
 import { type RangeSource, readerSource } from "./ir/source.ts";
 import { zarrifyStoreIr } from "./ir/store.ts";
-import { zarrifyVsi } from "./ir/vsi.ts";
+import { BESIDE, type BesideFormat, zarrifyVsi } from "./ir/vsi.ts";
 import { chooseProfile, closeStore, objectUrl, openHttpStore, type Store } from "./store.ts";
 import type { Policy } from "../archive.ts";
 import { crc32c } from "../deflate.ts";
@@ -31,9 +31,9 @@ export interface PinOptions {
    * <https://github.com/d-v-b/refkv/blob/main/spec/refkv.md#42-range>), reading its bytes.
    */
   checksums?: boolean;
-  /** For a VSI input: opens the file `key` beside the `.vsi` file (`key` relative to its
+  /** For a VSI or NRRD input: opens the file `key` beside the named file (`key` relative to its
    * directory), or undefined when it does not exist (ir/vsi.ts); by default the files are read
-   * at the input URL's directory over http(s), with the `.vsi` file's options. */
+   * at the input URL's directory over http(s), with the named file's options. */
   open?: (key: string) => Promise<RangeSource | undefined>;
 }
 
@@ -95,17 +95,19 @@ interface Input {
 }
 
 async function zarrifyWith(url: string, input: Input, pins: PinOptions): Promise<ImageDesc> {
-  // a VSI file is read with its tile files, as a store (ir/vsi.ts): its sources are the files
-  // some reference uses, their sizes pinned, not source 0 alone
+  // a VSI file is read with its tile files, and a NRRD header with its data file, as a store
+  // (ir/vsi.ts): its sources are the files some reference uses, their sizes pinned, not source 0
+  // alone
   const format = await irFormat(await input.read(0, Math.min(552, input.size)));
   if (format === undefined) throw new ImageError(NOT_SUPPORTED);
-  if (format === "vsi") {
-    const { store, ...desc } = await zarrifyVsi(url, input.source, pins.open ? { open: pins.open } : {});
+  if (format in BESIDE) {
+    const beside = format as BesideFormat;
+    const { store, ...desc } = await zarrifyVsi(url, input.source, pins.open ? { open: pins.open } : {}, beside);
     if (pins.checksums) {
       const keys = new Map([...store.objects.keys()].map((k) => [objectUrl(store.url, k), k]));
       await addChecksums(desc, (u, o, n) => store.readRange!(keys.get(u)!, o, n));
     }
-    return { format: "vsi", ...desc };
+    return { format: beside, ...desc };
   }
   const desc = await zarrifyIr(format, url, input.source, { checksums: pins.checksums === true });
   const etag = pins.etag?.();

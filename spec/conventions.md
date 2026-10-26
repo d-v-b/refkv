@@ -27,6 +27,7 @@ document tabulates its layout, as [§11.5](#115-layout-tables) says.)
 | Nikon ND2 | [nd2](zarrify/nd2.md) | `59612f14-e314-4207-ba00-8f422ba71490` |
 | Hamamatsu NDPI | [ndpi](zarrify/ndpi.md) | `6cac71ef-dbb2-4acd-b60c-00389aa4238a` |
 | NIfTI-1 and NIfTI-2 | [nifti](zarrify/nifti.md) | `06e5809d-4d54-4b72-afd0-6bf61a7b4c85` |
+| NRRD (Teem) | [nrrd](zarrify/nrrd.md) | `23e0c600-8da6-40f1-81e7-ab246e948e88` |
 | OME-Zarr 0.4 | [ome-zarr](zarrify/ome-zarr.md) | `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` |
 | Akoya QPTIFF | [qptiff](zarrify/qptiff.md) | `329ea136-2f55-4c27-b6f4-8e60ca2109b8` |
 | Sentinel-2 SAFE (Level-1C, Level-2A) | [safe](zarrify/safe.md) | `ef81346c-19e8-42ad-93b0-a279ccaf44c1` |
@@ -222,6 +223,7 @@ below. The conventions that say otherwise:
 | MP3, MP4, FLAC | have the codec `refkv.stream` of [§10](#10-coded-streams), and dimension names of their own |
 | MP4 | have, for video planes whose chunks differ in length, the `rectilinear` chunk grid |
 | FLAC | is sharded, as [spec/zarrify.md §2.1](zarrify.md#21-virtual-shards) says |
+| NRRD | has, when gzip-encoded, the `gzip` codec, which compresses it |
 
 The object:
 

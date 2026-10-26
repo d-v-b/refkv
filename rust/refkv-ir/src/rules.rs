@@ -97,7 +97,12 @@ impl Rules {
         for section in ["limits", "tables"] {
             if let Some(J::Object(m)) = json.get(section) {
                 for (k, v) in m {
-                    consts.insert(k.clone(), V::from_json(v));
+                    // a table's `about` describes it and names no entry (`Rules::entry`)
+                    let v = match v {
+                        J::Object(t) if section == "tables" => J::Object(t.iter().filter(|e| e.0 != "about").map(|(a, b)| (a.clone(), b.clone())).collect()),
+                        _ => v.clone(),
+                    };
+                    consts.insert(k.clone(), V::from_json(&v));
                 }
             }
         }
@@ -139,6 +144,17 @@ impl Rules {
 
     pub fn table(&self, name: &str) -> &J {
         &self.json["tables"][name]
+    }
+
+    /// The entry `key` of the table `name`: none for `about`, which describes the table and names
+    /// no entry (and which the schema's expressions do not see either).
+    pub fn entry(&self, name: &str, key: &str) -> Option<&J> {
+        self.table(name).get(key).filter(|_| key != "about")
+    }
+
+    /// The entries of the table `name`, without its `about` (`Rules::entry`).
+    pub fn entries(&self, name: &str) -> impl Iterator<Item = (&String, &J)> {
+        self.table(name).as_object().into_iter().flatten().filter(|e| e.0 != "about")
     }
 
     pub fn has_role(&self, role: &str) -> bool {
