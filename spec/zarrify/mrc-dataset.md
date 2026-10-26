@@ -11,7 +11,31 @@ cited here as "conventions §n"; "the MRC convention §n" is a section of
 [mrc.md](mrc.md).
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `f139bf4e-7bab-4c3c-9b2d-66ba747f9b93` ·
-Schema: [schema.json](mrc-dataset/schema.json)
+Schema: [schema.json](mrc-dataset/schema.json) · Changed 2026-10-26, with no change to any
+output: the layout is tabulated, its entries in [Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables))
+
+## Layout
+
+The dataset's entries ([conventions §11.5](../conventions.md#115-layout-tables)), under the
+hierarchy's root, which [the MRC convention's layout](mrc.md#layout) gives:
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `dataset/zarr.json` | group | [`DatasetGroup`](../conventions.md#type-datasetgroup) | the dataset ([§1](#1-declaration)) |
+| `dataset/zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `dataset/zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"mrc-dataset"`, `version` `0`, `source.url` the file's URL, no `layouts` ([§1](#1-declaration)) |
+| `dataset/zarr.json#/attributes/refkv_zarrified/mrc-dataset` | attribute | [`MrcRoot`](mrc.md#type-mrcroot) | the group's source metadata ([§4](#4-source-metadata)) |
+| `dataset/data/zarr.json` | array | [`MrcDataVariable`](#type-mrcdatavariable) | the data variable ([§2](#2-the-data-variable)) |
+| `dataset/data/c/<coords>` | chunk | [`MrcChunk`](mrc.md#type-mrcchunk) | every chunk of the data variable: the same reference, or the same copied bytes, as the image layout's chunk `0/c/<coords>` ([§2](#2-the-data-variable)) |
+| `dataset/<a>/zarr.json` | array | [`MrcCoordinateVariable`](#type-mrccoordinatevariable) | the coordinate variable of the dimension `<a>`, when the data variable has that dimension and the file has a voxel size along it ([§3](#3-coordinates)) |
+| `dataset/<a>/c/<q>` | chunk | [`MrcCoordinateChunk`](#type-mrccoordinatechunk) | every chunk of a coordinate variable ([§3](#3-coordinates)) |
+
+| placeholder | value |
+|---|---|
+| `<coords>` | the chunk's coordinates along the data variable's dimensions, in decimal, one key segment each: as the image layout's ([the MRC convention's layout](mrc.md#layout)), two to four segments |
+| `<a>` | `x`, `y` or `z` |
+| `<q>` | the chunk's index along the coordinate variable, in decimal |
 
 ## 1. Declaration
 
@@ -59,10 +83,21 @@ The sections of an image stack are independent images and the volumes of a
 volume stack independent volumes, so their index dimensions say so rather
 than borrowing a spatial or temporal name.
 
-Its attributes are `{"actual_range": [dmin, dmax]}` when the data type is
-not `complex64`, and `dmin` and `dmax` are finite with `dmax > dmin` (the
-case in which the image layout has a display window,
-[the MRC convention §4.3](mrc.md#43-channels)), and `{}` otherwise.
+<a id="type-mrcdatavariable"></a>**`MrcDataVariable`**, `dataset/data/zarr.json`: a
+[`DataVariable`](../conventions.md#type-datavariable), the image layout's
+[`MrcArray`](mrc.md#type-mrcarray) but for these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `dimension_names` | array of string | required | by the kind of file, from the table above |
+| `attributes` | [`MrcDataAttributes`](#type-mrcdataattributes) | required | the CF attributes |
+
+<a id="type-mrcdataattributes"></a>**`MrcDataAttributes`**, `{"actual_range": [dmin, dmax]}`
+or `{}`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `actual_range` | array of number | optional | `[dmin, dmax]`, present when the data type is not `complex64`, and `dmin` and `dmax` are finite with `dmax > dmin` (the case in which the image layout has a display window, [the MRC convention §4.3](mrc.md#43-channels)); absent otherwise |
 
 ## 3. Coordinates
 
@@ -76,17 +111,42 @@ axis when the image layout has a translation
 or a volume stack whose `origin` is finite and not all 0), and 0
 otherwise. These are regular steps, stored as the index
 ([conventions §9](../conventions.md#9-dataset-layouts)): a `uint32` array of
-`0 … n − 1`, chunk shape `[min(n, 2^17)]`, with the attributes `{"units":
-"angstrom", "scale_factor": s, "add_offset": o}` in that order, the codecs
-`numcodecs.delta` (`<u4`), `bytes` (little-endian) and `gzip` (level 6),
-and each chunk's bytes as [conventions §9](../conventions.md#9-dataset-layouts) gives them. A CF-decoding reader
-sees `i × s + o` in binary64. A dimension without a voxel size, and the
-index dimensions `section` and `volume`, have no coordinate variable.
+`0 … n − 1`. A CF-decoding reader sees `i × s + o` in binary64. A dimension
+without a voxel size, and the index dimensions `section` and `volume`, have no coordinate
+variable.
+
+<a id="type-mrccoordinatevariable"></a>**`MrcCoordinateVariable`**, `dataset/<a>/zarr.json`: a
+[`CoordinateVariable`](../conventions.md#type-coordinatevariable) of regular steps (the index),
+named as its dimension `<a>`, with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `[n]` |
+| `data_type` | string | required | `"uint32"` |
+| `chunk_grid` | object | required | regular, the chunk shape `[min(n, 2^17)]` |
+| `codecs` | array of object | required | `numcodecs.delta` (`<u4`), `bytes` (little-endian) and `gzip` (level 6): `[{"name": "numcodecs.delta", "configuration": {"dtype": "<u4"}}, {"name": "bytes", "configuration": {"endian": "little"}}, {"name": "gzip", "configuration": {"level": 6}}]` |
+| `dimension_names` | array of string | required | `["<a>"]`, the dimension's name |
+| `attributes` | [`MrcCoordinateAttributes`](#type-mrccoordinateattributes) | required | the CF attributes |
+
+<a id="type-mrccoordinateattributes"></a>**`MrcCoordinateAttributes`**, in this order:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `units` | string | required | `"angstrom"` |
+| `scale_factor` | number | required | `s`, the voxel size along the dimension |
+| `add_offset` | number | required | `o`, the origin along the dimension, or 0 (above) |
+
+<a id="type-mrccoordinatechunk"></a>**`MrcCoordinateChunk`**, the chunk `q` of a coordinate
+variable, a bytes entry:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the indexes | `bytes` | required | each chunk's bytes as [conventions §9](../conventions.md#9-dataset-layouts) gives them: the chunk's indexes, delta-coded, as little-endian `uint32`, in one gzip member |
 
 ## 4. Source metadata
 
 The group's source metadata `"mrc-dataset"` is the object of
-[the MRC convention §5.1](mrc.md#51-the-root), member for member
+[the MRC convention §5.1](mrc.md#51-the-root), an [`MrcRoot`](mrc.md#type-mrcroot), member for member
 (`byte_order`, `kind`, `data_type`, `header`, `axis_map`, `voxel_size`),
 so that the group describes its source by itself. The file's IR mirror is
 the root's `refkv_source` ([the MRC convention §5.2](mrc.md#52-the-ir-mirror));

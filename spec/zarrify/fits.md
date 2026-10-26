@@ -11,7 +11,9 @@ Convention version: 0 (until release, [conventions §1](../conventions.md#1-conv
 Schema: [schema.json](fits/schema.json) · Changed 2026-10-25: an edge chunk's zero padding
 is a range of the output's one zero data source, not a literal range of each reference, so that
 the archive holds the zeros once ([§9.4](#94-chunks)); no chunk's values change, nor which
-chunks are copied
+chunks are copied · Changed 2026-10-26, with no change to any output: the layout is tabulated,
+its entries in [Layout](#layout) and its types in type tables
+([conventions §11.5](../conventions.md#115-layout-tables))
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -38,6 +40,36 @@ rows, not microscopy axes, and the world coordinate system is a header
 convention that viewers and libraries interpret for themselves. This section
 extends [conventions §2](../conventions.md#2-attributes) ("Nothing else"): a
 node's attributes are `zarr_conventions` and `refkv_zarrified` alone.
+
+## Layout
+
+The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)):
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | a [`Declaration`](../conventions.md#type-declaration) | the root ([§1](#1-declaration)) |
+| `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"fits"`, `version` `0`, `source.url` the file's URL |
+| `zarr.json#/attributes/refkv_zarrified/fits` | attribute | [`FitsRoot`](#type-fitsroot) | the root's source metadata ([§5.1](#51-the-root)) |
+| `<i>/zarr.json` | group | a [`Declaration`](../conventions.md#type-declaration) | HDU `i`'s node when it is empty, or a table's group ([§2](#2-hdus-and-nodes), [§4](#4-tables)) |
+| `<i>/zarr.json` | array | [`FitsImageArray`](#type-fitsimagearray) | HDU `i`'s array when it is an image, not tile-compressed ([§3.1](#31-the-array)) |
+| `<i>/zarr.json` | array | [`FitsTiledArray`](#type-fitstiledarray) | HDU `i`'s array when it is a tile-compressed image ([§3.3](#33-tile-compressed-images)) |
+| `<i>/zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | the CMO of [§1](#1-declaration), on every HDU's node |
+| `<i>/zarr.json#/attributes/refkv_zarrified` | attribute | [`NodeProperty`](../conventions.md#type-nodeproperty) | on every HDU's node |
+| `<i>/zarr.json#/attributes/refkv_zarrified/fits` | attribute | [`FitsNode`](#type-fitsnode) | the HDU's source metadata ([§5.2](#52-an-hdus-node)) |
+| `<i>/c/<coords>` | chunk | [`FitsChunk`](#type-fitschunk) | every chunk of an image's array ([§9.4](#94-chunks)) |
+| `<i>/c/<coords>` | chunk | [`FitsTiledChunk`](#type-fitstiledchunk) | a chunk of a tile-compressed image's array with at least one tile ([§3.3](#33-tile-compressed-images), [§9.4](#94-chunks)) |
+| `<i>/rows/zarr.json` | array | [`FitsRowsArray`](#type-fitsrowsarray) | a table's rows, absent when `NAXIS1 × NAXIS2` is 0 ([§4](#4-tables)) |
+| `<i>/rows/c/<coords>` | chunk | [`FitsChunk`](#type-fitschunk) | every chunk of a table's rows ([§9.4](#94-chunks)) |
+| `<i>/heap/zarr.json` | array | [`FitsHeapArray`](#type-fitsheaparray) | a table's heap, when it is not empty ([§4](#4-tables)) |
+| `<i>/heap/c/<k>` | chunk | [`FitsHeapChunk`](#type-fitsheapchunk) | every chunk of a table's heap ([§9.4](#94-chunks)) |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the IR mirror ([§6](#6-the-ir-mirror)): its elements are [§6.1](#61-elements)'s |
+
+| placeholder | value |
+|---|---|
+| `<i>` | the HDU's number, from 0 in file order, in decimal ([§2](#2-hdus-and-nodes)) |
+| `<coords>` | the chunk's coordinates along the array's axes, in decimal, one key segment each (so it stands for as many segments as the array has axes: two for a table's rows) |
+| `<k>` | the chunk's index along the heap, in decimal |
 
 ## 1. Declaration
 
@@ -81,25 +113,35 @@ extensions of any other `XTENSION` are rejected by the profile.
 
 ### 3.1 The array
 
-- **Shape:** `[NAXISn, …, NAXIS1]`: the data are stored with `NAXIS1`
-  varying fastest, so the Zarr shape is the FITS axes reversed.
-- **Data type:** by `BITPIX`: 8 `uint8`, 16 `int16`, 32 `int32`, 64 `int64`,
-  −32 `float32`, −64 `float64`.
-- **Chunks** ([conventions §7](../conventions.md#7-source-values-as-arrays),
-  contiguous values): the data is the row-major array `V` of the array's
-  shape, with elements of `|BITPIX| / 8` bytes, at the HDU's data offset. It
-  is cut as contiguous values with the **chunk limit `L = 2^20` bytes**
-  (1 MiB): whole planes when they are small, else bands of rows, else runs
-  of a row; an edge chunk along the cut axis is followed by zero bytes up to
-  the whole chunk.
-- **Codecs:** `[{"name": "bytes", "configuration": {"endian": "big"}}]`, or
-  `[{"name": "bytes"}]` for `uint8`. FITS data are big-endian.
-- **Fill value:** 0.
-- **Dimension names:** `axis<n>` for FITS axis `n`, in the array's order
-  (`["axis2", "axis1"]` for a 2-D image): `CTYPEn` is optional, repeats and
-  names a coordinate type, not a dimension.
-- **Attributes:** the declaration ([§1](#1-declaration)) with the HDU's
-  source metadata ([§5.2](#52-an-hdus-node)).
+**Data types**, by `BITPIX`:
+
+| `BITPIX` | Zarr data type |
+|---|---|
+| 8 | `uint8` |
+| 16 | `int16` |
+| 32 | `int32` |
+| 64 | `int64` |
+| −32 | `float32` |
+| −64 | `float64` |
+
+<a id="type-fitsimagearray"></a>**`FitsImageArray`**, an image's `zarr.json`: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `[NAXISn, …, NAXIS1]`: the data are stored with `NAXIS1` varying fastest, so the Zarr shape is the FITS axes reversed |
+| `data_type` | string | required | by `BITPIX`, from the table above |
+| `chunk_grid` | object | required | regular, the chunk shape that [conventions §7](../conventions.md#7-source-values-as-arrays) gives (**Chunks**, below) |
+| `fill_value` | number | required | 0 |
+| `codecs` | array of object | required | `[{"name": "bytes", "configuration": {"endian": "big"}}]`, or `[{"name": "bytes"}]` for `uint8`. FITS data are big-endian |
+| `dimension_names` | array of string | required | `axis<n>` for FITS axis `n`, in the array's order (`["axis2", "axis1"]` for a 2-D image): `CTYPEn` is optional, repeats and names a coordinate type, not a dimension |
+| `attributes` | object | required | the declaration ([§1](#1-declaration)), a [`Declaration`](../conventions.md#type-declaration), with the HDU's source metadata ([§5.2](#52-an-hdus-node)), a [`FitsNode`](#type-fitsnode) |
+
+**Chunks** ([conventions §7](../conventions.md#7-source-values-as-arrays), contiguous values):
+the data is the row-major array `V` of the array's shape, with elements of `|BITPIX| / 8`
+bytes, at the HDU's data offset. It is cut as contiguous values with the **chunk limit
+`L = 2^20` bytes** (1 MiB): whole planes when they are small, else bands of rows, else runs of
+a row; an edge chunk along the cut axis is followed by zero bytes up to the whole chunk.
 
 For example, a `10272 × 4755` float32 plane (a JWST mosaic's `SCI`) has rows
 of 41088 bytes, so `floor(2^20 / 41088) = 25` rows per chunk and `k =
@@ -143,51 +185,87 @@ integer equal to `ZBLANK` (the row's, or the header's) is NaN, and
 `−2147483646` is 0 under `SUBTRACTIVE_DITHER_2`. The tiles of an integer
 image, and a float image's fallback tiles, are the values as stored.
 
-The HDU's array has the shape `[ZNAXISn, …, ZNAXIS1]`, the data type of
-`ZBITPIX` ([§3.1](#31-the-array)), the fill value 0, the dimension names of
-[§3.1](#31-the-array), and:
+<a id="type-fitstiledarray"></a>**`FitsTiledArray`**, the HDU's array: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) with these members:
 
-- **Chunk grid.** The tile grid `[g_n, …, g_1]`, `g_j = ceil(ZNAXIS_j /
-  ZTILE_j)`, is cut into chunks of consecutive tiles: with `b` the decoded
-  bytes of a tile (`ZTILE1 × … × ZTILEn × |ZBITPIX| / 8`), `s_j = b × g_{j−1}
-  × … × g_1` the bytes of one index along axis `j`, and the limit `L =
-  2^20`, the cut axis `a` is the slowest axis with `s_a ≤ L`, or axis 1 if
-  none; a chunk holds `c` indexes along `a`, `c = ceil(g_a / k)` with `k =
-  ceil(g_a / max(1, floor(L / s_a)))`, one tile along each slower axis, and
-  every tile along each faster axis. The chunk shape is `ZTILE_j` along the
-  slower axes, `c × ZTILE_a` along `a`, and `ZNAXIS_j` along the faster
-  axes; the grid is `g_j`, `ceil(g_a / c)` and 1. A chunk's tiles are then
-  consecutive in storage order. A DECam chip (4094 row tiles of 8184 bytes)
-  has chunks of 128 rows, 32 of them; a Legacy Surveys brick (`100 × 100`
-  float32 tiles on `3600 × 3600`, a tile row of 1.44 MB) has chunks of 18
-  tiles, `[100, 1800]`, 72 of them.
-- **Codecs:** `[{"name": "refkv.fits_tiles", "configuration": C}]`, `C` the object
-  `{"compression": ZCMPTYPE (`RICE_ONE` written `RICE_1`), "parameters":
-  {"BLOCKSIZE": b, "BYTEPIX": p} (the `ZNAMEi`/`ZVALi` pairs; 32 and 4 when
-  absent), "zbitpix": ZBITPIX, "shape": [ZNAXISn, …, ZNAXIS1], "tile_shape":
-  [ZTILEn, …, ZTILE1], "quantize": ZQUANTIZ (`NO_DITHER` when absent),
-  "dither_seed": ZDITHER0 (0 when absent)}`.
-- **Chunks.** A chunk with at least one tile is present; its bytes are a
-  **prefix** followed by its tiles' streams in storage order, and its
-  reference is the prefix as a literal range followed by the ranges of the
-  streams ([§9.4](#94-chunks)). The prefix is little-endian: `u32` the
-  chunk's tile count `N`, `u32` the storage index of its first tile, then
-  `N` records of 32 bytes: `u32` the stream's length (0: no tile), `u32`
-  its kind (0: `COMPRESSED_DATA`; 1: `GZIP_COMPRESSED_DATA`), `i32` the
-  tile's `ZBLANK` (its row's, else the header's, else 0), `u32` flags (bit
-  0: the table has `ZSCALE` and `ZZERO`; bit 1: a `ZBLANK` was given),
-  `f64` `ZSCALE`, `f64` `ZZERO` (the row's; 0 without the columns). A chunk
-  whose tiles are all absent has no entry and reads as the fill value.
-- **Decoding** (the codec): each tile's stream by its kind and
-  `compression` (`RICE_1` as cfitsio's `fits_rdecomp`, `_short` and `_byte`
-  for `BYTEPIX` 4, 2 and 1; `GZIP_1` a gzip member of big-endian values;
-  `GZIP_2` the same with the values' bytes shuffled, the first bytes of
-  every value first; `NOCOMPRESS` the big-endian values), dequantized as
-  above when quantized, then placed at the tile's position in the chunk
-  (the tile's coords less the first tile's, times the tile shape); an edge
-  tile is smaller than the tile shape; the chunk's other pixels are 0.
-- **Attributes:** as an image's ([§5.2](#52-an-hdus-node)); the table's
-  cards (the image's, copied by the writer, among them).
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `[ZNAXISn, …, ZNAXIS1]` |
+| `data_type` | string | required | the data type of `ZBITPIX` ([§3.1](#31-the-array)) |
+| `chunk_grid` | object | required | regular, the chunk shape of the **Chunk grid** (below) |
+| `fill_value` | number | required | 0 |
+| `codecs` | array of object | required | `[{"name": "refkv.fits_tiles", "configuration": C}]`, `C` a [`FitsTilesConfiguration`](#type-fitstilesconfiguration) |
+| `dimension_names` | array of string | required | the dimension names of [§3.1](#31-the-array) |
+| `attributes` | object | required | as an image's ([§5.2](#52-an-hdus-node)): a [`Declaration`](../conventions.md#type-declaration) with a [`FitsNode`](#type-fitsnode); the table's cards (the image's, copied by the writer, among them) |
+
+**Chunk grid.** The tile grid `[g_n, …, g_1]`, `g_j = ceil(ZNAXIS_j / ZTILE_j)`, is cut into
+chunks of consecutive tiles: with `b` the decoded bytes of a tile
+(`ZTILE1 × … × ZTILEn × |ZBITPIX| / 8`), `s_j = b × g_{j−1} × … × g_1` the bytes of one index
+along axis `j`, and the limit `L = 2^20`, the cut axis `a` is the slowest axis with
+`s_a ≤ L`, or axis 1 if none; a chunk holds `c` indexes along `a`, `c = ceil(g_a / k)` with
+`k = ceil(g_a / max(1, floor(L / s_a)))`, one tile along each slower axis, and every tile
+along each faster axis. The chunk shape is `ZTILE_j` along the slower axes, `c × ZTILE_a`
+along `a`, and `ZNAXIS_j` along the faster axes; the grid is `g_j`, `ceil(g_a / c)` and 1. A
+chunk's tiles are then consecutive in storage order. A DECam chip (4094 row tiles of 8184
+bytes) has chunks of 128 rows, 32 of them; a Legacy Surveys brick (`100 × 100` float32 tiles
+on `3600 × 3600`, a tile row of 1.44 MB) has chunks of 18 tiles, `[100, 1800]`, 72 of them.
+
+<a id="type-fitstilesconfiguration"></a>**`FitsTilesConfiguration`**, the `refkv.fits_tiles`
+codec's configuration `C`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `compression` | string | required | `ZCMPTYPE` (`RICE_ONE` written `RICE_1`) |
+| `parameters` | [`FitsTileParameters`](#type-fitstileparameters) | required | the `ZNAMEi`/`ZVALi` pairs |
+| `zbitpix` | integer | required | `ZBITPIX` |
+| `shape` | array of integer | required | `[ZNAXISn, …, ZNAXIS1]` |
+| `tile_shape` | array of integer | required | `[ZTILEn, …, ZTILE1]` |
+| `quantize` | string | required | `ZQUANTIZ` (`NO_DITHER` when absent) |
+| `dither_seed` | integer | required | `ZDITHER0` (0 when absent) |
+
+<a id="type-fitstileparameters"></a>**`FitsTileParameters`**, the `ZNAMEi`/`ZVALi` pairs:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `BLOCKSIZE` | integer | required | its `ZVALi`; 32 when absent |
+| `BYTEPIX` | integer | required | its `ZVALi`; 4 when absent |
+
+**Chunks.** A chunk with at least one tile is present; its bytes are a **prefix** followed by
+its tiles' streams in storage order, and its reference is the prefix as a literal range
+followed by the ranges of the streams ([§9.4](#94-chunks), [`FitsTiledChunk`](#type-fitstiledchunk)).
+A chunk whose tiles are all absent has no entry and reads as the fill value.
+
+<a id="type-fitstilesprefix"></a>**`FitsTilesPrefix`**, a chunk's prefix, little-endian:
+
+| part | encoding | value |
+|---|---|---|
+| count | `u32` | `N`, the chunk's tile count |
+| first | `u32` | the storage index of its first tile |
+| records | `N` records of 32 bytes | a [`FitsTileRecord`](#type-fitstilerecord) each |
+
+<a id="type-fitstilerecord"></a>**`FitsTileRecord`**, 32 bytes:
+
+| part | encoding | value |
+|---|---|---|
+| length | `u32` | the stream's length (0: no tile) |
+| kind | `u32` | its kind (0: `COMPRESSED_DATA`; 1: `GZIP_COMPRESSED_DATA`) |
+| zblank | `i32` | the tile's `ZBLANK` (its row's, else the header's, else 0) |
+| flags | `u32` | bit 0: the table has `ZSCALE` and `ZZERO`; bit 1: a `ZBLANK` was given |
+| zscale | `f64` | `ZSCALE` (the row's; 0 without the columns) |
+| zzero | `f64` | `ZZERO` (the row's; 0 without the columns) |
+
+**Decoding** (the codec): each tile's stream by its kind and `compression`:
+
+| `compression` | the stream |
+|---|---|
+| `RICE_1` | as cfitsio's `fits_rdecomp`, `_short` and `_byte` for `BYTEPIX` 4, 2 and 1 |
+| `GZIP_1` | a gzip member of big-endian values |
+| `GZIP_2` | the same with the values' bytes shuffled, the first bytes of every value first |
+| `NOCOMPRESS` | the big-endian values |
+
+Each tile's values are then dequantized as above when quantized, and placed at the tile's position in the chunk (the
+tile's coords less the first tile's, times the tile shape); an edge tile is smaller than the
+tile shape; the chunk's other pixels are 0.
 
 The main table (the descriptors) is in the mirror ([§6.1](#61-elements)) and
 is not an array; the columns are in the root's table of HDUs
@@ -202,19 +280,37 @@ absent), the **heap** of variable-length arrays, the last of the `PCOUNT`
 supplemental bytes. An ASCII table is rows of text and has no heap. A
 column is a strided read, and a Zarr v3 struct data type cannot record
 big-endian fields, so this version keeps a table as bytes that any FITS
-table reader decodes:
+table reader decodes: the arrays `<i>/rows` and `<i>/heap`, and the column definitions in
+the group's source metadata ([§5.2](#52-an-hdus-node)).
 
-- **`<i>/rows`:** `uint8`, shape `[NAXIS2, NAXIS1]`, dimension names
-  `["row", "byte"]`, contiguous values cut with the limit `2^20` (whole
-  rows), codecs `[{"name": "bytes"}]`, fill value 0; absent when `NAXIS1 ×
-  NAXIS2` is 0;
-- **`<i>/heap`:** `uint8`, shape `[H]`, dimension names `["byte"]`, where
-  `H = PCOUNT − (THEAP − NAXIS1 × NAXIS2)` is the heap's length, present when
-  `H ≥ 1`, cut as bytes (chunks of at most `2^24` bytes,
-  [conventions §7](../conventions.md#7-source-values-as-arrays)), the last
-  chunk padded with zero bytes;
-- the column definitions in the group's source metadata
-  ([§5.2](#52-an-hdus-node)).
+<a id="type-fitsrowsarray"></a>**`FitsRowsArray`**, `<i>/rows/zarr.json`, absent when
+`NAXIS1 × NAXIS2` is 0: an [`ArrayDocument`](../conventions.md#type-arraydocument) with these
+members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `[NAXIS2, NAXIS1]` |
+| `data_type` | string | required | `"uint8"` |
+| `chunk_grid` | object | required | regular: contiguous values ([conventions §7](../conventions.md#7-source-values-as-arrays)) cut with the limit `2^20` (whole rows) |
+| `fill_value` | number | required | 0 |
+| `codecs` | array of object | required | `[{"name": "bytes"}]` |
+| `dimension_names` | array of string | required | `["row", "byte"]` |
+| `attributes` | object | required | `{}` ([§1](#1-declaration)) |
+
+<a id="type-fitsheaparray"></a>**`FitsHeapArray`**, `<i>/heap/zarr.json`, present when
+`H ≥ 1`, where `H = PCOUNT − (THEAP − NAXIS1 × NAXIS2)` is the heap's length: an
+[`ArrayDocument`](../conventions.md#type-arraydocument) of the form
+[bytes](../conventions.md#type-bytes), with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `shape` | array of integer | required | `[H]` |
+| `data_type` | string | required | `"uint8"` |
+| `chunk_grid` | object | required | regular: cut as bytes (chunks of at most `2^24` bytes, [conventions §7](../conventions.md#7-source-values-as-arrays)), the last chunk padded with zero bytes |
+| `fill_value` | number | required | 0 |
+| `codecs` | array of object | required | `[{"name": "bytes"}]` |
+| `dimension_names` | array of string | required | `["byte"]` |
+| `attributes` | object | required | `{}` ([§1](#1-declaration)) |
 
 The bytes between the rows and the heap, when `THEAP` leaves any, are in the
 mirror ([§6.1](#61-elements)), not in an array.
@@ -223,60 +319,118 @@ mirror ([§6.1](#61-elements)), not in an array.
 
 ### 5.1 The root
 
-The root's source metadata `fits` is an object with the members `hdus` and
-`cards`, in that order:
+<a id="type-fitsroot"></a>**`FitsRoot`**, the root's source metadata `fits`, with its
+members in this order:
 
-- `hdus`: an array with one object per HDU, in file order, each with, in
-  this order: `index` (the HDU's number), `type` (`"primary"`, `"image"`,
-  `"table"` or `"bintable"`, the primary or the `XTENSION` value in lower
-  case), `kind` (`"empty"`, `"image"` or `"table"`, [§2](#2-hdus-and-nodes)),
-  `name` (`EXTNAME`'s string, trailing spaces trimmed, or `null`), `version`
-  (`EXTVER`'s integer, or `null`), `bitpix`, `naxis` (`[NAXIS1, …, NAXISn]`,
-  in FITS order), `pcount` and `gcount` (0 and 1 for the primary), `offset`
-  (the HDU's first byte), `header_bytes` (its header's blocks), `data_offset`
-  and `data_bytes` (`D` of [§9.3](#93-checks)), and `compression`: `null`,
-  or for a tile-compressed image ([§3.3](#33-tile-compressed-images)) the
-  object `{"type", "parameters", "zbitpix", "tile", "quantize",
-  "dither_seed", "zblank", "tiles"}` (the codec's values, `tile` in the
-  array's order, `zblank` the header's or `null`, `tiles` the tile count);
-- `cards`: the primary header's cards ([§5.3](#53-cards)).
+| member | type | presence | value |
+|---|---|---|---|
+| `hdus` | array of [`FitsHdu`](#type-fitshdu) | required | one object per HDU, in file order |
+| `cards` | [`FitsCards`](#type-fitscards) | required | the primary header's cards ([§5.3](#53-cards)) |
+
+<a id="type-fitshdu"></a>**`FitsHdu`**, an HDU's row of the root's table, with its members in
+this order:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `index` | integer | required | the HDU's number |
+| `type` | string | required | `"primary"`, `"image"`, `"table"` or `"bintable"`: the primary, or the `XTENSION` value in lower case |
+| `kind` | string | required | `"empty"`, `"image"` or `"table"` ([§2](#2-hdus-and-nodes)) |
+| `name` | string or null | required | `EXTNAME`'s string, trailing spaces trimmed, or `null` |
+| `version` | integer or null | required | `EXTVER`'s integer, or `null` |
+| `bitpix` | integer | required | `BITPIX` |
+| `naxis` | array of integer | required | `[NAXIS1, …, NAXISn]`, in FITS order |
+| `pcount` | integer | required | `PCOUNT` (0 for the primary) |
+| `gcount` | integer | required | `GCOUNT` (1 for the primary) |
+| `offset` | integer | required | the HDU's first byte |
+| `header_bytes` | integer | required | its header's blocks, in bytes |
+| `data_offset` | integer | required | `data_offset` of [§9.3](#93-checks) |
+| `data_bytes` | integer | required | `D` of [§9.3](#93-checks) |
+| `compression` | [`FitsCompression`](#type-fitscompression) or null | required | `null`, or for a tile-compressed image ([§3.3](#33-tile-compressed-images)) its compression |
+
+<a id="type-fitscompression"></a>**`FitsCompression`**, a tile-compressed image's
+compression: the codec's values ([`FitsTilesConfiguration`](#type-fitstilesconfiguration)),
+with its members in this order:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `type` | string | required | the codec's `compression` |
+| `parameters` | [`FitsTileParameters`](#type-fitstileparameters) | required | the codec's `parameters` |
+| `zbitpix` | integer | required | the codec's `zbitpix` |
+| `tile` | array of integer | required | the codec's `tile_shape`, in the array's order |
+| `quantize` | string | required | the codec's `quantize` |
+| `dither_seed` | integer | required | the codec's `dither_seed` |
+| `zblank` | integer or null | required | the header's `ZBLANK`, or `null` |
+| `tiles` | integer | required | the tile count |
 
 ### 5.2 An HDU's node
 
 Each HDU's node (the array of an image, the group of a table or of an empty
-HDU) has the source metadata `fits` with, in this order: `index`, `cards`
-([§5.3](#53-cards)), then for an image `bscale`, `bzero`, `blank` (each the
-card's number, or `null` when absent or not a number) and `bunit` (the
-card's string, or `null`); for a table `columns`, an array with one object
-per column `n` of `1 … TFIELDS`: `name` (`TTYPEn`), `form` (`TFORMn`, trailing
-spaces trimmed), `unit` (`TUNITn`), `dim` (`TDIMn`), `scale` (`TSCALn`), `zero`
-(`TZEROn`), `null` (`TNULLn`), `disp` (`TDISPn`) and `bcol` (`TBCOLn`), each
-the card's string or number, or `null` when absent.
+HDU) has the source metadata `fits`:
+
+<a id="type-fitsnode"></a>**`FitsNode`**, an HDU's node's source metadata `fits`, with its
+members in this order:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `index` | integer | required | the HDU's number |
+| `cards` | [`FitsCards`](#type-fitscards) | required | the HDU's header's cards ([§5.3](#53-cards)) |
+| `bscale` | number or null | optional | for an image: `BSCALE`, the card's number, or `null` when absent or not a number |
+| `bzero` | number or null | optional | for an image: `BZERO`, likewise |
+| `blank` | number or null | optional | for an image: `BLANK`, likewise |
+| `bunit` | string or null | optional | for an image: `BUNIT`, the card's string, or `null` |
+| `columns` | array of [`FitsColumn`](#type-fitscolumn) | optional | for a table: one object per column `n` of `1 … TFIELDS` |
+
+<a id="type-fitscolumn"></a>**`FitsColumn`**, column `n` of a table, each member the card's
+string or number, or `null` when absent:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `name` | string or null | required | `TTYPEn` |
+| `form` | string | required | `TFORMn`, trailing spaces trimmed |
+| `unit` | string or null | required | `TUNITn` |
+| `dim` | string or null | required | `TDIMn` |
+| `scale` | number or null | required | `TSCALn` |
+| `zero` | number or null | required | `TZEROn` |
+| `null` | number or null | required | `TNULLn` |
+| `disp` | string or null | required | `TDISPn` |
+| `bcol` | number or null | required | `TBCOLn` |
 
 ### 5.3 Cards
 
-A header's cards are an array of `[keyword, value, comment]` triples, one
-per card in header order, the `END` card not included, duplicates kept:
+<a id="type-fitscards"></a>**`FitsCards`**, a header's cards: an array of
+[`FitsCard`](#type-fitscard)s, `[keyword, value, comment]` triples, one per card in header
+order, the `END` card not included, duplicates kept; or `null` (**Budget**, below).
 
-- `keyword`: bytes 0–7 of the card as text, trailing spaces trimmed; for an
-  ESO `HIERARCH` card (keyword `HIERARCH` without a value indicator at bytes
-  8–9), the text between `HIERARCH ` and the `=`, trimmed, as written
-  (`"ESO INS OPTI-3 ID"`);
-- `value`: for a card with a value indicator (`= ` at bytes 8–9), its value
-  field (bytes 10–79) read as the standard says: a string in single quotes,
-  with doubled quotes undoubled and trailing spaces trimmed, as a JSON
-  string; `T` or `F` as `true` or `false`; an integer (an optional sign and
-  digits) exactly, as a JSON number up to 2^53 − 1 in magnitude and as a
-  string of its digits past that; a real as its binary64 value (a `D`
-  exponent read as `E`); a complex `(r, i)` as `[r, i]`; nothing as `null`;
-  any other value text as `{"text": t}`. A string ending in `&` followed by
-  `CONTINUE` cards (bytes 8–9 spaces, a string value) is one card whose
-  string is the pieces joined without their `&`, the comments of the pieces
-  joined with a space; an orphan `CONTINUE`, `COMMENT`, `HISTORY` and blank
-  cards, and any card without a value indicator, have the value `null`;
-- `comment`: the text after the `/` that follows the value, trimmed, or
-  `null` when there is none; for a card without a value indicator, bytes
-  8–79 trimmed (a `COMMENT` or `HISTORY` card's text).
+<a id="type-fitscard"></a>**`FitsCard`**, a card: an array of three items, in this order:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `keyword` (item 0) | string | required | bytes 0–7 of the card as text, trailing spaces trimmed; for an ESO `HIERARCH` card (keyword `HIERARCH` without a value indicator at bytes 8–9), the text between `HIERARCH ` and the `=`, trimmed, as written (`"ESO INS OPTI-3 ID"`) |
+| `value` (item 1) | string, boolean, number, array of number, [`FitsValueText`](#type-fitsvaluetext) or null | required | for a card with a value indicator (`= ` at bytes 8–9), its value field (bytes 10–79) read as the standard says (the table below); `null` for an orphan `CONTINUE`, a `COMMENT`, `HISTORY` or blank card, and any card without a value indicator (below) |
+| `comment` (item 2) | string or null | required | the text after the `/` that follows the value, trimmed, or `null` when there is none; for a card without a value indicator, bytes 8–79 trimmed (a `COMMENT` or `HISTORY` card's text) |
+
+A value field's JSON value:
+
+| value field | JSON value |
+|---|---|
+| a string in single quotes | a JSON string, with doubled quotes undoubled and trailing spaces trimmed |
+| `T` or `F` | `true` or `false` |
+| an integer (an optional sign and digits) | exactly: a JSON number up to 2^53 − 1 in magnitude, and a string of its digits past that |
+| a real | its binary64 value (a `D` exponent read as `E`); `{"text": t}` when that value is not finite (it overflows binary64) |
+| a complex `(r, i)` | `[r, i]` |
+| nothing | `null` |
+| any other value text `t` | `{"text": t}`, a [`FitsValueText`](#type-fitsvaluetext) |
+
+A string ending in `&` followed by `CONTINUE` cards (bytes 8–9 spaces, a string value) is one
+card whose string is the pieces joined without their `&`, the comments of the pieces joined
+with a space; an orphan `CONTINUE`, `COMMENT`, `HISTORY` and blank cards, and any card without
+a value indicator, have the value `null`.
+
+<a id="type-fitsvaluetext"></a>**`FitsValueText`**, a value the standard does not define:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `text` | string | required | `t`, the value text |
 
 **Budget.** `cards` is the array when its JSON text is at most 65536 bytes,
 and `null` otherwise (a header of several hundred cards); the header's
@@ -472,13 +626,45 @@ the last chunk's padding a range of the zero data source too. The zero data
 source holds as many zero bytes as the most padding any reference of the
 output holds, over all its arrays.
 
+<a id="type-fitschunk"></a>**`FitsChunk`**, the chunk of `V` (an image's data, or a table's
+rows) that starts `o` bytes into it and holds `m` of its bytes, padded with `p` zero bytes
+([conventions §7](../conventions.md#7-source-values-as-arrays) gives `o`, `m` and `p`; `p` is
+0 but for an edge chunk along the cut axis):
+
+| part | range | presence | value |
+|---|---|---|---|
+| the values | source range `(0, data_offset + o, m)` | required | the chunk's bytes in the file |
+| the padding | source range `(1, 0, p)` | optional | when `p > 0`: the first `p` bytes of the zero data source |
+
+Where [conventions §7](../conventions.md#7-source-values-as-arrays) copies the chunk, it is
+instead `bytes`: the `m` bytes and the `p` zero bytes.
+
+<a id="type-fitsheapchunk"></a>**`FitsHeapChunk`**, the chunk `k` of a table's heap, cut as
+bytes: with `c` the heap's chunk size, `h` the heap's first byte (`data_offset + THEAP`) and
+`m = min(c, H − k × c)` the chunk's bytes of the heap:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the heap's bytes | source range `(0, h + k × c, m)` | required | the chunk's bytes in the file |
+| the padding | source range `(1, 0, c − m)` | optional | for the last chunk, when `m < c`: the first `c − m` bytes of the zero data source |
+
 A tile-compressed image's chunk ([the convention §3.3](#33-tile-compressed-images))
 is referenced as its prefix, a literal range, followed by its tiles'
 streams: one range of source 0 from the first present tile's start to the
 last's end when every present tile starts where the one before it ends
 (as `fpack` and astropy write them), else one range per present tile, in
-storage order. The prefix is built from the main table's rows. The ranges
-lie within the file (by the data size check). The output's source table
+storage order. The prefix is built from the main table's rows.
+
+<a id="type-fitstiledchunk"></a>**`FitsTiledChunk`**, a chunk of a tile-compressed image with
+at least one present tile:
+
+| part | range | presence | value |
+|---|---|---|---|
+| the prefix | a literal range | required | the chunk's [`FitsTilesPrefix`](#type-fitstilesprefix) |
+| the streams | source range `(0, s, e − s)` | optional | when every present tile starts where the one before it ends: `s` the first present tile's start, `e` the last's end |
+| a stream | source range `(0, o_t, n_t)` | optional | otherwise, one per present tile `t`, in storage order: `o_t` its stream's start in the file, `n_t` its length |
+
+The ranges lie within the file (by the data size check). The output's source table
 is source 0, followed by the zero data source when a reference is padded;
 it has no other data source. `refkv_source` is the IR
 mirror ([the convention §6](#6-the-ir-mirror)). The archive has no other
@@ -488,7 +674,13 @@ the mirror's.
 ### 9.5 Summary
 
 This section is informative. Both implementations print a one-line JSON
-summary: `hdus` (the count), `kinds` (the count of each kind), `arrays`
-(each array's `path`, `shape`, `dataType` and `chunkShape`), `chunks` (the
-arrays' chunks in all), `cards` (the headers' cards in all) and `tables`
-(the table HDUs).
+summary, with these members:
+
+| member | value |
+|---|---|
+| `hdus` | the count of HDUs |
+| `kinds` | the count of each kind |
+| `arrays` | each array's `path`, `shape`, `dataType` and `chunkShape`, and a tile-compressed image's `compression` (the codec's) |
+| `chunks` | the arrays' chunks in all |
+| `cards` | the headers' cards in all |
+| `tables` | the table HDUs |
