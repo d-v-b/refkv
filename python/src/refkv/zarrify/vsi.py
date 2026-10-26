@@ -1,9 +1,11 @@
-"""The host's side of a VSI input (spec/zarrify/vsi.md §9.2
-<https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>): the `.vsi`
-file named by the input, and the tile files beside it, which the Rust core's `vsi` store
-format asks for by key (`refkv.ir.store.drive_store`'s probes) rather than from a listing,
-since a plain web server cannot list a directory. The files are the objects of a store whose
-URL is the `.vsi` file's directory, each read through a transport of its own
+"""The host's side of an input read with the files beside it: a VSI input (spec/zarrify/vsi.md
+§9.2 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/vsi.md#92-the-tile-files>), the
+`.vsi` file named by the input and the tile files beside it, and a NRRD input
+(spec/zarrify/nrrd.md §8.3 <https://github.com/d-v-b/refkv/blob/main/spec/zarrify/nrrd.md#83-the-data-file>),
+the header file named by the input and a detached header's data file. The Rust core's `vsi` and
+`nrrd` store formats ask for those files by key (`refkv.ir.store.drive_store`'s probes) rather
+than from a listing, since a plain web server cannot list a directory. The files are the objects
+of a store whose URL is the named file's directory, each read through a transport of its own
 (`refkv.ir.planner`: a mapped local file, or an http(s) object under the reader policy); a
 probe opens the file, and an object that does not exist (a local file that is missing, an
 HTTP 404) is absent.
@@ -24,40 +26,42 @@ from refkv.zarrify.common import Rejected
 from refkv.zarrify.store import Store, check_store_url, object_url
 
 
-def split_input(location: str) -> tuple[str, str]:
-    """(the directory, the `.vsi` file's key) of a VSI input: for an http(s) URL the directory
-    is the URL up to its last `/` and the key the last segment, percent-decoded; for a local
-    path, its directory (empty for a bare name) and its name."""
+def split_input(location: str, title: str = "VSI") -> tuple[str, str]:
+    """(the directory, the named file's key) of an input of the format `title` (VSI, NRRD): for
+    an http(s) URL the directory is the URL up to its last `/` and the key the last segment,
+    percent-decoded; for a local path, its directory (empty for a bare name) and its name."""
     if location.startswith(("http://", "https://")):
         base = location.split("?", 1)[0].split("#", 1)[0]
         if "?" in location or "#" in location:
-            raise Rejected(f"VSI input {location!r} has a query or a fragment")
+            raise Rejected(f"{title} input {location!r} has a query or a fragment")
         d, _, name = base.rpartition("/")
         key = unquote(name)
         if not key or "/" in key:
-            raise Rejected(f"VSI input {location!r} names no file")
+            raise Rejected(f"{title} input {location!r} names no file")
         return d + "/", key
     return os.path.split(location)
 
 
 class VsiFiles(Store):
-    """The files of a VSI input, as a store (§1.4
+    """The files of a VSI or NRRD input, as a store (§1.4
     <https://github.com/d-v-b/refkv/blob/main/spec/zarrify.md#14-store-inputs>) the run probes:
-    `objects` holds the `.vsi` file, then every tile file found. `url` is the directory's URL,
-    the store URL the output's object URLs are made from (`object_url`): the directory of the
-    input URL, or, for a local path, `url` as given (the URL the directory will be served
-    from, ending in `/`), else the path's URI reference."""
+    `objects` holds the named file (the `.vsi` file, a NRRD header file), then every file found
+    beside it. `url` is the directory's URL, the store URL the output's object URLs are made from
+    (`object_url`): the directory of the input URL, or, for a local path, `url` as given (the URL
+    the directory will be served from, ending in `/`), else the path's URI reference. `title`
+    names the format in a rejection, and `noun` the named file."""
 
     def __init__(self, location: str, url: str | None = None, *, policy: Policy | None = None,
-                 workers: int | None = None, transport: Transport | None = None) -> None:
+                 workers: int | None = None, transport: Transport | None = None, title: str = "VSI",
+                 noun: str = ".vsi file") -> None:
         self.remote = location.startswith(("http://", "https://"))
-        self.location, self.key = split_input(location)
+        self.location, self.key = split_input(location, title)
         if url is not None:
-            # the URL the .vsi file is named by (--url): the store URL is its directory's
-            d, name = split_input(url)
+            # the URL the named file is named by (--url): the store URL is its directory's
+            d, name = split_input(url, title)
             check_store_url(d)
             if name != self.key:
-                raise Rejected(f"--url {url!r} does not name the .vsi file {self.key!r}")
+                raise Rejected(f"--url {url!r} does not name the {noun} {self.key!r}")
             self.url = d
         elif self.remote:
             self.url = self.location
@@ -106,7 +110,7 @@ class VsiFiles(Store):
         with self._lock:
             self.transports[key] = t
             self.objects[key] = t.size
-            self.requests += 1  # an object opened beyond the .vsi file (the summary's listingRequests)
+            self.requests += 1  # an object opened beyond the named file (the summary's listingRequests)
         return t.size
 
     @override

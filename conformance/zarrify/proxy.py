@@ -207,8 +207,8 @@ def make_handler(fixtures: Path, upstream: Upstream, page_size: int = 100):
                         return None
                     url += key
                 elif key and key != url.split("?")[0].rsplit("/", 1)[-1]:
-                    # a file beside the remote file (a VSI slide's tile files, probed by the
-                    # zarrifiers at the slide's directory)
+                    # a file beside the remote file (a VSI slide's tile files, a detached NRRD
+                    # header's data file, probed by the zarrifiers at the file's directory)
                     url = url.rsplit("/", 1)[0] + "/" + key
                 return upstream.size(url), lambda a, b: upstream.read(url, a, b)
             return None

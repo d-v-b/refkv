@@ -1,0 +1,17 @@
+{
+  "name": "nrrd",
+  "title": "NRRD",
+  "uuid": "23e0c600-8da6-40f1-81e7-ab246e948e88",
+  "version": 0,
+  "kind": "file",
+  "sniff": 95,
+  "chosen_by": null,
+  "suffixes": [
+    ".nhdr",
+    ".nrrd"
+  ],
+  "reference": null,
+  "source": "NRRD (Teem)",
+  "inputs": "NRRD files (`.nrrd`) and detached headers with one data file (`.nhdr`), raw or gzip-encoded",
+  "for": "NRRD volumes, attached or detached, raw or gzip (`.nrrd`, `.nhdr`)"
+}

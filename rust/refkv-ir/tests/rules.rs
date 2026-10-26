@@ -159,3 +159,18 @@ fn the_n5_schema_is_valid() {
     let n = refkv_ir::n5::schema();
     assert!(n.has_role("candidate") && n.has_role("document") && n.has_role("dataset"));
 }
+
+/// A table's `about` describes it and names no entry, in every schema (`Rules::new` reads them
+/// all): `Rules::entry` and `Rules::entries` leave it out, and so do the tables the schema's
+/// expressions see, so that a FITS `ZQUANTIZ = 'about'` or a NRRD type `about` is no entry.
+#[test]
+fn a_tables_about_is_no_entry() {
+    let r = Rules::new(r#"{"tables": {"t": {"about": "the table", "a": 1}},
+        "roles": {"r": {"given": {"k": ""}, "derive": {"v": "at(t, k)"},
+                        "constraints": [{"require": "present(v)", "message": "no entry {k}"}]}}}"#).unwrap();
+    assert_eq!(r.entry("t", "a"), Some(&serde_json::json!(1)));
+    assert_eq!(r.entry("t", "about"), None);
+    assert_eq!(r.entries("t").map(|e| e.0.as_str()).collect::<Vec<_>>(), ["a"]);
+    assert_eq!(r.check("r", rules::env([("k", rules::text("a"))])), Ok(()));
+    assert_eq!(r.check("r", rules::env([("k", rules::text("about"))])), Err("no entry about".to_string()));
+}

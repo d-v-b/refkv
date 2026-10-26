@@ -1,0 +1,8 @@
+NRRD0004
+type: uchar
+dimension: 2
+sizes: 3 2
+encoding: ascii
+
+1 2 3
+4 5 6
