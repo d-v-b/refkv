@@ -8,7 +8,9 @@ refkv produces this layout as a reference store from a listed store is the
 OME-Zarr profile, [Part 2](#part-2-the-profile) below.
 
 Convention version: 0 (until release, [conventions §1](../conventions.md#1-conventions)) · UUID: `b74ea302-65bb-49ae-b81f-f9bb52cd4eed` ·
-Schema: [schema.json](ome-zarr/schema.json)
+Schema: [schema.json](ome-zarr/schema.json) · Changed 2026-10-26, with no change to any
+output: the layout is tabulated, its entries in [Layout](#layout) and its types in type
+tables ([conventions §11.5](../conventions.md#115-layout-tables))
 
 This document has two parts ([conventions §11.1](../conventions.md#111-parts)).
 
@@ -44,6 +46,38 @@ whose keys are exactly Zarr v2's for either separator, and its `transpose`,
 `bytes`, `zlib`, `gzip`, `zstd` and `blosc` codecs decode every chunk that
 [the Zarr v2 convention §3](zarr2.md#3-arrays) accepts.
 
+## Layout
+
+The hierarchy's entries ([conventions §11.5](../conventions.md#115-layout-tables)), those of
+the [Zarr v2 convention's layout](zarr2.md#layout) with this convention's types:
+
+| prefix | type | structure | description |
+|---|---|---|---|
+| `zarr.json` | group | [`OmeZarrGroup`](#type-omezarrgroup) | the root, when the store's root is a group ([§2](#2-hierarchy)) |
+| `zarr.json` | array | [`OmeZarrArray`](#type-omezarrarray) | the root, when the store's root is an array ([§6](#6-arrays)) |
+| `zarr.json#/attributes/ome` | attribute | [`OmeZarrOme`](#type-omezarrome) | when the root is an OME group ([§5](#5-group-attributes)) |
+| `zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | `[C]`, `C` the CMO of [§1](#1-declaration) |
+| `zarr.json#/attributes/refkv_zarrified` | attribute | [`RootProperty`](../conventions.md#type-rootproperty) | `profile` `"ome-zarr"`, `version` `0`, `source.url` the store's URL, ending in `/` |
+| `zarr.json#/attributes/refkv_zarrified/ome-zarr` | attribute | [`OmeZarrNode`](#type-omezarrnode) | the root's source metadata ([§8.1](#81-nodes)), when it has any |
+| `<path>/zarr.json` | group | [`OmeZarrGroup`](#type-omezarrgroup) | every other group, implicit or explicit, OME group or not ([§2](#2-hierarchy)) |
+| `<path>/zarr.json` | array | [`OmeZarrArray`](#type-omezarrarray) | every other array ([§6](#6-arrays)) |
+| `<path>/zarr.json#/attributes/ome` | attribute | [`OmeZarrOme`](#type-omezarrome) | every other OME group's ([§5](#5-group-attributes)) |
+| `<path>/zarr.json#/attributes/zarr_conventions` | attribute | array of [`ConventionMetadata`](../conventions.md#type-conventionmetadata) | `[C]`, `C` the CMO of [§1](#1-declaration), on a node that has source metadata |
+| `<path>/zarr.json#/attributes/refkv_zarrified` | attribute | [`NodeProperty`](../conventions.md#type-nodeproperty) | `{"ome-zarr": S}`, on a node that has source metadata ([§1](#1-declaration)) |
+| `<path>/zarr.json#/attributes/refkv_zarrified/ome-zarr` | attribute | [`OmeZarrNode`](#type-omezarrnode) | `S`, the node's source metadata ([§8.1](#81-nodes)) |
+| `<chunk>` | chunk | [`Zarr2Object`](zarr2.md#type-zarr2object) | each present chunk of the root, when it is an array ([§7](#7-chunks-and-ome-xml)) |
+| `<path>/<chunk>` | chunk | [`Zarr2Object`](zarr2.md#type-zarr2object) | each present chunk of the array at `<path>` ([§7](#7-chunks-and-ome-xml)) |
+| `OME/METADATA.ome.xml` | object | [`Zarr2Object`](zarr2.md#type-zarr2object) | the OME-XML of a collection at the root, at its own key, when the store has it and its size is not 0 ([§7](#7-chunks-and-ome-xml)) |
+| `<path>/OME/METADATA.ome.xml` | object | [`Zarr2Object`](zarr2.md#type-zarr2object) | the OME-XML of the collection at `<path>`, likewise ([§7](#7-chunks-and-ome-xml)) |
+| `refkv_source/**` | subtree | [the mirror's entries](../conventions.md#table-mirror) | the store's IR mirror ([§8.2](#82-the-store-ir)), a store IR's, with `ir/held`: every entry under `refkv_source/` but those under `refkv_source/objects/`. Under a root array, plain keys of the archive |
+| `refkv_source/zarr.json#/attributes/refkv_zarrified/ome-zarr` | attribute | [`Zarr2Mirror`](zarr2.md#type-zarr2mirror) | `refkv_source`'s source metadata ([§8.2](#82-the-store-ir)) |
+| `refkv_source/objects/<k>` | object | [`Zarr2Object`](zarr2.md#type-zarr2object) | each other object, kept whole ([the Zarr v2 convention §5](zarr2.md#5-other-objects)), OME-XML elsewhere than [§7](#7-chunks-and-ome-xml)'s included |
+
+| placeholder | value |
+|---|---|
+| `<path>` | a node's path, the path of a directory of the store ([the Zarr v2 convention §2](zarr2.md#2-nodes)); it stands for one or more segments |
+| `<chunk>` | a chunk key of the array ([the Zarr v2 convention §3.2](zarr2.md#32-chunks)): `0` for an array of no dimensions; otherwise its `n` indexes, in decimal, joined by its separator `s`, so one segment when `s` is `"."` and `n` segments when it is `"/"` |
+| `<k>` | the other object's key, its last segment escaped ([the Zarr v2 convention §5](zarr2.md#5-other-objects)); it stands for one or more segments |
 
 ## 1. Declaration
 
@@ -116,12 +150,14 @@ OME-NGFF 0.5 requires one version in a hierarchy).
 
 The groups are:
 
-- **images** (`multiscales`);
-- **labels groups** (`labels`), and **label images**: the images that a
-  labels group lists, and the groups with `image-label`;
-- **plates** (`plate`) and **wells** (`well`); the **fields** of a well are
-  the images its `images` list;
-- **collections** (`bioformats2raw.layout`).
+| group | what it is |
+|---|---|
+| **image** | a group with `multiscales` |
+| **labels group** | a group with `labels` |
+| **label image** | an image that a labels group lists, or a group with `image-label` |
+| **plate** | a group with `plate` |
+| **well** | a group with `well`; the **fields** of a well are the images its `images` list |
+| **collection** | a group with `bioformats2raw.layout` |
 
 A group may be several of these at once (a bioformats2raw collection is
 often a plate too); each applies.
@@ -271,55 +307,54 @@ when it has any. `ome` is:
 ```
 
 which has, for each OME member `k` of `A`, the member `k` with `A`'s value
-changed only as follows:
+changed only as its type says:
 
-- `multiscales`: each multiscale without its member `version` (0.5 has no
-  per-multiscale version; the hierarchy's version is `ome.version`), and,
-  for a multiscale of a label image that has dropped datasets (L7), with
-  `datasets` its first `N` elements, each unchanged (path and
-  `coordinateTransformations` as written). Nothing else of the multiscale
-  changes: its axes and its own `coordinateTransformations` apply to the
-  kept levels as before;
-- `omero`, `image-label`, `plate` and `well`: the object without its member
-  `version`, if it has one (0.5 dropped these: its examples, and its JSON
-  schemas, have none);
-- `labels`, `bioformats2raw.layout` and `series`: unchanged.
+<a id="type-omezarrome"></a>**`OmeZarrOme`**, an OME group's `ome`, its members in this order:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `version` | string | required | `"0.5"` |
+| `multiscales` | array of object | optional | when `A` has it: each multiscale without its member `version` (0.5 has no per-multiscale version; the hierarchy's version is `ome.version`), and, for a multiscale of a label image that has dropped datasets (L7), with `datasets` its first `N` elements, each unchanged (path and `coordinateTransformations` as written). Nothing else of the multiscale changes: its axes and its own `coordinateTransformations` apply to the kept levels as before |
+| `omero` | object | optional | when `A` has it: the object without its member `version`, if it has one |
+| `labels` | array of string | optional | when `A` has it: unchanged |
+| `image-label` | object | optional | when `A` has it: the object without its member `version`, if it has one |
+| `plate` | object | optional | when `A` has it: the object without its member `version`, if it has one |
+| `well` | object | optional | when `A` has it: the object without its member `version`, if it has one |
+| `bioformats2raw.layout` | integer | optional | when `A` has it: unchanged (3) |
+| `series` | array of string | optional | when `A` has it, on a collection's `OME` group ([§3](#3-ome-groups)): unchanged |
+
+0.5 dropped the `version` of `omero`, `image-label`, `plate` and `well`: its examples, and its
+JSON schemas, have none.
 
 **The inverse.** The 0.4 value that `ome` gives back for each of its
 members `k` but `version` is, when `k` is not **unversioned** (listed in
 the group's source metadata `U`, [§8](#8-source-metadata)):
 
-- `multiscales`: each multiscale with the member `"version": "0.4"` added
-  (0.4 asks each multiscale for one, as a SHOULD);
-- `omero`, `image-label`, `plate` and `well`: the object with the member
-  `"version": "0.4"` added (0.4 asks `image-label`, `plate` and `well` for
-  one, as a SHOULD, and its `omero` example has one);
-- `labels`, `bioformats2raw.layout` and `series`: the value (0.4 gives
-  these no version).
+| `k` | the value given back |
+|---|---|
+| `multiscales` | each multiscale with the member `"version": "0.4"` added (0.4 asks each multiscale for one, as a SHOULD) |
+| `omero`, `image-label`, `plate` and `well` | the object with the member `"version": "0.4"` added (0.4 asks `image-label`, `plate` and `well` for one, as a SHOULD, and its `omero` example has one) |
+| `labels`, `bioformats2raw.layout` and `series` | the value (0.4 gives these no version) |
 
 and, when `k` is unversioned, the value of `ome`'s member unchanged (each
 multiscale, or the object, without a `version`).
 
 A member `k` of `A` is unversioned when it is:
 
-- `multiscales`, no multiscale has the member `version`, and none of them
-  has dropped datasets (L7);
-- `omero`, `image-label`, `plate` or `well`, and the object has no member
-  `version`.
+| `k` | unversioned when |
+|---|---|
+| `multiscales` | no multiscale has the member `version`, and none of them has dropped datasets (L7) |
+| `omero`, `image-label`, `plate` or `well` | the object has no member `version` |
 
 An OME member of `A` is **given back** when the inverse of its member of
 `ome` equals it, as a JSON value. As `ome` differs from `A` only by the
 `version` members and the dropped datasets, this is so exactly when:
 
-- `multiscales`: none of the multiscales has dropped datasets (L7), and
-  either every multiscale has the member `version` and it is the string
-  `"0.4"`, or none has the member `version` (it is unversioned);
-- `omero`, `image-label`, `plate` and `well`: the object has the member
-  `version` and it is the string `"0.4"`, or it has no member `version`
-  (it is unversioned) (for `image-label`, `plate` and `well`, [§4](#4-validation) allows
-  only `"0.4"` or no version; for `omero`, which [§4](#4-validation) does not check, any
-  other value is not given back);
-- `labels`, `bioformats2raw.layout` and `series`: always.
+| `k` | given back when |
+|---|---|
+| `multiscales` | none of the multiscales has dropped datasets (L7), and either every multiscale has the member `version` and it is the string `"0.4"`, or none has the member `version` (it is unversioned) |
+| `omero`, `image-label`, `plate` and `well` | the object has the member `version` and it is the string `"0.4"`, or it has no member `version` (it is unversioned) (for `image-label`, `plate` and `well`, [§4](#4-validation) allows only `"0.4"` or no version; for `omero`, which [§4](#4-validation) does not check, any other value is not given back) |
+| `labels`, `bioformats2raw.layout` and `series` | always |
 
 A member that is not given back (one with another `omero` version,
 `multiscales` of which only some have a `version`, or `multiscales` with
@@ -330,6 +365,15 @@ so is every member of `A` that is not an OME member (for example
 inverse of each member of `ome`, with the members of the kept attributes
 set over them. A group that is not an OME group keeps its whole `.zattrs`,
 as in the [Zarr v2 convention](zarr2.md#4-source-metadata).
+
+<a id="type-omezarrgroup"></a>**`OmeZarrGroup`**, a group's `zarr.json`: a
+[`Zarr2Group`](zarr2.md#type-zarr2group) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `zarr_format` | integer | required | `3` |
+| `node_type` | string | required | `"group"` |
+| `attributes` | object | required | for an OME group, the member `ome`, an [`OmeZarrOme`](#type-omezarrome), first; then, on the root and on a group that has source metadata ([§8](#8-source-metadata)), the members of a [`Declaration`](../conventions.md#type-declaration) of this convention ([§1](#1-declaration)); `{}` for a group that is neither |
 
 ## 6. Arrays
 
@@ -344,6 +388,14 @@ multiscale of which it is a level gives the same names. No other array gets
 the hierarchy as plain arrays, converted by [the Zarr v2 convention](zarr2.md) alone (nothing in 0.5 makes
 an array that is not a level carry dimension names). The array's attributes are
 its source metadata ([§8](#8-source-metadata)).
+
+<a id="type-omezarrarray"></a>**`OmeZarrArray`**, an array's `zarr.json`: a
+[`Zarr2Array`](zarr2.md#type-zarr2array) with these members:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `dimension_names` | array of string | optional | present only for a level of a multiscale: that multiscale's axis names, in order; after `codecs` |
+| `attributes` | object | required | the members of a [`Declaration`](../conventions.md#type-declaration) of this convention ([§1](#1-declaration)), with the array's source metadata ([§8](#8-source-metadata)), when it has any (and on the root, which always declares the convention); otherwise `{}` |
 
 ## 7. Chunks and OME-XML
 
@@ -387,13 +439,22 @@ an OME group whose `.zattrs` has only OME members of version `"0.4"` (a
 typical image or well), and whose `.zgroup` has only `zarr_format`, has
 none, and does not declare the convention unless it is the root.
 
+<a id="type-omezarrnode"></a>**`OmeZarrNode`**, a node's `S`:
+
+| member | type | presence | value |
+|---|---|---|---|
+| `attributes` | object | optional | `A`, present when not empty: for an OME group, the members of its `.zattrs` that [§5](#5-group-attributes) does not give back, as written; for every other node, its whole `.zattrs`, as the Zarr v2 convention's [`Zarr2Node`](zarr2.md#type-zarr2node) has it |
+| `metadata` | [`Zarr2Metadata`](zarr2.md#type-zarr2metadata) | optional | `M`, present when not empty: the members of `.zgroup` or `.zarray` that the `zarr.json` does not reproduce, as the Zarr v2 convention's |
+| `unversioned` | array of string | optional | `U`, an OME group's, present when not empty: the names of its unversioned members ([§5](#5-group-attributes)), in the order `multiscales`, `omero`, `image-label`, `plate`, `well` |
+
 ### 8.2 The store IR
 
 `refkv_source` is the store's IR mirror, as for the Zarr v2 convention: the store's IR is
 [its §4.1](zarr2.md#41-elements)'s, element for element (the listing, each node document held
 as a value per top-level member, every other object referenced or empty), and its view
 `refkv_source/tree`. `refkv_source` declares this convention with the source metadata
-`{"ir": D, "ignored": I}` (that is, `{"ome-zarr": {"ir": D, "ignored": I}}`): `D` the mirror's description
+`{"ir": D, "ignored": I}` (that is, `{"ome-zarr": {"ir": D, "ignored": I}}`), a
+[`Zarr2Mirror`](zarr2.md#type-zarr2mirror): `D` the mirror's description
 ([conventions §8.9](../conventions.md#89-stores)), `I` the ignored keys of
 [the Zarr v2 convention §5](zarr2.md#5-other-objects) in ascending order of their UTF-8 bytes,
 present only when not empty. The OME layer adds no element: what
@@ -587,11 +648,24 @@ Every other object is as [zarr2.md §7.2](zarr2.md#72-chunks-and-other-objects) 
 ### 11.3 Summary
 
 This section is informative. Both implementations print a one-line JSON
-summary: `groups` (explicit and implicit), `arrays`, `chunks` (chunk
-entries), `emptyChunks` (chunk objects of size 0), `objects` (the store's
-objects), `images`, `labels` (label images), `droppedLabelLevels` (the
-datasets L7 drops, over all label images), `plates`, `wells`, `fields`
-(the images wells list), `omeXml` (OME-XML entries), `otherObjects` (the
-entries under `refkv_source/objects/`) and `listingRequests`, and the Rust core's counts
-([zarr2.md §7.3](zarr2.md#73-summary)).
+summary, with these members:
+
+| member | value |
+|---|---|
+| `groups` | the groups, explicit and implicit |
+| `arrays` | the arrays |
+| `chunks` | the chunk entries |
+| `emptyChunks` | the chunk objects of size 0 |
+| `objects` | the store's objects |
+| `images` | the images |
+| `labels` | the label images |
+| `droppedLabelLevels` | the datasets L7 drops, over all label images |
+| `plates` | the plates |
+| `wells` | the wells |
+| `fields` | the images wells list |
+| `omeXml` | the OME-XML entries |
+| `otherObjects` | the entries under `refkv_source/objects/` |
+| `listingRequests` | the listing's requests |
+
+and the Rust core's counts ([zarr2.md §7.3](zarr2.md#73-summary)).
 
