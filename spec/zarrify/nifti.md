@@ -567,17 +567,18 @@ check). The output's source table is source 0, followed by the zero data
 source when a reference is padded; it has no other data source.
 
 <a id="type-niftichunk"></a>**`NiftiChunk`**, the chunk of `V` that starts `o` bytes into the
-voxel data and holds `m` of its bytes, padded with `p` zero bytes
-([conventions §7](../conventions.md#7-source-values-as-arrays) gives `o`, `m` and `p`; `p` is
-0 but for an edge chunk along the cut axis):
+voxel data and holds `l` of its bytes, padded with `p` zero bytes
+(by [conventions §7](../conventions.md#7-source-values-as-arrays), for the chunk at
+`(i_0, …, i_{a−1}, q, 0, …, 0)`, `o` is the offset it gives the chunk's bytes, `l = m × s_a`
+and `p = (c − m) × s_a`, which is 0 but for an edge chunk along the cut axis):
 
 | part | range | presence | value |
 |---|---|---|---|
-| the voxels | source range `(0, v + o, m)` | required | the chunk's bytes in the file |
+| the voxels | source range `(0, v + o, l)` | required | the chunk's bytes in the file |
 | the padding | source range `(1, 0, p)` | optional | when `p > 0`: the first `p` bytes of the zero data source |
 
 Where [conventions §7](../conventions.md#7-source-values-as-arrays) copies the chunk, it is
-instead `bytes`: the `m` bytes and the `p` zero bytes.
+instead `bytes`: the `l` bytes and the `p` zero bytes.
 
 `refkv_source` is the IR mirror ([the convention §5.2](#52-the-ir-mirror)). The
 archive has no other entries than the root's and the array's `zarr.json`, the
@@ -596,7 +597,7 @@ summary, with these members:
 | `dataType` | the array's data type |
 | `color` | whether the data type is a color type |
 | `chunkShape` | the array's chunk shape, in its axis order |
-| `chunks` | the array's chunks |
+| `chunks` | the number of the array's chunks |
 | `scaling` | `{"slope": s, "inter": i}` when the scaling is nontrivial, else `null` |
 | `affine` | `"sform"`, `"qform"` or `null` |
 | `translation` | whether the image has a translation |

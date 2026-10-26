@@ -630,17 +630,18 @@ source holds as many zero bytes as the most padding any reference of the
 output holds, over all its arrays.
 
 <a id="type-fitschunk"></a>**`FitsChunk`**, the chunk of `V` (an image's data, or a table's
-rows) that starts `o` bytes into it and holds `m` of its bytes, padded with `p` zero bytes
-([conventions §7](../conventions.md#7-source-values-as-arrays) gives `o`, `m` and `p`; `p` is
-0 but for an edge chunk along the cut axis):
+rows) that starts `o` bytes into it and holds `l` of its bytes, padded with `p` zero bytes
+(by [conventions §7](../conventions.md#7-source-values-as-arrays), for the chunk at
+`(i_0, …, i_{a−1}, q, 0, …, 0)`, `o` is the offset it gives the chunk's bytes, `l = m × s_a`
+and `p = (c − m) × s_a`, which is 0 but for an edge chunk along the cut axis):
 
 | part | range | presence | value |
 |---|---|---|---|
-| the values | source range `(0, data_offset + o, m)` | required | the chunk's bytes in the file |
+| the values | source range `(0, data_offset + o, l)` | required | the chunk's bytes in the file |
 | the padding | source range `(1, 0, p)` | optional | when `p > 0`: the first `p` bytes of the zero data source |
 
 Where [conventions §7](../conventions.md#7-source-values-as-arrays) copies the chunk, it is
-instead `bytes`: the `m` bytes and the `p` zero bytes.
+instead `bytes`: the `l` bytes and the `p` zero bytes.
 
 <a id="type-fitsheapchunk"></a>**`FitsHeapChunk`**, the chunk `k` of a table's heap, cut as
 bytes: with `c` the heap's chunk size, `h` the heap's first byte (`data_offset + THEAP`) and
@@ -684,6 +685,6 @@ summary, with these members:
 | `hdus` | the count of HDUs |
 | `kinds` | the count of each kind |
 | `arrays` | each array's `path`, `shape`, `dataType` and `chunkShape`, and a tile-compressed image's `compression` (the codec's) |
-| `chunks` | the arrays' chunks in all |
+| `chunks` | the number of the arrays' chunks, in all |
 | `cards` | the headers' cards in all |
 | `tables` | the table HDUs |

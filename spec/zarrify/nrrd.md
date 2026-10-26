@@ -594,17 +594,18 @@ and references the data's file; the output copies no data, but an edge chunk bel
 - **Gzip:** the one chunk, `0/c/0/.../0`, is one range of the data's file: `(D, size − D)`.
 
 <a id="type-nrrdchunk"></a>**`NrrdChunk`**, a chunk of the raw encoding: the chunk of `V`
-that starts `o` bytes into the data and holds `m` of its bytes, padded with `p` zero bytes
-([conventions §7](../conventions.md#7-source-values-as-arrays) gives `o`, `m` and `p`; `p` is
-0 but for an edge chunk along the cut axis):
+that starts `o` bytes into the data and holds `l` of its bytes, padded with `p` zero bytes
+(by [conventions §7](../conventions.md#7-source-values-as-arrays), for the chunk at
+`(i_0, …, i_{a−1}, q, 0, …, 0)`, `o` is the offset it gives the chunk's bytes, `l = m × s_a`
+and `p = (c − m) × s_a`, which is 0 but for an edge chunk along the cut axis):
 
 | part | range | presence | value |
 |---|---|---|---|
-| the values | source range `(0, D + o, m)` | required | the chunk's bytes in the data's file |
+| the values | source range `(0, D + o, l)` | required | the chunk's bytes in the data's file |
 | the padding | source range `(1, 0, p)` | optional | when `p > 0`: the first `p` bytes of the zero data source |
 
 Where [conventions §7](../conventions.md#7-source-values-as-arrays) copies the chunk, it is
-instead `bytes`: the `m` bytes and the `p` zero bytes.
+instead `bytes`: the `l` bytes and the `p` zero bytes.
 
 <a id="type-nrrdgzipchunk"></a>**`NrrdGzipChunk`**, the gzip encoding's one chunk,
 `0/c/0/.../0`:
@@ -641,7 +642,7 @@ members:
 | `detached` | whether the data is in a data file |
 | `dataFile` | the data's file's key |
 | `chunkShape` | the array's chunk shape |
-| `chunks` | the array's chunks |
+| `chunks` | the number of the array's chunks |
 | `orientation` | whether it is applied, or `null` without space directions |
 | `translation` | whether the image has one |
 | `batches` | the read batches, the probe included |
